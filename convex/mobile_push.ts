@@ -159,12 +159,20 @@ export const sendToOwner = internalAction({
 
     for (let i = 0; i < tokens.length; i += EXPO_PUSH_BATCH_SIZE) {
       const batch = tokens.slice(i, i + EXPO_PUSH_BATCH_SIZE);
-      const messages = batch.map((entry) => ({
+      // Group together pushes of the same kind so iOS coalesces them in
+      // the Lock Screen / Notification Center, and Android stacks them on
+      // a single channel. `categoryId` opts the iOS notification into
+      // the interactive actions registered on the mobile client.
+      const threadId = args.data.kind;
+      const messages: Record<string, unknown>[] = batch.map((entry) => ({
         to: entry.expoPushToken,
         title,
         body,
-        sound: "default" as const,
+        sound: "default",
         data: args.data,
+        categoryId: threadId,
+        threadId,
+        collapseId: threadId,
       }));
 
       let response: Response;

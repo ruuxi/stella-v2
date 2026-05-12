@@ -96,6 +96,17 @@ export const devicesSchema = {
       "mobileDeviceId",
     ]),
 
+  mobile_push_tokens: defineTable({
+    ownerId: v.string(),
+    mobileDeviceId: v.string(),
+    expoPushToken: v.string(),
+    platform: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_ownerId", ["ownerId"])
+    .index("by_ownerId_and_mobileDeviceId", ["ownerId", "mobileDeviceId"])
+    .index("by_expoPushToken", ["expoPushToken"]),
+
   cloudflare_tunnels: defineTable({
     ownerId: v.string(),
     /** Desktop machine id (matches `devices.deviceId` / mobile bridge device). Omitted until claimed for older one-row-per-owner tunnel records. */

@@ -618,6 +618,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     "/api/mobile/offline-chat/stream",
     "/api/mobile/chat",
     "/api/mobile/pairing/complete",
+    "/api/mobile/push-token",
     "/api/mobile/desktop-bridge/register",
     "/api/mobile/desktop-bridge/clear",
     "/api/mobile/desktop-bridge/request",
@@ -827,10 +828,12 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
         const POLL_INTERVAL_MS = 500;
         const MAX_POLL_MS = 30_000;
+        const ownerIdForPush = owner.ownerId;
         const readable = new ReadableStream({
           async start(controller) {
             const deadline = beforeSend + MAX_POLL_MS;
             let found = false;
+            let replyText = "";
 
             while (Date.now() < deadline) {
               await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -850,6 +853,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
                     const text = (events[i].payload?.text as string) ?? "";
                     if (text) {
                       controller.enqueue(encodeSseData({ t: text }));
+                      replyText = text;
                       found = true;
                       break;
                     }
@@ -864,6 +868,23 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             }
             controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
             controller.close();
+
+            if (found && replyText) {
+              const preview = replyText.replace(/\s+/g, " ").trim().slice(0, 140);
+              try {
+                await ctx.scheduler.runAfter(0, internal.mobile_push.sendToOwner, {
+                  ownerId: ownerIdForPush,
+                  title: "Stella finished on your Mac",
+                  body: preview,
+                  data: { kind: "computer_reply" },
+                });
+              } catch (error) {
+                console.warn(
+                  "[mobile/chat] Failed to schedule completion push:",
+                  error instanceof Error ? error.message : String(error),
+                );
+              }
+            }
           },
         });
 
@@ -933,6 +954,68 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           200,
           origin,
         );
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/mobile/push-token",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const owner = await requireMobileAccountOwner(ctx, origin);
+        if ("response" in owner) {
+          return owner.response;
+        }
+
+        const rateLimit = await consumeWebhookRateLimit(ctx, {
+          scope: "mobile_push_token",
+          key: owner.ownerId,
+          limit: MOBILE_BRIDGE_RATE_LIMIT,
+          windowMs: MOBILE_BRIDGE_RATE_WINDOW_MS,
+          blockMs: MOBILE_BRIDGE_RATE_WINDOW_MS,
+        });
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        const bodyResult = await readJsonBody<{
+          token?: unknown;
+          platform?: unknown;
+          mobileDeviceId?: unknown;
+        }>(request, origin, "Invalid request body");
+        if (!bodyResult.ok) return bodyResult.response;
+        const body = bodyResult.body;
+
+        const expoPushToken =
+          typeof body.token === "string" ? body.token.trim() : "";
+        if (!expoPushToken) {
+          return errorResponse(400, "Push token required", origin);
+        }
+
+        // Prefer the explicit mobileDeviceId from the body; fall back to the
+        // device-id header so older clients still register.
+        const mobileDeviceIdFromBody = normalizeDeviceId(body.mobileDeviceId);
+        const mobileDeviceIdFromHeader = normalizeDeviceId(
+          request.headers.get("X-Stella-Mobile-Device-Id"),
+        );
+        const mobileDeviceId =
+          mobileDeviceIdFromBody || mobileDeviceIdFromHeader;
+        if (!mobileDeviceId) {
+          return errorResponse(400, "mobileDeviceId required", origin);
+        }
+
+        const platform = normalizePlatform(body.platform);
+
+        await ctx.runMutation(internal.mobile_push.upsertToken, {
+          ownerId: owner.ownerId,
+          mobileDeviceId,
+          expoPushToken,
+          ...(platform ? { platform } : {}),
+          nowMs: Date.now(),
+        });
+
+        return jsonResponse({ ok: true }, 200, origin);
       }),
     ),
   });

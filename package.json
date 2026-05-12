@@ -7,7 +7,8 @@
     "dev": "convex dev",
     "deploy": "convex deploy",
     "generate:desktop-api": "node scripts/generate-desktop-convex-api.mjs",
-    "generate:desktop-api:deployment": "convex-helpers ts-api-spec --output-file ../runtime/contracts/convex-api.ts"
+    "generate:desktop-api:deployment": "convex-helpers ts-api-spec --output-file ../stella/runtime/contracts/convex-api.ts",
+    "test": "bun test tests/"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.2",

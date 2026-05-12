@@ -4,13 +4,13 @@ import {
   processResponsesStream,
   convertResponsesMessages,
   normalizeOpenAIFunctionName,
-} from "../../../../backend/convex/runtime_ai/openai_responses_shared";
-import { AssistantMessageEventStream } from "../../../../backend/convex/runtime_ai/event_stream";
+} from "../../convex/runtime_ai/openai_responses_shared";
+import { AssistantMessageEventStream } from "../../convex/runtime_ai/event_stream";
 import type {
   AssistantMessage,
   Context,
   Model,
-} from "../../../../backend/convex/runtime_ai/types";
+} from "../../convex/runtime_ai/types";
 
 const usage = {
   input: 0,

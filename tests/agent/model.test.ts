@@ -4,9 +4,9 @@ import {
   getModelConfig,
   getModeConfig,
   listManagedModelIds,
-} from "../../../../backend/convex/agent/model";
-import { AGENT_IDS } from "../../../../backend/convex/lib/agent_constants";
-import { listStellaCatalogModels } from "../../../../backend/convex/stella_models";
+} from "../../convex/agent/model";
+import { AGENT_IDS } from "../../convex/lib/agent_constants";
+import { listStellaCatalogModels } from "../../convex/stella_models";
 
 describe("managed model config", () => {
   it("routes Light through OpenRouter", () => {

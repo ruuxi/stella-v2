@@ -3,10 +3,16 @@ import path from "node:path";
 import ts from "typescript";
 
 const backendRoot = path.resolve(import.meta.dirname, "..");
-const repoRoot = path.resolve(backendRoot, "..");
+// stella-backend and stella now live as siblings under projects/. The
+// generated desktop convex-api.ts still belongs in stella's
+// runtime/contracts/. Override with `STELLA_DESKTOP_REPO=/path/to/stella`
+// when checkouts aren't side-by-side.
+const stellaRoot =
+  process.env.STELLA_DESKTOP_REPO?.trim() ||
+  path.resolve(backendRoot, "..", "stella");
 const configPath = path.join(backendRoot, "convex", "tsconfig.json");
 const apiPath = path.join(backendRoot, "convex", "_generated", "api.d.ts");
-const outputPath = path.join(repoRoot, "runtime", "contracts", "convex-api.ts");
+const outputPath = path.join(stellaRoot, "runtime", "contracts", "convex-api.ts");
 
 const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
 if (configFile.error) {

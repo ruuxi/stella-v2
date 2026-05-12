@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
-import { applyConvenienceInput } from "../../../../backend/convex/http_routes/media";
-import { resolveMediaProfile } from "../../../../backend/convex/media_catalog";
+import { applyConvenienceInput } from "../../convex/http_routes/media";
+import { resolveMediaProfile } from "../../convex/media_catalog";
 
 const resolve = (capabilityId: string, profileId?: string) => {
   const resolved = resolveMediaProfile(capabilityId, profileId);

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { convertMessages, streamAnthropic } from "../../../../backend/convex/runtime_ai/anthropic";
-import type { AssistantMessageEvent } from "../../../../backend/convex/runtime_ai/types";
+import { convertMessages, streamAnthropic } from "../../convex/runtime_ai/anthropic";
+import type { AssistantMessageEvent } from "../../convex/runtime_ai/types";
 import type {
   Context,
   Model,
-} from "../../../../backend/convex/runtime_ai/types";
+} from "../../convex/runtime_ai/types";
 
 const usage = {
   input: 0,

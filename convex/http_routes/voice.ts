@@ -158,6 +158,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     "/api/voice/session",
     "/api/voice/usage",
     "/api/voice/inworld/sdp",
+    "/api/voice/tts",
   ]);
 
   http.route({
@@ -592,6 +593,213 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             "Failed to reach Inworld for SDP exchange",
             origin,
           );
+        }
+      }),
+    ),
+  });
+
+  // ── Read-aloud TTS ───────────────────────────────────────────────
+  // One-shot text-to-speech for the renderer's "read assistant replies
+  // aloud" toggle. Returns binary audio (mp3 for OpenAI, wav for
+  // Inworld) so the renderer can decode + play through Web Audio API
+  // without an extra JSON unwrap.
+  http.route({
+    path: "/api/voice/tts",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) {
+          return errorResponse(401, "Unauthorized", origin);
+        }
+
+        const rateLimit = await ctx.runMutation(
+          internal.rate_limits.consumeWebhookRateLimit,
+          {
+            scope: "voice_tts",
+            // Read-aloud fires per assistant message; give it more
+            // headroom than session mints but still cap to prevent
+            // accidental loops.
+            key: identity.tokenIdentifier,
+            limit: 120,
+            windowMs: VOICE_SESSION_RATE_WINDOW_MS,
+            blockMs: VOICE_SESSION_RATE_WINDOW_MS,
+          },
+        );
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        const subscriptionCheck = await checkManagedUsageLimit(
+          ctx,
+          identity.tokenIdentifier,
+        );
+        if (!subscriptionCheck.allowed) {
+          return errorResponse(429, subscriptionCheck.message, origin);
+        }
+
+        type TtsBody = {
+          text?: string;
+          voice?: string;
+          model?: string;
+          voiceProvider?: "openai" | "inworld";
+          speed?: number;
+        };
+        let body: TtsBody | null = null;
+        try {
+          body = (await request.json()) as TtsBody;
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+
+        const text = body?.text?.trim();
+        if (!text) {
+          return errorResponse(400, "text is required", origin);
+        }
+        // Cap at ~8k chars so a runaway prompt can't blow the budget.
+        const truncated = text.length > 8000 ? text.slice(0, 8000) : text;
+
+        const voiceProvider: "openai" | "inworld" =
+          body?.voiceProvider === "inworld" ? "inworld" : "openai";
+
+        if (voiceProvider === "inworld") {
+          const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
+          if (!inworldApiKey) {
+            return errorResponse(
+              503,
+              "Stella Inworld voice is not configured yet.",
+              origin,
+            );
+          }
+          const voiceId = body?.voice?.trim() || "Clive";
+          const modelId = body?.model?.trim() || "inworld-tts-2";
+          try {
+            const inworldResponse = await fetch(
+              "https://api.inworld.ai/tts/v1/voice",
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${inworldApiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  text: truncated,
+                  voiceId,
+                  modelId,
+                  ...(typeof body?.speed === "number" &&
+                  Number.isFinite(body.speed)
+                    ? { audioConfig: { speakingRate: body.speed } }
+                    : {}),
+                }),
+              },
+            );
+            const raw = await inworldResponse.text();
+            if (!inworldResponse.ok) {
+              console.error(
+                "[voice/tts] Inworld TTS failed:",
+                inworldResponse.status,
+                raw,
+              );
+              return errorResponse(
+                inworldResponse.status,
+                "Inworld TTS failed",
+                origin,
+              );
+            }
+            // Inworld returns JSON { audioContent: <base64 wav> }.
+            let audioBase64: string | null = null;
+            try {
+              const parsed = JSON.parse(raw) as { audioContent?: string };
+              if (typeof parsed.audioContent === "string") {
+                audioBase64 = parsed.audioContent;
+              }
+            } catch {
+              audioBase64 = null;
+            }
+            if (!audioBase64) {
+              return errorResponse(502, "Inworld returned no audio", origin);
+            }
+            // Decode base64 → bytes for the response body.
+            const bytes = Uint8Array.from(atob(audioBase64), (c) =>
+              c.charCodeAt(0),
+            );
+            return withCors(
+              new Response(bytes, {
+                status: 200,
+                headers: { "Content-Type": "audio/wav" },
+              }),
+              origin,
+            );
+          } catch (error) {
+            console.error(
+              "[voice/tts] Failed to contact Inworld:",
+              (error as Error).message,
+            );
+            return errorResponse(502, "Failed to reach Inworld TTS", origin);
+          }
+        }
+
+        // ── OpenAI TTS (default) ─────────────────────────────────────
+        const openaiApiKey = process.env.OPENAI_API_KEY ?? null;
+        if (!openaiApiKey) {
+          return errorResponse(
+            503,
+            "Voice TTS is not configured yet.",
+            origin,
+          );
+        }
+        const ttsVoice = body?.voice?.trim() || "marin";
+        const ttsModel = body?.model?.trim() || "gpt-4o-mini-tts";
+        try {
+          const openaiResponse = await fetch(
+            "https://api.openai.com/v1/audio/speech",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${openaiApiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: ttsModel,
+                voice: ttsVoice,
+                input: truncated,
+                response_format: "mp3",
+                ...(typeof body?.speed === "number" &&
+                Number.isFinite(body.speed) &&
+                body.speed >= 0.25 &&
+                body.speed <= 4
+                  ? { speed: body.speed }
+                  : {}),
+              }),
+            },
+          );
+          if (!openaiResponse.ok) {
+            const detail = await openaiResponse.text();
+            console.error(
+              "[voice/tts] OpenAI TTS failed:",
+              openaiResponse.status,
+              detail,
+            );
+            return errorResponse(
+              openaiResponse.status,
+              "OpenAI TTS failed",
+              origin,
+            );
+          }
+          const audio = await openaiResponse.arrayBuffer();
+          return withCors(
+            new Response(audio, {
+              status: 200,
+              headers: { "Content-Type": "audio/mpeg" },
+            }),
+            origin,
+          );
+        } catch (error) {
+          console.error(
+            "[voice/tts] Failed to contact OpenAI:",
+            (error as Error).message,
+          );
+          return errorResponse(502, "Failed to reach OpenAI TTS", origin);
         }
       }),
     ),

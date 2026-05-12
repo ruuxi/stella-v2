@@ -874,7 +874,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
               try {
                 await ctx.scheduler.runAfter(0, internal.mobile_push.sendToOwner, {
                   ownerId: ownerIdForPush,
-                  title: "Stella finished on your Mac",
+                  title: "Stella finished on your computer",
                   body: preview,
                   data: { kind: "computer_reply" },
                 });

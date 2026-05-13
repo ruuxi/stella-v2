@@ -1803,10 +1803,6 @@ export const createCheckoutSession = action({
       // needs for correct tax determination.
       billing_address_collection: "auto",
       customer_update: { address: "auto", name: "auto" },
-      // Lets EU/UK/AU business customers enter a VAT/GST/ABN so Managed
-      // Payments can apply reverse-charge instead of incorrectly billing
-      // them tax.
-      tax_id_collection: { enabled: true },
       metadata: {
         ownerId,
         plan: args.plan,
@@ -1975,7 +1971,6 @@ export const createUsageCreditCheckoutSession = action({
       managed_payments: { enabled: true },
       billing_address_collection: "auto",
       customer_update: { address: "auto", name: "auto" },
-      tax_id_collection: { enabled: true },
       metadata,
       payment_intent_data: {
         metadata,

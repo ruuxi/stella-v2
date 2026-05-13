@@ -64,11 +64,6 @@ const getEmailLogoSrc = (siteUrl: string) => {
 const extraTrustedOrigins = [
   "http://localhost:57314",
   "http://127.0.0.1:57314",
-  "http://localhost:5715",
-  "http://127.0.0.1:5715",
-  // Expo web (`expo start --web` / press `w`) defaults to port 8081
-  "http://localhost:8081",
-  "http://127.0.0.1:8081",
   "https://stella.sh",
   // Mobile WebView loads the desktop UI via Cloudflare tunnel
   "*.stellatunnel.com",

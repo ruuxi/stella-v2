@@ -112,14 +112,14 @@ const buildSearchText = (args: {
   displayName: string;
   description?: string;
   prompt?: string;
-  authorDisplayName?: string;
+  authorUsername?: string;
   tags: string[];
 }): string =>
   [
     args.displayName,
     args.description ?? "",
     args.prompt ?? "",
-    args.authorDisplayName ?? "",
+    args.authorUsername ?? "",
     ...args.tags,
   ]
     .map((part) => part.trim())
@@ -245,7 +245,7 @@ export const enrichUserPet = internalAction({
           displayName,
           description,
           prompt: row.prompt,
-          authorDisplayName: row.authorDisplayName,
+          authorUsername: row.authorUsername,
           tags: metadata.tags,
         }),
         updatedAt: Date.now(),
@@ -289,7 +289,7 @@ export const enrichEmojiPack = internalAction({
             displayName,
             description,
             prompt: row.prompt,
-            authorDisplayName: row.authorDisplayName,
+            authorUsername: row.authorUsername,
             tags: metadata.tags,
           }),
           updatedAt: Date.now(),

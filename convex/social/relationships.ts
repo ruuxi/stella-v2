@@ -215,13 +215,13 @@ const upsertPendingFriendRequest = async (
 
 export const sendFriendRequest = mutation({
   args: {
-    friendCode: v.string(),
+    username: v.string(),
   },
   returns: socialRelationshipValidator,
   handler: async (ctx, args) => {
     const ownerId = await requireConnectedUserId(ctx);
     // Friend-request spam vector: cap aggressively per owner so a malicious
-    // client can't enumerate friend codes or harass other users.
+    // client can't probe usernames or harass other users.
     await enforceMutationRateLimit(
       ctx,
       "social_send_friend_request",
@@ -230,62 +230,22 @@ export const sendFriendRequest = mutation({
       "Too many friend requests. Please wait a minute before trying again.",
     );
     await ensureSocialProfileDoc(ctx, ownerId);
-    const code = args.friendCode.trim().toUpperCase();
-    if (!code) {
+    const username = args.username.trim().toLowerCase();
+    if (!username) {
       throw new ConvexError({
         code: "INVALID_ARGUMENT",
-        message: "friendCode is required",
+        message: "username is required",
       });
     }
 
     const targetProfile = await ctx.db
       .query("social_profiles")
-      .withIndex("by_friendCode", (q) => q.eq("friendCode", code))
+      .withIndex("by_username", (q) => q.eq("username", username))
       .unique();
     if (!targetProfile) {
       throw new ConvexError({
         code: "NOT_FOUND",
-        message: "No user found for that friend code",
-      });
-    }
-
-    return await upsertPendingFriendRequest(ctx, ownerId, targetProfile.ownerId);
-  },
-});
-
-/**
- * Sends a friend request directly to a known owner id (e.g. clicking a sender
- * in Global Chat). The caller has not seen the target's friend code; we
- * therefore only allow this when the target already has a social profile.
- */
-export const sendFriendRequestByOwnerId = mutation({
-  args: {
-    targetOwnerId: v.string(),
-  },
-  returns: socialRelationshipValidator,
-  handler: async (ctx, args) => {
-    const ownerId = await requireConnectedUserId(ctx);
-    await enforceMutationRateLimit(
-      ctx,
-      "social_send_friend_request",
-      ownerId,
-      RATE_VERY_EXPENSIVE,
-      "Too many friend requests. Please wait a minute before trying again.",
-    );
-    await ensureSocialProfileDoc(ctx, ownerId);
-
-    const targetOwnerId = args.targetOwnerId.trim();
-    if (!targetOwnerId) {
-      throw new ConvexError({
-        code: "INVALID_ARGUMENT",
-        message: "targetOwnerId is required",
-      });
-    }
-    const targetProfile = await getSocialProfileByOwnerId(ctx, targetOwnerId);
-    if (!targetProfile) {
-      throw new ConvexError({
-        code: "NOT_FOUND",
-        message: "User not found",
+        message: "No user found with that username",
       });
     }
 

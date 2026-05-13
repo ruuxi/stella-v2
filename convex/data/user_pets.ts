@@ -115,14 +115,14 @@ const buildSearchText = (args: {
   description: string;
   tags: string[];
   prompt?: string;
-  authorDisplayName?: string;
+  authorUsername?: string;
 }): string =>
   [
     args.displayName,
     args.description,
     ...args.tags,
     args.prompt ?? "",
-    args.authorDisplayName ?? "",
+    args.authorUsername ?? "",
   ]
     .map((part) => part.trim())
     .filter(Boolean)
@@ -261,11 +261,10 @@ export const createPet = mutation({
         message: "A pet with this ID already exists.",
       });
     }
-    const profile: { publicHandle: string; nickname: string } =
-      await ctx.runMutation(
-        internal.social.profiles.ensureProfileForOwnerInternal,
-        { ownerId },
-      );
+    const profile: { username: string } = await ctx.runMutation(
+      internal.social.profiles.ensureProfileForOwnerInternal,
+      { ownerId },
+    );
     const displayName = normalizeRequiredText(
       args.displayName,
       "displayName",
@@ -281,8 +280,7 @@ export const createPet = mutation({
     const previewUrl = args.previewUrl
       ? normalizeUrl(args.previewUrl, "previewUrl")
       : undefined;
-    const authorDisplayName = profile.nickname.trim();
-    const authorHandle = profile.publicHandle.trim().toLowerCase();
+    const authorUsername = profile.username.trim().toLowerCase();
     const now = Date.now();
     const id: Id<"user_pets"> = await ctx.db.insert("user_pets", {
       ownerId,
@@ -299,10 +297,9 @@ export const createPet = mutation({
         description,
         tags: [],
         prompt,
-        authorDisplayName,
+        authorUsername,
       }),
-      ...(authorDisplayName ? { authorDisplayName } : {}),
-      ...(authorHandle ? { authorHandle } : {}),
+      ...(authorUsername ? { authorUsername } : {}),
       installCount: 0,
       createdAt: now,
       updatedAt: now,

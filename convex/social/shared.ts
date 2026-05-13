@@ -18,45 +18,42 @@ import {
   stellaSessionTurnStatusValidator,
 } from "../schema/social";
 
-const FRIEND_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const FRIEND_CODE_LENGTH = 8;
-const MAX_FRIEND_CODE_RETRIES = 24;
-const MAX_HANDLE_COLLISION_RETRIES = 24;
+const MAX_USERNAME_COLLISION_RETRIES = 24;
 
-const NICKNAME_ADJECTIVES = [
-  "Brisk",
-  "Calm",
-  "Clever",
-  "Curious",
-  "Daring",
-  "Gentle",
-  "Lively",
-  "Lucky",
-  "Mellow",
-  "Nova",
-  "Quiet",
-  "Radiant",
-  "Solar",
-  "Swift",
+const USERNAME_ADJECTIVES = [
+  "brisk",
+  "calm",
+  "clever",
+  "curious",
+  "daring",
+  "gentle",
+  "lively",
+  "lucky",
+  "mellow",
+  "nova",
+  "quiet",
+  "radiant",
+  "solar",
+  "swift",
 ];
 
-const NICKNAME_NOUNS = [
-  "Aurora",
-  "Comet",
-  "Falcon",
-  "Harbor",
-  "Maple",
-  "Otter",
-  "Panda",
-  "Robin",
-  "Sparrow",
-  "Tide",
-  "Willow",
-  "Zephyr",
+const USERNAME_NOUNS = [
+  "aurora",
+  "comet",
+  "falcon",
+  "harbor",
+  "maple",
+  "otter",
+  "panda",
+  "robin",
+  "sparrow",
+  "tide",
+  "willow",
+  "zephyr",
 ];
 
-const HANDLE_REGEX = /^[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])$/;
-const RESERVED_HANDLES = new Set([
+const USERNAME_REGEX = /^[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])$/;
+const RESERVED_USERNAMES = new Set([
   "admin",
   "stella",
   "store",
@@ -72,10 +69,7 @@ export const socialProfileValidator = v.object({
   _id: v.id("social_profiles"),
   _creationTime: v.number(),
   ownerId: v.string(),
-  nickname: v.string(),
-  nicknameNormalized: v.string(),
-  publicHandle: v.string(),
-  friendCode: v.string(),
+  username: v.string(),
   avatarUrl: v.optional(v.string()),
   lastSeenIncomingFriendRequestAt: v.optional(v.number()),
   createdAt: v.number(),
@@ -206,37 +200,23 @@ export const stellaSessionFileOpValidator = v.object({
 
 type AnyCtx = QueryCtx | MutationCtx;
 
-export const normalizeNickname = (value: string) =>
-  value.trim().replace(/\s+/g, " ").slice(0, 40);
-
-export const normalizeNicknameKey = (value: string) =>
-  normalizeNickname(value).toLowerCase();
-
-export const normalizePublicHandle = (raw: string): string => {
+export const normalizeUsername = (raw: string): string => {
   const normalized = raw.trim().toLowerCase();
-  if (!HANDLE_REGEX.test(normalized)) {
+  if (!USERNAME_REGEX.test(normalized)) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
       message:
-        "Handle must be 3-32 lowercase letters/numbers/underscores/hyphens, and start + end with a letter or number.",
+        "Username must be 3-32 lowercase letters/numbers/underscores/hyphens, and start + end with a letter or number.",
     });
   }
-  if (RESERVED_HANDLES.has(normalized)) {
+  if (RESERVED_USERNAMES.has(normalized)) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
-      message: "That handle is reserved. Pick a different one.",
+      message: "That username is reserved. Pick a different one.",
     });
   }
   return normalized;
 };
-
-const slugifyHandle = (nickname: string) =>
-  nickname
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 32);
 
 export const sanitizeWorkspaceSlug = (value: string) =>
   value
@@ -298,15 +278,10 @@ export const ensureSocialProfileDoc = async (
   }
 
   const now = Date.now();
-  const nickname = generateDefaultNickname();
-  const publicHandle = await generateUniquePublicHandle(ctx, nickname);
-  const friendCode = await generateUniqueFriendCode(ctx);
+  const username = await generateUniqueUsername(ctx);
   const id = await ctx.db.insert("social_profiles", {
     ownerId,
-    nickname,
-    nicknameNormalized: normalizeNicknameKey(nickname),
-    publicHandle,
-    friendCode,
+    username,
     createdAt: now,
     updatedAt: now,
   });
@@ -491,62 +466,32 @@ export const listAcceptedRelationshipsForOwner = async (
 export const getSocialSessionConversationId = (sessionId: Id<"stella_sessions">) =>
   `social:stella:${sessionId}`;
 
-const generateDefaultNickname = () => {
+const generateUsernameCandidate = (): string => {
   const adjective =
-    NICKNAME_ADJECTIVES[Math.floor(Math.random() * NICKNAME_ADJECTIVES.length)]!;
+    USERNAME_ADJECTIVES[Math.floor(Math.random() * USERNAME_ADJECTIVES.length)]!;
   const noun =
-    NICKNAME_NOUNS[Math.floor(Math.random() * NICKNAME_NOUNS.length)]!;
+    USERNAME_NOUNS[Math.floor(Math.random() * USERNAME_NOUNS.length)]!;
   const suffix = Math.floor(100 + Math.random() * 900);
-  return `${adjective} ${noun} ${suffix}`;
+  return `${adjective}-${noun}-${suffix}`;
 };
 
-const generateUniquePublicHandle = async (
+const generateUniqueUsername = async (
   ctx: MutationCtx,
-  nickname: string,
 ): Promise<string> => {
-  const base = slugifyHandle(nickname);
-  for (let attempt = 0; attempt < MAX_HANDLE_COLLISION_RETRIES; attempt += 1) {
-    const candidate =
-      attempt === 0
-        ? base
-        : `${base.slice(0, 27)}-${Math.floor(1000 + Math.random() * 9000)}`;
-    if (!HANDLE_REGEX.test(candidate) || RESERVED_HANDLES.has(candidate)) {
+  for (let attempt = 0; attempt < MAX_USERNAME_COLLISION_RETRIES; attempt += 1) {
+    const candidate = generateUsernameCandidate();
+    if (!USERNAME_REGEX.test(candidate) || RESERVED_USERNAMES.has(candidate)) {
       continue;
     }
     const existing = await ctx.db
       .query("social_profiles")
-      .withIndex("by_publicHandle", (q) => q.eq("publicHandle", candidate))
+      .withIndex("by_username", (q) => q.eq("username", candidate))
       .unique();
     if (!existing) return candidate;
   }
   throw new ConvexError({
     code: "INTERNAL_ERROR",
-    message: "Could not generate a public handle.",
-  });
-};
-
-const generateFriendCodeCandidate = () => {
-  let output = "";
-  for (let index = 0; index < FRIEND_CODE_LENGTH; index += 1) {
-    output += FRIEND_CODE_ALPHABET[Math.floor(Math.random() * FRIEND_CODE_ALPHABET.length)];
-  }
-  return output;
-};
-
-const generateUniqueFriendCode = async (ctx: MutationCtx): Promise<string> => {
-  for (let attempt = 0; attempt < MAX_FRIEND_CODE_RETRIES; attempt += 1) {
-    const candidate = generateFriendCodeCandidate();
-    const existing = await ctx.db
-      .query("social_profiles")
-      .withIndex("by_friendCode", (q) => q.eq("friendCode", candidate))
-      .unique();
-    if (!existing) {
-      return candidate;
-    }
-  }
-  throw new ConvexError({
-    code: "INTERNAL_ERROR",
-    message: "Failed to allocate a unique friend code",
+    message: "Could not generate a username.",
   });
 };
 

@@ -10,9 +10,7 @@ import {
   socialProfileValidator,
   ensureSocialProfileDoc,
   getSocialProfileByOwnerId,
-  normalizeNickname,
-  normalizeNicknameKey,
-  normalizePublicHandle,
+  normalizeUsername,
 } from "./shared";
 import {
   requireBoundedString,
@@ -30,15 +28,10 @@ import { findBannedTerm } from "./censor";
 
 const optionalProfileValidator = v.union(v.null(), socialProfileValidator);
 
-const creatorProfileSummaryValidator = v.object({
-  publicHandle: v.string(),
-  displayName: v.string(),
-});
-
 const syncStoreAuthorProfile = async (
   ctx: MutationCtx,
   ownerId: string,
-  profile: { publicHandle: string; nickname: string },
+  username: string,
 ) => {
   const packages = await ctx.db
     .query("store_packages")
@@ -47,27 +40,11 @@ const syncStoreAuthorProfile = async (
   await Promise.all(
     packages.map((pkg) =>
       ctx.db.patch(pkg._id, {
-        authorHandle: profile.publicHandle,
-        authorDisplayName: profile.nickname,
+        authorUsername: username,
       }),
     ),
   );
 };
-
-/**
- * Public DTO returned by friend-code lookups. Intentionally omits `ownerId`
- * and `_id` so a caller who learns or guesses a friend code cannot use this
- * endpoint to enumerate canonical owner identifiers; only display fields the
- * profile owner has chosen to expose are returned.
- */
-const publicProfileByFriendCodeValidator = v.union(
-  v.null(),
-  v.object({
-    nickname: v.string(),
-    friendCode: v.string(),
-    avatarUrl: v.optional(v.string()),
-  }),
-);
 
 export const ensureProfileInternal = internalMutation({
   args: {},
@@ -83,7 +60,7 @@ export const ensureProfileForOwnerInternal = internalMutation({
   returns: socialProfileValidator,
   handler: async (ctx, args) => {
     const profile = await ensureSocialProfileDoc(ctx, args.ownerId);
-    await syncStoreAuthorProfile(ctx, args.ownerId, profile);
+    await syncStoreAuthorProfile(ctx, args.ownerId, profile.username);
     return profile;
   },
 });
@@ -123,95 +100,78 @@ export const getMyProfile = query({
   },
 });
 
-export const getProfileByHandle = query({
-  args: { handle: v.string() },
-  returns: v.union(v.null(), creatorProfileSummaryValidator),
+/**
+ * Public lookup by `@username`. Returned shape is the full profile validator
+ * minus internal fields — same identifier the user types into the friend-add
+ * input, used as the store author handle, and renders on profile cards.
+ */
+export const getProfileByUsername = query({
+  args: { username: v.string() },
+  returns: optionalProfileValidator,
   handler: async (ctx, args) => {
-    const handle = args.handle.trim().toLowerCase();
-    if (!handle) return null;
-    const profile = await ctx.db
+    const username = args.username.trim().toLowerCase();
+    if (!username) return null;
+    return await ctx.db
       .query("social_profiles")
-      .withIndex("by_publicHandle", (q) => q.eq("publicHandle", handle))
+      .withIndex("by_username", (q) => q.eq("username", username))
       .unique();
-    if (!profile) return null;
-    return {
-      publicHandle: profile.publicHandle,
-      displayName: profile.nickname,
-    };
   },
 });
 
-export const claimHandle = mutation({
-  args: { handle: v.string() },
-  returns: creatorProfileSummaryValidator,
+export const claimUsername = mutation({
+  args: { username: v.string() },
+  returns: socialProfileValidator,
   handler: async (ctx, args) => {
     const ownerId = await requireConnectedUserId(ctx);
     await enforceMutationRateLimit(
       ctx,
-      "social_claim_handle",
+      "social_claim_username",
       ownerId,
       RATE_SETTINGS,
-      "Too many handle updates. Please wait a moment and try again.",
+      "Too many username updates. Please wait a moment and try again.",
     );
-    const publicHandle = normalizePublicHandle(args.handle);
+    const username = normalizeUsername(args.username);
+    if (findBannedTerm(username) !== null) {
+      throw new ConvexError({
+        code: "PROFANITY_BLOCKED",
+        message:
+          "That username contains a banned word. Please pick a different one.",
+      });
+    }
     const profile = await ensureSocialProfileDoc(ctx, ownerId);
+    if (profile.username === username) {
+      return profile;
+    }
     const collision = await ctx.db
       .query("social_profiles")
-      .withIndex("by_publicHandle", (q) => q.eq("publicHandle", publicHandle))
+      .withIndex("by_username", (q) => q.eq("username", username))
       .unique();
     if (collision && collision.ownerId !== ownerId) {
       throw new ConvexError({
-        code: "HANDLE_TAKEN",
-        message: "That handle is taken. Pick a different one.",
+        code: "USERNAME_TAKEN",
+        message: "That username is taken. Pick a different one.",
       });
     }
-    if (profile.publicHandle !== publicHandle) {
-      await ctx.db.patch(profile._id, {
-        publicHandle,
-        updatedAt: Date.now(),
+    await ctx.db.patch(profile._id, {
+      username,
+      updatedAt: Date.now(),
+    });
+    await syncStoreAuthorProfile(ctx, ownerId, username);
+    const updated = await ctx.db.get(profile._id);
+    if (!updated) {
+      throw new ConvexError({
+        code: "INTERNAL_ERROR",
+        message: "Failed to update social profile",
       });
-      await syncStoreAuthorProfile(ctx, ownerId, {
-        publicHandle,
-        nickname: profile.nickname,
-      });
     }
-    return {
-      publicHandle,
-      displayName: profile.nickname,
-    };
-  },
-});
-
-export const getProfileByFriendCode = query({
-  args: { friendCode: v.string() },
-  returns: publicProfileByFriendCodeValidator,
-  handler: async (ctx, args) => {
-    await requireConnectedUserId(ctx);
-    const code = args.friendCode.trim().toUpperCase();
-    if (!code) {
-      return null;
-    }
-    const profile = await ctx.db
-      .query("social_profiles")
-      .withIndex("by_friendCode", (q) => q.eq("friendCode", code))
-      .unique();
-    if (!profile) {
-      return null;
-    }
-    return {
-      nickname: profile.nickname,
-      friendCode: profile.friendCode,
-      avatarUrl: profile.avatarUrl,
-    };
+    return updated;
   },
 });
 
 /**
  * Bulk-resolve public display info for an arbitrary set of owner ids. Used by
- * the Global Chat pane to render sender names/avatars for messages whose
- * authors aren't part of any small membership row set. Intentionally omits
- * `friendCode` so a user's add-handle isn't exposed to everyone in a public
- * room — friend requests in this surface go through `sendFriendRequestByOwnerId`.
+ * surfaces that render sender names/avatars for messages whose authors aren't
+ * part of any small membership row set.
  */
 export const getProfilesByOwnerIds = query({
   args: {
@@ -220,7 +180,7 @@ export const getProfilesByOwnerIds = query({
   returns: v.array(
     v.object({
       ownerId: v.string(),
-      nickname: v.string(),
+      username: v.string(),
       avatarUrl: v.optional(v.string()),
     }),
   ),
@@ -239,66 +199,37 @@ export const getProfilesByOwnerIds = query({
       )
       .map((profile) => ({
         ownerId: profile.ownerId,
-        nickname: profile.nickname,
+        username: profile.username,
         avatarUrl: profile.avatarUrl,
       }));
   },
 });
 
-export const updateMyProfile = mutation({
+export const updateMyAvatar = mutation({
   args: {
-    nickname: v.optional(v.string()),
-    avatarUrl: v.optional(v.union(v.string(), v.null())),
+    avatarUrl: v.union(v.string(), v.null()),
   },
   returns: socialProfileValidator,
   handler: async (ctx, args) => {
     const ownerId = await requireConnectedUserId(ctx);
     await enforceMutationRateLimit(
       ctx,
-      "social_update_my_profile",
+      "social_update_my_avatar",
       ownerId,
       RATE_SETTINGS,
       "Too many profile updates. Please wait a moment and try again.",
     );
     const profile = await ensureSocialProfileDoc(ctx, ownerId);
 
-    const patch: {
-      nickname?: string;
-      nicknameNormalized?: string;
-      avatarUrl?: string | undefined;
-      updatedAt: number;
-    } = {
+    const next = args.avatarUrl?.trim();
+    const patch: { avatarUrl?: string | undefined; updatedAt: number } = {
       updatedAt: Date.now(),
     };
-
-    if (args.nickname !== undefined) {
-      const nickname = normalizeNickname(args.nickname);
-      if (!nickname) {
-        throw new ConvexError({
-          code: "INVALID_ARGUMENT",
-          message: "Nickname is required.",
-        });
-      }
-      requireBoundedString(nickname, "nickname", 40);
-      if (findBannedTerm(nickname) !== null) {
-        throw new ConvexError({
-          code: "PROFANITY_BLOCKED",
-          message:
-            "That display name contains a banned word. Please pick a different one.",
-        });
-      }
-      patch.nickname = nickname;
-      patch.nicknameNormalized = normalizeNicknameKey(nickname);
-    }
-
-    if (args.avatarUrl !== undefined) {
-      const nextAvatarUrl = args.avatarUrl?.trim();
-      if (nextAvatarUrl) {
-        requireBoundedString(nextAvatarUrl, "avatarUrl", 2000);
-        patch.avatarUrl = nextAvatarUrl;
-      } else {
-        patch.avatarUrl = undefined;
-      }
+    if (next) {
+      requireBoundedString(next, "avatarUrl", 2000);
+      patch.avatarUrl = next;
+    } else {
+      patch.avatarUrl = undefined;
     }
 
     await ctx.db.patch(profile._id, patch);
@@ -309,7 +240,6 @@ export const updateMyProfile = mutation({
         message: "Failed to update social profile",
       });
     }
-    await syncStoreAuthorProfile(ctx, ownerId, updated);
     return updated;
   },
 });

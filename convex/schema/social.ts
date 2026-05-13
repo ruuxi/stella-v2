@@ -54,19 +54,14 @@ export const stellaSessionFileOpTypeValidator = v.union(
 export const socialSchema = {
   social_profiles: defineTable({
     ownerId: v.string(),
-    nickname: v.string(),
-    nicknameNormalized: v.string(),
-    publicHandle: v.string(),
-    friendCode: v.string(),
+    username: v.string(),
     avatarUrl: v.optional(v.string()),
     lastSeenIncomingFriendRequestAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_ownerId", ["ownerId"])
-    .index("by_publicHandle", ["publicHandle"])
-    .index("by_friendCode", ["friendCode"])
-    .index("by_nicknameNormalized", ["nicknameNormalized"]),
+    .index("by_username", ["username"]),
 
   social_relationships: defineTable({
     relationshipKey: v.string(),

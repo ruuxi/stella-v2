@@ -25,7 +25,6 @@ export const store_release_manifest_validator = v.object({
   category: v.optional(store_package_category_validator),
   summary: v.optional(v.string()),
   iconUrl: v.optional(v.string()),
-  authorDisplayName: v.optional(v.string()),
   authoredAtCommit: v.optional(v.string()),
 });
 
@@ -54,8 +53,7 @@ const storePackageFields = {
   latestReleaseId: v.optional(v.id("store_package_releases")),
   createdAt: v.number(),
   updatedAt: v.number(),
-  authorDisplayName: v.optional(v.string()),
-  authorHandle: v.optional(v.string()),
+  authorUsername: v.optional(v.string()),
   iconUrl: v.optional(v.string()),
   featured: v.optional(v.boolean()),
   featuredAt: v.optional(v.number()),

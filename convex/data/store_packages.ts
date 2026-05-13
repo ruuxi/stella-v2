@@ -45,7 +45,6 @@ const MAX_DISPLAY_NAME = 120;
 const MAX_DESCRIPTION = 4_000;
 const MAX_SUMMARY = 500;
 const MAX_ICON_URL = 2_048;
-const MAX_AUTHOR_DISPLAY_NAME = 120;
 const MAX_AUTHORED_AT_COMMIT = 80;
 const MAX_COMMITS_PER_RELEASE = 32;
 const MAX_COMMIT_DIFF_LENGTH = 200_000;
@@ -62,7 +61,6 @@ const create_release_args_validator = {
   blueprintMarkdown: v.string(),
   commits: v.optional(v.array(store_release_commit_validator)),
   iconUrl: v.optional(v.string()),
-  authorDisplayName: v.optional(v.string()),
 };
 
 const create_first_release_args_validator = {
@@ -79,21 +77,17 @@ const resolveCallerAuthor = async (
     runMutation: (
       fn: typeof internal.social.profiles.ensureProfileForOwnerInternal,
       args: { ownerId: string },
-    ) => Promise<{ publicHandle: string; nickname: string }>;
+    ) => Promise<{ username: string }>;
   },
   ownerId: string,
-): Promise<{ authorHandle?: string; authorDisplayName?: string }> => {
+): Promise<{ authorUsername?: string }> => {
   try {
     const profile = await ctx.runMutation(
       internal.social.profiles.ensureProfileForOwnerInternal,
       { ownerId },
     );
-    return {
-      authorHandle: profile.publicHandle.trim().toLowerCase(),
-      ...(profile.nickname.trim()
-        ? { authorDisplayName: profile.nickname.trim() }
-        : {}),
-    };
+    const username = profile.username.trim().toLowerCase();
+    return username ? { authorUsername: username } : {};
   } catch {
     return {};
   }
@@ -214,16 +208,10 @@ const normalizeManifest = (manifest: {
   category?: "apps-games" | "productivity" | "customization" | "skills-agents" | "integrations" | "other";
   summary?: string;
   iconUrl?: string;
-  authorDisplayName?: string;
   authoredAtCommit?: string;
 }) => {
   const summary = normalizeOptionalText(manifest.summary, "manifest.summary", MAX_SUMMARY);
   const iconUrl = normalizeOptionalText(manifest.iconUrl, "manifest.iconUrl", MAX_ICON_URL);
-  const authorDisplayName = normalizeOptionalText(
-    manifest.authorDisplayName,
-    "manifest.authorDisplayName",
-    MAX_AUTHOR_DISPLAY_NAME,
-  );
   const authoredAtCommit = normalizeOptionalText(
     manifest.authoredAtCommit,
     "manifest.authoredAtCommit",
@@ -233,7 +221,6 @@ const normalizeManifest = (manifest: {
     ...(manifest.category ? { category: normalizeStoreCategory(manifest.category) } : {}),
     ...(summary ? { summary } : {}),
     ...(iconUrl ? { iconUrl } : {}),
-    ...(authorDisplayName ? { authorDisplayName } : {}),
     ...(authoredAtCommit ? { authoredAtCommit } : {}),
   };
 };
@@ -367,8 +354,7 @@ export const createFirstReleaseRecord = internalMutation({
     blueprintMarkdown: v.string(),
     commits: v.optional(v.array(store_release_commit_validator)),
     iconUrl: v.optional(v.string()),
-    authorDisplayName: v.optional(v.string()),
-    authorHandle: v.optional(v.string()),
+    authorUsername: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await getPackageByPackageId(ctx, args.packageId);
@@ -396,10 +382,7 @@ export const createFirstReleaseRecord = internalMutation({
       createdAt: now,
       updatedAt: now,
       ...(args.iconUrl ? { iconUrl: args.iconUrl } : {}),
-      ...(args.authorDisplayName
-        ? { authorDisplayName: args.authorDisplayName }
-        : {}),
-      ...(args.authorHandle ? { authorHandle: args.authorHandle } : {}),
+      ...(args.authorUsername ? { authorUsername: args.authorUsername } : {}),
     });
 
     const releaseRef = await ctx.db.insert("store_package_releases", {
@@ -442,8 +425,7 @@ export const createUpdateReleaseRecord = internalMutation({
     blueprintMarkdown: v.string(),
     commits: v.optional(v.array(store_release_commit_validator)),
     iconUrl: v.optional(v.string()),
-    authorDisplayName: v.optional(v.string()),
-    authorHandle: v.optional(v.string()),
+    authorUsername: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const pkg = await getOwnedPackageByPackageId(
@@ -477,10 +459,7 @@ export const createUpdateReleaseRecord = internalMutation({
       latestReleaseId: releaseRef,
       updatedAt: now,
       ...(args.iconUrl ? { iconUrl: args.iconUrl } : {}),
-      ...(args.authorDisplayName
-        ? { authorDisplayName: args.authorDisplayName }
-        : {}),
-      ...(args.authorHandle ? { authorHandle: args.authorHandle } : {}),
+      ...(args.authorUsername ? { authorUsername: args.authorUsername } : {}),
     });
 
     const updatedPackage = await ctx.db.get(pkg._id);
@@ -676,15 +655,15 @@ export const searchPublicPackages = query({
   },
 });
 
-export const listPackagesByAuthorHandle = query({
-  args: { handle: v.string() },
+export const listPackagesByAuthorUsername = query({
+  args: { username: v.string() },
   returns: v.array(store_package_validator),
   handler: async (ctx, args) => {
-    const handle = args.handle.trim().toLowerCase();
-    if (!handle) return [];
+    const username = args.username.trim().toLowerCase();
+    if (!username) return [];
     const profile = await ctx.db
       .query("social_profiles")
-      .withIndex("by_publicHandle", (q) => q.eq("publicHandle", handle))
+      .withIndex("by_username", (q) => q.eq("username", username))
       .unique();
     if (!profile) return [];
     const owned = await ctx.db
@@ -938,12 +917,9 @@ export const createFirstRelease = action({
         ...(commits ? { commits } : {}),
         ...(args.category ? { category: args.category } : {}),
         ...(iconUrl ? { iconUrl } : {}),
-        ...(author.authorDisplayName
-          ? { authorDisplayName: author.authorDisplayName }
-          : manifest.authorDisplayName
-            ? { authorDisplayName: manifest.authorDisplayName }
-            : {}),
-        ...(author.authorHandle ? { authorHandle: author.authorHandle } : {}),
+        ...(author.authorUsername
+          ? { authorUsername: author.authorUsername }
+          : {}),
       },
     );
   },
@@ -1014,12 +990,9 @@ export const createUpdateRelease = action({
         blueprintMarkdown,
         ...(commits ? { commits } : {}),
         ...(iconUrl ? { iconUrl } : {}),
-        ...(author.authorDisplayName
-          ? { authorDisplayName: author.authorDisplayName }
-          : manifest.authorDisplayName
-            ? { authorDisplayName: manifest.authorDisplayName }
-            : {}),
-        ...(author.authorHandle ? { authorHandle: author.authorHandle } : {}),
+        ...(author.authorUsername
+          ? { authorUsername: author.authorUsername }
+          : {}),
       },
     );
   },

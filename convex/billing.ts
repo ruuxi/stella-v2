@@ -1797,6 +1797,16 @@ export const createCheckoutSession = action({
       success_url: successUrl,
       cancel_url: cancelUrl,
       managed_payments: { enabled: true },
+      // Persist whatever Checkout collects back onto the Stripe Customer
+      // so subsequent subscription renewals — which run without an
+      // interactive Checkout — still have the address Managed Payments
+      // needs for correct tax determination.
+      billing_address_collection: "auto",
+      customer_update: { address: "auto", name: "auto" },
+      // Lets EU/UK/AU business customers enter a VAT/GST/ABN so Managed
+      // Payments can apply reverse-charge instead of incorrectly billing
+      // them tax.
+      tax_id_collection: { enabled: true },
       metadata: {
         ownerId,
         plan: args.plan,
@@ -1963,6 +1973,9 @@ export const createUsageCreditCheckoutSession = action({
       success_url: successUrl,
       cancel_url: cancelUrl,
       managed_payments: { enabled: true },
+      billing_address_collection: "auto",
+      customer_update: { address: "auto", name: "auto" },
+      tax_id_collection: { enabled: true },
       metadata,
       payment_intent_data: {
         metadata,

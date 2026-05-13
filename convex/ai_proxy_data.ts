@@ -7,7 +7,7 @@ import { internalQuery, internalMutation } from './_generated/server'
 import { hashSha256Hex } from './lib/crypto_utils'
 import { clampIntToRange } from './lib/number_utils'
 
-const DEVICE_USAGE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+const DEVICE_USAGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_CLIENT_ADDRESS_KEY_LENGTH = 128
 const CLIENT_ADDRESS_KEY_PATTERN = /^[0-9a-fA-F:.]+$/
 

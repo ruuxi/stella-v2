@@ -25,6 +25,7 @@ import {
   store_release_commit_validator,
   store_release_manifest_validator,
 } from "../schema/store";
+import { socialBadgeValidator } from "../schema/social";
 import { enforceStoreReleaseReviewOrThrow } from "../lib/store_release_reviews";
 import { generateStoreIconUrl } from "../lib/store_icon";
 import {
@@ -77,17 +78,26 @@ const resolveCallerAuthor = async (
     runMutation: (
       fn: typeof internal.social.profiles.ensureProfileForOwnerInternal,
       args: { ownerId: string },
-    ) => Promise<{ username: string }>;
+    ) => Promise<{
+      username: string;
+      badge?: "verified" | "partner";
+    }>;
   },
   ownerId: string,
-): Promise<{ authorUsername?: string }> => {
+): Promise<{
+  authorUsername?: string;
+  authorBadge?: "verified" | "partner";
+}> => {
   try {
     const profile = await ctx.runMutation(
       internal.social.profiles.ensureProfileForOwnerInternal,
       { ownerId },
     );
     const username = profile.username.trim().toLowerCase();
-    return username ? { authorUsername: username } : {};
+    return {
+      ...(username ? { authorUsername: username } : {}),
+      ...(profile.badge ? { authorBadge: profile.badge } : {}),
+    };
   } catch {
     return {};
   }
@@ -355,6 +365,7 @@ export const createFirstReleaseRecord = internalMutation({
     commits: v.optional(v.array(store_release_commit_validator)),
     iconUrl: v.optional(v.string()),
     authorUsername: v.optional(v.string()),
+    authorBadge: v.optional(socialBadgeValidator),
   },
   handler: async (ctx, args) => {
     const existing = await getPackageByPackageId(ctx, args.packageId);
@@ -383,6 +394,7 @@ export const createFirstReleaseRecord = internalMutation({
       updatedAt: now,
       ...(args.iconUrl ? { iconUrl: args.iconUrl } : {}),
       ...(args.authorUsername ? { authorUsername: args.authorUsername } : {}),
+      ...(args.authorBadge ? { authorBadge: args.authorBadge } : {}),
     });
 
     const releaseRef = await ctx.db.insert("store_package_releases", {
@@ -426,6 +438,7 @@ export const createUpdateReleaseRecord = internalMutation({
     commits: v.optional(v.array(store_release_commit_validator)),
     iconUrl: v.optional(v.string()),
     authorUsername: v.optional(v.string()),
+    authorBadge: v.optional(socialBadgeValidator),
   },
   handler: async (ctx, args) => {
     const pkg = await getOwnedPackageByPackageId(
@@ -460,6 +473,9 @@ export const createUpdateReleaseRecord = internalMutation({
       updatedAt: now,
       ...(args.iconUrl ? { iconUrl: args.iconUrl } : {}),
       ...(args.authorUsername ? { authorUsername: args.authorUsername } : {}),
+      // Always patch authorBadge — undefined clears a stale badge if
+      // the author has since canceled their subscription.
+      authorBadge: args.authorBadge,
     });
 
     const updatedPackage = await ctx.db.get(pkg._id);
@@ -547,6 +563,81 @@ export const listPublicPackages = query({
         (pkg) => effectiveVisibility(pkg.visibility) === "public",
       ),
     };
+  },
+});
+
+/**
+ * "New on the Store" — public packages ordered by creation time
+ * descending. Distinct from `listPublicPackages` (which orders by
+ * `updatedAt` and surfaces re-releases as recent activity), so a "New"
+ * section actually shows fresh packages rather than older packages
+ * that just pushed an update.
+ */
+export const listNewPublicPackages = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(store_package_validator),
+  handler: async (ctx, args) => {
+    const limit = Math.min(
+      Math.max(args.limit ?? 12, 1),
+      PUBLIC_BROWSE_PAGE_SIZE,
+    );
+    // Scan a bit more than the requested limit so dropped non-public
+    // rows don't shrink the result below the cap. We over-fetch by
+    // 2x with a floor so a small handful of unlisted/private rows
+    // mixed into the head don't visibly thin the New section.
+    return (
+      await ctx.db
+        .query("store_packages")
+        .withIndex("by_visibility_and_createdAt", (q) =>
+          q.eq("visibility", "public"),
+        )
+        .order("desc")
+        .take(Math.max(limit * 2, 24))
+    )
+      .filter((pkg) => effectiveVisibility(pkg.visibility) === "public")
+      .slice(0, limit);
+  },
+});
+
+/**
+ * Active promoted listings, most recently boosted first.
+ *
+ * No UI surface uses this yet — exposing it now so the ad surface
+ * (and the eventual "Sponsored" rail in the For You feed) can ship
+ * without backend churn. `promotedUntil` is filtered client-side
+ * since Convex query ranges across two fields would need a more
+ * specific compound index.
+ */
+export const listPromotedPublicPackages = query({
+  args: {
+    nowMs: v.number(),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(store_package_validator),
+  handler: async (ctx, args) => {
+    const limit = Math.min(
+      Math.max(args.limit ?? 6, 1),
+      PUBLIC_BROWSE_PAGE_SIZE,
+    );
+    const rows = await ctx.db
+      .query("store_packages")
+      .withIndex("by_visibility_and_promoted_and_promotedAt", (q) =>
+        q.eq("visibility", "public").eq("promoted", true),
+      )
+      .order("desc")
+      .take(Math.max(limit * 2, 12));
+    return rows
+      .filter((pkg) => {
+        if (effectiveVisibility(pkg.visibility) !== "public") return false;
+        if (pkg.promoted !== true) return false;
+        if (pkg.promotedUntil !== undefined && pkg.promotedUntil < args.nowMs) {
+          return false;
+        }
+        return true;
+      })
+      .slice(0, limit);
   },
 });
 
@@ -920,6 +1011,7 @@ export const createFirstRelease = action({
         ...(author.authorUsername
           ? { authorUsername: author.authorUsername }
           : {}),
+        ...(author.authorBadge ? { authorBadge: author.authorBadge } : {}),
       },
     );
   },
@@ -993,6 +1085,7 @@ export const createUpdateRelease = action({
         ...(author.authorUsername
           ? { authorUsername: author.authorUsername }
           : {}),
+        ...(author.authorBadge ? { authorBadge: author.authorBadge } : {}),
       },
     );
   },

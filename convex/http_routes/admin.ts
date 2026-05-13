@@ -5,6 +5,7 @@ import { requireAdminRequest } from "../http_shared/admin";
 
 const ADMIN_DELETE_PATH = "/api/admin/delete";
 const ADMIN_BILLING_PLAN_PATH = "/api/admin/billing/plan";
+const ADMIN_STORE_PARTNER_BADGE_PATH = "/api/admin/store/partner-badge";
 const SOCIAL_DELETE_MAX_STEPS = 200;
 
 type AdminDeleteBody = {
@@ -19,6 +20,11 @@ type AdminBillingPlanBody = {
   usageMode?: string;
   subscriptionStatus?: string;
   resetUsage?: boolean;
+};
+
+type AdminPartnerBadgeBody = {
+  ownerId?: string;
+  granted?: boolean;
 };
 
 const jsonResponse = (status: number, body: unknown) =>
@@ -106,6 +112,22 @@ const readBillingPlanBody = async (
   };
 };
 
+const readPartnerBadgeBody = async (
+  request: Request,
+): Promise<{ ownerId: string; granted: boolean } | Response> => {
+  const body = (await parseRequestJson(request)) as AdminPartnerBadgeBody | null;
+  const ownerId = typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
+  if (!ownerId) {
+    return jsonResponse(400, { error: "Missing ownerId." });
+  }
+  if (typeof body?.granted !== "boolean") {
+    return jsonResponse(400, {
+      error: "Missing or invalid 'granted' (must be boolean).",
+    });
+  }
+  return { ownerId, granted: body.granted };
+};
+
 export const registerAdminRoutes = (http: HttpRouter) => {
   http.route({
     path: ADMIN_BILLING_PLAN_PATH,
@@ -120,6 +142,26 @@ export const registerAdminRoutes = (http: HttpRouter) => {
       return jsonResponse(
         200,
         await ctx.runMutation(internal.billing.setAdminBillingPlan, parsed),
+      );
+    }),
+  });
+
+  http.route({
+    path: ADMIN_STORE_PARTNER_BADGE_PATH,
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const admin = requireAdminRequest(request);
+      if (!admin.ok) return admin.response;
+
+      const parsed = await readPartnerBadgeBody(request);
+      if (parsed instanceof Response) return parsed;
+
+      return jsonResponse(
+        200,
+        await ctx.runMutation(
+          internal.social.profiles.setPartnerBadgeForOwnerInternal,
+          parsed,
+        ),
       );
     }),
   });

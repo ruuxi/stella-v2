@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { socialBadgeValidator } from "./social";
 
 // ── Categories + visibility ──────────────────────────────────────────────────
 
@@ -54,9 +55,23 @@ const storePackageFields = {
   createdAt: v.number(),
   updatedAt: v.number(),
   authorUsername: v.optional(v.string()),
+  // Denormalized snapshot of `social_profiles.badge` for the package's
+  // owner. Written at publish/update time and re-synced when the
+  // author's billing state changes. Listing queries sort on this so
+  // they don't have to join through `billing_profiles`.
+  authorBadge: v.optional(socialBadgeValidator),
   iconUrl: v.optional(v.string()),
   featured: v.optional(v.boolean()),
   featuredAt: v.optional(v.number()),
+  // Paid promotion / advertising. `promoted` listings sort above
+  // organic results in the "For You" feed. `promotedUntil` lets a
+  // scheduled job (not implemented yet) auto-clear expired
+  // placements. We deliberately do NOT surface a "Sponsored" pill in
+  // the UI yet — this is schema + ranking prep so the ad surface can
+  // ship later without another migration.
+  promoted: v.optional(v.boolean()),
+  promotedAt: v.optional(v.number()),
+  promotedUntil: v.optional(v.number()),
   visibility: v.optional(store_package_visibility_validator),
   installCount: v.optional(v.number()),
 };
@@ -110,6 +125,19 @@ export const storeSchema = {
       "visibility",
       "category",
       "updatedAt",
+    ])
+    // "New" section ordering — surface the most recently created
+    // public packages without re-sorting the whole "by_updatedAt"
+    // page client-side. updatedAt mutates on every release, so
+    // creation-time is the right key for "new on the store".
+    .index("by_visibility_and_createdAt", ["visibility", "createdAt"])
+    // Promoted listings live in their own sort bucket — query by
+    // visibility + promoted so we can page sponsored placements
+    // separately from organic results.
+    .index("by_visibility_and_promoted_and_promotedAt", [
+      "visibility",
+      "promoted",
+      "promotedAt",
     ])
     .searchIndex("search_text", {
       searchField: "searchText",

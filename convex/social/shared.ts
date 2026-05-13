@@ -9,6 +9,7 @@ import {
   requireConnectedUserIdAction,
 } from "../auth";
 import {
+  socialBadgeValidator,
   socialMessageKindValidator,
   socialRelationshipStatusValidator,
   socialRoomKindValidator,
@@ -72,6 +73,8 @@ export const socialProfileValidator = v.object({
   username: v.string(),
   avatarUrl: v.optional(v.string()),
   lastSeenIncomingFriendRequestAt: v.optional(v.number()),
+  badge: v.optional(socialBadgeValidator),
+  partnerGrantedAt: v.optional(v.number()),
   createdAt: v.number(),
   updatedAt: v.number(),
 });

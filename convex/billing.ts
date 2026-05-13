@@ -1110,6 +1110,13 @@ export const syncSubscriptionFromStripe = internalMutation({
       });
     }
 
+    // Keep the Store author-badge in sync with billing state. Partner
+    // grants are preserved by the recompute itself.
+    await ctx.runMutation(
+      internal.social.profiles.recomputeBadgeForOwnerInternal,
+      { ownerId },
+    );
+
     return { updated: true, ownerId, activePlan: nextPlan };
   },
 });
@@ -1170,6 +1177,11 @@ export const setAdminBillingPlan = internalMutation({
         updatedAt: now,
       });
     }
+
+    await ctx.runMutation(
+      internal.social.profiles.recomputeBadgeForOwnerInternal,
+      { ownerId },
+    );
 
     return {
       ownerId,

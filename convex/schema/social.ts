@@ -51,12 +51,38 @@ export const stellaSessionFileOpTypeValidator = v.union(
   v.literal("mkdir"),
 );
 
+/**
+ * Author badge surfaced next to usernames in the Store.
+ *
+ * - "verified" — derived from billing. Any active paid subscription
+ *   (go/pro/plus/ultra) grants it; lapses back to none on cancel.
+ *   Recomputed by `social.profiles.recomputeBadgeForOwnerInternal`
+ *   whenever billing state changes, and denormalized onto
+ *   `store_packages.authorBadge` so listing queries don't have to
+ *   join through `billing_profiles`.
+ * - "partner" — manually granted by an admin for enterprise/brand
+ *   partners (think "Microsoft ships an app for Stella"). Outranks
+ *   verified, and persists independent of billing state.
+ *
+ * Keep the literal set narrow — every new value needs matching
+ * recompute + denormalize logic on the store package side.
+ */
+export const socialBadgeValidator = v.union(
+  v.literal("verified"),
+  v.literal("partner"),
+);
+
 export const socialSchema = {
   social_profiles: defineTable({
     ownerId: v.string(),
     username: v.string(),
     avatarUrl: v.optional(v.string()),
     lastSeenIncomingFriendRequestAt: v.optional(v.number()),
+    // See `socialBadgeValidator`. Absent = no badge.
+    badge: v.optional(socialBadgeValidator),
+    // Partner grants are sticky — store the grant timestamp so we can
+    // expose it in admin tooling without trawling stripe events.
+    partnerGrantedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

@@ -2,10 +2,8 @@ import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
-  internalAction,
   internalMutation,
   internalQuery,
-  type ActionCtx,
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
@@ -16,31 +14,6 @@ import {
   enforceMutationRateLimit,
   RATE_STANDARD,
 } from "../lib/rate_limits";
-import { resolveModelConfig, type ResolvedModelConfig } from "../agent/model_resolver";
-import {
-  ORCHESTRATOR_THREAD_COMPACTION_TRIGGER_TOKENS,
-  SUBAGENT_THREAD_COMPACTION_TRIGGER_TOKENS,
-  THREAD_COMPACTION_KEEP_RECENT_TOKENS,
-} from "../agent/context_budget";
-import {
-  findThreadCompactionCutByTokens,
-  formatThreadMessagesForCompaction,
-} from "./thread_compaction_format";
-import {
-  THREAD_COMPACTION_PROMPT,
-  THREAD_COMPACTION_SYSTEM_PROMPT,
-  THREAD_COMPACTION_UPDATE_PROMPT,
-  TURN_PREFIX_SUMMARY_PROMPT,
-} from "../prompts/index";
-import {
-  assertManagedUsageAllowed,
-  scheduleManagedUsage,
-} from "../lib/managed_billing";
-import {
-  assistantText,
-  completeManagedChat,
-  usageSummaryFromAssistant,
-} from "../runtime_ai/managed";
 
 const MAX_THREADS_PER_CONVERSATION = 16;
 /**
@@ -53,9 +26,7 @@ const MAX_THREADS_PER_CONVERSATION = 16;
  */
 const MAX_THREAD_MESSAGES_PER_QUERY = 4_000;
 const MAX_CONTENT_LENGTH = 500_000;
-const MIN_MESSAGES_FOR_COMPACTION = 6;
 const THREAD_SWEEP_BATCH_SIZE = 200;
-const THREAD_COMPACTION_MAX_RETRIES = 2;
 
 export const THREAD_IDLE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 export const THREAD_ARCHIVE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
@@ -125,51 +96,6 @@ export const deriveThreadLifecycleStatus = (args: {
     return "idle";
   }
   return "active";
-};
-
-const generateCompactionTextWithRetry = async (
-  ctx: Pick<ActionCtx, "scheduler">,
-  args: {
-    ownerId: string;
-    conversationId: Id<"conversations">;
-    agentType: string;
-  },
-  config: ResolvedModelConfig,
-  promptBody: string,
-): Promise<string> => {
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt <= THREAD_COMPACTION_MAX_RETRIES; attempt += 1) {
-    try {
-      const startedAt = Date.now();
-      const message = await completeManagedChat({
-        config,
-        context: {
-          systemPrompt: THREAD_COMPACTION_SYSTEM_PROMPT,
-          messages: [{
-            role: "user",
-            content: [{ type: "text", text: promptBody }],
-            timestamp: Date.now(),
-          }],
-        },
-      });
-      await scheduleManagedUsage(ctx, {
-        ownerId: args.ownerId,
-        conversationId: args.conversationId,
-        agentType: args.agentType,
-        model: config.model,
-        durationMs: Date.now() - startedAt,
-        success: true,
-        usage: usageSummaryFromAssistant(message),
-      });
-      return assistantText(message);
-    } catch (error) {
-      lastError = error;
-      if (attempt >= THREAD_COMPACTION_MAX_RETRIES) {
-        throw error;
-      }
-    }
-  }
-  throw lastError ?? new Error("Compaction summary generation failed");
 };
 
 // ---------------------------------------------------------------------------
@@ -528,131 +454,6 @@ export const deleteMessagesBefore = internalMutation({
       deleted: messages.length,
       hasMore: messages.length === DELETE_MESSAGES_BATCH_SIZE,
     };
-  },
-});
-
-// ---------------------------------------------------------------------------
-// compactThread (internal action - uses LLM to summarize old messages)
-// ---------------------------------------------------------------------------
-
-export const compactThread = internalAction({
-  args: {
-    threadId: v.id("threads"),
-    force: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args) => {
-    // 1. Load thread metadata
-    const thread = await ctx.runQuery(internal.data.threads.getThreadById, {
-      threadId: args.threadId,
-    });
-    if (!thread || thread.status !== "active") return null;
-    const conversation = await ctx.runQuery(internal.conversations.getById, {
-      id: thread.conversationId,
-    });
-    if (!conversation) return null;
-    const modelAccess = await assertManagedUsageAllowed(ctx, conversation.ownerId);
-    const triggerTokens = thread.name === "Main"
-      ? ORCHESTRATOR_THREAD_COMPACTION_TRIGGER_TOKENS
-      : SUBAGENT_THREAD_COMPACTION_TRIGGER_TOKENS;
-    if (!args.force && thread.totalTokenEstimate < triggerTokens) {
-      return null;
-    }
-
-    // 2. Load all messages
-    const messages = await ctx.runQuery(internal.data.threads.loadThreadMessages, {
-      threadId: args.threadId,
-    });
-
-    // 3. Skip if too few messages
-    if (messages.length <= MIN_MESSAGES_FOR_COMPACTION) return null;
-
-    // 4. Split by token budget. If a turn is split, summarize the dropped prefix separately.
-    const cut = findThreadCompactionCutByTokens(
-      messages,
-      THREAD_COMPACTION_KEEP_RECENT_TOKENS,
-    );
-    const oldMessages = messages.slice(0, cut.historyEndIndex);
-    const turnPrefixMessages = cut.isSplitTurn
-      ? messages.slice(cut.turnStartIndex, cut.recentStartIndex)
-      : [];
-    const recentMessages = messages.slice(cut.recentStartIndex);
-
-    if (oldMessages.length === 0 && turnPrefixMessages.length === 0) return null;
-
-    // 5. Format old messages for summarization (tool-aware, role-aware).
-    const oldText = formatThreadMessagesForCompaction(
-      oldMessages.map((m: { role: string; content: string }) => ({
-        role: m.role,
-        content: m.content,
-      })),
-    );
-
-    // 6. Call LLM to summarize or incrementally update.
-    const hasPreviousSummary = Boolean(thread.summary && thread.summary.trim().length > 0);
-      const config = await resolveModelConfig(ctx, "thread_compaction_summary", conversation.ownerId, {
-        access: modelAccess,
-      });
-
-    const previousSummary = thread.summary?.trim() ?? "";
-    let baseSummary = hasPreviousSummary ? previousSummary : "";
-    if (oldText.trim().length > 0) {
-      const promptBody = [
-        `<conversation>\n${oldText}\n</conversation>`,
-        hasPreviousSummary ? `<previous-summary>\n${previousSummary}\n</previous-summary>` : "",
-        hasPreviousSummary ? THREAD_COMPACTION_UPDATE_PROMPT : THREAD_COMPACTION_PROMPT,
-      ]
-        .filter((part) => part.length > 0)
-        .join("\n\n");
-
-      baseSummary = await generateCompactionTextWithRetry(
-        ctx,
-        {
-          ownerId: conversation.ownerId,
-          conversationId: conversation._id,
-          agentType: "system:thread_compaction",
-        },
-        config,
-        promptBody,
-      );
-    }
-
-    let turnPrefixSummary = "";
-    if (turnPrefixMessages.length > 0) {
-      const turnPrefixText = formatThreadMessagesForCompaction(
-        turnPrefixMessages.map((m: { role: string; content: string }) => ({
-          role: m.role,
-          content: m.content,
-        })),
-      );
-      if (turnPrefixText.trim().length > 0) {
-        turnPrefixSummary = await generateCompactionTextWithRetry(
-          ctx,
-          {
-            ownerId: conversation.ownerId,
-            conversationId: conversation._id,
-            agentType: "system:thread_compaction_prefix",
-          },
-          config,
-          `<conversation>\n${turnPrefixText}\n</conversation>\n\n${TURN_PREFIX_SUMMARY_PROMPT}`,
-        );
-      }
-    }
-
-    const summary = [baseSummary, turnPrefixSummary ? `---\n\n${turnPrefixSummary}` : ""]
-      .filter((part) => part.trim().length > 0)
-      .join("\n\n")
-      .trim();
-    if (summary.length === 0) return null;
-
-    // 7. Apply the compaction result in one mutation transaction.
-    const firstRecentOrdinal = recentMessages[0].ordinal;
-    await ctx.runMutation(internal.data.threads.finalizeThreadCompaction, {
-      threadId: args.threadId,
-      keepFromOrdinal: firstRecentOrdinal,
-      summary,
-    });
-
-    return null;
   },
 });
 

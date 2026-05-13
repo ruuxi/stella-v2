@@ -55,7 +55,6 @@ export const MODEL_MODES = [
   "standard",
   "priority",
   "light",
-  "compact",
   "builder",
   "designer",
   "vision",
@@ -101,20 +100,6 @@ const gatewayOptions = (
   },
 });
 
-const MERCURY_MODEL_CONFIG: ModeConfig = {
-  model: "inception/mercury-2",
-  fallbackMode: "standard",
-  managedGatewayProvider: "openrouter",
-  temperature: 1.0,
-  maxOutputTokens: 8192,
-  providerOptions: {
-    openai: {
-      reasoningEffort: "medium",
-    },
-    ...gatewayOptions("openrouter"),
-  },
-};
-
 const GPT_5_4_MINI_MODEL_CONFIG: ModeConfig = {
   model: "openai/gpt-5.4-mini",
   fallbackMode: "light",
@@ -129,7 +114,6 @@ const GPT_5_4_MINI_MODEL_CONFIG: ModeConfig = {
 };
 
 const INTERNAL_MODEL_CONFIGS = {
-  mercury: MERCURY_MODEL_CONFIG,
   gpt_5_4_mini: GPT_5_4_MINI_MODEL_CONFIG,
 } as const satisfies Record<string, ModeConfig>;
 
@@ -185,20 +169,6 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
         order: ["openrouter"],
         data_collection: "deny",
       },
-    },
-  },
-
-  compact: {
-    model: "accounts/fireworks/routers/kimi-k2p5-turbo",
-    fallbackMode: "light",
-    managedGatewayProvider: "fireworks",
-    temperature: 1.0,
-    maxOutputTokens: 12096,
-    providerOptions: {
-      openai: {
-        reasoningEffort: "medium",
-      },
-      ...gatewayOptions("fireworks"),
     },
   },
 
@@ -348,14 +318,8 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
 
   schedule: "standard",
   synthesis: "gpt_5_4_mini",
-  session_compaction_summary: "compact",
-  thread_compaction_summary: "compact",
   welcome: "standard",
-  mercury: "mercury",
   music_prompt: "vision",
-  search_html: "mercury",
-  store_security_review: "standard",
-  store_image_safety_review: "vision",
   store_asset_metadata: "vision",
   task_summary: "light",
 
@@ -364,12 +328,6 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   // work; stage-1 extraction remains the General rollout summary.
   dream: "standard",
   chronicle: "light",
-
-  // Background "should we update the user's home Ideas list?" pass that
-  // fires every few General-agent finalizes. Cheap free-tier model is
-  // sufficient — it weighs the current list against fresh activity and
-  // decides whether to replace it without paying the strong-tier cost.
-  home_suggestions: "light",
 };
 
 const buildResolvedModeConfig = (

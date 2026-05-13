@@ -319,7 +319,6 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   schedule: "standard",
   synthesis: "gpt_5_4_mini",
   welcome: "standard",
-  music_prompt: "vision",
   store_asset_metadata: "vision",
 
   // Memory pipeline: Chronicle stays cheap (minute ticks). Dream consolidates

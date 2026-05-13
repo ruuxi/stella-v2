@@ -321,7 +321,6 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   welcome: "standard",
   music_prompt: "vision",
   store_asset_metadata: "vision",
-  task_summary: "light",
 
   // Memory pipeline: Chronicle stays cheap (minute ticks). Dream consolidates
   // thread summaries + extensions on the same tier as other standard agent

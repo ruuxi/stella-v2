@@ -1,7 +1,8 @@
 import {
-  canClientOverrideModelForAgent,
   getModeConfig,
   getModelConfig,
+  isStellaModelAllowedForAudience,
+  LOCKED_AGENT_TYPES,
   type ManagedModelAudience,
 } from "../agent/model";
 import type { ManagedGatewayProvider } from "../lib/managed_gateway";
@@ -32,15 +33,19 @@ export function resolveRequestedStellaModel(
       ? requestBody.model.trim()
       : STELLA_DEFAULT_MODEL;
 
-  // Anonymous/free/go (and go's downgraded fallback) cannot pick a custom
-  // model. Silently coerce to the agent default so the desktop client doesn't
-  // surface its model-rejection toast — the request still succeeds, just on
-  // the tier-appropriate backend-chosen model. Per-agent locks (currently
-  // only `chronicle`, which ticks every minute against captured screen
-  // activity) ignore the client model regardless of audience.
-  const requestedModel = canClientOverrideModelForAgent(agentType, audience)
-    ? clientRequestedModel
-    : STELLA_DEFAULT_MODEL;
+  // Anonymous/free/go (and go's downgraded fallback) are pinned to the
+  // backend-chosen model for most picks, with one carve-out: a small
+  // allowlist of additional presets (currently `stella/light`) they may
+  // still opt into. `isStellaModelAllowedForAudience` is the single
+  // source of truth — the same predicate the `/api/models` endpoint uses
+  // when telling the desktop picker which rows to disable. Per-agent
+  // locks (currently only `chronicle`) ignore the client model
+  // regardless of audience.
+  const requestedModel =
+    !LOCKED_AGENT_TYPES.has(agentType) &&
+    isStellaModelAllowedForAudience(clientRequestedModel, audience)
+      ? clientRequestedModel
+      : STELLA_DEFAULT_MODEL;
 
   if (!isStellaModel(requestedModel)) {
     throw new Error(`Unsupported Stella model selection: ${requestedModel}`);

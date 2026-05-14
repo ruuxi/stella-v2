@@ -135,6 +135,7 @@ export const stellaProviderModels = httpAction(async (ctx, request) =>
           provider: model.provider,
           type: model.type,
           upstreamModel: model.upstreamModel,
+          allowedForAudience: model.allowedForAudience,
         })),
         defaults: listStellaDefaultSelections(audience),
         updatedAt: STELLA_MODEL_CATALOG_UPDATED_AT,

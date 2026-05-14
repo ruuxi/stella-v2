@@ -3,6 +3,7 @@ import {
   getModeConfig,
   getModelConfig,
   isModelMode,
+  isStellaModelAllowedForAudience,
   listManagedModelIds,
   type ManagedModelAudience,
   type ModelMode,
@@ -20,7 +21,7 @@ export const STELLA_DESIGNER_MODEL = `${STELLA_PROVIDER}/designer`;
 export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
 // Bump this whenever Stella alias/default mappings change. Desktop subscribes
 // to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 4, 11);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 4, 14);
 
 export type StellaCatalogModel = {
   id: string;
@@ -28,6 +29,14 @@ export type StellaCatalogModel = {
   provider: typeof STELLA_PROVIDER;
   upstreamModel: string;
   type: "language" | "multimodal";
+  /**
+   * Whether the requesting audience may pick this model. The catalog
+   * endpoint computes this per request so the desktop picker can
+   * disable rows the backend would silently coerce away — keeping the
+   * UI in sync with the actual enforcement in
+   * `stella_provider/request.ts`.
+   */
+  allowedForAudience: boolean;
 };
 
 export type StellaDefaultEntry = {
@@ -197,6 +206,7 @@ export const listStellaCatalogModels = (
     provider: "stella",
     upstreamModel: "",
     type: "language",
+    allowedForAudience: true,
   },
   ...getStaticStellaAliases(audience).map<StellaCatalogModel>((alias) => ({
     id: alias.id,
@@ -204,14 +214,19 @@ export const listStellaCatalogModels = (
     provider: STELLA_PROVIDER,
     upstreamModel: alias.upstreamModel,
     type: alias.type,
+    allowedForAudience: isStellaModelAllowedForAudience(alias.id, audience),
   })),
-  ...listUpstreamManagedModels().map<StellaCatalogModel>((upstreamModel) => ({
-    id: toStellaModelId(upstreamModel),
-    name: deriveDisplayName(upstreamModel),
-    provider: STELLA_PROVIDER,
-    upstreamModel,
-    type: "language",
-  })),
+  ...listUpstreamManagedModels().map<StellaCatalogModel>((upstreamModel) => {
+    const id = toStellaModelId(upstreamModel);
+    return {
+      id,
+      name: deriveDisplayName(upstreamModel),
+      provider: STELLA_PROVIDER,
+      upstreamModel,
+      type: "language",
+      allowedForAudience: isStellaModelAllowedForAudience(id, audience),
+    };
+  }),
 ];
 
 export const listStellaDefaultSelections = (

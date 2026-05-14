@@ -285,6 +285,30 @@ export const canOverrideStellaModel = (audience: ManagedModelAudience): boolean 
   !RESTRICTED_MODEL_OVERRIDE_AUDIENCES.has(audience);
 
 /**
+ * Stella catalog model ids that restricted-tier audiences (anonymous /
+ * free / go / go_fallback) may still pick even though
+ * `canOverrideStellaModel` is false. The default model is implicitly
+ * always allowed; entries here are *additional* presets these tiers can
+ * override to. Currently just the free-tier `Light` model so users who
+ * want a small/cheap fallback can opt in without upgrading.
+ *
+ * Single source of truth for both the request-time coercion in
+ * `stella_provider/request.ts` and the `allowedForAudience` flag the
+ * `/api/models` endpoint exposes to the desktop picker.
+ */
+const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
+  new Set<string>(["stella/light"]);
+
+export const isStellaModelAllowedForAudience = (
+  modelId: string,
+  audience: ManagedModelAudience,
+): boolean => {
+  if (modelId === "stella/default") return true;
+  if (canOverrideStellaModel(audience)) return true;
+  return RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId);
+};
+
+/**
  * Agent types whose model selection is locked on the backend regardless of
  * audience tier. The client can request whatever model it likes; we ignore
  * it and use whatever the per-tier `TASK_MODEL_SELECTIONS` mapping resolves to.
@@ -298,12 +322,6 @@ export const canOverrideStellaModel = (audience: ManagedModelAudience): boolean 
 export const LOCKED_AGENT_TYPES: ReadonlySet<string> = new Set<string>([
   "chronicle",
 ]);
-
-export const canClientOverrideModelForAgent = (
-  agentType: string,
-  audience: ManagedModelAudience,
-): boolean =>
-  !LOCKED_AGENT_TYPES.has(agentType) && canOverrideStellaModel(audience);
 
 export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   [AGENT_IDS.OFFLINE_RESPONDER]: "standard",

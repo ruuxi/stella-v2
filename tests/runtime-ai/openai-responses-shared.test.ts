@@ -152,4 +152,134 @@ describe("backend OpenAI Responses stream conversion", () => {
     expect(seen).toEqual(["Hel", "lo", " world"]);
     expect(output.content).toEqual([{ type: "text", text: "Hello world" }]);
   });
+
+  it("does not duplicate text when output_item.added arrives after output_text.delta (Fireworks Kimi K2P6 ordering)", async () => {
+    const output: AssistantMessage = {
+      role: "assistant",
+      content: [],
+      api: "openai-responses",
+      provider: "fireworks",
+      model: "accounts/fireworks/models/kimi-k2p6",
+      usage,
+      stopReason: "stop",
+      timestamp: 1,
+    };
+    const stream = new AssistantMessageEventStream();
+    const events = [
+      { type: "response.output_text.delta", delta: "Hello world" },
+      {
+        type: "response.output_item.added",
+        item: {
+          type: "message",
+          id: "msg_0",
+          role: "assistant",
+          content: [{ type: "output_text", text: "", annotations: [] }],
+          status: "in_progress",
+        },
+      },
+      { type: "response.output_text.done", text: "Hello world" },
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "message",
+          id: "msg_0",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Hello world", annotations: [] }],
+          status: "completed",
+        },
+      },
+      { type: "response.completed", response: { status: "completed" } },
+    ];
+    const seenDeltas: string[] = [];
+    const seenStarts: number[] = [];
+
+    const reader = (async () => {
+      for await (const event of stream) {
+        if (event.type === "text_delta") {
+          seenDeltas.push(event.delta);
+        } else if (event.type === "text_start") {
+          seenStarts.push(event.contentIndex);
+        }
+      }
+    })();
+    await processResponsesStream(
+      events as Parameters<typeof processResponsesStream>[0],
+      output,
+      stream,
+      makeModel("fireworks"),
+    );
+    stream.end();
+    await reader;
+
+    expect(seenStarts).toEqual([0]);
+    expect(seenDeltas).toEqual(["Hello world"]);
+    expect(output.content).toEqual([
+      expect.objectContaining({ type: "text", text: "Hello world" }),
+    ]);
+  });
+
+  it("does not resurrect a finalized text block when output_text.done arrives after output_item.done", async () => {
+    const output: AssistantMessage = {
+      role: "assistant",
+      content: [],
+      api: "openai-responses",
+      provider: "fireworks",
+      model: "accounts/fireworks/models/kimi-k2p6",
+      usage,
+      stopReason: "stop",
+      timestamp: 1,
+    };
+    const stream = new AssistantMessageEventStream();
+    const events = [
+      {
+        type: "response.output_item.added",
+        item: {
+          type: "message",
+          id: "msg_0",
+          role: "assistant",
+          content: [{ type: "output_text", text: "", annotations: [] }],
+          status: "in_progress",
+        },
+      },
+      { type: "response.output_text.delta", delta: "Hello world" },
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "message",
+          id: "msg_0",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Hello world", annotations: [] }],
+          status: "completed",
+        },
+      },
+      { type: "response.output_text.done", text: "Hello world" },
+      { type: "response.completed", response: { status: "completed" } },
+    ];
+    const seenDeltas: string[] = [];
+    const seenStarts: number[] = [];
+
+    const reader = (async () => {
+      for await (const event of stream) {
+        if (event.type === "text_delta") {
+          seenDeltas.push(event.delta);
+        } else if (event.type === "text_start") {
+          seenStarts.push(event.contentIndex);
+        }
+      }
+    })();
+    await processResponsesStream(
+      events as Parameters<typeof processResponsesStream>[0],
+      output,
+      stream,
+      makeModel("fireworks"),
+    );
+    stream.end();
+    await reader;
+
+    expect(seenStarts).toEqual([0]);
+    expect(seenDeltas).toEqual(["Hello world"]);
+    expect(output.content).toEqual([
+      expect.objectContaining({ type: "text", text: "Hello world" }),
+    ]);
+  });
 });

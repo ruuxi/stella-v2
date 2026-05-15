@@ -404,10 +404,23 @@ export async function processResponsesStream<TApi extends Api>(
         output.content.push(currentBlock);
         stream.push({ type: "thinking_start", contentIndex: contentIndex(), partial: output });
       } else if (event.item.type === "message") {
-        currentItem = event.item;
-        currentBlock = { type: "text", text: "" };
-        output.content.push(currentBlock);
-        stream.push({ type: "text_start", contentIndex: contentIndex(), partial: output });
+        // Fireworks's Responses API for kimi-k2p6 emits
+        // `output_text.delta` events BEFORE `output_item.added` for the
+        // message they belong to. `ensureTextBlock` (called from the
+        // delta handler) lazy-creates a text block in that case. When
+        // the real `output_item.added` then arrives, we must adopt the
+        // existing block instead of allocating a duplicate — otherwise
+        // every assistant reply ends up rendered twice (textA from the
+        // lazy creation, textB from this handler, both with the full
+        // text once `output_item.done` writes `item.content` into B).
+        if (currentBlock?.type === "text") {
+          currentItem = event.item;
+        } else {
+          currentItem = event.item;
+          currentBlock = { type: "text", text: "" };
+          output.content.push(currentBlock);
+          stream.push({ type: "text_start", contentIndex: contentIndex(), partial: output });
+        }
       } else if (event.item.type === "function_call") {
         currentItem = event.item;
         currentBlock = {
@@ -462,7 +475,15 @@ export async function processResponsesStream<TApi extends Api>(
     }
 
     if (event.type === "response.output_text.done" || event.type === "response.refusal.done") {
-      const textBlock = ensureTextBlock();
+      // If we've already finalized the text block (e.g. via a prior
+      // `output_item.done` for the same message), do NOT lazy-resurrect
+      // a new empty block via `ensureTextBlock`. Otherwise we'd push a
+      // fresh `text_start` + `text_delta` carrying the full final text
+      // and double the assistant reply in the UI.
+      if (currentBlock?.type !== "text") {
+        continue;
+      }
+      const textBlock = currentBlock;
       const finalText =
         "text" in event && typeof event.text === "string"
           ? event.text

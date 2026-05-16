@@ -154,6 +154,71 @@ export const completeRemoteTurn = mutation({
   },
 });
 
+/**
+ * Send an unsolicited follow-up message to the connector that initiated
+ * the most recent remote turn for a conversation. Routing metadata is
+ * read from the original `remote_turn_request` row (never trust the
+ * caller). Unlike `completeRemoteTurn`, this does NOT flip any request
+ * lifecycle state — the original request stays in its existing terminal
+ * state ("fulfilled" after the first reply landed).
+ *
+ * Used by the desktop runtime to forward later assistant messages
+ * produced after the orchestrator's first turn (e.g. responses to
+ * spawned-agent completion notices) back to the user's phone/Slack/etc.
+ * while the conversation is still being driven from that connector.
+ */
+export const sendConnectorFollowup = mutation({
+  args: {
+    requestId: v.string(),
+    conversationId: v.id("conversations"),
+    text: v.string(),
+    deviceId: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const conversation = await requireConversationOwner(ctx, args.conversationId);
+    await enforceMutationRateLimit(
+      ctx,
+      "connector_send_followup",
+      conversation.ownerId,
+      RATE_HOT_PATH,
+    );
+
+    const trimmed = args.text.trim();
+    if (!trimmed) return null;
+
+    const request = await findRemoteTurnRequest(ctx, args.requestId);
+    if (!request || request.type !== "remote_turn_request") {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Invalid or missing remote_turn_request",
+      });
+    }
+    if (request.conversationId !== args.conversationId) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Request does not belong to this conversation",
+      });
+    }
+
+    const reqPayload = request.payload as Record<string, unknown>;
+    const provider = reqPayload.provider as string;
+    const deliveryMeta = reqPayload.deliveryMeta as Record<string, unknown>;
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.channels.connector_delivery.deliverConnectorFollowup,
+      {
+        provider,
+        deliveryMeta: JSON.parse(JSON.stringify(deliveryMeta ?? {})),
+        text: trimmed,
+      },
+    );
+
+    return null;
+  },
+});
+
 // ─── Shared delivery logic (callable from any action in the same runtime) ───
 
 type DeliveryCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
@@ -166,40 +231,50 @@ type DeliveryArgs = {
   text: string;
 };
 
+async function dispatchConnectorDelivery(
+  ctx: Pick<ActionCtx, "runQuery">,
+  args: { provider: string; deliveryMeta: Record<string, unknown>; text: string },
+): Promise<void> {
+  const meta = args.deliveryMeta;
+  switch (args.provider) {
+    case "slack":
+      await deliverSlack(ctx, meta, args.text);
+      return;
+    case "telegram":
+      await deliverTelegram(meta, args.text);
+      return;
+    case "discord":
+      await deliverDiscord(meta, args.text);
+      return;
+    case "google_chat":
+      await deliverGoogleChat(meta, args.text);
+      return;
+    case "teams":
+      await deliverTeams(meta, args.text);
+      return;
+    case "linq":
+      await deliverLinq(meta, args.text);
+      return;
+    case "stella_app":
+      return;
+    default:
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: `Unknown delivery provider: ${args.provider}`,
+      });
+  }
+}
+
 async function deliverToConnectorCore(
   ctx: DeliveryCtx,
   args: DeliveryArgs,
 ): Promise<void> {
-  const meta = args.deliveryMeta;
-
   try {
-    switch (args.provider) {
-      case "slack":
-        await deliverSlack(ctx, meta, args.text);
-        break;
-      case "telegram":
-        await deliverTelegram(meta, args.text);
-        break;
-      case "discord":
-        await deliverDiscord(meta, args.text);
-        break;
-      case "google_chat":
-        await deliverGoogleChat(meta, args.text);
-        break;
-      case "teams":
-        await deliverTeams(meta, args.text);
-        break;
-      case "linq":
-        await deliverLinq(meta, args.text);
-        break;
-      case "stella_app":
-        break;
-      default:
-        throw new ConvexError({
-          code: "INVALID_ARGUMENT",
-          message: `Unknown delivery provider: ${args.provider}`,
-        });
-    }
+    await dispatchConnectorDelivery(ctx, {
+      provider: args.provider,
+      deliveryMeta: args.deliveryMeta,
+      text: args.text,
+    });
 
     // Mark fulfilled AFTER successful delivery — patches the original
     // `remote_turn_request` row in place.
@@ -381,6 +456,30 @@ export const rescueSingleTurn = internalAction({
       userMessageId: args.userMessageId,
     });
 
+    return null;
+  },
+});
+
+// ─── Internal Action (delivers a follow-up message — no lifecycle update) ───
+export const deliverConnectorFollowup = internalAction({
+  args: {
+    provider: v.string(),
+    deliveryMeta: jsonValueValidator,
+    text: v.string(),
+  },
+  handler: async (ctx, args) => {
+    try {
+      await dispatchConnectorDelivery(ctx, {
+        provider: args.provider,
+        deliveryMeta: args.deliveryMeta as Record<string, unknown>,
+        text: args.text,
+      });
+    } catch (error) {
+      console.error(
+        `[connector_delivery] Follow-up delivery failed for ${args.provider}:`,
+        error,
+      );
+    }
     return null;
   },
 });

@@ -89,6 +89,7 @@ const subscriptionStatusReturnValidator = v.object({
     go: planConfigShapeValidator,
     pro: planConfigShapeValidator,
     plus: planConfigShapeValidator,
+    ultra: planConfigShapeValidator,
   }),
 });
 
@@ -1635,6 +1636,7 @@ export const getSubscriptionStatus = query({
       go: planCatalog.go,
       pro: planCatalog.pro,
       plus: planCatalog.plus,
+      ultra: planCatalog.ultra,
     };
 
     if (!identity) {

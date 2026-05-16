@@ -105,7 +105,6 @@ const GPT_5_4_MINI_MODEL_CONFIG: ModeConfig = {
   fallbackMode: "light",
   managedGatewayProvider: "openai",
   temperature: 1.0,
-  maxOutputTokens: 30000,
   providerOptions: {
     openai: {
       reasoningEffort: "low",
@@ -123,13 +122,20 @@ type TaskModelSelection = ModelMode | InternalModelConfigKey;
 const isInternalModelConfigKey = (value: string): value is InternalModelConfigKey =>
   Object.prototype.hasOwnProperty.call(INTERNAL_MODEL_CONFIGS, value);
 
+// Note: `maxOutputTokens` is intentionally omitted from every mode
+// except `designer` (Anthropic). Hard caps truncate mid-sentence or
+// mid-tool-call when hit, and on reasoning models the cap can be
+// exhausted by thinking with zero budget left for the visible
+// answer. Trust the model to self-terminate; the desktop runtime's
+// degenerate-response retry handles pathological terminations.
+// Anthropic's Messages API requires `max_tokens`, so `designer`
+// keeps its value as a protocol requirement, not a policy choice.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   standard: {
     model: "accounts/fireworks/models/kimi-k2p6",
     fallbackMode: "light",
     managedGatewayProvider: "fireworks",
     temperature: 1.0,
-    maxOutputTokens: 16192,
     providerOptions: {
       openai: {
         reasoningEffort: "medium",
@@ -143,7 +149,6 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
     fallbackMode: "standard",
     managedGatewayProvider: "fireworks",
     temperature: 1.0,
-    maxOutputTokens: 12096,
     providerOptions: {
       openai: {
         reasoningEffort: "medium",
@@ -156,7 +161,6 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
     model: "deepseek/deepseek-v4-flash",
     managedGatewayProvider: "openrouter",
     temperature: 1.0,
-    maxOutputTokens: 4096,
     providerOptions: {
       openai: {
         reasoningEffort: "medium",
@@ -177,7 +181,6 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
     fallbackMode: "light",
     managedGatewayProvider: "openai",
     temperature: 1.0,
-    maxOutputTokens: 32768,
     providerOptions: {
       openai: {
         reasoningEffort: "low",
@@ -190,6 +193,7 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
     fallbackMode: "light",
     managedGatewayProvider: "anthropic",
     temperature: 1.0,
+    // Required by Anthropic's Messages API.
     maxOutputTokens: 16192,
     providerOptions: {
       openai: {
@@ -203,7 +207,6 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
     fallbackMode: "designer",
     managedGatewayProvider: "google",
     temperature: 0.4,
-    maxOutputTokens: 8192,
     providerOptions: {
       ...gatewayOptions("google"),
     },

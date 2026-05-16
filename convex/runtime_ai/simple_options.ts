@@ -11,9 +11,15 @@ export function buildBaseOptions(
   options?: SimpleStreamOptions,
   apiKey?: string,
 ): StreamOptions {
+  // `maxTokens` is intentionally passed through verbatim — no
+  // `model.maxTokens` fallback. Caps truncate output and can be
+  // exhausted by reasoning on thinking models; we rely on callers
+  // (e.g. Anthropic, which requires the field per its protocol) to
+  // set it explicitly. Anthropic's adapter has its own internal
+  // fallback to `model.maxTokens` when nothing is passed in.
   return {
     temperature: options?.temperature,
-    maxTokens: options?.maxTokens || Math.min(model.maxTokens, 32_000),
+    maxTokens: options?.maxTokens,
     signal: options?.signal,
     apiKey: apiKey || options?.apiKey,
     cacheRetention: options?.cacheRetention,

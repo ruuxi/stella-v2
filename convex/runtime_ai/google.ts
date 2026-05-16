@@ -171,7 +171,7 @@ function buildParams(
     config: {
       systemInstruction: context.systemPrompt,
       temperature: options?.temperature,
-      maxOutputTokens: options?.maxTokens ?? model.maxTokens,
+      maxOutputTokens: options?.maxTokens,
       tools: convertTools(context),
       toolConfig: mapToolChoice(context.tools && context.tools.length > 0 ? "auto" : undefined),
       thinkingConfig: budgetTokens !== undefined

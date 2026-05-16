@@ -218,6 +218,162 @@ describe("backend OpenAI Responses stream conversion", () => {
     ]);
   });
 
+  it("ignores a duplicate second wave of output_text.delta after output_item.done (Fireworks Kimi K2P6 duplicate stream)", async () => {
+    const output: AssistantMessage = {
+      role: "assistant",
+      content: [],
+      api: "openai-responses",
+      provider: "fireworks",
+      model: "accounts/fireworks/models/kimi-k2p6",
+      usage,
+      stopReason: "stop",
+      timestamp: 1,
+    };
+    const stream = new AssistantMessageEventStream();
+    const events = [
+      {
+        type: "response.output_item.added",
+        item: {
+          type: "message",
+          id: "msg_0",
+          role: "assistant",
+          content: [{ type: "output_text", text: "", annotations: [] }],
+          status: "in_progress",
+        },
+      },
+      { type: "response.output_text.delta", delta: "Hello world" },
+      { type: "response.output_text.done", text: "Hello world" },
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "message",
+          id: "msg_0",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Hello world", annotations: [] }],
+          status: "completed",
+        },
+      },
+      // Fireworks occasionally re-emits the entire reply as a second wave
+      // of `output_text.delta` events (plus a duplicate `output_item.added`
+      // for the same `msg_id`) AFTER `output_item.done`. Without the
+      // finalized-id guard these would resurrect a second text block and
+      // render the assistant reply twice.
+      {
+        type: "response.output_item.added",
+        item: {
+          type: "message",
+          id: "msg_0",
+          role: "assistant",
+          content: [{ type: "output_text", text: "", annotations: [] }],
+          status: "in_progress",
+        },
+      },
+      { type: "response.output_text.delta", delta: "Hello world" },
+      { type: "response.output_text.done", text: "Hello world" },
+      { type: "response.completed", response: { status: "completed" } },
+    ];
+    const seenDeltas: string[] = [];
+    const seenStarts: number[] = [];
+
+    const reader = (async () => {
+      for await (const event of stream) {
+        if (event.type === "text_delta") {
+          seenDeltas.push(event.delta);
+        } else if (event.type === "text_start") {
+          seenStarts.push(event.contentIndex);
+        }
+      }
+    })();
+    await processResponsesStream(
+      events as Parameters<typeof processResponsesStream>[0],
+      output,
+      stream,
+      makeModel("fireworks"),
+    );
+    stream.end();
+    await reader;
+
+    expect(seenStarts).toEqual([0]);
+    expect(seenDeltas).toEqual(["Hello world"]);
+    expect(output.content).toEqual([
+      expect.objectContaining({ type: "text", text: "Hello world" }),
+    ]);
+  });
+
+  it("still streams a legitimate second assistant message item with a different id", async () => {
+    const output: AssistantMessage = {
+      role: "assistant",
+      content: [],
+      api: "openai-responses",
+      provider: "fireworks",
+      model: "accounts/fireworks/models/kimi-k2p6",
+      usage,
+      stopReason: "stop",
+      timestamp: 1,
+    };
+    const stream = new AssistantMessageEventStream();
+    const events = [
+      {
+        type: "response.output_item.added",
+        item: {
+          type: "message",
+          id: "msg_0",
+          role: "assistant",
+          content: [{ type: "output_text", text: "", annotations: [] }],
+          status: "in_progress",
+        },
+      },
+      { type: "response.output_text.delta", delta: "First" },
+      { type: "response.output_text.done", text: "First" },
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "message",
+          id: "msg_0",
+          role: "assistant",
+          content: [{ type: "output_text", text: "First", annotations: [] }],
+          status: "completed",
+        },
+      },
+      {
+        type: "response.output_item.added",
+        item: {
+          type: "message",
+          id: "msg_1",
+          role: "assistant",
+          content: [{ type: "output_text", text: "", annotations: [] }],
+          status: "in_progress",
+        },
+      },
+      { type: "response.output_text.delta", delta: "Second" },
+      { type: "response.output_text.done", text: "Second" },
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "message",
+          id: "msg_1",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Second", annotations: [] }],
+          status: "completed",
+        },
+      },
+      { type: "response.completed", response: { status: "completed" } },
+    ];
+
+    await processResponsesStream(
+      events as Parameters<typeof processResponsesStream>[0],
+      output,
+      stream,
+      makeModel("fireworks"),
+    );
+    stream.end();
+
+    expect(output.content).toEqual([
+      expect.objectContaining({ type: "text", text: "First" }),
+      expect.objectContaining({ type: "text", text: "Second" }),
+    ]);
+  });
+
   it("does not resurrect a finalized text block when output_text.done arrives after output_item.done", async () => {
     const output: AssistantMessage = {
       role: "assistant",

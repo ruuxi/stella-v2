@@ -372,11 +372,25 @@ export async function processResponsesStream<TApi extends Api>(
     | TextContent
     | (ToolCall & { partialJson: string })
     | null = null;
+  // Set to the item.id of the most recently finalized message item so we can
+  // ignore stray duplicate events that some Fireworks routers emit AFTER
+  // `output_item.done` (e.g. a second wave of `output_text.delta` carrying
+  // the same text, or a repeated `output_item.added` for the same `msg_id`).
+  // Lazy text-block creation must stay disabled in that window — otherwise
+  // `ensureTextBlock` allocates a fresh block and the assistant reply
+  // renders twice (the finalized block + the resurrected block).
+  let lastFinalizedMessageItemId: string | null = null;
 
   const contentIndex = () => output.content.length - 1;
-  const ensureTextBlock = () => {
+  const ensureTextBlock = (): TextContent | null => {
     if (currentItem?.type === "message" && currentBlock?.type === "text") {
       return currentBlock;
+    }
+    // A prior `output_item.done` finalized a message — drop stray text
+    // events (some Fireworks routers re-emit the full reply after
+    // `output_item.done`) instead of resurrecting a duplicate block.
+    if (lastFinalizedMessageItemId !== null) {
+      return null;
     }
     currentItem = {
       type: "message",
@@ -413,6 +427,16 @@ export async function processResponsesStream<TApi extends Api>(
         // every assistant reply ends up rendered twice (textA from the
         // lazy creation, textB from this handler, both with the full
         // text once `output_item.done` writes `item.content` into B).
+        if (
+          lastFinalizedMessageItemId !== null
+          && event.item.id === lastFinalizedMessageItemId
+        ) {
+          // Duplicate `item.added` for an already-finalized message
+          // (Fireworks kimi-k2p6 occasionally re-emits the full reply
+          // after `output_item.done`). Ignore so we don't open a second
+          // text block and render the assistant reply twice.
+          continue;
+        }
         if (currentBlock?.type === "text") {
           currentItem = event.item;
         } else {
@@ -421,6 +445,10 @@ export async function processResponsesStream<TApi extends Api>(
           output.content.push(currentBlock);
           stream.push({ type: "text_start", contentIndex: contentIndex(), partial: output });
         }
+        // A new (different) message item is now in flight — clear the
+        // finalized marker so lazy text-block creation works for any
+        // out-of-order events that belong to *this* item.
+        lastFinalizedMessageItemId = null;
       } else if (event.item.type === "function_call") {
         currentItem = event.item;
         currentBlock = {
@@ -464,6 +492,11 @@ export async function processResponsesStream<TApi extends Api>(
 
     if (event.type === "response.output_text.delta" || event.type === "response.refusal.delta") {
       const textBlock = ensureTextBlock();
+      // `ensureTextBlock` returns null once a message item has already been
+      // finalized — stray duplicate deltas (Fireworks kimi-k2p6 occasionally
+      // re-emits the full reply after `output_item.done`) would otherwise
+      // open a second text block and render the assistant reply twice.
+      if (!textBlock) continue;
       textBlock.text += event.delta;
       stream.push({
         type: "text_delta",
@@ -580,6 +613,7 @@ export async function processResponsesStream<TApi extends Api>(
           partial: output,
         });
         currentBlock = null;
+        lastFinalizedMessageItemId = event.item.id;
       } else if (event.item.type === "function_call") {
         const toolCall: ToolCall = {
           type: "toolCall",

@@ -16,6 +16,7 @@ import {
   SIGN_IN_REQUIRED_ERROR,
   evaluateLinkingDmPolicy,
 } from "./routing_flow";
+import { hashLinqPhone } from "./linq_phone_hash";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -287,10 +288,17 @@ export const verifyLinqLinkCode = mutation({
       return { result: "invalid_code" as const };
     }
 
+    // Never persist the plaintext phone number — the connection is keyed by
+    // an opaque hash so that even a DB dump cannot reveal which numbers are
+    // linked to which accounts. `sendWelcomeMessage` is the only path that
+    // still receives the raw number; it lives transiently in the scheduler
+    // payload for one invocation and is dropped on completion.
+    const phoneHash = await hashLinqPhone(args.phoneNumber);
+
     await ctx.runMutation(internal.channels.utils.createConnection, {
       ownerId,
       provider: "linq",
-      externalUserId: args.phoneNumber,
+      externalUserId: phoneHash,
     });
 
     await ctx.scheduler.runAfter(0, internal.channels.linq.sendWelcomeMessage, {

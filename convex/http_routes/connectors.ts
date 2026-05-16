@@ -6,6 +6,7 @@ import { verifySlackSignature } from "../channels/slack";
 import { verifyGoogleChatJwt } from "../channels/google_chat";
 import { verifyTeamsToken } from "../channels/teams";
 import { isLinqLiveDeployment, verifyLinqSignature } from "../channels/linq";
+import { hashLinqPhone } from "../channels/linq_phone_hash";
 import { consumeWebhookDedup, rateLimitResponse } from "../http_shared/webhook_controls";
 import { jsonResponse } from "../http_shared/cors";
 import { constantTimeEqual } from "../lib/crypto_utils";
@@ -1661,18 +1662,27 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
   
       const incomingChatId = envelope.data?.chat?.id ?? "";
       const linqMessageId = envelope.data?.message?.id;
+      // Hash once and reuse: this becomes the sender's persistent identity
+      // (`channel_connections.externalUserId`) and is also what we feed into
+      // the dedup, rate-limit, and persisted channel envelope so the
+      // plaintext phone never crosses a storage boundary on this code path.
+      // `senderPhone` itself is held in-process for the duration of this
+      // request — only long enough to schedule the downstream actions, which
+      // need it to talk to the live Linq API — and is not persisted by this
+      // handler.
+      const senderPhoneHash = await hashLinqPhone(senderPhone);
       const linqDedupKey = linqMessageId
-        ? `${senderPhone}:${incomingChatId}:${linqMessageId}`
+        ? `${senderPhoneHash}:${incomingChatId}:${linqMessageId}`
         : undefined;
       const linqDedupAllowed = await consumeWebhookDedup(ctx, "linq", linqDedupKey);
       if (!linqDedupAllowed) {
         return new Response("OK", { status: 200 });
       }
-  
+
       // Rate limit
       const rateLimit = await ctx.runMutation(internal.rate_limits.consumeWebhookRateLimit, {
         scope: "linq",
-        key: senderPhone,
+        key: senderPhoneHash,
         limit: 30,
         windowMs: WEBHOOK_RATE_WINDOW_MS,
         blockMs: WEBHOOK_RATE_WINDOW_MS,
@@ -1680,7 +1690,7 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
       if (!rateLimit.allowed) {
         return rateLimitResponse(rateLimit.retryAfterMs);
       }
-  
+
       // Detect link code: bare 6-digit alphanumeric code, or "link CODE"
       const linkPrefix = textOnly.toLowerCase().startsWith("link ") ? textOnly.slice(5).trim() : textOnly.trim();
       const isLinkCode = /^[A-Z0-9]{6}$/i.test(linkPrefix);
@@ -1691,19 +1701,19 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
         provider: "linq",
         kind: "message" as const,
         chatType: isGroup ? "group" : "dm",
-        externalUserId: senderPhone,
+        externalUserId: senderPhoneHash,
         externalChatId: incomingChatId || undefined,
         externalMessageId: envelope.data?.message?.id,
         text,
         ...(attachments.length > 0 ? { attachments } : {}),
         sourceTimestamp,
       };
-  
+
       if (isLinkCode) {
         // Only treat as a link code if the phone isn't already linked
         const existingConnection = await ctx.runQuery(
           internal.channels.utils.getConnectionByProviderAndExternalId,
-          { provider: "linq", externalUserId: senderPhone },
+          { provider: "linq", externalUserId: senderPhoneHash },
         );
         if (existingConnection) {
           // Already linked — treat as a normal message

@@ -12,6 +12,7 @@ import { formatLinkCodeResultMessage, processLinkCode } from "./link_codes";
 import { SIGN_IN_REQUIRED_ERROR } from "./routing_flow";
 import { retryFetch } from "../lib/retry_fetch";
 import { enforceActionRateLimit, RATE_VERY_EXPENSIVE } from "../lib/rate_limits";
+import { hashLinqPhone } from "./linq_phone_hash";
 import { channelAttachmentValidator, optionalChannelEnvelopeValidator } from "../shared_validators";
 
 // ---------------------------------------------------------------------------
@@ -150,11 +151,11 @@ export async function verifyLinqSignature(
 // ---------------------------------------------------------------------------
 
 export const getCachedChatId = internalQuery({
-  args: { phoneNumber: v.string() },
+  args: { phoneHash: v.string() },
   handler: async (ctx, args) => {
     const row = await ctx.db
       .query("linq_chats")
-      .withIndex("by_phoneNumber", (q) => q.eq("phoneNumber", args.phoneNumber))
+      .withIndex("by_phoneHash", (q) => q.eq("phoneHash", args.phoneHash))
       .unique();
     return row?.linqChatId ?? null;
   },
@@ -162,20 +163,20 @@ export const getCachedChatId = internalQuery({
 
 export const cacheChatId = internalMutation({
   args: {
-    phoneNumber: v.string(),
+    phoneHash: v.string(),
     linqChatId: v.string(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("linq_chats")
-      .withIndex("by_phoneNumber", (q) => q.eq("phoneNumber", args.phoneNumber))
+      .withIndex("by_phoneHash", (q) => q.eq("phoneHash", args.phoneHash))
       .unique();
 
     if (existing) {
       await ctx.db.patch(existing._id, { linqChatId: args.linqChatId });
     } else {
       await ctx.db.insert("linq_chats", {
-        phoneNumber: args.phoneNumber,
+        phoneHash: args.phoneHash,
         linqChatId: args.linqChatId,
         createdAt: Date.now(),
       });
@@ -192,6 +193,10 @@ export const cacheChatId = internalMutation({
  * Sends a reply to a phone number via Linq.
  * If `incomingChatId` is provided, tries that first.
  * Falls back to creating a new chat if needed.
+ *
+ * `phoneNumber` is consumed live for the Linq API call (we have to pass
+ * the actual number to send an SMS) but only its HMAC hash is ever
+ * persisted, as the lookup key for the chat-ID cache.
  */
 const sendLinqReply = async (
   ctx: ActionCtx,
@@ -213,12 +218,14 @@ const sendLinqReply = async (
     return;
   }
 
+  const phoneHash = await hashLinqPhone(phoneNumber);
+
   // Try incoming chat ID first (most reliable — same conversation thread)
   if (incomingChatId) {
     try {
       await linqSendMessage(incomingChatId, text, extraParts);
       await ctx.runMutation(internal.channels.linq.cacheChatId, {
-        phoneNumber,
+        phoneHash,
         linqChatId: incomingChatId,
       });
       return;
@@ -229,7 +236,7 @@ const sendLinqReply = async (
 
   // Try cached chat ID
   const cachedChatId = await ctx.runQuery(internal.channels.linq.getCachedChatId, {
-    phoneNumber,
+    phoneHash,
   });
 
   if (cachedChatId) {
@@ -244,7 +251,7 @@ const sendLinqReply = async (
   // Create new chat (sends initial message as part of creation)
   const newChatId = await linqCreateChat(fromNumber, [phoneNumber], text, extraParts);
   await ctx.runMutation(internal.channels.linq.cacheChatId, {
-    phoneNumber,
+    phoneHash,
     linqChatId: newChatId,
   });
 };
@@ -278,10 +285,11 @@ export const handleStartCommand = internalAction({
       return null;
     }
 
+    const senderPhoneHash = await hashLinqPhone(args.senderPhone);
     const result = await processLinkCode({
       ctx,
       provider: "linq",
-      externalUserId: args.senderPhone,
+      externalUserId: senderPhoneHash,
       code,
     });
 
@@ -310,18 +318,23 @@ export const handleIncomingMessage = internalAction({
     respond: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    console.log(`[linq:trace] Incoming message from ${args.senderPhone}`);
+    const senderPhoneHash = await hashLinqPhone(args.senderPhone);
+    console.log(`[linq:trace] Incoming message from sender=${senderPhoneHash.slice(0, 8)}…`);
     await handleConnectorIncomingMessage({
       ctx,
       provider: "linq",
-      externalUserId: args.senderPhone,
+      externalUserId: senderPhoneHash,
       text: args.text,
       groupId: args.groupId,
       attachments: args.attachments,
       channelEnvelope: args.channelEnvelope,
       respond: args.respond,
+      // `deliveryMeta` is persisted on the `remote_turn_request` event and
+      // on `conversations.pendingDeviceSelection`. We deliberately do NOT
+      // include the sender's phone number here — outbound delivery uses
+      // `incomingChatId` exclusively (see `deliverLinq`), so the persisted
+      // metadata stays phone-free.
       deliveryMeta: {
-        senderPhone: args.senderPhone,
         incomingChatId: args.incomingChatId,
       },
       logPrefix: "[linq]",
@@ -369,11 +382,14 @@ export const sendLinqLinkSms = action({
     if (!E164_REGEX.test(phone)) {
       throw new ConvexError("Please enter a valid phone number with country code (e.g. +1…).");
     }
+    const phoneHash = await hashLinqPhone(phone);
 
     // Each call dispatches a paid SMS via the Linq partner API. Throttle on
     // *both* the caller and the destination number so a single account
     // can't be used to SMS-pump a phone, and a leaked token can't be used
-    // to flood many numbers either.
+    // to flood many numbers either. We rate-limit on the phone *hash* (not
+    // plaintext) so this transient key matches everywhere else and the
+    // rate-limit component never sees a recoverable phone number.
     await enforceActionRateLimit(
       ctx,
       "send_linq_link_sms_owner",
@@ -384,7 +400,7 @@ export const sendLinqLinkSms = action({
     await enforceActionRateLimit(
       ctx,
       "send_linq_link_sms_phone",
-      phone,
+      phoneHash,
       RATE_VERY_EXPENSIVE,
       "Too many link-code SMS requests for this number. Please wait a minute and try again.",
     );

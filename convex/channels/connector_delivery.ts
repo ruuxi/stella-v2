@@ -614,56 +614,36 @@ async function deliverTeams(meta: Record<string, unknown>, text: string) {
   }
 }
 async function deliverLinq(meta: Record<string, unknown>, text: string) {
+  // Linq delivery is keyed exclusively by the incoming chat ID — the user's
+  // phone number is deliberately NOT carried in `deliveryMeta` (which is
+  // persisted on the `remote_turn_request` event and on the conversation's
+  // pending-device-selection state). Every inbound Linq message arrives
+  // with a chat ID attached, so this is sufficient for the reply path.
+  // If the chat ID is missing or the send fails, the orphan watchdog will
+  // retry delivery through the same path.
   const incomingChatId = meta.incomingChatId as string | undefined;
-  const senderPhone = meta.senderPhone as string;
-  if (!senderPhone) {
+  if (!incomingChatId) {
     console.error(
-      "[connector_delivery] Linq delivery missing senderPhone",
+      "[connector_delivery] Linq delivery missing incomingChatId — cannot route reply.",
     );
     return;
   }
 
   const apiToken = process.env.LINQ_API_TOKEN;
-  const fromNumber = process.env.LINQ_FROM_NUMBER;
-  if (!apiToken || !fromNumber) {
-    console.error(
-      "[connector_delivery] Missing LINQ_API_TOKEN or LINQ_FROM_NUMBER",
-    );
+  if (!apiToken) {
+    console.error("[connector_delivery] Missing LINQ_API_TOKEN");
     return;
   }
 
-  const headers = {
-    Authorization: `Bearer ${apiToken}`,
-    "Content-Type": "application/json",
-  };
-
-  // Try incoming chat ID first
-  if (incomingChatId) {
-    const res = await retryFetch(
-      `https://api.linqapp.com/api/partner/v3/chats/${incomingChatId}/messages`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          message: { parts: [{ type: "text", value: text }] },
-        }),
-      },
-    );
-    if (res.ok) return;
-    console.error(
-      "[connector_delivery] Linq incomingChatId send failed, trying new chat",
-    );
-  }
-
-  // Create new chat
   const res = await retryFetch(
-    "https://api.linqapp.com/api/partner/v3/chats",
+    `https://api.linqapp.com/api/partner/v3/chats/${incomingChatId}/messages`,
     {
       method: "POST",
-      headers,
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        from: fromNumber,
-        to: [senderPhone],
         message: { parts: [{ type: "text", value: text }] },
       }),
     },
@@ -671,7 +651,7 @@ async function deliverLinq(meta: Record<string, unknown>, text: string) {
 
   if (!res.ok) {
     console.error(
-      "[connector_delivery] Linq createChat failed:",
+      "[connector_delivery] Linq incomingChatId send failed:",
       res.status,
       await res.text(),
     );

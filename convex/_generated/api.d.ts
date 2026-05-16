@@ -37,6 +37,7 @@ import type * as channels_execution_policy from "../channels/execution_policy.js
 import type * as channels_google_chat from "../channels/google_chat.js";
 import type * as channels_link_codes from "../channels/link_codes.js";
 import type * as channels_linq from "../channels/linq.js";
+import type * as channels_linq_phone_hash from "../channels/linq_phone_hash.js";
 import type * as channels_message_pipeline from "../channels/message_pipeline.js";
 import type * as channels_routing_flow from "../channels/routing_flow.js";
 import type * as channels_slack from "../channels/slack.js";
@@ -242,6 +243,7 @@ declare const fullApi: ApiFromModules<{
   "channels/google_chat": typeof channels_google_chat;
   "channels/link_codes": typeof channels_link_codes;
   "channels/linq": typeof channels_linq;
+  "channels/linq_phone_hash": typeof channels_linq_phone_hash;
   "channels/message_pipeline": typeof channels_message_pipeline;
   "channels/routing_flow": typeof channels_routing_flow;
   "channels/slack": typeof channels_slack;

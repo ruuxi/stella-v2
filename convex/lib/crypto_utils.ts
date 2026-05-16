@@ -50,3 +50,26 @@ export async function hashSha256Hex(data: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", encoded);
   return bytesToHex(new Uint8Array(digest));
 }
+
+/**
+ * HMAC-SHA256 returning a lowercase hex string. Use this (not raw SHA-256)
+ * when hashing values from a *small* preimage space — phone numbers, email
+ * addresses, link codes — where a leaked plain-SHA hash would be trivially
+ * brute-forceable. The server-only `key` (a pepper) is what keeps a DB
+ * attacker from rebuilding the inputs.
+ */
+export async function hmacSha256Hex(
+  key: string,
+  message: string,
+): Promise<string> {
+  const encoder = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(key),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(message));
+  return bytesToHex(new Uint8Array(signature));
+}

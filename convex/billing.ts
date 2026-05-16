@@ -20,6 +20,7 @@ import {
   findPlanForStripePriceId,
   getPlanCatalog,
   getPlanConfig,
+  getStripeGoFirstMonthCouponId,
   getStripePriceIdForPlan,
   type SubscriptionPlan,
 } from "./lib/billing_plans";
@@ -61,6 +62,7 @@ const usageModeValidator = v.union(
 const planConfigShapeValidator = v.object({
   label: v.string(),
   monthlyPriceCents: v.number(),
+  introFirstMonthPriceCents: v.optional(v.number()),
   rollingLimitUsd: v.number(),
   rollingWindowHours: v.number(),
   weeklyLimitUsd: v.number(),
@@ -1795,6 +1797,9 @@ export const createCheckoutSession = action({
     // payment-method orchestration (saved methods, dynamic ordering,
     // etc.) without us having to enumerate `payment_method_types`.
     // The Stripe SDK's typings don't include it yet, hence the cast.
+    const goFirstMonthCoupon =
+      args.plan === "go" ? getStripeGoFirstMonthCouponId() : undefined;
+
     const sessionParams = {
       mode: "subscription",
       ui_mode: "hosted_page",
@@ -1805,6 +1810,9 @@ export const createCheckoutSession = action({
           quantity: 1,
         },
       ],
+      ...(goFirstMonthCoupon
+        ? { discounts: [{ coupon: goFirstMonthCoupon }] }
+        : {}),
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl,

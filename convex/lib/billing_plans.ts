@@ -10,6 +10,15 @@
  *   STELLA_INCLUDED_USAGE_UTILIZATION_RATE   — number in (0, 1]
  *   STELLA_<PLAN>_PRICE_CENTS                — paid plans only
  *
+ * Optional Go intro (first recurring invoice only — pair with Stripe):
+ *   STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS — e.g. 500 ($5); shown on
+ *     marketing/billing UX; recurring price stays STELLA_GO_PRICE_CENTS
+ *   STRIPE_COUPON_GO_FIRST_MONTH — Stripe Coupon id (`coupon_…`) created
+ *     as duration=once so the discount applies only on the subscription’s
+ *     first invoice (e.g. $15 off when the list price is $20 → pay $5,
+ *     then full price on renewal). Set intro price env and coupon env
+ *     together, or omit both — mismatched halves fail at startup.
+ *
  * Optional per-plan overrides (derive from price + utilization when
  * unset; useful if a single plan needs limits that depart from the
  * shared formula):
@@ -30,6 +39,8 @@ export type SubscriptionPlan = (typeof SUBSCRIPTION_PLANS)[number];
 export type PlanConfig = {
   label: string;
   monthlyPriceCents: number;
+  /** Stripe first invoice amount when using STRIPE_COUPON_GO_FIRST_MONTH (display only). */
+  introFirstMonthPriceCents?: number;
   rollingLimitUsd: number;
   rollingWindowHours: number;
   weeklyLimitUsd: number;
@@ -144,6 +155,31 @@ const buildPaidPlanConfig = (
   };
 };
 
+const enrichGoIntroPricing = (base: PlanConfig): PlanConfig => {
+  const introRaw = process.env.STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS?.trim();
+  if (!introRaw) return base;
+
+  const introCents = Number(introRaw);
+  if (
+    !Number.isFinite(introCents)
+    || !Number.isInteger(introCents)
+    || introCents < 0
+  ) {
+    throw new Error(
+      `[billing] Invalid env STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS=${introRaw}; expected a non-negative integer (cents).`,
+    );
+  }
+
+  const list = base.monthlyPriceCents;
+  if (introCents >= list) {
+    throw new Error(
+      `[billing] STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS (${introCents}) must be less than STELLA_GO_PRICE_CENTS (${list}) so the recurring price stays higher.`,
+    );
+  }
+
+  return { ...base, introFirstMonthPriceCents: introCents };
+};
+
 let cachedCatalog: PlanCatalog | null = null;
 
 const loadPlanCatalog = (): PlanCatalog => {
@@ -151,9 +187,20 @@ const loadPlanCatalog = (): PlanCatalog => {
   const utilizationRate = requireUtilizationRateEnv(
     "STELLA_INCLUDED_USAGE_UTILIZATION_RATE",
   );
+  const goBase = buildPaidPlanConfig("go", utilizationRate);
+  const goPlan = enrichGoIntroPricing(goBase);
+  const hasIntroPricing = typeof goPlan.introFirstMonthPriceCents === "number";
+  const goCouponConfigured = Boolean(
+    process.env.STRIPE_COUPON_GO_FIRST_MONTH?.trim(),
+  );
+  if (hasIntroPricing !== goCouponConfigured) {
+    throw new Error(
+      "[billing] Go first-month promo: set both STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS and STRIPE_COUPON_GO_FIRST_MONTH together, or omit both.",
+    );
+  }
   cachedCatalog = {
     free: buildFreePlanConfig(),
-    go: buildPaidPlanConfig("go", utilizationRate),
+    go: goPlan,
     pro: buildPaidPlanConfig("pro", utilizationRate),
     plus: buildPaidPlanConfig("plus", utilizationRate),
     ultra: buildPaidPlanConfig("ultra", utilizationRate),
@@ -198,4 +245,10 @@ export const findPlanForStripePriceId = (
   }
 
   return null;
+};
+
+/** Stripe Checkout applies this Coupon when starting a Go subscription (first invoice only if duration=once). */
+export const getStripeGoFirstMonthCouponId = (): string | undefined => {
+  const id = process.env.STRIPE_COUPON_GO_FIRST_MONTH?.trim();
+  return id || undefined;
 };

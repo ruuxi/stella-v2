@@ -9,20 +9,20 @@ import {
   type ManagedGatewayProvider,
 } from "../lib/managed_gateway";
 import { resolveManagedModelAccess } from "../lib/managed_billing";
+import { computeUsageCostMicroCents } from "../lib/billing_money";
 import {
   consumeAnonymousRequestAllowance,
   DEFAULT_RETRY_AFTER_MS,
-  type AnonymousUsageRecord,
 } from "./billing";
 import {
-  resolveManagedProtocol,
+  estimateRequestTokens,
+  requestedModelFromGooglePath,
   resolveRequestedStellaModel,
 } from "./request";
 import {
   parseRequestJson,
   type AuthorizedStellaRequest,
-  type ResolvedManagedServerModelConfig,
-  type ResolvedStellaModelSelection,
+  type StellaRequestBody,
 } from "./shared";
 
 function stellaProviderErrorResponse(
@@ -33,49 +33,53 @@ function stellaProviderErrorResponse(
   return errorResponse(status, message, request.headers.get("origin"));
 }
 
-const TEXT_ONLY_MODALITIES: ("text" | "image" | "audio" | "video" | "pdf")[] = [
-  "text",
-];
-
-const KNOWN_MODALITIES = new Set(["text", "image", "audio", "video", "pdf"]);
-
-const sanitizeStoredModalities = (
-  modalities: readonly string[] | undefined,
-): ("text" | "image" | "audio" | "video" | "pdf")[] => {
-  if (!modalities || modalities.length === 0) {
-    return TEXT_ONLY_MODALITIES;
-  }
-  const filtered = modalities.filter((m): m is "text" | "image" | "audio" | "video" | "pdf" =>
-    KNOWN_MODALITIES.has(m),
-  );
-  return filtered.length > 0 ? filtered : TEXT_ONLY_MODALITIES;
+const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
+  anthropic: "anthropic/",
+  google: "google/",
+  openai: "openai/",
 };
 
-/**
- * Look up a managed model's input modalities from `billing_model_prices`
- * (synced from models.dev). Returns `["text"]` when the row is missing or
- * the modality column hasn't been populated yet, so unknown models drop
- * non-text parts at the gateway boundary instead of forwarding base64
- * data URLs to providers that may tokenize them as raw text.
- */
-async function resolveModalitiesInput(
+export function toProviderNativeModel(
+  model: string,
+  provider: ManagedGatewayProvider,
+): string {
+  const prefix = providerModelPrefix[provider];
+  if (prefix && model.startsWith(prefix)) {
+    return model.slice(prefix.length);
+  }
+  return model;
+}
+
+const estimatedCostMicroCents = async (
   ctx: ActionCtx,
   model: string,
-): Promise<("text" | "image" | "audio" | "video" | "pdf")[]> {
+  tokenEstimate: { inputTokens: number; outputTokens: number },
+): Promise<number> => {
   const row = await ctx.runQuery(internal.billing.getManagedModelPrice, {
     model,
   });
-  if (!row) {
-    return TEXT_ONLY_MODALITIES;
-  }
-  return sanitizeStoredModalities(row.modalitiesInput);
-}
+  return computeUsageCostMicroCents({
+    model,
+    inputTokens: tokenEstimate.inputTokens,
+    outputTokens: tokenEstimate.outputTokens,
+    price: row
+      ? {
+          inputPerMillionUsd: row.inputPerMillionUsd,
+          outputPerMillionUsd: row.outputPerMillionUsd,
+          cacheReadPerMillionUsd: row.cacheReadPerMillionUsd,
+          cacheWritePerMillionUsd: row.cacheWritePerMillionUsd,
+          reasoningPerMillionUsd: row.reasoningPerMillionUsd,
+        }
+      : undefined,
+  });
+};
 
-export async function authorizeStellaRequest(
-  ctx: ActionCtx,
-  request: Request,
-  expectedPath: string,
-): Promise<AuthorizedStellaRequest | Response> {
+export async function authorizeStellaRelayRequest(args: {
+  ctx: ActionCtx;
+  request: Request;
+  relayProvider: ManagedGatewayProvider;
+}): Promise<AuthorizedStellaRequest | Response> {
+  const { ctx, request, relayProvider } = args;
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     return stellaProviderErrorResponse(401, "Unauthorized", request);
@@ -85,16 +89,6 @@ export async function authorizeStellaRequest(
   const isAnonymous =
     (identity as Record<string, unknown>).isAnonymous === true;
   let modelAudience: ManagedModelAudience = isAnonymous ? "anonymous" : "free";
-  let anonymousUsageRecord: AnonymousUsageRecord | undefined;
-
-  const url = new URL(request.url);
-  if (!url.pathname.endsWith(expectedPath)) {
-    return stellaProviderErrorResponse(
-      404,
-      "Stella provider path not found",
-      request,
-    );
-  }
 
   if (isAnonymous) {
     const deviceId = `anon-jwt:${ownerId}`;
@@ -105,11 +99,6 @@ export async function authorizeStellaRequest(
       clientAddressKey,
     );
     if (!allowed) {
-      // Prefix is load-bearing: the desktop toast resolver matches
-      // `sign in required` to render a "Sign in" CTA instead of the
-      // generic rate-limit "Upgrade" toast that points at /billing
-      // (which is wrong for an anonymous user with no account to
-      // upgrade).
       return stellaProviderErrorResponse(
         429,
         "Sign in required: You've used your free Stella previews. Sign in to keep going.",
@@ -147,6 +136,14 @@ export async function authorizeStellaRequest(
     );
   }
 
+  const url = new URL(request.url);
+  if (typeof requestJson.model !== "string") {
+    const pathModel = requestedModelFromGooglePath(url.pathname);
+    if (pathModel) {
+      requestJson.model = pathModel;
+    }
+  }
+
   const headerAgentType = request.headers.get("X-Stella-Agent-Type")?.trim();
   const bodyAgentType =
     typeof requestJson.agentType === "string" &&
@@ -155,7 +152,7 @@ export async function authorizeStellaRequest(
       : undefined;
   const agentType = headerAgentType || bodyAgentType || "general";
 
-  let selection: ResolvedStellaModelSelection;
+  let selection: ReturnType<typeof resolveRequestedStellaModel>;
   try {
     selection = resolveRequestedStellaModel(
       agentType,
@@ -171,16 +168,24 @@ export async function authorizeStellaRequest(
   }
 
   const { requestedModel, resolvedModel, config } = selection;
-  const managedGatewayProvider: ManagedGatewayProvider =
-    resolveManagedGatewayProvider({
-      model: resolvedModel,
-      configuredProvider: config.managedGatewayProvider,
-    });
+  const resolvedProvider = resolveManagedGatewayProvider({
+    model: resolvedModel,
+    configuredProvider: config.managedGatewayProvider,
+  });
+  if (resolvedProvider !== relayProvider) {
+    return stellaProviderErrorResponse(
+      400,
+      `Stella model ${requestedModel} must use the ${resolvedProvider} relay`,
+      request,
+    );
+  }
+
   const managedGateway = resolveManagedGatewayConfig({
     model: resolvedModel,
     configuredProvider: config.managedGatewayProvider,
   });
-  if (!process.env[managedGateway.apiKeyEnvVar]?.trim()) {
+  const apiKey = process.env[managedGateway.apiKeyEnvVar]?.trim();
+  if (!apiKey) {
     return stellaProviderErrorResponse(
       503,
       "Stella upstream gateway is not configured",
@@ -188,63 +193,46 @@ export async function authorizeStellaRequest(
     );
   }
 
-  const managedApi = resolveManagedProtocol({
-    resolvedModel,
-    managedGatewayProvider,
-  });
+  const tokenEstimate = estimateRequestTokens(requestJson);
+  if (!isAnonymous) {
+    const estimatedCost = await estimatedCostMicroCents(
+      ctx,
+      resolvedModel,
+      tokenEstimate,
+    );
+    const limit = await ctx.runMutation(
+      internal.billing.enforceManagedUsageLimit,
+      {
+        ownerId,
+        minimumRemainingMicroCents: estimatedCost,
+      },
+    );
+    if (!limit.allowed) {
+      const response = stellaProviderErrorResponse(
+        429,
+        limit.message,
+        request,
+      );
+      response.headers.set(
+        "Retry-After",
+        String(Math.ceil((limit.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS) / 1000)),
+      );
+      return response;
+    }
+  }
 
   console.log(
-    `[stella-provider] agent=${agentType} | requestedModel=${requestedModel} | resolvedModel=${resolvedModel} | fallbackModel=${config.fallback ?? "none"} | gateway=${managedGatewayProvider} | api=${managedApi}`,
+    `[stella-provider] agent=${agentType} | requestedModel=${requestedModel} | resolvedModel=${resolvedModel} | gateway=${relayProvider}`,
   );
-
-  // Resolve input modalities from `billing_model_prices` (synced from
-  // models.dev) for both the primary and fallback models in parallel.
-  // The streaming layer uses `fallbackModalitiesInput` to strip image
-  // content before invoking a text-only fallback, so the fallback
-  // doesn't 404 with "No endpoints found that support image input"
-  // when the primary fails on a request that included an image.
-  const [primaryModalitiesInput, fallbackModalitiesInput] = await Promise.all([
-    resolveModalitiesInput(ctx, resolvedModel),
-    config.fallback
-      ? resolveModalitiesInput(ctx, config.fallback)
-      : Promise.resolve(TEXT_ONLY_MODALITIES),
-  ]);
-
-  const fallbackModelConfig: ResolvedManagedServerModelConfig | undefined =
-    config.fallback
-      ? {
-          model: config.fallback,
-          managedGatewayProvider: resolveManagedGatewayProvider({
-            model: config.fallback,
-            configuredProvider: config.fallbackManagedGatewayProvider,
-          }),
-          temperature: config.temperature,
-          maxOutputTokens: config.maxOutputTokens,
-          providerOptions: config.fallbackProviderOptions as
-            | Record<string, Record<string, unknown>>
-            | undefined,
-          modalitiesInput: fallbackModalitiesInput,
-        }
-      : undefined;
 
   return {
     ownerId,
     agentType,
-    requestJson,
+    requestJson: requestJson as StellaRequestBody,
     requestedModel,
     resolvedModel,
-    managedApi,
-    serverModelConfig: {
-      model: resolvedModel,
-      managedGatewayProvider,
-      temperature: config.temperature,
-      maxOutputTokens: config.maxOutputTokens,
-      providerOptions: config.providerOptions as
-        | Record<string, Record<string, unknown>>
-        | undefined,
-      modalitiesInput: primaryModalitiesInput,
-    },
-    fallbackModelConfig,
-    anonymousUsageRecord,
+    upstreamModel: toProviderNativeModel(resolvedModel, relayProvider),
+    apiKey,
+    tokenEstimate,
   };
 }

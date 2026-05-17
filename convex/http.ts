@@ -20,13 +20,16 @@ import { registerDictationRoutes } from "./http_routes/dictation";
 
 // Stella provider endpoints
 import {
-  STELLA_CHAT_COMPLETIONS_PATH,
+  STELLA_ANTHROPIC_MESSAGES_PATH,
+  STELLA_FIREWORKS_RESPONSES_PATH,
+  STELLA_GOOGLE_MODELS_PATH_PREFIX,
   STELLA_MODELS_PATH,
-  STELLA_RUNTIME_PATH,
-  stellaProviderChatCompletions,
+  STELLA_OPENAI_CHAT_COMPLETIONS_PATH,
+  STELLA_OPENAI_RESPONSES_PATH,
+  STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
   stellaProviderModels,
   stellaProviderOptions,
-  stellaProviderRuntime,
+  stellaProviderRelay,
 } from "./stella_provider";
 
 const http = httpRouter();
@@ -101,34 +104,34 @@ http.route({
   handler: stellaProviderModels,
 });
 
-const stellaChatOptionsHandler = httpAction(async (_ctx, request) =>
-  stellaProviderOptions(request),
-);
+for (const [path, provider] of [
+  [STELLA_ANTHROPIC_MESSAGES_PATH, "anthropic"],
+  [STELLA_OPENAI_CHAT_COMPLETIONS_PATH, "openai"],
+  [STELLA_OPENAI_RESPONSES_PATH, "openai"],
+  [STELLA_FIREWORKS_RESPONSES_PATH, "fireworks"],
+  [STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH, "openrouter"],
+] as const) {
+  http.route({
+    path,
+    method: "OPTIONS",
+    handler: stellaProviderOptions,
+  });
+  http.route({
+    path,
+    method: "POST",
+    handler: stellaProviderRelay(provider),
+  });
+}
 
 http.route({
-  path: STELLA_CHAT_COMPLETIONS_PATH,
+  pathPrefix: STELLA_GOOGLE_MODELS_PATH_PREFIX,
   method: "OPTIONS",
-  handler: stellaChatOptionsHandler,
+  handler: stellaProviderOptions,
 });
 http.route({
-  path: STELLA_CHAT_COMPLETIONS_PATH,
+  pathPrefix: STELLA_GOOGLE_MODELS_PATH_PREFIX,
   method: "POST",
-  handler: stellaProviderChatCompletions,
-});
-
-const stellaRuntimeOptionsHandler = httpAction(async (_ctx, request) =>
-  stellaProviderOptions(request),
-);
-
-http.route({
-  path: STELLA_RUNTIME_PATH,
-  method: "OPTIONS",
-  handler: stellaRuntimeOptionsHandler,
-});
-http.route({
-  path: STELLA_RUNTIME_PATH,
-  method: "POST",
-  handler: stellaProviderRuntime,
+  handler: stellaProviderRelay("google"),
 });
 
 export default http;

@@ -1,26 +1,3 @@
-/**
- * Stella provider HTTP surface.
- *
- * Stella clients talk to this namespace using `stella/*` model IDs.
- * Stella resolves the actual upstream provider/model server-side.
- *
- * Internals are split into focused modules under `stella_provider/`:
- *
- * - `shared.ts` — types, paths, SSE constants, generic JSON helpers.
- * - `billing.ts` — usage normalization, anonymous-device bookkeeping,
- *   chat-completion response shaping.
- * - `request.ts` — model resolution, token estimation, runtime-request
- *   shaping (OpenAI-compat and native variants), protocol resolution.
- * - `authorization.ts` — auth, audience + rate-limit checks.
- * - `streaming_openai.ts` — `chat.completion.chunk` SSE translator.
- * - `streaming_native.ts` — Pi-style `AssistantMessageEvent` SSE
- *   translator.
- *
- * This file keeps only the public httpAction handlers and the small
- * glue that ties them together. Re-exports are limited to the path
- * constants other Convex modules already imported.
- */
-
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { type ManagedModelAudience } from "./agent/model";
@@ -32,43 +9,46 @@ import {
 } from "./http_shared/cors";
 import { getClientAddressKey } from "./lib/http_utils";
 import {
-  buildContextFromChatMessages,
-  buildManagedModel,
-  completeManagedChat,
-} from "./runtime_ai/managed";
+  getManagedGatewayConfig,
+  type ManagedGatewayProvider,
+} from "./lib/managed_gateway";
+import { resolveManagedModelAccess } from "./lib/managed_billing";
 import {
   STELLA_MODEL_CATALOG_UPDATED_AT,
   listStellaCatalogModels,
   listStellaDefaultSelections,
 } from "./stella_models";
-import { resolveManagedModelAccess } from "./lib/managed_billing";
 import {
-  buildChatCompletionResponse,
   STELLA_MODELS_RATE_LIMIT,
   STELLA_MODELS_RATE_WINDOW_MS,
-  toManagedBillingUsage,
+  scheduleAnonymousUsageRecord,
 } from "./stella_provider/billing";
 import {
-  asRecord,
-  STELLA_CHAT_COMPLETIONS_PATH,
-  STELLA_RUNTIME_PATH,
-  toUpstreamHttpError,
-} from "./stella_provider/shared";
+  authorizeStellaRelayRequest,
+  toProviderNativeModel,
+} from "./stella_provider/authorization";
+import { createRelayUsageParser } from "./stella_provider/relay_usage";
 import {
-  buildManagedRuntimeRequest,
-  estimateContextTokens,
-  estimateRequestTokens,
-  parseNativeContext,
-} from "./stella_provider/request";
-import { authorizeStellaRequest } from "./stella_provider/authorization";
-import { createStreamingRuntimeResponse } from "./stella_provider/streaming_openai";
-import { createNativeRuntimeResponse } from "./stella_provider/streaming_native";
+  STELLA_ANTHROPIC_MESSAGES_PATH,
+  STELLA_API_BASE_PATH,
+  STELLA_FIREWORKS_RESPONSES_PATH,
+  STELLA_GOOGLE_MODELS_PATH_PREFIX,
+  STELLA_MODELS_PATH,
+  STELLA_OPENAI_CHAT_COMPLETIONS_PATH,
+  STELLA_OPENAI_RESPONSES_PATH,
+  STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
+  type AuthorizedStellaRequest,
+} from "./stella_provider/shared";
 
 export {
+  STELLA_ANTHROPIC_MESSAGES_PATH,
   STELLA_API_BASE_PATH,
-  STELLA_CHAT_COMPLETIONS_PATH,
-  STELLA_RUNTIME_PATH,
+  STELLA_FIREWORKS_RESPONSES_PATH,
+  STELLA_GOOGLE_MODELS_PATH_PREFIX,
   STELLA_MODELS_PATH,
+  STELLA_OPENAI_CHAT_COMPLETIONS_PATH,
+  STELLA_OPENAI_RESPONSES_PATH,
+  STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
 } from "./stella_provider/shared";
 
 function stellaProviderErrorResponse(
@@ -146,155 +126,254 @@ export const stellaProviderModels = httpAction(async (ctx, request) =>
   }),
 );
 
-export const stellaProviderChatCompletions = httpAction(
-  async (ctx, request) => {
-    const authorized = await authorizeStellaRequest(
-      ctx,
-      request,
-      STELLA_CHAT_COMPLETIONS_PATH,
-    );
-    if (authorized instanceof Response) {
-      return authorized;
+const cloneForwardHeaders = (
+  request: Request,
+  provider: ManagedGatewayProvider,
+  apiKey: string,
+): Headers => {
+  const headers = new Headers();
+  for (const [key, value] of request.headers.entries()) {
+    const lower = key.toLowerCase();
+    if (
+      lower === "authorization" ||
+      lower === "x-api-key" ||
+      lower === "x-goog-api-key" ||
+      lower === "x-stella-relay" ||
+      lower === "x-stella-agent-type" ||
+      lower === "host" ||
+      lower === "content-length"
+    ) {
+      continue;
     }
+    headers.set(key, value);
+  }
+  headers.set("content-type", "application/json");
 
-    const {
-      ownerId,
-      agentType,
-      requestJson,
-      resolvedModel,
-      managedApi,
-      serverModelConfig,
-      fallbackModelConfig,
-    } = authorized;
-    const tokenEstimate = estimateRequestTokens(requestJson);
-    const isStreaming = requestJson.stream === true;
+  if (provider === "anthropic") {
+    headers.set("x-api-key", apiKey);
+  } else if (provider === "google") {
+    headers.set("x-goog-api-key", apiKey);
+  } else {
+    headers.set("authorization", `Bearer ${apiKey}`);
+  }
 
-    if (isStreaming) {
-      return await createStreamingRuntimeResponse({
-        request,
-        ctx,
-        ownerId,
-        agentType,
-        modelId: resolvedModel,
-        tokenEstimate,
-        requestBody: requestJson,
-        managedApi,
-        serverModelConfig,
-        fallbackModelConfig,
-      });
+  if (provider === "openrouter") {
+    headers.set("HTTP-Referer", "https://stella.sh");
+    headers.set("X-OpenRouter-Title", "Stella");
+  }
+
+  return headers;
+};
+
+const upstreamUrl = (
+  provider: ManagedGatewayProvider,
+  request: Request,
+  upstreamModel: string,
+): string => {
+  const base = getManagedGatewayConfig(provider).baseURL.replace(/\/+$/u, "");
+  switch (provider) {
+    case "anthropic":
+      return `${base}/messages`;
+    case "openai":
+      return new URL(request.url).pathname.endsWith("/chat/completions")
+        ? `${base}/chat/completions`
+        : `${base}/responses`;
+    case "google": {
+      // Preserve whatever verb the desktop adapter asked for —
+      // `:streamGenerateContent`, `:generateContent`, `:countTokens`,
+      // `:embedContent`, etc. Hardcoding stream broke non-streaming
+      // utility calls.
+      const verbMatch = /:([A-Za-z][A-Za-z0-9]*)$/u.exec(
+        new URL(request.url).pathname,
+      );
+      const verb = verbMatch?.[1] ?? "streamGenerateContent";
+      return `${base}/v1beta/models/${encodeURIComponent(upstreamModel)}:${verb}`;
     }
-
-    const startedAt = Date.now();
-    try {
-      const message = await completeManagedChat({
-        config: serverModelConfig,
-        fallbackConfig: fallbackModelConfig,
-        context: buildContextFromChatMessages(
-          requestJson.messages,
-          requestJson.tools,
-        ),
-        api: managedApi,
-        request: buildManagedRuntimeRequest(requestJson, request.signal),
-      });
-
-      if (message.stopReason === "error" || message.stopReason === "aborted") {
-        throw new Error(message.errorMessage || "Stella completion failed");
-      }
-
-      const executedModel = message.model || resolvedModel;
-      const primaryManagedModel = buildManagedModel(serverModelConfig, managedApi);
-      const fallbackUsed = executedModel !== primaryManagedModel.id;
-      console.log(
-        `[stella-provider] completed agent=${agentType} | requestedModel=${resolvedModel} | primaryModel=${primaryManagedModel.id} | model=${executedModel} | fallbackUsed=${fallbackUsed}`,
-      );
-
-      await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
-        ownerId,
-        agentType,
-        model: executedModel,
-        durationMs: Date.now() - startedAt,
-        success: true,
-        ...toManagedBillingUsage(message, tokenEstimate),
-      });
-
-      return jsonResponse(
-        buildChatCompletionResponse({
-          id: `chatcmpl_${startedAt}`,
-          created: Math.floor(startedAt / 1000),
-          model: executedModel,
-          message,
-        }),
-        200,
-        request.headers.get("origin"),
-      );
-    } catch (error) {
-      console.error("[stella-provider] Completion error:", error);
-      const upstreamHttpError = toUpstreamHttpError(error);
-      await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
-        ownerId,
-        agentType,
-        model: resolvedModel,
-        durationMs: Date.now() - startedAt,
-        success: false,
-        inputTokens: tokenEstimate.inputTokens,
-        outputTokens: tokenEstimate.outputTokens,
-      });
-      return stellaProviderErrorResponse(
-        upstreamHttpError?.status ?? 502,
-        upstreamHttpError?.message ?? "Failed to generate Stella completion",
-        request,
-      );
+    case "fireworks":
+      return `${base}/responses`;
+    case "openrouter":
+      return `${base}/chat/completions`;
+    default: {
+      const _exhaustive: never = provider;
+      return _exhaustive;
     }
-  },
-);
+  }
+};
 
-export const stellaProviderRuntime = httpAction(async (ctx, request) => {
-  const authorized = await authorizeStellaRequest(
+const bodyForUpstream = (
+  authorized: AuthorizedStellaRequest,
+  provider: ManagedGatewayProvider,
+  request: Request,
+): string => {
+  const body: Record<string, unknown> = {
+    ...authorized.requestJson,
+    model: toProviderNativeModel(authorized.resolvedModel, provider),
+  };
+  delete (body as Record<string, unknown>).agentType;
+  if (provider === "google") {
+    // Google REST puts the model in the URL path, not the body.
+    delete body.model;
+  }
+
+  const isChatCompletions =
+    provider === "openrouter" ||
+    new URL(request.url).pathname.endsWith("/chat/completions");
+  if (body.stream === true && isChatCompletions) {
+    const streamOptions =
+      body.stream_options &&
+      typeof body.stream_options === "object" &&
+      !Array.isArray(body.stream_options)
+        ? { ...(body.stream_options as Record<string, unknown>) }
+        : {};
+    body.stream_options = {
+      ...streamOptions,
+      include_usage: true,
+    };
+  }
+
+  return JSON.stringify(body);
+};
+
+export const stellaProviderRelay = (
+  provider: ManagedGatewayProvider,
+) => httpAction(async (ctx, request) => {
+  const authorized = await authorizeStellaRelayRequest({
     ctx,
     request,
-    STELLA_RUNTIME_PATH,
-  );
+    relayProvider: provider,
+  });
   if (authorized instanceof Response) {
     return authorized;
   }
 
-  const {
-    ownerId,
-    agentType,
-    requestJson,
-    resolvedModel,
-    managedApi,
-    serverModelConfig,
-    fallbackModelConfig,
-    anonymousUsageRecord,
-  } = authorized;
+  const startedAt = Date.now();
+  const usageParser = createRelayUsageParser(provider);
+  let upstreamResponse: Response;
 
-  const context = parseNativeContext(requestJson.context);
-  if (!context) {
+  try {
+    upstreamResponse = await fetch(
+      upstreamUrl(provider, request, authorized.upstreamModel),
+      {
+        method: "POST",
+        headers: cloneForwardHeaders(request, provider, authorized.apiKey),
+        body: bodyForUpstream(authorized, provider, request),
+      },
+    );
+  } catch (error) {
+    console.error("[stella-provider] Relay fetch failed:", error);
+    await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
+      ownerId: authorized.ownerId,
+      agentType: authorized.agentType,
+      model: authorized.resolvedModel,
+      durationMs: Date.now() - startedAt,
+      success: false,
+      inputTokens: authorized.tokenEstimate.inputTokens,
+      outputTokens: authorized.tokenEstimate.outputTokens,
+    });
     return stellaProviderErrorResponse(
-      400,
-      "Stella runtime request must include a valid context object",
+      502,
+      "Failed to reach Stella upstream gateway",
       request,
     );
   }
 
-  return await createNativeRuntimeResponse({
-    request,
-    ctx,
-    ownerId,
-    agentType,
-    modelId: resolvedModel,
-    tokenEstimate: estimateContextTokens({
-      context,
-      request: asRecord(requestJson.request),
-    }),
-    context,
-    nativeRequest: asRecord(requestJson.request),
-    managedApi,
-    serverModelConfig,
-    fallbackModelConfig,
-    anonymousUsageRecord,
+  const responseHeaders = new Headers(upstreamResponse.headers);
+  responseHeaders.set("Access-Control-Allow-Origin", request.headers.get("origin") ?? "*");
+  responseHeaders.set("Vary", "Origin");
+  responseHeaders.delete("content-length");
+
+  const decoder = new TextDecoder();
+  const upstreamBody = upstreamResponse.body;
+  if (!upstreamBody) {
+    await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
+      ownerId: authorized.ownerId,
+      agentType: authorized.agentType,
+      model: authorized.resolvedModel,
+      durationMs: Date.now() - startedAt,
+      success: upstreamResponse.ok,
+      inputTokens: authorized.tokenEstimate.inputTokens,
+      outputTokens: authorized.tokenEstimate.outputTokens,
+    });
+    return new Response(null, {
+      status: upstreamResponse.status,
+      statusText: upstreamResponse.statusText,
+      headers: responseHeaders,
+    });
+  }
+
+  let downstreamOpen = true;
+  const stream = new ReadableStream<Uint8Array>({
+    cancel() {
+      downstreamOpen = false;
+    },
+    start(controller) {
+      const reader = upstreamBody.getReader();
+      void (async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              usageParser.pushText(decoder.decode(value, { stream: true }));
+              if (downstreamOpen) {
+                try {
+                  controller.enqueue(value);
+                } catch {
+                  downstreamOpen = false;
+                }
+              }
+            }
+          }
+          usageParser.pushText(decoder.decode());
+          const usage = usageParser.finish();
+          const model = usage?.model || authorized.resolvedModel;
+          await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
+            ownerId: authorized.ownerId,
+            agentType: authorized.agentType,
+            model,
+            durationMs: Date.now() - startedAt,
+            success: upstreamResponse.ok,
+            inputTokens:
+              usage?.inputTokens ?? authorized.tokenEstimate.inputTokens,
+            outputTokens:
+              usage?.outputTokens ?? authorized.tokenEstimate.outputTokens,
+            totalTokens: usage?.totalTokens,
+            cachedInputTokens: usage?.cachedInputTokens,
+            cacheWriteInputTokens: usage?.cacheWriteInputTokens,
+            reasoningTokens: usage?.reasoningTokens,
+          });
+          await scheduleAnonymousUsageRecord(ctx, authorized.anonymousUsageRecord);
+        } catch (error) {
+          console.error("[stella-provider] Relay stream failed:", error);
+          await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
+            ownerId: authorized.ownerId,
+            agentType: authorized.agentType,
+            model: authorized.resolvedModel,
+            durationMs: Date.now() - startedAt,
+            success: false,
+            inputTokens: authorized.tokenEstimate.inputTokens,
+            outputTokens: authorized.tokenEstimate.outputTokens,
+          });
+        } finally {
+          if (downstreamOpen) {
+            try {
+              controller.close();
+            } catch {
+              // Ignore downstream close races.
+            }
+          }
+        }
+      })();
+    },
+  });
+
+  return new Response(stream, {
+    status: upstreamResponse.status,
+    statusText: upstreamResponse.statusText,
+    headers: responseHeaders,
   });
 });
 
-export { corsPreflightHandler as stellaProviderOptions };
+export const stellaProviderOptions = httpAction(async (_ctx, request) =>
+  corsPreflightHandler(request),
+);

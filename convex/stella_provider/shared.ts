@@ -1,15 +1,6 @@
-import type { ManagedGatewayProvider } from "../lib/managed_gateway";
-import type {
-  ManagedProtocol,
-  streamManagedChat,
-} from "../runtime_ai/managed";
 import type { ModelConfig } from "../agent/model";
 
 export type StellaRequestBody = Record<string, unknown>;
-
-export type ManagedRuntimeRequest = NonNullable<
-  Parameters<typeof streamManagedChat>[0]["request"]
->;
 
 export type UpstreamHttpError = {
   status: number;
@@ -24,18 +15,9 @@ export type ResolvedStellaModelSelection = {
 
 export type ResolvedManagedServerModelConfig = {
   model: string;
-  managedGatewayProvider: ManagedGatewayProvider;
   temperature?: number;
   maxOutputTokens?: number;
   providerOptions?: Record<string, Record<string, unknown>>;
-  /**
-   * Input modalities resolved from `billing_model_prices` (synced from
-   * models.dev). Forwarded into `ManagedModelConfig.modalitiesInput` so
-   * `buildManagedModel` can derive the correct `Model.input` set instead
-   * of the previous hardcoded ["text", "image"]. When omitted the
-   * downstream layer defaults to ["text"] (text-only).
-   */
-  modalitiesInput?: ("text" | "image" | "audio" | "video" | "pdf")[];
 };
 
 export type AuthorizedStellaRequest = {
@@ -44,16 +26,20 @@ export type AuthorizedStellaRequest = {
   requestJson: StellaRequestBody;
   requestedModel: string;
   resolvedModel: string;
-  managedApi: ManagedProtocol;
-  serverModelConfig: ResolvedManagedServerModelConfig;
-  fallbackModelConfig?: ResolvedManagedServerModelConfig;
+  upstreamModel: string;
+  apiKey: string;
+  tokenEstimate: import("./billing").TokenEstimate;
   anonymousUsageRecord?: import("./billing").AnonymousUsageRecord;
 };
 
-export const STELLA_API_BASE_PATH = "/api/stella/v1";
-export const STELLA_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/chat/completions`;
-export const STELLA_RUNTIME_PATH = `${STELLA_API_BASE_PATH}/runtime`;
+export const STELLA_API_BASE_PATH = "/api/stella";
 export const STELLA_MODELS_PATH = `${STELLA_API_BASE_PATH}/models`;
+export const STELLA_ANTHROPIC_MESSAGES_PATH = `${STELLA_API_BASE_PATH}/anthropic/v1/messages`;
+export const STELLA_OPENAI_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/openai/v1/chat/completions`;
+export const STELLA_OPENAI_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/openai/v1/responses`;
+export const STELLA_GOOGLE_MODELS_PATH_PREFIX = `${STELLA_API_BASE_PATH}/google/v1beta/models/`;
+export const STELLA_FIREWORKS_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/fireworks/v1/responses`;
+export const STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/openrouter/api/v1/chat/completions`;
 
 export const SSE_HEARTBEAT_INTERVAL_MS = 45_000;
 export const SSE_STREAM_OPEN_COMMENT = new TextEncoder().encode(

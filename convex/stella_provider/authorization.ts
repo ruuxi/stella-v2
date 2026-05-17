@@ -197,11 +197,12 @@ export async function authorizeStellaRequest(
     `[stella-provider] agent=${agentType} | requestedModel=${requestedModel} | resolvedModel=${resolvedModel} | fallbackModel=${config.fallback ?? "none"} | gateway=${managedGatewayProvider} | api=${managedApi}`,
   );
 
-  // Resolve input modalities from `billing_model_prices` for both the
-  // primary and fallback models in parallel. The lookups are tiny indexed
-  // queries; doing them at the request boundary keeps `buildManagedModel`
-  // synchronous and the rest of the streaming/provider plumbing
-  // unchanged.
+  // Resolve input modalities from `billing_model_prices` (synced from
+  // models.dev) for both the primary and fallback models in parallel.
+  // The streaming layer uses `fallbackModalitiesInput` to strip image
+  // content before invoking a text-only fallback, so the fallback
+  // doesn't 404 with "No endpoints found that support image input"
+  // when the primary fails on a request that included an image.
   const [primaryModalitiesInput, fallbackModalitiesInput] = await Promise.all([
     resolveModalitiesInput(ctx, resolvedModel),
     config.fallback

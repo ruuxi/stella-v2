@@ -4,8 +4,12 @@ import {
   isStellaModelAllowedForAudience,
   LOCKED_AGENT_TYPES,
   type ManagedModelAudience,
+  type ModelConfig,
 } from "../agent/model";
-import type { ManagedGatewayProvider } from "../lib/managed_gateway";
+import {
+  inferManagedGatewayProviderFromModel,
+  type ManagedGatewayProvider,
+} from "../lib/managed_gateway";
 import type { ManagedProtocol } from "../runtime_ai/managed";
 import type { Context } from "../runtime_ai/types";
 import {
@@ -64,14 +68,36 @@ export function resolveRequestedStellaModel(
     };
   }
 
-  const config = getModelConfig(agentType, audience);
+  // Upstream model picks (e.g. `stella/anthropic/claude-opus-4.7`,
+  // `stella/openai/gpt-5.5`) must NOT reuse the agent's default gateway:
+  // the orchestrator's standard mode is Fireworks, which would 404 on an
+  // Anthropic model id and then fall back to the agent's light fallback
+  // (deepseek/openrouter), which in turn fails with "No endpoints found
+  // that support image input" the moment the user attaches an image.
+  // Infer the gateway from the model prefix instead, leaving it
+  // unset for unrecognized prefixes so `resolveManagedGatewayProvider`
+  // downstream defaults to OpenRouter (the universal multi-provider
+  // gateway). Also clear the agent's fallback — an explicit upstream
+  // pick should fail loudly rather than silently downgrade to a model
+  // the user didn't choose.
+  const agentConfig = getModelConfig(agentType, audience);
+  const resolvedModel = resolveStellaModelSelection(
+    agentType,
+    requestedModel,
+    audience,
+  );
+  const inferredProvider = inferManagedGatewayProviderFromModel(resolvedModel);
+  const config: ModelConfig = {
+    ...agentConfig,
+    model: resolvedModel,
+    managedGatewayProvider: inferredProvider,
+    fallback: undefined,
+    fallbackManagedGatewayProvider: undefined,
+    fallbackProviderOptions: undefined,
+  };
   return {
     requestedModel,
-    resolvedModel: resolveStellaModelSelection(
-      agentType,
-      requestedModel,
-      audience,
-    ),
+    resolvedModel,
     config,
   };
 }

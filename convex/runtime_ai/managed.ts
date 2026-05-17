@@ -525,6 +525,47 @@ export function buildManagedModel<TApi extends Api>(
   };
 }
 
+/**
+ * Drop image content blocks from every user / toolResult message in the
+ * context, replacing them with a short text marker so the model still
+ * sees that *something* was attached. Used by the fallback path: when
+ * the primary model accepts images but the fallback doesn't, sending
+ * the image parts through anyway makes the fallback 404 (e.g.
+ * OpenRouter: "No endpoints found that support image input"), which
+ * masks the real primary failure.
+ */
+export function stripImageContentFromContext(context: Context): Context {
+  const placeholder: TextContent = {
+    type: "text",
+    text: "(image omitted: fallback model is text-only)",
+  };
+
+  const stripBlocks = <T extends TextContent | ImageContent>(
+    blocks: T[],
+  ): (TextContent | ImageContent)[] => {
+    const filtered = blocks.filter(
+      (block): block is Exclude<T, ImageContent> => block.type !== "image",
+    );
+    if (filtered.length === blocks.length) return blocks;
+    return filtered.length > 0 ? filtered : [placeholder];
+  };
+
+  const messages = context.messages.map((message) => {
+    if (message.role === "user") {
+      if (typeof message.content === "string") return message;
+      const next = stripBlocks(message.content);
+      return next === message.content ? message : { ...message, content: next };
+    }
+    if (message.role === "toolResult") {
+      const next = stripBlocks(message.content);
+      return next === message.content ? message : { ...message, content: next };
+    }
+    return message;
+  });
+
+  return { ...context, messages };
+}
+
 export function buildContextFromChatMessages(
   messages: unknown,
   tools?: unknown,
@@ -820,13 +861,13 @@ export async function completeManagedChat(args: {
   api?: ManagedProtocol;
   request?: ManagedCompletionRequest;
 }): Promise<AssistantMessage> {
-  const execute = async (config: ManagedModelConfig) => {
+  const execute = async (config: ManagedModelConfig, context: Context) => {
     const api = resolveManagedProtocol({ api: args.api, config });
     const message = await retryProviderRequest(
       () =>
         completeSimple(
           buildManagedModel(config, api, args.request?.headers),
-          args.context,
+          context,
           buildSimpleOptions({
             config,
             request: args.request,
@@ -850,7 +891,7 @@ export async function completeManagedChat(args: {
   };
 
   try {
-    return await execute(args.config);
+    return await execute(args.config, args.context);
   } catch (error) {
     if (!args.fallbackConfig) {
       throw error;
@@ -860,7 +901,12 @@ export async function completeManagedChat(args: {
         error instanceof Error ? error.message : String(error)
       }`,
     );
-    return await execute(args.fallbackConfig);
+    const fallbackContext = args.fallbackConfig.modalitiesInput?.includes(
+      "image",
+    )
+      ? args.context
+      : stripImageContentFromContext(args.context);
+    return await execute(args.fallbackConfig, fallbackContext);
   }
 }
 
@@ -871,11 +917,11 @@ export function streamManagedChat(args: {
   api?: ManagedProtocol;
   request?: ManagedCompletionRequest;
 }) {
-  const streamForConfig = (config: ManagedModelConfig) => {
+  const streamForConfig = (config: ManagedModelConfig, context: Context) => {
     const api = resolveManagedProtocol({ api: args.api, config });
     return streamSimple(
       buildManagedModel(config, api, args.request?.headers),
-      args.context,
+      context,
       buildSimpleOptions({
         config,
         request: args.request,
@@ -884,6 +930,17 @@ export function streamManagedChat(args: {
   };
 
   const fallbackConfig = args.fallbackConfig ?? undefined;
+  // When the fallback model can't accept images, strip image parts from
+  // the context before invoking it. Without this, falling back from an
+  // image-capable primary (e.g. Anthropic) to a text-only fallback (e.g.
+  // deepseek-v4-flash via OpenRouter) surfaces a misleading "No
+  // endpoints found that support image input" 404 from the wrong
+  // provider — the user only ever sees the secondary failure, never the
+  // real reason the primary failed.
+  const fallbackContext =
+    fallbackConfig && !fallbackConfig.modalitiesInput?.includes("image")
+      ? stripImageContentFromContext(args.context)
+      : args.context;
 
   return (async function* () {
     let emittedOutput = false;
@@ -891,7 +948,7 @@ export function streamManagedChat(args: {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         let retryPrimary = false;
-        for await (const event of streamForConfig(args.config)) {
+        for await (const event of streamForConfig(args.config, args.context)) {
           if (event.type === "error" && !emittedOutput) {
             if (
               attempt < maxAttempts &&
@@ -917,6 +974,7 @@ export function streamManagedChat(args: {
               );
               for await (const fallbackEvent of streamForConfig(
                 fallbackConfig,
+                fallbackContext,
               )) {
                 yield fallbackEvent;
               }
@@ -958,7 +1016,10 @@ export function streamManagedChat(args: {
               error instanceof Error ? error.message : String(error)
             }`,
           );
-          for await (const fallbackEvent of streamForConfig(fallbackConfig)) {
+          for await (const fallbackEvent of streamForConfig(
+            fallbackConfig,
+            fallbackContext,
+          )) {
             yield fallbackEvent;
           }
           return;

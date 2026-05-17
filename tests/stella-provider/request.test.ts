@@ -8,8 +8,9 @@ import { toProviderNativeModel } from "../../convex/stella_provider/authorizatio
 
 describe("toProviderNativeModel", () => {
   it("strips provider prefix for matching upstream", () => {
+    // Anthropic ids use dashes, not dots — converted at the wire boundary.
     expect(toProviderNativeModel("anthropic/claude-opus-4.7", "anthropic")).toBe(
-      "claude-opus-4.7",
+      "claude-opus-4-7",
     );
     expect(toProviderNativeModel("openai/gpt-5.5", "openai")).toBe("gpt-5.5");
     expect(toProviderNativeModel("google/gemini-3-flash-preview", "google")).toBe(

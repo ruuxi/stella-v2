@@ -44,12 +44,10 @@ export function toProviderNativeModel(
   provider: ManagedGatewayProvider,
 ): string {
   const prefix = providerModelPrefix[provider];
-  if (prefix && model.startsWith(prefix)) {
-    return model.slice(prefix.length);
-  }
-  return model;
+  const stripped = prefix && model.startsWith(prefix) ? model.slice(prefix.length) : model;
+  if (provider === "anthropic") return stripped.replace(/\./g, "-");
+  return stripped;
 }
-
 const estimatedCostMicroCents = async (
   ctx: ActionCtx,
   model: string,

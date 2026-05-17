@@ -282,6 +282,37 @@ export const stellaProviderRelay = (
   responseHeaders.set("Vary", "Origin");
   responseHeaders.delete("content-length");
 
+  // Visibility: when upstream itself failed (Anthropic 400, OpenAI 401,
+  // Google 403, etc.) the body is short JSON we want in convex logs so we
+  // can diagnose. Read up to 2 KiB without consuming the stream for the
+  // client: tee the body via `tee()` so one branch goes downstream and
+  // the other we drain for logging.
+  if (!upstreamResponse.ok && upstreamResponse.body) {
+    const [forErrLog, forForward] = upstreamResponse.body.tee();
+    upstreamResponse = new Response(forForward, {
+      status: upstreamResponse.status,
+      statusText: upstreamResponse.statusText,
+      headers: upstreamResponse.headers,
+    });
+    void (async () => {
+      try {
+        const reader = forErrLog.getReader();
+        const decoder = new TextDecoder();
+        let collected = "";
+        while (collected.length < 2048) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) collected += decoder.decode(value, { stream: true });
+        }
+        console.error(
+          `[stella-provider] upstream ${provider} returned ${upstreamResponse.status}: ${collected.slice(0, 2048)}`,
+        );
+      } catch {
+        // best-effort logging
+      }
+    })();
+  }
+
   const decoder = new TextDecoder();
   const upstreamBody = upstreamResponse.body;
   if (!upstreamBody) {

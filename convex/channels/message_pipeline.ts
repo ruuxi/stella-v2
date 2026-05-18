@@ -18,6 +18,7 @@ import {
   EXECUTION_NOT_AVAILABLE_MESSAGE,
   shouldUseOfflineResponderForProvider,
 } from "./execution_policy";
+import type { ConnectorMediaRef } from "./connector_media_types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,6 +72,7 @@ type PendingDeviceSelectionState = {
   provider: string;
   promptText: string;
   userMessageId?: Id<"events">;
+  mediaRefs?: ConnectorMediaRef[];
   attachments?: ChannelInboundAttachment[];
   channelEnvelope?: Infer<typeof optionalChannelEnvelopeValidator>;
   deliveryMeta: Value;
@@ -90,6 +92,7 @@ export const SYNC_MODE_OFF: SyncMode = "off";
 export const TRANSIENT_CLEANUP_MAX_ATTEMPTS = 4;
 export const TRANSIENT_CLEANUP_BACKOFF_BASE_MS = 100;
 export const TRANSIENT_CLEANUP_BACKOFF_MAX_MS = 2_000;
+const CONNECTOR_MEDIA_DELETE_DELAY_MS = 30 * 60_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,6 +112,14 @@ const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? JSON.parse(JSON.stringify(value)) as Record<string, unknown>
     : {};
+
+const stripChannelEnvelopePrivateFields = (
+  envelope: Infer<typeof optionalChannelEnvelopeValidator>,
+): Infer<typeof optionalChannelEnvelopeValidator> => {
+  if (!envelope) return undefined;
+  const { attachments: _attachments, providerPayload: _providerPayload, ...rest } = envelope;
+  return rest;
+};
 
 const formatDeviceLabel = (device: {
   deviceName: string;
@@ -216,7 +227,6 @@ const appendInboundUserMessage = async (args: {
   conversationId: Id<"conversations">;
   provider: string;
   text: string;
-  attachments?: ChannelInboundAttachment[];
   channelEnvelope?: Infer<typeof optionalChannelEnvelopeValidator>;
 }): Promise<Id<"events"> | null> => {
   const event = await args.ctx.runMutation(internal.events.appendInternalEvent, {
@@ -226,13 +236,50 @@ const appendInboundUserMessage = async (args: {
     payload: {
       text: args.text,
       source: `channel:${args.provider}`,
-      ...(args.attachments && args.attachments.length > 0
-        ? { attachments: args.attachments }
-        : {}),
     },
-    channelEnvelope: args.channelEnvelope,
+    channelEnvelope: stripChannelEnvelopePrivateFields(args.channelEnvelope),
   });
   return event?._id ?? null;
+};
+
+const materializeConnectorMediaRefs = async (args: {
+  ctx: ActionCtx;
+  provider: string;
+  deliveryMeta?: Record<string, unknown>;
+  attachments?: ChannelInboundAttachment[];
+  scopeId: string;
+}): Promise<ConnectorMediaRef[] | undefined> => {
+  if (!args.attachments || args.attachments.length === 0 || !args.deliveryMeta) {
+    return undefined;
+  }
+  const refs = (await args.ctx.runAction(
+    internal.channels.connector_media.materializeInboundAttachments,
+    {
+      provider: args.provider,
+      deliveryMeta: JSON.parse(JSON.stringify(args.deliveryMeta)) as Value,
+      scopeId: args.scopeId,
+      attachments: args.attachments,
+    },
+  )) as ConnectorMediaRef[];
+  if (refs.length === 0) return undefined;
+  await args.ctx.scheduler.runAfter(
+    CONNECTOR_MEDIA_DELETE_DELAY_MS,
+    internal.channels.connector_media.deleteRelayedMedia,
+    { media: refs },
+  );
+  return refs;
+};
+
+const refreshConnectorMediaRefs = async (args: {
+  ctx: ActionCtx;
+  mediaRefs?: ConnectorMediaRef[];
+}): Promise<ConnectorMediaRef[] | undefined> => {
+  if (!args.mediaRefs || args.mediaRefs.length === 0) return undefined;
+  const refs = (await args.ctx.runAction(
+    internal.channels.connector_media.refreshRelayedMediaUrls,
+    { media: args.mediaRefs },
+  )) as ConnectorMediaRef[];
+  return refs.length > 0 ? refs : undefined;
 };
 
 const appendTransientChannelEvent = async (args: {
@@ -466,7 +513,6 @@ export async function processIncomingMessage(
       conversationId,
       provider: args.provider,
       text: params.text,
-      attachments: params.attachments,
       channelEnvelope: params.channelEnvelope,
     });
   };
@@ -496,6 +542,7 @@ export async function processIncomingMessage(
 
     let promptText = args.text;
     let promptAttachments = args.attachments;
+    let promptMediaRefs: ConnectorMediaRef[] | undefined;
     let promptChannelEnvelope = args.channelEnvelope;
     let promptDeliveryMeta = args.deliveryMeta;
     let pendingPromptUserMessageId: Id<"events"> | null = null;
@@ -536,7 +583,11 @@ export async function processIncomingMessage(
             { conversationId, deviceId: undefined },
           );
           promptText = pendingSelection.promptText;
-          promptAttachments = pendingSelection.attachments;
+          promptAttachments = undefined;
+          promptMediaRefs = await refreshConnectorMediaRefs({
+            ctx: args.ctx,
+            mediaRefs: pendingSelection.mediaRefs,
+          });
           promptChannelEnvelope = pendingSelection.channelEnvelope;
           promptDeliveryMeta = asRecord(pendingSelection.deliveryMeta);
           pendingPromptUserMessageId = pendingSelection.userMessageId ?? null;
@@ -579,7 +630,11 @@ export async function processIncomingMessage(
           { conversationId, deviceId: freshMatch.deviceId },
         );
         promptText = pendingSelection.promptText;
-        promptAttachments = pendingSelection.attachments;
+        promptAttachments = undefined;
+        promptMediaRefs = await refreshConnectorMediaRefs({
+          ctx: args.ctx,
+          mediaRefs: pendingSelection.mediaRefs,
+        });
         promptChannelEnvelope = pendingSelection.channelEnvelope;
         promptDeliveryMeta = asRecord(pendingSelection.deliveryMeta);
         pendingPromptUserMessageId = pendingSelection.userMessageId ?? null;
@@ -617,6 +672,13 @@ export async function processIncomingMessage(
           attachments: args.attachments,
           channelEnvelope: args.channelEnvelope,
         });
+        const mediaRefs = await materializeConnectorMediaRefs({
+          ctx: args.ctx,
+          provider: args.provider,
+          deliveryMeta: args.deliveryMeta,
+          attachments: args.attachments,
+          scopeId: `pending:${String(conversationId)}:${crypto.randomUUID()}`,
+        });
         const responseText = buildDeviceSelectionPrompt(deviceOptions);
         await args.ctx.runMutation(
           internal.conversations.setPendingDeviceSelection,
@@ -627,8 +689,8 @@ export async function processIncomingMessage(
               provider: args.provider,
               promptText: args.text,
               ...(userMessageId ? { userMessageId } : {}),
-              attachments: args.attachments,
-              channelEnvelope: args.channelEnvelope,
+              ...(mediaRefs ? { mediaRefs } : {}),
+              channelEnvelope: stripChannelEnvelopePrivateFields(args.channelEnvelope),
               deliveryMeta: JSON.parse(JSON.stringify(args.deliveryMeta ?? {})) as Value,
               deviceOptions,
             },
@@ -672,6 +734,15 @@ export async function processIncomingMessage(
       const requestId = crypto.randomUUID();
 
       const clonedDeliveryMeta = JSON.parse(JSON.stringify(promptDeliveryMeta));
+      const mediaRefs =
+        promptMediaRefs ??
+        await materializeConnectorMediaRefs({
+          ctx: args.ctx,
+          provider: args.provider,
+          deliveryMeta: promptDeliveryMeta,
+          attachments: promptAttachments,
+          scopeId: `turn:${requestId}`,
+        });
 
       const turnPayload = {
         conversationId: String(conversationId),
@@ -679,6 +750,7 @@ export async function processIncomingMessage(
         text: promptText,
         provider: args.provider,
         deliveryMeta: clonedDeliveryMeta,
+        ...(mediaRefs ? { mediaRefs } : {}),
       };
 
       await args.ctx.runMutation(internal.events.appendInternalEvent, {

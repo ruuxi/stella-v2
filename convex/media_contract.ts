@@ -33,6 +33,7 @@ export type MediaGenerateRequestBody = {
   source?: unknown;
   sources?: unknown;
   input?: unknown;
+  connectorRequestId?: unknown;
 };
 
 export type MediaGenerateRequest = {
@@ -44,6 +45,7 @@ export type MediaGenerateRequest = {
   source?: MediaSourceReference;
   sources?: Record<string, MediaSourceReference>;
   input: Record<string, unknown>;
+  connectorRequestId?: string;
 };
 
 export type MediaGenerateAcceptedResponse = {
@@ -152,6 +154,8 @@ export const parseMediaGenerateRequest = (
   const prompt = asTrimmedString(value.prompt) ?? undefined;
   const aspectRatio = asTrimmedString(value.aspectRatio) ?? undefined;
   const sourceUrl = asTrimmedString(value.sourceUrl) ?? undefined;
+  const connectorRequestId =
+    asTrimmedString(value.connectorRequestId) ?? undefined;
   const input = isRecord(value.input) ? { ...value.input } : {};
 
   const sourceRecord = isRecord(value.source) ? value.source : null;
@@ -211,6 +215,7 @@ export const parseMediaGenerateRequest = (
     ...(sourceString ?? sourceFromObject ? { source: sourceString ?? sourceFromObject } : {}),
     ...(sources && Object.keys(sources).length > 0 ? { sources } : {}),
     input,
+    ...(connectorRequestId ? { connectorRequestId } : {}),
   };
 };
 
@@ -225,6 +230,9 @@ export const createMediaGenerateRequestExample = (
   ...(args.source ? { source: args.source } : {}),
   ...(args.sources ? { sources: args.sources } : {}),
   input: { ...args.input },
+  ...(args.connectorRequestId
+    ? { connectorRequestId: args.connectorRequestId }
+    : {}),
 });
 
 export const createMediaGenerateAcceptedResponse = (

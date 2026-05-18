@@ -5,6 +5,7 @@ import {
   jsonValueValidator,
   optionalChannelEnvelopeValidator,
 } from "../shared_validators";
+import { connectorMediaRefValidator } from "../channels/connector_media_types";
 
 /** All event `type` values written by the app (appendEvent + internal inserters).
  *
@@ -57,6 +58,7 @@ export const pendingDeviceSelectionValidator = v.object({
   provider: v.string(),
   promptText: v.string(),
   userMessageId: v.optional(v.id("events")),
+  mediaRefs: v.optional(v.array(connectorMediaRefValidator)),
   attachments: v.optional(v.array(channelAttachmentValidator)),
   channelEnvelope: optionalChannelEnvelopeValidator,
   deliveryMeta: jsonValueValidator,

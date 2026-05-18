@@ -18,7 +18,7 @@ import {
   type QueryCtx,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { v, ConvexError } from "convex/values";
+import { v, ConvexError, type Value } from "convex/values";
 import { jsonValueValidator } from "../shared_validators";
 import { retryFetch } from "../lib/retry_fetch";
 import { requireConversationOwner } from "../auth";
@@ -41,9 +41,15 @@ import {
   EXECUTION_NOT_AVAILABLE_MESSAGE,
   shouldUseOfflineResponderForProvider,
 } from "./execution_policy";
+import {
+  connectorMediaRefArrayValidator,
+  extractDeliveryMediaFromOutput,
+  type ConnectorMediaRef,
+} from "./connector_media_types";
 
 const BACKEND_FALLBACK_AGENT_TYPE = "offline_responder";
 const EMPTY_RESPONSE_TEXT = "(Stella had nothing to say.)";
+const RELAYED_MEDIA_DELETE_DELAY_MS = 10 * 60_000;
 
 /**
  * Look up the original `remote_turn_request` event by `requestId`. The
@@ -59,6 +65,17 @@ const findRemoteTurnRequest = async (
     .query("events")
     .withIndex("by_requestId", (q) => q.eq("requestId", requestId))
     .first();
+
+const mediaLabel = (media: ConnectorMediaRef): string =>
+  media.name?.trim() ||
+  media.mimeType?.trim() ||
+  `${media.kind} attachment`;
+
+const appendMediaLinks = (text: string, media: ConnectorMediaRef[]): string => {
+  if (media.length === 0) return text;
+  const lines = media.map((item) => `${mediaLabel(item)}: ${item.url}`);
+  return [text.trim(), ...lines].filter(Boolean).join("\n");
+};
 
 // ─── Public Mutation (called by local device via HTTP) ──────────────────────
 export const claimRemoteTurn = mutation({
@@ -229,31 +246,38 @@ type DeliveryArgs = {
   provider: string;
   deliveryMeta: Record<string, unknown>;
   text: string;
+  media?: ConnectorMediaRef[];
 };
 
 async function dispatchConnectorDelivery(
   ctx: Pick<ActionCtx, "runQuery">,
-  args: { provider: string; deliveryMeta: Record<string, unknown>; text: string },
+  args: {
+    provider: string;
+    deliveryMeta: Record<string, unknown>;
+    text: string;
+    media?: ConnectorMediaRef[];
+  },
 ): Promise<void> {
   const meta = args.deliveryMeta;
+  const media = args.media ?? [];
   switch (args.provider) {
     case "slack":
-      await deliverSlack(ctx, meta, args.text);
+      await deliverSlack(ctx, meta, args.text, media);
       return;
     case "telegram":
-      await deliverTelegram(meta, args.text);
+      await deliverTelegram(meta, args.text, media);
       return;
     case "discord":
-      await deliverDiscord(meta, args.text);
+      await deliverDiscord(meta, args.text, media);
       return;
     case "google_chat":
-      await deliverGoogleChat(meta, args.text);
+      await deliverGoogleChat(meta, args.text, media);
       return;
     case "teams":
-      await deliverTeams(meta, args.text);
+      await deliverTeams(meta, args.text, media);
       return;
     case "linq":
-      await deliverLinq(meta, args.text);
+      await deliverLinq(meta, args.text, media);
       return;
     case "stella_app":
       return;
@@ -274,6 +298,7 @@ async function deliverToConnectorCore(
       provider: args.provider,
       deliveryMeta: args.deliveryMeta,
       text: args.text,
+      media: args.media,
     });
 
     // Mark fulfilled AFTER successful delivery — patches the original
@@ -492,6 +517,7 @@ export const deliverToConnector = internalAction({
     provider: v.string(),
     deliveryMeta: jsonValueValidator,
     text: v.string(),
+    media: v.optional(connectorMediaRefArrayValidator),
   },
   handler: async (ctx, args) => {
     await deliverToConnectorCore(ctx, {
@@ -500,7 +526,91 @@ export const deliverToConnector = internalAction({
       provider: args.provider,
       deliveryMeta: args.deliveryMeta as Record<string, unknown>,
       text: args.text,
+      media: args.media,
     });
+    return null;
+  },
+});
+
+export const getRemoteTurnDeliveryTarget = internalQuery({
+  args: { requestId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      conversationId: v.id("conversations"),
+      provider: v.string(),
+      deliveryMeta: jsonValueValidator,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const request = await findRemoteTurnRequest(ctx, args.requestId);
+    if (!request || request.type !== "remote_turn_request") return null;
+    const payload = request.payload as Record<string, unknown>;
+    const provider = payload.provider;
+    if (typeof provider !== "string") return null;
+    const deliveryMeta: Value =
+      payload.deliveryMeta && typeof payload.deliveryMeta === "object"
+        ? (JSON.parse(JSON.stringify(payload.deliveryMeta)) as Value)
+        : ({} as Value);
+    return { conversationId: request.conversationId, provider, deliveryMeta };
+  },
+});
+
+export const deliverMediaJobToConnector = internalAction({
+  args: {
+    requestId: v.string(),
+    jobId: v.string(),
+    output: jsonValueValidator,
+  },
+  handler: async (ctx, args) => {
+    const mediaInputs = extractDeliveryMediaFromOutput(args.output);
+    if (mediaInputs.length === 0) return null;
+
+    const target = (await ctx.runQuery(
+      internal.channels.connector_delivery.getRemoteTurnDeliveryTarget,
+      { requestId: args.requestId },
+    )) as {
+      conversationId: Id<"conversations">;
+      provider: string;
+      deliveryMeta: Record<string, unknown>;
+    } | null;
+    if (!target) return null;
+
+    const media = (await ctx.runAction(
+      internal.channels.connector_media.materializeRemoteMedia,
+      {
+        scopeId: `out:${args.jobId}`,
+        media: mediaInputs,
+      },
+    )) as ConnectorMediaRef[];
+    if (media.length === 0) return null;
+
+    try {
+      await dispatchConnectorDelivery(ctx, {
+        provider: target.provider,
+        deliveryMeta: target.deliveryMeta,
+        text: "",
+        media,
+      });
+      await ctx.runMutation(
+        internal.media_jobs.markConnectorMediaDelivered,
+        { jobId: args.jobId, deliveredAt: Date.now() },
+      );
+      await ctx.scheduler.runAfter(
+        RELAYED_MEDIA_DELETE_DELAY_MS,
+        internal.channels.connector_media.deleteRelayedMedia,
+        { media },
+      );
+    } catch (error) {
+      await ctx.runMutation(
+        internal.media_jobs.markConnectorMediaDeliveryFailed,
+        {
+          jobId: args.jobId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw error;
+    }
     return null;
   },
 });
@@ -509,6 +619,7 @@ async function deliverSlack(
   ctx: Pick<ActionCtx, "runQuery">,
   meta: Record<string, unknown>,
   text: string,
+  media: ConnectorMediaRef[] = [],
 ) {
   const channelId = meta.channelId as string;
   const teamId = meta.teamId as string | undefined;
@@ -534,7 +645,20 @@ async function deliverSlack(
     return;
   }
 
-  const truncated = truncateForConnector(text, SLACK_MAX_MESSAGE_CHARS);
+  const textMedia = media.filter((item) => item.kind !== "image");
+  const imageMedia = media.filter((item) => item.kind === "image");
+  const truncated = truncateForConnector(
+    appendMediaLinks(text, textMedia),
+    SLACK_MAX_MESSAGE_CHARS,
+  );
+  const blocks =
+    imageMedia.length > 0
+      ? imageMedia.map((item) => ({
+          type: "image",
+          image_url: item.url,
+          alt_text: mediaLabel(item),
+        }))
+      : undefined;
 
   const res = await retryFetch("https://slack.com/api/chat.postMessage", {
     method: "POST",
@@ -542,7 +666,11 @@ async function deliverSlack(
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ channel: channelId, text: truncated }),
+    body: JSON.stringify({
+      channel: channelId,
+      text: truncated || media.map(mediaLabel).join(", "),
+      ...(blocks ? { blocks } : {}),
+    }),
   });
 
   if (!res.ok) {
@@ -556,6 +684,7 @@ async function deliverSlack(
 async function deliverTelegram(
   meta: Record<string, unknown>,
   text: string,
+  media: ConnectorMediaRef[] = [],
 ) {
   const chatId = meta.chatId as string;
   if (!chatId) {
@@ -570,6 +699,36 @@ async function deliverTelegram(
   }
 
   const truncated = truncateForConnector(text, TELEGRAM_MAX_MESSAGE_CHARS);
+  if (media.length > 0) {
+    for (const [index, item] of media.entries()) {
+      const method =
+        item.kind === "image"
+          ? "sendPhoto"
+          : item.kind === "video"
+            ? "sendVideo"
+            : item.kind === "audio"
+              ? "sendAudio"
+              : "sendDocument";
+      const field =
+        item.kind === "image"
+          ? "photo"
+          : item.kind === "video"
+            ? "video"
+            : item.kind === "audio"
+              ? "audio"
+              : "document";
+      await retryFetch(`https://api.telegram.org/bot${token}/${method}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          [field]: item.url,
+          ...(index === 0 && truncated ? { caption: truncated } : {}),
+        }),
+      });
+    }
+    return;
+  }
 
   // Try MarkdownV2 first, fall back to plain text
   const mdRes = await retryFetch(
@@ -596,6 +755,7 @@ async function deliverTelegram(
 async function deliverDiscord(
   meta: Record<string, unknown>,
   text: string,
+  media: ConnectorMediaRef[] = [],
 ) {
   const applicationId = meta.applicationId as string;
   const interactionToken = meta.interactionToken as string;
@@ -606,7 +766,16 @@ async function deliverDiscord(
     return;
   }
 
-  const truncated = truncateForConnector(text, DISCORD_MAX_MESSAGE_CHARS);
+  const imageMedia = media.filter((item) => item.kind === "image");
+  const nonImageMedia = media.filter((item) => item.kind !== "image");
+  const truncated = truncateForConnector(
+    appendMediaLinks(text, nonImageMedia),
+    DISCORD_MAX_MESSAGE_CHARS,
+  );
+  const embeds = imageMedia.map((item) => ({
+    title: mediaLabel(item),
+    image: { url: item.url },
+  }));
 
   // Edit the deferred interaction response
   const res = await fetch(
@@ -614,7 +783,10 @@ async function deliverDiscord(
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: truncated }),
+      body: JSON.stringify({
+        content: truncated,
+        ...(embeds.length > 0 ? { embeds } : {}),
+      }),
     },
   );
 
@@ -626,7 +798,10 @@ async function deliverDiscord(
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: truncated }),
+        body: JSON.stringify({
+          content: truncated,
+          ...(embeds.length > 0 ? { embeds } : {}),
+        }),
       },
     );
     if (!followUpRes.ok) {
@@ -641,6 +816,7 @@ async function deliverDiscord(
 async function deliverGoogleChat(
   meta: Record<string, unknown>,
   text: string,
+  media: ConnectorMediaRef[] = [],
 ) {
   const spaceName = meta.spaceName as string;
   if (!spaceName) {
@@ -652,7 +828,23 @@ async function deliverGoogleChat(
 
   const accessToken = await getGoogleAccessToken();
 
-  const truncated = truncateForConnector(text, GOOGLE_CHAT_MAX_MESSAGE_CHARS);
+  const imageMedia = media.filter((item) => item.kind === "image");
+  const nonImageMedia = media.filter((item) => item.kind !== "image");
+  const truncated = truncateForConnector(
+    appendMediaLinks(text, nonImageMedia),
+    GOOGLE_CHAT_MAX_MESSAGE_CHARS,
+  );
+  const cardsV2 =
+    imageMedia.length > 0
+      ? [{
+          cardId: "stella-media",
+          card: {
+            sections: imageMedia.map((item) => ({
+              widgets: [{ image: { imageUrl: item.url, altText: mediaLabel(item) } }],
+            })),
+          },
+        }]
+      : undefined;
 
   const res = await retryFetch(
     `https://chat.googleapis.com/v1/${spaceName}/messages`,
@@ -662,7 +854,10 @@ async function deliverGoogleChat(
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ text: truncated }),
+      body: JSON.stringify({
+        ...(truncated ? { text: truncated } : {}),
+        ...(cardsV2 ? { cardsV2 } : {}),
+      }),
     },
   );
 
@@ -674,7 +869,11 @@ async function deliverGoogleChat(
     );
   }
 }
-async function deliverTeams(meta: Record<string, unknown>, text: string) {
+async function deliverTeams(
+  meta: Record<string, unknown>,
+  text: string,
+  media: ConnectorMediaRef[] = [],
+) {
   const serviceUrl = meta.serviceUrl as string;
   const conversationId = meta.conversationIdTeams as string;
   if (!serviceUrl || !conversationId) {
@@ -686,7 +885,17 @@ async function deliverTeams(meta: Record<string, unknown>, text: string) {
 
   const token = await getTeamsBotToken();
 
-  const truncated = truncateForConnector(text, TEAMS_MAX_MESSAGE_CHARS);
+  const truncated = truncateForConnector(
+    appendMediaLinks(text, media.filter((item) => item.kind !== "image")),
+    TEAMS_MAX_MESSAGE_CHARS,
+  );
+  const attachments = media
+    .filter((item) => item.kind === "image")
+    .map((item) => ({
+      contentType: item.mimeType ?? "image/*",
+      contentUrl: item.url,
+      name: mediaLabel(item),
+    }));
 
   const baseUrl = serviceUrl.endsWith("/")
     ? serviceUrl.slice(0, -1)
@@ -700,7 +909,11 @@ async function deliverTeams(meta: Record<string, unknown>, text: string) {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ type: "message", text: truncated }),
+      body: JSON.stringify({
+        type: "message",
+        ...(truncated ? { text: truncated } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      }),
     },
   );
 
@@ -712,7 +925,11 @@ async function deliverTeams(meta: Record<string, unknown>, text: string) {
     );
   }
 }
-async function deliverLinq(meta: Record<string, unknown>, text: string) {
+async function deliverLinq(
+  meta: Record<string, unknown>,
+  text: string,
+  media: ConnectorMediaRef[] = [],
+) {
   // Linq delivery is keyed exclusively by the incoming chat ID — the user's
   // phone number is deliberately NOT carried in `deliveryMeta` (which is
   // persisted on the `remote_turn_request` event and on the conversation's
@@ -743,7 +960,17 @@ async function deliverLinq(meta: Record<string, unknown>, text: string) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        message: { parts: [{ type: "text", value: text }] },
+        message: {
+          parts: [
+            ...(text.trim() ? [{ type: "text", value: text }] : []),
+            ...media.map((item) => ({
+              type: item.kind === "file" ? "file" : item.kind,
+              value: item.url,
+              ...(item.mimeType ? { mime_type: item.mimeType } : {}),
+              ...(item.name ? { name: item.name } : {}),
+            })),
+          ],
+        },
       }),
     },
   );

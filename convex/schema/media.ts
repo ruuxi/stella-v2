@@ -97,6 +97,7 @@ export const mediaSchema = {
     provider: v.union(v.literal("fal"), v.literal("google_lyria")),
     endpointId: v.string(),
     request: mediaRequestSummaryValidator,
+    connectorRequestId: v.optional(v.string()),
     billing: v.optional(mediaJobBillingValidator),
     providerRequestId: v.optional(v.string()),
     providerGatewayRequestId: v.optional(v.string()),
@@ -112,6 +113,23 @@ export const mediaSchema = {
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     lastWebhookAt: v.optional(v.number()),
+    /**
+     * Set when the connector-media delivery has been scheduled (in the
+     * same mutation that calls `ctx.scheduler.runAfter(deliverMediaJobToConnector)`).
+     * Acts as the dedup gate against duplicate `markGenerated` / `applyFalWebhook`
+     * invocations for the same job — once set, subsequent terminal-success
+     * patches skip re-scheduling.
+     */
+    connectorMediaDeliveryScheduledAt: v.optional(v.number()),
+    /**
+     * Set by `deliverMediaJobToConnector` *after* the connector POST
+     * succeeded. A `scheduledAt && !deliveredAt && error` triple is the
+     * signal that a delivery attempt was made but failed; recovery is
+     * via manual re-trigger or a future watchdog.
+     */
+    connectorMediaDeliveredAt: v.optional(v.number()),
+    /** Last delivery error message, if the most recent attempt failed. */
+    connectorMediaDeliveryError: v.optional(v.string()),
   })
     .index("by_jobId", ["jobId"])
     .index("by_ownerId_and_jobId", ["ownerId", "jobId"])

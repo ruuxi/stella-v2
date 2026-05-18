@@ -5,6 +5,7 @@ import {
   query,
   type QueryCtx,
 } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type {
   MediaGenerateRequest,
   MediaRequestSummary,
@@ -22,6 +23,7 @@ import {
   jsonValueValidator,
   optionalJsonValueValidator,
 } from "./shared_validators";
+import { extractDeliveryMediaFromOutput } from "./channels/connector_media_types";
 
 export const PUBLIC_MEDIA_TEST_OWNER_ID = "__public_media_test__";
 
@@ -379,6 +381,7 @@ export const createJob = internalMutation({
     provider: v.union(v.literal("fal"), v.literal("google_lyria")),
     endpointId: v.string(),
     request: mediaRequestSummaryValidator,
+    connectorRequestId: v.optional(v.string()),
     billing: v.optional(mediaJobBillingValidator),
   },
   handler: async (ctx, args) => {
@@ -399,6 +402,9 @@ export const createJob = internalMutation({
       provider: args.provider,
       endpointId: args.endpointId,
       request: args.request,
+      ...(args.connectorRequestId
+        ? { connectorRequestId: args.connectorRequestId }
+        : {}),
       ...(args.billing ? { billing: args.billing } : {}),
       status: "queued",
       upstreamStatus: "IN_QUEUE",
@@ -518,16 +524,43 @@ export const markGenerated = internalMutation({
       return null;
     }
     const now = Date.now();
+    const output = sanitizeJsonValue(args.output);
+    // `connectorMediaDeliveryScheduledAt` is the dedup gate: we set it in
+    // the same patch that schedules `deliverMediaJobToConnector`, so a
+    // duplicate `markGenerated` / `applyFalWebhook` for the same job won't
+    // re-schedule. `connectorMediaDeliveredAt` is set by the delivery
+    // action itself on success — keeping the two flags separate means a
+    // transient delivery failure leaves a clear `scheduledAt && !deliveredAt`
+    // state for the watchdog (or manual recovery) to retry.
+    const shouldScheduleConnectorDelivery =
+      Boolean(job.connectorRequestId) &&
+      !job.connectorMediaDeliveredAt &&
+      !job.connectorMediaDeliveryScheduledAt &&
+      extractDeliveryMediaFromOutput(output).length > 0;
     await ctx.db.patch(job._id, {
       status: "succeeded",
       upstreamStatus: args.upstreamStatus,
       queuePosition: null,
-      output: sanitizeJsonValue(args.output),
+      output,
       ...(args.billing ? { billing: args.billing } : {}),
       updatedAt: now,
       startedAt: job.startedAt ?? now,
       completedAt: now,
+      ...(shouldScheduleConnectorDelivery
+        ? { connectorMediaDeliveryScheduledAt: now }
+        : {}),
     });
+    if (shouldScheduleConnectorDelivery) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.channels.connector_delivery.deliverMediaJobToConnector,
+        {
+          requestId: job.connectorRequestId!,
+          jobId: job.jobId,
+          output,
+        },
+      );
+    }
     return null;
   },
 });
@@ -578,8 +611,18 @@ export const applyFalWebhook = internalMutation({
       }
     }
 
+    const status = toWebhookMediaJobStatus(args.upstreamStatus);
+    const output =
+      args.output !== undefined ? sanitizeJsonValue(args.output) : undefined;
+    const shouldDeliverConnectorMedia =
+      status === "succeeded" &&
+      job.connectorRequestId &&
+      !job.connectorMediaDeliveredAt &&
+      !job.connectorMediaDeliveryScheduledAt &&
+      output !== undefined &&
+      extractDeliveryMediaFromOutput(output).length > 0;
     await ctx.db.patch(job._id, {
-      status: toWebhookMediaJobStatus(args.upstreamStatus),
+      status,
       upstreamStatus: args.upstreamStatus,
       queuePosition: null,
       ...(args.providerRequestId
@@ -588,9 +631,7 @@ export const applyFalWebhook = internalMutation({
       ...(args.providerGatewayRequestId
         ? { providerGatewayRequestId: args.providerGatewayRequestId }
         : {}),
-      ...(args.output !== undefined
-        ? { output: sanitizeJsonValue(args.output) }
-        : {}),
+      ...(output !== undefined ? { output } : {}),
       ...(args.billing ? { billing: args.billing } : {}),
       ...(args.error
         ? {
@@ -608,8 +649,67 @@ export const applyFalWebhook = internalMutation({
       updatedAt: args.receivedAt,
       completedAt: args.receivedAt,
       lastWebhookAt: args.receivedAt,
+      ...(shouldDeliverConnectorMedia
+        ? { connectorMediaDeliveryScheduledAt: args.receivedAt }
+        : {}),
     });
 
+    if (shouldDeliverConnectorMedia) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.channels.connector_delivery.deliverMediaJobToConnector,
+        {
+          requestId: job.connectorRequestId!,
+          jobId: job.jobId,
+          output: output!,
+        },
+      );
+    }
+
     return { updated: true, jobId: job.jobId };
+  },
+});
+
+/**
+ * Patch a media job to record a successful connector media delivery.
+ * Called from `deliverMediaJobToConnector` after the connector POST
+ * succeeded, separately from the `markGenerated` / `applyFalWebhook`
+ * mutations so a transient delivery failure doesn't leave the row
+ * marked "delivered" forever.
+ */
+export const markConnectorMediaDelivered = internalMutation({
+  args: { jobId: v.string(), deliveredAt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const job = await getJobByJobId(ctx, args.jobId);
+    if (!job) return null;
+    if (job.connectorMediaDeliveredAt) return null;
+    await ctx.db.patch(job._id, {
+      connectorMediaDeliveredAt: args.deliveredAt,
+      ...(job.connectorMediaDeliveryError
+        ? { connectorMediaDeliveryError: undefined }
+        : {}),
+    });
+    return null;
+  },
+});
+
+/**
+ * Record the most recent connector media delivery failure on the job.
+ * Leaves `connectorMediaDeliveryScheduledAt` set so the dedup gate keeps
+ * holding — recovery is via manual re-trigger or a future watchdog rather
+ * than spontaneous re-fire on the next mutation.
+ */
+export const markConnectorMediaDeliveryFailed = internalMutation({
+  args: { jobId: v.string(), error: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const job = await getJobByJobId(ctx, args.jobId);
+    if (!job) return null;
+    if (job.connectorMediaDeliveredAt) return null;
+    await ctx.db.patch(job._id, {
+      connectorMediaDeliveryError: args.error.slice(0, 1000),
+    });
+    return null;
   },
 });

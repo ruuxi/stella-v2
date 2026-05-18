@@ -676,6 +676,9 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             provider: resolved.profile.provider,
             endpointId: resolved.profile.endpointId,
             request: storedRequest,
+            ...(body.connectorRequestId
+              ? { connectorRequestId: body.connectorRequestId }
+              : {}),
           });
 
           if (resolved.profile.provider === "google_lyria") {

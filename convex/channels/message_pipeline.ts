@@ -57,7 +57,9 @@ type HandleConnectorIncomingMessageArgs = Omit<ProcessIncomingMessageArgs, "ctx"
   notLinkedText: string;
   failureText?: string;
   sendReply: (text: string) => Promise<void>;
-  onResult?: (result: { text: string; deferred?: boolean } | null) => void;
+  onResult?: (
+    result: { text: string; deferred?: boolean; requestId?: string } | null,
+  ) => void;
 };
 
 type FreshDeviceOption = {
@@ -374,7 +376,7 @@ const persistInboundAssistantMessage = async (args: {
  */
 export async function processIncomingMessage(
   args: ProcessIncomingMessageArgs,
-): Promise<{ text: string; deferred?: boolean } | null> {
+): Promise<{ text: string; deferred?: boolean; requestId?: string } | null> {
   const connection = await resolveConnectionForIncomingMessage({
     ctx: args.ctx,
     ownerId: args.ownerId,
@@ -784,7 +786,7 @@ export async function processIncomingMessage(
       console.log(
         `[channels] Deferred to local device (inverted execution): ${requestId}`,
       );
-      return { text: "", deferred: true };
+      return { text: "", deferred: true, requestId };
     }
 
     if (!allowOfflineResponder) {

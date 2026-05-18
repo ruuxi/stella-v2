@@ -250,8 +250,10 @@ type DeliveryArgs = {
 };
 
 async function dispatchConnectorDelivery(
-  ctx: Pick<ActionCtx, "runQuery">,
+  ctx: DeliveryCtx,
   args: {
+    requestId?: string;
+    conversationId?: Id<"conversations">;
     provider: string;
     deliveryMeta: Record<string, unknown>;
     text: string;
@@ -280,6 +282,14 @@ async function dispatchConnectorDelivery(
       await deliverLinq(meta, args.text, media);
       return;
     case "stella_app":
+      if (!args.requestId || !args.conversationId) {
+        return;
+      }
+      await ctx.runMutation(internal.mobile_replies.publishDesktopReply, {
+        conversationId: args.conversationId,
+        requestId: args.requestId,
+        text: args.text,
+      });
       return;
     default:
       throw new ConvexError({
@@ -295,6 +305,8 @@ async function deliverToConnectorCore(
 ): Promise<void> {
   try {
     await dispatchConnectorDelivery(ctx, {
+      requestId: args.requestId,
+      conversationId: args.conversationId,
       provider: args.provider,
       deliveryMeta: args.deliveryMeta,
       text: args.text,
@@ -587,6 +599,8 @@ export const deliverMediaJobToConnector = internalAction({
 
     try {
       await dispatchConnectorDelivery(ctx, {
+        requestId: args.requestId,
+        conversationId: target.conversationId,
         provider: target.provider,
         deliveryMeta: target.deliveryMeta,
         text: "",

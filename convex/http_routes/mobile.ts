@@ -826,6 +826,11 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return sseResponse(readable, origin);
         }
 
+        const requestId = result.requestId;
+        if (!requestId) {
+          return errorResponse(500, "Could not track desktop reply", origin);
+        }
+
         const POLL_INTERVAL_MS = 500;
         const MAX_POLL_MS = 30_000;
         const ownerIdForPush = owner.ownerId;
@@ -838,27 +843,19 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             while (Date.now() < deadline) {
               await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 
-              const events = (await ctx.runQuery(
-                internal.events.listEventsSince,
+              const reply = await ctx.runQuery(
+                internal.mobile_replies.getDesktopReply,
                 {
-                  conversationId,
-                  afterTimestamp: beforeSend - 1000,
-                  limit: 20,
+                  ownerId: ownerIdForPush,
+                  requestId,
+                  nowMs: Date.now(),
                 },
-              )) as Array<{ type: string; payload: Record<string, unknown> }> | null;
+              );
 
-              if (events) {
-                for (let i = events.length - 1; i >= 0; i--) {
-                  if (events[i].type === "assistant_message") {
-                    const text = (events[i].payload?.text as string) ?? "";
-                    if (text) {
-                      controller.enqueue(encodeSseData({ t: text }));
-                      replyText = text;
-                      found = true;
-                      break;
-                    }
-                  }
-                }
+              if (reply?.text) {
+                controller.enqueue(encodeSseData({ t: reply.text }));
+                replyText = reply.text;
+                found = true;
               }
               if (found) break;
             }
@@ -870,6 +867,10 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             controller.close();
 
             if (found && replyText) {
+              await ctx.runMutation(internal.mobile_replies.deleteDesktopReply, {
+                ownerId: ownerIdForPush,
+                requestId,
+              });
               const preview = replyText.replace(/\s+/g, " ").trim().slice(0, 140);
               try {
                 await ctx.scheduler.runAfter(0, internal.mobile_push.sendToOwner, {

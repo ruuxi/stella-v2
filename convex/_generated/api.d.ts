@@ -138,6 +138,7 @@ import type * as mobile_access from "../mobile_access.js";
 import type * as mobile_auth from "../mobile_auth.js";
 import type * as mobile_bridge from "../mobile_bridge.js";
 import type * as mobile_push from "../mobile_push.js";
+import type * as mobile_replies from "../mobile_replies.js";
 import type * as prompts_discovery_facts from "../prompts/discovery_facts.js";
 import type * as prompts_execution from "../prompts/execution.js";
 import type * as prompts_index from "../prompts/index.js";
@@ -345,6 +346,7 @@ declare const fullApi: ApiFromModules<{
   mobile_auth: typeof mobile_auth;
   mobile_bridge: typeof mobile_bridge;
   mobile_push: typeof mobile_push;
+  mobile_replies: typeof mobile_replies;
   "prompts/discovery_facts": typeof prompts_discovery_facts;
   "prompts/execution": typeof prompts_execution;
   "prompts/index": typeof prompts_index;

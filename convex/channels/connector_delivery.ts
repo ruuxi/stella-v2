@@ -349,6 +349,10 @@ async function runFallbackAndDeliver(
     agentType: BACKEND_FALLBACK_AGENT_TYPE,
     ownerId: args.ownerId,
     userMessageId: args.userMessageId as Id<"events"> | undefined,
+    modelOverride:
+      typeof args.deliveryMeta.mobileModel === "string"
+        ? args.deliveryMeta.mobileModel
+        : null,
   });
 
   if (result.text.trim() && !result.silent) {

@@ -9,8 +9,11 @@ import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
   getModelConfig,
+  isStellaModelAllowedForAudience,
+  LOCKED_AGENT_TYPES,
   type ManagedModelAudience,
 } from "./model";
+import { resolveStellaModelSelection } from "../stella_models";
 import { resolveManagedGatewayProvider, type ManagedGatewayProvider } from "../lib/managed_gateway";
 import {
   assertManagedUsageAllowed,
@@ -86,6 +89,7 @@ export const toResolvedModelConfig = (
 type ResolveModelConfigOptions = {
   audience?: ManagedModelAudience;
   access?: ManagedModelAccess;
+  modelOverride?: string | null;
 };
 
 export async function resolveModelConfig(
@@ -96,9 +100,18 @@ export async function resolveModelConfig(
 ): Promise<ResolvedModelConfig> {
   const audience = options?.access?.modelAudience ?? options?.audience ?? "free";
   const defaults = getModelConfig(agentType, audience);
-  const modalitiesInput = await lookupModalitiesInput(ctx, defaults.model);
+  const requestedOverride = options?.modelOverride?.trim();
+  const overrideModel =
+    requestedOverride &&
+    requestedOverride.startsWith("stella/") &&
+    !LOCKED_AGENT_TYPES.has(agentType) &&
+    isStellaModelAllowedForAudience(requestedOverride, audience)
+      ? resolveStellaModelSelection(agentType, requestedOverride, audience)
+      : null;
+  const model = overrideModel || defaults.model;
+  const modalitiesInput = await lookupModalitiesInput(ctx, model);
   void ownerId;
-  return toResolvedModelConfig(defaults, modalitiesInput);
+  return toResolvedModelConfig({ ...defaults, model }, modalitiesInput);
 }
 
 export async function resolveFallbackConfig(
@@ -131,13 +144,19 @@ export async function resolveManagedModelConfigs(
   ctx: Pick<ActionCtx, "runMutation" | "runQuery">,
   agentType: string,
   ownerId: string,
+  options?: { modelOverride?: string | null },
 ): Promise<{
   access: ManagedModelAccess;
   config: ResolvedModelConfig;
   fallbackConfig: ResolvedModelConfig | null;
 }> {
   const access = await assertManagedUsageAllowed(ctx, ownerId);
-  const config = await resolveModelConfig(ctx, agentType, ownerId, { access });
-  const fallbackConfig = await resolveFallbackConfig(ctx, agentType, ownerId, { access });
+  const config = await resolveModelConfig(ctx, agentType, ownerId, {
+    access,
+    modelOverride: options?.modelOverride,
+  });
+  const fallbackConfig = await resolveFallbackConfig(ctx, agentType, ownerId, {
+    access,
+  });
   return { access, config, fallbackConfig };
 }

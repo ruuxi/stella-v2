@@ -460,6 +460,7 @@ const generateOfflineReply = async (args: {
   isAnonymous: boolean;
   history: Array<{ role: "user" | "assistant"; text: string }>;
   images: Array<{ base64: string; mimeType: string }>;
+  model?: string | null;
 }) => {
   const modelAccess = await resolveManagedModelAccess(args.ctx, args.ownerId, {
     isAnonymous: args.isAnonymous,
@@ -475,7 +476,7 @@ const generateOfflineReply = async (args: {
     args.ctx,
     AGENT_IDS.OFFLINE_RESPONDER,
     args.ownerId,
-    { access: modelAccess },
+    { access: modelAccess, modelOverride: args.model },
   );
   const fallbackConfig = await resolveFallbackConfig(
     args.ctx,
@@ -548,6 +549,7 @@ const streamOfflineReply = async (args: {
   isAnonymous: boolean;
   history: Array<{ role: "user" | "assistant"; text: string }>;
   images: Array<{ base64: string; mimeType: string }>;
+  model?: string | null;
   origin: string | null;
 }): Promise<Response> => {
   const modelAccess = await resolveManagedModelAccess(args.ctx, args.ownerId, {
@@ -562,7 +564,7 @@ const streamOfflineReply = async (args: {
     args.ctx,
     AGENT_IDS.OFFLINE_RESPONDER,
     args.ownerId,
-    { access: modelAccess },
+    { access: modelAccess, modelOverride: args.model },
   );
 
   const responderLocaleDirective = getResponseLanguageSystemPrompt(
@@ -674,6 +676,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           message?: unknown;
           history?: unknown;
           images?: unknown;
+          model?: unknown;
         }>(request, origin, "Invalid request body");
         if (!bodyResult.ok) return bodyResult.response;
         const body = bodyResult.body;
@@ -684,6 +687,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             : "";
         const history = parseOfflineHistory(body?.history);
         const images = parseOfflineImages(body?.images);
+        const model = typeof body?.model === "string" ? body.model : null;
 
         if (!message && images.length === 0) {
           return errorResponse(400, "Message or image required", origin);
@@ -698,6 +702,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             isAnonymous: owner.isAnonymous,
             history,
             images,
+            model,
           });
           return jsonResponse({ text }, 200, origin);
         } catch (error) {
@@ -742,6 +747,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           message?: unknown;
           history?: unknown;
           images?: unknown;
+          model?: unknown;
         }>(request, origin, "Invalid request body");
         if (!bodyResult.ok) return bodyResult.response;
         const body = bodyResult.body;
@@ -752,6 +758,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             : "";
         const history = parseOfflineHistory(body.history);
         const images = parseOfflineImages(body.images);
+        const model = typeof body.model === "string" ? body.model : null;
 
         if (!message && images.length === 0) {
           return errorResponse(400, "Message or image required", origin);
@@ -765,6 +772,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           isAnonymous: owner.isAnonymous,
           history,
           images,
+          model,
           origin,
         });
       }),

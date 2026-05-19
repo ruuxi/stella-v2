@@ -323,7 +323,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             );
           }
           const inworldModel = body.model ?? "openai/gpt-4o-mini";
-          const inworldVoice = body.voice ?? "Clive";
+          const inworldVoice = body.voice ?? "Evelyn";
 
           // Inworld's WebRTC SDP endpoint expects a complete offer
           // (ICE candidates baked in), so the renderer needs Inworld's
@@ -671,7 +671,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               origin,
             );
           }
-          const voiceId = body?.voice?.trim() || "Clive";
+          const voiceId = body?.voice?.trim() || "Evelyn";
           const modelId = body?.model?.trim() || "inworld-tts-2";
           try {
             const inworldResponse = await fetch(

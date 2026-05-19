@@ -30,6 +30,7 @@ type RunAgentTurnArgs = {
   ownerId?: string;
   userMessageId?: Id<"events">;
   transient?: boolean;
+  modelOverride?: string | null;
 };
 
 /**
@@ -66,6 +67,7 @@ export async function runAgentTurn({
   ownerId,
   userMessageId,
   transient,
+  modelOverride,
 }: RunAgentTurnArgs): Promise<RunAgentTurnResult> {
   await ensureBuiltins(ctx);
 
@@ -81,6 +83,7 @@ export async function runAgentTurn({
     ctx,
     agentType,
     resolvedOwnerId,
+    { modelOverride },
   );
   const promptBuild = await buildSystemPrompt(ctx, agentType, {
     ownerId: resolvedOwnerId,

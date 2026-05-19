@@ -45,6 +45,7 @@ export const sendChat = action({
     mobileDeviceId: v.string(),
     desktopDeviceId: v.string(),
     pairSecret: v.string(),
+    model: v.optional(v.string()),
   },
   returns: v.union(
     v.object({ kind: v.literal("sync"), text: v.string() }),
@@ -129,7 +130,10 @@ export const sendChat = action({
       text: message,
       targetDeviceId: desktopDeviceId,
       preEnsureOwnerConnection: true,
-      deliveryMeta: { mobileOwnerId: ownerId },
+      deliveryMeta: {
+        mobileOwnerId: ownerId,
+        ...(args.model?.trim() ? { mobileModel: args.model.trim() } : {}),
+      },
     });
 
     if (!result) {

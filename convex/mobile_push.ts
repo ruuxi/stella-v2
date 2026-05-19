@@ -1,10 +1,13 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import {
+  action,
   internalAction,
   internalMutation,
   internalQuery,
 } from "./_generated/server";
+import { requireSensitiveUserIdAction } from "./auth";
+import { enforceActionRateLimit, RATE_STANDARD } from "./lib/rate_limits";
 
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
 const EXPO_PUSH_BATCH_SIZE = 100;
@@ -20,7 +23,64 @@ const MAX_TOKENS_PER_OWNER = 25;
  * mobile uses it to route the user into the right place when they tap.
  */
 const pushDataValidator = v.object({
-  kind: v.union(v.literal("computer_reply")),
+  kind: v.union(v.literal("computer_reply"), v.literal("agent_activity")),
+});
+
+const activityNotificationKindValidator = v.union(
+  v.literal("started"),
+  v.literal("completed"),
+  v.literal("failed"),
+);
+
+const activityNotificationCopy = (kind: ActivityNotificationKind) => {
+  switch (kind) {
+    case "started":
+      return {
+        title: "Stella is working",
+        body: "Stella started on your desktop.",
+      };
+    case "completed":
+      return {
+        title: "Stella finished",
+        body: "Stella finished on your desktop.",
+      };
+    case "failed":
+      return {
+        title: "Stella needs attention",
+        body: "Stella could not finish on your desktop.",
+      };
+  }
+};
+
+type ActivityNotificationKind =
+  | "started"
+  | "completed"
+  | "failed";
+
+export const sendActivityNotification = action({
+  args: {
+    kind: activityNotificationKindValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ownerId = await requireSensitiveUserIdAction(ctx);
+    await enforceActionRateLimit(
+      ctx,
+      "mobile_activity_push",
+      ownerId,
+      RATE_STANDARD,
+      "Slow down a moment and try again.",
+    );
+
+    const copy = activityNotificationCopy(args.kind);
+    await ctx.runAction(internal.mobile_push.sendToOwner, {
+      ownerId,
+      title: copy.title,
+      body: copy.body,
+      data: { kind: "agent_activity" },
+    });
+    return null;
+  },
 });
 
 export const upsertToken = internalMutation({

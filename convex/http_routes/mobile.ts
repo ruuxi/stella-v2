@@ -62,20 +62,6 @@ const TRANSCRIBE_RATE_WINDOW_MS = 60_000;
 /** ~10 MB of base64 ≈ ~7.5 MB raw audio. Roughly 2 min of m4a. */
 const MAX_TRANSCRIBE_AUDIO_BASE64_CHARS = 10_000_000;
 const TRANSCRIBE_MODEL = "mistralai/voxtral-mini-transcribe";
-const AUDIO_FORMAT_MIME: Record<string, string> = {
-  wav: "audio/wav",
-  mp3: "audio/mpeg",
-  flac: "audio/flac",
-  m4a: "audio/mp4",
-  mp4: "audio/mp4",
-  ogg: "audio/ogg",
-  webm: "audio/webm",
-  aac: "audio/aac",
-};
-
-const mimeForAudioFormat = (format: string): string =>
-  AUDIO_FORMAT_MIME[format] ?? "application/octet-stream";
-
 const TRANSCRIBE_AUDIO_FORMATS = new Set([
   "wav",
   "mp3",
@@ -845,32 +831,24 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         }
 
         try {
-          // OpenAI/OpenRouter's audio transcriptions endpoint expects
-          // multipart/form-data with a binary `file`, not a JSON body — the
-          // `input_audio` JSON shape is for chat completions with audio
-          // input, not transcription. Decode the base64 the client uploaded
-          // and forward it as a real file part.
-          const audioBytes = Uint8Array.from(atob(audio), (c) =>
-            c.charCodeAt(0),
-          );
-          const audioBlob = new Blob([audioBytes], {
-            type: mimeForAudioFormat(format),
-          });
-          const form = new FormData();
-          form.append("file", audioBlob, `audio.${format}`);
-          form.append("model", TRANSCRIBE_MODEL);
-          if (language) form.append("language", language);
-
           const upstream = await fetch(
             `${MANAGED_GATEWAY.baseURL}/audio/transcriptions`,
             {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
                 "HTTP-Referer": "https://stella.sh",
                 "X-OpenRouter-Title": "Stella",
               },
-              body: form,
+              body: JSON.stringify({
+                input_audio: {
+                  data: audio,
+                  format,
+                },
+                model: TRANSCRIBE_MODEL,
+                ...(language ? { language } : {}),
+              }),
             },
           );
 

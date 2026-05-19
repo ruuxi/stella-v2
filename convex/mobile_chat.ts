@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
+import { internal } from "./_generated/api";
 import {
   assertSensitiveSessionPolicyAction,
   isAnonymousIdentity,
@@ -9,6 +10,7 @@ import {
   RATE_STANDARD,
 } from "./lib/rate_limits";
 import { processIncomingMessage } from "./channels/message_pipeline";
+import { verifyPairedMobileSecret } from "./mobile_access";
 
 const MAX_MESSAGE_CHARS = 12_000;
 const MAX_DEVICE_ID_LENGTH = 256;
@@ -41,6 +43,8 @@ export const sendChat = action({
   args: {
     message: v.string(),
     mobileDeviceId: v.string(),
+    desktopDeviceId: v.string(),
+    pairSecret: v.string(),
   },
   returns: v.union(
     v.object({ kind: v.literal("sync"), text: v.string() }),
@@ -80,6 +84,42 @@ export const sendChat = action({
         message: "mobileDeviceId is required.",
       });
     }
+    const desktopDeviceId = normalizeDeviceId(args.desktopDeviceId);
+    const pairSecret = args.pairSecret.trim();
+    if (!desktopDeviceId || !pairSecret) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Pair this phone with your desktop again.",
+      });
+    }
+
+    const pairedDevice = await ctx.runQuery(
+      internal.mobile_access.getPairedMobileDevice,
+      {
+        ownerId,
+        desktopDeviceId,
+        mobileDeviceId,
+      },
+    );
+    if (
+      !pairedDevice ||
+      !(await verifyPairedMobileSecret({
+        pairSecret,
+        pairSecretHash: pairedDevice.pairSecretHash,
+      }))
+    ) {
+      throw new ConvexError({
+        code: "UNAUTHORIZED",
+        message: "Pair this phone with your desktop again.",
+      });
+    }
+
+    await ctx.runMutation(internal.mobile_access.markPairedMobileSeen, {
+      ownerId,
+      desktopDeviceId,
+      mobileDeviceId,
+      seenAt: Date.now(),
+    });
 
     const result = await processIncomingMessage({
       ctx,
@@ -87,6 +127,7 @@ export const sendChat = action({
       provider: "stella_app",
       externalUserId: mobileDeviceId,
       text: message,
+      targetDeviceId: desktopDeviceId,
       preEnsureOwnerConnection: true,
       deliveryMeta: { mobileOwnerId: ownerId },
     });
@@ -100,6 +141,10 @@ export const sendChat = action({
 
     if (result.deferred && result.requestId) {
       return { kind: "pending" as const, requestId: result.requestId };
+    }
+
+    if (result.unavailable) {
+      return { kind: "unavailable" as const, text: result.text };
     }
 
     if (result.text) {

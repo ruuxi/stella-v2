@@ -42,6 +42,8 @@ type ProcessIncomingMessageArgs = {
   externalUserId: string;
   text: string;
   groupId?: string;
+  /** Explicit desktop device to target, used by paired mobile clients. */
+  targetDeviceId?: string;
   attachments?: ChannelInboundAttachment[];
   channelEnvelope?: Infer<typeof optionalChannelEnvelopeValidator>;
   displayName?: string;
@@ -58,7 +60,14 @@ type HandleConnectorIncomingMessageArgs = Omit<ProcessIncomingMessageArgs, "ctx"
   failureText?: string;
   sendReply: (text: string) => Promise<void>;
   onResult?: (
-    result: { text: string; deferred?: boolean; requestId?: string } | null,
+    result:
+      | {
+          text: string;
+          deferred?: boolean;
+          requestId?: string;
+          unavailable?: boolean;
+        }
+      | null,
   ) => void;
 };
 
@@ -376,7 +385,12 @@ const persistInboundAssistantMessage = async (args: {
  */
 export async function processIncomingMessage(
   args: ProcessIncomingMessageArgs,
-): Promise<{ text: string; deferred?: boolean; requestId?: string } | null> {
+): Promise<{
+  text: string;
+  deferred?: boolean;
+  requestId?: string;
+  unavailable?: boolean;
+} | null> {
   const connection = await resolveConnectionForIncomingMessage({
     ctx: args.ctx,
     ownerId: args.ownerId,
@@ -541,6 +555,8 @@ export async function processIncomingMessage(
       }),
     ]);
     const freshDeviceIds = new Set(freshDevices.map((device) => device.deviceId));
+    const requestedTargetDeviceId =
+      typeof args.targetDeviceId === "string" ? args.targetDeviceId.trim() : "";
 
     let promptText = args.text;
     let promptAttachments = args.attachments;
@@ -550,7 +566,50 @@ export async function processIncomingMessage(
     let pendingPromptUserMessageId: Id<"events"> | null = null;
     let targetDeviceId: string | null = null;
 
-    if (routingState.pendingDeviceSelection) {
+    if (requestedTargetDeviceId) {
+      const freshRequestedDevice = freshDevices.find(
+        (device) => device.deviceId === requestedTargetDeviceId,
+      );
+      if (!freshRequestedDevice) {
+        if (routingState.pendingDeviceSelection) {
+          await args.ctx.runMutation(
+            internal.conversations.clearPendingDeviceSelection,
+            { conversationId },
+          );
+        }
+        if (routingState.activeTargetDeviceId) {
+          await args.ctx.runMutation(
+            internal.conversations.setActiveTargetDeviceId,
+            { conversationId, deviceId: undefined },
+          );
+        }
+        const failureMessage = EXECUTION_NOT_AVAILABLE_MESSAGE;
+        await persistUser({
+          text: args.text,
+          attachments: args.attachments,
+          channelEnvelope: args.channelEnvelope,
+        });
+        await persistAssistant({
+          text: failureMessage,
+          fallback: "none",
+        });
+        return { text: failureMessage, unavailable: true };
+      }
+
+      if (routingState.pendingDeviceSelection) {
+        await args.ctx.runMutation(
+          internal.conversations.clearPendingDeviceSelection,
+          { conversationId },
+        );
+      }
+      if (routingState.activeTargetDeviceId !== requestedTargetDeviceId) {
+        await args.ctx.runMutation(
+          internal.conversations.setActiveTargetDeviceId,
+          { conversationId, deviceId: requestedTargetDeviceId },
+        );
+      }
+      targetDeviceId = requestedTargetDeviceId;
+    } else if (routingState.pendingDeviceSelection) {
       const pendingSelection = routingState.pendingDeviceSelection;
       const selectedOption = parseDeviceSelectionReply(
         args.text,
@@ -795,7 +854,7 @@ export async function processIncomingMessage(
         text: failureMessage,
         fallback: "none",
       });
-      return { text: failureMessage };
+      return { text: failureMessage, unavailable: true };
     }
 
     let result: RunAgentTurnResult | null = null;
@@ -824,7 +883,7 @@ export async function processIncomingMessage(
         text: failureMessage,
         fallback: "none",
       });
-      return { text: failureMessage };
+      return { text: failureMessage, unavailable: true };
     }
 
     const responseText = result.text.trim() || "(Stella had nothing to say.)";

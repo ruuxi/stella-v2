@@ -80,6 +80,7 @@ import type * as http_routes_dictation from "../http_routes/dictation.js";
 import type * as http_routes_media from "../http_routes/media.js";
 import type * as http_routes_mobile from "../http_routes/mobile.js";
 import type * as http_routes_music from "../http_routes/music.js";
+import type * as http_routes_native_oauth from "../http_routes/native_oauth.js";
 import type * as http_routes_pets from "../http_routes/pets.js";
 import type * as http_routes_stripe from "../http_routes/stripe.js";
 import type * as http_routes_synthesis from "../http_routes/synthesis.js";
@@ -289,6 +290,7 @@ declare const fullApi: ApiFromModules<{
   "http_routes/media": typeof http_routes_media;
   "http_routes/mobile": typeof http_routes_mobile;
   "http_routes/music": typeof http_routes_music;
+  "http_routes/native_oauth": typeof http_routes_native_oauth;
   "http_routes/pets": typeof http_routes_pets;
   "http_routes/stripe": typeof http_routes_stripe;
   "http_routes/synthesis": typeof http_routes_synthesis;

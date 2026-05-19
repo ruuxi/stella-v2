@@ -5,7 +5,15 @@ import { jsonObjectValidator } from "../shared_validators";
 export const integrationsSchema = {
   integrations_public: defineTable({
     id: v.string(),
+    name: v.optional(v.string()),
     provider: v.string(),
+    category: v.optional(v.string()),
+    auth: v.optional(v.array(v.string())),
+    catalogToolCount: v.optional(v.number()),
+    description: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    iconUrl: v.optional(v.string()),
+    connector: v.optional(jsonObjectValidator),
     enabled: v.boolean(),
     usagePolicy: v.string(),
     updatedAt: v.number(),

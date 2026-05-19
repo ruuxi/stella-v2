@@ -1,4 +1,4 @@
-import { mutation, internalMutation, internalQuery } from "../_generated/server";
+import { mutation, internalMutation, internalQuery, query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
 import { v, ConvexError } from "convex/values";
 import { requireUserId } from "../auth";
@@ -9,6 +9,85 @@ import {
 import { jsonObjectValidator } from "../shared_validators";
 import { internal } from "../_generated/api";
 
+
+const storeIntegrationConnectorValidator = v.object({
+  type: v.union(v.literal("mcp"), v.literal("api")),
+  url: v.optional(v.string()),
+  baseUrl: v.optional(v.string()),
+  oauth: v.object({
+    tokenKey: v.optional(v.string()),
+    clientId: v.string(),
+    authorizationEndpoint: v.string(),
+    tokenEndpoint: v.optional(v.string()),
+    tokenAuth: v.optional(v.union(v.literal("body"), v.literal("basic"))),
+    responseType: v.optional(v.union(v.literal("code"), v.literal("token"))),
+    callbackId: v.optional(v.string()),
+    callbackUrl: v.optional(v.string()),
+    callbackMode: v.optional(v.union(v.literal("local"), v.literal("external"))),
+    scopes: v.optional(v.array(v.string())),
+    scopeSeparator: v.optional(v.string()),
+    resourceUrl: v.optional(v.string()),
+    oauthResource: v.optional(v.union(v.string(), v.null())),
+    usesPkce: v.optional(v.boolean()),
+    authorizationRedirectParam: v.optional(v.string()),
+    authorizationParams: v.optional(v.record(v.string(), v.string())),
+    tokenRedirectParam: v.optional(v.string()),
+    tokenExchangeProvider: v.optional(v.string()),
+  }),
+});
+
+const storeIntegrationStatusValues = new Set(["ready", "hidden"]);
+
+const normalizePublicIntegration = (record: {
+  id: string;
+  name?: string;
+  provider: string;
+  category?: string;
+  auth?: string[];
+  catalogToolCount?: number;
+  description?: string;
+  sourceUrl?: string;
+  iconUrl?: string;
+  connector?: Record<string, unknown>;
+  enabled: boolean;
+  usagePolicy: string;
+  updatedAt: number;
+}) => {
+  const status = storeIntegrationStatusValues.has(record.usagePolicy)
+    ? record.usagePolicy
+    : record.enabled
+      ? "ready"
+      : "hidden";
+  return {
+    id: record.id,
+    name: record.name ?? record.provider,
+    provider: record.provider,
+    category: record.category ?? "integrations",
+    auth: record.auth ?? ["OAUTH2"],
+    catalogToolCount: record.catalogToolCount ?? 0,
+    description: record.description ?? `Connect ${record.provider} to Stella.`,
+    ...(record.sourceUrl ? { sourceUrl: record.sourceUrl } : {}),
+    ...(record.iconUrl ? { iconUrl: record.iconUrl } : {}),
+    ...(record.connector ? { connector: record.connector } : {}),
+    status,
+    enabled: record.enabled,
+    updatedAt: record.updatedAt,
+  };
+};
+
+export const listStoreIntegrations = query({
+  args: {},
+  handler: async (ctx) => {
+    const records = await ctx.db
+      .query("integrations_public")
+      .withIndex("by_updatedAt")
+      .order("desc")
+      .take(500);
+    return records
+      .filter((record) => record.enabled)
+      .map((record) => normalizePublicIntegration(record));
+  },
+});
 
 export const listPublicIntegrations = internalQuery({
   args: {},
@@ -24,7 +103,15 @@ export const listPublicIntegrations = internalQuery({
 export const upsertPublicIntegration = internalMutation({
   args: {
     id: v.string(),
+    name: v.optional(v.string()),
     provider: v.string(),
+    category: v.optional(v.string()),
+    auth: v.optional(v.array(v.string())),
+    catalogToolCount: v.optional(v.number()),
+    description: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    iconUrl: v.optional(v.string()),
+    connector: v.optional(storeIntegrationConnectorValidator),
     enabled: v.boolean(),
     usagePolicy: v.string(),
   },
@@ -36,7 +123,15 @@ export const upsertPublicIntegration = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
+        name: args.name,
         provider: args.provider,
+        category: args.category,
+        auth: args.auth,
+        catalogToolCount: args.catalogToolCount,
+        description: args.description,
+        sourceUrl: args.sourceUrl,
+        iconUrl: args.iconUrl,
+        connector: args.connector,
         enabled: args.enabled,
         usagePolicy: args.usagePolicy,
         updatedAt: Date.now(),
@@ -46,7 +141,15 @@ export const upsertPublicIntegration = internalMutation({
 
     await ctx.db.insert("integrations_public", {
       id: args.id,
+      name: args.name,
       provider: args.provider,
+      category: args.category,
+      auth: args.auth,
+      catalogToolCount: args.catalogToolCount,
+      description: args.description,
+      sourceUrl: args.sourceUrl,
+      iconUrl: args.iconUrl,
+      connector: args.connector,
       enabled: args.enabled,
       usagePolicy: args.usagePolicy,
       updatedAt: Date.now(),

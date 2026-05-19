@@ -56,6 +56,36 @@ import type {
 
 const OFFLINE_CHAT_RATE_LIMIT = 12;
 const OFFLINE_CHAT_RATE_WINDOW_MS = 60_000;
+/** Per-owner cap on the Voxtral transcription endpoint. */
+const TRANSCRIBE_RATE_LIMIT = 30;
+const TRANSCRIBE_RATE_WINDOW_MS = 60_000;
+/** ~10 MB of base64 ≈ ~7.5 MB raw audio. Roughly 2 min of m4a. */
+const MAX_TRANSCRIBE_AUDIO_BASE64_CHARS = 10_000_000;
+const TRANSCRIBE_MODEL = "mistralai/voxtral-mini-transcribe";
+const AUDIO_FORMAT_MIME: Record<string, string> = {
+  wav: "audio/wav",
+  mp3: "audio/mpeg",
+  flac: "audio/flac",
+  m4a: "audio/mp4",
+  mp4: "audio/mp4",
+  ogg: "audio/ogg",
+  webm: "audio/webm",
+  aac: "audio/aac",
+};
+
+const mimeForAudioFormat = (format: string): string =>
+  AUDIO_FORMAT_MIME[format] ?? "application/octet-stream";
+
+const TRANSCRIBE_AUDIO_FORMATS = new Set([
+  "wav",
+  "mp3",
+  "flac",
+  "m4a",
+  "ogg",
+  "webm",
+  "aac",
+  "mp4",
+]);
 const MAX_BASE_URLS = 8;
 const MAX_DEVICE_ID_LENGTH = 256;
 const MAX_OFFLINE_HISTORY_ITEMS = 40;
@@ -616,6 +646,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     "/api/mobile/offline-chat",
     "/api/mobile/offline-chat/stream",
+    "/api/mobile/transcribe",
     "/api/mobile/chat",
     "/api/mobile/pairing/complete",
     "/api/mobile/push-token",
@@ -755,6 +786,127 @@ export const registerMobileRoutes = (http: HttpRouter) => {
   });
 
   http.route({
+    path: "/api/mobile/transcribe",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const owner = await resolveMobileOwnerOrGuest(ctx, request, origin);
+        if ("response" in owner) {
+          return owner.response;
+        }
+
+        const apiKey = process.env[MANAGED_GATEWAY.apiKeyEnvVar];
+        if (!apiKey) {
+          console.error(
+            `[mobile/transcribe] Missing ${MANAGED_GATEWAY.apiKeyEnvVar}`,
+          );
+          return errorResponse(500, "Server configuration error", origin);
+        }
+
+        const rateLimitResp = await enforceHttpRateLimit(ctx, origin, {
+          scope: "mobile_transcribe",
+          key: owner.ownerId,
+          limit: TRANSCRIBE_RATE_LIMIT,
+          windowMs: TRANSCRIBE_RATE_WINDOW_MS,
+          blockMs: TRANSCRIBE_RATE_WINDOW_MS,
+        });
+        if (rateLimitResp) return rateLimitResp;
+
+        const bodyResult = await readJsonBody<{
+          audio?: unknown;
+          format?: unknown;
+          language?: unknown;
+        }>(request, origin, "Invalid request body");
+        if (!bodyResult.ok) return bodyResult.response;
+        const body = bodyResult.body;
+
+        const audio = typeof body.audio === "string" ? body.audio : "";
+        const format =
+          typeof body.format === "string"
+            ? body.format.trim().toLowerCase()
+            : "";
+        const language =
+          typeof body.language === "string"
+            ? body.language.trim().slice(0, 16)
+            : "";
+
+        if (!audio) {
+          return errorResponse(400, "audio is required", origin);
+        }
+        if (audio.length > MAX_TRANSCRIBE_AUDIO_BASE64_CHARS) {
+          return errorResponse(413, "Audio clip is too long", origin);
+        }
+        if (!format || !TRANSCRIBE_AUDIO_FORMATS.has(format)) {
+          return errorResponse(
+            400,
+            "format must be one of wav, mp3, flac, m4a, ogg, webm, aac, mp4",
+            origin,
+          );
+        }
+
+        try {
+          // OpenAI/OpenRouter's audio transcriptions endpoint expects
+          // multipart/form-data with a binary `file`, not a JSON body — the
+          // `input_audio` JSON shape is for chat completions with audio
+          // input, not transcription. Decode the base64 the client uploaded
+          // and forward it as a real file part.
+          const audioBytes = Uint8Array.from(atob(audio), (c) =>
+            c.charCodeAt(0),
+          );
+          const audioBlob = new Blob([audioBytes], {
+            type: mimeForAudioFormat(format),
+          });
+          const form = new FormData();
+          form.append("file", audioBlob, `audio.${format}`);
+          form.append("model", TRANSCRIBE_MODEL);
+          if (language) form.append("language", language);
+
+          const upstream = await fetch(
+            `${MANAGED_GATEWAY.baseURL}/audio/transcriptions`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "HTTP-Referer": "https://stella.sh",
+                "X-OpenRouter-Title": "Stella",
+              },
+              body: form,
+            },
+          );
+
+          if (!upstream.ok) {
+            const errText = await upstream.text().catch(() => "");
+            console.error(
+              "[mobile/transcribe] Upstream error",
+              upstream.status,
+              errText.slice(0, 500),
+            );
+            return errorResponse(
+              upstream.status >= 400 && upstream.status < 500
+                ? upstream.status
+                : 502,
+              "Could not transcribe that audio. Try again.",
+              origin,
+            );
+          }
+
+          const parsed = (await upstream.json()) as { text?: unknown };
+          const text =
+            typeof parsed.text === "string" ? parsed.text.trim() : "";
+          return jsonResponse({ text }, 200, origin);
+        } catch (error) {
+          console.error("[mobile/transcribe] Error:", error);
+          return errorResponse(
+            500,
+            readConvexErrorMessage(error, "Could not transcribe that audio."),
+            origin,
+          );
+        }
+      }),
+    ),
+  });
+
+  http.route({
     path: "/api/mobile/chat",
     method: "POST",
     handler: httpAction(async (ctx, request) =>
@@ -826,11 +978,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return sseResponse(readable, origin);
         }
 
-        const requestId = result.requestId;
-        if (!requestId) {
-          return errorResponse(500, "Could not track desktop reply", origin);
-        }
-
         const POLL_INTERVAL_MS = 500;
         const MAX_POLL_MS = 30_000;
         const ownerIdForPush = owner.ownerId;
@@ -843,19 +990,27 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             while (Date.now() < deadline) {
               await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 
-              const reply = await ctx.runQuery(
-                internal.mobile_replies.getDesktopReply,
+              const events = (await ctx.runQuery(
+                internal.events.listEventsSince,
                 {
-                  ownerId: ownerIdForPush,
-                  requestId,
-                  nowMs: Date.now(),
+                  conversationId,
+                  afterTimestamp: beforeSend - 1000,
+                  limit: 20,
                 },
-              );
+              )) as Array<{ type: string; payload: Record<string, unknown> }> | null;
 
-              if (reply?.text) {
-                controller.enqueue(encodeSseData({ t: reply.text }));
-                replyText = reply.text;
-                found = true;
+              if (events) {
+                for (let i = events.length - 1; i >= 0; i--) {
+                  if (events[i].type === "assistant_message") {
+                    const text = (events[i].payload?.text as string) ?? "";
+                    if (text) {
+                      controller.enqueue(encodeSseData({ t: text }));
+                      replyText = text;
+                      found = true;
+                      break;
+                    }
+                  }
+                }
               }
               if (found) break;
             }
@@ -867,10 +1022,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             controller.close();
 
             if (found && replyText) {
-              await ctx.runMutation(internal.mobile_replies.deleteDesktopReply, {
-                ownerId: ownerIdForPush,
-                requestId,
-              });
               const preview = replyText.replace(/\s+/g, " ").trim().slice(0, 140);
               try {
                 await ctx.scheduler.runAfter(0, internal.mobile_push.sendToOwner, {

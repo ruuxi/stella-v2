@@ -137,6 +137,7 @@ import type * as media_lyria from "../media_lyria.js";
 import type * as mobile_access from "../mobile_access.js";
 import type * as mobile_auth from "../mobile_auth.js";
 import type * as mobile_bridge from "../mobile_bridge.js";
+import type * as mobile_chat from "../mobile_chat.js";
 import type * as mobile_push from "../mobile_push.js";
 import type * as mobile_replies from "../mobile_replies.js";
 import type * as prompts_discovery_facts from "../prompts/discovery_facts.js";
@@ -345,6 +346,7 @@ declare const fullApi: ApiFromModules<{
   mobile_access: typeof mobile_access;
   mobile_auth: typeof mobile_auth;
   mobile_bridge: typeof mobile_bridge;
+  mobile_chat: typeof mobile_chat;
   mobile_push: typeof mobile_push;
   mobile_replies: typeof mobile_replies;
   "prompts/discovery_facts": typeof prompts_discovery_facts;

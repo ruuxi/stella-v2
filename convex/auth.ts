@@ -36,6 +36,11 @@ const getRequiredEnv = (name: string) => {
   return value;
 };
 
+const getOptionalEnv = (name: string) => {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+};
+
 /**
  * Map a Better Auth `user.id` to the Convex `UserIdentity.tokenIdentifier`
  * shape (`${issuer}|${subject}`). Use this anywhere we have a Better Auth
@@ -225,6 +230,13 @@ export const assertSensitiveSessionPolicyAction = async (
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   const siteUrl = getRequiredEnv("SITE_URL");
   const convexSiteUrl = getRequiredEnv("CONVEX_SITE_URL");
+  const googleClientId =
+    getOptionalEnv("GOOGLE_CLIENT_ID") ??
+    getOptionalEnv("WORKSPACE_CLIENT_ID") ??
+    "398468929332-q768etk5go3lbjbdh9nth3d505pc7aqk.apps.googleusercontent.com";
+  const googleClientSecret =
+    getOptionalEnv("GOOGLE_CLIENT_SECRET") ??
+    getOptionalEnv("STELLA_NATIVE_OAUTH_GOOGLE_WORKSPACE_CLIENT_SECRET");
   const trustedOrigins = Array.from(
     new Set(
       [
@@ -267,8 +279,13 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         },
       },
     },
-    // Social providers are disabled until OAuth onboarding is implemented.
-    // Enable by setting GOOGLE_CLIENT_ID/SECRET and GITHUB_CLIENT_ID/SECRET env vars.
+    socialProviders: {
+      google: {
+        clientId: googleClientId,
+        clientSecret: googleClientSecret,
+        enabled: Boolean(googleClientSecret),
+      },
+    },
     plugins: [
       crossDomain({ siteUrl }),
       anonymous({

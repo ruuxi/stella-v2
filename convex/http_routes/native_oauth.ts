@@ -241,11 +241,7 @@ const ensureComposioSession = async (
       provider: args.integrationId,
       mode: "composio",
       externalId: sessionId,
-      config: {
-        sessionId,
-        toolkit: args.toolkit,
-        provider: "composio",
-      },
+      config: {},
     },
   );
   return sessionId;
@@ -476,7 +472,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           if (!url) {
             return errorResponse(502, "Composio did not return a connect link.", origin);
           }
-          return jsonResponse({ url, sessionId }, 200, origin);
+          return jsonResponse({ url }, 200, origin);
         } catch (error) {
           console.error("[native-integrations] composio connect-link failed", {
             id,
@@ -534,7 +530,6 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         } catch (error) {
           console.error("[native-integrations] composio run failed", {
             id,
-            action,
             message: error instanceof Error ? error.message : String(error),
           });
           return errorResponse(502, "Could not run the integration action.", origin);

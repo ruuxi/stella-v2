@@ -49,7 +49,10 @@ const getOptionalEnv = (name: string) => {
  * return inside Convex functions.
  */
 export const tokenIdentifierForBetterAuthUserId = (userId: string) =>
-  `${getRequiredEnv("CONVEX_SITE_URL")}|${userId}`;
+  `${getAuthBaseUrl()}|${userId}`;
+
+const getAuthBaseUrl = () =>
+  getOptionalEnv("STELLA_AUTH_BASE_URL") ?? getRequiredEnv("CONVEX_SITE_URL");
 
 const escapeHtmlAttribute = (value: string) =>
   value
@@ -229,7 +232,7 @@ export const assertSensitiveSessionPolicyAction = async (
 
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   const siteUrl = getRequiredEnv("SITE_URL");
-  const convexSiteUrl = getRequiredEnv("CONVEX_SITE_URL");
+  const authBaseUrl = getAuthBaseUrl();
   const googleClientId =
     getOptionalEnv("GOOGLE_CLIENT_ID") ??
     getOptionalEnv("WORKSPACE_CLIENT_ID") ??
@@ -249,7 +252,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   );
 
   const options = {
-    baseURL: convexSiteUrl,
+    baseURL: authBaseUrl,
     trustedOrigins,
     database: authComponent.adapter(ctx),
     databaseHooks: {

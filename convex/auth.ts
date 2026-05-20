@@ -2,6 +2,7 @@ import { createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
 import { requireActionCtx } from "@convex-dev/better-auth/utils";
 import { Resend } from "@convex-dev/resend";
+import { expo } from "@better-auth/expo";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
 import { anonymous, magicLink } from "better-auth/plugins";
 import {
@@ -27,6 +28,7 @@ import {
   enforceMutationRateLimit,
   RATE_SENSITIVE,
 } from "./lib/rate_limits";
+import { importPKCS8, SignJWT } from "jose";
 
 const getRequiredEnv = (name: string) => {
   const value = process.env[name];
@@ -130,6 +132,58 @@ const parseExpirationSeconds = (raw: string | undefined): number => {
 const JWT_EXPIRATION_SECONDS = parseExpirationSeconds(
   process.env.STELLA_JWT_EXPIRATION,
 );
+
+const APPLE_CLIENT_SECRET_TTL_SECONDS = 180 * 24 * 60 * 60;
+
+const normalizeApplePrivateKey = (privateKey: string) =>
+  privateKey.replace(/\\n/g, "\n");
+
+const generateAppleClientSecret = async ({
+  clientId,
+  keyId,
+  privateKey,
+  teamId,
+}: {
+  clientId: string;
+  keyId: string;
+  privateKey: string;
+  teamId: string;
+}) => {
+  const key = await importPKCS8(normalizeApplePrivateKey(privateKey), "ES256");
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({})
+    .setProtectedHeader({ alg: "ES256", kid: keyId })
+    .setIssuer(teamId)
+    .setSubject(clientId)
+    .setAudience("https://appleid.apple.com")
+    .setIssuedAt(now)
+    .setExpirationTime(now + APPLE_CLIENT_SECRET_TTL_SECONDS)
+    .sign(key);
+};
+
+const createAppleProviderOptions = async () => {
+  const clientId = getOptionalEnv("APPLE_CLIENT_ID");
+  const teamId = getOptionalEnv("APPLE_TEAM_ID");
+  const keyId = getOptionalEnv("APPLE_KEY_ID");
+  const privateKey = getOptionalEnv("APPLE_PRIVATE_KEY");
+  const appBundleIdentifier =
+    getOptionalEnv("APPLE_APP_BUNDLE_IDENTIFIER") ?? "com.stella.mobile";
+  const enabled = Boolean(clientId && teamId && keyId && privateKey);
+
+  return {
+    clientId: clientId ?? "",
+    clientSecret: enabled
+      ? await generateAppleClientSecret({
+          clientId: clientId!,
+          teamId: teamId!,
+          keyId: keyId!,
+          privateKey: privateKey!,
+        })
+      : "",
+    appBundleIdentifier,
+    enabled,
+  };
+};
 
 const sessionPolicyValidator = v.object({
   minIssuedAtSec: v.number(),
@@ -246,6 +300,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         siteUrl,
         getDeepLinkOrigin(),
         ...getMobileDeepLinkOrigins(),
+        "https://appleid.apple.com",
         ...extraTrustedOrigins,
       ].filter((origin): origin is string => Boolean(origin)),
     ),
@@ -288,8 +343,10 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         clientSecret: googleClientSecret,
         enabled: Boolean(googleClientSecret),
       },
+      apple: createAppleProviderOptions,
     },
     plugins: [
+      expo(),
       crossDomain({ siteUrl }),
       anonymous({
         emailDomainName: "anon.stella.local",

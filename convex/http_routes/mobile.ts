@@ -639,6 +639,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     "/api/mobile/chat",
     "/api/mobile/pairing/complete",
     "/api/mobile/push-token",
+    "/api/mobile/push-token/unregister",
     "/api/mobile/desktop-bridge/register",
     "/api/mobile/desktop-bridge/clear",
     "/api/mobile/desktop-bridge/request",
@@ -1041,6 +1042,54 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           expoPushToken,
           ...(platform ? { platform } : {}),
           nowMs: Date.now(),
+        });
+
+        return jsonResponse({ ok: true }, 200, origin);
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/mobile/push-token/unregister",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const owner = await requireMobileAccountOwner(ctx, origin);
+        if ("response" in owner) {
+          return owner.response;
+        }
+
+        const rateLimit = await consumeWebhookRateLimit(ctx, {
+          scope: "mobile_push_token_unregister",
+          key: owner.ownerId,
+          limit: MOBILE_BRIDGE_RATE_LIMIT,
+          windowMs: MOBILE_BRIDGE_RATE_WINDOW_MS,
+          blockMs: MOBILE_BRIDGE_RATE_WINDOW_MS,
+        });
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        const bodyResult = await readJsonBody<{
+          mobileDeviceId?: unknown;
+        }>(request, origin, "Invalid request body");
+        if (!bodyResult.ok) return bodyResult.response;
+
+        const mobileDeviceIdFromBody = normalizeDeviceId(
+          bodyResult.body.mobileDeviceId,
+        );
+        const mobileDeviceIdFromHeader = normalizeDeviceId(
+          request.headers.get("X-Stella-Mobile-Device-Id"),
+        );
+        const mobileDeviceId =
+          mobileDeviceIdFromBody || mobileDeviceIdFromHeader;
+        if (!mobileDeviceId) {
+          return errorResponse(400, "mobileDeviceId required", origin);
+        }
+
+        await ctx.runMutation(internal.mobile_push.deleteTokensForOwnerDevice, {
+          ownerId: owner.ownerId,
+          mobileDeviceId,
         });
 
         return jsonResponse({ ok: true }, 200, origin);

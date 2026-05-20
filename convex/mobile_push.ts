@@ -163,6 +163,33 @@ export const deleteToken = internalMutation({
   },
 });
 
+export const deleteTokensForOwnerDevice = internalMutation({
+  args: {
+    ownerId: v.string(),
+    mobileDeviceId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const mobileDeviceId = args.mobileDeviceId
+      .trim()
+      .slice(0, MAX_DEVICE_ID_LENGTH);
+    if (!mobileDeviceId) {
+      return null;
+    }
+
+    const rows = await ctx.db
+      .query("mobile_push_tokens")
+      .withIndex("by_ownerId_and_mobileDeviceId", (q) =>
+        q.eq("ownerId", args.ownerId).eq("mobileDeviceId", mobileDeviceId),
+      )
+      .collect();
+    for (const row of rows) {
+      await ctx.db.delete(row._id);
+    }
+    return null;
+  },
+});
+
 export const listTokensForOwner = internalQuery({
   args: {
     ownerId: v.string(),

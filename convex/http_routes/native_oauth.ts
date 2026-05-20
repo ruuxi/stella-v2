@@ -45,6 +45,7 @@ type NativeOAuthProvider = {
   tokenEndpoint: string;
   tokenAuth?: "basic" | "body";
   tokenRedirectParam?: string;
+  requiresClientSecret?: boolean;
 };
 
 const envKey = (id: string, suffix: string) =>
@@ -94,6 +95,7 @@ const readOAuthFromRecord = (
 };
 
 const providerRequiresClientSecret = (provider: NativeOAuthProvider) =>
+  provider.requiresClientSecret === true ||
   (provider.tokenAuth ?? "body") === "basic";
 
 const isNativeOAuthProviderConfigured = (provider: NativeOAuthProvider) =>
@@ -134,6 +136,16 @@ const loadProviders = async (ctx: ActionCtx) => {
     {},
   )) as StoreIntegrationRecord[];
   const providers = new Map<string, NativeOAuthProvider>();
+  providers.set("google-workspace", {
+    clientId:
+      process.env.WORKSPACE_CLIENT_ID ??
+      "398468929332-q768etk5go3lbjbdh9nth3d505pc7aqk.apps.googleusercontent.com",
+    clientSecret:
+      process.env.STELLA_NATIVE_OAUTH_GOOGLE_WORKSPACE_CLIENT_SECRET,
+    tokenEndpoint: "https://oauth2.googleapis.com/token",
+    tokenAuth: "body",
+    requiresClientSecret: true,
+  });
   for (const integration of integrations) {
     const provider = providerFromRecord(integration);
     if (provider) providers.set(provider[0], provider[1]);

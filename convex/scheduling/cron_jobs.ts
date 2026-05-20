@@ -56,7 +56,10 @@ async function completeCronTurnResultCore(
     });
   }
 
-  if (request.requestState === "fulfilled") {
+  if (
+    request.requestState === "fulfilled" ||
+    request.requestState === "cancelled"
+  ) {
     return;
   }
 

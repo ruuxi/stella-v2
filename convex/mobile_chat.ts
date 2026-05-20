@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import {
   assertSensitiveSessionPolicyAction,
   isAnonymousIdentity,
@@ -159,5 +159,82 @@ export const sendChat = action({
       kind: "unavailable" as const,
       text: "Your desktop is offline right now. Open Stella on your desktop and try again.",
     };
+  },
+});
+
+/**
+ * Cancel a previously-deferred remote turn (the `pending` requestId returned
+ * by `sendChat`). Patches the request row to `cancelled`; the local device's
+ * remote-turn bridge subscribes to a dedicated cancel feed and aborts the
+ * active orchestrator run when it sees the matching requestId.
+ *
+ * Idempotent and best-effort: if the desktop already published a reply the
+ * cancel becomes a no-op. Auth mirrors `sendChat` — same pair-secret check
+ * so an unrelated device can't cancel someone else's turn.
+ */
+export const cancelChat = action({
+  args: {
+    requestId: v.string(),
+    mobileDeviceId: v.string(),
+    desktopDeviceId: v.string(),
+    pairSecret: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || isAnonymousIdentity(identity)) {
+      throw new ConvexError({
+        code: "UNAUTHORIZED",
+        message: "Sign in with an account to message your computer.",
+      });
+    }
+    await assertSensitiveSessionPolicyAction(ctx, identity);
+
+    const ownerId = identity.tokenIdentifier;
+    await enforceActionRateLimit(
+      ctx,
+      "mobile_chat_cancel",
+      ownerId,
+      RATE_STANDARD,
+      "Slow down a moment and try again.",
+    );
+
+    const requestId = args.requestId.trim();
+    const mobileDeviceId = normalizeDeviceId(args.mobileDeviceId);
+    const desktopDeviceId = normalizeDeviceId(args.desktopDeviceId);
+    const pairSecret = args.pairSecret.trim();
+    if (!requestId || !mobileDeviceId || !desktopDeviceId || !pairSecret) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Missing pairing information.",
+      });
+    }
+
+    const pairedDevice = await ctx.runQuery(
+      internal.mobile_access.getPairedMobileDevice,
+      {
+        ownerId,
+        desktopDeviceId,
+        mobileDeviceId,
+      },
+    );
+    if (
+      !pairedDevice ||
+      !(await verifyPairedMobileSecret({
+        pairSecret,
+        pairSecretHash: pairedDevice.pairSecretHash,
+      }))
+    ) {
+      throw new ConvexError({
+        code: "UNAUTHORIZED",
+        message: "Pair this phone with your desktop again.",
+      });
+    }
+
+    await ctx.runMutation(api.channels.connector_delivery.cancelRemoteTurn, {
+      requestId,
+    });
+
+    return null;
   },
 });

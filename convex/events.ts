@@ -30,11 +30,17 @@ const eventValidator = v.object({
   requestId: v.optional(v.string()),
   targetDeviceId: v.optional(v.string()),
   requestState: v.optional(
-    v.union(v.literal("pending"), v.literal("claimed"), v.literal("fulfilled")),
+    v.union(
+      v.literal("pending"),
+      v.literal("claimed"),
+      v.literal("fulfilled"),
+      v.literal("cancelled"),
+    ),
   ),
   claimedByDeviceId: v.optional(v.string()),
   claimedAt: v.optional(v.number()),
   fulfilledAt: v.optional(v.number()),
+  cancelledAt: v.optional(v.number()),
   payload: jsonValueValidator,
   channelEnvelope: optionalChannelEnvelopeValidator,
 });
@@ -470,7 +476,7 @@ type AppendEventArgs = {
    * `"pending"` if the caller doesn't provide one. Ignored for every other
    * event type.
    */
-  requestState?: "pending" | "claimed" | "fulfilled";
+  requestState?: "pending" | "claimed" | "fulfilled" | "cancelled";
   payload: Value;
   channelEnvelope?: Infer<typeof optionalChannelEnvelopeValidator>;
 };
@@ -796,6 +802,88 @@ export const subscribeRemoteTurnRequestsForDevice = query({
     }
 
     return filtered;
+  },
+});
+
+/**
+ * Reactive feed of `remote_turn_request` rows targeted at this device that
+ * have transitioned to `requestState: "cancelled"`. The local device's
+ * remote-turn bridge subscribes here and, when a cancelled requestId
+ * matches an in-flight orchestrator run, aborts it via the worker.
+ *
+ * Cancelled rows for not-yet-claimed requests are also surfaced — the
+ * bridge can de-dup with its own pending map without harm.
+ *
+ * The cancel state is intentionally a separate query from
+ * `subscribeRemoteTurnRequestsForDevice` (which filters out anything
+ * non-`pending`): the request feed drives "should I start this turn?" while
+ * the cancel feed drives "should I abort a turn I already started?".
+ */
+export const subscribeRemoteTurnCancelsForDevice = query({
+  args: {
+    deviceId: v.string(),
+    since: v.number(),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      requestId: v.string(),
+      conversationId: v.id("conversations"),
+      cancelledAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const ownerId = await getUserIdOrNull(ctx);
+    if (!ownerId) {
+      return [];
+    }
+    const maxItems = normalizeOptionalInt({
+      value: args.limit,
+      defaultValue: 20,
+      min: 1,
+      max: 100,
+    });
+
+    const events = await ctx.db
+      .query("events")
+      .withIndex("by_targetDeviceId_and_type_and_timestamp", (q) =>
+        q
+          .eq("targetDeviceId", args.deviceId)
+          .eq("type", "remote_turn_request")
+          .gte("timestamp", args.since),
+      )
+      .order("desc")
+      .take(maxItems * 2);
+
+    const ownershipCache = new Map<string, boolean>();
+    const out: {
+      requestId: string;
+      conversationId: Id<"conversations">;
+      cancelledAt: number;
+    }[] = [];
+
+    for (const event of events) {
+      if (event.requestState !== "cancelled") continue;
+      if (!event.requestId || typeof event.cancelledAt !== "number") continue;
+
+      const key = String(event.conversationId);
+      let owned = ownershipCache.get(key);
+      if (owned === undefined) {
+        const conversation = await ctx.db.get(event.conversationId);
+        owned = Boolean(conversation && conversation.ownerId === ownerId);
+        ownershipCache.set(key, owned);
+      }
+      if (!owned) continue;
+
+      out.push({
+        requestId: event.requestId,
+        conversationId: event.conversationId,
+        cancelledAt: event.cancelledAt,
+      });
+      if (out.length >= maxItems) break;
+    }
+
+    return out;
   },
 });
 

@@ -53,7 +53,7 @@ const RELAYED_MEDIA_DELETE_DELAY_MS = 10 * 60_000;
 
 /**
  * Look up the original `remote_turn_request` event by `requestId`. The
- * lifecycle (`pending` / `claimed` / `fulfilled`) lives directly on this
+ * lifecycle (`pending` / `claimed` / `fulfilled` / `cancelled`) lives directly on this
  * row — there are no longer any separate `remote_turn_claimed` /
  * `remote_turn_fulfilled` event rows to chase.
  */
@@ -96,7 +96,11 @@ export const claimRemoteTurn = mutation({
 
     const request = await findRemoteTurnRequest(ctx, args.requestId);
     if (!request || request.type !== "remote_turn_request") return null;
-    if (request.requestState === "claimed" || request.requestState === "fulfilled") {
+    if (
+      request.requestState === "claimed" ||
+      request.requestState === "fulfilled" ||
+      request.requestState === "cancelled"
+    ) {
       return null;
     }
 
@@ -104,6 +108,59 @@ export const claimRemoteTurn = mutation({
       requestState: "claimed",
       claimedAt: Date.now(),
       ...(args.deviceId ? { claimedByDeviceId: args.deviceId } : {}),
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Caller-initiated cancellation of an in-flight remote turn. Patches the
+ * `remote_turn_request` row to `cancelled` so:
+ *   1. If the local device hasn't claimed it yet, the device's
+ *      `subscribeRemoteTurnRequestsForDevice` snapshot drops the row at the
+ *      next reactive update and the bridge garbage-collects its pending
+ *      entry.
+ *   2. If the local device has already claimed and started the run, the
+ *      device subscribes to `subscribeRemoteTurnCancelsForDevice` and aborts
+ *      the active orchestrator run on the next snapshot.
+ *
+ * Idempotent: a cancel against a `fulfilled` row is a no-op (the reply has
+ * already been delivered). A second cancel against an already-`cancelled`
+ * row is also a no-op.
+ */
+export const cancelRemoteTurn = mutation({
+  args: {
+    requestId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const request = await findRemoteTurnRequest(ctx, args.requestId);
+    if (!request || request.type !== "remote_turn_request") return null;
+    // Verify the caller owns the conversation this request belongs to;
+    // the conversationId is derived from the request row rather than
+    // trusted from the caller (the mobile client only knows requestId).
+    const conversation = await requireConversationOwner(
+      ctx,
+      request.conversationId,
+    );
+    await enforceMutationRateLimit(
+      ctx,
+      "connector_cancel_remote_turn",
+      conversation.ownerId,
+      RATE_HOT_PATH,
+    );
+
+    if (
+      request.requestState === "fulfilled" ||
+      request.requestState === "cancelled"
+    ) {
+      return null;
+    }
+
+    await ctx.db.patch(request._id, {
+      requestState: "cancelled",
+      cancelledAt: Date.now(),
     });
 
     return null;
@@ -136,7 +193,12 @@ export const completeRemoteTurn = mutation({
         message: "Invalid or missing remote_turn_request",
       });
     }
-    if (request.requestState === "fulfilled") return null;
+    if (
+      request.requestState === "fulfilled" ||
+      request.requestState === "cancelled"
+    ) {
+      return null;
+    }
 
     const reqPayload = request.payload as Record<string, unknown>;
     const provider = reqPayload.provider as string;
@@ -304,6 +366,12 @@ async function deliverToConnectorCore(
   args: DeliveryArgs,
 ): Promise<void> {
   try {
+    const requestState = (await ctx.runQuery(
+      internal.channels.connector_delivery.getRemoteTurnState,
+      { requestId: args.requestId },
+    )) as "pending" | "claimed" | "fulfilled" | "cancelled" | null;
+    if (requestState === "cancelled") return;
+
     await dispatchConnectorDelivery(ctx, {
       requestId: args.requestId,
       conversationId: args.conversationId,
@@ -459,12 +527,18 @@ export const rescueSingleTurn = internalAction({
     const requestState = (await ctx.runQuery(
       internal.channels.connector_delivery.getRemoteTurnState,
       { requestId: args.requestId },
-    )) as "pending" | "claimed" | "fulfilled" | null;
+    )) as "pending" | "claimed" | "fulfilled" | "cancelled" | null;
 
     console.log(
       `[rescue:trace] requestId=${args.requestId}, state=${requestState ?? "missing"}`,
     );
-    if (requestState === "claimed" || requestState === "fulfilled") return null;
+    if (
+      requestState === "claimed" ||
+      requestState === "fulfilled" ||
+      requestState === "cancelled"
+    ) {
+      return null;
+    }
 
     if (!shouldUseOfflineResponderForProvider(args.provider)) {
       console.log(
@@ -1069,6 +1143,7 @@ export const getRemoteTurnState = internalQuery({
     v.literal("pending"),
     v.literal("claimed"),
     v.literal("fulfilled"),
+    v.literal("cancelled"),
   ),
   handler: async (ctx, args) => {
     const request = await findRemoteTurnRequest(ctx, args.requestId);
@@ -1087,7 +1162,12 @@ export const markRemoteTurnFulfilled = internalMutation({
   handler: async (ctx, args) => {
     const request = await findRemoteTurnRequest(ctx, args.requestId);
     if (!request || request.type !== "remote_turn_request") return null;
-    if (request.requestState === "fulfilled") return null;
+    if (
+      request.requestState === "fulfilled" ||
+      request.requestState === "cancelled"
+    ) {
+      return null;
+    }
     await ctx.db.patch(request._id, {
       requestState: "fulfilled",
       fulfilledAt: Date.now(),
@@ -1140,7 +1220,12 @@ export const findOrphanedTurnRequests = internalQuery({
       for (const event of events) {
         if (event.type !== "remote_turn_request") continue;
         if (!event.requestId) continue;
-        if (event.requestState === "fulfilled") continue;
+        if (
+          event.requestState === "fulfilled" ||
+          event.requestState === "cancelled"
+        ) {
+          continue;
+        }
 
         const p = event.payload as Record<string, unknown>;
         orphansForDevice.push({

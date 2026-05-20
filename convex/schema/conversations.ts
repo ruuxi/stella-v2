@@ -39,6 +39,13 @@ export const remoteTurnRequestStateValidator = v.union(
   v.literal("pending"),
   v.literal("claimed"),
   v.literal("fulfilled"),
+  /**
+   * Set when the originating client (typically the mobile app) requests
+   * cancellation via `cancelRemoteTurn`. The local device's remote-turn
+   * bridge subscribes to a dedicated cancel query and aborts the active
+   * orchestrator run; cancelled rows never flip to `claimed`/`fulfilled`.
+   */
+  v.literal("cancelled"),
 );
 
 export const threadStatusValidator = v.union(
@@ -123,6 +130,8 @@ export const conversationsSchema = {
     claimedByDeviceId: v.optional(v.string()),
     claimedAt: v.optional(v.number()),
     fulfilledAt: v.optional(v.number()),
+    /** Set only on `remote_turn_request` events when the caller cancels. */
+    cancelledAt: v.optional(v.number()),
     payload: jsonValueValidator,
     channelEnvelope: optionalChannelEnvelopeValidator,
   })

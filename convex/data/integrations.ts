@@ -10,31 +10,39 @@ import { jsonObjectValidator } from "../shared_validators";
 import { internal } from "../_generated/api";
 
 
-const storeIntegrationConnectorValidator = v.object({
-  type: v.union(v.literal("mcp"), v.literal("api")),
-  url: v.optional(v.string()),
-  baseUrl: v.optional(v.string()),
-  oauth: v.object({
-    tokenKey: v.optional(v.string()),
-    clientId: v.string(),
-    authorizationEndpoint: v.string(),
-    tokenEndpoint: v.optional(v.string()),
-    tokenAuth: v.optional(v.union(v.literal("body"), v.literal("basic"))),
-    responseType: v.optional(v.union(v.literal("code"), v.literal("token"))),
-    callbackId: v.optional(v.string()),
-    callbackUrl: v.optional(v.string()),
-    callbackMode: v.optional(v.union(v.literal("local"), v.literal("external"))),
-    scopes: v.optional(v.array(v.string())),
-    scopeSeparator: v.optional(v.string()),
-    resourceUrl: v.optional(v.string()),
-    oauthResource: v.optional(v.union(v.string(), v.null())),
-    usesPkce: v.optional(v.boolean()),
-    authorizationRedirectParam: v.optional(v.string()),
-    authorizationParams: v.optional(v.record(v.string(), v.string())),
-    tokenRedirectParam: v.optional(v.string()),
-    tokenExchangeProvider: v.optional(v.string()),
+const storeIntegrationConnectorValidator = v.union(
+  v.object({
+    type: v.union(v.literal("mcp"), v.literal("api")),
+    url: v.optional(v.string()),
+    baseUrl: v.optional(v.string()),
+    oauth: v.object({
+      tokenKey: v.optional(v.string()),
+      clientId: v.string(),
+      authorizationEndpoint: v.string(),
+      tokenEndpoint: v.optional(v.string()),
+      tokenAuth: v.optional(v.union(v.literal("body"), v.literal("basic"))),
+      responseType: v.optional(v.union(v.literal("code"), v.literal("token"))),
+      callbackId: v.optional(v.string()),
+      callbackUrl: v.optional(v.string()),
+      callbackMode: v.optional(v.union(v.literal("local"), v.literal("external"))),
+      scopes: v.optional(v.array(v.string())),
+      scopeSeparator: v.optional(v.string()),
+      resourceUrl: v.optional(v.string()),
+      oauthResource: v.optional(v.union(v.string(), v.null())),
+      usesPkce: v.optional(v.boolean()),
+      authorizationRedirectParam: v.optional(v.string()),
+      authorizationParams: v.optional(v.record(v.string(), v.string())),
+      tokenRedirectParam: v.optional(v.string()),
+      tokenExchangeProvider: v.optional(v.string()),
+    }),
   }),
-});
+  v.object({
+    type: v.literal("composio"),
+    toolkit: v.string(),
+    actionNamespace: v.optional(v.string()),
+    provider: v.optional(v.string()),
+  }),
+);
 
 const storeIntegrationStatusValues = new Set(["ready", "hidden"]);
 
@@ -312,6 +320,21 @@ export const getPublicIntegrationById = internalQuery({
   },
 });
 
+export const getUserIntegrationByOwnerAndProvider = internalQuery({
+  args: {
+    ownerId: v.string(),
+    provider: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("user_integrations")
+      .withIndex("by_ownerId_and_provider", (q) =>
+        q.eq("ownerId", args.ownerId).eq("provider", args.provider),
+      )
+      .unique();
+  },
+});
+
 export const listUserIntegrations = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -357,6 +380,47 @@ export const upsertUserIntegration = internalMutation({
 
     await ctx.db.insert("user_integrations", {
       ownerId,
+      provider: args.provider,
+      mode: args.mode,
+      externalId: args.externalId,
+      config: args.config,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const upsertUserIntegrationForOwner = internalMutation({
+  args: {
+    ownerId: v.string(),
+    provider: v.string(),
+    mode: v.string(),
+    externalId: v.optional(v.string()),
+    config: jsonObjectValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("user_integrations")
+      .withIndex("by_ownerId_and_provider", (q) =>
+        q.eq("ownerId", args.ownerId).eq("provider", args.provider),
+      )
+      .unique();
+
+    const now = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        mode: args.mode,
+        externalId: args.externalId,
+        config: args.config,
+        updatedAt: now,
+      });
+      return null;
+    }
+
+    await ctx.db.insert("user_integrations", {
+      ownerId: args.ownerId,
       provider: args.provider,
       mode: args.mode,
       externalId: args.externalId,

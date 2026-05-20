@@ -2,6 +2,7 @@ import type { HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { api } from "../_generated/api";
 import { internal } from "../_generated/api";
+import { requireUserIdentity } from "../auth";
 import {
   errorResponse,
   handleCorsRequest,
@@ -28,6 +29,9 @@ type StoreIntegrationRecord = {
 };
 
 type StoreConnectorRecord = {
+  type?: unknown;
+  toolkit?: unknown;
+  provider?: unknown;
   oauth?: unknown;
 };
 
@@ -46,6 +50,23 @@ type NativeOAuthProvider = {
   tokenAuth?: "basic" | "body";
   tokenRedirectParam?: string;
   requiresClientSecret?: boolean;
+};
+
+type ComposioSessionResponse = {
+  id?: unknown;
+  sessionId?: unknown;
+};
+
+type ComposioLinkResponse = {
+  link?: unknown;
+  url?: unknown;
+  redirectUrl?: unknown;
+};
+
+type NativeIntegrationRequestBody = {
+  id?: unknown;
+  action?: unknown;
+  input?: unknown;
 };
 
 const envKey = (id: string, suffix: string) =>
@@ -81,6 +102,161 @@ const parseJsonObject = (text: string) => {
     return null;
   }
 };
+
+const sha256Hex = async (value: string): Promise<string> => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const readComposioApiKey = () =>
+  process.env.COMPOSIO_CONSUMER_API_KEY?.trim() ||
+  process.env.COMPOSIO_API_KEY?.trim() ||
+  null;
+
+const readComposioBaseUrl = () =>
+  (process.env.COMPOSIO_TOOL_ROUTER_URL?.trim() ||
+    "https://backend.composio.dev/api/v3.1/tool_router").replace(/\/+$/u, "");
+
+const readComposioConnector = (record: StoreIntegrationRecord) => {
+  const connector =
+    record.connector && typeof record.connector === "object"
+      ? (record.connector as StoreConnectorRecord)
+      : null;
+  if (connector?.type !== "composio") return null;
+  const id = readString(record.id)?.toLowerCase();
+  const toolkit = readString(connector.toolkit)?.toLowerCase();
+  if (!id || !toolkit) return null;
+  return {
+    id,
+    toolkit,
+    provider: readString(connector.provider)?.toLowerCase() || "composio",
+  };
+};
+
+const requireComposioConfig = () => {
+  const apiKey = readComposioApiKey();
+  if (!apiKey) {
+    return {
+      response: errorResponse(503, "Composio is not configured."),
+      config: null,
+    };
+  }
+  return {
+    response: null,
+    config: {
+      apiKey,
+      baseUrl: readComposioBaseUrl(),
+    },
+  };
+};
+
+const composioFetch = async (
+  path: string,
+  init: RequestInit,
+  config: { apiKey: string; baseUrl: string },
+) => {
+  const response = await fetch(`${config.baseUrl}${path}`, {
+    ...init,
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      "x-api-key": config.apiKey,
+      "x-consumer-api-key": config.apiKey,
+      ...(init.headers ?? {}),
+    },
+  });
+  const text = await response.text();
+  const payload = parseJsonObject(text) ?? (text ? { text } : {});
+  if (!response.ok) {
+    throw new Error(
+      `Composio request failed (${response.status}): ${JSON.stringify(payload).slice(0, 500)}`,
+    );
+  }
+  return payload;
+};
+
+const composioSessionIdFromPayload = (payload: Record<string, unknown>) =>
+  readString((payload as ComposioSessionResponse).id) ??
+  readString((payload as ComposioSessionResponse).sessionId) ??
+  readString(
+    payload.session && typeof payload.session === "object"
+      ? (payload.session as Record<string, unknown>).id
+      : null,
+  );
+
+const composioLinkFromPayload = (payload: Record<string, unknown>) =>
+  readString((payload as ComposioLinkResponse).link) ??
+  readString((payload as ComposioLinkResponse).url) ??
+  readString((payload as ComposioLinkResponse).redirectUrl) ??
+  readString(
+    payload.data && typeof payload.data === "object"
+      ? (payload.data as Record<string, unknown>).link ??
+          (payload.data as Record<string, unknown>).url ??
+          (payload.data as Record<string, unknown>).redirectUrl
+      : null,
+  );
+
+const ensureComposioSession = async (
+  ctx: ActionCtx,
+  args: {
+    ownerId: string;
+    integrationId: string;
+    toolkit: string;
+    config: { apiKey: string; baseUrl: string };
+  },
+) => {
+  const existing = (await ctx.runQuery(
+    internal.data.integrations.getUserIntegrationByOwnerAndProvider,
+    {
+      ownerId: args.ownerId,
+      provider: args.integrationId,
+    },
+  )) as { externalId?: string; config?: Record<string, unknown> } | null;
+  const existingSessionId =
+    readString(existing?.externalId) ??
+    readString(existing?.config?.sessionId);
+  if (existingSessionId) return existingSessionId;
+
+  const userId = `stella_${(await sha256Hex(args.ownerId)).slice(0, 32)}`;
+  const payload = await composioFetch(
+    "/session",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: userId,
+        toolkits: { enabled: [args.toolkit] },
+      }),
+    },
+    args.config,
+  );
+  const sessionId = composioSessionIdFromPayload(payload);
+  if (!sessionId) throw new Error("Composio did not return a session id.");
+  await ctx.runMutation(
+    internal.data.integrations.upsertUserIntegrationForOwner,
+    {
+      ownerId: args.ownerId,
+      provider: args.integrationId,
+      mode: "composio",
+      externalId: sessionId,
+      config: {
+        sessionId,
+        toolkit: args.toolkit,
+        provider: "composio",
+      },
+    },
+  );
+  return sessionId;
+};
+
+const loadPublicIntegration = async (ctx: ActionCtx, id: string) =>
+  (await ctx.runQuery(internal.data.integrations.getPublicIntegrationById, {
+    id,
+  })) as StoreIntegrationRecord | null;
 
 const readOAuthFromRecord = (
   record: StoreIntegrationRecord,
@@ -227,6 +403,8 @@ const exchangeNativeOAuthToken = async (
 export const registerNativeOAuthRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     "/api/native-integrations/catalog",
+    "/api/native-integrations/connect-link",
+    "/api/native-integrations/run",
     "/api/native-oauth/providers",
     "/api/native-oauth/token",
   ]);
@@ -259,6 +437,110 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           {},
         );
         return jsonResponse({ integrations }, 200, origin);
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/native-integrations/connect-link",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const identity = await requireUserIdentity(ctx);
+        const body = (await parseUnknownBody(request)) as
+          | NativeIntegrationRequestBody
+          | null;
+        const id = readString(body?.id)?.toLowerCase();
+        if (!id) return errorResponse(400, "Missing integration id.", origin);
+        const integration = await loadPublicIntegration(ctx, id);
+        const connector = integration ? readComposioConnector(integration) : null;
+        if (!connector) {
+          return errorResponse(400, "Integration is not Composio-backed.", origin);
+        }
+        const composio = requireComposioConfig();
+        if (!composio.config) return withCors(composio.response, origin);
+        try {
+          const sessionId = await ensureComposioSession(ctx, {
+            ownerId: identity.tokenIdentifier,
+            integrationId: connector.id,
+            toolkit: connector.toolkit,
+            config: composio.config,
+          });
+          const payload = await composioFetch(
+            `/session/${encodeURIComponent(sessionId)}/link`,
+            {
+              method: "POST",
+              body: JSON.stringify({ toolkit: connector.toolkit }),
+            },
+            composio.config,
+          );
+          const url = composioLinkFromPayload(payload);
+          if (!url) {
+            return errorResponse(502, "Composio did not return a connect link.", origin);
+          }
+          return jsonResponse({ url, sessionId }, 200, origin);
+        } catch (error) {
+          console.error("[native-integrations] composio connect-link failed", {
+            id,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return errorResponse(502, "Could not create the connection link.", origin);
+        }
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/native-integrations/run",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const identity = await requireUserIdentity(ctx);
+        const body = (await parseUnknownBody(request)) as
+          | NativeIntegrationRequestBody
+          | null;
+        const id = readString(body?.id)?.toLowerCase();
+        const action = readString(body?.action);
+        if (!id || !action) {
+          return errorResponse(400, "Missing integration action.", origin);
+        }
+        const integration = await loadPublicIntegration(ctx, id);
+        const connector = integration ? readComposioConnector(integration) : null;
+        if (!connector) {
+          return errorResponse(400, "Integration is not Composio-backed.", origin);
+        }
+        const composio = requireComposioConfig();
+        if (!composio.config) return withCors(composio.response, origin);
+        try {
+          const sessionId = await ensureComposioSession(ctx, {
+            ownerId: identity.tokenIdentifier,
+            integrationId: connector.id,
+            toolkit: connector.toolkit,
+            config: composio.config,
+          });
+          const payload = await composioFetch(
+            `/session/${encodeURIComponent(sessionId)}/execute`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                tool_slug: action,
+                arguments:
+                  body?.input && typeof body.input === "object" && !Array.isArray(body.input)
+                    ? body.input
+                    : {},
+              }),
+            },
+            composio.config,
+          );
+          return jsonResponse(payload, 200, origin);
+        } catch (error) {
+          console.error("[native-integrations] composio run failed", {
+            id,
+            action,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return errorResponse(502, "Could not run the integration action.", origin);
+        }
       }),
     ),
   });

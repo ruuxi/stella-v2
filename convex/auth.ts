@@ -77,9 +77,9 @@ const extraTrustedOrigins = [
 const getDeepLinkOrigin = () => {
   const raw = process.env.STELLA_PROTOCOL;
   if (!raw) {
-    return "Stella://auth";
+    return "stella://auth";
   }
-  const protocol = raw.replace("://", "").replace(":", "");
+  const protocol = raw.replace("://", "").replace(":", "").trim().toLowerCase();
   return `${protocol}://auth`;
 };
 

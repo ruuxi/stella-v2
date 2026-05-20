@@ -53,7 +53,7 @@ const getOptionalEnv = (name: string) => {
 export const tokenIdentifierForBetterAuthUserId = (userId: string) =>
   `${getAuthBaseUrl()}|${userId}`;
 
-const getAuthBaseUrl = () =>
+export const getAuthBaseUrl = () =>
   getOptionalEnv("STELLA_AUTH_BASE_URL") ?? getRequiredEnv("CONVEX_SITE_URL");
 
 const escapeHtmlAttribute = (value: string) =>
@@ -298,6 +298,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     new Set(
       [
         siteUrl,
+        authBaseUrl,
         getDeepLinkOrigin(),
         ...getMobileDeepLinkOrigins(),
         "https://appleid.apple.com",

@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import {
   assertSensitiveSessionPolicyAction,
   createAuth,
+  getAuthBaseUrl,
   isAnonymousIdentity,
 } from "../auth";
 import { getAppReviewEmail } from "../lib/app_review_auth";
@@ -1463,9 +1464,9 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
         }
 
-        const convexSiteUrl = process.env.CONVEX_SITE_URL;
-        if (!convexSiteUrl) {
-          console.error("[mobile/auth] Missing CONVEX_SITE_URL");
+        const authBaseUrl = getAuthBaseUrl();
+        if (!authBaseUrl) {
+          console.error("[mobile/auth] Missing auth base URL");
           return errorResponse(500, "Server configuration error", origin);
         }
 
@@ -1492,7 +1493,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             }).signInAppReview;
             const signInResult = await signInAppReview({
               body: { email },
-              headers: new Headers({ origin: convexSiteUrl }),
+              headers: new Headers({ origin: authBaseUrl }),
               returnHeaders: true,
             });
 
@@ -1518,10 +1519,10 @@ export const registerMobileRoutes = (http: HttpRouter) => {
               sessionCookie,
             });
           } else {
-            const callbackURL = `${convexSiteUrl}/api/auth/link/verify?requestId=${encodeURIComponent(requestId)}`;
+            const callbackURL = `${authBaseUrl}/api/auth/link/verify?requestId=${encodeURIComponent(requestId)}`;
             await auth.api.signInMagicLink({
               body: { email, callbackURL },
-              headers: new Headers({ origin: convexSiteUrl }),
+              headers: new Headers({ origin: authBaseUrl }),
             });
           }
         } catch (error) {

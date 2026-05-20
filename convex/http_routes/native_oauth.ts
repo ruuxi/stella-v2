@@ -114,9 +114,7 @@ const sha256Hex = async (value: string): Promise<string> => {
 };
 
 const readComposioApiKey = () =>
-  process.env.COMPOSIO_CONSUMER_API_KEY?.trim() ||
-  process.env.COMPOSIO_API_KEY?.trim() ||
-  null;
+  process.env.COMPOSIO_API_KEY?.trim() || null;
 
 const readComposioBaseUrl = () =>
   (process.env.COMPOSIO_TOOL_ROUTER_URL?.trim() ||

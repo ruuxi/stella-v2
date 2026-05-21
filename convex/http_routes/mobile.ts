@@ -1476,7 +1476,63 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
   // ── Mobile magic link (no-redirect) ────────────────────────────────
 
-  registerCorsOptions(http, ["/api/auth/link/send", "/api/auth/link/status"]);
+  registerCorsOptions(http, [
+    "/api/auth/link/send",
+    "/api/auth/link/status",
+    "/api/auth/desktop-social/start",
+  ]);
+
+  // Start a desktop social sign-in and return a requestId for polling. The
+  // OAuth callback lands on `/api/auth/desktop-social/verify`, where the OTT is
+  // exchanged server-side for the raw Better Auth session cookie.
+  http.route({
+    path: "/api/auth/desktop-social/start",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const rateLimit = await consumeWebhookRateLimit(ctx, {
+          scope: "desktop_social_auth_start",
+          key: getClientAddressKey(request) ?? "unknown",
+          limit: MAGIC_LINK_RATE_LIMIT,
+          windowMs: MAGIC_LINK_RATE_WINDOW_MS,
+          blockMs: MAGIC_LINK_RATE_WINDOW_MS,
+        });
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        const authBaseUrl = getAuthBaseUrl();
+        if (!authBaseUrl) {
+          console.error("[desktop/auth] Missing auth base URL");
+          return errorResponse(500, "Server configuration error", origin);
+        }
+
+        const requestId = crypto.randomUUID();
+        const now = Date.now();
+        await ctx.runMutation(internal.mobile_auth.createPendingLinkRequest, {
+          email: "desktop-social:google",
+          requestId,
+          expiresAt: now + MAGIC_LINK_EXPIRY_MS,
+          createdAt: now,
+        });
+
+        await ctx.scheduler.runAfter(
+          MAGIC_LINK_EXPIRY_MS + 30_000,
+          internal.mobile_auth.cleanupLinkRequest,
+          { requestId },
+        );
+
+        return jsonResponse(
+          {
+            requestId,
+            callbackURL: `${authBaseUrl}/api/auth/desktop-social/verify?requestId=${encodeURIComponent(requestId)}`,
+          },
+          200,
+          origin,
+        );
+      }),
+    ),
+  });
 
   // Send a magic link and return a requestId for polling.
   http.route({
@@ -1627,6 +1683,56 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         return jsonResponse(result, 200, origin);
       }),
     ),
+  });
+
+  // Browser landing after desktop social auth. The cross-domain plugin appends
+  // ?ott=... to this URL after the provider flow completes.
+  http.route({
+    path: "/api/auth/desktop-social/verify",
+    method: "GET",
+    handler: httpAction(async (ctx, request) => {
+      const url = new URL(request.url);
+      const requestId = url.searchParams.get("requestId") ?? "";
+      const ott = url.searchParams.get("ott") ?? "";
+
+      if (requestId && ott) {
+        let sessionCookie = "";
+        try {
+          const auth = createAuth(ctx);
+          const verifyRes = await auth.api.verifyOneTimeToken({
+            body: { token: ott },
+            headers: new Headers(),
+            returnHeaders: true,
+          });
+          const headersList = (verifyRes as Record<string, unknown>)
+            ?.headers as { _headersList?: [string, string][] } | undefined;
+          if (Array.isArray(headersList?._headersList)) {
+            for (const [name, value] of headersList._headersList) {
+              if (name === "set-better-auth-cookie" || name === "set-cookie") {
+                sessionCookie = value;
+                break;
+              }
+            }
+          }
+        } catch (err) {
+          console.error("[desktop/auth] Server-side OTT verify failed:", err);
+        }
+        await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
+          requestId,
+          ott,
+          ...(sessionCookie ? { sessionCookie } : {}),
+        });
+      }
+
+      const websiteUrl =
+        process.env.STELLA_WEBSITE_URL?.trim() || "https://stella.sh";
+      const redirect = `${websiteUrl.replace(/\/+$/, "")}/auth/callback?done=true`;
+
+      return new Response(null, {
+        status: 302,
+        headers: { Location: redirect },
+      });
+    }),
   });
 
   // Browser landing after magic link verification.

@@ -132,15 +132,15 @@ const isInternalModelConfigKey = (value: string): value is InternalModelConfigKe
 // keeps its value as a protocol requirement, not a policy choice.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   standard: {
-    model: "accounts/fireworks/models/kimi-k2p6",
+    model: "google/gemini-3-flash-preview",
     fallbackMode: "light",
-    managedGatewayProvider: "fireworks",
+    managedGatewayProvider: "openrouter",
     temperature: 1.0,
     providerOptions: {
       openai: {
         reasoningEffort: "medium",
       },
-      ...gatewayOptions("fireworks"),
+      ...gatewayOptions("openrouter"),
     },
   },
 

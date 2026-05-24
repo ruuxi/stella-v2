@@ -29,17 +29,32 @@ describe("managed model config", () => {
 
   it("uses Standard for anonymous, free, and paid chat defaults", () => {
     expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "anonymous").model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
+      "google/gemini-3-flash-preview",
     );
     expect(getModelConfig(AGENT_IDS.GENERAL, "free").model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
+      "google/gemini-3-flash-preview",
     );
     expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "go").model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
+      "google/gemini-3-flash-preview",
     );
     expect(getModelConfig(AGENT_IDS.GENERAL, "pro").model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
+      "google/gemini-3-flash-preview",
     );
+    expect(getModeConfig("standard").managedGatewayProvider).toBe(
+      "openrouter",
+    );
+    expect(getModeConfig("standard").providerOptions?.gateway?.order).toEqual([
+      "openrouter",
+    ]);
+  });
+
+  it("publishes Standard's relay provider in the Stella catalog", () => {
+    expect(listStellaCatalogModels("free").find(
+      (model) => model.id === "stella/standard",
+    )).toMatchObject({
+      upstreamModel: "google/gemini-3-flash-preview",
+      relayProvider: "openrouter",
+    });
   });
 
   it("exposes Priority only for Pro and higher catalog audiences", () => {

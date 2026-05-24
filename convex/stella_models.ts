@@ -6,6 +6,7 @@ import {
   isStellaModelAllowedForAudience,
   listManagedModelIds,
   type ManagedModelAudience,
+  type ManagedGatewayProvider,
   type ModelMode,
 } from "./agent/model";
 import { query } from "./_generated/server";
@@ -21,13 +22,14 @@ export const STELLA_DESIGNER_MODEL = `${STELLA_PROVIDER}/designer`;
 export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
 // Bump this whenever Stella alias/default mappings change. Desktop subscribes
 // to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 4, 14);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 4, 24, 13, 15);
 
 export type StellaCatalogModel = {
   id: string;
   name: string;
   provider: typeof STELLA_PROVIDER;
   upstreamModel: string;
+  relayProvider?: ManagedGatewayProvider;
   type: "language" | "multimodal";
   /**
    * Whether the requesting audience may pick this model. The catalog
@@ -139,10 +141,14 @@ const isProOrHigherAudience = (audience: ManagedModelAudience): boolean =>
 const getStaticStellaAliases = (audience: ManagedModelAudience = "free") =>
   STELLA_ALIAS_MODES
     .filter((alias) => alias.minAudience !== "pro" || isProOrHigherAudience(audience))
-    .map((alias) => ({
-      ...alias,
-      upstreamModel: getModeConfig(alias.mode, audience).model,
-    }));
+    .map((alias) => {
+      const config = getModeConfig(alias.mode, audience);
+      return {
+        ...alias,
+        upstreamModel: config.model,
+        relayProvider: config.managedGatewayProvider,
+      };
+    });
 
 const listUpstreamManagedModels = (): string[] => {
   return listManagedModelIds().sort((a, b) => deriveDisplayName(a).localeCompare(deriveDisplayName(b)));
@@ -205,6 +211,7 @@ export const listStellaCatalogModels = (
     name: "Stella Recommended",
     provider: "stella",
     upstreamModel: "",
+    relayProvider: undefined,
     type: "language",
     allowedForAudience: true,
   },
@@ -213,6 +220,7 @@ export const listStellaCatalogModels = (
     name: alias.name,
     provider: STELLA_PROVIDER,
     upstreamModel: alias.upstreamModel,
+    relayProvider: alias.relayProvider,
     type: alias.type,
     allowedForAudience: isStellaModelAllowedForAudience(alias.id, audience),
   })),

@@ -48,12 +48,11 @@ describe("managed model config", () => {
     ]);
   });
 
-  it("publishes Standard's relay provider in the Stella catalog", () => {
+  it("publishes Standard's OpenRouter routing model in the Stella catalog", () => {
     expect(listStellaCatalogModels("free").find(
       (model) => model.id === "stella/standard",
     )).toMatchObject({
-      upstreamModel: "google/gemini-3-flash-preview",
-      relayProvider: "openrouter",
+      upstreamModel: "openrouter/google/gemini-3-flash-preview",
     });
   });
 

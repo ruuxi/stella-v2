@@ -6,7 +6,7 @@ import {
   isStellaModelAllowedForAudience,
   listManagedModelIds,
   type ManagedModelAudience,
-  type ManagedGatewayProvider,
+  type ModelConfig,
   type ModelMode,
 } from "./agent/model";
 import { query } from "./_generated/server";
@@ -29,7 +29,6 @@ export type StellaCatalogModel = {
   name: string;
   provider: typeof STELLA_PROVIDER;
   upstreamModel: string;
-  relayProvider?: ManagedGatewayProvider;
   type: "language" | "multimodal";
   /**
    * Whether the requesting audience may pick this model. The catalog
@@ -138,6 +137,12 @@ const isProOrHigherAudience = (audience: ManagedModelAudience): boolean =>
   audience === "plus_fallback" ||
   audience === "ultra_fallback";
 
+const catalogRoutingModel = (config: ModelConfig): string =>
+  config.managedGatewayProvider === "openrouter" &&
+  /^(?:anthropic|google|openai)\//u.test(config.model)
+    ? `openrouter/${config.model}`
+    : config.model;
+
 const getStaticStellaAliases = (audience: ManagedModelAudience = "free") =>
   STELLA_ALIAS_MODES
     .filter((alias) => alias.minAudience !== "pro" || isProOrHigherAudience(audience))
@@ -145,8 +150,7 @@ const getStaticStellaAliases = (audience: ManagedModelAudience = "free") =>
       const config = getModeConfig(alias.mode, audience);
       return {
         ...alias,
-        upstreamModel: config.model,
-        relayProvider: config.managedGatewayProvider,
+        upstreamModel: catalogRoutingModel(config),
       };
     });
 
@@ -211,7 +215,6 @@ export const listStellaCatalogModels = (
     name: "Stella Recommended",
     provider: "stella",
     upstreamModel: "",
-    relayProvider: undefined,
     type: "language",
     allowedForAudience: true,
   },
@@ -220,7 +223,6 @@ export const listStellaCatalogModels = (
     name: alias.name,
     provider: STELLA_PROVIDER,
     upstreamModel: alias.upstreamModel,
-    relayProvider: alias.relayProvider,
     type: alias.type,
     allowedForAudience: isStellaModelAllowedForAudience(alias.id, audience),
   })),
@@ -243,7 +245,7 @@ export const listStellaDefaultSelections = (
   Object.keys(AGENT_MODELS).map((agentType) => ({
     agentType,
     model: STELLA_DEFAULT_MODEL,
-    resolvedModel: getModelConfig(agentType, audience).model,
+    resolvedModel: catalogRoutingModel(getModelConfig(agentType, audience)),
   }));
 
 export const getModelCatalogUpdatedAt = query({

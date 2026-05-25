@@ -33,30 +33,30 @@ describe("managed model config", () => {
 
   it("uses Standard for anonymous, free, and paid chat defaults", () => {
     expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "anonymous").model).toBe(
-      "google/gemini-3-flash-preview",
+      "openai/gpt-5.5",
     );
     expect(getModelConfig(AGENT_IDS.GENERAL, "free").model).toBe(
-      "google/gemini-3-flash-preview",
+      "openai/gpt-5.5",
     );
     expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "go").model).toBe(
-      "google/gemini-3-flash-preview",
+      "openai/gpt-5.5",
     );
     expect(getModelConfig(AGENT_IDS.GENERAL, "pro").model).toBe(
-      "google/gemini-3-flash-preview",
+      "openai/gpt-5.5",
     );
     expect(getModeConfig("standard").managedGatewayProvider).toBe(
-      "openrouter",
+      "openai",
     );
-    expect(getModeConfig("standard").providerOptions?.gateway?.order).toEqual([
-      "openrouter",
-    ]);
+    expect(getModeConfig("standard").providerOptions?.openai).toMatchObject({
+      reasoningEffort: "low",
+    });
   });
 
-  it("publishes Standard's OpenRouter routing model in the Stella catalog", () => {
+  it("publishes Standard's OpenAI routing model in the Stella catalog", () => {
     expect(listStellaCatalogModels("free").find(
       (model) => model.id === "stella/standard",
     )).toMatchObject({
-      upstreamModel: "openrouter/google/gemini-3-flash-preview",
+      upstreamModel: "openai/gpt-5.5",
     });
   });
 
@@ -71,7 +71,7 @@ describe("managed model config", () => {
     const defaults = listStellaDefaultSelections("free");
     expect(defaults.find((entry) => entry.agentType === "orchestrator")).toMatchObject({
       model: "stella/standard",
-      resolvedModel: "openrouter/google/gemini-3-flash-preview",
+      resolvedModel: "openai/gpt-5.5",
     });
     expect(defaults.find((entry) => entry.agentType === "chronicle")).toMatchObject({
       model: "stella/light",

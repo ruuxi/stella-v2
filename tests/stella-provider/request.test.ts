@@ -86,7 +86,7 @@ describe("resolveRequestedStellaModel", () => {
     const resolved = resolveRequestedStellaModel("orchestrator", {}, "pro");
     expect(resolved.requestedModel).toBe("stella/standard");
     expect(resolved.resolvedModel).toBe(getModeConfig("standard", "pro").model);
-    expect(resolved.config.managedGatewayProvider).toBe("openrouter");
+    expect(resolved.config.managedGatewayProvider).toBe("openai");
     expect(resolved.config.fallback).toBeUndefined();
   });
 

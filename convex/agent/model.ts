@@ -132,15 +132,14 @@ const isInternalModelConfigKey = (value: string): value is InternalModelConfigKe
 // keeps its value as a protocol requirement, not a policy choice.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   standard: {
-    model: "google/gemini-3-flash-preview",
+    model: "openai/gpt-5.5",
     fallbackMode: "light",
-    managedGatewayProvider: "openrouter",
+    managedGatewayProvider: "openai",
     temperature: 1.0,
     providerOptions: {
       openai: {
-        reasoningEffort: "medium",
+        reasoningEffort: "low",
       },
-      ...gatewayOptions("openrouter"),
     },
   },
 

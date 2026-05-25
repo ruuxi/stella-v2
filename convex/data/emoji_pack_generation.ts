@@ -11,7 +11,7 @@ import {
   RATE_STANDARD,
   enforceActionRateLimit,
 } from "../lib/rate_limits";
-import { assertPaidMediaTier } from "../lib/managed_billing";
+import { checkManagedUsageLimit } from "../lib/managed_billing";
 import { emoji_pack_validator, emoji_pack_visibility_validator } from "../schema/emoji_packs";
 import { requireBoundedString } from "../shared_validators";
 import {
@@ -273,8 +273,14 @@ export const generatePack = action({
   returns: emoji_pack_validator,
   handler: async (ctx, args): Promise<Doc<"emoji_packs">> => {
     const ownerId = await requireConnectedUserIdAction(ctx);
-    // Stella-paid emoji-pack generation (fal/openai-image) is paid-plans-only.
-    await assertPaidMediaTier(ctx, ownerId);
+    const usageLimit = await checkManagedUsageLimit(ctx, ownerId);
+    if (!usageLimit.allowed) {
+      throw new ConvexError({
+        code: "USAGE_LIMIT_REACHED",
+        message: usageLimit.message,
+        retryAfterMs: usageLimit.retryAfterMs,
+      });
+    }
     await enforceActionRateLimit(
       ctx,
       "emojiPacks.generatePack",

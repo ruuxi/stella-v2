@@ -27,6 +27,7 @@ import {
   handleCorsRequest,
   registerCorsOptions,
 } from "../http_shared/cors";
+import { requireSignedInAccountAction } from "../http_shared/auth";
 import { rateLimitResponse } from "../http_shared/webhook_controls";
 import {
   checkManagedUsageLimit,
@@ -68,13 +69,14 @@ export const registerDictationRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        // Inworld is paid by the second; require sign-in so every
+        // Inworld is paid by the second; require a connected account so every
         // transcription rolls up to a real user's plan window.
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-          return errorResponse(401, "Unauthorized", origin);
-        }
-        const ownerId = identity.tokenIdentifier;
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use dictation.",
+          realm: "stella-dictation",
+        });
+        if (!auth.ok) return auth.response;
+        const ownerId = auth.ownerId;
 
         const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId);
         if (!subscriptionCheck.allowed) {

@@ -24,11 +24,7 @@ import {
   type MediaJobStatus,
   parseMediaGenerateRequest,
 } from "../media_contract";
-import {
-  PUBLIC_MEDIA_TEST_OWNER_ID,
-  isMediaPublicTestModeEnabled,
-  summarizeMediaRequestForStorage,
-} from "../media_jobs";
+import { summarizeMediaRequestForStorage } from "../media_jobs";
 import {
   buildFalResponseUrl,
   fetchFalResultPayload,
@@ -50,10 +46,9 @@ import {
 } from "../media_lyria";
 import {
   checkManagedUsageLimit,
-  isPaidMediaTier,
-  resolveManagedModelAccess,
 } from "../lib/managed_billing";
 import { dollarsToMicroCents } from "../lib/billing_money";
+import { requireSignedInAccountAction } from "../http_shared/auth";
 
 const MEDIA_API_BASE_PATH = "/api/media/v1";
 const MEDIA_CAPABILITIES_PATH = `${MEDIA_API_BASE_PATH}/capabilities`;
@@ -78,40 +73,6 @@ const MEDIA_AUTH_REQUIRED_MESSAGE =
   "Sign in to Stella to use media generation.";
 const MEDIA_AUTH_REQUIRED_ACTION =
   "Ask the user to open the Stella desktop app and finish signing in (Settings → Account, or the welcome screen on first launch). Once they're signed in, retry the same request — no payload changes needed.";
-
-/**
- * Structured 401 used by the auth-gated media endpoint. Designed for *agent*
- * consumers as much as for browsers:
- *
- * - `code` is a stable machine-readable identifier (`auth_required`) so the
- *   caller can branch without parsing the human message.
- * - `action` is a short instruction the agent can surface to the user
- *   verbatim. Without this, the previous bare "Unauthorized" body left the
- *   agent guessing what to do (and silently dead-ending the user).
- * - `docsUrl` lets the agent recover by re-reading the contract.
- * - The standard `WWW-Authenticate` header is set so non-agent HTTP clients
- *   handle the response correctly.
- */
-const mediaUnauthorizedResponse = (
-  _request: Request,
-  origin: string | null,
-): Response => {
-  const response = jsonResponse(
-    {
-      error: MEDIA_AUTH_REQUIRED_MESSAGE,
-      code: "auth_required",
-      action: MEDIA_AUTH_REQUIRED_ACTION,
-      docsUrl: MEDIA_DOCS_URL,
-    },
-    401,
-    origin,
-  );
-  response.headers.set(
-    "WWW-Authenticate",
-    'Bearer realm="stella-media", error="invalid_token", error_description="Sign in to Stella to use media generation."',
-  );
-  return response;
-};
 
 type FalWebhookPayload = {
   request_id?: unknown;
@@ -561,28 +522,14 @@ export const registerMediaRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
-        const ownerId =
-          identity?.tokenIdentifier ??
-          (isMediaPublicTestModeEnabled() ? PUBLIC_MEDIA_TEST_OWNER_ID : null);
-        if (!ownerId) return mediaUnauthorizedResponse(request, origin);
-        // Stella-paid media generation is paid-plans-only. Free/anonymous
-        // users cannot burn Stella's fal/Google credits without a
-        // subscription — direct them to upgrade rather than spending
-        // backend cost.
-        const isAnonymous =
-          (identity as Record<string, unknown> | undefined)?.isAnonymous ===
-          true;
-        const access = await resolveManagedModelAccess(ctx, ownerId, {
-          isAnonymous,
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: MEDIA_AUTH_REQUIRED_MESSAGE,
+          action: MEDIA_AUTH_REQUIRED_ACTION,
+          docsUrl: MEDIA_DOCS_URL,
+          realm: "stella-media",
         });
-        if (!isPaidMediaTier(access.modelAudience)) {
-          return errorResponse(
-            402,
-            "Media generation requires a Stella subscription. Upgrade your plan to continue.",
-            origin,
-          );
-        }
+        if (!auth.ok) return auth.response;
+        const ownerId = auth.ownerId;
         const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId, {
           minimumRemainingMicroCents: MEDIA_DENY_BUFFER_MICRO_CENTS,
         });

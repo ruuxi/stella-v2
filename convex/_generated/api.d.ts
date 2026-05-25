@@ -87,6 +87,7 @@ import type * as http_routes_synthesis from "../http_routes/synthesis.js";
 import type * as http_routes_voice from "../http_routes/voice.js";
 import type * as http_shared_admin from "../http_shared/admin.js";
 import type * as http_shared_anon_device from "../http_shared/anon_device.js";
+import type * as http_shared_auth from "../http_shared/auth.js";
 import type * as http_shared_cors from "../http_shared/cors.js";
 import type * as http_shared_request from "../http_shared/request.js";
 import type * as http_shared_sse from "../http_shared/sse.js";
@@ -297,6 +298,7 @@ declare const fullApi: ApiFromModules<{
   "http_routes/voice": typeof http_routes_voice;
   "http_shared/admin": typeof http_shared_admin;
   "http_shared/anon_device": typeof http_shared_anon_device;
+  "http_shared/auth": typeof http_shared_auth;
   "http_shared/cors": typeof http_shared_cors;
   "http_shared/request": typeof http_shared_request;
   "http_shared/sse": typeof http_shared_sse;

@@ -12,11 +12,10 @@ import { getUserProviderKey } from "../lib/provider_keys";
 import { generateMusic, parseMusicStreamRequest } from "../media_lyria";
 import {
   checkManagedUsageLimit,
-  isPaidMediaTier,
-  resolveManagedModelAccess,
   scheduleManagedUsage,
 } from "../lib/managed_billing";
 import { dollarsToMicroCents } from "../lib/billing_money";
+import { requireSignedInAccountAction } from "../http_shared/auth";
 
 const MUSIC_STREAM_PATH = "/api/music/stream";
 const MUSIC_KEY_PATH = "/api/music/api-key";
@@ -35,19 +34,12 @@ export const registerMusicRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-          return errorResponse(401, "Unauthorized", origin);
-        }
-        const ownerId = identity.tokenIdentifier;
-        // Stella-paid music generation is paid-plans-only. BYO Google-key
-        // callers (the branch below) bypass this gate later — only Stella's
-        // GOOGLE_AI_API_KEY path is restricted.
-        const isAnonymous =
-          (identity as Record<string, unknown>).isAnonymous === true;
-        const access = await resolveManagedModelAccess(ctx, ownerId, {
-          isAnonymous,
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use music generation.",
+          realm: "stella-music",
         });
+        if (!auth.ok) return auth.response;
+        const ownerId = auth.ownerId;
 
         const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId);
         if (!subscriptionCheck.allowed) {
@@ -58,7 +50,7 @@ export const registerMusicRoutes = (http: HttpRouter) => {
           internal.rate_limits.consumeWebhookRateLimit,
           {
             scope: "music_stream",
-            key: identity.tokenIdentifier,
+            key: ownerId,
             limit: MUSIC_STREAM_RATE_LIMIT,
             windowMs: MUSIC_STREAM_RATE_WINDOW_MS,
             blockMs: MUSIC_STREAM_RATE_WINDOW_MS,
@@ -92,13 +84,6 @@ export const registerMusicRoutes = (http: HttpRouter) => {
         // Only meter against the user's plan when Stella's key paid for it —
         // BYO-key callers don't cost Stella anything.
         const billable = !userProvidedKey;
-        if (billable && !isPaidMediaTier(access.modelAudience)) {
-          return errorResponse(
-            402,
-            "Music generation requires a Stella subscription. Upgrade your plan to continue.",
-            origin,
-          );
-        }
         const apiKey = userProvidedKey ?? process.env.GOOGLE_AI_API_KEY ?? null;
         if (!apiKey) {
           return errorResponse(

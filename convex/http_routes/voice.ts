@@ -13,6 +13,7 @@ import {
   handleCorsRequest,
   registerCorsOptions,
 } from "../http_shared/cors";
+import { requireSignedInAccountAction } from "../http_shared/auth";
 import { rateLimitResponse } from "../http_shared/webhook_controls";
 
 // ---------------------------------------------------------------------------
@@ -166,10 +167,12 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-          return errorResponse(401, "Unauthorized", origin);
-        }
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use realtime voice.",
+          realm: "stella-voice",
+        });
+        if (!auth.ok) return auth.response;
+        const identity = auth.identity;
 
         const rateLimit = await ctx.runMutation(
           internal.rate_limits.consumeWebhookRateLimit,
@@ -211,7 +214,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         }
 
         // Resolve owner ID from identity
-        const ownerId = identity.tokenIdentifier;
+        const ownerId = auth.ownerId;
         const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId);
         if (!subscriptionCheck.allowed) {
           return errorResponse(429, subscriptionCheck.message, origin);
@@ -511,10 +514,12 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-          return errorResponse(401, "Unauthorized", origin);
-        }
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use realtime voice.",
+          realm: "stella-voice",
+        });
+        if (!auth.ok) return auth.response;
+        const identity = auth.identity;
         const rateLimit = await ctx.runMutation(
           internal.rate_limits.consumeWebhookRateLimit,
           {
@@ -531,7 +536,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
 
         const subscriptionCheck = await checkManagedUsageLimit(
           ctx,
-          identity.tokenIdentifier,
+          auth.ownerId,
         );
         if (!subscriptionCheck.allowed) {
           return errorResponse(429, subscriptionCheck.message, origin);
@@ -608,10 +613,12 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-          return errorResponse(401, "Unauthorized", origin);
-        }
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use text to speech.",
+          realm: "stella-voice",
+        });
+        if (!auth.ok) return auth.response;
+        const identity = auth.identity;
 
         const rateLimit = await ctx.runMutation(
           internal.rate_limits.consumeWebhookRateLimit,
@@ -632,7 +639,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
 
         const subscriptionCheck = await checkManagedUsageLimit(
           ctx,
-          identity.tokenIdentifier,
+          auth.ownerId,
         );
         if (!subscriptionCheck.allowed) {
           return errorResponse(429, subscriptionCheck.message, origin);
@@ -810,10 +817,12 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-          return errorResponse(401, "Unauthorized", origin);
-        }
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use realtime voice.",
+          realm: "stella-voice",
+        });
+        if (!auth.ok) return auth.response;
+        const identity = auth.identity;
 
         let body: VoiceUsageBody | null = null;
         try {

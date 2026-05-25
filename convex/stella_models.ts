@@ -1,5 +1,6 @@
 import {
   AGENT_MODELS,
+  getAgentModelMode,
   getModeConfig,
   getModelConfig,
   isModelMode,
@@ -13,16 +14,16 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const STELLA_PROVIDER = "stella";
-export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
 export const STELLA_STANDARD_MODEL = `${STELLA_PROVIDER}/standard`;
 export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 export const STELLA_BUILDER_MODEL = `${STELLA_PROVIDER}/builder`;
 export const STELLA_DESIGNER_MODEL = `${STELLA_PROVIDER}/designer`;
 export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
+const STELLA_DEFAULT_MODE: ModelMode = "standard";
 // Bump this whenever Stella alias/default mappings change. Desktop subscribes
 // to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 4, 24, 13, 15);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 4, 25, 9, 30);
 
 export type StellaCatalogModel = {
   id: string;
@@ -161,25 +162,34 @@ const listUpstreamManagedModels = (): string[] => {
 export const toStellaModelId = (upstreamModel: string): string =>
   `${STELLA_PROVIDER}/${upstreamModel.trim()}`;
 
+export const toStellaModeModelId = (mode: ModelMode): string =>
+  `${STELLA_PROVIDER}/${mode}`;
+
 export const isStellaModel = (model: string | null | undefined): boolean => {
   const trimmed = model?.trim();
-  return Boolean(trimmed) && (trimmed === STELLA_DEFAULT_MODEL || trimmed!.startsWith(`${STELLA_PROVIDER}/`));
+  return Boolean(trimmed) && trimmed!.startsWith(`${STELLA_PROVIDER}/`);
 };
 
 export const parseStellaModelSelection = (
   selection: string | null | undefined,
-): { kind: "default" } | { kind: "mode"; mode: ModelMode } | { kind: "upstream"; model: string } | null => {
+):
+  | { kind: "mode"; mode: ModelMode }
+  | { kind: "upstream"; model: string }
+  | null => {
   const trimmed = selection?.trim();
-  if (!trimmed || trimmed === STELLA_DEFAULT_MODEL) {
-    return { kind: "default" };
+  if (!trimmed) {
+    return { kind: "mode", mode: STELLA_DEFAULT_MODE };
   }
   if (!trimmed.startsWith(`${STELLA_PROVIDER}/`)) {
     return null;
   }
 
   const aliasOrUpstreamModel = trimmed.slice(`${STELLA_PROVIDER}/`.length).trim();
-  if (!aliasOrUpstreamModel || aliasOrUpstreamModel === "default") {
-    return { kind: "default" };
+  if (!aliasOrUpstreamModel) {
+    return { kind: "mode", mode: STELLA_DEFAULT_MODE };
+  }
+  if (aliasOrUpstreamModel === "default") {
+    return null;
   }
 
   if (isModelMode(aliasOrUpstreamModel)) {
@@ -190,16 +200,16 @@ export const parseStellaModelSelection = (
 };
 
 export const resolveStellaModelSelection = (
-  agentType: string,
   selection?: string | null,
   audience: ManagedModelAudience = "free",
 ): string => {
   const parsed = parseStellaModelSelection(selection);
   if (!parsed) {
-    return selection?.trim() || getModelConfig(agentType, audience).model;
-  }
-  if (parsed.kind === "default") {
-    return getModelConfig(agentType, audience).model;
+    const trimmed = selection?.trim();
+    if (trimmed && !trimmed.startsWith(`${STELLA_PROVIDER}/`)) {
+      return trimmed;
+    }
+    throw new Error(`Unsupported Stella model selection: ${trimmed ?? ""}`);
   }
   if (parsed.kind === "mode") {
     return getModeConfig(parsed.mode, audience).model;
@@ -210,14 +220,6 @@ export const resolveStellaModelSelection = (
 export const listStellaCatalogModels = (
   audience: ManagedModelAudience = "free",
 ): StellaCatalogModel[] => [
-  {
-    id: STELLA_DEFAULT_MODEL,
-    name: "Stella Recommended",
-    provider: "stella",
-    upstreamModel: "",
-    type: "language",
-    allowedForAudience: true,
-  },
   ...getStaticStellaAliases(audience).map<StellaCatalogModel>((alias) => ({
     id: alias.id,
     name: alias.name,
@@ -242,11 +244,15 @@ export const listStellaCatalogModels = (
 export const listStellaDefaultSelections = (
   audience: ManagedModelAudience = "free",
 ): StellaDefaultEntry[] =>
-  Object.keys(AGENT_MODELS).map((agentType) => ({
-    agentType,
-    model: STELLA_DEFAULT_MODEL,
-    resolvedModel: catalogRoutingModel(getModelConfig(agentType, audience)),
-  }));
+  Object.keys(AGENT_MODELS).map((agentType) => {
+    const mode = getAgentModelMode(agentType, audience);
+    const config = getModelConfig(agentType, audience);
+    return {
+      agentType,
+      model: mode ? toStellaModeModelId(mode) : toStellaModelId(config.model),
+      resolvedModel: catalogRoutingModel(config),
+    };
+  });
 
 export const getModelCatalogUpdatedAt = query({
   args: {},

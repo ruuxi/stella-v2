@@ -290,23 +290,21 @@ export const canOverrideStellaModel = (audience: ManagedModelAudience): boolean 
 /**
  * Stella catalog model ids that restricted-tier audiences (anonymous /
  * free / go / go_fallback) may still pick even though
- * `canOverrideStellaModel` is false. The default model is implicitly
- * always allowed; entries here are *additional* presets these tiers can
- * override to. Currently just the free-tier `Light` model so users who
- * want a small/cheap fallback can opt in without upgrading.
+ * `canOverrideStellaModel` is false. Standard is the default mode, and
+ * Light is the small/cheap fallback users can still opt into without
+ * upgrading.
  *
  * Single source of truth for both the request-time coercion in
  * `stella_provider/request.ts` and the `allowedForAudience` flag the
  * `/api/models` endpoint exposes to the desktop picker.
  */
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
-  new Set<string>(["stella/light"]);
+  new Set<string>(["stella/standard", "stella/light"]);
 
 export const isStellaModelAllowedForAudience = (
   modelId: string,
   audience: ManagedModelAudience,
 ): boolean => {
-  if (modelId === "stella/default") return true;
   if (canOverrideStellaModel(audience)) return true;
   return RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId);
 };
@@ -484,6 +482,17 @@ export function getModelConfig(
   const config = AUDIENCE_AGENT_MODELS[audience]?.[agentType] ?? AGENT_MODELS[agentType];
   if (!config) throw new Error(`No model config for agent type: ${agentType}`);
   return config;
+}
+
+export function getAgentModelMode(
+  agentType: string,
+  audience: ManagedModelAudience = "free",
+): ModelMode | null {
+  const selection =
+    AUDIENCE_AGENT_MODE_OVERRIDES[audience]?.[agentType] ??
+    TASK_MODEL_SELECTIONS[agentType];
+  if (!selection || isInternalModelConfigKey(selection)) return null;
+  return selection;
 }
 
 export function hasModelConfig(agentType: string): boolean {

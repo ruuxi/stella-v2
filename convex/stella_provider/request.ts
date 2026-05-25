@@ -1,23 +1,29 @@
 import {
+  getAgentModelMode,
   getModeConfig,
   getModelConfig,
   isStellaModelAllowedForAudience,
   LOCKED_AGENT_TYPES,
+  type ModelMode,
   type ManagedModelAudience,
   type ModelConfig,
 } from "../agent/model";
 import { inferManagedGatewayProviderFromModel } from "../lib/managed_gateway";
 import {
-  STELLA_DEFAULT_MODEL,
   isStellaModel,
   parseStellaModelSelection,
   resolveStellaModelSelection,
+  toStellaModeModelId,
 } from "../stella_models";
-import type {
-  ResolvedStellaModelSelection,
-  StellaRequestBody,
-} from "./shared";
+import type { ResolvedStellaModelSelection, StellaRequestBody } from "./shared";
 import type { TokenEstimate } from "./billing";
+
+const DEFAULT_STELLA_MODE = "standard";
+
+const defaultModeForAgent = (
+  agentType: string,
+  audience: ManagedModelAudience,
+): ModelMode => getAgentModelMode(agentType, audience) ?? DEFAULT_STELLA_MODE;
 
 export function resolveRequestedStellaModel(
   agentType: string,
@@ -27,24 +33,32 @@ export function resolveRequestedStellaModel(
   const clientRequestedModel =
     typeof requestBody.model === "string" && requestBody.model.trim().length > 0
       ? requestBody.model.trim()
-      : STELLA_DEFAULT_MODEL;
+      : toStellaModeModelId(defaultModeForAgent(agentType, audience));
+
+  if (
+    isStellaModel(clientRequestedModel) &&
+    !parseStellaModelSelection(clientRequestedModel)
+  ) {
+    throw new Error(`Unsupported Stella model selection: ${clientRequestedModel}`);
+  }
 
   const requestedModel =
     !LOCKED_AGENT_TYPES.has(agentType) &&
     isStellaModelAllowedForAudience(clientRequestedModel, audience)
       ? clientRequestedModel
-      : STELLA_DEFAULT_MODEL;
+      : toStellaModeModelId(defaultModeForAgent(agentType, audience));
 
   if (!isStellaModel(requestedModel)) {
     throw new Error(`Unsupported Stella model selection: ${requestedModel}`);
   }
 
   const parsedModel = parseStellaModelSelection(requestedModel);
-  if (parsedModel?.kind === "default" || parsedModel?.kind === "mode") {
-    const config =
-      parsedModel.kind === "default"
-        ? getModelConfig(agentType, audience)
-        : getModeConfig(parsedModel.mode, audience);
+  if (!parsedModel) {
+    throw new Error(`Unsupported Stella model selection: ${requestedModel}`);
+  }
+
+  if (parsedModel?.kind === "mode") {
+    const config = getModeConfig(parsedModel.mode, audience);
     return {
       requestedModel,
       resolvedModel: config.model,
@@ -52,15 +66,10 @@ export function resolveRequestedStellaModel(
     };
   }
 
-  const agentConfig = getModelConfig(agentType, audience);
-  const resolvedModel = resolveStellaModelSelection(
-    agentType,
-    requestedModel,
-    audience,
-  );
+  const resolvedModel = resolveStellaModelSelection(requestedModel, audience);
   const inferredProvider = inferManagedGatewayProviderFromModel(resolvedModel);
   const config: ModelConfig = {
-    ...withoutFallback(agentConfig),
+    ...withoutFallback(getModelConfig(agentType, audience)),
     model: resolvedModel,
     managedGatewayProvider: inferredProvider,
   };
@@ -134,7 +143,7 @@ export function estimateRequestTokens(
 // — which is the full requested id (e.g. `stella/google/gemini-3-flash-preview`,
 // containing slashes). The previous `[^/]+` capture only matched single-
 // segment names and silently dropped the rest, so the auth layer fell
-// back to `stella/default` and the user's pick was ignored. Allow
+// back to the standard mode and the user's pick was ignored. Allow
 // slashes by capturing greedily up to the verb, and tolerate any
 // `generateContent` / `streamGenerateContent` / `countTokens` /
 // `embedContent` suffix Google ever ships.

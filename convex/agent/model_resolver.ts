@@ -106,7 +106,7 @@ export async function resolveModelConfig(
     requestedOverride.startsWith("stella/") &&
     !LOCKED_AGENT_TYPES.has(agentType) &&
     isStellaModelAllowedForAudience(requestedOverride, audience)
-      ? resolveStellaModelSelection(agentType, requestedOverride, audience)
+      ? resolveStellaModelSelection(requestedOverride, audience)
       : null;
   const model = overrideModel || defaults.model;
   const modalitiesInput = await lookupModalitiesInput(ctx, model);

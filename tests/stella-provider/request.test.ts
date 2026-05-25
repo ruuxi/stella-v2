@@ -5,6 +5,7 @@ import {
   resolveRequestedStellaModel,
 } from "../../convex/stella_provider/request";
 import { toProviderNativeModel } from "../../convex/stella_provider/authorization";
+import { getModeConfig } from "../../convex/agent/model";
 
 describe("toProviderNativeModel", () => {
   it("strips provider prefix for matching upstream", () => {
@@ -81,15 +82,38 @@ describe("requestedModelFromGooglePath", () => {
 });
 
 describe("resolveRequestedStellaModel", () => {
-  it("resolves stella/default to the agent's mapped model", () => {
-    const resolved = resolveRequestedStellaModel(
-      "orchestrator",
-      { model: "stella/default" },
-      "pro",
-    );
-    expect(resolved.requestedModel).toBe("stella/default");
-    expect(typeof resolved.resolvedModel).toBe("string");
+  it("resolves a missing chat model through the standard mode", () => {
+    const resolved = resolveRequestedStellaModel("orchestrator", {}, "pro");
+    expect(resolved.requestedModel).toBe("stella/standard");
+    expect(resolved.resolvedModel).toBe(getModeConfig("standard", "pro").model);
+    expect(resolved.config.managedGatewayProvider).toBe("openrouter");
     expect(resolved.config.fallback).toBeUndefined();
+  });
+
+  it("preserves Light for agent defaults that are configured as Light", () => {
+    const resolved = resolveRequestedStellaModel("chronicle", {}, "pro");
+    expect(resolved.requestedModel).toBe("stella/light");
+    expect(resolved.resolvedModel).toBe(getModeConfig("light", "pro").model);
+    expect(resolved.config.managedGatewayProvider).toBe("openrouter");
+    expect(resolved.config.fallback).toBeUndefined();
+  });
+
+  it("rejects the removed default alias", () => {
+    const legacyDefaultAlias = ["stella", "default"].join("/");
+    expect(() =>
+      resolveRequestedStellaModel(
+        "orchestrator",
+        { model: legacyDefaultAlias },
+        "pro",
+      ),
+    ).toThrow(`Unsupported Stella model selection: ${legacyDefaultAlias}`);
+    expect(() =>
+      resolveRequestedStellaModel(
+        "orchestrator",
+        { model: legacyDefaultAlias },
+        "free",
+      ),
+    ).toThrow(`Unsupported Stella model selection: ${legacyDefaultAlias}`);
   });
 
   it("resolves an explicit upstream pick to its native model id and clears fallback", () => {
@@ -121,12 +145,22 @@ describe("resolveRequestedStellaModel", () => {
     ).toBe("google");
   });
 
-  it("coerces a disallowed model to STELLA_DEFAULT_MODEL for restricted audiences", () => {
+  it("coerces a disallowed model to standard mode for restricted audiences", () => {
     const resolved = resolveRequestedStellaModel(
       "orchestrator",
       { model: "stella/anthropic/claude-opus-4.7" },
       "free",
     );
-    expect(resolved.requestedModel).toBe("stella/default");
+    expect(resolved.requestedModel).toBe("stella/standard");
+  });
+
+  it("coerces locked Light agents back to Light instead of Standard", () => {
+    const resolved = resolveRequestedStellaModel(
+      "chronicle",
+      { model: "stella/designer" },
+      "pro",
+    );
+    expect(resolved.requestedModel).toBe("stella/light");
+    expect(resolved.resolvedModel).toBe(getModeConfig("light", "pro").model);
   });
 });

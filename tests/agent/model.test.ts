@@ -6,7 +6,11 @@ import {
   listManagedModelIds,
 } from "../../convex/agent/model";
 import { AGENT_IDS } from "../../convex/lib/agent_constants";
-import { listStellaCatalogModels } from "../../convex/stella_models";
+import {
+  listStellaDefaultSelections,
+  listStellaCatalogModels,
+  resolveStellaModelSelection,
+} from "../../convex/stella_models";
 
 describe("managed model config", () => {
   it("routes Light through OpenRouter", () => {
@@ -53,6 +57,25 @@ describe("managed model config", () => {
       (model) => model.id === "stella/standard",
     )).toMatchObject({
       upstreamModel: "openrouter/google/gemini-3-flash-preview",
+    });
+  });
+
+  it("rejects the removed Stella default alias in mode resolution", () => {
+    const legacyDefaultAlias = ["stella", "default"].join("/");
+    expect(() => resolveStellaModelSelection(legacyDefaultAlias, "pro")).toThrow(
+      `Unsupported Stella model selection: ${legacyDefaultAlias}`,
+    );
+  });
+
+  it("publishes per-agent defaults without converting Light agents to Standard", () => {
+    const defaults = listStellaDefaultSelections("free");
+    expect(defaults.find((entry) => entry.agentType === "orchestrator")).toMatchObject({
+      model: "stella/standard",
+      resolvedModel: "openrouter/google/gemini-3-flash-preview",
+    });
+    expect(defaults.find((entry) => entry.agentType === "chronicle")).toMatchObject({
+      model: "stella/light",
+      resolvedModel: "deepseek/deepseek-v4-flash",
     });
   });
 

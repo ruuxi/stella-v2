@@ -5,7 +5,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { requireConversationOwnerAction, requireUserId } from "../auth";
 import { getPlatformSystemGuidance } from "../prompts/index";
-import { STELLA_DEFAULT_MODEL } from "../stella_models";
+import { STELLA_STANDARD_MODEL } from "../stella_models";
 import { resolveAgentConfig } from "./agents";
 
 export type PromptBuildResult = {
@@ -263,7 +263,7 @@ const fetchAgentContextForOwner = async (
     systemPrompt: promptContext.systemPrompt,
     dynamicContext: promptContext.dynamicContext,
     toolsAllowlist: promptContext.toolsAllowlist,
-    model: bundle.modelOverride ?? STELLA_DEFAULT_MODEL,
+    model: bundle.modelOverride ?? STELLA_STANDARD_MODEL,
     maxAgentDepth: promptContext.maxAgentDepth,
     threadHistory: bundle.threadMessages.length > 0 ? bundle.threadMessages : undefined,
     activeThreadId: bundle.resolvedThreadId ?? undefined,
@@ -322,7 +322,7 @@ export const fetchLocalAgentContextForRuntime = action({
       systemPrompt: promptContext.systemPrompt,
       dynamicContext: promptContext.dynamicContext,
       toolsAllowlist: promptContext.toolsAllowlist,
-      model: bundle.modelOverride ?? STELLA_DEFAULT_MODEL,
+      model: bundle.modelOverride ?? STELLA_STANDARD_MODEL,
       maxAgentDepth: promptContext.maxAgentDepth,
       threadHistory: undefined,
       activeThreadId: undefined,

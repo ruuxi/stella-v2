@@ -87,23 +87,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "verification";
               }
             | {
-                data: { backupCodes: string; secret: string; userId: string };
-                model: "twoFactor";
-              }
-            | {
                 data: {
-                  aaguid?: null | string;
-                  backedUp: boolean;
-                  counter: number;
-                  createdAt?: null | number;
-                  credentialID: string;
-                  deviceType: string;
-                  name?: null | string;
-                  publicKey: string;
-                  transports?: null | string;
+                  backupCodes: string;
+                  secret: string;
                   userId: string;
+                  verified?: null | boolean;
                 };
-                model: "passkey";
+                model: "twoFactor";
               }
             | {
                 data: {
@@ -114,7 +104,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   icon?: null | string;
                   metadata?: null | string;
                   name?: null | string;
-                  redirectURLs?: null | string;
+                  redirectUrls?: null | string;
                   type?: null | string;
                   updatedAt?: null | number;
                   userId?: null | string;
@@ -149,17 +139,14 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 data: {
                   createdAt: number;
+                  expiresAt?: null | number;
                   privateKey: string;
                   publicKey: string;
                 };
                 model: "jwks";
               }
             | {
-                data: {
-                  count?: null | number;
-                  key?: null | string;
-                  lastRequest?: null | number;
-                };
+                data: { count: number; key: string; lastRequest: number };
                 model: "rateLimit";
               };
           onCreateHandle?: string;
@@ -326,44 +313,11 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "twoFactor";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
-                  mode?: "sensitive" | "insensitive";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "passkey";
-                where?: Array<{
-                  connector?: "AND" | "OR";
                   field:
-                    | "name"
-                    | "publicKey"
+                    | "secret"
+                    | "backupCodes"
                     | "userId"
-                    | "credentialID"
-                    | "counter"
-                    | "deviceType"
-                    | "backedUp"
-                    | "transports"
-                    | "createdAt"
-                    | "aaguid"
+                    | "verified"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -397,7 +351,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "metadata"
                     | "clientId"
                     | "clientSecret"
-                    | "redirectURLs"
+                    | "redirectUrls"
                     | "type"
                     | "disabled"
                     | "userId"
@@ -501,7 +455,12 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "jwks";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
+                  field:
+                    | "publicKey"
+                    | "privateKey"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
@@ -722,44 +681,11 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "twoFactor";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
-                  mode?: "sensitive" | "insensitive";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "passkey";
-                where?: Array<{
-                  connector?: "AND" | "OR";
                   field:
-                    | "name"
-                    | "publicKey"
+                    | "secret"
+                    | "backupCodes"
                     | "userId"
-                    | "credentialID"
-                    | "counter"
-                    | "deviceType"
-                    | "backedUp"
-                    | "transports"
-                    | "createdAt"
-                    | "aaguid"
+                    | "verified"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -793,7 +719,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "metadata"
                     | "clientId"
                     | "clientSecret"
-                    | "redirectURLs"
+                    | "redirectUrls"
                     | "type"
                     | "disabled"
                     | "userId"
@@ -897,7 +823,12 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "jwks";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
+                  field:
+                    | "publicKey"
+                    | "privateKey"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
@@ -964,7 +895,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | "account"
             | "verification"
             | "twoFactor"
-            | "passkey"
             | "oauthApplication"
             | "oauthAccessToken"
             | "oauthConsent"
@@ -1020,7 +950,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | "account"
             | "verification"
             | "twoFactor"
-            | "passkey"
             | "oauthApplication"
             | "oauthAccessToken"
             | "oauthConsent"
@@ -1260,59 +1189,15 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   backupCodes?: string;
                   secret?: string;
                   userId?: string;
-                };
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
-                  mode?: "sensitive" | "insensitive";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "passkey";
-                update: {
-                  aaguid?: null | string;
-                  backedUp?: boolean;
-                  counter?: number;
-                  createdAt?: null | number;
-                  credentialID?: string;
-                  deviceType?: string;
-                  name?: null | string;
-                  publicKey?: string;
-                  transports?: null | string;
-                  userId?: string;
+                  verified?: null | boolean;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "name"
-                    | "publicKey"
+                    | "secret"
+                    | "backupCodes"
                     | "userId"
-                    | "credentialID"
-                    | "counter"
-                    | "deviceType"
-                    | "backedUp"
-                    | "transports"
-                    | "createdAt"
-                    | "aaguid"
+                    | "verified"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1346,7 +1231,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   icon?: null | string;
                   metadata?: null | string;
                   name?: null | string;
-                  redirectURLs?: null | string;
+                  redirectUrls?: null | string;
                   type?: null | string;
                   updatedAt?: null | number;
                   userId?: null | string;
@@ -1359,7 +1244,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "metadata"
                     | "clientId"
                     | "clientSecret"
-                    | "redirectURLs"
+                    | "redirectUrls"
                     | "type"
                     | "disabled"
                     | "userId"
@@ -1482,12 +1367,18 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "jwks";
                 update: {
                   createdAt?: number;
+                  expiresAt?: null | number;
                   privateKey?: string;
                   publicKey?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
+                  field:
+                    | "publicKey"
+                    | "privateKey"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
@@ -1512,11 +1403,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               }
             | {
                 model: "rateLimit";
-                update: {
-                  count?: null | number;
-                  key?: null | string;
-                  lastRequest?: null | number;
-                };
+                update: { count?: number; key?: string; lastRequest?: number };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "key" | "count" | "lastRequest" | "_id";
@@ -1760,59 +1647,15 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   backupCodes?: string;
                   secret?: string;
                   userId?: string;
-                };
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
-                  mode?: "sensitive" | "insensitive";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "passkey";
-                update: {
-                  aaguid?: null | string;
-                  backedUp?: boolean;
-                  counter?: number;
-                  createdAt?: null | number;
-                  credentialID?: string;
-                  deviceType?: string;
-                  name?: null | string;
-                  publicKey?: string;
-                  transports?: null | string;
-                  userId?: string;
+                  verified?: null | boolean;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "name"
-                    | "publicKey"
+                    | "secret"
+                    | "backupCodes"
                     | "userId"
-                    | "credentialID"
-                    | "counter"
-                    | "deviceType"
-                    | "backedUp"
-                    | "transports"
-                    | "createdAt"
-                    | "aaguid"
+                    | "verified"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1846,7 +1689,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   icon?: null | string;
                   metadata?: null | string;
                   name?: null | string;
-                  redirectURLs?: null | string;
+                  redirectUrls?: null | string;
                   type?: null | string;
                   updatedAt?: null | number;
                   userId?: null | string;
@@ -1859,7 +1702,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "metadata"
                     | "clientId"
                     | "clientSecret"
-                    | "redirectURLs"
+                    | "redirectUrls"
                     | "type"
                     | "disabled"
                     | "userId"
@@ -1982,12 +1825,18 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "jwks";
                 update: {
                   createdAt?: number;
+                  expiresAt?: null | number;
                   privateKey?: string;
                   publicKey?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
+                  field:
+                    | "publicKey"
+                    | "privateKey"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
@@ -2012,11 +1861,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               }
             | {
                 model: "rateLimit";
-                update: {
-                  count?: null | number;
-                  key?: null | string;
-                  lastRequest?: null | number;
-                };
+                update: { count?: number; key?: string; lastRequest?: number };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "key" | "count" | "lastRequest" | "_id";

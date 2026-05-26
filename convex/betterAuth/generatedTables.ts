@@ -1,5 +1,5 @@
 /**
- * Snapshot of `@convex-dev/better-auth` component tables (v0.10.x).
+ * Snapshot of `@convex-dev/better-auth` component tables (v0.12.x).
  * Regenerate when upgrading: copy from
  * `node_modules/@convex-dev/better-auth/src/component/schema.ts`
  * (the `tables` object only), then re-apply the extra index in `schema.ts`.
@@ -72,28 +72,15 @@ export const tables = {
     secret: v.string(),
     backupCodes: v.string(),
     userId: v.string(),
+    verified: v.optional(v.union(v.null(), v.boolean())),
   }).index("userId", ["userId"]),
-  passkey: defineTable({
-    name: v.optional(v.union(v.null(), v.string())),
-    publicKey: v.string(),
-    userId: v.string(),
-    credentialID: v.string(),
-    counter: v.number(),
-    deviceType: v.string(),
-    backedUp: v.boolean(),
-    transports: v.optional(v.union(v.null(), v.string())),
-    createdAt: v.optional(v.union(v.null(), v.number())),
-    aaguid: v.optional(v.union(v.null(), v.string())),
-  })
-    .index("credentialID", ["credentialID"])
-    .index("userId", ["userId"]),
   oauthApplication: defineTable({
     name: v.optional(v.union(v.null(), v.string())),
     icon: v.optional(v.union(v.null(), v.string())),
     metadata: v.optional(v.union(v.null(), v.string())),
     clientId: v.optional(v.union(v.null(), v.string())),
     clientSecret: v.optional(v.union(v.null(), v.string())),
-    redirectURLs: v.optional(v.union(v.null(), v.string())),
+    redirectUrls: v.optional(v.union(v.null(), v.string())),
     type: v.optional(v.union(v.null(), v.string())),
     disabled: v.optional(v.union(v.null(), v.boolean())),
     userId: v.optional(v.union(v.null(), v.string())),
@@ -131,10 +118,11 @@ export const tables = {
     publicKey: v.string(),
     privateKey: v.string(),
     createdAt: v.number(),
+    expiresAt: v.optional(v.union(v.null(), v.number())),
   }),
   rateLimit: defineTable({
-    key: v.optional(v.union(v.null(), v.string())),
-    count: v.optional(v.union(v.null(), v.number())),
-    lastRequest: v.optional(v.union(v.null(), v.number())),
+    key: v.string(),
+    count: v.number(),
+    lastRequest: v.number(),
   }).index("key", ["key"]),
 };

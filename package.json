@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "convex dev",
     "deploy": "convex deploy",
+    "auth:jwks": "convex run auth:getLatestJwks | convex env set JWKS",
     "generate:desktop-api": "node scripts/generate-desktop-convex-api.mjs",
     "generate:desktop-api:deployment": "convex-helpers ts-api-spec --output-file ../stella/runtime/contracts/convex-api.ts",
     "test": "bun test tests/"

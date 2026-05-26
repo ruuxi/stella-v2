@@ -120,6 +120,7 @@ function sanitizeType(typeText) {
       ),
       "Id<",
     )
+    .replace(/import\("convex\/values"\)\.GenericId</g, "Id<")
     .replace(
       new RegExp(
         'import\\("[^"]*/backend/convex/_generated/dataModel"\\)\\.Id',
@@ -134,6 +135,7 @@ function sanitizeType(typeText) {
       ),
       "Value",
     )
+    .replace(/import\("convex\/values"\)\.Value/g, "Value")
     .replace(
       new RegExp(
         'import\\("[^"]*/convex/dist/esm-types/server/pagination"\\)\\.Cursor',
@@ -173,4 +175,4 @@ export type PublicApiType = ${body} & Record<string, any>;
 `;
 
 fs.writeFileSync(outputPath, source, "utf8");
-console.log(`Wrote ${path.relative(repoRoot, outputPath)}`);
+console.log(`Wrote ${path.relative(backendRoot, outputPath)}`);

@@ -132,6 +132,7 @@ const parseExpirationSeconds = (raw: string | undefined): number => {
 const JWT_EXPIRATION_SECONDS = parseExpirationSeconds(
   process.env.STELLA_JWT_EXPIRATION,
 );
+const STATIC_JWKS = process.env.JWKS?.trim();
 
 const APPLE_CLIENT_SECRET_TTL_SECONDS = 180 * 24 * 60 * 60;
 
@@ -395,6 +396,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       // `/api/auth/get-session` with `r.createdAt.getTime is not a function`.
       convex({
         authConfig,
+        ...(STATIC_JWKS ? { jwks: STATIC_JWKS } : {}),
         jwksRotateOnTokenGenerationError: true,
         jwt: {
           expirationSeconds: JWT_EXPIRATION_SECONDS,
@@ -408,6 +410,8 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
 
 export const createAuth = (ctx: GenericCtx<DataModel>) =>
   betterAuth(createAuthOptions(ctx));
+
+export const { getAuthUser } = authComponent.clientApi();
 
 export const getCurrentUser = query({
   args: {},
@@ -457,6 +461,14 @@ export const rotateKeys = internalAction({
     const auth = createAuth(ctx);
     await auth.api.rotateKeys();
     return null;
+  },
+});
+
+export const getLatestJwks = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const auth = createAuth(ctx);
+    return await auth.api.getLatestJwks();
   },
 });
 

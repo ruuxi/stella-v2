@@ -422,12 +422,22 @@ export const getCurrentUser = query({
     }),
   ),
   handler: async (ctx) => {
-    const user = await authComponent.getAuthUser(ctx);
+    // `safeGetAuthUser` returns a Convex document for the better-auth
+    // `user` table (or undefined when there's no session). Convex
+    // documents expose their primary key as `_id`, not `id`; an earlier
+    // version of this query checked `record.id` and silently returned
+    // `null` for every signed-in user.
+    const user = await authComponent.safeGetAuthUser(ctx);
     if (!user || typeof user !== "object") {
       return null;
     }
     const record = user as Record<string, unknown>;
-    const id = typeof record.id === "string" ? record.id : "";
+    const id =
+      typeof record._id === "string"
+        ? record._id
+        : typeof record.id === "string"
+          ? record.id
+          : "";
     if (!id) {
       return null;
     }

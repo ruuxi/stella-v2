@@ -66,6 +66,7 @@ import type * as data_secrets_crypto from "../data/secrets_crypto.js";
 import type * as data_secrets_rotation from "../data/secrets_rotation.js";
 import type * as data_store_asset_metadata from "../data/store_asset_metadata.js";
 import type * as data_store_packages from "../data/store_packages.js";
+import type * as data_store_source_packs from "../data/store_source_packs.js";
 import type * as data_threads from "../data/threads.js";
 import type * as data_user_pet_uploads from "../data/user_pet_uploads.js";
 import type * as data_user_pets from "../data/user_pets.js";
@@ -277,6 +278,7 @@ declare const fullApi: ApiFromModules<{
   "data/secrets_rotation": typeof data_secrets_rotation;
   "data/store_asset_metadata": typeof data_store_asset_metadata;
   "data/store_packages": typeof data_store_packages;
+  "data/store_source_packs": typeof data_store_source_packs;
   "data/threads": typeof data_threads;
   "data/user_pet_uploads": typeof data_user_pet_uploads;
   "data/user_pets": typeof data_user_pets;

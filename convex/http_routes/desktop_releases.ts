@@ -17,12 +17,36 @@ type PublishRequestBody = {
   tag?: string;
   commit?: string;
   publishedAt?: number | string;
+  sourcePack?: {
+    url?: string;
+    sha256?: string;
+    size?: number;
+  };
+  sourceHistory?: {
+    url?: string;
+    sha256?: string;
+    size?: number;
+  };
   assets?: Record<
     string,
     {
       url?: string;
       sha256?: string;
       size?: number;
+      artifactRefs?: Array<{
+        kind?: string;
+        platform?: string;
+        manifestUrl?: string;
+        manifestSha?: string;
+        commit?: string;
+        builtAt?: string;
+        sourceRevisionId?: string;
+        asset?: {
+          url?: string;
+          sha256?: string;
+          sizeBytes?: number;
+        };
+      }>;
     }
   >;
 };
@@ -54,6 +78,80 @@ const normalizePublishedAt = (
   return null;
 };
 
+const normalizeSourcePack = (
+  value: PublishRequestBody["sourcePack"],
+): { url: string; sha256: string; size: number } | null => {
+  if (!value) return null;
+  if (
+    typeof value.url !== "string" ||
+    typeof value.sha256 !== "string" ||
+    typeof value.size !== "number"
+  ) {
+    return null;
+  }
+  const url = value.url.trim();
+  const sha256 = value.sha256.trim().toLowerCase();
+  if (!/^https:\/\//i.test(url)) return null;
+  if (!/^sha256:[0-9a-f]{64}$/.test(sha256)) return null;
+  if (!Number.isFinite(value.size) || value.size <= 0) return null;
+  return { url, sha256, size: value.size };
+};
+
+const normalizeArtifactRefs = (
+  value: NonNullable<PublishRequestBody["assets"]>[string]["artifactRefs"],
+) => {
+  if (!value) return null;
+  if (!Array.isArray(value) || value.length > 8) return null;
+  const refs = [];
+  for (const ref of value) {
+    const asset = ref?.asset;
+    if (
+      ref?.kind !== "native-helpers" ||
+      typeof ref.platform !== "string" ||
+      typeof ref.manifestUrl !== "string" ||
+      !asset ||
+      typeof asset.url !== "string" ||
+      typeof asset.sha256 !== "string" ||
+      typeof asset.sizeBytes !== "number"
+    ) {
+      return null;
+    }
+    const manifestUrl = ref.manifestUrl.trim();
+    const assetUrl = asset.url.trim();
+    const assetSha256 = asset.sha256.trim().toLowerCase();
+    if (!/^https:\/\//i.test(manifestUrl)) return null;
+    if (!/^https:\/\//i.test(assetUrl)) return null;
+    if (!/^sha256:[0-9a-f]{64}$/.test(assetSha256)) return null;
+    if (!Number.isInteger(asset.sizeBytes) || asset.sizeBytes <= 0) {
+      return null;
+    }
+    refs.push({
+      kind: "native-helpers" as const,
+      platform: ref.platform.trim(),
+      manifestUrl,
+      ...(typeof ref.manifestSha === "string" && ref.manifestSha.trim()
+        ? { manifestSha: ref.manifestSha.trim() }
+        : {}),
+      ...(typeof ref.commit === "string" && ref.commit.trim()
+        ? { commit: ref.commit.trim() }
+        : {}),
+      ...(typeof ref.builtAt === "string" && ref.builtAt.trim()
+        ? { builtAt: ref.builtAt.trim() }
+        : {}),
+      ...(typeof ref.sourceRevisionId === "string" &&
+      ref.sourceRevisionId.trim()
+        ? { sourceRevisionId: ref.sourceRevisionId.trim() }
+        : {}),
+      asset: {
+        url: assetUrl,
+        sha256: assetSha256,
+        sizeBytes: asset.sizeBytes,
+      },
+    });
+  }
+  return refs;
+};
+
 export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
   http.route({
     path: DESKTOP_RELEASE_PUBLISH_PATH,
@@ -69,10 +167,28 @@ export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
         return errorResponse(401, "Invalid publish credentials.");
       }
       const body = await parseRequestJson(request);
-      if (!body || typeof body.tag !== "string" || typeof body.commit !== "string") {
+      if (
+        !body ||
+        typeof body.tag !== "string" ||
+        typeof body.commit !== "string"
+      ) {
         return errorResponse(400, "Missing tag/commit in request body.");
       }
       const publishedAt = normalizePublishedAt(body.publishedAt) ?? Date.now();
+      const sourcePack = normalizeSourcePack(body.sourcePack);
+      if (body.sourcePack && !sourcePack) {
+        return errorResponse(
+          400,
+          "sourcePack must include https url, sha256, and size.",
+        );
+      }
+      const sourceHistory = normalizeSourcePack(body.sourceHistory);
+      if (body.sourceHistory && !sourceHistory) {
+        return errorResponse(
+          400,
+          "sourceHistory must include https url, sha256, and size.",
+        );
+      }
       const assets = body.assets ?? {};
       const platforms = Object.keys(assets);
       if (platforms.length === 0) {
@@ -82,14 +198,21 @@ export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
       for (const platform of platforms) {
         const asset = assets[platform];
         if (
-          !asset
-          || typeof asset.url !== "string"
-          || typeof asset.sha256 !== "string"
-          || typeof asset.size !== "number"
+          !asset ||
+          typeof asset.url !== "string" ||
+          typeof asset.sha256 !== "string" ||
+          typeof asset.size !== "number"
         ) {
           return errorResponse(
             400,
             `Asset entry for ${platform} is missing url/sha256/size.`,
+          );
+        }
+        const artifactRefs = normalizeArtifactRefs(asset.artifactRefs);
+        if (asset.artifactRefs && !artifactRefs) {
+          return errorResponse(
+            400,
+            `Asset entry for ${platform} has invalid artifactRefs.`,
           );
         }
         await ctx.runMutation(
@@ -101,6 +224,23 @@ export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
             archiveUrl: asset.url,
             archiveSha256: asset.sha256,
             archiveSize: asset.size,
+            ...(sourcePack
+              ? {
+                  sourcePackUrl: sourcePack.url,
+                  sourcePackSha256: sourcePack.sha256,
+                  sourcePackSize: sourcePack.size,
+                }
+              : {}),
+            ...(sourceHistory
+              ? {
+                  sourceHistoryUrl: sourceHistory.url,
+                  sourceHistorySha256: sourceHistory.sha256,
+                  sourceHistorySize: sourceHistory.size,
+                }
+              : {}),
+            ...(artifactRefs && artifactRefs.length > 0
+              ? { artifactRefs }
+              : {}),
             publishedAt,
           },
         );

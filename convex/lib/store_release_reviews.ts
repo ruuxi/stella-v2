@@ -28,7 +28,8 @@ const STORE_REVIEW_MODEL_CONFIG: ManagedModelConfig = {
   managedGatewayProvider: STANDARD_REVIEW.managedGatewayProvider,
   temperature: STANDARD_REVIEW.temperature,
   maxOutputTokens: STANDARD_REVIEW.maxOutputTokens,
-  providerOptions: STANDARD_REVIEW.providerOptions as ManagedModelConfig["providerOptions"],
+  providerOptions:
+    STANDARD_REVIEW.providerOptions as ManagedModelConfig["providerOptions"],
   modalitiesInput: ["text", "image"],
 };
 
@@ -42,7 +43,12 @@ const reviewFindingSchema = z.object({
 const storeReviewVerdictSchema = z.object({
   approved: z.boolean(),
   summary: z.string().min(1).max(1500),
-  blockingReason: z.string().min(1).max(1500).nullable().optional()
+  blockingReason: z
+    .string()
+    .min(1)
+    .max(1500)
+    .nullable()
+    .optional()
     .transform((value) => value ?? undefined),
   findings: z.array(reviewFindingSchema).max(12),
 });
@@ -107,21 +113,25 @@ const storeReleaseArtifactSchema = z.object({
     createdAt: z.number(),
   }),
   applyGuidance: z.string(),
-  batches: z.array(z.object({
-    batchId: z.string(),
-    ordinal: z.number(),
-    commitHash: z.string(),
-    files: z.array(z.string()),
-    subject: z.string(),
-    body: z.string(),
-    patch: z.string(),
-  })),
-  files: z.array(z.object({
-    path: z.string(),
-    changeType: z.enum(["create", "update", "delete"]),
-    deleted: z.boolean().optional(),
-    referenceContentBase64: z.string().optional(),
-  })),
+  batches: z.array(
+    z.object({
+      batchId: z.string(),
+      ordinal: z.number(),
+      commitHash: z.string(),
+      files: z.array(z.string()),
+      subject: z.string(),
+      body: z.string(),
+      patch: z.string(),
+    }),
+  ),
+  files: z.array(
+    z.object({
+      path: z.string(),
+      changeType: z.enum(["create", "update", "delete"]),
+      deleted: z.boolean().optional(),
+      referenceContentBase64: z.string().optional(),
+    }),
+  ),
 });
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
@@ -137,18 +147,51 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 };
 
 const CODE_EXTENSIONS = new Set([
-  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".jsonc", ".css", ".scss",
-  ".sass", ".less", ".html", ".htm", ".xml", ".md", ".mdx", ".yml", ".yaml", ".toml",
-  ".ini", ".conf", ".env", ".sh", ".bash", ".zsh", ".ps1", ".py", ".rb", ".go", ".rs",
-  ".java", ".kt", ".swift", ".php", ".sql", ".gql", ".graphql", ".vue", ".svelte", ".astro",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".json",
+  ".jsonc",
+  ".css",
+  ".scss",
+  ".sass",
+  ".less",
+  ".html",
+  ".htm",
+  ".xml",
+  ".md",
+  ".mdx",
+  ".yml",
+  ".yaml",
+  ".toml",
+  ".ini",
+  ".conf",
+  ".env",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".ps1",
+  ".py",
+  ".rb",
+  ".go",
+  ".rs",
+  ".java",
+  ".kt",
+  ".swift",
+  ".php",
+  ".sql",
+  ".gql",
+  ".graphql",
+  ".vue",
+  ".svelte",
+  ".astro",
   ".txt",
 ]);
 
-const CODE_FILENAMES = new Set([
-  "dockerfile",
-  "makefile",
-  "procfile",
-]);
+const CODE_FILENAMES = new Set(["dockerfile", "makefile", "procfile"]);
 
 const MAX_PATCH_TEXT_CHARS = 18_000;
 const MAX_CONTENT_TEXT_CHARS = 24_000;
@@ -186,7 +229,8 @@ type ReviewableImageFile = {
   dataUrl: string;
 };
 
-const normalizePath = (value: string): string => value.trim().replace(/\\/g, "/");
+const normalizePath = (value: string): string =>
+  value.trim().replace(/\\/g, "/");
 
 const getFileExtension = (filePath: string): string => {
   const normalized = normalizePath(filePath);
@@ -196,13 +240,19 @@ const getFileExtension = (filePath: string): string => {
 };
 
 const getFileBasename = (filePath: string): string =>
-  (normalizePath(filePath).split("/").pop() ?? normalizePath(filePath)).toLowerCase();
+  (
+    normalizePath(filePath).split("/").pop() ?? normalizePath(filePath)
+  ).toLowerCase();
 
 const isImagePath = (filePath: string): boolean =>
-  Object.prototype.hasOwnProperty.call(IMAGE_MIME_BY_EXTENSION, getFileExtension(filePath));
+  Object.prototype.hasOwnProperty.call(
+    IMAGE_MIME_BY_EXTENSION,
+    getFileExtension(filePath),
+  );
 
 const isLikelyCodePath = (filePath: string): boolean =>
-  CODE_EXTENSIONS.has(getFileExtension(filePath)) || CODE_FILENAMES.has(getFileBasename(filePath));
+  CODE_EXTENSIONS.has(getFileExtension(filePath)) ||
+  CODE_FILENAMES.has(getFileBasename(filePath));
 
 const decodeBase64ToBytes = (value: string): Uint8Array => {
   const normalized = value.replace(/\s+/g, "");
@@ -227,11 +277,11 @@ const isProbablyText = (value: string): boolean => {
   for (const char of sample) {
     const code = char.charCodeAt(0);
     if (
-      code === 9
-      || code === 10
-      || code === 13
-      || (code >= 32 && code <= 126)
-      || code >= 160
+      code === 9 ||
+      code === 10 ||
+      code === 13 ||
+      (code >= 32 && code <= 126) ||
+      code >= 160
     ) {
       readableChars += 1;
     }
@@ -245,16 +295,19 @@ const buildPatchTextForFile = (
 ): string | undefined => {
   const normalizedPath = normalizePath(filePath);
   const matchingPatches = artifact.batches
-    .filter((batch) =>
-      batch.files.includes(normalizedPath)
-      || batch.patch.includes(`a/${normalizedPath}`)
-      || batch.patch.includes(`b/${normalizedPath}`),
+    .filter(
+      (batch) =>
+        batch.files.includes(normalizedPath) ||
+        batch.patch.includes(`a/${normalizedPath}`) ||
+        batch.patch.includes(`b/${normalizedPath}`),
     )
-    .map((batch) => [
-      `Commit ${batch.commitHash}`,
-      `Subject: ${batch.subject}`,
-      batch.patch,
-    ].join("\n"))
+    .map((batch) =>
+      [
+        `Commit ${batch.commitHash}`,
+        `Subject: ${batch.subject}`,
+        batch.patch,
+      ].join("\n"),
+    )
     .join("\n\n");
 
   if (!matchingPatches.trim()) {
@@ -269,7 +322,10 @@ const summarizeFindings = (
 ): string =>
   verdicts
     .slice(0, MAX_REVIEW_FAILURES_IN_MESSAGE)
-    .map((verdict) => `${prefix} ${verdict.path}: ${verdict.blockingReason ?? verdict.summary}`)
+    .map(
+      (verdict) =>
+        `${prefix} ${verdict.path}: ${verdict.blockingReason ?? verdict.summary}`,
+    )
     .join(" | ");
 
 const STORE_REVIEW_OUTPUT_INSTRUCTIONS = [
@@ -318,7 +374,9 @@ const logStoreReviewUsage = async (
   args: {
     ownerId: string;
     conversationId?: Id<"conversations">;
-    agentType: "service:store_security_review" | "service:store_image_safety_review";
+    agentType:
+      | "service:store_security_review"
+      | "service:store_image_safety_review";
     message?: Awaited<ReturnType<typeof completeManagedChat>>;
     model: string;
     startedAt: number;
@@ -341,10 +399,14 @@ const completeStoreReviewVerdict = async (
   args: {
     ownerId: string;
     conversationId?: Id<"conversations">;
-    agentType: "service:store_security_review" | "service:store_image_safety_review";
+    agentType:
+      | "service:store_security_review"
+      | "service:store_image_safety_review";
     context: Parameters<typeof completeManagedChat>[0]["context"];
     config: Parameters<typeof completeManagedChat>[0]["config"];
-    fallbackConfig?: Parameters<typeof completeManagedChat>[0]["fallbackConfig"];
+    fallbackConfig?: Parameters<
+      typeof completeManagedChat
+    >[0]["fallbackConfig"];
   },
 ) => {
   const executeAttempt = async (
@@ -365,7 +427,11 @@ const completeStoreReviewVerdict = async (
         verdict: parseStoreReviewVerdictFromText(assistantText(message)),
       };
     } catch (error) {
-      throw new StoreReviewAttemptError(message?.model ?? config.model, error, message);
+      throw new StoreReviewAttemptError(
+        message?.model ?? config.model,
+        error,
+        message,
+      );
     }
   };
 
@@ -373,7 +439,9 @@ const completeStoreReviewVerdict = async (
   try {
     const result = await withModelFailoverAsync(
       () => executeAttempt(args.config),
-      args.fallbackConfig ? () => executeAttempt(args.fallbackConfig!) : undefined,
+      args.fallbackConfig
+        ? () => executeAttempt(args.fallbackConfig!)
+        : undefined,
     );
     await logStoreReviewUsage(ctx, {
       ownerId: args.ownerId,
@@ -386,12 +454,15 @@ const completeStoreReviewVerdict = async (
     });
     return result.verdict;
   } catch (error) {
-    const reviewError = error instanceof StoreReviewAttemptError ? error : undefined;
+    const reviewError =
+      error instanceof StoreReviewAttemptError ? error : undefined;
     await logStoreReviewUsage(ctx, {
       ownerId: args.ownerId,
       conversationId: args.conversationId,
       agentType: args.agentType,
-      ...(reviewError?.reviewMessage ? { message: reviewError.reviewMessage } : {}),
+      ...(reviewError?.reviewMessage
+        ? { message: reviewError.reviewMessage }
+        : {}),
       model: reviewError?.model ?? args.config.model,
       startedAt,
       success: false,
@@ -405,6 +476,34 @@ type StoreReleaseCommitForReview = {
   hash: string;
   subject: string;
   diff: string;
+};
+
+type StoreReleaseSourceBlobForReview =
+  | { kind: "text"; content: string }
+  | { kind: "binary"; contentBase64: string };
+
+type StoreReleaseSourcePackForReview = {
+  kind: "stella-source-pack";
+  schemaVersion: 1;
+  baseRevisionId: string;
+  revisionId: string;
+  featureId?: string;
+  description?: string;
+  changeSets: Array<{
+    schemaVersion: 1;
+    baseRevisionId: string;
+    parentRevisionIds: string[];
+    revisionId: string;
+    featureId?: string;
+    description?: string;
+    changes: Array<{
+      path: string;
+      baseHash: string | null;
+      nextHash: string | null;
+      base?: StoreReleaseSourceBlobForReview;
+      next?: StoreReleaseSourceBlobForReview;
+    }>;
+  }>;
 };
 
 const MAX_COMMIT_DIFF_LENGTH_FOR_REVIEW = 24_000;
@@ -431,10 +530,14 @@ const renderCommitsAppendix = (
       truncated = true;
       break;
     }
-    const perCommitLimit = Math.min(remaining, MAX_COMMIT_DIFF_LENGTH_FOR_REVIEW);
-    const diff = commit.diff.length <= perCommitLimit
-      ? commit.diff
-      : `${commit.diff.slice(0, perCommitLimit)}\n... [truncated]`;
+    const perCommitLimit = Math.min(
+      remaining,
+      MAX_COMMIT_DIFF_LENGTH_FOR_REVIEW,
+    );
+    const diff =
+      commit.diff.length <= perCommitLimit
+        ? commit.diff
+        : `${commit.diff.slice(0, perCommitLimit)}\n... [truncated]`;
     const block = [
       `### Commit ${commit.hash}`,
       `Subject: ${commit.subject}`,
@@ -447,15 +550,119 @@ const renderCommitsAppendix = (
   return sections.join("\n\n");
 };
 
+const sourcePackChangeType = (change: {
+  baseHash: string | null;
+  nextHash: string | null;
+}): "create" | "update" | "delete" => {
+  if (change.nextHash === null) return "delete";
+  if (change.baseHash === null) return "create";
+  return "update";
+};
+
+const buildSourcePackReviewFiles = (
+  sourcePack: StoreReleaseSourcePackForReview | undefined,
+): {
+  codeFiles: ReviewableCodeFile[];
+  imageFiles: ReviewableImageFile[];
+} => {
+  if (!sourcePack) return { codeFiles: [], imageFiles: [] };
+  const codeFiles: ReviewableCodeFile[] = [
+    {
+      path: "SOURCE_PACK_MANIFEST.json",
+      changeType: "update",
+      contentText: truncateWithNotice(
+        JSON.stringify(
+          {
+            kind: sourcePack.kind,
+            schemaVersion: sourcePack.schemaVersion,
+            baseRevisionId: sourcePack.baseRevisionId,
+            revisionId: sourcePack.revisionId,
+            featureId: sourcePack.featureId,
+            description: sourcePack.description,
+            changeSets: sourcePack.changeSets.map((changeSet) => ({
+              baseRevisionId: changeSet.baseRevisionId,
+              parentRevisionIds: changeSet.parentRevisionIds,
+              revisionId: changeSet.revisionId,
+              featureId: changeSet.featureId,
+              description: changeSet.description,
+              changes: changeSet.changes.map((change) => ({
+                path: change.path,
+                baseHash: change.baseHash,
+                nextHash: change.nextHash,
+                hasBaseContent: Boolean(change.base),
+                hasNextContent: Boolean(change.next),
+              })),
+            })),
+          },
+          null,
+          2,
+        ),
+        MAX_CONTENT_TEXT_CHARS,
+      ),
+    },
+  ];
+  const imageFiles: ReviewableImageFile[] = [];
+  const seen = new Set<string>();
+  for (const changeSet of sourcePack.changeSets) {
+    for (const change of changeSet.changes) {
+      const normalizedPath = normalizePath(change.path);
+      const key = `${changeSet.revisionId}:${normalizedPath}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const changeType = sourcePackChangeType(change);
+      if (changeType === "delete") {
+        codeFiles.push({
+          path: normalizedPath,
+          changeType,
+          contentText: `Deleted by source pack revision ${changeSet.revisionId}.`,
+        });
+        continue;
+      }
+      const next = change.next;
+      if (!next) continue;
+      if (next.kind === "text") {
+        if (isLikelyCodePath(normalizedPath) || isProbablyText(next.content)) {
+          codeFiles.push({
+            path: normalizedPath,
+            changeType,
+            contentText: truncateWithNotice(
+              next.content,
+              MAX_CONTENT_TEXT_CHARS,
+            ),
+          });
+        }
+        continue;
+      }
+      if (isImagePath(normalizedPath)) {
+        const mimeType =
+          IMAGE_MIME_BY_EXTENSION[getFileExtension(normalizedPath)];
+        imageFiles.push({
+          path: normalizedPath,
+          changeType,
+          mimeType,
+          dataUrl: `data:${mimeType};base64,${next.contentBase64}`,
+        });
+        continue;
+      }
+      throw new Error(
+        `Source pack contains an unreviewable binary change at "${normalizedPath}".`,
+      );
+    }
+  }
+  return { codeFiles, imageFiles };
+};
+
 const buildMarkdownBlueprintReview = (
   blueprintMarkdown: string,
   commits?: ReadonlyArray<StoreReleaseCommitForReview>,
+  sourcePack?: StoreReleaseSourcePackForReview,
 ): {
   artifact: ParsedBlueprintMarkdownArtifact;
   codeFiles: ReviewableCodeFile[];
   imageFiles: ReviewableImageFile[];
 } => {
   const commitsAppendix = renderCommitsAppendix(commits ?? []);
+  const sourcePackFiles = buildSourcePackReviewFiles(sourcePack);
   const reviewerInput = commitsAppendix
     ? [
         "# Behaviour spec",
@@ -473,19 +680,23 @@ const buildMarkdownBlueprintReview = (
       schemaVersion: 2,
       blueprintMarkdown,
     },
-    codeFiles: [{
-      path: "blueprint.md",
-      changeType: "update",
-      contentText: reviewerInput,
-      kind: "blueprint",
-    }],
-    imageFiles: [],
+    codeFiles: [
+      {
+        path: "blueprint.md",
+        changeType: "update",
+        contentText: reviewerInput,
+        kind: "blueprint",
+      },
+      ...sourcePackFiles.codeFiles,
+    ],
+    imageFiles: sourcePackFiles.imageFiles,
   };
 };
 
 export const parseReviewableStoreArtifact = (
   artifactBody: string,
   commits?: ReadonlyArray<StoreReleaseCommitForReview>,
+  sourcePack?: StoreReleaseSourcePackForReview,
 ): {
   artifact: ParsedReviewableStoreArtifact;
   codeFiles: ReviewableCodeFile[];
@@ -499,7 +710,11 @@ export const parseReviewableStoreArtifact = (
     if (!markdown) {
       throw new Error("Store release artifact is empty.");
     }
-    return buildMarkdownBlueprintReview(markdown, commits);
+    return buildMarkdownBlueprintReview(
+      markdown,
+      commits,
+      sourcePack,
+    );
   }
 
   if (parsedJson && typeof parsedJson === "object") {
@@ -512,13 +727,18 @@ export const parseReviewableStoreArtifact = (
       if (!markdown) {
         throw new Error("Store release blueprint is empty.");
       }
-      return buildMarkdownBlueprintReview(markdown, commits);
+      return buildMarkdownBlueprintReview(
+        markdown,
+        commits,
+        sourcePack,
+      );
     }
   }
 
   const artifact = storeReleaseArtifactSchema.parse(parsedJson);
   const codeFiles: ReviewableCodeFile[] = [];
   const imageFiles: ReviewableImageFile[] = [];
+  const sourcePackFiles = buildSourcePackReviewFiles(sourcePack);
 
   for (const file of artifact.files) {
     const normalizedPath = normalizePath(file.path);
@@ -529,9 +749,12 @@ export const parseReviewableStoreArtifact = (
         continue;
       }
       if (!file.referenceContentBase64) {
-        throw new Error(`Image file "${normalizedPath}" is missing reference content.`);
+        throw new Error(
+          `Image file "${normalizedPath}" is missing reference content.`,
+        );
       }
-      const mimeType = IMAGE_MIME_BY_EXTENSION[getFileExtension(normalizedPath)];
+      const mimeType =
+        IMAGE_MIME_BY_EXTENSION[getFileExtension(normalizedPath)];
       imageFiles.push({
         path: normalizedPath,
         changeType: file.changeType,
@@ -563,8 +786,8 @@ export const parseReviewableStoreArtifact = (
 
   return {
     artifact,
-    codeFiles,
-    imageFiles,
+    codeFiles: [...codeFiles, ...sourcePackFiles.codeFiles],
+    imageFiles: [...imageFiles, ...sourcePackFiles.imageFiles],
   };
 };
 
@@ -593,24 +816,30 @@ const reviewCodeFile = async (
         "",
         STORE_REVIEW_OUTPUT_INSTRUCTIONS,
       ].join("\n"),
-      messages: [{
-        role: "user",
-        content: [{
-          type: "text",
-          text: buildStoreSecurityReviewPrompt({
-            packageId: args.packageId,
-            displayName: args.displayName,
-            description: args.description,
-            releaseSummary: args.releaseSummary,
-            filePath: args.file.path,
-            changeType: args.file.changeType,
-            contentText: args.file.contentText,
-            patchText: args.file.patchText,
-            ...(args.file.kind === "blueprint" ? { kind: "blueprint" as const } : {}),
-          }),
-        }],
-        timestamp: Date.now(),
-      }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: buildStoreSecurityReviewPrompt({
+                packageId: args.packageId,
+                displayName: args.displayName,
+                description: args.description,
+                releaseSummary: args.releaseSummary,
+                filePath: args.file.path,
+                changeType: args.file.changeType,
+                contentText: args.file.contentText,
+                patchText: args.file.patchText,
+                ...(args.file.kind === "blueprint"
+                  ? { kind: "blueprint" as const }
+                  : {}),
+              }),
+            },
+          ],
+          timestamp: Date.now(),
+        },
+      ],
     },
   });
 };
@@ -643,28 +872,30 @@ const reviewImageFile = async (
         "",
         STORE_REVIEW_OUTPUT_INSTRUCTIONS,
       ].join("\n"),
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: buildStoreImageSafetyReviewPrompt({
-              packageId: args.packageId,
-              displayName: args.displayName,
-              description: args.description,
-              releaseSummary: args.releaseSummary,
-              filePath: args.file.path,
-              changeType: args.file.changeType,
-            }),
-          },
-          {
-            type: "image",
-            mimeType: imageMatch[1],
-            data: imageMatch[2],
-          },
-        ],
-        timestamp: Date.now(),
-      }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: buildStoreImageSafetyReviewPrompt({
+                packageId: args.packageId,
+                displayName: args.displayName,
+                description: args.description,
+                releaseSummary: args.releaseSummary,
+                filePath: args.file.path,
+                changeType: args.file.changeType,
+              }),
+            },
+            {
+              type: "image",
+              mimeType: imageMatch[1],
+              data: imageMatch[2],
+            },
+          ],
+          timestamp: Date.now(),
+        },
+      ],
     },
   });
 };
@@ -680,21 +911,31 @@ export const enforceStoreReleaseReviewOrThrow = async (
     releaseSummary?: string;
     artifactBody: string;
     commits?: ReadonlyArray<StoreReleaseCommitForReview>;
+    sourcePack?: StoreReleaseSourcePackForReview;
   },
 ): Promise<void> => {
   let parsedArtifact: ReturnType<typeof parseReviewableStoreArtifact>;
   try {
-    parsedArtifact = parseReviewableStoreArtifact(args.artifactBody, args.commits);
+    parsedArtifact = parseReviewableStoreArtifact(
+      args.artifactBody,
+      args.commits,
+      args.sourcePack,
+    );
   } catch (error) {
     console.error("[store-review] Failed to parse artifact for review:", error);
     throw new ConvexError({
       code: "STORE_REVIEW_FAILED",
-      message: "Store publish was denied because automated review could not inspect the release artifact.",
+      message:
+        "Store publish was denied because automated review could not inspect the release artifact.",
     });
   }
 
   try {
-    const blockedCodeFiles: Array<{ path: string; blockingReason?: string; summary: string }> = [];
+    const blockedCodeFiles: Array<{
+      path: string;
+      blockingReason?: string;
+      summary: string;
+    }> = [];
     for (const file of parsedArtifact.codeFiles) {
       const verdict = await reviewCodeFile(ctx, {
         ownerId: args.ownerId,
@@ -714,7 +955,11 @@ export const enforceStoreReleaseReviewOrThrow = async (
       }
     }
 
-    const blockedImageFiles: Array<{ path: string; blockingReason?: string; summary: string }> = [];
+    const blockedImageFiles: Array<{
+      path: string;
+      blockingReason?: string;
+      summary: string;
+    }> = [];
     for (const file of parsedArtifact.imageFiles) {
       const verdict = await reviewImageFile(ctx, {
         ownerId: args.ownerId,
@@ -737,10 +982,14 @@ export const enforceStoreReleaseReviewOrThrow = async (
     if (blockedCodeFiles.length > 0 || blockedImageFiles.length > 0) {
       const reasonParts: string[] = [];
       if (blockedCodeFiles.length > 0) {
-        reasonParts.push(summarizeFindings(blockedCodeFiles, "Security review blocked"));
+        reasonParts.push(
+          summarizeFindings(blockedCodeFiles, "Security review blocked"),
+        );
       }
       if (blockedImageFiles.length > 0) {
-        reasonParts.push(summarizeFindings(blockedImageFiles, "Image safety review blocked"));
+        reasonParts.push(
+          summarizeFindings(blockedImageFiles, "Image safety review blocked"),
+        );
       }
       throw new ConvexError({
         code: "STORE_REVIEW_REJECTED",
@@ -754,7 +1003,8 @@ export const enforceStoreReleaseReviewOrThrow = async (
     console.error("[store-review] Automated review failed:", error);
     throw new ConvexError({
       code: "STORE_REVIEW_FAILED",
-      message: "Store publish was denied because automated review could not complete.",
+      message:
+        "Store publish was denied because automated review could not complete.",
     });
   }
 };

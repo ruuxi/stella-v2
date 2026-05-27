@@ -24,6 +24,8 @@ import {
   store_publish_result_validator,
   store_release_commit_validator,
   store_release_manifest_validator,
+  store_release_source_pack_ref_validator,
+  store_release_source_pack_validator,
 } from "../schema/store";
 import { socialBadgeValidator } from "../schema/social";
 import { enforceStoreReleaseReviewOrThrow } from "../lib/store_release_reviews";
@@ -38,6 +40,9 @@ import { normalizeStoreCategory } from "../lib/store_artifacts";
 import { moderateStoreListingTextOrThrow } from "../lib/text_moderation";
 
 type StorePublishResult = Infer<typeof store_publish_result_validator>;
+type StoreReleaseSourcePackRef = Infer<
+  typeof store_release_source_pack_ref_validator
+>;
 
 const PACKAGE_ID_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
 const MAX_RELEASE_NOTES_LENGTH = 4_000;
@@ -52,6 +57,9 @@ const MAX_COMMIT_DIFF_LENGTH = 200_000;
 const MAX_COMMITS_TOTAL_LENGTH = 1_500_000;
 const MAX_COMMIT_HASH_LENGTH = 80;
 const MAX_COMMIT_SUBJECT_LENGTH = 500;
+const MAX_SOURCE_PACK_INLINE_LENGTH = 650_000;
+const MAX_SOURCE_PACK_UPLOAD_LENGTH = 10 * 1024 * 1024;
+const MAX_SOURCE_PACK_CHANGE_SETS = 32;
 
 // ── arg validators ───────────────────────────────────────────────────────────
 
@@ -60,6 +68,8 @@ const create_release_args_validator = {
   releaseNotes: v.optional(v.string()),
   manifest: store_release_manifest_validator,
   blueprintMarkdown: v.string(),
+  sourcePack: v.optional(store_release_source_pack_validator),
+  sourcePackRef: v.optional(store_release_source_pack_ref_validator),
   commits: v.optional(v.array(store_release_commit_validator)),
   iconUrl: v.optional(v.string()),
 };
@@ -161,7 +171,9 @@ const normalizeBlueprintMarkdown = (value: string) => {
 };
 
 const normalizeCommits = (
-  commits: ReadonlyArray<{ hash: string; subject: string; diff: string }> | undefined,
+  commits:
+    | ReadonlyArray<{ hash: string; subject: string; diff: string }>
+    | undefined,
 ): Array<{ hash: string; subject: string; diff: string }> | undefined => {
   if (!commits || commits.length === 0) return undefined;
   if (commits.length > MAX_COMMITS_PER_RELEASE) {
@@ -204,6 +216,291 @@ const normalizeCommits = (
   return normalized;
 };
 
+const textEncoder = new TextEncoder();
+
+const stableJson = (value: unknown): string => {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(",")}}`;
+};
+
+const sha256 = async (parts: Array<string | Uint8Array>): Promise<string> => {
+  const chunks = parts.map((part) =>
+    typeof part === "string" ? textEncoder.encode(part) : part,
+  );
+  const totalLength = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const bytes = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return `sha256:${Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")}`;
+};
+
+const hashSourceBlob = async (
+  blob:
+    | Infer<
+        typeof store_release_source_pack_validator
+      >["changeSets"][number]["changes"][number]["base"]
+    | undefined,
+): Promise<string | null> => {
+  if (!blob) return null;
+  if (blob.kind === "text") {
+    return await sha256([
+      "stella-source-blob-v1\0text\0",
+      textEncoder.encode(blob.content),
+    ]);
+  }
+  return await sha256([
+    "stella-source-blob-v1\0binary\0",
+    textEncoder.encode(blob.contentBase64),
+  ]);
+};
+
+const normalizeSourcePackPath = (value: string): string => {
+  const normalized = value.trim().replace(/\\/g, "/");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized)
+  ) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: `Unsafe source-pack path: ${value}`,
+    });
+  }
+  const segments = normalized.split("/");
+  if (
+    segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: `Unsafe source-pack path: ${value}`,
+    });
+  }
+  return segments.join("/");
+};
+
+type StoreSourceChange = Infer<
+  typeof store_release_source_pack_validator
+>["changeSets"][number]["changes"][number];
+
+const buildSourceRevisionId = async (args: {
+  baseRevisionId: string;
+  parentRevisionIds: string[];
+  featureId?: string;
+  description?: string;
+  changes: Array<{
+    path: string;
+    baseHash: string | null;
+    nextHash: string | null;
+  }>;
+}): Promise<string> =>
+  await sha256([
+    "stella-source-revision-v1\0",
+    stableJson({
+      baseRevisionId: args.baseRevisionId,
+      parentRevisionIds: [...args.parentRevisionIds].sort(),
+      featureId: args.featureId ?? null,
+      description: args.description ?? null,
+      changes: args.changes.map((change) => ({
+        path: change.path,
+        baseHash: change.baseHash,
+        nextHash: change.nextHash,
+      })),
+    }),
+  ]);
+
+const normalizeSourcePack = async (
+  sourcePack: Infer<typeof store_release_source_pack_validator> | undefined,
+  options?: { maxLength?: number },
+) => {
+  if (!sourcePack) return undefined;
+  if (sourcePack.changeSets.length > MAX_SOURCE_PACK_CHANGE_SETS) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: `Source packs may include at most ${MAX_SOURCE_PACK_CHANGE_SETS} change sets.`,
+    });
+  }
+  const normalizedChangeSets = [];
+  for (const changeSet of sourcePack.changeSets) {
+    const seenPaths = new Set<string>();
+    const changes: StoreSourceChange[] = [];
+    for (const change of changeSet.changes) {
+      const sourcePath = normalizeSourcePackPath(change.path);
+      if (seenPaths.has(sourcePath)) {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: `Duplicate source-pack path: ${sourcePath}`,
+        });
+      }
+      seenPaths.add(sourcePath);
+      if (change.baseHash && !change.base) {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: `Source pack is missing base content for ${sourcePath}.`,
+        });
+      }
+      if (change.nextHash && !change.next) {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: `Source pack is missing incoming content for ${sourcePath}.`,
+        });
+      }
+      const baseHash = await hashSourceBlob(change.base);
+      const nextHash = await hashSourceBlob(change.next);
+      if (baseHash !== change.baseHash) {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: `Source-pack base hash mismatch for ${sourcePath}.`,
+        });
+      }
+      if (nextHash !== change.nextHash) {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: `Source-pack incoming hash mismatch for ${sourcePath}.`,
+        });
+      }
+      changes.push({
+        path: sourcePath,
+        baseHash,
+        nextHash,
+        ...(change.base ? { base: change.base } : {}),
+        ...(change.next ? { next: change.next } : {}),
+      });
+    }
+    changes.sort((left, right) => left.path.localeCompare(right.path));
+    const revisionId = await buildSourceRevisionId({
+      baseRevisionId: changeSet.baseRevisionId,
+      parentRevisionIds: changeSet.parentRevisionIds,
+      ...(changeSet.featureId ? { featureId: changeSet.featureId } : {}),
+      ...(changeSet.description ? { description: changeSet.description } : {}),
+      changes,
+    });
+    if (revisionId !== changeSet.revisionId) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: `Source-pack revision mismatch for ${changeSet.revisionId}.`,
+      });
+    }
+    normalizedChangeSets.push({
+      schemaVersion: 1 as const,
+      baseRevisionId: changeSet.baseRevisionId,
+      parentRevisionIds: changeSet.parentRevisionIds,
+      revisionId,
+      ...(changeSet.featureId ? { featureId: changeSet.featureId } : {}),
+      ...(changeSet.description ? { description: changeSet.description } : {}),
+      changes,
+    });
+  }
+  const revisionId =
+    normalizedChangeSets[normalizedChangeSets.length - 1]?.revisionId ??
+    sourcePack.baseRevisionId;
+  if (revisionId !== sourcePack.revisionId) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Source-pack final revision mismatch.",
+    });
+  }
+  const normalizedSourcePack = {
+    kind: "stella-source-pack" as const,
+    schemaVersion: 1 as const,
+    baseRevisionId: sourcePack.baseRevisionId,
+    revisionId,
+    ...(sourcePack.featureId ? { featureId: sourcePack.featureId } : {}),
+    ...(sourcePack.description ? { description: sourcePack.description } : {}),
+    changeSets: normalizedChangeSets,
+  };
+  requireBoundedString(
+    JSON.stringify(normalizedSourcePack),
+    "sourcePack",
+    options?.maxLength ?? MAX_SOURCE_PACK_INLINE_LENGTH,
+  );
+  return normalizedSourcePack;
+};
+
+const normalizeSourcePackRef = (
+  sourcePackRef:
+    | Infer<typeof store_release_source_pack_ref_validator>
+    | undefined,
+) => {
+  if (!sourcePackRef) return undefined;
+  requireBoundedString(sourcePackRef.r2Key, "sourcePackRef.r2Key", 1000);
+  requireBoundedString(sourcePackRef.sha256, "sourcePackRef.sha256", 80);
+  if (!/^sha256:[0-9a-f]{64}$/.test(sourcePackRef.sha256)) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "sourcePackRef.sha256 must be a sha256 digest.",
+    });
+  }
+  if (
+    !Number.isInteger(sourcePackRef.sizeBytes) ||
+    sourcePackRef.sizeBytes <= MAX_SOURCE_PACK_INLINE_LENGTH
+  ) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "sourcePackRef.sizeBytes must be a positive uploaded size.",
+    });
+  }
+  return sourcePackRef;
+};
+
+const requireSingleSourcePackStorage = (
+  sourcePack: unknown,
+  sourcePackRef: unknown,
+) => {
+  if (sourcePack && sourcePackRef) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Use either sourcePack or sourcePackRef, not both.",
+    });
+  }
+};
+
+const cleanupUploadedSourcePackRef = async (
+  ctx: {
+    runAction: (
+      fn: typeof internal.data.store_source_packs.deleteSourcePackRef,
+      args: {
+        ownerId: string;
+        packageId: string;
+        ref: StoreReleaseSourcePackRef;
+      },
+    ) => Promise<unknown>;
+  },
+  args: {
+    ownerId: string;
+    packageId: string;
+    sourcePackRef?: StoreReleaseSourcePackRef;
+  },
+): Promise<void> => {
+  if (!args.sourcePackRef) return;
+  await ctx
+    .runAction(internal.data.store_source_packs.deleteSourcePackRef, {
+      ownerId: args.ownerId,
+      packageId: args.packageId,
+      ref: args.sourcePackRef,
+    })
+    .catch((error) => {
+      console.warn(
+        "[store-packages] failed to clean rejected source-pack upload:",
+        error,
+      );
+    });
+};
+
 const normalizeReleaseNumber = (value: number) => {
   if (!Number.isInteger(value) || value < 1) {
     throw new ConvexError({
@@ -215,20 +512,36 @@ const normalizeReleaseNumber = (value: number) => {
 };
 
 const normalizeManifest = (manifest: {
-  category?: "apps-games" | "productivity" | "customization" | "skills-agents" | "integrations" | "other";
+  category?:
+    | "apps-games"
+    | "productivity"
+    | "customization"
+    | "skills-agents"
+    | "integrations"
+    | "other";
   summary?: string;
   iconUrl?: string;
   authoredAtCommit?: string;
 }) => {
-  const summary = normalizeOptionalText(manifest.summary, "manifest.summary", MAX_SUMMARY);
-  const iconUrl = normalizeOptionalText(manifest.iconUrl, "manifest.iconUrl", MAX_ICON_URL);
+  const summary = normalizeOptionalText(
+    manifest.summary,
+    "manifest.summary",
+    MAX_SUMMARY,
+  );
+  const iconUrl = normalizeOptionalText(
+    manifest.iconUrl,
+    "manifest.iconUrl",
+    MAX_ICON_URL,
+  );
   const authoredAtCommit = normalizeOptionalText(
     manifest.authoredAtCommit,
     "manifest.authoredAtCommit",
     MAX_AUTHORED_AT_COMMIT,
   );
   return {
-    ...(manifest.category ? { category: normalizeStoreCategory(manifest.category) } : {}),
+    ...(manifest.category
+      ? { category: normalizeStoreCategory(manifest.category) }
+      : {}),
     ...(summary ? { summary } : {}),
     ...(iconUrl ? { iconUrl } : {}),
     ...(authoredAtCommit ? { authoredAtCommit } : {}),
@@ -350,6 +663,32 @@ export const getReleaseByPackageIdAndNumberInternal = internalQuery({
   },
 });
 
+export const getReadableReleaseForSourcePackInternal = internalQuery({
+  args: {
+    packageId: v.string(),
+    releaseNumber: v.number(),
+    callerOwnerId: v.optional(v.string()),
+  },
+  returns: v.union(store_package_release_validator, v.null()),
+  handler: async (ctx, args) => {
+    const normalizedPackageId = normalizePackageId(args.packageId);
+    const releaseNumber = normalizeReleaseNumber(args.releaseNumber);
+    const pkg = await getPackageByPackageId(ctx, normalizedPackageId);
+    if (!pkg) return null;
+    if (
+      !isDirectLinkAccessible(pkg.visibility) &&
+      (!args.callerOwnerId || pkg.ownerId !== args.callerOwnerId)
+    ) {
+      return null;
+    }
+    return await getReleaseByPackageIdAndNumber(
+      ctx,
+      normalizedPackageId,
+      releaseNumber,
+    );
+  },
+});
+
 // ── internal release writers ─────────────────────────────────────────────────
 
 export const createFirstReleaseRecord = internalMutation({
@@ -362,6 +701,8 @@ export const createFirstReleaseRecord = internalMutation({
     releaseNotes: v.optional(v.string()),
     manifest: store_release_manifest_validator,
     blueprintMarkdown: v.string(),
+    sourcePack: v.optional(store_release_source_pack_validator),
+    sourcePackRef: v.optional(store_release_source_pack_ref_validator),
     commits: v.optional(v.array(store_release_commit_validator)),
     iconUrl: v.optional(v.string()),
     authorUsername: v.optional(v.string()),
@@ -405,7 +746,11 @@ export const createFirstReleaseRecord = internalMutation({
       releaseNotes: args.releaseNotes,
       manifest: args.manifest,
       blueprintMarkdown: args.blueprintMarkdown,
-      ...(args.commits && args.commits.length > 0 ? { commits: args.commits } : {}),
+      ...(args.sourcePack ? { sourcePack: args.sourcePack } : {}),
+      ...(args.sourcePackRef ? { sourcePackRef: args.sourcePackRef } : {}),
+      ...(args.commits && args.commits.length > 0
+        ? { commits: args.commits }
+        : {}),
       createdAt: now,
     });
 
@@ -435,6 +780,8 @@ export const createUpdateReleaseRecord = internalMutation({
     releaseNotes: v.optional(v.string()),
     manifest: store_release_manifest_validator,
     blueprintMarkdown: v.string(),
+    sourcePack: v.optional(store_release_source_pack_validator),
+    sourcePackRef: v.optional(store_release_source_pack_ref_validator),
     commits: v.optional(v.array(store_release_commit_validator)),
     iconUrl: v.optional(v.string()),
     authorUsername: v.optional(v.string()),
@@ -463,7 +810,11 @@ export const createUpdateReleaseRecord = internalMutation({
       releaseNotes: args.releaseNotes,
       manifest: args.manifest,
       blueprintMarkdown: args.blueprintMarkdown,
-      ...(args.commits && args.commits.length > 0 ? { commits: args.commits } : {}),
+      ...(args.sourcePack ? { sourcePack: args.sourcePack } : {}),
+      ...(args.sourcePackRef ? { sourcePackRef: args.sourcePackRef } : {}),
+      ...(args.commits && args.commits.length > 0
+        ? { commits: args.commits }
+        : {}),
       createdAt: now,
     });
 
@@ -671,14 +1022,11 @@ export const getPublicPackagesByIds = query({
     const callerIdentity = await ctx.auth.getUserIdentity();
     const callerOwnerId = callerIdentity?.tokenIdentifier;
     return records
-      .filter(
-        (record): record is NonNullable<typeof record> => record !== null,
-      )
+      .filter((record): record is NonNullable<typeof record> => record !== null)
       .filter(
         (record) =>
           isDirectLinkAccessible(record.visibility) ||
-          (callerOwnerId !== undefined &&
-            record.ownerId === callerOwnerId),
+          (callerOwnerId !== undefined && record.ownerId === callerOwnerId),
       );
   },
 });
@@ -963,57 +1311,88 @@ export const createFirstRelease = action({
       MAX_RELEASE_NOTES_LENGTH,
     );
     const manifest = normalizeManifest(args.manifest);
-    const blueprintMarkdown = normalizeBlueprintMarkdown(args.blueprintMarkdown);
+    const blueprintMarkdown = normalizeBlueprintMarkdown(
+      args.blueprintMarkdown,
+    );
+    requireSingleSourcePackStorage(args.sourcePack, args.sourcePackRef);
+    const sourcePack = await normalizeSourcePack(args.sourcePack);
+    const sourcePackRef = normalizeSourcePackRef(args.sourcePackRef);
     const commits = normalizeCommits(args.commits);
-    // User-authored display fields go through the cheap moderation
-    // classifier before we hit the heavier security review or write
-    // anything to the catalog. Synchronous fail-closed is fine here —
-    // this is a one-shot deliberate publish, not a chat send.
-    await moderateStoreListingTextOrThrow({
-      displayName,
-      ...(description ? { description } : {}),
-    });
-    await enforceStoreReleaseReviewOrThrow(ctx, {
-      ownerId,
-      packageId,
-      displayName,
-      description: description ?? "",
-      releaseSummary: releaseNotes,
-      artifactBody: blueprintMarkdown,
-      ...(commits ? { commits } : {}),
-    });
-
-    const author = await resolveCallerAuthor(ctx, ownerId);
-    const iconUrl =
-      manifest.iconUrl ??
-      (await generateStoreIconUrl({
+    try {
+      let sourcePackForReview = sourcePack;
+      // User-authored display fields go through the cheap moderation
+      // classifier before we hit the heavier security review or write
+      // anything to the catalog. Synchronous fail-closed is fine here —
+      // this is a one-shot deliberate publish, not a chat send.
+      await moderateStoreListingTextOrThrow({
         displayName,
-        description: description ?? "",
-        category: normalizeStoreCategory(args.category ?? manifest.category),
-      }));
-    const releaseManifest = {
-      ...manifest,
-      ...(iconUrl ? { iconUrl } : {}),
-    };
-    return await ctx.runMutation(
-      internal.data.store_packages.createFirstReleaseRecord,
-      {
+        ...(description ? { description } : {}),
+      });
+      if (sourcePackRef) {
+        sourcePackForReview = await normalizeSourcePack(
+          await ctx.runAction(
+            internal.data.store_source_packs.validateSourcePackRef,
+            {
+              ownerId,
+              packageId,
+              ref: sourcePackRef,
+            },
+          ),
+          { maxLength: MAX_SOURCE_PACK_UPLOAD_LENGTH },
+        );
+      }
+      await enforceStoreReleaseReviewOrThrow(ctx, {
         ownerId,
         packageId,
         displayName,
-        ...(description ? { description } : {}),
-        releaseNotes,
-        manifest: releaseManifest,
-        blueprintMarkdown,
+        description: description ?? "",
+        releaseSummary: releaseNotes,
+        artifactBody: blueprintMarkdown,
         ...(commits ? { commits } : {}),
-        ...(args.category ? { category: args.category } : {}),
+        ...(sourcePackForReview ? { sourcePack: sourcePackForReview } : {}),
+      });
+
+      const author = await resolveCallerAuthor(ctx, ownerId);
+      const iconUrl =
+        manifest.iconUrl ??
+        (await generateStoreIconUrl({
+          displayName,
+          description: description ?? "",
+          category: normalizeStoreCategory(args.category ?? manifest.category),
+        }));
+      const releaseManifest = {
+        ...manifest,
         ...(iconUrl ? { iconUrl } : {}),
-        ...(author.authorUsername
-          ? { authorUsername: author.authorUsername }
-          : {}),
-        ...(author.authorBadge ? { authorBadge: author.authorBadge } : {}),
-      },
-    );
+      };
+      return await ctx.runMutation(
+        internal.data.store_packages.createFirstReleaseRecord,
+        {
+          ownerId,
+          packageId,
+          displayName,
+          ...(description ? { description } : {}),
+          releaseNotes,
+          manifest: releaseManifest,
+          blueprintMarkdown,
+          ...(sourcePack ? { sourcePack } : {}),
+          ...(sourcePackRef ? { sourcePackRef } : {}),
+          ...(commits ? { commits } : {}),
+          ...(args.category ? { category: args.category } : {}),
+          ...(iconUrl ? { iconUrl } : {}),
+          ...(author.authorUsername
+            ? { authorUsername: author.authorUsername }
+            : {}),
+          ...(author.authorBadge ? { authorBadge: author.authorBadge } : {}),
+        },
+      );
+    } catch (error) {
+      await cleanupUploadedSourcePackRef(ctx, {
+        ownerId,
+        packageId,
+        ...(sourcePackRef ? { sourcePackRef } : {}),
+      });
+      throw error;
+    }
   },
 });
 
@@ -1036,57 +1415,88 @@ export const createUpdateRelease = action({
       MAX_RELEASE_NOTES_LENGTH,
     );
     const manifest = normalizeManifest(args.manifest);
-    const blueprintMarkdown = normalizeBlueprintMarkdown(args.blueprintMarkdown);
+    const blueprintMarkdown = normalizeBlueprintMarkdown(
+      args.blueprintMarkdown,
+    );
+    requireSingleSourcePackStorage(args.sourcePack, args.sourcePackRef);
+    const sourcePack = await normalizeSourcePack(args.sourcePack);
+    const sourcePackRef = normalizeSourcePackRef(args.sourcePackRef);
     const commits = normalizeCommits(args.commits);
-    const pkg: Awaited<ReturnType<typeof getOwnedPackageByPackageId>> =
-      await ctx.runQuery(
-        internal.data.store_packages.getPackageByPackageIdInternal,
-        { ownerId, packageId },
-      );
-    if (!pkg) {
-      throw new ConvexError({
-        code: "NOT_FOUND",
-        message: "Store package not found",
-      });
-    }
-    await enforceStoreReleaseReviewOrThrow(ctx, {
-      ownerId,
-      packageId,
-      displayName: pkg.displayName,
-      description: pkg.description ?? "",
-      releaseSummary: releaseNotes,
-      artifactBody: blueprintMarkdown,
-      ...(commits ? { commits } : {}),
-    });
-
-    const author = await resolveCallerAuthor(ctx, ownerId);
-    const iconUrl =
-      manifest.iconUrl ??
-      pkg.iconUrl ??
-      (await generateStoreIconUrl({
-        displayName: pkg.displayName,
-        description: pkg.description ?? "",
-        category: normalizeStoreCategory(pkg.category ?? manifest.category),
-      }));
-    const releaseManifest = {
-      ...manifest,
-      ...(iconUrl ? { iconUrl } : {}),
-    };
-    return await ctx.runMutation(
-      internal.data.store_packages.createUpdateReleaseRecord,
-      {
+    try {
+      let sourcePackForReview = sourcePack;
+      const pkg: Awaited<ReturnType<typeof getOwnedPackageByPackageId>> =
+        await ctx.runQuery(
+          internal.data.store_packages.getPackageByPackageIdInternal,
+          { ownerId, packageId },
+        );
+      if (!pkg) {
+        throw new ConvexError({
+          code: "NOT_FOUND",
+          message: "Store package not found",
+        });
+      }
+      if (sourcePackRef) {
+        sourcePackForReview = await normalizeSourcePack(
+          await ctx.runAction(
+            internal.data.store_source_packs.validateSourcePackRef,
+            {
+              ownerId,
+              packageId,
+              ref: sourcePackRef,
+            },
+          ),
+          { maxLength: MAX_SOURCE_PACK_UPLOAD_LENGTH },
+        );
+      }
+      await enforceStoreReleaseReviewOrThrow(ctx, {
         ownerId,
         packageId,
-        releaseNotes,
-        manifest: releaseManifest,
-        blueprintMarkdown,
+        displayName: pkg.displayName,
+        description: pkg.description ?? "",
+        releaseSummary: releaseNotes,
+        artifactBody: blueprintMarkdown,
         ...(commits ? { commits } : {}),
+        ...(sourcePackForReview ? { sourcePack: sourcePackForReview } : {}),
+      });
+
+      const author = await resolveCallerAuthor(ctx, ownerId);
+      const iconUrl =
+        manifest.iconUrl ??
+        pkg.iconUrl ??
+        (await generateStoreIconUrl({
+          displayName: pkg.displayName,
+          description: pkg.description ?? "",
+          category: normalizeStoreCategory(pkg.category ?? manifest.category),
+        }));
+      const releaseManifest = {
+        ...manifest,
         ...(iconUrl ? { iconUrl } : {}),
-        ...(author.authorUsername
-          ? { authorUsername: author.authorUsername }
-          : {}),
-        ...(author.authorBadge ? { authorBadge: author.authorBadge } : {}),
-      },
-    );
+      };
+      return await ctx.runMutation(
+        internal.data.store_packages.createUpdateReleaseRecord,
+        {
+          ownerId,
+          packageId,
+          releaseNotes,
+          manifest: releaseManifest,
+          blueprintMarkdown,
+          ...(sourcePack ? { sourcePack } : {}),
+          ...(sourcePackRef ? { sourcePackRef } : {}),
+          ...(commits ? { commits } : {}),
+          ...(iconUrl ? { iconUrl } : {}),
+          ...(author.authorUsername
+            ? { authorUsername: author.authorUsername }
+            : {}),
+          ...(author.authorBadge ? { authorBadge: author.authorBadge } : {}),
+        },
+      );
+    } catch (error) {
+      await cleanupUploadedSourcePackRef(ctx, {
+        ownerId,
+        packageId,
+        ...(sourcePackRef ? { sourcePackRef } : {}),
+      });
+      throw error;
+    }
   },
 });

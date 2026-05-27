@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, query } from "../_generated/server";
+import { desktop_release_artifact_ref_validator } from "../schema/desktop_releases";
 
 /**
  * Latest published desktop release per platform.
@@ -26,6 +27,13 @@ export const currentDesktopRelease = query({
       archiveUrl: v.string(),
       archiveSha256: v.string(),
       archiveSize: v.number(),
+      sourcePackUrl: v.optional(v.string()),
+      sourcePackSha256: v.optional(v.string()),
+      sourcePackSize: v.optional(v.number()),
+      sourceHistoryUrl: v.optional(v.string()),
+      sourceHistorySha256: v.optional(v.string()),
+      sourceHistorySize: v.optional(v.number()),
+      artifactRefs: v.optional(v.array(desktop_release_artifact_ref_validator)),
       publishedAt: v.number(),
     }),
   ),
@@ -42,6 +50,23 @@ export const currentDesktopRelease = query({
       archiveUrl: row.archiveUrl,
       archiveSha256: row.archiveSha256,
       archiveSize: row.archiveSize,
+      ...(row.sourcePackUrl ? { sourcePackUrl: row.sourcePackUrl } : {}),
+      ...(row.sourcePackSha256
+        ? { sourcePackSha256: row.sourcePackSha256 }
+        : {}),
+      ...(typeof row.sourcePackSize === "number"
+        ? { sourcePackSize: row.sourcePackSize }
+        : {}),
+      ...(row.sourceHistoryUrl
+        ? { sourceHistoryUrl: row.sourceHistoryUrl }
+        : {}),
+      ...(row.sourceHistorySha256
+        ? { sourceHistorySha256: row.sourceHistorySha256 }
+        : {}),
+      ...(typeof row.sourceHistorySize === "number"
+        ? { sourceHistorySize: row.sourceHistorySize }
+        : {}),
+      ...(row.artifactRefs ? { artifactRefs: row.artifactRefs } : {}),
       publishedAt: row.publishedAt,
     };
   },
@@ -55,6 +80,13 @@ export const publishDesktopRelease = internalMutation({
     archiveUrl: v.string(),
     archiveSha256: v.string(),
     archiveSize: v.number(),
+    sourcePackUrl: v.optional(v.string()),
+    sourcePackSha256: v.optional(v.string()),
+    sourcePackSize: v.optional(v.number()),
+    sourceHistoryUrl: v.optional(v.string()),
+    sourceHistorySha256: v.optional(v.string()),
+    sourceHistorySize: v.optional(v.number()),
+    artifactRefs: v.optional(v.array(desktop_release_artifact_ref_validator)),
     publishedAt: v.number(),
   },
   returns: v.null(),
@@ -70,6 +102,23 @@ export const publishDesktopRelease = internalMutation({
       archiveUrl: args.archiveUrl,
       archiveSha256: args.archiveSha256,
       archiveSize: args.archiveSize,
+      ...(args.sourcePackUrl ? { sourcePackUrl: args.sourcePackUrl } : {}),
+      ...(args.sourcePackSha256
+        ? { sourcePackSha256: args.sourcePackSha256 }
+        : {}),
+      ...(typeof args.sourcePackSize === "number"
+        ? { sourcePackSize: args.sourcePackSize }
+        : {}),
+      ...(args.sourceHistoryUrl
+        ? { sourceHistoryUrl: args.sourceHistoryUrl }
+        : {}),
+      ...(args.sourceHistorySha256
+        ? { sourceHistorySha256: args.sourceHistorySha256 }
+        : {}),
+      ...(typeof args.sourceHistorySize === "number"
+        ? { sourceHistorySize: args.sourceHistorySize }
+        : {}),
+      ...(args.artifactRefs ? { artifactRefs: args.artifactRefs } : {}),
       publishedAt: args.publishedAt,
     };
     if (existing) {

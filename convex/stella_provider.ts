@@ -37,6 +37,7 @@ import {
   STELLA_OPENAI_CHAT_COMPLETIONS_PATH,
   STELLA_OPENAI_RESPONSES_PATH,
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
+  STELLA_RELAY_PATH_PREFIX,
   type AuthorizedStellaRequest,
 } from "./stella_provider/shared";
 
@@ -49,6 +50,7 @@ export {
   STELLA_OPENAI_CHAT_COMPLETIONS_PATH,
   STELLA_OPENAI_RESPONSES_PATH,
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
+  STELLA_RELAY_PATH_PREFIX,
 } from "./stella_provider/shared";
 
 function stellaProviderErrorResponse(
@@ -132,7 +134,7 @@ const cloneForwardHeaders = (
   apiKey: string,
 ): Headers => {
   const headers = new Headers();
-  for (const [key, value] of request.headers.entries()) {
+  request.headers.forEach((value, key) => {
     const lower = key.toLowerCase();
     if (
       lower === "authorization" ||
@@ -143,10 +145,10 @@ const cloneForwardHeaders = (
       lower === "host" ||
       lower === "content-length"
     ) {
-      continue;
+      return;
     }
     headers.set(key, value);
-  }
+  });
   headers.set("content-type", "application/json");
 
   if (provider === "anthropic") {
@@ -235,7 +237,7 @@ const bodyForUpstream = (
 };
 
 export const stellaProviderRelay = (
-  provider: ManagedGatewayProvider,
+  provider?: ManagedGatewayProvider,
 ) => httpAction(async (ctx, request) => {
   const authorized = await authorizeStellaRelayRequest({
     ctx,
@@ -247,16 +249,17 @@ export const stellaProviderRelay = (
   }
 
   const startedAt = Date.now();
-  const usageParser = createRelayUsageParser(provider);
+  const relayProvider = authorized.relayProvider;
+  const usageParser = createRelayUsageParser(relayProvider);
   let upstreamResponse: Response;
 
   try {
     upstreamResponse = await fetch(
-      upstreamUrl(provider, request, authorized.upstreamModel),
+      upstreamUrl(relayProvider, request, authorized.upstreamModel),
       {
         method: "POST",
-        headers: cloneForwardHeaders(request, provider, authorized.apiKey),
-        body: bodyForUpstream(authorized, provider, request),
+        headers: cloneForwardHeaders(request, relayProvider, authorized.apiKey),
+        body: bodyForUpstream(authorized, relayProvider, request),
       },
     );
   } catch (error) {
@@ -305,7 +308,7 @@ export const stellaProviderRelay = (
           if (value) collected += decoder.decode(value, { stream: true });
         }
         console.error(
-          `[stella-provider] upstream ${provider} returned ${upstreamResponse.status}: ${collected.slice(0, 2048)}`,
+          `[stella-provider] upstream ${relayProvider} returned ${upstreamResponse.status}: ${collected.slice(0, 2048)}`,
         );
       } catch {
         // best-effort logging

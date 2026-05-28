@@ -60,7 +60,7 @@ describe("managed model config", () => {
     });
   });
 
-  it("rejects the removed Stella default alias in mode resolution", () => {
+  it("keeps the default sentinel out of direct mode resolution", () => {
     const legacyDefaultAlias = ["stella", "default"].join("/");
     expect(() => resolveStellaModelSelection(legacyDefaultAlias, "pro")).toThrow(
       `Unsupported Stella model selection: ${legacyDefaultAlias}`,

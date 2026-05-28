@@ -98,22 +98,31 @@ describe("resolveRequestedStellaModel", () => {
     expect(resolved.config.fallback).toBeUndefined();
   });
 
-  it("rejects the removed default alias", () => {
+  it("treats the default alias like a missing model", () => {
     const legacyDefaultAlias = ["stella", "default"].join("/");
-    expect(() =>
-      resolveRequestedStellaModel(
-        "orchestrator",
-        { model: legacyDefaultAlias },
-        "pro",
-      ),
-    ).toThrow(`Unsupported Stella model selection: ${legacyDefaultAlias}`);
-    expect(() =>
-      resolveRequestedStellaModel(
-        "orchestrator",
-        { model: legacyDefaultAlias },
-        "free",
-      ),
-    ).toThrow(`Unsupported Stella model selection: ${legacyDefaultAlias}`);
+    const pro = resolveRequestedStellaModel(
+      "orchestrator",
+      { model: legacyDefaultAlias },
+      "pro",
+    );
+    expect(pro.requestedModel).toBe("stella/standard");
+    expect(pro.resolvedModel).toBe(getModeConfig("standard", "pro").model);
+
+    const free = resolveRequestedStellaModel(
+      "orchestrator",
+      { model: legacyDefaultAlias },
+      "free",
+    );
+    expect(free.requestedModel).toBe("stella/standard");
+    expect(free.resolvedModel).toBe(getModeConfig("standard", "free").model);
+
+    const chronicle = resolveRequestedStellaModel(
+      "chronicle",
+      { model: legacyDefaultAlias },
+      "pro",
+    );
+    expect(chronicle.requestedModel).toBe("stella/light");
+    expect(chronicle.resolvedModel).toBe(getModeConfig("light", "pro").model);
   });
 
   it("resolves an explicit upstream pick to its native model id and clears fallback", () => {

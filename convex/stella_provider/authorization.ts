@@ -75,7 +75,7 @@ const estimatedCostMicroCents = async (
 export async function authorizeStellaRelayRequest(args: {
   ctx: ActionCtx;
   request: Request;
-  relayProvider: ManagedGatewayProvider;
+  relayProvider?: ManagedGatewayProvider;
 }): Promise<AuthorizedStellaRequest | Response> {
   const { ctx, request, relayProvider } = args;
   const identity = await ctx.auth.getUserIdentity();
@@ -170,7 +170,7 @@ export async function authorizeStellaRelayRequest(args: {
     model: resolvedModel,
     configuredProvider: config.managedGatewayProvider,
   });
-  if (resolvedProvider !== relayProvider) {
+  if (relayProvider !== undefined && resolvedProvider !== relayProvider) {
     return stellaProviderErrorResponse(
       400,
       `Stella model ${requestedModel} must use the ${resolvedProvider} relay`,
@@ -220,16 +220,17 @@ export async function authorizeStellaRelayRequest(args: {
   }
 
   console.log(
-    `[stella-provider] agent=${agentType} | requestedModel=${requestedModel} | resolvedModel=${resolvedModel} | gateway=${relayProvider}`,
+    `[stella-provider] agent=${agentType} | requestedModel=${requestedModel} | resolvedModel=${resolvedModel} | gateway=${resolvedProvider}`,
   );
 
   return {
     ownerId,
     agentType,
+    relayProvider: resolvedProvider,
     requestJson: requestJson as StellaRequestBody,
     requestedModel,
     resolvedModel,
-    upstreamModel: toProviderNativeModel(resolvedModel, relayProvider),
+    upstreamModel: toProviderNativeModel(resolvedModel, resolvedProvider),
     apiKey,
     tokenEstimate,
   };

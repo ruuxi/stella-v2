@@ -13,6 +13,7 @@ import {
   isStellaModel,
   parseStellaModelSelection,
   resolveStellaModelSelection,
+  STELLA_DEFAULT_MODEL,
   toStellaModeModelId,
 } from "../stella_models";
 import type { ResolvedStellaModelSelection, StellaRequestBody } from "./shared";
@@ -30,10 +31,13 @@ export function resolveRequestedStellaModel(
   requestBody: StellaRequestBody,
   audience: ManagedModelAudience,
 ): ResolvedStellaModelSelection {
+  const trimmed =
+    typeof requestBody.model === "string" ? requestBody.model.trim() : "";
+  const defaultModel = toStellaModeModelId(
+    defaultModeForAgent(agentType, audience),
+  );
   const clientRequestedModel =
-    typeof requestBody.model === "string" && requestBody.model.trim().length > 0
-      ? requestBody.model.trim()
-      : toStellaModeModelId(defaultModeForAgent(agentType, audience));
+    !trimmed || trimmed === STELLA_DEFAULT_MODEL ? defaultModel : trimmed;
 
   if (
     isStellaModel(clientRequestedModel) &&
@@ -46,7 +50,7 @@ export function resolveRequestedStellaModel(
     !LOCKED_AGENT_TYPES.has(agentType) &&
     isStellaModelAllowedForAudience(clientRequestedModel, audience)
       ? clientRequestedModel
-      : toStellaModeModelId(defaultModeForAgent(agentType, audience));
+      : defaultModel;
 
   if (!isStellaModel(requestedModel)) {
     throw new Error(`Unsupported Stella model selection: ${requestedModel}`);

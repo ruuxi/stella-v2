@@ -28,6 +28,7 @@ import {
   STELLA_OPENAI_CHAT_COMPLETIONS_PATH,
   STELLA_OPENAI_RESPONSES_PATH,
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
+  STELLA_RELAY_PATH_PREFIX,
   stellaProviderModels,
   stellaProviderOptions,
   stellaProviderRelay,
@@ -124,6 +125,17 @@ for (const [path, provider] of [
     handler: stellaProviderRelay(provider),
   });
 }
+
+http.route({
+  pathPrefix: STELLA_RELAY_PATH_PREFIX,
+  method: "OPTIONS",
+  handler: stellaProviderOptions,
+});
+http.route({
+  pathPrefix: STELLA_RELAY_PATH_PREFIX,
+  method: "POST",
+  handler: stellaProviderRelay(),
+});
 
 http.route({
   pathPrefix: STELLA_GOOGLE_MODELS_PATH_PREFIX,

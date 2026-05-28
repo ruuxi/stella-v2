@@ -14,6 +14,7 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const STELLA_PROVIDER = "stella";
+export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
 export const STELLA_STANDARD_MODEL = `${STELLA_PROVIDER}/standard`;
 export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;

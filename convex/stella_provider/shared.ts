@@ -1,4 +1,5 @@
 import type { ModelConfig } from "../agent/model";
+import type { ManagedGatewayProvider } from "../lib/managed_gateway";
 
 export type StellaRequestBody = Record<string, unknown>;
 
@@ -23,6 +24,7 @@ export type ResolvedManagedServerModelConfig = {
 export type AuthorizedStellaRequest = {
   ownerId: string;
   agentType: string;
+  relayProvider: ManagedGatewayProvider;
   requestJson: StellaRequestBody;
   requestedModel: string;
   resolvedModel: string;
@@ -34,6 +36,7 @@ export type AuthorizedStellaRequest = {
 
 export const STELLA_API_BASE_PATH = "/api/stella";
 export const STELLA_MODELS_PATH = `${STELLA_API_BASE_PATH}/models`;
+export const STELLA_RELAY_PATH_PREFIX = `${STELLA_API_BASE_PATH}/relay/`;
 export const STELLA_ANTHROPIC_MESSAGES_PATH = `${STELLA_API_BASE_PATH}/anthropic/v1/messages`;
 export const STELLA_OPENAI_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/openai/v1/chat/completions`;
 export const STELLA_OPENAI_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/openai/v1/responses`;

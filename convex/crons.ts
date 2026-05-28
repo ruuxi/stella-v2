@@ -15,12 +15,6 @@ crons.interval(
   internal.channels.transient_data.purgeExpiredCleanupFailures,
   { maxBatches: 10 },
 );
-crons.interval(
-  "mobile app reply cleanup",
-  { minutes: 5 },
-  internal.mobile_replies.purgeExpired,
-  {},
-);
 crons.interval("thread lifecycle sweep", { hours: 24 }, internal.data.threads.sweepThreadLifecycle, {});
 
 crons.interval(

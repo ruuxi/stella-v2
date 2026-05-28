@@ -107,17 +107,6 @@ export const devicesSchema = {
     .index("by_ownerId_and_mobileDeviceId", ["ownerId", "mobileDeviceId"])
     .index("by_expoPushToken", ["expoPushToken"]),
 
-  mobile_app_replies: defineTable({
-    ownerId: v.string(),
-    conversationId: v.id("conversations"),
-    requestId: v.string(),
-    text: v.string(),
-    createdAt: v.number(),
-    expiresAt: v.number(),
-  })
-    .index("by_ownerId_and_requestId", ["ownerId", "requestId"])
-    .index("by_expiresAt", ["expiresAt"]),
-
   cloudflare_tunnels: defineTable({
     ownerId: v.string(),
     /** Desktop machine id (matches `devices.deviceId` / mobile bridge device). Omitted until claimed for older one-row-per-owner tunnel records. */

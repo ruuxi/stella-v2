@@ -344,14 +344,9 @@ async function dispatchConnectorDelivery(
       await deliverLinq(meta, args.text, media);
       return;
     case "stella_app":
-      if (!args.requestId || !args.conversationId) {
-        return;
-      }
-      await ctx.runMutation(internal.mobile_replies.publishDesktopReply, {
-        conversationId: args.conversationId,
-        requestId: args.requestId,
-        text: args.text,
-      });
+      // Legacy mobile Computer delivery is intentionally disabled. Current
+      // mobile chat uses the authenticated desktop bridge so reply text never
+      // lands in Convex.
       return;
     default:
       throw new ConvexError({

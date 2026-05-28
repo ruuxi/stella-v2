@@ -317,7 +317,7 @@ function buildParams(
   if (options?.maxTokens) {
     params.max_output_tokens = options.maxTokens;
   }
-  if (options?.temperature !== undefined) {
+  if (options?.temperature !== undefined && !model.id.startsWith("gpt-5")) {
     params.temperature = options.temperature;
   }
   if (options?.serviceTier !== undefined) {

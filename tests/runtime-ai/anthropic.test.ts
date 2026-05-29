@@ -23,8 +23,8 @@ const usage = {
 };
 
 const anthropicModel: Model<"anthropic-messages"> = {
-  id: "claude-opus-4.7",
-  name: "Claude Opus 4.7",
+  id: "claude-opus-4-8",
+  name: "Claude Opus 4.8",
   api: "anthropic-messages",
   provider: "anthropic",
   baseUrl: "https://api.anthropic.com/v1",
@@ -106,7 +106,7 @@ describe("backend Anthropic message conversion", () => {
           role: "assistant",
           provider: "anthropic",
           api: "anthropic-messages",
-          model: "claude-opus-4.7",
+          model: "claude-opus-4-8",
           usage,
           stopReason: "stop",
           timestamp: 1,

@@ -49,7 +49,7 @@ export type StellaDefaultEntry = {
 };
 
 const DISPLAY_NAMES: Record<string, string> = {
-  "anthropic/claude-opus-4.7": "Claude Opus 4.7",
+  "anthropic/claude-opus-4.8": "Claude Opus 4.8",
   "anthropic/claude-opus-4.5": "Claude Opus 4.5",
   "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
   "google/gemini-3-flash-preview": "Gemini 3 Flash",

@@ -69,9 +69,9 @@ const MODELS_DEV_ALIASES: Record<string, string[]> = {
     "vercel/anthropic/claude-sonnet-4.6",
     "anthropic/claude-sonnet-4-6",
   ],
-  "anthropic/claude-opus-4.7": [
-    "vercel/anthropic/claude-opus-4.7",
-    "anthropic/claude-opus-4-7",
+  "anthropic/claude-opus-4.8": [
+    "vercel/anthropic/claude-opus-4.8",
+    "anthropic/claude-opus-4-8",
   ],
   "anthropic/claude-opus-4.6": [
     "vercel/anthropic/claude-opus-4.6",

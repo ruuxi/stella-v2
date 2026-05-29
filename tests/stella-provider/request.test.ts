@@ -10,8 +10,8 @@ import { getModeConfig } from "../../convex/agent/model";
 describe("toProviderNativeModel", () => {
   it("strips provider prefix for matching upstream", () => {
     // Anthropic ids use dashes, not dots — converted at the wire boundary.
-    expect(toProviderNativeModel("anthropic/claude-opus-4.7", "anthropic")).toBe(
-      "claude-opus-4-7",
+    expect(toProviderNativeModel("anthropic/claude-opus-4.8", "anthropic")).toBe(
+      "claude-opus-4-8",
     );
     expect(toProviderNativeModel("openai/gpt-5.5", "openai")).toBe("gpt-5.5");
     expect(toProviderNativeModel("google/gemini-3-flash-preview", "google")).toBe(
@@ -128,11 +128,11 @@ describe("resolveRequestedStellaModel", () => {
   it("resolves an explicit upstream pick to its native model id and clears fallback", () => {
     const resolved = resolveRequestedStellaModel(
       "orchestrator",
-      { model: "stella/anthropic/claude-opus-4.7" },
+      { model: "stella/anthropic/claude-opus-4.8" },
       "pro",
     );
-    expect(resolved.requestedModel).toBe("stella/anthropic/claude-opus-4.7");
-    expect(resolved.resolvedModel).toBe("anthropic/claude-opus-4.7");
+    expect(resolved.requestedModel).toBe("stella/anthropic/claude-opus-4.8");
+    expect(resolved.resolvedModel).toBe("anthropic/claude-opus-4.8");
     expect(resolved.config.managedGatewayProvider).toBe("anthropic");
     expect(resolved.config.fallback).toBeUndefined();
   });
@@ -157,7 +157,7 @@ describe("resolveRequestedStellaModel", () => {
   it("coerces a disallowed model to standard mode for restricted audiences", () => {
     const resolved = resolveRequestedStellaModel(
       "orchestrator",
-      { model: "stella/anthropic/claude-opus-4.7" },
+      { model: "stella/anthropic/claude-opus-4.8" },
       "free",
     );
     expect(resolved.requestedModel).toBe("stella/standard");

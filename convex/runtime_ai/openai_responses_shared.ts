@@ -219,6 +219,9 @@ export function convertResponsesMessages<TApi extends Api>(
 
     if (message.role === "assistant") {
       const assistantOutput: ResponseInput = [];
+      // Counts unsigned text blocks within this single assistant message so
+      // 2nd+ fallback ids don't collide (OpenAI rejects duplicate input ids).
+      let textBlockIndex = 0;
       const assistantMessage = message as AssistantMessage;
       const isDifferentModel =
         assistantMessage.model !== model.id
@@ -248,7 +251,12 @@ export function convertResponsesMessages<TApi extends Api>(
           }
 
           const parsedSignature = parseTextSignature(block.textSignature);
-          let messageId = parsedSignature?.id || `msg_${messageIndex}`;
+          const fallbackMessageId =
+            textBlockIndex === 0
+              ? `msg_${messageIndex}`
+              : `msg_${messageIndex}_${textBlockIndex}`;
+          textBlockIndex += 1;
+          let messageId = parsedSignature?.id || fallbackMessageId;
           if (messageId.length > 64) {
             messageId = `msg_${shortHash(messageId)}`;
           }

@@ -18,7 +18,7 @@ describe("createRelayUsageParser", () => {
           type: "message_start",
           message: {
             id: "msg_1",
-            model: "claude-opus-4.7",
+            model: "claude-opus-4-8",
             usage: { input_tokens: 100, cache_read_input_tokens: 40 },
           },
         })}\n\n`,
@@ -30,7 +30,7 @@ describe("createRelayUsageParser", () => {
       ]);
 
       expect(usage).toEqual({
-        model: "claude-opus-4.7",
+        model: "claude-opus-4-8",
         inputTokens: 100,
         outputTokens: 50,
         cachedInputTokens: 40,
@@ -41,12 +41,12 @@ describe("createRelayUsageParser", () => {
       const parser = createRelayUsageParser("anthropic");
       const payload = `event: message_start\ndata: ${JSON.stringify({
         type: "message_start",
-        message: { model: "claude-opus-4.7", usage: { input_tokens: 12 } },
+        message: { model: "claude-opus-4-8", usage: { input_tokens: 12 } },
       })}\n\n`;
       const half = Math.floor(payload.length / 2);
       const usage = feed(parser, [payload.slice(0, half), payload.slice(half)]);
       expect(usage?.inputTokens).toBe(12);
-      expect(usage?.model).toBe("claude-opus-4.7");
+      expect(usage?.model).toBe("claude-opus-4-8");
     });
   });
 

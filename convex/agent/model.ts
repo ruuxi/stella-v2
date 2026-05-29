@@ -188,7 +188,7 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   },
 
   designer: {
-    model: "anthropic/claude-opus-4.7",
+    model: "anthropic/claude-opus-4.8",
     fallbackMode: "light",
     managedGatewayProvider: "anthropic",
     temperature: 1.0,

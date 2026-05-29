@@ -60,7 +60,7 @@ const normalizePublicIntegration = (record: {
   enabled: boolean;
   usagePolicy: string;
   updatedAt: number;
-}) => {
+}, options?: { includeConnector?: boolean }) => {
   const status = storeIntegrationStatusValues.has(record.usagePolicy)
     ? record.usagePolicy
     : record.enabled
@@ -76,7 +76,7 @@ const normalizePublicIntegration = (record: {
     description: record.description ?? `Connect ${record.provider} to Stella.`,
     ...(record.sourceUrl ? { sourceUrl: record.sourceUrl } : {}),
     ...(record.iconUrl ? { iconUrl: record.iconUrl } : {}),
-    ...(record.connector ? { connector: record.connector } : {}),
+    ...(options?.includeConnector && record.connector ? { connector: record.connector } : {}),
     status,
     enabled: record.enabled,
     updatedAt: record.updatedAt,
@@ -94,6 +94,22 @@ export const listStoreIntegrations = query({
     return records
       .filter((record) => record.enabled)
       .map((record) => normalizePublicIntegration(record));
+  },
+});
+
+export const listStoreIntegrationsWithConnectors = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const records = await ctx.db
+      .query("integrations_public")
+      .withIndex("by_updatedAt")
+      .order("desc")
+      .take(500);
+    return records
+      .filter((record) => record.enabled)
+      .map((record) =>
+        normalizePublicIntegration(record, { includeConnector: true }),
+      );
   },
 });
 

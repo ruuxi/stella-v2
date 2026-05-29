@@ -302,7 +302,7 @@ const providerFromRecord = (
 
 const loadProviders = async (ctx: ActionCtx) => {
   const integrations = (await ctx.runQuery(
-    api.data.integrations.listStoreIntegrations,
+    internal.data.integrations.listStoreIntegrationsWithConnectors,
     {},
   )) as StoreIntegrationRecord[];
   const providers = new Map<string, NativeOAuthProvider>();
@@ -427,7 +427,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
         const integrations = await ctx.runQuery(
-          api.data.integrations.listStoreIntegrations,
+          internal.data.integrations.listStoreIntegrationsWithConnectors,
           {},
         );
         return jsonResponse({ integrations }, 200, origin);

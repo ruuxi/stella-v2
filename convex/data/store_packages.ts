@@ -328,6 +328,12 @@ const normalizeSourcePack = async (
   options?: { maxLength?: number },
 ) => {
   if (!sourcePack) return undefined;
+  if (sourcePack.changeSets.length === 0) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Source packs must include at least one change set.",
+    });
+  }
   if (sourcePack.changeSets.length > MAX_SOURCE_PACK_CHANGE_SETS) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
@@ -336,6 +342,12 @@ const normalizeSourcePack = async (
   }
   const normalizedChangeSets = [];
   for (const changeSet of sourcePack.changeSets) {
+    if (changeSet.changes.length === 0) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Source-pack change sets must include at least one change.",
+      });
+    }
     const seenPaths = new Set<string>();
     const changes: StoreSourceChange[] = [];
     for (const change of changeSet.changes) {
@@ -467,6 +479,17 @@ const requireSingleSourcePackStorage = (
       message: "Use either sourcePack or sourcePackRef, not both.",
     });
   }
+};
+
+const requireSourceBackedRelease = (
+  sourcePack: unknown,
+  sourcePackRef: StoreReleaseSourcePackRef | undefined,
+) => {
+  if (sourcePack || sourcePackRef) return;
+  throw new ConvexError({
+    code: "INVALID_ARGUMENT",
+    message: "Store releases must include a source pack.",
+  });
 };
 
 const cleanupUploadedSourcePackRef = async (
@@ -1317,6 +1340,7 @@ export const createFirstRelease = action({
     requireSingleSourcePackStorage(args.sourcePack, args.sourcePackRef);
     const sourcePack = await normalizeSourcePack(args.sourcePack);
     const sourcePackRef = normalizeSourcePackRef(args.sourcePackRef);
+    requireSourceBackedRelease(sourcePack, sourcePackRef);
     const commits = normalizeCommits(args.commits);
     try {
       let sourcePackForReview = sourcePack;
@@ -1421,6 +1445,7 @@ export const createUpdateRelease = action({
     requireSingleSourcePackStorage(args.sourcePack, args.sourcePackRef);
     const sourcePack = await normalizeSourcePack(args.sourcePack);
     const sourcePackRef = normalizeSourcePackRef(args.sourcePackRef);
+    requireSourceBackedRelease(sourcePack, sourcePackRef);
     const commits = normalizeCommits(args.commits);
     try {
       let sourcePackForReview = sourcePack;

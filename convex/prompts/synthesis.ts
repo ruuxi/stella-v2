@@ -31,8 +31,3 @@ export type HomeSuggestion = {
   label: string;
   prompt: string;
 };
-
-export const buildHomeSuggestionsPrompt = (
-  coreMemory: string,
-  promptTemplate: string,
-): string => promptTemplate.replace("{{coreMemory}}", coreMemory);

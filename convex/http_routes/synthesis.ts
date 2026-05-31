@@ -6,9 +6,7 @@ import {
   buildCategoryAnalysisUserMessage,
   buildCoreSynthesisUserMessage,
   buildWelcomeMessagePrompt,
-  buildHomeSuggestionsPrompt,
 } from "../prompts/index";
-import type { HomeSuggestion } from "../prompts/index";
 import {
   errorResponse,
   handleCorsRequest,
@@ -26,7 +24,6 @@ import {
   resolveManagedModelAccess,
   scheduleManagedUsage,
 } from "../lib/managed_billing";
-import { parseHomeSuggestionsFromModelText } from "../lib/welcome_suggestions_parse";
 import {
   assistantText,
   completeManagedChat,
@@ -43,13 +40,11 @@ type SynthesizeRequest = {
   coreMemorySystemPrompt?: string;
   coreMemoryUserPromptTemplate?: string;
   welcomeMessagePromptTemplate?: string;
-  homeSuggestionsPromptTemplate?: string;
 };
 
 type SynthesizeResponse = {
   coreMemory: string;
   welcomeMessage: string;
-  suggestions: HomeSuggestion[];
   categoryAnalyses?: Record<string, string>;
 };
 
@@ -57,7 +52,7 @@ const DEFAULT_WELCOME_MESSAGE =
   "Hey! I'm Stella, your AI assistant. What can I help you with today?";
 /**
  * Anonymous onboarding synthesis is allowed before sign-in so Stella can build
- * first-run memory, the welcome message, suggestions, and app recommendations.
+ * first-run memory, the welcome message, and app recommendations.
  */
 const ANON_SYNTHESIS_RATE_LIMIT = 6;
 const ANON_SYNTHESIS_RATE_WINDOW_MS = 60 * 60_000;
@@ -68,10 +63,6 @@ const ANON_SYNTHESIS_RATE_WINDOW_MS = 60 * 60_000;
  */
 const SYNTHESIS_OWNER_RATE_LIMIT = 10;
 const SYNTHESIS_OWNER_RATE_WINDOW_MS = 60_000;
-
-export const getHomeSuggestionsText = (
-  result: { result: Parameters<typeof assistantText>[0] } | null | undefined,
-): string => (result ? assistantText(result.result) : "");
 
 const buildAnonymousSynthesisRateKey = (
   identity: { tokenIdentifier?: string } | null,
@@ -117,12 +108,10 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
         const coreMemorySystemPrompt = body.coreMemorySystemPrompt?.trim();
         const coreMemoryUserPromptTemplate = body.coreMemoryUserPromptTemplate?.trim();
         const welcomeMessagePromptTemplate = body.welcomeMessagePromptTemplate?.trim();
-        const homeSuggestionsPromptTemplate = body.homeSuggestionsPromptTemplate?.trim();
         if (
           !coreMemorySystemPrompt ||
           !coreMemoryUserPromptTemplate ||
-          !welcomeMessagePromptTemplate ||
-          !homeSuggestionsPromptTemplate
+          !welcomeMessagePromptTemplate
         ) {
           return errorResponse(400, "Missing synthesis prompt payload", origin);
         }
@@ -338,55 +327,29 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
             audience: billingOwnerId ? undefined : "anonymous",
           });
 
-          console.log(
-            "[synthesize] Welcome and home suggestions starting",
-          );
+          console.log("[synthesize] Welcome message starting");
           const welcomeStartedAt = Date.now();
-          const suggestionsStartedAt = Date.now();
-          const [welcomeResult, suggestionsResult] = await Promise.all([
-            completeManagedChat({
-              config: welcomeConfig,
-              context: {
-                messages: [{
-                  role: "user",
-                  content: [{
-                    type: "text",
-                    text: buildWelcomeMessagePrompt(
-                      coreMemory,
-                      welcomeMessagePromptTemplate,
-                    ),
-                  }],
-                  timestamp: Date.now(),
+          const welcomeResult = await completeManagedChat({
+            config: welcomeConfig,
+            context: {
+              messages: [{
+                role: "user",
+                content: [{
+                  type: "text",
+                  text: buildWelcomeMessagePrompt(
+                    coreMemory,
+                    welcomeMessagePromptTemplate,
+                  ),
                 }],
-              },
-            }).then((result) => ({
-              result,
-              durationMs: Date.now() - welcomeStartedAt,
-            })),
-            completeManagedChat({
-              config: welcomeConfig,
-              context: {
-                messages: [{
-                  role: "user",
-                  content: [{
-                    type: "text",
-                    text: buildHomeSuggestionsPrompt(
-                      coreMemory,
-                      homeSuggestionsPromptTemplate,
-                    ),
-                  }],
-                  timestamp: Date.now(),
-                }],
-              },
-            })
-              .then((result) => ({
-                result,
-                durationMs: Date.now() - suggestionsStartedAt,
-              }))
-              .catch(() => null),
-          ]);
+                timestamp: Date.now(),
+              }],
+            },
+          }).then((result) => ({
+            result,
+            durationMs: Date.now() - welcomeStartedAt,
+          }));
           console.log(
-            `[synthesize] Welcome / home suggestions complete. welcome: ${welcomeResult.durationMs}ms, suggestions: ${suggestionsResult?.durationMs ?? "failed"}ms`,
+            `[synthesize] Welcome message complete in ${welcomeResult.durationMs}ms`,
           );
 
           if (billingOwnerId) {
@@ -398,34 +361,11 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
               success: true,
               usage: usageSummaryFromAssistant(welcomeResult.result),
             });
-
-            if (suggestionsResult) {
-              await scheduleManagedUsage(ctx, {
-                ownerId: billingOwnerId,
-                agentType: "service:synthesis:home_suggestions",
-                model: welcomeConfig.model,
-                durationMs: suggestionsResult.durationMs,
-                success: true,
-                usage: usageSummaryFromAssistant(suggestionsResult.result),
-              });
-            }
-          }
-
-          const suggestionsText = getHomeSuggestionsText(suggestionsResult);
-          const suggestions = parseHomeSuggestionsFromModelText(
-            suggestionsText,
-          );
-          if (!suggestions.length && suggestionsText) {
-            console.warn(
-              "[synthesize] Home suggestions: model output was not a usable JSON array",
-              suggestionsText,
-            );
           }
 
           const response: SynthesizeResponse = {
             coreMemory,
             welcomeMessage: assistantText(welcomeResult.result) || DEFAULT_WELCOME_MESSAGE,
-            suggestions,
             ...(Object.keys(categoryAnalysesMap).length > 0
               ? { categoryAnalyses: categoryAnalysesMap }
               : {}),

@@ -3,7 +3,6 @@ export {
   buildCategoryAnalysisUserMessage,
   buildCoreSynthesisUserMessage,
   buildWelcomeMessagePrompt,
-  buildHomeSuggestionsPrompt,
 } from "./synthesis";
 export type {
   HomeSuggestion,

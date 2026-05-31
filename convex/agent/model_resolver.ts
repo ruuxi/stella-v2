@@ -25,6 +25,7 @@ export type ResolvedModelConfig = {
   managedGatewayProvider?: ManagedGatewayProvider;
   temperature?: number;
   maxOutputTokens?: number;
+  serviceTier?: string;
   providerOptions?: Record<string, Record<string, unknown>>;
   /**
    * Input modalities resolved from `billing_model_prices` (synced from
@@ -71,6 +72,7 @@ export const toResolvedModelConfig = (
     managedGatewayProvider?: ManagedGatewayProvider;
     temperature?: number;
     maxOutputTokens?: number;
+    serviceTier?: string;
     providerOptions?: unknown;
   },
   modalitiesInput?: ResolvedModelConfig["modalitiesInput"],
@@ -82,6 +84,7 @@ export const toResolvedModelConfig = (
   }),
   temperature: config.temperature,
   maxOutputTokens: config.maxOutputTokens,
+  serviceTier: config.serviceTier,
   providerOptions: config.providerOptions as Record<string, Record<string, unknown>> | undefined,
   modalitiesInput,
 });
@@ -131,6 +134,7 @@ export async function resolveFallbackConfig(
       managedGatewayProvider: defaults.fallbackManagedGatewayProvider,
       temperature: defaults.temperature,
       maxOutputTokens: defaults.maxOutputTokens,
+      serviceTier: defaults.fallbackServiceTier,
       providerOptions: defaults.fallbackProviderOptions,
     },
     modalitiesInput,

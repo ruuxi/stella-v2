@@ -7,6 +7,7 @@ import {
   buildOpenAICompletionsParams,
   mapStopReason,
 } from "./openai_completions";
+import { applyFireworksKimiK2P6ServiceTierPricing } from "./fireworks_pricing";
 import {
   DEFAULT_PROVIDER_RETRY_ATTEMPTS,
   isRetryableProviderError,
@@ -44,6 +45,7 @@ export type ManagedModelConfig = {
   managedGatewayProvider?: ManagedGatewayProvider;
   temperature?: number;
   maxOutputTokens?: number;
+  serviceTier?: string;
   providerOptions?: Record<string, Record<string, unknown>>;
   /**
    * Input modalities the upstream model actually supports. Resolved at the
@@ -60,6 +62,7 @@ export type ManagedModelConfig = {
 type ManagedCompletionRequest = {
   temperature?: number;
   maxTokens?: number;
+  serviceTier?: string;
   reasoning?: ThinkingLevel;
   toolChoice?: ManagedToolChoice;
   responseFormat?: unknown;
@@ -708,6 +711,7 @@ function buildSimpleOptions(args: {
   return {
     temperature: args.request?.temperature ?? args.config.temperature,
     maxTokens: args.request?.maxTokens ?? args.config.maxOutputTokens,
+    serviceTier: args.request?.serviceTier ?? args.config.serviceTier,
     reasoning,
     toolChoice: args.request?.toolChoice,
     responseFormat: args.request?.responseFormat,
@@ -834,13 +838,20 @@ async function completeManagedOpenAICompletions(args: {
     }
   }
 
+  const usage = parseOpenAIChatUsage(response.usage, model);
+  applyFireworksKimiK2P6ServiceTierPricing(
+    usage,
+    model,
+    args.request?.serviceTier ?? args.config.serviceTier,
+  );
+
   return {
     role: "assistant",
     content,
     api: "openai-completions",
     provider: model.provider,
     model: model.id,
-    usage: parseOpenAIChatUsage(response.usage, model),
+    usage,
     stopReason,
     ...(stopReason === "error"
       ? {

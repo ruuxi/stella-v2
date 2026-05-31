@@ -94,10 +94,10 @@ function parseTextSignature(
 }
 
 export interface OpenAIResponsesStreamOptions {
-  serviceTier?: ResponseCreateParamsStreaming["service_tier"];
+  serviceTier?: string;
   applyServiceTierPricing?: (
     usage: Usage,
-    serviceTier: ResponseCreateParamsStreaming["service_tier"] | undefined,
+    serviceTier: string | undefined,
   ) => void;
 }
 
@@ -313,7 +313,7 @@ export function convertResponsesMessages<TApi extends Api>(
 
     // Always emit `function_call_output` with text-only content. Several
     // OpenAI-Responses-compatible providers (notably Fireworks routers,
-    // including kimi-k2p6-turbo and kimi-k2p5-turbo) do NOT parse
+    // including kimi-k2p6 and kimi-k2p5) do NOT parse
     // `input_image` parts inside `function_call_output.output` — they
     // stringify the entire array, including the base64 data URL, which
     // tokenizes into hundreds of thousands of input tokens and busts the

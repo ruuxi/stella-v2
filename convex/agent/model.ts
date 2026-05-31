@@ -32,6 +32,8 @@ export type ModelConfig = {
   fallbackManagedGatewayProvider?: ManagedGatewayProvider;
   temperature?: number;
   maxOutputTokens?: number;
+  serviceTier?: string;
+  fallbackServiceTier?: string;
   providerOptions?: Record<string, Record<string, JSONValue>>;
   fallbackProviderOptions?: Record<string, Record<string, JSONValue>>;
 };
@@ -144,9 +146,10 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   },
 
   priority: {
-    model: "accounts/fireworks/routers/kimi-k2p6-turbo",
+    model: "accounts/fireworks/models/kimi-k2p6",
     fallbackMode: "standard",
     managedGatewayProvider: "fireworks",
+    serviceTier: "fast",
     temperature: 1.0,
     providerOptions: {
       openai: {
@@ -367,6 +370,8 @@ const buildResolvedConfig = (
     fallbackManagedGatewayProvider: fallbackConfig?.managedGatewayProvider,
     temperature: config.temperature,
     maxOutputTokens: config.maxOutputTokens,
+    serviceTier: config.serviceTier,
+    fallbackServiceTier: fallbackConfig?.serviceTier,
     providerOptions: config.providerOptions ? clone(config.providerOptions) : undefined,
     fallbackProviderOptions: fallbackConfig?.providerOptions
       ? clone(fallbackConfig.providerOptions)

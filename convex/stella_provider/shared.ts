@@ -29,6 +29,7 @@ export type AuthorizedStellaRequest = {
   requestedModel: string;
   resolvedModel: string;
   upstreamModel: string;
+  serviceTier?: string;
   apiKey: string;
   tokenEstimate: import("./billing").TokenEstimate;
   anonymousUsageRecord?: import("./billing").AnonymousUsageRecord;

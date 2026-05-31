@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ResponseCreateParamsStreaming } from "openai/resources/responses/responses.js";
 import { AssistantMessageEventStream } from "./event_stream";
+import { applyFireworksKimiK2P6ServiceTierPricing } from "./fireworks_pricing";
 import { headersToRecord } from "./headers";
 import { supportsXhigh } from "./model_utils";
 import {
@@ -101,7 +102,7 @@ function getPromptCacheRetention(
 export interface OpenAIResponsesOptions extends StreamOptions {
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   reasoningSummary?: "auto" | "detailed" | "concise" | null;
-  serviceTier?: ResponseCreateParamsStreaming["service_tier"];
+  serviceTier?: string;
   toolChoice?:
     | "auto"
     | "none"
@@ -197,7 +198,8 @@ export const streamOpenAIResponses: StreamFunction<
 
       await processResponsesStream(openaiStream, output, stream, model, {
         serviceTier: options?.serviceTier,
-        applyServiceTierPricing,
+        applyServiceTierPricing: (usage, serviceTier) =>
+          applyServiceTierPricing(usage, serviceTier, model),
       });
 
       if (options?.signal?.aborted) {
@@ -321,7 +323,8 @@ function buildParams(
     params.temperature = options.temperature;
   }
   if (options?.serviceTier !== undefined) {
-    params.service_tier = options.serviceTier;
+    (params as unknown as Record<string, unknown>).service_tier =
+      options.serviceTier;
   }
   if (context.tools) {
     params.tools = convertResponsesTools(context.tools);
@@ -361,7 +364,7 @@ function buildParams(
 }
 
 function getServiceTierCostMultiplier(
-  serviceTier: ResponseCreateParamsStreaming["service_tier"] | undefined,
+  serviceTier: string | undefined,
 ): number {
   switch (serviceTier) {
     case "flex":
@@ -375,8 +378,18 @@ function getServiceTierCostMultiplier(
 
 function applyServiceTierPricing(
   usage: Usage,
-  serviceTier: ResponseCreateParamsStreaming["service_tier"] | undefined,
+  serviceTier: string | undefined,
+  model: Pick<Model<"openai-responses">, "id" | "provider">,
 ) {
+  if (
+    applyFireworksKimiK2P6ServiceTierPricing(
+      usage,
+      model,
+      serviceTier,
+    )
+  ) {
+    return;
+  }
   const multiplier = getServiceTierCostMultiplier(serviceTier);
   if (multiplier === 1) {
     return;

@@ -14,6 +14,10 @@ import {
 } from "./lib/managed_gateway";
 import { resolveManagedModelAccess } from "./lib/managed_billing";
 import {
+  computeUsageCostMicroCents,
+  getFireworksKimiK2P6ServiceTierPrice,
+} from "./lib/billing_money";
+import {
   STELLA_MODEL_CATALOG_UPDATED_AT,
   listStellaCatalogModels,
   listStellaDefaultSelections,
@@ -216,6 +220,9 @@ const bodyForUpstream = (
     // Google REST puts the model in the URL path, not the body.
     delete body.model;
   }
+  if (authorized.serviceTier !== undefined) {
+    body.service_tier = authorized.serviceTier;
+  }
 
   const isChatCompletions =
     provider === "openrouter" ||
@@ -361,6 +368,22 @@ export const stellaProviderRelay = (
           usageParser.pushText(decoder.decode());
           const usage = usageParser.finish();
           const model = usage?.model || authorized.resolvedModel;
+          const costMicroCents = usage
+            ? computeUsageCostMicroCents({
+                model,
+                inputTokens:
+                  usage.inputTokens ?? authorized.tokenEstimate.inputTokens,
+                outputTokens:
+                  usage.outputTokens ?? authorized.tokenEstimate.outputTokens,
+                cachedInputTokens: usage.cachedInputTokens,
+                cacheWriteInputTokens: usage.cacheWriteInputTokens,
+                reasoningTokens: usage.reasoningTokens,
+                price: getFireworksKimiK2P6ServiceTierPrice(
+                  authorized.resolvedModel,
+                  authorized.serviceTier,
+                ) ?? undefined,
+              })
+            : undefined;
           await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
             ownerId: authorized.ownerId,
             agentType: authorized.agentType,
@@ -375,6 +398,7 @@ export const stellaProviderRelay = (
             cachedInputTokens: usage?.cachedInputTokens,
             cacheWriteInputTokens: usage?.cacheWriteInputTokens,
             reasoningTokens: usage?.reasoningTokens,
+            costMicroCents,
           });
           await scheduleAnonymousUsageRecord(ctx, authorized.anonymousUsageRecord);
         } catch (error) {

@@ -87,8 +87,9 @@ describe("managed model config", () => {
     expect(listStellaCatalogModels("go").some(isPriority)).toBe(false);
     expect(listStellaCatalogModels("pro").find(isPriority)).toMatchObject({
       name: "Stella Priority",
-      upstreamModel: "accounts/fireworks/routers/kimi-k2p6-turbo",
+      upstreamModel: "accounts/fireworks/models/kimi-k2p6",
     });
+    expect(getModeConfig("priority").serviceTier).toBe("fast");
   });
 
   it("keeps the Light model id in the managed model sync list", () => {

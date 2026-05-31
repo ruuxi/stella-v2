@@ -47,7 +47,11 @@ const toLogPayload = (args: ManagedUsageLogArgs) => ({
   ...(args.usage?.cachedInputTokens !== undefined ? { cachedInputTokens: args.usage.cachedInputTokens } : {}),
   ...(args.usage?.cacheWriteInputTokens !== undefined ? { cacheWriteInputTokens: args.usage.cacheWriteInputTokens } : {}),
   ...(args.usage?.reasoningTokens !== undefined ? { reasoningTokens: args.usage.reasoningTokens } : {}),
-  ...(args.costMicroCents !== undefined ? { costMicroCents: args.costMicroCents } : {}),
+  ...(args.costMicroCents !== undefined
+    ? { costMicroCents: args.costMicroCents }
+    : args.usage?.costMicroCents !== undefined
+      ? { costMicroCents: args.usage.costMicroCents }
+      : {}),
 });
 
 export async function checkManagedUsageLimit(

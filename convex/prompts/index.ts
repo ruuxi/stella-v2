@@ -3,9 +3,7 @@ export {
   buildCategoryAnalysisUserMessage,
   buildCoreSynthesisUserMessage,
   buildWelcomeMessagePrompt,
-} from "./synthesis";
-export type {
-  HomeSuggestion,
+  buildWelcomeHtmlPrompt,
 } from "./synthesis";
 export {
   AGENT_INVOKE_SYSTEM_INSTRUCTIONS,

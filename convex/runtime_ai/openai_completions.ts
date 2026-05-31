@@ -9,6 +9,7 @@ import type {
   ChatCompletionToolMessageParam,
 } from "openai/resources/chat/completions.js";
 import { AssistantMessageEventStream } from "./event_stream";
+import { applyFireworksKimiK2P6ServiceTierPricing } from "./fireworks_pricing";
 import { headersToRecord } from "./headers";
 import { parseStreamingJson } from "./json_parse";
 import { supportsXhigh } from "./model_utils";
@@ -32,6 +33,7 @@ import type {
   Tool,
   ToolCall,
   ToolResultMessage,
+  Usage,
 } from "./types";
 
 function normalizeMistralToolId(id: string): string {
@@ -68,6 +70,14 @@ export interface OpenAICompletionsOptions extends StreamOptions {
     | { type: "function"; name: string };
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   responseFormat?: unknown;
+}
+
+function applyServiceTierPricing(
+  usage: Usage,
+  model: Model<"openai-completions">,
+  serviceTier: string | undefined,
+) {
+  applyFireworksKimiK2P6ServiceTierPricing(usage, model, serviceTier);
 }
 
 function normalizeChatToolChoice(
@@ -262,6 +272,7 @@ export const streamOpenAICompletions: StreamFunction<
 
         if (chunk.usage) {
           output.usage = parseOpenAIChatUsage(chunk.usage, model);
+          applyServiceTierPricing(output.usage, model, options?.serviceTier);
         }
 
         const choice = chunk.choices?.[0];
@@ -275,6 +286,7 @@ export const streamOpenAICompletions: StreamFunction<
             choice.usage as OpenAIChatUsagePayload,
             model,
           );
+          applyServiceTierPricing(output.usage, model, options?.serviceTier);
         }
 
         if (choice.finish_reason) {
@@ -562,6 +574,9 @@ export function buildOpenAICompletionsParams(
   }
   if (options?.temperature !== undefined) {
     params.temperature = options.temperature;
+  }
+  if (options?.serviceTier !== undefined) {
+    params.service_tier = options.serviceTier;
   }
   if (context.tools) {
     params.tools = convertTools(context.tools, compat);

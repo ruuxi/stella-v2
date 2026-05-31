@@ -20,6 +20,7 @@ export function buildBaseOptions(
   return {
     temperature: options?.temperature,
     maxTokens: options?.maxTokens,
+    serviceTier: options?.serviceTier,
     signal: options?.signal,
     apiKey: apiKey || options?.apiKey,
     cacheRetention: options?.cacheRetention,

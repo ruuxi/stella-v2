@@ -9,6 +9,55 @@ export type TokenPriceConfig = {
   reasoningPerMillionUsd?: number;
 };
 
+export type FireworksKimiK2P6ServiceTier = "standard" | "priority" | "fast";
+
+export const FIREWORKS_KIMI_K2P6_MODEL =
+  "accounts/fireworks/models/kimi-k2p6";
+
+const FIREWORKS_KIMI_K2P6_SERVICE_TIER_PRICES: Record<
+  FireworksKimiK2P6ServiceTier,
+  TokenPriceConfig
+> = {
+  standard: {
+    inputPerMillionUsd: 0.95,
+    cacheReadPerMillionUsd: 0.16,
+    cacheWritePerMillionUsd: 0.95,
+    outputPerMillionUsd: 4.0,
+    reasoningPerMillionUsd: 0,
+  },
+  priority: {
+    inputPerMillionUsd: 1.5,
+    cacheReadPerMillionUsd: 0.22,
+    cacheWritePerMillionUsd: 1.5,
+    outputPerMillionUsd: 6.0,
+    reasoningPerMillionUsd: 0,
+  },
+  fast: {
+    inputPerMillionUsd: 2.0,
+    cacheReadPerMillionUsd: 0.3,
+    cacheWritePerMillionUsd: 2.0,
+    outputPerMillionUsd: 8.0,
+    reasoningPerMillionUsd: 0,
+  },
+};
+
+export const normalizeFireworksKimiK2P6ServiceTier = (
+  serviceTier: string | undefined,
+): FireworksKimiK2P6ServiceTier =>
+  serviceTier === "priority" || serviceTier === "fast"
+    ? serviceTier
+    : "standard";
+
+export const getFireworksKimiK2P6ServiceTierPrice = (
+  model: string,
+  serviceTier: string | undefined,
+): TokenPriceConfig | null =>
+  model === FIREWORKS_KIMI_K2P6_MODEL
+    ? FIREWORKS_KIMI_K2P6_SERVICE_TIER_PRICES[
+        normalizeFireworksKimiK2P6ServiceTier(serviceTier)
+      ]
+    : null;
+
 export type RealtimePriceConfig = {
   textInputPerMillionUsd: number;
   textCachedInputPerMillionUsd: number;

@@ -9,7 +9,10 @@ import {
   type ManagedGatewayProvider,
 } from "../lib/managed_gateway";
 import { resolveManagedModelAccess } from "../lib/managed_billing";
-import { computeUsageCostMicroCents } from "../lib/billing_money";
+import {
+  computeUsageCostMicroCents,
+  getFireworksKimiK2P6ServiceTierPrice,
+} from "../lib/billing_money";
 import {
   consumeAnonymousRequestAllowance,
   DEFAULT_RETRY_AFTER_MS,
@@ -51,6 +54,7 @@ export function toProviderNativeModel(
 const estimatedCostMicroCents = async (
   ctx: ActionCtx,
   model: string,
+  serviceTier: string | undefined,
   tokenEstimate: { inputTokens: number; outputTokens: number },
 ): Promise<number> => {
   const row = await ctx.runQuery(internal.billing.getManagedModelPrice, {
@@ -60,7 +64,7 @@ const estimatedCostMicroCents = async (
     model,
     inputTokens: tokenEstimate.inputTokens,
     outputTokens: tokenEstimate.outputTokens,
-    price: row
+    price: getFireworksKimiK2P6ServiceTierPrice(model, serviceTier) ?? (row
       ? {
           inputPerMillionUsd: row.inputPerMillionUsd,
           outputPerMillionUsd: row.outputPerMillionUsd,
@@ -68,7 +72,7 @@ const estimatedCostMicroCents = async (
           cacheWritePerMillionUsd: row.cacheWritePerMillionUsd,
           reasoningPerMillionUsd: row.reasoningPerMillionUsd,
         }
-      : undefined,
+      : undefined),
   });
 };
 
@@ -196,6 +200,7 @@ export async function authorizeStellaRelayRequest(args: {
     const estimatedCost = await estimatedCostMicroCents(
       ctx,
       resolvedModel,
+      config.serviceTier,
       tokenEstimate,
     );
     const limit = await ctx.runMutation(
@@ -231,6 +236,7 @@ export async function authorizeStellaRelayRequest(args: {
     requestedModel,
     resolvedModel,
     upstreamModel: toProviderNativeModel(resolvedModel, resolvedProvider),
+    serviceTier: config.serviceTier,
     apiKey,
     tokenEstimate,
   };

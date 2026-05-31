@@ -1,3 +1,5 @@
+import { getFireworksKimiK2P6ServiceTierPrice } from "./billing_money";
+
 type ModelsDevCost = {
   input?: number;
   output?: number;
@@ -44,19 +46,6 @@ type ResolvedModelsDevModel = {
   sourceProvider: string;
   sourceModelId: string;
   entry: ModelsDevModelEntry;
-};
-
-/**
- * Sibling model fallback for routers/wrappers not directly in models.dev or
- * listed at $0. Used for both pricing and modality lookup so a router that
- * shares a serving model (e.g. Fireworks `kimi-k2p6-turbo` is a faster mode
- * of `kimi-k2p6`) inherits the underlying model's metadata.
- */
-const MODELS_DEV_FALLBACKS: Record<string, string> = {
-  "accounts/fireworks/routers/kimi-k2p5-turbo":
-    "accounts/fireworks/models/kimi-k2p5",
-  "accounts/fireworks/routers/kimi-k2p6-turbo":
-    "accounts/fireworks/models/kimi-k2p6",
 };
 
 const MODELS_DEV_ALIASES: Record<string, string[]> = {
@@ -144,15 +133,7 @@ const resolveWithFallback = (
   data: ModelsDevApi,
   model: string,
 ): ResolvedModelsDevModel | null => {
-  const direct = resolveModelsDevModel(data, model);
-  const fallbackId = MODELS_DEV_FALLBACKS[model];
-  if (!direct) {
-    if (fallbackId) {
-      return resolveModelsDevModel(data, fallbackId);
-    }
-    return null;
-  }
-  return direct;
+  return resolveModelsDevModel(data, model);
 };
 
 const toNumber = (value: unknown) =>
@@ -182,34 +163,27 @@ export const buildManagedModelPriceEntries = (args: {
       continue;
     }
 
-    // Pricing fallback: if the resolved entry exists but lists $0 input/output
-    // (typically routers/wrappers that defer pricing to a sibling model),
-    // re-resolve using the fallback id for pricing only. Modalities still
-    // come from `resolved` (or its own fallback) since they're not affected
-    // by the $0-pricing pattern.
-    let costEntry = resolved.entry;
-    const fallbackId = MODELS_DEV_FALLBACKS[model];
-    if (
-      fallbackId
-      && toNumber(resolved.entry.cost?.input) === 0
-      && toNumber(resolved.entry.cost?.output) === 0
-    ) {
-      const fallbackResolved = resolveModelsDevModel(args.data, fallbackId);
-      if (fallbackResolved?.entry.cost) {
-        costEntry = fallbackResolved.entry;
-      }
-    }
+    const hardcodedCost = getFireworksKimiK2P6ServiceTierPrice(model, "standard");
+    const cost = hardcodedCost
+      ? {
+          input: hardcodedCost.inputPerMillionUsd,
+          output: hardcodedCost.outputPerMillionUsd,
+          cache_read: hardcodedCost.cacheReadPerMillionUsd,
+          cache_write: hardcodedCost.cacheWritePerMillionUsd,
+          reasoning: hardcodedCost.reasoningPerMillionUsd,
+        }
+      : resolved.entry.cost;
 
     entries.push({
       model,
       source: "models.dev",
       sourceProvider: resolved.sourceProvider,
       sourceModelId: resolved.sourceModelId,
-      inputPerMillionUsd: toNumber(costEntry.cost?.input),
-      outputPerMillionUsd: toNumber(costEntry.cost?.output),
-      cacheReadPerMillionUsd: toNumber(costEntry.cost?.cache_read),
-      cacheWritePerMillionUsd: toNumber(costEntry.cost?.cache_write),
-      reasoningPerMillionUsd: toNumber(costEntry.cost?.reasoning),
+      inputPerMillionUsd: toNumber(cost?.input),
+      outputPerMillionUsd: toNumber(cost?.output),
+      cacheReadPerMillionUsd: toNumber(cost?.cache_read),
+      cacheWritePerMillionUsd: toNumber(cost?.cache_write),
+      reasoningPerMillionUsd: toNumber(cost?.reasoning),
       modalitiesInput: sanitizeModalityList(resolved.entry.modalities?.input),
       modalitiesOutput: sanitizeModalityList(resolved.entry.modalities?.output),
       sourceUpdatedAt: resolved.entry.last_updated?.trim() ?? "",

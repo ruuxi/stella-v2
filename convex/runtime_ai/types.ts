@@ -20,6 +20,7 @@ export interface ThinkingBudgets {
 export interface StreamOptions {
   temperature?: number;
   maxTokens?: number;
+  serviceTier?: string;
   signal?: AbortSignal;
   apiKey?: string;
   cacheRetention?: CacheRetention;

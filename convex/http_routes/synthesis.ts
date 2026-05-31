@@ -5,6 +5,7 @@ import { resolveModelConfig } from "../agent/model_resolver";
 import {
   buildCategoryAnalysisUserMessage,
   buildCoreSynthesisUserMessage,
+  buildWelcomeHtmlPrompt,
   buildWelcomeMessagePrompt,
 } from "../prompts/index";
 import {
@@ -27,6 +28,7 @@ import {
 import {
   assistantText,
   completeManagedChat,
+  type ManagedModelConfig,
   usageSummaryFromAssistant,
 } from "../runtime_ai/managed";
 
@@ -45,11 +47,52 @@ type SynthesizeRequest = {
 type SynthesizeResponse = {
   coreMemory: string;
   welcomeMessage: string;
+  welcomeHtml: string;
   categoryAnalyses?: Record<string, string>;
 };
 
 const DEFAULT_WELCOME_MESSAGE =
   "Hey! I'm Stella, your AI assistant. What can I help you with today?";
+
+const WELCOME_HTML_MODEL_CONFIG: ManagedModelConfig = {
+  model: "accounts/fireworks/models/kimi-k2p6",
+  managedGatewayProvider: "fireworks",
+  serviceTier: "priority",
+  temperature: 0.6,
+  maxOutputTokens: 32768,
+  providerOptions: {
+    gateway: {
+      order: ["fireworks"],
+    },
+  },
+  modalitiesInput: ["text"],
+};
+
+const stripMarkdownHtmlFence = (value: string): string =>
+  value
+    .trim()
+    .replace(/^```(?:html)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+const normalizeWelcomeHtml = (value: string): string => {
+  const stripped = stripMarkdownHtmlFence(value);
+  const doctypeIndex = stripped.toLowerCase().indexOf("<!doctype html");
+  if (doctypeIndex >= 0) return stripped.slice(doctypeIndex).trim();
+  const htmlIndex = stripped.toLowerCase().indexOf("<html");
+  if (htmlIndex >= 0) return `<!doctype html>\n${stripped.slice(htmlIndex).trim()}`;
+  return stripped;
+};
+
+const isUsableWelcomeHtml = (value: string): boolean => {
+  const lower = value.toLowerCase();
+  return (
+    lower.includes("<!doctype html") &&
+    lower.includes("<html") &&
+    lower.includes("</html>") &&
+    lower.includes("data-stella-compose")
+  );
+};
 /**
  * Anonymous onboarding synthesis is allowed before sign-in so Stella can build
  * first-run memory, the welcome message, and app recommendations.
@@ -326,30 +369,56 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
             access: modelAccess,
             audience: billingOwnerId ? undefined : "anonymous",
           });
-
-          console.log("[synthesize] Welcome message starting");
+          console.log("[synthesize] Welcome message and HTML starting");
           const welcomeStartedAt = Date.now();
-          const welcomeResult = await completeManagedChat({
-            config: welcomeConfig,
-            context: {
-              messages: [{
-                role: "user",
-                content: [{
-                  type: "text",
-                  text: buildWelcomeMessagePrompt(
-                    coreMemory,
-                    welcomeMessagePromptTemplate,
-                  ),
+          const welcomeHtmlStartedAt = Date.now();
+          const [welcomeResult, welcomeHtmlResult] = await Promise.all([
+            completeManagedChat({
+              config: welcomeConfig,
+              context: {
+                messages: [{
+                  role: "user",
+                  content: [{
+                    type: "text",
+                    text: buildWelcomeMessagePrompt(
+                      coreMemory,
+                      welcomeMessagePromptTemplate,
+                    ),
+                  }],
+                  timestamp: Date.now(),
                 }],
-                timestamp: Date.now(),
-              }],
-            },
-          }).then((result) => ({
-            result,
-            durationMs: Date.now() - welcomeStartedAt,
-          }));
+              },
+            }).then((result) => ({
+              result,
+              durationMs: Date.now() - welcomeStartedAt,
+            })),
+            completeManagedChat({
+              config: WELCOME_HTML_MODEL_CONFIG,
+              api: "openai-completions",
+              context: {
+                systemPrompt: [
+                  "You generate final HTML documents.",
+                  "Return only the final HTML document.",
+                  "Do not include reasoning, analysis, summaries, markdown, or commentary.",
+                  "The first output characters must be <!doctype html>.",
+                ].join(" "),
+                messages: [{
+                  role: "user",
+                  content: [{
+                    type: "text",
+                    text: buildWelcomeHtmlPrompt(coreMemory),
+                  }],
+                  timestamp: Date.now(),
+                }],
+              },
+            })
+              .then((result) => ({
+                result,
+                durationMs: Date.now() - welcomeHtmlStartedAt,
+              })),
+          ]);
           console.log(
-            `[synthesize] Welcome message complete in ${welcomeResult.durationMs}ms`,
+            `[synthesize] Welcome message / HTML complete. welcome: ${welcomeResult.durationMs}ms, html: ${welcomeHtmlResult.durationMs}ms`,
           );
 
           if (billingOwnerId) {
@@ -361,11 +430,27 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
               success: true,
               usage: usageSummaryFromAssistant(welcomeResult.result),
             });
+
+            await scheduleManagedUsage(ctx, {
+              ownerId: billingOwnerId,
+              agentType: "service:synthesis:welcome_html",
+              model: WELCOME_HTML_MODEL_CONFIG.model,
+              durationMs: welcomeHtmlResult.durationMs,
+              success: true,
+              usage: usageSummaryFromAssistant(welcomeHtmlResult.result),
+            });
+          }
+
+          const welcomeHtml = normalizeWelcomeHtml(assistantText(welcomeHtmlResult.result));
+          if (!isUsableWelcomeHtml(welcomeHtml)) {
+            console.error("[synthesize] Welcome HTML output was not usable.");
+            return errorResponse(500, "Failed to synthesize welcome HTML", origin);
           }
 
           const response: SynthesizeResponse = {
             coreMemory,
             welcomeMessage: assistantText(welcomeResult.result) || DEFAULT_WELCOME_MESSAGE,
+            welcomeHtml,
             ...(Object.keys(categoryAnalysesMap).length > 0
               ? { categoryAnalyses: categoryAnalysesMap }
               : {}),

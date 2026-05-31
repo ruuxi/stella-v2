@@ -55,12 +55,14 @@ type NativeOAuthProvider = {
 type ComposioSessionResponse = {
   id?: unknown;
   sessionId?: unknown;
+  session_id?: unknown;
 };
 
 type ComposioLinkResponse = {
   link?: unknown;
   url?: unknown;
   redirectUrl?: unknown;
+  redirect_url?: unknown;
 };
 
 type NativeIntegrationRequestBody = {
@@ -178,24 +180,37 @@ const composioFetch = async (
   return payload;
 };
 
-const composioSessionIdFromPayload = (payload: Record<string, unknown>) =>
+export const buildComposioSessionBody = (args: {
+  userId: string;
+  toolkit: string;
+}) => ({
+  user_id: args.userId,
+  toolkits: { enable: [args.toolkit] },
+});
+
+export const composioSessionIdFromPayload = (payload: Record<string, unknown>) =>
   readString((payload as ComposioSessionResponse).id) ??
   readString((payload as ComposioSessionResponse).sessionId) ??
+  readString((payload as ComposioSessionResponse).session_id) ??
   readString(
     payload.session && typeof payload.session === "object"
-      ? (payload.session as Record<string, unknown>).id
+      ? (payload.session as Record<string, unknown>).id ??
+          (payload.session as Record<string, unknown>).sessionId ??
+          (payload.session as Record<string, unknown>).session_id
       : null,
   );
 
-const composioLinkFromPayload = (payload: Record<string, unknown>) =>
+export const composioLinkFromPayload = (payload: Record<string, unknown>) =>
   readString((payload as ComposioLinkResponse).link) ??
   readString((payload as ComposioLinkResponse).url) ??
   readString((payload as ComposioLinkResponse).redirectUrl) ??
+  readString((payload as ComposioLinkResponse).redirect_url) ??
   readString(
     payload.data && typeof payload.data === "object"
       ? (payload.data as Record<string, unknown>).link ??
           (payload.data as Record<string, unknown>).url ??
-          (payload.data as Record<string, unknown>).redirectUrl
+          (payload.data as Record<string, unknown>).redirectUrl ??
+          (payload.data as Record<string, unknown>).redirect_url
       : null,
   );
 
@@ -225,10 +240,9 @@ const ensureComposioSession = async (
     "/session",
     {
       method: "POST",
-      body: JSON.stringify({
-        user_id: userId,
-        toolkits: { enabled: [args.toolkit] },
-      }),
+      body: JSON.stringify(
+        buildComposioSessionBody({ userId, toolkit: args.toolkit }),
+      ),
     },
     args.config,
   );

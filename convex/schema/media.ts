@@ -144,6 +144,11 @@ export const mediaSchema = {
       "status",
       "completedAt",
     ])
+    .index("by_status_and_capability_and_updatedAt", [
+      "status",
+      "capability",
+      "updatedAt",
+    ])
     .index("by_provider_and_providerRequestId", [
       "provider",
       "providerRequestId",

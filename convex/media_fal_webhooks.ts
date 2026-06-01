@@ -1,4 +1,8 @@
-import { base64UrlDecode, hashSha256Hex, hexToUint8Array } from "./lib/crypto_utils";
+import {
+  base64UrlDecode,
+  hashSha256Hex,
+  hexToUint8Array,
+} from "./lib/crypto_utils";
 import { isRecord } from "./shared_validators";
 
 const FAL_QUEUE_BASE_URL = "https://queue.fal.run";
@@ -9,6 +13,7 @@ const FAL_WEBHOOK_SIGNATURE_HEADER = "x-fal-webhook-signature";
 const FAL_WEBHOOK_TIMESTAMP_HEADER = "x-fal-webhook-timestamp";
 const FAL_WEBHOOK_MAX_SKEW_SECONDS = 300;
 const MEDIA_PUBLIC_TEST_WEBHOOK_HEADER = "x-stella-test-webhook";
+const FAL_FETCH_TIMEOUT_MS = 30_000;
 
 type FalSubmitResponse = {
   request_id?: unknown;
@@ -26,26 +31,46 @@ type FalWebhookJwkSet = {
 };
 
 const asTrimmedString = (value: unknown): string | undefined =>
-  typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
 
 const fetchFalJson = async (
   url: string,
   init: RequestInit,
-): Promise<{ ok: boolean; status: number; data: unknown; text: string }> => {
-  const response = await fetch(url, init);
-  const text = await response.text();
-  let data: unknown = null;
+): Promise<{
+  ok: boolean;
+  status: number;
+  data: unknown;
+  text: string;
+  errorType?: string;
+}> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FAL_FETCH_TIMEOUT_MS);
   try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = null;
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const text = await response.text();
+    let data: unknown = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = null;
+    }
+    return {
+      ok: response.ok,
+      status: response.status,
+      data,
+      text,
+      errorType: response.headers.get("x-fal-error-type")?.trim() || undefined,
+    };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("Fal request timed out after 30 seconds");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return {
-    ok: response.ok,
-    status: response.status,
-    data,
-    text,
-  };
 };
 
 const falHeaders = (apiKey: string): HeadersInit => ({
@@ -100,6 +125,7 @@ export const submitFalRequest = async (args: {
   if (!upstream.ok) {
     // Extract a human-readable message from Fal's error response.
     let message = `Fal submission failed with status ${upstream.status}`;
+    const errorType = upstream.errorType;
     if (isRecord(upstream.data)) {
       const detail = upstream.data.detail;
       if (typeof detail === "string") {
@@ -112,11 +138,23 @@ export const submitFalRequest = async (args: {
       } else if (typeof upstream.data.message === "string") {
         message = upstream.data.message;
       }
+      const bodyErrorType = asTrimmedString(upstream.data.error_type);
+      const error = new Error(message);
+      if (bodyErrorType || errorType) {
+        (error as Error & { code?: string }).code = bodyErrorType ?? errorType;
+      }
+      throw error;
     }
-    throw new Error(message);
+    const error = new Error(message);
+    if (errorType) {
+      (error as Error & { code?: string }).code = errorType;
+    }
+    throw error;
   }
 
-  const data = isRecord(upstream.data) ? (upstream.data as FalSubmitResponse) : {};
+  const data = isRecord(upstream.data)
+    ? (upstream.data as FalSubmitResponse)
+    : {};
   const requestId = asTrimmedString(data.request_id);
   if (!requestId) {
     throw new Error("Fal submission succeeded but no request_id was returned");
@@ -143,18 +181,17 @@ export const fetchFalResultPayload = async (args: {
   });
   if (!upstream.ok) {
     throw new Error(
-      upstream.text || `Fal result lookup failed with status ${upstream.status}`,
+      upstream.text ||
+        `Fal result lookup failed with status ${upstream.status}`,
     );
   }
   return upstream.data;
 };
 
-let cachedFalWebhookKeys:
-  | {
-      expiresAt: number;
-      keys: CryptoKey[];
-    }
-  | null = null;
+let cachedFalWebhookKeys: {
+  expiresAt: number;
+  keys: CryptoKey[];
+} | null = null;
 
 const loadFalWebhookKeys = async (): Promise<CryptoKey[]> => {
   const now = Date.now();
@@ -164,7 +201,9 @@ const loadFalWebhookKeys = async (): Promise<CryptoKey[]> => {
 
   const response = await fetch(FAL_WEBHOOK_JWKS_URL, { method: "GET" });
   if (!response.ok) {
-    throw new Error(`Fal webhook JWK fetch failed with status ${response.status}`);
+    throw new Error(
+      `Fal webhook JWK fetch failed with status ${response.status}`,
+    );
   }
 
   const data = (await response.json()) as FalWebhookJwkSet;
@@ -172,14 +211,15 @@ const loadFalWebhookKeys = async (): Promise<CryptoKey[]> => {
     (data.keys ?? [])
       .map((key) => asTrimmedString(key.x))
       .filter((value): value is string => Boolean(value))
-      .map(async (publicKey) =>
-        await crypto.subtle.importKey(
-          "raw",
-          toCryptoBuffer(base64UrlDecode(publicKey)),
-          { name: "Ed25519" },
-          false,
-          ["verify"],
-        ),
+      .map(
+        async (publicKey) =>
+          await crypto.subtle.importKey(
+            "raw",
+            toCryptoBuffer(base64UrlDecode(publicKey)),
+            { name: "Ed25519" },
+            false,
+            ["verify"],
+          ),
       ),
   );
 
@@ -208,7 +248,9 @@ export const verifyFalWebhookSignature = async (
   const requestId = request.headers.get(FAL_WEBHOOK_REQUEST_ID_HEADER)?.trim();
   const userId = request.headers.get(FAL_WEBHOOK_USER_ID_HEADER)?.trim();
   const timestamp = request.headers.get(FAL_WEBHOOK_TIMESTAMP_HEADER)?.trim();
-  const signatureHex = request.headers.get(FAL_WEBHOOK_SIGNATURE_HEADER)?.trim();
+  const signatureHex = request.headers
+    .get(FAL_WEBHOOK_SIGNATURE_HEADER)
+    ?.trim();
   if (!requestId || !userId || !timestamp || !signatureHex) {
     return false;
   }

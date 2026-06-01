@@ -44,15 +44,14 @@ import {
   LYRIA_MUSIC_ENDPOINT_ID,
   parseMusicStreamRequest,
 } from "../media_lyria";
-import {
-  checkManagedUsageLimit,
-} from "../lib/managed_billing";
+import { checkManagedUsageLimit } from "../lib/managed_billing";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import { requireSignedInAccountAction } from "../http_shared/auth";
 
 const MEDIA_API_BASE_PATH = "/api/media/v1";
 const MEDIA_CAPABILITIES_PATH = `${MEDIA_API_BASE_PATH}/capabilities`;
 const MEDIA_GENERATE_PATH = `${MEDIA_API_BASE_PATH}/generate`;
+const MEDIA_JOB_PATH = `${MEDIA_API_BASE_PATH}/job`;
 const MEDIA_FAL_WEBHOOK_PATH = `${MEDIA_API_BASE_PATH}/webhooks/fal`;
 const MEDIA_SUBSCRIPTION_QUERY = "api.media_jobs.getByJobId";
 
@@ -81,6 +80,7 @@ type FalWebhookPayload = {
   payload?: unknown;
   payload_error?: unknown;
   error?: unknown;
+  error_type?: unknown;
 };
 
 const isNonEmptyString = (value: unknown): value is string =>
@@ -500,6 +500,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     MEDIA_CAPABILITIES_PATH,
     MEDIA_GENERATE_PATH,
+    MEDIA_JOB_PATH,
     MEDIA_FAL_WEBHOOK_PATH,
   ]);
 
@@ -514,6 +515,39 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           origin,
         ),
       ),
+    ),
+  });
+
+  http.route({
+    path: MEDIA_JOB_PATH,
+    method: "GET",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: MEDIA_AUTH_REQUIRED_MESSAGE,
+          action: MEDIA_AUTH_REQUIRED_ACTION,
+          docsUrl: MEDIA_DOCS_URL,
+          realm: "stella-media",
+        });
+        if (!auth.ok) return auth.response;
+
+        const jobId = asTrimmedString(
+          new URL(request.url).searchParams.get("jobId"),
+        );
+        if (!jobId) {
+          return errorResponse(400, "Missing jobId.", origin);
+        }
+
+        const job = await ctx.runQuery(internal.media_jobs.getByOwnerJobId, {
+          ownerId: auth.ownerId,
+          jobId,
+        });
+        if (!job) {
+          return errorResponse(404, "Media job not found.", origin);
+        }
+
+        return jsonResponse(job, 200, origin);
+      }),
     ),
   });
 
@@ -779,11 +813,17 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               origin,
             );
           } catch (error) {
+            const errorCode = (error as Error & { code?: unknown }).code;
             await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
               jobId,
               upstreamStatus: "ERROR",
               error: (createMediaJobError({
-                value: (error as Error).message,
+                value: {
+                  message: (error as Error).message,
+                  ...(typeof errorCode === "string" && errorCode.trim()
+                    ? { code: errorCode.trim() }
+                    : {}),
+                },
                 fallbackMessage: "Media generation failed upstream.",
               }) ?? { message: "Media generation failed upstream." }) as never,
             });
@@ -877,7 +917,13 @@ export const registerMediaRoutes = (http: HttpRouter) => {
         const error =
           finalPayloadError ??
           createMediaJobError({
-            value: payload.error,
+            value: {
+              message: payload.error,
+              code: payload.error_type,
+              ...(isRecord(payload.payload)
+                ? { details: payload.payload }
+                : {}),
+            },
             fallbackMessage:
               upstreamStatus === "ERROR"
                 ? "Media generation failed upstream."
@@ -981,4 +1027,5 @@ export {
   MEDIA_DOCS_URL,
   MEDIA_FAL_WEBHOOK_PATH,
   MEDIA_GENERATE_PATH,
+  MEDIA_JOB_PATH,
 };

@@ -15,13 +15,25 @@ crons.interval(
   internal.channels.transient_data.purgeExpiredCleanupFailures,
   { maxBatches: 10 },
 );
-crons.interval("thread lifecycle sweep", { hours: 24 }, internal.data.threads.sweepThreadLifecycle, {});
+crons.interval(
+  "thread lifecycle sweep",
+  { hours: 24 },
+  internal.data.threads.sweepThreadLifecycle,
+  {},
+);
 
 crons.interval(
   "rescue orphaned remote turns",
   { seconds: 60 },
   internal.channels.connector_delivery.rescueOrphanedTurns,
   {},
+);
+
+crons.interval(
+  "fail stale media jobs",
+  { seconds: 60 },
+  internal.media_jobs.markStaleJobsFailed,
+  { staleMs: 4 * 60_000, limit: 200 },
 );
 
 crons.interval(

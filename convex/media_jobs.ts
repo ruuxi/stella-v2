@@ -141,6 +141,12 @@ export const summarizeMediaRequestForStorage = (
  * the most recent few for display.
  */
 const MAX_JOB_LOGS_RETURNED = 100;
+const DEFAULT_STALE_MEDIA_JOB_LIMIT = 100;
+const STALE_IMAGE_JOB_CAPABILITIES = [
+  "text_to_image",
+  "image_edit",
+  "icon",
+] as const;
 
 const toStoredMediaJobResponse = (
   job: {
@@ -299,6 +305,24 @@ export const getByJobId = query({
   },
 });
 
+export const getByOwnerJobId = internalQuery({
+  args: {
+    ownerId: v.string(),
+    jobId: v.string(),
+  },
+  returns: v.union(v.null(), mediaJobResponseValidator),
+  handler: async (ctx, args) => {
+    const job = await ctx.db
+      .query("media_jobs")
+      .withIndex("by_ownerId_and_jobId", (q) =>
+        q.eq("ownerId", args.ownerId).eq("jobId", args.jobId),
+      )
+      .unique();
+
+    return job ? toStoredMediaJobResponse(job) : null;
+  },
+});
+
 /**
  * Reactive feed of every succeeded media job for the current viewer that
  * completed at-or-after `since`. The desktop renderer subscribes to this on
@@ -347,6 +371,40 @@ export const listSucceededSince = query({
       ? await Promise.all(succeeded.map((row) => loadJobLogs(ctx, row.jobId)))
       : succeeded.map(() => undefined);
     return succeeded.map((row, index) =>
+      toStoredMediaJobResponse(row, logs[index]),
+    );
+  },
+});
+
+export const listFailedSince = query({
+  args: {
+    since: v.number(),
+    limit: v.optional(v.number()),
+    includeLogs: v.optional(v.boolean()),
+  },
+  returns: v.array(mediaJobResponseValidator),
+  handler: async (ctx, args) => {
+    const ownerId = await toViewerOwnerIdOrNull(ctx);
+    if (!ownerId) {
+      return [];
+    }
+    const limit = Math.max(1, Math.min(args.limit ?? 50, 200));
+    const failed = await ctx.db
+      .query("media_jobs")
+      .withIndex("by_ownerId_and_status_and_completedAt", (q) =>
+        q
+          .eq("ownerId", ownerId)
+          .eq("status", "failed")
+          .gte("completedAt", args.since),
+      )
+      .order("desc")
+      .take(limit);
+
+    const wantsLogs = args.includeLogs === true;
+    const logs = wantsLogs
+      ? await Promise.all(failed.map((row) => loadJobLogs(ctx, row.jobId)))
+      : failed.map(() => undefined);
+    return failed.map((row, index) =>
       toStoredMediaJobResponse(row, logs[index]),
     );
   },
@@ -508,6 +566,61 @@ export const markSubmissionFailed = internalMutation({
       completedAt: now,
     });
     return null;
+  },
+});
+
+export const markStaleJobsFailed = internalMutation({
+  args: {
+    cutoffMs: v.optional(v.number()),
+    staleMs: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.max(
+      1,
+      Math.min(args.limit ?? DEFAULT_STALE_MEDIA_JOB_LIMIT, 500),
+    );
+    const cutoffMs = args.cutoffMs ?? Date.now() - (args.staleMs ?? 4 * 60_000);
+    const terminalError = {
+      message:
+        "Image generation timed out after 4 minutes. Please retry with the same prompt.",
+      code: "TIMEOUT",
+    };
+    let updated = 0;
+
+    for (const status of ["queued", "running"] as const) {
+      for (const capability of STALE_IMAGE_JOB_CAPABILITIES) {
+        const jobs = await ctx.db
+          .query("media_jobs")
+          .withIndex("by_status_and_capability_and_updatedAt", (q) =>
+            q
+              .eq("status", status)
+              .eq("capability", capability)
+              .lt("updatedAt", cutoffMs),
+          )
+          .take(limit - updated);
+
+        const now = Date.now();
+        for (const job of jobs) {
+          await ctx.db.patch(job._id, {
+            status: "failed",
+            upstreamStatus: "TIMEOUT",
+            queuePosition: null,
+            error: terminalError,
+            updatedAt: now,
+            completedAt: now,
+          });
+          updated += 1;
+        }
+
+        if (updated >= limit) {
+          break;
+        }
+      }
+      if (updated >= limit) break;
+    }
+
+    return { updated };
   },
 });
 

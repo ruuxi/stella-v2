@@ -11,8 +11,7 @@ export type TokenPriceConfig = {
 
 export type FireworksKimiK2P6ServiceTier = "standard" | "priority" | "fast";
 
-export const FIREWORKS_KIMI_K2P6_MODEL =
-  "accounts/fireworks/models/kimi-k2p6";
+export const FIREWORKS_KIMI_K2P6_MODEL = "accounts/fireworks/models/kimi-k2p6";
 
 const FIREWORKS_KIMI_K2P6_SERVICE_TIER_PRICES: Record<
   FireworksKimiK2P6ServiceTier,
@@ -74,6 +73,10 @@ type ServicePriceCatalog = {
   services: Record<string, number>;
 };
 
+type RealtimeSttPriceConfig = {
+  audioPerHourUsd: number;
+};
+
 const DEFAULT_REALTIME_PRICE_CATALOG: Record<string, RealtimePriceConfig> = {
   "gpt-realtime-1.5": {
     textInputPerMillionUsd: 4,
@@ -85,7 +88,94 @@ const DEFAULT_REALTIME_PRICE_CATALOG: Record<string, RealtimePriceConfig> = {
     imageInputPerMillionUsd: 5,
     imageCachedInputPerMillionUsd: 0.5,
   },
+  "gpt-realtime-2": {
+    textInputPerMillionUsd: 4,
+    textCachedInputPerMillionUsd: 0.4,
+    textOutputPerMillionUsd: 24,
+    audioInputPerMillionUsd: 32,
+    audioCachedInputPerMillionUsd: 0.4,
+    audioOutputPerMillionUsd: 64,
+    imageInputPerMillionUsd: 5,
+    imageCachedInputPerMillionUsd: 0.5,
+  },
 };
+
+const DEFAULT_REALTIME_LLM_PRICE_CATALOG: Record<string, TokenPriceConfig> = {
+  "gpt-4o-mini": {
+    inputPerMillionUsd: 0.15,
+    cacheReadPerMillionUsd: 0.075,
+    outputPerMillionUsd: 0.6,
+    reasoningPerMillionUsd: 0.6,
+  },
+  "openai/gpt-4o-mini": {
+    inputPerMillionUsd: 0.15,
+    cacheReadPerMillionUsd: 0.075,
+    outputPerMillionUsd: 0.6,
+    reasoningPerMillionUsd: 0.6,
+  },
+};
+
+const DEFAULT_REALTIME_STT_PRICE_CATALOG: Record<
+  string,
+  RealtimeSttPriceConfig
+> = {
+  // Inworld Creator-tier realtime STT price.
+  "inworld/inworld-stt-1": {
+    audioPerHourUsd: 0.35,
+  },
+  // Current Stella Inworld realtime STT model. Inworld exposes this as a
+  // selectable STT model; we meter it through the Creator STT rate.
+  "assemblyai/u3-rt-pro": {
+    audioPerHourUsd: 0.35,
+  },
+};
+
+const DEFAULT_TTS_PRICE_CATALOG: Record<
+  string,
+  {
+    textInputPerMillionUsd: number;
+    audioOutputPerMillionUsd: number;
+  }
+> = {
+  "gpt-4o-mini-tts": {
+    textInputPerMillionUsd: 0.6,
+    audioOutputPerMillionUsd: 12,
+  },
+};
+
+const lookupRealtimePriceConfig = (
+  model: string,
+): RealtimePriceConfig | undefined =>
+  DEFAULT_REALTIME_PRICE_CATALOG[model] ??
+  (model.startsWith("gpt-realtime-2-")
+    ? DEFAULT_REALTIME_PRICE_CATALOG["gpt-realtime-2"]
+    : undefined) ??
+  (model.startsWith("gpt-realtime-1.5-")
+    ? DEFAULT_REALTIME_PRICE_CATALOG["gpt-realtime-1.5"]
+    : undefined);
+
+const lookupRealtimeLlmPriceConfig = (
+  model: string,
+): TokenPriceConfig | undefined =>
+  DEFAULT_REALTIME_LLM_PRICE_CATALOG[model] ??
+  (model.startsWith("openai/")
+    ? DEFAULT_REALTIME_LLM_PRICE_CATALOG[model.slice("openai/".length)]
+    : undefined);
+
+const lookupRealtimeSttPriceConfig = (
+  model: string | undefined,
+): RealtimeSttPriceConfig | undefined =>
+  model ? DEFAULT_REALTIME_STT_PRICE_CATALOG[model] : undefined;
+
+const lookupTtsPriceConfig = (
+  model: string,
+):
+  | { textInputPerMillionUsd: number; audioOutputPerMillionUsd: number }
+  | undefined =>
+  DEFAULT_TTS_PRICE_CATALOG[model] ??
+  (model.startsWith("gpt-4o-mini-tts-")
+    ? DEFAULT_TTS_PRICE_CATALOG["gpt-4o-mini-tts"]
+    : undefined);
 
 const DEFAULT_TOKEN_PRICE: TokenPriceConfig = {
   // Reference baseline from OpenCode Go docs/token table.
@@ -103,10 +193,7 @@ type TokenPriceCatalog = {
   models: Record<string, TokenPriceConfig>;
 };
 
-const parsePositiveNumber = (
-  value: unknown,
-  fallback: number,
-): number => {
+const parsePositiveNumber = (value: unknown, fallback: number): number => {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     return fallback;
   }
@@ -123,11 +210,26 @@ const normalizePriceConfig = (
 
   const record = value as Record<string, unknown>;
   return {
-    inputPerMillionUsd: parsePositiveNumber(record.inputPerMillionUsd, fallback.inputPerMillionUsd),
-    outputPerMillionUsd: parsePositiveNumber(record.outputPerMillionUsd, fallback.outputPerMillionUsd),
-    cacheReadPerMillionUsd: parsePositiveNumber(record.cacheReadPerMillionUsd, fallback.cacheReadPerMillionUsd ?? 0),
-    cacheWritePerMillionUsd: parsePositiveNumber(record.cacheWritePerMillionUsd, fallback.cacheWritePerMillionUsd ?? 0),
-    reasoningPerMillionUsd: parsePositiveNumber(record.reasoningPerMillionUsd, fallback.reasoningPerMillionUsd ?? fallback.outputPerMillionUsd),
+    inputPerMillionUsd: parsePositiveNumber(
+      record.inputPerMillionUsd,
+      fallback.inputPerMillionUsd,
+    ),
+    outputPerMillionUsd: parsePositiveNumber(
+      record.outputPerMillionUsd,
+      fallback.outputPerMillionUsd,
+    ),
+    cacheReadPerMillionUsd: parsePositiveNumber(
+      record.cacheReadPerMillionUsd,
+      fallback.cacheReadPerMillionUsd ?? 0,
+    ),
+    cacheWritePerMillionUsd: parsePositiveNumber(
+      record.cacheWritePerMillionUsd,
+      fallback.cacheWritePerMillionUsd ?? 0,
+    ),
+    reasoningPerMillionUsd: parsePositiveNumber(
+      record.reasoningPerMillionUsd,
+      fallback.reasoningPerMillionUsd ?? fallback.outputPerMillionUsd,
+    ),
   };
 };
 
@@ -145,7 +247,7 @@ const loadTokenPriceCatalog = (): TokenPriceCatalog => {
     const defaults = normalizePriceConfig(parsed.default, DEFAULT_TOKEN_PRICE);
     const modelEntries =
       parsed.models && typeof parsed.models === "object"
-        ? parsed.models as Record<string, unknown>
+        ? (parsed.models as Record<string, unknown>)
         : {};
 
     const models: Record<string, TokenPriceConfig> = {};
@@ -162,7 +264,10 @@ const loadTokenPriceCatalog = (): TokenPriceCatalog => {
       models,
     };
   } catch (error) {
-    console.warn("[billing] Invalid STELLA_TOKEN_PRICE_CATALOG_JSON. Falling back to defaults.", error);
+    console.warn(
+      "[billing] Invalid STELLA_TOKEN_PRICE_CATALOG_JSON. Falling back to defaults.",
+      error,
+    );
     return {
       default: DEFAULT_TOKEN_PRICE,
       models: {},
@@ -185,7 +290,7 @@ const loadServicePriceCatalog = (): ServicePriceCatalog => {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const serviceEntries =
       parsed.services && typeof parsed.services === "object"
-        ? parsed.services as Record<string, unknown>
+        ? (parsed.services as Record<string, unknown>)
         : {};
 
     const services: Record<string, number> = {
@@ -200,20 +305,33 @@ const loadServicePriceCatalog = (): ServicePriceCatalog => {
     }
 
     return {
-      defaultUsd: parsePositiveNumber(parsed.defaultUsd, DEFAULT_SERVICE_PRICE_CATALOG.defaultUsd),
+      defaultUsd: parsePositiveNumber(
+        parsed.defaultUsd,
+        DEFAULT_SERVICE_PRICE_CATALOG.defaultUsd,
+      ),
       services,
     };
   } catch (error) {
-    console.warn("[billing] Invalid STELLA_SERVICE_PRICE_CATALOG_JSON. Falling back to defaults.", error);
+    console.warn(
+      "[billing] Invalid STELLA_SERVICE_PRICE_CATALOG_JSON. Falling back to defaults.",
+      error,
+    );
     return DEFAULT_SERVICE_PRICE_CATALOG;
   }
 };
 
 const SERVICE_PRICE_CATALOG = loadServicePriceCatalog();
 
-export const centsToMicroCents = (cents: number) => Math.round(cents * MICRO_CENTS_PER_CENT);
+const XAI_REALTIME_AUDIO_PER_MINUTE_USD = 0.05;
 
-export const dollarsToMicroCents = (dollars: number) => centsToMicroCents(dollars * CENTS_PER_DOLLAR);
+const isXaiRealtimeModel = (model: string): boolean =>
+  model === "grok-voice-latest" || model.startsWith("grok-voice-");
+
+export const centsToMicroCents = (cents: number) =>
+  Math.round(cents * MICRO_CENTS_PER_CENT);
+
+export const dollarsToMicroCents = (dollars: number) =>
+  centsToMicroCents(dollars * CENTS_PER_DOLLAR);
 
 export const microCentsToDollars = (microCents: number) =>
   microCents / (MICRO_CENTS_PER_CENT * CENTS_PER_DOLLAR);
@@ -227,7 +345,10 @@ export const computeUsageCostMicroCents = (args: {
   reasoningTokens?: number;
   price?: TokenPriceConfig;
 }) => {
-  const price = args.price ?? TOKEN_PRICE_CATALOG.models[args.model] ?? TOKEN_PRICE_CATALOG.default;
+  const price =
+    args.price ??
+    TOKEN_PRICE_CATALOG.models[args.model] ??
+    TOKEN_PRICE_CATALOG.default;
   const cachedInputTokens = Math.max(0, args.cachedInputTokens ?? 0);
   const cacheWriteInputTokens = Math.max(0, args.cacheWriteInputTokens ?? 0);
   const billableInputTokens = Math.max(
@@ -238,12 +359,18 @@ export const computeUsageCostMicroCents = (args: {
   const textOutputTokens = Math.max(0, args.outputTokens - reasoningTokens);
 
   const inputUsd = (billableInputTokens / 1_000_000) * price.inputPerMillionUsd;
-  const cachedInputUsd = (cachedInputTokens / 1_000_000) * (price.cacheReadPerMillionUsd ?? 0);
-  const cacheWriteUsd = (cacheWriteInputTokens / 1_000_000) * (price.cacheWritePerMillionUsd ?? 0);
+  const cachedInputUsd =
+    (cachedInputTokens / 1_000_000) * (price.cacheReadPerMillionUsd ?? 0);
+  const cacheWriteUsd =
+    (cacheWriteInputTokens / 1_000_000) * (price.cacheWritePerMillionUsd ?? 0);
   const outputUsd = (textOutputTokens / 1_000_000) * price.outputPerMillionUsd;
-  const reasoningUsd = (reasoningTokens / 1_000_000) * (price.reasoningPerMillionUsd ?? price.outputPerMillionUsd);
+  const reasoningUsd =
+    (reasoningTokens / 1_000_000) *
+    (price.reasoningPerMillionUsd ?? price.outputPerMillionUsd);
 
-  return dollarsToMicroCents(inputUsd + cachedInputUsd + cacheWriteUsd + outputUsd + reasoningUsd);
+  return dollarsToMicroCents(
+    inputUsd + cachedInputUsd + cacheWriteUsd + outputUsd + reasoningUsd,
+  );
 };
 
 export const resolveServicePriceUsd = (serviceKey: string): number => {
@@ -269,6 +396,7 @@ export const computeServiceCostMicroCents = (serviceKey: string): number =>
 
 export const computeRealtimeUsageCostMicroCents = (args: {
   model: string;
+  exactCostMicroCents?: number;
   textInputTokens?: number;
   textCachedInputTokens?: number;
   textOutputTokens?: number;
@@ -277,37 +405,106 @@ export const computeRealtimeUsageCostMicroCents = (args: {
   audioOutputTokens?: number;
   imageInputTokens?: number;
   imageCachedInputTokens?: number;
+  realtimeAudioSeconds?: number;
+  realtimeTextInputMessages?: number;
+  sttModel?: string;
+  sttAudioSeconds?: number;
 }) => {
-  const price = DEFAULT_REALTIME_PRICE_CATALOG[args.model];
+  if (
+    typeof args.exactCostMicroCents === "number" &&
+    Number.isFinite(args.exactCostMicroCents)
+  ) {
+    return Math.max(0, Math.floor(args.exactCostMicroCents));
+  }
+
+  const price = lookupRealtimePriceConfig(args.model);
+  let totalUsd = 0;
+
+  if (price) {
+    const textInputUsd =
+      (Math.max(0, args.textInputTokens ?? 0) / 1_000_000) *
+      price.textInputPerMillionUsd;
+    const textCachedInputUsd =
+      (Math.max(0, args.textCachedInputTokens ?? 0) / 1_000_000) *
+      price.textCachedInputPerMillionUsd;
+    const textOutputUsd =
+      (Math.max(0, args.textOutputTokens ?? 0) / 1_000_000) *
+      price.textOutputPerMillionUsd;
+    const audioInputUsd =
+      (Math.max(0, args.audioInputTokens ?? 0) / 1_000_000) *
+      price.audioInputPerMillionUsd;
+    const audioCachedInputUsd =
+      (Math.max(0, args.audioCachedInputTokens ?? 0) / 1_000_000) *
+      price.audioCachedInputPerMillionUsd;
+    const audioOutputUsd =
+      (Math.max(0, args.audioOutputTokens ?? 0) / 1_000_000) *
+      price.audioOutputPerMillionUsd;
+    const imageInputUsd =
+      (Math.max(0, args.imageInputTokens ?? 0) / 1_000_000) *
+      price.imageInputPerMillionUsd;
+    const imageCachedInputUsd =
+      (Math.max(0, args.imageCachedInputTokens ?? 0) / 1_000_000) *
+      price.imageCachedInputPerMillionUsd;
+
+    totalUsd +=
+      textInputUsd +
+      textCachedInputUsd +
+      textOutputUsd +
+      audioInputUsd +
+      audioCachedInputUsd +
+      audioOutputUsd +
+      imageInputUsd +
+      imageCachedInputUsd;
+  }
+
+  const llmPrice = lookupRealtimeLlmPriceConfig(args.model);
+  if (llmPrice) {
+    const textInputTokens = Math.max(0, args.textInputTokens ?? 0);
+    const textCachedInputTokens = Math.max(0, args.textCachedInputTokens ?? 0);
+    const billableInputTokens = Math.max(
+      0,
+      textInputTokens - textCachedInputTokens,
+    );
+    totalUsd +=
+      (billableInputTokens / 1_000_000) * llmPrice.inputPerMillionUsd +
+      (textCachedInputTokens / 1_000_000) *
+        (llmPrice.cacheReadPerMillionUsd ?? 0) +
+      (Math.max(0, args.textOutputTokens ?? 0) / 1_000_000) *
+        llmPrice.outputPerMillionUsd;
+  }
+
+  if (isXaiRealtimeModel(args.model)) {
+    totalUsd +=
+      (Math.max(0, args.realtimeAudioSeconds ?? 0) / 60) *
+      XAI_REALTIME_AUDIO_PER_MINUTE_USD;
+  }
+
+  const sttPrice = lookupRealtimeSttPriceConfig(args.sttModel);
+  if (sttPrice) {
+    totalUsd +=
+      (Math.max(0, args.sttAudioSeconds ?? 0) / 3600) *
+      sttPrice.audioPerHourUsd;
+  }
+
+  return dollarsToMicroCents(totalUsd);
+};
+
+export const computeTtsUsageCostMicroCents = (args: {
+  model: string;
+  textInputTokens: number;
+  audioOutputTokens: number;
+}) => {
+  const price = lookupTtsPriceConfig(args.model);
   if (!price) {
     return 0;
   }
 
   const textInputUsd =
-    (Math.max(0, args.textInputTokens ?? 0) / 1_000_000) * price.textInputPerMillionUsd;
-  const textCachedInputUsd =
-    (Math.max(0, args.textCachedInputTokens ?? 0) / 1_000_000) * price.textCachedInputPerMillionUsd;
-  const textOutputUsd =
-    (Math.max(0, args.textOutputTokens ?? 0) / 1_000_000) * price.textOutputPerMillionUsd;
-  const audioInputUsd =
-    (Math.max(0, args.audioInputTokens ?? 0) / 1_000_000) * price.audioInputPerMillionUsd;
-  const audioCachedInputUsd =
-    (Math.max(0, args.audioCachedInputTokens ?? 0) / 1_000_000) * price.audioCachedInputPerMillionUsd;
+    (Math.max(0, args.textInputTokens) / 1_000_000) *
+    price.textInputPerMillionUsd;
   const audioOutputUsd =
-    (Math.max(0, args.audioOutputTokens ?? 0) / 1_000_000) * price.audioOutputPerMillionUsd;
-  const imageInputUsd =
-    (Math.max(0, args.imageInputTokens ?? 0) / 1_000_000) * price.imageInputPerMillionUsd;
-  const imageCachedInputUsd =
-    (Math.max(0, args.imageCachedInputTokens ?? 0) / 1_000_000) * price.imageCachedInputPerMillionUsd;
+    (Math.max(0, args.audioOutputTokens) / 1_000_000) *
+    price.audioOutputPerMillionUsd;
 
-  return dollarsToMicroCents(
-    textInputUsd
-      + textCachedInputUsd
-      + textOutputUsd
-      + audioInputUsd
-      + audioCachedInputUsd
-      + audioOutputUsd
-      + imageInputUsd
-      + imageCachedInputUsd,
-  );
+  return dollarsToMicroCents(textInputUsd + audioOutputUsd);
 };

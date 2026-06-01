@@ -28,16 +28,21 @@ import {
   centsToMicroCents,
   type TokenPriceConfig,
   computeRealtimeUsageCostMicroCents,
+  computeTtsUsageCostMicroCents,
   computeUsageCostMicroCents,
   dollarsToMicroCents,
   microCentsToDollars,
 } from "./lib/billing_money";
-import { buildManagedModelPriceEntries, type ManagedModelPriceEntry, type ModelsDevApi } from "./lib/models_dev";
-import { listManagedModelIds, resolveManagedModelAudience } from "./agent/model";
 import {
-  enforceActionRateLimit,
-  RATE_EXPENSIVE,
-} from "./lib/rate_limits";
+  buildManagedModelPriceEntries,
+  type ManagedModelPriceEntry,
+  type ModelsDevApi,
+} from "./lib/models_dev";
+import {
+  listManagedModelIds,
+  resolveManagedModelAudience,
+} from "./agent/model";
+import { enforceActionRateLimit, RATE_EXPENSIVE } from "./lib/rate_limits";
 
 const planValidator = v.union(
   v.literal("free"),
@@ -58,6 +63,23 @@ const usageModeValidator = v.union(
   v.literal("default"),
   v.literal("unlimited"),
 );
+
+const voiceRealtimeProviderValidator = v.union(
+  v.literal("openai"),
+  v.literal("xai"),
+  v.literal("inworld"),
+);
+
+const voiceRealtimeLeaseEventValidator = v.union(
+  v.literal("heartbeat"),
+  v.literal("ended"),
+  v.literal("expired"),
+  v.literal("lost"),
+);
+
+const VOICE_REALTIME_LEASE_DURATION_MS = 5 * 60 * 1000;
+const VOICE_REALTIME_LEASE_HEARTBEAT_GRACE_MS = 30 * 1000;
+const VOICE_REALTIME_LEASE_EXPIRY_GRACE_MS = 15 * 1000;
 
 const planConfigShapeValidator = v.object({
   label: v.string(),
@@ -107,7 +129,11 @@ const USAGE_CREDIT_MAX_PURCHASE_CENTS = 50_000;
 const USAGE_CREDIT_PRESET_AMOUNTS_CENTS = [500, 1_000, 2_500, 5_000] as const;
 
 const isAnonymousIdentity = (identity: unknown) =>
-  Boolean(identity && typeof identity === "object" && (identity as Record<string, unknown>).isAnonymous === true);
+  Boolean(
+    identity &&
+      typeof identity === "object" &&
+      (identity as Record<string, unknown>).isAnonymous === true,
+  );
 
 const hasUnlimitedUsage = (profile: { usageMode?: string }) =>
   profile.usageMode === "unlimited";
@@ -137,31 +163,26 @@ const toNonNegativeInt = (value: number | undefined): number => {
   return Math.max(0, Math.floor(value));
 };
 
-const toSafeString = (value: string | null | undefined) => value?.trim() ?? emptyString;
+const toSafeString = (value: string | null | undefined) =>
+  value?.trim() ?? emptyString;
 
-const getOwnerBillingProfile = async (
-  ctx: MutationCtx,
-  ownerId: string,
-) => await ctx.db
-  .query("billing_profiles")
-  .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-  .unique();
+const getOwnerBillingProfile = async (ctx: MutationCtx, ownerId: string) =>
+  await ctx.db
+    .query("billing_profiles")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
 
-const getOwnerUsageRow = async (
-  ctx: MutationCtx,
-  ownerId: string,
-) => await ctx.db
-  .query("billing_usage_windows")
-  .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-  .unique();
+const getOwnerUsageRow = async (ctx: MutationCtx, ownerId: string) =>
+  await ctx.db
+    .query("billing_usage_windows")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
 
-const getOwnerUsageCreditRow = async (
-  ctx: MutationCtx,
-  ownerId: string,
-) => await ctx.db
-  .query("billing_usage_credits")
-  .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-  .unique();
+const getOwnerUsageCreditRow = async (ctx: MutationCtx, ownerId: string) =>
+  await ctx.db
+    .query("billing_usage_credits")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
 
 const createDefaultProfile = (ownerId: string, now: number) => ({
   ownerId,
@@ -246,14 +267,14 @@ const ensureBillingRecordsForOwner = async (
   return { profile, usage };
 };
 
-const ensureUsageCreditForOwner = async (
-  ctx: MutationCtx,
-  ownerId: string,
-) => {
+const ensureUsageCreditForOwner = async (ctx: MutationCtx, ownerId: string) => {
   const now = Date.now();
   let credit = await getOwnerUsageCreditRow(ctx, ownerId);
   if (!credit) {
-    await ctx.db.insert("billing_usage_credits", createDefaultUsageCredit(ownerId, now));
+    await ctx.db.insert(
+      "billing_usage_credits",
+      createDefaultUsageCredit(ownerId, now),
+    );
     credit = await getOwnerUsageCreditRow(ctx, ownerId);
   }
   if (!credit) {
@@ -361,28 +382,42 @@ const buildUsageSnapshot = (args: {
   const planConfig = getPlanConfig(args.plan);
   const nowDate = new Date(args.now);
 
-  const rollingWindowMs = Math.max(1, Math.floor(planConfig.rollingWindowHours * 60 * 60 * 1000));
-  const rollingLimitMicroCents = dollarsToMicroCents(planConfig.rollingLimitUsd);
+  const rollingWindowMs = Math.max(
+    1,
+    Math.floor(planConfig.rollingWindowHours * 60 * 60 * 1000),
+  );
+  const rollingLimitMicroCents = dollarsToMicroCents(
+    planConfig.rollingLimitUsd,
+  );
   const rollingWindowStartThreshold = args.now - rollingWindowMs;
   const rollingActive =
-    args.usage.rollingWindowStartedAt > 0
-    && args.usage.rollingWindowStartedAt >= rollingWindowStartThreshold;
+    args.usage.rollingWindowStartedAt > 0 &&
+    args.usage.rollingWindowStartedAt >= rollingWindowStartThreshold;
   const rollingUsed = rollingActive ? args.usage.rollingUsageMicroCents : 0;
-  const rollingStart = rollingActive ? args.usage.rollingWindowStartedAt : args.now;
+  const rollingStart = rollingActive
+    ? args.usage.rollingWindowStartedAt
+    : args.now;
   const rollingResetAt = rollingStart + rollingWindowMs;
 
   const week = getWeekBounds(nowDate);
   const weeklyLimitMicroCents = dollarsToMicroCents(planConfig.weeklyLimitUsd);
   const weeklyActive = args.usage.weeklyWindowStartedAt >= week.start.getTime();
   const weeklyUsed = weeklyActive ? args.usage.weeklyUsageMicroCents : 0;
-  const weeklyStart = weeklyActive ? args.usage.weeklyWindowStartedAt : week.start.getTime();
+  const weeklyStart = weeklyActive
+    ? args.usage.weeklyWindowStartedAt
+    : week.start.getTime();
   const weeklyResetAt = week.end.getTime();
 
   const anchor =
-    args.profile.monthlyAnchorAt > 0 ? new Date(args.profile.monthlyAnchorAt) : nowDate;
+    args.profile.monthlyAnchorAt > 0
+      ? new Date(args.profile.monthlyAnchorAt)
+      : nowDate;
   const month = getMonthlyBounds(nowDate, anchor);
-  const monthlyLimitMicroCents = dollarsToMicroCents(planConfig.monthlyLimitUsd);
-  const monthlyActive = args.usage.monthlyWindowStartedAt >= month.start.getTime();
+  const monthlyLimitMicroCents = dollarsToMicroCents(
+    planConfig.monthlyLimitUsd,
+  );
+  const monthlyActive =
+    args.usage.monthlyWindowStartedAt >= month.start.getTime();
   const monthlyUsed = monthlyActive ? args.usage.monthlyUsageMicroCents : 0;
   const monthlyStart = monthlyActive
     ? args.usage.monthlyWindowStartedAt
@@ -399,12 +434,18 @@ const buildUsageSnapshot = (args: {
   };
 
   const changed =
-    normalizedUsage.rollingUsageMicroCents !== args.usage.rollingUsageMicroCents
-    || normalizedUsage.rollingWindowStartedAt !== args.usage.rollingWindowStartedAt
-    || normalizedUsage.weeklyUsageMicroCents !== args.usage.weeklyUsageMicroCents
-    || normalizedUsage.weeklyWindowStartedAt !== args.usage.weeklyWindowStartedAt
-    || normalizedUsage.monthlyUsageMicroCents !== args.usage.monthlyUsageMicroCents
-    || normalizedUsage.monthlyWindowStartedAt !== args.usage.monthlyWindowStartedAt;
+    normalizedUsage.rollingUsageMicroCents !==
+      args.usage.rollingUsageMicroCents ||
+    normalizedUsage.rollingWindowStartedAt !==
+      args.usage.rollingWindowStartedAt ||
+    normalizedUsage.weeklyUsageMicroCents !==
+      args.usage.weeklyUsageMicroCents ||
+    normalizedUsage.weeklyWindowStartedAt !==
+      args.usage.weeklyWindowStartedAt ||
+    normalizedUsage.monthlyUsageMicroCents !==
+      args.usage.monthlyUsageMicroCents ||
+    normalizedUsage.monthlyWindowStartedAt !==
+      args.usage.monthlyWindowStartedAt;
 
   return {
     normalizedUsage,
@@ -454,7 +495,11 @@ const buildManagedModelAccessResult = (args: {
   plan: SubscriptionPlan;
   isAnonymous?: boolean;
   unlimited?: boolean;
-  exceededWindow: UsageSnapshot["rolling"] | UsageSnapshot["weekly"] | UsageSnapshot["monthly"] | null;
+  exceededWindow:
+    | UsageSnapshot["rolling"]
+    | UsageSnapshot["weekly"]
+    | UsageSnapshot["monthly"]
+    | null;
   now: number;
 }): ManagedModelAccessResult => {
   const { plan, exceededWindow, now } = args;
@@ -523,13 +568,11 @@ export type ManagedUsageRecordArgs = {
   toolCalls?: number;
 };
 
-const getManagedModelPriceRow = async (
-  ctx: MutationCtx,
-  model: string,
-) => await ctx.db
-  .query("billing_model_prices")
-  .withIndex("by_model", (q) => q.eq("model", model))
-  .unique();
+const getManagedModelPriceRow = async (ctx: MutationCtx, model: string) =>
+  await ctx.db
+    .query("billing_model_prices")
+    .withIndex("by_model", (q) => q.eq("model", model))
+    .unique();
 
 const toTokenPriceConfig = (
   row: {
@@ -542,12 +585,12 @@ const toTokenPriceConfig = (
 ): TokenPriceConfig | undefined =>
   row
     ? {
-      inputPerMillionUsd: row.inputPerMillionUsd,
-      outputPerMillionUsd: row.outputPerMillionUsd,
-      cacheReadPerMillionUsd: row.cacheReadPerMillionUsd,
-      cacheWritePerMillionUsd: row.cacheWritePerMillionUsd,
-      reasoningPerMillionUsd: row.reasoningPerMillionUsd,
-    }
+        inputPerMillionUsd: row.inputPerMillionUsd,
+        outputPerMillionUsd: row.outputPerMillionUsd,
+        cacheReadPerMillionUsd: row.cacheReadPerMillionUsd,
+        cacheWritePerMillionUsd: row.cacheWritePerMillionUsd,
+        reasoningPerMillionUsd: row.reasoningPerMillionUsd,
+      }
     : undefined;
 
 const getDefaultConversationIdForOwner = async (
@@ -572,24 +615,31 @@ export const persistManagedUsage = async (
   const cachedInputTokens = toNonNegativeInt(args.cachedInputTokens);
   const cacheWriteInputTokens = toNonNegativeInt(args.cacheWriteInputTokens);
   const reasoningTokens = toNonNegativeInt(args.reasoningTokens);
-  const totalTokens = typeof args.totalTokens === "number" && Number.isFinite(args.totalTokens)
-    ? Math.max(0, Math.floor(args.totalTokens))
-    : inputTokens + outputTokens;
-  const modelPrice = toTokenPriceConfig(await getManagedModelPriceRow(ctx, args.model));
+  const totalTokens =
+    typeof args.totalTokens === "number" && Number.isFinite(args.totalTokens)
+      ? Math.max(0, Math.floor(args.totalTokens))
+      : inputTokens + outputTokens;
+  const modelPrice = toTokenPriceConfig(
+    await getManagedModelPriceRow(ctx, args.model),
+  );
   const costMicroCents =
-    typeof args.costMicroCents === "number" && Number.isFinite(args.costMicroCents)
+    typeof args.costMicroCents === "number" &&
+    Number.isFinite(args.costMicroCents)
       ? Math.max(0, Math.floor(args.costMicroCents))
       : computeUsageCostMicroCents({
-        model: args.model,
-        inputTokens,
-        outputTokens,
-        cachedInputTokens,
-        cacheWriteInputTokens,
-        reasoningTokens,
-        price: modelPrice,
-      });
+          model: args.model,
+          inputTokens,
+          outputTokens,
+          cachedInputTokens,
+          cacheWriteInputTokens,
+          reasoningTokens,
+          price: modelPrice,
+        });
 
-  const { profile, usage } = await ensureBillingRecordsForOwner(ctx, args.ownerId);
+  const { profile, usage } = await ensureBillingRecordsForOwner(
+    ctx,
+    args.ownerId,
+  );
   const plan = profile.activePlan as SubscriptionPlan;
   const now = Date.now();
   const unlimited = hasUnlimitedUsage(profile);
@@ -608,11 +658,14 @@ export const persistManagedUsage = async (
   let creditConsumedMicroCents = 0;
 
   await ctx.db.patch(usage._id, {
-    rollingUsageMicroCents: snapshot.normalizedUsage.rollingUsageMicroCents + costMicroCents,
+    rollingUsageMicroCents:
+      snapshot.normalizedUsage.rollingUsageMicroCents + costMicroCents,
     rollingWindowStartedAt: snapshot.normalizedUsage.rollingWindowStartedAt,
-    weeklyUsageMicroCents: snapshot.normalizedUsage.weeklyUsageMicroCents + costMicroCents,
+    weeklyUsageMicroCents:
+      snapshot.normalizedUsage.weeklyUsageMicroCents + costMicroCents,
     weeklyWindowStartedAt: snapshot.normalizedUsage.weeklyWindowStartedAt,
-    monthlyUsageMicroCents: snapshot.normalizedUsage.monthlyUsageMicroCents + costMicroCents,
+    monthlyUsageMicroCents:
+      snapshot.normalizedUsage.monthlyUsageMicroCents + costMicroCents,
     monthlyWindowStartedAt: snapshot.normalizedUsage.monthlyWindowStartedAt,
     totalUsageMicroCents: usage.totalUsageMicroCents + costMicroCents,
     updatedAt: now,
@@ -627,7 +680,8 @@ export const persistManagedUsage = async (
       );
       if (creditConsumedMicroCents > 0) {
         await ctx.db.patch(credit._id, {
-          balanceMicroCents: getUsageCreditBalanceMicroCents(credit) - creditConsumedMicroCents,
+          balanceMicroCents:
+            getUsageCreditBalanceMicroCents(credit) - creditConsumedMicroCents,
           totalConsumedMicroCents:
             Math.max(0, Math.floor(credit.totalConsumedMicroCents)) +
             creditConsumedMicroCents,
@@ -637,7 +691,9 @@ export const persistManagedUsage = async (
     }
   }
 
-  const conversationId = args.conversationId ?? await getDefaultConversationIdForOwner(ctx, args.ownerId);
+  const conversationId =
+    args.conversationId ??
+    (await getDefaultConversationIdForOwner(ctx, args.ownerId));
   if (conversationId) {
     await ctx.db.insert("usage_logs", {
       ownerId: args.ownerId,
@@ -654,7 +710,9 @@ export const persistManagedUsage = async (
       billingPlan: plan,
       durationMs: Math.max(0, Math.floor(args.durationMs)),
       success: args.success,
-      ...(args.fallbackUsed !== undefined ? { fallbackUsed: args.fallbackUsed } : {}),
+      ...(args.fallbackUsed !== undefined
+        ? { fallbackUsed: args.fallbackUsed }
+        : {}),
       ...(args.toolCalls !== undefined ? { toolCalls: args.toolCalls } : {}),
       createdAt: now,
     });
@@ -671,29 +729,259 @@ const getExistingVoiceUsageReceipt = async (
   ctx: MutationCtx,
   ownerId: string,
   responseId: string,
-) => await ctx.db
-  .query("billing_voice_usage_receipts")
-  .withIndex("by_ownerId_and_responseId", (q) =>
-    q.eq("ownerId", ownerId).eq("responseId", responseId),
-  )
-  .unique();
+) =>
+  await ctx.db
+    .query("billing_voice_usage_receipts")
+    .withIndex("by_ownerId_and_responseId", (q) =>
+      q.eq("ownerId", ownerId).eq("responseId", responseId),
+    )
+    .unique();
 
 const getExistingMediaUsageReceipt = async (
   ctx: MutationCtx,
   ownerId: string,
   jobId: string,
-) => await ctx.db
-  .query("billing_media_usage_receipts")
-  .withIndex("by_ownerId_and_jobId", (q) =>
-    q.eq("ownerId", ownerId).eq("jobId", jobId),
-  )
-  .unique();
+) =>
+  await ctx.db
+    .query("billing_media_usage_receipts")
+    .withIndex("by_ownerId_and_jobId", (q) =>
+      q.eq("ownerId", ownerId).eq("jobId", jobId),
+    )
+    .unique();
+
+const isVoiceLeaseReported = (lease: {
+  heartbeatCount?: number;
+  responseCount?: number;
+  lastHeartbeatAt?: number;
+  lastUsageAt?: number;
+}) =>
+  (lease.heartbeatCount ?? 0) > 0 ||
+  (lease.responseCount ?? 0) > 0 ||
+  typeof lease.lastHeartbeatAt === "number" ||
+  typeof lease.lastUsageAt === "number";
+
+export const prepareVoiceRealtimeLease = internalMutation({
+  args: {
+    ownerId: v.string(),
+    provider: voiceRealtimeProviderValidator,
+    model: v.string(),
+    voice: v.string(),
+    stellaSessionId: v.string(),
+    conversationId: v.optional(v.id("conversations")),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const [activeVoiceLeases, mintingVoiceLeases, unreportedGraceVoiceLeases] =
+      await Promise.all([
+        ctx.db
+          .query("billing_voice_sessions")
+          .withIndex("by_ownerId_and_status_and_leaseExpiresAt", (q) =>
+            q.eq("ownerId", args.ownerId).eq("status", "active"),
+          )
+          .take(20),
+        ctx.db
+          .query("billing_voice_sessions")
+          .withIndex("by_ownerId_and_status_and_leaseExpiresAt", (q) =>
+            q.eq("ownerId", args.ownerId).eq("status", "minting"),
+          )
+          .take(20),
+        ctx.db
+          .query("billing_voice_sessions")
+          .withIndex("by_ownerId_and_status_and_leaseExpiresAt", (q) =>
+            q
+              .eq("ownerId", args.ownerId)
+              .eq("status", "superseded_unreported_grace"),
+          )
+          .take(20),
+      ]);
+    const activeLeases = [
+      ...activeVoiceLeases,
+      ...mintingVoiceLeases,
+      ...unreportedGraceVoiceLeases,
+    ];
+
+    for (const lease of activeLeases) {
+      const reported = isVoiceLeaseReported(lease);
+      const pastHeartbeatGrace =
+        now - lease.createdAt > VOICE_REALTIME_LEASE_HEARTBEAT_GRACE_MS;
+      const pastExpiryGrace =
+        now > lease.leaseExpiresAt + VOICE_REALTIME_LEASE_EXPIRY_GRACE_MS;
+
+      if (!reported && (pastHeartbeatGrace || pastExpiryGrace)) {
+        await ctx.db.patch(lease._id, {
+          status: "blocked_missing_report",
+          endedAt: now,
+          endReason: "missing_report",
+          updatedAt: now,
+        });
+        return {
+          allowed: false,
+          message:
+            "Realtime voice paused because the previous session did not report usage. Restart Stella and try again.",
+          blockedSessionId: lease.stellaSessionId,
+        };
+      }
+
+      if (reported) {
+        await ctx.db.patch(lease._id, {
+          status: "superseded",
+          endedAt: now,
+          endReason: "new_lease",
+          updatedAt: now,
+        });
+      } else if (lease.status !== "superseded_unreported_grace") {
+        await ctx.db.patch(lease._id, {
+          status: "superseded_unreported_grace",
+          endedAt: now,
+          endReason: "new_lease",
+          updatedAt: now,
+        });
+      }
+    }
+
+    const leaseExpiresAt = now + VOICE_REALTIME_LEASE_DURATION_MS;
+    await ctx.db.insert("billing_voice_sessions", {
+      ownerId: args.ownerId,
+      stellaSessionId: args.stellaSessionId,
+      provider: args.provider,
+      model: args.model,
+      voice: args.voice,
+      ...(args.conversationId ? { conversationId: args.conversationId } : {}),
+      status: "minting",
+      leaseStartedAt: now,
+      leaseExpiresAt,
+      heartbeatCount: 0,
+      responseCount: 0,
+      estimatedCostMicroCents: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      realtimeAudioSeconds: 0,
+      sttAudioSeconds: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return {
+      allowed: true,
+      stellaSessionId: args.stellaSessionId,
+      leaseExpiresAt,
+      leaseDurationMs: VOICE_REALTIME_LEASE_DURATION_MS,
+    };
+  },
+});
+
+export const activateVoiceRealtimeLease = internalMutation({
+  args: {
+    ownerId: v.string(),
+    stellaSessionId: v.string(),
+    clientSecretFingerprint: v.optional(v.string()),
+    providerSessionId: v.optional(v.string()),
+    providerExpiresAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const lease = await ctx.db
+      .query("billing_voice_sessions")
+      .withIndex("by_stellaSessionId", (q) =>
+        q.eq("stellaSessionId", args.stellaSessionId),
+      )
+      .unique();
+    if (!lease || lease.ownerId !== args.ownerId) {
+      return { activated: false };
+    }
+
+    await ctx.db.patch(lease._id, {
+      status: "active",
+      ...(args.clientSecretFingerprint
+        ? { clientSecretFingerprint: args.clientSecretFingerprint }
+        : {}),
+      ...(args.providerSessionId
+        ? { providerSessionId: args.providerSessionId }
+        : {}),
+      ...(args.providerExpiresAt !== undefined
+        ? { providerExpiresAt: args.providerExpiresAt }
+        : {}),
+      updatedAt: Date.now(),
+    });
+    return { activated: true };
+  },
+});
+
+export const failVoiceRealtimeLease = internalMutation({
+  args: {
+    ownerId: v.string(),
+    stellaSessionId: v.string(),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const lease = await ctx.db
+      .query("billing_voice_sessions")
+      .withIndex("by_stellaSessionId", (q) =>
+        q.eq("stellaSessionId", args.stellaSessionId),
+      )
+      .unique();
+    if (!lease || lease.ownerId !== args.ownerId) {
+      return { updated: false };
+    }
+    const now = Date.now();
+    await ctx.db.patch(lease._id, {
+      status: "failed",
+      endedAt: now,
+      endReason: args.reason.slice(0, 120),
+      updatedAt: now,
+    });
+    return { updated: true };
+  },
+});
+
+export const recordVoiceRealtimeLeaseEvent = internalMutation({
+  args: {
+    ownerId: v.string(),
+    stellaSessionId: v.string(),
+    event: voiceRealtimeLeaseEventValidator,
+  },
+  handler: async (ctx, args) => {
+    const lease = await ctx.db
+      .query("billing_voice_sessions")
+      .withIndex("by_stellaSessionId", (q) =>
+        q.eq("stellaSessionId", args.stellaSessionId),
+      )
+      .unique();
+    if (!lease || lease.ownerId !== args.ownerId) {
+      return { recorded: false, reason: "not_found" };
+    }
+
+    const now = Date.now();
+    if (args.event === "heartbeat") {
+      await ctx.db.patch(lease._id, {
+        heartbeatCount: Math.max(0, Math.floor(lease.heartbeatCount)) + 1,
+        lastHeartbeatAt: now,
+        updatedAt: now,
+      });
+      return { recorded: true, status: lease.status };
+    }
+
+    await ctx.db.patch(lease._id, {
+      status:
+        args.event === "ended"
+          ? "ended"
+          : args.event === "expired"
+            ? "client_expired"
+            : "connection_lost",
+      endedAt: now,
+      endReason: args.event,
+      updatedAt: now,
+    });
+    return { recorded: true, status: args.event };
+  },
+});
 
 export const recordVoiceRealtimeUsage = internalMutation({
   args: {
     ownerId: v.string(),
     responseId: v.string(),
     model: v.string(),
+    stellaSessionId: v.optional(v.string()),
     conversationId: v.optional(v.id("conversations")),
     inputTokens: v.number(),
     outputTokens: v.number(),
@@ -706,6 +994,11 @@ export const recordVoiceRealtimeUsage = internalMutation({
     audioOutputTokens: v.number(),
     imageInputTokens: v.number(),
     imageCachedInputTokens: v.number(),
+    exactCostMicroCents: v.optional(v.number()),
+    realtimeAudioSeconds: v.optional(v.number()),
+    realtimeTextInputMessages: v.optional(v.number()),
+    sttModel: v.optional(v.string()),
+    sttAudioSeconds: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const existing = await getExistingVoiceUsageReceipt(
@@ -731,6 +1024,11 @@ export const recordVoiceRealtimeUsage = internalMutation({
       audioOutputTokens: args.audioOutputTokens,
       imageInputTokens: args.imageInputTokens,
       imageCachedInputTokens: args.imageCachedInputTokens,
+      exactCostMicroCents: args.exactCostMicroCents,
+      realtimeAudioSeconds: args.realtimeAudioSeconds,
+      realtimeTextInputMessages: args.realtimeTextInputMessages,
+      sttModel: args.sttModel,
+      sttAudioSeconds: args.sttAudioSeconds,
     });
 
     await persistManagedUsage(ctx, {
@@ -762,13 +1060,95 @@ export const recordVoiceRealtimeUsage = internalMutation({
       audioOutputTokens: args.audioOutputTokens,
       imageInputTokens: args.imageInputTokens,
       imageCachedInputTokens: args.imageCachedInputTokens,
+      ...(args.exactCostMicroCents !== undefined
+        ? { exactCostMicroCents: args.exactCostMicroCents }
+        : {}),
+      ...(args.realtimeAudioSeconds !== undefined
+        ? { realtimeAudioSeconds: args.realtimeAudioSeconds }
+        : {}),
+      ...(args.realtimeTextInputMessages !== undefined
+        ? { realtimeTextInputMessages: args.realtimeTextInputMessages }
+        : {}),
+      ...(args.sttModel ? { sttModel: args.sttModel } : {}),
+      ...(args.sttAudioSeconds !== undefined
+        ? { sttAudioSeconds: args.sttAudioSeconds }
+        : {}),
       costMicroCents,
       createdAt: Date.now(),
     });
 
+    const stellaSessionId = args.stellaSessionId;
+    if (stellaSessionId) {
+      const lease = await ctx.db
+        .query("billing_voice_sessions")
+        .withIndex("by_stellaSessionId", (q) =>
+          q.eq("stellaSessionId", stellaSessionId),
+        )
+        .unique();
+      if (lease && lease.ownerId === args.ownerId) {
+        await ctx.db.patch(lease._id, {
+          lastUsageAt: Date.now(),
+          responseCount: Math.max(0, Math.floor(lease.responseCount)) + 1,
+          estimatedCostMicroCents:
+            Math.max(0, Math.floor(lease.estimatedCostMicroCents)) +
+            costMicroCents,
+          inputTokens:
+            Math.max(0, Math.floor(lease.inputTokens)) + args.inputTokens,
+          outputTokens:
+            Math.max(0, Math.floor(lease.outputTokens)) + args.outputTokens,
+          totalTokens:
+            Math.max(0, Math.floor(lease.totalTokens)) + args.totalTokens,
+          realtimeAudioSeconds:
+            Math.max(0, lease.realtimeAudioSeconds) +
+            Math.max(0, args.realtimeAudioSeconds ?? 0),
+          sttAudioSeconds:
+            Math.max(0, lease.sttAudioSeconds) +
+            Math.max(0, args.sttAudioSeconds ?? 0),
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
     return {
       recorded: true,
       duplicate: false,
+      costMicroCents,
+    };
+  },
+});
+
+export const recordVoiceTtsUsage = internalMutation({
+  args: {
+    ownerId: v.string(),
+    model: v.string(),
+    conversationId: v.optional(v.id("conversations")),
+    textInputTokens: v.number(),
+    audioOutputTokens: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const textInputTokens = Math.max(0, Math.floor(args.textInputTokens));
+    const audioOutputTokens = Math.max(0, Math.floor(args.audioOutputTokens));
+    const costMicroCents = computeTtsUsageCostMicroCents({
+      model: args.model,
+      textInputTokens,
+      audioOutputTokens,
+    });
+
+    await persistManagedUsage(ctx, {
+      ownerId: args.ownerId,
+      conversationId: args.conversationId ?? null,
+      agentType: "service:voice:tts",
+      model: args.model,
+      durationMs: 0,
+      success: true,
+      inputTokens: textInputTokens,
+      outputTokens: audioOutputTokens,
+      totalTokens: textInputTokens + audioOutputTokens,
+      costMicroCents,
+    });
+
+    return {
+      recorded: true,
       costMicroCents,
     };
   },
@@ -810,7 +1190,9 @@ export const recordMediaCompletedUsage = internalMutation({
     await ctx.db.insert("billing_media_usage_receipts", {
       ownerId: args.ownerId,
       jobId: args.jobId,
-      ...(args.providerRequestId ? { providerRequestId: args.providerRequestId } : {}),
+      ...(args.providerRequestId
+        ? { providerRequestId: args.providerRequestId }
+        : {}),
       endpointId: args.endpointId,
       billingUnit: args.billingUnit,
       quantity: args.quantity,
@@ -838,7 +1220,8 @@ const normalizeReturnUrl = (value: string): string => {
   }
 
   const host = parsed.hostname.toLowerCase();
-  const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+  const isLocalHost =
+    host === "localhost" || host === "127.0.0.1" || host === "::1";
   if (!isLocalHost && parsed.protocol !== "https:") {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
@@ -863,7 +1246,10 @@ export const ensureBillingRecords = internalMutation({
     ownerId: v.string(),
   },
   handler: async (ctx, args) => {
-    const { profile, usage } = await ensureBillingRecordsForOwner(ctx, args.ownerId);
+    const { profile, usage } = await ensureBillingRecordsForOwner(
+      ctx,
+      args.ownerId,
+    );
     return {
       ownerId: profile.ownerId,
       activePlan: profile.activePlan,
@@ -881,10 +1267,11 @@ export const getBillingProfileByOwner = internalQuery({
   args: {
     ownerId: v.string(),
   },
-  handler: async (ctx, args) => await ctx.db
-    .query("billing_profiles")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
-    .unique(),
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("billing_profiles")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .unique(),
 });
 
 export const assertPaidSubscriptionForOwner = internalQuery({
@@ -899,9 +1286,9 @@ export const assertPaidSubscriptionForOwner = internalQuery({
       .unique();
 
     if (
-      !profile
-      || profile.activePlan === "free"
-      || !ACTIVE_SUBSCRIPTION_STATUSES.has(profile.subscriptionStatus)
+      !profile ||
+      profile.activePlan === "free" ||
+      !ACTIVE_SUBSCRIPTION_STATUSES.has(profile.subscriptionStatus)
     ) {
       throw new ConvexError({
         code: "SUBSCRIPTION_REQUIRED",
@@ -929,10 +1316,15 @@ export const linkStripeCustomerToOwner = internalMutation({
 
     const existingCustomerOwner = await ctx.db
       .query("billing_profiles")
-      .withIndex("by_stripeCustomerId", (q) => q.eq("stripeCustomerId", stripeCustomerId))
+      .withIndex("by_stripeCustomerId", (q) =>
+        q.eq("stripeCustomerId", stripeCustomerId),
+      )
       .unique();
 
-    if (existingCustomerOwner && existingCustomerOwner.ownerId !== args.ownerId) {
+    if (
+      existingCustomerOwner &&
+      existingCustomerOwner.ownerId !== args.ownerId
+    ) {
       throw new ConvexError({
         code: "CONFLICT",
         message: "Stripe customer is already linked to a different account.",
@@ -966,7 +1358,9 @@ export const updatePaymentMethodForCustomer = internalMutation({
 
     const profile = await ctx.db
       .query("billing_profiles")
-      .withIndex("by_stripeCustomerId", (q) => q.eq("stripeCustomerId", customerId))
+      .withIndex("by_stripeCustomerId", (q) =>
+        q.eq("stripeCustomerId", customerId),
+      )
       .unique();
     if (!profile) {
       return { updated: false };
@@ -1053,7 +1447,9 @@ export const syncSubscriptionFromStripe = internalMutation({
     if (!ownerId && normalizedCustomerId) {
       const byCustomer = await ctx.db
         .query("billing_profiles")
-        .withIndex("by_stripeCustomerId", (q) => q.eq("stripeCustomerId", normalizedCustomerId))
+        .withIndex("by_stripeCustomerId", (q) =>
+          q.eq("stripeCustomerId", normalizedCustomerId),
+        )
         .unique();
       ownerId = byCustomer?.ownerId ?? emptyString;
     }
@@ -1064,9 +1460,10 @@ export const syncSubscriptionFromStripe = internalMutation({
 
     const { profile, usage } = await ensureBillingRecordsForOwner(ctx, ownerId);
     const normalizedStatus = args.subscriptionStatus.trim().toLowerCase();
-    const requestedPlan = args.requestedPlan && args.requestedPlan !== "free"
-      ? args.requestedPlan
-      : null;
+    const requestedPlan =
+      args.requestedPlan && args.requestedPlan !== "free"
+        ? args.requestedPlan
+        : null;
     const planFromPriceId = findPlanForStripePriceId(args.stripePriceId);
     const resolvedPaidPlan = requestedPlan ?? planFromPriceId;
     const nextPlan: SubscriptionPlan =
@@ -1079,16 +1476,23 @@ export const syncSubscriptionFromStripe = internalMutation({
     const nextCurrentPeriodEnd = toNonNegativeInt(args.currentPeriodEnd);
     const nextAnchor =
       nextPlan === "free"
-        ? (profile.monthlyAnchorAt > 0 ? profile.monthlyAnchorAt : now)
-        : (nextCurrentPeriodStart > 0 ? nextCurrentPeriodStart : now);
+        ? profile.monthlyAnchorAt > 0
+          ? profile.monthlyAnchorAt
+          : now
+        : nextCurrentPeriodStart > 0
+          ? nextCurrentPeriodStart
+          : now;
 
     await ctx.db.patch(profile._id, {
       activePlan: nextPlan,
       subscriptionStatus: normalizedStatus,
       stripeCustomerId: normalizedCustomerId || profile.stripeCustomerId,
       stripeSubscriptionId:
-        nextPlan === "free" ? emptyString : toSafeString(args.stripeSubscriptionId),
-      stripePriceId: nextPlan === "free" ? emptyString : toSafeString(args.stripePriceId),
+        nextPlan === "free"
+          ? emptyString
+          : toSafeString(args.stripeSubscriptionId),
+      stripePriceId:
+        nextPlan === "free" ? emptyString : toSafeString(args.stripePriceId),
       defaultPaymentMethodId: toSafeString(args.defaultPaymentMethodId),
       paymentMethodBrand: toSafeString(args.paymentMethodBrand),
       paymentMethodLast4: toSafeString(args.paymentMethodLast4),
@@ -1146,14 +1550,19 @@ export const setAdminBillingPlan = internalMutation({
     const nextPlan = args.plan ?? (profile.activePlan as SubscriptionPlan);
     const planChanged = profile.activePlan !== nextPlan;
     const nextUsageMode =
-      args.usageMode ?? (planChanged ? "default" : profile.usageMode ?? "default");
-    const normalizedStatus = args.subscriptionStatus?.trim().toLowerCase()
-      || (nextPlan === "free" ? "none" : "active");
+      args.usageMode ??
+      (planChanged ? "default" : (profile.usageMode ?? "default"));
+    const normalizedStatus =
+      args.subscriptionStatus?.trim().toLowerCase() ||
+      (nextPlan === "free" ? "none" : "active");
     const usageModeChanged = (profile.usageMode ?? "default") !== nextUsageMode;
-    const shouldResetUsage = args.resetUsage ?? (planChanged || usageModeChanged);
+    const shouldResetUsage =
+      args.resetUsage ?? (planChanged || usageModeChanged);
     const nextAnchor =
       nextPlan === "free"
-        ? (profile.monthlyAnchorAt > 0 ? profile.monthlyAnchorAt : now)
+        ? profile.monthlyAnchorAt > 0
+          ? profile.monthlyAnchorAt
+          : now
         : now;
 
     await ctx.db.patch(profile._id, {
@@ -1217,7 +1626,9 @@ export const recordInvoicePayment = internalMutation({
     if (!ownerId && customerId) {
       const byCustomer = await ctx.db
         .query("billing_profiles")
-        .withIndex("by_stripeCustomerId", (q) => q.eq("stripeCustomerId", customerId))
+        .withIndex("by_stripeCustomerId", (q) =>
+          q.eq("stripeCustomerId", customerId),
+        )
         .unique();
       ownerId = byCustomer?.ownerId ?? emptyString;
     }
@@ -1230,7 +1641,9 @@ export const recordInvoicePayment = internalMutation({
 
     const existing = await ctx.db
       .query("billing_invoice_payments")
-      .withIndex("by_stripeInvoiceId", (q) => q.eq("stripeInvoiceId", args.stripeInvoiceId))
+      .withIndex("by_stripeInvoiceId", (q) =>
+        q.eq("stripeInvoiceId", args.stripeInvoiceId),
+      )
       .unique();
 
     const now = Date.now();
@@ -1291,12 +1704,15 @@ export const recordUsageCreditPurchase = internalMutation({
     }
 
     await ensureBillingRecordsForOwner(ctx, ownerId);
-    const amountCents = normalizeUsageCreditPurchaseAmountCents(args.amountCents);
+    const amountCents = normalizeUsageCreditPurchaseAmountCents(
+      args.amountCents,
+    );
     const amountMicroCents = centsToMicroCents(amountCents);
     const status = args.status.trim().toLowerCase() || "unknown";
     const paymentIntentId = toSafeString(args.stripePaymentIntentId);
     const customerId = toSafeString(args.stripeCustomerId);
-    const currency = args.currency.trim().toLowerCase() || USAGE_CREDIT_CURRENCY;
+    const currency =
+      args.currency.trim().toLowerCase() || USAGE_CREDIT_CURRENCY;
     const now = Date.now();
 
     const existing = await ctx.db
@@ -1310,7 +1726,8 @@ export const recordUsageCreditPurchase = internalMutation({
     if (existing) {
       await ctx.db.patch(existing._id, {
         ownerId,
-        stripePaymentIntentId: paymentIntentId || existing.stripePaymentIntentId,
+        stripePaymentIntentId:
+          paymentIntentId || existing.stripePaymentIntentId,
         stripeCustomerId: customerId || existing.stripeCustomerId,
         amountMicroCents,
         currency,
@@ -1341,7 +1758,8 @@ export const recordUsageCreditPurchase = internalMutation({
 
     const credit = await ensureUsageCreditForOwner(ctx, ownerId);
     await ctx.db.patch(credit._id, {
-      balanceMicroCents: getUsageCreditBalanceMicroCents(credit) + amountMicroCents,
+      balanceMicroCents:
+        getUsageCreditBalanceMicroCents(credit) + amountMicroCents,
       totalPurchasedMicroCents:
         Math.max(0, Math.floor(credit.totalPurchasedMicroCents)) +
         amountMicroCents,
@@ -1363,7 +1781,10 @@ export const resolveManagedModelAccess = internalMutation({
     isAnonymous: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<ManagedModelAccessResult> => {
-    const { profile, usage } = await ensureBillingRecordsForOwner(ctx, args.ownerId);
+    const { profile, usage } = await ensureBillingRecordsForOwner(
+      ctx,
+      args.ownerId,
+    );
     const now = Date.now();
     const plan = profile.activePlan as SubscriptionPlan;
     const unlimited = hasUnlimitedUsage(profile);
@@ -1381,14 +1802,13 @@ export const resolveManagedModelAccess = internalMutation({
       });
     }
 
-    const firstExceeded =
-      snapshot.rolling.exceeded
-        ? snapshot.rolling
-        : snapshot.weekly.exceeded
-          ? snapshot.weekly
-          : snapshot.monthly.exceeded
-            ? snapshot.monthly
-            : null;
+    const firstExceeded = snapshot.rolling.exceeded
+      ? snapshot.rolling
+      : snapshot.weekly.exceeded
+        ? snapshot.weekly
+        : snapshot.monthly.exceeded
+          ? snapshot.monthly
+          : null;
     const credit = firstExceeded
       ? await getOwnerUsageCreditRow(ctx, args.ownerId)
       : null;
@@ -1413,7 +1833,10 @@ export const enforceManagedUsageLimit = internalMutation({
     minimumRemainingMicroCents: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { profile, usage } = await ensureBillingRecordsForOwner(ctx, args.ownerId);
+    const { profile, usage } = await ensureBillingRecordsForOwner(
+      ctx,
+      args.ownerId,
+    );
     const now = Date.now();
     const plan = profile.activePlan as SubscriptionPlan;
     const unlimited = hasUnlimitedUsage(profile);
@@ -1446,8 +1869,8 @@ export const enforceManagedUsageLimit = internalMutation({
       Math.floor(args.minimumRemainingMicroCents ?? 0),
     );
     const isBlockedByBuffer = (window: { used: number; limit: number }) =>
-      minimumRemainingMicroCents > 0
-      && Math.max(0, window.limit - window.used) <= minimumRemainingMicroCents;
+      minimumRemainingMicroCents > 0 &&
+      Math.max(0, window.limit - window.used) <= minimumRemainingMicroCents;
 
     const firstExceeded =
       snapshot.rolling.exceeded || isBlockedByBuffer(snapshot.rolling)
@@ -1506,50 +1929,54 @@ export const logManagedUsage = internalMutation({
     reasoningTokens: v.optional(v.number()),
     costMicroCents: v.optional(v.number()),
   },
-  handler: async (ctx, args) => await persistManagedUsage(ctx, {
-    ownerId: args.ownerId,
-    conversationId: args.conversationId,
-    agentType: `proxy:${args.agentType}`,
-    model: args.model,
-    durationMs: args.durationMs,
-    success: args.success,
-    inputTokens: args.inputTokens,
-    outputTokens: args.outputTokens,
-    totalTokens: args.totalTokens,
-    cachedInputTokens: args.cachedInputTokens,
-    cacheWriteInputTokens: args.cacheWriteInputTokens,
-    reasoningTokens: args.reasoningTokens,
-    costMicroCents: args.costMicroCents,
-  }),
+  handler: async (ctx, args) =>
+    await persistManagedUsage(ctx, {
+      ownerId: args.ownerId,
+      conversationId: args.conversationId,
+      agentType: `proxy:${args.agentType}`,
+      model: args.model,
+      durationMs: args.durationMs,
+      success: args.success,
+      inputTokens: args.inputTokens,
+      outputTokens: args.outputTokens,
+      totalTokens: args.totalTokens,
+      cachedInputTokens: args.cachedInputTokens,
+      cacheWriteInputTokens: args.cacheWriteInputTokens,
+      reasoningTokens: args.reasoningTokens,
+      costMicroCents: args.costMicroCents,
+    }),
 });
 
 export const getManagedModelPrice = internalQuery({
   args: {
     model: v.string(),
   },
-  handler: async (ctx, args) => await ctx.db
-    .query("billing_model_prices")
-    .withIndex("by_model", (q) => q.eq("model", args.model))
-    .unique(),
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("billing_model_prices")
+      .withIndex("by_model", (q) => q.eq("model", args.model))
+      .unique(),
 });
 
 export const upsertManagedModelPrices = internalMutation({
   args: {
-    prices: v.array(v.object({
-      model: v.string(),
-      source: v.string(),
-      sourceProvider: v.string(),
-      sourceModelId: v.string(),
-      inputPerMillionUsd: v.number(),
-      outputPerMillionUsd: v.number(),
-      cacheReadPerMillionUsd: v.number(),
-      cacheWritePerMillionUsd: v.number(),
-      reasoningPerMillionUsd: v.number(),
-      modalitiesInput: v.array(v.string()),
-      modalitiesOutput: v.array(v.string()),
-      sourceUpdatedAt: v.string(),
-      syncedAt: v.number(),
-    })),
+    prices: v.array(
+      v.object({
+        model: v.string(),
+        source: v.string(),
+        sourceProvider: v.string(),
+        sourceModelId: v.string(),
+        inputPerMillionUsd: v.number(),
+        outputPerMillionUsd: v.number(),
+        cacheReadPerMillionUsd: v.number(),
+        cacheWritePerMillionUsd: v.number(),
+        reasoningPerMillionUsd: v.number(),
+        modalitiesInput: v.array(v.string()),
+        modalitiesOutput: v.array(v.string()),
+        sourceUpdatedAt: v.string(),
+        syncedAt: v.number(),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     for (const price of args.prices) {
@@ -1574,7 +2001,9 @@ export const upsertManagedModelPrices = internalMutation({
 
 export const syncManagedModelPricesFromModelsDev = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ syncedAt: number; upserted: number; source: string }> => {
+  handler: async (
+    ctx,
+  ): Promise<{ syncedAt: number; upserted: number; source: string }> => {
     const response = await fetch(MODELS_DEV_API_URL, { method: "GET" });
     if (!response.ok) {
       throw new ConvexError({
@@ -1583,7 +2012,7 @@ export const syncManagedModelPricesFromModelsDev = internalAction({
       });
     }
 
-    const data = await response.json() as ModelsDevApi;
+    const data = (await response.json()) as ModelsDevApi;
     const syncedAt = Date.now();
     const { entries, missingModels } = buildManagedModelPriceEntries({
       data,
@@ -1598,9 +2027,12 @@ export const syncManagedModelPricesFromModelsDev = internalAction({
       });
     }
 
-    const upserted: { upserted: number } = await ctx.runMutation(internal.billing.upsertManagedModelPrices, {
-      prices: entries as ManagedModelPriceEntry[] as never,
-    });
+    const upserted: { upserted: number } = await ctx.runMutation(
+      internal.billing.upsertManagedModelPrices,
+      {
+        prices: entries as ManagedModelPriceEntry[] as never,
+      },
+    );
 
     return {
       syncedAt,
@@ -1673,36 +2105,50 @@ export const getSubscriptionStatus = query({
     // doesn't pass `now`. This keeps the query reactive on data changes
     // while avoiding per-render `Date.now()` cache invalidation.
     const fallbackNow = args.now ?? usage?.updatedAt ?? profile?.updatedAt ?? 0;
-    const normalizedProfile = profile ?? createDefaultProfile(ownerId, fallbackNow);
+    const normalizedProfile =
+      profile ?? createDefaultProfile(ownerId, fallbackNow);
     const normalizedUsage = usage ?? createDefaultUsage(ownerId, fallbackNow);
     const plan = normalizedProfile.activePlan as SubscriptionPlan;
     const planConfig = getPlanConfig(plan);
 
-    const usageSection = args.now !== undefined
-      ? (() => {
-        const snapshot = buildUsageSnapshot({
-          profile: normalizedProfile,
-          usage: normalizedUsage,
-          plan,
-          now: args.now!,
-        });
-        return {
-          rollingUsedUsd: toCurrencyAmount(snapshot.rolling.used),
-          rollingLimitUsd: toCurrencyAmount(snapshot.rolling.limit),
-          weeklyUsedUsd: toCurrencyAmount(snapshot.weekly.used),
-          weeklyLimitUsd: toCurrencyAmount(snapshot.weekly.limit),
-          monthlyUsedUsd: toCurrencyAmount(snapshot.monthly.used),
-          monthlyLimitUsd: toCurrencyAmount(snapshot.monthly.limit),
-        };
-      })()
-      : {
-        rollingUsedUsd: toCurrencyAmount(normalizedUsage.rollingUsageMicroCents),
-        rollingLimitUsd: toCurrencyAmount(dollarsToMicroCents(planConfig.rollingLimitUsd)),
-        weeklyUsedUsd: toCurrencyAmount(normalizedUsage.weeklyUsageMicroCents),
-        weeklyLimitUsd: toCurrencyAmount(dollarsToMicroCents(planConfig.weeklyLimitUsd)),
-        monthlyUsedUsd: toCurrencyAmount(normalizedUsage.monthlyUsageMicroCents),
-        monthlyLimitUsd: toCurrencyAmount(dollarsToMicroCents(planConfig.monthlyLimitUsd)),
-      };
+    const usageSection =
+      args.now !== undefined
+        ? (() => {
+            const snapshot = buildUsageSnapshot({
+              profile: normalizedProfile,
+              usage: normalizedUsage,
+              plan,
+              now: args.now!,
+            });
+            return {
+              rollingUsedUsd: toCurrencyAmount(snapshot.rolling.used),
+              rollingLimitUsd: toCurrencyAmount(snapshot.rolling.limit),
+              weeklyUsedUsd: toCurrencyAmount(snapshot.weekly.used),
+              weeklyLimitUsd: toCurrencyAmount(snapshot.weekly.limit),
+              monthlyUsedUsd: toCurrencyAmount(snapshot.monthly.used),
+              monthlyLimitUsd: toCurrencyAmount(snapshot.monthly.limit),
+            };
+          })()
+        : {
+            rollingUsedUsd: toCurrencyAmount(
+              normalizedUsage.rollingUsageMicroCents,
+            ),
+            rollingLimitUsd: toCurrencyAmount(
+              dollarsToMicroCents(planConfig.rollingLimitUsd),
+            ),
+            weeklyUsedUsd: toCurrencyAmount(
+              normalizedUsage.weeklyUsageMicroCents,
+            ),
+            weeklyLimitUsd: toCurrencyAmount(
+              dollarsToMicroCents(planConfig.weeklyLimitUsd),
+            ),
+            monthlyUsedUsd: toCurrencyAmount(
+              normalizedUsage.monthlyUsageMicroCents,
+            ),
+            monthlyLimitUsd: toCurrencyAmount(
+              dollarsToMicroCents(planConfig.monthlyLimitUsd),
+            ),
+          };
 
     return {
       authenticated: true,
@@ -1710,7 +2156,10 @@ export const getSubscriptionStatus = query({
       plan,
       subscriptionStatus: normalizedProfile.subscriptionStatus,
       cancelAtPeriodEnd: normalizedProfile.cancelAtPeriodEnd,
-      currentPeriodEnd: normalizedProfile.currentPeriodEnd > 0 ? normalizedProfile.currentPeriodEnd : null,
+      currentPeriodEnd:
+        normalizedProfile.currentPeriodEnd > 0
+          ? normalizedProfile.currentPeriodEnd
+          : null,
       usage: usageSection,
       plans,
     };
@@ -1764,12 +2213,13 @@ export const createCheckoutSession = action({
     });
 
     if (
-      billing.activePlan !== "free"
-      && ACTIVE_SUBSCRIPTION_STATUSES.has(billing.subscriptionStatus)
+      billing.activePlan !== "free" &&
+      ACTIVE_SUBSCRIPTION_STATUSES.has(billing.subscriptionStatus)
     ) {
       throw new ConvexError({
         code: "CONFLICT",
-        message: "You already have an active subscription. Use billing management to change plans.",
+        message:
+          "You already have an active subscription. Use billing management to change plans.",
       });
     }
 
@@ -1837,9 +2287,8 @@ export const createCheckoutSession = action({
       },
     } as Stripe.Checkout.SessionCreateParams;
 
-    const checkoutSession = await stripe.checkout.sessions.create(
-      sessionParams,
-    );
+    const checkoutSession =
+      await stripe.checkout.sessions.create(sessionParams);
 
     if (!checkoutSession.url) {
       throw new ConvexError({
@@ -1900,8 +2349,12 @@ export const getUsageCreditStatus = query({
     return {
       authenticated: true,
       currency: credit?.currency ?? USAGE_CREDIT_CURRENCY,
-      balanceUsd: toCurrencyAmount(getUsageCreditBalanceMicroCents(credit ?? null)),
-      totalPurchasedUsd: toCurrencyAmount(credit?.totalPurchasedMicroCents ?? 0),
+      balanceUsd: toCurrencyAmount(
+        getUsageCreditBalanceMicroCents(credit ?? null),
+      ),
+      totalPurchasedUsd: toCurrencyAmount(
+        credit?.totalPurchasedMicroCents ?? 0,
+      ),
       totalConsumedUsd: toCurrencyAmount(credit?.totalConsumedMicroCents ?? 0),
     };
   },
@@ -1934,7 +2387,9 @@ export const createUsageCreditCheckoutSession = action({
       "Too many checkout requests. Please wait a moment and try again.",
     );
 
-    const amountCents = normalizeUsageCreditPurchaseAmountCents(args.amountCents);
+    const amountCents = normalizeUsageCreditPurchaseAmountCents(
+      args.amountCents,
+    );
     const normalizedReturnUrl = normalizeReturnUrl(args.returnUrl);
     const successUrl = appendCheckoutStatus(normalizedReturnUrl, "success");
     const cancelUrl = appendCheckoutStatus(normalizedReturnUrl, "cancel");
@@ -1999,7 +2454,8 @@ export const createUsageCreditCheckoutSession = action({
       },
     } as Stripe.Checkout.SessionCreateParams;
 
-    const checkoutSession = await stripe.checkout.sessions.create(sessionParams);
+    const checkoutSession =
+      await stripe.checkout.sessions.create(sessionParams);
     if (!checkoutSession.url) {
       throw new ConvexError({
         code: "INTERNAL_ERROR",

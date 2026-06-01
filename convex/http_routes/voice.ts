@@ -3,9 +3,7 @@ import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { requireConversationOwnerAction } from "../auth";
-import {
-  checkManagedUsageLimit,
-} from "../lib/managed_billing";
+import { checkManagedUsageLimit } from "../lib/managed_billing";
 import {
   errorResponse,
   jsonResponse,
@@ -29,9 +27,7 @@ const VOICE_SESSION_RATE_WINDOW_MS = 60_000;
 
 const CONVEX_CONVERSATION_ID_PATTERN = /^[a-z][a-z0-9]+$/;
 
-const asConvexConversationId = (
-  value: unknown,
-): Id<"conversations"> | null => {
+const asConvexConversationId = (value: unknown): Id<"conversations"> | null => {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   if (!CONVEX_CONVERSATION_ID_PATTERN.test(normalized)) return null;
@@ -41,6 +37,7 @@ const asConvexConversationId = (
 type VoiceUsageBody = {
   responseId?: string;
   model?: string;
+  stellaSessionId?: string;
   conversationId?: string;
   usage?: {
     input_tokens?: number;
@@ -59,13 +56,61 @@ type VoiceUsageBody = {
       text_tokens?: number;
       audio_tokens?: number;
     };
+    cost_in_usd_ticks?: number;
+    llm?: {
+      model?: string;
+    };
+    stt?: {
+      model?: string;
+      audio_seconds?: number;
+    };
+    xai?: {
+      audio_seconds?: number;
+      audio_input_seconds?: number;
+      audio_output_seconds?: number;
+      text_input_messages?: number;
+    };
   };
 };
 
 type ProviderClientSecretPayload = {
   value?: unknown;
+  id?: unknown;
+  session?: unknown;
   client_secret?: { value?: unknown; expires_at?: unknown } | unknown;
   expires_at?: unknown;
+};
+
+type VoiceRealtimeProvider = "openai" | "xai" | "inworld";
+
+type PreparedVoiceLease =
+  | {
+      allowed: false;
+      message?: string;
+      blockedSessionId?: string;
+    }
+  | {
+      allowed: true;
+      stellaSessionId: string;
+      leaseExpiresAt: number;
+      leaseDurationMs: number;
+    };
+
+const fingerprintString = (value: string): string => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+};
+
+const createVoiceSessionId = (provider: string): string => {
+  const random =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  return `voice_${provider}_${Date.now()}_${random}`;
 };
 
 const readProviderClientSecret = (
@@ -98,18 +143,60 @@ const readProviderClientSecretExpiry = (
   return undefined;
 };
 
+const readProviderSessionId = (
+  value: ProviderClientSecretPayload,
+): string | undefined => {
+  if (typeof value.id === "string") return value.id;
+  if (
+    value.session &&
+    typeof value.session === "object" &&
+    "id" in value.session &&
+    typeof value.session.id === "string"
+  ) {
+    return value.session.id;
+  }
+  return undefined;
+};
+
 const toNonNegativeInt = (value: unknown): number =>
-  typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : 0;
+
+const toNonNegativeNumber = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+
+const readOptionalModel = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
 
 const parseVoiceUsageBody = (body: VoiceUsageBody | null) => {
   const responseId = body?.responseId?.trim();
-  const model = body?.model?.trim();
-  if (!responseId || !model) {
+  const requestedModel = body?.model?.trim();
+  if (!responseId || !requestedModel) {
     return null;
   }
 
   const inputDetails = body?.usage?.input_token_details ?? {};
   const outputDetails = body?.usage?.output_token_details ?? {};
+  const usage = body?.usage ?? {};
+  const exactCostMicroCents =
+    typeof usage.cost_in_usd_ticks === "number" &&
+    Number.isFinite(usage.cost_in_usd_ticks)
+      ? Math.max(0, Math.round(usage.cost_in_usd_ticks / 100))
+      : undefined;
+  const model = readOptionalModel(usage.llm?.model) ?? requestedModel;
+  const sttModel = readOptionalModel(usage.stt?.model);
+  const sttAudioSeconds = toNonNegativeNumber(usage.stt?.audio_seconds);
+  const realtimeAudioSeconds = Math.max(
+    toNonNegativeNumber(usage.xai?.audio_seconds),
+    toNonNegativeNumber(usage.xai?.audio_input_seconds) +
+      toNonNegativeNumber(usage.xai?.audio_output_seconds),
+  );
+  const realtimeTextInputMessages = toNonNegativeInt(
+    usage.xai?.text_input_messages,
+  );
   const textInputTokens = toNonNegativeInt(inputDetails.text_tokens);
   const audioInputTokens = toNonNegativeInt(inputDetails.audio_tokens);
   const imageInputTokens = toNonNegativeInt(inputDetails.image_tokens);
@@ -124,15 +211,23 @@ const parseVoiceUsageBody = (body: VoiceUsageBody | null) => {
   );
   const textOutputTokens = toNonNegativeInt(outputDetails.text_tokens);
   const audioOutputTokens = toNonNegativeInt(outputDetails.audio_tokens);
-  const inputTokens = toNonNegativeInt(body?.usage?.input_tokens)
-    || (textInputTokens + audioInputTokens + imageInputTokens);
-  const outputTokens = toNonNegativeInt(body?.usage?.output_tokens)
-    || (textOutputTokens + audioOutputTokens);
-  const totalTokens = toNonNegativeInt(body?.usage?.total_tokens) || (inputTokens + outputTokens);
+  const inputTokens =
+    toNonNegativeInt(body?.usage?.input_tokens) ||
+    textInputTokens + audioInputTokens + imageInputTokens;
+  const outputTokens =
+    toNonNegativeInt(body?.usage?.output_tokens) ||
+    textOutputTokens + audioOutputTokens;
+  const totalTokens =
+    toNonNegativeInt(body?.usage?.total_tokens) || inputTokens + outputTokens;
 
   return {
     responseId,
     model,
+    stellaSessionId:
+      typeof body?.stellaSessionId === "string" &&
+      body.stellaSessionId.trim().length > 0
+        ? body.stellaSessionId.trim()
+        : undefined,
     conversationId: asConvexConversationId(body?.conversationId),
     inputTokens,
     outputTokens,
@@ -145,7 +240,32 @@ const parseVoiceUsageBody = (body: VoiceUsageBody | null) => {
     audioOutputTokens,
     imageInputTokens,
     imageCachedInputTokens,
+    ...(exactCostMicroCents !== undefined ? { exactCostMicroCents } : {}),
+    realtimeAudioSeconds,
+    realtimeTextInputMessages,
+    ...(sttModel ? { sttModel } : {}),
+    sttAudioSeconds,
   };
+};
+
+const estimateTextTokensFromChars = (text: string): number =>
+  Math.max(1, Math.ceil(text.length / 4));
+
+const estimateTtsAudioOutputTokens = (
+  text: string,
+  speed: number | undefined,
+): number => {
+  const normalizedSpeed =
+    typeof speed === "number" &&
+    Number.isFinite(speed) &&
+    speed >= 0.25 &&
+    speed <= 4
+      ? speed
+      : 1;
+  // OpenAI does not return usage for /audio/speech. Estimate spoken duration
+  // from text length, then use the Realtime audio-output rate of 1 token / 50ms.
+  const estimatedSeconds = text.length / 13 / normalizedSpeed;
+  return Math.max(1, Math.ceil(estimatedSeconds * 20));
 };
 
 // ---------------------------------------------------------------------------
@@ -158,6 +278,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     "/api/voice/session",
     "/api/voice/usage",
+    "/api/voice/lease",
     "/api/voice/inworld/sdp",
     "/api/voice/tts",
   ]);
@@ -226,6 +347,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             : body?.voiceProvider === "inworld"
               ? "inworld"
               : "openai";
+        const stellaSessionId = createVoiceSessionId(voiceProvider);
 
         if (voiceProvider === "xai") {
           // ── xAI Grok Voice Agent path ────────────────────────────────
@@ -243,6 +365,31 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           }
           const xaiModel = body.model ?? "grok-voice-think-fast-1.0";
           const xaiVoice = body.voice ?? "eve";
+          const lease = (await ctx.runMutation(
+            internal.billing.prepareVoiceRealtimeLease,
+            {
+              ownerId,
+              provider: "xai" as const,
+              model: xaiModel,
+              voice: xaiVoice,
+              stellaSessionId,
+              ...(asConvexConversationId(body?.conversationId)
+                ? {
+                    conversationId: asConvexConversationId(
+                      body?.conversationId,
+                    )!,
+                  }
+                : {}),
+            },
+          )) as PreparedVoiceLease;
+          if (!lease.allowed) {
+            return errorResponse(
+              429,
+              lease.message ??
+                "Realtime voice is waiting for the previous session to report usage.",
+              origin,
+            );
+          }
           try {
             const xaiResponse = await fetch(
               "https://api.x.ai/v1/realtime/client_secrets",
@@ -253,6 +400,12 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
+                  expires_after: {
+                    seconds: Math.max(
+                      60,
+                      Math.floor(lease.leaseDurationMs / 1000),
+                    ),
+                  },
                   session: {
                     type: "realtime",
                     model: xaiModel,
@@ -269,6 +422,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                 xaiResponse.status,
                 xaiText,
               );
+              await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+                ownerId,
+                stellaSessionId: lease.stellaSessionId,
+                reason: `xai_client_secret_${xaiResponse.status}`,
+              });
               return errorResponse(
                 xaiResponse.status,
                 "Failed to create xAI voice session",
@@ -278,12 +436,23 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             const xaiData = JSON.parse(xaiText) as ProviderClientSecretPayload;
             const xaiClientSecret = readProviderClientSecret(xaiData);
             if (!xaiClientSecret) {
+              await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+                ownerId,
+                stellaSessionId: lease.stellaSessionId,
+                reason: "xai_missing_client_secret",
+              });
               return errorResponse(
                 502,
                 "xAI did not return a client secret",
                 origin,
               );
             }
+            await ctx.runMutation(internal.billing.activateVoiceRealtimeLease, {
+              ownerId,
+              stellaSessionId: lease.stellaSessionId,
+              clientSecretFingerprint: fingerprintString(xaiClientSecret),
+              providerExpiresAt: readProviderClientSecretExpiry(xaiData),
+            });
             return jsonResponse(
               {
                 voiceProvider: "xai" as const,
@@ -292,11 +461,18 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                 model: xaiModel,
                 voice: xaiVoice,
                 expiresAt: readProviderClientSecretExpiry(xaiData),
+                stellaSessionId: lease.stellaSessionId,
+                leaseExpiresAt: lease.leaseExpiresAt,
               },
               200,
               origin,
             );
           } catch (error) {
+            await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+              ownerId,
+              stellaSessionId: lease.stellaSessionId,
+              reason: "xai_exception",
+            });
             console.error(
               "[voice/session] Failed to contact xAI:",
               (error as Error).message,
@@ -327,7 +503,31 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           }
           const inworldModel = body.model ?? "openai/gpt-4o-mini";
           const inworldVoice = body.voice ?? "Evelyn";
-
+          const lease = (await ctx.runMutation(
+            internal.billing.prepareVoiceRealtimeLease,
+            {
+              ownerId,
+              provider: "inworld" as const,
+              model: inworldModel,
+              voice: inworldVoice,
+              stellaSessionId,
+              ...(asConvexConversationId(body?.conversationId)
+                ? {
+                    conversationId: asConvexConversationId(
+                      body?.conversationId,
+                    )!,
+                  }
+                : {}),
+            },
+          )) as PreparedVoiceLease;
+          if (!lease.allowed) {
+            return errorResponse(
+              429,
+              lease.message ??
+                "Realtime voice is waiting for the previous session to report usage.",
+              origin,
+            );
+          }
           // Inworld's WebRTC SDP endpoint expects a complete offer
           // (ICE candidates baked in), so the renderer needs Inworld's
           // STUN/TURN config to gather candidates correctly. Fetch
@@ -348,10 +548,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                 iceServers = data.ice_servers;
               }
             } else {
+              const detail = await iceResponse.text();
               console.warn(
                 "[voice/session] Inworld ice-servers fetch failed:",
                 iceResponse.status,
-                await iceResponse.text(),
+                detail,
               );
             }
           } catch (err) {
@@ -361,6 +562,10 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             );
           }
 
+          await ctx.runMutation(internal.billing.activateVoiceRealtimeLease, {
+            ownerId,
+            stellaSessionId: lease.stellaSessionId,
+          });
           return jsonResponse(
             {
               voiceProvider: "inworld" as const,
@@ -371,6 +576,8 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               model: inworldModel,
               voice: inworldVoice,
               iceServers,
+              stellaSessionId: lease.stellaSessionId,
+              leaseExpiresAt: lease.leaseExpiresAt,
             },
             200,
             origin,
@@ -381,9 +588,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         const resolveOpenAiApiKey = async (): Promise<string | null> =>
           process.env.OPENAI_API_KEY ?? null;
 
-        const [openaiApiKey] = await Promise.all([
-          resolveOpenAiApiKey(),
-        ]);
+        const [openaiApiKey] = await Promise.all([resolveOpenAiApiKey()]);
         if (!openaiApiKey) {
           return errorResponse(
             503,
@@ -399,6 +604,29 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         const tools = getVoiceToolSchemas();
         const model = body.model ?? "gpt-realtime-2";
         const voice = body.voice ?? "marin";
+        const lease = (await ctx.runMutation(
+          internal.billing.prepareVoiceRealtimeLease,
+          {
+            ownerId,
+            provider: "openai" as const,
+            model,
+            voice,
+            stellaSessionId,
+            ...(asConvexConversationId(body?.conversationId)
+              ? {
+                  conversationId: asConvexConversationId(body?.conversationId)!,
+                }
+              : {}),
+          },
+        )) as PreparedVoiceLease;
+        if (!lease.allowed) {
+          return errorResponse(
+            429,
+            lease.message ??
+              "Realtime voice is waiting for the previous session to report usage.",
+            origin,
+          );
+        }
 
         // Request ephemeral client secret from OpenAI
         const turnDetection =
@@ -462,6 +690,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               openaiResponse.status,
               responseText,
             );
+            await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+              ownerId,
+              stellaSessionId: lease.stellaSessionId,
+              reason: `openai_client_secret_${openaiResponse.status}`,
+            });
             return errorResponse(
               openaiResponse.status,
               "Failed to create voice session",
@@ -469,31 +702,51 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             );
           }
 
-          const openaiData = JSON.parse(responseText) as
-            ProviderClientSecretPayload & { id?: unknown };
+          const openaiData = JSON.parse(
+            responseText,
+          ) as ProviderClientSecretPayload;
           const openaiClientSecret = readProviderClientSecret(openaiData);
           if (!openaiClientSecret) {
+            await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+              ownerId,
+              stellaSessionId: lease.stellaSessionId,
+              reason: "openai_missing_client_secret",
+            });
             return errorResponse(
               502,
               "OpenAI did not return a client secret",
               origin,
             );
           }
+          const openaiSessionId = readProviderSessionId(openaiData);
+          await ctx.runMutation(internal.billing.activateVoiceRealtimeLease, {
+            ownerId,
+            stellaSessionId: lease.stellaSessionId,
+            clientSecretFingerprint: fingerprintString(openaiClientSecret),
+            ...(openaiSessionId ? { providerSessionId: openaiSessionId } : {}),
+            providerExpiresAt: readProviderClientSecretExpiry(openaiData),
+          });
           return jsonResponse(
             {
               voiceProvider: "openai" as const,
               transport: "openai-webrtc" as const,
               clientSecret: openaiClientSecret,
               expiresAt: readProviderClientSecretExpiry(openaiData),
-              sessionId:
-                typeof openaiData.id === "string" ? openaiData.id : undefined,
+              sessionId: openaiSessionId,
               model,
               voice,
+              stellaSessionId: lease.stellaSessionId,
+              leaseExpiresAt: lease.leaseExpiresAt,
             },
             200,
             origin,
           );
         } catch (error) {
+          await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+            ownerId,
+            stellaSessionId: lease.stellaSessionId,
+            reason: "openai_exception",
+          });
           console.error(
             "[voice/session] Failed to contact OpenAI:",
             (error as Error).message,
@@ -555,6 +808,8 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         if (!sdpOffer || sdpOffer.length < 10) {
           return errorResponse(400, "Missing SDP offer", origin);
         }
+        const stellaSessionId =
+          request.headers.get("x-stella-voice-session-id")?.trim() || null;
 
         try {
           const inworldResponse = await fetch(
@@ -570,6 +825,13 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           );
           const sdpAnswer = await inworldResponse.text();
           if (!inworldResponse.ok) {
+            if (stellaSessionId) {
+              await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+                ownerId: auth.ownerId,
+                stellaSessionId,
+                reason: `inworld_sdp_${inworldResponse.status}`,
+              });
+            }
             console.error(
               "[voice/inworld/sdp] Inworld SDP exchange failed:",
               inworldResponse.status,
@@ -589,6 +851,13 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             origin,
           );
         } catch (error) {
+          if (stellaSessionId) {
+            await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+              ownerId: auth.ownerId,
+              stellaSessionId,
+              reason: "inworld_sdp_exception",
+            });
+          }
           console.error(
             "[voice/inworld/sdp] Failed to contact Inworld:",
             (error as Error).message,
@@ -649,6 +918,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           text?: string;
           voice?: string;
           model?: string;
+          conversationId?: string;
           voiceProvider?: "openai" | "inworld";
           speed?: number;
         };
@@ -668,6 +938,19 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
 
         const voiceProvider: "openai" | "inworld" =
           body?.voiceProvider === "inworld" ? "inworld" : "openai";
+
+        let conversationId: Id<"conversations"> | undefined;
+        const parsedConversationId = asConvexConversationId(
+          body?.conversationId,
+        );
+        if (parsedConversationId) {
+          try {
+            await requireConversationOwnerAction(ctx, parsedConversationId);
+            conversationId = parsedConversationId;
+          } catch {
+            conversationId = undefined;
+          }
+        }
 
         if (voiceProvider === "inworld") {
           const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
@@ -749,11 +1032,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         // ── OpenAI TTS (default) ─────────────────────────────────────
         const openaiApiKey = process.env.OPENAI_API_KEY ?? null;
         if (!openaiApiKey) {
-          return errorResponse(
-            503,
-            "Voice TTS is not configured yet.",
-            origin,
-          );
+          return errorResponse(503, "Voice TTS is not configured yet.", origin);
         }
         const ttsVoice = body?.voice?.trim() || "marin";
         const ttsModel = body?.model?.trim() || "gpt-4o-mini-tts";
@@ -794,6 +1073,20 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             );
           }
           const audio = await openaiResponse.arrayBuffer();
+          try {
+            await ctx.runMutation(internal.billing.recordVoiceTtsUsage, {
+              ownerId: identity.tokenIdentifier,
+              model: ttsModel,
+              ...(conversationId ? { conversationId } : {}),
+              textInputTokens: estimateTextTokensFromChars(truncated),
+              audioOutputTokens: estimateTtsAudioOutputTokens(
+                truncated,
+                body?.speed,
+              ),
+            });
+          } catch {
+            // Best-effort metering should not block audio playback.
+          }
           return withCors(
             new Response(audio, {
               status: 200,
@@ -808,6 +1101,58 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           );
           return errorResponse(502, "Failed to reach OpenAI TTS", origin);
         }
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/voice/lease",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use realtime voice.",
+          realm: "stella-voice",
+        });
+        if (!auth.ok) return auth.response;
+
+        type VoiceLeaseBody = {
+          stellaSessionId?: string;
+          event?: "heartbeat" | "ended" | "expired" | "lost";
+        };
+        let body: VoiceLeaseBody | null = null;
+        try {
+          body = (await request.json()) as VoiceLeaseBody;
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+
+        const stellaSessionId = body?.stellaSessionId?.trim();
+        const event = body?.event;
+        if (
+          !stellaSessionId ||
+          (event !== "heartbeat" &&
+            event !== "ended" &&
+            event !== "expired" &&
+            event !== "lost")
+        ) {
+          return errorResponse(
+            400,
+            "stellaSessionId and event are required",
+            origin,
+          );
+        }
+
+        const result = await ctx.runMutation(
+          internal.billing.recordVoiceRealtimeLeaseEvent,
+          {
+            ownerId: auth.ownerId,
+            stellaSessionId,
+            event,
+          },
+        );
+
+        return jsonResponse(result, 200, origin);
       }),
     ),
   });
@@ -833,16 +1178,19 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
 
         const parsed = parseVoiceUsageBody(body);
         if (!parsed) {
-          return errorResponse(400, "responseId, model, and usage are required", origin);
+          return errorResponse(
+            400,
+            "responseId, model, and usage are required",
+            origin,
+          );
         }
-
         let conversationId: Id<"conversations"> | undefined;
         if (parsed.conversationId) {
           try {
             await requireConversationOwnerAction(ctx, parsed.conversationId);
             conversationId = parsed.conversationId;
-          } catch (err) {
-            console.warn("[voice/usage] Conversation lookup failed:", err);
+          } catch {
+            conversationId = undefined;
           }
         }
 
@@ -852,6 +1200,9 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             ownerId: identity.tokenIdentifier,
             responseId: parsed.responseId,
             model: parsed.model,
+            ...(parsed.stellaSessionId
+              ? { stellaSessionId: parsed.stellaSessionId }
+              : {}),
             ...(conversationId ? { conversationId } : {}),
             inputTokens: parsed.inputTokens,
             outputTokens: parsed.outputTokens,
@@ -864,6 +1215,13 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             audioOutputTokens: parsed.audioOutputTokens,
             imageInputTokens: parsed.imageInputTokens,
             imageCachedInputTokens: parsed.imageCachedInputTokens,
+            ...(parsed.exactCostMicroCents !== undefined
+              ? { exactCostMicroCents: parsed.exactCostMicroCents }
+              : {}),
+            realtimeAudioSeconds: parsed.realtimeAudioSeconds,
+            realtimeTextInputMessages: parsed.realtimeTextInputMessages,
+            ...(parsed.sttModel ? { sttModel: parsed.sttModel } : {}),
+            sttAudioSeconds: parsed.sttAudioSeconds,
           },
         );
 
@@ -879,5 +1237,4 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
       }),
     ),
   });
-
 };

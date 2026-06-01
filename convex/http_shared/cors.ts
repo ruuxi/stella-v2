@@ -37,7 +37,8 @@ const isAllowedCorsOrigin = (origin: string | null) => {
 export const getCorsHeaders = (origin: string | null) => {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Device-ID, X-Stella-Agent-Type",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization, X-Device-ID, X-Stella-Agent-Type, X-Stella-Voice-Session-ID",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "86400",
     "Permissions-Policy": PERMISSIONS_POLICY,
@@ -62,7 +63,9 @@ export const withCors = (response: Response, origin: string | null) => {
   });
 };
 
-export const rejectDisallowedCorsOrigin = (request: Request): Response | null => {
+export const rejectDisallowedCorsOrigin = (
+  request: Request,
+): Response | null => {
   const origin = request.headers.get("origin");
   if (origin && !isAllowedCorsOrigin(origin)) {
     return new Response("CORS origin denied", { status: 403 });
@@ -127,7 +130,9 @@ export const registerCorsOptions = (http: HttpRouter, paths: string[]) => {
     http.route({
       path,
       method: "OPTIONS",
-      handler: httpAction(async (_ctx, request) => corsPreflightHandler(request)),
+      handler: httpAction(async (_ctx, request) =>
+        corsPreflightHandler(request),
+      ),
     });
   }
 };

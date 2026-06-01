@@ -116,10 +116,52 @@ export const billingSchema = {
     audioOutputTokens: v.number(),
     imageInputTokens: v.number(),
     imageCachedInputTokens: v.number(),
+    exactCostMicroCents: v.optional(v.number()),
+    realtimeAudioSeconds: v.optional(v.number()),
+    realtimeTextInputMessages: v.optional(v.number()),
+    sttModel: v.optional(v.string()),
+    sttAudioSeconds: v.optional(v.number()),
     costMicroCents: v.number(),
     createdAt: v.number(),
   })
     .index("by_ownerId_and_responseId", ["ownerId", "responseId"])
+    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"]),
+
+  billing_voice_sessions: defineTable({
+    ownerId: v.string(),
+    stellaSessionId: v.string(),
+    diagnosticId: v.optional(v.string()),
+    provider: v.string(),
+    model: v.string(),
+    voice: v.string(),
+    conversationId: v.optional(v.id("conversations")),
+    status: v.string(),
+    clientSecretFingerprint: v.optional(v.string()),
+    providerSessionId: v.optional(v.string()),
+    providerExpiresAt: v.optional(v.number()),
+    leaseStartedAt: v.number(),
+    leaseExpiresAt: v.number(),
+    heartbeatCount: v.number(),
+    lastHeartbeatAt: v.optional(v.number()),
+    lastUsageAt: v.optional(v.number()),
+    responseCount: v.number(),
+    estimatedCostMicroCents: v.number(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    totalTokens: v.number(),
+    realtimeAudioSeconds: v.number(),
+    sttAudioSeconds: v.number(),
+    endedAt: v.optional(v.number()),
+    endReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_stellaSessionId", ["stellaSessionId"])
+    .index("by_ownerId_and_status_and_leaseExpiresAt", [
+      "ownerId",
+      "status",
+      "leaseExpiresAt",
+    ])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"]),
 
   billing_media_usage_receipts: defineTable({

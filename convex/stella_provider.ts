@@ -31,6 +31,7 @@ import {
   authorizeStellaRelayRequest,
   toProviderNativeModel,
 } from "./stella_provider/authorization";
+import { downgradeUnsupportedRequestImages } from "./stella_provider/request";
 import { createRelayUsageParser } from "./stella_provider/relay_usage";
 import {
   STELLA_ANTHROPIC_MESSAGES_PATH,
@@ -211,8 +212,12 @@ const bodyForUpstream = (
   provider: ManagedGatewayProvider,
   request: Request,
 ): string => {
+  const requestJson = downgradeUnsupportedRequestImages(
+    authorized.requestJson,
+    authorized.resolvedModel,
+  );
   const body: Record<string, unknown> = {
-    ...authorized.requestJson,
+    ...requestJson,
     model: toProviderNativeModel(authorized.resolvedModel, provider),
   };
   delete (body as Record<string, unknown>).agentType;

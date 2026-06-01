@@ -20,6 +20,16 @@ import type { ResolvedStellaModelSelection, StellaRequestBody } from "./shared";
 import type { TokenEstimate } from "./billing";
 
 const DEFAULT_STELLA_MODE = "standard";
+const NON_VISION_USER_IMAGE_PLACEHOLDER =
+  "(image omitted: model does not support images)";
+const NON_VISION_TOOL_IMAGE_PLACEHOLDER =
+  "(tool image omitted: model does not support images)";
+
+const IMAGE_CAPABLE_MANAGED_MODEL_PREFIXES = [
+  "anthropic/",
+  "google/",
+  "openai/",
+] as const;
 
 const defaultModeForAgent = (
   agentType: string,
@@ -138,6 +148,100 @@ export function estimateRequestTokens(
       0,
       Math.min(16_384, Math.floor(maxCompletionTokens)),
     ),
+  };
+}
+
+const managedRelayModelSupportsImageInput = (resolvedModel: string): boolean =>
+  IMAGE_CAPABLE_MANAGED_MODEL_PREFIXES.some((prefix) =>
+    resolvedModel.startsWith(prefix),
+  );
+
+const roleImagePlaceholder = (role: unknown): string =>
+  role === "tool" || role === "function"
+    ? NON_VISION_TOOL_IMAGE_PLACEHOLDER
+    : NON_VISION_USER_IMAGE_PLACEHOLDER;
+
+const replacementTextPartType = (partType: unknown): "input_text" | "text" =>
+  partType === "input_image" ? "input_text" : "text";
+
+const isImageContentPart = (part: Record<string, unknown>): boolean =>
+  part.type === "image_url" ||
+  part.type === "input_image" ||
+  Object.prototype.hasOwnProperty.call(part, "image_url");
+
+const downgradeContentImages = (
+  content: unknown,
+  role: unknown,
+): { content: unknown; changed: boolean } => {
+  if (!Array.isArray(content)) {
+    return { content, changed: false };
+  }
+
+  let changed = false;
+  const placeholder = roleImagePlaceholder(role);
+  const mapped = content.map((part) => {
+    if (!part || typeof part !== "object" || Array.isArray(part)) {
+      return part;
+    }
+    const record = part as Record<string, unknown>;
+    if (!isImageContentPart(record)) {
+      return part;
+    }
+    changed = true;
+    return {
+      type: replacementTextPartType(record.type),
+      text: placeholder,
+    };
+  });
+
+  return { content: changed ? mapped : content, changed };
+};
+
+const downgradeMessageListImages = (
+  value: unknown,
+): { value: unknown; changed: boolean } => {
+  if (!Array.isArray(value)) {
+    return { value, changed: false };
+  }
+
+  let changed = false;
+  const mapped = value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return item;
+    }
+    const record = item as Record<string, unknown>;
+    const result = downgradeContentImages(record.content, record.role);
+    if (!result.changed) {
+      return item;
+    }
+    changed = true;
+    return {
+      ...record,
+      content: result.content,
+    };
+  });
+
+  return { value: changed ? mapped : value, changed };
+};
+
+export function downgradeUnsupportedRequestImages(
+  requestBody: StellaRequestBody,
+  resolvedModel: string,
+): StellaRequestBody {
+  if (managedRelayModelSupportsImageInput(resolvedModel)) {
+    return requestBody;
+  }
+
+  const messages = downgradeMessageListImages(requestBody.messages);
+  const input = downgradeMessageListImages(requestBody.input);
+  if (!messages.changed && !input.changed) {
+    return requestBody;
+  }
+
+  return {
+    ...requestBody,
+    ...(messages.changed ? { messages: messages.value } : {}),
+    ...(input.changed ? { input: input.value } : {}),
   };
 }
 

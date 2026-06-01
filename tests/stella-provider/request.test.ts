@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  downgradeUnsupportedRequestImages,
   requestedModelFromGooglePath,
   resolveRequestedStellaModel,
 } from "../../convex/stella_provider/request";
@@ -78,6 +79,132 @@ describe("requestedModelFromGooglePath", () => {
         "/api/stella/google/v1beta/models/gemini-3-flash-preview",
       ),
     ).toBeNull();
+  });
+});
+
+describe("downgradeUnsupportedRequestImages", () => {
+  it("replaces chat image parts for text-only relay models", () => {
+    const body = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            {
+              type: "image_url",
+              image_url: { url: "data:image/png;base64,abc" },
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(
+      downgradeUnsupportedRequestImages(
+        body,
+        "deepseek/deepseek-v4-flash",
+      ).messages,
+    ).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this?" },
+          {
+            type: "text",
+            text: "(image omitted: model does not support images)",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("uses the tool placeholder for tool message images", () => {
+    const body = {
+      messages: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: "data:image/png;base64,tool" },
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(
+      downgradeUnsupportedRequestImages(
+        body,
+        "deepseek/deepseek-v4-flash",
+      ).messages,
+    ).toEqual([
+      {
+        role: "tool",
+        content: [
+          {
+            type: "text",
+            text: "(tool image omitted: model does not support images)",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("replaces responses input images for text-only relay models", () => {
+    const body = {
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "describe this" },
+            { type: "input_image", image_url: "data:image/png;base64,abc" },
+          ],
+        },
+      ],
+    };
+
+    expect(
+      downgradeUnsupportedRequestImages(
+        body,
+        "accounts/fireworks/models/kimi-k2p6",
+      ).input,
+    ).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "describe this" },
+          {
+            type: "input_text",
+            text: "(image omitted: model does not support images)",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("leaves image-capable relay models unchanged", () => {
+    const body = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: "data:image/png;base64,abc" },
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(downgradeUnsupportedRequestImages(body, "openai/gpt-5.5")).toBe(body);
+    expect(
+      downgradeUnsupportedRequestImages(
+        body,
+        "google/gemini-3-flash-preview",
+      ),
+    ).toBe(body);
   });
 });
 

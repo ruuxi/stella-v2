@@ -143,6 +143,12 @@ export const conversationsSchema = {
     // `type` column to the index lets them stream the exact rows they need
     // instead of over-fetching by 3x and JS-filtering.
     .index("by_targetDeviceId_and_type_and_timestamp", ["targetDeviceId", "type", "timestamp"])
+    // Lets the orphan watchdog enumerate unfulfilled remote turns directly by
+    // lifecycle state + age, instead of fanning a per-device index scan across
+    // every registered device every minute. Rows without `requestState` (all
+    // non-`remote_turn_request` events) sort under `undefined` and are never
+    // matched by the `.eq("requestState", …)` lookups.
+    .index("by_requestState_and_timestamp", ["requestState", "timestamp"])
     .index("by_requestId", ["requestId"]),
 
   attachments: defineTable({

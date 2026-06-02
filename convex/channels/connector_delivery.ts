@@ -1174,19 +1174,16 @@ export const markRemoteTurnFulfilled = internalMutation({
 const ORPHAN_MIN_AGE_MS = 90_000; // must be at least 90s old
 const ORPHAN_MAX_AGE_MS = 10 * 60_000; // ignore anything older than 10 min
 
+// Cap per-state scan; orphans are normally 0 and any backlog beyond this is
+// picked up by the next 60s sweep.
+const ORPHAN_SCAN_LIMIT = 100;
+
 export const findOrphanedTurnRequests = internalQuery({
   args: { nowMs: v.number() },
   handler: async (ctx, args) => {
     const now = args.nowMs;
-
-    // Check all registered devices — routing always tries the desktop
-    // first and relies on this watchdog for fallback, so we cannot
-    // limit the scan to offline devices only.
-    const allDevices = await ctx.db
-      .query("devices")
-      .take(200);
-
-    if (allDevices.length === 0) return [];
+    const minTimestamp = now - ORPHAN_MAX_AGE_MS;
+    const maxTimestamp = now - ORPHAN_MIN_AGE_MS;
 
     type OrphanResult = {
       eventId: Id<"events">;
@@ -1197,48 +1194,47 @@ export const findOrphanedTurnRequests = internalQuery({
       claimed: boolean;
     };
 
-    const devicePromises = allDevices.map(async (device) => {
-      const orphansForDevice: OrphanResult[] = [];
+    // Query the unfulfilled remote turns directly by lifecycle state + age.
+    // This is independent of how many devices are registered — only the
+    // (usually zero) `pending`/`claimed` request rows in the orphan window
+    // are read, instead of scanning every device's event stream each minute.
+    const collectForState = async (
+      state: "pending" | "claimed",
+    ): Promise<OrphanResult[]> => {
       const events = await ctx.db
         .query("events")
-        .withIndex("by_targetDeviceId_and_timestamp", (q) =>
+        .withIndex("by_requestState_and_timestamp", (q) =>
           q
-            .eq("targetDeviceId", device.deviceId)
-            .gte("timestamp", now - ORPHAN_MAX_AGE_MS)
-            .lte("timestamp", now - ORPHAN_MIN_AGE_MS),
+            .eq("requestState", state)
+            .gte("timestamp", minTimestamp)
+            .lte("timestamp", maxTimestamp),
         )
-        .take(20);
+        .take(ORPHAN_SCAN_LIMIT);
 
-      // Lifecycle state lives on the request row itself, so we can decide
-      // every event from the rows we already have — no per-event extra
-      // index lookups.
+      const out: OrphanResult[] = [];
       for (const event of events) {
         if (event.type !== "remote_turn_request") continue;
         if (!event.requestId) continue;
-        if (
-          event.requestState === "fulfilled" ||
-          event.requestState === "cancelled"
-        ) {
-          continue;
-        }
 
         const p = event.payload as Record<string, unknown>;
-        orphansForDevice.push({
+        out.push({
           eventId: event._id,
           requestId: event.requestId,
           conversationId: event.conversationId,
-          targetDeviceId: event.targetDeviceId!,
+          targetDeviceId: event.targetDeviceId ?? "",
           payload: JSON.parse(JSON.stringify(p)),
-          claimed: event.requestState === "claimed",
+          claimed: state === "claimed",
         });
       }
-      return orphansForDevice;
-    });
+      return out;
+    };
 
-    const results = await Promise.all(devicePromises);
-    const orphans = results.flat();
+    const [pending, claimed] = await Promise.all([
+      collectForState("pending"),
+      collectForState("claimed"),
+    ]);
 
-    return orphans;
+    return [...pending, ...claimed];
   },
 });
 

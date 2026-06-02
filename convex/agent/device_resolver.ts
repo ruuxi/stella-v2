@@ -106,8 +106,13 @@ const upsertDeviceProfile = async (
   ownerId: string,
   deviceId: string,
   fields: DeviceProfileFields,
+  // Callers that already loaded the profile row (e.g. the hot heartbeat path,
+  // which reads it for the key-mismatch check) pass it through to avoid a
+  // second identical indexed lookup.
+  preloadedProfile?: Awaited<ReturnType<typeof loadDeviceProfile>>,
 ) => {
-  const existing = await loadDeviceProfile(ctx, ownerId, deviceId);
+  const existing =
+    preloadedProfile ?? (await loadDeviceProfile(ctx, ownerId, deviceId));
   if (existing) {
     await ctx.db.patch(existing._id, {
       ...(fields.deviceName !== undefined ? { deviceName: fields.deviceName } : {}),
@@ -300,11 +305,17 @@ export const heartbeat = mutation({
       });
     }
 
-    await upsertDeviceProfile(ctx, ownerId, args.deviceId, {
-      deviceName: args.deviceName,
-      devicePublicKey: args.publicKey,
-      platform: args.platform,
-    });
+    await upsertDeviceProfile(
+      ctx,
+      ownerId,
+      args.deviceId,
+      {
+        deviceName: args.deviceName,
+        devicePublicKey: args.publicKey,
+        platform: args.platform,
+      },
+      existingProfile,
+    );
     await upsertDevicePresence(ctx, ownerId, args.deviceId, {
       online: true,
       lastHeartbeatAt: now,

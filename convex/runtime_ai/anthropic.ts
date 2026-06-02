@@ -188,6 +188,23 @@ function normalizeAnthropicModelId(modelId: string): string {
   return nativeId.replace(/-(\d+)\.(\d+)$/u, "-$1-$2");
 }
 
+/**
+ * Anthropic deprecated the `temperature` parameter for every Claude model from
+ * 4.6 onward (Opus 4.6+/4.7/4.8, Sonnet 4.6+, …). A value of 1.0 is tolerated
+ * for backwards compatibility, but any other value — and on the current rollout,
+ * sending the field at all — is rejected with a 400 (`temperature is deprecated
+ * for this model`). Parse the family version from the normalized id and omit
+ * `temperature` for >= 4.6 so new minors are covered without edits.
+ */
+function modelDeprecatesTemperature(modelId: string): boolean {
+  const id = normalizeAnthropicModelId(modelId);
+  const match = /(?:opus|sonnet|haiku)-(\d+)-(\d+)/.exec(id);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 4 || (major === 4 && minor >= 6);
+}
+
 function normalizeAnthropicToolUseId(id: string): string {
   return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "tool";
 }
@@ -444,7 +461,11 @@ function buildRequestBody(
     max_tokens: maxTokens,
     messages: convertMessages(model, context),
     system,
-    temperature: options?.temperature,
+    // Anthropic deprecated `temperature` for models after Opus 4.6 — sending it
+    // (even at 1.0, on the current rollout) returns a 400. Omit it for those.
+    temperature: modelDeprecatesTemperature(model.id)
+      ? undefined
+      : options?.temperature,
     stream: true,
     tools: context.tools?.map((tool) => ({
       name: tool.name,

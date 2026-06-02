@@ -478,34 +478,6 @@ type StoreReleaseCommitForReview = {
   diff: string;
 };
 
-type StoreReleaseSourceBlobForReview =
-  | { kind: "text"; content: string }
-  | { kind: "binary"; contentBase64: string };
-
-type StoreReleaseSourcePackForReview = {
-  kind: "stella-source-pack";
-  schemaVersion: 1;
-  baseRevisionId: string;
-  revisionId: string;
-  featureId?: string;
-  description?: string;
-  changeSets: Array<{
-    schemaVersion: 1;
-    baseRevisionId: string;
-    parentRevisionIds: string[];
-    revisionId: string;
-    featureId?: string;
-    description?: string;
-    changes: Array<{
-      path: string;
-      baseHash: string | null;
-      nextHash: string | null;
-      base?: StoreReleaseSourceBlobForReview;
-      next?: StoreReleaseSourceBlobForReview;
-    }>;
-  }>;
-};
-
 const MAX_COMMIT_DIFF_LENGTH_FOR_REVIEW = 24_000;
 const MAX_COMMITS_TOTAL_LENGTH_FOR_REVIEW = 120_000;
 
@@ -550,119 +522,15 @@ const renderCommitsAppendix = (
   return sections.join("\n\n");
 };
 
-const sourcePackChangeType = (change: {
-  baseHash: string | null;
-  nextHash: string | null;
-}): "create" | "update" | "delete" => {
-  if (change.nextHash === null) return "delete";
-  if (change.baseHash === null) return "create";
-  return "update";
-};
-
-const buildSourcePackReviewFiles = (
-  sourcePack: StoreReleaseSourcePackForReview | undefined,
-): {
-  codeFiles: ReviewableCodeFile[];
-  imageFiles: ReviewableImageFile[];
-} => {
-  if (!sourcePack) return { codeFiles: [], imageFiles: [] };
-  const codeFiles: ReviewableCodeFile[] = [
-    {
-      path: "SOURCE_PACK_MANIFEST.json",
-      changeType: "update",
-      contentText: truncateWithNotice(
-        JSON.stringify(
-          {
-            kind: sourcePack.kind,
-            schemaVersion: sourcePack.schemaVersion,
-            baseRevisionId: sourcePack.baseRevisionId,
-            revisionId: sourcePack.revisionId,
-            featureId: sourcePack.featureId,
-            description: sourcePack.description,
-            changeSets: sourcePack.changeSets.map((changeSet) => ({
-              baseRevisionId: changeSet.baseRevisionId,
-              parentRevisionIds: changeSet.parentRevisionIds,
-              revisionId: changeSet.revisionId,
-              featureId: changeSet.featureId,
-              description: changeSet.description,
-              changes: changeSet.changes.map((change) => ({
-                path: change.path,
-                baseHash: change.baseHash,
-                nextHash: change.nextHash,
-                hasBaseContent: Boolean(change.base),
-                hasNextContent: Boolean(change.next),
-              })),
-            })),
-          },
-          null,
-          2,
-        ),
-        MAX_CONTENT_TEXT_CHARS,
-      ),
-    },
-  ];
-  const imageFiles: ReviewableImageFile[] = [];
-  const seen = new Set<string>();
-  for (const changeSet of sourcePack.changeSets) {
-    for (const change of changeSet.changes) {
-      const normalizedPath = normalizePath(change.path);
-      const key = `${changeSet.revisionId}:${normalizedPath}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const changeType = sourcePackChangeType(change);
-      if (changeType === "delete") {
-        codeFiles.push({
-          path: normalizedPath,
-          changeType,
-          contentText: `Deleted by source pack revision ${changeSet.revisionId}.`,
-        });
-        continue;
-      }
-      const next = change.next;
-      if (!next) continue;
-      if (next.kind === "text") {
-        if (isLikelyCodePath(normalizedPath) || isProbablyText(next.content)) {
-          codeFiles.push({
-            path: normalizedPath,
-            changeType,
-            contentText: truncateWithNotice(
-              next.content,
-              MAX_CONTENT_TEXT_CHARS,
-            ),
-          });
-        }
-        continue;
-      }
-      if (isImagePath(normalizedPath)) {
-        const mimeType =
-          IMAGE_MIME_BY_EXTENSION[getFileExtension(normalizedPath)];
-        imageFiles.push({
-          path: normalizedPath,
-          changeType,
-          mimeType,
-          dataUrl: `data:${mimeType};base64,${next.contentBase64}`,
-        });
-        continue;
-      }
-      throw new Error(
-        `Source pack contains an unreviewable binary change at "${normalizedPath}".`,
-      );
-    }
-  }
-  return { codeFiles, imageFiles };
-};
-
 const buildMarkdownBlueprintReview = (
   blueprintMarkdown: string,
   commits?: ReadonlyArray<StoreReleaseCommitForReview>,
-  sourcePack?: StoreReleaseSourcePackForReview,
 ): {
   artifact: ParsedBlueprintMarkdownArtifact;
   codeFiles: ReviewableCodeFile[];
   imageFiles: ReviewableImageFile[];
 } => {
   const commitsAppendix = renderCommitsAppendix(commits ?? []);
-  const sourcePackFiles = buildSourcePackReviewFiles(sourcePack);
   const reviewerInput = commitsAppendix
     ? [
         "# Behaviour spec",
@@ -687,16 +555,14 @@ const buildMarkdownBlueprintReview = (
         contentText: reviewerInput,
         kind: "blueprint",
       },
-      ...sourcePackFiles.codeFiles,
     ],
-    imageFiles: sourcePackFiles.imageFiles,
+    imageFiles: [],
   };
 };
 
 export const parseReviewableStoreArtifact = (
   artifactBody: string,
   commits?: ReadonlyArray<StoreReleaseCommitForReview>,
-  sourcePack?: StoreReleaseSourcePackForReview,
 ): {
   artifact: ParsedReviewableStoreArtifact;
   codeFiles: ReviewableCodeFile[];
@@ -710,11 +576,7 @@ export const parseReviewableStoreArtifact = (
     if (!markdown) {
       throw new Error("Store release artifact is empty.");
     }
-    return buildMarkdownBlueprintReview(
-      markdown,
-      commits,
-      sourcePack,
-    );
+    return buildMarkdownBlueprintReview(markdown, commits);
   }
 
   if (parsedJson && typeof parsedJson === "object") {
@@ -727,18 +589,13 @@ export const parseReviewableStoreArtifact = (
       if (!markdown) {
         throw new Error("Store release blueprint is empty.");
       }
-      return buildMarkdownBlueprintReview(
-        markdown,
-        commits,
-        sourcePack,
-      );
+      return buildMarkdownBlueprintReview(markdown, commits);
     }
   }
 
   const artifact = storeReleaseArtifactSchema.parse(parsedJson);
   const codeFiles: ReviewableCodeFile[] = [];
   const imageFiles: ReviewableImageFile[] = [];
-  const sourcePackFiles = buildSourcePackReviewFiles(sourcePack);
 
   for (const file of artifact.files) {
     const normalizedPath = normalizePath(file.path);
@@ -786,8 +643,8 @@ export const parseReviewableStoreArtifact = (
 
   return {
     artifact,
-    codeFiles: [...codeFiles, ...sourcePackFiles.codeFiles],
-    imageFiles: [...imageFiles, ...sourcePackFiles.imageFiles],
+    codeFiles,
+    imageFiles,
   };
 };
 
@@ -911,7 +768,6 @@ export const enforceStoreReleaseReviewOrThrow = async (
     releaseSummary?: string;
     artifactBody: string;
     commits?: ReadonlyArray<StoreReleaseCommitForReview>;
-    sourcePack?: StoreReleaseSourcePackForReview;
   },
 ): Promise<void> => {
   let parsedArtifact: ReturnType<typeof parseReviewableStoreArtifact>;
@@ -919,7 +775,6 @@ export const enforceStoreReleaseReviewOrThrow = async (
     parsedArtifact = parseReviewableStoreArtifact(
       args.artifactBody,
       args.commits,
-      args.sourcePack,
     );
   } catch (error) {
     console.error("[store-review] Failed to parse artifact for review:", error);

@@ -23,9 +23,9 @@ import {
   store_package_visibility_validator,
   store_publish_result_validator,
   store_release_commit_validator,
+  store_release_diff_ref_validator,
+  store_release_git_artifact_validator,
   store_release_manifest_validator,
-  store_release_source_pack_ref_validator,
-  store_release_source_pack_validator,
 } from "../schema/store";
 import { socialBadgeValidator } from "../schema/social";
 import { enforceStoreReleaseReviewOrThrow } from "../lib/store_release_reviews";
@@ -40,8 +40,9 @@ import { normalizeStoreCategory } from "../lib/store_artifacts";
 import { moderateStoreListingTextOrThrow } from "../lib/text_moderation";
 
 type StorePublishResult = Infer<typeof store_publish_result_validator>;
-type StoreReleaseSourcePackRef = Infer<
-  typeof store_release_source_pack_ref_validator
+type StoreReleaseDiffRef = Infer<typeof store_release_diff_ref_validator>;
+type StoreReleaseGitArtifact = Infer<
+  typeof store_release_git_artifact_validator
 >;
 
 const PACKAGE_ID_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
@@ -57,9 +58,10 @@ const MAX_COMMIT_DIFF_LENGTH = 200_000;
 const MAX_COMMITS_TOTAL_LENGTH = 1_500_000;
 const MAX_COMMIT_HASH_LENGTH = 80;
 const MAX_COMMIT_SUBJECT_LENGTH = 500;
-const MAX_SOURCE_PACK_INLINE_LENGTH = 650_000;
-const MAX_SOURCE_PACK_UPLOAD_LENGTH = 10 * 1024 * 1024;
-const MAX_SOURCE_PACK_CHANGE_SETS = 32;
+const MAX_RELEASE_DIFF_INLINE_LENGTH = 1_500_000;
+const MAX_RELEASE_DIFF_UPLOAD_LENGTH = 5 * 1024 * 1024;
+const MAX_GIT_ARTIFACT_OBJECTS = 20_000;
+const MAX_GIT_OBJECT_BYTES = 25 * 1024 * 1024;
 
 // ── arg validators ───────────────────────────────────────────────────────────
 
@@ -68,9 +70,10 @@ const create_release_args_validator = {
   releaseNotes: v.optional(v.string()),
   manifest: store_release_manifest_validator,
   blueprintMarkdown: v.string(),
-  sourcePack: v.optional(store_release_source_pack_validator),
-  sourcePackRef: v.optional(store_release_source_pack_ref_validator),
   commits: v.optional(v.array(store_release_commit_validator)),
+  gitArtifact: v.optional(store_release_git_artifact_validator),
+  diff: v.optional(v.string()),
+  diffRef: v.optional(store_release_diff_ref_validator),
   iconUrl: v.optional(v.string()),
 };
 
@@ -216,60 +219,7 @@ const normalizeCommits = (
   return normalized;
 };
 
-const textEncoder = new TextEncoder();
-
-const stableJson = (value: unknown): string => {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(stableJson).join(",")}]`;
-  }
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
-    .join(",")}}`;
-};
-
-const sha256 = async (parts: Array<string | Uint8Array>): Promise<string> => {
-  const chunks = parts.map((part) =>
-    typeof part === "string" ? textEncoder.encode(part) : part,
-  );
-  const totalLength = chunks.reduce((total, chunk) => total + chunk.length, 0);
-  const bytes = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
-  }
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return `sha256:${Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")}`;
-};
-
-const hashSourceBlob = async (
-  blob:
-    | Infer<
-        typeof store_release_source_pack_validator
-      >["changeSets"][number]["changes"][number]["base"]
-    | undefined,
-): Promise<string | null> => {
-  if (!blob) return null;
-  if (blob.kind === "text") {
-    return await sha256([
-      "stella-source-blob-v1\0text\0",
-      textEncoder.encode(blob.content),
-    ]);
-  }
-  return await sha256([
-    "stella-source-blob-v1\0binary\0",
-    textEncoder.encode(blob.contentBase64),
-  ]);
-};
-
-const normalizeSourcePackPath = (value: string): string => {
+const normalizeStoreArtifactPath = (value: string): string => {
   const normalized = value.trim().replace(/\\/g, "/");
   if (
     !normalized ||
@@ -278,7 +228,7 @@ const normalizeSourcePackPath = (value: string): string => {
   ) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
-      message: `Unsafe source-pack path: ${value}`,
+      message: `Unsafe Store artifact path: ${value}`,
     });
   }
   const segments = normalized.split("/");
@@ -287,238 +237,197 @@ const normalizeSourcePackPath = (value: string): string => {
   ) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
-      message: `Unsafe source-pack path: ${value}`,
+      message: `Unsafe Store artifact path: ${value}`,
     });
   }
   return segments.join("/");
 };
 
-type StoreSourceChange = Infer<
-  typeof store_release_source_pack_validator
->["changeSets"][number]["changes"][number];
-
-const buildSourceRevisionId = async (args: {
-  baseRevisionId: string;
-  parentRevisionIds: string[];
-  featureId?: string;
-  description?: string;
-  changes: Array<{
-    path: string;
-    baseHash: string | null;
-    nextHash: string | null;
-  }>;
-}): Promise<string> =>
-  await sha256([
-    "stella-source-revision-v1\0",
-    stableJson({
-      baseRevisionId: args.baseRevisionId,
-      parentRevisionIds: [...args.parentRevisionIds].sort(),
-      featureId: args.featureId ?? null,
-      description: args.description ?? null,
-      changes: args.changes.map((change) => ({
-        path: change.path,
-        baseHash: change.baseHash,
-        nextHash: change.nextHash,
-      })),
-    }),
-  ]);
-
-const normalizeSourcePack = async (
-  sourcePack: Infer<typeof store_release_source_pack_validator> | undefined,
-  options?: { maxLength?: number },
-) => {
-  if (!sourcePack) return undefined;
-  if (sourcePack.changeSets.length === 0) {
+const normalizeGitSha = (value: string, fieldName: string): string => {
+  const normalized = value.trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(normalized)) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
-      message: "Source packs must include at least one change set.",
+      message: `${fieldName} must be a 40-character Git SHA.`,
     });
   }
-  if (sourcePack.changeSets.length > MAX_SOURCE_PACK_CHANGE_SETS) {
-    throw new ConvexError({
-      code: "INVALID_ARGUMENT",
-      message: `Source packs may include at most ${MAX_SOURCE_PACK_CHANGE_SETS} change sets.`,
-    });
-  }
-  const normalizedChangeSets = [];
-  for (const changeSet of sourcePack.changeSets) {
-    if (changeSet.changes.length === 0) {
-      throw new ConvexError({
-        code: "INVALID_ARGUMENT",
-        message: "Source-pack change sets must include at least one change.",
-      });
-    }
-    const seenPaths = new Set<string>();
-    const changes: StoreSourceChange[] = [];
-    for (const change of changeSet.changes) {
-      const sourcePath = normalizeSourcePackPath(change.path);
-      if (seenPaths.has(sourcePath)) {
-        throw new ConvexError({
-          code: "INVALID_ARGUMENT",
-          message: `Duplicate source-pack path: ${sourcePath}`,
-        });
-      }
-      seenPaths.add(sourcePath);
-      if (change.baseHash && !change.base) {
-        throw new ConvexError({
-          code: "INVALID_ARGUMENT",
-          message: `Source pack is missing base content for ${sourcePath}.`,
-        });
-      }
-      if (change.nextHash && !change.next) {
-        throw new ConvexError({
-          code: "INVALID_ARGUMENT",
-          message: `Source pack is missing incoming content for ${sourcePath}.`,
-        });
-      }
-      const baseHash = await hashSourceBlob(change.base);
-      const nextHash = await hashSourceBlob(change.next);
-      if (baseHash !== change.baseHash) {
-        throw new ConvexError({
-          code: "INVALID_ARGUMENT",
-          message: `Source-pack base hash mismatch for ${sourcePath}.`,
-        });
-      }
-      if (nextHash !== change.nextHash) {
-        throw new ConvexError({
-          code: "INVALID_ARGUMENT",
-          message: `Source-pack incoming hash mismatch for ${sourcePath}.`,
-        });
-      }
-      changes.push({
-        path: sourcePath,
-        baseHash,
-        nextHash,
-        ...(change.base ? { base: change.base } : {}),
-        ...(change.next ? { next: change.next } : {}),
-      });
-    }
-    changes.sort((left, right) => left.path.localeCompare(right.path));
-    const revisionId = await buildSourceRevisionId({
-      baseRevisionId: changeSet.baseRevisionId,
-      parentRevisionIds: changeSet.parentRevisionIds,
-      ...(changeSet.featureId ? { featureId: changeSet.featureId } : {}),
-      ...(changeSet.description ? { description: changeSet.description } : {}),
-      changes,
-    });
-    if (revisionId !== changeSet.revisionId) {
-      throw new ConvexError({
-        code: "INVALID_ARGUMENT",
-        message: `Source-pack revision mismatch for ${changeSet.revisionId}.`,
-      });
-    }
-    normalizedChangeSets.push({
-      schemaVersion: 1 as const,
-      baseRevisionId: changeSet.baseRevisionId,
-      parentRevisionIds: changeSet.parentRevisionIds,
-      revisionId,
-      ...(changeSet.featureId ? { featureId: changeSet.featureId } : {}),
-      ...(changeSet.description ? { description: changeSet.description } : {}),
-      changes,
-    });
-  }
-  const revisionId =
-    normalizedChangeSets[normalizedChangeSets.length - 1]?.revisionId ??
-    sourcePack.baseRevisionId;
-  if (revisionId !== sourcePack.revisionId) {
-    throw new ConvexError({
-      code: "INVALID_ARGUMENT",
-      message: "Source-pack final revision mismatch.",
-    });
-  }
-  const normalizedSourcePack = {
-    kind: "stella-source-pack" as const,
-    schemaVersion: 1 as const,
-    baseRevisionId: sourcePack.baseRevisionId,
-    revisionId,
-    ...(sourcePack.featureId ? { featureId: sourcePack.featureId } : {}),
-    ...(sourcePack.description ? { description: sourcePack.description } : {}),
-    changeSets: normalizedChangeSets,
-  };
-  requireBoundedString(
-    JSON.stringify(normalizedSourcePack),
-    "sourcePack",
-    options?.maxLength ?? MAX_SOURCE_PACK_INLINE_LENGTH,
-  );
-  return normalizedSourcePack;
+  return normalized;
 };
 
-const normalizeSourcePackRef = (
-  sourcePackRef:
-    | Infer<typeof store_release_source_pack_ref_validator>
-    | undefined,
-) => {
-  if (!sourcePackRef) return undefined;
-  requireBoundedString(sourcePackRef.r2Key, "sourcePackRef.r2Key", 1000);
-  requireBoundedString(sourcePackRef.sha256, "sourcePackRef.sha256", 80);
-  if (!/^sha256:[0-9a-f]{64}$/.test(sourcePackRef.sha256)) {
+const normalizeGitArtifact = (
+  gitArtifact: StoreReleaseGitArtifact | undefined,
+): StoreReleaseGitArtifact | undefined => {
+  if (!gitArtifact) return undefined;
+  const baseCommit = normalizeGitSha(
+    gitArtifact.baseCommit,
+    "gitArtifact.baseCommit",
+  );
+  const featureCommit = normalizeGitSha(
+    gitArtifact.featureCommit,
+    "gitArtifact.featureCommit",
+  );
+  if (gitArtifact.objects.length === 0) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
-      message: "sourcePackRef.sha256 must be a sha256 digest.",
+      message: "Git artifacts must include at least one object.",
+    });
+  }
+  if (gitArtifact.objects.length > MAX_GIT_ARTIFACT_OBJECTS) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: `Git artifacts may include at most ${MAX_GIT_ARTIFACT_OBJECTS} objects.`,
+    });
+  }
+  const seenObjects = new Set<string>();
+  const objects = gitArtifact.objects.map((object, index) => {
+    const sha = normalizeGitSha(
+      object.sha,
+      `gitArtifact.objects[${index}].sha`,
+    );
+    if (seenObjects.has(sha)) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: `Duplicate Git object ${sha}.`,
+      });
+    }
+    seenObjects.add(sha);
+    if (
+      !Number.isInteger(object.sizeBytes) ||
+      object.sizeBytes <= 0 ||
+      object.sizeBytes > MAX_GIT_OBJECT_BYTES
+    ) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: `Git object ${sha} has an invalid size.`,
+      });
+    }
+    return {
+      sha,
+      type: object.type,
+      sizeBytes: object.sizeBytes,
+    };
+  });
+  if (!seenObjects.has(featureCommit)) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Git artifacts must include the feature commit object.",
+    });
+  }
+  const security = gitArtifact.security
+    ? {
+        redactedPaths: gitArtifact.security.redactedPaths
+          .map((path) => normalizeStoreArtifactPath(path))
+          .slice(0, 500),
+        omittedPaths: gitArtifact.security.omittedPaths
+          .map((path) => normalizeStoreArtifactPath(path))
+          .slice(0, 500),
+        warnings: gitArtifact.security.warnings
+          .map((warning) => warning.trim())
+          .filter(Boolean)
+          .map((warning) => warning.slice(0, 500))
+          .slice(0, 100),
+      }
+    : undefined;
+  return {
+    kind: "git-object-artifact" as const,
+    schemaVersion: 1 as const,
+    baseCommit,
+    featureCommit,
+    objects,
+    ...(security ? { security } : {}),
+  };
+};
+
+const normalizeDiffRef = (
+  diffRef: StoreReleaseDiffRef | undefined,
+): StoreReleaseDiffRef | undefined => {
+  if (!diffRef) return undefined;
+  requireBoundedString(diffRef.r2Key, "diffRef.r2Key", 1000);
+  requireBoundedString(diffRef.sha256, "diffRef.sha256", 80);
+  if (!/^sha256:[0-9a-f]{64}$/.test(diffRef.sha256)) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "diffRef.sha256 must be a sha256 digest.",
     });
   }
   if (
-    !Number.isInteger(sourcePackRef.sizeBytes) ||
-    sourcePackRef.sizeBytes <= MAX_SOURCE_PACK_INLINE_LENGTH
+    !Number.isInteger(diffRef.sizeBytes) ||
+    diffRef.sizeBytes <= MAX_RELEASE_DIFF_INLINE_LENGTH ||
+    diffRef.sizeBytes > MAX_RELEASE_DIFF_UPLOAD_LENGTH
   ) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
-      message: "sourcePackRef.sizeBytes must be a positive uploaded size.",
+      message: "diffRef.sizeBytes must be a positive uploaded diff size.",
     });
   }
-  return sourcePackRef;
+  return diffRef;
 };
 
-const requireSingleSourcePackStorage = (
-  sourcePack: unknown,
-  sourcePackRef: unknown,
-) => {
-  if (sourcePack && sourcePackRef) {
+const normalizeReleaseDiff = (
+  value: string | undefined,
+): string | undefined => {
+  if (value === undefined) return undefined;
+  if (value.length === 0) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
-      message: "Use either sourcePack or sourcePackRef, not both.",
+      message: "diff must not be empty.",
+    });
+  }
+  requireBoundedString(value, "diff", MAX_RELEASE_DIFF_INLINE_LENGTH);
+  return value;
+};
+
+const requireSingleDiffStorage = (
+  diff: unknown,
+  diffRef: StoreReleaseDiffRef | undefined,
+) => {
+  if (diff && diffRef) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Use either diff or diffRef, not both.",
     });
   }
 };
 
-const requireSourceBackedRelease = (
-  sourcePack: unknown,
-  sourcePackRef: StoreReleaseSourcePackRef | undefined,
-) => {
-  if (sourcePack || sourcePackRef) return;
+const requireSourceBackedRelease = (args: {
+  gitArtifact: StoreReleaseGitArtifact | undefined;
+  diff: string | undefined;
+  diffRef: StoreReleaseDiffRef | undefined;
+}) => {
+  if (args.gitArtifact && (args.diff || args.diffRef)) return;
   throw new ConvexError({
     code: "INVALID_ARGUMENT",
-    message: "Store releases must include a source pack.",
+    message: "Store releases must include a git artifact and squashed diff.",
   });
 };
 
-const cleanupUploadedSourcePackRef = async (
+const cleanupUploadedDiffRef = async (
   ctx: {
     runAction: (
-      fn: typeof internal.data.store_source_packs.deleteSourcePackRef,
+      fn: typeof internal.data.store_git_artifacts.deleteDiffRef,
       args: {
         ownerId: string;
         packageId: string;
-        ref: StoreReleaseSourcePackRef;
+        ref: StoreReleaseDiffRef;
       },
     ) => Promise<unknown>;
   },
   args: {
     ownerId: string;
     packageId: string;
-    sourcePackRef?: StoreReleaseSourcePackRef;
+    diffRef?: StoreReleaseDiffRef;
   },
 ): Promise<void> => {
-  if (!args.sourcePackRef) return;
+  if (!args.diffRef) return;
   await ctx
-    .runAction(internal.data.store_source_packs.deleteSourcePackRef, {
+    .runAction(internal.data.store_git_artifacts.deleteDiffRef, {
       ownerId: args.ownerId,
       packageId: args.packageId,
-      ref: args.sourcePackRef,
+      ref: args.diffRef,
     })
     .catch((error) => {
       console.warn(
-        "[store-packages] failed to clean rejected source-pack upload:",
+        "[store-packages] failed to clean rejected diff upload:",
         error,
       );
     });
@@ -686,7 +595,7 @@ export const getReleaseByPackageIdAndNumberInternal = internalQuery({
   },
 });
 
-export const getReadableReleaseForSourcePackInternal = internalQuery({
+export const getReadableReleaseForArtifactInternal = internalQuery({
   args: {
     packageId: v.string(),
     releaseNumber: v.number(),
@@ -724,9 +633,10 @@ export const createFirstReleaseRecord = internalMutation({
     releaseNotes: v.optional(v.string()),
     manifest: store_release_manifest_validator,
     blueprintMarkdown: v.string(),
-    sourcePack: v.optional(store_release_source_pack_validator),
-    sourcePackRef: v.optional(store_release_source_pack_ref_validator),
     commits: v.optional(v.array(store_release_commit_validator)),
+    gitArtifact: v.optional(store_release_git_artifact_validator),
+    diff: v.optional(v.string()),
+    diffRef: v.optional(store_release_diff_ref_validator),
     iconUrl: v.optional(v.string()),
     authorUsername: v.optional(v.string()),
     authorBadge: v.optional(socialBadgeValidator),
@@ -769,11 +679,12 @@ export const createFirstReleaseRecord = internalMutation({
       releaseNotes: args.releaseNotes,
       manifest: args.manifest,
       blueprintMarkdown: args.blueprintMarkdown,
-      ...(args.sourcePack ? { sourcePack: args.sourcePack } : {}),
-      ...(args.sourcePackRef ? { sourcePackRef: args.sourcePackRef } : {}),
       ...(args.commits && args.commits.length > 0
         ? { commits: args.commits }
         : {}),
+      ...(args.gitArtifact ? { gitArtifact: args.gitArtifact } : {}),
+      ...(args.diff ? { diff: args.diff } : {}),
+      ...(args.diffRef ? { diffRef: args.diffRef } : {}),
       createdAt: now,
     });
 
@@ -803,9 +714,10 @@ export const createUpdateReleaseRecord = internalMutation({
     releaseNotes: v.optional(v.string()),
     manifest: store_release_manifest_validator,
     blueprintMarkdown: v.string(),
-    sourcePack: v.optional(store_release_source_pack_validator),
-    sourcePackRef: v.optional(store_release_source_pack_ref_validator),
     commits: v.optional(v.array(store_release_commit_validator)),
+    gitArtifact: v.optional(store_release_git_artifact_validator),
+    diff: v.optional(v.string()),
+    diffRef: v.optional(store_release_diff_ref_validator),
     iconUrl: v.optional(v.string()),
     authorUsername: v.optional(v.string()),
     authorBadge: v.optional(socialBadgeValidator),
@@ -833,11 +745,12 @@ export const createUpdateReleaseRecord = internalMutation({
       releaseNotes: args.releaseNotes,
       manifest: args.manifest,
       blueprintMarkdown: args.blueprintMarkdown,
-      ...(args.sourcePack ? { sourcePack: args.sourcePack } : {}),
-      ...(args.sourcePackRef ? { sourcePackRef: args.sourcePackRef } : {}),
       ...(args.commits && args.commits.length > 0
         ? { commits: args.commits }
         : {}),
+      ...(args.gitArtifact ? { gitArtifact: args.gitArtifact } : {}),
+      ...(args.diff ? { diff: args.diff } : {}),
+      ...(args.diffRef ? { diffRef: args.diffRef } : {}),
       createdAt: now,
     });
 
@@ -1337,13 +1250,18 @@ export const createFirstRelease = action({
     const blueprintMarkdown = normalizeBlueprintMarkdown(
       args.blueprintMarkdown,
     );
-    requireSingleSourcePackStorage(args.sourcePack, args.sourcePackRef);
-    const sourcePack = await normalizeSourcePack(args.sourcePack);
-    const sourcePackRef = normalizeSourcePackRef(args.sourcePackRef);
-    requireSourceBackedRelease(sourcePack, sourcePackRef);
+    const gitArtifact = normalizeGitArtifact(args.gitArtifact);
+    const diff = normalizeReleaseDiff(args.diff);
+    const diffRef = normalizeDiffRef(args.diffRef);
+    requireSingleDiffStorage(diff, diffRef);
+    requireSourceBackedRelease({
+      gitArtifact,
+      diff,
+      diffRef,
+    });
     const commits = normalizeCommits(args.commits);
     try {
-      let sourcePackForReview = sourcePack;
+      let diffForReview = diff;
       // User-authored display fields go through the cheap moderation
       // classifier before we hit the heavier security review or write
       // anything to the catalog. Synchronous fail-closed is fine here —
@@ -1352,19 +1270,27 @@ export const createFirstRelease = action({
         displayName,
         ...(description ? { description } : {}),
       });
-      if (sourcePackRef) {
-        sourcePackForReview = await normalizeSourcePack(
-          await ctx.runAction(
-            internal.data.store_source_packs.validateSourcePackRef,
-            {
-              ownerId,
-              packageId,
-              ref: sourcePackRef,
-            },
-          ),
-          { maxLength: MAX_SOURCE_PACK_UPLOAD_LENGTH },
+      if (diffRef) {
+        diffForReview = await ctx.runAction(
+          internal.data.store_git_artifacts.validateDiffRef,
+          {
+            ownerId,
+            packageId,
+            ref: diffRef,
+          },
         );
       }
+      const reviewCommits =
+        commits ??
+        (gitArtifact && diffForReview
+          ? [
+              {
+                hash: gitArtifact.featureCommit,
+                subject: "Squashed Store feature diff",
+                diff: diffForReview,
+              },
+            ]
+          : undefined);
       await enforceStoreReleaseReviewOrThrow(ctx, {
         ownerId,
         packageId,
@@ -1372,8 +1298,7 @@ export const createFirstRelease = action({
         description: description ?? "",
         releaseSummary: releaseNotes,
         artifactBody: blueprintMarkdown,
-        ...(commits ? { commits } : {}),
-        ...(sourcePackForReview ? { sourcePack: sourcePackForReview } : {}),
+        ...(reviewCommits ? { commits: reviewCommits } : {}),
       });
 
       const author = await resolveCallerAuthor(ctx, ownerId);
@@ -1398,9 +1323,10 @@ export const createFirstRelease = action({
           releaseNotes,
           manifest: releaseManifest,
           blueprintMarkdown,
-          ...(sourcePack ? { sourcePack } : {}),
-          ...(sourcePackRef ? { sourcePackRef } : {}),
           ...(commits ? { commits } : {}),
+          ...(gitArtifact ? { gitArtifact } : {}),
+          ...(diff ? { diff } : {}),
+          ...(diffRef ? { diffRef } : {}),
           ...(args.category ? { category: args.category } : {}),
           ...(iconUrl ? { iconUrl } : {}),
           ...(author.authorUsername
@@ -1410,10 +1336,10 @@ export const createFirstRelease = action({
         },
       );
     } catch (error) {
-      await cleanupUploadedSourcePackRef(ctx, {
+      await cleanupUploadedDiffRef(ctx, {
         ownerId,
         packageId,
-        ...(sourcePackRef ? { sourcePackRef } : {}),
+        ...(diffRef ? { diffRef } : {}),
       });
       throw error;
     }
@@ -1442,13 +1368,18 @@ export const createUpdateRelease = action({
     const blueprintMarkdown = normalizeBlueprintMarkdown(
       args.blueprintMarkdown,
     );
-    requireSingleSourcePackStorage(args.sourcePack, args.sourcePackRef);
-    const sourcePack = await normalizeSourcePack(args.sourcePack);
-    const sourcePackRef = normalizeSourcePackRef(args.sourcePackRef);
-    requireSourceBackedRelease(sourcePack, sourcePackRef);
+    const gitArtifact = normalizeGitArtifact(args.gitArtifact);
+    const diff = normalizeReleaseDiff(args.diff);
+    const diffRef = normalizeDiffRef(args.diffRef);
+    requireSingleDiffStorage(diff, diffRef);
+    requireSourceBackedRelease({
+      gitArtifact,
+      diff,
+      diffRef,
+    });
     const commits = normalizeCommits(args.commits);
     try {
-      let sourcePackForReview = sourcePack;
+      let diffForReview = diff;
       const pkg: Awaited<ReturnType<typeof getOwnedPackageByPackageId>> =
         await ctx.runQuery(
           internal.data.store_packages.getPackageByPackageIdInternal,
@@ -1460,19 +1391,27 @@ export const createUpdateRelease = action({
           message: "Store package not found",
         });
       }
-      if (sourcePackRef) {
-        sourcePackForReview = await normalizeSourcePack(
-          await ctx.runAction(
-            internal.data.store_source_packs.validateSourcePackRef,
-            {
-              ownerId,
-              packageId,
-              ref: sourcePackRef,
-            },
-          ),
-          { maxLength: MAX_SOURCE_PACK_UPLOAD_LENGTH },
+      if (diffRef) {
+        diffForReview = await ctx.runAction(
+          internal.data.store_git_artifacts.validateDiffRef,
+          {
+            ownerId,
+            packageId,
+            ref: diffRef,
+          },
         );
       }
+      const reviewCommits =
+        commits ??
+        (gitArtifact && diffForReview
+          ? [
+              {
+                hash: gitArtifact.featureCommit,
+                subject: "Squashed Store feature diff",
+                diff: diffForReview,
+              },
+            ]
+          : undefined);
       await enforceStoreReleaseReviewOrThrow(ctx, {
         ownerId,
         packageId,
@@ -1480,8 +1419,7 @@ export const createUpdateRelease = action({
         description: pkg.description ?? "",
         releaseSummary: releaseNotes,
         artifactBody: blueprintMarkdown,
-        ...(commits ? { commits } : {}),
-        ...(sourcePackForReview ? { sourcePack: sourcePackForReview } : {}),
+        ...(reviewCommits ? { commits: reviewCommits } : {}),
       });
 
       const author = await resolveCallerAuthor(ctx, ownerId);
@@ -1505,9 +1443,10 @@ export const createUpdateRelease = action({
           releaseNotes,
           manifest: releaseManifest,
           blueprintMarkdown,
-          ...(sourcePack ? { sourcePack } : {}),
-          ...(sourcePackRef ? { sourcePackRef } : {}),
           ...(commits ? { commits } : {}),
+          ...(gitArtifact ? { gitArtifact } : {}),
+          ...(diff ? { diff } : {}),
+          ...(diffRef ? { diffRef } : {}),
           ...(iconUrl ? { iconUrl } : {}),
           ...(author.authorUsername
             ? { authorUsername: author.authorUsername }
@@ -1516,10 +1455,10 @@ export const createUpdateRelease = action({
         },
       );
     } catch (error) {
-      await cleanupUploadedSourcePackRef(ctx, {
+      await cleanupUploadedDiffRef(ctx, {
         ownerId,
         packageId,
-        ...(sourcePackRef ? { sourcePackRef } : {}),
+        ...(diffRef ? { diffRef } : {}),
       });
       throw error;
     }

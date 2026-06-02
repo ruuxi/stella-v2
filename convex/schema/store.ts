@@ -40,46 +40,34 @@ export const store_release_commit_validator = v.object({
   diff: v.string(),
 });
 
-export const store_release_source_blob_validator = v.union(
-  v.object({
-    kind: v.literal("text"),
-    content: v.string(),
-  }),
-  v.object({
-    kind: v.literal("binary"),
-    contentBase64: v.string(),
-  }),
+export const store_release_git_object_type_validator = v.union(
+  v.literal("blob"),
+  v.literal("tree"),
+  v.literal("commit"),
 );
 
-export const store_release_source_change_validator = v.object({
-  path: v.string(),
-  baseHash: v.union(v.string(), v.null()),
-  nextHash: v.union(v.string(), v.null()),
-  base: v.optional(store_release_source_blob_validator),
-  next: v.optional(store_release_source_blob_validator),
+export const store_release_git_object_validator = v.object({
+  sha: v.string(),
+  type: store_release_git_object_type_validator,
+  sizeBytes: v.number(),
 });
 
-export const store_release_source_change_set_validator = v.object({
+export const store_release_git_artifact_validator = v.object({
+  kind: v.literal("git-object-artifact"),
   schemaVersion: v.literal(1),
-  baseRevisionId: v.string(),
-  parentRevisionIds: v.array(v.string()),
-  revisionId: v.string(),
-  featureId: v.optional(v.string()),
-  description: v.optional(v.string()),
-  changes: v.array(store_release_source_change_validator),
+  baseCommit: v.string(),
+  featureCommit: v.string(),
+  objects: v.array(store_release_git_object_validator),
+  security: v.optional(
+    v.object({
+      redactedPaths: v.array(v.string()),
+      omittedPaths: v.array(v.string()),
+      warnings: v.array(v.string()),
+    }),
+  ),
 });
 
-export const store_release_source_pack_validator = v.object({
-  kind: v.literal("stella-source-pack"),
-  schemaVersion: v.literal(1),
-  baseRevisionId: v.string(),
-  revisionId: v.string(),
-  featureId: v.optional(v.string()),
-  description: v.optional(v.string()),
-  changeSets: v.array(store_release_source_change_set_validator),
-});
-
-export const store_release_source_pack_ref_validator = v.object({
+export const store_release_diff_ref_validator = v.object({
   kind: v.literal("r2"),
   r2Key: v.string(),
   sha256: v.string(),
@@ -135,9 +123,10 @@ const storePackageReleaseFields = {
   // the author's tree, so the agent treats those diffs as a strong
   // default rather than a literal patch.
   blueprintMarkdown: v.string(),
-  sourcePack: v.optional(store_release_source_pack_validator),
-  sourcePackRef: v.optional(store_release_source_pack_ref_validator),
   commits: v.optional(v.array(store_release_commit_validator)),
+  gitArtifact: v.optional(store_release_git_artifact_validator),
+  diff: v.optional(v.string()),
+  diffRef: v.optional(store_release_diff_ref_validator),
   createdAt: v.number(),
 };
 

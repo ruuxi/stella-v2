@@ -149,7 +149,7 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
     model: "accounts/fireworks/models/kimi-k2p6",
     fallbackMode: "standard",
     managedGatewayProvider: "fireworks",
-    serviceTier: "fast",
+    serviceTier: "priority",
     temperature: 1.0,
     providerOptions: {
       openai: {

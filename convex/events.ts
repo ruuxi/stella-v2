@@ -4,13 +4,17 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { getUserIdOrNull } from "./auth";
-import { jsonValueValidator, optionalChannelEnvelopeValidator } from "./shared_validators";
+import {
+  jsonValueValidator,
+  optionalChannelEnvelopeValidator,
+} from "./shared_validators";
 import { normalizeOptionalInt } from "./lib/number_utils";
 import {
   estimateContextEventTokens,
   selectRecentByTokenBudget,
 } from "./lib/context_window";
 import { eventTypeValidator } from "./schema/conversations";
+import { CONNECTOR_TURN_PAYLOAD_REF } from "./channels/connector_privacy";
 
 const eventValidator = v.object({
   _id: v.id("events"),
@@ -49,7 +53,9 @@ const MAX_CONTEXT_TOKENS = 120_000;
 const MIN_SCAN_LIMIT = 240;
 const MAX_SCAN_LIMIT = 2400;
 
-const sanitizeEventForRead = <T extends { type: string; payload: Value } | null>(
+const sanitizeEventForRead = <
+  T extends { type: string; payload: Value } | null,
+>(
   event: T,
 ): T => {
   if (!event) {
@@ -59,6 +65,41 @@ const sanitizeEventForRead = <T extends { type: string; payload: Value } | null>
     ...event,
     payload: event.payload ?? {},
   } as T;
+};
+
+const hydrateConnectorRemoteTurnPayload = async (
+  ctx: QueryCtx,
+  event: Infer<typeof eventValidator>,
+): Promise<Infer<typeof eventValidator> | null> => {
+  if (event.type !== "remote_turn_request" || !event.requestId) {
+    return sanitizeEventForRead(event);
+  }
+
+  const eventPayload =
+    event.payload &&
+    typeof event.payload === "object" &&
+    !Array.isArray(event.payload)
+      ? (event.payload as Record<string, unknown>)
+      : {};
+  if (eventPayload.payloadRef !== CONNECTOR_TURN_PAYLOAD_REF) {
+    return sanitizeEventForRead(event);
+  }
+
+  const payloadRow = await ctx.db
+    .query("connector_turn_payloads")
+    .withIndex("by_requestId", (q) => q.eq("requestId", event.requestId!))
+    .unique();
+  if (!payloadRow || payloadRow.expiresAt <= Date.now()) {
+    return null;
+  }
+
+  return sanitizeEventForRead({
+    ...event,
+    payload: {
+      ...eventPayload,
+      ...(payloadRow.payload as Record<string, unknown>),
+    } as Value,
+  });
 };
 
 /**
@@ -111,8 +152,10 @@ export const listOlderMessages = internalQuery({
         .take(args.limit),
     ]);
 
-    return orderEventsChronologically([...userMessages, ...assistantMessages])
-      .slice(0, args.limit);
+    return orderEventsChronologically([
+      ...userMessages,
+      ...assistantMessages,
+    ]).slice(0, args.limit);
   },
 });
 
@@ -135,7 +178,11 @@ export const listMessagesInWindow = internalQuery({
       max: MAX_EVENTS_QUERY_LIMIT,
     });
 
-    const types = ["user_message", "assistant_message", "agent-completed"] as const;
+    const types = [
+      "user_message",
+      "assistant_message",
+      "agent-completed",
+    ] as const;
     const perType = await Promise.all(
       types.map((type) =>
         ctx.db
@@ -152,8 +199,7 @@ export const listMessagesInWindow = internalQuery({
       ),
     );
 
-    return orderEventsChronologically(perType.flat())
-      .slice(0, limit);
+    return orderEventsChronologically(perType.flat()).slice(0, limit);
   },
 });
 export const getById = internalQuery({
@@ -183,14 +229,18 @@ export const listRecentMessages = internalQuery({
       ctx.db
         .query("events")
         .withIndex("by_conversationId_and_type_and_timestamp", (q) =>
-          q.eq("conversationId", args.conversationId).eq("type", "user_message"),
+          q
+            .eq("conversationId", args.conversationId)
+            .eq("type", "user_message"),
         )
         .order("desc")
         .take(take),
       ctx.db
         .query("events")
         .withIndex("by_conversationId_and_type_and_timestamp", (q) =>
-          q.eq("conversationId", args.conversationId).eq("type", "assistant_message"),
+          q
+            .eq("conversationId", args.conversationId)
+            .eq("type", "assistant_message"),
         )
         .order("desc")
         .take(take),
@@ -199,7 +249,9 @@ export const listRecentMessages = internalQuery({
     let combined = [...userEvents, ...assistantEvents];
 
     if (args.beforeTimestamp !== undefined) {
-      combined = combined.filter((event) => event.timestamp <= args.beforeTimestamp!);
+      combined = combined.filter(
+        (event) => event.timestamp <= args.beforeTimestamp!,
+      );
     }
     if (args.excludeEventId) {
       combined = combined.filter((event) => event._id !== args.excludeEventId);
@@ -224,10 +276,7 @@ const MODEL_CONTEXT_EVENT_TYPES = new Set([
   "agent-failed",
 ]);
 
-const CHAT_CONTEXT_EVENT_TYPES = new Set([
-  "user_message",
-  "assistant_message",
-]);
+const CHAT_CONTEXT_EVENT_TYPES = new Set(["user_message", "assistant_message"]);
 
 type ContextEvent = Infer<typeof eventValidator>;
 type RecentConversationEventsArgs = {
@@ -271,14 +320,20 @@ const filterContextEvents = (
   eventsNewestFirst: ContextEvent[],
   options?: ContextEventFilterOptions,
 ): ContextEvent[] => {
-  const modelEvents = eventsNewestFirst.filter((event) => MODEL_CONTEXT_EVENT_TYPES.has(event.type));
+  const modelEvents = eventsNewestFirst.filter((event) =>
+    MODEL_CONTEXT_EVENT_TYPES.has(event.type),
+  );
   if (options?.includeOperationalEvents === false) {
-    return modelEvents.filter((event) => CHAT_CONTEXT_EVENT_TYPES.has(event.type));
+    return modelEvents.filter((event) =>
+      CHAT_CONTEXT_EVENT_TYPES.has(event.type),
+    );
   }
   return modelEvents;
 };
 
-const orderEventsChronologically = <T extends { timestamp: number; _id: Id<"events"> }>(
+const orderEventsChronologically = <
+  T extends { timestamp: number; _id: Id<"events"> },
+>(
   events: T[],
 ): T[] => {
   events.sort(
@@ -347,9 +402,11 @@ export const listSessionContextEvents = internalQuery({
       excludeEventId: args.excludeEventId,
       take: limit,
     });
-    events = orderEventsChronologically(filterContextEvents(events, {
-      includeOperationalEvents: args.includeOperationalEvents,
-    }));
+    events = orderEventsChronologically(
+      filterContextEvents(events, {
+        includeOperationalEvents: args.includeOperationalEvents,
+      }),
+    );
     return events.map((event) => sanitizeEventForRead(event));
   },
 });
@@ -412,7 +469,8 @@ export const getLatestDeviceIdForConversation = internalQuery({
       )
       .order("desc")
       .first();
-    const deviceId = typeof event?.deviceId === "string" ? event.deviceId.trim() : "";
+    const deviceId =
+      typeof event?.deviceId === "string" ? event.deviceId.trim() : "";
     return deviceId || null;
   },
 });
@@ -441,10 +499,7 @@ export const saveAssistantMessage = internalMutation({
   },
 });
 
-const deviceRequiredTypes = new Set([
-  "user_message",
-  "screen_event",
-]);
+const deviceRequiredTypes = new Set(["user_message", "screen_event"]);
 
 type AppendEventArgs = {
   conversationId: Id<"conversations">;
@@ -482,7 +537,8 @@ const resolveAppendEventPayload = (args: AppendEventArgs) => {
     if (text.length > 100_000) {
       throw new ConvexError({
         code: "INVALID_ARGUMENT",
-        message: "user_message text exceeds maximum allowed length of 100,000 characters",
+        message:
+          "user_message text exceeds maximum allowed length of 100,000 characters",
       });
     }
   }
@@ -495,7 +551,8 @@ const resolveAppendEventPayload = (args: AppendEventArgs) => {
 };
 
 const appendEventCore = async (ctx: MutationCtx, args: AppendEventArgs) => {
-  const { payload, targetDeviceId, timestamp } = resolveAppendEventPayload(args);
+  const { payload, targetDeviceId, timestamp } =
+    resolveAppendEventPayload(args);
 
   const conversation = await ctx.db.get(args.conversationId);
   // Stamp `requestState: "pending"` on freshly-inserted remote-turn requests
@@ -561,7 +618,9 @@ export const listEventsSince = internalQuery({
     const events = await ctx.db
       .query("events")
       .withIndex("by_conversationId_and_timestamp", (q) =>
-        q.eq("conversationId", args.conversationId).gt("timestamp", afterTimestamp),
+        q
+          .eq("conversationId", args.conversationId)
+          .gt("timestamp", afterTimestamp),
       )
       .order("asc")
       .take(limit);
@@ -577,7 +636,9 @@ export const getConversationEventHead = internalQuery({
   handler: async (ctx, args) => {
     const latest = await ctx.db
       .query("events")
-      .withIndex("by_conversationId_and_timestamp", (q) => q.eq("conversationId", args.conversationId))
+      .withIndex("by_conversationId_and_timestamp", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
       .order("desc")
       .first();
 
@@ -587,8 +648,6 @@ export const getConversationEventHead = internalQuery({
     };
   },
 });
-
-
 
 export const subscribeRemoteTurnRequestsForDevice = query({
   args: {
@@ -639,7 +698,10 @@ export const subscribeRemoteTurnRequestsForDevice = query({
       }
       if (!owned) continue;
 
-      filtered.push(event);
+      const hydrated = await hydrateConnectorRemoteTurnPayload(ctx, event);
+      if (!hydrated) continue;
+
+      filtered.push(hydrated);
       if (filtered.length >= maxItems) break;
     }
 
@@ -762,6 +824,8 @@ export const isRemoteTurnClaimed = query({
     if (!conversation || conversation.ownerId !== ownerId) {
       return false;
     }
-    return event.requestState === "claimed" || event.requestState === "fulfilled";
+    return (
+      event.requestState === "claimed" || event.requestState === "fulfilled"
+    );
   },
 });

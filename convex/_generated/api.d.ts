@@ -34,6 +34,8 @@ import type * as channels_connector_constants from "../channels/connector_consta
 import type * as channels_connector_delivery from "../channels/connector_delivery.js";
 import type * as channels_connector_media from "../channels/connector_media.js";
 import type * as channels_connector_media_types from "../channels/connector_media_types.js";
+import type * as channels_connector_privacy from "../channels/connector_privacy.js";
+import type * as channels_connector_turn_payloads from "../channels/connector_turn_payloads.js";
 import type * as channels_discord from "../channels/discord.js";
 import type * as channels_execution_policy from "../channels/execution_policy.js";
 import type * as channels_google_chat from "../channels/google_chat.js";
@@ -245,6 +247,8 @@ declare const fullApi: ApiFromModules<{
   "channels/connector_delivery": typeof channels_connector_delivery;
   "channels/connector_media": typeof channels_connector_media;
   "channels/connector_media_types": typeof channels_connector_media_types;
+  "channels/connector_privacy": typeof channels_connector_privacy;
+  "channels/connector_turn_payloads": typeof channels_connector_turn_payloads;
   "channels/discord": typeof channels_discord;
   "channels/execution_policy": typeof channels_execution_policy;
   "channels/google_chat": typeof channels_google_chat;

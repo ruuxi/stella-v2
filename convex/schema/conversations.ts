@@ -63,7 +63,8 @@ export const pendingDeviceOptionValidator = v.object({
 export const pendingDeviceSelectionValidator = v.object({
   createdAt: v.number(),
   provider: v.string(),
-  promptText: v.string(),
+  promptText: v.optional(v.string()),
+  payloadRequestId: v.optional(v.string()),
   userMessageId: v.optional(v.id("events")),
   mediaRefs: v.optional(v.array(connectorMediaRefValidator)),
   attachments: v.optional(v.array(channelAttachmentValidator)),
@@ -136,13 +137,21 @@ export const conversationsSchema = {
     channelEnvelope: optionalChannelEnvelopeValidator,
   })
     .index("by_conversationId_and_timestamp", ["conversationId", "timestamp"])
-    .index("by_conversationId_and_type_and_timestamp", ["conversationId", "type", "timestamp"])
+    .index("by_conversationId_and_type_and_timestamp", [
+      "conversationId",
+      "type",
+      "timestamp",
+    ])
     .index("by_targetDeviceId_and_timestamp", ["targetDeviceId", "timestamp"])
     // Type-scoped device subscription queries (`subscribeRemoteTurnRequestsForDevice`
     // and friends) read by `(targetDeviceId, type, timestamp)` so adding the
     // `type` column to the index lets them stream the exact rows they need
     // instead of over-fetching by 3x and JS-filtering.
-    .index("by_targetDeviceId_and_type_and_timestamp", ["targetDeviceId", "type", "timestamp"])
+    .index("by_targetDeviceId_and_type_and_timestamp", [
+      "targetDeviceId",
+      "type",
+      "timestamp",
+    ])
     // Lets the orphan watchdog enumerate unfulfilled remote turns directly by
     // lifecycle state + age, instead of fanning a per-device index scan across
     // every registered device every minute. Rows without `requestState` (all
@@ -175,7 +184,11 @@ export const conversationsSchema = {
     resurfacedAt: v.optional(v.number()),
     closedAt: v.optional(v.number()),
   })
-    .index("by_conversationId_and_status_and_lastUsedAt", ["conversationId", "status", "lastUsedAt"])
+    .index("by_conversationId_and_status_and_lastUsedAt", [
+      "conversationId",
+      "status",
+      "lastUsedAt",
+    ])
     .index("by_conversationId_and_name", ["conversationId", "name"])
     .index("by_conversationId_and_lastUsedAt", ["conversationId", "lastUsedAt"])
     .index("by_status_and_lastUsedAt", ["status", "lastUsedAt"]),
@@ -188,6 +201,5 @@ export const conversationsSchema = {
     toolCallId: v.optional(v.string()),
     tokenEstimate: v.optional(v.number()),
     createdAt: v.number(),
-  })
-    .index("by_threadId_and_ordinal", ["threadId", "ordinal"]),
+  }).index("by_threadId_and_ordinal", ["threadId", "ordinal"]),
 };

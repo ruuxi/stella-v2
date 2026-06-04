@@ -16,9 +16,14 @@ import {
 import { AGENT_IDS } from "../lib/agent_constants";
 import {
   EXECUTION_NOT_AVAILABLE_MESSAGE,
+  MOBILE_APP_PROVIDER,
   shouldUseOfflineResponderForProvider,
 } from "./execution_policy";
 import type { ConnectorMediaRef } from "./connector_media_types";
+import {
+  buildConnectorTurnEventPayload,
+  buildConnectorTurnPrivatePayload,
+} from "./connector_privacy";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,21 +58,22 @@ type ProcessIncomingMessageArgs = {
   deliveryMeta?: Record<string, unknown>;
 };
 
-type HandleConnectorIncomingMessageArgs = Omit<ProcessIncomingMessageArgs, "ctx"> & {
+type HandleConnectorIncomingMessageArgs = Omit<
+  ProcessIncomingMessageArgs,
+  "ctx"
+> & {
   ctx: ActionCtx;
   logPrefix: string;
   notLinkedText: string;
   failureText?: string;
   sendReply: (text: string) => Promise<void>;
   onResult?: (
-    result:
-      | {
-          text: string;
-          deferred?: boolean;
-          requestId?: string;
-          unavailable?: boolean;
-        }
-      | null,
+    result: {
+      text: string;
+      deferred?: boolean;
+      requestId?: string;
+      unavailable?: boolean;
+    } | null,
   ) => void;
 };
 
@@ -81,7 +87,8 @@ type FreshDeviceOption = {
 type PendingDeviceSelectionState = {
   createdAt: number;
   provider: string;
-  promptText: string;
+  promptText?: string;
+  payloadRequestId?: string;
   userMessageId?: Id<"events">;
   mediaRefs?: ConnectorMediaRef[];
   attachments?: ChannelInboundAttachment[];
@@ -121,14 +128,18 @@ const toErrorMessage = (value: unknown): string | undefined => {
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
-    ? JSON.parse(JSON.stringify(value)) as Record<string, unknown>
+    ? (JSON.parse(JSON.stringify(value)) as Record<string, unknown>)
     : {};
 
 const stripChannelEnvelopePrivateFields = (
   envelope: Infer<typeof optionalChannelEnvelopeValidator>,
 ): Infer<typeof optionalChannelEnvelopeValidator> => {
   if (!envelope) return undefined;
-  const { attachments: _attachments, providerPayload: _providerPayload, ...rest } = envelope;
+  const {
+    attachments: _attachments,
+    providerPayload: _providerPayload,
+    ...rest
+  } = envelope;
   return rest;
 };
 
@@ -136,7 +147,9 @@ const formatDeviceLabel = (device: {
   deviceName: string;
   platform?: string;
 }): string =>
-  device.platform ? `${device.deviceName} (${device.platform})` : device.deviceName;
+  device.platform
+    ? `${device.deviceName} (${device.platform})`
+    : device.deviceName;
 
 const buildDeviceSelectionPrompt = (
   devices: Array<{ deviceId: string; deviceName: string; platform?: string }>,
@@ -144,7 +157,9 @@ const buildDeviceSelectionPrompt = (
 ): string => {
   const lines = [
     prefix ?? "Multiple devices are online. Which device should I use?",
-    ...devices.map((device, index) => `${index + 1}. ${formatDeviceLabel(device)}`),
+    ...devices.map(
+      (device, index) => `${index + 1}. ${formatDeviceLabel(device)}`,
+    ),
     "Reply with the number or device name.",
   ];
   return lines.join("\n");
@@ -152,7 +167,11 @@ const buildDeviceSelectionPrompt = (
 
 const parseDeviceSelectionReply = (
   replyText: string,
-  deviceOptions: Array<{ deviceId: string; deviceName: string; platform?: string }>,
+  deviceOptions: Array<{
+    deviceId: string;
+    deviceName: string;
+    platform?: string;
+  }>,
 ) => {
   const trimmed = replyText.trim();
   if (!trimmed) return null;
@@ -163,15 +182,17 @@ const parseDeviceSelectionReply = (
   }
 
   const normalized = trimmed.toLowerCase();
-  const exactMatch = deviceOptions.find((device) =>
-    device.deviceName.trim().toLowerCase() === normalized
-    || formatDeviceLabel(device).trim().toLowerCase() === normalized,
+  const exactMatch = deviceOptions.find(
+    (device) =>
+      device.deviceName.trim().toLowerCase() === normalized ||
+      formatDeviceLabel(device).trim().toLowerCase() === normalized,
   );
   if (exactMatch) return exactMatch;
 
-  const prefixMatches = deviceOptions.filter((device) =>
-    device.deviceName.trim().toLowerCase().startsWith(normalized)
-    || formatDeviceLabel(device).trim().toLowerCase().startsWith(normalized),
+  const prefixMatches = deviceOptions.filter(
+    (device) =>
+      device.deviceName.trim().toLowerCase().startsWith(normalized) ||
+      formatDeviceLabel(device).trim().toLowerCase().startsWith(normalized),
   );
   return prefixMatches.length === 1 ? prefixMatches[0] : null;
 };
@@ -181,6 +202,9 @@ const getTransientCleanupBackoffMs = (attempt: number): number =>
     TRANSIENT_CLEANUP_BACKOFF_MAX_MS,
     TRANSIENT_CLEANUP_BACKOFF_BASE_MS * 2 ** Math.max(0, attempt - 1),
   );
+
+const shouldPersistConnectorTranscript = (provider: string): boolean =>
+  provider === MOBILE_APP_PROVIDER;
 
 const resolveConversationIdForIncomingMessage = async (args: {
   ctx: ActionCtx;
@@ -224,10 +248,13 @@ const resolveConversationIdForIncomingMessage = async (args: {
   );
 
   if (groupConnection) {
-    await args.ctx.runMutation(internal.channels.utils.setConnectionConversation, {
-      connectionId: groupConnection._id,
-      conversationId,
-    });
+    await args.ctx.runMutation(
+      internal.channels.utils.setConnectionConversation,
+      {
+        connectionId: groupConnection._id,
+        conversationId,
+      },
+    );
   }
 
   return conversationId;
@@ -240,16 +267,19 @@ const appendInboundUserMessage = async (args: {
   text: string;
   channelEnvelope?: Infer<typeof optionalChannelEnvelopeValidator>;
 }): Promise<Id<"events"> | null> => {
-  const event = await args.ctx.runMutation(internal.events.appendInternalEvent, {
-    conversationId: args.conversationId,
-    type: "user_message",
-    deviceId: `channel:${args.provider}`,
-    payload: {
-      text: args.text,
-      source: `channel:${args.provider}`,
+  const event = await args.ctx.runMutation(
+    internal.events.appendInternalEvent,
+    {
+      conversationId: args.conversationId,
+      type: "user_message",
+      deviceId: `channel:${args.provider}`,
+      payload: {
+        text: args.text,
+        source: `channel:${args.provider}`,
+      },
+      channelEnvelope: stripChannelEnvelopePrivateFields(args.channelEnvelope),
     },
-    channelEnvelope: stripChannelEnvelopePrivateFields(args.channelEnvelope),
-  });
+  );
   return event?._id ?? null;
 };
 
@@ -260,7 +290,11 @@ const materializeConnectorMediaRefs = async (args: {
   attachments?: ChannelInboundAttachment[];
   scopeId: string;
 }): Promise<ConnectorMediaRef[] | undefined> => {
-  if (!args.attachments || args.attachments.length === 0 || !args.deliveryMeta) {
+  if (
+    !args.attachments ||
+    args.attachments.length === 0 ||
+    !args.deliveryMeta
+  ) {
     return undefined;
   }
   const refs = (await args.ctx.runAction(
@@ -293,6 +327,60 @@ const refreshConnectorMediaRefs = async (args: {
   return refs.length > 0 ? refs : undefined;
 };
 
+const storeConnectorTurnPayload = async (args: {
+  ctx: ActionCtx;
+  ownerId: string;
+  conversationId: Id<"conversations">;
+  requestId: string;
+  targetDeviceId: string;
+  text: string;
+  agentType?: string;
+  mediaRefs?: ConnectorMediaRef[];
+}) => {
+  await args.ctx.runMutation(internal.channels.connector_turn_payloads.store, {
+    ownerId: args.ownerId,
+    conversationId: args.conversationId,
+    requestId: args.requestId,
+    targetDeviceId: args.targetDeviceId,
+    payload: buildConnectorTurnPrivatePayload({
+      conversationId: String(args.conversationId),
+      text: args.text,
+      agentType: args.agentType,
+      mediaRefs: args.mediaRefs,
+    }),
+  });
+};
+
+const loadConnectorTurnPayload = async (args: {
+  ctx: ActionCtx;
+  requestId?: string;
+}): Promise<{
+  text: string;
+  agentType?: string;
+  mediaRefs?: ConnectorMediaRef[];
+} | null> => {
+  if (!args.requestId) return null;
+  const payload = (await args.ctx.runQuery(
+    internal.channels.connector_turn_payloads.get,
+    { requestId: args.requestId },
+  )) as {
+    text?: unknown;
+    agentType?: unknown;
+    mediaRefs?: unknown;
+  } | null;
+  if (!payload || typeof payload.text !== "string") return null;
+  const agentType =
+    typeof payload.agentType === "string" ? payload.agentType : undefined;
+  const mediaRefs = Array.isArray(payload.mediaRefs)
+    ? (payload.mediaRefs as ConnectorMediaRef[])
+    : undefined;
+  return {
+    text: payload.text,
+    ...(agentType ? { agentType } : {}),
+    ...(mediaRefs ? { mediaRefs } : {}),
+  };
+};
+
 const appendTransientChannelEvent = async (args: {
   ctx: ActionCtx;
   ownerId: string;
@@ -308,25 +396,31 @@ const appendTransientChannelEvent = async (args: {
     fallback?: string;
   };
 }): Promise<void> => {
-  await args.ctx.runMutation(internal.channels.transient_data.appendTransientEvent, {
-    ownerId: args.ownerId,
-    conversationId: args.conversationId,
-    provider: args.provider,
-    direction: args.direction,
-    text: args.text,
-    batchKey: args.batchKey,
-    runId: args.runId,
-    metadata: args.metadata,
-  });
+  await args.ctx.runMutation(
+    internal.channels.transient_data.appendTransientEvent,
+    {
+      ownerId: args.ownerId,
+      conversationId: args.conversationId,
+      provider: args.provider,
+      direction: args.direction,
+      text: args.text,
+      batchKey: args.batchKey,
+      runId: args.runId,
+      metadata: args.metadata,
+    },
+  );
 };
 
 const deleteTransientBatch = async (args: {
   ctx: ActionCtx;
   batchKey: string;
 }): Promise<void> => {
-  await args.ctx.runMutation(internal.channels.transient_data.deleteTransientBatch, {
-    batchKey: args.batchKey,
-  });
+  await args.ctx.runMutation(
+    internal.channels.transient_data.deleteTransientBatch,
+    {
+      batchKey: args.batchKey,
+    },
+  );
 };
 
 const listFreshDevicesForOwner = async (args: {
@@ -347,10 +441,9 @@ const getConversationRoutingState = async (args: {
   activeTargetDeviceId: string | null;
   pendingDeviceSelection: PendingDeviceSelectionState | null;
 }> => {
-  return await args.ctx.runQuery(
-    internal.conversations.getRoutingState,
-    { conversationId: args.conversationId },
-  );
+  return await args.ctx.runQuery(internal.conversations.getRoutingState, {
+    conversationId: args.conversationId,
+  });
 };
 
 const persistInboundAssistantMessage = async (args: {
@@ -416,7 +509,10 @@ export async function processIncomingMessage(
   const nowMs = Date.now();
   // See backend/docs/sync_off_operational_writes.md for intentionally retained
   // operational metadata writes while sync mode is off.
-  const transient = syncMode === SYNC_MODE_OFF;
+  const persistConnectorTranscript = shouldPersistConnectorTranscript(
+    args.provider,
+  );
+  const transient = persistConnectorTranscript && syncMode === SYNC_MODE_OFF;
   const transientBatchKey = transient
     ? `channel:${args.provider}:${crypto.randomUUID()}`
     : null;
@@ -427,9 +523,16 @@ export async function processIncomingMessage(
     }
 
     let lastError: unknown;
-    for (let attempt = 1; attempt <= TRANSIENT_CLEANUP_MAX_ATTEMPTS; attempt += 1) {
+    for (
+      let attempt = 1;
+      attempt <= TRANSIENT_CLEANUP_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
       try {
-        await deleteTransientBatch({ ctx: args.ctx, batchKey: transientBatchKey });
+        await deleteTransientBatch({
+          ctx: args.ctx,
+          batchKey: transientBatchKey,
+        });
         transientBatchCleaned = true;
         return;
       } catch (cleanupError) {
@@ -446,35 +549,49 @@ export async function processIncomingMessage(
 
     const errorMessage = toErrorMessage(lastError);
     try {
-      await args.ctx.runMutation(internal.channels.transient_data.recordCleanupFailure, {
-        ownerId: connection.ownerId,
-        conversationId,
-        provider: args.provider,
-        batchKey: transientBatchKey,
-        attempts: TRANSIENT_CLEANUP_MAX_ATTEMPTS,
-        errorMessage,
-      });
+      await args.ctx.runMutation(
+        internal.channels.transient_data.recordCleanupFailure,
+        {
+          ownerId: connection.ownerId,
+          conversationId,
+          provider: args.provider,
+          batchKey: transientBatchKey,
+          attempts: TRANSIENT_CLEANUP_MAX_ATTEMPTS,
+          errorMessage,
+        },
+      );
     } catch (reportError) {
       // best-effort: this is a fallback for an already-failed cleanup; throwing would mask the original error
-      console.error("[channels] Failed to persist transient cleanup failure metric:", reportError);
+      console.error(
+        "[channels] Failed to persist transient cleanup failure metric:",
+        reportError,
+      );
     }
 
     // best-effort: cleanup runs in `finally`; throwing here would mask the original pipeline result
-    console.error("[channels][ALERT] Failed to clean transient connector batch after retries.", {
-      ownerId: connection.ownerId,
-      provider: args.provider,
-      attempts: TRANSIENT_CLEANUP_MAX_ATTEMPTS,
-      ...(errorMessage ? { errorMessage } : {}),
-    });
+    console.error(
+      "[channels][ALERT] Failed to clean transient connector batch after retries.",
+      {
+        ownerId: connection.ownerId,
+        provider: args.provider,
+        attempts: TRANSIENT_CLEANUP_MAX_ATTEMPTS,
+        ...(errorMessage ? { errorMessage } : {}),
+      },
+    );
   };
 
   const persistAssistant = async (params: {
     text: string;
-    usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+    usage?: {
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens?: number;
+    };
     silent?: boolean;
     fallback?: string;
   }) => {
     if (params.silent) return;
+    if (!persistConnectorTranscript) return;
     if (transient && transientBatchKey) {
       await appendTransientChannelEvent({
         ctx: args.ctx,
@@ -507,6 +624,9 @@ export async function processIncomingMessage(
     attachments?: ChannelInboundAttachment[];
     channelEnvelope?: Infer<typeof optionalChannelEnvelopeValidator>;
   }): Promise<Id<"events"> | null> => {
+    if (!persistConnectorTranscript) {
+      return null;
+    }
     if (transient && transientBatchKey) {
       await appendTransientChannelEvent({
         ctx: args.ctx,
@@ -554,7 +674,9 @@ export async function processIncomingMessage(
         nowMs,
       }),
     ]);
-    const freshDeviceIds = new Set(freshDevices.map((device) => device.deviceId));
+    const freshDeviceIds = new Set(
+      freshDevices.map((device) => device.deviceId),
+    );
     const requestedTargetDeviceId =
       typeof args.targetDeviceId === "string" ? args.targetDeviceId.trim() : "";
 
@@ -564,6 +686,7 @@ export async function processIncomingMessage(
     let promptChannelEnvelope = args.channelEnvelope;
     let promptDeliveryMeta = args.deliveryMeta;
     let pendingPromptUserMessageId: Id<"events"> | null = null;
+    let promptPayloadRequestId: string | null = null;
     let targetDeviceId: string | null = null;
 
     if (requestedTargetDeviceId) {
@@ -635,6 +758,19 @@ export async function processIncomingMessage(
       );
       if (!freshMatch) {
         if (freshDevices.length === 0) {
+          const pendingPayload = await loadConnectorTurnPayload({
+            ctx: args.ctx,
+            requestId: pendingSelection.payloadRequestId,
+          });
+          if (pendingSelection.payloadRequestId && !pendingPayload) {
+            await args.ctx.runMutation(
+              internal.conversations.clearPendingDeviceSelection,
+              { conversationId },
+            );
+            const responseText = "That message expired. Please send it again.";
+            await persistAssistant({ text: responseText });
+            return { text: responseText, unavailable: true };
+          }
           await args.ctx.runMutation(
             internal.conversations.clearPendingDeviceSelection,
             { conversationId },
@@ -643,16 +779,50 @@ export async function processIncomingMessage(
             internal.conversations.setActiveTargetDeviceId,
             { conversationId, deviceId: undefined },
           );
-          promptText = pendingSelection.promptText;
+          promptText =
+            pendingPayload?.text ?? pendingSelection.promptText ?? "";
           promptAttachments = undefined;
-          promptMediaRefs = await refreshConnectorMediaRefs({
-            ctx: args.ctx,
-            mediaRefs: pendingSelection.mediaRefs,
-          });
+          promptMediaRefs =
+            pendingPayload?.mediaRefs ??
+            (await refreshConnectorMediaRefs({
+              ctx: args.ctx,
+              mediaRefs: pendingSelection.mediaRefs,
+            }));
           promptChannelEnvelope = pendingSelection.channelEnvelope;
           promptDeliveryMeta = asRecord(pendingSelection.deliveryMeta);
           pendingPromptUserMessageId = pendingSelection.userMessageId ?? null;
+          promptPayloadRequestId = pendingSelection.payloadRequestId ?? null;
         } else {
+          const pendingPayload = await loadConnectorTurnPayload({
+            ctx: args.ctx,
+            requestId: pendingSelection.payloadRequestId,
+          });
+          if (pendingSelection.payloadRequestId && !pendingPayload) {
+            await args.ctx.runMutation(
+              internal.conversations.clearPendingDeviceSelection,
+              { conversationId },
+            );
+            const responseText = "That message expired. Please send it again.";
+            await persistAssistant({ text: responseText });
+            return { text: responseText, unavailable: true };
+          }
+          let payloadRequestId = pendingSelection.payloadRequestId ?? null;
+          if (!payloadRequestId) {
+            payloadRequestId = crypto.randomUUID();
+            const mediaRefs = await refreshConnectorMediaRefs({
+              ctx: args.ctx,
+              mediaRefs: pendingSelection.mediaRefs,
+            });
+            await storeConnectorTurnPayload({
+              ctx: args.ctx,
+              ownerId: connection.ownerId,
+              conversationId,
+              requestId: payloadRequestId,
+              targetDeviceId: "",
+              text: pendingPayload?.text ?? pendingSelection.promptText ?? "",
+              mediaRefs,
+            });
+          }
           const refreshedOptions = freshDevices.map((device) => ({
             deviceId: device.deviceId,
             deviceName: device.deviceName,
@@ -663,8 +833,14 @@ export async function processIncomingMessage(
             {
               conversationId,
               selection: {
-                ...pendingSelection,
                 createdAt: nowMs,
+                provider: pendingSelection.provider,
+                payloadRequestId,
+                ...(pendingSelection.userMessageId
+                  ? { userMessageId: pendingSelection.userMessageId }
+                  : {}),
+                channelEnvelope: pendingSelection.channelEnvelope,
+                deliveryMeta: pendingSelection.deliveryMeta,
                 deviceOptions: refreshedOptions,
               },
             },
@@ -682,6 +858,19 @@ export async function processIncomingMessage(
           return { text: responseText };
         }
       } else {
+        const pendingPayload = await loadConnectorTurnPayload({
+          ctx: args.ctx,
+          requestId: pendingSelection.payloadRequestId,
+        });
+        if (pendingSelection.payloadRequestId && !pendingPayload) {
+          await args.ctx.runMutation(
+            internal.conversations.clearPendingDeviceSelection,
+            { conversationId },
+          );
+          const responseText = "That message expired. Please send it again.";
+          await persistAssistant({ text: responseText });
+          return { text: responseText, unavailable: true };
+        }
         await args.ctx.runMutation(
           internal.conversations.clearPendingDeviceSelection,
           { conversationId },
@@ -690,20 +879,23 @@ export async function processIncomingMessage(
           internal.conversations.setActiveTargetDeviceId,
           { conversationId, deviceId: freshMatch.deviceId },
         );
-        promptText = pendingSelection.promptText;
+        promptText = pendingPayload?.text ?? pendingSelection.promptText ?? "";
         promptAttachments = undefined;
-        promptMediaRefs = await refreshConnectorMediaRefs({
-          ctx: args.ctx,
-          mediaRefs: pendingSelection.mediaRefs,
-        });
+        promptMediaRefs =
+          pendingPayload?.mediaRefs ??
+          (await refreshConnectorMediaRefs({
+            ctx: args.ctx,
+            mediaRefs: pendingSelection.mediaRefs,
+          }));
         promptChannelEnvelope = pendingSelection.channelEnvelope;
         promptDeliveryMeta = asRecord(pendingSelection.deliveryMeta);
         pendingPromptUserMessageId = pendingSelection.userMessageId ?? null;
+        promptPayloadRequestId = pendingSelection.payloadRequestId ?? null;
         targetDeviceId = freshMatch.deviceId;
       }
     } else if (
-      routingState.activeTargetDeviceId
-      && freshDeviceIds.has(routingState.activeTargetDeviceId)
+      routingState.activeTargetDeviceId &&
+      freshDeviceIds.has(routingState.activeTargetDeviceId)
     ) {
       targetDeviceId = routingState.activeTargetDeviceId;
     } else {
@@ -740,6 +932,16 @@ export async function processIncomingMessage(
           attachments: args.attachments,
           scopeId: `pending:${String(conversationId)}:${crypto.randomUUID()}`,
         });
+        const payloadRequestId = crypto.randomUUID();
+        await storeConnectorTurnPayload({
+          ctx: args.ctx,
+          ownerId: connection.ownerId,
+          conversationId,
+          requestId: payloadRequestId,
+          targetDeviceId: "",
+          text: args.text,
+          mediaRefs,
+        });
         const responseText = buildDeviceSelectionPrompt(deviceOptions);
         await args.ctx.runMutation(
           internal.conversations.setPendingDeviceSelection,
@@ -748,11 +950,14 @@ export async function processIncomingMessage(
             selection: {
               createdAt: nowMs,
               provider: args.provider,
-              promptText: args.text,
+              payloadRequestId,
               ...(userMessageId ? { userMessageId } : {}),
-              ...(mediaRefs ? { mediaRefs } : {}),
-              channelEnvelope: stripChannelEnvelopePrivateFields(args.channelEnvelope),
-              deliveryMeta: JSON.parse(JSON.stringify(args.deliveryMeta ?? {})) as Value,
+              channelEnvelope: stripChannelEnvelopePrivateFields(
+                args.channelEnvelope,
+              ),
+              deliveryMeta: JSON.parse(
+                JSON.stringify(args.deliveryMeta ?? {}),
+              ) as Value,
               deviceOptions,
             },
           },
@@ -780,7 +985,9 @@ export async function processIncomingMessage(
     console.log(
       `[pipeline:trace] candidates: ${JSON.stringify(candidates.map((c) => c.mode))}, deliveryMeta=${!!args.deliveryMeta}, userMessageId=${!!userMessageId}, transient=${transient}`,
     );
-    const allowOfflineResponder = shouldUseOfflineResponderForProvider(args.provider);
+    const allowOfflineResponder = shouldUseOfflineResponderForProvider(
+      args.provider,
+    );
 
     // ─── Inverted Execution: defer to local device ──────────────────────
     // When the local device is online and delivery metadata is provided,
@@ -788,31 +995,37 @@ export async function processIncomingMessage(
     // device runs the AI SDK natively (0ms tool latency) and delivers the
     // response back to the connector asynchronously.
     const firstCandidate = candidates[0];
-    if (
-      firstCandidate?.mode === "desktop" &&
-      promptDeliveryMeta
-    ) {
-      const requestId = crypto.randomUUID();
+    if (firstCandidate?.mode === "desktop" && promptDeliveryMeta) {
+      const requestId = promptPayloadRequestId ?? crypto.randomUUID();
 
-      const clonedDeliveryMeta = JSON.parse(JSON.stringify(promptDeliveryMeta));
       const mediaRefs =
         promptMediaRefs ??
-        await materializeConnectorMediaRefs({
+        (await materializeConnectorMediaRefs({
           ctx: args.ctx,
           provider: args.provider,
           deliveryMeta: promptDeliveryMeta,
           attachments: promptAttachments,
           scopeId: `turn:${requestId}`,
-        });
+        }));
 
-      const turnPayload = {
+      if (!promptPayloadRequestId) {
+        await storeConnectorTurnPayload({
+          ctx: args.ctx,
+          ownerId: connection.ownerId,
+          conversationId,
+          requestId,
+          targetDeviceId: firstCandidate.targetDeviceId,
+          text: promptText,
+          mediaRefs,
+        });
+      }
+
+      const turnPayload = buildConnectorTurnEventPayload({
         conversationId: String(conversationId),
-        ...(userMessageId ? { userMessageId: String(userMessageId) } : {}),
-        text: promptText,
         provider: args.provider,
-        deliveryMeta: clonedDeliveryMeta,
-        ...(mediaRefs ? { mediaRefs } : {}),
-      };
+        deliveryMeta: asRecord(promptDeliveryMeta),
+        ...(userMessageId ? { userMessageId: String(userMessageId) } : {}),
+      });
 
       await args.ctx.runMutation(internal.events.appendInternalEvent, {
         conversationId,
@@ -835,7 +1048,9 @@ export async function processIncomingMessage(
             ownerId: connection.ownerId,
             prompt: promptText,
             provider: args.provider,
-            deliveryMeta: clonedDeliveryMeta,
+            deliveryMeta: JSON.parse(
+              JSON.stringify(promptDeliveryMeta ?? {}),
+            ) as Value,
             ...(userMessageId ? { userMessageId: String(userMessageId) } : {}),
             targetDeviceId: firstCandidate.targetDeviceId,
           },
@@ -874,7 +1089,10 @@ export async function processIncomingMessage(
       selectedMode = outcome.selectedMode;
     } catch (error) {
       // Caught intentionally: fall through to the !result path which returns a user-facing failure message
-      console.error("[channels] Agent turn failed across all execution candidates:", error);
+      console.error(
+        "[channels] Agent turn failed across all execution candidates:",
+        error,
+      );
     }
 
     if (!result) {
@@ -887,15 +1105,13 @@ export async function processIncomingMessage(
     }
 
     const responseText = result.text.trim() || "(Stella had nothing to say.)";
-    const usedBackendFallback =
-      !targetDeviceId &&
-      selectedMode === "backend";
+    const usedBackendFallback = !targetDeviceId && selectedMode === "backend";
 
     await persistAssistant({
       text: responseText,
       usage: result.usage,
       silent: result.silent,
-      fallback: usedBackendFallback ? "backend" : selectedMode ?? undefined,
+      fallback: usedBackendFallback ? "backend" : (selectedMode ?? undefined),
     });
 
     return { text: responseText };
@@ -945,7 +1161,9 @@ export async function handleConnectorIncomingMessage(
   } catch (error) {
     console.error(`${args.logPrefix} Connector pipeline failed:`, error);
     if (shouldRespond) {
-      await args.sendReply(args.failureText ?? "Sorry, something went wrong. Please try again.");
+      await args.sendReply(
+        args.failureText ?? "Sorry, something went wrong. Please try again.",
+      );
     }
   }
 }

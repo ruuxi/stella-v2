@@ -46,7 +46,11 @@ export const integrationsSchema = {
   })
     .index("by_provider_and_externalUserId", ["provider", "externalUserId"])
     .index("by_ownerId_and_provider", ["ownerId", "provider"])
-    .index("by_ownerId_and_provider_and_externalUserId", ["ownerId", "provider", "externalUserId"]),
+    .index("by_ownerId_and_provider_and_externalUserId", [
+      "ownerId",
+      "provider",
+      "externalUserId",
+    ]),
 
   transient_channel_events: defineTable({
     ownerId: v.string(),
@@ -77,6 +81,20 @@ export const integrationsSchema = {
     .index("by_expiresAt", ["expiresAt"])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
     .index("by_provider_and_createdAt", ["provider", "createdAt"]),
+
+  connector_turn_payloads: defineTable({
+    ownerId: v.string(),
+    conversationId: v.id("conversations"),
+    requestId: v.string(),
+    targetDeviceId: v.string(),
+    payload: jsonObjectValidator,
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_requestId", ["requestId"])
+    .index("by_conversationId", ["conversationId"])
+    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
+    .index("by_expiresAt", ["expiresAt"]),
 
   slack_installations: defineTable({
     teamId: v.string(),

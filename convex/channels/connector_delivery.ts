@@ -22,10 +22,7 @@ import { v, ConvexError, type Value } from "convex/values";
 import { jsonValueValidator } from "../shared_validators";
 import { retryFetch } from "../lib/retry_fetch";
 import { requireConversationOwner } from "../auth";
-import {
-  enforceMutationRateLimit,
-  RATE_HOT_PATH,
-} from "../lib/rate_limits";
+import { enforceMutationRateLimit, RATE_HOT_PATH } from "../lib/rate_limits";
 import { runAgentTurn } from "../automation/runner";
 import type { Id } from "../_generated/dataModel";
 import {
@@ -67,9 +64,7 @@ const findRemoteTurnRequest = async (
     .first();
 
 const mediaLabel = (media: ConnectorMediaRef): string =>
-  media.name?.trim() ||
-  media.mimeType?.trim() ||
-  `${media.kind} attachment`;
+  media.name?.trim() || media.mimeType?.trim() || `${media.kind} attachment`;
 
 const appendMediaLinks = (text: string, media: ConnectorMediaRef[]): string => {
   if (media.length === 0) return text;
@@ -86,7 +81,10 @@ export const claimRemoteTurn = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const conversation = await requireConversationOwner(ctx, args.conversationId);
+    const conversation = await requireConversationOwner(
+      ctx,
+      args.conversationId,
+    );
     await enforceMutationRateLimit(
       ctx,
       "connector_claim_remote_turn",
@@ -109,6 +107,10 @@ export const claimRemoteTurn = mutation({
       claimedAt: Date.now(),
       ...(args.deviceId ? { claimedByDeviceId: args.deviceId } : {}),
     });
+    await ctx.runMutation(
+      internal.channels.connector_turn_payloads.deleteByRequestId,
+      { requestId: args.requestId },
+    );
 
     return null;
   },
@@ -162,6 +164,10 @@ export const cancelRemoteTurn = mutation({
       requestState: "cancelled",
       cancelledAt: Date.now(),
     });
+    await ctx.runMutation(
+      internal.channels.connector_turn_payloads.deleteByRequestId,
+      { requestId: args.requestId },
+    );
 
     return null;
   },
@@ -176,7 +182,10 @@ export const completeRemoteTurn = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const conversation = await requireConversationOwner(ctx, args.conversationId);
+    const conversation = await requireConversationOwner(
+      ctx,
+      args.conversationId,
+    );
     await enforceMutationRateLimit(
       ctx,
       "connector_complete_remote_turn",
@@ -228,6 +237,10 @@ export const completeRemoteTurn = mutation({
         text: args.text,
       },
     );
+    await ctx.runMutation(
+      internal.channels.connector_turn_payloads.deleteByRequestId,
+      { requestId: args.requestId },
+    );
 
     return null;
   },
@@ -255,7 +268,10 @@ export const sendConnectorFollowup = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const conversation = await requireConversationOwner(ctx, args.conversationId);
+    const conversation = await requireConversationOwner(
+      ctx,
+      args.conversationId,
+    );
     await enforceMutationRateLimit(
       ctx,
       "connector_send_followup",
@@ -443,9 +459,16 @@ async function persistConnectorAssistantMessage(
     conversationId: Id<"conversations">;
     provider: string;
     text: string;
-    usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+    usage?: {
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens?: number;
+    };
   },
 ): Promise<void> {
+  if (!shouldUseOfflineResponderForProvider(args.provider)) {
+    return;
+  }
   await ctx.runMutation(internal.events.appendInternalEvent, {
     conversationId: args.conversationId,
     type: "assistant_message",
@@ -492,10 +515,10 @@ async function isTargetDeviceStillFresh(
     return false;
   }
 
-  const freshDevices = await ctx.runQuery(
+  const freshDevices = (await ctx.runQuery(
     internal.agent.device_resolver.listFreshDevicesForOwner,
     { ownerId: args.ownerId, nowMs: Date.now() },
-  ) as Array<{ deviceId: string }>;
+  )) as Array<{ deviceId: string }>;
   return freshDevices.some((device) => device.deviceId === args.targetDeviceId);
 }
 
@@ -542,10 +565,12 @@ export const rescueSingleTurn = internalAction({
       return null;
     }
 
-    if (await isTargetDeviceStillFresh(ctx, {
-      ownerId: args.ownerId,
-      targetDeviceId: args.targetDeviceId,
-    })) {
+    if (
+      await isTargetDeviceStillFresh(ctx, {
+        ownerId: args.ownerId,
+        targetDeviceId: args.targetDeviceId,
+      })
+    ) {
       console.log(
         `[rescue:trace] Skipping fast rescue for ${args.requestId}; target desktop is still online.`,
       );
@@ -679,10 +704,10 @@ export const deliverMediaJobToConnector = internalAction({
         text: "",
         media,
       });
-      await ctx.runMutation(
-        internal.media_jobs.markConnectorMediaDelivered,
-        { jobId: args.jobId, deliveredAt: Date.now() },
-      );
+      await ctx.runMutation(internal.media_jobs.markConnectorMediaDelivered, {
+        jobId: args.jobId,
+        deliveredAt: Date.now(),
+      });
       await ctx.scheduler.runAfter(
         RELAYED_MEDIA_DELETE_DELAY_MS,
         internal.channels.connector_media.deleteRelayedMedia,
@@ -923,14 +948,18 @@ async function deliverGoogleChat(
   );
   const cardsV2 =
     imageMedia.length > 0
-      ? [{
-          cardId: "stella-media",
-          card: {
-            sections: imageMedia.map((item) => ({
-              widgets: [{ image: { imageUrl: item.url, altText: mediaLabel(item) } }],
-            })),
+      ? [
+          {
+            cardId: "stella-media",
+            card: {
+              sections: imageMedia.map((item) => ({
+                widgets: [
+                  { image: { imageUrl: item.url, altText: mediaLabel(item) } },
+                ],
+              })),
+            },
           },
-        }]
+        ]
       : undefined;
 
   const res = await retryFetch(
@@ -973,7 +1002,10 @@ async function deliverTeams(
   const token = await getTeamsBotToken();
 
   const truncated = truncateForConnector(
-    appendMediaLinks(text, media.filter((item) => item.kind !== "image")),
+    appendMediaLinks(
+      text,
+      media.filter((item) => item.kind !== "image"),
+    ),
     TEAMS_MAX_MESSAGE_CHARS,
   );
   const attachments = media
@@ -1075,13 +1107,10 @@ async function getLatestAssistantText(
   ctx: Pick<ActionCtx, "runQuery">,
   conversationId: Id<"conversations">,
 ): Promise<string> {
-  const events = (await ctx.runQuery(
-    internal.events.listEventsSince,
-    {
-      conversationId,
-      limit: 20,
-    },
-  )) as Array<{ type: string; payload: Record<string, unknown> }> | null;
+  const events = (await ctx.runQuery(internal.events.listEventsSince, {
+    conversationId,
+    limit: 20,
+  })) as Array<{ type: string; payload: Record<string, unknown> }> | null;
 
   if (!events) return EMPTY_RESPONSE_TEXT;
 
@@ -1167,6 +1196,10 @@ export const markRemoteTurnFulfilled = internalMutation({
       requestState: "fulfilled",
       fulfilledAt: Date.now(),
     });
+    await ctx.runMutation(
+      internal.channels.connector_turn_payloads.deleteByRequestId,
+      { requestId: args.requestId },
+    );
     return null;
   },
 });
@@ -1286,9 +1319,12 @@ export const rescueOrphanedTurns = internalAction({
             continue;
           }
 
-          const conversation = await ctx.runQuery(internal.conversations.getById, {
-            id: conversationId,
-          });
+          const conversation = await ctx.runQuery(
+            internal.conversations.getById,
+            {
+              id: conversationId,
+            },
+          );
           if (!conversation) {
             await ctx.runMutation(
               internal.scheduling.cron_jobs.completeCronTurnResultFromWatchdog,
@@ -1352,6 +1388,10 @@ export const rescueOrphanedTurns = internalAction({
               provider,
               deliveryMeta,
             });
+            await ctx.runMutation(
+              internal.channels.connector_turn_payloads.deleteByRequestId,
+              { requestId: orphan.requestId },
+            );
             console.log(
               `[watchdog] Rescued orphan ${orphan.requestId} (execution unavailable) → ${provider}`,
             );
@@ -1370,10 +1410,12 @@ export const rescueOrphanedTurns = internalAction({
             continue;
           }
 
-          if (await isTargetDeviceStillFresh(ctx, {
-            ownerId: conversation.ownerId,
-            targetDeviceId: orphan.targetDeviceId,
-          })) {
+          if (
+            await isTargetDeviceStillFresh(ctx, {
+              ownerId: conversation.ownerId,
+              targetDeviceId: orphan.targetDeviceId,
+            })
+          ) {
             console.log(
               `[watchdog] Skipping mobile fallback for ${orphan.requestId}; target desktop is still online.`,
             );

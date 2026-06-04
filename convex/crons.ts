@@ -10,6 +10,12 @@ crons.interval(
   { maxBatches: 10 },
 );
 crons.interval(
+  "transient connector turn payload cleanup",
+  { minutes: 5 },
+  internal.channels.connector_turn_payloads.purgeExpired,
+  { maxBatches: 10 },
+);
+crons.interval(
   "transient cleanup failure retention sweep",
   { hours: 12 },
   internal.channels.transient_data.purgeExpiredCleanupFailures,

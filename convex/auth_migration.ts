@@ -185,6 +185,23 @@ export const migrateTransientCleanupFailuresBatch = internalMutation({
   },
 });
 
+export const migrateConnectorTurnPayloadsBatch = internalMutation({
+  args: ownerArgs,
+  returns: hasMoreReturn,
+  handler: async (ctx: MutationCtx, args) => {
+    const rows = await ctx.db
+      .query("connector_turn_payloads")
+      .withIndex("by_ownerId_and_createdAt", (q) =>
+        q.eq("ownerId", args.fromOwnerId),
+      )
+      .take(BATCH_SIZE);
+    await Promise.all(
+      rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
+    );
+    return { hasMore: isFullPage(rows) };
+  },
+});
+
 export const migrateAgentsBatch = internalMutation({
   args: ownerArgs,
   returns: hasMoreReturn,
@@ -225,7 +242,9 @@ export const migrateMediaJobLogsBatch = internalMutation({
   handler: async (ctx: MutationCtx, args) => {
     const rows = await ctx.db
       .query("media_job_logs")
-      .withIndex("by_ownerId_and_jobId", (q) => q.eq("ownerId", args.fromOwnerId))
+      .withIndex("by_ownerId_and_jobId", (q) =>
+        q.eq("ownerId", args.fromOwnerId),
+      )
       .take(BATCH_SIZE);
     await Promise.all(
       rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
@@ -333,6 +352,7 @@ const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateUsageLogsBatch,
   internal.auth_migration.migrateTransientChannelEventsBatch,
   internal.auth_migration.migrateTransientCleanupFailuresBatch,
+  internal.auth_migration.migrateConnectorTurnPayloadsBatch,
   internal.auth_migration.migrateAgentsBatch,
   internal.auth_migration.migrateMediaJobsBatch,
   internal.auth_migration.migrateMediaJobLogsBatch,

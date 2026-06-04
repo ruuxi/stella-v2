@@ -977,21 +977,7 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
     path: "/api/webhooks/slack",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      const signingSecret = process.env.SLACK_SIGNING_SECRET;
-      if (!signingSecret) {
-        console.error("[slack] Missing SLACK_SIGNING_SECRET");
-        return new Response("Server configuration error", { status: 500 });
-      }
-  
       const rawBody = await request.text();
-      const timestamp = request.headers.get("x-slack-request-timestamp") ?? "";
-      const signature = request.headers.get("x-slack-signature") ?? "";
-  
-      const isValid = await verifySlackSignature(rawBody, timestamp, signature, signingSecret);
-      if (!isValid) {
-        return new Response("Unauthorized", { status: 401 });
-      }
-  
       let payload: {
         type?: string;
         challenge?: string;
@@ -1042,7 +1028,24 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
   
       // Handle URL verification challenge (Slack setup requirement)
       if (payload.type === "url_verification") {
-        return jsonResponse({ challenge: payload.challenge });
+        return new Response(payload.challenge ?? "", {
+          status: 200,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
+      }
+
+      const signingSecret = process.env.SLACK_SIGNING_SECRET;
+      if (!signingSecret) {
+        console.error("[slack] Missing SLACK_SIGNING_SECRET");
+        return new Response("Server configuration error", { status: 500 });
+      }
+
+      const timestamp = request.headers.get("x-slack-request-timestamp") ?? "";
+      const signature = request.headers.get("x-slack-signature") ?? "";
+
+      const isValid = await verifySlackSignature(rawBody, timestamp, signature, signingSecret);
+      if (!isValid) {
+        return new Response("Unauthorized", { status: 401 });
       }
   
       // Handle event callbacks

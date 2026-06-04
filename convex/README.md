@@ -88,3 +88,30 @@ function handleButtonPress() {
 Use the Convex CLI to push your functions to a deployment. See everything
 the Convex CLI can do by running `npx convex -h` in your project root
 directory. To learn more, launch the docs with `npx convex docs`.
+
+## Discord Gateway Worker
+
+Slash commands are handled by the Convex `/api/discord/interactions` route.
+Normal Discord DMs need one small long-running gateway worker because Discord
+delivers those over WebSocket gateway events rather than signed interaction
+webhooks. This is a Stella-operated worker for the Stella Discord application,
+not something individual users configure or run.
+
+Required environment:
+
+```sh
+DISCORD_BOT_TOKEN=...
+DISCORD_GATEWAY_SHARED_SECRET=...
+CONVEX_SITE_URL=https://your-deployment.convex.site
+```
+
+The Convex deployment must have the same `DISCORD_GATEWAY_SHARED_SECRET` set.
+Run the worker with:
+
+```sh
+bun run discord:gateway
+```
+
+The worker requests the Direct Messages gateway intent by default. If Discord
+adds a new requirement or the bot needs additional event classes, set
+`DISCORD_GATEWAY_EXTRA_INTENTS` to the numeric bitmask to OR into the default.

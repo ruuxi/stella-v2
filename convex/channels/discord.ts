@@ -5,6 +5,7 @@ import { formatLinkCodeResultMessage, processLinkCode } from "./link_codes";
 import { channelAttachmentValidator, optionalChannelEnvelopeValidator } from "../shared_validators";
 import { hexToUint8Array } from "../lib/crypto_utils";
 import { DISCORD_MAX_MESSAGE_CHARS, truncateForConnector } from "./connector_constants";
+import type { ConnectorMediaRef } from "./connector_media_types";
 
 // ---------------------------------------------------------------------------
 // Ed25519 Signature Verification (Discord Interactions Endpoint)
@@ -102,6 +103,50 @@ const editInteractionResponse = async (
   }
 };
 
+const discordMediaLabel = (media: ConnectorMediaRef): string =>
+  media.name?.trim() || media.mimeType?.trim() || `${media.kind} attachment`;
+
+const appendDiscordMediaLinks = (text: string, media: ConnectorMediaRef[]): string => {
+  if (media.length === 0) return text;
+  const lines = media.map((item) => `${discordMediaLabel(item)}: ${item.url}`);
+  return [text.trim(), ...lines].filter(Boolean).join("\n");
+};
+
+export const sendDiscordChannelMessage = async (
+  channelId: string,
+  content: string,
+  media: ConnectorMediaRef[] = [],
+) => {
+  if (!channelId) {
+    console.error("[discord] Cannot send channel message without channelId");
+    return;
+  }
+
+  const imageMedia = media.filter((item) => item.kind === "image");
+  const nonImageMedia = media.filter((item) => item.kind !== "image");
+  const truncated = truncateForConnector(
+    appendDiscordMediaLinks(content, nonImageMedia),
+    DISCORD_MAX_MESSAGE_CHARS,
+  );
+  const embeds = imageMedia.map((item) => ({
+    title: discordMediaLabel(item),
+    image: { url: item.url },
+  }));
+
+  const res = await discordApi(`/channels/${encodeURIComponent(channelId)}/messages`, "POST", {
+    content: truncated,
+    ...(embeds.length > 0 ? { embeds } : {}),
+  });
+
+  if (!res.ok) {
+    console.error(
+      "[discord] Failed to send channel message:",
+      res.status,
+      await res.text(),
+    );
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Internal Actions (scheduled from webhook)
 // ---------------------------------------------------------------------------
@@ -128,7 +173,7 @@ export const handleLinkCommand = internalAction({
       args.interactionToken,
       formatLinkCodeResultMessage(result, {
         providerName: "Discord",
-        linkedMessage: "Linked! You can now use `/ask` to message Stella.",
+        linkedMessage: "Linked! You can now DM Stella directly.",
       }),
     );
     return null;
@@ -168,6 +213,38 @@ export const handleAskCommand = internalAction({
         args.interactionToken,
         text,
       ),
+    });
+    return null;
+  },
+});
+
+export const handleDirectMessage = internalAction({
+  args: {
+    discordUserId: v.string(),
+    channelId: v.string(),
+    messageId: v.string(),
+    text: v.string(),
+    displayName: v.optional(v.string()),
+    attachments: v.optional(v.array(channelAttachmentValidator)),
+    channelEnvelope: optionalChannelEnvelopeValidator,
+    respond: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await handleConnectorIncomingMessage({
+      ctx,
+      provider: "discord",
+      externalUserId: args.discordUserId,
+      text: args.text,
+      attachments: args.attachments,
+      channelEnvelope: args.channelEnvelope,
+      respond: args.respond,
+      deliveryMeta: {
+        channelId: args.channelId,
+        messageId: args.messageId,
+      },
+      logPrefix: "[discord]",
+      notLinkedText: "Your account isn't linked yet. Use `/link` with your 6-digit code from Stella Settings.",
+      sendReply: (text) => sendDiscordChannelMessage(args.channelId, text),
     });
     return null;
   },

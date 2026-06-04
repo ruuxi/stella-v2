@@ -303,6 +303,79 @@ const parseDiscordSnowflakeTimestampMs = (snowflake: string | undefined): number
   }
 };
 
+const asNonEmptyString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const inferConnectorAttachmentKind = (
+  mimeType: string | undefined,
+  fallback: string | undefined,
+) => {
+  const normalizedMime = (mimeType ?? "").toLowerCase();
+  if (normalizedMime.startsWith("image/")) return "image";
+  if (normalizedMime.startsWith("video/")) return "video";
+  if (normalizedMime.startsWith("audio/")) return "voice";
+  return fallback && fallback.trim().length > 0 ? fallback : "file";
+};
+
+const extractDiscordGatewayAttachments = (rawAttachments: unknown): ConnectorAttachment[] => {
+  if (!Array.isArray(rawAttachments)) return [];
+  const attachments: ConnectorAttachment[] = [];
+  for (const raw of rawAttachments.slice(0, 10)) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const mimeType =
+      asNonEmptyString(item.mimeType) ??
+      asNonEmptyString(item.contentType) ??
+      asNonEmptyString(item.content_type);
+    const url =
+      asNonEmptyString(item.url) ??
+      asNonEmptyString(item.proxyUrl) ??
+      asNonEmptyString(item.proxy_url);
+    const size = typeof item.size === "number" && Number.isFinite(item.size)
+      ? item.size
+      : undefined;
+    const attachment: ConnectorAttachment = {
+      id: asNonEmptyString(item.id),
+      name: asNonEmptyString(item.name) ?? asNonEmptyString(item.filename),
+      mimeType,
+      url,
+      size,
+      kind: inferConnectorAttachmentKind(mimeType, asNonEmptyString(item.kind)),
+    };
+    if (attachment.id || attachment.name || attachment.url) {
+      attachments.push(attachment);
+    }
+  }
+  return attachments;
+};
+
+const getBearerToken = (request: Request): string | undefined => {
+  const authorization = request.headers.get("authorization");
+  if (!authorization) return undefined;
+  const [scheme, ...rest] = authorization.split(" ");
+  if (scheme.toLowerCase() !== "bearer") return undefined;
+  return asNonEmptyString(rest.join(" "));
+};
+
+const parseDiscordGatewayTimestampMs = (
+  timestamp: unknown,
+  fallbackSnowflake: string,
+): number => {
+  if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
+    return timestamp;
+  }
+  if (typeof timestamp === "string") {
+    const numericTimestamp = Number(timestamp);
+    if (Number.isFinite(numericTimestamp)) return numericTimestamp;
+    const isoTimestamp = parseIsoTimestampMs(timestamp);
+    if (isoTimestamp !== undefined) return isoTimestamp;
+  }
+  return parseDiscordSnowflakeTimestampMs(fallbackSnowflake) ?? Date.now();
+};
+
 const extractDiscordResolvedAttachments = (
   resolvedAttachments: unknown,
   requestedAttachmentId?: string,
@@ -582,6 +655,99 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
   });
   
   // ---------------------------------------------------------------------------
+  // Discord Gateway Ingest (normal DM messages)
+  // ---------------------------------------------------------------------------
+
+  http.route({
+    path: "/api/discord/gateway_message",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const expectedSecret = process.env.DISCORD_GATEWAY_SHARED_SECRET;
+      const providedSecret =
+        getBearerToken(request) ??
+        asNonEmptyString(request.headers.get("x-stella-discord-gateway-secret"));
+      if (!expectedSecret) {
+        console.error("[discord] Missing DISCORD_GATEWAY_SHARED_SECRET");
+        return new Response("Server configuration error", { status: 500 });
+      }
+      if (!providedSecret || !constantTimeEqual(providedSecret, expectedSecret)) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+
+      let message: Record<string, unknown>;
+      try {
+        const parsed = await request.json();
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return new Response("Invalid JSON", { status: 400 });
+        }
+        message = parsed as Record<string, unknown>;
+      } catch {
+        return new Response("Invalid JSON", { status: 400 });
+      }
+
+      const messageId = asNonEmptyString(message.id);
+      const channelId = asNonEmptyString(message.channelId);
+      const discordUserId = asNonEmptyString(message.authorId);
+      if (!messageId || !channelId || !discordUserId) {
+        return new Response("Missing required message fields", { status: 400 });
+      }
+
+      const attachments = extractDiscordGatewayAttachments(message.attachments);
+      const text = summarizeDiscordMessage(asNonEmptyString(message.content), attachments);
+      if (!text && attachments.length === 0) {
+        return jsonResponse({ ok: true, skipped: "empty_message" });
+      }
+
+      const dedupAllowed = await consumeWebhookDedup(
+        ctx,
+        "discord",
+        `gateway-message:${messageId}`,
+      );
+      if (!dedupAllowed) {
+        return jsonResponse({ ok: true, duplicate: true });
+      }
+
+      const rateLimit = await ctx.runMutation(internal.rate_limits.consumeWebhookRateLimit, {
+        scope: "discord",
+        key: `${discordUserId}:message`,
+        limit: 20,
+        windowMs: WEBHOOK_RATE_WINDOW_MS,
+        blockMs: WEBHOOK_RATE_WINDOW_MS,
+      });
+      if (!rateLimit.allowed) {
+        return rateLimitResponse(rateLimit.retryAfterMs);
+      }
+
+      const displayName =
+        asNonEmptyString(message.authorGlobalName) ??
+        asNonEmptyString(message.authorUsername);
+      const channelEnvelope = {
+        provider: "discord",
+        kind: "message" as const,
+        chatType: "dm",
+        externalUserId: discordUserId,
+        externalChatId: channelId,
+        externalMessageId: messageId,
+        text,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        sourceTimestamp: parseDiscordGatewayTimestampMs(message.timestamp, messageId),
+      };
+
+      await ctx.scheduler.runAfter(0, internal.channels.discord.handleDirectMessage, {
+        discordUserId,
+        channelId,
+        messageId,
+        text,
+        displayName,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        channelEnvelope,
+      });
+
+      return jsonResponse({ ok: true });
+    }),
+  });
+
+  // ---------------------------------------------------------------------------
   // Discord Interactions Endpoint
   // ---------------------------------------------------------------------------
   
@@ -701,7 +867,7 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
             : null;
   
           const statusText = connection
-            ? `Connected to Stella (linked ${new Date(connection.linkedAt).toLocaleDateString()}). Use \`/ask\` to chat.`
+            ? `Connected to Stella (linked ${new Date(connection.linkedAt).toLocaleDateString()}). You can DM Stella directly.`
             : "Not linked. Use `/link` with your 6-digit code from Stella Settings.";
   
           return new Response(

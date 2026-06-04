@@ -32,6 +32,26 @@ describe("connector turn privacy payloads", () => {
     expect("mediaRefs" in eventPayload).toBe(false);
   });
 
+  it("keeps direct Discord DM prompts out of durable event payloads", () => {
+    const eventPayload = buildConnectorTurnEventPayload({
+      conversationId: "conversation-1",
+      provider: "discord",
+      deliveryMeta: { channelId: "discord-dm", messageId: "message-1" },
+      userMessageId: "event-1",
+    });
+    const serialized = JSON.stringify(eventPayload);
+
+    expect(eventPayload).toEqual({
+      conversationId: "conversation-1",
+      provider: "discord",
+      deliveryMeta: { channelId: "discord-dm", messageId: "message-1" },
+      payloadRef: CONNECTOR_TURN_PAYLOAD_REF,
+      userMessageId: "event-1",
+    });
+    expect(serialized).not.toContain("private discord dm prompt");
+    expect("text" in eventPayload).toBe(false);
+  });
+
   it("puts prompt and media refs only in the private transient payload", () => {
     const payload = buildConnectorTurnPrivatePayload({
       conversationId: "conversation-1",

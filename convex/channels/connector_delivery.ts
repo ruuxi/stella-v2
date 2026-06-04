@@ -38,6 +38,7 @@ import {
   EXECUTION_NOT_AVAILABLE_MESSAGE,
   shouldUseOfflineResponderForProvider,
 } from "./execution_policy";
+import { sendDiscordChannelMessage } from "./discord";
 import {
   connectorMediaRefArrayValidator,
   extractDeliveryMediaFromOutput,
@@ -869,11 +870,17 @@ async function deliverDiscord(
   text: string,
   media: ConnectorMediaRef[] = [],
 ) {
+  const channelId = meta.channelId as string;
+  if (channelId) {
+    await sendDiscordChannelMessage(channelId, text, media);
+    return;
+  }
+
   const applicationId = meta.applicationId as string;
   const interactionToken = meta.interactionToken as string;
   if (!applicationId || !interactionToken) {
     console.error(
-      "[connector_delivery] Discord delivery missing applicationId or interactionToken",
+      "[connector_delivery] Discord delivery missing channelId or interaction credentials",
     );
     return;
   }

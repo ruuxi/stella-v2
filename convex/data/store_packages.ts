@@ -22,7 +22,7 @@ import {
   store_package_validator,
   store_package_visibility_validator,
   store_publish_result_validator,
-  store_release_commit_validator,
+  store_release_commit_meta_validator,
   store_release_diff_ref_validator,
   store_release_git_artifact_validator,
   store_release_manifest_validator,
@@ -54,11 +54,10 @@ const MAX_SUMMARY = 500;
 const MAX_ICON_URL = 2_048;
 const MAX_AUTHORED_AT_COMMIT = 80;
 const MAX_COMMITS_PER_RELEASE = 32;
-const MAX_COMMIT_DIFF_LENGTH = 200_000;
-const MAX_COMMITS_TOTAL_LENGTH = 1_500_000;
 const MAX_COMMIT_HASH_LENGTH = 80;
 const MAX_COMMIT_SUBJECT_LENGTH = 500;
-const MAX_RELEASE_DIFF_INLINE_LENGTH = 1_500_000;
+// Upload ceiling for the R2-backed diff blobs (squashed diff + per-commit
+// bundle). Diffs are never stored inline on the release document.
 const MAX_RELEASE_DIFF_UPLOAD_LENGTH = 5 * 1024 * 1024;
 const MAX_GIT_ARTIFACT_OBJECTS = 20_000;
 const MAX_GIT_OBJECT_BYTES = 25 * 1024 * 1024;
@@ -70,9 +69,12 @@ const create_release_args_validator = {
   releaseNotes: v.optional(v.string()),
   manifest: store_release_manifest_validator,
   blueprintMarkdown: v.string(),
-  commits: v.optional(v.array(store_release_commit_validator)),
+  // Per-commit metadata only; diffs are uploaded to R2 by the client and
+  // referenced via `commitsDiffRef`.
+  commits: v.optional(v.array(store_release_commit_meta_validator)),
+  commitsDiffRef: v.optional(store_release_diff_ref_validator),
   gitArtifact: v.optional(store_release_git_artifact_validator),
-  diff: v.optional(v.string()),
+  // Squashed diff is always uploaded to R2 by the client; only the ref is sent.
   diffRef: v.optional(store_release_diff_ref_validator),
   iconUrl: v.optional(v.string()),
 };
@@ -174,10 +176,8 @@ const normalizeBlueprintMarkdown = (value: string) => {
 };
 
 const normalizeCommits = (
-  commits:
-    | ReadonlyArray<{ hash: string; subject: string; diff: string }>
-    | undefined,
-): Array<{ hash: string; subject: string; diff: string }> | undefined => {
+  commits: ReadonlyArray<{ hash: string; subject: string }> | undefined,
+): Array<{ hash: string; subject: string }> | undefined => {
   if (!commits || commits.length === 0) return undefined;
   if (commits.length > MAX_COMMITS_PER_RELEASE) {
     throw new ConvexError({
@@ -185,9 +185,8 @@ const normalizeCommits = (
       message: `Releases may include at most ${MAX_COMMITS_PER_RELEASE} reference commits.`,
     });
   }
-  let totalLength = 0;
   const seenHashes = new Set<string>();
-  const normalized: Array<{ hash: string; subject: string; diff: string }> = [];
+  const normalized: Array<{ hash: string; subject: string }> = [];
   for (const commit of commits) {
     const hash = commit.hash.trim();
     requireBoundedString(hash, "commit.hash", MAX_COMMIT_HASH_LENGTH);
@@ -206,15 +205,7 @@ const normalizeCommits = (
     seenHashes.add(hash);
     const subject = commit.subject.trim();
     requireBoundedString(subject, "commit.subject", MAX_COMMIT_SUBJECT_LENGTH);
-    requireBoundedString(commit.diff, "commit.diff", MAX_COMMIT_DIFF_LENGTH);
-    totalLength += commit.diff.length;
-    if (totalLength > MAX_COMMITS_TOTAL_LENGTH) {
-      throw new ConvexError({
-        code: "INVALID_ARGUMENT",
-        message: `Total reference commit size exceeds ${MAX_COMMITS_TOTAL_LENGTH} characters`,
-      });
-    }
-    normalized.push({ hash, subject, diff: commit.diff });
+    normalized.push({ hash, subject });
   }
   return normalized;
 };
@@ -352,7 +343,7 @@ const normalizeDiffRef = (
   }
   if (
     !Number.isInteger(diffRef.sizeBytes) ||
-    diffRef.sizeBytes <= MAX_RELEASE_DIFF_INLINE_LENGTH ||
+    diffRef.sizeBytes <= 0 ||
     diffRef.sizeBytes > MAX_RELEASE_DIFF_UPLOAD_LENGTH
   ) {
     throw new ConvexError({
@@ -363,42 +354,30 @@ const normalizeDiffRef = (
   return diffRef;
 };
 
-const normalizeReleaseDiff = (
-  value: string | undefined,
-): string | undefined => {
-  if (value === undefined) return undefined;
-  if (value.length === 0) {
-    throw new ConvexError({
-      code: "INVALID_ARGUMENT",
-      message: "diff must not be empty.",
-    });
-  }
-  requireBoundedString(value, "diff", MAX_RELEASE_DIFF_INLINE_LENGTH);
-  return value;
-};
-
-const requireSingleDiffStorage = (
-  diff: unknown,
-  diffRef: StoreReleaseDiffRef | undefined,
-) => {
-  if (diff && diffRef) {
-    throw new ConvexError({
-      code: "INVALID_ARGUMENT",
-      message: "Use either diff or diffRef, not both.",
-    });
-  }
-};
-
 const requireSourceBackedRelease = (args: {
   gitArtifact: StoreReleaseGitArtifact | undefined;
-  diff: string | undefined;
   diffRef: StoreReleaseDiffRef | undefined;
-}) => {
-  if (args.gitArtifact && (args.diff || args.diffRef)) return;
+}): StoreReleaseDiffRef => {
+  if (args.gitArtifact && args.diffRef) return args.diffRef;
   throw new ConvexError({
     code: "INVALID_ARGUMENT",
     message: "Store releases must include a git artifact and squashed diff.",
   });
+};
+
+// `commits` (metadata) and `commitsDiffRef` (the R2 diff bundle) are written
+// as a pair: the inline list tells us which commits exist; the ref carries
+// their diffs. Reject a release that supplies one without the other.
+const requireCommitsStorage = (
+  commits: ReadonlyArray<unknown> | undefined,
+  commitsDiffRef: StoreReleaseDiffRef | undefined,
+) => {
+  if (Boolean(commits?.length) !== Boolean(commitsDiffRef)) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "commits and commitsDiffRef must be provided together.",
+    });
+  }
 };
 
 const cleanupUploadedDiffRef = async (
@@ -416,21 +395,26 @@ const cleanupUploadedDiffRef = async (
     ownerId: string;
     packageId: string;
     diffRef?: StoreReleaseDiffRef;
+    commitsDiffRef?: StoreReleaseDiffRef;
   },
 ): Promise<void> => {
-  if (!args.diffRef) return;
-  await ctx
-    .runAction(internal.data.store_git_artifacts.deleteDiffRef, {
-      ownerId: args.ownerId,
-      packageId: args.packageId,
-      ref: args.diffRef,
-    })
-    .catch((error) => {
-      console.warn(
-        "[store-packages] failed to clean rejected diff upload:",
-        error,
-      );
-    });
+  const refs = [args.diffRef, args.commitsDiffRef].filter(
+    (ref): ref is StoreReleaseDiffRef => Boolean(ref),
+  );
+  for (const ref of refs) {
+    await ctx
+      .runAction(internal.data.store_git_artifacts.deleteDiffRef, {
+        ownerId: args.ownerId,
+        packageId: args.packageId,
+        ref,
+      })
+      .catch((error) => {
+        console.warn(
+          "[store-packages] failed to clean rejected diff upload:",
+          error,
+        );
+      });
+  }
 };
 
 const normalizeReleaseNumber = (value: number) => {
@@ -633,9 +617,9 @@ export const createFirstReleaseRecord = internalMutation({
     releaseNotes: v.optional(v.string()),
     manifest: store_release_manifest_validator,
     blueprintMarkdown: v.string(),
-    commits: v.optional(v.array(store_release_commit_validator)),
+    commits: v.optional(v.array(store_release_commit_meta_validator)),
+    commitsDiffRef: v.optional(store_release_diff_ref_validator),
     gitArtifact: v.optional(store_release_git_artifact_validator),
-    diff: v.optional(v.string()),
     diffRef: v.optional(store_release_diff_ref_validator),
     iconUrl: v.optional(v.string()),
     authorUsername: v.optional(v.string()),
@@ -682,8 +666,8 @@ export const createFirstReleaseRecord = internalMutation({
       ...(args.commits && args.commits.length > 0
         ? { commits: args.commits }
         : {}),
+      ...(args.commitsDiffRef ? { commitsDiffRef: args.commitsDiffRef } : {}),
       ...(args.gitArtifact ? { gitArtifact: args.gitArtifact } : {}),
-      ...(args.diff ? { diff: args.diff } : {}),
       ...(args.diffRef ? { diffRef: args.diffRef } : {}),
       createdAt: now,
     });
@@ -714,9 +698,9 @@ export const createUpdateReleaseRecord = internalMutation({
     releaseNotes: v.optional(v.string()),
     manifest: store_release_manifest_validator,
     blueprintMarkdown: v.string(),
-    commits: v.optional(v.array(store_release_commit_validator)),
+    commits: v.optional(v.array(store_release_commit_meta_validator)),
+    commitsDiffRef: v.optional(store_release_diff_ref_validator),
     gitArtifact: v.optional(store_release_git_artifact_validator),
-    diff: v.optional(v.string()),
     diffRef: v.optional(store_release_diff_ref_validator),
     iconUrl: v.optional(v.string()),
     authorUsername: v.optional(v.string()),
@@ -748,8 +732,8 @@ export const createUpdateReleaseRecord = internalMutation({
       ...(args.commits && args.commits.length > 0
         ? { commits: args.commits }
         : {}),
+      ...(args.commitsDiffRef ? { commitsDiffRef: args.commitsDiffRef } : {}),
       ...(args.gitArtifact ? { gitArtifact: args.gitArtifact } : {}),
-      ...(args.diff ? { diff: args.diff } : {}),
       ...(args.diffRef ? { diffRef: args.diffRef } : {}),
       createdAt: now,
     });
@@ -1251,17 +1235,15 @@ export const createFirstRelease = action({
       args.blueprintMarkdown,
     );
     const gitArtifact = normalizeGitArtifact(args.gitArtifact);
-    const diff = normalizeReleaseDiff(args.diff);
     const diffRef = normalizeDiffRef(args.diffRef);
-    requireSingleDiffStorage(diff, diffRef);
-    requireSourceBackedRelease({
+    const commitsDiffRef = normalizeDiffRef(args.commitsDiffRef);
+    const squashedDiffRef = requireSourceBackedRelease({
       gitArtifact,
-      diff,
       diffRef,
     });
     const commits = normalizeCommits(args.commits);
+    requireCommitsStorage(commits, commitsDiffRef);
     try {
-      let diffForReview = diff;
       // User-authored display fields go through the cheap moderation
       // classifier before we hit the heavier security review or write
       // anything to the catalog. Synchronous fail-closed is fine here —
@@ -1270,19 +1252,24 @@ export const createFirstRelease = action({
         displayName,
         ...(description ? { description } : {}),
       });
-      if (diffRef) {
-        diffForReview = await ctx.runAction(
-          internal.data.store_git_artifacts.validateDiffRef,
-          {
-            ownerId,
-            packageId,
-            ref: diffRef,
-          },
-        );
-      }
-      const reviewCommits =
-        commits ??
-        (gitArtifact && diffForReview
+      const diffForReview = await ctx.runAction(
+        internal.data.store_git_artifacts.validateDiffRef,
+        {
+          ownerId,
+          packageId,
+          ref: squashedDiffRef,
+        },
+      );
+      const reviewCommits = commitsDiffRef
+        ? await ctx.runAction(
+            internal.data.store_git_artifacts.validateCommitsDiffRef,
+            {
+              ownerId,
+              packageId,
+              ref: commitsDiffRef,
+            },
+          )
+        : gitArtifact && diffForReview
           ? [
               {
                 hash: gitArtifact.featureCommit,
@@ -1290,7 +1277,7 @@ export const createFirstRelease = action({
                 diff: diffForReview,
               },
             ]
-          : undefined);
+          : undefined;
       await enforceStoreReleaseReviewOrThrow(ctx, {
         ownerId,
         packageId,
@@ -1324,8 +1311,8 @@ export const createFirstRelease = action({
           manifest: releaseManifest,
           blueprintMarkdown,
           ...(commits ? { commits } : {}),
+          ...(commitsDiffRef ? { commitsDiffRef } : {}),
           ...(gitArtifact ? { gitArtifact } : {}),
-          ...(diff ? { diff } : {}),
           ...(diffRef ? { diffRef } : {}),
           ...(args.category ? { category: args.category } : {}),
           ...(iconUrl ? { iconUrl } : {}),
@@ -1340,6 +1327,7 @@ export const createFirstRelease = action({
         ownerId,
         packageId,
         ...(diffRef ? { diffRef } : {}),
+        ...(commitsDiffRef ? { commitsDiffRef } : {}),
       });
       throw error;
     }
@@ -1369,17 +1357,15 @@ export const createUpdateRelease = action({
       args.blueprintMarkdown,
     );
     const gitArtifact = normalizeGitArtifact(args.gitArtifact);
-    const diff = normalizeReleaseDiff(args.diff);
     const diffRef = normalizeDiffRef(args.diffRef);
-    requireSingleDiffStorage(diff, diffRef);
-    requireSourceBackedRelease({
+    const commitsDiffRef = normalizeDiffRef(args.commitsDiffRef);
+    const squashedDiffRef = requireSourceBackedRelease({
       gitArtifact,
-      diff,
       diffRef,
     });
     const commits = normalizeCommits(args.commits);
+    requireCommitsStorage(commits, commitsDiffRef);
     try {
-      let diffForReview = diff;
       const pkg: Awaited<ReturnType<typeof getOwnedPackageByPackageId>> =
         await ctx.runQuery(
           internal.data.store_packages.getPackageByPackageIdInternal,
@@ -1391,19 +1377,24 @@ export const createUpdateRelease = action({
           message: "Store package not found",
         });
       }
-      if (diffRef) {
-        diffForReview = await ctx.runAction(
-          internal.data.store_git_artifacts.validateDiffRef,
-          {
-            ownerId,
-            packageId,
-            ref: diffRef,
-          },
-        );
-      }
-      const reviewCommits =
-        commits ??
-        (gitArtifact && diffForReview
+      const diffForReview = await ctx.runAction(
+        internal.data.store_git_artifacts.validateDiffRef,
+        {
+          ownerId,
+          packageId,
+          ref: squashedDiffRef,
+        },
+      );
+      const reviewCommits = commitsDiffRef
+        ? await ctx.runAction(
+            internal.data.store_git_artifacts.validateCommitsDiffRef,
+            {
+              ownerId,
+              packageId,
+              ref: commitsDiffRef,
+            },
+          )
+        : gitArtifact && diffForReview
           ? [
               {
                 hash: gitArtifact.featureCommit,
@@ -1411,7 +1402,7 @@ export const createUpdateRelease = action({
                 diff: diffForReview,
               },
             ]
-          : undefined);
+          : undefined;
       await enforceStoreReleaseReviewOrThrow(ctx, {
         ownerId,
         packageId,
@@ -1444,8 +1435,8 @@ export const createUpdateRelease = action({
           manifest: releaseManifest,
           blueprintMarkdown,
           ...(commits ? { commits } : {}),
+          ...(commitsDiffRef ? { commitsDiffRef } : {}),
           ...(gitArtifact ? { gitArtifact } : {}),
-          ...(diff ? { diff } : {}),
           ...(diffRef ? { diffRef } : {}),
           ...(iconUrl ? { iconUrl } : {}),
           ...(author.authorUsername
@@ -1459,6 +1450,7 @@ export const createUpdateRelease = action({
         ownerId,
         packageId,
         ...(diffRef ? { diffRef } : {}),
+        ...(commitsDiffRef ? { commitsDiffRef } : {}),
       });
       throw error;
     }

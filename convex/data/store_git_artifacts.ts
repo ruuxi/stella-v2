@@ -9,6 +9,7 @@ import { requireSensitiveUserIdAction } from "../auth";
 import { r2 } from "../r2_files";
 import { enforceActionRateLimit, RATE_STANDARD } from "../lib/rate_limits";
 import {
+  store_release_commit_validator,
   store_release_diff_ref_validator,
   store_release_git_artifact_validator,
   store_release_git_object_validator,
@@ -450,10 +451,101 @@ export const getReleaseDiff = action({
   returns: v.union(v.string(), v.null()),
   handler: async (ctx, args): Promise<string | null> => {
     const release = await getReadableGitArtifactRelease(ctx, args);
-    if (!release) return null;
-    if (typeof release.diff === "string") return release.diff;
-    if (!release.diffRef) return null;
+    if (!release?.diffRef) return null;
     return await fetchDiffRefText(release.diffRef);
+  },
+});
+
+type StoreReleaseCommit = Infer<typeof store_release_commit_validator>;
+
+const MAX_COMMITS_BUNDLE_ENTRIES = 64;
+
+// The per-commit reference diffs are stored as a single R2 JSON bundle
+// (`{ version: 1, commits: [{ hash, subject, diff }] }`) rather than inline on
+// the release document. Parse + shape-check it after the bytes have already
+// passed the size/sha256 integrity checks in `fetchDiffRefText`.
+const parseCommitsBundle = (text: string): StoreReleaseCommit[] => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new ConvexError({
+      code: "STORE_DIFF_INTEGRITY_FAILED",
+      message: "Store commits bundle is not valid JSON.",
+    });
+  }
+  const commits = (parsed as { commits?: unknown } | null)?.commits;
+  if (!Array.isArray(commits)) {
+    throw new ConvexError({
+      code: "STORE_DIFF_INTEGRITY_FAILED",
+      message: "Store commits bundle is malformed.",
+    });
+  }
+  if (commits.length > MAX_COMMITS_BUNDLE_ENTRIES) {
+    throw new ConvexError({
+      code: "STORE_DIFF_INTEGRITY_FAILED",
+      message: "Store commits bundle has too many entries.",
+    });
+  }
+  return commits.map((entry, index) => {
+    const candidate = entry as {
+      hash?: unknown;
+      subject?: unknown;
+      diff?: unknown;
+    };
+    if (
+      typeof candidate.hash !== "string" ||
+      typeof candidate.subject !== "string" ||
+      typeof candidate.diff !== "string"
+    ) {
+      throw new ConvexError({
+        code: "STORE_DIFF_INTEGRITY_FAILED",
+        message: `Store commits bundle entry ${index} is malformed.`,
+      });
+    }
+    return {
+      hash: candidate.hash,
+      subject: candidate.subject,
+      diff: candidate.diff,
+    };
+  });
+};
+
+// Used by the publish flow to hydrate the per-commit diffs for the safety
+// review. Mirrors `validateDiffRef`: validate ownership + integrity, then parse.
+export const validateCommitsDiffRef = internalAction({
+  args: {
+    ownerId: v.string(),
+    packageId: v.string(),
+    ref: store_release_diff_ref_validator,
+  },
+  returns: v.array(store_release_commit_validator),
+  handler: async (_ctx, args): Promise<StoreReleaseCommit[]> => {
+    const packageId = normalizePackageId(args.packageId);
+    const expectedPrefix = `${diffR2Prefix(args.ownerId, packageId)}/`;
+    if (!args.ref.r2Key.startsWith(expectedPrefix)) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "commitsDiffRef does not belong to this package.",
+      });
+    }
+    normalizeSha256(args.ref.sha256, "commitsDiffRef.sha256");
+    normalizeDiffSize(args.ref.sizeBytes);
+    return parseCommitsBundle(await fetchDiffRefText(args.ref));
+  },
+});
+
+// On-demand hydration of the per-commit reference diffs for install/preview.
+export const getReleaseCommits = action({
+  args: {
+    packageId: v.string(),
+    releaseNumber: v.number(),
+  },
+  returns: v.array(store_release_commit_validator),
+  handler: async (ctx, args): Promise<StoreReleaseCommit[]> => {
+    const release = await getReadableGitArtifactRelease(ctx, args);
+    if (!release?.commitsDiffRef) return [];
+    return parseCommitsBundle(await fetchDiffRefText(release.commitsDiffRef));
   },
 });
 

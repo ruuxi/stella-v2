@@ -29,15 +29,25 @@ export const store_release_manifest_validator = v.object({
   authoredAtCommit: v.optional(v.string()),
 });
 
-// Per-commit reference diff. The author's tree authored these; the
-// installer's tree may have diverged, so the install agent reads them
-// as a strong default rather than a literal patch. `diff` is the raw
-// `git show -U10` output post-redaction (home-dir paths, usernames,
-// and obvious credential shapes scrubbed).
+// Per-commit reference diff in its hydrated form. The author's tree
+// authored these; the installer's tree may have diverged, so the install
+// agent reads them as a strong default rather than a literal patch. `diff`
+// is the raw `git show -U10` output post-redaction (home-dir paths,
+// usernames, and obvious credential shapes scrubbed). This shape is the
+// payload stored in the R2 commits bundle and returned by
+// `getReleaseCommits` — it is NOT stored inline on the release document.
 export const store_release_commit_validator = v.object({
   hash: v.string(),
   subject: v.string(),
   diff: v.string(),
+});
+
+// Per-commit metadata persisted inline on the release document. The diff
+// text itself lives in R2 (referenced by `commitsDiffRef`) so the document
+// stays well under the 1 MiB limit and list/detail subscriptions stay cheap.
+export const store_release_commit_meta_validator = v.object({
+  hash: v.string(),
+  subject: v.string(),
 });
 
 export const store_release_git_object_type_validator = v.union(
@@ -118,14 +128,19 @@ const storePackageReleaseFields = {
   releaseNotes: v.optional(v.string()),
   manifest: store_release_manifest_validator,
   // The receiving general agent reads this markdown as the behaviour
-  // spec for the release. The actual implementation is reference
-  // diffs in `commits` — the installer's tree may have diverged from
-  // the author's tree, so the agent treats those diffs as a strong
-  // default rather than a literal patch.
+  // spec for the release. The actual implementation is the reference
+  // diffs in R2 (`diffRef` / `commitsDiffRef`) — the installer's tree may
+  // have diverged from the author's tree, so the agent treats those diffs
+  // as a strong default rather than a literal patch.
   blueprintMarkdown: v.string(),
-  commits: v.optional(v.array(store_release_commit_validator)),
+  // Per-commit metadata only. The diff text lives in R2 (`commitsDiffRef`).
+  commits: v.optional(v.array(store_release_commit_meta_validator)),
+  // R2 bundle holding the per-commit reference diffs. Hydrated on demand
+  // via `getReleaseCommits`.
+  commitsDiffRef: v.optional(store_release_diff_ref_validator),
   gitArtifact: v.optional(store_release_git_artifact_validator),
-  diff: v.optional(v.string()),
+  // Squashed base→feature diff. Always stored in R2 (`diffRef`); never
+  // inline, so the release document stays small and reads stay cheap.
   diffRef: v.optional(store_release_diff_ref_validator),
   createdAt: v.number(),
 };

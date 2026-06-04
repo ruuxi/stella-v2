@@ -54,6 +54,7 @@ export const store = internalMutation({
 export const get = internalQuery({
   args: {
     requestId: v.string(),
+    nowMs: v.number(),
   },
   returns: v.union(v.null(), connectorTurnPayloadValidator),
   handler: async (ctx, args) => {
@@ -61,7 +62,7 @@ export const get = internalQuery({
       .query("connector_turn_payloads")
       .withIndex("by_requestId", (q) => q.eq("requestId", args.requestId))
       .unique();
-    if (!row || row.expiresAt <= Date.now()) {
+    if (!row || row.expiresAt <= args.nowMs) {
       return null;
     }
     return row.payload as ConnectorTurnPayload;

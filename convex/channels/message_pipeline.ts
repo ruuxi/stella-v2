@@ -362,7 +362,7 @@ const loadConnectorTurnPayload = async (args: {
   if (!args.requestId) return null;
   const payload = (await args.ctx.runQuery(
     internal.channels.connector_turn_payloads.get,
-    { requestId: args.requestId },
+    { requestId: args.requestId, nowMs: Date.now() },
   )) as {
     text?: unknown;
     agentType?: unknown;

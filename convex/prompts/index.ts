@@ -17,7 +17,6 @@ export {
   getPlatformSystemGuidance,
   buildCurrentDateDynamicPrompt,
   buildActiveThreadsDynamicPrompt,
-  getExpressionStyleSystemPrompt,
   getResponseLanguageSystemPrompt,
   buildFallbackAgentSystemPrompt,
 } from "./system_assembly";

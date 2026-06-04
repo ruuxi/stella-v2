@@ -264,21 +264,6 @@ export const getSyncModeForOwner = internalQuery({
   },
 });
 
-const EXPRESSION_STYLE_KEY = "expression_style";
-
-export const setExpressionStyle = mutation({
-  args: {
-    style: v.union(v.literal("emoji"), v.literal("none")),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const ownerId = await requireUserId(ctx);
-    await enforceMutationRateLimit(ctx, PREFERENCE_RATE_SCOPE, ownerId, RATE_SETTINGS);
-    await upsertPreferenceRecord(ctx, ownerId, EXPRESSION_STYLE_KEY, args.style);
-    return null;
-  },
-});
-
 export const getPreferenceForOwner = internalQuery({
   args: {
     ownerId: v.string(),

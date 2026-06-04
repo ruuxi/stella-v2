@@ -55,18 +55,6 @@ export const buildActiveThreadsDynamicPrompt = (
   return `# Active Threads\nContinue with thread_id, or create new with thread_name.\n${lines.join("\n")}`;
 };
 
-export const getExpressionStyleSystemPrompt = (
-  style: string | null | undefined,
-): string => {
-  if (style === "none") {
-    return "The user prefers responses without emoji.";
-  }
-  if (style === "emoji") {
-    return "The user prefers responses with emoji.";
-  }
-  return "";
-};
-
 const LOCALE_ENGLISH_NAMES: Record<string, string> = {
   en: "English",
   es: "Spanish",

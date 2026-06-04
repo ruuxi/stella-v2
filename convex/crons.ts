@@ -67,6 +67,13 @@ crons.interval(
 );
 
 crons.interval(
+  "purge stale anon device usage",
+  { hours: 24 },
+  internal.ai_proxy_data.purgeStaleDeviceUsage,
+  { batchSize: 1000 },
+);
+
+crons.interval(
   "purge expired slack oauth states",
   { hours: 1 },
   internal.data.integrations.purgeExpiredSlackOAuthStates,

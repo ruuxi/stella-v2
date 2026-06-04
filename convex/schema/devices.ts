@@ -35,7 +35,13 @@ export const devicesSchema = {
     requestCount: v.number(),
     firstRequestAt: v.number(),
     lastRequestAt: v.number(),
-  }).index("by_deviceId", ["deviceId"]),
+  })
+    .index("by_deviceId", ["deviceId"])
+    // Lets the retention cron range-scan the oldest rows without a full
+    // table scan. Rows past the retention window are equivalent to absent
+    // ones (a returning device/IP just starts a fresh count), so deleting
+    // them is purely a storage reclaim.
+    .index("by_lastRequestAt", ["lastRequestAt"]),
 
   mobile_bridge_registrations: defineTable({
     ownerId: v.string(),

@@ -105,6 +105,30 @@ export const incrementDeviceUsage = internalMutation({
 })
 
 /**
+ * Retention sweep for `anon_device_usage`. Rows whose `lastRequestAt` is older
+ * than the retention window are already treated as stale (the count resets on
+ * the next request), so deleting them only reclaims storage and never changes
+ * rate-limiting behavior. Batched + index-scanned; the cron re-runs until the
+ * backlog is drained.
+ */
+export const purgeStaleDeviceUsage = internalMutation({
+  args: {
+    batchSize: v.optional(v.number()),
+  },
+  returns: v.object({ deleted: v.number(), hasMore: v.boolean() }),
+  handler: async (ctx, args) => {
+    const batchSize = clampIntToRange(args.batchSize ?? 500, 1, 1000)
+    const cutoff = Date.now() - DEVICE_USAGE_RETENTION_MS
+    const stale = await ctx.db
+      .query('anon_device_usage')
+      .withIndex('by_lastRequestAt', (q) => q.lt('lastRequestAt', cutoff))
+      .take(batchSize)
+    await Promise.all(stale.map((row) => ctx.db.delete(row._id)))
+    return { deleted: stale.length, hasMore: stale.length === batchSize }
+  },
+})
+
+/**
  * Atomically checks and consumes one anonymous request allowance.
  */
 export const consumeDeviceAllowance = internalMutation({

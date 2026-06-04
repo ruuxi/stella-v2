@@ -14,6 +14,7 @@ import {
   getFireworksKimiK2P6ServiceTierPrice,
 } from "../lib/billing_money";
 import {
+  consumeAnonymousIpAllowance,
   consumeAnonymousRequestAllowance,
   DEFAULT_RETRY_AFTER_MS,
 } from "./billing";
@@ -95,12 +96,16 @@ export async function authorizeStellaRelayRequest(args: {
   if (isAnonymous) {
     const deviceId = `anon-jwt:${ownerId}`;
     const clientAddressKey = getClientAddressKey(request);
-    const allowed = await consumeAnonymousRequestAllowance(
-      ctx,
-      deviceId,
-      clientAddressKey,
-    );
-    if (!allowed) {
+    // The per-IP counter is the durable backstop: deleting Stella data mints
+    // a new anonymous identity (fresh `deviceId`), but the IP bucket persists,
+    // so spam-resets from one network still hit a ceiling. Check it first so a
+    // request blocked by the IP cap doesn't also burn the (fresh) per-device
+    // counter. The per-device counter is the smaller per-person trial.
+    const ipAllowed = await consumeAnonymousIpAllowance(ctx, clientAddressKey);
+    const deviceAllowed = ipAllowed
+      ? await consumeAnonymousRequestAllowance(ctx, deviceId, clientAddressKey)
+      : false;
+    if (!ipAllowed || !deviceAllowed) {
       return stellaProviderErrorResponse(
         429,
         "Sign in required: You've used your free Stella previews. Sign in to keep going.",

@@ -30,3 +30,10 @@ convex/_generated/ai/ai-files.state.json
 
 # Convex snapshot exports (local backups, never commit)
 .backups/
+
+# Agent tooling (local only)
+CLAUDE.md
+AGENTS.md
+skills-lock.json
+.claude/
+.agents/

@@ -1,15 +1,9 @@
-import { paginationOptsValidator } from "convex/server";
-import { mutation, query, internalQuery, internalMutation } from "./_generated/server";
+import { query, internalQuery, internalMutation } from "./_generated/server";
 import { v, ConvexError, Infer, type Value } from "convex/values";
-import { internal, components } from "./_generated/api";
-import { RateLimiter } from "@convex-dev/rate-limiter";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import {
-  getUserIdOrNull,
-  requireConversationOwner,
-  requireUserId,
-} from "./auth";
+import { getUserIdOrNull } from "./auth";
 import { jsonValueValidator, optionalChannelEnvelopeValidator } from "./shared_validators";
 import { normalizeOptionalInt } from "./lib/number_utils";
 import {
@@ -17,8 +11,6 @@ import {
   selectRecentByTokenBudget,
 } from "./lib/context_window";
 import { eventTypeValidator } from "./schema/conversations";
-
-const rateLimiter = new RateLimiter(components.rateLimiter);
 
 const eventValidator = v.object({
   _id: v.id("events"),
@@ -51,21 +43,11 @@ const usageSummaryValidator = v.object({
   totalTokens: v.optional(v.number()),
 });
 
-const localSyncMessageValidator = v.object({
-  localMessageId: v.string(),
-  role: v.union(v.literal("user"), v.literal("assistant")),
-  text: v.string(),
-  timestamp: v.number(),
-  deviceId: v.optional(v.string()),
-});
-
 const MAX_EVENTS_QUERY_LIMIT = 2000;
 const MAX_SYNC_EVENTS_QUERY_LIMIT = 1000;
 const MAX_CONTEXT_TOKENS = 120_000;
 const MIN_SCAN_LIMIT = 240;
 const MAX_SCAN_LIMIT = 2400;
-const APPEND_EVENT_RATE = { rate: 100, period: 10_000 } as const;
-const IMPORT_CHUNK_RATE = { rate: 30, period: 10_000 } as const;
 
 const sanitizeEventForRead = <T extends { type: string; payload: Value } | null>(
   event: T,
@@ -545,112 +527,6 @@ const appendEventCore = async (ctx: MutationCtx, args: AppendEventArgs) => {
   return sanitizeEventForRead(inserted);
 };
 
-export const appendEvent = mutation({
-  args: {
-    conversationId: v.id("conversations"),
-    type: eventTypeValidator,
-    timestamp: v.optional(v.number()),
-    deviceId: v.optional(v.string()),
-    requestId: v.optional(v.string()),
-    targetDeviceId: v.optional(v.string()),
-    payload: jsonValueValidator,
-    channelEnvelope: optionalChannelEnvelopeValidator,
-  },
-  returns: v.union(v.null(), eventValidator),
-  handler: async (ctx, args) => {
-    const ownerId = await requireUserId(ctx);
-
-    const status = await rateLimiter.limit(ctx, "appendEvent", {
-      key: ownerId,
-      config: { kind: "fixed window", ...APPEND_EVENT_RATE },
-    });
-    if (!status.ok) {
-      throw new ConvexError({
-        code: "RATE_LIMITED",
-        message: "Too many events. Please try again later.",
-      });
-    }
-
-    await requireConversationOwner(ctx, args.conversationId);
-    return await appendEventCore(ctx, args);
-  },
-});
-
-export const importLocalMessagesChunk = mutation({
-  args: {
-    conversationId: v.id("conversations"),
-    messages: v.array(localSyncMessageValidator),
-  },
-  returns: v.object({ imported: v.number(), skipped: v.number() }),
-  handler: async (ctx, args) => {
-    const ownerId = await requireUserId(ctx);
-
-    const status = await rateLimiter.limit(ctx, "importLocalMessagesChunk", {
-      key: ownerId,
-      config: { kind: "fixed window", ...IMPORT_CHUNK_RATE },
-    });
-    if (!status.ok) {
-      throw new ConvexError({
-        code: "RATE_LIMITED",
-        message: "Too many import requests. Please try again later.",
-      });
-    }
-
-    await requireConversationOwner(ctx, args.conversationId);
-
-    let imported = 0;
-    let skipped = 0;
-
-    for (const message of args.messages) {
-      let text = message.text.trim();
-      if (!text) {
-        skipped += 1;
-        continue;
-      }
-      if (text.length > 100_000) {
-        text = text.slice(0, 100_000);
-      }
-
-      const requestId = `local_sync:${args.conversationId}:${message.localMessageId}`;
-      const existing = await ctx.db
-        .query("events")
-        .withIndex("by_requestId", (q) => q.eq("requestId", requestId))
-        .first();
-      if (existing && existing.conversationId === args.conversationId) {
-        skipped += 1;
-        continue;
-      }
-
-      let timestamp = Number.isFinite(message.timestamp) ? message.timestamp : Date.now();
-      if (timestamp > Date.now() + 60_000) {
-        timestamp = Date.now();
-      }
-      const type = message.role === "assistant" ? "assistant_message" : "user_message";
-
-      await appendEventCore(ctx, {
-        conversationId: args.conversationId,
-        type,
-        timestamp,
-        requestId,
-        ...(type === "user_message"
-          ? { deviceId: message.deviceId ?? "local-desktop" }
-          : {}),
-        payload: {
-          text,
-          source: "local_sync",
-          localMessageId: message.localMessageId,
-        },
-      });
-      imported += 1;
-    }
-
-    return {
-      imported,
-      skipped,
-    };
-  },
-});
-
 export const appendInternalEvent = internalMutation({
   args: {
     conversationId: v.id("conversations"),
@@ -664,40 +540,6 @@ export const appendInternalEvent = internalMutation({
   },
   handler: async (ctx, args) => {
     return await appendEventCore(ctx, args);
-  },
-});
-
-export const listEvents = query({
-  args: {
-    conversationId: v.id("conversations"),
-    paginationOpts: paginationOptsValidator,
-  },
-  returns: v.object({
-    page: v.array(eventValidator),
-    isDone: v.boolean(),
-    continueCursor: v.string(),
-    splitCursor: v.optional(v.union(v.string(), v.null())),
-    pageStatus: v.optional(
-      v.union(
-        v.literal("SplitRecommended"),
-        v.literal("SplitRequired"),
-        v.null(),
-      ),
-    ),
-  }),
-  handler: async (ctx, args) => {
-    await requireConversationOwner(ctx, args.conversationId);
-    const page = await ctx.db
-      .query("events")
-      .withIndex("by_conversationId_and_timestamp", (q) =>
-        q.eq("conversationId", args.conversationId),
-      )
-      .order("desc")
-      .paginate(args.paginationOpts);
-    return {
-      ...page,
-      page: page.page.map((event) => sanitizeEventForRead(event)),
-    };
   },
 });
 

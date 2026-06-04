@@ -1,5 +1,4 @@
 import {
-  mutation,
   internalMutation,
   internalQuery,
   MutationCtx,
@@ -10,30 +9,9 @@ import {
   OFFLINE_RESPONDER_SYSTEM_PROMPT,
   buildFallbackAgentSystemPrompt,
 } from "../prompts/index";
-import { requireUserId } from "../auth";
 import { AGENT_IDS, BACKEND_TOOL_IDS } from "../lib/agent_constants";
 import { BUILTIN_OWNER_ID } from "../lib/owner_ids";
 import { coerceStringArray } from "../lib/coerce";
-import {
-  enforceMutationRateLimit,
-  RATE_EXPENSIVE,
-} from "../lib/rate_limits";
-
-// Sanitized agent (without model field) for client responses
-const agentClientValidator = v.object({
-  _id: v.id("agents"),
-  _creationTime: v.number(),
-  id: v.string(),
-  name: v.string(),
-  description: v.string(),
-  systemPrompt: v.string(),
-  agentTypes: v.array(v.string()),
-  toolsAllowlist: v.optional(v.array(v.string())),
-  maxAgentDepth: v.optional(v.number()),
-  version: v.number(),
-  source: v.string(),
-  updatedAt: v.number(),
-});
 
 // Agent config response (without _id, _creationTime, model)
 const agentConfigValidator = v.object({
@@ -49,20 +27,7 @@ const agentConfigValidator = v.object({
   updatedAt: v.number(),
 });
 
-const agentImportValidator = v.object({
-  id: v.string(),
-  name: v.optional(v.string()),
-  description: v.optional(v.string()),
-  systemPrompt: v.optional(v.string()),
-  agentTypes: v.optional(v.union(v.array(v.string()), v.string())),
-  toolsAllowlist: v.optional(v.union(v.array(v.string()), v.string())),
-  maxAgentDepth: v.optional(v.number()),
-  version: v.optional(v.number()),
-  source: v.optional(v.string()),
-});
-
 // Inferred types from validators for type-safe sanitization
-type AgentClient = Infer<typeof agentClientValidator>;
 type AgentConfig = Infer<typeof agentConfigValidator>;
 
 type AgentRecord = {
@@ -151,12 +116,6 @@ const normalizeAgent = (value: unknown): AgentRecord | null => {
   };
 };
 
-/** Strip model field for client responses (keeps _id, _creationTime) */
-const toAgentClient = (agent: Record<string, unknown>): AgentClient => {
-  const { model: _model, ownerId: _ownerId, ...rest } = agent;
-  return rest as AgentClient;
-};
-
 /** Strip model, _id, _creationTime for config responses */
 const toAgentConfig = (agent: Record<string, unknown>): AgentConfig => {
   const {
@@ -225,46 +184,6 @@ export const ensureBuiltins = internalMutation({
   },
 });
 
-/**
- * Hard cap on how many agents may be imported per call. Each upsert reads
- * an existing-row probe and writes the new payload, so an unbounded array
- * could blow the mutation transaction limits. 64 is generous given that
- * users typically configure under a dozen agents.
- */
-const MAX_AGENT_IMPORT_BATCH = 64;
-
-export const upsertMany = mutation({
-  args: {
-    agents: v.array(agentImportValidator),
-  },
-  returns: v.object({ upserted: v.number() }),
-  handler: async (ctx, args) => {
-    const ownerId = await requireUserId(ctx);
-    // Each call can import up to MAX_AGENT_IMPORT_BATCH (64) agents in one
-    // mutation. Cap call rate so a hijacked client can't loop the import
-    // endpoint to spam writes.
-    await enforceMutationRateLimit(
-      ctx,
-      "agent_upsert_many",
-      ownerId,
-      RATE_EXPENSIVE,
-      "Too many agent imports. Please wait a moment and try again.",
-    );
-    const items = Array.isArray(args.agents) ? args.agents : [];
-    if (items.length > MAX_AGENT_IMPORT_BATCH) {
-      throw new ConvexError({
-        code: "INVALID_ARGUMENT",
-        message: `Agent import is limited to ${MAX_AGENT_IMPORT_BATCH} agents per call (received ${items.length}).`,
-      });
-    }
-    const validAgents = items.map(normalizeAgent).filter((a): a is AgentRecord => a !== null);
-
-    await Promise.all(validAgents.map((agent) => upsertAgent(ctx, ownerId, agent)));
-
-    return { upserted: validAgents.length };
-  },
-});
-
 const getAgentConfigHandler = async (
   ctx: QueryCtx,
   args: { agentType: string; ownerId?: string },
@@ -323,16 +242,6 @@ export const resolveAgentConfig = (
   args: { agentType: string; ownerId?: string },
 ) => getAgentConfigHandler(ctx, args);
 
-export const getAgentConfig = internalQuery({
-  args: {
-    agentType: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const ownerId = await requireUserId(ctx);
-    return await getAgentConfigHandler(ctx, { ...args, ownerId });
-  },
-});
-
 export const getAgentConfigInternal = internalQuery({
   args: {
     agentType: v.string(),
@@ -340,42 +249,5 @@ export const getAgentConfigInternal = internalQuery({
   },
   handler: async (ctx, args) => {
     return await getAgentConfigHandler(ctx, args);
-  },
-});
-
-export const listAgents = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const ownerId = await requireUserId(ctx);
-    const [builtinRecords, ownerRecords] = await Promise.all([
-      ctx.db
-        .query("agents")
-        .withIndex("by_ownerId_and_updatedAt", (q) =>
-          q.eq("ownerId", BUILTIN_OWNER_ID),
-        )
-        .order("desc")
-        .take(200),
-      ctx.db
-        .query("agents")
-        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
-        .order("desc")
-        .take(200),
-    ]);
-
-    const merged = new Map<string, (typeof ownerRecords)[number]>();
-    for (const record of builtinRecords) {
-      if (!REMOVED_AGENT_IDS.has(record.id)) {
-        merged.set(record.id, record);
-      }
-    }
-    for (const record of ownerRecords) {
-      if (!REMOVED_AGENT_IDS.has(record.id)) {
-        merged.set(record.id, record);
-      }
-    }
-
-    return Array.from(merged.values())
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .map((record) => toAgentClient(record));
   },
 });

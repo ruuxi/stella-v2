@@ -337,7 +337,6 @@ const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateMediaJobsBatch,
   internal.auth_migration.migrateMediaJobLogsBatch,
   internal.auth_migration.migrateUserCountersBatch,
-  internal.auth_migration.migratePersistChunksBatch,
 ] as const;
 
 type OwnerBatchMutation = FunctionReference<
@@ -504,29 +503,5 @@ export const migrateDevicesForAccountLink = internalMutation({
       await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
     }
     return { hasMore: connectionRows.length === BATCH_SIZE };
-  },
-});
-
-/**
- * Migrate persist_chunks which uses `by_ownerId` rather than the standard
- * `by_ownerId_and_updatedAt` shape.
- */
-export const migratePersistChunksBatch = internalMutation({
-  args: {
-    fromOwnerId: v.string(),
-    toOwnerId: v.string(),
-  },
-  returns: v.object({ hasMore: v.boolean() }),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("persist_chunks")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .take(BATCH_SIZE);
-
-    await Promise.all(
-      rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
-    );
-
-    return { hasMore: rows.length === BATCH_SIZE };
   },
 });

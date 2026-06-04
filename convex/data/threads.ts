@@ -1,7 +1,5 @@
 import { ConvexError, v } from "convex/values";
 import {
-  query,
-  mutation,
   internalMutation,
   internalQuery,
   type MutationCtx,
@@ -9,11 +7,7 @@ import {
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { requireUserId, tryLoadOwnedConversation } from "../auth";
-import {
-  enforceMutationRateLimit,
-  RATE_STANDARD,
-} from "../lib/rate_limits";
+import { requireUserId } from "../auth";
 
 const MAX_THREADS_PER_CONVERSATION = 16;
 /**
@@ -626,108 +620,5 @@ export const sweepThreadLifecycle = internalMutation({
     await Promise.all(idlePromises);
 
     return { idled, archived };
-  },
-});
-
-// ---------------------------------------------------------------------------
-// Public APIs for desktop-driven thread compaction
-// ---------------------------------------------------------------------------
-
-/**
- * Load thread messages for local compaction — desktop calls this to get the
- * data. Bounded by `MAX_THREAD_MESSAGES_PER_QUERY` so a runaway thread can't
- * blow the response-size or transaction read limits; the `truncated` flag
- * tells the caller it should compact and retry instead of relying on a
- * complete view.
- */
-export const loadThreadMessagesForRuntime = query({
-  args: {
-    threadId: v.id("threads"),
-  },
-  returns: v.union(
-    v.null(),
-    v.object({
-      thread: v.object({
-        _id: v.id("threads"),
-        name: v.string(),
-        status: v.string(),
-        summary: v.optional(v.string()),
-        totalTokenEstimate: v.number(),
-        messageCount: v.number(),
-      }),
-      messages: v.array(
-        v.object({
-          role: v.string(),
-          content: v.string(),
-          ordinal: v.number(),
-          tokenEstimate: v.optional(v.number()),
-        }),
-      ),
-      truncated: v.boolean(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const thread = await ctx.db.get(args.threadId);
-    if (!thread) return null;
-    // Verify ownership via the conversation (silent null for missing/unauthorized)
-    const conversation = await tryLoadOwnedConversation(ctx, thread.conversationId);
-    if (!conversation) return null;
-
-    const messages = await ctx.db
-      .query("thread_messages")
-      .withIndex("by_threadId_and_ordinal", (q) =>
-        q.eq("threadId", args.threadId),
-      )
-      .take(MAX_THREAD_MESSAGES_PER_QUERY);
-
-    return {
-      thread: {
-        _id: thread._id,
-        name: thread.name,
-        status: thread.status,
-        summary: thread.summary,
-        totalTokenEstimate: thread.totalTokenEstimate,
-        messageCount: thread.messageCount,
-      },
-      messages: messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-        ordinal: m.ordinal,
-        tokenEstimate: m.tokenEstimate,
-      })),
-      truncated: messages.length === MAX_THREAD_MESSAGES_PER_QUERY,
-    };
-  },
-});
-
-/** Apply a pre-computed compaction summary — desktop calls this after generating the summary locally. */
-export const applyCompactionForRuntime = mutation({
-  args: {
-    threadId: v.id("threads"),
-    keepFromOrdinal: v.number(),
-    summary: v.string(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const thread = await ctx.db.get(args.threadId);
-    if (!thread) return null;
-    // Verify ownership via the conversation (silent null for missing/unauthorized)
-    const conversation = await tryLoadOwnedConversation(ctx, thread.conversationId);
-    if (!conversation) return null;
-    await enforceMutationRateLimit(
-      ctx,
-      "thread_apply_compaction",
-      conversation.ownerId,
-      RATE_STANDARD,
-    );
-
-    // Delegate to the existing internal finalization
-    await ctx.runMutation(internal.data.threads.finalizeThreadCompaction, {
-      threadId: args.threadId,
-      keepFromOrdinal: args.keepFromOrdinal,
-      summary: args.summary,
-    });
-
-    return null;
   },
 });

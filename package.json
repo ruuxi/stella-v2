@@ -20,7 +20,7 @@
     "@convex-dev/resend": "^0.2.4",
     "@google/genai": "^2.6.0",
     "better-auth": "1.6.11",
-    "convex": "^1.39.1",
+    "convex": "^1.40.0",
     "jose": "^6.2.3",
     "openai": "6.39.0",
     "partial-json": "^0.1.7",

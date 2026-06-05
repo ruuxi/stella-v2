@@ -129,6 +129,37 @@ export const integrationsSchema = {
     .index("by_ownerId_and_expiresAt", ["ownerId", "expiresAt"])
     .index("by_expiresAt", ["expiresAt"]),
 
+  x_oauth_states: defineTable({
+    ownerId: v.string(),
+    stateHash: v.string(),
+    codeVerifier: v.string(),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_stateHash", ["stateHash"])
+    .index("by_ownerId_and_expiresAt", ["ownerId", "expiresAt"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  x_oauth_tokens: defineTable({
+    ownerId: v.string(),
+    xUserId: v.string(),
+    username: v.string(),
+    name: v.optional(v.string()),
+    encryptedTokenSet: v.string(),
+    tokenKeyVersion: v.number(),
+    scopes: v.array(v.string()),
+    tokenType: v.string(),
+    accessTokenExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastRefreshedAt: v.optional(v.number()),
+  })
+    .index("by_ownerId", ["ownerId"])
+    .index("by_ownerId_and_xUserId", ["ownerId", "xUserId"])
+    .index("by_xUserId", ["xUserId"])
+    .index("by_tokenKeyVersion", ["tokenKeyVersion"]),
+
   /**
    * Short-lived link codes used by channel connectors (Linq, Slack, Discord,
    * Telegram, etc.) to bind a connector account to an existing Stella owner.

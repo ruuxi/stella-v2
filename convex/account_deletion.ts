@@ -15,6 +15,8 @@ const OWNER_TABLES = [
   "billing_profiles",
   "user_counters",
   "slack_oauth_states",
+  "x_oauth_states",
+  "x_oauth_tokens",
   "connector_turn_payloads",
 ] as const;
 

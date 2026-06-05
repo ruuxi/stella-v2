@@ -18,6 +18,7 @@ import { registerStripeRoutes } from "./http_routes/stripe";
 import { registerSynthesisRoutes } from "./http_routes/synthesis";
 import { registerVoiceRoutes } from "./http_routes/voice";
 import { registerDictationRoutes } from "./http_routes/dictation";
+import { registerXRoutes } from "./http_routes/x";
 
 // Stella provider endpoints
 import {
@@ -58,6 +59,7 @@ registerNativeOAuthRoutes(http);
 registerPetRoutes(http);
 registerVoiceRoutes(http);
 registerDictationRoutes(http);
+registerXRoutes(http);
 
 registerStripeRoutes(http);
 

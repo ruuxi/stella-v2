@@ -1,6 +1,6 @@
 import { mutation, internalMutation, internalQuery, query } from "../_generated/server";
-import type { QueryCtx } from "../_generated/server";
-import { v, ConvexError } from "convex/values";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { v, ConvexError, type Infer } from "convex/values";
 import { requireUserId } from "../auth";
 import {
   enforceMutationRateLimit,
@@ -8,6 +8,17 @@ import {
 } from "../lib/rate_limits";
 import { jsonObjectValidator } from "../shared_validators";
 import { internal } from "../_generated/api";
+import { encryptSecret } from "./secrets_crypto";
+import {
+  buildXAuthorizationUrl,
+  buildXCodeChallenge,
+  generateXCodeVerifier,
+  generateXOAuthState,
+  sha256Hex,
+  X_OAUTH_SCOPES,
+  X_OAUTH_STATE_TTL_MS,
+  X_PROVIDER_ID,
+} from "../lib/x_oauth";
 
 
 const storeIntegrationConnectorValidator = v.union(
@@ -189,6 +200,7 @@ const SLACK_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
  * the caller's own expired states. Bounded so creation latency stays flat.
  */
 const SLACK_OAUTH_EXPIRED_CLEANUP_BATCH = 16;
+const X_OAUTH_EXPIRED_CLEANUP_BATCH = 16;
 
 const generateSecureState = (bytesLength = 24) => {
   const bytes = new Uint8Array(bytesLength);
@@ -196,11 +208,49 @@ const generateSecureState = (bytesLength = 24) => {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 
-const hashSha256Hex = async (value: string): Promise<string> => {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+const hashSha256Hex = sha256Hex;
+type JsonObject = Infer<typeof jsonObjectValidator>;
+const configuredOAuthSiteUrl = () =>
+  process.env.STELLA_AUTH_BASE_URL || process.env.CONVEX_SITE_URL;
+
+const upsertUserIntegrationForOwnerHandler = async (
+  ctx: Pick<MutationCtx, "db">,
+  args: {
+    ownerId: string;
+    provider: string;
+    mode: string;
+    externalId?: string;
+    config: JsonObject;
+  },
+) => {
+  const existing = await ctx.db
+    .query("user_integrations")
+    .withIndex("by_ownerId_and_provider", (q) =>
+      q.eq("ownerId", args.ownerId).eq("provider", args.provider),
+    )
+    .unique();
+
+  const now = Date.now();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      mode: args.mode,
+      externalId: args.externalId,
+      config: args.config,
+      updatedAt: now,
+    });
+    return null;
+  }
+
+  await ctx.db.insert("user_integrations", {
+    ownerId: args.ownerId,
+    provider: args.provider,
+    mode: args.mode,
+    externalId: args.externalId,
+    config: args.config,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return null;
 };
 
 export const createSlackInstallUrl = mutation({
@@ -315,6 +365,293 @@ export const purgeExpiredSlackOAuthStates = internalMutation({
   },
 });
 
+export const createXConnectUrl = mutation({
+  args: {},
+  returns: v.object({ url: v.string(), expiresAt: v.number() }),
+  handler: async (ctx) => {
+    const ownerId = await requireUserId(ctx);
+
+    await enforceMutationRateLimit(
+      ctx,
+      "data_create_x_connect_url",
+      ownerId,
+      RATE_VERY_EXPENSIVE,
+      "Too many X connect requests. Please wait before trying again.",
+    );
+
+    const clientId = process.env.X_CLIENT_ID;
+    const convexSiteUrl = configuredOAuthSiteUrl();
+
+    if (!clientId || !convexSiteUrl) {
+      throw new ConvexError({ code: "INTERNAL_ERROR", message: "X OAuth is not configured" });
+    }
+
+    const now = Date.now();
+    const expiresAt = now + X_OAUTH_STATE_TTL_MS;
+    const state = generateXOAuthState();
+    const stateHash = await hashSha256Hex(state);
+    const codeVerifier = generateXCodeVerifier();
+    const codeChallenge = await buildXCodeChallenge(codeVerifier);
+
+    const expiredOwnRows = await ctx.db
+      .query("x_oauth_states")
+      .withIndex("by_ownerId_and_expiresAt", (q) =>
+        q.eq("ownerId", ownerId).lt("expiresAt", now),
+      )
+      .take(X_OAUTH_EXPIRED_CLEANUP_BATCH);
+    await Promise.all(expiredOwnRows.map((row) => ctx.db.delete(row._id)));
+
+    await ctx.db.insert("x_oauth_states", {
+      ownerId,
+      stateHash,
+      codeVerifier,
+      expiresAt,
+      createdAt: now,
+    });
+
+    const redirectUri = `${convexSiteUrl}/api/x/oauth_callback`;
+    const url = buildXAuthorizationUrl({
+      clientId,
+      redirectUri,
+      state,
+      codeChallenge,
+      scopes: X_OAUTH_SCOPES,
+    });
+
+    return { url, expiresAt };
+  },
+});
+
+export const consumeXOAuthState = internalMutation({
+  args: {
+    state: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      ownerId: v.string(),
+      codeVerifier: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const stateHash = await hashSha256Hex(args.state);
+    const candidate = await ctx.db
+      .query("x_oauth_states")
+      .withIndex("by_stateHash", (q) => q.eq("stateHash", stateHash))
+      .unique();
+
+    if (!candidate) return null;
+    if (candidate.usedAt !== undefined) return null;
+    if (candidate.expiresAt <= now) return null;
+
+    await ctx.db.patch(candidate._id, { usedAt: now });
+    return { ownerId: candidate.ownerId, codeVerifier: candidate.codeVerifier };
+  },
+});
+
+export const upsertXOAuthTokensForOwner = internalMutation({
+  args: {
+    ownerId: v.string(),
+    xUserId: v.string(),
+    username: v.string(),
+    name: v.optional(v.string()),
+    tokenSet: jsonObjectValidator,
+    scopes: v.array(v.string()),
+    tokenType: v.string(),
+    accessTokenExpiresAt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const encryptedTokenSet = await encryptSecret(JSON.stringify(args.tokenSet));
+    const existing = await ctx.db
+      .query("x_oauth_tokens")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        xUserId: args.xUserId,
+        username: args.username,
+        name: args.name,
+        encryptedTokenSet: JSON.stringify(encryptedTokenSet),
+        tokenKeyVersion: encryptedTokenSet.keyVersion,
+        scopes: args.scopes,
+        tokenType: args.tokenType,
+        accessTokenExpiresAt: args.accessTokenExpiresAt,
+        updatedAt: now,
+      });
+      await upsertUserIntegrationForOwnerHandler(ctx, {
+        ownerId: args.ownerId,
+        provider: X_PROVIDER_ID,
+        mode: "oauth",
+        externalId: args.xUserId,
+        config: {
+          username: args.username,
+          name: args.name ?? null,
+          scopes: args.scopes,
+          tokenRowId: existing._id,
+        },
+      });
+      return null;
+    }
+
+    const tokenRowId = await ctx.db.insert("x_oauth_tokens", {
+      ownerId: args.ownerId,
+      xUserId: args.xUserId,
+      username: args.username,
+      name: args.name,
+      encryptedTokenSet: JSON.stringify(encryptedTokenSet),
+      tokenKeyVersion: encryptedTokenSet.keyVersion,
+      scopes: args.scopes,
+      tokenType: args.tokenType,
+      accessTokenExpiresAt: args.accessTokenExpiresAt,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await upsertUserIntegrationForOwnerHandler(ctx, {
+      ownerId: args.ownerId,
+      provider: X_PROVIDER_ID,
+      mode: "oauth",
+      externalId: args.xUserId,
+      config: {
+        username: args.username,
+        name: args.name ?? null,
+        scopes: args.scopes,
+        tokenRowId,
+      },
+    });
+    return null;
+  },
+});
+
+export const getXOAuthTokenForOwner = internalQuery({
+  args: {
+    ownerId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("x_oauth_tokens"),
+      ownerId: v.string(),
+      xUserId: v.string(),
+      username: v.string(),
+      name: v.optional(v.string()),
+      encryptedTokenSet: v.string(),
+      tokenKeyVersion: v.number(),
+      scopes: v.array(v.string()),
+      tokenType: v.string(),
+      accessTokenExpiresAt: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      lastRefreshedAt: v.optional(v.number()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("x_oauth_tokens")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .unique();
+  },
+});
+
+export const updateXOAuthTokenSetForOwner = internalMutation({
+  args: {
+    ownerId: v.string(),
+    tokenSet: jsonObjectValidator,
+    scopes: v.array(v.string()),
+    tokenType: v.string(),
+    accessTokenExpiresAt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("x_oauth_tokens")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .unique();
+    if (!existing) return null;
+    const encryptedTokenSet = await encryptSecret(JSON.stringify(args.tokenSet));
+    await ctx.db.patch(existing._id, {
+      encryptedTokenSet: JSON.stringify(encryptedTokenSet),
+      tokenKeyVersion: encryptedTokenSet.keyVersion,
+      scopes: args.scopes,
+      tokenType: args.tokenType,
+      accessTokenExpiresAt: args.accessTokenExpiresAt,
+      updatedAt: Date.now(),
+      lastRefreshedAt: Date.now(),
+    });
+    await upsertUserIntegrationForOwnerHandler(ctx, {
+      ownerId: args.ownerId,
+      provider: X_PROVIDER_ID,
+      mode: "oauth",
+      externalId: existing.xUserId,
+      config: {
+        username: existing.username,
+        name: existing.name ?? null,
+        scopes: args.scopes,
+        tokenRowId: existing._id,
+      },
+    });
+    return null;
+  },
+});
+
+export const purgeExpiredXOAuthStates = internalMutation({
+  args: {
+    batchSize: v.optional(v.number()),
+  },
+  returns: v.object({ deleted: v.number(), hasMore: v.boolean() }),
+  handler: async (ctx, args) => {
+    const batchSize = Math.min(Math.max(Math.floor(args.batchSize ?? 200), 1), 1000);
+    const now = Date.now();
+    const expired = await ctx.db
+      .query("x_oauth_states")
+      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
+      .take(batchSize);
+    await Promise.all(expired.map((row) => ctx.db.delete(row._id)));
+    const hasMore = expired.length === batchSize;
+    if (hasMore) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.data.integrations.purgeExpiredXOAuthStates,
+        { batchSize },
+      );
+    }
+    return { deleted: expired.length, hasMore };
+  },
+});
+
+export const listXConnections = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      xUserId: v.string(),
+      username: v.string(),
+      name: v.optional(v.string()),
+      scopes: v.array(v.string()),
+      updatedAt: v.number(),
+      accessTokenExpiresAt: v.optional(v.number()),
+    }),
+  ),
+  handler: async (ctx) => {
+    const ownerId = await requireUserId(ctx);
+    const rows = await ctx.db
+      .query("x_oauth_tokens")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .take(1);
+    return rows.map((row) => ({
+      xUserId: row.xUserId,
+      username: row.username,
+      name: row.name,
+      scopes: row.scopes,
+      updatedAt: row.updatedAt,
+      accessTokenExpiresAt: row.accessTokenExpiresAt,
+    }));
+  },
+});
+
 const getPublicIntegrationByIdHandler = async (ctx: Pick<QueryCtx, "db">, args: { id: string }) => {
   const record = await ctx.db
     .query("integrations_public")
@@ -373,37 +710,13 @@ export const upsertUserIntegration = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const ownerId = await requireUserId(ctx);
-    // `(ownerId, provider)` is intended to be unique. `.unique()` throws if
-    // that invariant ever breaks, surfacing the bug instead of silently
-    // patching one of N duplicate rows.
-    const existing = await ctx.db
-      .query("user_integrations")
-      .withIndex("by_ownerId_and_provider", (q) =>
-        q.eq("ownerId", ownerId).eq("provider", args.provider),
-      )
-      .unique();
-
-    const now = Date.now();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        mode: args.mode,
-        externalId: args.externalId,
-        config: args.config,
-        updatedAt: now,
-      });
-      return null;
-    }
-
-    await ctx.db.insert("user_integrations", {
+    return await upsertUserIntegrationForOwnerHandler(ctx, {
       ownerId,
       provider: args.provider,
       mode: args.mode,
       externalId: args.externalId,
       config: args.config,
-      createdAt: now,
-      updatedAt: now,
     });
-    return null;
   },
 });
 
@@ -417,33 +730,6 @@ export const upsertUserIntegrationForOwner = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("user_integrations")
-      .withIndex("by_ownerId_and_provider", (q) =>
-        q.eq("ownerId", args.ownerId).eq("provider", args.provider),
-      )
-      .unique();
-
-    const now = Date.now();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        mode: args.mode,
-        externalId: args.externalId,
-        config: args.config,
-        updatedAt: now,
-      });
-      return null;
-    }
-
-    await ctx.db.insert("user_integrations", {
-      ownerId: args.ownerId,
-      provider: args.provider,
-      mode: args.mode,
-      externalId: args.externalId,
-      config: args.config,
-      createdAt: now,
-      updatedAt: now,
-    });
-    return null;
+    return await upsertUserIntegrationForOwnerHandler(ctx, args);
   },
 });

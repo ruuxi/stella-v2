@@ -81,6 +81,13 @@ crons.interval(
 );
 
 crons.interval(
+  "purge expired x oauth states",
+  { hours: 1 },
+  internal.data.integrations.purgeExpiredXOAuthStates,
+  { batchSize: 200 },
+);
+
+crons.interval(
   "purge expired link codes",
   { hours: 1 },
   internal.channels.link_codes.purgeExpiredLinkCodes,

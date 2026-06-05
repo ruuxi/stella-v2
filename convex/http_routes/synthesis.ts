@@ -1,6 +1,7 @@
 import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { MANAGED_GATEWAY } from "../agent/model";
+import type { ActionCtx } from "../_generated/server";
 import { resolveModelConfig } from "../agent/model_resolver";
 import {
   buildCategoryAnalysisUserMessage,
@@ -42,27 +43,32 @@ type SynthesizeRequest = {
   coreMemorySystemPrompt?: string;
   coreMemoryUserPromptTemplate?: string;
   welcomeMessagePromptTemplate?: string;
+  includeWelcomeHtml?: boolean;
+  coreMemory?: string;
 };
 
 type SynthesizeResponse = {
   coreMemory: string;
   welcomeMessage: string;
-  welcomeHtml: string;
+  welcomeHtml?: string;
   categoryAnalyses?: Record<string, string>;
+};
+
+type WelcomeHtmlResponse = {
+  welcomeHtml: string;
 };
 
 const DEFAULT_WELCOME_MESSAGE =
   "Hey! I'm Stella, your AI assistant. What can I help you with today?";
 
 const WELCOME_HTML_MODEL_CONFIG: ManagedModelConfig = {
-  model: "accounts/fireworks/models/kimi-k2p6",
-  managedGatewayProvider: "fireworks",
-  serviceTier: "priority",
-  temperature: 0.6,
+  model: "google/gemini-3-flash-preview",
+  managedGatewayProvider: "google",
+  temperature: 1.0,
   maxOutputTokens: 32768,
   providerOptions: {
     gateway: {
-      order: ["fireworks"],
+      order: ["google"],
     },
   },
   modalitiesInput: ["text"],
@@ -93,6 +99,52 @@ const isUsableWelcomeHtml = (value: string): boolean => {
     lower.includes("data-stella-compose")
   );
 };
+
+const generateWelcomeHtml = async (
+  ctx: Pick<ActionCtx, "scheduler">,
+  coreMemory: string,
+  billingOwnerId?: string,
+): Promise<{ welcomeHtml: string; durationMs: number }> => {
+  const welcomeHtmlStartedAt = Date.now();
+  const welcomeHtmlResult = await completeManagedChat({
+    config: WELCOME_HTML_MODEL_CONFIG,
+    context: {
+      systemPrompt: [
+        "You generate final HTML documents.",
+        "Return only the final HTML document.",
+        "Do not include reasoning, analysis, summaries, markdown, or commentary.",
+        "The first output characters must be <!doctype html>.",
+      ].join(" "),
+      messages: [{
+        role: "user",
+        content: [{
+          type: "text",
+          text: buildWelcomeHtmlPrompt(coreMemory),
+        }],
+        timestamp: Date.now(),
+      }],
+    },
+  });
+  const durationMs = Date.now() - welcomeHtmlStartedAt;
+
+  if (billingOwnerId) {
+    await scheduleManagedUsage(ctx, {
+      ownerId: billingOwnerId,
+      agentType: "service:synthesis:welcome_html",
+      model: WELCOME_HTML_MODEL_CONFIG.model,
+      durationMs,
+      success: true,
+      usage: usageSummaryFromAssistant(welcomeHtmlResult),
+    });
+  }
+
+  const welcomeHtml = normalizeWelcomeHtml(assistantText(welcomeHtmlResult));
+  if (!isUsableWelcomeHtml(welcomeHtml)) {
+    throw new Error("Welcome HTML output was not usable.");
+  }
+
+  return { welcomeHtml, durationMs };
+};
 /**
  * Anonymous onboarding synthesis is allowed before sign-in so Stella can build
  * first-run memory, the welcome message, and app recommendations.
@@ -117,7 +169,7 @@ const buildAnonymousSynthesisRateKey = (
 ].join(":");
 
 export const registerSynthesisRoutes = (http: HttpRouter) => {
-  registerCorsOptions(http, ["/api/synthesize"]);
+  registerCorsOptions(http, ["/api/synthesize", "/api/synthesize/welcome-html"]);
 
   http.route({
     path: "/api/synthesize",
@@ -369,56 +421,45 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
             access: modelAccess,
             audience: billingOwnerId ? undefined : "anonymous",
           });
-          console.log("[synthesize] Welcome message and HTML starting");
+          const includeWelcomeHtml = body.includeWelcomeHtml !== false;
+          console.log(
+            includeWelcomeHtml
+              ? "[synthesize] Welcome message and HTML starting"
+              : "[synthesize] Welcome message starting",
+          );
           const welcomeStartedAt = Date.now();
-          const welcomeHtmlStartedAt = Date.now();
+          const welcomePromise = completeManagedChat({
+            config: welcomeConfig,
+            context: {
+              messages: [{
+                role: "user",
+                content: [{
+                  type: "text",
+                  text: buildWelcomeMessagePrompt(
+                    coreMemory,
+                    welcomeMessagePromptTemplate,
+                  ),
+                }],
+                timestamp: Date.now(),
+              }],
+            },
+          }).then((result) => ({
+            result,
+            durationMs: Date.now() - welcomeStartedAt,
+          }));
           const [welcomeResult, welcomeHtmlResult] = await Promise.all([
-            completeManagedChat({
-              config: welcomeConfig,
-              context: {
-                messages: [{
-                  role: "user",
-                  content: [{
-                    type: "text",
-                    text: buildWelcomeMessagePrompt(
-                      coreMemory,
-                      welcomeMessagePromptTemplate,
-                    ),
-                  }],
-                  timestamp: Date.now(),
-                }],
-              },
-            }).then((result) => ({
-              result,
-              durationMs: Date.now() - welcomeStartedAt,
-            })),
-            completeManagedChat({
-              config: WELCOME_HTML_MODEL_CONFIG,
-              api: "openai-completions",
-              context: {
-                systemPrompt: [
-                  "You generate final HTML documents.",
-                  "Return only the final HTML document.",
-                  "Do not include reasoning, analysis, summaries, markdown, or commentary.",
-                  "The first output characters must be <!doctype html>.",
-                ].join(" "),
-                messages: [{
-                  role: "user",
-                  content: [{
-                    type: "text",
-                    text: buildWelcomeHtmlPrompt(coreMemory),
-                  }],
-                  timestamp: Date.now(),
-                }],
-              },
-            })
-              .then((result) => ({
-                result,
-                durationMs: Date.now() - welcomeHtmlStartedAt,
-              })),
+            welcomePromise,
+            includeWelcomeHtml
+              ? generateWelcomeHtml(ctx, coreMemory, billingOwnerId).catch((error) => {
+                console.error("[synthesize] Welcome HTML output was not usable.", error);
+                throw error;
+              })
+              : Promise.resolve(null),
           ]);
           console.log(
-            `[synthesize] Welcome message / HTML complete. welcome: ${welcomeResult.durationMs}ms, html: ${welcomeHtmlResult.durationMs}ms`,
+            includeWelcomeHtml && welcomeHtmlResult
+              ? `[synthesize] Welcome message / HTML complete. welcome: ${welcomeResult.durationMs}ms, html: ${welcomeHtmlResult.durationMs}ms`
+              : `[synthesize] Welcome message complete in ${welcomeResult.durationMs}ms`,
           );
 
           if (billingOwnerId) {
@@ -431,26 +472,12 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
               usage: usageSummaryFromAssistant(welcomeResult.result),
             });
 
-            await scheduleManagedUsage(ctx, {
-              ownerId: billingOwnerId,
-              agentType: "service:synthesis:welcome_html",
-              model: WELCOME_HTML_MODEL_CONFIG.model,
-              durationMs: welcomeHtmlResult.durationMs,
-              success: true,
-              usage: usageSummaryFromAssistant(welcomeHtmlResult.result),
-            });
-          }
-
-          const welcomeHtml = normalizeWelcomeHtml(assistantText(welcomeHtmlResult.result));
-          if (!isUsableWelcomeHtml(welcomeHtml)) {
-            console.error("[synthesize] Welcome HTML output was not usable.");
-            return errorResponse(500, "Failed to synthesize welcome HTML", origin);
           }
 
           const response: SynthesizeResponse = {
             coreMemory,
             welcomeMessage: assistantText(welcomeResult.result) || DEFAULT_WELCOME_MESSAGE,
-            welcomeHtml,
+            ...(welcomeHtmlResult ? { welcomeHtml: welcomeHtmlResult.welcomeHtml } : {}),
             ...(Object.keys(categoryAnalysesMap).length > 0
               ? { categoryAnalyses: categoryAnalysesMap }
               : {}),
@@ -460,6 +487,50 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
         } catch (error) {
           console.error("[synthesize] Error:", error);
           return errorResponse(500, "Synthesis failed", origin);
+        }
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/synthesize/welcome-html",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const identity = await ctx.auth.getUserIdentity();
+        const anonDeviceId = getAnonDeviceId(request);
+        if (!identity && !anonDeviceId) {
+          return errorResponse(401, "Unauthorized", origin);
+        }
+
+        let body: SynthesizeRequest | null = null;
+        try {
+          body = (await request.json()) as SynthesizeRequest;
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+
+        const coreMemory = body.coreMemory?.trim();
+        if (!coreMemory) {
+          return errorResponse(400, "coreMemory is required", origin);
+        }
+
+        try {
+          const ownerId = identity?.tokenIdentifier;
+          const isAnonymousIdentity =
+            (identity as Record<string, unknown> | null)?.isAnonymous === true;
+          const billingOwnerId = ownerId && !isAnonymousIdentity ? ownerId : undefined;
+          const result = await generateWelcomeHtml(ctx, coreMemory, billingOwnerId);
+          console.log(
+            `[synthesize] Welcome HTML complete in ${result.durationMs}ms`,
+          );
+          const response: WelcomeHtmlResponse = {
+            welcomeHtml: result.welcomeHtml,
+          };
+          return jsonResponse(response, 200, origin);
+        } catch (error) {
+          console.error("[synthesize] Welcome HTML error:", error);
+          return errorResponse(500, "Failed to synthesize welcome HTML", origin);
         }
       }),
     ),

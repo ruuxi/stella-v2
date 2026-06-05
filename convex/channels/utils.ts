@@ -61,6 +61,17 @@ const uniqueSorted = (values: string[]) => [...new Set(values)].sort((a, b) => a
 // Re-use the single preference write implementation from data/preferences.ts
 const upsertUserPreference = upsertPreferenceRecord;
 
+const newestConnection = <
+  T extends { updatedAt: number; _creationTime: number },
+>(
+  rows: T[],
+): T | null =>
+  rows.sort(
+    (a, b) =>
+      b.updatedAt - a.updatedAt ||
+      b._creationTime - a._creationTime,
+  )[0] ?? null;
+
 // ---------------------------------------------------------------------------
 const channelConnectionDocValidator = v.object({
   _id: v.id("channel_connections"),
@@ -83,12 +94,13 @@ export const getConnectionByProviderAndExternalId = internalQuery({
     externalUserId: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const rows = await ctx.db
       .query("channel_connections")
       .withIndex("by_provider_and_externalUserId", (q) =>
         q.eq("provider", args.provider).eq("externalUserId", args.externalUserId),
       )
-      .unique();
+      .take(10);
+    return newestConnection(rows);
   },
 });
 
@@ -99,7 +111,7 @@ export const getConnectionByOwnerProviderAndExternalId = internalQuery({
     externalUserId: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const rows = await ctx.db
       .query("channel_connections")
       .withIndex("by_ownerId_and_provider_and_externalUserId", (q) =>
         q
@@ -107,7 +119,8 @@ export const getConnectionByOwnerProviderAndExternalId = internalQuery({
           .eq("provider", args.provider)
           .eq("externalUserId", args.externalUserId),
       )
-      .unique();
+      .take(10);
+    return newestConnection(rows);
   },
 });
 
@@ -163,7 +176,7 @@ export const createConnection = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const existing = await ctx.db
+    const existingRows = await ctx.db
       .query("channel_connections")
       .withIndex("by_ownerId_and_provider_and_externalUserId", (q) =>
         q
@@ -171,7 +184,8 @@ export const createConnection = internalMutation({
           .eq("provider", args.provider)
           .eq("externalUserId", args.externalUserId),
       )
-      .unique();
+      .take(10);
+    const existing = newestConnection(existingRows);
 
     if (existing) {
       if (args.displayName && args.displayName !== existing.displayName) {

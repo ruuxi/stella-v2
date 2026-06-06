@@ -25,6 +25,7 @@ const DEFAULT_STYLE = "playful party style";
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
 const FAL_ENDPOINT_ID = "openai/gpt-image-2/edit";
 const SHEET_SIZE = 768;
+const CHROMA_BACKGROUND = "#ff00ff";
 const POLL_INTERVAL_MS = 2_000;
 const POLL_TIMEOUT_MS = 6 * 60_000;
 const MAX_PROMPT = 2_000;
@@ -87,8 +88,9 @@ const buildSheetEditPrompt = (style: string): string => {
     "- Preserve the reference image's positions exactly: top-left stays top-left and bottom-right stays bottom-right.",
     "",
     "Background:",
-    "- Use a fully transparent background for every non-icon pixel.",
-    "- The gutters between cells must also be fully transparent.",
+    `- Preserve the reference image's existing ${CHROMA_BACKGROUND} background exactly wherever there is no icon.`,
+    `- The gutters between cells must remain the same flat ${CHROMA_BACKGROUND} chroma key (true RGB, no gradient, no noise, no texture).`,
+    "- Do not use magenta or magenta-adjacent colors inside any icon.",
     "",
     "Forbidden:",
     "- Default platform emoji rendering of any kind.",

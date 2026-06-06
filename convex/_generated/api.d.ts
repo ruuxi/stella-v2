@@ -58,6 +58,8 @@ import type * as data_desktop_releases from "../data/desktop_releases.js";
 import type * as data_emoji_pack_generation from "../data/emoji_pack_generation.js";
 import type * as data_emoji_pack_grid from "../data/emoji_pack_grid.js";
 import type * as data_emoji_pack_grid_constants from "../data/emoji_pack_grid_constants.js";
+import type * as data_emoji_pack_reference_images from "../data/emoji_pack_reference_images.js";
+import type * as data_emoji_pack_uploads from "../data/emoji_pack_uploads.js";
 import type * as data_emoji_packs from "../data/emoji_packs.js";
 import type * as data_fashion from "../data/fashion.js";
 import type * as data_integrations from "../data/integrations.js";
@@ -273,6 +275,8 @@ declare const fullApi: ApiFromModules<{
   "data/emoji_pack_generation": typeof data_emoji_pack_generation;
   "data/emoji_pack_grid": typeof data_emoji_pack_grid;
   "data/emoji_pack_grid_constants": typeof data_emoji_pack_grid_constants;
+  "data/emoji_pack_reference_images": typeof data_emoji_pack_reference_images;
+  "data/emoji_pack_uploads": typeof data_emoji_pack_uploads;
   "data/emoji_packs": typeof data_emoji_packs;
   "data/fashion": typeof data_fashion;
   "data/integrations": typeof data_integrations;

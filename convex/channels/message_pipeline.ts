@@ -143,6 +143,15 @@ const stripChannelEnvelopePrivateFields = (
   return rest;
 };
 
+const stripChannelEnvelopeForRemoteTurn = (
+  envelope: Infer<typeof optionalChannelEnvelopeValidator>,
+): Infer<typeof optionalChannelEnvelopeValidator> => {
+  const stripped = stripChannelEnvelopePrivateFields(envelope);
+  if (!stripped) return undefined;
+  const { text: _text, ...rest } = stripped;
+  return rest;
+};
+
 const formatDeviceLabel = (device: {
   deviceName: string;
   platform?: string;
@@ -1033,6 +1042,7 @@ export async function processIncomingMessage(
         targetDeviceId: firstCandidate.targetDeviceId,
         requestId,
         payload: turnPayload,
+        channelEnvelope: stripChannelEnvelopeForRemoteTurn(promptChannelEnvelope),
       });
 
       // Schedule a fast rescue only for the mobile app's backend offline

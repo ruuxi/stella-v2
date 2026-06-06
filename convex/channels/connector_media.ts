@@ -1,9 +1,11 @@
 "use node";
 
 import { randomUUID } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
+import { MANAGED_GATEWAY } from "../agent/model";
 import { r2 } from "../r2_files";
 import { channelAttachmentValidator, jsonValueValidator } from "../shared_validators";
 import { retryFetch } from "../lib/retry_fetch";
@@ -18,6 +20,9 @@ import {
 const MEDIA_URL_EXPIRES_IN_SECONDS = 15 * 60;
 const MAX_CONNECTOR_MEDIA_ITEMS = 5;
 const MAX_CONNECTOR_MEDIA_BYTES = 25 * 1024 * 1024;
+const MAX_TRANSCRIBE_AUDIO_BASE64_CHARS = 10_000_000;
+const MAX_EXTRACTED_TEXT_CHARS = 40_000;
+const TRANSCRIBE_MODEL = "mistralai/voxtral-mini-transcribe";
 const CACHE_CONTROL = "private, max-age=900";
 const DEFAULT_R2_PREFIX = "ephemeral/connectors";
 
@@ -40,6 +45,84 @@ const asString = (value: unknown): string | undefined =>
     ? value.trim()
     : undefined;
 
+const nameFromUrl = (url?: string): string | undefined => {
+  if (!url) return undefined;
+  try {
+    const pathname = new URL(url).pathname;
+    const last = pathname.split("/").filter(Boolean).pop();
+    return last ? decodeURIComponent(last) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const extensionFromName = (name?: string): string | undefined =>
+  name?.match(/\.([a-z0-9]{2,8})(?:[?#]|$)/i)?.[1]?.toLowerCase();
+
+const mimeFromName = (name?: string): string | undefined => {
+  switch (extensionFromName(name)) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "heic":
+      return "image/heic";
+    case "heif":
+      return "image/heif";
+    case "tif":
+    case "tiff":
+      return "image/tiff";
+    case "bmp":
+      return "image/bmp";
+    case "svg":
+      return "image/svg+xml";
+    case "pdf":
+      return "application/pdf";
+    case "txt":
+      return "text/plain";
+    case "csv":
+      return "text/csv";
+    case "rtf":
+      return "application/rtf";
+    case "vcf":
+      return "text/vcard";
+    case "ics":
+      return "text/calendar";
+    case "json":
+      return "application/json";
+    case "md":
+      return "text/markdown";
+    case "mp4":
+      return "video/mp4";
+    case "mov":
+      return "video/quicktime";
+    case "m4v":
+      return "video/x-m4v";
+    case "mp3":
+      return "audio/mpeg";
+    case "m4a":
+      return "audio/mp4";
+    case "aac":
+      return "audio/aac";
+    case "wav":
+      return "audio/wav";
+    case "aiff":
+    case "aif":
+      return "audio/aiff";
+    case "caf":
+      return "audio/x-caf";
+    case "amr":
+      return "audio/amr";
+    default:
+      return undefined;
+  }
+};
+
 const inferKind = (args: {
   mimeType?: string;
   kind?: string;
@@ -47,16 +130,23 @@ const inferKind = (args: {
 }): ConnectorMediaKind => {
   const mime = args.mimeType?.toLowerCase() ?? "";
   const kind = args.kind?.toLowerCase() ?? "";
-  if (mime.startsWith("image/") || kind.includes("image") || kind.includes("photo")) {
+  const ext = extensionFromName(args.name);
+  if (
+    mime.startsWith("image/") ||
+    kind.includes("image") ||
+    kind.includes("photo") ||
+    ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "svg"].includes(ext ?? "")
+  ) {
     return "image";
   }
-  if (mime.startsWith("video/") || kind.includes("video")) {
+  if (mime.startsWith("video/") || kind.includes("video") || ["mp4", "mov", "m4v"].includes(ext ?? "")) {
     return "video";
   }
   if (
     mime.startsWith("audio/") ||
     kind.includes("audio") ||
-    kind.includes("voice")
+    kind.includes("voice") ||
+    ["m4a", "aac", "mp3", "wav", "aiff", "aif", "caf", "amr"].includes(ext ?? "")
   ) {
     return "audio";
   }
@@ -64,7 +154,7 @@ const inferKind = (args: {
 };
 
 const extensionForMime = (mimeType?: string, fallbackName?: string): string => {
-  const fromName = fallbackName?.match(/\.([a-z0-9]{2,5})(?:[?#]|$)/i)?.[1];
+  const fromName = extensionFromName(fallbackName);
   if (fromName) return fromName.toLowerCase();
   switch ((mimeType ?? "").split(";")[0]?.trim().toLowerCase()) {
     case "image/jpeg":
@@ -93,6 +183,164 @@ const extensionForMime = (mimeType?: string, fallbackName?: string): string => {
     default:
       return "bin";
   }
+};
+
+const audioFormatForMime = (mimeType?: string, fallbackName?: string): string | null => {
+  const fromName = extensionFromName(fallbackName);
+  if (fromName && ["wav", "mp3", "flac", "m4a", "ogg", "webm", "aac", "mp4"].includes(fromName)) {
+    return fromName;
+  }
+  switch ((mimeType ?? "").split(";")[0]?.trim().toLowerCase()) {
+    case "audio/wav":
+    case "audio/wave":
+    case "audio/x-wav":
+      return "wav";
+    case "audio/mpeg":
+    case "audio/mp3":
+      return "mp3";
+    case "audio/flac":
+    case "audio/x-flac":
+      return "flac";
+    case "audio/mp4":
+    case "audio/x-m4a":
+    case "audio/m4a":
+      return "m4a";
+    case "audio/ogg":
+      return "ogg";
+    case "audio/webm":
+      return "webm";
+    case "audio/aac":
+      return "aac";
+    case "video/mp4":
+      return "mp4";
+    default:
+      return null;
+  }
+};
+
+const transcribeAudioBytes = async (args: {
+  bytes: Uint8Array;
+  mimeType?: string;
+  name?: string;
+}): Promise<string | undefined> => {
+  const format = audioFormatForMime(args.mimeType, args.name);
+  if (!format) return undefined;
+  const audio = Buffer.from(args.bytes).toString("base64");
+  if (audio.length > MAX_TRANSCRIBE_AUDIO_BASE64_CHARS) {
+    console.warn("[connector_media] audio attachment too large to transcribe:", {
+      size: args.bytes.byteLength,
+    });
+    return undefined;
+  }
+  const apiKey = process.env[MANAGED_GATEWAY.apiKeyEnvVar];
+  if (!apiKey) {
+    console.error(`[connector_media] Missing ${MANAGED_GATEWAY.apiKeyEnvVar} for audio transcription`);
+    return undefined;
+  }
+  const response = await fetch(`${MANAGED_GATEWAY.baseURL}/audio/transcriptions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://stella.sh",
+      "X-OpenRouter-Title": "Stella",
+    },
+    body: JSON.stringify({
+      input_audio: { data: audio, format },
+      model: TRANSCRIBE_MODEL,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    console.warn("[connector_media] audio transcription failed:", {
+      status: response.status,
+      body: body.slice(0, 500),
+    });
+    return undefined;
+  }
+  const parsed = (await response.json().catch(() => null)) as { text?: unknown } | null;
+  const transcript = typeof parsed?.text === "string" ? parsed.text.trim() : "";
+  return transcript || undefined;
+};
+
+const truncateExtractedText = (text: string): string | undefined => {
+  const normalized = text.replace(/\u0000/g, "").replace(/\r\n?/g, "\n").trim();
+  if (!normalized) return undefined;
+  return normalized.length > MAX_EXTRACTED_TEXT_CHARS
+    ? `${normalized.slice(0, MAX_EXTRACTED_TEXT_CHARS)}\n\n[Truncated by Stella]`
+    : normalized;
+};
+
+const stripRtf = (text: string): string => {
+  return text
+    .replace(/\\'[0-9a-fA-F]{2}/g, " ")
+    .replace(/\\[a-zA-Z]+-?\d* ?/g, " ")
+    .replace(/[{}]/g, " ")
+    .replace(/\s+/g, " ");
+};
+
+const decodeUtf8 = (bytes: Uint8Array): string =>
+  new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+
+const isTextLikeMime = (mimeType?: string, name?: string): boolean => {
+  const mime = (mimeType ?? "").split(";")[0]?.trim().toLowerCase();
+  const ext = extensionFromName(name);
+  return (
+    Boolean(mime?.startsWith("text/")) ||
+    [
+      "application/json",
+      "application/xml",
+      "application/rtf",
+      "application/x-rtf",
+      "text/rtf",
+      "text/vcard",
+      "text/calendar",
+    ].includes(mime ?? "") ||
+    ["txt", "csv", "md", "json", "xml", "rtf", "vcf", "ics", "log"].includes(ext ?? "")
+  );
+};
+
+const extractPdfText = async (bytes: Uint8Array): Promise<string | undefined> => {
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: Buffer.from(bytes) });
+  try {
+    const result = await parser.getText();
+    return truncateExtractedText(result.text);
+  } finally {
+    await parser.destroy();
+  }
+};
+
+const extractAttachmentText = async (args: {
+  bytes: Uint8Array;
+  mimeType?: string;
+  name?: string;
+}): Promise<string | undefined> => {
+  const mime = (args.mimeType ?? "").split(";")[0]?.trim().toLowerCase();
+  const ext = extensionFromName(args.name);
+  try {
+    if (mime === "application/pdf" || ext === "pdf") {
+      return await extractPdfText(args.bytes);
+    }
+    if (isTextLikeMime(args.mimeType, args.name)) {
+      const decoded = decodeUtf8(args.bytes);
+      return truncateExtractedText(
+        mime === "application/rtf" ||
+          mime === "application/x-rtf" ||
+          mime === "text/rtf" ||
+          ext === "rtf"
+          ? stripRtf(decoded)
+          : decoded,
+      );
+    }
+  } catch (error) {
+    console.warn("[connector_media] text extraction failed:", {
+      mimeType: args.mimeType,
+      name: args.name,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return undefined;
 };
 
 const mimeFromResponse = (response: Response, fallback?: string): string | undefined =>
@@ -204,6 +452,8 @@ const relayBytes = async (args: {
   mimeType?: string;
   name?: string;
   size?: number;
+  transcript?: string;
+  extractedText?: string;
 }): Promise<ConnectorMediaRef> => {
   const key = buildR2Key({
     scopeId: args.scopeId,
@@ -224,6 +474,8 @@ const relayBytes = async (args: {
     ...(args.mimeType ? { mimeType: args.mimeType } : {}),
     ...(args.name ? { name: args.name } : {}),
     ...(typeof args.size === "number" ? { size: args.size } : {}),
+    ...(args.transcript ? { transcript: args.transcript } : {}),
+    ...(args.extractedText ? { extractedText: args.extractedText } : {}),
   };
 };
 
@@ -248,12 +500,39 @@ export const materializeInboundAttachments = internalAction({
         });
         if (!download) continue;
         const fetched = await fetchBytes(download.url, download.headers);
-        const mimeType = attachment.mimeType ?? fetched.mimeType;
+        const name =
+          attachment.name ?? nameFromUrl(download.url) ?? nameFromUrl(attachment.url);
+        const attachmentMime =
+          attachment.mimeType && attachment.mimeType !== "application/octet-stream"
+            ? attachment.mimeType
+            : undefined;
+        const fetchedMime =
+          fetched.mimeType && fetched.mimeType !== "application/octet-stream"
+            ? fetched.mimeType
+            : undefined;
+        const mimeType =
+          attachmentMime ?? mimeFromName(name) ?? fetchedMime;
         const kind = inferKind({
           mimeType,
           kind: attachment.kind,
-          name: attachment.name,
+          name,
         });
+        const transcript =
+          kind === "audio"
+            ? await transcribeAudioBytes({
+                bytes: fetched.bytes,
+                mimeType,
+                name,
+              })
+            : undefined;
+        const extractedText =
+          kind === "file"
+            ? await extractAttachmentText({
+                bytes: fetched.bytes,
+                mimeType,
+                name,
+              })
+            : undefined;
         refs.push(
           await relayBytes({
             ctx,
@@ -261,8 +540,10 @@ export const materializeInboundAttachments = internalAction({
             bytes: fetched.bytes,
             kind,
             mimeType,
-            name: attachment.name,
+            name,
             size: attachment.size ?? fetched.size,
+            transcript,
+            extractedText,
           }),
         );
       } catch (error) {

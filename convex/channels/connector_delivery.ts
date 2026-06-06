@@ -1090,10 +1090,8 @@ async function deliverLinq(
           parts: [
             ...(text.trim() ? [{ type: "text", value: text }] : []),
             ...media.map((item) => ({
-              type: item.kind === "file" ? "file" : item.kind,
-              value: item.url,
-              ...(item.mimeType ? { mime_type: item.mimeType } : {}),
-              ...(item.name ? { name: item.name } : {}),
+              type: "media",
+              url: item.url,
             })),
           ],
         },

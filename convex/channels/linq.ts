@@ -13,7 +13,11 @@ import { SIGN_IN_REQUIRED_ERROR } from "./routing_flow";
 import { retryFetch } from "../lib/retry_fetch";
 import { enforceActionRateLimit, RATE_VERY_EXPENSIVE } from "../lib/rate_limits";
 import { hashLinqPhone } from "./linq_phone_hash";
-import { channelAttachmentValidator, optionalChannelEnvelopeValidator } from "../shared_validators";
+import {
+  channelAttachmentValidator,
+  jsonValueValidator,
+  optionalChannelEnvelopeValidator,
+} from "../shared_validators";
 
 // ---------------------------------------------------------------------------
 // Linq API Helpers
@@ -49,8 +53,13 @@ export const isLinqLiveDeployment = (): boolean => {
 };
 
 type LinqMessagePart =
-  | { type: "text"; value: string }
-  | { type: "media"; url: string };
+  | {
+      type: "text";
+      value: string;
+      text_decorations?: Array<Record<string, unknown>>;
+    }
+  | { type: "media"; url?: string; attachment_id?: string }
+  | { type: "link"; value: string };
 
 const linqCreateChat = async (
   from: string,
@@ -101,6 +110,178 @@ const linqSendMessage = async (
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Linq sendMessage failed: ${res.status} ${body}`);
+  }
+};
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+const readString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+const LINQ_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const readLinqMessageId = (value: unknown): string | undefined => {
+  const stringValue = readString(value);
+  return stringValue && LINQ_UUID_RE.test(stringValue)
+    ? stringValue
+    : undefined;
+};
+
+const requireString = (value: unknown, field: string): string => {
+  const stringValue = readString(value);
+  if (!stringValue) throw new ConvexError(`${field} is required.`);
+  return stringValue;
+};
+
+const boundedString = (
+  value: unknown,
+  field: string,
+  maxLength: number,
+): string => {
+  const stringValue = requireString(value, field);
+  if (stringValue.length > maxLength) {
+    throw new ConvexError(`${field} is too long.`);
+  }
+  return stringValue;
+};
+
+const LINQ_SCREEN_EFFECTS = new Set([
+  "confetti",
+  "fireworks",
+  "lasers",
+  "sparkles",
+  "celebration",
+  "hearts",
+  "love",
+  "balloons",
+  "happy_birthday",
+  "echo",
+  "spotlight",
+]);
+const LINQ_BUBBLE_EFFECTS = new Set(["slam", "loud", "gentle", "invisible"]);
+const LINQ_REACTION_TYPES = new Set([
+  "love",
+  "like",
+  "dislike",
+  "laugh",
+  "emphasize",
+  "question",
+  "custom",
+]);
+
+const parseTextDecorations = (
+  value: unknown,
+): Array<Record<string, unknown>> | undefined => {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  return value.slice(0, 20).map((entry) => {
+    const record = asRecord(entry);
+    const range = Array.isArray(record.range) ? record.range : [];
+    const start = Number(range[0]);
+    const end = Number(range[1]);
+    if (
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      start < 0 ||
+      end < start
+    ) {
+      throw new ConvexError("text_decorations range must be [start, end].");
+    }
+    const style = readString(record.style);
+    const animation = readString(record.animation);
+    if ((style ? 1 : 0) + (animation ? 1 : 0) !== 1) {
+      throw new ConvexError(
+        "Each text decoration must include exactly one style or animation.",
+      );
+    }
+    return {
+      range: [Math.floor(start), Math.floor(end)],
+      ...(style ? { style } : {}),
+      ...(animation ? { animation } : {}),
+    };
+  });
+};
+
+const parseLinqMessageParts = (value: unknown): LinqMessagePart[] => {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new ConvexError("parts must include at least one message part.");
+  }
+  if (value.length > 40) {
+    throw new ConvexError("parts may include at most 40 items.");
+  }
+  const parts = value.map((entry): LinqMessagePart => {
+    const record = asRecord(entry);
+    const type = readString(record.type);
+    if (type === "text") {
+      const text = boundedString(record.value, "text part value", 10_000);
+      const textDecorations = parseTextDecorations(record.text_decorations);
+      return {
+        type: "text",
+        value: text,
+        ...(textDecorations ? { text_decorations: textDecorations } : {}),
+      };
+    }
+    if (type === "media") {
+      const url = readString(record.url);
+      const attachmentId = readString(record.attachment_id);
+      if ((url ? 1 : 0) + (attachmentId ? 1 : 0) !== 1) {
+        throw new ConvexError(
+          "media parts require exactly one of url or attachment_id.",
+        );
+      }
+      return {
+        type: "media",
+        ...(url ? { url } : {}),
+        ...(attachmentId ? { attachment_id: attachmentId } : {}),
+      };
+    }
+    if (type === "link") {
+      return {
+        type: "link",
+        value: boundedString(record.value, "link part value", 2_048),
+      };
+    }
+    throw new ConvexError("Unsupported Linq message part type.");
+  });
+  if (parts.some((part) => part.type === "link") && parts.length !== 1) {
+    throw new ConvexError("A link part must be the only message part.");
+  }
+  return parts;
+};
+
+const parseLinqEffect = (
+  value: unknown,
+): { type: "screen" | "bubble"; name: string } | undefined => {
+  if (value === undefined || value === null) return undefined;
+  const record = asRecord(value);
+  const type = readString(record.type);
+  const name = readString(record.name);
+  if (
+    (type === "screen" && name && LINQ_SCREEN_EFFECTS.has(name)) ||
+    (type === "bubble" && name && LINQ_BUBBLE_EFFECTS.has(name))
+  ) {
+    return { type, name };
+  }
+  throw new ConvexError("Invalid Linq message effect.");
+};
+
+const linqFetchJson = async (
+  path: string,
+  init: RequestInit = {},
+): Promise<unknown> => {
+  const res = await linqFetch(path, init);
+  const bodyText = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(`Linq API request failed: ${res.status} ${bodyText}`);
+  }
+  if (!bodyText.trim()) return { success: true };
+  try {
+    return JSON.parse(bodyText);
+  } catch {
+    return { success: true, body: bodyText };
   }
 };
 
@@ -182,6 +363,42 @@ export const cacheChatId = internalMutation({
       });
     }
     return null;
+  },
+});
+
+export const getAuthorizedLinqRemoteTurnTarget = internalQuery({
+  args: {
+    ownerId: v.string(),
+    requestId: v.string(),
+    conversationId: v.id("conversations"),
+  },
+  handler: async (ctx, args) => {
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation || conversation.ownerId !== args.ownerId) {
+      return null;
+    }
+    const request = await ctx.db
+      .query("events")
+      .withIndex("by_requestId", (q) => q.eq("requestId", args.requestId))
+      .first();
+    if (
+      !request ||
+      request.type !== "remote_turn_request" ||
+      request.conversationId !== args.conversationId
+    ) {
+      return null;
+    }
+    const payload = asRecord(request.payload);
+    if (payload.provider !== "linq") return null;
+    const deliveryMeta = asRecord(payload.deliveryMeta);
+    const incomingChatId = readString(deliveryMeta.incomingChatId);
+    if (!incomingChatId) return null;
+    const channelEnvelope = asRecord(request.channelEnvelope);
+    const externalMessageId = readLinqMessageId(channelEnvelope.externalMessageId);
+    return {
+      incomingChatId,
+      ...(externalMessageId ? { externalMessageId } : {}),
+    };
   },
 });
 
@@ -358,6 +575,153 @@ export const sendWelcomeMessage = internalAction({
         "I can also take actions on your computer while we chat.",
     );
     return null;
+  },
+});
+
+export const executeLinqConnectorTool = action({
+  args: {
+    requestId: v.string(),
+    conversationId: v.id("conversations"),
+    operation: v.string(),
+    payload: jsonValueValidator,
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || (identity as Record<string, unknown>).isAnonymous === true) {
+      throw new ConvexError(SIGN_IN_REQUIRED_ERROR);
+    }
+
+    const target = (await ctx.runQuery(
+      internal.channels.linq.getAuthorizedLinqRemoteTurnTarget,
+      {
+        ownerId: identity.tokenIdentifier,
+        requestId: args.requestId,
+        conversationId: args.conversationId,
+      },
+    )) as { incomingChatId: string; externalMessageId?: string } | null;
+    if (!target) {
+      throw new ConvexError("No authorized Linq connector turn found.");
+    }
+    if (!isLinqLiveDeployment()) {
+      return {
+        success: false,
+        skipped: true,
+        reason: "Linq sends are disabled on this deployment.",
+      };
+    }
+
+    const payload = asRecord(args.payload);
+    const chatPath = `/v3/chats/${encodeURIComponent(target.incomingChatId)}`;
+
+    switch (args.operation) {
+      case "send_message": {
+        const message: Record<string, unknown> = {
+          parts: parseLinqMessageParts(payload.parts),
+        };
+        const effect = parseLinqEffect(payload.effect);
+        if (effect) message.effect = effect;
+        const preferredService = readString(payload.preferred_service);
+        if (preferredService) {
+          if (!["iMessage", "RCS", "SMS"].includes(preferredService)) {
+            throw new ConvexError("Invalid preferred_service.");
+          }
+          message.preferred_service = preferredService;
+        }
+        const replyTo = readString(payload.reply_to);
+        if (replyTo) message.reply_to = replyTo;
+        const idempotencyKey = readString(payload.idempotency_key);
+        if (idempotencyKey) message.idempotency_key = idempotencyKey.slice(0, 255);
+        const response = await linqFetchJson(`${chatPath}/messages`, {
+          method: "POST",
+          body: JSON.stringify({ message }),
+        });
+        return { success: true, operation: args.operation, response };
+      }
+      case "typing": {
+        const actionName = requireString(payload.action, "action");
+        if (actionName !== "start" && actionName !== "stop") {
+          throw new ConvexError("typing action must be start or stop.");
+        }
+        await linqFetchJson(`${chatPath}/typing`, {
+          method: actionName === "start" ? "POST" : "DELETE",
+        });
+        return { success: true, operation: args.operation, action: actionName };
+      }
+      case "read": {
+        await linqFetchJson(`${chatPath}/read`, { method: "POST" });
+        return { success: true, operation: args.operation };
+      }
+      case "share_contact_card": {
+        await linqFetchJson(`${chatPath}/share_contact_card`, {
+          method: "POST",
+        });
+        return { success: true, operation: args.operation };
+      }
+      case "voice_memo": {
+        const voiceMemoUrl = readString(payload.voice_memo_url);
+        const attachmentId = readString(payload.attachment_id);
+        if ((voiceMemoUrl ? 1 : 0) + (attachmentId ? 1 : 0) !== 1) {
+          throw new ConvexError(
+            "voice_memo requires exactly one of voice_memo_url or attachment_id.",
+          );
+        }
+        const response = await linqFetchJson(`${chatPath}/voicememo`, {
+          method: "POST",
+          body: JSON.stringify({
+            ...(voiceMemoUrl ? { voice_memo_url: voiceMemoUrl } : {}),
+            ...(attachmentId ? { attachment_id: attachmentId } : {}),
+          }),
+        });
+        return { success: true, operation: args.operation, response };
+      }
+      case "reaction": {
+        const messageId =
+          readLinqMessageId(payload.message_id) ?? target.externalMessageId;
+        if (!messageId) {
+          throw new ConvexError(
+            "message_id must be a valid Linq message UUID. Omit it to react to the current inbound Linq message.",
+          );
+        }
+        const operation = requireString(payload.operation, "operation");
+        if (operation !== "add" && operation !== "remove") {
+          throw new ConvexError("reaction operation must be add or remove.");
+        }
+        const reactionType = requireString(payload.type, "type");
+        if (!LINQ_REACTION_TYPES.has(reactionType)) {
+          throw new ConvexError("Invalid reaction type.");
+        }
+        const body: Record<string, unknown> = {
+          operation,
+          type: reactionType,
+        };
+        const customEmoji = readString(payload.custom_emoji);
+        if (reactionType === "custom") {
+          if (!customEmoji) {
+            throw new ConvexError("custom_emoji is required for custom reactions.");
+          }
+          body.custom_emoji = customEmoji;
+        }
+        if (typeof payload.part_index === "number") {
+          if (
+            !Number.isFinite(payload.part_index) ||
+            payload.part_index < 0
+          ) {
+            throw new ConvexError("part_index must be a non-negative number.");
+          }
+          body.part_index = Math.floor(payload.part_index);
+        }
+        const response = await linqFetchJson(
+          `/v3/messages/${encodeURIComponent(messageId)}/reactions`,
+          {
+            method: "POST",
+            body: JSON.stringify(body),
+          },
+        );
+        return { success: true, operation: args.operation, response };
+      }
+      default:
+        throw new ConvexError(`Unsupported Linq connector operation: ${args.operation}`);
+    }
   },
 });
 

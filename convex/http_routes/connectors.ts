@@ -442,18 +442,37 @@ const extractLinqAttachments = (parts: unknown): ConnectorAttachment[] => {
     const type = typeof item.type === "string" ? item.type : "";
     if (type === "text") continue;
     const value = typeof item.value === "string" ? item.value : undefined;
-    const mimeType = typeof item.mime_type === "string" ? item.mime_type : undefined;
+    const url =
+      value && (value.startsWith("http://") || value.startsWith("https://"))
+        ? value
+        : typeof item.url === "string"
+          ? item.url
+          : undefined;
+    const mimeType =
+      typeof item.mime_type === "string"
+        ? item.mime_type
+        : typeof item.content_type === "string"
+          ? item.content_type
+          : undefined;
+    const name =
+      typeof item.name === "string"
+        ? item.name
+        : typeof item.filename === "string"
+          ? item.filename
+          : undefined;
+    const size =
+      typeof item.size === "number"
+        ? item.size
+        : typeof item.size_bytes === "number"
+          ? item.size_bytes
+          : undefined;
     const inferredKind = type.toLowerCase();
     attachments.push({
       id: typeof item.id === "string" ? item.id : undefined,
-      name: typeof item.name === "string" ? item.name : undefined,
+      name,
       mimeType,
-      url:
-        value && (value.startsWith("http://") || value.startsWith("https://"))
-          ? value
-          : typeof item.url === "string"
-            ? item.url
-            : undefined,
+      url,
+      size,
       kind: inferredKind || "file",
     });
   }
@@ -1784,6 +1803,10 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
         data?: {
           chat?: { id?: string; is_group?: boolean; owner_handle?: { handle?: string } };
           sender_handle?: { handle?: string };
+          id?: string;
+          sent_at?: string;
+          created_at?: string;
+          timestamp?: string;
           message?: { id?: string; created_at?: string; timestamp?: string };
           parts?: Array<{
             id?: string;
@@ -1791,7 +1814,11 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
             value?: string;
             url?: string;
             name?: string;
+            filename?: string;
             mime_type?: string;
+            content_type?: string;
+            size?: number;
+            size_bytes?: number;
           }>;
         };
       };
@@ -1830,7 +1857,7 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
       }
   
       const incomingChatId = envelope.data?.chat?.id ?? "";
-      const linqMessageId = envelope.data?.message?.id;
+      const linqMessageId = envelope.data?.id ?? envelope.data?.message?.id;
       // Hash once and reuse: this becomes the sender's persistent identity
       // (`channel_connections.externalUserId`) and is also what we feed into
       // the dedup, rate-limit, and persisted channel envelope so the
@@ -1864,7 +1891,11 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
       const linkPrefix = textOnly.toLowerCase().startsWith("link ") ? textOnly.slice(5).trim() : textOnly.trim();
       const isLinkCode = /^[A-Z0-9]{6}$/i.test(linkPrefix);
       const sourceTimestamp = parseIsoTimestampMs(
-        envelope.data?.message?.created_at ?? envelope.data?.message?.timestamp,
+        envelope.data?.sent_at ??
+          envelope.data?.created_at ??
+          envelope.data?.timestamp ??
+          envelope.data?.message?.created_at ??
+          envelope.data?.message?.timestamp,
       );
       const channelEnvelope = {
         provider: "linq",
@@ -1872,7 +1903,7 @@ export const registerConnectorWebhookRoutes = (http: HttpRouter) => {
         chatType: isGroup ? "group" : "dm",
         externalUserId: senderPhoneHash,
         externalChatId: incomingChatId || undefined,
-        externalMessageId: envelope.data?.message?.id,
+        externalMessageId: linqMessageId,
         text,
         ...(attachments.length > 0 ? { attachments } : {}),
         sourceTimestamp,

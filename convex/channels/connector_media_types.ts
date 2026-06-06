@@ -25,6 +25,8 @@ export const connectorMediaRefValidator = v.object({
   mimeType: v.optional(v.string()),
   name: v.optional(v.string()),
   size: v.optional(v.number()),
+  transcript: v.optional(v.string()),
+  extractedText: v.optional(v.string()),
 });
 
 export type ConnectorMediaRef = {
@@ -36,6 +38,8 @@ export type ConnectorMediaRef = {
   mimeType?: string;
   name?: string;
   size?: number;
+  transcript?: string;
+  extractedText?: string;
 };
 
 export const connectorMediaRefArrayValidator = v.array(connectorMediaRefValidator);

@@ -55,6 +55,9 @@ export const buildXCodeChallenge = async (codeVerifier: string) => {
 export const xOAuthScopeString = (scopes: readonly string[] = X_OAUTH_SCOPES) =>
   scopes.join(" ");
 
+export const buildXBasicAuthHeader = (clientId: string, clientSecret: string) =>
+  `Basic ${bytesToBase64(encoder.encode(`${clientId}:${clientSecret}`))}`;
+
 export const buildXAuthorizationUrl = (args: {
   clientId: string;
   redirectUri: string;
@@ -85,7 +88,7 @@ export const buildXTokenExchangeRequest = (args: {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(`${args.clientId}:${args.clientSecret}`)}`,
+      Authorization: buildXBasicAuthHeader(args.clientId, args.clientSecret),
     },
     body: new URLSearchParams({
       grant_type: "authorization_code",
@@ -106,7 +109,7 @@ export const buildXRefreshTokenRequest = (args: {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(`${args.clientId}:${args.clientSecret}`)}`,
+      Authorization: buildXBasicAuthHeader(args.clientId, args.clientSecret),
     },
     body: new URLSearchParams({
       grant_type: "refresh_token",

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildXAuthorizationUrl,
+  buildXBasicAuthHeader,
   buildXCodeChallenge,
   buildXOAuthResultPage,
   buildXTokenExchangeRequest,
@@ -60,6 +61,13 @@ describe("X OAuth helpers", () => {
     );
     expect(body.get("code_verifier")).toBe("verifier_abc");
     expect(body.has("client_secret")).toBe(false);
+  });
+
+  test("builds Basic auth from UTF-8 bytes instead of throwing on non-Latin1", () => {
+    expect(() => buildXBasicAuthHeader("client", "••••")).not.toThrow();
+    expect(buildXBasicAuthHeader("client", "secret")).toBe(
+      `Basic ${btoa("client:secret")}`,
+    );
   });
 
   test("parses scope strings and arrays", () => {

@@ -535,6 +535,7 @@ export const getXOAuthTokenForOwner = internalQuery({
     v.null(),
     v.object({
       _id: v.id("x_oauth_tokens"),
+      _creationTime: v.number(),
       ownerId: v.string(),
       xUserId: v.string(),
       username: v.string(),

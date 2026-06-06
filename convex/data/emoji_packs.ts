@@ -15,6 +15,7 @@ import {
 } from "../auth";
 import {
   RATE_HOT_PATH,
+  RATE_STANDARD,
   enforceMutationRateLimit,
 } from "../lib/rate_limits";
 import { filterDisplayableTags, isBlockedContentTag } from "../lib/content_tags";
@@ -383,6 +384,40 @@ export const createGeneratedPack = internalMutation({
       });
     }
     return row;
+  },
+});
+
+export const createPack = mutation({
+  args: {
+    packId: v.string(),
+    displayName: v.string(),
+    description: v.optional(v.string()),
+    prompt: v.optional(v.string()),
+    coverEmoji: v.string(),
+    coverUrl: v.optional(v.string()),
+    sheetUrls: v.array(v.string()),
+    visibility: emoji_pack_visibility_validator,
+  },
+  returns: emoji_pack_validator,
+  handler: async (ctx, args): Promise<Doc<"emoji_packs">> => {
+    const ownerId = await requireConnectedUserId(ctx);
+    await enforceMutationRateLimit(
+      ctx,
+      "emojiPacks.createPack",
+      ownerId,
+      RATE_STANDARD,
+    );
+    return await ctx.runMutation(internal.data.emoji_packs.createGeneratedPack, {
+      ownerId,
+      packId: args.packId,
+      displayName: args.displayName,
+      ...(args.description ? { description: args.description } : {}),
+      ...(args.prompt ? { prompt: args.prompt } : {}),
+      coverEmoji: args.coverEmoji,
+      ...(args.coverUrl ? { coverUrl: args.coverUrl } : {}),
+      sheetUrls: args.sheetUrls,
+      visibility: args.visibility,
+    });
   },
 });
 

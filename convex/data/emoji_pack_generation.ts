@@ -14,10 +14,8 @@ import {
 import { checkManagedUsageLimit } from "../lib/managed_billing";
 import { emoji_pack_validator, emoji_pack_visibility_validator } from "../schema/emoji_packs";
 import { requireBoundedString } from "../shared_validators";
-import {
-  EMOJI_SHEETS,
-  EMOJI_SHEET_GRID_SIZE,
-} from "./emoji_pack_grid_constants";
+import { EMOJI_SHEETS, EMOJI_SHEET_GRID_SIZE } from "./emoji_pack_grid_constants";
+import { EMOJI_REFERENCE_SHEET_DATA_URLS } from "./emoji_pack_reference_images";
 
 const DEFAULT_BUCKET = "stella-emotes";
 const DEFAULT_PREFIX = "emoji-packs";
@@ -25,7 +23,7 @@ const DEFAULT_PUBLIC_BASE =
   "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev";
 const DEFAULT_STYLE = "playful party style";
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
-const FAL_ENDPOINT_ID = "openai/gpt-image-2";
+const FAL_ENDPOINT_ID = "openai/gpt-image-2/edit";
 const SHEET_SIZE = 768;
 const POLL_INTERVAL_MS = 2_000;
 const POLL_TIMEOUT_MS = 6 * 60_000;
@@ -68,32 +66,25 @@ const buildPackId = (prompt: string): string => {
   return `${slug}-${Date.now().toString(36).slice(-6)}`;
 };
 
-const buildSheetPrompt = (sheetIndex: number, style: string): string => {
-  const list = EMOJI_SHEETS[sheetIndex];
-  if (!list) throw new Error(`Unknown sheet index ${sheetIndex}`);
+const buildReferenceSheetDataUrl = (sheetIndex: number): string => {
+  const url = EMOJI_REFERENCE_SHEET_DATA_URLS[sheetIndex];
+  if (!url) throw new Error(`Unknown sheet index ${sheetIndex}`);
+  return url;
+};
+
+const buildSheetEditPrompt = (style: string): string => {
   const theme = style.trim() || DEFAULT_STYLE;
-  const cellLines = list
-    .map((glyph, idx) => {
-      const row = Math.floor(idx / EMOJI_SHEET_GRID_SIZE) + 1;
-      const col = (idx % EMOJI_SHEET_GRID_SIZE) + 1;
-      return `- r${row}c${col}: ${glyph}`;
-    })
-    .join("\n");
   return [
-    `Design a custom emoji pack styled entirely as: "${theme}".`,
-    "The style is the most important constraint. Every single emoji must be fully original artwork drawn in that style, never default Apple, Google, Microsoft, Samsung, Twemoji, or system emoji rendering.",
+    `Edit the reference image into a custom emoji sheet styled entirely as: "${theme}".`,
+    "Replace every reference emoji glyph with fully original artwork in that style. Keep the same meaning, cell position, relative scale, and row-major order shown in the reference image.",
+    "The reference image is a positional and semantic guide only. Do not copy default Apple, Google, Microsoft, Samsung, Twemoji, or system emoji rendering.",
     `Theme reminder: "${theme}". Apply it to every cell: linework, palette, shading, mood, and character design must all read as that theme.`,
     "",
-    "Each grid cell below names a concept the cell should depict, written as a reference glyph. Treat the glyph as a concept hint only and reinterpret it as a brand-new icon with the same meaning.",
-    "",
-    "Cells (row-major, 6 rows x 6 columns):",
-    cellLines,
-    "",
     "Layout:",
-    "- Output a single square image as a 6x6 grid of cells.",
+    `- Output a single square image as a ${EMOJI_SHEET_GRID_SIZE}x${EMOJI_SHEET_GRID_SIZE} layout of cells.`,
     "- Cells are perfectly uniform in size with consistent padding.",
     "- Each icon is fully contained inside its cell, centered, with breathing room.",
-    "- Render in the exact row-major order above. r1c1 is the top-left cell; r6c6 is the bottom-right.",
+    "- Preserve the reference image's positions exactly: top-left stays top-left and bottom-right stays bottom-right.",
     "",
     "Background:",
     "- Use a fully transparent background for every non-icon pixel.",
@@ -148,12 +139,14 @@ const submitSheet = async (args: {
   sheetIndex: number;
   style: string;
 }): Promise<string> => {
+  const referenceImageUrl = buildReferenceSheetDataUrl(args.sheetIndex);
   const submitted = await submitFalRequest({
     apiKey: args.apiKey,
     endpointId: FAL_ENDPOINT_ID,
     webhookUrl: args.webhookUrl,
     input: {
-      prompt: buildSheetPrompt(args.sheetIndex, args.style),
+      prompt: buildSheetEditPrompt(args.style),
+      image_urls: [referenceImageUrl],
       image_size: { width: SHEET_SIZE, height: SHEET_SIZE },
       quality: "medium",
       output_format: "webp",

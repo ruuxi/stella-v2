@@ -172,17 +172,18 @@ const cloneForwardHeaders = (
   return headers;
 };
 
-const upstreamUrl = (
+export const upstreamUrl = (
   provider: ManagedGatewayProvider,
   request: Request,
   upstreamModel: string,
 ): string => {
   const base = getManagedGatewayConfig(provider).baseURL.replace(/\/+$/u, "");
+  const requestUrl = new URL(request.url);
   switch (provider) {
     case "anthropic":
       return `${base}/messages`;
     case "openai":
-      return new URL(request.url).pathname.endsWith("/chat/completions")
+      return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
     case "google": {
@@ -191,10 +192,10 @@ const upstreamUrl = (
       // `:embedContent`, etc. Hardcoding stream broke non-streaming
       // utility calls.
       const verbMatch = /:([A-Za-z][A-Za-z0-9]*)$/u.exec(
-        new URL(request.url).pathname,
+        requestUrl.pathname,
       );
       const verb = verbMatch?.[1] ?? "streamGenerateContent";
-      return `${base}/v1beta/models/${encodeURIComponent(upstreamModel)}:${verb}`;
+      return `${base}/v1beta/models/${encodeURIComponent(upstreamModel)}:${verb}${requestUrl.search}`;
     }
     case "fireworks":
       return `${base}/responses`;
@@ -207,7 +208,7 @@ const upstreamUrl = (
   }
 };
 
-const bodyForUpstream = (
+export const bodyForUpstream = (
   authorized: AuthorizedStellaRequest,
   provider: ManagedGatewayProvider,
   request: Request,
@@ -225,7 +226,7 @@ const bodyForUpstream = (
     // Google REST puts the model in the URL path, not the body.
     delete body.model;
   }
-  if (authorized.serviceTier !== undefined) {
+  if (provider === "fireworks" && authorized.serviceTier !== undefined) {
     body.service_tier = authorized.serviceTier;
   }
 

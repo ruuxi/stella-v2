@@ -28,7 +28,6 @@ import type { Id } from "../_generated/dataModel";
 import {
   SLACK_MAX_MESSAGE_CHARS,
   TELEGRAM_MAX_MESSAGE_CHARS,
-  DISCORD_MAX_MESSAGE_CHARS,
   GOOGLE_CHAT_MAX_MESSAGE_CHARS,
   TEAMS_MAX_MESSAGE_CHARS,
   truncateForConnector,
@@ -38,7 +37,11 @@ import {
   EXECUTION_NOT_AVAILABLE_MESSAGE,
   shouldUseOfflineResponderForProvider,
 } from "./execution_policy";
-import { sendDiscordChannelMessage } from "./discord";
+import {
+  DISCORD_SAFE_ALLOWED_MENTIONS,
+  sendDiscordChannelMessage,
+  splitDiscordMessage,
+} from "./discord";
 import {
   connectorMediaRefArrayValidator,
   extractDeliveryMediaFromOutput,
@@ -1213,7 +1216,8 @@ async function deliverDiscord(
 ) {
   const channelId = meta.channelId as string;
   if (channelId) {
-    await sendDiscordChannelMessage(channelId, text, media);
+    const replyToMessageId = asString(meta.messageId);
+    await sendDiscordChannelMessage(channelId, text, media, replyToMessageId);
     return;
   }
 
@@ -1228,10 +1232,8 @@ async function deliverDiscord(
 
   const imageMedia = media.filter((item) => item.kind === "image");
   const nonImageMedia = media.filter((item) => item.kind !== "image");
-  const truncated = truncateForConnector(
-    appendMediaLinks(text, nonImageMedia),
-    DISCORD_MAX_MESSAGE_CHARS,
-  );
+  const chunks = splitDiscordMessage(appendMediaLinks(text, nonImageMedia));
+  const [firstChunk = ""] = chunks;
   const embeds = imageMedia.map((item) => ({
     title: mediaLabel(item),
     image: { url: item.url },
@@ -1244,7 +1246,8 @@ async function deliverDiscord(
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        content: truncated,
+        content: firstChunk,
+        allowed_mentions: DISCORD_SAFE_ALLOWED_MENTIONS,
         ...(embeds.length > 0 ? { embeds } : {}),
       }),
     },
@@ -1259,7 +1262,8 @@ async function deliverDiscord(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          content: truncated,
+          content: firstChunk,
+          allowed_mentions: DISCORD_SAFE_ALLOWED_MENTIONS,
           ...(embeds.length > 0 ? { embeds } : {}),
         }),
       },
@@ -1270,6 +1274,28 @@ async function deliverDiscord(
         res.status,
         followUpRes.status,
       );
+      return;
+    }
+  }
+
+  for (const chunk of chunks.slice(1)) {
+    const followUpRes = await fetch(
+      `https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: chunk,
+          allowed_mentions: DISCORD_SAFE_ALLOWED_MENTIONS,
+        }),
+      },
+    );
+    if (!followUpRes.ok) {
+      console.error(
+        "[connector_delivery] Discord follow-up delivery failed:",
+        followUpRes.status,
+      );
+      return;
     }
   }
 }

@@ -4,7 +4,7 @@ import { handleConnectorIncomingMessage } from "./message_pipeline";
 import { formatLinkCodeResultMessage, processLinkCode } from "./link_codes";
 import { channelAttachmentValidator, optionalChannelEnvelopeValidator } from "../shared_validators";
 import { hexToUint8Array } from "../lib/crypto_utils";
-import { DISCORD_MAX_MESSAGE_CHARS, truncateForConnector } from "./connector_constants";
+import { DISCORD_MAX_MESSAGE_CHARS } from "./connector_constants";
 import type { ConnectorMediaRef } from "./connector_media_types";
 
 // ---------------------------------------------------------------------------
@@ -59,6 +59,27 @@ export async function verifyDiscordSignature(
 // ---------------------------------------------------------------------------
 
 const DISCORD_API = "https://discord.com/api/v10";
+const DISCORD_SPLIT_THRESHOLD = 1900;
+
+export const DISCORD_SAFE_ALLOWED_MENTIONS = {
+  parse: [],
+  replied_user: false,
+} as const;
+
+type DiscordEmbedPayload = {
+  title: string;
+  image: { url: string };
+};
+
+type DiscordChannelMessagePayload = {
+  content: string;
+  allowed_mentions: typeof DISCORD_SAFE_ALLOWED_MENTIONS;
+  embeds?: DiscordEmbedPayload[];
+  message_reference?: {
+    message_id: string;
+    fail_if_not_exists: false;
+  };
+};
 
 const discordApi = async (
   path: string,
@@ -83,14 +104,17 @@ const editInteractionResponse = async (
   interactionToken: string,
   content: string,
 ) => {
-  const truncated = truncateForConnector(content, DISCORD_MAX_MESSAGE_CHARS);
+  const [firstChunk = ""] = splitDiscordMessage(content);
 
   const res = await fetch(
     `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}/messages/@original`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: truncated }),
+      body: JSON.stringify({
+        content: firstChunk,
+        allowed_mentions: DISCORD_SAFE_ALLOWED_MENTIONS,
+      }),
     },
   );
 
@@ -112,38 +136,91 @@ const appendDiscordMediaLinks = (text: string, media: ConnectorMediaRef[]): stri
   return [text.trim(), ...lines].filter(Boolean).join("\n");
 };
 
+export const splitDiscordMessage = (text: string): string[] => {
+  if (text.length <= DISCORD_MAX_MESSAGE_CHARS) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > DISCORD_MAX_MESSAGE_CHARS) {
+    const window = remaining.slice(0, DISCORD_SPLIT_THRESHOLD);
+    const breakAt = Math.max(
+      window.lastIndexOf("\n\n"),
+      window.lastIndexOf("\n"),
+      window.lastIndexOf(" "),
+    );
+    const splitAt = breakAt > 0 ? breakAt : DISCORD_SPLIT_THRESHOLD;
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt);
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+};
+
+export const buildDiscordChannelMessagePayloads = (
+  content: string,
+  media: ConnectorMediaRef[] = [],
+  replyToMessageId?: string,
+): DiscordChannelMessagePayload[] => {
+  const imageMedia = media.filter((item) => item.kind === "image");
+  const nonImageMedia = media.filter((item) => item.kind !== "image");
+  const chunks = splitDiscordMessage(appendDiscordMediaLinks(content, nonImageMedia));
+  const embeds = imageMedia.map((item) => ({
+    title: discordMediaLabel(item),
+    image: { url: item.url },
+  }));
+
+  return (chunks.length > 0 ? chunks : [""]).map((chunk, index) => ({
+    content: chunk,
+    allowed_mentions: DISCORD_SAFE_ALLOWED_MENTIONS,
+    ...(index === 0 && embeds.length > 0 ? { embeds } : {}),
+    ...(index === 0 && replyToMessageId
+      ? {
+          message_reference: {
+            message_id: replyToMessageId,
+            fail_if_not_exists: false as const,
+          },
+        }
+      : {}),
+  }));
+};
+
 export const sendDiscordChannelMessage = async (
   channelId: string,
   content: string,
   media: ConnectorMediaRef[] = [],
+  replyToMessageId?: string,
 ) => {
   if (!channelId) {
     console.error("[discord] Cannot send channel message without channelId");
     return;
   }
 
-  const imageMedia = media.filter((item) => item.kind === "image");
-  const nonImageMedia = media.filter((item) => item.kind !== "image");
-  const truncated = truncateForConnector(
-    appendDiscordMediaLinks(content, nonImageMedia),
-    DISCORD_MAX_MESSAGE_CHARS,
-  );
-  const embeds = imageMedia.map((item) => ({
-    title: discordMediaLabel(item),
-    image: { url: item.url },
-  }));
-
-  const res = await discordApi(`/channels/${encodeURIComponent(channelId)}/messages`, "POST", {
-    content: truncated,
-    ...(embeds.length > 0 ? { embeds } : {}),
-  });
-
-  if (!res.ok) {
-    console.error(
-      "[discord] Failed to send channel message:",
-      res.status,
-      await res.text(),
+  const payloads = buildDiscordChannelMessagePayloads(content, media, replyToMessageId);
+  for (const payload of payloads) {
+    let res = await discordApi(
+      `/channels/${encodeURIComponent(channelId)}/messages`,
+      "POST",
+      payload,
     );
+
+    if (!res.ok && payload.message_reference) {
+      const retryPayload = { ...payload };
+      delete retryPayload.message_reference;
+      res = await discordApi(
+        `/channels/${encodeURIComponent(channelId)}/messages`,
+        "POST",
+        retryPayload,
+      );
+    }
+
+    if (!res.ok) {
+      console.error(
+        "[discord] Failed to send channel message:",
+        res.status,
+        await res.text(),
+      );
+      return;
+    }
   }
 };
 
@@ -244,7 +321,8 @@ export const handleDirectMessage = internalAction({
       },
       logPrefix: "[discord]",
       notLinkedText: "Your account isn't linked yet. Use `/link` with your 6-digit code from Stella Settings.",
-      sendReply: (text) => sendDiscordChannelMessage(args.channelId, text),
+      sendReply: (text) =>
+        sendDiscordChannelMessage(args.channelId, text, [], args.messageId),
     });
     return null;
   },

@@ -265,7 +265,25 @@ const normalizeResponsesBody = (body: Record<string, unknown>): void => {
   if (body.input === undefined && body.messages !== undefined) {
     body.input = messagesToResponsesInput(body.messages);
   }
+  if (body.response_format !== undefined) {
+    const existingText =
+      body.text && typeof body.text === "object" && !Array.isArray(body.text)
+        ? (body.text as Record<string, unknown>)
+        : {};
+    body.text = { ...existingText, format: body.response_format };
+  }
+  if (body.max_output_tokens === undefined) {
+    if (body.max_tokens !== undefined) {
+      body.max_output_tokens = body.max_tokens;
+    } else if (body.max_completion_tokens !== undefined) {
+      body.max_output_tokens = body.max_completion_tokens;
+    }
+  }
   delete body.messages;
+  delete body.max_tokens;
+  delete body.max_completion_tokens;
+  delete body.response_format;
+  delete body.stream_options;
 };
 
 export const bodyForUpstream = (

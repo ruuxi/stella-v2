@@ -104,6 +104,34 @@ describe("bodyForUpstream", () => {
     ]);
   });
 
+  it("renames legacy chat-completions fields for OpenAI Responses bodies", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("openai", {
+          model: "stella/openai/gpt-5.5",
+          input: [{ role: "user", content: "finish the update" }],
+          max_tokens: 1024,
+          max_completion_tokens: 2048,
+          response_format: { type: "json_object" },
+          stream_options: { include_usage: true },
+          text: { verbosity: "low" },
+        }),
+        "openai",
+        requestFor("/api/stella/openai/v1/responses"),
+      ),
+    );
+
+    expect(body.max_tokens).toBeUndefined();
+    expect(body.max_completion_tokens).toBeUndefined();
+    expect(body.max_output_tokens).toBe(1024);
+    expect(body.response_format).toBeUndefined();
+    expect(body.stream_options).toBeUndefined();
+    expect(body.text).toEqual({
+      verbosity: "low",
+      format: { type: "json_object" },
+    });
+  });
+
   it("keeps chat-completions messages unchanged", () => {
     const body = JSON.parse(
       bodyForUpstream(

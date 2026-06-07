@@ -48,6 +48,27 @@ import {
 const BACKEND_FALLBACK_AGENT_TYPE = "offline_responder";
 const EMPTY_RESPONSE_TEXT = "(Stella had nothing to say.)";
 const RELAYED_MEDIA_DELETE_DELAY_MS = 10 * 60_000;
+const CONNECTOR_STREAM_STATE_TTL_MS = 2 * 60 * 60_000;
+
+type ConnectorStreamState = {
+  requestId: string;
+  provider: string;
+  messageId: string;
+  lastText: string;
+  revision: number;
+  finalized?: boolean;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
+};
+
+type TelegramApiResult = {
+  ok?: boolean;
+  description?: string;
+  result?: {
+    message_id?: number | string;
+  };
+};
 
 /**
  * Look up the original `remote_turn_request` event by `requestId`. The
@@ -72,6 +93,62 @@ const appendMediaLinks = (text: string, media: ConnectorMediaRef[]): string => {
   const lines = media.map((item) => `${mediaLabel(item)}: ${item.url}`);
   return [text.trim(), ...lines].filter(Boolean).join("\n");
 };
+
+const asString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+const telegramApi = async (
+  token: string,
+  method: string,
+  body: Record<string, unknown>,
+): Promise<TelegramApiResult> => {
+  const res = await retryFetch(
+    `https://api.telegram.org/bot${token}/${method}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  const data = (await res.json().catch(() => null)) as TelegramApiResult | null;
+  if (!res.ok || data?.ok === false) {
+    const description =
+      data?.description ??
+      `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`;
+    throw new Error(description);
+  }
+  return data ?? { ok: true };
+};
+
+const telegramSendText = async (
+  token: string,
+  chatId: string,
+  text: string,
+): Promise<string | null> => {
+  const data = await telegramApi(token, "sendMessage", {
+    chat_id: chatId,
+    text,
+  });
+  const messageId = data.result?.message_id;
+  return messageId === undefined ? null : String(messageId);
+};
+
+const telegramEditText = async (
+  token: string,
+  chatId: string,
+  messageId: string,
+  text: string,
+): Promise<void> => {
+  await telegramApi(token, "editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+  });
+};
+
+const isTelegramMessageNotModifiedError = (error: unknown): boolean =>
+  error instanceof Error &&
+  error.message.toLowerCase().includes("message is not modified");
 
 // ─── Public Mutation (called by local device via HTTP) ──────────────────────
 export const claimRemoteTurn = mutation({
@@ -247,6 +324,66 @@ export const completeRemoteTurn = mutation({
   },
 });
 
+export const streamConnectorTurnUpdate = mutation({
+  args: {
+    requestId: v.string(),
+    conversationId: v.id("conversations"),
+    text: v.string(),
+    revision: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const conversation = await requireConversationOwner(
+      ctx,
+      args.conversationId,
+    );
+    await enforceMutationRateLimit(
+      ctx,
+      "connector_stream_turn_update",
+      conversation.ownerId,
+      RATE_HOT_PATH,
+    );
+
+    const request = await findRemoteTurnRequest(ctx, args.requestId);
+    if (
+      !request ||
+      request.type !== "remote_turn_request" ||
+      request.conversationId !== args.conversationId ||
+      request.requestState === "fulfilled" ||
+      request.requestState === "cancelled"
+    ) {
+      return null;
+    }
+
+    const reqPayload = request.payload as Record<string, unknown>;
+    const provider = asString(reqPayload.provider);
+    if (provider !== "telegram") {
+      return null;
+    }
+    const deliveryMeta =
+      reqPayload.deliveryMeta && typeof reqPayload.deliveryMeta === "object"
+        ? (JSON.parse(JSON.stringify(reqPayload.deliveryMeta)) as Value)
+        : ({} as Value);
+
+    const trimmedText = args.text.trim();
+    if (!trimmedText) return null;
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.channels.connector_delivery.deliverConnectorStreamUpdate,
+      {
+        requestId: args.requestId,
+        provider,
+        deliveryMeta,
+        text: truncateForConnector(trimmedText, TELEGRAM_MAX_MESSAGE_CHARS),
+        revision: args.revision,
+      },
+    );
+
+    return null;
+  },
+});
+
 /**
  * Send an unsolicited follow-up message to the connector that initiated
  * the most recent remote turn for a conversation. Routing metadata is
@@ -315,6 +452,165 @@ export const sendConnectorFollowup = mutation({
   },
 });
 
+export const getConnectorStreamState = internalQuery({
+  args: { requestId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      requestId: v.string(),
+      provider: v.string(),
+      messageId: v.string(),
+      lastText: v.string(),
+      revision: v.number(),
+      finalized: v.optional(v.boolean()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      expiresAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("connector_stream_states")
+      .withIndex("by_requestId", (q) => q.eq("requestId", args.requestId))
+      .first();
+    if (!row) return null;
+    return {
+      requestId: row.requestId,
+      provider: row.provider,
+      messageId: row.messageId,
+      lastText: row.lastText,
+      revision: row.revision,
+      ...(row.finalized !== undefined ? { finalized: row.finalized } : {}),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      expiresAt: row.expiresAt,
+    };
+  },
+});
+
+export const upsertConnectorStreamState = internalMutation({
+  args: {
+    requestId: v.string(),
+    provider: v.string(),
+    messageId: v.string(),
+    lastText: v.string(),
+    revision: v.number(),
+    finalized: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("connector_stream_states")
+      .withIndex("by_requestId", (q) => q.eq("requestId", args.requestId))
+      .first();
+    const now = Date.now();
+    if (existing) {
+      if (args.revision < existing.revision) return null;
+      if (existing.finalized && !args.finalized) return null;
+      await ctx.db.patch(existing._id, {
+        provider: args.provider,
+        messageId: args.messageId,
+        lastText: args.lastText,
+        revision: args.revision,
+        ...(args.finalized !== undefined ? { finalized: args.finalized } : {}),
+        updatedAt: now,
+        expiresAt: now + CONNECTOR_STREAM_STATE_TTL_MS,
+      });
+      return null;
+    }
+    await ctx.db.insert("connector_stream_states", {
+      requestId: args.requestId,
+      provider: args.provider,
+      messageId: args.messageId,
+      lastText: args.lastText,
+      revision: args.revision,
+      ...(args.finalized !== undefined ? { finalized: args.finalized } : {}),
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + CONNECTOR_STREAM_STATE_TTL_MS,
+    });
+    return null;
+  },
+});
+
+export const purgeExpiredConnectorStreamStates = internalMutation({
+  args: { maxBatches: v.optional(v.number()) },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const maxRows = Math.max(1, Math.min(args.maxBatches ?? 10, 50)) * 100;
+    const expired = await ctx.db
+      .query("connector_stream_states")
+      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
+      .take(maxRows);
+    for (const row of expired) {
+      await ctx.db.delete(row._id);
+    }
+    return expired.length;
+  },
+});
+
+export const deliverConnectorStreamUpdate = internalAction({
+  args: {
+    requestId: v.string(),
+    provider: v.string(),
+    deliveryMeta: jsonValueValidator,
+    text: v.string(),
+    revision: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (args.provider !== "telegram") return null;
+    const requestState = (await ctx.runQuery(
+      internal.channels.connector_delivery.getRemoteTurnState,
+      { requestId: args.requestId },
+    )) as "pending" | "claimed" | "fulfilled" | "cancelled" | null;
+    if (requestState === "fulfilled" || requestState === "cancelled") {
+      return null;
+    }
+
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const deliveryMeta = args.deliveryMeta as Record<string, unknown>;
+    const chatId = asString(deliveryMeta.chatId);
+    if (!token || !chatId) return null;
+
+    const state = (await ctx.runQuery(
+      internal.channels.connector_delivery.getConnectorStreamState,
+      { requestId: args.requestId },
+    )) as ConnectorStreamState | null;
+    if (state?.finalized || (state && args.revision <= state.revision)) {
+      return null;
+    }
+    if (state && state.lastText === args.text) return null;
+
+    let messageId = state?.messageId ?? null;
+    try {
+      if (messageId) {
+        await telegramEditText(token, chatId, messageId, args.text);
+      } else {
+        messageId = await telegramSendText(token, chatId, args.text);
+      }
+      if (!messageId) return null;
+      await ctx.runMutation(
+        internal.channels.connector_delivery.upsertConnectorStreamState,
+        {
+          requestId: args.requestId,
+          provider: args.provider,
+          messageId,
+          lastText: args.text,
+          revision: args.revision,
+        },
+      );
+    } catch (error) {
+      console.warn(
+        "[connector_delivery] Telegram stream update failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    return null;
+  },
+});
+
 // ─── Shared delivery logic (callable from any action in the same runtime) ───
 
 type DeliveryCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
@@ -346,7 +642,7 @@ async function dispatchConnectorDelivery(
       await deliverSlack(ctx, meta, args.text, media);
       return;
     case "telegram":
-      await deliverTelegram(meta, args.text, media);
+      await deliverTelegram(ctx, meta, args.text, media, args.requestId);
       return;
     case "discord":
       await deliverDiscord(meta, args.text, media);
@@ -795,9 +1091,11 @@ async function deliverSlack(
   }
 }
 async function deliverTelegram(
+  ctx: DeliveryCtx,
   meta: Record<string, unknown>,
   text: string,
   media: ConnectorMediaRef[] = [],
+  requestId?: string,
 ) {
   const chatId = meta.chatId as string;
   if (!chatId) {
@@ -812,6 +1110,49 @@ async function deliverTelegram(
   }
 
   const truncated = truncateForConnector(text, TELEGRAM_MAX_MESSAGE_CHARS);
+  if (requestId && media.length === 0 && truncated.trim()) {
+    const state = (await ctx.runQuery(
+      internal.channels.connector_delivery.getConnectorStreamState,
+      { requestId },
+    )) as ConnectorStreamState | null;
+    if (state?.messageId && !state.finalized) {
+      try {
+        await telegramEditText(token, chatId, state.messageId, truncated);
+        await ctx.runMutation(
+          internal.channels.connector_delivery.upsertConnectorStreamState,
+          {
+            requestId,
+            provider: "telegram",
+            messageId: state.messageId,
+            lastText: truncated,
+            revision: state.revision + 1,
+            finalized: true,
+          },
+        );
+        return;
+      } catch (error) {
+        if (isTelegramMessageNotModifiedError(error)) {
+          await ctx.runMutation(
+            internal.channels.connector_delivery.upsertConnectorStreamState,
+            {
+              requestId,
+              provider: "telegram",
+              messageId: state.messageId,
+              lastText: truncated,
+              revision: state.revision + 1,
+              finalized: true,
+            },
+          );
+          return;
+        }
+        console.warn(
+          "[connector_delivery] Telegram final preview edit failed, sending fallback:",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+  }
+
   if (media.length > 0) {
     for (const [index, item] of media.entries()) {
       const method =

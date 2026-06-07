@@ -96,6 +96,20 @@ export const integrationsSchema = {
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
     .index("by_expiresAt", ["expiresAt"]),
 
+  connector_stream_states: defineTable({
+    requestId: v.string(),
+    provider: v.string(),
+    messageId: v.string(),
+    lastText: v.string(),
+    revision: v.number(),
+    finalized: v.optional(v.boolean()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_requestId", ["requestId"])
+    .index("by_expiresAt", ["expiresAt"]),
+
   slack_installations: defineTable({
     teamId: v.string(),
     teamName: v.optional(v.string()),

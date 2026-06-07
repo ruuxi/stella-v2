@@ -6,14 +6,15 @@ import type { ManagedGatewayProvider } from "../../convex/lib/managed_gateway";
 
 const makeAuthorized = (
   provider: ManagedGatewayProvider,
+  requestJson: AuthorizedStellaRequest["requestJson"] = {
+    model: "stella/google/gemini-3-flash-preview",
+    contents: [{ role: "user", parts: [{ text: "hi" }] }],
+  },
 ): AuthorizedStellaRequest => ({
   ownerId: "user_123",
   agentType: "orchestrator",
   relayProvider: provider,
-  requestJson: {
-    model: "stella/google/gemini-3-flash-preview",
-    contents: [{ role: "user", parts: [{ text: "hi" }] }],
-  },
+  requestJson,
   requestedModel: "stella/google/gemini-3-flash-preview",
   resolvedModel:
     provider === "fireworks"
@@ -74,6 +75,51 @@ describe("bodyForUpstream", () => {
 
     expect(body.service_tier).toBeUndefined();
     expect(body.model).toBe("gpt-5.5");
+  });
+
+  it("strips legacy messages from OpenAI Responses bodies", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("openai", {
+          model: "stella/openai/gpt-5.5",
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "finish the update" }],
+            },
+          ],
+          stream: true,
+        }),
+        "openai",
+        requestFor("/api/stella/openai/v1/responses"),
+      ),
+    );
+
+    expect(body.messages).toBeUndefined();
+    expect(body.input).toEqual([
+      {
+        role: "user",
+        content: [{ type: "input_text", text: "finish the update" }],
+      },
+    ]);
+  });
+
+  it("keeps chat-completions messages unchanged", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("openai", {
+          model: "stella/openai/gpt-5.5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: true,
+        }),
+        "openai",
+        requestFor("/api/stella/openai/v1/chat/completions"),
+      ),
+    );
+
+    expect(body.messages).toEqual([{ role: "user", content: "hello" }]);
+    expect(body.input).toBeUndefined();
+    expect(body.stream_options).toEqual({ include_usage: true });
   });
 });
 

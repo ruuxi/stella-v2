@@ -208,6 +208,66 @@ export const upstreamUrl = (
   }
 };
 
+const isResponsesRequest = (
+  provider: ManagedGatewayProvider,
+  request: Request,
+): boolean => {
+  if (provider !== "openai" && provider !== "fireworks") return false;
+  return !new URL(request.url).pathname.endsWith("/chat/completions");
+};
+
+const normalizeResponsesContentPart = (
+  part: unknown,
+): Record<string, unknown> | unknown => {
+  if (!part || typeof part !== "object" || Array.isArray(part)) {
+    return part;
+  }
+  const record = part as Record<string, unknown>;
+  if (record.type === "text") {
+    return { ...record, type: "input_text" };
+  }
+  if (record.type === "image_url") {
+    const imageUrl = record.image_url;
+    const url =
+      typeof imageUrl === "string"
+        ? imageUrl
+        : imageUrl &&
+            typeof imageUrl === "object" &&
+            typeof (imageUrl as Record<string, unknown>).url === "string"
+          ? (imageUrl as Record<string, string>).url
+          : undefined;
+    return url
+      ? { type: "input_image", image_url: url, detail: record.detail ?? "auto" }
+      : part;
+  }
+  return part;
+};
+
+const messagesToResponsesInput = (messages: unknown): unknown => {
+  if (!Array.isArray(messages)) return messages;
+  return messages.map((message) => {
+    if (!message || typeof message !== "object" || Array.isArray(message)) {
+      return message;
+    }
+    const record = message as Record<string, unknown>;
+    const content = record.content;
+    if (Array.isArray(content)) {
+      return {
+        ...record,
+        content: content.map(normalizeResponsesContentPart),
+      };
+    }
+    return record;
+  });
+};
+
+const normalizeResponsesBody = (body: Record<string, unknown>): void => {
+  if (body.input === undefined && body.messages !== undefined) {
+    body.input = messagesToResponsesInput(body.messages);
+  }
+  delete body.messages;
+};
+
 export const bodyForUpstream = (
   authorized: AuthorizedStellaRequest,
   provider: ManagedGatewayProvider,
@@ -228,6 +288,10 @@ export const bodyForUpstream = (
   }
   if (provider === "fireworks" && authorized.serviceTier !== undefined) {
     body.service_tier = authorized.serviceTier;
+  }
+
+  if (isResponsesRequest(provider, request)) {
+    normalizeResponsesBody(body);
   }
 
   const isChatCompletions =

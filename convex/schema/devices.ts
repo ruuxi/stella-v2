@@ -49,9 +49,30 @@ export const devicesSchema = {
     baseUrls: v.array(v.string()),
     updatedAt: v.number(),
     platform: v.optional(v.string()),
+    desktopPublicKey: v.optional(v.string()),
   })
     .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
+
+  mobile_bridge_sessions: defineTable({
+    ownerId: v.string(),
+    desktopDeviceId: v.string(),
+    mobileDeviceId: v.string(),
+    sessionId: v.string(),
+    sessionSecretHash: v.string(),
+    desktopChallenge: v.string(),
+    desktopPublicKey: v.string(),
+    mobilePublicKey: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    lastSeenAt: v.number(),
+  })
+    .index("by_sessionId", ["sessionId"])
+    .index("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", [
+      "ownerId",
+      "desktopDeviceId",
+      "mobileDeviceId",
+    ]),
 
   paired_mobile_devices: defineTable({
     ownerId: v.string(),

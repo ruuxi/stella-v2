@@ -13,7 +13,11 @@ import {
   requireConnectedUserId,
   requireSensitiveUserId,
 } from "./auth";
-import { constantTimeEqual, hashSha256Hex } from "./lib/crypto_utils";
+import {
+  constantTimeEqual,
+  hashSha256Hex,
+  hmacSha256Hex,
+} from "./lib/crypto_utils";
 import {
   enforceMutationRateLimit,
   RATE_HOT_PATH,
@@ -34,6 +38,8 @@ const PAIR_SECRET_LENGTH = 48;
 const PAIRING_SESSION_SCAN_LIMIT = 50;
 const PAIRED_DEVICE_SCAN_LIMIT = 100;
 const CONNECT_INTENT_SCAN_LIMIT = 20;
+export const MOBILE_BRIDGE_PAIR_PROOF_VERSION =
+  "stella-mobile-bridge-pair-proof-v1";
 
 const pairedDeviceValidator = v.object({
   mobileDeviceId: v.string(),
@@ -94,7 +100,6 @@ const randomPairingCode = () =>
   randomToken(PAIRING_CODE_LENGTH, PAIRING_CODE_ALPHABET);
 const randomPairSecret = () =>
   randomToken(PAIR_SECRET_LENGTH, PAIR_SECRET_ALPHABET);
-
 
 const loadMostRecentUnusedPairingSession = async (
   ctx: QueryCtx | MutationCtx,
@@ -172,6 +177,38 @@ export const verifyPairedMobileSecret = async (args: {
     await hashSha256Hex(args.pairSecret),
     args.pairSecretHash,
   );
+};
+
+export const buildMobileBridgePairProofMessage = (args: {
+  desktopDeviceId: string;
+  mobileDeviceId: string;
+  challenge: string;
+  mobilePublicKey?: string;
+  issuedAt: number;
+}) =>
+  [
+    MOBILE_BRIDGE_PAIR_PROOF_VERSION,
+    args.desktopDeviceId,
+    args.mobileDeviceId,
+    args.challenge,
+    args.mobilePublicKey ?? "",
+    String(args.issuedAt),
+  ].join("\n");
+
+export const verifyPairedMobileProof = async (args: {
+  pairSecretHash: string;
+  proof: string;
+  desktopDeviceId: string;
+  mobileDeviceId: string;
+  challenge: string;
+  mobilePublicKey?: string;
+  issuedAt: number;
+}) => {
+  const expected = await hmacSha256Hex(
+    args.pairSecretHash,
+    buildMobileBridgePairProofMessage(args),
+  );
+  return constantTimeEqual(expected, args.proof.toLowerCase());
 };
 
 export const getPhoneAccessState = query({

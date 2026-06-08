@@ -44,7 +44,10 @@ import {
 } from "../runtime_ai/managed";
 import { processIncomingMessage } from "../channels/message_pipeline";
 import { MOBILE_BRIDGE_LEASE_MS } from "../mobile_bridge";
-import { verifyPairedMobileSecret } from "../mobile_access";
+import {
+  verifyPairedMobileProof,
+  verifyPairedMobileSecret,
+} from "../mobile_access";
 import type {
   AssistantMessage,
   Context,
@@ -75,6 +78,9 @@ const TRANSCRIBE_AUDIO_FORMATS = new Set([
 ]);
 const MAX_BASE_URLS = 8;
 const MAX_DEVICE_ID_LENGTH = 256;
+const MAX_BRIDGE_CHALLENGE_LENGTH = 512;
+const MAX_BRIDGE_PUBLIC_KEY_LENGTH = 128;
+const MOBILE_BRIDGE_PAIR_PROOF_MAX_SKEW_MS = 5 * 60_000;
 const MAX_OFFLINE_HISTORY_ITEMS = 40;
 const MAX_OFFLINE_MESSAGE_CHARS = 12_000;
 const MAX_OFFLINE_IMAGES = 5;
@@ -399,20 +405,87 @@ const normalizeBaseUrls = (value: unknown) => {
   return Array.from(unique);
 };
 
+const normalizeBridgeChallenge = (value: unknown) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().slice(0, MAX_BRIDGE_CHALLENGE_LENGTH);
+};
+
+const normalizeBridgePublicKey = (value: unknown) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (
+    !trimmed ||
+    trimmed.length > MAX_BRIDGE_PUBLIC_KEY_LENGTH ||
+    !/^[A-Za-z0-9_-]+$/.test(trimmed)
+  ) {
+    return "";
+  }
+  return trimmed;
+};
+
+const normalizeBridgeSessionTokenPart = (value: unknown) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 256 || !/^[A-Za-z0-9_-]+$/.test(trimmed)) {
+    return "";
+  }
+  return trimmed;
+};
+
+const normalizeProofIssuedAt = (value: unknown) => {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value.trim())
+        : NaN;
+  return Number.isFinite(numberValue) ? numberValue : 0;
+};
+
 const requirePairedMobileCredentials = async (
   ctx: ActionCtx,
   request: Request,
-  args: { ownerId: string; desktopDeviceId: string; origin: string | null },
-): Promise<
-  | { mobileDeviceId: string }
-  | { response: Response }
-> => {
+  args: {
+    ownerId: string;
+    desktopDeviceId: string;
+    origin: string | null;
+    proofChallenge?: string;
+    proofMobilePublicKey?: string;
+  },
+): Promise<{ mobileDeviceId: string } | { response: Response }> => {
   const mobileDeviceId = normalizeDeviceId(
     request.headers.get("X-Stella-Mobile-Device-Id"),
   );
+  if (!mobileDeviceId) {
+    return {
+      response: errorResponse(
+        403,
+        "A paired phone credential is required",
+        args.origin,
+      ),
+    };
+  }
+
+  const proof = request.headers.get("X-Stella-Mobile-Pair-Proof")?.trim() ?? "";
+  const issuedAt = normalizeProofIssuedAt(
+    request.headers.get("X-Stella-Mobile-Pair-Proof-Issued-At"),
+  );
+  const proofChallenge = normalizeBridgeChallenge(
+    args.proofChallenge ??
+      request.headers.get("X-Stella-Mobile-Pair-Proof-Challenge"),
+  );
+  const proofMobilePublicKey =
+    args.proofMobilePublicKey ??
+    normalizeBridgePublicKey(request.headers.get("X-Stella-Mobile-Public-Key"));
   const pairSecret =
     request.headers.get("X-Stella-Mobile-Pair-Secret")?.trim() ?? "";
-  if (!mobileDeviceId || !pairSecret) {
+  if (!proof && !pairSecret) {
     return {
       response: errorResponse(
         403,
@@ -436,10 +509,31 @@ const requirePairedMobileCredentials = async (
     };
   }
 
-  const secretOk = await verifyPairedMobileSecret({
-    pairSecret,
-    pairSecretHash: pairedDevice.pairSecretHash,
-  });
+  let secretOk = false;
+  if (proof) {
+    const now = Date.now();
+    if (
+      issuedAt > 0 &&
+      Math.abs(now - issuedAt) <= MOBILE_BRIDGE_PAIR_PROOF_MAX_SKEW_MS &&
+      proofChallenge
+    ) {
+      secretOk = await verifyPairedMobileProof({
+        pairSecretHash: pairedDevice.pairSecretHash,
+        proof,
+        desktopDeviceId: args.desktopDeviceId,
+        mobileDeviceId,
+        challenge: proofChallenge,
+        mobilePublicKey: proofMobilePublicKey,
+        issuedAt,
+      });
+    }
+  } else if (pairSecret) {
+    secretOk = await verifyPairedMobileSecret({
+      pairSecret,
+      pairSecretHash: pairedDevice.pairSecretHash,
+    });
+  }
+
   if (!secretOk) {
     return {
       response: errorResponse(
@@ -644,6 +738,8 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     "/api/mobile/desktop-bridge/clear",
     "/api/mobile/desktop-bridge/request",
     "/api/mobile/desktop-bridge/authorize",
+    "/api/mobile/desktop-bridge/session",
+    "/api/mobile/desktop-bridge/session/consume",
     "/api/mobile/desktop-bridge/tunnel-token",
   ]);
 
@@ -1215,12 +1311,14 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           deviceId?: unknown;
           baseUrls?: unknown;
           platform?: unknown;
+          desktopPublicKey?: unknown;
         } | null = null;
         try {
           body = (await request.json()) as {
             deviceId?: unknown;
             baseUrls?: unknown;
             platform?: unknown;
+            desktopPublicKey?: unknown;
           };
         } catch {
           return errorResponse(400, "Invalid JSON body", origin);
@@ -1229,6 +1327,9 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         const deviceId = normalizeDeviceId(body?.deviceId);
         const baseUrls = normalizeBaseUrls(body?.baseUrls);
         const platform = normalizePlatform(body?.platform);
+        const desktopPublicKey = normalizeBridgePublicKey(
+          body?.desktopPublicKey,
+        );
         if (!deviceId || baseUrls.length === 0) {
           return errorResponse(
             400,
@@ -1244,6 +1345,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           baseUrls,
           updatedAt,
           ...(platform ? { platform } : {}),
+          ...(desktopPublicKey ? { desktopPublicKey } : {}),
         });
 
         return jsonResponse(
@@ -1423,6 +1525,199 @@ export const registerMobileRoutes = (http: HttpRouter) => {
   });
 
   http.route({
+    path: "/api/mobile/desktop-bridge/session",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const owner = await requireMobileAccountOwner(ctx, origin);
+        if ("response" in owner) {
+          return owner.response;
+        }
+        const rateLimit = await consumeWebhookRateLimit(ctx, {
+          scope: "mobile_desktop_bridge_session",
+          key: owner.ownerId,
+          limit: MOBILE_BRIDGE_RATE_LIMIT,
+          windowMs: MOBILE_BRIDGE_RATE_WINDOW_MS,
+          blockMs: MOBILE_BRIDGE_RATE_WINDOW_MS,
+        });
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        let body: {
+          desktopDeviceId?: unknown;
+          desktopChallenge?: unknown;
+          mobilePublicKey?: unknown;
+        } | null = null;
+        try {
+          body = (await request.json()) as {
+            desktopDeviceId?: unknown;
+            desktopChallenge?: unknown;
+            mobilePublicKey?: unknown;
+          };
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+
+        const desktopDeviceId = normalizeDeviceId(body?.desktopDeviceId);
+        const desktopChallenge = normalizeBridgeChallenge(
+          body?.desktopChallenge,
+        );
+        const mobilePublicKey = normalizeBridgePublicKey(body?.mobilePublicKey);
+        if (!desktopDeviceId || !desktopChallenge || !mobilePublicKey) {
+          return errorResponse(
+            400,
+            "desktopDeviceId, desktopChallenge and mobilePublicKey are required",
+            origin,
+          );
+        }
+
+        const registration = await ctx.runQuery(
+          internal.mobile_bridge.getRegistrationForOwnerDevice,
+          {
+            ownerId: owner.ownerId,
+            deviceId: desktopDeviceId,
+            nowMs: Date.now(),
+          },
+        );
+        if (!registration?.available) {
+          return errorResponse(403, "Desktop bridge is unavailable", origin);
+        }
+        if (!registration.desktopPublicKey) {
+          return errorResponse(
+            409,
+            "Update Stella desktop to use the secure mobile bridge.",
+            origin,
+          );
+        }
+
+        const paired = await requirePairedMobileCredentials(ctx, request, {
+          ownerId: owner.ownerId,
+          desktopDeviceId,
+          origin,
+          proofChallenge: desktopChallenge,
+          proofMobilePublicKey: mobilePublicKey,
+        });
+        if ("response" in paired) {
+          return paired.response;
+        }
+
+        const now = Date.now();
+        await ctx.runMutation(internal.mobile_access.markPairedMobileSeen, {
+          ownerId: owner.ownerId,
+          desktopDeviceId,
+          mobileDeviceId: paired.mobileDeviceId,
+          seenAt: now,
+        });
+
+        const session = await ctx.runMutation(
+          internal.mobile_bridge.createSession,
+          {
+            ownerId: owner.ownerId,
+            desktopDeviceId,
+            mobileDeviceId: paired.mobileDeviceId,
+            desktopChallenge,
+            desktopPublicKey: registration.desktopPublicKey,
+            mobilePublicKey,
+            createdAt: now,
+          },
+        );
+
+        return jsonResponse(
+          {
+            ok: true,
+            protocol: "x25519-hkdf-sha256-aes-256-gcm-v1",
+            ...session,
+          },
+          200,
+          origin,
+        );
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/mobile/desktop-bridge/session/consume",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const owner = await requireMobileAccountOwner(ctx, origin);
+        if ("response" in owner) {
+          return owner.response;
+        }
+        const rateLimit = await consumeWebhookRateLimit(ctx, {
+          scope: "mobile_desktop_bridge_session_consume",
+          key: owner.ownerId,
+          limit: MOBILE_BRIDGE_RATE_LIMIT,
+          windowMs: MOBILE_BRIDGE_RATE_WINDOW_MS,
+          blockMs: MOBILE_BRIDGE_RATE_WINDOW_MS,
+        });
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        let body: {
+          deviceId?: unknown;
+          sessionId?: unknown;
+          sessionSecret?: unknown;
+          desktopChallenge?: unknown;
+        } | null = null;
+        try {
+          body = (await request.json()) as {
+            deviceId?: unknown;
+            sessionId?: unknown;
+            sessionSecret?: unknown;
+            desktopChallenge?: unknown;
+          };
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+
+        const deviceId = normalizeDeviceId(body?.deviceId);
+        const sessionId = normalizeBridgeSessionTokenPart(body?.sessionId);
+        const sessionSecret = normalizeBridgeSessionTokenPart(
+          body?.sessionSecret,
+        );
+        const desktopChallenge = normalizeBridgeChallenge(
+          body?.desktopChallenge,
+        );
+        if (!deviceId || !sessionId || !sessionSecret || !desktopChallenge) {
+          return errorResponse(
+            400,
+            "deviceId, sessionId, sessionSecret and desktopChallenge are required",
+            origin,
+          );
+        }
+
+        const consumed = await ctx.runMutation(
+          internal.mobile_bridge.consumeSession,
+          {
+            ownerId: owner.ownerId,
+            desktopDeviceId: deviceId,
+            sessionId,
+            sessionSecret,
+            desktopChallenge,
+            nowMs: Date.now(),
+          },
+        );
+        if (!consumed) {
+          return errorResponse(403, "Invalid bridge session", origin);
+        }
+
+        return jsonResponse(
+          {
+            ok: true,
+            protocol: "x25519-hkdf-sha256-aes-256-gcm-v1",
+            ...consumed,
+          },
+          200,
+          origin,
+        );
+      }),
+    ),
+  });
+
+  http.route({
     path: "/api/mobile/desktop-bridge/tunnel-token",
     method: "POST",
     handler: httpAction(async (ctx, request) =>
@@ -1589,13 +1884,15 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         try {
           const auth = createAuth(ctx);
           if (appReviewEmail && email === appReviewEmail) {
-            const signInAppReview = ((auth.api as unknown) as {
-              signInAppReview(args: {
-                body: { email: string };
-                headers: Headers;
-                returnHeaders: true;
-              }): Promise<unknown>;
-            }).signInAppReview;
+            const signInAppReview = (
+              auth.api as unknown as {
+                signInAppReview(args: {
+                  body: { email: string };
+                  headers: Headers;
+                  returnHeaders: true;
+                }): Promise<unknown>;
+              }
+            ).signInAppReview;
             const signInResult = await signInAppReview({
               body: { email },
               headers: new Headers({ origin: authBaseUrl }),
@@ -1607,7 +1904,10 @@ export const registerMobileRoutes = (http: HttpRouter) => {
               ?.headers as { _headersList?: [string, string][] } | undefined;
             if (Array.isArray(headersList?._headersList)) {
               for (const [name, value] of headersList._headersList) {
-                if (name === "set-better-auth-cookie" || name === "set-cookie") {
+                if (
+                  name === "set-better-auth-cookie" ||
+                  name === "set-cookie"
+                ) {
                   sessionCookie = value;
                   break;
                 }

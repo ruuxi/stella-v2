@@ -5,9 +5,11 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { constantTimeEqual, hashSha256Hex } from "./lib/crypto_utils";
 import { requireBoundedString } from "./shared_validators";
 
 export const MOBILE_BRIDGE_LEASE_MS = 150_000;
+export const MOBILE_BRIDGE_SESSION_TTL_MS = 15 * 60_000;
 /**
  * Hard caps on the `baseUrls` array stored on each registration row. The
  * array is unbounded by schema (`v.array(v.string())`); without these caps a
@@ -16,6 +18,9 @@ export const MOBILE_BRIDGE_LEASE_MS = 150_000;
  */
 const MAX_BASE_URLS_PER_REGISTRATION = 8;
 const MAX_BASE_URL_LENGTH = 2048;
+const BRIDGE_SESSION_ID_BYTES = 18;
+const BRIDGE_SESSION_SECRET_BYTES = 32;
+const SESSION_CLEANUP_SCAN_LIMIT = 20;
 
 /**
  * Trim, dedupe and cap the caller-provided list so the persisted array stays
@@ -50,11 +55,45 @@ const bridgeRegistrationValidator = v.object({
   updatedAt: v.number(),
   leaseExpiresAt: v.number(),
   platform: v.optional(v.string()),
+  desktopPublicKey: v.optional(v.string()),
   available: v.boolean(),
 });
 
+const bridgeSessionValidator = v.object({
+  sessionId: v.string(),
+  sessionSecret: v.string(),
+  expiresAt: v.number(),
+  desktopPublicKey: v.string(),
+});
+
+const consumedBridgeSessionValidator = v.union(
+  v.null(),
+  v.object({
+    sessionId: v.string(),
+    mobileDeviceId: v.string(),
+    mobilePublicKey: v.string(),
+    desktopPublicKey: v.string(),
+    desktopChallenge: v.string(),
+    expiresAt: v.number(),
+  }),
+);
+
 const getLeaseExpiresAt = (updatedAt: number) =>
   updatedAt + MOBILE_BRIDGE_LEASE_MS;
+
+const bytesToBase64Url = (bytes: Uint8Array) => {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+};
+
+const randomBase64Url = (byteLength: number) => {
+  const bytes = crypto.getRandomValues(new Uint8Array(byteLength));
+  return bytesToBase64Url(bytes);
+};
 
 const loadLatestRegistration = async (ctx: QueryCtx, ownerId: string) => {
   const [registration] = await ctx.db
@@ -89,6 +128,7 @@ export const upsertRegistration = internalMutation({
     baseUrls: v.array(v.string()),
     updatedAt: v.number(),
     platform: v.optional(v.string()),
+    desktopPublicKey: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx: MutationCtx, args) => {
@@ -105,6 +145,9 @@ export const upsertRegistration = internalMutation({
         baseUrls: sanitizedBaseUrls,
         updatedAt: args.updatedAt,
         ...(args.platform !== undefined ? { platform: args.platform } : {}),
+        ...(args.desktopPublicKey !== undefined
+          ? { desktopPublicKey: args.desktopPublicKey }
+          : {}),
       });
       return null;
     }
@@ -115,6 +158,9 @@ export const upsertRegistration = internalMutation({
       baseUrls: sanitizedBaseUrls,
       updatedAt: args.updatedAt,
       ...(args.platform !== undefined ? { platform: args.platform } : {}),
+      ...(args.desktopPublicKey !== undefined
+        ? { desktopPublicKey: args.desktopPublicKey }
+        : {}),
     });
     return null;
   },
@@ -164,6 +210,9 @@ export const getLatestRegistrationForOwner = internalQuery({
       updatedAt: registration.updatedAt,
       leaseExpiresAt: getLeaseExpiresAt(registration.updatedAt),
       ...(platform ? { platform } : {}),
+      ...(registration.desktopPublicKey
+        ? { desktopPublicKey: registration.desktopPublicKey }
+        : {}),
       available: getLeaseExpiresAt(registration.updatedAt) > args.nowMs,
     };
   },
@@ -199,7 +248,107 @@ export const getRegistrationForOwnerDevice = internalQuery({
       updatedAt: registration.updatedAt,
       leaseExpiresAt: getLeaseExpiresAt(registration.updatedAt),
       ...(platform ? { platform } : {}),
+      ...(registration.desktopPublicKey
+        ? { desktopPublicKey: registration.desktopPublicKey }
+        : {}),
       available: getLeaseExpiresAt(registration.updatedAt) > args.nowMs,
+    };
+  },
+});
+
+export const createSession = internalMutation({
+  args: {
+    ownerId: v.string(),
+    desktopDeviceId: v.string(),
+    mobileDeviceId: v.string(),
+    desktopChallenge: v.string(),
+    desktopPublicKey: v.string(),
+    mobilePublicKey: v.string(),
+    createdAt: v.number(),
+  },
+  returns: bridgeSessionValidator,
+  handler: async (ctx: MutationCtx, args) => {
+    const previous = await ctx.db
+      .query("mobile_bridge_sessions")
+      .withIndex("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", (q) =>
+        q
+          .eq("ownerId", args.ownerId)
+          .eq("desktopDeviceId", args.desktopDeviceId)
+          .eq("mobileDeviceId", args.mobileDeviceId),
+      )
+      .take(SESSION_CLEANUP_SCAN_LIMIT);
+    await Promise.all(
+      previous
+        .filter((session) => session.expiresAt <= args.createdAt)
+        .map((session) => ctx.db.delete(session._id)),
+    );
+
+    const sessionId = randomBase64Url(BRIDGE_SESSION_ID_BYTES);
+    const sessionSecret = randomBase64Url(BRIDGE_SESSION_SECRET_BYTES);
+    const expiresAt = args.createdAt + MOBILE_BRIDGE_SESSION_TTL_MS;
+    await ctx.db.insert("mobile_bridge_sessions", {
+      ownerId: args.ownerId,
+      desktopDeviceId: args.desktopDeviceId,
+      mobileDeviceId: args.mobileDeviceId,
+      sessionId,
+      sessionSecretHash: await hashSha256Hex(sessionSecret),
+      desktopChallenge: args.desktopChallenge,
+      desktopPublicKey: args.desktopPublicKey,
+      mobilePublicKey: args.mobilePublicKey,
+      createdAt: args.createdAt,
+      expiresAt,
+      lastSeenAt: args.createdAt,
+    });
+    return {
+      sessionId,
+      sessionSecret,
+      expiresAt,
+      desktopPublicKey: args.desktopPublicKey,
+    };
+  },
+});
+
+export const consumeSession = internalMutation({
+  args: {
+    ownerId: v.string(),
+    desktopDeviceId: v.string(),
+    sessionId: v.string(),
+    sessionSecret: v.string(),
+    desktopChallenge: v.string(),
+    nowMs: v.number(),
+  },
+  returns: consumedBridgeSessionValidator,
+  handler: async (ctx: MutationCtx, args) => {
+    const session = await ctx.db
+      .query("mobile_bridge_sessions")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (
+      !session ||
+      session.ownerId !== args.ownerId ||
+      session.desktopDeviceId !== args.desktopDeviceId ||
+      session.desktopChallenge !== args.desktopChallenge ||
+      session.expiresAt <= args.nowMs
+    ) {
+      return null;
+    }
+
+    const secretOk = constantTimeEqual(
+      await hashSha256Hex(args.sessionSecret),
+      session.sessionSecretHash,
+    );
+    if (!secretOk) {
+      return null;
+    }
+
+    await ctx.db.patch(session._id, { lastSeenAt: args.nowMs });
+    return {
+      sessionId: session.sessionId,
+      mobileDeviceId: session.mobileDeviceId,
+      mobilePublicKey: session.mobilePublicKey,
+      desktopPublicKey: session.desktopPublicKey,
+      desktopChallenge: session.desktopChallenge,
+      expiresAt: session.expiresAt,
     };
   },
 });

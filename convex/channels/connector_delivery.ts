@@ -149,15 +149,9 @@ const telegramEditText = async (
   });
 };
 
-export const sendTelegramDeliveryTextForTest = telegramSendText;
-
 const isTelegramMessageNotModifiedError = (error: unknown): boolean =>
   error instanceof Error &&
   error.message.toLowerCase().includes("message is not modified");
-
-const isTelegramChatNotFoundError = (error: unknown): boolean =>
-  error instanceof Error &&
-  error.message.toLowerCase().includes("chat not found");
 
 // ─── Public Mutation (called by local device via HTTP) ──────────────────────
 export const claimRemoteTurn = mutation({
@@ -1154,16 +1148,10 @@ async function deliverTelegram(
           );
           return;
         }
-        if (isTelegramChatNotFoundError(error)) {
-          console.error(
-            "[connector_delivery] Telegram delivery target is not reachable by the configured bot token; the inbound chat likely belongs to a stale or different Telegram bot.",
-          );
-        } else {
-          console.warn(
-            "[connector_delivery] Telegram final preview edit failed, sending fallback:",
-            error instanceof Error ? error.message : String(error),
-          );
-        }
+        console.warn(
+          "[connector_delivery] Telegram final preview edit failed, sending fallback:",
+          error instanceof Error ? error.message : String(error),
+        );
       }
     }
   }
@@ -1186,24 +1174,39 @@ async function deliverTelegram(
             : item.kind === "audio"
               ? "audio"
               : "document";
-      await telegramApi(token, method, {
-        chat_id: chatId,
-        [field]: item.url,
-        ...(index === 0 && truncated ? { caption: truncated } : {}),
+      await retryFetch(`https://api.telegram.org/bot${token}/${method}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          [field]: item.url,
+          ...(index === 0 && truncated ? { caption: truncated } : {}),
+        }),
       });
     }
     return;
   }
 
-  try {
-    await telegramSendText(token, chatId, truncated || EMPTY_RESPONSE_TEXT);
-  } catch (error) {
-    if (isTelegramChatNotFoundError(error)) {
-      console.error(
-        "[connector_delivery] Telegram delivery target is not reachable by the configured bot token; the inbound chat likely belongs to a stale or different Telegram bot.",
-      );
-    }
-    throw error;
+  // Try MarkdownV2 first, fall back to plain text
+  const mdRes = await retryFetch(
+    `https://api.telegram.org/bot${token}/sendMessage`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: truncated,
+        parse_mode: "MarkdownV2",
+      }),
+    },
+  );
+
+  if (!mdRes.ok) {
+    await retryFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: truncated }),
+    });
   }
 }
 async function deliverDiscord(

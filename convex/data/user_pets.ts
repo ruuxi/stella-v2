@@ -250,6 +250,33 @@ export const createPet = mutation({
       ownerId,
       RATE_STANDARD,
     );
+    return await ctx.runMutation(internal.data.user_pets.createGeneratedPet, {
+      ownerId,
+      petId: args.petId,
+      displayName: args.displayName,
+      description: args.description,
+      ...(args.prompt ? { prompt: args.prompt } : {}),
+      spritesheetUrl: args.spritesheetUrl,
+      ...(args.previewUrl ? { previewUrl: args.previewUrl } : {}),
+      visibility: args.visibility,
+    });
+  },
+});
+
+export const createGeneratedPet = internalMutation({
+  args: {
+    ownerId: v.string(),
+    petId: v.string(),
+    displayName: v.string(),
+    description: v.string(),
+    prompt: v.optional(v.string()),
+    spritesheetUrl: v.string(),
+    previewUrl: v.optional(v.string()),
+    visibility: user_pet_visibility_validator,
+  },
+  returns: user_pet_validator,
+  handler: async (ctx, args): Promise<Doc<"user_pets">> => {
+    const ownerId = normalizeRequiredText(args.ownerId, "ownerId", 256);
     const petId = normalizePetId(args.petId);
     const existing = await ctx.db
       .query("user_pets")

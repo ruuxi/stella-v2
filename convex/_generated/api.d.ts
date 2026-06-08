@@ -72,6 +72,7 @@ import type * as data_store_asset_metadata from "../data/store_asset_metadata.js
 import type * as data_store_git_artifacts from "../data/store_git_artifacts.js";
 import type * as data_store_packages from "../data/store_packages.js";
 import type * as data_threads from "../data/threads.js";
+import type * as data_user_pet_generation from "../data/user_pet_generation.js";
 import type * as data_user_pet_uploads from "../data/user_pet_uploads.js";
 import type * as data_user_pets from "../data/user_pets.js";
 import type * as events from "../events.js";
@@ -289,6 +290,7 @@ declare const fullApi: ApiFromModules<{
   "data/store_git_artifacts": typeof data_store_git_artifacts;
   "data/store_packages": typeof data_store_packages;
   "data/threads": typeof data_threads;
+  "data/user_pet_generation": typeof data_user_pet_generation;
   "data/user_pet_uploads": typeof data_user_pet_uploads;
   "data/user_pets": typeof data_user_pets;
   events: typeof events;

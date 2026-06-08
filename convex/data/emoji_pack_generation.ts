@@ -344,6 +344,7 @@ export const generatePack = action({
       ownerId,
       packId,
       displayName: "Stella emoji pack",
+      description: prompt,
       prompt,
       coverEmoji: EMOJI_SHEETS[0]![0]!,
       sheetUrls,

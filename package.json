@@ -25,11 +25,13 @@
     "openai": "6.39.0",
     "partial-json": "^0.1.7",
     "pdf-parse": "^2.4.5",
+    "pngjs": "^7.0.0",
     "stripe": "^22.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@types/pngjs": "^6.0.5",
     "@typescript/native-preview": "^7.0.0-dev.20260527.2",
     "convex-helpers": "^0.1.118",
     "typescript": "^6.0.3"

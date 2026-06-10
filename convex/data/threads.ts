@@ -5,9 +5,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
-import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { requireUserId } from "../auth";
 
 const MAX_THREADS_PER_CONVERSATION = 16;
 /**

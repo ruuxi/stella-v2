@@ -196,7 +196,19 @@ export const agentRuntimeContext = internalQuery({
       ownerId: args.ownerId,
     });
 
-    let resolvedThreadId: Id<"threads"> | null = args.threadId ?? null;
+    let resolvedThreadId: Id<"threads"> | null = null;
+    if (args.threadId) {
+      // Explicit threadIds reach here from the public runtime actions, which
+      // only verify conversation ownership — confirm the thread itself
+      // belongs to this owner before reading its messages.
+      const thread = await ctx.db.get(args.threadId);
+      const threadConversation = thread
+        ? await ctx.db.get(thread.conversationId)
+        : null;
+      if (threadConversation?.ownerId === args.ownerId) {
+        resolvedThreadId = args.threadId;
+      }
+    }
     if (!resolvedThreadId && args.conversationId) {
       const conversation = await ctx.db.get(args.conversationId);
       resolvedThreadId = conversation?.activeThreadId ?? null;

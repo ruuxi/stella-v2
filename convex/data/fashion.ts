@@ -893,22 +893,24 @@ export const getOrchestratorContextInternal = internalQuery({
     recentOutfitProductIds: v.array(v.string()),
   }),
   handler: async (ctx, args) => {
-    const profile = await getProfileForOwner(ctx, args.ownerId);
-    const likes = await ctx.db
-      .query("fashion_likes")
-      .withIndex("by_ownerId_and_likedAt", (q) => q.eq("ownerId", args.ownerId))
-      .order("desc")
-      .take(30);
-    const cart = await ctx.db
-      .query("fashion_cart_items")
-      .withIndex("by_ownerId_and_addedAt", (q) => q.eq("ownerId", args.ownerId))
-      .order("desc")
-      .take(50);
-    const recentOutfits = await ctx.db
-      .query("fashion_outfits")
-      .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", args.ownerId))
-      .order("desc")
-      .take(20);
+    const [profile, likes, cart, recentOutfits] = await Promise.all([
+      getProfileForOwner(ctx, args.ownerId),
+      ctx.db
+        .query("fashion_likes")
+        .withIndex("by_ownerId_and_likedAt", (q) => q.eq("ownerId", args.ownerId))
+        .order("desc")
+        .take(30),
+      ctx.db
+        .query("fashion_cart_items")
+        .withIndex("by_ownerId_and_addedAt", (q) => q.eq("ownerId", args.ownerId))
+        .order("desc")
+        .take(50),
+      ctx.db
+        .query("fashion_outfits")
+        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", args.ownerId))
+        .order("desc")
+        .take(20),
+    ]);
     const productIds = new Set<string>();
     for (const outfit of recentOutfits) {
       for (const product of outfit.products) {

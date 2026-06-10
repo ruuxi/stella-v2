@@ -2,6 +2,7 @@ import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { requireAdminRequest } from "../http_shared/admin";
+import { constantTimeEqual } from "../lib/crypto_utils";
 
 const PET_CATALOG_SEED_PATH = "/api/pets/seed";
 const ADMIN_PET_CATALOG_DELETE_PATH = "/api/admin/pets/delete";
@@ -90,7 +91,7 @@ export const registerPetRoutes = (http: HttpRouter) => {
       }
       const auth = request.headers.get("authorization") ?? "";
       const provided = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-      if (provided !== expected) {
+      if (!provided || !constantTimeEqual(provided, expected)) {
         return errorResponse(401, "Invalid seed credentials.");
       }
 

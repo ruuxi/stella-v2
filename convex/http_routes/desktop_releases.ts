@@ -1,6 +1,7 @@
 import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { constantTimeEqual } from "../lib/crypto_utils";
 
 const DESKTOP_RELEASE_PUBLISH_PATH = "/api/desktop-releases/publish";
 
@@ -163,7 +164,7 @@ export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
       }
       const auth = request.headers.get("authorization") ?? "";
       const provided = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-      if (provided !== expected) {
+      if (!provided || !constantTimeEqual(provided, expected)) {
         return errorResponse(401, "Invalid publish credentials.");
       }
       const body = await parseRequestJson(request);

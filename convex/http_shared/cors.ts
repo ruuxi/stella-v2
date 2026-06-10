@@ -1,3 +1,6 @@
+import type { HttpRouter } from "convex/server";
+import { httpAction } from "../_generated/server";
+
 const DEFAULT_CORS_ALLOWED_ORIGINS = [
   "http://localhost:57314",
   "https://stella.sh",
@@ -136,5 +139,3 @@ export const registerCorsOptions = (http: HttpRouter, paths: string[]) => {
     });
   }
 };
-import type { HttpRouter } from "convex/server";
-import { httpAction } from "../_generated/server";

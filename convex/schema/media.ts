@@ -1,8 +1,10 @@
 import { defineTable } from "convex/server";
-import { v } from "convex/values";
+import { v, type VLiteral } from "convex/values";
 import {
   MEDIA_BILLING_UNITS,
   MEDIA_METERED_FROM_VALUES,
+  type MediaBillingUnit,
+  type MediaMeteredFrom,
   jsonObjectValidator,
   jsonValueValidator,
   optionalJsonValueValidator,
@@ -47,17 +49,17 @@ export const mediaJobSubscriptionValidator = v.object({
 
 const billingUnitValidator = v.union(
   ...(MEDIA_BILLING_UNITS.map((u) => v.literal(u)) as [
-    ReturnType<typeof v.literal>,
-    ReturnType<typeof v.literal>,
-    ...ReturnType<typeof v.literal>[],
+    VLiteral<MediaBillingUnit>,
+    VLiteral<MediaBillingUnit>,
+    ...VLiteral<MediaBillingUnit>[],
   ]),
 );
 
 const meteredFromValidator = v.union(
   ...(MEDIA_METERED_FROM_VALUES.map((u) => v.literal(u)) as [
-    ReturnType<typeof v.literal>,
-    ReturnType<typeof v.literal>,
-    ...ReturnType<typeof v.literal>[],
+    VLiteral<MediaMeteredFrom>,
+    VLiteral<MediaMeteredFrom>,
+    ...VLiteral<MediaMeteredFrom>[],
   ]),
 );
 

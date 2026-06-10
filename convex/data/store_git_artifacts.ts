@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { inflateSync } from "node:zlib";
 import { ConvexError, Infer, v } from "convex/values";
-import { action, internalAction } from "../_generated/server";
+import { action, internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { requireSensitiveUserIdAction } from "../auth";
 import { r2 } from "../r2_files";
@@ -19,7 +19,11 @@ import { requireBoundedString } from "../shared_validators";
 const PACKAGE_ID_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
 const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/;
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/;
-const MAX_OBJECTS_PER_RELEASE = 20_000;
+// The per-object metadata (~75 bytes/entry) is stored inline on the release
+// document: Convex caps arrays at 8,192 items, and the doc must stay under
+// 1 MiB alongside a blueprint of up to 750 KB, so 2,000 is the safe ceiling.
+// Object *bytes* live in R2 and are not affected by this cap.
+const MAX_OBJECTS_PER_RELEASE = 2_000;
 const MAX_GIT_OBJECT_BYTES = 25 * 1024 * 1024;
 const MAX_DIFF_UPLOAD_BYTES = 5 * 1024 * 1024;
 const URL_EXPIRES_SECONDS = 5 * 60;
@@ -240,7 +244,7 @@ const validateObjectList = (
 };
 
 const getReadableGitArtifactRelease = async (
-  ctx: any,
+  ctx: Pick<ActionCtx, "auth" | "runQuery">,
   args: {
     packageId: string;
     releaseNumber: number;

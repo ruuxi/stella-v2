@@ -18,11 +18,6 @@ export type TokenEstimate = {
   outputTokens: number;
 };
 
-export type AnonymousUsageRecord = {
-  deviceId: string;
-  clientAddressKey?: string;
-};
-
 /**
  * Per-anonymous-device cap on the Stella provider endpoint. Each call
  * runs a managed-LLM completion that Stella pays for, so this stays
@@ -107,30 +102,6 @@ export const DEFAULT_RETRY_AFTER_MS = 60_000;
 export const STELLA_MODELS_RATE_LIMIT = 60;
 export const STELLA_MODELS_RATE_WINDOW_MS = 60_000;
 
-export async function checkDeviceRateLimit(
-  ctx: ActionCtx,
-  deviceId: string,
-  clientAddressKey: string | null,
-): Promise<boolean> {
-  try {
-    const usage = await ctx.runQuery(
-      internal.ai_proxy_data.getDeviceUsage,
-      {
-        deviceId,
-        nowMs: Date.now(),
-        clientAddressKey: clientAddressKey ?? undefined,
-      },
-    );
-    return (usage?.requestCount ?? 0) < getMaxAnonRequests();
-  } catch (error) {
-    if (!isAnonDeviceHashSaltMissingError(error)) {
-      throw error;
-    }
-    logMissingSaltOnce("stella-provider");
-    return false;
-  }
-}
-
 export async function consumeAnonymousRequestAllowance(
   ctx: ActionCtx,
   deviceId: string,
@@ -184,22 +155,3 @@ export async function consumeAnonymousIpAllowance(
     return false;
   }
 }
-
-export const scheduleAnonymousUsageRecord = async (
-  ctx: ActionCtx,
-  record: AnonymousUsageRecord | undefined,
-): Promise<void> => {
-  if (!record) return;
-  try {
-    await ctx.scheduler.runAfter(0, internal.ai_proxy_data.incrementDeviceUsage, {
-      deviceId: record.deviceId,
-      clientAddressKey: record.clientAddressKey,
-    });
-  } catch (error) {
-    if (isAnonDeviceHashSaltMissingError(error)) {
-      logMissingSaltOnce("stella-provider");
-      return;
-    }
-    console.error("[stella-provider] Failed to record anonymous usage", error);
-  }
-};

@@ -155,12 +155,14 @@ export async function resolveManagedModelConfigs(
   fallbackConfig: ResolvedModelConfig | null;
 }> {
   const access = await assertManagedUsageAllowed(ctx, ownerId);
-  const config = await resolveModelConfig(ctx, agentType, ownerId, {
-    access,
-    modelOverride: options?.modelOverride,
-  });
-  const fallbackConfig = await resolveFallbackConfig(ctx, agentType, ownerId, {
-    access,
-  });
+  const [config, fallbackConfig] = await Promise.all([
+    resolveModelConfig(ctx, agentType, ownerId, {
+      access,
+      modelOverride: options?.modelOverride,
+    }),
+    resolveFallbackConfig(ctx, agentType, ownerId, {
+      access,
+    }),
+  ]);
   return { access, config, fallbackConfig };
 }

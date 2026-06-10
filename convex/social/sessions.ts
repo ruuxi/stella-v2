@@ -105,15 +105,23 @@ const sessionFileOpSummaryValidator = v.object({
   downloadUrl: v.optional(v.string()),
 });
 
-const parseBase64Bytes = (value: string): Buffer => {
+// `Buffer` is unavailable in the default Convex runtime (and this file can't
+// be "use node" because it exports queries/mutations), so decode with `atob`.
+const parseBase64Bytes = (value: string): Uint8Array<ArrayBuffer> => {
+  let binary: string;
   try {
-    return Buffer.from(value, "base64");
+    binary = atob(value.replace(/\s+/g, ""));
   } catch {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
       message: "Invalid base64 file content.",
     });
   }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 };
 
 const getSessionDoc = async (
@@ -232,9 +240,12 @@ const resolveActiveRoomSession = async (
   ctx: QueryCtx | MutationCtx,
   roomId: Id<"social_rooms">,
 ) => {
+  // Newest-first: a non-ended session is always the most recent one, so an
+  // old room with many ended sessions can't push it past the scan cap.
   const sessions = await ctx.db
     .query("stella_sessions")
     .withIndex("by_roomId", (q) => q.eq("roomId", roomId))
+    .order("desc")
     .take(MAX_SESSIONS_PER_ROOM_COLLECT);
   return sessions.find((session) => session.status !== "ended") ?? null;
 };
@@ -625,10 +636,15 @@ export const updateSessionStatus = mutation({
       updatedAt: now,
     });
     if (args.status === "ended") {
-      await ctx.db.patch(session.roomId, {
-        stellaSessionId: undefined,
-        updatedAt: now,
-      });
+      // Only unlink if the room still points at this session — a stale retry
+      // must not clear a newer session that has since been linked.
+      const room = await ctx.db.get(session.roomId);
+      if (room?.stellaSessionId === session._id) {
+        await ctx.db.patch(session.roomId, {
+          stellaSessionId: undefined,
+          updatedAt: now,
+        });
+      }
     }
     const updated = await ctx.db.get(session._id);
     if (!updated) {
@@ -871,6 +887,11 @@ export const completeTurn = mutation({
     );
     const { session, deviceId } = await requireSessionHostDevice(ctx, args.sessionId, ownerId, args.deviceId);
     const turn = await requireSessionTurn(ctx, args.sessionId, args.turnId);
+    if (turn.status === "completed" || turn.status === "failed" || turn.status === "canceled") {
+      // Idempotent retry guard: a turn that already reached a terminal state
+      // must not be re-completed (which would duplicate the system message).
+      return turn;
+    }
     const resultText = args.resultText.trim();
     requireBoundedString(resultText, "resultText", MAX_SESSION_RESULT_LENGTH);
     const now = Date.now();
@@ -916,6 +937,9 @@ export const failTurn = mutation({
     );
     const { deviceId } = await requireSessionHostDevice(ctx, args.sessionId, ownerId, args.deviceId);
     const turn = await requireSessionTurn(ctx, args.sessionId, args.turnId);
+    if (turn.status === "completed" || turn.status === "failed" || turn.status === "canceled") {
+      return turn;
+    }
     const error = args.error.trim();
     requireBoundedString(error, "error", 4000);
     const now = Date.now();
@@ -954,6 +978,11 @@ export const releaseTurn = mutation({
     );
     const { deviceId } = await requireSessionHostDevice(ctx, args.sessionId, ownerId, args.deviceId);
     const turn = await requireSessionTurn(ctx, args.sessionId, args.turnId);
+    if (turn.status !== "claimed") {
+      // Releasing only makes sense for a claimed turn; never resurrect a
+      // terminal turn back into the queue.
+      return turn;
+    }
     await ctx.db.patch(turn._id, {
       status: "queued",
       claimedByDeviceId: undefined,
@@ -1395,15 +1424,7 @@ export const uploadFile = action({
     });
     const storageId: Id<"_storage"> =
       existingBlob?.storageId
-      ?? await ctx.storage.store(
-        (() => {
-          const copiedBytes = new Uint8Array(bytes.byteLength);
-          copiedBytes.set(bytes);
-          return new Blob([copiedBytes.buffer as ArrayBuffer], {
-            type: contentType,
-          });
-        })(),
-      );
+      ?? await ctx.storage.store(new Blob([bytes], { type: contentType }));
 
     return await ctx.runMutation(internal.social.sessions.recordFileUploadInternal, {
       sessionId: args.sessionId,

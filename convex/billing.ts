@@ -13,7 +13,6 @@ import type { Id } from "./_generated/dataModel";
 import {
   getUserIdOrNull,
   requireSensitiveUserIdentityAction,
-  requireUserId,
 } from "./auth";
 import { getMonthlyBounds, getWeekBounds } from "./lib/billing_date";
 import {
@@ -236,7 +235,11 @@ const ensureBillingRecordsForOwner = async (
 ) => {
   const now = Date.now();
 
-  let profile = await getOwnerBillingProfile(ctx, ownerId);
+  let [profile, usage] = await Promise.all([
+    getOwnerBillingProfile(ctx, ownerId),
+    getOwnerUsageRow(ctx, ownerId),
+  ]);
+
   if (!profile) {
     const created = createDefaultProfile(ownerId, now);
     await ctx.db.insert("billing_profiles", created);
@@ -250,7 +253,6 @@ const ensureBillingRecordsForOwner = async (
     });
   }
 
-  let usage = await getOwnerUsageRow(ctx, ownerId);
   if (!usage) {
     const created = createDefaultUsage(ownerId, now);
     await ctx.db.insert("billing_usage_windows", created);
@@ -1979,12 +1981,17 @@ export const upsertManagedModelPrices = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
-    for (const price of args.prices) {
-      const existing = await ctx.db
-        .query("billing_model_prices")
-        .withIndex("by_model", (q) => q.eq("model", price.model))
-        .unique();
+    const existingRows = await Promise.all(
+      args.prices.map((price) =>
+        ctx.db
+          .query("billing_model_prices")
+          .withIndex("by_model", (q) => q.eq("model", price.model))
+          .unique(),
+      ),
+    );
 
+    for (const [index, price] of args.prices.entries()) {
+      const existing = existingRows[index];
       if (existing) {
         await ctx.db.patch(existing._id, price);
         continue;
@@ -2092,14 +2099,16 @@ export const getSubscriptionStatus = query({
     }
 
     const ownerId = identity.tokenIdentifier;
-    const profile = await ctx.db
-      .query("billing_profiles")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
-    const usage = await ctx.db
-      .query("billing_usage_windows")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
+    const [profile, usage] = await Promise.all([
+      ctx.db
+        .query("billing_profiles")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .unique(),
+      ctx.db
+        .query("billing_usage_windows")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .unique(),
+    ]);
 
     // Use the stored `updatedAt` as a deterministic fallback when the caller
     // doesn't pass `now`. This keeps the query reactive on data changes

@@ -3,7 +3,6 @@ import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
-  consumeWebhookDedup,
   consumeWebhookRateLimit,
   rateLimitResponse,
 } from "../http_shared/webhook_controls";
@@ -11,12 +10,10 @@ import { getClientAddressKey } from "../lib/http_utils";
 
 const STRIPE_API_VERSION = "2026-05-27.dahlia";
 
-// Caps used for the Stripe webhook surface. The dedup window catches
-// upstream replay (Stripe's own retry policy is ~3 days). The per-IP and
-// per-event limits stop a leaked endpoint from being used to exhaust
-// Convex transaction budget by spamming malformed payloads — note that
-// `event_id` only sets in once Stripe's signature verification passes,
-// so we also gate on the source IP first.
+// Caps used for the Stripe webhook surface. The per-IP limit stops a
+// leaked endpoint from being used to exhaust Convex transaction budget
+// by spamming malformed payloads — it runs before Stripe's signature
+// verification, so we gate on the source IP.
 const STRIPE_WEBHOOK_PER_IP_LIMIT = 120;
 const STRIPE_WEBHOOK_PER_IP_WINDOW_MS = 60_000;
 
@@ -148,21 +145,6 @@ export const registerStripeRoutes = (http: HttpRouter) => {
         return new Response("Invalid Stripe signature", { status: 400 });
       }
 
-      // Stripe's own retry policy can fire the same event id repeatedly;
-      // dedup matches the rest of the webhook surface (Slack, Telegram,
-      // Google, Teams, fal, Linq) so we don't process duplicates twice.
-      const dedupAccepted = await consumeWebhookDedup(
-        ctx,
-        "stripe_event",
-        event.id,
-      );
-      if (!dedupAccepted) {
-        return new Response(JSON.stringify({ received: true, duplicate: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
       const eventObject = event.data.object as unknown as Record<string, unknown>;
       const eventCustomerId = toSafeString(
         typeof eventObject.customer === "string" ? eventObject.customer : undefined,
@@ -175,6 +157,10 @@ export const registerStripeRoutes = (http: HttpRouter) => {
             : undefined,
       );
 
+      // Dedup via billing_stripe_events: Stripe's retry policy can fire the
+      // same event id repeatedly. The record is deleted again in the failure
+      // path below so a Stripe retry can reprocess the event — do not add a
+      // non-releasable dedup layer in front of this.
       const dedup = await ctx.runMutation(internal.billing.recordStripeEvent, {
         eventId: event.id,
         eventType: event.type,

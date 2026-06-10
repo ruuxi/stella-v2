@@ -3,7 +3,8 @@
  */
 
 import { ConvexError, v } from 'convex/values'
-import { internalQuery, internalMutation } from './_generated/server'
+import { internalMutation } from './_generated/server'
+import { internal } from './_generated/api'
 import { hashSha256Hex } from './lib/crypto_utils'
 import { clampIntToRange } from './lib/number_utils'
 
@@ -42,69 +43,6 @@ async function hashDeviceId(
 }
 
 /**
- * `nowMs` is supplied by the caller so the staleness check is deterministic
- * — calling `Date.now()` inside a query handler would invalidate Convex's
- * reactive cache on every read.
- */
-export const getDeviceUsage = internalQuery({
-  args: {
-    deviceId: v.string(),
-    nowMs: v.number(),
-    clientAddressKey: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const deviceHash = await hashDeviceId(args.deviceId, args.clientAddressKey)
-    const row = await ctx.db
-      .query('anon_device_usage')
-      .withIndex('by_deviceId', (q) => q.eq('deviceId', deviceHash))
-      .unique()
-    if (!row) return null
-    if (args.nowMs - row.lastRequestAt > DEVICE_USAGE_RETENTION_MS) {
-      return null
-    }
-    return {
-      requestCount: row.requestCount,
-      firstRequestAt: row.firstRequestAt,
-      lastRequestAt: row.lastRequestAt,
-    }
-  },
-})
-
-export const incrementDeviceUsage = internalMutation({
-  args: {
-    deviceId: v.string(),
-    clientAddressKey: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const deviceHash = await hashDeviceId(args.deviceId, args.clientAddressKey)
-    const existing = await ctx.db
-      .query('anon_device_usage')
-      .withIndex('by_deviceId', (q) => q.eq('deviceId', deviceHash))
-      .unique()
-
-    const now = Date.now()
-
-    if (existing) {
-      const stale = now - existing.lastRequestAt > DEVICE_USAGE_RETENTION_MS
-      await ctx.db.patch(existing._id, {
-        requestCount: stale ? 1 : existing.requestCount + 1,
-        firstRequestAt: stale ? now : existing.firstRequestAt,
-        lastRequestAt: now,
-      })
-    } else {
-      await ctx.db.insert('anon_device_usage', {
-        deviceId: deviceHash,
-        requestCount: 1,
-        firstRequestAt: now,
-        lastRequestAt: now,
-      })
-    }
-
-    return null
-  },
-})
-
-/**
  * Retention sweep for `anon_device_usage`. Rows whose `lastRequestAt` is older
  * than the retention window are already treated as stale (the count resets on
  * the next request), so deleting them only reclaims storage and never changes
@@ -124,7 +62,15 @@ export const purgeStaleDeviceUsage = internalMutation({
       .withIndex('by_lastRequestAt', (q) => q.lt('lastRequestAt', cutoff))
       .take(batchSize)
     await Promise.all(stale.map((row) => ctx.db.delete(row._id)))
-    return { deleted: stale.length, hasMore: stale.length === batchSize }
+    const hasMore = stale.length === batchSize
+    if (hasMore) {
+      // The cron only fires once per interval; reschedule ourselves so a
+      // backlog larger than one batch still drains within the same sweep.
+      await ctx.scheduler.runAfter(0, internal.ai_proxy_data.purgeStaleDeviceUsage, {
+        batchSize: args.batchSize,
+      })
+    }
+    return { deleted: stale.length, hasMore }
   },
 })
 

@@ -30,6 +30,7 @@ const isBlockedIpv6 = (ip: string) => {
   return (
     normalized === "::1" ||
     normalized === "::" ||
+    normalized.startsWith("::ffff:") ||
     normalized.startsWith("fc") ||
     normalized.startsWith("fd") ||
     normalized.startsWith("fe8") ||
@@ -40,7 +41,11 @@ const isBlockedIpv6 = (ip: string) => {
 };
 
 const isBlockedHost = (hostname: string) => {
-  const normalized = hostname.trim().toLowerCase();
+  let normalized = hostname.trim().toLowerCase();
+  // URL.hostname keeps the square brackets around IPv6 literals.
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    normalized = normalized.slice(1, -1);
+  }
   if (!normalized) {
     return true;
   }

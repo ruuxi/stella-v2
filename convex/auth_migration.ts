@@ -61,9 +61,22 @@ export const migrateUserPreferencesBatch = internalMutation({
       .query("user_preferences")
       .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", args.fromOwnerId))
       .take(BATCH_SIZE);
-    await Promise.all(
-      rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
-    );
+    // (ownerId, key) is looked up with `.unique()` elsewhere; if the target
+    // owner already has a row for this key, keep theirs and drop the source
+    // row instead of creating a duplicate.
+    for (const row of rows) {
+      const existing = await ctx.db
+        .query("user_preferences")
+        .withIndex("by_ownerId_and_key", (q) =>
+          q.eq("ownerId", args.toOwnerId).eq("key", row.key),
+        )
+        .unique();
+      if (existing) {
+        await ctx.db.delete(row._id);
+      } else {
+        await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
+      }
+    }
     return { hasMore: isFullPage(rows) };
   },
 });
@@ -76,9 +89,27 @@ export const migrateAuthSessionPoliciesBatch = internalMutation({
       .query("auth_session_policies")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
       .take(BATCH_SIZE);
-    await Promise.all(
-      rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
-    );
+    // `getSessionPolicyFromDb` reads this table with `.unique()` per owner;
+    // if the target owner already has a policy row, merge (strictest
+    // revocation marker wins) and drop the source row instead of creating a
+    // duplicate that would make every sensitive-session check throw.
+    for (const row of rows) {
+      const existing = await ctx.db
+        .query("auth_session_policies")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
+        .unique();
+      if (existing) {
+        if (row.minIssuedAtSec > existing.minIssuedAtSec) {
+          await ctx.db.patch(existing._id, {
+            minIssuedAtSec: row.minIssuedAtSec,
+            updatedAt: Math.max(existing.updatedAt, row.updatedAt),
+          });
+        }
+        await ctx.db.delete(row._id);
+      } else {
+        await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
+      }
+    }
     return { hasMore: isFullPage(rows) };
   },
 });
@@ -127,9 +158,22 @@ export const migrateUserIntegrationsBatch = internalMutation({
         q.eq("ownerId", args.fromOwnerId),
       )
       .take(BATCH_SIZE);
-    await Promise.all(
-      rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
-    );
+    // (ownerId, provider) is looked up with `.unique()` elsewhere; if the
+    // target owner already has an integration for this provider, keep theirs
+    // and drop the source row instead of creating a duplicate.
+    for (const row of rows) {
+      const existing = await ctx.db
+        .query("user_integrations")
+        .withIndex("by_ownerId_and_provider", (q) =>
+          q.eq("ownerId", args.toOwnerId).eq("provider", row.provider),
+        )
+        .unique();
+      if (existing) {
+        await ctx.db.delete(row._id);
+      } else {
+        await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
+      }
+    }
     return { hasMore: isFullPage(rows) };
   },
 });

@@ -806,8 +806,7 @@ export const streamSimpleAnthropic: StreamFunction<
   "anthropic-messages",
   SimpleStreamOptions
 > = (model, context, options) =>
-  streamAnthropic(
-    model,
-    context,
-    buildBaseOptions(model, options, options?.apiKey) as SimpleStreamOptions,
-  );
+  streamAnthropic(model, context, {
+    ...buildBaseOptions(model, options, options?.apiKey),
+    reasoning: options?.reasoning,
+  });

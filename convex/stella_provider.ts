@@ -25,7 +25,6 @@ import {
 import {
   STELLA_MODELS_RATE_LIMIT,
   STELLA_MODELS_RATE_WINDOW_MS,
-  scheduleAnonymousUsageRecord,
 } from "./stella_provider/billing";
 import {
   authorizeStellaRelayRequest,
@@ -402,6 +401,7 @@ export const stellaProviderRelay = (
           if (done) break;
           if (value) collected += decoder.decode(value, { stream: true });
         }
+        await reader.cancel();
         console.error(
           `[stella-provider] upstream ${relayProvider} returned ${upstreamResponse.status}: ${collected.slice(0, 2048)}`,
         );
@@ -488,7 +488,6 @@ export const stellaProviderRelay = (
             reasoningTokens: usage?.reasoningTokens,
             costMicroCents,
           });
-          await scheduleAnonymousUsageRecord(ctx, authorized.anonymousUsageRecord);
         } catch (error) {
           console.error("[stella-provider] Relay stream failed:", error);
           await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {

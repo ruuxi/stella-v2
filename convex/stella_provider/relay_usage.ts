@@ -105,9 +105,12 @@ function createSseParser(
       .map((line) => line.slice(5).trimStart())
       .join("\n")
       .trim();
-    if (!data || data === "[DONE]") return;
+    // Non-streaming relay responses are plain JSON bodies with no SSE
+    // framing; parse the raw payload so their usage is still metered.
+    const payload = data || rawEvent.trim();
+    if (!payload || payload === "[DONE]") return;
     try {
-      const event = JSON.parse(data) as unknown;
+      const event = JSON.parse(payload) as unknown;
       const record = asRecord(event);
       if (record) {
         usage = mergeUsage(usage, parseEvent(record));
@@ -121,10 +124,10 @@ function createSseParser(
     pushText(text) {
       buffer += text;
       while (true) {
-        const separator = buffer.search(/\r?\n\r?\n/u);
-        if (separator < 0) break;
-        const rawEvent = buffer.slice(0, separator);
-        buffer = buffer.slice(buffer[separator] === "\r" ? separator + 4 : separator + 2);
+        const separator = /\r?\n\r?\n/u.exec(buffer);
+        if (!separator) break;
+        const rawEvent = buffer.slice(0, separator.index);
+        buffer = buffer.slice(separator.index + separator[0].length);
         consumeEvent(rawEvent);
       }
     },

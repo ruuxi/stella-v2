@@ -172,6 +172,15 @@ const upsertPendingFriendRequest = async (
     if (existing.status === "accepted" || existing.status === "pending") {
       return existing;
     }
+    // A block can only be lifted by the user who placed it (the addressee at
+    // block time). Surface the same error as an unknown username so the
+    // blocked sender can't detect the block.
+    if (existing.status === "blocked" && existing.addresseeOwnerId !== ownerId) {
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "No user found with that username",
+      });
+    }
     await ctx.db.patch(existing._id, {
       requesterOwnerId: ownerId,
       addresseeOwnerId: targetOwnerId,
@@ -276,6 +285,17 @@ export const respondToFriendRequest = mutation({
       });
     }
 
+    // Accept/decline only applies to a live pending request — a declined
+    // request must not be acceptable later without the requester sending a
+    // fresh one. Blocking is allowed from any state (including blocking an
+    // existing friend).
+    if (args.action !== "block" && relationship.status !== "pending") {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "This friend request is no longer pending",
+      });
+    }
+
     const nextStatus =
       args.action === "accept"
         ? "accepted"
@@ -315,6 +335,15 @@ export const removeFriend = mutation({
     const relationship = await loadRelationship(ctx, ownerId, args.otherOwnerId);
     if (!relationship) {
       return { removed: false };
+    }
+    // Unblock path: the user who placed a block can lift it by removing the
+    // relationship (the blocked side still gets the accepted-only check).
+    if (
+      relationship.status === "blocked" &&
+      relationship.addresseeOwnerId === ownerId
+    ) {
+      await ctx.db.delete(relationship._id);
+      return { removed: true };
     }
     ensureRelationshipIsAccepted(relationship);
     await ctx.db.delete(relationship._id);

@@ -42,6 +42,9 @@ export async function retryFetch(
         return res;
       }
 
+      // Release the discarded response's body so the connection isn't held
+      // open while we wait to retry.
+      await res.body?.cancel().catch(() => {});
       const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
       const backoffMs = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
       await sleep(retryAfterMs ?? backoffMs);

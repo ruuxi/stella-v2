@@ -8,13 +8,19 @@ export const stableStringify = (value: unknown): string => {
       return JSON.stringify("[Circular]");
     }
     seen.add(input as object);
+    let result: string;
     if (Array.isArray(input)) {
-      return `[${input.map((item) => stringify(item)).join(",")}]`;
+      result = `[${input.map((item) => stringify(item)).join(",")}]`;
+    } else {
+      const record = input as Record<string, unknown>;
+      const keys = Object.keys(record).sort((a, b) => a.localeCompare(b));
+      const body = keys.map((key) => `${JSON.stringify(key)}:${stringify(record[key])}`);
+      result = `{${body.join(",")}}`;
     }
-    const record = input as Record<string, unknown>;
-    const keys = Object.keys(record).sort((a, b) => a.localeCompare(b));
-    const body = keys.map((key) => `${JSON.stringify(key)}:${stringify(record[key])}`);
-    return `{${body.join(",")}}`;
+    // Track only the ancestor chain so shared (non-circular) subtrees aren't
+    // misreported as "[Circular]".
+    seen.delete(input as object);
+    return result;
   };
   return stringify(value);
 };

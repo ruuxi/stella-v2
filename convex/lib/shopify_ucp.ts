@@ -26,6 +26,7 @@
  */
 
 import type { Value } from "convex/values";
+import { normalizeSafeExternalUrl } from "./url_security";
 
 const SHOPIFY_TOKEN_URL = "https://api.shopify.com/auth/access_token";
 const SHOPIFY_GLOBAL_MCP_URL = "https://discover.shopifyapps.com/global/mcp";
@@ -770,11 +771,11 @@ const isCheckoutEndpoint = (descriptor: { name?: unknown }): boolean => {
 export const discoverCheckoutEndpoint = async (args: {
   merchantOrigin: string;
 }): Promise<CheckoutEndpointDescriptor | null> => {
-  const origin = sanitizeUrl(args.merchantOrigin);
-  if (!origin) return null;
+  // https-only + private/loopback hosts blocked: the merchant origin can be
+  // influenced by catalog data, so this fetch must not become an SSRF.
   let baseOrigin = "";
   try {
-    baseOrigin = new URL(origin).origin;
+    baseOrigin = new URL(normalizeSafeExternalUrl(args.merchantOrigin)).origin;
   } catch {
     return null;
   }
@@ -796,11 +797,29 @@ export const discoverCheckoutEndpoint = async (args: {
     return null;
   }
   if (!body || !Array.isArray(body.endpoints)) return null;
+  const merchantHost = new URL(baseOrigin).hostname
+    .toLowerCase()
+    .replace(/^www\./, "");
   for (const descriptor of body.endpoints) {
     if (!descriptor || typeof descriptor !== "object") continue;
     if (!isCheckoutEndpoint(descriptor)) continue;
-    const url = sanitizeUrl(typeof descriptor.url === "string" ? descriptor.url : undefined);
-    if (!url) continue;
+    if (typeof descriptor.url !== "string") continue;
+    let url: string;
+    try {
+      url = normalizeSafeExternalUrl(descriptor.url);
+    } catch {
+      continue;
+    }
+    // Pin the checkout endpoint to the merchant's own domain. The platform
+    // bearer token is sent to this endpoint on every checkout call, so a
+    // discovery document must not be able to point it at a third party.
+    const endpointHost = new URL(url).hostname.toLowerCase();
+    if (
+      endpointHost !== merchantHost &&
+      !endpointHost.endsWith(`.${merchantHost}`)
+    ) {
+      continue;
+    }
     return { merchantOrigin: baseOrigin, endpoint: url };
   }
   return null;
@@ -872,8 +891,12 @@ export const createCheckout = async (args: {
   if (lines.length === 0) {
     throw new Error("At least one valid line item is required to create a checkout.");
   }
-  const endpoint = sanitizeUrl(args.endpoint);
-  if (!endpoint) {
+  // Persisted endpoints get re-validated on use: https-only, no private
+  // hosts (the token must never be sent to a local/internal target).
+  let endpoint: string;
+  try {
+    endpoint = normalizeSafeExternalUrl(args.endpoint);
+  } catch {
     throw new Error("A valid Checkout MCP endpoint URL is required.");
   }
   const token = await fetchAccessToken();
@@ -900,8 +923,12 @@ export const updateCheckout = async (args: {
   checkoutId: string;
   lines?: CheckoutLineInput[];
 }): Promise<CheckoutSessionResult> => {
-  const endpoint = sanitizeUrl(args.endpoint);
-  if (!endpoint) throw new Error("A valid Checkout MCP endpoint URL is required.");
+  let endpoint: string;
+  try {
+    endpoint = normalizeSafeExternalUrl(args.endpoint);
+  } catch {
+    throw new Error("A valid Checkout MCP endpoint URL is required.");
+  }
   const checkoutId = trim(args.checkoutId);
   if (!checkoutId) throw new Error("checkoutId is required to update a checkout.");
   const lines = (args.lines ?? [])
@@ -938,8 +965,12 @@ export const cancelCheckout = async (args: {
   endpoint: string;
   checkoutId: string;
 }): Promise<{ checkoutId: string; status: string }> => {
-  const endpoint = sanitizeUrl(args.endpoint);
-  if (!endpoint) throw new Error("A valid Checkout MCP endpoint URL is required.");
+  let endpoint: string;
+  try {
+    endpoint = normalizeSafeExternalUrl(args.endpoint);
+  } catch {
+    throw new Error("A valid Checkout MCP endpoint URL is required.");
+  }
   const checkoutId = trim(args.checkoutId);
   if (!checkoutId) throw new Error("checkoutId is required to cancel a checkout.");
   const token = await fetchAccessToken();

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalAction, internalQuery } from "./_generated/server";
 import { components, internal } from "./_generated/api";
+import { tokenIdentifierForBetterAuthUserId } from "./auth";
 
 const STALE_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
 const PAGE_SIZE = 100;
@@ -57,11 +58,13 @@ export const purgeStaleAnonymousData = internalAction({
         { cursor, cutoffMs },
       );
 
-      for (const ownerId of batch.ownerIds) {
+      for (const userId of batch.ownerIds) {
+        // App tables key `ownerId` by the Convex tokenIdentifier
+        // (`${issuer}|${betterAuthUserId}`), not the raw Better Auth user id.
         await ctx.scheduler.runAfter(
           0,
           internal.account_deletion.purgeOwnerCloudData,
-          { ownerId },
+          { ownerId: tokenIdentifierForBetterAuthUserId(userId) },
         );
         totalScheduled++;
       }

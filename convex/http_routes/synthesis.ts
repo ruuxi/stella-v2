@@ -519,6 +519,47 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
           const ownerId = identity?.tokenIdentifier;
           const isAnonymousIdentity =
             (identity as Record<string, unknown> | null)?.isAnonymous === true;
+          const modelAccess = ownerId && !isAnonymousIdentity
+            ? await resolveManagedModelAccess(ctx, ownerId, {
+              isAnonymous: false,
+            })
+            : undefined;
+
+          if (isAnonymousIdentity || (!identity && anonDeviceId)) {
+            const rateLimit = await consumeWebhookRateLimit(ctx, {
+              scope: "synthesize_anonymous",
+              key: buildAnonymousSynthesisRateKey(identity, anonDeviceId, request),
+              limit: ANON_SYNTHESIS_RATE_LIMIT,
+              windowMs: ANON_SYNTHESIS_RATE_WINDOW_MS,
+              blockMs: ANON_SYNTHESIS_RATE_WINDOW_MS,
+            });
+            if (!rateLimit.allowed) {
+              return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+            }
+          }
+
+          if (modelAccess && !modelAccess.allowed && !modelAccess.unlimited) {
+            return errorResponse(429, modelAccess.message, origin);
+          }
+
+          if (
+            ownerId
+            && !isAnonymousIdentity
+            && modelAccess
+            && !modelAccess.unlimited
+          ) {
+            const rateLimit = await consumeWebhookRateLimit(ctx, {
+              scope: "synthesize_owner",
+              key: ownerId,
+              limit: SYNTHESIS_OWNER_RATE_LIMIT,
+              windowMs: SYNTHESIS_OWNER_RATE_WINDOW_MS,
+              blockMs: SYNTHESIS_OWNER_RATE_WINDOW_MS,
+            });
+            if (!rateLimit.allowed) {
+              return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+            }
+          }
+
           const billingOwnerId = ownerId && !isAnonymousIdentity ? ownerId : undefined;
           const result = await generateWelcomeHtml(ctx, coreMemory, billingOwnerId);
           console.log(

@@ -182,7 +182,7 @@ export const deleteTokensForOwnerDevice = internalMutation({
       .withIndex("by_ownerId_and_mobileDeviceId", (q) =>
         q.eq("ownerId", args.ownerId).eq("mobileDeviceId", mobileDeviceId),
       )
-      .collect();
+      .take(8);
     for (const row of rows) {
       await ctx.db.delete(row._id);
     }

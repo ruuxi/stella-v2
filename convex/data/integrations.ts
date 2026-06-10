@@ -94,8 +94,24 @@ const normalizePublicIntegration = (record: {
   };
 };
 
+const store_integration_public_validator = v.object({
+  id: v.string(),
+  name: v.string(),
+  provider: v.string(),
+  category: v.string(),
+  auth: v.array(v.string()),
+  catalogToolCount: v.number(),
+  description: v.string(),
+  sourceUrl: v.optional(v.string()),
+  iconUrl: v.optional(v.string()),
+  status: v.string(),
+  enabled: v.boolean(),
+  updatedAt: v.number(),
+});
+
 export const listStoreIntegrations = query({
   args: {},
+  returns: v.array(store_integration_public_validator),
   handler: async (ctx) => {
     const records = await ctx.db
       .query("integrations_public")

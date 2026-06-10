@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { decryptSecret, encryptSecret } from "./data/secrets_crypto";
+import { base64UrlDecode } from "./lib/crypto_utils";
 import { r2 } from "./r2_files";
 import { requireBoundedString } from "./shared_validators";
 
@@ -161,7 +162,15 @@ const requireSha256Hex = (value: string, fieldName: string): string => {
 
 const requireKeyBase64Url = (value: string): string => {
   const trimmed = trimRequired(value, "keyBase64Url", 256);
-  const decoded = Buffer.from(trimmed, "base64url");
+  let decoded: Uint8Array;
+  try {
+    decoded = base64UrlDecode(trimmed);
+  } catch {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Backup key must be valid base64url.",
+    });
+  }
   if (decoded.byteLength !== BACKUP_KEY_BYTES) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
@@ -420,14 +429,7 @@ export const prepareUploadInternal = internalMutation({
     requireSha256Hex(args.snapshotHash, "snapshotHash");
     requireBatchSize(args.objects.length, "objects");
 
-    const existingObjectIds: string[] = [];
-    const missingObjects: Array<{
-      objectId: string;
-      r2Key: string;
-      uploadUrl: string;
-    }> = [];
-
-    for (const object of args.objects) {
+    const validatedObjectIds = args.objects.map((object) => {
       const objectId = requireSha256Hex(object.objectId, "objectId");
       requireSha256Hex(object.plaintextSha256, "plaintextSha256");
       trimRequired(object.algorithm, "algorithm", 50);
@@ -439,19 +441,36 @@ export const prepareUploadInternal = internalMutation({
           message: "plaintextSize must be a non-negative number.",
         });
       }
-      const existing = await getObjectRecord(ctx, ownerId, objectId);
-      if (existing) {
+      return objectId;
+    });
+
+    const existingRecords = await Promise.all(
+      validatedObjectIds.map((objectId) =>
+        getObjectRecord(ctx, ownerId, objectId),
+      ),
+    );
+
+    const existingObjectIds: string[] = [];
+    const missingObjectIds: string[] = [];
+    validatedObjectIds.forEach((objectId, index) => {
+      if (existingRecords[index]) {
         existingObjectIds.push(objectId);
-        continue;
+      } else {
+        missingObjectIds.push(objectId);
       }
-      const r2Key = getObjectR2Key(ownerId, objectId);
-      const upload = await r2.generateUploadUrl(r2Key);
-      missingObjects.push({
-        objectId,
-        r2Key,
-        uploadUrl: upload.url,
-      });
-    }
+    });
+
+    const missingObjects = await Promise.all(
+      missingObjectIds.map(async (objectId) => {
+        const r2Key = getObjectR2Key(ownerId, objectId);
+        const upload = await r2.generateUploadUrl(r2Key);
+        return {
+          objectId,
+          r2Key,
+          uploadUrl: upload.url,
+        };
+      }),
+    );
 
     const manifestR2Key = getManifestR2Key(ownerId, snapshotId);
     const manifestUpload = await r2.generateUploadUrl(manifestR2Key);
@@ -541,7 +560,7 @@ export const finalizeUploadInternal = internalMutation({
       });
     }
 
-    for (const object of args.uploadedObjects) {
+    const validatedObjects = args.uploadedObjects.map((object) => {
       const objectId = requireSha256Hex(object.objectId, "objectId");
       const plaintextSha256 = requireSha256Hex(
         object.plaintextSha256,
@@ -557,32 +576,61 @@ export const finalizeUploadInternal = internalMutation({
           message: "plaintextSize must be a non-negative number.",
         });
       }
-      const existing = await getObjectRecord(ctx, ownerId, objectId);
+      return { ...object, objectId, plaintextSha256 };
+    });
+
+    const existingObjectRecords = await Promise.all(
+      validatedObjects.map((object) =>
+        getObjectRecord(ctx, ownerId, object.objectId),
+      ),
+    );
+
+    // Tracks objects inserted earlier in this call so duplicate entries in
+    // `uploadedObjects` keep the same semantics as the previous sequential
+    // read-then-insert loop.
+    const insertedThisCall = new Map<
+      string,
+      {
+        plaintextSha256: string;
+        ivBase64Url: string;
+        authTagBase64Url: string;
+        r2Key: string;
+      }
+    >();
+    for (const [index, object] of validatedObjects.entries()) {
+      const existing =
+        existingObjectRecords[index] ?? insertedThisCall.get(object.objectId);
       if (existing) {
         if (
-          existing.plaintextSha256 !== plaintextSha256
+          existing.plaintextSha256 !== object.plaintextSha256
           || existing.ivBase64Url !== object.ivBase64Url
           || existing.authTagBase64Url !== object.authTagBase64Url
           || existing.r2Key !== object.r2Key
         ) {
           throw new ConvexError({
             code: "CONFLICT",
-            message: `Remote backup object ${objectId} already exists with different metadata.`,
+            message: `Remote backup object ${object.objectId} already exists with different metadata.`,
           });
         }
         continue;
       }
       await ctx.db.insert("backup_objects", {
         ownerId,
-        objectId,
+        objectId: object.objectId,
         r2Key: object.r2Key,
         algorithm: object.algorithm,
-        plaintextSha256,
+        plaintextSha256: object.plaintextSha256,
         plaintextSize: object.plaintextSize,
         ivBase64Url: object.ivBase64Url,
         authTagBase64Url: object.authTagBase64Url,
         sourceDeviceId,
         createdAt: now,
+      });
+      insertedThisCall.set(object.objectId, {
+        plaintextSha256: object.plaintextSha256,
+        ivBase64Url: object.ivBase64Url,
+        authTagBase64Url: object.authTagBase64Url,
+        r2Key: object.r2Key,
       });
     }
 
@@ -857,16 +905,20 @@ export const getObjectRecordsInternal = internalQuery({
     const ownerId = trimRequired(args.ownerId, "ownerId", 300);
     requireBatchSize(args.objectIds.length, "objectIds");
     const uniqueObjectIds = [...new Set(args.objectIds.map((value) => requireSha256Hex(value, "objectId")))];
-    const results = [];
-    for (const objectId of uniqueObjectIds) {
-      const row = await getObjectRecord(ctx, ownerId, objectId);
+    const rows = await Promise.all(
+      uniqueObjectIds.map((objectId) =>
+        getObjectRecord(ctx, ownerId, objectId),
+      ),
+    );
+    return uniqueObjectIds.map((objectId, index) => {
+      const row = rows[index];
       if (!row) {
         throw new ConvexError({
           code: "NOT_FOUND",
           message: `Backup object ${objectId} not found.`,
         });
       }
-      results.push({
+      return {
         objectId: row.objectId,
         r2Key: row.r2Key,
         plaintextSha256: row.plaintextSha256,
@@ -874,9 +926,8 @@ export const getObjectRecordsInternal = internalQuery({
         algorithm: row.algorithm,
         ivBase64Url: row.ivBase64Url,
         authTagBase64Url: row.authTagBase64Url,
-      });
-    }
-    return results;
+      };
+    });
   },
 });
 

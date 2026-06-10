@@ -231,9 +231,15 @@ export function convertResponsesMessages<TApi extends Api>(
       for (const block of assistantMessage.content) {
         if (block.type === "thinking") {
           if (block.thinkingSignature) {
-            assistantOutput.push(
-              JSON.parse(block.thinkingSignature) as ResponseReasoningItem,
-            );
+            try {
+              assistantOutput.push(
+                JSON.parse(block.thinkingSignature) as ResponseReasoningItem,
+              );
+            } catch {
+              // Signature isn't a serialized reasoning item (e.g. a foreign
+              // provider's signature that survived history transforms) —
+              // skip it rather than failing the whole request.
+            }
           }
           continue;
         }

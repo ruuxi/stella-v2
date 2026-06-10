@@ -79,16 +79,16 @@ export async function runAgentTurn({
   }
 
   const resolvedOwnerId = ownerId ?? conversation.ownerId;
-  const { config: resolvedConfig, fallbackConfig } = await resolveManagedModelConfigs(
-    ctx,
-    agentType,
-    resolvedOwnerId,
-    { modelOverride },
-  );
-  const promptBuild = await buildSystemPrompt(ctx, agentType, {
-    ownerId: resolvedOwnerId,
-    conversationId,
-  });
+  const [{ config: resolvedConfig, fallbackConfig }, promptBuild] =
+    await Promise.all([
+      resolveManagedModelConfigs(ctx, agentType, resolvedOwnerId, {
+        modelOverride,
+      }),
+      buildSystemPrompt(ctx, agentType, {
+        ownerId: resolvedOwnerId,
+        conversationId,
+      }),
+    ]);
   const requestMessages = [
     {
       role: "user" as const,

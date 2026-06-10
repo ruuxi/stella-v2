@@ -8,7 +8,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import {
-  getConnectedUserIdOrNull,
+  assertSensitiveSessionPolicy,
   isAnonymousIdentity,
   requireConnectedUserId,
   requireSensitiveUserId,
@@ -217,10 +217,19 @@ export const getPhoneAccessState = query({
   },
   returns: phoneAccessStateValidator,
   handler: async (ctx, args) => {
-    const ownerId = await getConnectedUserIdOrNull(ctx);
-    if (!ownerId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || isAnonymousIdentity(identity)) {
       return { activePairing: null, pairedDevices: [] };
     }
+    // This query exposes the live pairing code; a revoked session must not
+    // be able to read it. Return the signed-out shape instead of throwing so
+    // UI subscriptions degrade gracefully.
+    try {
+      await assertSensitiveSessionPolicy(ctx, identity);
+    } catch {
+      return { activePairing: null, pairedDevices: [] };
+    }
+    const ownerId = identity.tokenIdentifier;
     const [activePairing, pairedDevices] = await Promise.all([
       loadMostRecentUnusedPairingSession(ctx, {
         ownerId,
@@ -289,15 +298,27 @@ export const createPairingSession = mutation({
     const expiresAt = createdAt + MOBILE_PAIRING_SESSION_TTL_MS;
     let pairingCode = randomPairingCode();
 
+    // Regenerate on ANY existing row with this code (even expired/used ones):
+    // historical rows are never deleted, and inserting a second row with the
+    // same code would make the `.unique()` lookup in `completePairingSession`
+    // throw for both.
+    let codeIsFree = false;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const conflict = await ctx.db
         .query("mobile_pairing_sessions")
         .withIndex("by_pairingCode", (q) => q.eq("pairingCode", pairingCode))
-        .unique();
-      if (!conflict || conflict.expiresAt <= createdAt || conflict.usedAt) {
+        .first();
+      if (!conflict) {
+        codeIsFree = true;
         break;
       }
       pairingCode = randomPairingCode();
+    }
+    if (!codeIsFree) {
+      throw new ConvexError({
+        code: "RESOURCE_EXHAUSTED",
+        message: "Could not allocate a pairing code. Please try again.",
+      });
     }
 
     await ctx.db.insert("mobile_pairing_sessions", {

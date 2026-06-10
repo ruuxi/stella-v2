@@ -225,34 +225,33 @@ export const listRecentMessages = internalQuery({
     // 3x overfetch: we query 2 type-specific indexes and merge, so ~1/2 of rows match per type
     const take = Math.min(Math.max(limit * 3, 50), 200);
 
+    // `beforeTimestamp` is part of the index range (not a JS post-filter) so
+    // the newest `take` rows we read are already at-or-before the bound.
+    const takeMessagesOfType = (
+      type: "user_message" | "assistant_message",
+    ) => {
+      const base = ctx.db.query("events");
+      const query =
+        args.beforeTimestamp !== undefined
+          ? base.withIndex("by_conversationId_and_type_and_timestamp", (q) =>
+              q
+                .eq("conversationId", args.conversationId)
+                .eq("type", type)
+                .lte("timestamp", args.beforeTimestamp!),
+            )
+          : base.withIndex("by_conversationId_and_type_and_timestamp", (q) =>
+              q.eq("conversationId", args.conversationId).eq("type", type),
+            );
+      return query.order("desc").take(take);
+    };
+
     const [userEvents, assistantEvents] = await Promise.all([
-      ctx.db
-        .query("events")
-        .withIndex("by_conversationId_and_type_and_timestamp", (q) =>
-          q
-            .eq("conversationId", args.conversationId)
-            .eq("type", "user_message"),
-        )
-        .order("desc")
-        .take(take),
-      ctx.db
-        .query("events")
-        .withIndex("by_conversationId_and_type_and_timestamp", (q) =>
-          q
-            .eq("conversationId", args.conversationId)
-            .eq("type", "assistant_message"),
-        )
-        .order("desc")
-        .take(take),
+      takeMessagesOfType("user_message"),
+      takeMessagesOfType("assistant_message"),
     ]);
 
     let combined = [...userEvents, ...assistantEvents];
 
-    if (args.beforeTimestamp !== undefined) {
-      combined = combined.filter(
-        (event) => event.timestamp <= args.beforeTimestamp!,
-      );
-    }
     if (args.excludeEventId) {
       combined = combined.filter((event) => event._id !== args.excludeEventId);
     }
@@ -649,6 +648,31 @@ export const getConversationEventHead = internalQuery({
   },
 });
 
+/**
+ * Batch-load conversation ownership for a set of (possibly repeated)
+ * conversation ids so the device subscription queries don't issue one
+ * sequential `ctx.db.get` per candidate event.
+ */
+const loadConversationOwnership = async (
+  ctx: QueryCtx,
+  conversationIds: Id<"conversations">[],
+  ownerId: string,
+): Promise<Map<Id<"conversations">, boolean>> => {
+  const uniqueIds = [...new Set(conversationIds)];
+  const conversations = await Promise.all(
+    uniqueIds.map((conversationId) => ctx.db.get(conversationId)),
+  );
+  const ownership = new Map<Id<"conversations">, boolean>();
+  uniqueIds.forEach((conversationId, index) => {
+    const conversation = conversations[index];
+    ownership.set(
+      conversationId,
+      Boolean(conversation && conversation.ownerId === ownerId),
+    );
+  });
+  return ownership;
+};
+
 export const subscribeRemoteTurnRequestsForDevice = query({
   args: {
     deviceId: v.string(),
@@ -683,20 +707,18 @@ export const subscribeRemoteTurnRequestsForDevice = query({
       .order("desc")
       .take(maxItems * 2);
 
-    const ownershipCache = new Map<string, boolean>();
+    const candidates = events.filter(
+      (event) => !event.requestState || event.requestState === "pending",
+    );
+    const ownershipByConversation = await loadConversationOwnership(
+      ctx,
+      candidates.map((event) => event.conversationId),
+      ownerId,
+    );
     const filtered: Infer<typeof eventValidator>[] = [];
 
-    for (const event of events) {
-      if (event.requestState && event.requestState !== "pending") continue;
-
-      const key = String(event.conversationId);
-      let owned = ownershipCache.get(key);
-      if (owned === undefined) {
-        const conversation = await ctx.db.get(event.conversationId);
-        owned = Boolean(conversation && conversation.ownerId === ownerId);
-        ownershipCache.set(key, owned);
-      }
-      if (!owned) continue;
+    for (const event of candidates) {
+      if (!ownershipByConversation.get(event.conversationId)) continue;
 
       const hydrated = await hydrateConnectorRemoteTurnPayload(ctx, event);
       if (!hydrated) continue;
@@ -759,30 +781,30 @@ export const subscribeRemoteTurnCancelsForDevice = query({
       .order("desc")
       .take(maxItems * 2);
 
-    const ownershipCache = new Map<string, boolean>();
+    const candidates = events.filter(
+      (event) =>
+        event.requestState === "cancelled" &&
+        Boolean(event.requestId) &&
+        typeof event.cancelledAt === "number",
+    );
+    const ownershipByConversation = await loadConversationOwnership(
+      ctx,
+      candidates.map((event) => event.conversationId),
+      ownerId,
+    );
     const out: {
       requestId: string;
       conversationId: Id<"conversations">;
       cancelledAt: number;
     }[] = [];
 
-    for (const event of events) {
-      if (event.requestState !== "cancelled") continue;
-      if (!event.requestId || typeof event.cancelledAt !== "number") continue;
-
-      const key = String(event.conversationId);
-      let owned = ownershipCache.get(key);
-      if (owned === undefined) {
-        const conversation = await ctx.db.get(event.conversationId);
-        owned = Boolean(conversation && conversation.ownerId === ownerId);
-        ownershipCache.set(key, owned);
-      }
-      if (!owned) continue;
+    for (const event of candidates) {
+      if (!ownershipByConversation.get(event.conversationId)) continue;
 
       out.push({
-        requestId: event.requestId,
+        requestId: event.requestId!,
         conversationId: event.conversationId,
-        cancelledAt: event.cancelledAt,
+        cancelledAt: event.cancelledAt!,
       });
       if (out.length >= maxItems) break;
     }

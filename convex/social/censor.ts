@@ -167,6 +167,43 @@ function findStemRanges(
   return ranges;
 }
 
+/**
+ * Two-letter stems (currently just "cp") are far too short for the fuzzy
+ * stream matcher — any "c" followed by "p" in the letter stream would match
+ * across word boundaries ("epic panda", "topic place", "magic powers").
+ * They must instead appear as an exact standalone word.
+ */
+function findExactWordRanges(
+  letters: { normalized: string; sourceIndex: number }[],
+  stem: string,
+): [number, number][] {
+  const ranges: [number, number][] = [];
+  let wordStart = 0;
+  for (let i = 1; i <= letters.length; i += 1) {
+    const isBoundary =
+      i === letters.length ||
+      letters[i].sourceIndex !== letters[i - 1].sourceIndex + 1;
+    if (!isBoundary) continue;
+    const word = letters.slice(wordStart, i);
+    if (
+      word.length === stem.length &&
+      word.every((letter, index) => letter.normalized === stem[index])
+    ) {
+      ranges.push([word[0].sourceIndex, word[word.length - 1].sourceIndex]);
+    }
+    wordStart = i;
+  }
+  return ranges;
+}
+
+const rangesForStem = (
+  letters: { normalized: string; sourceIndex: number }[],
+  stem: string,
+): [number, number][] =>
+  stem.length <= 2
+    ? findExactWordRanges(letters, stem)
+    : findStemRanges(letters, stem);
+
 export function findBannedTerm(value: string): string | null {
   const letters = normalizedLetters(value);
   if (letters.length === 0) {
@@ -174,7 +211,7 @@ export function findBannedTerm(value: string): string | null {
   }
 
   for (const stem of BANNED_STEMS) {
-    if (findStemRanges(letters, stem).length > 0) {
+    if (rangesForStem(letters, stem).length > 0) {
       return stem;
     }
   }
@@ -188,7 +225,7 @@ export function maskBannedTerms(value: string): string {
 
   const ranges: [number, number][] = [];
   for (const stem of BANNED_STEMS) {
-    ranges.push(...findStemRanges(letters, stem));
+    ranges.push(...rangesForStem(letters, stem));
   }
 
   if (ranges.length === 0) return value;

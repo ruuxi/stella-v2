@@ -169,6 +169,7 @@ function buildParams(
     model: normalizeGoogleModelId(model.id),
     contents: convertMessages(model, context),
     config: {
+      abortSignal: options?.signal,
       systemInstruction: context.systemPrompt,
       temperature: options?.temperature,
       maxOutputTokens: options?.maxTokens,
@@ -323,4 +324,7 @@ export const streamSimpleGoogle: StreamFunction<"google-generative-ai", SimpleSt
   model,
   context,
   options,
-) => streamGoogle(model, context, buildBaseOptions(model, options, options?.apiKey) as SimpleStreamOptions);
+) => streamGoogle(model, context, {
+  ...buildBaseOptions(model, options, options?.apiKey),
+  reasoning: options?.reasoning,
+});

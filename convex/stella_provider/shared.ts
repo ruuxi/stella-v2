@@ -32,7 +32,6 @@ export type AuthorizedStellaRequest = {
   serviceTier?: string;
   apiKey: string;
   tokenEstimate: import("./billing").TokenEstimate;
-  anonymousUsageRecord?: import("./billing").AnonymousUsageRecord;
 };
 
 export const STELLA_API_BASE_PATH = "/api/stella";

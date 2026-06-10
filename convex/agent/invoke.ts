@@ -120,12 +120,14 @@ export const invoke = internalAction({
         ],
       };
 
-      const resolvedConfig = await resolveModelConfig(ctx, args.agentType, ownerId, {
-        access: modelAccess,
-      });
-      const fallbackConfig = await resolveFallbackConfig(ctx, args.agentType, ownerId, {
-        access: modelAccess,
-      });
+      const [resolvedConfig, fallbackConfig] = await Promise.all([
+        resolveModelConfig(ctx, args.agentType, ownerId, {
+          access: modelAccess,
+        }),
+        resolveFallbackConfig(ctx, args.agentType, ownerId, {
+          access: modelAccess,
+        }),
+      ]);
       const startedAt = Date.now();
       const result = await streamTextWithFailover({
         resolvedConfig,

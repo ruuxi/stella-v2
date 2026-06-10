@@ -118,9 +118,7 @@ const toErrorResponse = (
               : 400;
     return errorResponse(status, message, origin);
   }
-  if (error instanceof Error) {
-    return errorResponse(500, error.message || "Backup request failed.", origin);
-  }
+  console.error("[backups] Unexpected error:", error);
   return errorResponse(500, "Backup request failed.", origin);
 };
 

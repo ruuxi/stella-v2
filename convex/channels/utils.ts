@@ -281,12 +281,17 @@ export const getConnection = query({
     if ((identity as Record<string, unknown>).isAnonymous === true) return null;
     const ownerId = identity.tokenIdentifier;
 
-    return await ctx.db
+    // Group chats create extra `group:*` connections under the same
+    // owner+provider, so this lookup cannot assume a unique row.
+    const rows = await ctx.db
       .query("channel_connections")
       .withIndex("by_ownerId_and_provider", (q) =>
         q.eq("ownerId", ownerId).eq("provider", args.provider),
       )
-      .unique();
+      .take(100);
+    return newestConnection(
+      rows.filter((row) => !row.externalUserId.startsWith("group:")),
+    );
   },
 });
 
@@ -301,14 +306,20 @@ export const deleteConnection = mutation({
       ownerId,
       RATE_STANDARD,
     );
-    const conn = await ctx.db
-      .query("channel_connections")
-      .withIndex("by_ownerId_and_provider", (q) =>
-        q.eq("ownerId", ownerId).eq("provider", args.provider),
-      )
-      .unique();
-    if (conn) {
-      await ctx.db.delete(conn._id);
+    // Unlink removes every connection for this provider, including the
+    // `group:*` rows that share the owner+provider index prefix.
+    while (true) {
+      const rows = await ctx.db
+        .query("channel_connections")
+        .withIndex("by_ownerId_and_provider", (q) =>
+          q.eq("ownerId", ownerId).eq("provider", args.provider),
+        )
+        .take(200);
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        await ctx.db.delete(row._id);
+      }
+      if (rows.length < 200) break;
     }
     return null;
   },

@@ -1,3 +1,5 @@
+import { constantTimeEqual } from "../lib/crypto_utils";
+
 const ADMIN_API_SECRET_ENV = "STELLA_ADMIN_API_SECRET";
 
 const jsonResponse = (status: number, body: unknown) =>
@@ -28,7 +30,7 @@ export const requireAdminRequest = (request: Request): AdminRequestResult => {
   }
 
   const provided = getBearerToken(request);
-  if (provided !== expected) {
+  if (!constantTimeEqual(provided, expected)) {
     return {
       ok: false,
       response: jsonResponse(401, { error: "Invalid admin credentials." }),

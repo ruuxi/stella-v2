@@ -42,7 +42,6 @@ import {
   streamManagedChat,
   usageSummaryFromAssistant,
 } from "../runtime_ai/managed";
-import { processIncomingMessage } from "../channels/message_pipeline";
 import { MOBILE_BRIDGE_LEASE_MS } from "../mobile_bridge";
 import {
   verifyPairedMobileProof,
@@ -60,9 +59,16 @@ import type {
 
 const OFFLINE_CHAT_RATE_LIMIT = 12;
 const OFFLINE_CHAT_RATE_WINDOW_MS = 60_000;
+/**
+ * Secondary per-IP cap for anonymous guests. The anonymous owner id is
+ * derived from the client-supplied device-id header, which an attacker can
+ * rotate freely — the IP cap bounds total unauthenticated LLM spend.
+ */
+const OFFLINE_CHAT_ANON_IP_RATE_LIMIT = 30;
 /** Per-owner cap on the Voxtral transcription endpoint. */
 const TRANSCRIBE_RATE_LIMIT = 30;
 const TRANSCRIBE_RATE_WINDOW_MS = 60_000;
+const TRANSCRIBE_ANON_IP_RATE_LIMIT = 60;
 /** ~10 MB of base64 ≈ ~7.5 MB raw audio. Roughly 2 min of m4a. */
 const MAX_TRANSCRIBE_AUDIO_BASE64_CHARS = 10_000_000;
 const TRANSCRIBE_MODEL = "mistralai/voxtral-mini-transcribe";
@@ -229,6 +235,8 @@ const buildOfflineChatContext = (args: {
 };
 
 const MAGIC_LINK_RATE_LIMIT = 3;
+/** Per-IP cap on magic-link sends so one caller can't spam many addresses. */
+const MAGIC_LINK_IP_RATE_LIMIT = 10;
 const MAGIC_LINK_RATE_WINDOW_MS = 60_000;
 const MAGIC_LINK_EXPIRY_MS = 10 * 60_000;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -705,7 +713,7 @@ const streamOfflineReply = async (args: {
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
         controller.close();
 
-        void scheduleManagedUsage(args.ctx, {
+        await scheduleManagedUsage(args.ctx, {
           ownerId: args.ownerId,
           agentType: "service:offline_chat",
           model: config.model,
@@ -769,6 +777,20 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           blockMs: OFFLINE_CHAT_RATE_WINDOW_MS,
         });
         if (rateLimitResponse) return rateLimitResponse;
+
+        if (owner.isAnonymous) {
+          const ipKey = getClientAddressKey(request);
+          if (ipKey) {
+            const ipLimitResponse = await enforceHttpRateLimit(ctx, origin, {
+              scope: "mobile_offline_chat_ip",
+              key: ipKey,
+              limit: OFFLINE_CHAT_ANON_IP_RATE_LIMIT,
+              windowMs: OFFLINE_CHAT_RATE_WINDOW_MS,
+              blockMs: OFFLINE_CHAT_RATE_WINDOW_MS,
+            });
+            if (ipLimitResponse) return ipLimitResponse;
+          }
+        }
 
         const bodyResult = await readJsonBody<{
           message?: unknown;
@@ -841,6 +863,20 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         });
         if (rateLimitResponse) return rateLimitResponse;
 
+        if (owner.isAnonymous) {
+          const ipKey = getClientAddressKey(request);
+          if (ipKey) {
+            const ipLimitResponse = await enforceHttpRateLimit(ctx, origin, {
+              scope: "mobile_offline_chat_ip",
+              key: ipKey,
+              limit: OFFLINE_CHAT_ANON_IP_RATE_LIMIT,
+              windowMs: OFFLINE_CHAT_RATE_WINDOW_MS,
+              blockMs: OFFLINE_CHAT_RATE_WINDOW_MS,
+            });
+            if (ipLimitResponse) return ipLimitResponse;
+          }
+        }
+
         const bodyResult = await readJsonBody<{
           message?: unknown;
           history?: unknown;
@@ -903,6 +939,20 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           blockMs: TRANSCRIBE_RATE_WINDOW_MS,
         });
         if (rateLimitResp) return rateLimitResp;
+
+        if (owner.isAnonymous) {
+          const ipKey = getClientAddressKey(request);
+          if (ipKey) {
+            const ipLimitResp = await enforceHttpRateLimit(ctx, origin, {
+              scope: "mobile_transcribe_ip",
+              key: ipKey,
+              limit: TRANSCRIBE_ANON_IP_RATE_LIMIT,
+              windowMs: TRANSCRIBE_RATE_WINDOW_MS,
+              blockMs: TRANSCRIBE_RATE_WINDOW_MS,
+            });
+            if (ipLimitResp) return ipLimitResp;
+          }
+        }
 
         const bodyResult = await readJsonBody<{
           audio?: unknown;
@@ -1864,6 +1914,20 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
         }
 
+        const ipKey = getClientAddressKey(request);
+        if (ipKey) {
+          const ipRateLimit = await consumeWebhookRateLimit(ctx, {
+            scope: "mobile_magic_link_ip",
+            key: ipKey,
+            limit: MAGIC_LINK_IP_RATE_LIMIT,
+            windowMs: MAGIC_LINK_RATE_WINDOW_MS,
+            blockMs: MAGIC_LINK_RATE_WINDOW_MS,
+          });
+          if (!ipRateLimit.allowed) {
+            return withCors(rateLimitResponse(ipRateLimit.retryAfterMs), origin);
+          }
+        }
+
         const authBaseUrl = getAuthBaseUrl();
         if (!authBaseUrl) {
           console.error("[mobile/auth] Missing auth base URL");
@@ -1880,6 +1944,14 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           expiresAt: now + MAGIC_LINK_EXPIRY_MS,
           createdAt: now,
         });
+
+        // Schedule cleanup before attempting the send so a failed send
+        // doesn't leak the pending row forever.
+        await ctx.scheduler.runAfter(
+          MAGIC_LINK_EXPIRY_MS + 30_000,
+          internal.mobile_auth.cleanupLinkRequest,
+          { requestId },
+        );
 
         try {
           const auth = createAuth(ctx);
@@ -1934,13 +2006,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           console.error("[mobile/auth] Failed to send magic link:", error);
           return errorResponse(500, "Failed to send sign-in email.", origin);
         }
-
-        // Clean up after expiry.
-        await ctx.scheduler.runAfter(
-          MAGIC_LINK_EXPIRY_MS + 30_000,
-          internal.mobile_auth.cleanupLinkRequest,
-          { requestId },
-        );
 
         return jsonResponse({ requestId }, 200, origin);
       }),

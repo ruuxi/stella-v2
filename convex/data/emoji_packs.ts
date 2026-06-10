@@ -476,6 +476,11 @@ export const deletePack = mutation({
       )
       .unique();
     if (!row) return null;
+    await syncTagMembership(ctx, row, [], {
+      visibility: row.visibility,
+      displayName: row.displayName,
+      installCount: row.installCount ?? 0,
+    });
     await ctx.db.delete(row._id);
     return null;
   },
@@ -504,16 +509,18 @@ export const recordInstall = mutation({
       .query("emoji_pack_tag_membership")
       .withIndex("by_packRef", (q) => q.eq("packRef", row._id))
       .take(MAX_TAGS_PER_PACK);
-    for (const membership of memberships) {
-      await ctx.db.patch(membership._id, { installCount: nextInstallCount });
-    }
+    await Promise.all(
+      memberships.map((membership) =>
+        ctx.db.patch(membership._id, { installCount: nextInstallCount }),
+      ),
+    );
     return null;
   },
 });
 
 const MAX_TAGS_PER_PACK = 8;
 
-const syncTagMembership = async (
+export const syncTagMembership = async (
   ctx: MutationCtx,
   row: Doc<"emoji_packs">,
   nextTags: string[],

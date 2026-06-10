@@ -412,14 +412,23 @@ export const listFailedSince = query({
 
 export const getWebhookJob = internalQuery({
   args: {
-    jobId: v.string(),
+    jobId: v.optional(v.string()),
+    providerRequestId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const job = await getJobByJobId(ctx, args.jobId);
+    // Fal webhook URLs normally embed `?jobId=`, but fall back to the
+    // provider request id so a webhook that lost the query param still
+    // resolves the job (and therefore still meters usage).
+    const job =
+      (args.jobId ? await getJobByJobId(ctx, args.jobId) : null) ??
+      (args.providerRequestId
+        ? await getJobByProviderRequestId(ctx, args.providerRequestId)
+        : null);
     if (!job) {
       return null;
     }
     return {
+      jobId: job.jobId,
       ownerId: job.ownerId,
       request: job.request,
       endpointId: job.endpointId,
@@ -471,28 +480,6 @@ export const createJob = internalMutation({
       updatedAt: now,
     });
     return null;
-  },
-});
-
-export const getFalJobForWebhook = internalQuery({
-  args: {
-    jobId: v.optional(v.string()),
-    providerRequestId: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const job =
-      (args.jobId ? await getJobByJobId(ctx, args.jobId) : null) ??
-      (args.providerRequestId
-        ? await getJobByProviderRequestId(ctx, args.providerRequestId)
-        : null);
-    if (!job) {
-      return null;
-    }
-    return {
-      jobId: job.jobId,
-      endpointId: job.endpointId,
-      providerRequestId: job.providerRequestId,
-    };
   },
 });
 
@@ -671,6 +658,27 @@ export const markGenerated = internalMutation({
           requestId: job.connectorRequestId!,
           jobId: job.jobId,
           output,
+        },
+      );
+    }
+    // The fal path charges usage from the webhook handler; jobs completed
+    // via `markGenerated` (e.g. Lyria) must charge here or the generation
+    // never counts against the owner's usage windows. The receipt table in
+    // `recordMediaCompletedUsage` makes this idempotent per job.
+    if (args.billing) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.billing.recordMediaCompletedUsage,
+        {
+          ownerId: job.ownerId,
+          jobId: job.jobId,
+          ...(job.providerRequestId
+            ? { providerRequestId: job.providerRequestId }
+            : {}),
+          endpointId: args.billing.endpointId,
+          billingUnit: String(args.billing.billingUnit),
+          quantity: args.billing.quantity,
+          costMicroCents: args.billing.costMicroCents,
         },
       );
     }

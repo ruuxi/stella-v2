@@ -243,7 +243,7 @@ export const sendRoomMessage = mutation({
     }
     requireBoundedString(body, "body", 20_000);
 
-    const clientMessageId = args.clientMessageId?.trim();
+    const clientMessageId = args.clientMessageId?.trim() || undefined;
     if (clientMessageId) {
       requireBoundedString(clientMessageId, "clientMessageId", 128);
       const existing = await ctx.db

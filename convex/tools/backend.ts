@@ -223,6 +223,7 @@ export const createBackendTools = (
 
             const location = response.headers.get("location");
             if (response.status >= 300 && response.status < 400 && location) {
+              await response.body?.cancel().catch(() => {});
               secureUrl = normalizeSafeExternalUrl(
                 new URL(location, secureUrl).toString(),
               );

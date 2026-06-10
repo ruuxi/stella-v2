@@ -1,8 +1,6 @@
 import type { HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
-import { api } from "../_generated/api";
 import { internal } from "../_generated/api";
-import { requireUserIdentity } from "../auth";
 import {
   errorResponse,
   handleCorsRequest,
@@ -454,7 +452,8 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await requireUserIdentity(ctx);
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return errorResponse(401, "Unauthorized", origin);
         const body = (await parseUnknownBody(request)) as
           | NativeIntegrationRequestBody
           | null;
@@ -503,7 +502,8 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await requireUserIdentity(ctx);
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return errorResponse(401, "Unauthorized", origin);
         const body = (await parseUnknownBody(request)) as
           | NativeIntegrationRequestBody
           | null;

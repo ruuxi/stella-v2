@@ -22,7 +22,6 @@ import {
 import { requireBoundedString } from '../shared_validators'
 import {
   getConnectedUserIdOrNull,
-  getUserIdOrNull,
   requireConnectedUserId,
 } from '../auth'
 import {
@@ -261,16 +260,18 @@ export const getOrCreateDmRoom = mutation({
       RATE_STANDARD,
       'Too many room requests. Please slow down and try again.',
     )
-    await ensureSocialProfileDoc(ctx, ownerId)
-    await ensureSocialProfileDoc(ctx, args.otherOwnerId)
     if (ownerId === args.otherOwnerId) {
       throw new ConvexError({
         code: 'INVALID_ARGUMENT',
         message: 'Cannot create a DM with yourself',
       })
     }
+    // Verify friendship before ensuring profiles so this mutation can't be
+    // used to mint profile rows for arbitrary ownerId strings.
     const relationship = await loadRelationship(ctx, ownerId, args.otherOwnerId)
     ensureRelationshipIsAccepted(relationship)
+    await ensureSocialProfileDoc(ctx, ownerId)
+    await ensureSocialProfileDoc(ctx, args.otherOwnerId)
 
     const roomKey = `dm:${getRelationshipKey(ownerId, args.otherOwnerId)}`
     const room = await ctx.db
@@ -423,27 +424,31 @@ export const addGroupMembers = mutation({
       ),
     )
 
-    for (const memberOwnerId of [...new Set(args.memberOwnerIds)]) {
-      if (memberOwnerId === ownerId) {
-        continue
-      }
+    const candidateOwnerIds = [...new Set(args.memberOwnerIds)].filter(
+      (memberOwnerId) => memberOwnerId !== ownerId,
+    )
+    for (const memberOwnerId of candidateOwnerIds) {
       if (!acceptedOwnerIds.has(memberOwnerId)) {
         throw new ConvexError({
           code: 'FORBIDDEN',
           message: 'Only friends can be invited to a group',
         })
       }
-      const existing = await ctx.db
-        .query('social_room_members')
-        .withIndex('by_roomId_and_ownerId', (q) =>
-          q.eq('roomId', args.roomId).eq('ownerId', memberOwnerId),
-        )
-        .unique()
-      if (!existing) {
-        await createRoomMembership(ctx, args.roomId, memberOwnerId, 'member')
-        await attachMemberToActiveSession(ctx, args.roomId, memberOwnerId)
-      }
     }
+    await Promise.all(
+      candidateOwnerIds.map(async (memberOwnerId) => {
+        const existing = await ctx.db
+          .query('social_room_members')
+          .withIndex('by_roomId_and_ownerId', (q) =>
+            q.eq('roomId', args.roomId).eq('ownerId', memberOwnerId),
+          )
+          .unique()
+        if (!existing) {
+          await createRoomMembership(ctx, args.roomId, memberOwnerId, 'member')
+          await attachMemberToActiveSession(ctx, args.roomId, memberOwnerId)
+        }
+      }),
+    )
 
     await ctx.db.patch(args.roomId, {
       updatedAt: Date.now(),
@@ -483,6 +488,15 @@ export const markRoomRead = mutation({
         code: 'FORBIDDEN',
         message: GLOBAL_CHAT_DISABLED_ERROR,
       })
+    }
+    if (args.messageId) {
+      const message = await ctx.db.get(args.messageId)
+      if (!message || message.roomId !== args.roomId) {
+        throw new ConvexError({
+          code: 'INVALID_ARGUMENT',
+          message: 'messageId does not belong to this room',
+        })
+      }
     }
     await ctx.db.patch(membership._id, {
       ...(args.messageId ? { lastReadMessageId: args.messageId } : {}),

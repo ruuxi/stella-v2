@@ -238,20 +238,37 @@ export const getMyProfile = query({
 });
 
 /**
- * Public lookup by `@username`. Returned shape is the full profile validator
- * minus internal fields — same identifier the user types into the friend-add
- * input, used as the store author handle, and renders on profile cards.
+ * Public lookup by `@username` — used as the store author handle and on
+ * profile cards. Returns only display fields: `ownerId` (the caller's auth
+ * tokenIdentifier), read-state, and partner metadata stay server-side.
+ * Friend requests resolve usernames server-side and never need the ownerId.
  */
+const publicProfileValidator = v.object({
+  username: v.string(),
+  avatarUrl: v.optional(v.string()),
+  badge: v.optional(socialBadgeValidator),
+  createdAt: v.number(),
+});
+
 export const getProfileByUsername = query({
   args: { username: v.string() },
-  returns: optionalProfileValidator,
+  returns: v.union(v.null(), publicProfileValidator),
   handler: async (ctx, args) => {
     const username = args.username.trim().toLowerCase();
     if (!username) return null;
-    return await ctx.db
+    const profile = await ctx.db
       .query("social_profiles")
       .withIndex("by_username", (q) => q.eq("username", username))
       .unique();
+    if (!profile) return null;
+    return {
+      username: profile.username,
+      ...(profile.avatarUrl !== undefined
+        ? { avatarUrl: profile.avatarUrl }
+        : {}),
+      ...(profile.badge !== undefined ? { badge: profile.badge } : {}),
+      createdAt: profile.createdAt,
+    };
   },
 });
 

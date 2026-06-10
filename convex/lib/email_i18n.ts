@@ -264,19 +264,28 @@ const STRINGS: Record<string, EmailStrings> = {
   },
 };
 
+// Own-property lookup so user-controlled locale strings like "constructor"
+// can't resolve to Object.prototype members.
+const lookupStrings = (key: string): EmailStrings | undefined =>
+  Object.prototype.hasOwnProperty.call(STRINGS, key) ? STRINGS[key] : undefined;
+
 export const getEmailStrings = (
   locale: string | null | undefined,
 ): EmailStrings => {
   if (!locale) return STRINGS.en;
   const trimmed = locale.trim();
   if (!trimmed) return STRINGS.en;
-  if (STRINGS[trimmed]) return STRINGS[trimmed];
+  const exact = lookupStrings(trimmed);
+  if (exact) return exact;
   // Match `pt-BR` → `pt`, `zh-CN` → `zh-Hans`, etc.
   if (trimmed.toLowerCase().startsWith("zh")) {
     return STRINGS["zh-Hans"];
   }
   const primary = trimmed.split(/[-_]/)[0];
-  if (primary && STRINGS[primary]) return STRINGS[primary];
+  if (primary) {
+    const byPrimary = lookupStrings(primary);
+    if (byPrimary) return byPrimary;
+  }
   return STRINGS.en;
 };
 
@@ -284,5 +293,7 @@ export const getEmailStrings = (
  * RTL-aware HTML lang/dir attributes for the email's `<html>` tag.
  * The body still inherits the document direction via parent attributes.
  */
-export const emailDir = (locale: string | null | undefined): "ltr" | "rtl" =>
-  locale === "ar" || locale === "he" ? "rtl" : "ltr";
+export const emailDir = (locale: string | null | undefined): "ltr" | "rtl" => {
+  const primary = locale?.trim().split(/[-_]/)[0]?.toLowerCase();
+  return primary === "ar" || primary === "he" ? "rtl" : "ltr";
+};

@@ -199,7 +199,26 @@ export const _deleteConversationBatch = internalMutation({
       return { hasMore: true };
     }
 
-    // Phase B'': pending_device_selections is a child table keyed by
+    // Phase B'': attachments reference both the conversation and a
+    // `_storage` blob. Delete the blob alongside each row so reset doesn't
+    // leave dangling FK references or leak storage objects.
+    const attachments = await ctx.db
+      .query("attachments")
+      .withIndex("by_conversationId", (q) =>
+        q.eq("conversationId", conversationId),
+      )
+      .take(BATCH);
+    if (attachments.length > 0) {
+      await Promise.all(
+        attachments.map(async (row) => {
+          await ctx.storage.delete(row.storageKey);
+          await ctx.db.delete(row._id);
+        }),
+      );
+      return { hasMore: true };
+    }
+
+    // Phase B''': pending_device_selections is a child table keyed by
     // conversationId. Drain it before deleting the conversation row so we
     // don't leave dangling FK references.
     const pendingSelections = await ctx.db

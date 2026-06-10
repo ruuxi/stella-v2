@@ -175,6 +175,7 @@ export const claimRemoteTurn = mutation({
 
     const request = await findRemoteTurnRequest(ctx, args.requestId);
     if (!request || request.type !== "remote_turn_request") return null;
+    if (request.conversationId !== args.conversationId) return null;
     if (
       request.requestState === "claimed" ||
       request.requestState === "fulfilled" ||
@@ -281,6 +282,12 @@ export const completeRemoteTurn = mutation({
       throw new ConvexError({
         code: "INVALID_ARGUMENT",
         message: "Invalid or missing remote_turn_request",
+      });
+    }
+    if (request.conversationId !== args.conversationId) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Request does not belong to this conversation",
       });
     }
     if (
@@ -681,7 +688,7 @@ async function deliverToConnectorCore(
       internal.channels.connector_delivery.getRemoteTurnState,
       { requestId: args.requestId },
     )) as "pending" | "claimed" | "fulfilled" | "cancelled" | null;
-    if (requestState === "cancelled") return;
+    if (requestState === "cancelled" || requestState === "fulfilled") return;
 
     await dispatchConnectorDelivery(ctx, {
       requestId: args.requestId,
@@ -1091,6 +1098,14 @@ async function deliverSlack(
       res.status,
       await res.text(),
     );
+  } else {
+    const data = (await res.json().catch(() => null)) as {
+      ok?: boolean;
+      error?: string;
+    } | null;
+    if (data?.ok === false) {
+      console.error("[connector_delivery] Slack API error:", data.error);
+    }
   }
 }
 async function deliverTelegram(
@@ -1479,14 +1494,14 @@ async function getLatestAssistantText(
   ctx: Pick<ActionCtx, "runQuery">,
   conversationId: Id<"conversations">,
 ): Promise<string> {
-  const events = (await ctx.runQuery(internal.events.listEventsSince, {
+  const events = (await ctx.runQuery(internal.events.listRecentMessages, {
     conversationId,
     limit: 20,
   })) as Array<{ type: string; payload: Record<string, unknown> }> | null;
 
   if (!events) return EMPTY_RESPONSE_TEXT;
 
-  // listEventsSince returns asc order — walk backwards to find the latest
+  // listRecentMessages returns asc order — walk backwards to find the latest
   for (let i = events.length - 1; i >= 0; i--) {
     if (events[i].type === "assistant_message") {
       return (events[i].payload?.text as string) ?? EMPTY_RESPONSE_TEXT;

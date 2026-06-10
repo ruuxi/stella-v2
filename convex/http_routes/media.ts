@@ -835,11 +835,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           }
         } catch (error) {
           console.error("[media/generate] Unhandled error:", error);
-          return errorResponse(
-            500,
-            `Media generation error: ${(error as Error).message || "Unknown error"}`,
-            origin,
-          );
+          return errorResponse(500, "Media generation error", origin);
         }
       }),
     ),
@@ -878,9 +874,13 @@ export const registerMediaRoutes = (http: HttpRouter) => {
         if (!accepted)
           return jsonResponse({ received: true, duplicate: true }, 200, origin);
 
-        const webhookJob = jobId
-          ? await ctx.runQuery(internal.media_jobs.getWebhookJob, { jobId })
-          : null;
+        const webhookJob =
+          jobId || requestId
+            ? await ctx.runQuery(internal.media_jobs.getWebhookJob, {
+                ...(jobId ? { jobId } : {}),
+                ...(requestId ? { providerRequestId: requestId } : {}),
+              })
+            : null;
         let output =
           upstreamStatus === "OK" && payload.payload !== undefined
             ? payload.payload
@@ -964,13 +964,13 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           ...(error ? { error: error as never } : {}),
           receivedAt: Date.now(),
         });
-        if (meteredBilling && webhookJob && jobId) {
+        if (meteredBilling && webhookJob) {
           await ctx.scheduler.runAfter(
             0,
             internal.billing.recordMediaCompletedUsage,
             {
               ownerId: webhookJob.ownerId,
-              jobId,
+              jobId: webhookJob.jobId,
               ...(requestId ? { providerRequestId: requestId } : {}),
               endpointId: meteredBilling.endpointId,
               costMicroCents: meteredBilling.costMicroCents,

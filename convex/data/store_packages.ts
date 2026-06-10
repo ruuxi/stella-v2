@@ -817,23 +817,54 @@ export const listPublicPackages = query({
       Math.max(args.paginationOpts.numItems, 1),
       PUBLIC_BROWSE_PAGE_SIZE,
     );
+    // Visibility is part of the index range so non-public rows are never
+    // scanned. Legacy rows with `visibility: undefined` are handled by
+    // `backfillPackageVisibility` (run once after deploy), matching how
+    // `listNewPublicPackages` and the promoted list already query.
     const indexed = args.category
       ? ctx.db
           .query("store_packages")
-          .withIndex("by_category_and_updatedAt", (q) =>
-            q.eq("category", args.category!),
+          .withIndex("by_visibility_and_category_and_updatedAt", (q) =>
+            q.eq("visibility", "public").eq("category", args.category!),
           )
-      : ctx.db.query("store_packages").withIndex("by_updatedAt");
-    const result = await indexed.order("desc").paginate({
+      : ctx.db
+          .query("store_packages")
+          .withIndex("by_visibility_and_updatedAt", (q) =>
+            q.eq("visibility", "public"),
+          );
+    return await indexed.order("desc").paginate({
       cursor: args.paginationOpts.cursor,
       numItems,
     });
-    return {
-      ...result,
-      page: result.page.filter(
-        (pkg) => effectiveVisibility(pkg.visibility) === "public",
-      ),
-    };
+  },
+});
+
+/**
+ * One-shot backfill: stamps `visibility: "public"` onto legacy rows that
+ * predate the field (its absence has always meant public). Run with
+ * `npx convex run data/store_packages:backfillPackageVisibility` after
+ * deploying the index switch in `listPublicPackages`.
+ */
+export const backfillPackageVisibility = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("store_packages")
+      .paginate({ cursor: args.cursor ?? null, numItems: 100 });
+    for (const pkg of page.page) {
+      if (pkg.visibility === undefined) {
+        await ctx.db.patch(pkg._id, { visibility: "public" });
+      }
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.data.store_packages.backfillPackageVisibility,
+        { cursor: page.continueCursor },
+      );
+    }
+    return null;
   },
 });
 
@@ -1100,16 +1131,42 @@ export const deletePackage = mutation({
         message: "Add-on not found",
       });
     }
+    await ctx.db.delete(pkg._id);
+    await ctx.scheduler.runAfter(
+      0,
+      internal.data.store_packages.deletePackageReleasesBatch,
+      { packageRef: pkg._id },
+    );
+    return null;
+  },
+});
+
+// Release documents carry blueprints up to MAX_BLUEPRINT_LENGTH, so a small
+// batch keeps each delete transaction comfortably under the read limit.
+const DELETE_RELEASES_BATCH_SIZE = 8;
+
+export const deletePackageReleasesBatch = internalMutation({
+  args: { packageRef: v.id("store_packages") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
     const releases = await ctx.db
       .query("store_package_releases")
       .withIndex("by_packageRef_and_releaseNumber", (q) =>
-        q.eq("packageRef", pkg._id),
+        q.eq("packageRef", args.packageRef),
       )
-      .take(1024);
-    for (const release of releases) {
-      await ctx.db.delete(release._id);
+      .take(DELETE_RELEASES_BATCH_SIZE);
+    await Promise.all(
+      releases.map((release) =>
+        ctx.db.delete("store_package_releases", release._id),
+      ),
+    );
+    if (releases.length === DELETE_RELEASES_BATCH_SIZE) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.data.store_packages.deletePackageReleasesBatch,
+        { packageRef: args.packageRef },
+      );
     }
-    await ctx.db.delete(pkg._id);
     return null;
   },
 });
@@ -1193,6 +1250,9 @@ export const recordPackageInstall = mutation({
     const normalizedPackageId = normalizePackageId(args.packageId);
     const pkg = await getPackageByPackageId(ctx, normalizedPackageId);
     if (!pkg) return null;
+    if (!isDirectLinkAccessible(pkg.visibility) && pkg.ownerId !== ownerId) {
+      return null;
+    }
     await ctx.db.patch(pkg._id, {
       installCount: (pkg.installCount ?? 0) + 1,
     });

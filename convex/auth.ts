@@ -44,14 +44,29 @@ const getOptionalEnv = (name: string) => {
 };
 
 /**
+ * The issuer (`iss`) the Convex Better Auth plugin stamps on every JWT. It is
+ * hardcoded to `CONVEX_SITE_URL` (see `@convex-dev/better-auth`
+ * `auth-config.ts` and `plugins/convex`), and Convex derives
+ * `identity.tokenIdentifier` as `${iss}|${sub}`. This is intentionally NOT
+ * `getAuthBaseUrl()`: `STELLA_AUTH_BASE_URL` only customizes the public auth
+ * base URL used for magic-link and OAuth callback URLs and never reaches the
+ * token's `iss` claim.
+ */
+export const getTokenIssuer = () => getRequiredEnv("CONVEX_SITE_URL");
+
+/**
  * Map a Better Auth `user.id` to the Convex `UserIdentity.tokenIdentifier`
- * shape (`${issuer}|${subject}`). Use this anywhere we have a Better Auth
- * `user.id` but no live `UserIdentity` (lifecycle hooks, JWT payload builder,
- * Stripe webhooks, etc.) so the value matches what `requireUserId` and friends
- * return inside Convex functions.
+ * shape (`${issuer}|${subject}`, where `subject` is the user id). Use this
+ * anywhere we have a Better Auth `user.id` but no live `UserIdentity`
+ * (lifecycle hooks, Stripe webhooks, etc.) so the value matches what
+ * `requireUserId` and friends return inside Convex functions.
+ *
+ * Must be built from the token issuer (`CONVEX_SITE_URL`), not the auth base
+ * URL — using `STELLA_AUTH_BASE_URL` here mints a second, orphaned ownerId per
+ * user that never matches the runtime identity.
  */
 export const tokenIdentifierForBetterAuthUserId = (userId: string) =>
-  `${getAuthBaseUrl()}|${userId}`;
+  `${getTokenIssuer()}|${userId}`;
 
 export const getAuthBaseUrl = () =>
   getOptionalEnv("STELLA_AUTH_BASE_URL") ?? getRequiredEnv("CONVEX_SITE_URL");

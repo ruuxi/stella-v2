@@ -43,6 +43,15 @@ const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
   openai: "openai/",
 };
 
+const STELLA_RELAY_PROBE_SECRET_ENV = "STELLA_RELAY_PROBE_SECRET";
+const STELLA_RELAY_PROBE_SECRET_HEADER = "x-stella-relay-probe-secret";
+const STELLA_RELAY_PROBE_OWNER_ID = "probe:stella-relay";
+const FIREWORKS_KIMI_K2P6_SERVICE_TIERS = new Set([
+  "standard",
+  "priority",
+  "fast",
+]);
+
 export function toProviderNativeModel(
   model: string,
   provider: ManagedGatewayProvider,
@@ -83,6 +92,96 @@ export async function authorizeStellaRelayRequest(args: {
   relayProvider?: ManagedGatewayProvider;
 }): Promise<AuthorizedStellaRequest | Response> {
   const { ctx, request, relayProvider } = args;
+  const probeSecret = process.env[STELLA_RELAY_PROBE_SECRET_ENV]?.trim();
+  const probeHeader = request.headers
+    .get(STELLA_RELAY_PROBE_SECRET_HEADER)
+    ?.trim();
+  if (probeSecret && probeHeader === probeSecret) {
+    const requestJson = await parseRequestJson(request);
+    if (!requestJson) {
+      return stellaProviderErrorResponse(
+        400,
+        "Stella request body must be valid JSON",
+        request,
+      );
+    }
+
+    const agentType =
+      request.headers.get("X-Stella-Agent-Type")?.trim() ||
+      (typeof requestJson.agentType === "string" &&
+      requestJson.agentType.trim().length > 0
+        ? requestJson.agentType.trim()
+        : undefined) ||
+      "general";
+
+    let selection: ReturnType<typeof resolveRequestedStellaModel>;
+    try {
+      selection = resolveRequestedStellaModel(agentType, requestJson, "ultra");
+    } catch (error) {
+      return stellaProviderErrorResponse(
+        400,
+        error instanceof Error
+          ? error.message
+          : "Invalid Stella model selection",
+        request,
+      );
+    }
+
+    const { requestedModel, resolvedModel, config } = selection;
+    const resolvedProvider = resolveManagedGatewayProvider({
+      model: resolvedModel,
+      configuredProvider: config.managedGatewayProvider,
+    });
+    if (relayProvider !== undefined && resolvedProvider !== relayProvider) {
+      return stellaProviderErrorResponse(
+        400,
+        `Stella model ${requestedModel} must use the ${resolvedProvider} relay`,
+        request,
+      );
+    }
+
+    const managedGateway = resolveManagedGatewayConfig({
+      model: resolvedModel,
+      configuredProvider: config.managedGatewayProvider,
+    });
+    const apiKey = process.env[managedGateway.apiKeyEnvVar]?.trim();
+    if (!apiKey) {
+      return stellaProviderErrorResponse(
+        503,
+        "Stella upstream gateway is not configured",
+        request,
+      );
+    }
+
+    const requestedServiceTier =
+      typeof requestJson.service_tier === "string"
+        ? requestJson.service_tier.trim()
+        : undefined;
+    const serviceTier =
+      resolvedProvider === "fireworks" &&
+      requestedServiceTier &&
+      FIREWORKS_KIMI_K2P6_SERVICE_TIERS.has(requestedServiceTier)
+        ? requestedServiceTier
+        : config.serviceTier;
+
+    console.log(
+      `[stella-provider:probe] agent=${agentType} | requestedModel=${requestedModel} | resolvedModel=${resolvedModel} | gateway=${resolvedProvider} | serviceTier=${serviceTier ?? "default"}`,
+    );
+
+    return {
+      ownerId: STELLA_RELAY_PROBE_OWNER_ID,
+      agentType,
+      relayProvider: resolvedProvider,
+      requestJson: requestJson as StellaRequestBody,
+      requestedModel,
+      resolvedModel,
+      upstreamModel: toProviderNativeModel(resolvedModel, resolvedProvider),
+      serviceTier,
+      apiKey,
+      tokenEstimate: estimateRequestTokens(requestJson),
+    };
+  }
+
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     return stellaProviderErrorResponse(401, "Unauthorized", request);

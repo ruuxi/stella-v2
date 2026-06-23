@@ -16,6 +16,10 @@ export type SearchHit = {
   title: string;
   url: string;
   snippet: string;
+  /** Representative thumbnail/hero image URL, when Exa returns one. */
+  image?: string;
+  /** Site favicon URL, when Exa returns one. */
+  favicon?: string;
 };
 
 export type WebSearchResponse = {
@@ -97,6 +101,8 @@ export const executeWebSearch = async (
         url?: string;
         highlights?: string[];
         text?: string;
+        image?: string;
+        favicon?: string;
       }>;
     };
 
@@ -104,10 +110,16 @@ export const executeWebSearch = async (
       const snippet = result.highlights?.length
         ? result.highlights.join(" ... ")
         : (result.text ?? "");
+      const image =
+        typeof result.image === "string" ? result.image.trim() : "";
+      const favicon =
+        typeof result.favicon === "string" ? result.favicon.trim() : "";
       return {
         title: (result.title ?? "(no title)").trim(),
         url: (result.url ?? "").trim(),
         snippet: snippet.trim().slice(0, MAX_WEB_SEARCH_SNIPPET_CHARS),
+        ...(image ? { image } : {}),
+        ...(favicon ? { favicon } : {}),
       };
     });
 

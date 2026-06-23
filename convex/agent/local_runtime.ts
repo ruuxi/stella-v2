@@ -116,6 +116,8 @@ export const webSearch = action({
         title: v.string(),
         url: v.string(),
         snippet: v.string(),
+        image: v.optional(v.string()),
+        favicon: v.optional(v.string()),
       }),
     ),
   }),

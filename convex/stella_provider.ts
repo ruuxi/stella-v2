@@ -13,10 +13,7 @@ import {
   type ManagedGatewayProvider,
 } from "./lib/managed_gateway";
 import { resolveManagedModelAccess } from "./lib/managed_billing";
-import {
-  computeUsageCostMicroCents,
-  getFireworksKimiK2P6ServiceTierPrice,
-} from "./lib/billing_money";
+import { computeUsageCostMicroCents } from "./lib/billing_money";
 import {
   STELLA_MODEL_CATALOG_UPDATED_AT,
   listStellaCatalogModels,
@@ -466,10 +463,6 @@ export const stellaProviderRelay = (
                 cachedInputTokens: usage.cachedInputTokens,
                 cacheWriteInputTokens: usage.cacheWriteInputTokens,
                 reasoningTokens: usage.reasoningTokens,
-                price: getFireworksKimiK2P6ServiceTierPrice(
-                  authorized.resolvedModel,
-                  authorized.serviceTier,
-                ) ?? undefined,
               })
             : undefined;
           await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {

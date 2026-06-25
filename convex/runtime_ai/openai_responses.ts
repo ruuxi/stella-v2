@@ -1,7 +1,6 @@
 import OpenAI from "openai";
 import type { ResponseCreateParamsStreaming } from "openai/resources/responses/responses.js";
 import { AssistantMessageEventStream } from "./event_stream";
-import { applyFireworksKimiK2P6ServiceTierPricing } from "./fireworks_pricing";
 import { headersToRecord } from "./headers";
 import { supportsXhigh } from "./model_utils";
 import {
@@ -199,7 +198,7 @@ export const streamOpenAIResponses: StreamFunction<
       await processResponsesStream(openaiStream, output, stream, model, {
         serviceTier: options?.serviceTier,
         applyServiceTierPricing: (usage, serviceTier) =>
-          applyServiceTierPricing(usage, serviceTier, model),
+          applyServiceTierPricing(usage, serviceTier),
       });
 
       if (options?.signal?.aborted) {
@@ -379,17 +378,7 @@ function getServiceTierCostMultiplier(
 function applyServiceTierPricing(
   usage: Usage,
   serviceTier: string | undefined,
-  model: Pick<Model<"openai-responses">, "id" | "provider">,
 ) {
-  if (
-    applyFireworksKimiK2P6ServiceTierPricing(
-      usage,
-      model,
-      serviceTier,
-    )
-  ) {
-    return;
-  }
   const multiplier = getServiceTierCostMultiplier(serviceTier);
   if (multiplier === 1) {
     return;

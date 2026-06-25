@@ -13,21 +13,23 @@ import {
 } from "../../convex/stella_models";
 
 describe("managed model config", () => {
-  it("routes Light through OpenRouter", () => {
+  it("routes Light through Fireworks", () => {
     const light = getModeConfig("light");
 
-    expect(light.model).toBe("deepseek/deepseek-v4-flash");
-    expect(light.managedGatewayProvider).toBe("openrouter");
-    expect(light.providerOptions?.gateway?.order).toEqual(["openrouter"]);
+    expect(light.model).toBe("accounts/fireworks/models/deepseek-v4-flash");
+    expect(light.managedGatewayProvider).toBe("fireworks");
+    expect(light.providerOptions?.gateway?.order).toEqual(["fireworks"]);
   });
 
   it("uses Light as the fallback for Designer", () => {
     const designer = getModeConfig("designer");
 
-    expect(designer.fallback).toBe("deepseek/deepseek-v4-flash");
-    expect(designer.fallbackManagedGatewayProvider).toBe("openrouter");
+    expect(designer.fallback).toBe(
+      "accounts/fireworks/models/deepseek-v4-flash",
+    );
+    expect(designer.fallbackManagedGatewayProvider).toBe("fireworks");
     expect(designer.fallbackProviderOptions?.gateway?.order).toEqual([
-      "openrouter",
+      "fireworks",
     ]);
   });
 
@@ -99,13 +101,13 @@ describe("managed model config", () => {
     });
     expect(defaults.find((entry) => entry.agentType === "chronicle")).toMatchObject({
       model: "stella/default",
-      resolvedModel: "deepseek/deepseek-v4-flash",
+      resolvedModel: "accounts/fireworks/models/deepseek-v4-flash",
     });
   });
 
   it("keeps the Light model id in the managed model sync list", () => {
     expect(listManagedModelIds()).toContain(
-      "deepseek/deepseek-v4-flash",
+      "accounts/fireworks/models/deepseek-v4-flash",
     );
   });
 });

@@ -7,7 +7,6 @@ import {
   buildOpenAICompletionsParams,
   mapStopReason,
 } from "./openai_completions";
-import { applyFireworksKimiK2P6ServiceTierPricing } from "./fireworks_pricing";
 import {
   DEFAULT_PROVIDER_RETRY_ATTEMPTS,
   isRetryableProviderError,
@@ -839,11 +838,6 @@ async function completeManagedOpenAICompletions(args: {
   }
 
   const usage = parseOpenAIChatUsage(response.usage, model);
-  applyFireworksKimiK2P6ServiceTierPricing(
-    usage,
-    model,
-    args.request?.serviceTier ?? args.config.serviceTier,
-  );
 
   return {
     role: "assistant",

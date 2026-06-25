@@ -146,10 +146,9 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   },
 
   priority: {
-    model: "accounts/fireworks/models/kimi-k2p6",
+    model: "accounts/fireworks/models/kimi-k2p7-code",
     fallbackMode: "standard",
     managedGatewayProvider: "fireworks",
-    serviceTier: "priority",
     temperature: 1.0,
     providerOptions: {
       openai: {
@@ -160,21 +159,14 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   },
 
   light: {
-    model: "deepseek/deepseek-v4-flash",
-    managedGatewayProvider: "openrouter",
+    model: "accounts/fireworks/models/deepseek-v4-flash",
+    managedGatewayProvider: "fireworks",
     temperature: 1.0,
     providerOptions: {
       openai: {
         reasoningEffort: "medium",
       },
-      // OpenRouter routing: pin to OpenRouter and deny third-party data
-      // collection — privacy posture for the free tier (Stella's
-      // marketing copy promises "files stay local, we don't store
-      // anything on our servers").
-      gateway: {
-        order: ["openrouter"],
-        data_collection: "deny",
-      },
+      ...gatewayOptions("fireworks"),
     },
   },
 

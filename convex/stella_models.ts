@@ -15,7 +15,7 @@ export const STELLA_PROVIDER = "stella";
 export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
 // Bump this whenever Stella default/model mappings change. Desktop subscribes
 // to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 5, 23, 9, 30);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 5, 24, 20, 30);
 
 export type StellaCatalogModel = {
   id: string;
@@ -40,6 +40,8 @@ export type StellaDefaultEntry = {
 };
 
 const DISPLAY_NAMES: Record<string, string> = {
+  "accounts/fireworks/models/deepseek-v4-flash": "DeepSeek V4 Flash",
+  "accounts/fireworks/models/kimi-k2p7-code": "Kimi K2.7 Code",
   "anthropic/claude-opus-4.8": "Claude Opus 4.8",
   "anthropic/claude-opus-4.5": "Claude Opus 4.5",
   "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",

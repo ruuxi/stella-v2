@@ -162,7 +162,6 @@ import type * as rate_limits from "../rate_limits.js";
 import type * as reset from "../reset.js";
 import type * as runtime_ai_anthropic from "../runtime_ai/anthropic.js";
 import type * as runtime_ai_event_stream from "../runtime_ai/event_stream.js";
-import type * as runtime_ai_fireworks_pricing from "../runtime_ai/fireworks_pricing.js";
 import type * as runtime_ai_google from "../runtime_ai/google.js";
 import type * as runtime_ai_headers from "../runtime_ai/headers.js";
 import type * as runtime_ai_json_parse from "../runtime_ai/json_parse.js";
@@ -380,7 +379,6 @@ declare const fullApi: ApiFromModules<{
   reset: typeof reset;
   "runtime_ai/anthropic": typeof runtime_ai_anthropic;
   "runtime_ai/event_stream": typeof runtime_ai_event_stream;
-  "runtime_ai/fireworks_pricing": typeof runtime_ai_fireworks_pricing;
   "runtime_ai/google": typeof runtime_ai_google;
   "runtime_ai/headers": typeof runtime_ai_headers;
   "runtime_ai/json_parse": typeof runtime_ai_json_parse;

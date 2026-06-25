@@ -1,5 +1,3 @@
-import { getFireworksKimiK2P6ServiceTierPrice } from "./billing_money";
-
 type ModelsDevCost = {
   input?: number;
   output?: number;
@@ -163,16 +161,7 @@ export const buildManagedModelPriceEntries = (args: {
       continue;
     }
 
-    const hardcodedCost = getFireworksKimiK2P6ServiceTierPrice(model, "standard");
-    const cost = hardcodedCost
-      ? {
-          input: hardcodedCost.inputPerMillionUsd,
-          output: hardcodedCost.outputPerMillionUsd,
-          cache_read: hardcodedCost.cacheReadPerMillionUsd,
-          cache_write: hardcodedCost.cacheWritePerMillionUsd,
-          reasoning: hardcodedCost.reasoningPerMillionUsd,
-        }
-      : resolved.entry.cost;
+    const cost = resolved.entry.cost;
 
     entries.push({
       model,

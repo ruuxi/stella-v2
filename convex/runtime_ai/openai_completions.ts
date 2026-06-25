@@ -9,7 +9,6 @@ import type {
   ChatCompletionToolMessageParam,
 } from "openai/resources/chat/completions.js";
 import { AssistantMessageEventStream } from "./event_stream";
-import { applyFireworksKimiK2P6ServiceTierPricing } from "./fireworks_pricing";
 import { headersToRecord } from "./headers";
 import { parseStreamingJson } from "./json_parse";
 import { supportsXhigh } from "./model_utils";
@@ -70,14 +69,6 @@ export interface OpenAICompletionsOptions extends StreamOptions {
     | { type: "function"; name: string };
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   responseFormat?: unknown;
-}
-
-function applyServiceTierPricing(
-  usage: Usage,
-  model: Model<"openai-completions">,
-  serviceTier: string | undefined,
-) {
-  applyFireworksKimiK2P6ServiceTierPricing(usage, model, serviceTier);
 }
 
 function normalizeChatToolChoice(
@@ -272,7 +263,6 @@ export const streamOpenAICompletions: StreamFunction<
 
         if (chunk.usage) {
           output.usage = parseOpenAIChatUsage(chunk.usage, model);
-          applyServiceTierPricing(output.usage, model, options?.serviceTier);
         }
 
         const choice = chunk.choices?.[0];
@@ -286,7 +276,6 @@ export const streamOpenAICompletions: StreamFunction<
             choice.usage as OpenAIChatUsagePayload,
             model,
           );
-          applyServiceTierPricing(output.usage, model, options?.serviceTier);
         }
 
         if (choice.finish_reason) {

@@ -1,25 +1,18 @@
 import {
-  getAgentModelMode,
-  getModeConfig,
+  canOverrideStellaModel,
   getModelConfig,
-  isStellaModelAllowedForAudience,
   LOCKED_AGENT_TYPES,
-  type ModelMode,
   type ManagedModelAudience,
   type ModelConfig,
 } from "../agent/model";
 import { inferManagedGatewayProviderFromModel } from "../lib/managed_gateway";
 import {
-  isStellaModel,
   parseStellaModelSelection,
-  resolveStellaModelSelection,
   STELLA_DEFAULT_MODEL,
-  toStellaModeModelId,
 } from "../stella_models";
 import type { ResolvedStellaModelSelection, StellaRequestBody } from "./shared";
 import type { TokenEstimate } from "./billing";
 
-const DEFAULT_STELLA_MODE = "standard";
 const NON_VISION_USER_IMAGE_PLACEHOLDER =
   "(image omitted: model does not support images)";
 const NON_VISION_TOOL_IMAGE_PLACEHOLDER =
@@ -31,11 +24,15 @@ const IMAGE_CAPABLE_MANAGED_MODEL_PREFIXES = [
   "openai/",
 ] as const;
 
-const defaultModeForAgent = (
-  agentType: string,
-  audience: ManagedModelAudience,
-): ModelMode => getAgentModelMode(agentType, audience) ?? DEFAULT_STELLA_MODE;
-
+/**
+ * Map the client's requested model to a concrete managed config.
+ *
+ * The default path (empty / `stella/default`) — and any request from a
+ * locked agent or a restricted-tier audience that can't override — resolves
+ * to the backend-chosen model for the agent + audience. An explicit
+ * `stella/<provider>/<model>` override is only honored for audiences that
+ * may override; it's coerced back to the default otherwise.
+ */
 export function resolveRequestedStellaModel(
   agentType: string,
   requestBody: StellaRequestBody,
@@ -43,44 +40,23 @@ export function resolveRequestedStellaModel(
 ): ResolvedStellaModelSelection {
   const trimmed =
     typeof requestBody.model === "string" ? requestBody.model.trim() : "";
-  const defaultModel = toStellaModeModelId(
-    defaultModeForAgent(agentType, audience),
-  );
-  const clientRequestedModel =
-    !trimmed || trimmed === STELLA_DEFAULT_MODEL ? defaultModel : trimmed;
 
-  if (
-    isStellaModel(clientRequestedModel) &&
-    !parseStellaModelSelection(clientRequestedModel)
-  ) {
-    throw new Error(`Unsupported Stella model selection: ${clientRequestedModel}`);
-  }
-
-  const requestedModel =
+  const parsed = parseStellaModelSelection(trimmed);
+  const wantsOverride =
+    parsed?.kind === "upstream" &&
     !LOCKED_AGENT_TYPES.has(agentType) &&
-    isStellaModelAllowedForAudience(clientRequestedModel, audience)
-      ? clientRequestedModel
-      : defaultModel;
+    canOverrideStellaModel(audience);
 
-  if (!isStellaModel(requestedModel)) {
-    throw new Error(`Unsupported Stella model selection: ${requestedModel}`);
-  }
-
-  const parsedModel = parseStellaModelSelection(requestedModel);
-  if (!parsedModel) {
-    throw new Error(`Unsupported Stella model selection: ${requestedModel}`);
-  }
-
-  if (parsedModel?.kind === "mode") {
-    const config = getModeConfig(parsedModel.mode, audience);
+  if (!wantsOverride) {
+    const config = getModelConfig(agentType, audience);
     return {
-      requestedModel,
+      requestedModel: STELLA_DEFAULT_MODEL,
       resolvedModel: config.model,
       config: withoutFallback(config),
     };
   }
 
-  const resolvedModel = resolveStellaModelSelection(requestedModel, audience);
+  const resolvedModel = parsed.model;
   const inferredProvider = inferManagedGatewayProviderFromModel(resolvedModel);
   const config: ModelConfig = {
     ...withoutFallback(getModelConfig(agentType, audience)),
@@ -88,7 +64,7 @@ export function resolveRequestedStellaModel(
     managedGatewayProvider: inferredProvider,
   };
   return {
-    requestedModel,
+    requestedModel: trimmed,
     resolvedModel,
     config,
   };

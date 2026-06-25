@@ -8,12 +8,15 @@
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
+  canOverrideStellaModel,
   getModelConfig,
-  isStellaModelAllowedForAudience,
   LOCKED_AGENT_TYPES,
   type ManagedModelAudience,
 } from "./model";
-import { resolveStellaModelSelection } from "../stella_models";
+import {
+  resolveStellaModelSelection,
+  STELLA_DEFAULT_MODEL,
+} from "../stella_models";
 import { resolveManagedGatewayProvider, type ManagedGatewayProvider } from "../lib/managed_gateway";
 import {
   assertManagedUsageAllowed,
@@ -107,9 +110,10 @@ export async function resolveModelConfig(
   const overrideModel =
     requestedOverride &&
     requestedOverride.startsWith("stella/") &&
+    requestedOverride !== STELLA_DEFAULT_MODEL &&
     !LOCKED_AGENT_TYPES.has(agentType) &&
-    isStellaModelAllowedForAudience(requestedOverride, audience)
-      ? resolveStellaModelSelection(requestedOverride, audience)
+    canOverrideStellaModel(audience)
+      ? resolveStellaModelSelection(requestedOverride)
       : null;
   const model = overrideModel || defaults.model;
   const modalitiesInput = await lookupModalitiesInput(ctx, model);

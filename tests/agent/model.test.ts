@@ -52,44 +52,55 @@ describe("managed model config", () => {
     });
   });
 
-  it("publishes Standard's OpenAI routing model in the Stella catalog", () => {
-    expect(listStellaCatalogModels("free").find(
-      (model) => model.id === "stella/standard",
-    )).toMatchObject({
+  it("publishes only real managed models in the Stella catalog (no tier aliases)", () => {
+    const catalog = listStellaCatalogModels("pro");
+
+    expect(catalog.find((model) => model.id === "stella/openai/gpt-5.5")).toMatchObject({
       upstreamModel: "openai/gpt-5.5",
     });
+    // The branded tier aliases are gone — every catalog id is a concrete
+    // managed model (provider/model), never a bare mode like stella/standard.
+    for (const model of catalog) {
+      expect(model.upstreamModel).toContain("/");
+      expect(model.id).toBe(`stella/${model.upstreamModel}`);
+    }
   });
 
-  it("keeps the default sentinel out of direct mode resolution", () => {
-    const legacyDefaultAlias = ["stella", "default"].join("/");
-    expect(() => resolveStellaModelSelection(legacyDefaultAlias, "pro")).toThrow(
-      `Unsupported Stella model selection: ${legacyDefaultAlias}`,
+  it("rejects the default sentinel from direct override resolution", () => {
+    const defaultAlias = ["stella", "default"].join("/");
+    expect(() => resolveStellaModelSelection(defaultAlias)).toThrow(
+      `Unsupported Stella model selection: ${defaultAlias}`,
     );
   });
 
-  it("publishes per-agent defaults without converting Light agents to Standard", () => {
+  it("only lets pro+ audiences pin a catalog model", () => {
+    expect(
+      listStellaCatalogModels("free").every(
+        (model) => model.allowedForAudience === false,
+      ),
+    ).toBe(true);
+    expect(
+      listStellaCatalogModels("go").every(
+        (model) => model.allowedForAudience === false,
+      ),
+    ).toBe(true);
+    expect(
+      listStellaCatalogModels("pro").every(
+        (model) => model.allowedForAudience === true,
+      ),
+    ).toBe(true);
+  });
+
+  it("publishes the opaque default sentinel for every agent's per-tier default", () => {
     const defaults = listStellaDefaultSelections("free");
     expect(defaults.find((entry) => entry.agentType === "orchestrator")).toMatchObject({
-      model: "stella/standard",
+      model: "stella/default",
       resolvedModel: "openai/gpt-5.5",
     });
     expect(defaults.find((entry) => entry.agentType === "chronicle")).toMatchObject({
-      model: "stella/light",
+      model: "stella/default",
       resolvedModel: "deepseek/deepseek-v4-flash",
     });
-  });
-
-  it("exposes Priority only for Pro and higher catalog audiences", () => {
-    const isPriority = (model: { id: string }) =>
-      model.id === "stella/priority";
-
-    expect(listStellaCatalogModels("free").some(isPriority)).toBe(false);
-    expect(listStellaCatalogModels("go").some(isPriority)).toBe(false);
-    expect(listStellaCatalogModels("pro").find(isPriority)).toMatchObject({
-      name: "Stella Priority",
-      upstreamModel: "accounts/fireworks/models/kimi-k2p6",
-    });
-    expect(getModeConfig("priority").serviceTier).toBe("priority");
   });
 
   it("keeps the Light model id in the managed model sync list", () => {

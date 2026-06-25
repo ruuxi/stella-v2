@@ -6,7 +6,7 @@ import {
   resolveRequestedStellaModel,
 } from "../../convex/stella_provider/request";
 import { toProviderNativeModel } from "../../convex/stella_provider/authorization";
-import { getModeConfig } from "../../convex/agent/model";
+import { getModelConfig } from "../../convex/agent/model";
 
 describe("toProviderNativeModel", () => {
   it("strips provider prefix for matching upstream", () => {
@@ -209,47 +209,47 @@ describe("downgradeUnsupportedRequestImages", () => {
 });
 
 describe("resolveRequestedStellaModel", () => {
-  it("resolves a missing chat model through the standard mode", () => {
+  it("resolves a missing chat model through the agent's backend default", () => {
     const resolved = resolveRequestedStellaModel("orchestrator", {}, "pro");
-    expect(resolved.requestedModel).toBe("stella/standard");
-    expect(resolved.resolvedModel).toBe(getModeConfig("standard", "pro").model);
+    expect(resolved.requestedModel).toBe("stella/default");
+    expect(resolved.resolvedModel).toBe(getModelConfig("orchestrator", "pro").model);
     expect(resolved.config.managedGatewayProvider).toBe("openai");
     expect(resolved.config.fallback).toBeUndefined();
   });
 
-  it("preserves Light for agent defaults that are configured as Light", () => {
+  it("resolves to the agent's own default (Light for chronicle)", () => {
     const resolved = resolveRequestedStellaModel("chronicle", {}, "pro");
-    expect(resolved.requestedModel).toBe("stella/light");
-    expect(resolved.resolvedModel).toBe(getModeConfig("light", "pro").model);
+    expect(resolved.requestedModel).toBe("stella/default");
+    expect(resolved.resolvedModel).toBe(getModelConfig("chronicle", "pro").model);
     expect(resolved.config.managedGatewayProvider).toBe("openrouter");
     expect(resolved.config.fallback).toBeUndefined();
   });
 
-  it("treats the default alias like a missing model", () => {
-    const legacyDefaultAlias = ["stella", "default"].join("/");
+  it("treats the explicit default sentinel like a missing model", () => {
+    const defaultAlias = ["stella", "default"].join("/");
     const pro = resolveRequestedStellaModel(
       "orchestrator",
-      { model: legacyDefaultAlias },
+      { model: defaultAlias },
       "pro",
     );
-    expect(pro.requestedModel).toBe("stella/standard");
-    expect(pro.resolvedModel).toBe(getModeConfig("standard", "pro").model);
+    expect(pro.requestedModel).toBe("stella/default");
+    expect(pro.resolvedModel).toBe(getModelConfig("orchestrator", "pro").model);
 
     const free = resolveRequestedStellaModel(
       "orchestrator",
-      { model: legacyDefaultAlias },
+      { model: defaultAlias },
       "free",
     );
-    expect(free.requestedModel).toBe("stella/standard");
-    expect(free.resolvedModel).toBe(getModeConfig("standard", "free").model);
+    expect(free.requestedModel).toBe("stella/default");
+    expect(free.resolvedModel).toBe(getModelConfig("orchestrator", "free").model);
 
     const chronicle = resolveRequestedStellaModel(
       "chronicle",
-      { model: legacyDefaultAlias },
+      { model: defaultAlias },
       "pro",
     );
-    expect(chronicle.requestedModel).toBe("stella/light");
-    expect(chronicle.resolvedModel).toBe(getModeConfig("light", "pro").model);
+    expect(chronicle.requestedModel).toBe("stella/default");
+    expect(chronicle.resolvedModel).toBe(getModelConfig("chronicle", "pro").model);
   });
 
   it("resolves an explicit upstream pick to its native model id and clears fallback", () => {
@@ -281,22 +281,23 @@ describe("resolveRequestedStellaModel", () => {
     ).toBe("google");
   });
 
-  it("coerces a disallowed model to standard mode for restricted audiences", () => {
+  it("coerces an override to the backend default for restricted audiences", () => {
     const resolved = resolveRequestedStellaModel(
       "orchestrator",
       { model: "stella/anthropic/claude-opus-4.8" },
       "free",
     );
-    expect(resolved.requestedModel).toBe("stella/standard");
+    expect(resolved.requestedModel).toBe("stella/default");
+    expect(resolved.resolvedModel).toBe(getModelConfig("orchestrator", "free").model);
   });
 
-  it("coerces locked Light agents back to Light instead of Standard", () => {
+  it("ignores overrides for locked agents and uses their backend default", () => {
     const resolved = resolveRequestedStellaModel(
       "chronicle",
-      { model: "stella/designer" },
+      { model: "stella/anthropic/claude-opus-4.8" },
       "pro",
     );
-    expect(resolved.requestedModel).toBe("stella/light");
-    expect(resolved.resolvedModel).toBe(getModeConfig("light", "pro").model);
+    expect(resolved.requestedModel).toBe("stella/default");
+    expect(resolved.resolvedModel).toBe(getModelConfig("chronicle", "pro").model);
   });
 });

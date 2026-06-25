@@ -114,8 +114,25 @@ const GPT_5_4_MINI_MODEL_CONFIG: ModeConfig = {
   },
 };
 
+// Kimi K2.6 on Fireworks. Used as the per-agent default for the orchestrator
+// on every tier except `ultra` (which keeps Standard). The newer
+// `kimi-k2p7-code` variant is the `priority` mode and powers the general agent.
+const KIMI_K2P6_MODEL_CONFIG: ModeConfig = {
+  model: "accounts/fireworks/models/kimi-k2p6",
+  fallbackMode: "standard",
+  managedGatewayProvider: "fireworks",
+  temperature: 1.0,
+  providerOptions: {
+    openai: {
+      reasoningEffort: "medium",
+    },
+    ...gatewayOptions("fireworks"),
+  },
+};
+
 const INTERNAL_MODEL_CONFIGS = {
   gpt_5_4_mini: GPT_5_4_MINI_MODEL_CONFIG,
+  kimi_k2p6: KIMI_K2P6_MODEL_CONFIG,
 } as const satisfies Record<string, ModeConfig>;
 
 type InternalModelConfigKey = keyof typeof INTERNAL_MODEL_CONFIGS;
@@ -152,7 +169,7 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
     temperature: 1.0,
     providerOptions: {
       openai: {
-        reasoningEffort: "medium",
+        reasoningEffort: "high",
       },
       ...gatewayOptions("fireworks"),
     },
@@ -220,52 +237,39 @@ const AUDIENCE_MODE_OVERRIDES: Record<ManagedModelAudience, Partial<Record<Model
   ultra_fallback: {},
 };
 
-// Per-audience swaps of an agent's task→mode mapping. Lets us point
-// orchestrator/general at alternate modes per plan without disturbing other
-// agents that share the underlying modes.
+// Per-audience swaps of an agent's task→model mapping. Lets us point
+// orchestrator/general at alternate models per plan without disturbing other
+// agents that share the underlying modes. Values are a mode or an internal
+// model config key.
+//
+// Every tier except `ultra` runs the orchestrator on Kimi K2.6 and the
+// general agent on Kimi K2.7 Code (the `priority` mode). Ultra keeps the
+// Standard model (GPT-5.5) on both. `ultra_fallback` (an over-cap Ultra user)
+// is intentionally treated like the other tiers — the fallback exists to
+// drop over-cap users onto the cheaper models.
+const KIMI_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
+  [AGENT_IDS.ORCHESTRATOR]: "kimi_k2p6",
+  [AGENT_IDS.GENERAL]: "priority",
+};
+
+const ULTRA_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
+  [AGENT_IDS.ORCHESTRATOR]: "standard",
+  [AGENT_IDS.GENERAL]: "standard",
+};
+
 const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
-  Record<ManagedModelAudience, Partial<Record<string, ModelMode>>>
+  Record<ManagedModelAudience, Partial<Record<string, TaskModelSelection>>>
 > = {
-  anonymous: {
-    [AGENT_IDS.ORCHESTRATOR]: "standard",
-    [AGENT_IDS.GENERAL]: "standard",
-  },
-  free: {
-    [AGENT_IDS.ORCHESTRATOR]: "standard",
-    [AGENT_IDS.GENERAL]: "standard",
-  },
-  go: {
-    [AGENT_IDS.ORCHESTRATOR]: "standard",
-    [AGENT_IDS.GENERAL]: "standard",
-  },
-  pro: {
-    [AGENT_IDS.ORCHESTRATOR]: "standard",
-    [AGENT_IDS.GENERAL]: "standard",
-  },
-  plus: {
-    [AGENT_IDS.ORCHESTRATOR]: "standard",
-    [AGENT_IDS.GENERAL]: "standard",
-  },
-  ultra: {
-    [AGENT_IDS.ORCHESTRATOR]: "standard",
-    [AGENT_IDS.GENERAL]: "standard",
-  },
-  go_fallback: {
-    [AGENT_IDS.ORCHESTRATOR]: "standard",
-    [AGENT_IDS.GENERAL]: "standard",
-  },
-  pro_fallback: {
-    [AGENT_IDS.ORCHESTRATOR]: "standard",
-    [AGENT_IDS.GENERAL]: "standard",
-  },
-  plus_fallback: {
-    [AGENT_IDS.ORCHESTRATOR]: "standard",
-    [AGENT_IDS.GENERAL]: "standard",
-  },
-  ultra_fallback: {
-    [AGENT_IDS.ORCHESTRATOR]: "standard",
-    [AGENT_IDS.GENERAL]: "standard",
-  },
+  anonymous: KIMI_AGENT_OVERRIDES,
+  free: KIMI_AGENT_OVERRIDES,
+  go: KIMI_AGENT_OVERRIDES,
+  pro: KIMI_AGENT_OVERRIDES,
+  plus: KIMI_AGENT_OVERRIDES,
+  ultra: ULTRA_AGENT_OVERRIDES,
+  go_fallback: KIMI_AGENT_OVERRIDES,
+  pro_fallback: KIMI_AGENT_OVERRIDES,
+  plus_fallback: KIMI_AGENT_OVERRIDES,
+  ultra_fallback: KIMI_AGENT_OVERRIDES,
 };
 
 // Audiences that may NOT override the per-agent default model from the

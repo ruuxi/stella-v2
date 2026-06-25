@@ -213,7 +213,7 @@ describe("resolveRequestedStellaModel", () => {
     const resolved = resolveRequestedStellaModel("orchestrator", {}, "pro");
     expect(resolved.requestedModel).toBe("stella/default");
     expect(resolved.resolvedModel).toBe(getModelConfig("orchestrator", "pro").model);
-    expect(resolved.config.managedGatewayProvider).toBe("openai");
+    expect(resolved.config.managedGatewayProvider).toBe("fireworks");
     expect(resolved.config.fallback).toBeUndefined();
   });
 

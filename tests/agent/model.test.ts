@@ -33,22 +33,32 @@ describe("managed model config", () => {
     ]);
   });
 
-  it("uses Standard for anonymous, free, and paid chat defaults", () => {
-    expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "anonymous").model).toBe(
+  it("routes orchestrator to Kimi K2.6 and general to Kimi K2.7 Code on every tier but Ultra", () => {
+    for (const audience of [
+      "anonymous",
+      "free",
+      "go",
+      "pro",
+      "plus",
+      "ultra_fallback",
+    ] as const) {
+      expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).model).toBe(
+        "accounts/fireworks/models/kimi-k2p6",
+      );
+      expect(getModelConfig(AGENT_IDS.GENERAL, audience).model).toBe(
+        "accounts/fireworks/models/kimi-k2p7-code",
+      );
+    }
+  });
+
+  it("keeps Ultra on the Standard model for orchestrator and general", () => {
+    expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "ultra").model).toBe(
       "openai/gpt-5.5",
     );
-    expect(getModelConfig(AGENT_IDS.GENERAL, "free").model).toBe(
+    expect(getModelConfig(AGENT_IDS.GENERAL, "ultra").model).toBe(
       "openai/gpt-5.5",
     );
-    expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "go").model).toBe(
-      "openai/gpt-5.5",
-    );
-    expect(getModelConfig(AGENT_IDS.GENERAL, "pro").model).toBe(
-      "openai/gpt-5.5",
-    );
-    expect(getModeConfig("standard").managedGatewayProvider).toBe(
-      "openai",
-    );
+    expect(getModeConfig("standard").managedGatewayProvider).toBe("openai");
     expect(getModeConfig("standard").providerOptions?.openai).toMatchObject({
       reasoningEffort: "low",
     });
@@ -97,7 +107,7 @@ describe("managed model config", () => {
     const defaults = listStellaDefaultSelections("free");
     expect(defaults.find((entry) => entry.agentType === "orchestrator")).toMatchObject({
       model: "stella/default",
-      resolvedModel: "openai/gpt-5.5",
+      resolvedModel: "accounts/fireworks/models/kimi-k2p6",
     });
     expect(defaults.find((entry) => entry.agentType === "chronicle")).toMatchObject({
       model: "stella/default",

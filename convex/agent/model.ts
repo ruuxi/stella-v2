@@ -134,9 +134,28 @@ const KIMI_K2P6_MODEL_CONFIG: ModeConfig = {
   },
 };
 
+// Gemini 3.5 Flash via OpenRouter. Powers the general agent's
+// post-completion "finishing up" HTML pass (agent type `html_finish`): a
+// fast, cheap render of a finished report into a self-contained HTML
+// canvas. Routed through OpenRouter (not the Google gateway) per product
+// intent, so the model id stays `google/…` while the relay forwards it to
+// OpenRouter. This is the single source of truth for the model — the
+// desktop never hardcodes it; it requests the opaque default for the
+// `html_finish` agent type and the backend resolves it here.
+const HTML_MODEL_CONFIG: ModeConfig = {
+  model: "google/gemini-3.5-flash",
+  fallbackMode: "light",
+  managedGatewayProvider: "openrouter",
+  temperature: 0.4,
+  providerOptions: {
+    ...gatewayOptions("openrouter"),
+  },
+};
+
 const INTERNAL_MODEL_CONFIGS = {
   gpt_5_4_mini: GPT_5_4_MINI_MODEL_CONFIG,
   kimi_k2p6: KIMI_K2P6_MODEL_CONFIG,
+  html: HTML_MODEL_CONFIG,
 } as const satisfies Record<string, ModeConfig>;
 
 type InternalModelConfigKey = keyof typeof INTERNAL_MODEL_CONFIGS;
@@ -353,6 +372,12 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   // work; stage-1 extraction remains the General rollout summary.
   dream: "standard",
   chronicle: "light",
+
+  // General agent's post-completion HTML "finishing up" pass — a fast, cheap
+  // Gemini Flash render routed through OpenRouter. The desktop requests the
+  // opaque default for this agent type; the `html` internal config above is
+  // the model source of truth.
+  html_finish: "html",
 };
 
 const buildResolvedModeConfig = (

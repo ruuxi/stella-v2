@@ -457,16 +457,6 @@ const requireCapabilityInputs = (args: {
   ) {
     return "sourceUrl must be a valid http(s) URL or data URI";
   }
-  if (args.capability.id === "sound_effects") {
-    const durationSeconds = normalized.duration_seconds;
-    if (
-      typeof durationSeconds !== "number" ||
-      !Number.isFinite(durationSeconds) ||
-      durationSeconds <= 0
-    ) {
-      return "duration_seconds is required for this capability";
-    }
-  }
   if (args.capability.id === "text_to_music") {
     const parsedMusic = parseMusicStreamRequest(normalized);
     if (!parsedMusic) {

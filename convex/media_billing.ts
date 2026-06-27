@@ -170,12 +170,9 @@ export const getMediaBillingAdmissionIssue = (args: {
   request: MediaRequestSummary;
 }): string | null => {
   switch (args.endpointId) {
-    case "fal-ai/elevenlabs/sound-effects/v2":
-      if (getInputNumber(args.request, "duration_seconds") === null) {
-        return "This endpoint needs duration_seconds so Stella can bill from the actual requested duration.";
-      }
-      return null;
     default:
+      // Seed Audio (the only audio generator) is metered from the output
+      // duration at webhook time, so nothing is required up front.
       return null;
   }
 };
@@ -352,37 +349,20 @@ export const meterCompletedMediaJob = (args: {
           : {}),
       });
     }
-    case "fal-ai/elevenlabs/sound-effects/v2": {
-      const durationSeconds = getInputNumber(args.request, "duration_seconds");
+    case "bytedance/seed-audio-1.0": {
+      const durationSeconds = findFirstNumericField(args.output, "duration");
       if (durationSeconds === null) {
         return {
           supported: false,
-          reason: "The request did not include duration_seconds.",
+          reason: "The generated audio output did not include a duration field.",
         };
       }
       return buildBillingRecord({
         endpointId: args.endpointId,
-        billingUnit: "second",
-        quantity: durationSeconds,
-        unitPriceUsd: 0.002,
-        meteredFrom: "request",
-      });
-    }
-    case "fal-ai/elevenlabs/text-to-dialogue/eleven-v3": {
-      const text =
-        getInputString(args.request, "text") ?? args.request.prompt ?? "";
-      if (!text) {
-        return {
-          supported: false,
-          reason: "The request did not include billable text input.",
-        };
-      }
-      return buildBillingRecord({
-        endpointId: args.endpointId,
-        billingUnit: "1000_characters",
-        quantity: text.length / 1000,
-        unitPriceUsd: 0.1,
-        meteredFrom: "request",
+        billingUnit: "minute",
+        quantity: durationSeconds / 60,
+        unitPriceUsd: 0.1875,
+        meteredFrom: "output",
       });
     }
     case "fal-ai/sam-audio/visual-separate": {

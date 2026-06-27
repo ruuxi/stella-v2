@@ -146,7 +146,7 @@ const HTML_MODEL_CONFIG: ModeConfig = {
   model: "google/gemini-3.5-flash",
   fallbackMode: "light",
   managedGatewayProvider: "openrouter",
-  temperature: 0.4,
+  temperature: 1.0,
   providerOptions: {
     ...gatewayOptions("openrouter"),
   },

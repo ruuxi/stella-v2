@@ -8,16 +8,18 @@
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
+  getModeConfig,
   getModelConfig,
   isStellaModelAllowedForAudience,
   LOCKED_AGENT_TYPES,
   type ManagedModelAudience,
 } from "./model";
 import {
-  resolveStellaModelSelection,
+  parseStellaModelSelection,
   STELLA_DEFAULT_MODEL,
 } from "../stella_models";
 import {
+  inferManagedGatewayProviderFromModel,
   resolveManagedGatewayProvider,
   type ManagedGatewayProvider,
 } from "../lib/managed_gateway";
@@ -113,18 +115,39 @@ export async function resolveModelConfig(
     options?.access?.modelAudience ?? options?.audience ?? "free";
   const defaults = getModelConfig(agentType, audience);
   const requestedOverride = options?.modelOverride?.trim();
-  const overrideModel =
-    requestedOverride &&
-    requestedOverride.startsWith("stella/") &&
-    requestedOverride !== STELLA_DEFAULT_MODEL &&
-    !LOCKED_AGENT_TYPES.has(agentType) &&
-    isStellaModelAllowedForAudience(requestedOverride, audience)
-      ? resolveStellaModelSelection(requestedOverride, audience)
+  const parsed =
+    requestedOverride && requestedOverride !== STELLA_DEFAULT_MODEL
+      ? parseStellaModelSelection(requestedOverride)
       : null;
-  const model = overrideModel || defaults.model;
-  const modalitiesInput = await lookupModalitiesInput(ctx, model);
+  const allowOverride =
+    !!requestedOverride &&
+    parsed !== null &&
+    parsed.kind !== "default" &&
+    !LOCKED_AGENT_TYPES.has(agentType) &&
+    isStellaModelAllowedForAudience(requestedOverride, audience);
+
+  // Resolve an allowed override to its OWN config so the gateway provider
+  // matches the override model — a mode carries its full config (provider,
+  // options, fallback); an upstream pick infers its provider. Keeping the
+  // agent default's `managedGatewayProvider` here would route e.g. a
+  // `stella/designer` (Opus/anthropic) pick through the agent's default
+  // gateway (matching `resolveRequestedStellaModel` in stella_provider).
+  let config = defaults;
+  if (allowOverride && parsed?.kind === "mode") {
+    config = getModeConfig(parsed.mode, audience);
+  } else if (allowOverride && parsed?.kind === "upstream") {
+    config = {
+      ...defaults,
+      model: parsed.model,
+      managedGatewayProvider: inferManagedGatewayProviderFromModel(
+        parsed.model,
+      ),
+    };
+  }
+
+  const modalitiesInput = await lookupModalitiesInput(ctx, config.model);
   void ownerId;
-  return toResolvedModelConfig({ ...defaults, model }, modalitiesInput);
+  return toResolvedModelConfig(config, modalitiesInput);
 }
 
 export async function resolveFallbackConfig(

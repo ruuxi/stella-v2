@@ -6,18 +6,18 @@ import {
   resolveRequestedStellaModel,
 } from "../../convex/stella_provider/request";
 import { toProviderNativeModel } from "../../convex/stella_provider/authorization";
-import { getModelConfig } from "../../convex/agent/model";
+import { getModeConfig, getModelConfig } from "../../convex/agent/model";
 
 describe("toProviderNativeModel", () => {
   it("strips provider prefix for matching upstream", () => {
     // Anthropic ids use dashes, not dots — converted at the wire boundary.
-    expect(toProviderNativeModel("anthropic/claude-opus-4.8", "anthropic")).toBe(
-      "claude-opus-4-8",
-    );
+    expect(
+      toProviderNativeModel("anthropic/claude-opus-4.8", "anthropic"),
+    ).toBe("claude-opus-4-8");
     expect(toProviderNativeModel("openai/gpt-5.5", "openai")).toBe("gpt-5.5");
-    expect(toProviderNativeModel("google/gemini-3-flash-preview", "google")).toBe(
-      "gemini-3-flash-preview",
-    );
+    expect(
+      toProviderNativeModel("google/gemini-3-flash-preview", "google"),
+    ).toBe("gemini-3-flash-preview");
   });
 
   it("passes through ids that do not match the relay provider", () => {
@@ -100,10 +100,8 @@ describe("downgradeUnsupportedRequestImages", () => {
     };
 
     expect(
-      downgradeUnsupportedRequestImages(
-        body,
-        "deepseek/deepseek-v4-flash",
-      ).messages,
+      downgradeUnsupportedRequestImages(body, "deepseek/deepseek-v4-flash")
+        .messages,
     ).toEqual([
       {
         role: "user",
@@ -134,10 +132,8 @@ describe("downgradeUnsupportedRequestImages", () => {
     };
 
     expect(
-      downgradeUnsupportedRequestImages(
-        body,
-        "deepseek/deepseek-v4-flash",
-      ).messages,
+      downgradeUnsupportedRequestImages(body, "deepseek/deepseek-v4-flash")
+        .messages,
     ).toEqual([
       {
         role: "tool",
@@ -198,12 +194,11 @@ describe("downgradeUnsupportedRequestImages", () => {
       ],
     };
 
-    expect(downgradeUnsupportedRequestImages(body, "openai/gpt-5.5")).toBe(body);
+    expect(downgradeUnsupportedRequestImages(body, "openai/gpt-5.5")).toBe(
+      body,
+    );
     expect(
-      downgradeUnsupportedRequestImages(
-        body,
-        "google/gemini-3-flash-preview",
-      ),
+      downgradeUnsupportedRequestImages(body, "google/gemini-3-flash-preview"),
     ).toBe(body);
   });
 });
@@ -212,7 +207,9 @@ describe("resolveRequestedStellaModel", () => {
   it("resolves a missing chat model through the agent's backend default", () => {
     const resolved = resolveRequestedStellaModel("orchestrator", {}, "pro");
     expect(resolved.requestedModel).toBe("stella/default");
-    expect(resolved.resolvedModel).toBe(getModelConfig("orchestrator", "pro").model);
+    expect(resolved.resolvedModel).toBe(
+      getModelConfig("orchestrator", "pro").model,
+    );
     expect(resolved.config.managedGatewayProvider).toBe("fireworks");
     expect(resolved.config.fallback).toBeUndefined();
   });
@@ -220,7 +217,9 @@ describe("resolveRequestedStellaModel", () => {
   it("resolves to the agent's own default (Light for chronicle)", () => {
     const resolved = resolveRequestedStellaModel("chronicle", {}, "pro");
     expect(resolved.requestedModel).toBe("stella/default");
-    expect(resolved.resolvedModel).toBe(getModelConfig("chronicle", "pro").model);
+    expect(resolved.resolvedModel).toBe(
+      getModelConfig("chronicle", "pro").model,
+    );
     expect(resolved.config.managedGatewayProvider).toBe("fireworks");
     expect(resolved.config.fallback).toBeUndefined();
   });
@@ -241,7 +240,9 @@ describe("resolveRequestedStellaModel", () => {
       "free",
     );
     expect(free.requestedModel).toBe("stella/default");
-    expect(free.resolvedModel).toBe(getModelConfig("orchestrator", "free").model);
+    expect(free.resolvedModel).toBe(
+      getModelConfig("orchestrator", "free").model,
+    );
 
     const chronicle = resolveRequestedStellaModel(
       "chronicle",
@@ -249,7 +250,9 @@ describe("resolveRequestedStellaModel", () => {
       "pro",
     );
     expect(chronicle.requestedModel).toBe("stella/default");
-    expect(chronicle.resolvedModel).toBe(getModelConfig("chronicle", "pro").model);
+    expect(chronicle.resolvedModel).toBe(
+      getModelConfig("chronicle", "pro").model,
+    );
   });
 
   it("resolves an explicit upstream pick to its native model id and clears fallback", () => {
@@ -288,7 +291,9 @@ describe("resolveRequestedStellaModel", () => {
       "free",
     );
     expect(resolved.requestedModel).toBe("stella/default");
-    expect(resolved.resolvedModel).toBe(getModelConfig("orchestrator", "free").model);
+    expect(resolved.resolvedModel).toBe(
+      getModelConfig("orchestrator", "free").model,
+    );
   });
 
   it("ignores overrides for locked agents and uses their backend default", () => {
@@ -298,6 +303,40 @@ describe("resolveRequestedStellaModel", () => {
       "pro",
     );
     expect(resolved.requestedModel).toBe("stella/default");
-    expect(resolved.resolvedModel).toBe(getModelConfig("chronicle", "pro").model);
+    expect(resolved.resolvedModel).toBe(
+      getModelConfig("chronicle", "pro").model,
+    );
+  });
+
+  it("resolves a branded mode override to its per-audience model", () => {
+    const resolved = resolveRequestedStellaModel(
+      "orchestrator",
+      { model: "stella/designer" },
+      "pro",
+    );
+    expect(resolved.requestedModel).toBe("stella/designer");
+    expect(resolved.resolvedModel).toBe(getModeConfig("designer", "pro").model);
+    expect(resolved.config.fallback).toBeUndefined();
+  });
+
+  it("lets restricted audiences pick the Light mode but not other modes", () => {
+    const light = resolveRequestedStellaModel(
+      "orchestrator",
+      { model: "stella/light" },
+      "free",
+    );
+    expect(light.requestedModel).toBe("stella/light");
+    expect(light.resolvedModel).toBe(getModeConfig("light", "free").model);
+
+    // Designer is not in the restricted allow-list → coerced to the default.
+    const designer = resolveRequestedStellaModel(
+      "orchestrator",
+      { model: "stella/designer" },
+      "free",
+    );
+    expect(designer.requestedModel).toBe("stella/default");
+    expect(designer.resolvedModel).toBe(
+      getModelConfig("orchestrator", "free").model,
+    );
   });
 });

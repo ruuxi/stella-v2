@@ -9,6 +9,7 @@ import { AGENT_IDS } from "../../convex/lib/agent_constants";
 import {
   listStellaDefaultSelections,
   listStellaCatalogModels,
+  parseStellaModelSelection,
   resolveStellaModelSelection,
 } from "../../convex/stella_models";
 
@@ -64,18 +65,43 @@ describe("managed model config", () => {
     });
   });
 
-  it("publishes only real managed models in the Stella catalog (no tier aliases)", () => {
+  it("publishes branded tier modes and real managed models in the catalog", () => {
     const catalog = listStellaCatalogModels("pro");
 
-    expect(catalog.find((model) => model.id === "stella/openai/gpt-5.5")).toMatchObject({
+    // Branded tier aliases ("modes") are surfaced with their per-audience model.
+    expect(
+      catalog.find((model) => model.id === "stella/designer"),
+    ).toMatchObject({
+      name: "Stella Designer",
+      upstreamModel: getModeConfig("designer", "pro").model,
+    });
+    expect(catalog.find((model) => model.id === "stella/light")).toMatchObject({
+      name: "Stella Light",
+      upstreamModel: getModeConfig("light", "pro").model,
+    });
+    // Real managed models are still listed alongside the modes.
+    expect(
+      catalog.find((model) => model.id === "stella/openai/gpt-5.5"),
+    ).toMatchObject({
       upstreamModel: "openai/gpt-5.5",
     });
-    // The branded tier aliases are gone — every catalog id is a concrete
-    // managed model (provider/model), never a bare mode like stella/standard.
-    for (const model of catalog) {
-      expect(model.upstreamModel).toContain("/");
-      expect(model.id).toBe(`stella/${model.upstreamModel}`);
-    }
+  });
+
+  it("parses and resolves branded mode aliases vs upstream picks", () => {
+    expect(parseStellaModelSelection("stella/designer")).toEqual({
+      kind: "mode",
+      mode: "designer",
+    });
+    expect(parseStellaModelSelection("stella/openai/gpt-5.5")).toEqual({
+      kind: "upstream",
+      model: "openai/gpt-5.5",
+    });
+    expect(parseStellaModelSelection("stella/default")).toEqual({
+      kind: "default",
+    });
+    expect(resolveStellaModelSelection("stella/designer", "pro")).toBe(
+      getModeConfig("designer", "pro").model,
+    );
   });
 
   it("rejects the default sentinel from direct override resolution", () => {
@@ -85,17 +111,22 @@ describe("managed model config", () => {
     );
   });
 
-  it("only lets pro+ audiences pin a catalog model", () => {
-    expect(
-      listStellaCatalogModels("free").every(
-        (model) => model.allowedForAudience === false,
-      ),
-    ).toBe(true);
-    expect(
-      listStellaCatalogModels("go").every(
-        (model) => model.allowedForAudience === false,
-      ),
-    ).toBe(true);
+  it("restricts catalog picks by audience (standard/light only for restricted)", () => {
+    const allowedFor = (audience: "free" | "go" | "pro") =>
+      new Set(
+        listStellaCatalogModels(audience)
+          .filter((model) => model.allowedForAudience)
+          .map((model) => model.id),
+      );
+
+    // Restricted tiers may only pick the Standard and Light modes.
+    expect(allowedFor("free")).toEqual(
+      new Set(["stella/standard", "stella/light"]),
+    );
+    expect(allowedFor("go")).toEqual(
+      new Set(["stella/standard", "stella/light"]),
+    );
+    // Pro+ may pin any catalog model (modes + real managed models).
     expect(
       listStellaCatalogModels("pro").every(
         (model) => model.allowedForAudience === true,
@@ -105,11 +136,15 @@ describe("managed model config", () => {
 
   it("publishes the opaque default sentinel for every agent's per-tier default", () => {
     const defaults = listStellaDefaultSelections("free");
-    expect(defaults.find((entry) => entry.agentType === "orchestrator")).toMatchObject({
+    expect(
+      defaults.find((entry) => entry.agentType === "orchestrator"),
+    ).toMatchObject({
       model: "stella/default",
       resolvedModel: "accounts/fireworks/models/kimi-k2p6",
     });
-    expect(defaults.find((entry) => entry.agentType === "chronicle")).toMatchObject({
+    expect(
+      defaults.find((entry) => entry.agentType === "chronicle"),
+    ).toMatchObject({
       model: "stella/default",
       resolvedModel: "accounts/fireworks/models/deepseek-v4-flash",
     });

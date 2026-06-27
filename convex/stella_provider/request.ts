@@ -1,6 +1,7 @@
 import {
-  canOverrideStellaModel,
+  getModeConfig,
   getModelConfig,
+  isStellaModelAllowedForAudience,
   LOCKED_AGENT_TYPES,
   type ManagedModelAudience,
   type ModelConfig,
@@ -27,11 +28,11 @@ const IMAGE_CAPABLE_MANAGED_MODEL_PREFIXES = [
 /**
  * Map the client's requested model to a concrete managed config.
  *
- * The default path (empty / `stella/default`) — and any request from a
- * locked agent or a restricted-tier audience that can't override — resolves
- * to the backend-chosen model for the agent + audience. An explicit
- * `stella/<provider>/<model>` override is only honored for audiences that
- * may override; it's coerced back to the default otherwise.
+ * The default path (empty / `stella/default`) — and any request from a locked
+ * agent or an audience not allowed to pick the requested model — resolves to
+ * the backend-chosen model for the agent + audience. An explicit override is
+ * honored when allowed: a `stella/<mode>` tier alias resolves per audience via
+ * `getModeConfig`; a `stella/<provider>/<model>` pins that managed model.
  */
 export function resolveRequestedStellaModel(
   agentType: string,
@@ -43,30 +44,42 @@ export function resolveRequestedStellaModel(
 
   const parsed = parseStellaModelSelection(trimmed);
   const wantsOverride =
-    parsed?.kind === "upstream" &&
+    (parsed?.kind === "mode" || parsed?.kind === "upstream") &&
     !LOCKED_AGENT_TYPES.has(agentType) &&
-    canOverrideStellaModel(audience);
+    isStellaModelAllowedForAudience(trimmed, audience);
 
-  if (!wantsOverride) {
-    const config = getModelConfig(agentType, audience);
+  if (wantsOverride && parsed?.kind === "mode") {
+    const config = getModeConfig(parsed.mode, audience);
     return {
-      requestedModel: STELLA_DEFAULT_MODEL,
+      requestedModel: trimmed,
       resolvedModel: config.model,
       config: withoutFallback(config),
     };
   }
 
-  const resolvedModel = parsed.model;
-  const inferredProvider = inferManagedGatewayProviderFromModel(resolvedModel);
-  const config: ModelConfig = {
-    ...withoutFallback(getModelConfig(agentType, audience)),
-    model: resolvedModel,
-    managedGatewayProvider: inferredProvider,
-  };
+  if (wantsOverride && parsed?.kind === "upstream") {
+    const resolvedModel = parsed.model;
+    const inferredProvider =
+      inferManagedGatewayProviderFromModel(resolvedModel);
+    const config: ModelConfig = {
+      ...withoutFallback(getModelConfig(agentType, audience)),
+      model: resolvedModel,
+      managedGatewayProvider: inferredProvider,
+    };
+    return {
+      requestedModel: trimmed,
+      resolvedModel,
+      config,
+    };
+  }
+
+  // Default: empty / stella/default, a locked agent, or an override this
+  // audience may not pick → the backend-chosen model for agent + audience.
+  const config = getModelConfig(agentType, audience);
   return {
-    requestedModel: trimmed,
-    resolvedModel,
-    config,
+    requestedModel: STELLA_DEFAULT_MODEL,
+    resolvedModel: config.model,
+    config: withoutFallback(config),
   };
 }
 

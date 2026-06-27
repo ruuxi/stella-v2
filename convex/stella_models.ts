@@ -1,21 +1,34 @@
 import {
   AGENT_MODELS,
   canOverrideStellaModel,
+  getModeConfig,
   getModelConfig,
+  isModelMode,
+  isStellaModelAllowedForAudience,
   listManagedModelIds,
   type ManagedModelAudience,
   type ModelConfig,
+  type ModelMode,
 } from "./agent/model";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const STELLA_PROVIDER = "stella";
 // Opaque "let the backend pick" sentinel. The concrete model is chosen per
-// agent type + audience on the backend; the client never names a tier.
+// agent type + audience on the backend; this stays the per-agent *default*.
 export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
-// Bump this whenever Stella default/model mappings change. Desktop subscribes
-// to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 5, 25, 4, 0);
+// Branded tier aliases ("modes"): user-selectable overrides whose concrete
+// upstream model is resolved per audience from `BASE_MODE_CONFIGS`. The default
+// routing above is unchanged — modes are opt-in picks, not the default.
+export const STELLA_STANDARD_MODEL = `${STELLA_PROVIDER}/standard`;
+export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
+export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
+export const STELLA_BUILDER_MODEL = `${STELLA_PROVIDER}/builder`;
+export const STELLA_DESIGNER_MODEL = `${STELLA_PROVIDER}/designer`;
+export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
+// Bump this whenever Stella default/model/mode mappings change. Desktop
+// subscribes to it and passes it to runtime as the model-catalog cache key.
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 5, 27, 12, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -84,11 +97,83 @@ const catalogRoutingModel = (config: ModelConfig): string =>
     : config.model;
 
 const listUpstreamManagedModels = (): string[] => {
-  return listManagedModelIds().sort((a, b) => deriveDisplayName(a).localeCompare(deriveDisplayName(b)));
+  return listManagedModelIds().sort((a, b) =>
+    deriveDisplayName(a).localeCompare(deriveDisplayName(b)),
+  );
 };
 
 export const toStellaModelId = (upstreamModel: string): string =>
   `${STELLA_PROVIDER}/${upstreamModel.trim()}`;
+
+export const toStellaModeModelId = (mode: ModelMode): string =>
+  `${STELLA_PROVIDER}/${mode}`;
+
+type StellaAliasMode = {
+  id: string;
+  name: string;
+  mode: ModelMode;
+  type: "language" | "multimodal";
+  minAudience?: "pro";
+};
+
+const STELLA_ALIAS_MODES: ReadonlyArray<StellaAliasMode> = [
+  {
+    id: STELLA_LIGHT_MODEL,
+    name: "Stella Light",
+    mode: "light",
+    type: "language" as const,
+  },
+  {
+    id: STELLA_STANDARD_MODEL,
+    name: "Stella Standard",
+    mode: "standard",
+    type: "language" as const,
+  },
+  {
+    id: STELLA_PRIORITY_MODEL,
+    name: "Stella Priority",
+    mode: "priority",
+    type: "language" as const,
+    minAudience: "pro",
+  },
+  {
+    id: STELLA_BUILDER_MODEL,
+    name: "Stella Builder",
+    mode: "builder",
+    type: "language" as const,
+  },
+  {
+    id: STELLA_DESIGNER_MODEL,
+    name: "Stella Designer",
+    mode: "designer",
+    type: "language" as const,
+  },
+  {
+    id: STELLA_VISION_MODEL,
+    name: "Stella Vision",
+    mode: "vision",
+    type: "multimodal" as const,
+  },
+];
+
+const isProOrHigherAudience = (audience: ManagedModelAudience): boolean =>
+  audience === "pro" ||
+  audience === "plus" ||
+  audience === "ultra" ||
+  audience === "pro_fallback" ||
+  audience === "plus_fallback" ||
+  audience === "ultra_fallback";
+
+const getStaticStellaAliases = (audience: ManagedModelAudience = "free") =>
+  STELLA_ALIAS_MODES.filter(
+    (alias) => alias.minAudience !== "pro" || isProOrHigherAudience(audience),
+  ).map((alias) => {
+    const config = getModeConfig(alias.mode, audience);
+    return {
+      ...alias,
+      upstreamModel: catalogRoutingModel(config),
+    };
+  });
 
 export const isStellaModel = (model: string | null | undefined): boolean => {
   const trimmed = model?.trim();
@@ -96,16 +181,22 @@ export const isStellaModel = (model: string | null | undefined): boolean => {
 };
 
 /**
- * A Stella selection is either:
+ * A Stella selection is one of:
  * - `default`: empty / `stella` / `stella/default` ⇒ the backend picks the
  *   model for the requesting agent + audience.
+ * - `mode`: `stella/<mode>` (e.g. `stella/designer`) ⇒ a branded tier alias
+ *   resolved per audience from `BASE_MODE_CONFIGS`.
  * - `upstream`: `stella/<provider>/<model>` ⇒ an explicit managed-model
  *   override (e.g. `stella/openai/gpt-5.5`).
  * Returns null for non-Stella strings.
  */
 export const parseStellaModelSelection = (
   selection: string | null | undefined,
-): { kind: "default" } | { kind: "upstream"; model: string } | null => {
+):
+  | { kind: "default" }
+  | { kind: "mode"; mode: ModelMode }
+  | { kind: "upstream"; model: string }
+  | null => {
   const trimmed = selection?.trim();
   if (!trimmed) {
     return { kind: "default" };
@@ -114,24 +205,34 @@ export const parseStellaModelSelection = (
     return null;
   }
 
-  const upstreamModel = trimmed.slice(`${STELLA_PROVIDER}/`.length).trim();
-  if (!upstreamModel || upstreamModel === "default") {
+  const aliasOrUpstreamModel = trimmed
+    .slice(`${STELLA_PROVIDER}/`.length)
+    .trim();
+  if (!aliasOrUpstreamModel || aliasOrUpstreamModel === "default") {
     return { kind: "default" };
   }
-  return { kind: "upstream", model: upstreamModel };
+  if (isModelMode(aliasOrUpstreamModel)) {
+    return { kind: "mode", mode: aliasOrUpstreamModel };
+  }
+  return { kind: "upstream", model: aliasOrUpstreamModel };
 };
 
 /**
- * Resolve an explicit Stella override to its upstream model id. The opaque
- * `default` selection has no concrete model without an agent + audience, so
- * it's rejected here — callers resolve defaults via `getModelConfig` instead.
+ * Resolve an explicit Stella override (mode or upstream) to its upstream model
+ * id. The opaque `default` selection has no concrete model without an agent +
+ * audience, so it's rejected here — callers resolve defaults via
+ * `getModelConfig` instead.
  */
 export const resolveStellaModelSelection = (
   selection?: string | null,
+  audience: ManagedModelAudience = "free",
 ): string => {
   const parsed = parseStellaModelSelection(selection);
   if (parsed?.kind === "upstream") {
     return parsed.model;
+  }
+  if (parsed?.kind === "mode") {
+    return getModeConfig(parsed.mode, audience).model;
   }
   const trimmed = selection?.trim();
   if (trimmed && !trimmed.startsWith(`${STELLA_PROVIDER}/`)) {
@@ -142,8 +243,18 @@ export const resolveStellaModelSelection = (
 
 export const listStellaCatalogModels = (
   audience: ManagedModelAudience = "free",
-): StellaCatalogModel[] =>
-  listUpstreamManagedModels().map<StellaCatalogModel>((upstreamModel) => ({
+): StellaCatalogModel[] => [
+  // Branded tier modes first (the curated picker presets), then every
+  // pinnable managed model.
+  ...getStaticStellaAliases(audience).map<StellaCatalogModel>((alias) => ({
+    id: alias.id,
+    name: alias.name,
+    provider: STELLA_PROVIDER,
+    upstreamModel: alias.upstreamModel,
+    type: alias.type,
+    allowedForAudience: isStellaModelAllowedForAudience(alias.id, audience),
+  })),
+  ...listUpstreamManagedModels().map<StellaCatalogModel>((upstreamModel) => ({
     id: toStellaModelId(upstreamModel),
     name: deriveDisplayName(upstreamModel),
     provider: STELLA_PROVIDER,
@@ -153,7 +264,8 @@ export const listStellaCatalogModels = (
     // backend-chosen default at all, so every pinnable model is disabled
     // for them; pro+ may pin any managed model.
     allowedForAudience: canOverrideStellaModel(audience),
-  }));
+  })),
+];
 
 export const listStellaDefaultSelections = (
   audience: ManagedModelAudience = "free",

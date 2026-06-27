@@ -8,8 +8,8 @@
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
-  canOverrideStellaModel,
   getModelConfig,
+  isStellaModelAllowedForAudience,
   LOCKED_AGENT_TYPES,
   type ManagedModelAudience,
 } from "./model";
@@ -17,7 +17,10 @@ import {
   resolveStellaModelSelection,
   STELLA_DEFAULT_MODEL,
 } from "../stella_models";
-import { resolveManagedGatewayProvider, type ManagedGatewayProvider } from "../lib/managed_gateway";
+import {
+  resolveManagedGatewayProvider,
+  type ManagedGatewayProvider,
+} from "../lib/managed_gateway";
 import {
   assertManagedUsageAllowed,
   type ManagedModelAccess,
@@ -88,7 +91,9 @@ export const toResolvedModelConfig = (
   temperature: config.temperature,
   maxOutputTokens: config.maxOutputTokens,
   serviceTier: config.serviceTier,
-  providerOptions: config.providerOptions as Record<string, Record<string, unknown>> | undefined,
+  providerOptions: config.providerOptions as
+    | Record<string, Record<string, unknown>>
+    | undefined,
   modalitiesInput,
 });
 
@@ -104,7 +109,8 @@ export async function resolveModelConfig(
   ownerId?: string,
   options?: ResolveModelConfigOptions,
 ): Promise<ResolvedModelConfig> {
-  const audience = options?.access?.modelAudience ?? options?.audience ?? "free";
+  const audience =
+    options?.access?.modelAudience ?? options?.audience ?? "free";
   const defaults = getModelConfig(agentType, audience);
   const requestedOverride = options?.modelOverride?.trim();
   const overrideModel =
@@ -112,8 +118,8 @@ export async function resolveModelConfig(
     requestedOverride.startsWith("stella/") &&
     requestedOverride !== STELLA_DEFAULT_MODEL &&
     !LOCKED_AGENT_TYPES.has(agentType) &&
-    canOverrideStellaModel(audience)
-      ? resolveStellaModelSelection(requestedOverride)
+    isStellaModelAllowedForAudience(requestedOverride, audience)
+      ? resolveStellaModelSelection(requestedOverride, audience)
       : null;
   const model = overrideModel || defaults.model;
   const modalitiesInput = await lookupModalitiesInput(ctx, model);
@@ -127,7 +133,8 @@ export async function resolveFallbackConfig(
   ownerId?: string,
   options?: ResolveModelConfigOptions,
 ): Promise<ResolvedModelConfig | null> {
-  const audience = options?.access?.modelAudience ?? options?.audience ?? "free";
+  const audience =
+    options?.access?.modelAudience ?? options?.audience ?? "free";
   const defaults = getModelConfig(agentType, audience);
   if (!defaults.fallback) return null;
   const modalitiesInput = await lookupModalitiesInput(ctx, defaults.fallback);

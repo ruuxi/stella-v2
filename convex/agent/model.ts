@@ -64,13 +64,15 @@ export const MODEL_MODES = [
 
 export type ModelMode = (typeof MODEL_MODES)[number];
 
-type ModeConfig = Omit<ModelConfig, "fallback" | "fallbackManagedGatewayProvider" | "fallbackProviderOptions"> & {
+type ModeConfig = Omit<
+  ModelConfig,
+  "fallback" | "fallbackManagedGatewayProvider" | "fallbackProviderOptions"
+> & {
   fallbackMode?: ModelMode;
 };
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> => (
-  typeof value === "object" && value !== null && !Array.isArray(value)
-);
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const clone = <T>(value: T): T => structuredClone(value);
 
@@ -86,9 +88,10 @@ const deepMerge = <T>(base: T, patch?: Partial<T>): T => {
     if (patchValue === undefined) continue;
 
     const baseValue = output[key];
-    output[key] = isPlainObject(baseValue) && isPlainObject(patchValue)
-      ? deepMerge(baseValue, patchValue)
-      : clone(patchValue);
+    output[key] =
+      isPlainObject(baseValue) && isPlainObject(patchValue)
+        ? deepMerge(baseValue, patchValue)
+        : clone(patchValue);
   }
 
   return output as T;
@@ -138,7 +141,9 @@ const INTERNAL_MODEL_CONFIGS = {
 type InternalModelConfigKey = keyof typeof INTERNAL_MODEL_CONFIGS;
 type TaskModelSelection = ModelMode | InternalModelConfigKey;
 
-const isInternalModelConfigKey = (value: string): value is InternalModelConfigKey =>
+const isInternalModelConfigKey = (
+  value: string,
+): value is InternalModelConfigKey =>
   Object.prototype.hasOwnProperty.call(INTERNAL_MODEL_CONFIGS, value);
 
 // Note: `maxOutputTokens` is intentionally omitted from every mode
@@ -224,7 +229,10 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   },
 };
 
-const AUDIENCE_MODE_OVERRIDES: Record<ManagedModelAudience, Partial<Record<ModelMode, Partial<ModeConfig>>>> = {
+const AUDIENCE_MODE_OVERRIDES: Record<
+  ManagedModelAudience,
+  Partial<Record<ModelMode, Partial<ModeConfig>>>
+> = {
   anonymous: {},
   free: {},
   go: {},
@@ -282,8 +290,31 @@ const RESTRICTED_MODEL_OVERRIDE_AUDIENCES = new Set<ManagedModelAudience>([
   "go_fallback",
 ]);
 
-export const canOverrideStellaModel = (audience: ManagedModelAudience): boolean =>
-  !RESTRICTED_MODEL_OVERRIDE_AUDIENCES.has(audience);
+export const canOverrideStellaModel = (
+  audience: ManagedModelAudience,
+): boolean => !RESTRICTED_MODEL_OVERRIDE_AUDIENCES.has(audience);
+
+/**
+ * Stella catalog model ids that restricted-tier audiences (anonymous /
+ * free / go / go_fallback) may still pick even though
+ * `canOverrideStellaModel` is false. Standard is the default mode, and
+ * Light is the small/cheap fallback users can still opt into without
+ * upgrading.
+ *
+ * Single source of truth for both the request-time coercion in
+ * `stella_provider/request.ts` and the `allowedForAudience` flag the
+ * `/api/models` endpoint exposes to the desktop picker.
+ */
+const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
+  new Set<string>(["stella/standard", "stella/light"]);
+
+export const isStellaModelAllowedForAudience = (
+  modelId: string,
+  audience: ManagedModelAudience,
+): boolean => {
+  if (canOverrideStellaModel(audience)) return true;
+  return RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId);
+};
 
 /**
  * Agent types whose model selection is locked on the backend regardless of
@@ -335,7 +366,9 @@ const buildResolvedConfig = (
   config: ModeConfig,
   rawModeCatalog: Record<ModelMode, ModeConfig>,
 ): ModelConfig => {
-  const fallbackConfig = config.fallbackMode ? rawModeCatalog[config.fallbackMode] : undefined;
+  const fallbackConfig = config.fallbackMode
+    ? rawModeCatalog[config.fallbackMode]
+    : undefined;
 
   return {
     model: config.model,
@@ -346,7 +379,9 @@ const buildResolvedConfig = (
     maxOutputTokens: config.maxOutputTokens,
     serviceTier: config.serviceTier,
     fallbackServiceTier: fallbackConfig?.serviceTier,
-    providerOptions: config.providerOptions ? clone(config.providerOptions) : undefined,
+    providerOptions: config.providerOptions
+      ? clone(config.providerOptions)
+      : undefined,
     fallbackProviderOptions: fallbackConfig?.providerOptions
       ? clone(fallbackConfig.providerOptions)
       : undefined,
@@ -388,7 +423,9 @@ const buildAudienceAgentCatalog = (
   const taskCatalog: Record<string, ModelConfig> = {};
   const audienceModeOverrides = AUDIENCE_AGENT_MODE_OVERRIDES[audience] ?? {};
 
-  for (const [agentType, defaultSelection] of Object.entries(TASK_MODEL_SELECTIONS)) {
+  for (const [agentType, defaultSelection] of Object.entries(
+    TASK_MODEL_SELECTIONS,
+  )) {
     const selection = audienceModeOverrides[agentType] ?? defaultSelection;
     taskCatalog[agentType] = isInternalModelConfigKey(selection)
       ? buildResolvedConfig(INTERNAL_MODEL_CONFIGS[selection], rawModeCatalog)
@@ -398,7 +435,10 @@ const buildAudienceAgentCatalog = (
   return taskCatalog;
 };
 
-const AUDIENCE_MODE_CONFIGS: Record<ManagedModelAudience, Record<ModelMode, ModelConfig>> = {
+const AUDIENCE_MODE_CONFIGS: Record<
+  ManagedModelAudience,
+  Record<ModelMode, ModelConfig>
+> = {
   anonymous: buildAudienceModeCatalog("anonymous"),
   free: buildAudienceModeCatalog("free"),
   go: buildAudienceModeCatalog("go"),
@@ -411,17 +451,60 @@ const AUDIENCE_MODE_CONFIGS: Record<ManagedModelAudience, Record<ModelMode, Mode
   ultra_fallback: buildAudienceModeCatalog("ultra_fallback"),
 };
 
-export const AUDIENCE_AGENT_MODELS: Record<ManagedModelAudience, Record<string, ModelConfig>> = {
-  anonymous: buildAudienceAgentCatalog("anonymous", AUDIENCE_MODE_CONFIGS.anonymous, buildAudienceRawModeCatalog("anonymous")),
-  free: buildAudienceAgentCatalog("free", AUDIENCE_MODE_CONFIGS.free, buildAudienceRawModeCatalog("free")),
-  go: buildAudienceAgentCatalog("go", AUDIENCE_MODE_CONFIGS.go, buildAudienceRawModeCatalog("go")),
-  pro: buildAudienceAgentCatalog("pro", AUDIENCE_MODE_CONFIGS.pro, buildAudienceRawModeCatalog("pro")),
-  plus: buildAudienceAgentCatalog("plus", AUDIENCE_MODE_CONFIGS.plus, buildAudienceRawModeCatalog("plus")),
-  ultra: buildAudienceAgentCatalog("ultra", AUDIENCE_MODE_CONFIGS.ultra, buildAudienceRawModeCatalog("ultra")),
-  go_fallback: buildAudienceAgentCatalog("go_fallback", AUDIENCE_MODE_CONFIGS.go_fallback, buildAudienceRawModeCatalog("go_fallback")),
-  pro_fallback: buildAudienceAgentCatalog("pro_fallback", AUDIENCE_MODE_CONFIGS.pro_fallback, buildAudienceRawModeCatalog("pro_fallback")),
-  plus_fallback: buildAudienceAgentCatalog("plus_fallback", AUDIENCE_MODE_CONFIGS.plus_fallback, buildAudienceRawModeCatalog("plus_fallback")),
-  ultra_fallback: buildAudienceAgentCatalog("ultra_fallback", AUDIENCE_MODE_CONFIGS.ultra_fallback, buildAudienceRawModeCatalog("ultra_fallback")),
+export const AUDIENCE_AGENT_MODELS: Record<
+  ManagedModelAudience,
+  Record<string, ModelConfig>
+> = {
+  anonymous: buildAudienceAgentCatalog(
+    "anonymous",
+    AUDIENCE_MODE_CONFIGS.anonymous,
+    buildAudienceRawModeCatalog("anonymous"),
+  ),
+  free: buildAudienceAgentCatalog(
+    "free",
+    AUDIENCE_MODE_CONFIGS.free,
+    buildAudienceRawModeCatalog("free"),
+  ),
+  go: buildAudienceAgentCatalog(
+    "go",
+    AUDIENCE_MODE_CONFIGS.go,
+    buildAudienceRawModeCatalog("go"),
+  ),
+  pro: buildAudienceAgentCatalog(
+    "pro",
+    AUDIENCE_MODE_CONFIGS.pro,
+    buildAudienceRawModeCatalog("pro"),
+  ),
+  plus: buildAudienceAgentCatalog(
+    "plus",
+    AUDIENCE_MODE_CONFIGS.plus,
+    buildAudienceRawModeCatalog("plus"),
+  ),
+  ultra: buildAudienceAgentCatalog(
+    "ultra",
+    AUDIENCE_MODE_CONFIGS.ultra,
+    buildAudienceRawModeCatalog("ultra"),
+  ),
+  go_fallback: buildAudienceAgentCatalog(
+    "go_fallback",
+    AUDIENCE_MODE_CONFIGS.go_fallback,
+    buildAudienceRawModeCatalog("go_fallback"),
+  ),
+  pro_fallback: buildAudienceAgentCatalog(
+    "pro_fallback",
+    AUDIENCE_MODE_CONFIGS.pro_fallback,
+    buildAudienceRawModeCatalog("pro_fallback"),
+  ),
+  plus_fallback: buildAudienceAgentCatalog(
+    "plus_fallback",
+    AUDIENCE_MODE_CONFIGS.plus_fallback,
+    buildAudienceRawModeCatalog("plus_fallback"),
+  ),
+  ultra_fallback: buildAudienceAgentCatalog(
+    "ultra_fallback",
+    AUDIENCE_MODE_CONFIGS.ultra_fallback,
+    buildAudienceRawModeCatalog("ultra_fallback"),
+  ),
 };
 
 export const AGENT_MODELS = AUDIENCE_AGENT_MODELS.free;
@@ -457,13 +540,18 @@ export function getModelConfig(
   agentType: string,
   audience: ManagedModelAudience = "free",
 ): ModelConfig {
-  const config = AUDIENCE_AGENT_MODELS[audience]?.[agentType] ?? AGENT_MODELS[agentType];
+  const config =
+    AUDIENCE_AGENT_MODELS[audience]?.[agentType] ?? AGENT_MODELS[agentType];
   if (!config) throw new Error(`No model config for agent type: ${agentType}`);
   return config;
 }
 
 export function hasModelConfig(agentType: string): boolean {
   return Object.prototype.hasOwnProperty.call(AGENT_MODELS, agentType);
+}
+
+export function isModelMode(value: string): value is ModelMode {
+  return Object.prototype.hasOwnProperty.call(BASE_MODE_CONFIGS, value);
 }
 
 export function listManagedModelIds(): string[] {

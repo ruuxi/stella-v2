@@ -1,14 +1,6 @@
+import type { ManagedModelAudience, ModelConfig } from "../agent/model";
 import {
-  getModeConfig,
-  getModelConfig,
-  isStellaModelAllowedForAudience,
-  LOCKED_AGENT_TYPES,
-  type ManagedModelAudience,
-  type ModelConfig,
-} from "../agent/model";
-import { inferManagedGatewayProviderFromModel } from "../lib/managed_gateway";
-import {
-  parseStellaModelSelection,
+  resolveStellaModelConfigForSelection,
   STELLA_DEFAULT_MODEL,
 } from "../stella_models";
 import type { ResolvedStellaModelSelection, StellaRequestBody } from "./shared";
@@ -41,43 +33,15 @@ export function resolveRequestedStellaModel(
 ): ResolvedStellaModelSelection {
   const trimmed =
     typeof requestBody.model === "string" ? requestBody.model.trim() : "";
-
-  const parsed = parseStellaModelSelection(trimmed);
-  const wantsOverride =
-    (parsed?.kind === "mode" || parsed?.kind === "upstream") &&
-    !LOCKED_AGENT_TYPES.has(agentType) &&
-    isStellaModelAllowedForAudience(trimmed, audience);
-
-  if (wantsOverride && parsed?.kind === "mode") {
-    const config = getModeConfig(parsed.mode, audience);
-    return {
-      requestedModel: trimmed,
-      resolvedModel: config.model,
-      config: withoutFallback(config),
-    };
-  }
-
-  if (wantsOverride && parsed?.kind === "upstream") {
-    const resolvedModel = parsed.model;
-    const inferredProvider =
-      inferManagedGatewayProviderFromModel(resolvedModel);
-    const config: ModelConfig = {
-      ...withoutFallback(getModelConfig(agentType, audience)),
-      model: resolvedModel,
-      managedGatewayProvider: inferredProvider,
-    };
-    return {
-      requestedModel: trimmed,
-      resolvedModel,
-      config,
-    };
-  }
-
-  // Default: empty / stella/default, a locked agent, or an override this
-  // audience may not pick → the backend-chosen model for agent + audience.
-  const config = getModelConfig(agentType, audience);
+  const { config, applied } = resolveStellaModelConfigForSelection(
+    trimmed,
+    agentType,
+    audience,
+  );
   return {
-    requestedModel: STELLA_DEFAULT_MODEL,
+    // The relay echoes the honored override id back, or the opaque sentinel
+    // when it fell through to the backend-chosen default.
+    requestedModel: applied ? trimmed : STELLA_DEFAULT_MODEL,
     resolvedModel: config.model,
     config: withoutFallback(config),
   };

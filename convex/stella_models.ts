@@ -6,10 +6,12 @@ import {
   isModelMode,
   isStellaModelAllowedForAudience,
   listManagedModelIds,
+  LOCKED_AGENT_TYPES,
   type ManagedModelAudience,
   type ModelConfig,
   type ModelMode,
 } from "./agent/model";
+import { inferManagedGatewayProviderFromModel } from "./lib/managed_gateway";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 
@@ -239,6 +241,54 @@ export const resolveStellaModelSelection = (
     return trimmed;
   }
   throw new Error(`Unsupported Stella model selection: ${trimmed ?? ""}`);
+};
+
+/**
+ * Resolve a requested model `selection` for an `agentType` + `audience` to its
+ * effective managed `ModelConfig`. This is the single source of truth shared by
+ * the relay request path (`resolveRequestedStellaModel` in `stella_provider`)
+ * and the runtime config path (`resolveModelConfig` in `agent/model_resolver`),
+ * so the two can't drift on how an override resolves (provider, options, etc.).
+ *
+ * An override is honored only when allowed: a `stella/<mode>` resolves per
+ * audience via `getModeConfig`; a `stella/<provider>/<model>` pins that model
+ * and infers its gateway provider. Everything else — the default sentinel, a
+ * locked agent, or an override this audience may not pick — returns the agent's
+ * backend default. `applied` is true only when an override was honored.
+ */
+export const resolveStellaModelConfigForSelection = (
+  selection: string | null | undefined,
+  agentType: string,
+  audience: ManagedModelAudience = "free",
+): { config: ModelConfig; applied: boolean } => {
+  const trimmed = selection?.trim();
+  const parsed =
+    trimmed && trimmed !== STELLA_DEFAULT_MODEL
+      ? parseStellaModelSelection(trimmed)
+      : null;
+  const allowed =
+    !!trimmed &&
+    parsed !== null &&
+    parsed.kind !== "default" &&
+    !LOCKED_AGENT_TYPES.has(agentType) &&
+    isStellaModelAllowedForAudience(trimmed, audience);
+
+  if (allowed && parsed?.kind === "mode") {
+    return { config: getModeConfig(parsed.mode, audience), applied: true };
+  }
+  if (allowed && parsed?.kind === "upstream") {
+    return {
+      config: {
+        ...getModelConfig(agentType, audience),
+        model: parsed.model,
+        managedGatewayProvider: inferManagedGatewayProviderFromModel(
+          parsed.model,
+        ),
+      },
+      applied: true,
+    };
+  }
+  return { config: getModelConfig(agentType, audience), applied: false };
 };
 
 export const listStellaCatalogModels = (

@@ -349,6 +349,10 @@ export const isStellaModelAllowedForAudience = (
  */
 export const LOCKED_AGENT_TYPES: ReadonlySet<string> = new Set<string>([
   "chronicle",
+  // Progress summaries tick every ~30s per active sub-agent purely to narrate
+  // what's happening. Like chronicle, the wrong (expensive) model here burns
+  // quota with no user benefit, so the client can't override it.
+  "progress_summary",
 ]);
 
 export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
@@ -372,6 +376,11 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   // work; stage-1 extraction remains the General rollout summary.
   dream: "standard",
   chronicle: "light",
+
+  // Per-active-agent progress narration. Ticks ~every 30s to produce a 3-7
+  // word summary of what a running sub-agent is doing, so it stays on the
+  // cheap Light tier (deepseek-v4-flash) and is locked from client override.
+  progress_summary: "light",
 
   // General agent's post-completion HTML "finishing up" pass — a fast, cheap
   // Gemini Flash render routed through OpenRouter. The desktop requests the

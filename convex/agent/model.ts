@@ -118,8 +118,9 @@ const GPT_5_4_MINI_MODEL_CONFIG: ModeConfig = {
 };
 
 // Kimi K2.6 on Fireworks. Used as the per-agent default for the orchestrator
-// on every tier except `ultra` (which keeps Standard). The newer
-// `kimi-k2p7-code` variant is the `priority` mode and powers the general agent.
+// on every tier except `ultra` (which runs the Designer mode / Opus 4.8). The
+// newer `kimi-k2p7-code` variant is the `priority` mode and powers the general
+// agent.
 const KIMI_K2P6_MODEL_CONFIG: ModeConfig = {
   model: "accounts/fireworks/models/kimi-k2p6",
   fallbackMode: "standard",
@@ -251,18 +252,18 @@ const AUDIENCE_MODE_OVERRIDES: Record<
 // model config key.
 //
 // Every tier except `ultra` runs the orchestrator on Kimi K2.6 and the
-// general agent on Kimi K2.7 Code (the `priority` mode). Ultra keeps the
-// Standard model (GPT-5.5) on both. `ultra_fallback` (an over-cap Ultra user)
-// is intentionally treated like the other tiers — the fallback exists to
-// drop over-cap users onto the cheaper models.
+// general agent on Kimi K2.7 Code (the `priority` mode). Ultra runs both on the
+// Designer mode (Claude Opus 4.8) as its premium baseline. `ultra_fallback`
+// (an over-cap Ultra user) is intentionally treated like the other tiers — the
+// fallback exists to drop over-cap users onto the cheaper Kimi models.
 const KIMI_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
   [AGENT_IDS.ORCHESTRATOR]: "kimi_k2p6",
   [AGENT_IDS.GENERAL]: "priority",
 };
 
 const ULTRA_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
-  [AGENT_IDS.ORCHESTRATOR]: "standard",
-  [AGENT_IDS.GENERAL]: "standard",
+  [AGENT_IDS.ORCHESTRATOR]: "designer",
+  [AGENT_IDS.GENERAL]: "designer",
 };
 
 const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<

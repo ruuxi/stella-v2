@@ -52,12 +52,12 @@ describe("managed model config", () => {
     }
   });
 
-  it("keeps Ultra on the Standard model for orchestrator and general", () => {
+  it("runs Ultra orchestrator and general on the Designer model (Opus)", () => {
     expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "ultra").model).toBe(
-      "openai/gpt-5.5",
+      "anthropic/claude-opus-4.8",
     );
     expect(getModelConfig(AGENT_IDS.GENERAL, "ultra").model).toBe(
-      "openai/gpt-5.5",
+      "anthropic/claude-opus-4.8",
     );
     expect(getModeConfig("standard").managedGatewayProvider).toBe("openai");
     expect(getModeConfig("standard").providerOptions?.openai).toMatchObject({

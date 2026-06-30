@@ -2369,6 +2369,31 @@ export function ChatPane({
     </View>
   ) : null;
 
+  // Shared mic / dictation control. Reused across the collapsed pill and the
+  // expanded toolbar. It is intentionally NOT gated on `streaming`: dictation
+  // stays available mid-run so a voice message can be queued as a follow-up,
+  // exactly like typing + sending while busy (matches desktop's
+  // "dictation-while-busy" behavior). The branches that render it are mutually
+  // exclusive per render, so reusing the same element is safe.
+  const micButton = (
+    <Pressable
+      onPress={() => void toggleVoice()}
+      accessibilityLabel={
+        isListening ? "Stop voice input" : "Start voice input"
+      }
+      disabled={dictation.isTranscribing}
+      style={[styles.micButton, isListening && styles.micButtonActive]}
+      hitSlop={4}
+    >
+      <Icon
+        name={isListening ? "mic-off" : "mic"}
+        size={20}
+        color={isListening ? colors.accentForeground : colors.textMuted}
+        filled={isListening}
+      />
+    </Pressable>
+  );
+
   const showAttachmentStrip =
     enableAttachments && (attachments?.length ?? 0) > 0;
 
@@ -2732,15 +2757,7 @@ export function ChatPane({
                     value={draft}
                     editable={composerEnabled}
                   />
-                  {isExpandedComposed ? null : streaming &&
-                    onStop &&
-                    !hasText ? (
-                    <StopButton
-                      onPress={onStop}
-                      styles={styles}
-                      colors={colors}
-                    />
-                  ) : canSubmit ? (
+                  {isExpandedComposed ? null : canSubmit ? (
                     <AnimatedSubmitButton
                       canSubmit={canSubmit}
                       onPress={submit}
@@ -2750,59 +2767,28 @@ export function ChatPane({
                         streaming ? "Queue follow-up message" : "Send message"
                       }
                     />
-                  ) : (
-                    <Pressable
-                      onPress={() => void toggleVoice()}
-                      accessibilityLabel={
-                        isListening ? "Stop voice input" : "Start voice input"
-                      }
-                      disabled={dictation.isTranscribing}
-                      style={[
-                        styles.micButton,
-                        isListening && styles.micButtonActive,
-                      ]}
-                      hitSlop={4}
-                    >
-                      <Icon
-                        name={isListening ? "mic-off" : "mic"}
-                        size={20}
-                        color={
-                          isListening
-                            ? colors.accentForeground
-                            : colors.textMuted
-                        }
-                        filled={isListening}
+                  ) : streaming && onStop ? (
+                    // Busy with an empty composer: keep the mic available so a
+                    // dictated message can be queued as a follow-up, and keep
+                    // Stop reachable alongside it (mirrors the expanded
+                    // toolbar, which always shows the mic).
+                    <View style={styles.pillTrailingCluster}>
+                      {micButton}
+                      <StopButton
+                        onPress={onStop}
+                        styles={styles}
+                        colors={colors}
                       />
-                    </Pressable>
+                    </View>
+                  ) : (
+                    micButton
                   )}
                 </View>
                 {isExpandedComposed && !dictationBelow ? (
                   <View style={styles.toolbar}>
                     <View style={styles.toolbarLeft}>{plusButton}</View>
                     <View style={styles.toolbarRight}>
-                      <Pressable
-                        onPress={() => void toggleVoice()}
-                        accessibilityLabel={
-                          isListening ? "Stop voice input" : "Start voice input"
-                        }
-                        disabled={dictation.isTranscribing}
-                        style={[
-                          styles.micButton,
-                          isListening && styles.micButtonActive,
-                        ]}
-                        hitSlop={4}
-                      >
-                        <Icon
-                          name={isListening ? "mic-off" : "mic"}
-                          size={20}
-                          color={
-                            isListening
-                              ? colors.accentForeground
-                              : colors.textMuted
-                          }
-                          filled={isListening}
-                        />
-                      </Pressable>
+                      {micButton}
                       {streaming && onStop && !hasText ? (
                         <StopButton
                           onPress={onStop}
@@ -3235,6 +3221,11 @@ const makeStyles = (colors: Colors) =>
     },
     toolbarLeft: { flexDirection: "row", alignItems: "center", gap: 4 },
     toolbarRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+    pillTrailingCluster: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
 
     dictationRow: {
       flexDirection: "row",

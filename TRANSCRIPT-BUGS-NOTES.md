@@ -82,11 +82,13 @@ with `requestId === <canonical user message id>` (see
 
 ## Commits
 
-- (this file) diagnosis notes
-- fix: gate task-poll sync while sending
-- fix: reconcile hardening + precise canonical linking
-- fix: requestId-aware merge + twin collapse
-- test: chat-merge dedupe/ordering unit tests (bun test)
+- `27c6e21` diagnosis notes (this file)
+- `05e5bf6` fix 1: gate the 5s task-poll sync while a send is in flight
+- `553355f` fixes 2–4: reconcile hardening (stand-in exclusion, twin
+  eviction), precise canonical linking via the bridge-reported user-message
+  id, requestId-aware merge + twin collapse
+- `2296bc5` chat-merge dedupe/ordering unit tests (`cd mobile && bun test`,
+  12 pass)
 
 ## Ship path
 

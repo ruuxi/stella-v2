@@ -91,6 +91,27 @@ export const isMobileDisplayPayload = (
         isFiniteNumber(value.completed) &&
         isFiniteNumber(value.createdAt)
       );
+    case "map-route": {
+      if (!Array.isArray(value.markers) || value.markers.length === 0) {
+        return false;
+      }
+      const markersOk = value.markers.every(
+        (marker) =>
+          isRecord(marker) &&
+          isString(marker.id) &&
+          isString(marker.name) &&
+          isFiniteNumber(marker.lat) &&
+          isFiniteNumber(marker.lng),
+      );
+      if (!markersOk) return false;
+      if (value.route === undefined) return true;
+      return (
+        isRecord(value.route) &&
+        isString(value.route.polyline) &&
+        isFiniteNumber(value.route.distanceMeters) &&
+        isFiniteNumber(value.route.durationSeconds)
+      );
+    }
     default:
       return false;
   }
@@ -145,6 +166,7 @@ export const artifactPrimaryFilePath = (
       }
     case "url":
     case "agent-work":
+    case "map-route":
       return null;
   }
 };
@@ -186,6 +208,23 @@ export const artifactTitle = (payload: MobileDisplayPayload): string => {
       }
     case "agent-work":
       return payload.title;
+    case "map-route": {
+      if (payload.title) return payload.title;
+      if (payload.route) {
+        const origin = payload.markers.find(
+          (marker) => marker.id === payload.route?.originId,
+        );
+        const destination = payload.markers.find(
+          (marker) => marker.id === payload.route?.destinationId,
+        );
+        if (origin && destination) {
+          return `${origin.name} → ${destination.name}`;
+        }
+      }
+      return payload.markers.length === 1
+        ? (payload.markers[0]?.name ?? "Map")
+        : `${payload.markers.length} places`;
+    }
   }
 };
 
@@ -235,6 +274,20 @@ export const artifactSubtitle = (payload: MobileDisplayPayload): string => {
       }
     case "agent-work":
       return payload.subtitle;
+    case "map-route":
+      if (payload.route) {
+        const km = payload.route.distanceMeters / 1000;
+        const minutes = Math.max(
+          1,
+          Math.round(payload.route.durationSeconds / 60),
+        );
+        const duration =
+          minutes < 60
+            ? `${minutes} min`
+            : `${Math.floor(minutes / 60)} hr${minutes % 60 > 0 ? ` ${minutes % 60} min` : ""}`;
+        return `Route · ${km >= 100 ? Math.round(km) : km.toFixed(1)} km · ${duration}`;
+      }
+      return payload.markers.length === 1 ? "Map · 1 place" : `Map · ${payload.markers.length} places`;
   }
 };
 
@@ -265,6 +318,8 @@ export const artifactIconName = (payload: MobileDisplayPayload) => {
       }
     case "agent-work":
       return payload.state === "done" ? "check" : "cpu";
+    case "map-route":
+      return "globe";
   }
 };
 

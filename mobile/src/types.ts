@@ -14,6 +14,32 @@ export type MobileMediaAsset =
   | { kind: "download"; filePath: string; label: string }
   | { kind: "text"; text: string };
 
+export type MobileMapTravelMode = "driving" | "walking" | "cycling" | "transit";
+
+export type MobileMapMarker = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  address?: string;
+  placeId?: string;
+  rating?: number;
+  ratingCount?: number;
+  role?: "origin" | "destination" | "place";
+};
+
+export type MobileMapRoute = {
+  mode: MobileMapTravelMode;
+  originId: string;
+  destinationId: string;
+  distanceMeters: number;
+  durationSeconds: number;
+  summary?: string;
+  /** Google encoded overview polyline. */
+  polyline: string;
+  steps?: { instruction: string; distanceMeters: number }[];
+};
+
 export type MobileOfficePreviewRef = {
   sessionId: string;
   title: string;
@@ -72,6 +98,20 @@ export type MobileDisplayPayload =
       title: string;
       subtitle: string;
       createdAt: number;
+    }
+  | {
+      /**
+       * Inline interactive map card — the shared `map-route` artifact from
+       * the desktop runtime's `map` tool (pins and/or a route). Rendered as
+       * a WebView of the hosted stella.sh Google Maps embed with an
+       * "Open in Apple Maps" handoff; mirrors
+       * `runtime/contracts/map-artifact.ts` in the Stella repo.
+       */
+      kind: "map-route";
+      version: 1;
+      title?: string;
+      markers: MobileMapMarker[];
+      route?: MobileMapRoute;
     };
 
 export type ChatArtifact = {

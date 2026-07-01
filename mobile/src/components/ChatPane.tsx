@@ -49,6 +49,7 @@ import { AssistantMarkdown } from "./AssistantMarkdown";
 import { AppBackdrop, TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
 import { ArtifactCard } from "./ArtifactCard";
 import { AgentWorkCard } from "./AgentWorkCard";
+import { MapRouteCard } from "./MapRouteCard";
 import { ToolActivityTrace } from "./ToolActivityTrace";
 import { ActivityPill, ActivityTray } from "./ActivityPill";
 import { deriveToolActivity } from "../lib/tool-activity";
@@ -717,6 +718,14 @@ const isAgentWorkArtifact = (
   artifact: ChatArtifact,
 ): artifact is AgentWorkArtifact => artifact.payload.kind === "agent-work";
 
+type MapRouteChatArtifact = ChatArtifact & {
+  payload: Extract<MobileDisplayPayload, { kind: "map-route" }>;
+};
+
+const isMapRouteArtifact = (
+  artifact: ChatArtifact,
+): artifact is MapRouteChatArtifact => artifact.payload.kind === "map-route";
+
 /**
  * The always-visible action row under a finished assistant message: copy, read
  * aloud (a pause/play toggle while a clip is loaded), and share. These mirror
@@ -974,8 +983,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
   const artifacts = item.artifacts ?? [];
   const hasText = item.text.trim().length > 0;
   const agentWorkArtifacts = artifacts.filter(isAgentWorkArtifact);
+  const mapArtifacts = artifacts.filter(isMapRouteArtifact);
   const fileArtifacts = artifacts.filter(
-    (artifact) => artifact.payload.kind !== "agent-work",
+    (artifact) =>
+      artifact.payload.kind !== "agent-work" &&
+      artifact.payload.kind !== "map-route",
   );
   const isStandIn = isStandInArtifactRow(item);
   // Agent-work is non-openable status UI, so it can mount as soon as the bridge
@@ -983,12 +995,16 @@ const ChatMessageRow = memo(function ChatMessageRow({
   // streaming. File artifacts stay conservative: only show them once the
   // assistant row has finalized so tapping never races a partial artifact.
   const showAgentWork = !isStandIn && agentWorkArtifacts.length > 0;
+  // Map cards are self-contained payloads (no file to race), but wait for the
+  // row to finalize so the card doesn't pop in mid-stream.
+  const showMapArtifacts =
+    !isStreaming && !isStandIn && mapArtifacts.length > 0;
   const showFileArtifacts =
     !isStreaming &&
     !isStandIn &&
     Boolean(onOpenArtifact) &&
     fileArtifacts.length > 0;
-  const showArtifacts = showAgentWork || showFileArtifacts;
+  const showArtifacts = showAgentWork || showMapArtifacts || showFileArtifacts;
   const toolActivity = item.toolSteps
     ? deriveToolActivity(item.toolSteps)
     : undefined;
@@ -1015,6 +1031,15 @@ const ChatMessageRow = memo(function ChatMessageRow({
               colors={colors}
             />
           ))}
+          {showMapArtifacts
+            ? mapArtifacts.map((artifact) => (
+                <MapRouteCard
+                  key={artifact.id}
+                  payload={artifact.payload}
+                  colors={colors}
+                />
+              ))
+            : null}
           {showFileArtifacts && onOpenArtifact
             ? fileArtifacts.map((artifact) => (
                 <ArtifactCard

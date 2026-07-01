@@ -98,6 +98,10 @@ const TOOL_DESCRIPTORS: Record<string, ToolDescriptor> = {
     phrase: plural("looked up a tool", (n) => `looked up ${n} tools`),
   },
   web: { category: "web", phrase: () => "searched the web" },
+  map: {
+    category: "web",
+    phrase: plural("looked up a map", (n) => `looked up ${n} maps`),
+  },
   import_source: {
     category: "web",
     phrase: plural("imported a source", (n) => `imported ${n} sources`),

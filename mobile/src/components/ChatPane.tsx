@@ -717,8 +717,10 @@ const AssistantActions = memo(function AssistantActions({
   const playback = useReadAloudState();
   const status = playback?.messageId === messageId ? playback.status : null;
   if (!text.trim()) return null;
+  // Idle/loading show a speaker so the button reads as "read this aloud";
+  // playing shows pause, and paused shows play to resume in place.
   const soundIcon =
-    status === "playing" ? "pause" : status === "loading" ? "volume-2" : "play";
+    status === "playing" ? "pause" : status === "paused" ? "play" : "volume-2";
   const soundLabel =
     status === "playing"
       ? "Pause reading aloud"

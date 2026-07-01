@@ -30,9 +30,16 @@
  * Free plan has no PRICE_CENTS (always 0). Its four limit/window envs
  * are required (no formula derives from a $0 price).
  *
- * `<PLAN>` ∈ { FREE, GO, PRO, PLUS, ULTRA }.
+ * `<PLAN>` ∈ { FREE, GO, PRO, PLUS, ULTRA, MAX }.
  */
-export const SUBSCRIPTION_PLANS = ["free", "go", "pro", "plus", "ultra"] as const;
+export const SUBSCRIPTION_PLANS = [
+  "free",
+  "go",
+  "pro",
+  "plus",
+  "ultra",
+  "max",
+] as const;
 
 export type SubscriptionPlan = (typeof SUBSCRIPTION_PLANS)[number];
 
@@ -55,6 +62,7 @@ const PLAN_LABELS: Record<SubscriptionPlan, string> = {
   pro: "Pro",
   plus: "Plus",
   ultra: "Ultra",
+  max: "Stella Max",
 };
 
 // Share of the derived monthly limit allotted to the smaller windows.
@@ -204,6 +212,7 @@ const loadPlanCatalog = (): PlanCatalog => {
     pro: buildPaidPlanConfig("pro", utilizationRate),
     plus: buildPaidPlanConfig("plus", utilizationRate),
     ultra: buildPaidPlanConfig("ultra", utilizationRate),
+    max: buildPaidPlanConfig("max", utilizationRate),
   };
   return cachedCatalog;
 };
@@ -213,6 +222,7 @@ const STRIPE_PRICE_ID_ENV: Record<Exclude<SubscriptionPlan, "free">, string> = {
   pro: "STRIPE_PRICE_PRO",
   plus: "STRIPE_PRICE_PLUS",
   ultra: "STRIPE_PRICE_ULTRA",
+  max: "STRIPE_PRICE_MAX",
 };
 
 export const getPlanCatalog = (): PlanCatalog => loadPlanCatalog();
@@ -237,7 +247,7 @@ export const findPlanForStripePriceId = (
     return null;
   }
 
-  for (const plan of ["go", "pro", "plus", "ultra"] as const) {
+  for (const plan of ["go", "pro", "plus", "ultra", "max"] as const) {
     const configured = process.env[STRIPE_PRICE_ID_ENV[plan]]?.trim();
     if (configured && configured === normalized) {
       return plan;

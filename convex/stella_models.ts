@@ -4,6 +4,7 @@ import {
   getModeConfig,
   getModelConfig,
   isModelMode,
+  isPaidManagedAudience,
   isStellaModelAllowedForAudience,
   listManagedModelIds,
   LOCKED_AGENT_TYPES,
@@ -28,9 +29,12 @@ export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 export const STELLA_BUILDER_MODEL = `${STELLA_PROVIDER}/builder`;
 export const STELLA_DESIGNER_MODEL = `${STELLA_PROVIDER}/designer`;
 export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
+// Stella Max: the premium branded mode (Claude Fable 5). Paid-only; default for
+// the Stella Max plan.
+export const STELLA_MAX_MODEL = `${STELLA_PROVIDER}/max`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 5, 27, 12, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 6, 2, 12, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -58,6 +62,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   "accounts/fireworks/models/deepseek-v4-flash": "DeepSeek V4 Flash",
   "accounts/fireworks/models/kimi-k2p6": "Kimi K2.6",
   "accounts/fireworks/models/kimi-k2p7-code": "Kimi K2.7 Code",
+  "anthropic/claude-fable-5": "Claude Fable 5",
   "anthropic/claude-opus-4.8": "Claude Opus 4.8",
   "anthropic/claude-opus-4.5": "Claude Opus 4.5",
   "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
@@ -115,7 +120,13 @@ type StellaAliasMode = {
   name: string;
   mode: ModelMode;
   type: "language" | "multimodal";
-  minAudience?: "pro";
+  /**
+   * Minimum audience that may see this branded mode in the picker:
+   * - `pro`: pro-and-higher tiers only.
+   * - `paid`: any paid plan (includes go, which otherwise can't pin models).
+   * Undefined means every audience sees it.
+   */
+  minAudience?: "pro" | "paid";
 };
 
 const STELLA_ALIAS_MODES: ReadonlyArray<StellaAliasMode> = [
@@ -156,19 +167,37 @@ const STELLA_ALIAS_MODES: ReadonlyArray<StellaAliasMode> = [
     mode: "vision",
     type: "multimodal" as const,
   },
+  {
+    id: STELLA_MAX_MODEL,
+    name: "Stella Max",
+    mode: "max",
+    type: "language" as const,
+    minAudience: "paid",
+  },
 ];
 
 const isProOrHigherAudience = (audience: ManagedModelAudience): boolean =>
   audience === "pro" ||
   audience === "plus" ||
   audience === "ultra" ||
+  audience === "max" ||
   audience === "pro_fallback" ||
   audience === "plus_fallback" ||
-  audience === "ultra_fallback";
+  audience === "ultra_fallback" ||
+  audience === "max_fallback";
+
+const isAliasVisibleForAudience = (
+  alias: StellaAliasMode,
+  audience: ManagedModelAudience,
+): boolean => {
+  if (alias.minAudience === "pro") return isProOrHigherAudience(audience);
+  if (alias.minAudience === "paid") return isPaidManagedAudience(audience);
+  return true;
+};
 
 const getStaticStellaAliases = (audience: ManagedModelAudience = "free") =>
-  STELLA_ALIAS_MODES.filter(
-    (alias) => alias.minAudience !== "pro" || isProOrHigherAudience(audience),
+  STELLA_ALIAS_MODES.filter((alias) =>
+    isAliasVisibleForAudience(alias, audience),
   ).map((alias) => {
     const config = getModeConfig(alias.mode, audience);
     return {

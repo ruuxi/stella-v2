@@ -45,10 +45,12 @@ export const MANAGED_MODEL_AUDIENCES = [
   "pro",
   "plus",
   "ultra",
+  "max",
   "go_fallback",
   "pro_fallback",
   "plus_fallback",
   "ultra_fallback",
+  "max_fallback",
 ] as const;
 
 export type ManagedModelAudience = (typeof MANAGED_MODEL_AUDIENCES)[number];
@@ -60,6 +62,7 @@ export const MODEL_MODES = [
   "builder",
   "designer",
   "vision",
+  "max",
 ] as const;
 
 export type ModelMode = (typeof MODEL_MODES)[number];
@@ -247,6 +250,24 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
       ...gatewayOptions("google"),
     },
   },
+
+  // Stella Max: the premium branded mode powered by Anthropic's Claude
+  // Fable 5. Selectable by any paid-plan user and the backend default for
+  // the Stella Max ($1000/mo) plan (see `MAX_AGENT_OVERRIDES`). Falls back to
+  // the Designer mode (Opus) if the upstream Fable 5 model is unavailable.
+  max: {
+    model: "anthropic/claude-fable-5",
+    fallbackMode: "designer",
+    managedGatewayProvider: "anthropic",
+    temperature: 1.0,
+    // Required by Anthropic's Messages API.
+    maxOutputTokens: 64000,
+    providerOptions: {
+      openai: {
+        reasoningEffort: "high",
+      },
+    },
+  },
 };
 
 const AUDIENCE_MODE_OVERRIDES: Record<
@@ -259,10 +280,12 @@ const AUDIENCE_MODE_OVERRIDES: Record<
   pro: {},
   plus: {},
   ultra: {},
+  max: {},
   go_fallback: {},
   pro_fallback: {},
   plus_fallback: {},
   ultra_fallback: {},
+  max_fallback: {},
 };
 
 // Per-audience swaps of an agent's task→model mapping. Lets us point
@@ -285,6 +308,15 @@ const ULTRA_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
   [AGENT_IDS.GENERAL]: "designer",
 };
 
+// Stella Max ($1000/mo) plan baseline: the orchestrator and general agent both
+// run on the Stella Max mode (Claude Fable 5), making it the plan's default
+// model. `max_fallback` (an over-cap Max user) drops to the cheaper Kimi models
+// like every other fallback tier.
+const MAX_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
+  [AGENT_IDS.ORCHESTRATOR]: "max",
+  [AGENT_IDS.GENERAL]: "max",
+};
+
 const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
   Record<ManagedModelAudience, Partial<Record<string, TaskModelSelection>>>
 > = {
@@ -294,10 +326,12 @@ const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
   pro: KIMI_AGENT_OVERRIDES,
   plus: KIMI_AGENT_OVERRIDES,
   ultra: ULTRA_AGENT_OVERRIDES,
+  max: MAX_AGENT_OVERRIDES,
   go_fallback: KIMI_AGENT_OVERRIDES,
   pro_fallback: KIMI_AGENT_OVERRIDES,
   plus_fallback: KIMI_AGENT_OVERRIDES,
   ultra_fallback: KIMI_AGENT_OVERRIDES,
+  max_fallback: KIMI_AGENT_OVERRIDES,
 };
 
 // Audiences that may NOT override the per-agent default model from the
@@ -313,6 +347,25 @@ const RESTRICTED_MODEL_OVERRIDE_AUDIENCES = new Set<ManagedModelAudience>([
 export const canOverrideStellaModel = (
   audience: ManagedModelAudience,
 ): boolean => !RESTRICTED_MODEL_OVERRIDE_AUDIENCES.has(audience);
+
+// Audiences without a paid subscription. Used to gate paid-only branded modes
+// (e.g. Stella Max) independently of the model-override restriction above:
+// `go` may not freely pin arbitrary models but is still a paid plan that can
+// select the paid-only modes.
+const UNPAID_MODEL_AUDIENCES = new Set<ManagedModelAudience>([
+  "anonymous",
+  "free",
+]);
+
+export const isPaidManagedAudience = (
+  audience: ManagedModelAudience,
+): boolean => !UNPAID_MODEL_AUDIENCES.has(audience);
+
+// Branded modes any paid plan may select even when the audience can't pin
+// arbitrary managed models. Free/anonymous stay blocked.
+const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
+  "stella/max",
+]);
 
 /**
  * Stella catalog model ids that restricted-tier audiences (anonymous /
@@ -332,6 +385,12 @@ export const isStellaModelAllowedForAudience = (
   modelId: string,
   audience: ManagedModelAudience,
 ): boolean => {
+  // Paid-only branded modes (Stella Max) are selectable by any paid plan,
+  // including plans that otherwise can't pin arbitrary models (go). Free and
+  // anonymous audiences stay blocked.
+  if (PAID_ONLY_STELLA_MODE_IDS.has(modelId)) {
+    return isPaidManagedAudience(audience);
+  }
   if (canOverrideStellaModel(audience)) return true;
   return RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId);
 };
@@ -480,10 +539,12 @@ const AUDIENCE_MODE_CONFIGS: Record<
   pro: buildAudienceModeCatalog("pro"),
   plus: buildAudienceModeCatalog("plus"),
   ultra: buildAudienceModeCatalog("ultra"),
+  max: buildAudienceModeCatalog("max"),
   go_fallback: buildAudienceModeCatalog("go_fallback"),
   pro_fallback: buildAudienceModeCatalog("pro_fallback"),
   plus_fallback: buildAudienceModeCatalog("plus_fallback"),
   ultra_fallback: buildAudienceModeCatalog("ultra_fallback"),
+  max_fallback: buildAudienceModeCatalog("max_fallback"),
 };
 
 export const AUDIENCE_AGENT_MODELS: Record<
@@ -520,6 +581,11 @@ export const AUDIENCE_AGENT_MODELS: Record<
     AUDIENCE_MODE_CONFIGS.ultra,
     buildAudienceRawModeCatalog("ultra"),
   ),
+  max: buildAudienceAgentCatalog(
+    "max",
+    AUDIENCE_MODE_CONFIGS.max,
+    buildAudienceRawModeCatalog("max"),
+  ),
   go_fallback: buildAudienceAgentCatalog(
     "go_fallback",
     AUDIENCE_MODE_CONFIGS.go_fallback,
@@ -540,13 +606,18 @@ export const AUDIENCE_AGENT_MODELS: Record<
     AUDIENCE_MODE_CONFIGS.ultra_fallback,
     buildAudienceRawModeCatalog("ultra_fallback"),
   ),
+  max_fallback: buildAudienceAgentCatalog(
+    "max_fallback",
+    AUDIENCE_MODE_CONFIGS.max_fallback,
+    buildAudienceRawModeCatalog("max_fallback"),
+  ),
 };
 
 export const AGENT_MODELS = AUDIENCE_AGENT_MODELS.free;
 export const DEFAULT_MODEL = AGENT_MODELS[AGENT_IDS.OFFLINE_RESPONDER];
 
 export const resolveManagedModelAudience = (args: {
-  plan: "free" | "go" | "pro" | "plus" | "ultra";
+  plan: "free" | "go" | "pro" | "plus" | "ultra" | "max";
   isAnonymous?: boolean;
   downgraded?: boolean;
 }): ManagedModelAudience => {

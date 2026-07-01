@@ -21,6 +21,7 @@ export const telemetrySchema = {
         v.literal('pro'),
         v.literal('plus'),
         v.literal('ultra'),
+        v.literal('max'),
       ),
     ),
     durationMs: v.number(),

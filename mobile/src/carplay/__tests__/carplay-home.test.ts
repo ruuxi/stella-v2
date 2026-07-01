@@ -123,13 +123,46 @@ describe("recent reply rows", () => {
   });
 });
 
+describe("read-latest row", () => {
+  test("hidden when there are no replies (no dead taps)", () => {
+    const sections = buildHome(base);
+    expect(
+      flattenActions(sections).some((a) => a.kind === "readLatest"),
+    ).toBe(false);
+  });
+
+  test("previews the newest reply and reads it on tap", () => {
+    const sections = buildHome({
+      ...base,
+      replies: [{ id: "m9", text: "Latest answer here.", at: NOW }],
+    });
+    const row = sections[0].rows.find(
+      (r) => r.action.kind === "readLatest",
+    );
+    expect(row !== undefined).toBe(true);
+    expect(row!.item.text).toBe("Read latest reply");
+    expect(row!.item.detailText).toContain("Latest answer here.");
+  });
+});
+
 describe("buildHome / flattenActions", () => {
   test("flat action order matches rendered row order", () => {
-    const sections = buildHome(base);
+    const sections = buildHome({
+      ...base,
+      replies: [
+        { id: "m2", text: "Newest.", at: NOW },
+        { id: "m1", text: "Older.", at: NOW - 60_000 },
+      ],
+    });
     const actions = flattenActions(sections);
     expect(actions.length).toBe(
       sections.reduce((n, s) => n + s.rows.length, 0),
     );
-    expect(actions[0]).toEqual({ kind: "talk" });
+    expect(actions.map((a) => a.kind)).toEqual([
+      "talk",
+      "readLatest",
+      "readReply",
+      "readReply",
+    ]);
   });
 });

@@ -207,10 +207,18 @@ function CarPlayBridgeIOS() {
     [goPhase],
   );
 
+  // Dedicated "read the newest reply" row.
+  const onReadLatest = useCallback(() => {
+    const newest = [...messagesRef.current]
+      .reverse()
+      .find((m) => m.role === "assistant" && m.text.trim().length > 0);
+    if (newest) onReadReply(newest.id);
+  }, [onReadReply]);
+
   // Keep the session bound to the latest closures.
   useEffect(() => {
-    carPlaySession.bindActions({ onTalk, onReadReply });
-  }, [onTalk, onReadReply]);
+    carPlaySession.bindActions({ onTalk, onReadReply, onReadLatest });
+  }, [onTalk, onReadReply, onReadLatest]);
 
   useEffect(() => {
     carPlaySession.register();

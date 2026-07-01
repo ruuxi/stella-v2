@@ -41,7 +41,8 @@ export type CarPlayHomeState = {
 /** A tap target; the session maps these to the bound bridge actions. */
 export type HomeRowAction =
   | { kind: "talk" }
-  | { kind: "readReply"; id: string };
+  | { kind: "readReply"; id: string }
+  | { kind: "readLatest" };
 
 /** Template-agnostic list row (the session decorates with images). */
 export type HomeRowSpec = {
@@ -119,13 +120,33 @@ export function buildReplyRows(state: CarPlayHomeState): HomeRow[] {
 }
 
 /**
+ * Dedicated one-tap "read the newest reply aloud" row. Only rendered when a
+ * reply exists — a row that can't do anything would be a dead tap, which is
+ * exactly what v2 exists to eliminate.
+ */
+export function buildReadLatestRow(state: CarPlayHomeState): HomeRow | null {
+  const newest = state.replies[0];
+  if (!newest) return null;
+  return {
+    item: {
+      text: "Read latest reply",
+      detailText: previewText(newest.text, 80),
+    },
+    action: { kind: "readLatest" },
+  };
+}
+
+/**
  * The whole home surface, ordered exactly as rendered. react-native-carplay
  * reports item selection as a FLAT index across all sections (see
  * `parseListItems:startIndex:` in RNCarPlay.m), so callers should flatten the
  * rows in order to resolve a tap back to its action.
  */
 export function buildHome(state: CarPlayHomeState): HomeSection[] {
-  const sections: HomeSection[] = [{ rows: [buildTalkRow(state)] }];
+  const firstRows: HomeRow[] = [buildTalkRow(state)];
+  const readLatest = buildReadLatestRow(state);
+  if (readLatest) firstRows.push(readLatest);
+  const sections: HomeSection[] = [{ rows: firstRows }];
   const replyRows = buildReplyRows(state);
   if (replyRows.length > 0) {
     sections.push({ header: "Recent replies", rows: replyRows });

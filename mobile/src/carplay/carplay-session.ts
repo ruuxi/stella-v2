@@ -72,6 +72,8 @@ export type CarPlayActions = {
   onTalk: () => void;
   /** A recent-reply row was selected — read THAT message aloud. */
   onReadReply: (id: string) => void;
+  /** The dedicated read-latest row was selected — read the newest reply. */
+  onReadLatest: () => void;
 };
 
 // Stella-green glyphs (see assets/carplay/generate-icons.py). Carrying the
@@ -79,6 +81,7 @@ export type CarPlayActions = {
 // CarPlay lets us get to Stella's visual language.
 const MIC_ICON = require("../../assets/carplay/stella-voice-mic.png") as ImageSourcePropType;
 const LISTENING_ICON = require("../../assets/carplay/stella-voice-listening.png") as ImageSourcePropType;
+const REPLAY_ICON = require("../../assets/carplay/stella-voice-replay.png") as ImageSourcePropType;
 
 type RNCarPlay = typeof import("react-native-carplay");
 
@@ -293,6 +296,8 @@ class CarPlaySession {
     let image: ImageSourcePropType | undefined;
     if (row.action.kind === "talk") {
       image = this.phase === "listening" ? LISTENING_ICON : MIC_ICON;
+    } else if (row.action.kind === "readLatest") {
+      image = REPLAY_ICON;
     }
     return { ...row.item, image };
   }
@@ -310,6 +315,9 @@ class CarPlaySession {
         break;
       case "readReply":
         this.actions?.onReadReply(action.id);
+        break;
+      case "readLatest":
+        this.actions?.onReadLatest();
         break;
     }
   }

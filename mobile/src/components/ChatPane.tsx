@@ -22,6 +22,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  type TextLayoutEventData,
   TextInput,
   UIManager,
   useWindowDimensions,
@@ -820,6 +821,84 @@ const isStandInArtifactRow = (message: ChatMessage): boolean =>
       (message.canonicalId?.endsWith(suffix) ?? false),
   );
 
+/**
+ * Line count at which a user message collapses behind a "Show more" toggle.
+ * Deliberately tighter than the desktop cap (12 lines on the full chat surface,
+ * 8 on the compact one) because phone bubbles have far less vertical room.
+ */
+const USER_MESSAGE_COLLAPSE_LINES = 6;
+
+/**
+ * User message body with collapse/expand for long text — the mobile analogue
+ * of desktop's `UserMessageBody`. Collapsed by default when the rendered text
+ * exceeds `USER_MESSAGE_COLLAPSE_LINES`; a tappable "Show more" / "Show less"
+ * toggle then reveals or re-hides the overflow.
+ *
+ * Overflow is detected by measuring the full line count on the first
+ * (unclamped) text layout pass, after which `numberOfLines` clamps the
+ * collapsed state.
+ */
+function UserMessageText({
+  text,
+  styles,
+}: {
+  text: string;
+  styles: ChatStyles;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [totalLines, setTotalLines] = useState<number | null>(null);
+
+  // Reset when the underlying message text changes (row reuse across items).
+  useEffect(() => {
+    setExpanded(false);
+    setTotalLines(null);
+  }, [text]);
+
+  const handleTextLayout = useCallback(
+    (event: NativeSyntheticEvent<TextLayoutEventData>) => {
+      const lines = event.nativeEvent.lines.length;
+      setTotalLines((prev) => (prev === null ? lines : prev));
+    },
+    [],
+  );
+
+  const isTruncatable =
+    totalLines !== null && totalLines > USER_MESSAGE_COLLAPSE_LINES;
+  const clamp = totalLines !== null && isTruncatable && !expanded;
+
+  return (
+    <>
+      <Text
+        style={styles.userText}
+        maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+        onTextLayout={handleTextLayout}
+        numberOfLines={clamp ? USER_MESSAGE_COLLAPSE_LINES : undefined}
+      >
+        {text}
+      </Text>
+      {isTruncatable ? (
+        <Pressable
+          onPress={() => setExpanded((prev) => !prev)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={
+            expanded ? "Show less of this message" : "Show more of this message"
+          }
+        >
+          {({ pressed }) => (
+            <Text
+              style={[styles.userToggle, pressed && styles.userTogglePressed]}
+              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+            >
+              {expanded ? "Show less" : "Show more"}
+            </Text>
+          )}
+        </Pressable>
+      ) : null}
+    </>
+  );
+}
+
 const ChatMessageRow = memo(function ChatMessageRow({
   item,
   styles,
@@ -881,12 +960,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
               </View>
             ) : null}
             {showText ? (
-              <Text
-                style={styles.userText}
-                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              >
-                {item.text}
-              </Text>
+              <UserMessageText text={item.text} styles={styles} />
             ) : null}
           </Pressable>
           {item.queued ? (
@@ -3091,6 +3165,17 @@ const makeStyles = (colors: Colors) =>
       fontSize: 17,
       letterSpacing: 0.03 * 17,
       lineHeight: 17 * 1.52,
+    },
+    userToggle: {
+      alignSelf: "flex-end",
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 13,
+      letterSpacing: -0.1,
+      marginTop: 8,
+    },
+    userTogglePressed: {
+      color: colors.text,
     },
     userThumbStrip: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
     userThumbsAbove: { marginBottom: 8 },

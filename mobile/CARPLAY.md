@@ -4,18 +4,28 @@ A driving-safe, voice-first CarPlay experience for Stella. It is glance-free:
 tap once, speak, and Stella records, transcribes, answers, and reads the answer
 back aloud — the whole hands-free loop in the car.
 
-## The two surfaces
+## One surface (v2)
 
-Stella ships exactly two CarPlay surfaces, both reachable under the CarPlay
-**audio** entitlement:
+Stella ships exactly ONE CarPlay surface under the CarPlay **audio**
+entitlement: a `CPListTemplate` voice home. v1 also presented a
+`CPVoiceControlTemplate` overlay while listening and pushed a
+`CPNowPlayingTemplate` replay card while speaking, but every template
+transition proved to be another way for a real head unit to strand the driver
+on a surface without a working tap (the build-91 dead-tap bug — see
+`CARPLAY-V2-NOTES.md`). All state now renders into the list rows via
+`updateSections`, which never touches the template stack.
 
-| Surface | CarPlay template | What it is |
-| --- | --- | --- |
-| **Voice home** | `CPListTemplate` root + `CPVoiceControlTemplate` overlay | The big tap-to-talk affordance. The single Stella-green row toggles record → send. While Stella listens and thinks, the system voice-control interaction is presented over it ("Listening…", "Stella is thinking…"). |
-| **Replay card** | `CPNowPlayingTemplate` | A now-playing-style card for the **last** reply, with a one-tap green **Replay** control (road-noise insurance) and a **Talk** control to start the next turn hands-free. |
+The rows (top to bottom):
 
-The flow: **tap → record → stop → transcribe → send → await reply →
-auto-speak → replay card**.
+| Row | What it does |
+| --- | --- |
+| **Talk to Stella** | Tap to speak; tap again to stop and send. Shows "Listening…", "Stella is thinking…", "Stella is speaking" (+ reply preview) as the turn progresses. Tapping while Stella speaks interrupts the TTS and starts listening (barge-in). |
+| **Read latest reply** | One tap reads the newest assistant reply aloud. Hidden until a reply exists (no dead taps). |
+| **Converse mode: On/Off** | The hands-free loop. While ON (default), the reply to a dictated message auto-plays via TTS on arrival. While OFF, new replies are just marked on the list. State is always visible in the title. |
+| **Recent replies** (section) | The newest assistant reply + the previous one, truncated to a glance-safe line with a relative timestamp ("now", "2m ago"). A reply that arrived since the driver last heard one shows "New · <time> — tap to hear it". Tapping a row reads THAT message aloud. |
+
+The flow: **tap → record → tap → transcribe → send → await reply →
+auto-speak (Converse mode) → rows update**.
 
 ## How it reuses existing Stella plumbing (no parallel paths)
 
@@ -34,9 +44,13 @@ Everything the car needs already existed in the app; CarPlay only wires it up:
 
 Wiring lives in:
 
-- `src/carplay/carplay-session.ts` — imperative controller that owns the CarPlay
-  templates and a small phase machine (`idle → listening → thinking →
-  speaking`).
+- `src/carplay/carplay-home.ts` — pure row/section builders (no react-native
+  imports) with the phase copy, previews, relative timestamps, and the flat
+  tap-index → action mapping. Unit-tested with `bun test src/carplay`.
+- `src/carplay/carplay-session.ts` — imperative controller that owns the list
+  template, a small phase machine (`idle → listening → thinking → speaking`),
+  the connect/takeover hardening (setRootTemplate retries, checkForConnection
+  polling), and the `carPlayLog` diagnostics writer.
 - `src/carplay/CarPlayBridge.tsx` — headless component (mounted in
   `app/_layout.tsx`, inside the Convex/auth providers) that drives the loop with
   the hooks above and binds tap callbacks to the session.
@@ -47,14 +61,12 @@ CarPlay only lets us use Apple's templates, so the brand lives in the levers we
 control:
 
 - **Stella green accent** — `assets/carplay/stella-voice-{mic,replay,listening}.png`
-  are Stella-green glyphs (the palette's success/`ok` green) used in the list
-  leading icon, the now-playing Replay/Talk buttons, and the voice-control
-  state. Regenerate with `python3 assets/carplay/generate-icons.py`.
+  are Stella-green glyphs (the palette's success/`ok` green) used as the talk
+  row and read-latest row leading icons. Regenerate with
+  `python3 assets/carplay/generate-icons.py`.
 - **Naming + tone** — titles and labels match the phone app's voice
   ("Talk to Stella", "Stella is thinking…", "Stella is speaking", "Stella" as
   the template title), mirroring copy like "Ask Stella anything".
-- **Now-playing pattern** — the replay surface uses Apple's real now-playing
-  template (play/replay control), so it feels native to CarPlay.
 
 ## Entitlement
 
@@ -84,7 +96,10 @@ native setup is a config plugin, `plugins/withStellaCarPlay.js`, registered in
    native "Talk to Stella" `CPListTemplate` placeholder, then forwards the
    interface controller to `RNCarPlay` (react-native-carplay). JS replaces the
    placeholder when its connect handler runs. This avoids a blank head unit when
-   CarPlay connects before RN/JS finishes registering its listener.
+   CarPlay connects before RN/JS finishes registering its listener. The
+   placeholder row has a real tap handler that force-retries the JS takeover
+   (re-emits `didConnect`), and a watchdog re-checks the root template at
+   2/6/12/20s after connect — so the placeholder is never a dead tap.
 4. Adds those delegates to the Xcode Sources build phase.
 
 ## How to test in the CarPlay Simulator
@@ -105,10 +120,10 @@ CarPlay does **not** work in Expo Go — it needs a dev/prebuild build.
 3. **Launch Stella** from the CarPlay home screen. You should land on the
    **Voice home** list ("Talk to Stella").
 
-4. **Drive the loop:** tap the row → it shows "Listening…" and the voice-control
-   overlay appears → tap again to send → "Stella is thinking…" → the reply is
-   spoken aloud and the **Replay card** appears. Tap **Replay** to hear it
-   again, or **Talk** to start another turn.
+4. **Drive the loop:** tap the talk row → it shows "Listening…" → tap again to
+   send → "Stella is thinking…" → the reply is spoken aloud (Converse mode) and
+   lands in **Recent replies**. Tap a reply row or **Read latest reply** to
+   hear it again.
 
    Make sure the app is signed in (or in guest mode) and AI consent + microphone
    permission have been granted once on the phone first — those prompts surface
@@ -119,15 +134,20 @@ CarPlay does **not** work in Expo Go — it needs a dev/prebuild build.
 
 ## Notes / gotchas
 
-- **Rich now-playing metadata** (title/artist/artwork on the replay card) would
-  need `MPNowPlayingInfoCenter` populated natively when the TTS clip plays;
-  today the card carries the Replay/Talk controls but not custom artwork.
 - **react-native-carplay** (2.3.0) is a legacy-arch RCTBridgeModule; it loads on
   the New Architecture via the interop layer. Stella replays an already-connected
-  session after registering its JS callback because the library's constructor can
-  consume the native `checkForConnection()` replay before app code has registered
-  its own connect handler.
-- The native scene delegate writes the latest CarPlay lifecycle breadcrumbs to
-  the app's `StellaCarPlayDiagnostics` user-defaults key and to device Console
-  logs with the `[carplay]` prefix. If a TestFlight build still fails only in a
-  real car, collect iPhone logs in Console.app while launching Stella on CarPlay.
+  session after registering its JS callback, polls `checkForConnection()` until
+  connected, and re-asserts `setRootTemplate` at +1s/+3s, because on a real head
+  unit the first `didConnect` can be emitted before the JS listener exists (the
+  event is dropped with zero listeners) and a single `setRootTemplate` can fail
+  silently.
+- **Templates are built once per app lifetime.** `react-native-carplay`'s
+  `Template` constructor registers NativeEventEmitter listeners keyed by the
+  fixed template id and never removes them; rebuilding on each connect would
+  stack duplicate `onItemSelect` handlers.
+- The native scene delegate, the patched `RNCarPlay.m`, AND the JS session (via
+  RN `Settings`) all write breadcrumbs to the `StellaCarPlayDiagnostics`
+  user-defaults key and to device Console logs with the `[carplay]` prefix —
+  connect lifecycle, takeover retries, row selects, dictation phases, TTS
+  starts. If a TestFlight build still fails only in a real car, collect iPhone
+  logs in Console.app while launching Stella on CarPlay.

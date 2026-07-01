@@ -24,7 +24,7 @@ import { getOrCreateMobileDeviceId } from "../lib/phone-access";
 import { useChatThread } from "../lib/use-chat-thread";
 import { useDictation } from "../lib/dictation";
 import { speakReply, stopReadAloud, useReadAloudState } from "../lib/read-aloud";
-import { carPlaySession, type CarPlayPhase } from "./carplay-session";
+import { carPlayLog, carPlaySession, type CarPlayPhase } from "./carplay-session";
 import { RECENT_REPLY_COUNT, type RecentReply } from "./carplay-home";
 
 /**
@@ -143,6 +143,7 @@ function CarPlayBridgeIOS() {
     }
     carPlaySession.setReplyPreview(reply.text);
     carPlaySession.markReplyRead(reply.id);
+    carPlayLog("TTS start (auto-read reply)");
     goPhase("speaking");
     void speakReply(reply.text, reply.id);
     return true;
@@ -186,6 +187,7 @@ function CarPlayBridgeIOS() {
   const onTalk = useCallback(() => {
     if (dictation.status === "idle") {
       if (phaseRef.current === "speaking") stopReadAloud();
+      carPlayLog("dictation start requested");
       goPhase("listening");
       // If recording never actually begins (AI consent not yet granted, mic
       // permission denied, or the recorder failed to start) the dictation
@@ -193,9 +195,11 @@ function CarPlayBridgeIOS() {
       // re-fires and would strand the listening overlay on the head unit.
       // Reconcile straight off the start() result instead.
       void dictation.start().then((started) => {
+        carPlayLog(`dictation started=${started}`);
         if (!started && phaseRef.current === "listening") goPhase("idle");
       });
     } else if (dictation.status === "recording") {
+      carPlayLog("dictation stop requested (send)");
       goPhase("thinking");
       void dictation.stop();
     }
@@ -211,6 +215,7 @@ function CarPlayBridgeIOS() {
       lastReplyTextRef.current = message.text;
       carPlaySession.setReplyPreview(message.text);
       carPlaySession.markReplyRead(message.id);
+      carPlayLog("TTS start (tapped reply row)");
       goPhase("speaking");
       void speakReply(message.text, message.id);
     },
@@ -228,6 +233,7 @@ function CarPlayBridgeIOS() {
   // Converse-mode toggle row.
   const onToggleConverse = useCallback(() => {
     converseOnRef.current = !converseOnRef.current;
+    carPlayLog(`converse mode -> ${converseOnRef.current ? "on" : "off"}`);
     carPlaySession.setConverseMode(converseOnRef.current);
   }, []);
 

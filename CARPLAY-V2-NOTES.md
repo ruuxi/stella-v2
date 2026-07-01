@@ -55,18 +55,49 @@ On build 91 the head unit *renders* (the native placeholder installed by
 | # | Item | Status | Commit |
 |---|------|--------|--------|
 | 0 | Dead-tap fix + takeover hardening | done | `8148548` |
-| 1 | Tap to talk / tap to stop | in progress | — |
-| 2 | Recent assistant messages, tap to read | pending | — |
-| 3 | New-message indicator + relative timestamp | pending | — |
-| 4 | Read-latest button | pending | — |
-| 5 | Converse mode (auto-read toggle) | pending | — |
+| 1 | Tap to talk / tap to stop (single-list home) | done | `dda5e01` |
+| 2 | Recent assistant messages, tap to read | done | `eac344d` |
+| 3 | New-message indicator + relative timestamp | done | `b10f212` |
+| 4 | Read-latest button | done | `ea9aeb4` |
+| 5 | Converse mode (auto-read toggle, default ON) | done | `9fc6661` |
+| — | Docs + dictation/TTS breadcrumbs | done | (this commit) |
 
-## Verification
+## v2 design in one line
 
+ONE `CPListTemplate` root, no template-stack transitions: the
+`CPVoiceControlTemplate` overlay and pushed `CPNowPlayingTemplate` from v1 are
+gone (each transition was another way to strand the driver on a surface
+without a working tap). Rows: **Talk to Stella** (tap to talk, tap to stop +
+send, barge-in while speaking), **Read latest reply** (hidden until a reply
+exists), **Converse mode: On/Off**, and a **Recent replies** section (newest
+2, relative timestamps, "New · <time>" marker until heard, tap reads that
+message).
+
+Code: `mobile/src/carplay/carplay-home.ts` (pure row builders, bun-tested),
+`carplay-session.ts` (imperative template controller + takeover hardening +
+`carPlayLog`), `CarPlayBridge.tsx` (drives useDictation / useChatThread
+"carplay" transcript / speakReply). Flat tap indexes (RNCarPlay reports item
+selection as a flat index across sections) map to typed row actions.
+
+## Verified vs needs-on-car
+
+Verified off-device:
+- `bun test src/carplay` — 20 tests on the row builders (phase copy, reply
+  rows, timestamps, new-marker, read-latest visibility, converse states, flat
+  action order).
 - `bunx tsc --noEmit` clean; `expo prebuild -p ios` regenerates the scene
   delegate; generated `StellaCarSceneDelegate.m` syntax-checked with
-  `xcrun clang -fsyntax-only` against the iphonesimulator SDK (only the
-  pre-existing `initWithText:` deprecation warning).
-- Simulator CarPlay is unusable on this machine (Accessibility/SIP gating), so
-  the tap-handler/watchdog/retry behavior **needs on-car validation** on the
-  real head unit; the diagnostics store now captures every step for triage.
+  `xcrun clang -fsyntax-only` against the iphonesimulator SDK — 0 errors (only
+  the pre-existing `initWithText:` deprecation warning).
+
+Needs on-car validation (Simulator CarPlay unusable on this machine —
+Accessibility/SIP gating):
+- Placeholder tap handler + watchdog actually recovering the JS takeover on
+  the real head unit (and whose diagnostics line reveals the true first-order
+  failure: dropped didConnect vs. silent setRootTemplate vs. JS exception).
+- Voice loop end-to-end (dictation route via CarPlay audio, TTS playback
+  through the car), row updates while driving, converse-mode loop.
+- After a drive, dump `StellaCarPlayDiagnostics` (native + `[js]` lines
+  interleaved) or filter Console.app on `[carplay]`.
+
+Build 92 to be cut by Rahul after review — nothing pushed, no build run.

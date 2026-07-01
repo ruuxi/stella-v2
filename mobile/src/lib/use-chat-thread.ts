@@ -475,18 +475,32 @@ export function useChatThread(opts: {
         }
         await textSmoother.drain();
         activeDispatchRef.current = null;
+        // Link the turn to its canonical desktop ids immediately (not just in
+        // the background reconcile below, whose delta may race the desktop
+        // persisting the rows): the user bubble adopts the canonical id the
+        // bridge reported for the submitted message, and the reply adopts it
+        // as `requestId` — the key canonical assistant rows carry — so any
+        // later sync updates these rows in place instead of duplicating them.
+        const canonicalUserMessageId = result.userMessageId.trim();
         setMessages((m) =>
-          m.map((msg) =>
-            msg.id === replyId
-              ? {
-                  ...msg,
-                  text: result.text,
-                  ...(result.artifacts.length > 0
-                    ? { artifacts: result.artifacts }
-                    : {}),
-                }
-              : msg,
-          ),
+          m.map((msg) => {
+            if (msg.id === replyId) {
+              return {
+                ...msg,
+                text: result.text,
+                ...(canonicalUserMessageId
+                  ? { requestId: canonicalUserMessageId }
+                  : {}),
+                ...(result.artifacts.length > 0
+                  ? { artifacts: result.artifacts }
+                  : {}),
+              };
+            }
+            if (msg.id === item.userMessageId && canonicalUserMessageId) {
+              return { ...msg, canonicalId: canonicalUserMessageId };
+            }
+            return msg;
+          }),
         );
         // Reconcile with canonical desktop rows in the background so ids line
         // up with future syncs. Snapshot the sync generation so a reconcile that
@@ -519,6 +533,9 @@ export function useChatThread(opts: {
                 replyId,
                 sentText: item.text,
                 canonicalMessages: delta.messages,
+                ...(canonicalUserMessageId
+                  ? { canonicalUserMessageId }
+                  : {}),
               }),
             );
           })

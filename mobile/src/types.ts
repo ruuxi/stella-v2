@@ -88,6 +88,13 @@ export type ChatMessage = {
    */
   canonicalId?: string;
   /**
+   * Desktop request id linking a row to its turn. Canonical assistant rows are
+   * stamped with the turn's user-message id desktop-side; the streamed local
+   * reply adopts it at turn end so later syncs can link the canonical reply to
+   * the bubble instead of duplicating it.
+   */
+  requestId?: string;
+  /**
    * Creation time (ms epoch) used to order the transcript. Local rows stamp
    * this at send time; desktop rows carry the canonical desktop `timestamp`.
    * Sync merges sort by this so synced history lands in its true chronological

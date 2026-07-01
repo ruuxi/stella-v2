@@ -98,6 +98,12 @@ type DesktopBridgeChatArgs = {
 type DesktopBridgeChatResult = {
   text: string;
   artifacts: ChatArtifact[];
+  /**
+   * Canonical desktop id of the user message this turn submitted (empty if the
+   * bridge never reported it). Canonical assistant rows carry it as their
+   * `requestId`, so it links both rows of the turn precisely.
+   */
+  userMessageId: string;
 };
 
 type DesktopBridgeMessage = ChatMessage & {
@@ -1111,6 +1117,7 @@ export async function sendDesktopBridgeChat({
         ? ""
         : "Stella finished, but did not return a message. Check the desktop app."),
     artifacts: [...artifactById.values()],
+    userMessageId: submittedUserMessageId,
   });
 
   const finalizeSuccess = (result: DesktopBridgeChatResult) => {

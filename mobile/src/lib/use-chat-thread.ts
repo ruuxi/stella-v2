@@ -26,6 +26,7 @@ import {
   type WorkingIndicatorState,
 } from "../components/working-indicator-state";
 import { mergeMessagesById, reconcileSentDesktopTurn } from "./chat-merge";
+import { collectConversationTasks } from "./mobile-task-merge";
 import { createStreamTextSmoother } from "./stream-text-smoother";
 import { userFacingError } from "./user-facing-error";
 import { notifySuccess } from "./haptics";
@@ -735,20 +736,26 @@ export function useChatThread(opts: {
 
   // Every background task across the conversation, newest first, running ones
   // pinned to the top — the data behind the activity pill + tray. Tasks ride on
-  // their spawning message; dedupe by id (a re-sync re-emits the same task with
-  // updated status) keeping the latest occurrence.
+  // their spawning message and task-update sync rows; dedupe by id while
+  // letting terminal updates beat older running snapshots so zombie tasks do
+  // not stay pinned in the pill/tray.
   const conversationTasks = useMemo(() => {
-    const byId = new Map<string, MobileTask>();
-    for (const message of messages) {
-      for (const task of message.tasks ?? []) {
-        byId.set(task.id, task);
-      }
-    }
-    const rank = (task: MobileTask) => (task.status === "running" ? 0 : 1);
-    return [...byId.values()].sort(
-      (a, b) => rank(a) - rank(b) || b.createdAt - a.createdAt,
-    );
+    return collectConversationTasks(messages);
   }, [messages]);
+
+  const hasRunningConversationTask = conversationTasks.some(
+    (task) => task.status === "running",
+  );
+
+  useEffect(() => {
+    if (!desktopAccess) return;
+    if (!storageLoaded) return;
+    if (!hasRunningConversationTask) return;
+    const handle = setInterval(() => {
+      void runDesktopSync();
+    }, 5_000);
+    return () => clearInterval(handle);
+  }, [desktopAccess, hasRunningConversationTask, runDesktopSync, storageLoaded]);
 
   return {
     messages,

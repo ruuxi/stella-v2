@@ -146,9 +146,12 @@ function CarPlayBridgeIOS() {
     onTranscript,
   });
 
-  // Tap-to-talk toggle from the CarPlay home row / replay card.
+  // Tap-to-talk toggle from the CarPlay home row: tap to start dictation, tap
+  // again to stop listening and send. Tapping while Stella is speaking
+  // interrupts the read-back and starts listening (barge-in).
   const onTalk = useCallback(() => {
     if (dictation.status === "idle") {
+      if (phaseRef.current === "speaking") stopReadAloud();
       goPhase("listening");
       // If recording never actually begins (AI consent not yet granted, mic
       // permission denied, or the recorder failed to start) the dictation
@@ -165,16 +168,10 @@ function CarPlayBridgeIOS() {
     // While transcribing/thinking, ignore taps — the loop is mid-flight.
   }, [dictation, goPhase]);
 
-  // One-tap replay of the last spoken reply (road noise insurance).
-  const onReplay = useCallback(() => {
-    const text = lastReplyTextRef.current;
-    if (text) void speakReply(text);
-  }, []);
-
   // Keep the session bound to the latest closures.
   useEffect(() => {
-    carPlaySession.bindActions({ onTalk, onReplay });
-  }, [onTalk, onReplay]);
+    carPlaySession.bindActions({ onTalk });
+  }, [onTalk]);
 
   useEffect(() => {
     carPlaySession.register();
@@ -278,9 +275,14 @@ function CarPlayBridgeIOS() {
     };
   }, []);
 
-  // Mark `readAloud` as observed so its updates keep this component live for the
-  // session's lifetime (the value itself is surfaced through the templates).
-  void readAloud;
+  // When the TTS clip finishes (playback state clears), flip the talk row back
+  // to idle so the home surface never claims "Stella is speaking" after the
+  // audio stopped.
+  useEffect(() => {
+    if (readAloud === null && phaseRef.current === "speaking") {
+      goPhase("idle");
+    }
+  }, [readAloud, goPhase]);
 
   return null;
 }

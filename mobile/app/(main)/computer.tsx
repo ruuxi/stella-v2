@@ -10,7 +10,7 @@ import {
   type StoredPhoneAccess,
 } from "../../src/lib/phone-access";
 import { updateStellaWidget } from "../../src/lib/home-widget";
-import { tapLight, notifySuccess } from "../../src/lib/haptics";
+import { tapLight, notifySuccess, notifyError } from "../../src/lib/haptics";
 import { useChatThread } from "../../src/lib/use-chat-thread";
 import { useIsOffline } from "../../src/lib/use-network-status";
 import {
@@ -170,6 +170,7 @@ function ComputerChatSurface({
     platform: null,
   });
   const [waking, setWaking] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const wakeUntilRef = useRef(0);
 
   const checkStatus = useCallback(async (desktopDeviceId: string) => {
@@ -345,6 +346,39 @@ function ComputerChatSurface({
     if (isFocused && !wasFocused) void reconnectOrSync();
   }, [isFocused, reconnectOrSync]);
 
+  // Manual "Force Sync" from the device sheet. Reuses the same reconnect-or-sync
+  // path as the automatic mount/focus/AppState triggers: re-check status now, and
+  // if the desktop is reachable run the coalesced `runDesktopSync()` pull off the
+  // persisted cursor; if it is asleep, kick the wake handshake so the sync can
+  // land once it comes online. `runDesktopSync` coalesces in-flight runs and the
+  // `syncing` guard blocks double-taps, so this never stacks work.
+  const forceSync = useCallback(async () => {
+    if (syncing) return;
+    tapLight();
+    setSyncing(true);
+    try {
+      const available = await checkStatus(access.desktopDeviceId);
+      if (!available) {
+        if (!offlineRef.current && !wakingRef.current) triggerWake();
+        notifyError();
+        return;
+      }
+      const { offline: unreachable } = await runDesktopSync();
+      if (unreachable) notifyError();
+      else notifySuccess();
+    } catch {
+      notifyError();
+    } finally {
+      setSyncing(false);
+    }
+  }, [
+    syncing,
+    checkStatus,
+    access.desktopDeviceId,
+    triggerWake,
+    runDesktopSync,
+  ]);
+
   const platformLabel = status.platform?.trim() || "Your computer";
   const statusLabel = status.checking
     ? "Checking…"
@@ -394,6 +428,8 @@ function ComputerChatSurface({
         connecting={status.checking || waking}
         showWake={!status.checking && !status.available && !waking}
         onWake={wake}
+        onForceSync={forceSync}
+        syncing={syncing}
         artifacts={thread.conversationArtifacts}
         onRepaired={onAccessChange}
       />

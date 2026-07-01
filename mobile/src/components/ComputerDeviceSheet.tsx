@@ -1,5 +1,12 @@
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TopSheet } from "./TopSheet";
@@ -29,6 +36,10 @@ type ComputerDeviceSheetProps = {
   /** Show the inline "Wake up" affordance (computer asleep and not waking). */
   showWake: boolean;
   onWake: () => void;
+  /** Manually trigger a desktop transcript sync (reconnect-or-pull) on demand. */
+  onForceSync: () => void;
+  /** A force sync is in flight — disable the row and show progress. */
+  syncing: boolean;
   /** Artifacts in the computer conversation, newest first. */
   artifacts: ChatArtifact[];
   /** Bubble a freshly-paired computer up so the chat re-targets it. */
@@ -51,6 +62,8 @@ export function ComputerDeviceSheet({
   connecting,
   showWake,
   onWake,
+  onForceSync,
+  syncing,
   artifacts,
   onRepaired,
 }: ComputerDeviceSheetProps) {
@@ -180,6 +193,31 @@ export function ComputerDeviceSheet({
               <Icon name="chevron-right" size={15} color={colors.textMuted} />
             </Pressable>
           ))}
+
+          <Pressable
+            onPress={onForceSync}
+            disabled={syncing}
+            accessibilityLabel="Force sync"
+            accessibilityState={{ disabled: syncing, busy: syncing }}
+            style={({ pressed }) => [
+              styles.row,
+              styles.rowDivider,
+              pressed && !syncing && styles.rowPressed,
+            ]}
+          >
+            <Icon
+              name="refresh-cw"
+              size={18}
+              color={colors.textMuted}
+              style={styles.rowIcon}
+            />
+            <Text style={styles.rowLabel}>
+              {syncing ? "Syncing…" : "Force sync"}
+            </Text>
+            {syncing ? (
+              <ActivityIndicator size="small" color={colors.textMuted} />
+            ) : null}
+          </Pressable>
         </View>
       </ScrollView>
 

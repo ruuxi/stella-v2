@@ -50,6 +50,7 @@ export type IconName =
   | "terminal"
   | "sparkles"
   | "clock"
+  | "refresh-cw"
   | "alert-circle";
 
 const FEATHER_NAMES: Record<
@@ -98,6 +99,7 @@ const FEATHER_NAMES: Record<
   terminal: "terminal",
   sparkles: "zap",
   clock: "clock",
+  "refresh-cw": "refresh-cw",
   "alert-circle": "alert-circle",
 };
 
@@ -144,6 +146,7 @@ const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
   terminal: "terminal",
   sparkles: "sparkles",
   clock: "clock",
+  "refresh-cw": "arrow.clockwise",
   "alert-circle": "exclamationmark.circle",
 };
 

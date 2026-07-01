@@ -1,0 +1,30 @@
+diff --git a/ios/RNCarPlay.m b/ios/RNCarPlay.m
+index 672a032a2ab8214249c65229d5eccf9583e86c8c..79246238024ba0863c8e32b96debba6553a6f3cc 100644
+--- a/ios/RNCarPlay.m
++++ b/ios/RNCarPlay.m
+@@ -25,7 +25,14 @@ + (void) connectWithInterfaceController:(CPInterfaceController*)interfaceControl
+     [store setConnected:true];
+ 
+     RNCarPlay *cp = [RNCarPlay allocWithZone:nil];
+-    if (cp.bridge) {
++    // Under the New Architecture (bridgeless) `cp.bridge` is nil, but the
++    // RCTEventEmitter still delivers events through its callableJSModules
++    // (RCTDeviceEventEmitter). Emit when either transport is wired up so
++    // `didConnect` fires on both the legacy bridge and bridgeless; otherwise
++    // the CarPlay root template is never set and the head unit shows a blank
++    // screen. When neither is ready yet, RNCPStore stays `connected`, so JS's
++    // checkForConnection() recovers the event once the module is set up.
++    if (cp.bridge || cp.callableJSModules) {
+         [cp sendEventWithName:@"didConnect" body:[self getConnectedWindowInformation:window]];
+     }
+ }
+@@ -36,7 +43,8 @@ + (void) disconnect {
+     [store setConnected:false];
+     [[store.window subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
+ 
+-    if (cp.bridge) {
++    // Bridgeless-compatible emit (see connectWithInterfaceController above).
++    if (cp.bridge || cp.callableJSModules) {
+         [cp sendEventWithName:@"didDisconnect" body:@{}];
+     }
+ }

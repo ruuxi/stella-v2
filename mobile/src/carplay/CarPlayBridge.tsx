@@ -25,6 +25,7 @@ import { useChatThread } from "../lib/use-chat-thread";
 import { useDictation } from "../lib/dictation";
 import { speakReply, stopReadAloud, useReadAloudState } from "../lib/read-aloud";
 import { carPlaySession, type CarPlayPhase } from "./carplay-session";
+import { RECENT_REPLY_COUNT, type RecentReply } from "./carplay-home";
 
 /**
  * Grace window for the assistant reply row that can land a render tick after
@@ -80,8 +81,30 @@ function CarPlayBridgeIOS() {
   const replyGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // First-seen timestamps for assistant replies whose rows predate the
+  // `createdAt` field (legacy persisted transcripts) — keeps the relative
+  // timestamps stable instead of re-stamping on every render.
+  const seenAtRef = useRef(new Map<string, number>());
+
   useEffect(() => {
     messagesRef.current = messages;
+  }, [messages]);
+
+  // Surface the newest assistant replies (newest first) as home-list rows.
+  useEffect(() => {
+    const replies: RecentReply[] = [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== "assistant" || !msg.text.trim()) continue;
+      let at = msg.createdAt;
+      if (at === undefined) {
+        at = seenAtRef.current.get(msg.id) ?? Date.now();
+        seenAtRef.current.set(msg.id, at);
+      }
+      replies.push({ id: msg.id, text: msg.text, at });
+      if (replies.length >= RECENT_REPLY_COUNT) break;
+    }
+    carPlaySession.setRecentReplies(replies);
   }, [messages]);
 
   // Single entry point for phase changes so we keep a local mirror (the session
@@ -168,10 +191,24 @@ function CarPlayBridgeIOS() {
     // While transcribing/thinking, ignore taps — the loop is mid-flight.
   }, [dictation, goPhase]);
 
+  // A recent-reply row was tapped: read THAT message aloud (not necessarily
+  // the newest one).
+  const onReadReply = useCallback(
+    (id: string) => {
+      const message = messagesRef.current.find((m) => m.id === id);
+      if (!message || !message.text.trim()) return;
+      lastReplyTextRef.current = message.text;
+      carPlaySession.setReplyPreview(message.text);
+      goPhase("speaking");
+      void speakReply(message.text, message.id);
+    },
+    [goPhase],
+  );
+
   // Keep the session bound to the latest closures.
   useEffect(() => {
-    carPlaySession.bindActions({ onTalk });
-  }, [onTalk]);
+    carPlaySession.bindActions({ onTalk, onReadReply });
+  }, [onTalk, onReadReply]);
 
   useEffect(() => {
     carPlaySession.register();

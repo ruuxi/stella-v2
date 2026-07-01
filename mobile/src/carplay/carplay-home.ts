@@ -14,15 +14,30 @@
 
 export type CarPlayPhase = "idle" | "listening" | "thinking" | "speaking";
 
+/** An assistant reply surfaced as a tappable row on the voice home. */
+export type RecentReply = {
+  id: string;
+  text: string;
+  /** Arrival time (ms epoch) used for the relative timestamp. */
+  at: number;
+};
+
+/** How many assistant replies the home lists (newest + the previous one). */
+export const RECENT_REPLY_COUNT = 2;
+
 /** What the CarPlay home needs to render, independent of any template API. */
 export type CarPlayHomeState = {
   phase: CarPlayPhase;
   /** Short preview of the reply currently being spoken (may be empty). */
   speakingPreview: string;
+  /** Recent assistant replies, newest first (already capped by the bridge). */
+  replies: RecentReply[];
 };
 
 /** A tap target; the session maps these to the bound bridge actions. */
-export type HomeRowAction = { kind: "talk" };
+export type HomeRowAction =
+  | { kind: "talk" }
+  | { kind: "readReply"; id: string };
 
 /** Template-agnostic list row (the session decorates with images). */
 export type HomeRowSpec = {
@@ -66,6 +81,17 @@ export function buildTalkRow(state: CarPlayHomeState): HomeRow {
   };
 }
 
+/** One tappable row per recent assistant reply; tapping reads it via TTS. */
+export function buildReplyRows(state: CarPlayHomeState): HomeRow[] {
+  return state.replies.slice(0, RECENT_REPLY_COUNT).map((reply) => ({
+    item: {
+      text: previewText(reply.text),
+      detailText: "Tap to hear it",
+    },
+    action: { kind: "readReply", id: reply.id },
+  }));
+}
+
 /**
  * The whole home surface, ordered exactly as rendered. react-native-carplay
  * reports item selection as a FLAT index across all sections (see
@@ -73,7 +99,12 @@ export function buildTalkRow(state: CarPlayHomeState): HomeRow {
  * rows in order to resolve a tap back to its action.
  */
 export function buildHome(state: CarPlayHomeState): HomeSection[] {
-  return [{ rows: [buildTalkRow(state)] }];
+  const sections: HomeSection[] = [{ rows: [buildTalkRow(state)] }];
+  const replyRows = buildReplyRows(state);
+  if (replyRows.length > 0) {
+    sections.push({ header: "Recent replies", rows: replyRows });
+  }
+  return sections;
 }
 
 /** Flat tap-index → action list matching {@link buildHome}'s render order. */

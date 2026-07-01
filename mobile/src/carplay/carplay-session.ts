@@ -29,6 +29,7 @@ import {
   type CarPlayPhase,
   type HomeRow,
   type HomeRowAction,
+  type RecentReply,
 } from "./carplay-home";
 
 export type { CarPlayPhase } from "./carplay-home";
@@ -67,6 +68,8 @@ const CONNECT_POLL_MAX_ATTEMPTS = 15;
 export type CarPlayActions = {
   /** The tap-to-talk row was selected (toggles record → stop + send). */
   onTalk: () => void;
+  /** A recent-reply row was selected — read THAT message aloud. */
+  onReadReply: (id: string) => void;
 };
 
 // Stella-green glyphs (see assets/carplay/generate-icons.py). Carrying the
@@ -84,6 +87,7 @@ class CarPlaySession {
   private actions: CarPlayActions | null = null;
   private phase: CarPlayPhase = "idle";
   private speakingPreview = "";
+  private replies: RecentReply[] = [];
 
   private listTemplate: InstanceType<RNCarPlay["ListTemplate"]> | null = null;
   /** Flat tap-index → action map matching the last rendered sections. */
@@ -268,6 +272,7 @@ class CarPlaySession {
     return {
       phase: this.phase,
       speakingPreview: this.speakingPreview,
+      replies: this.replies,
     };
   }
 
@@ -295,7 +300,23 @@ class CarPlaySession {
       case "talk":
         this.actions?.onTalk();
         break;
+      case "readReply":
+        this.actions?.onReadReply(action.id);
+        break;
     }
+  }
+
+  /** Latest assistant replies (newest first); re-renders the reply rows. */
+  setRecentReplies(replies: RecentReply[]) {
+    const changed =
+      replies.length !== this.replies.length ||
+      replies.some(
+        (reply, i) =>
+          reply.id !== this.replies[i]?.id ||
+          reply.text !== this.replies[i]?.text,
+      );
+    this.replies = replies;
+    if (changed) this.render();
   }
 
   /** Move to a new phase and reconcile the visible rows. */

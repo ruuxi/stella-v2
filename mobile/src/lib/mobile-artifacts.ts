@@ -268,6 +268,15 @@ export const artifactIconName = (payload: MobileDisplayPayload) => {
   }
 };
 
+export const agentWorkArtifactId = (agentIds: readonly string[]): string => {
+  const key = agentIds
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .sort()
+    .join(",");
+  return key ? `agent-work:${key}` : "agent-work";
+};
+
 export const artifactId = (
   payload: MobileDisplayPayload,
   conversationId: string,
@@ -276,5 +285,8 @@ export const artifactId = (
   const filePath = artifactPrimaryFilePath(payload);
   if (filePath) return `${conversationId}:${payload.kind}:${filePath}`;
   if (payload.kind === "url") return `${conversationId}:url:${payload.tabId}`;
+  if (payload.kind === "agent-work") {
+    return `${conversationId}:agent-work:${payload.createdAt}:${payload.title}`;
+  }
   return `${conversationId}:${payload.kind}:${index}`;
 };

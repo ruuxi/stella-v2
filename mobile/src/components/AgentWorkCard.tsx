@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef } from "react";
+import { Animated, StyleSheet, Text, View } from "react-native";
 import { Icon } from "./Icon";
 import { ShimmerText } from "./ShimmerText";
 import type { MobileDisplayPayload } from "../types";
@@ -27,11 +27,30 @@ const TITLE_SHIMMER_MS = 1900;
  */
 export function AgentWorkCard({ payload, colors }: AgentWorkCardProps) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(3)).current;
   const running = payload.state === "running";
 
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateY, {
+        toValue: 0,
+        damping: 18,
+        stiffness: 220,
+        mass: 0.7,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [opacity, translateY]);
+
   return (
-    <View
-      style={styles.row}
+    <Animated.View
+      style={[styles.row, { opacity, transform: [{ translateY }] }]}
       accessibilityRole="text"
       accessibilityLabel={`${payload.title}. ${payload.subtitle}`}
     >
@@ -57,7 +76,7 @@ export function AgentWorkCard({ payload, colors }: AgentWorkCardProps) {
           {payload.subtitle}
         </Text>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

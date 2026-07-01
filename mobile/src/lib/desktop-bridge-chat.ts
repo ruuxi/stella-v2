@@ -16,7 +16,7 @@ import {
 import { postJson } from "./http";
 import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
 import type { ToolStep } from "./tool-activity";
-import { parseChatArtifacts } from "./mobile-artifacts";
+import { agentWorkArtifactId, parseChatArtifacts } from "./mobile-artifacts";
 
 const DESKTOP_WAKE_ATTEMPTS = 5;
 const DESKTOP_WAKE_RETRY_MS = 3_000;
@@ -1049,10 +1049,53 @@ export async function sendDesktopBridgeChat({
   };
 
   const artifactById = new Map<string, ChatArtifact>();
+  const parseAgentWorkArtifactId = (id: string): Set<string> | null => {
+    if (!id.startsWith("agent-work:")) return null;
+    const agentIds = id
+      .slice("agent-work:".length)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return agentIds.length > 0 ? new Set(agentIds) : null;
+  };
+  const isSubset = (candidate: Set<string>, target: Set<string>) => {
+    for (const value of candidate) {
+      if (!target.has(value)) return false;
+    }
+    return true;
+  };
   const mergeArtifacts = (artifacts: ChatArtifact[]) => {
     let changed = false;
     for (const artifact of artifacts) {
-      if (artifactById.has(artifact.id)) continue;
+      const nextAgentIds =
+        artifact.payload.kind === "agent-work"
+          ? parseAgentWorkArtifactId(artifact.id)
+          : null;
+      if (nextAgentIds) {
+        let coveredByExistingGroup = false;
+        for (const existing of artifactById.values()) {
+          if (existing.id === artifact.id) continue;
+          if (existing.payload.kind !== "agent-work") continue;
+          const existingAgentIds = parseAgentWorkArtifactId(existing.id);
+          if (!existingAgentIds) continue;
+          if (isSubset(nextAgentIds, existingAgentIds)) {
+            coveredByExistingGroup = true;
+            break;
+          }
+          if (isSubset(existingAgentIds, nextAgentIds)) {
+            artifactById.delete(existing.id);
+            changed = true;
+          }
+        }
+        if (coveredByExistingGroup) continue;
+      }
+      const existing = artifactById.get(artifact.id);
+      if (
+        existing &&
+        JSON.stringify(existing.payload) === JSON.stringify(artifact.payload)
+      ) {
+        continue;
+      }
       artifactById.set(artifact.id, artifact);
       changed = true;
     }
@@ -1150,6 +1193,32 @@ export async function sendDesktopBridgeChat({
     if (seq !== null) {
       if (seq <= lastSeq) return false;
       lastSeq = seq;
+    }
+
+    if (event.type === "agent-started") {
+      const agentId = asString(event.agentId).trim();
+      if (agentId) {
+        const title =
+          asString(event.description).trim() ||
+          asString(event.groupLabel).trim() ||
+          "Background work";
+        mergeArtifacts([
+          {
+            id: agentWorkArtifactId([agentId]),
+            conversationId,
+            payload: {
+              kind: "agent-work",
+              state: "running",
+              total: 1,
+              completed: 0,
+              title,
+              subtitle: "Working in background",
+              createdAt: Date.now(),
+            },
+          },
+        ]);
+      }
+      return false;
     }
 
     if (event.type === "stream") {

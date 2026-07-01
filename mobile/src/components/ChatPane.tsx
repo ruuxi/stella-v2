@@ -52,6 +52,11 @@ import { AgentWorkCard } from "./AgentWorkCard";
 import { ToolActivityTrace } from "./ToolActivityTrace";
 import { ActivityPill, ActivityTray } from "./ActivityPill";
 import { deriveToolActivity } from "../lib/tool-activity";
+import {
+  isStandInArtifactRow,
+  shouldAnimateMessageEntry,
+  visibleChatMessages,
+} from "../lib/message-row-identity";
 import { DictationRecordingBar } from "./DictationRecordingBar";
 import {
   WorkingIndicator,
@@ -74,7 +79,12 @@ import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
-import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
+import type {
+  ChatArtifact,
+  ChatMessage,
+  MobileDisplayPayload,
+  MobileTask,
+} from "../types";
 
 // Required for LayoutAnimation on Android.
 if (
@@ -645,12 +655,14 @@ function useChatScroll(listTrailingSlackPx: number) {
 function FadeInMessage({
   children,
   onLayout,
+  animate,
 }: {
   children: ReactNode;
   onLayout?: (event: LayoutChangeEvent) => void;
+  animate: boolean;
 }) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(5)).current;
+  const opacity = useRef(new Animated.Value(animate ? 0 : 1)).current;
+  const translateY = useRef(new Animated.Value(animate ? 5 : 0)).current;
 
   const animatedStyle = useMemo(
     () => ({ opacity, transform: [{ translateY }] }),
@@ -658,6 +670,7 @@ function FadeInMessage({
   );
 
   useEffect(() => {
+    if (!animate) return;
     Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,
@@ -672,7 +685,7 @@ function FadeInMessage({
         useNativeDriver: true,
       }),
     ]).start();
-  }, [opacity, translateY]);
+  }, [animate, opacity, translateY]);
 
   return (
     <Animated.View onLayout={onLayout} style={animatedStyle}>
@@ -696,6 +709,13 @@ const shareMessageText = (text: string) => {
 };
 
 type ChatStyles = ReturnType<typeof makeStyles>;
+type AgentWorkArtifact = ChatArtifact & {
+  payload: Extract<MobileDisplayPayload, { kind: "agent-work" }>;
+};
+
+const isAgentWorkArtifact = (
+  artifact: ChatArtifact,
+): artifact is AgentWorkArtifact => artifact.payload.kind === "agent-work";
 
 /**
  * The always-visible action row under a finished assistant message: copy, read
@@ -796,30 +816,6 @@ const AssistantActions = memo(function AssistantActions({
 
 /** Anchor passed to the message-actions popover (the long-press point). */
 type MessageMenuRequest = { message: ChatMessage; anchor: AnchorRect };
-
-/**
- * Id/canonicalId suffixes the desktop uses for the synthetic stand-in rows it
- * parks early artifacts on (artifacts that fire before the assistant text):
- * `${userMsgId}:artifacts` and `${userMsgId}:agent`. These rows are transient —
- * the same cards re-home onto the real persisted assistant row once it arrives.
- */
-const STAND_IN_ARTIFACT_ID_SUFFIXES = [":artifacts", ":agent"];
-
-/**
- * Artifact cards only render once their owning assistant message is finalized.
- * A row is still in-flight (and must NOT show cards) when it's the synthetic
- * stand-in the desktop emits for early artifacts. Suppressing it — together
- * with the streaming reply (gated separately via `isStreaming`) — both matches
- * the "artifacts only on the finished message" behaviour and removes the
- * duplicated-card bug at the source, since mobile's append-only merge never
- * evicts the stand-in once the real assistant row lands.
- */
-const isStandInArtifactRow = (message: ChatMessage): boolean =>
-  STAND_IN_ARTIFACT_ID_SUFFIXES.some(
-    (suffix) =>
-      message.id.endsWith(suffix) ||
-      (message.canonicalId?.endsWith(suffix) ?? false),
-  );
 
 /**
  * Line count at which a user message collapses behind a "Show more" toggle.
@@ -977,18 +973,22 @@ const ChatMessageRow = memo(function ChatMessageRow({
   }
   const artifacts = item.artifacts ?? [];
   const hasText = item.text.trim().length > 0;
-  // Agent-work cards are non-interactive and always render; openable
-  // artifacts still require an `onOpenArtifact` handler.
-  const hasAgentWork = artifacts.some(
-    (artifact) => artifact.payload.kind === "agent-work",
+  const agentWorkArtifacts = artifacts.filter(isAgentWorkArtifact);
+  const fileArtifacts = artifacts.filter(
+    (artifact) => artifact.payload.kind !== "agent-work",
   );
-  // Only ever show artifact cards on the finalized assistant message. While the
-  // turn runs they're suppressed on the streaming reply and on the synthetic
-  // stand-in rows; the real persisted row shows them once it arrives.
-  const showArtifacts =
+  const isStandIn = isStandInArtifactRow(item);
+  // Agent-work is non-openable status UI, so it can mount as soon as the bridge
+  // knows about the background task — including while the answer text is still
+  // streaming. File artifacts stay conservative: only show them once the
+  // assistant row has finalized so tapping never races a partial artifact.
+  const showAgentWork = !isStandIn && agentWorkArtifacts.length > 0;
+  const showFileArtifacts =
     !isStreaming &&
-    !isStandInArtifactRow(item) &&
-    (hasAgentWork || (Boolean(onOpenArtifact) && artifacts.length > 0));
+    !isStandIn &&
+    Boolean(onOpenArtifact) &&
+    fileArtifacts.length > 0;
+  const showArtifacts = showAgentWork || showFileArtifacts;
   const toolActivity = item.toolSteps
     ? deriveToolActivity(item.toolSteps)
     : undefined;
@@ -1008,22 +1008,23 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <View
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
         >
-          {artifacts.map((artifact) =>
-            artifact.payload.kind === "agent-work" ? (
-              <AgentWorkCard
-                key={artifact.id}
-                payload={artifact.payload}
-                colors={colors}
-              />
-            ) : onOpenArtifact ? (
-              <ArtifactCard
-                key={artifact.id}
-                artifact={artifact}
-                colors={colors}
-                onPress={onOpenArtifact}
-              />
-            ) : null,
-          )}
+          {agentWorkArtifacts.map((artifact) => (
+            <AgentWorkCard
+              key={artifact.id}
+              payload={artifact.payload}
+              colors={colors}
+            />
+          ))}
+          {showFileArtifacts && onOpenArtifact
+            ? fileArtifacts.map((artifact) => (
+                <ArtifactCard
+                  key={artifact.id}
+                  artifact={artifact}
+                  colors={colors}
+                  onPress={onOpenArtifact}
+                />
+              ))
+            : null}
         </View>
       ) : null}
       {item.stopped ? (
@@ -1904,8 +1905,10 @@ export function ChatPane({
   const prevLenRef = useRef(0);
   const wasStreamingRef = useRef(false);
   const spokenAssistantIdsRef = useRef<Set<string>>(new Set());
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
 
-  const lastMessage = messages[messages.length - 1];
+  const visibleMessages = useMemo(() => visibleChatMessages(messages), [messages]);
+  const lastMessage = visibleMessages[visibleMessages.length - 1];
   if (lastMessage?.role === "assistant") {
     const isNewAssistant = lastMessage.id !== assistantIdRef.current;
     const grewText = lastMessage.text.length > assistantTextLenRef.current;
@@ -1967,14 +1970,14 @@ export function ChatPane({
   }, [keyboardExtra, scroll.listRef]);
 
   useEffect(() => {
-    const grew = messages.length > prevLenRef.current;
-    prevLenRef.current = messages.length;
-    if (messages.length === 0) {
+    const grew = visibleMessages.length > prevLenRef.current;
+    prevLenRef.current = visibleMessages.length;
+    if (visibleMessages.length === 0) {
       setUnread(false);
       return;
     }
     if (grew && scroll.awayFromBottom) setUnread(true);
-  }, [messages.length, scroll.awayFromBottom]);
+  }, [visibleMessages.length, scroll.awayFromBottom]);
 
   useEffect(() => {
     if (!scroll.awayFromBottom) setUnread(false);
@@ -1988,7 +1991,7 @@ export function ChatPane({
     }
     if (!wasStreamingRef.current) return;
     wasStreamingRef.current = false;
-    const latestAssistant = [...messages]
+    const latestAssistant = [...visibleMessages]
       .reverse()
       .find((message) => message.role === "assistant" && message.text.trim());
     if (
@@ -1999,7 +2002,7 @@ export function ChatPane({
     }
     spokenAssistantIdsRef.current.add(latestAssistant.id);
     void speakReply(latestAssistant.text, latestAssistant.id);
-  }, [messages, readAloud.enabled, streaming]);
+  }, [visibleMessages, readAloud.enabled, streaming]);
 
   const [expanded, setExpanded] = useState(false);
 
@@ -2319,9 +2322,14 @@ export function ChatPane({
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
       const isStreamingAssistant = item.id === streamingAssistantId;
+      const animate = shouldAnimateMessageEntry(
+        seenMessageIdsRef.current,
+        item.id,
+      );
       return (
         <FadeInMessage
           key={item.id}
+          animate={animate}
           onLayout={
             isStreamingAssistant ? scroll.onStreamingAssistantLayout : undefined
           }
@@ -2384,12 +2392,12 @@ export function ChatPane({
   // whole history.
   const foldedMessages = useMemo(
     () =>
-      messages.map((message, index) => ({
+      visibleMessages.map((message, index) => ({
         message,
         index,
         folded: foldText(message.text),
       })),
-    [messages],
+    [visibleMessages],
   );
   const searchResults = useMemo(() => {
     if (!searchActive) return [] as { message: ChatMessage; index: number }[];
@@ -2419,7 +2427,7 @@ export function ChatPane({
     [search, scroll.listRef],
   );
 
-  const empty = messages.length === 0;
+  const empty = visibleMessages.length === 0;
   const hasText = draft.trim().length > 0;
   const dictationInline = isListening && !hasText;
   const dictationBelow = isListening && hasText;
@@ -2501,7 +2509,7 @@ export function ChatPane({
               ref={scroll.listRef}
               style={styles.messageList}
               contentContainerStyle={listContentContainerStyle}
-              data={messages}
+              data={visibleMessages}
               renderItem={renderItem}
               keyExtractor={keyExtractor}
               getItemType={getItemType}

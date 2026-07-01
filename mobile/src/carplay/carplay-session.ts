@@ -74,6 +74,8 @@ export type CarPlayActions = {
   onReadReply: (id: string) => void;
   /** The dedicated read-latest row was selected — read the newest reply. */
   onReadLatest: () => void;
+  /** The converse-mode row was selected — flip auto-read on/off. */
+  onToggleConverse: () => void;
 };
 
 // Stella-green glyphs (see assets/carplay/generate-icons.py). Carrying the
@@ -94,6 +96,7 @@ class CarPlaySession {
   private speakingPreview = "";
   private replies: RecentReply[] = [];
   private newReplyId: string | null = null;
+  private converseOn = true;
   private timeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
   private listTemplate: InstanceType<RNCarPlay["ListTemplate"]> | null = null;
@@ -283,6 +286,7 @@ class CarPlaySession {
       speakingPreview: this.speakingPreview,
       replies: this.replies,
       newReplyId: this.newReplyId,
+      converseOn: this.converseOn,
       now: Date.now(),
     };
   }
@@ -319,6 +323,9 @@ class CarPlaySession {
       case "readLatest":
         this.actions?.onReadLatest();
         break;
+      case "toggleConverse":
+        this.actions?.onToggleConverse();
+        break;
     }
   }
 
@@ -346,6 +353,13 @@ class CarPlaySession {
     }
     this.replies = replies;
     if (changed) this.render();
+  }
+
+  /** Reflect the bridge-owned converse-mode state on the toggle row. */
+  setConverseMode(on: boolean) {
+    if (this.converseOn === on) return;
+    this.converseOn = on;
+    this.render();
   }
 
   /** A reply was read aloud (tap or auto-play) — clear its "New" marker. */

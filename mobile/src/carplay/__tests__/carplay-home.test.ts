@@ -15,6 +15,7 @@ const base: CarPlayHomeState = {
   speakingPreview: "",
   replies: [],
   newReplyId: null,
+  converseOn: true,
   now: NOW,
 };
 
@@ -145,6 +146,23 @@ describe("read-latest row", () => {
   });
 });
 
+describe("converse mode row", () => {
+  const converseRow = (state: CarPlayHomeState) =>
+    buildHome(state)[0].rows.find((r) => r.action.kind === "toggleConverse")!;
+
+  test("always present with visible On state", () => {
+    const row = converseRow(base);
+    expect(row.item.text).toBe("Converse mode: On");
+    expect(row.item.detailText).toContain("automatically");
+  });
+
+  test("visible Off state invites turning it back on", () => {
+    const row = converseRow({ ...base, converseOn: false });
+    expect(row.item.text).toBe("Converse mode: Off");
+    expect(row.item.detailText).toBe("Tap to hear replies automatically");
+  });
+});
+
 describe("buildHome / flattenActions", () => {
   test("flat action order matches rendered row order", () => {
     const sections = buildHome({
@@ -161,6 +179,7 @@ describe("buildHome / flattenActions", () => {
     expect(actions.map((a) => a.kind)).toEqual([
       "talk",
       "readLatest",
+      "toggleConverse",
       "readReply",
       "readReply",
     ]);

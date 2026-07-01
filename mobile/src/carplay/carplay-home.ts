@@ -34,6 +34,8 @@ export type CarPlayHomeState = {
   replies: RecentReply[];
   /** Reply that arrived since the driver last heard/read one, if any. */
   newReplyId: string | null;
+  /** Converse mode: while ON, replies auto-play via TTS as they arrive. */
+  converseOn: boolean;
   /** Current time (ms epoch) for relative timestamps; injected for testing. */
   now: number;
 };
@@ -42,7 +44,8 @@ export type CarPlayHomeState = {
 export type HomeRowAction =
   | { kind: "talk" }
   | { kind: "readReply"; id: string }
-  | { kind: "readLatest" };
+  | { kind: "readLatest" }
+  | { kind: "toggleConverse" };
 
 /** Template-agnostic list row (the session decorates with images). */
 export type HomeRowSpec = {
@@ -137,6 +140,24 @@ export function buildReadLatestRow(state: CarPlayHomeState): HomeRow | null {
 }
 
 /**
+ * Converse-mode toggle: the hands-free loop. While ON, the reply to a
+ * dictated message auto-plays via TTS the moment it arrives — talk, listen,
+ * talk again, eyes on the road. The on/off state is always visible in the
+ * row title.
+ */
+export function buildConverseRow(state: CarPlayHomeState): HomeRow {
+  return {
+    item: {
+      text: `Converse mode: ${state.converseOn ? "On" : "Off"}`,
+      detailText: state.converseOn
+        ? "Replies play aloud automatically — tap to turn off"
+        : "Tap to hear replies automatically",
+    },
+    action: { kind: "toggleConverse" },
+  };
+}
+
+/**
  * The whole home surface, ordered exactly as rendered. react-native-carplay
  * reports item selection as a FLAT index across all sections (see
  * `parseListItems:startIndex:` in RNCarPlay.m), so callers should flatten the
@@ -146,6 +167,7 @@ export function buildHome(state: CarPlayHomeState): HomeSection[] {
   const firstRows: HomeRow[] = [buildTalkRow(state)];
   const readLatest = buildReadLatestRow(state);
   if (readLatest) firstRows.push(readLatest);
+  firstRows.push(buildConverseRow(state));
   const sections: HomeSection[] = [{ rows: firstRows }];
   const replyRows = buildReplyRows(state);
   if (replyRows.length > 0) {

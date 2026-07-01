@@ -81,6 +81,10 @@ function CarPlayBridgeIOS() {
   const replyGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Converse mode: while ON (the default — it preserves the v1 hands-free
+  // loop), the reply to a dictated message auto-plays via TTS on arrival.
+  // While OFF the reply row is just marked "New" for a later tap.
+  const converseOnRef = useRef(true);
   // First-seen timestamps for assistant replies whose rows predate the
   // `createdAt` field (legacy persisted transcripts) — keeps the relative
   // timestamps stable instead of re-stamping on every render.
@@ -122,15 +126,21 @@ function CarPlayBridgeIOS() {
     }
   }, []);
 
-  // Speak this turn's assistant reply if it has actually landed. Returns false
-  // when no *new* reply (one past `priorReplyIdRef`) is present yet, so callers
-  // can keep waiting instead of giving up.
+  // Handle this turn's assistant reply if it has actually landed: converse
+  // mode ON auto-speaks it; OFF leaves the reply row marked "New" and returns
+  // the home surface to idle. Returns false when no *new* reply (one past
+  // `priorReplyIdRef`) is present yet, so callers can keep waiting instead of
+  // giving up.
   const trySpeakLatestReply = useCallback(() => {
     const reply = [...messagesRef.current]
       .reverse()
       .find((m) => m.role === "assistant" && m.text.trim().length > 0);
     if (!reply || reply.id === priorReplyIdRef.current) return false;
     lastReplyTextRef.current = reply.text;
+    if (!converseOnRef.current) {
+      goPhase("idle");
+      return true;
+    }
     carPlaySession.setReplyPreview(reply.text);
     carPlaySession.markReplyRead(reply.id);
     goPhase("speaking");
@@ -215,10 +225,21 @@ function CarPlayBridgeIOS() {
     if (newest) onReadReply(newest.id);
   }, [onReadReply]);
 
+  // Converse-mode toggle row.
+  const onToggleConverse = useCallback(() => {
+    converseOnRef.current = !converseOnRef.current;
+    carPlaySession.setConverseMode(converseOnRef.current);
+  }, []);
+
   // Keep the session bound to the latest closures.
   useEffect(() => {
-    carPlaySession.bindActions({ onTalk, onReadReply, onReadLatest });
-  }, [onTalk, onReadReply, onReadLatest]);
+    carPlaySession.bindActions({
+      onTalk,
+      onReadReply,
+      onReadLatest,
+      onToggleConverse,
+    });
+  }, [onTalk, onReadReply, onReadLatest, onToggleConverse]);
 
   useEffect(() => {
     carPlaySession.register();

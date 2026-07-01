@@ -3,14 +3,19 @@ import {
   buildHome,
   buildTalkRow,
   flattenActions,
+  formatRelativeTime,
   previewText,
   type CarPlayHomeState,
 } from "../carplay-home";
+
+const NOW = 1_700_000_000_000;
 
 const base: CarPlayHomeState = {
   phase: "idle",
   speakingPreview: "",
   replies: [],
+  newReplyId: null,
+  now: NOW,
 };
 
 describe("talk row (tap to talk / tap to stop)", () => {
@@ -51,11 +56,43 @@ describe("previewText", () => {
   });
 });
 
+describe("formatRelativeTime", () => {
+  test("under a minute is 'now'", () => {
+    expect(formatRelativeTime(NOW - 30_000, NOW)).toBe("now");
+  });
+  test("minutes", () => {
+    expect(formatRelativeTime(NOW - 2 * 60_000, NOW)).toBe("2m ago");
+  });
+  test("hours", () => {
+    expect(formatRelativeTime(NOW - 3 * 3_600_000, NOW)).toBe("3h ago");
+  });
+  test("days", () => {
+    expect(formatRelativeTime(NOW - 2 * 86_400_000, NOW)).toBe("2d ago");
+  });
+  test("future/clock-skew clamps to 'now'", () => {
+    expect(formatRelativeTime(NOW + 60_000, NOW)).toBe("now");
+  });
+});
+
 describe("recent reply rows", () => {
   const replies = [
-    { id: "m2", text: "Newest reply about the weather.", at: 2000 },
-    { id: "m1", text: "Older reply about dinner plans.", at: 1000 },
+    { id: "m2", text: "Newest reply about the weather.", at: NOW - 2 * 60_000 },
+    { id: "m1", text: "Older reply about dinner plans.", at: NOW - 3_600_000 },
   ];
+
+  test("rows carry relative timestamps", () => {
+    const sections = buildHome({ ...base, replies });
+    expect(sections[1].rows[0].item.detailText).toBe("2m ago");
+    expect(sections[1].rows[1].item.detailText).toBe("1h ago");
+  });
+
+  test("the new reply is marked with an indicator + timestamp", () => {
+    const sections = buildHome({ ...base, replies, newReplyId: "m2" });
+    expect(sections[1].rows[0].item.detailText).toBe(
+      "New · 2m ago — tap to hear it",
+    );
+    expect(sections[1].rows[1].item.detailText).toBe("1h ago");
+  });
 
   test("no replies → no Recent replies section", () => {
     const sections = buildHome(base);

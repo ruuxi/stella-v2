@@ -132,6 +132,7 @@ function CarPlayBridgeIOS() {
     if (!reply || reply.id === priorReplyIdRef.current) return false;
     lastReplyTextRef.current = reply.text;
     carPlaySession.setReplyPreview(reply.text);
+    carPlaySession.markReplyRead(reply.id);
     goPhase("speaking");
     void speakReply(reply.text, reply.id);
     return true;
@@ -199,6 +200,7 @@ function CarPlayBridgeIOS() {
       if (!message || !message.text.trim()) return;
       lastReplyTextRef.current = message.text;
       carPlaySession.setReplyPreview(message.text);
+      carPlaySession.markReplyRead(message.id);
       goPhase("speaking");
       void speakReply(message.text, message.id);
     },

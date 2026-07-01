@@ -63,6 +63,8 @@ const SET_ROOT_RETRY_DELAYS_MS = [1000, 3000];
 /** Poll cadence/cap for nudging native `checkForConnection` until connected. */
 const CONNECT_POLL_INTERVAL_MS = 2000;
 const CONNECT_POLL_MAX_ATTEMPTS = 15;
+/** How often the relative timestamps re-render while connected. */
+const TIME_REFRESH_INTERVAL_MS = 30_000;
 
 /** Callbacks the bridge binds so CarPlay taps drive the real voice loop. */
 export type CarPlayActions = {
@@ -88,6 +90,8 @@ class CarPlaySession {
   private phase: CarPlayPhase = "idle";
   private speakingPreview = "";
   private replies: RecentReply[] = [];
+  private newReplyId: string | null = null;
+  private timeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
   private listTemplate: InstanceType<RNCarPlay["ListTemplate"]> | null = null;
   /** Flat tap-index → action map matching the last rendered sections. */
@@ -147,6 +151,7 @@ class CarPlaySession {
         }
         this.setRootWithRetries();
         this.render();
+        this.startTimeRefresh();
         carPlayLog(`JS connect handler finished (phase=${this.phase})`);
       } catch (error) {
         carPlayLog(`JS connect handler FAILED: ${String(error)}`);
@@ -181,6 +186,7 @@ class CarPlaySession {
       carPlayLog("JS disconnect handler running");
       this.connected = false;
       this.clearSetRootRetries();
+      this.stopTimeRefresh();
       this.startConnectPoll();
     });
   }
@@ -273,6 +279,8 @@ class CarPlaySession {
       phase: this.phase,
       speakingPreview: this.speakingPreview,
       replies: this.replies,
+      newReplyId: this.newReplyId,
+      now: Date.now(),
     };
   }
 
@@ -306,8 +314,14 @@ class CarPlaySession {
     }
   }
 
-  /** Latest assistant replies (newest first); re-renders the reply rows. */
+  /**
+   * Latest assistant replies (newest first); re-renders the reply rows. When
+   * the newest reply's id changes (and this isn't the initial hydration from
+   * storage), the row is marked "New" until something reads it aloud.
+   */
   setRecentReplies(replies: RecentReply[]) {
+    const prevNewestId = this.replies[0]?.id ?? null;
+    const nextNewestId = replies[0]?.id ?? null;
     const changed =
       replies.length !== this.replies.length ||
       replies.some(
@@ -315,8 +329,35 @@ class CarPlaySession {
           reply.id !== this.replies[i]?.id ||
           reply.text !== this.replies[i]?.text,
       );
+    if (
+      prevNewestId !== null &&
+      nextNewestId !== null &&
+      nextNewestId !== prevNewestId
+    ) {
+      this.newReplyId = nextNewestId;
+    }
     this.replies = replies;
     if (changed) this.render();
+  }
+
+  /** A reply was read aloud (tap or auto-play) — clear its "New" marker. */
+  markReplyRead(id: string) {
+    if (this.newReplyId !== id) return;
+    this.newReplyId = null;
+    this.render();
+  }
+
+  private startTimeRefresh() {
+    if (this.timeRefreshTimer) return;
+    this.timeRefreshTimer = setInterval(() => {
+      if (this.replies.length > 0) this.render();
+    }, TIME_REFRESH_INTERVAL_MS);
+  }
+
+  private stopTimeRefresh() {
+    if (!this.timeRefreshTimer) return;
+    clearInterval(this.timeRefreshTimer);
+    this.timeRefreshTimer = null;
   }
 
   /** Move to a new phase and reconcile the visible rows. */

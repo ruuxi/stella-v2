@@ -32,6 +32,10 @@ export type CarPlayHomeState = {
   speakingPreview: string;
   /** Recent assistant replies, newest first (already capped by the bridge). */
   replies: RecentReply[];
+  /** Reply that arrived since the driver last heard/read one, if any. */
+  newReplyId: string | null;
+  /** Current time (ms epoch) for relative timestamps; injected for testing. */
+  now: number;
 };
 
 /** A tap target; the session maps these to the bound bridge actions. */
@@ -81,15 +85,37 @@ export function buildTalkRow(state: CarPlayHomeState): HomeRow {
   };
 }
 
-/** One tappable row per recent assistant reply; tapping reads it via TTS. */
+/** Driving-glance relative timestamp: "now", "2m ago", "3h ago", "2d ago". */
+export function formatRelativeTime(at: number, now: number): string {
+  const elapsed = Math.max(0, now - at);
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+/**
+ * One tappable row per recent assistant reply; tapping reads it via TTS. The
+ * detail line carries the relative timestamp, and a reply that arrived since
+ * the driver last heard one is marked "New" (CPListItem has no true badge
+ * slot under the audio entitlement, so the marker lives in the detail text).
+ */
 export function buildReplyRows(state: CarPlayHomeState): HomeRow[] {
-  return state.replies.slice(0, RECENT_REPLY_COUNT).map((reply) => ({
-    item: {
-      text: previewText(reply.text),
-      detailText: "Tap to hear it",
-    },
-    action: { kind: "readReply", id: reply.id },
-  }));
+  return state.replies.slice(0, RECENT_REPLY_COUNT).map((reply) => {
+    const isNew = reply.id === state.newReplyId;
+    const when = formatRelativeTime(reply.at, state.now);
+    return {
+      item: {
+        text: previewText(reply.text),
+        detailText: isNew ? `New · ${when} — tap to hear it` : when,
+        isPlaying: false,
+      },
+      action: { kind: "readReply", id: reply.id },
+    };
+  });
 }
 
 /**

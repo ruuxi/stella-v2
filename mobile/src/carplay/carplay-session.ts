@@ -19,9 +19,39 @@
  * platforms without the native module) — it lazy-`require`s it on iOS only.
  */
 
-import { Platform, type ImageSourcePropType } from "react-native";
+import { Platform, Settings, type ImageSourcePropType } from "react-native";
 
 export type CarPlayPhase = "idle" | "listening" | "thinking" | "speaking";
+
+const DIAGNOSTICS_KEY = "StellaCarPlayDiagnostics";
+
+/**
+ * JS-side CarPlay breadcrumb: logs to the JS console AND appends to the same
+ * `StellaCarPlayDiagnostics` user-defaults array the native scene delegate and
+ * the patched RNCarPlay module write to (via the `Settings` bridge to
+ * NSUserDefaults). On a real head unit — where the Metro console doesn't exist
+ * — this makes the JS takeover steps visible right next to the native
+ * breadcrumbs when diagnosing from Console.app or a diagnostics dump.
+ */
+export function carPlayLog(message: string) {
+  console.info(`[carplay] ${message}`);
+  if (Platform.OS !== "ios") return;
+  try {
+    const existing = Settings.get(DIAGNOSTICS_KEY) as unknown;
+    const lines = Array.isArray(existing) ? (existing as string[]) : [];
+    const next = [...lines, `${new Date().toISOString()} [js] ${message}`];
+    while (next.length > 80) next.shift();
+    Settings.set({ [DIAGNOSTICS_KEY]: next });
+  } catch {
+    // Diagnostics must never break the CarPlay flow.
+  }
+}
+
+/** Delays for re-asserting the JS root template after a connect. */
+const SET_ROOT_RETRY_DELAYS_MS = [1000, 3000];
+/** Poll cadence/cap for nudging native `checkForConnection` until connected. */
+const CONNECT_POLL_INTERVAL_MS = 2000;
+const CONNECT_POLL_MAX_ATTEMPTS = 15;
 
 /** Callbacks the bridge binds so CarPlay taps drive the real voice loop. */
 export type CarPlayActions = {
@@ -74,6 +104,8 @@ class CarPlaySession {
   private connected = false;
   private voicePresented = false;
   private replayPushed = false;
+  private setRootRetryTimers: ReturnType<typeof setTimeout>[] = [];
+  private connectPollTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Bind (or rebind) the live action closures from the React bridge. */
   bindActions(actions: CarPlayActions) {
@@ -114,21 +146,30 @@ class CarPlaySession {
       // were previously outside the try, so a failure constructing the templates
       // was not contained.
       try {
-        console.info("[carplay] JS connect handler running");
+        carPlayLog(
+          `JS connect handler running (alreadyConnected=${this.connected})`,
+        );
+        const firstConnect = !this.connected;
         this.connected = true;
+        this.stopConnectPoll();
         this.buildTemplates();
-        this.phase = "idle";
-        this.replayPushed = false;
-        this.voicePresented = false;
-        this.CarPlay!.setRootTemplate(this.listTemplate!, false);
+        carPlayLog("JS templates built");
+        if (firstConnect) {
+          this.phase = "idle";
+          this.replayPushed = false;
+          this.voicePresented = false;
+        }
+        this.setRootWithRetries();
         this.CarPlay!.enableNowPlaying(true);
         this.renderPhase();
+        carPlayLog(`JS connect handler finished (phase=${this.phase})`);
       } catch (error) {
-        console.warn("[carplay] connect handler failed", error);
+        carPlayLog(`JS connect handler FAILED: ${String(error)}`);
       }
     };
 
     this.CarPlay.registerOnConnect(handleConnect);
+    carPlayLog("JS registered onConnect callback");
 
     // react-native-carplay checks RNCPStore for an existing connection inside
     // its module constructor. If the car connected before this singleton was
@@ -138,17 +179,80 @@ class CarPlaySession {
     // our callback, and ask native to re-check in case its first replay arrived
     // between construction and this registration.
     if (this.CarPlay.connected) {
-      console.info("[carplay] replaying already-connected CarPlay session");
+      carPlayLog("replaying already-connected CarPlay session");
       handleConnect();
     } else {
+      // Ask native to replay a connection our listener may have missed, and
+      // keep nudging on an interval: on a real head unit the first didConnect
+      // can be emitted before this module registered its listener (the event
+      // is dropped with zero listeners), and a single checkForConnection can
+      // still race module setup. The poll stops as soon as we're connected.
+      carPlayLog("not connected yet — starting checkForConnection poll");
       this.CarPlay.bridge?.checkForConnection?.();
+      this.startConnectPoll();
     }
 
     this.CarPlay.registerOnDisconnect(() => {
+      carPlayLog("JS disconnect handler running");
       this.connected = false;
       this.voicePresented = false;
       this.replayPushed = false;
+      this.clearSetRootRetries();
+      this.startConnectPoll();
     });
+  }
+
+  /**
+   * Set the JS root template now and re-assert it after short delays. On the
+   * head unit that failed in the field, the placeholder stayed up even though
+   * the app was live — a single silently-failed `setRootTemplate` (or one that
+   * raced the native placeholder install) leaves a dead UI. Re-issuing the
+   * call is idempotent and cheap; every attempt is logged for on-unit triage.
+   */
+  private setRootWithRetries() {
+    this.clearSetRootRetries();
+    const attempt = (label: string) => {
+      if (!this.connected || !this.CarPlay || !this.listTemplate) return;
+      try {
+        carPlayLog(`setRootTemplate attempt (${label})`);
+        this.CarPlay.setRootTemplate(this.listTemplate, false);
+      } catch (error) {
+        carPlayLog(`setRootTemplate (${label}) FAILED: ${String(error)}`);
+      }
+    };
+    attempt("immediate");
+    this.setRootRetryTimers = SET_ROOT_RETRY_DELAYS_MS.map((delay) =>
+      setTimeout(() => attempt(`retry+${delay}ms`), delay),
+    );
+  }
+
+  private clearSetRootRetries() {
+    for (const timer of this.setRootRetryTimers) clearTimeout(timer);
+    this.setRootRetryTimers = [];
+  }
+
+  private startConnectPoll() {
+    if (this.connectPollTimer) return;
+    let attempts = 0;
+    this.connectPollTimer = setInterval(() => {
+      if (this.connected || attempts >= CONNECT_POLL_MAX_ATTEMPTS) {
+        this.stopConnectPoll();
+        return;
+      }
+      attempts += 1;
+      carPlayLog(`checkForConnection poll attempt ${attempts}`);
+      try {
+        this.CarPlay?.bridge?.checkForConnection?.();
+      } catch (error) {
+        carPlayLog(`checkForConnection poll FAILED: ${String(error)}`);
+      }
+    }, CONNECT_POLL_INTERVAL_MS);
+  }
+
+  private stopConnectPoll() {
+    if (!this.connectPollTimer) return;
+    clearInterval(this.connectPollTimer);
+    this.connectPollTimer = null;
   }
 
   isConnected(): boolean {
@@ -157,6 +261,13 @@ class CarPlaySession {
 
   private buildTemplates() {
     if (!this.rnc) return;
+    // Build once per app lifetime: every Template construction registers
+    // NativeEventEmitter listeners keyed by the (fixed) template id and never
+    // removes them, so rebuilding on each connect/retry would stack duplicate
+    // listeners and double-fire onItemSelect. The native side keeps templates
+    // by id in RNCPStore, so reusing the JS instances across reconnects is
+    // safe — setRootTemplate just re-references the same id.
+    if (this.listTemplate) return;
     const { ListTemplate, VoiceControlTemplate, NowPlayingTemplate } = this.rnc;
 
     this.listTemplate = new ListTemplate({

@@ -1,8 +1,40 @@
+diff --git a/node_modules/react-native-carplay/.bun-tag-8ecb6aa752be0cfb b/.bun-tag-8ecb6aa752be0cfb
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/ios/RNCarPlay.m b/ios/RNCarPlay.m
-index 672a032a2ab8214249c65229d5eccf9583e86c8c..79246238024ba0863c8e32b96debba6553a6f3cc 100644
+index 672a032a2ab8214249c65229d5eccf9583e86c8c..7ac61da68793b74832870be51ebd4733d47c06ee 100644
 --- a/ios/RNCarPlay.m
 +++ b/ios/RNCarPlay.m
-@@ -25,7 +25,14 @@ + (void) connectWithInterfaceController:(CPInterfaceController*)interfaceControl
+@@ -2,6 +2,28 @@
+ #import <React/RCTConvert.h>
+ #import <React/RCTRootView.h>
+ 
++// Stella diagnostics: mirror key CarPlay bridge steps into the same
++// user-defaults breadcrumb store the scene delegate writes
++// (StellaCarPlayDiagnostics), so on-unit failures of the JS root-template
++// takeover are visible in Console.app / the diagnostics dump.
++static void RNCPStellaLog(NSString *format, ...) {
++    va_list args;
++    va_start(args, format);
++    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
++    va_end(args);
++
++    NSLog(@"[carplay] %@", message);
++
++    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
++    NSArray<NSString *> *existing = [defaults stringArrayForKey:@"StellaCarPlayDiagnostics"] ?: @[];
++    NSMutableArray<NSString *> *next = [existing mutableCopy];
++    [next addObject:[NSString stringWithFormat:@"%@ %@", [NSDate date], message]];
++    while (next.count > 80) {
++        [next removeObjectAtIndex:0];
++    }
++    [defaults setObject:next forKey:@"StellaCarPlayDiagnostics"];
++}
++
+ @implementation RNCarPlay
+ 
+ @synthesize interfaceController;
+@@ -25,8 +47,21 @@ + (void) connectWithInterfaceController:(CPInterfaceController*)interfaceControl
      [store setConnected:true];
  
      RNCarPlay *cp = [RNCarPlay allocWithZone:nil];
@@ -14,11 +46,18 @@ index 672a032a2ab8214249c65229d5eccf9583e86c8c..79246238024ba0863c8e32b96debba65
 +    // the CarPlay root template is never set and the head unit shows a blank
 +    // screen. When neither is ready yet, RNCPStore stays `connected`, so JS's
 +    // checkForConnection() recovers the event once the module is set up.
++    RNCPStellaLog(@"RNCarPlay.connect bridge=%@ callableJSModules=%@",
++                  cp.bridge ? @"YES" : @"NO",
++                  cp.callableJSModules ? @"YES" : @"NO");
 +    if (cp.bridge || cp.callableJSModules) {
          [cp sendEventWithName:@"didConnect" body:[self getConnectedWindowInformation:window]];
++        RNCPStellaLog(@"RNCarPlay.connect emitted didConnect to JS");
++    } else {
++        RNCPStellaLog(@"RNCarPlay.connect could NOT emit didConnect (no JS transport yet)");
      }
  }
-@@ -36,7 +43,8 @@ + (void) disconnect {
+ 
+@@ -36,7 +71,8 @@ + (void) disconnect {
      [store setConnected:false];
      [[store.window subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
  
@@ -28,3 +67,36 @@ index 672a032a2ab8214249c65229d5eccf9583e86c8c..79246238024ba0863c8e32b96debba65
          [cp sendEventWithName:@"didDisconnect" body:@{}];
      }
  }
+@@ -152,8 +188,10 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
+ 
+ RCT_EXPORT_METHOD(checkForConnection) {
+     RNCPStore *store = [RNCPStore sharedManager];
++    RNCPStellaLog(@"checkForConnection called from JS; storeConnected=%@", [store isConnected] ? @"YES" : @"NO");
+     if ([store isConnected]) {
+         [self sendEventWithName:@"didConnect" body:[RNCarPlay getConnectedWindowInformation: store.window]];
++        RNCPStellaLog(@"checkForConnection re-emitted didConnect");
+     }
+ }
+ 
+@@ -458,13 +496,18 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
+ 
+     store.interfaceController.delegate = self;
+ 
++    RNCPStellaLog(@"setRootTemplate(%@) template=%@ interfaceController=%@",
++                  templateId,
++                  template ? @"FOUND" : @"MISSING",
++                  store.interfaceController ? @"YES" : @"NO");
++
+     if (template) {
+         [store.interfaceController setRootTemplate:template animated:animated completion:^(BOOL done, NSError * _Nullable err) {
+-            NSLog(@"error %@", err);
+-            // noop
++            RNCPStellaLog(@"setRootTemplate(%@) completion done=%@ error=%@",
++                          templateId, done ? @"YES" : @"NO", err.localizedDescription ?: @"none");
+         }];
+     } else {
+-        NSLog(@"Failed to find template %@", template);
++        RNCPStellaLog(@"setRootTemplate(%@) FAILED: template not found in RNCPStore", templateId);
+     }
+ }
+ 

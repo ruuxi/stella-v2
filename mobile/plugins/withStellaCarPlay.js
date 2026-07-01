@@ -103,6 +103,56 @@ static void StellaCarPlayLog(NSString *format, ...) {
   [defaults synchronize];
 }
 
+// Live connection state so the placeholder's tap handler and the takeover
+// watchdog can force/retry the JS takeover after connect. All accessed on the
+// main queue only.
+static CPInterfaceController *gInterfaceController = nil;
+static CPWindow *gCarWindow = nil;
+static CPListTemplate *gPlaceholderTemplate = nil;
+static CPListItem *gPlaceholderItem = nil;
+static NSInteger gTakeoverRetries = 0;
+
+// The placeholder row must NEVER be a dead tap. If the JS root-template
+// takeover hasn't replaced the placeholder yet, a tap re-emits didConnect
+// through RNCarPlay (forcing react-native-carplay to replay the connection to
+// JS) and tells the driver what's happening via the row's detail text.
+static void StellaCarPlayRetryTakeover(NSString *reason) {
+  if (!gInterfaceController) {
+    StellaCarPlayLog(@"retry(%@): no interface controller — CarPlay disconnected", reason);
+    return;
+  }
+  CPTemplate *root = gInterfaceController.rootTemplate;
+  if (root != nil && root != (CPTemplate *)gPlaceholderTemplate) {
+    StellaCarPlayLog(@"retry(%@): JS takeover complete (root=%@)", reason, NSStringFromClass([root class]));
+    return;
+  }
+  gTakeoverRetries += 1;
+  StellaCarPlayLog(@"retry(%@): root still native placeholder (attempt %ld) — re-emitting didConnect",
+                   reason, (long)gTakeoverRetries);
+  if (gPlaceholderItem != nil) {
+    if (gTakeoverRetries >= 4) {
+      [gPlaceholderItem setDetailText:@"Still connecting — open Stella on your iPhone"];
+    } else {
+      [gPlaceholderItem setDetailText:@"Connecting to Stella..."];
+    }
+  }
+  // Re-runs react-native-carplay's connect path: refreshes RNCPStore and
+  // re-emits didConnect so a JS side that missed the first event (listener not
+  // yet registered / event dropped) gets another chance to install its root.
+  [RNCarPlay connectWithInterfaceController:gInterfaceController window:gCarWindow];
+}
+
+static void StellaCarPlayScheduleTakeoverWatchdog(void) {
+  // If JS is healthy the first check already sees a non-placeholder root and
+  // the rest are cheap no-ops.
+  for (NSNumber *delay in @[@2.0, @6.0, @12.0, @20.0]) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+      StellaCarPlayRetryTakeover([NSString stringWithFormat:@"watchdog+%.0fs", delay.doubleValue]);
+    });
+  }
+}
+
 static void StellaCarPlayInstallPlaceholder(CPInterfaceController *interfaceController) {
   if (!interfaceController) {
     StellaCarPlayLog(@"missing CPInterfaceController; cannot install native placeholder");
@@ -113,10 +163,20 @@ static void StellaCarPlayInstallPlaceholder(CPInterfaceController *interfaceCont
                                                detailText:@"Starting voice mode..."
                                                     image:nil
                                  showsDisclosureIndicator:NO];
+  // Real tap handler (iOS 14+): the row is interactive even before (or without)
+  // the JS takeover. Tapping forces a takeover retry instead of doing nothing.
+  talkItem.handler = ^(id<CPSelectableListItem> item, dispatch_block_t completionBlock) {
+    StellaCarPlayLog(@"native placeholder row tapped");
+    StellaCarPlayRetryTakeover(@"tap");
+    completionBlock();
+  };
   CPListSection *section = [[CPListSection alloc] initWithItems:@[talkItem]
                                                         header:nil
                                              sectionIndexTitle:nil];
   CPListTemplate *template = [[CPListTemplate alloc] initWithTitle:@"Stella" sections:@[section]];
+  gPlaceholderItem = talkItem;
+  gPlaceholderTemplate = template;
+  gTakeoverRetries = 0;
 
   [interfaceController setRootTemplate:template animated:NO completion:^(BOOL done, NSError * _Nullable error) {
     StellaCarPlayLog(@"native placeholder setRootTemplate done=%@ error=%@",
@@ -134,10 +194,13 @@ static void StellaCarPlayInstallPlaceholder(CPInterfaceController *interfaceCont
     StellaCarPlayLog(@"didConnect modern selector window=%@ bounds=%@",
                      templateApplicationScene.carWindow ? @"YES" : @"NO",
                      templateApplicationScene.carWindow ? NSStringFromCGRect(templateApplicationScene.carWindow.bounds) : @"nil");
+    gInterfaceController = interfaceController;
+    gCarWindow = templateApplicationScene.carWindow;
     StellaCarPlayInstallPlaceholder(interfaceController);
     [RNCarPlay connectWithInterfaceController:interfaceController
                                       window:templateApplicationScene.carWindow];
     StellaCarPlayLog(@"forwarded connect to RNCarPlay");
+    StellaCarPlayScheduleTakeoverWatchdog();
   });
 }
 
@@ -145,6 +208,10 @@ static void StellaCarPlayInstallPlaceholder(CPInterfaceController *interfaceCont
 didDisconnectInterfaceController:(CPInterfaceController *)interfaceController {
   dispatch_async(dispatch_get_main_queue(), ^{
     StellaCarPlayLog(@"didDisconnect modern selector");
+    gInterfaceController = nil;
+    gCarWindow = nil;
+    gPlaceholderTemplate = nil;
+    gPlaceholderItem = nil;
     [RNCarPlay disconnect];
   });
 }
@@ -157,9 +224,12 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController {
     StellaCarPlayLog(@"didConnect legacy selector window=%@ bounds=%@",
                      window ? @"YES" : @"NO",
                      window ? NSStringFromCGRect(window.bounds) : @"nil");
+    gInterfaceController = interfaceController;
+    gCarWindow = window;
     StellaCarPlayInstallPlaceholder(interfaceController);
     [RNCarPlay connectWithInterfaceController:interfaceController window:window];
     StellaCarPlayLog(@"forwarded legacy connect to RNCarPlay");
+    StellaCarPlayScheduleTakeoverWatchdog();
   });
 }
 
@@ -168,6 +238,10 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
                       fromWindow:(CPWindow *)window {
   dispatch_async(dispatch_get_main_queue(), ^{
     StellaCarPlayLog(@"didDisconnect legacy selector");
+    gInterfaceController = nil;
+    gCarWindow = nil;
+    gPlaceholderTemplate = nil;
+    gPlaceholderItem = nil;
     [RNCarPlay disconnect];
   });
 }

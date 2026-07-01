@@ -751,11 +751,24 @@ export function useChatThread(opts: {
     if (!desktopAccess) return;
     if (!storageLoaded) return;
     if (!hasRunningConversationTask) return;
+    // Never poll while a send is in flight: the desktop persists the turn's
+    // user row the moment it starts, and a mid-turn pull would merge that
+    // canonical row before `reconcileSentDesktopTurn` links the optimistic
+    // bubble — duplicating it — while also advancing the cursor past the turn
+    // so the post-turn reconcile can't find its rows. Mid-turn activity
+    // already streams over the bridge; polling only matters between turns.
+    if (sending) return;
     const handle = setInterval(() => {
       void runDesktopSync();
     }, 5_000);
     return () => clearInterval(handle);
-  }, [desktopAccess, hasRunningConversationTask, runDesktopSync, storageLoaded]);
+  }, [
+    desktopAccess,
+    hasRunningConversationTask,
+    runDesktopSync,
+    sending,
+    storageLoaded,
+  ]);
 
   return {
     messages,

@@ -102,17 +102,19 @@ class CarPlaySession {
     if (!this.load() || !this.CarPlay) return;
     this.registered = true;
 
-    this.CarPlay.registerOnConnect(() => {
+    const handleConnect = () => {
       // This whole callback runs the first time a real head unit hands us its
       // interface controller. Any throw in here (a template constructor
       // rejecting its contents, a brand asset that won't resolve, or a CarPlay
       // API raising on the head unit) is an exception inside a native-event
       // listener — unguarded it surfaces as an unhandled JS error on connect
       // and can take the phone app down mid-drive. Keep the entire connect path
-      // fail-safe: on error we leave CarPlay blank rather than crash. Note
-      // `buildTemplates()` and `renderPhase()` were previously outside the
-      // try, so a failure constructing the templates was not contained.
+      // fail-safe: on error the native placeholder remains visible rather than
+      // leaving the head unit blank. Note `buildTemplates()` and `renderPhase()`
+      // were previously outside the try, so a failure constructing the templates
+      // was not contained.
       try {
+        console.info("[carplay] JS connect handler running");
         this.connected = true;
         this.buildTemplates();
         this.phase = "idle";
@@ -124,7 +126,23 @@ class CarPlaySession {
       } catch (error) {
         console.warn("[carplay] connect handler failed", error);
       }
-    });
+    };
+
+    this.CarPlay.registerOnConnect(handleConnect);
+
+    // react-native-carplay checks RNCPStore for an existing connection inside
+    // its module constructor. If the car connected before this singleton was
+    // registered, that replay fires while `onConnectCallbacks` is still empty:
+    // `CarPlay.connected` becomes true, but Stella never gets a chance to set
+    // the root template. Replay the already-connected state after registering
+    // our callback, and ask native to re-check in case its first replay arrived
+    // between construction and this registration.
+    if (this.CarPlay.connected) {
+      console.info("[carplay] replaying already-connected CarPlay session");
+      handleConnect();
+    } else {
+      this.CarPlay.bridge?.checkForConnection?.();
+    }
 
     this.CarPlay.registerOnDisconnect(() => {
       this.connected = false;

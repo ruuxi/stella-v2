@@ -56,20 +56,18 @@ control:
 - **Now-playing pattern** — the replay surface uses Apple's real now-playing
   template (play/replay control), so it feels native to CarPlay.
 
-## Entitlement to request from Apple
+## Entitlement
 
-CarPlay is entitlement-gated. To run on a real CarPlay head unit, request:
+CarPlay is entitlement-gated. Stella's App Store/TestFlight builds carry:
 
 - **Entitlement:** `com.apple.developer.carplay-audio`
 - **Category:** **Audio** (a voice assistant that records a request and reads
   the answer back aloud fits the audio / now-playing model).
 
-Request it at <https://developer.apple.com/contact/carplay/>. Once Apple grants
-it, add the key to the iOS entitlements and re-provision. It is **deliberately
-not** added to the build today, because including a CarPlay entitlement the
-provisioning profile doesn't carry breaks device code-signing. The CarPlay
-Simulator does **not** enforce entitlements, so development needs nothing from
-Apple.
+The entitlement is declared in `app.json` and present in the EAS provisioning
+profile. The CarPlay Simulator does **not** enforce entitlements, so simulator
+testing can still pass even if a future provisioning profile drops the key; for
+real-car regressions, verify the IPA's embedded entitlements with `codesign`.
 
 ## Native wiring (config plugin)
 
@@ -77,13 +75,17 @@ Apple.
 native setup is a config plugin, `plugins/withStellaCarPlay.js`, registered in
 `app.json`. On `expo prebuild` / EAS Build it:
 
-1. Adds a CarPlay template scene to `UIApplicationSceneManifest` (only the
-   CarPlay scene role — the phone UI keeps the Expo AppDelegate window, the
-   proven react-native-carplay pattern, so no risky phone scene migration).
-2. Writes an Objective-C `StellaCarSceneDelegate` that forwards the CarPlay
-   interface controller to `RNCarPlay` (react-native-carplay), handing control
-   to the JS template controller.
-3. Adds that delegate to the Xcode Sources build phase.
+1. Adds both required scene roles to `UIApplicationSceneManifest`:
+   `UIWindowSceneSessionRoleApplication` for the phone window and
+   `CPTemplateApplicationSceneSessionRoleApplication` for CarPlay.
+2. Writes a Swift `StellaPhoneSceneDelegate` that attaches Expo's existing
+   AppDelegate-created RN window to the phone scene.
+3. Writes an Objective-C `StellaCarSceneDelegate` that immediately installs a
+   native "Talk to Stella" `CPListTemplate` placeholder, then forwards the
+   interface controller to `RNCarPlay` (react-native-carplay). JS replaces the
+   placeholder when its connect handler runs. This avoids a blank head unit when
+   CarPlay connects before RN/JS finishes registering its listener.
+4. Adds those delegates to the Xcode Sources build phase.
 
 ## How to test in the CarPlay Simulator
 
@@ -92,8 +94,8 @@ CarPlay does **not** work in Expo Go — it needs a dev/prebuild build.
 1. **Build the native iOS app** (needs Xcode + CocoaPods):
    ```bash
    cd mobile
-   npx expo prebuild -p ios            # applies the CarPlay config plugin
-   npx expo run:ios                    # builds + boots the app in the iOS Simulator
+   bunx expo prebuild -p ios           # applies the CarPlay config plugin
+   bunx expo run:ios                   # builds + boots the app in the iOS Simulator
    ```
    (Or open `ios/Stella.xcworkspace` in Xcode and Run.)
 
@@ -115,13 +117,17 @@ CarPlay does **not** work in Expo Go — it needs a dev/prebuild build.
 > Tip: if the CarPlay menu item is missing, ensure you're on a recent Xcode and
 > that the app built and launched in the phone Simulator at least once.
 
-## Still outstanding before shipping to a real device
+## Notes / gotchas
 
-- **Apple entitlement** must be granted (`com.apple.developer.carplay-audio`,
-  Audio) and added to the iOS entitlements + provisioning profile.
 - **Rich now-playing metadata** (title/artist/artwork on the replay card) would
   need `MPNowPlayingInfoCenter` populated natively when the TTS clip plays;
   today the card carries the Replay/Talk controls but not custom artwork.
 - **react-native-carplay** (2.3.0) is a legacy-arch RCTBridgeModule; it loads on
-  the New Architecture via the interop layer. Worth a smoke test on a physical
-  head unit once the entitlement lands.
+  the New Architecture via the interop layer. Stella replays an already-connected
+  session after registering its JS callback because the library's constructor can
+  consume the native `checkForConnection()` replay before app code has registered
+  its own connect handler.
+- The native scene delegate writes the latest CarPlay lifecycle breadcrumbs to
+  the app's `StellaCarPlayDiagnostics` user-defaults key and to device Console
+  logs with the `[carplay]` prefix. If a TestFlight build still fails only in a
+  real car, collect iPhone logs in Console.app while launching Stella on CarPlay.

@@ -52,7 +52,7 @@ import { ArtifactCard } from "./ArtifactCard";
 import { AgentWorkCard } from "./AgentWorkCard";
 import { MapRouteCard } from "./MapRouteCard";
 import { ToolActivityTrace } from "./ToolActivityTrace";
-import { ActivityPill, ActivityTray } from "./ActivityPill";
+import { ActivityPill } from "./ActivityPill";
 import { deriveToolActivity } from "../lib/tool-activity";
 import {
   deriveFloatingHidden,
@@ -1905,7 +1905,7 @@ export type ChatPaneProps = {
   onChangeAttachments?: (next: ImagePicker.ImagePickerAsset[]) => void;
 
   /**
-   * Opens the computer device sheet (status, wake, view-screen, artifacts,
+   * Opens the computer device sheet (status, wake, view-screen,
    * model settings). When provided, a floating gear button renders above the
    * composer. The cloud chat omits it.
    */
@@ -1919,10 +1919,17 @@ export type ChatPaneProps = {
   onOpenArtifact?: (artifact: ChatArtifact) => void;
 
   /**
-   * Background tasks for the activity pill + tray above the composer. When
-   * non-empty, the pill appears and opens the tray. The cloud chat omits it.
+   * Background tasks for the floating activity pill (running count). The
+   * cloud chat omits it.
    */
   activityTasks?: MobileTask[];
+
+  /**
+   * Opens the activity hub sheet (tasks + files + search). When provided, the
+   * always-present activity pill renders to the left of the floating settings
+   * button with the same visibility rules. The cloud chat omits it.
+   */
+  onOpenActivityHub?: () => void;
 
   /**
    * True while a catch-up sync is pulling turns the phone may have missed
@@ -1956,6 +1963,7 @@ export function ChatPane({
   dictationHeaders,
   onOpenArtifact,
   activityTasks,
+  onOpenActivityHub,
   catchingUp = false,
 }: ChatPaneProps) {
   const colors = useColors();
@@ -2347,7 +2355,7 @@ export function ChatPane({
   }, [enableAttachments, pickImage, readAloud, takePhoto]);
 
   // Floating gear button (computer chat only): opens the device sheet — status,
-  // wake, view-screen, artifacts, model settings. The cloud chat passes no
+  // wake, view-screen, model settings. The cloud chat passes no
   // handler, so nothing renders.
   const floatingAnchorRef = useRef<View>(null);
   const hasFloatingMenu = Boolean(onOpenDeviceSheet);
@@ -2362,6 +2370,16 @@ export function ChatPane({
     Keyboard.dismiss();
     onOpenDeviceSheet();
   }, [onOpenDeviceSheet]);
+
+  // Floating activity pill (left of the gear): always present alongside it,
+  // opens the activity hub sheet — tasks, files, and search.
+  const hasActivityPill = Boolean(onOpenActivityHub);
+  const onPressActivityPill = useCallback(() => {
+    if (!onOpenActivityHub) return;
+    tapLight();
+    Keyboard.dismiss();
+    onOpenActivityHub();
+  }, [onOpenActivityHub]);
 
   // Hide the floating button while scrolling up (reading back through
   // history) and bring it back when scrolling down toward the latest. The
@@ -2461,10 +2479,7 @@ export function ChatPane({
     null,
   );
   const dismissMessageMenu = useCallback(() => setMessageMenu(null), []);
-  const [activityOpen, setActivityOpen] = useState(false);
-  const hasActivity = (activityTasks ?? []).some(
-    (task) => task.status === "running",
-  );
+
   // Only user messages open this menu now \u2014 assistant messages carry their
   // actions inline (copy / read aloud / share) under the bubble, so the menu
   // just needs copy + share. Read-aloud lives only on the assistant inline row.
@@ -2804,6 +2819,38 @@ export function ChatPane({
               bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}
             />
           ) : null}
+          {hasActivityPill && !searchOpen ? (
+            <Animated.View
+              pointerEvents={floatingHidden ? "none" : "auto"}
+              style={[
+                styles.floatingActivityPill,
+                {
+                  bottom: footerHeight + FLOATING_CONTROL_LIFT - 20,
+                  // See the settings button below: never fade a Liquid Glass
+                  // ancestor's opacity (it drops the material). Fade only on
+                  // the fallback; on glass the material fades via `present`
+                  // and the pill's own content fade.
+                  opacity: liquidGlassSupported ? 1 : floatingAnim,
+                  transform: [
+                    {
+                      translateY: floatingAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [12, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <ActivityPill
+                tasks={activityTasks ?? []}
+                colors={colors}
+                onPress={onPressActivityPill}
+                present={!floatingHidden}
+                contentOpacity={floatingAnim}
+              />
+            </Animated.View>
+          ) : null}
           {hasFloatingMenu && !searchOpen ? (
             <Animated.View
               ref={floatingAnchorRef}
@@ -2928,15 +2975,6 @@ export function ChatPane({
             >
               You're offline
             </Text>
-          </View>
-        ) : null}
-        {hasActivity ? (
-          <View style={styles.activityRow}>
-            <ActivityPill
-              tasks={activityTasks ?? []}
-              colors={colors}
-              onPress={() => setActivityOpen(true)}
-            />
           </View>
         ) : null}
         <View
@@ -3115,12 +3153,6 @@ export function ChatPane({
         colors={colors}
         containerRef={rootRef}
       />
-      <ActivityTray
-        visible={activityOpen}
-        tasks={activityTasks ?? []}
-        colors={colors}
-        onClose={() => setActivityOpen(false)}
-      />
     </View>
   );
 }
@@ -3191,6 +3223,17 @@ const makeStyles = (colors: Colors) =>
     floatingMenuButton: {
       position: "absolute",
       right: CHAT_HORIZONTAL_INSET,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.06,
+      shadowRadius: 5,
+      elevation: 2,
+    },
+    // Activity pill: same floating language as the settings button, sitting
+    // just to its left (button is 40pt wide + an 8pt gutter).
+    floatingActivityPill: {
+      position: "absolute",
+      right: CHAT_HORIZONTAL_INSET + 48,
       shadowColor: "#000",
       shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.06,
@@ -3386,11 +3429,7 @@ const makeStyles = (colors: Colors) =>
       fontSize: 12,
       letterSpacing: -0.1,
     },
-    activityRow: {
-      alignItems: "flex-start",
-      paddingHorizontal: 16,
-      paddingBottom: 6,
-    },
+
     userText: {
       color: colors.text,
       fontFamily: fonts.sans.regular,

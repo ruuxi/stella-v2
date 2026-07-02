@@ -21,8 +21,8 @@ import { collectConversationTasks } from "../mobile-task-merge";
 import { loadChatMessages, saveChatMessages } from "../offline-chat-storage";
 
 /**
- * The activity pill renders iff the conversation's collected tasks include a
- * `running` one (see `ActivityPill` / ChatPane's `hasActivity`). These tests
+ * The floating activity pill shows its running tally iff the conversation's
+ * collected tasks include a `running` one (idle it reads "Search"). These tests
  * pin the task-state derivation under the build-94 push regime: the transcript
  * is already cursor-synced, the 5s poll is relaxed/suspended, and task
  * snapshots arrive only through push-triggered cursor deltas — which re-emit

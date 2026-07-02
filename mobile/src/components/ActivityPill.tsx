@@ -1,17 +1,20 @@
 import { useMemo } from "react";
 import {
-  Modal,
+  Animated,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
+import { GlassSurface } from "./glass";
 import { Icon } from "./Icon";
 import { ShimmerText } from "./ShimmerText";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
+import { fadeHex } from "../theme/oklch";
 import type { MobileTask } from "../types";
 
 const SHIMMER_MS = 1900;
@@ -21,202 +24,149 @@ const SHIMMER_MS = 1900;
 // any motion that would distract.
 const ACTIVITY_BAR_HEIGHTS = [6, 11, 8];
 
-const runningCountOf = (tasks: MobileTask[]) =>
+const runningCountOf = (tasks: readonly MobileTask[]) =>
   tasks.reduce((n, task) => (task.status === "running" ? n + 1 : n), 0);
 
 /**
- * Activity pill above the composer (mobile port of the desktop
- * `ComposerActivityPill`). It's a live indicator: it shimmers a running count
- * and opens the activity tray on tap. Renders nothing unless at least one task
- * is actually running — no idle/empty pill.
+ * Floating activity pill — sits to the left of the floating settings button
+ * with the same glass language and visibility rules (mobile take on the
+ * desktop `ComposerActivityPill`). Always present while the floating controls
+ * are: idle it reads "Search" (the entry point to the activity hub's search),
+ * and while background work runs it shimmers the running count. Tapping it in
+ * any state opens the activity hub sheet.
  */
 export function ActivityPill({
   tasks,
   colors,
   onPress,
+  present,
+  contentOpacity,
+  style,
 }: {
-  tasks: MobileTask[];
+  tasks: readonly MobileTask[];
   colors: Colors;
   onPress: () => void;
+  /** Materialize/dissolve the glass with the sibling floating controls. */
+  present: boolean;
+  /**
+   * Shared fade (the floating controls' show/hide anim) applied to the label
+   * and hairline ring — never to the glass itself (see ScrollToBottomFab:
+   * fading a Liquid Glass ancestor's opacity drops the material).
+   */
+  contentOpacity: Animated.Value | Animated.AnimatedInterpolation<number>;
+  style?: StyleProp<ViewStyle>;
 }) {
-  const styles = useMemo(() => makePillStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const running = runningCountOf(tasks);
-  // Only surface the pill while work is actually in flight; when nothing is
-  // active it disappears entirely rather than lingering as a static chip.
-  if (running === 0) return null;
   const label =
-    running > 1 ? `${running} in progress` : "Task in progress";
+    running === 0
+      ? "Search"
+      : running === 1
+        ? "1 in progress"
+        : `${running} in progress`;
 
   return (
     <Pressable
       onPress={onPress}
-      style={styles.pill}
       accessibilityRole="button"
-      accessibilityLabel="Open activity"
+      accessibilityLabel={
+        running === 0 ? "Search activity and files" : "Open activity"
+      }
       hitSlop={6}
+      style={({ pressed }) => [
+        styles.pressable,
+        style,
+        pressed && styles.pressed,
+      ]}
     >
-      <View style={styles.glyph}>
-        {ACTIVITY_BAR_HEIGHTS.map((height, index) => (
-          <View key={index} style={[styles.glyphBar, { height }]} />
-        ))}
-      </View>
-      <ShimmerText
-        text={label}
-        active
-        color={colors.text}
-        textStyle={styles.label}
-        durationMs={SHIMMER_MS}
-        dimAlpha={0.3}
-      />
+      <GlassSurface
+        glass="clear"
+        interactive
+        present={present}
+        radius={20}
+        fallbackColor={colors.surface}
+        style={styles.glass}
+      >
+        {/* Fading border overlay so the hairline dissolves with the glass
+            instead of lingering as an outline when hidden. */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            styles.ring,
+            { opacity: contentOpacity },
+          ]}
+        />
+        <Animated.View style={[styles.content, { opacity: contentOpacity }]}>
+          {running === 0 ? (
+            <>
+              <Icon
+                name="search"
+                size={14}
+                color={colors.textMuted}
+                weight="semibold"
+              />
+              <Text
+                style={styles.idleLabel}
+                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+              >
+                Search
+              </Text>
+            </>
+          ) : (
+            <>
+              <View style={styles.glyph}>
+                {ACTIVITY_BAR_HEIGHTS.map((height, index) => (
+                  <View key={index} style={[styles.glyphBar, { height }]} />
+                ))}
+              </View>
+              <ShimmerText
+                text={label}
+                active
+                color={colors.text}
+                textStyle={styles.label}
+                durationMs={SHIMMER_MS}
+                dimAlpha={0.3}
+              />
+            </>
+          )}
+        </Animated.View>
+      </GlassSurface>
     </Pressable>
   );
 }
 
-const TERMINAL_SUBTITLE: Record<
-  Exclude<MobileTask["status"], "running">,
-  string
-> = {
-  completed: "Finished",
-  error: "Couldn’t finish",
-  canceled: "Stopped",
-};
-
-function TaskRow({
-  task,
-  colors,
-  styles,
-}: {
-  task: MobileTask;
-  colors: Colors;
-  styles: ReturnType<typeof makeTrayStyles>;
-}) {
-  const running = task.status === "running";
-  const isError = task.status === "error";
-  const subtitle =
-    task.status === "running"
-      ? task.statusText?.trim() || "Working in background"
-      : TERMINAL_SUBTITLE[task.status];
-  // Newest reasoning summary (oldest→newest order), shown under the agent while
-  // it's active. Defensive against the field being absent on older desktops.
-  const reasoningSummary = running
-    ? task.reasoningSummaries?.[task.reasoningSummaries.length - 1]?.trim()
-    : undefined;
-
-  return (
-    <View style={styles.taskRow}>
-      <View style={styles.taskGlyph}>
-        {running ? (
-          <View style={styles.runningDot} />
-        ) : task.status === "canceled" ? (
-          <View style={styles.canceledDot} />
-        ) : (
-          <Icon
-            name={isError ? "alert-circle" : "check"}
-            size={15}
-            color={isError ? colors.danger : colors.text}
-          />
-        )}
-      </View>
-      <View style={styles.taskText}>
-        {running ? (
-          <ShimmerText
-            text={task.title}
-            active
-            color={colors.text}
-            textStyle={styles.taskTitle}
-            durationMs={SHIMMER_MS}
-            dimAlpha={0.3}
-          />
-        ) : (
-          <Text
-            style={styles.taskTitle}
-            numberOfLines={1}
-            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          >
-            {task.title}
-          </Text>
-        )}
-        <Text
-          style={styles.taskSub}
-          numberOfLines={1}
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-        >
-          {subtitle}
-        </Text>
-        {reasoningSummary ? (
-          <Text
-            style={styles.taskReasoning}
-            numberOfLines={2}
-            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          >
-            {reasoningSummary}
-          </Text>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-/** Bottom-sheet list of background tasks, opened by the activity pill. */
-export function ActivityTray({
-  visible,
-  tasks,
-  colors,
-  onClose,
-}: {
-  visible: boolean;
-  tasks: MobileTask[];
-  colors: Colors;
-  onClose: () => void;
-}) {
-  const styles = useMemo(() => makeTrayStyles(colors), [colors]);
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close activity" />
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        <Text style={styles.title} maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}>
-          Activity
-        </Text>
-        {tasks.length === 0 ? (
-          <Text style={styles.empty} maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}>
-            No background work yet.
-          </Text>
-        ) : (
-          <ScrollView
-            style={styles.list}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {tasks.map((task) => (
-              <TaskRow key={task.id} task={task} colors={colors} styles={styles} />
-            ))}
-          </ScrollView>
-        )}
-      </View>
-    </Modal>
-  );
-}
-
-const makePillStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    pill: {
-      flexDirection: "row",
+    pressable: {
+      height: 40,
+    },
+    pressed: {
+      opacity: 0.88,
+    },
+    glass: {
       alignItems: "center",
-      alignSelf: "flex-start",
-      gap: 7,
-      height: 28,
-      paddingLeft: 11,
-      paddingRight: 13,
-      borderRadius: 999,
+      borderRadius: 20,
+      flex: 1,
+      justifyContent: "center",
+      overflow: "hidden",
+      paddingHorizontal: 14,
+    },
+    ring: {
+      borderColor: fadeHex(colors.border, 0.6),
+      borderRadius: 20,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      backgroundColor: colors.panel,
+    },
+    content: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 6,
+    },
+    idleLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 13,
+      letterSpacing: -0.1,
     },
     label: {
       color: colors.text,
@@ -225,120 +175,15 @@ const makePillStyles = (colors: Colors) =>
       letterSpacing: -0.1,
     },
     glyph: {
-      flexDirection: "row",
       alignItems: "flex-end",
+      flexDirection: "row",
       // Fixed footprint so the pill never reflows as bars/labels change.
-      height: 11,
       gap: 2.5,
+      height: 11,
     },
     glyphBar: {
-      width: 2.5,
+      backgroundColor: colors.accent,
       borderRadius: 1.5,
-      backgroundColor: colors.accent,
-    },
-  });
-
-const makeTrayStyles = (colors: Colors) =>
-  StyleSheet.create({
-    backdrop: {
-      ...StyleSheet.absoluteFillObject,
-      // No tint: the backdrop only captures taps to dismiss the tray. The chat
-      // behind the sheet stays fully visible and unchanged (no dim, no wash).
-      backgroundColor: "transparent",
-    },
-    sheet: {
-      position: "absolute",
-      left: 0,
-      right: 0,
-      bottom: 0,
-      maxHeight: "62%",
-      backgroundColor: colors.background,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      paddingTop: 8,
-      paddingBottom: 28,
-      paddingHorizontal: 16,
-    },
-    handle: {
-      alignSelf: "center",
-      width: 36,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: colors.border,
-      marginBottom: 12,
-    },
-    title: {
-      color: colors.text,
-      fontFamily: fonts.sans.semiBold,
-      fontSize: 17,
-      letterSpacing: -0.3,
-      marginBottom: 10,
-      paddingHorizontal: 2,
-    },
-    empty: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      paddingVertical: 18,
-      paddingHorizontal: 2,
-    },
-    list: {
-      alignSelf: "stretch",
-    },
-    listContent: {
-      gap: 4,
-      paddingBottom: 4,
-    },
-    taskRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 11,
-      paddingVertical: 8,
-      paddingHorizontal: 2,
-    },
-    taskGlyph: {
-      width: 20,
-      height: 20,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    runningDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 999,
-      backgroundColor: colors.accent,
-    },
-    canceledDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 999,
-      backgroundColor: colors.textMuted,
-    },
-    taskText: {
-      flexShrink: 1,
-      minWidth: 0,
-    },
-    taskTitle: {
-      color: colors.text,
-      fontFamily: fonts.sans.medium,
-      fontSize: 14,
-      letterSpacing: -0.2,
-    },
-    taskSub: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 12,
-      letterSpacing: -0.1,
-      marginTop: 1,
-    },
-    taskReasoning: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 12,
-      lineHeight: 16,
-      letterSpacing: -0.1,
-      marginTop: 2,
+      width: 2.5,
     },
   });

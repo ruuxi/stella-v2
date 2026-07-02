@@ -13,8 +13,6 @@ import { TopSheet } from "./TopSheet";
 import { Icon, type IconName } from "./Icon";
 import { ConnectHeroAnimation } from "./ConnectHeroAnimation";
 import { ComputerSettingsSheet } from "./ComputerSettingsSheet";
-import { ArtifactListSheet } from "./ArtifactListSheet";
-import { ArtifactViewer } from "./ArtifactViewer";
 import { PairPhoneSheet } from "./PairPhoneSheet";
 import { type StoredPhoneAccess } from "../lib/phone-access";
 import { useComputerModelSettings } from "../lib/use-computer-model-settings";
@@ -23,7 +21,6 @@ import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
-import type { ChatArtifact } from "../types";
 
 type ComputerDeviceSheetProps = {
   visible: boolean;
@@ -40,17 +37,16 @@ type ComputerDeviceSheetProps = {
   onForceSync: () => void;
   /** A force sync is in flight — disable the row and show progress. */
   syncing: boolean;
-  /** Artifacts in the computer conversation, newest first. */
-  artifacts: ChatArtifact[];
   /** Bubble a freshly-paired computer up so the chat re-targets it. */
   onRepaired: (access: StoredPhoneAccess) => void;
 };
 
 /**
- * The paired computer's device surface — status, wake, view-screen, artifacts,
- * and model settings — presented as a top sheet from the Computer chat's gear
- * button. The conversation itself lives on the Computer tab; this sheet is the
- * "what is my computer doing / how is it configured" panel beside it.
+ * The paired computer's device surface — status, wake, view-screen, and model
+ * settings — presented as a top sheet from the Computer chat's gear button.
+ * The conversation itself lives on the Computer tab; this sheet is the "how is
+ * my computer configured" panel beside it. Artifacts moved to the activity
+ * hub sheet (the floating pill left of the gear).
  */
 export function ComputerDeviceSheet({
   visible,
@@ -64,7 +60,6 @@ export function ComputerDeviceSheet({
   onWake,
   onForceSync,
   syncing,
-  artifacts,
   onRepaired,
 }: ComputerDeviceSheetProps) {
   const colors = useColors();
@@ -74,11 +69,7 @@ export function ComputerDeviceSheet({
   const modelSettings = useComputerModelSettings();
 
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
-  const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
-  const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
-    null,
-  );
 
   const rows: {
     id: string;
@@ -95,15 +86,6 @@ export function ComputerDeviceSheet({
         tapLight();
         onClose();
         router.push("/stella");
-      },
-    },
-    {
-      id: "artifacts",
-      icon: "box",
-      label: "Artifacts",
-      onPress: () => {
-        tapLight();
-        setArtifactsOpen(true);
       },
     },
     {
@@ -227,18 +209,6 @@ export function ComputerDeviceSheet({
         access={access}
         catalog={modelSettings.catalog}
         onApplied={modelSettings.syncFromSnapshot}
-      />
-      <ArtifactListSheet
-        visible={artifactsOpen}
-        artifacts={artifacts}
-        onClose={() => setArtifactsOpen(false)}
-        onSelect={setSelectedArtifact}
-      />
-      <ArtifactViewer
-        visible={Boolean(selectedArtifact)}
-        artifact={selectedArtifact}
-        access={access}
-        onClose={() => setSelectedArtifact(null)}
       />
       <PairPhoneSheet
         visible={pairSheetOpen}

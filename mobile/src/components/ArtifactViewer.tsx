@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { Icon } from "./Icon";
 import { Image } from "expo-image";
 import { WebView } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,6 +38,17 @@ type ArtifactViewerProps = {
   access: StoredPhoneAccess | null;
   visible: boolean;
   onClose: () => void;
+};
+
+type ArtifactViewerContentProps = {
+  artifact: ChatArtifact | null;
+  access: StoredPhoneAccess | null;
+  /**
+   * When hosted inside another sheet (the activity hub), renders a back
+   * chevron in the header for returning to the host's list instead of
+   * dismissing the whole sheet.
+   */
+  onBack?: () => void;
 };
 
 type LoadedArtifact =
@@ -114,12 +127,16 @@ th { position: sticky; top: 0; background: ${colors.muted}; font-weight: 600; }
 </html>`;
 };
 
-export function ArtifactViewer({
+/**
+ * The artifact display itself (header + rendered preview), without any sheet
+ * chrome. `ArtifactViewer` wraps it in a `TopSheet` for the chat-card path;
+ * the activity hub embeds it directly so artifacts open within that sheet.
+ */
+export function ArtifactViewerContent({
   artifact,
   access,
-  visible,
-  onClose,
-}: ArtifactViewerProps) {
+  onBack,
+}: ArtifactViewerContentProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const styles = useMemo(
@@ -134,7 +151,7 @@ export function ArtifactViewer({
   const subtitle = artifact ? artifactSubtitle(artifact.payload) : "";
 
   useEffect(() => {
-    if (!visible || !artifact) return;
+    if (!artifact) return;
     let cancelled = false;
     setLoaded(null);
     setError(null);
@@ -271,12 +288,26 @@ export function ArtifactViewer({
     return () => {
       cancelled = true;
     };
-  }, [access, artifact, colors, title, visible]);
+  }, [access, artifact, colors, title]);
 
   return (
-    <TopSheet visible={visible} onClose={onClose}>
-      <View style={styles.root}>
-        <View style={styles.header}>
+    <View style={styles.root}>
+      <View style={styles.header}>
+        {onBack ? (
+          <Pressable
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed && styles.backButtonPressed,
+            ]}
+          >
+            <Icon name="chevron-left" size={20} color={colors.text} />
+          </Pressable>
+        ) : null}
+        <View style={styles.headerText}>
           <Text
             style={styles.title}
             numberOfLines={1}
@@ -292,6 +323,7 @@ export function ArtifactViewer({
             {subtitle}
           </Text>
         </View>
+      </View>
         <View style={styles.body}>
           {loading ? (
             <View style={styles.center}>
@@ -334,8 +366,21 @@ export function ArtifactViewer({
               <Text style={styles.monospace}>{loaded.text}</Text>
             </ScrollView>
           ) : null}
-        </View>
       </View>
+    </View>
+  );
+}
+
+/** Standalone top-sheet artifact viewer, opened from agent cards in chat. */
+export function ArtifactViewer({
+  artifact,
+  access,
+  visible,
+  onClose,
+}: ArtifactViewerProps) {
+  return (
+    <TopSheet visible={visible} onClose={onClose}>
+      <ArtifactViewerContent artifact={artifact} access={access} />
     </TopSheet>
   );
 }
@@ -347,12 +392,28 @@ const makeStyles = (colors: ReturnType<typeof useColors>, topInset: number) =>
       flex: 1,
     },
     header: {
+      alignItems: "center",
       backgroundColor: colors.background,
       borderBottomColor: colors.border,
       borderBottomWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      gap: 8,
       paddingBottom: 12,
       paddingHorizontal: 18,
       paddingTop: topInset + 12,
+    },
+    headerText: {
+      flex: 1,
+      minWidth: 0,
+    },
+    backButton: {
+      alignItems: "center",
+      justifyContent: "center",
+      marginLeft: -6,
+      width: 28,
+    },
+    backButtonPressed: {
+      opacity: 0.6,
     },
     title: {
       color: colors.text,

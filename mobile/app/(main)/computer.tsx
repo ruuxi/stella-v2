@@ -22,6 +22,7 @@ import { type Colors } from "../../src/theme/colors";
 import { fonts } from "../../src/theme/fonts";
 import type { ChatArtifact } from "../../src/types";
 import { ChatPane } from "../../src/components/ChatPane";
+import { ActivityHubSheet } from "../../src/components/ActivityHubSheet";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
 import { ConnectHeroAnimation } from "../../src/components/ConnectHeroAnimation";
@@ -167,6 +168,7 @@ function ComputerChatSurface({
   const thread = useChatThread({ threadId: "computer", transport });
 
   const [deviceSheetOpen, setDeviceSheetOpen] = useState(false);
+  const [activityHubOpen, setActivityHubOpen] = useState(false);
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,
   );
@@ -449,7 +451,15 @@ function ComputerChatSurface({
         onOpenArtifact={setSelectedArtifact}
         onOpenDeviceSheet={() => setDeviceSheetOpen(true)}
         activityTasks={thread.conversationTasks}
+        onOpenActivityHub={() => setActivityHubOpen(true)}
         catchingUp={thread.catchingUp}
+      />
+      <ActivityHubSheet
+        visible={activityHubOpen}
+        onClose={() => setActivityHubOpen(false)}
+        tasks={thread.conversationTasks}
+        artifacts={thread.conversationArtifacts}
+        access={access}
       />
       <ComputerDeviceSheet
         visible={deviceSheetOpen}
@@ -463,7 +473,6 @@ function ComputerChatSurface({
         onWake={wake}
         onForceSync={forceSync}
         syncing={syncing}
-        artifacts={thread.conversationArtifacts}
         onRepaired={onAccessChange}
       />
       <ArtifactViewer

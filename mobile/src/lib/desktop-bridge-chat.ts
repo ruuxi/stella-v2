@@ -1,15 +1,38 @@
 import {
   BRIDGE_CRYPTO_PROTOCOL,
   createBridgeKeyPair,
+  decryptBridgeBytes,
   decryptBridgePayload,
   deriveBridgeCryptoSession,
+  encryptBridgeBytes,
   encryptBridgePayload,
   isBridgeEncryptedEnvelope,
+  base64UrlToBytes,
+  bytesToBase64Url,
   type BridgeCryptoSession,
 } from "./bridge-crypto";
 import {
+  BRIDGE_FEATURE_BINARY_FILE,
+  BRIDGE_FEATURE_BINARY_UPLOAD,
+  BRIDGE_FEATURE_DEFLATE,
+  BRIDGE_FEATURE_LOCAL_CHAT_PUSH,
+  MOBILE_SUPPORTED_BRIDGE_FEATURES,
+  isUnknownBridgeChannelError,
+  parseBase64DataUrl,
+  standardBase64ToBytes,
+} from "./bridge-envelope";
+import { fetch as expoFetch } from "expo/fetch";
+import {
+  clearPersistedBridgeSession,
+  loadCachedBridgeBaseUrl,
+  loadPersistedBridgeSession,
+  savePersistedBridgeSession,
+} from "./bridge-session-store";
+import { restoredTxSeq } from "./bridge-session-codec";
+import {
   buildPhonePairProofHeaders,
   getDesktopBridgeStatus,
+  listStoredPairedPhoneAccess,
   requestDesktopConnection,
   type StoredPhoneAccess,
 } from "./phone-access";
@@ -54,11 +77,22 @@ const TRAILING_TIME_TAG_RE = new RegExp(
 );
 
 export type DesktopBridgeConnection = {
+  desktopDeviceId: string;
   baseUrl: string;
   headers: Record<string, string>;
   crypto: BridgeCryptoSession;
   includeDeveloperArtifacts: boolean;
+  /** Optional features the desktop advertised via `mobile:hello`. */
+  features: Set<string>;
+  /** False once `mobile:hello` returned "unknown channel" (older desktop). */
+  helloSupported: boolean;
 };
+
+const bridgeSupportsDeflate = (bridge: DesktopBridgeConnection) =>
+  bridge.features.has(BRIDGE_FEATURE_DEFLATE);
+
+export const bridgeSupportsLocalChatPush = (bridge: DesktopBridgeConnection) =>
+  bridge.features.has(BRIDGE_FEATURE_LOCAL_CHAT_PUSH);
 
 /** Coarse send progress surfaced in the working indicator. */
 export type DesktopBridgeSendStatus = "connecting" | "waking" | "running";
@@ -201,10 +235,17 @@ const readBridgeError = async (response: Response) => {
 
 const readBridgeChallenge = async (
   baseUrl: string,
+  desktopDeviceId: string,
 ): Promise<DesktopBridgeChallenge> => {
-  const response = await fetch(`${baseUrl}/bridge/challenge`, {
-    method: "GET",
-  });
+  // Presenting the expected device id proves we already know it, so the
+  // desktop doesn't have to leak it (or its public key) to bare scanners —
+  // and mismatches fail here instead of after the fetch.
+  const response = await fetch(
+    `${baseUrl}/bridge/challenge?d=${encodeURIComponent(desktopDeviceId)}`,
+    {
+      method: "GET",
+    },
+  );
   if (!response.ok) {
     throw new Error(await readBridgeError(response));
   }
@@ -256,7 +297,7 @@ export const createDesktopBridgeSession = async (
   access: StoredPhoneAccess,
   baseUrl: string,
 ) => {
-  const challenge = await readBridgeChallenge(baseUrl);
+  const challenge = await readBridgeChallenge(baseUrl, access.desktopDeviceId);
   if (challenge.desktopDeviceId !== access.desktopDeviceId) {
     throw new Error("Desktop bridge challenge was for a different computer.");
   }
@@ -291,6 +332,10 @@ export const createDesktopBridgeSession = async (
       "X-Stella-Bridge-Session-Secret": session.sessionSecret,
       "X-Stella-Bridge-Challenge-Id": challenge.challengeId,
       "X-Stella-Bridge-Encrypted": BRIDGE_CRYPTO_PROTOCOL,
+      // Advertise the phone's optional receive-features (e.g. envelope
+      // deflate) so the desktop can gate response-side encoding. Old desktops
+      // ignore the header.
+      "X-Stella-Bridge-Features": MOBILE_SUPPORTED_BRIDGE_FEATURES.join(","),
     },
     crypto: deriveBridgeCryptoSession({
       sessionId: session.sessionId,
@@ -384,13 +429,91 @@ const getCachedDesktopBridge = (
 /**
  * Forget cached bridge sessions. Call on sign-out / unpair so a signed-out
  * phone can't keep talking to the desktop on a still-valid cached session.
+ * Sign-out/unpair also wipes the persisted copy (and the cached tunnel URL
+ * that rides in the same record); internal cache invalidation keeps it so the
+ * next handshake can still fast-probe the last-known URL.
  */
-export const clearCachedDesktopBridge = (desktopDeviceId?: string) => {
+export const clearCachedDesktopBridge = (
+  desktopDeviceId?: string,
+  options?: { keepPersisted?: boolean },
+) => {
   if (desktopDeviceId) {
     desktopBridgeCache.delete(desktopDeviceId);
+    if (!options?.keepPersisted) {
+      void clearPersistedBridgeSession(desktopDeviceId);
+    }
   } else {
     desktopBridgeCache.clear();
+    if (!options?.keepPersisted) {
+      void listStoredPairedPhoneAccess()
+        .then((all) =>
+          Promise.all(
+            all.map((entry) =>
+              clearPersistedBridgeSession(entry.desktopDeviceId),
+            ),
+          ),
+        )
+        .catch(() => {});
+    }
   }
+};
+
+/** Persist the session so an app restart can skip the full handshake. */
+const persistDesktopBridge = (
+  connection: DesktopBridgeConnection,
+  expiresAt: number,
+) => {
+  void savePersistedBridgeSession(connection.desktopDeviceId, {
+    v: 1,
+    baseUrl: connection.baseUrl,
+    sessionId: connection.crypto.sessionId,
+    headers: connection.headers,
+    keyB64: bytesToBase64Url(connection.crypto.key),
+    txSeq: connection.crypto.txSeq,
+    expiresAt,
+    features: [...connection.features],
+    helloSupported: connection.helloSupported,
+    includeDeveloperArtifacts: connection.includeDeveloperArtifacts,
+  });
+};
+
+/**
+ * Rebuild a connection from the persisted session (app cold start). The tx
+ * seq restarts with slack so the desktop's anti-replay window never sees a
+ * reused seq; the caller still liveness-probes before trusting it.
+ */
+const restorePersistedDesktopBridge = async (
+  desktopDeviceId: string,
+): Promise<DesktopBridgeConnection | null> => {
+  const persisted = await loadPersistedBridgeSession(desktopDeviceId);
+  if (!persisted) return null;
+  let key: Uint8Array;
+  try {
+    key = base64UrlToBytes(persisted.keyB64);
+  } catch {
+    return null;
+  }
+  if (key.length !== 32) return null;
+  const connection: DesktopBridgeConnection = {
+    desktopDeviceId,
+    baseUrl: persisted.baseUrl,
+    headers: persisted.headers,
+    crypto: {
+      sessionId: persisted.sessionId,
+      key,
+      txSeq: restoredTxSeq(persisted.txSeq),
+    },
+    includeDeveloperArtifacts: persisted.includeDeveloperArtifacts,
+    features: new Set(persisted.features),
+    helloSupported: persisted.helloSupported,
+  };
+  desktopBridgeCache.set(desktopDeviceId, {
+    connection,
+    expiresAt: persisted.expiresAt,
+  });
+  // Re-persist immediately so the next restore's slack stacks on this one's.
+  persistDesktopBridge(connection, persisted.expiresAt);
+  return getCachedDesktopBridge(desktopDeviceId);
 };
 
 /** Authenticated liveness probe — confirms the desktop still honors this session. */
@@ -420,15 +543,17 @@ export async function resolveDesktopBridge(
   const desktopDeviceId = access.desktopDeviceId;
 
   if (opts?.forceRefresh) {
-    clearCachedDesktopBridge(desktopDeviceId);
+    clearCachedDesktopBridge(desktopDeviceId, { keepPersisted: true });
   } else {
-    const cached = getCachedDesktopBridge(desktopDeviceId);
+    const cached =
+      getCachedDesktopBridge(desktopDeviceId) ??
+      (await restorePersistedDesktopBridge(desktopDeviceId));
     if (cached && (await isCachedBridgeAlive(cached))) {
       onStatus?.("connecting");
       return cached;
     }
     if (cached) {
-      clearCachedDesktopBridge(desktopDeviceId);
+      clearCachedDesktopBridge(desktopDeviceId, { keepPersisted: true });
     }
     const inflight = inflightBridgeResolves.get(desktopDeviceId);
     if (inflight) return inflight;
@@ -448,11 +573,35 @@ async function handshakeDesktopBridge(
   onStatus?: (status: DesktopBridgeSendStatus) => void,
 ): Promise<DesktopBridgeConnection> {
   onStatus?.("connecting");
-  await requestDesktopConnection(access);
+
+  // The tunnel hostname is stable per desktop, so probe the last-known URL
+  // directly *in parallel with* the wake intent. When the desktop is already
+  // up this removes the Convex status round-trips (and their 3s poll
+  // granularity) from the connect path entirely; the wake intent still lands
+  // either way and re-arms the desktop's idle timer.
+  const cachedBaseUrl = await loadCachedBridgeBaseUrl(access.desktopDeviceId);
+  const wakePromise = requestDesktopConnection(access).then(
+    () => null,
+    (error: unknown) => error ?? new Error("Wake request failed"),
+  );
 
   let baseUrl = "";
+  if (cachedBaseUrl && (await canReachBridgeHealth(cachedBaseUrl))) {
+    baseUrl = cachedBaseUrl;
+  } else {
+    // Slow path: the cached URL missed (asleep desktop, rotated tunnel, or
+    // first connect). Preserve the original behavior — a failed wake request
+    // is fatal here — then poll Convex for the advertised URL.
+    const wakeError = await wakePromise;
+    if (wakeError) throw wakeError;
+  }
+
   let lastCandidateUrl = "";
-  for (let attempt = 0; attempt < DESKTOP_WAKE_ATTEMPTS; attempt += 1) {
+  for (
+    let attempt = 0;
+    !baseUrl && attempt < DESKTOP_WAKE_ATTEMPTS;
+    attempt += 1
+  ) {
     const status = await getDesktopBridgeStatus(access.desktopDeviceId);
     const firstUrl = status.baseUrls.find((url) => url.trim().length > 0);
     if (status.available && firstUrl) {
@@ -485,18 +634,44 @@ async function handshakeDesktopBridge(
 
   const bridgeSession = await createDesktopBridgeSession(access, baseUrl);
   const connection: DesktopBridgeConnection = {
+    desktopDeviceId: access.desktopDeviceId,
     baseUrl,
     headers: bridgeSession.headers,
     crypto: bridgeSession.crypto,
-    includeDeveloperArtifacts: await readDesktopDeveloperArtifactsEnabled(
-      baseUrl,
-      bridgeSession.headers,
-    ),
+    includeDeveloperArtifacts: false,
+    features: new Set<string>(),
+    helloSupported: true,
   };
+  // One `mobile:hello` learns the desktop's feature set + developer-artifacts
+  // flag (replacing the legacy `/bridge/bootstrap` read). Older desktops
+  // reject the channel; fall back to the bootstrap fetch for the flag.
+  try {
+    const hello = asRecord(
+      await invokeDesktopBridge(connection, "mobile:hello", [
+        { maxMessages: 1 },
+      ]),
+    );
+    connection.features = new Set(
+      Array.isArray(hello?.features)
+        ? hello.features.filter((f): f is string => typeof f === "string")
+        : [],
+    );
+    connection.includeDeveloperArtifacts =
+      hello?.developerArtifactsEnabled === true;
+  } catch (error) {
+    if (!isUnknownBridgeChannelError(error)) throw error;
+    connection.helloSupported = false;
+    connection.includeDeveloperArtifacts =
+      await readDesktopDeveloperArtifactsEnabled(
+        baseUrl,
+        bridgeSession.headers,
+      );
+  }
   desktopBridgeCache.set(access.desktopDeviceId, {
     connection,
     expiresAt: bridgeSession.session.expiresAt,
   });
+  persistDesktopBridge(connection, bridgeSession.session.expiresAt);
   return connection;
 }
 
@@ -547,6 +722,134 @@ export async function invokeDesktopBridge<T>(
     throw error;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Encrypted-binary file download (`POST /bridge/file`). Ships raw AES-GCM
+ * ciphertext (~1.0x file size) instead of the legacy JSON-serialized byte
+ * array (~8-10x). Returns null when the desktop doesn't support the lane so
+ * the caller can fall back to `display:readFile`.
+ */
+export async function fetchDesktopBridgeFileBytes(
+  bridge: DesktopBridgeConnection,
+  conversationId: string,
+  filePath: string,
+): Promise<
+  | { missing: false; bytes: Uint8Array; sizeBytes: number; mimeType: string }
+  | { missing: true; mimeType: string; path: string }
+  | null
+> {
+  if (!bridge.features.has("binary-file-lane")) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BRIDGE_INVOKE_TIMEOUT_MS);
+  try {
+    const envelope = encryptBridgePayload(
+      bridge.crypto,
+      "m2d",
+      { filePath, conversationId },
+      { compress: bridgeSupportsDeflate(bridge) },
+    );
+    const response = await fetch(`${bridge.baseUrl}/bridge/file`, {
+      method: "POST",
+      headers: { ...bridge.headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ envelope }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(await readBridgeError(response));
+    }
+    if (response.headers.get("x-stella-bridge-bin") === "1") {
+      const seq = Number(response.headers.get("x-stella-bridge-bin-seq"));
+      const iv = response.headers.get("x-stella-bridge-bin-iv") ?? "";
+      const mimeType =
+        response.headers.get("x-stella-bridge-bin-mime") ??
+        "application/octet-stream";
+      const ciphertext = new Uint8Array(await response.arrayBuffer());
+      const bytes = decryptBridgeBytes(bridge.crypto, "d2m", {
+        seq,
+        iv,
+        ciphertext,
+      });
+      return {
+        missing: false,
+        bytes,
+        sizeBytes:
+          Number(response.headers.get("x-stella-bridge-bin-size")) ||
+          bytes.byteLength,
+        mimeType,
+      };
+    }
+    // JSON (encrypted) response — the missing-file case.
+    const record = asRecord(await response.json());
+    if (!isBridgeEncryptedEnvelope(record?.envelope)) {
+      throw new Error("Desktop bridge returned an unencrypted response.");
+    }
+    const decoded = asRecord(
+      decryptBridgePayload(bridge.crypto, "d2m", record.envelope),
+    );
+    const result = asRecord(decoded?.result);
+    return {
+      missing: true,
+      mimeType: asString(result?.mimeType) || "application/octet-stream",
+      path: asString(result?.path) || filePath,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Stage attachments through the encrypted-binary upload lane
+ * (`POST /bridge/upload`) and return `{ uploadId, mimeType }` references for
+ * `agent:startChat`. Raw ciphertext bodies cost ~1.0x the file size (the
+ * legacy base64-in-encrypted-JSON path costs ~1.78x), which also raises the
+ * effective attachment ceiling under the desktop's 5 MB body cap from
+ * ~2.6 MB to ~5 MB. Returns null (caller keeps inline data URLs) when the
+ * lane is unsupported or any upload fails.
+ */
+async function stageBridgeAttachments(
+  bridge: DesktopBridgeConnection,
+  attachments: DesktopBridgeAttachment[],
+): Promise<{ uploadId: string; mimeType: string }[] | null> {
+  if (!bridge.features.has(BRIDGE_FEATURE_BINARY_UPLOAD)) return null;
+  try {
+    const staged: { uploadId: string; mimeType: string }[] = [];
+    for (const attachment of attachments) {
+      const parsed = parseBase64DataUrl(attachment.url);
+      if (!parsed) return null;
+      const bytes = standardBase64ToBytes(parsed.base64);
+      const frame = encryptBridgeBytes(bridge.crypto, "m2d", bytes);
+      const mimeType = attachment.mimeType ?? parsed.mimeType;
+      const response = await expoFetch(`${bridge.baseUrl}/bridge/upload`, {
+        method: "POST",
+        headers: {
+          ...bridge.headers,
+          "Content-Type": "application/octet-stream",
+          "X-Stella-Bridge-Bin-Seq": String(frame.seq),
+          "X-Stella-Bridge-Bin-Iv": frame.iv,
+          "X-Stella-Bridge-Bin-Mime": mimeType,
+        },
+        // Copy into a standalone ArrayBuffer — expo/fetch's BodyInit typing
+        // doesn't name Uint8Array, though the runtime normalizes both.
+        body: frame.ciphertext.buffer.slice(
+          frame.ciphertext.byteOffset,
+          frame.ciphertext.byteOffset + frame.ciphertext.byteLength,
+        ) as ArrayBuffer,
+      });
+      if (!response.ok) return null;
+      const record = asRecord(await response.json());
+      if (!isBridgeEncryptedEnvelope(record?.envelope)) return null;
+      const decoded = asRecord(
+        decryptBridgePayload(bridge.crypto, "d2m", record.envelope),
+      );
+      const uploadId = asString(asRecord(decoded?.result)?.uploadId).trim();
+      if (!uploadId) return null;
+      staged.push({ uploadId, mimeType });
+    }
+    return staged;
+  } catch {
+    return null;
   }
 }
 
@@ -728,11 +1031,61 @@ export async function syncDesktopBridgeChatMessages({
   maxMessages?: number;
 }): Promise<DesktopBridgeChatSyncResult> {
   const bridge = await resolveDesktopBridge(access);
+  const expected = expectedConversationId?.trim() || null;
+
+  // Fast path: `mobile:hello` folds conversation-id resolution, the developer
+  // flag and the message delta into one round-trip. Falls back to the legacy
+  // multi-invoke path against older desktops (and demotes the flag so we
+  // don't retry hello on every sync).
+  if (bridge.helloSupported) {
+    try {
+      const hello = asRecord(
+        await invokeDesktopBridge(
+          bridge,
+          "mobile:hello",
+          [
+            {
+              expectedConversationId: expected,
+              sinceCursor: sinceCursor ?? null,
+              maxMessages,
+            },
+          ],
+          BRIDGE_SYNC_TIMEOUT_MS,
+        ),
+      );
+      const conversationId = asString(hello?.conversationId).trim();
+      if (conversationId) {
+        bridge.includeDeveloperArtifacts =
+          hello?.developerArtifactsEnabled === true;
+        if (Array.isArray(hello?.features)) {
+          bridge.features = new Set(
+            hello.features.filter((f): f is string => typeof f === "string"),
+          );
+        }
+        const conversationChanged =
+          hello?.conversationChanged === true ||
+          Boolean(expected && expected !== conversationId);
+        const effectiveCursor = conversationChanged ? null : sinceCursor;
+        const rows = Array.isArray(hello?.messages) ? hello.messages : [];
+        const cursor =
+          asString(hello?.cursor).trim() || effectiveCursor || null;
+        return {
+          conversationId,
+          conversationChanged,
+          cursor,
+          messages: parseDesktopBridgeMessageRows(rows, conversationId),
+        };
+      }
+    } catch (error) {
+      if (!isUnknownBridgeChannelError(error)) throw error;
+      bridge.helloSupported = false;
+    }
+  }
+
   const conversationId = await getDesktopBridgeConversationId(
     bridge,
     BRIDGE_SYNC_TIMEOUT_MS,
   );
-  const expected = expectedConversationId?.trim() || null;
   const conversationChanged = Boolean(expected && expected !== conversationId);
   const effectiveCursor = conversationChanged ? null : sinceCursor;
   const result = asRecord(
@@ -821,6 +1174,7 @@ function createBridgeSocketClient(
   cryptoSession: BridgeCryptoSession,
   onEvent: (channel: string, data: unknown) => void,
   onClose?: () => void,
+  options?: { compress?: boolean },
 ) {
   const pending = new Map<string, PendingResponse>();
 
@@ -917,6 +1271,34 @@ function createBridgeSocketClient(
   };
 }
 
+/**
+ * Open a lightweight event-subscription socket on an existing bridge
+ * connection. Used by the localChat push channel (desktop broadcasts
+ * `localChat:updated` on every persisted event); the send path keeps its own
+ * socket. The returned handle must be closed by the caller.
+ */
+export async function openDesktopBridgeEventSocket(
+  bridge: DesktopBridgeConnection,
+  options: {
+    channels: string[];
+    onEvent: (channel: string, data: unknown) => void;
+    onClose: () => void;
+  },
+): Promise<{ close: () => void }> {
+  const ws = await openBridgeWebSocket(bridge);
+  const client = createBridgeSocketClient(
+    ws,
+    bridge.crypto,
+    options.onEvent,
+    options.onClose,
+    { compress: bridgeSupportsDeflate(bridge) },
+  );
+  for (const channel of options.channels) {
+    client.subscribe(channel);
+  }
+  return { close: () => client.close() };
+}
+
 async function readLatestAssistantMessage(
   bridge: DesktopBridgeConnection,
   conversationId: string,
@@ -1006,6 +1388,12 @@ export async function sendDesktopBridgeChat({
 
   let activeBridge = await resolveDesktopBridge(access, onStatus);
   const conversationId = await getDesktopBridgeConversationId(activeBridge);
+  // Prefer the encrypted-binary upload lane for attachments (~1.0x wire cost
+  // vs ~1.78x inline, and a ~5 MB ceiling instead of ~2.6 MB). Falls back to
+  // inline data URLs when the desktop lacks the lane or an upload fails.
+  const stagedAttachments = attachments?.length
+    ? await stageBridgeAttachments(activeBridge, attachments)
+    : null;
   // Stable idempotency key: the desktop dedupes retries of this exact send, so
   // reconnecting and re-issuing startChat can never spawn a duplicate run.
   const clientRequestId = createClientRequestId(conversationId);
@@ -1017,7 +1405,9 @@ export async function sendDesktopBridgeChat({
     mode: "computer",
     storageMode: "local",
     clientRequestId,
-    ...(attachments?.length ? { attachments } : {}),
+    ...(attachments?.length
+      ? { attachments: stagedAttachments ?? attachments }
+      : {}),
     messageMetadata: {
       source: "stella_mobile",
       ...(model?.trim() ? { mobileModelPreference: model.trim() } : {}),
@@ -1388,6 +1778,7 @@ export async function sendDesktopBridgeChat({
           }
         },
         () => finish({ kind: "disconnected" }),
+        { compress: bridgeSupportsDeflate(activeBridge) },
       );
 
       client.subscribe("agent:event");

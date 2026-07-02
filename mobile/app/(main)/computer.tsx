@@ -28,6 +28,12 @@ import { ConnectHeroAnimation } from "../../src/components/ConnectHeroAnimation"
 import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
 
 const STATUS_POLL_MS = 20_000;
+/**
+ * Slow verification cadence while the localChat push socket is connected —
+ * the live socket itself proves the desktop is reachable, so the Convex
+ * status poll only needs to keep the platform label fresh.
+ */
+const STATUS_POLL_LIVE_MS = 120_000;
 /** Faster cadence while a wake request is in flight. */
 const WAKE_POLL_MS = 3_000;
 const WAKE_WINDOW_MS = 30_000;
@@ -194,12 +200,38 @@ function ComputerChatSurface({
   }, []);
 
   // Poll bridge availability while the surface is mounted; tighten the cadence
-  // while a wake request is pending.
+  // while a wake request is pending, and relax it while the localChat push
+  // socket is live (an open socket already proves the desktop is reachable).
+  const livePushConnected = thread.livePushConnected;
+  const livePushConnectedRef = useRef(livePushConnected);
+  useEffect(() => {
+    livePushConnectedRef.current = livePushConnected;
+    // A freshly connected push socket is authoritative: reflect "connected"
+    // immediately instead of waiting out the current poll interval.
+    if (livePushConnected) {
+      setStatus((prev) => {
+        updateStellaWidget({
+          paired: true,
+          online: true,
+          ...(prev.platform ? { platform: prev.platform } : {}),
+        });
+        return { ...prev, checking: false, available: true };
+      });
+      setWaking(false);
+    }
+  }, [livePushConnected]);
+
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const tick = async () => {
+      // While push is live the socket is the liveness signal; skip the Convex
+      // round-trip (and never let a stale lease read downgrade the badge).
+      if (livePushConnectedRef.current) {
+        timer = setTimeout(() => void tick(), STATUS_POLL_LIVE_MS);
+        return;
+      }
       const available = await checkStatus(access.desktopDeviceId);
       if (cancelled) return;
       const wakePending = !available && Date.now() < wakeUntilRef.current;

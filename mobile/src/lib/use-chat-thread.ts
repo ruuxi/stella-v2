@@ -26,6 +26,11 @@ import {
   type WorkingIndicatorState,
 } from "../components/working-indicator-state";
 import { mergeMessagesById, reconcileSentDesktopTurn } from "./chat-merge";
+import { openDesktopBridgeLive } from "./desktop-bridge-live";
+import {
+  shouldArmDesktopTaskPoll,
+  shouldSyncOnLocalChatPush,
+} from "./desktop-sync-policy";
 import {
   agentWorkCardSections,
   isAgentWorkArtifact,
@@ -116,6 +121,12 @@ export type ChatThread = {
   runDesktopSync: (options?: { catchUp?: boolean }) => Promise<{
     offline: boolean;
   }>;
+  /**
+   * True while the localChat push socket is connected: the desktop notifies
+   * the phone of transcript changes in real time, so polling fallbacks (the
+   * 5s task poll here, the 20s status poll on the surface) can stand down.
+   */
+  livePushConnected: boolean;
   /**
    * True while a catch-up-classified sync is in flight (see `runDesktopSync`).
    * If a catch-up call joins an in-flight steady-state run, that run is
@@ -332,6 +343,53 @@ export function useChatThread(opts: {
     didMountSyncRef.current = true;
     void runDesktopSync();
   }, [desktopAccess, runDesktopSync, storageLoaded]);
+
+  // ─── localChat push (capability-gated, poll fallback stays) ─────────────
+  // While mounted with a desktop transport, hold a push socket: the desktop
+  // broadcasts `localChat:updated` on every persisted chat event, and each
+  // notification triggers the same coalesced, cursor-scoped `runDesktopSync`
+  // the polls use — so double delivery is harmless even mid-handoff, and the
+  // 05e5bf6 mid-send gate is enforced here too (no pulls while `sending`).
+  const [livePushConnected, setLivePushConnected] = useState(false);
+  const sendingRef = useRef(false);
+  useEffect(() => {
+    sendingRef.current = sending;
+  }, [sending]);
+  const storageLoadedRef = useRef(storageLoaded);
+  useEffect(() => {
+    storageLoadedRef.current = storageLoaded;
+  }, [storageLoaded]);
+
+  useEffect(() => {
+    if (!desktopAccess) return;
+    let pushDebounce: ReturnType<typeof setTimeout> | null = null;
+    const handle = openDesktopBridgeLive({
+      access: desktopAccess,
+      onLocalChatUpdated: () => {
+        if (
+          !shouldSyncOnLocalChatPush({
+            storageLoaded: storageLoadedRef.current,
+            sending: sendingRef.current,
+          })
+        ) {
+          return;
+        }
+        // Debounce bursts (a turn persists several events back-to-back).
+        if (pushDebounce) clearTimeout(pushDebounce);
+        pushDebounce = setTimeout(() => {
+          pushDebounce = null;
+          if (sendingRef.current) return;
+          void runDesktopSync();
+        }, 400);
+      },
+      onConnectedChange: setLivePushConnected,
+    });
+    return () => {
+      if (pushDebounce) clearTimeout(pushDebounce);
+      handle.close();
+      setLivePushConnected(false);
+    };
+  }, [desktopAccess, runDesktopSync]);
 
   const appendAssistantText = useCallback((replyId: string, chunk: string) => {
     setMessages((m) =>
@@ -826,16 +884,25 @@ export function useChatThread(opts: {
   );
 
   useEffect(() => {
-    if (!desktopAccess) return;
-    if (!storageLoaded) return;
-    if (!hasRunningConversationTask) return;
-    // Never poll while a send is in flight: the desktop persists the turn's
-    // user row the moment it starts, and a mid-turn pull would merge that
-    // canonical row before `reconcileSentDesktopTurn` links the optimistic
-    // bubble — duplicating it — while also advancing the cursor past the turn
-    // so the post-turn reconcile can't find its rows. Mid-turn activity
-    // already streams over the bridge; polling only matters between turns.
-    if (sending) return;
+    // Never poll while a send is in flight (05e5bf6): the desktop persists
+    // the turn's user row the moment it starts, and a mid-turn pull would
+    // merge that canonical row before `reconcileSentDesktopTurn` links the
+    // optimistic bubble — duplicating it — while also advancing the cursor
+    // past the turn so the post-turn reconcile can't find its rows. Mid-turn
+    // activity already streams over the bridge; polling only matters between
+    // turns. And while the localChat push socket is live, the desktop tells
+    // us when the transcript changed — the interval is purely a fallback.
+    if (
+      !shouldArmDesktopTaskPoll({
+        isDesktopTransport: Boolean(desktopAccess),
+        storageLoaded,
+        hasRunningConversationTask,
+        sending,
+        livePushConnected,
+      })
+    ) {
+      return;
+    }
     const handle = setInterval(() => {
       void runDesktopSync();
     }, 5_000);
@@ -843,6 +910,7 @@ export function useChatThread(opts: {
   }, [
     desktopAccess,
     hasRunningConversationTask,
+    livePushConnected,
     runDesktopSync,
     sending,
     storageLoaded,
@@ -863,5 +931,6 @@ export function useChatThread(opts: {
     stop,
     runDesktopSync,
     catchingUp,
+    livePushConnected,
   };
 }

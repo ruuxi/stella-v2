@@ -11,6 +11,7 @@ declare module "bun:test" {
     toHaveLength(expected: number): void;
     toMatchObject(expected: unknown): void;
     toBeNull(): void;
+    toThrow(expected?: unknown): void;
   }
   export const describe: (name: string, fn: () => void) => void;
   export const test: (name: string, fn: () => void | Promise<void>) => void;

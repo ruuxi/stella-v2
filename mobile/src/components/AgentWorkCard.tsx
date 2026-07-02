@@ -4,6 +4,7 @@ import { Icon, type IconName } from "./Icon";
 import { ShimmerText } from "./ShimmerText";
 import type { ChatArtifact, MobileDisplayPayload } from "../types";
 import { artifactIconName, artifactTitle } from "../lib/mobile-artifacts";
+import type { AgentWorkCardSection } from "../lib/agent-artifact-consolidation";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
@@ -14,11 +15,13 @@ type AgentWorkCardProps = {
   payload: AgentWorkPayload;
   colors: Colors;
   /**
-   * Files this background run produced, folded into the card as tappable
-   * pills (the mobile analogue of the desktop `AgentCompletionCard` pills).
-   * Only passed once the run settles — reveal-at-completion, never mid-run.
+   * Produced-file pill groups folded into the card (the mobile analogue of
+   * the desktop `AgentCompletionCard`): one section per agent when the
+   * bridge ships per-agent attribution, or a single untitled section from
+   * the row-scoped fallback. Only passed once the files are revealable —
+   * reveal-at-completion, never mid-run.
    */
-  files?: ChatArtifact[];
+  sections?: AgentWorkCardSection[];
   onOpenArtifact?: (artifact: ChatArtifact) => void;
 };
 
@@ -39,7 +42,7 @@ const TITLE_SHIMMER_MS = 1900;
 export function AgentWorkCard({
   payload,
   colors,
-  files,
+  sections,
   onOpenArtifact,
 }: AgentWorkCardProps) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -47,12 +50,13 @@ export function AgentWorkCard({
   const translateY = useRef(new Animated.Value(3)).current;
   const [pillsExpanded, setPillsExpanded] = useState(false);
   const running = payload.state === "running";
-  const pills = !running && onOpenArtifact && files?.length ? files : [];
-  const visiblePills =
-    pillsExpanded || pills.length <= PILL_CAP
-      ? pills
-      : pills.slice(0, PILL_CAP);
-  const hiddenPillCount = pills.length - visiblePills.length;
+  const fileSections =
+    onOpenArtifact && sections
+      ? sections.filter((section) => section.files.length > 0)
+      : [];
+  // Section headers earn their space only when the card carries several
+  // agents' files — a single group is already named by the card title.
+  const showSectionTitles = fileSections.length > 1;
 
   useEffect(() => {
     Animated.parallel([
@@ -101,53 +105,80 @@ export function AgentWorkCard({
           </Text>
         </View>
       </View>
-      {visiblePills.length > 0 && onOpenArtifact ? (
-        <View style={styles.pills}>
-          {visiblePills.map((artifact) => (
-            <Pressable
-              key={artifact.id}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${artifactTitle(artifact.payload)}`}
-              onPress={() => onOpenArtifact(artifact)}
-              style={({ pressed }) => [
-                styles.pill,
-                pressed ? styles.pillPressed : null,
-              ]}
-            >
-              <Icon
-                name={artifactIconName(artifact.payload) as IconName}
-                size={13}
-                color={colors.textMuted}
-              />
-              <Text
-                style={styles.pillLabel}
-                numberOfLines={1}
-                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              >
-                {artifactTitle(artifact.payload)}
-              </Text>
-            </Pressable>
-          ))}
-          {hiddenPillCount > 0 ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Show ${hiddenPillCount} more files`}
-              onPress={() => setPillsExpanded(true)}
-              style={({ pressed }) => [
-                styles.pill,
-                pressed ? styles.pillPressed : null,
-              ]}
-            >
-              <Text
-                style={styles.pillLabel}
-                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              >
-                +{hiddenPillCount} more
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
-      ) : null}
+      {fileSections.length > 0 && onOpenArtifact
+        ? fileSections.map((section) => {
+            const visiblePills =
+              pillsExpanded || section.files.length <= PILL_CAP
+                ? section.files
+                : section.files.slice(0, PILL_CAP);
+            const hiddenPillCount = section.files.length - visiblePills.length;
+            return (
+              <View key={section.key}>
+                {showSectionTitles && section.title ? (
+                  <Text
+                    style={styles.sectionTitle}
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                  >
+                    {section.title}
+                  </Text>
+                ) : null}
+                <View
+                  style={[
+                    styles.pills,
+                    showSectionTitles && section.title
+                      ? styles.pillsTitled
+                      : null,
+                  ]}
+                >
+                  {visiblePills.map((artifact) => (
+                    <Pressable
+                      key={artifact.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open ${artifactTitle(artifact.payload)}`}
+                      onPress={() => onOpenArtifact(artifact)}
+                      style={({ pressed }) => [
+                        styles.pill,
+                        pressed ? styles.pillPressed : null,
+                      ]}
+                    >
+                      <Icon
+                        name={artifactIconName(artifact.payload) as IconName}
+                        size={13}
+                        color={colors.textMuted}
+                      />
+                      <Text
+                        style={styles.pillLabel}
+                        numberOfLines={1}
+                        maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                      >
+                        {artifactTitle(artifact.payload)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                  {hiddenPillCount > 0 ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Show ${hiddenPillCount} more files`}
+                      onPress={() => setPillsExpanded(true)}
+                      style={({ pressed }) => [
+                        styles.pill,
+                        pressed ? styles.pillPressed : null,
+                      ]}
+                    >
+                      <Text
+                        style={styles.pillLabel}
+                        maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                      >
+                        +{hiddenPillCount} more
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })
+        : null}
     </Animated.View>
   );
 }
@@ -173,11 +204,21 @@ const makeStyles = (colors: Colors) =>
       gap: 10,
       minHeight: 28,
     },
+    sectionTitle: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 11.5,
+      letterSpacing: 0.1,
+      marginTop: 8,
+    },
     pills: {
       flexDirection: "row",
       flexWrap: "wrap",
       gap: 6,
       marginTop: 8,
+    },
+    pillsTitled: {
+      marginTop: 6,
     },
     pill: {
       alignItems: "center",

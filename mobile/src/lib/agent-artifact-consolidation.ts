@@ -1,5 +1,5 @@
 import type { ChatArtifact, MobileDisplayPayload } from "../types";
-import { artifactPrimaryFilePath } from "./mobile-artifacts";
+import { artifactId, artifactPrimaryFilePath } from "./mobile-artifacts";
 
 export type AgentWorkChatArtifact = ChatArtifact & {
   payload: Extract<MobileDisplayPayload, { kind: "agent-work" }>;
@@ -8,6 +8,10 @@ export type AgentWorkChatArtifact = ChatArtifact & {
 export type MapRouteChatArtifact = ChatArtifact & {
   payload: Extract<MobileDisplayPayload, { kind: "map-route" }>;
 };
+
+export const isAgentWorkArtifact = (
+  artifact: ChatArtifact,
+): artifact is AgentWorkChatArtifact => artifact.payload.kind === "agent-work";
 
 /**
  * Mobile port of the desktop agent-artifact consolidation semantics
@@ -97,21 +101,63 @@ export type ConsolidatedRowArtifacts = {
   /** Inline map cards (self-contained, never folded). */
   maps: MapRouteChatArtifact[];
   /**
-   * Files folded into the agent-work card as pills. Populated only when the
-   * row carries an agent-work card; noise-filtered, deliverables first.
+   * Fallback-only: files folded into the agent-work card as pills when the
+   * bridge predates per-agent sections. Populated only when the row carries
+   * an agent-work card WITHOUT a desktop-computed `agents` list;
+   * noise-filtered, deliverables first.
    */
   agentFiles: ChatArtifact[];
   /**
-   * Files rendered as standalone cards — rows with no background work keep
-   * the classic inline presentation (orchestrator-direct outputs).
+   * Files rendered as standalone cards. Rows with no background work keep
+   * the classic inline presentation; on bridge-consolidated rows (any
+   * agent-work card carrying an `agents` list) the remaining loose files are
+   * orchestrator-direct by contract and render standalone too.
    */
   looseFiles: ChatArtifact[];
   /**
    * True once every agent-work card on the row reports `done` — the reveal
    * gate for `agentFiles`, mirroring the desktop completion card (files show
-   * together at completion, never mid-run).
+   * together at completion, never mid-run). Bridge-computed sections need no
+   * gate: they only exist once their agent completed.
    */
   agentWorkSettled: boolean;
+};
+
+/** One pill group on the agent-work card. */
+export type AgentWorkCardSection = {
+  key: string;
+  /** Header naming the agent's task; omitted for fallback folding (the card
+   *  title already names the work). */
+  title?: string;
+  files: ChatArtifact[];
+};
+
+/**
+ * Desktop-computed per-agent file sections for one agent-work card, mapped
+ * to openable `ChatArtifact`s. Returns `null` when the payload predates the
+ * consolidating bridge (no `agents` field) — callers fall back to row-scoped
+ * folding. File ids reuse the path-keyed `artifactId` so the same file
+ * dedupes against the artifacts browser.
+ */
+export const agentWorkCardSections = (
+  artifact: AgentWorkChatArtifact,
+): AgentWorkCardSection[] | null => {
+  const agents = artifact.payload.agents;
+  if (agents === undefined) return null;
+  const sections: AgentWorkCardSection[] = [];
+  for (const agent of agents) {
+    if (agent.files.length === 0) continue;
+    sections.push({
+      key: `${artifact.id}:${agent.agentId}`,
+      title: agent.title,
+      files: agent.files.map((file, index) => ({
+        id: artifactId(file, artifact.conversationId, index),
+        conversationId: artifact.conversationId,
+        payload: file,
+      })),
+    });
+  }
+  return sections;
 };
 
 export const consolidateRowArtifacts = (
@@ -131,11 +177,19 @@ export const consolidateRowArtifacts = (
   }
   const ranked = rankDeliverablesFirst(files);
   const hasAgentWork = agentWork.length > 0;
+  // A card carrying an `agents` list marks a consolidating bridge: agent
+  // files ride the card's own sections and whatever is left loose on the row
+  // is orchestrator-direct. Older desktops omit the field entirely, so the
+  // row's files fold into the card as an unattributed group instead.
+  const bridgeConsolidated = agentWork.some(
+    (artifact) => artifact.payload.agents !== undefined,
+  );
+  const fold = hasAgentWork && !bridgeConsolidated;
   return {
     agentWork,
     maps,
-    agentFiles: hasAgentWork ? ranked : [],
-    looseFiles: hasAgentWork ? [] : ranked,
+    agentFiles: fold ? ranked : [],
+    looseFiles: fold ? [] : ranked,
     agentWorkSettled:
       hasAgentWork &&
       agentWork.every((artifact) => artifact.payload.state === "done"),

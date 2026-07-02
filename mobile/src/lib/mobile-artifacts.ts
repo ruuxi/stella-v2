@@ -89,7 +89,19 @@ export const isMobileDisplayPayload = (
         isString(value.subtitle) &&
         isFiniteNumber(value.total) &&
         isFiniteNumber(value.completed) &&
-        isFiniteNumber(value.createdAt)
+        isFiniteNumber(value.createdAt) &&
+        // Per-agent file sections are optional (older desktops omit them)
+        // but must be structurally sound when present.
+        (value.agents === undefined ||
+          (Array.isArray(value.agents) &&
+            value.agents.every(
+              (section) =>
+                isRecord(section) &&
+                isString(section.agentId) &&
+                typeof section.title === "string" &&
+                Array.isArray(section.files) &&
+                section.files.every(isMobileDisplayPayload),
+            )))
       );
     case "map-route": {
       if (!Array.isArray(value.markers) || value.markers.length === 0) {

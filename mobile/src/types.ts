@@ -40,6 +40,15 @@ export type MobileMapRoute = {
   steps?: { instruction: string; distanceMeters: number }[];
 };
 
+/** One agent's completion files on the agent-work card (bridged desktop-side
+ *  from that agent's `agent-completed` rollup). */
+export type MobileAgentWorkFileSection = {
+  agentId: string;
+  /** Section header — the agent's task description. */
+  title: string;
+  files: MobileDisplayPayload[];
+};
+
 export type MobileOfficePreviewRef = {
   sessionId: string;
   title: string;
@@ -98,6 +107,15 @@ export type MobileDisplayPayload =
       title: string;
       subtitle: string;
       createdAt: number;
+      /**
+       * Per-agent produced-file sections computed desktop-side (each covered
+       * agent's completion-rollup files, noise-filtered, deliverables first).
+       * Present — possibly empty — on bridges that consolidate agent files
+       * onto this card; its presence means any loose file artifacts left on
+       * the row are orchestrator-direct. Absent on older desktops, where
+       * mobile falls back to row-scoped folding.
+       */
+      agents?: MobileAgentWorkFileSection[];
     }
   | {
       /**

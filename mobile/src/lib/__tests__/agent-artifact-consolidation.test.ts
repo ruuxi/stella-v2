@@ -1,12 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import type { ChatArtifact, MobileDisplayPayload } from "../../types";
+import type {
+  ChatArtifact,
+  MobileAgentWorkFileSection,
+  MobileDisplayPayload,
+} from "../../types";
 import {
+  agentWorkCardSections,
   consolidateRowArtifacts,
   isDeclaredOutputPath,
   isNoiseFileArtifact,
   isNoiseProducedPath,
   rankDeliverablesFirst,
 } from "../agent-artifact-consolidation";
+import { isMobileDisplayPayload } from "../mobile-artifacts";
 
 const artifact = (
   id: string,
@@ -19,6 +25,7 @@ const markdown = (id: string, filePath: string): ChatArtifact =>
 const agentWork = (
   id: string,
   state: "running" | "done",
+  agents?: MobileAgentWorkFileSection[],
 ): ChatArtifact =>
   artifact(id, {
     kind: "agent-work",
@@ -28,6 +35,7 @@ const agentWork = (
     title: "Research task",
     subtitle: state === "done" ? "Finished" : "Working in background",
     createdAt: 1,
+    ...(agents !== undefined ? { agents } : {}),
   });
 
 const mapRoute = (id: string): ChatArtifact =>
@@ -142,5 +150,104 @@ describe("consolidateRowArtifacts", () => {
     const keep = markdown("keep", "/docs/notes.md");
     const result = consolidateRowArtifacts([noise, keep]);
     expect(result.looseFiles.map((x) => x.id)).toEqual(["keep"]);
+  });
+
+  test("bridge-consolidated rows keep remaining files loose (orchestrator-direct)", () => {
+    // A card carrying `agents` (even empty) marks the new bridge contract:
+    // agent files ride the card's sections, so the row's loose artifacts are
+    // orchestrator-direct and must NOT be folded.
+    const work = agentWork("agent-work:a1", "done", []);
+    const direct = markdown("direct", "/docs/notes.md");
+    const result = consolidateRowArtifacts([direct, work]);
+    expect(result.agentFiles).toHaveLength(0);
+    expect(result.looseFiles.map((x) => x.id)).toEqual(["direct"]);
+  });
+});
+
+describe("agentWorkCardSections", () => {
+  const workArtifact = (agents?: MobileAgentWorkFileSection[]) => {
+    const raw = agentWork("agent-work:a1", "done", agents);
+    const sections = consolidateRowArtifacts([raw]).agentWork[0];
+    if (!sections) throw new Error("expected agent-work artifact");
+    return sections;
+  };
+
+  test("returns null for pre-consolidation bridges (fallback path)", () => {
+    expect(agentWorkCardSections(workArtifact(undefined))).toBe(null);
+  });
+
+  test("maps per-agent files to openable artifacts, skipping empty sections", () => {
+    const sections = agentWorkCardSections(
+      workArtifact([
+        {
+          agentId: "a1",
+          title: "Write the report",
+          files: [
+            {
+              kind: "pdf",
+              filePath: "/Users/u/.stella/outputs/report.pdf",
+            },
+          ],
+        },
+        { agentId: "a2", title: "No files", files: [] },
+      ]),
+    );
+    expect(sections).toHaveLength(1);
+    expect(sections?.[0]).toMatchObject({
+      key: "agent-work:a1:a1",
+      title: "Write the report",
+    });
+    expect(sections?.[0]?.files[0]).toMatchObject({
+      conversationId: "conv",
+      payload: {
+        kind: "pdf",
+        filePath: "/Users/u/.stella/outputs/report.pdf",
+      },
+    });
+    // Path-keyed id so the same file dedupes against the artifacts browser.
+    expect(sections?.[0]?.files[0]?.id).toBe(
+      "conv:pdf:/Users/u/.stella/outputs/report.pdf",
+    );
+  });
+});
+
+describe("agent-work payload validation with per-agent sections", () => {
+  const base = {
+    kind: "agent-work",
+    state: "done",
+    total: 1,
+    completed: 1,
+    title: "Task",
+    subtitle: "Finished",
+    createdAt: 1,
+  };
+
+  test("accepts payloads without agents (older desktops)", () => {
+    expect(isMobileDisplayPayload(base)).toBe(true);
+  });
+
+  test("accepts well-formed per-agent sections", () => {
+    expect(
+      isMobileDisplayPayload({
+        ...base,
+        agents: [
+          {
+            agentId: "a1",
+            title: "Write the report",
+            files: [{ kind: "pdf", filePath: "/tmp/report.pdf" }],
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  test("rejects malformed sections", () => {
+    expect(
+      isMobileDisplayPayload({
+        ...base,
+        agents: [{ agentId: "a1", title: "x", files: [{ kind: "pdf" }] }],
+      }),
+    ).toBe(false);
+    expect(isMobileDisplayPayload({ ...base, agents: "nope" })).toBe(false);
   });
 });

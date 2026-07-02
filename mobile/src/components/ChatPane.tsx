@@ -58,7 +58,10 @@ import {
   shouldAnimateMessageEntry,
   visibleChatMessages,
 } from "../lib/message-row-identity";
-import { consolidateRowArtifacts } from "../lib/agent-artifact-consolidation";
+import {
+  agentWorkCardSections,
+  consolidateRowArtifacts,
+} from "../lib/agent-artifact-consolidation";
 import { DictationRecordingBar } from "./DictationRecordingBar";
 import {
   WorkingIndicator,
@@ -1017,21 +1020,32 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <View
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
         >
-          {agentWorkArtifacts.map((artifact, index) => (
-            <AgentWorkCard
-              key={artifact.id}
-              payload={artifact.payload}
-              colors={colors}
-              // The row's produced files fold into its lifecycle card. The
-              // bridge carries no per-agent file attribution, so with several
-              // transitional per-agent cards on one row the consolidated list
-              // rides the last (the sync path collapses them into one grouped
-              // card per turn).
-              {...(showAgentFiles && index === agentWorkArtifacts.length - 1
-                ? { files: agentFiles, onOpenArtifact }
-                : {})}
-            />
-          ))}
+          {agentWorkArtifacts.map((artifact, index) => {
+            // Prefer the bridge's per-agent sections (desktop-computed
+            // attribution; each section only exists once its agent
+            // completed, so no extra reveal gate). Older desktops omit the
+            // field — fall back to folding the row's own files into the
+            // last card once every covered agent settled (with several
+            // transitional per-agent cards on one row the consolidated list
+            // rides the last; the sync path collapses them into one grouped
+            // card per turn).
+            const bridgeSections = agentWorkCardSections(artifact);
+            const sections =
+              bridgeSections ??
+              (showAgentFiles && index === agentWorkArtifacts.length - 1
+                ? [{ key: `${artifact.id}:files`, files: agentFiles }]
+                : []);
+            return (
+              <AgentWorkCard
+                key={artifact.id}
+                payload={artifact.payload}
+                colors={colors}
+                {...(sections.length > 0 && onOpenArtifact
+                  ? { sections, onOpenArtifact }
+                  : {})}
+              />
+            );
+          })}
           {showMapArtifacts
             ? mapArtifacts.map((artifact) => (
                 <MapRouteCard

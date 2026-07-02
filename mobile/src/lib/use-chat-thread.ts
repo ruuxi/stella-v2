@@ -26,7 +26,11 @@ import {
   type WorkingIndicatorState,
 } from "../components/working-indicator-state";
 import { mergeMessagesById, reconcileSentDesktopTurn } from "./chat-merge";
-import { isNoiseFileArtifact } from "./agent-artifact-consolidation";
+import {
+  agentWorkCardSections,
+  isAgentWorkArtifact,
+  isNoiseFileArtifact,
+} from "./agent-artifact-consolidation";
 import { collectConversationTasks } from "./mobile-task-merge";
 import { createStreamTextSmoother } from "./stream-text-smoother";
 import { userFacingError } from "./user-facing-error";
@@ -737,20 +741,31 @@ export function useChatThread(opts: {
   const conversationArtifacts = useMemo(() => {
     const seen = new Set<string>();
     const out: ChatArtifact[] = [];
+    const push = (artifact: ChatArtifact): boolean => {
+      // Incidental writes (caches, profiles, scratch) stay out of the
+      // browser — mirrors the desktop noise filter on every user-facing
+      // produced-file surface.
+      if (isNoiseFileArtifact(artifact)) return false;
+      if (seen.has(artifact.id)) return false;
+      seen.add(artifact.id);
+      out.push(artifact);
+      return out.length >= MAX_LISTED_ARTIFACTS;
+    };
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       for (const artifact of messages[i].artifacts ?? []) {
-        // Agent-work cards are inline-chat only — not openable files, so they
-        // don't belong in the artifacts browser (tapping one would hit the
-        // viewer's "no preview" path).
-        if (artifact.payload.kind === "agent-work") continue;
-        // Incidental writes (caches, profiles, scratch) stay out of the
-        // browser too — mirrors the desktop noise filter on every
-        // user-facing produced-file surface.
-        if (isNoiseFileArtifact(artifact)) continue;
-        if (seen.has(artifact.id)) continue;
-        seen.add(artifact.id);
-        out.push(artifact);
-        if (out.length >= MAX_LISTED_ARTIFACTS) return out;
+        // Agent-work cards are inline-chat only — not openable files, so the
+        // card itself doesn't belong in the artifacts browser — but the files
+        // riding its per-agent sections do (consolidating bridges no longer
+        // ship them loose).
+        if (isAgentWorkArtifact(artifact)) {
+          for (const section of agentWorkCardSections(artifact) ?? []) {
+            for (const file of section.files) {
+              if (push(file)) return out;
+            }
+          }
+          continue;
+        }
+        if (push(artifact)) return out;
       }
     }
     return out;

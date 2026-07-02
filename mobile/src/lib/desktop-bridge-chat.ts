@@ -17,11 +17,17 @@ import {
   BRIDGE_FEATURE_DEFLATE,
   BRIDGE_FEATURE_LOCAL_CHAT_PUSH,
   MOBILE_SUPPORTED_BRIDGE_FEATURES,
-  isUnknownBridgeChannelError,
   parseBase64DataUrl,
   standardBase64ToBytes,
 } from "./bridge-envelope";
 import { fetch as expoFetch } from "expo/fetch";
+import {
+  BridgeEndpointUnavailableError,
+  fetchBridgeChallengeBody,
+  isBridgeEndpointMissingError,
+  readBridgeErrorMessage,
+  readBridgeJsonBody,
+} from "./bridge-http";
 import {
   clearPersistedBridgeSession,
   loadCachedBridgeBaseUrl,
@@ -221,35 +227,19 @@ export const normalizeDesktopChatMessageText = (text: string) =>
         .replace(LEADING_TIME_TAG_RE, "")
         .trim();
 
-const readBridgeError = async (response: Response) => {
-  let parsed: unknown = null;
-  try {
-    parsed = await response.json();
-  } catch {
-    // use fallback below
-  }
-  const record = asRecord(parsed);
-  const error = asString(record?.error).trim();
-  return error || "Desktop bridge request failed.";
-};
+const readBridgeError = (response: Response) =>
+  readBridgeErrorMessage(response, "Desktop bridge request failed.");
 
 const readBridgeChallenge = async (
   baseUrl: string,
   desktopDeviceId: string,
 ): Promise<DesktopBridgeChallenge> => {
-  // Presenting the expected device id proves we already know it, so the
-  // desktop doesn't have to leak it (or its public key) to bare scanners —
-  // and mismatches fail here instead of after the fetch.
-  const response = await fetch(
-    `${baseUrl}/bridge/challenge?d=${encodeURIComponent(desktopDeviceId)}`,
-    {
-      method: "GET",
-    },
+  // Scoped (`?d=`) challenge with a one-shot bare-URL fallback for pre-380
+  // desktops; never raw-parses an HTML/error-page body. The device-id check
+  // below still rejects wrong desktops on the fallback path.
+  const record = asRecord(
+    await fetchBridgeChallengeBody(baseUrl, desktopDeviceId),
   );
-  if (!response.ok) {
-    throw new Error(await readBridgeError(response));
-  }
-  const record = asRecord(await response.json());
   const challenge = {
     challengeId: asString(record?.challengeId).trim(),
     challenge: asString(record?.challenge).trim(),
@@ -379,7 +369,7 @@ const readDesktopDeveloperArtifactsEnabled = async (
   try {
     const response = await fetch(`${baseUrl}/bridge/bootstrap`, { headers });
     if (!response.ok) return false;
-    const parsed = asRecord(await response.json());
+    const parsed = asRecord(await readBridgeJsonBody(response));
     const localStorage = asRecord(parsed?.localStorage);
     return asString(localStorage?.[DEVELOPER_RESOURCE_PREVIEWS_KEY]) === "true";
   } catch {
@@ -659,8 +649,19 @@ async function handshakeDesktopBridge(
     connection.includeDeveloperArtifacts =
       hello?.developerArtifactsEnabled === true;
   } catch (error) {
-    if (!isUnknownBridgeChannelError(error)) throw error;
-    connection.helloSupported = false;
+    if (isBridgeEndpointMissingError(error)) {
+      // Older desktop (channel rejected, or its catch-all answered with an
+      // HTML page): permanently demote to the legacy multi-RTT path.
+      connection.helloSupported = false;
+    } else {
+      // Transient failure (timeout, edge hiccup): don't kill the handshake
+      // over an optional call, and don't permanently demote a capable
+      // desktop — the next sync retries hello.
+      console.warn(
+        "[desktop-bridge] hello probe failed; continuing with legacy defaults:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     connection.includeDeveloperArtifacts =
       await readDesktopDeveloperArtifactsEnabled(
         baseUrl,
@@ -700,7 +701,10 @@ export async function invokeDesktopBridge<T>(
     if (!response.ok) {
       throw new Error(await readBridgeError(response));
     }
-    const responseRecord = asRecord(await response.json());
+    // Never raw-parse: a 200 with an HTML body (edge error page, or an older
+    // desktop's catch-all answering an unrouted path with index.html) must
+    // become a structured error the capability gates can classify.
+    const responseRecord = asRecord(await readBridgeJsonBody(response));
     if (!isBridgeEncryptedEnvelope(responseRecord?.envelope)) {
       throw new Error("Desktop bridge returned an unencrypted response.");
     }
@@ -757,7 +761,9 @@ export async function fetchDesktopBridgeFileBytes(
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new Error(await readBridgeError(response));
+      // Anything from a 401 (session churn) to a Cloudflare error page: let
+      // the legacy `display:readFile` lane own the error semantics.
+      return null;
     }
     if (response.headers.get("x-stella-bridge-bin") === "1") {
       const seq = Number(response.headers.get("x-stella-bridge-bin-seq"));
@@ -780,8 +786,20 @@ export async function fetchDesktopBridgeFileBytes(
         mimeType,
       };
     }
-    // JSON (encrypted) response — the missing-file case.
-    const record = asRecord(await response.json());
+    // JSON (encrypted) response — the missing-file case. A 200 that isn't
+    // JSON at all is an older desktop's catch-all answering the unrouted
+    // `/bridge/file` path with index.html: demote the lane for this session
+    // and fall back to the legacy invoke.
+    let record: Record<string, unknown> | null;
+    try {
+      record = asRecord(await readBridgeJsonBody(response));
+    } catch (error) {
+      if (error instanceof BridgeEndpointUnavailableError) {
+        bridge.features.delete(BRIDGE_FEATURE_BINARY_FILE);
+        return null;
+      }
+      throw error;
+    }
     if (!isBridgeEncryptedEnvelope(record?.envelope)) {
       throw new Error("Desktop bridge returned an unencrypted response.");
     }
@@ -838,7 +856,18 @@ async function stageBridgeAttachments(
         ) as ArrayBuffer,
       });
       if (!response.ok) return null;
-      const record = asRecord(await response.json());
+      let record: Record<string, unknown> | null;
+      try {
+        record = asRecord(await readBridgeJsonBody(response));
+      } catch (error) {
+        if (error instanceof BridgeEndpointUnavailableError) {
+          // Older desktop without /bridge/upload (its catch-all answered
+          // with HTML): demote so later sends go straight to inline data
+          // URLs instead of re-attempting the upload every time.
+          bridge.features.delete(BRIDGE_FEATURE_BINARY_UPLOAD);
+        }
+        return null;
+      }
       if (!isBridgeEncryptedEnvelope(record?.envelope)) return null;
       const decoded = asRecord(
         decryptBridgePayload(bridge.crypto, "d2m", record.envelope),
@@ -1077,7 +1106,7 @@ export async function syncDesktopBridgeChatMessages({
         };
       }
     } catch (error) {
-      if (!isUnknownBridgeChannelError(error)) throw error;
+      if (!isBridgeEndpointMissingError(error)) throw error;
       bridge.helloSupported = false;
     }
   }

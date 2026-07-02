@@ -1,3 +1,5 @@
+import { isRawJsonParseErrorMessage } from "./bridge-http";
+
 /**
  * Maps errors and raw API messages to short, user-facing copy (no stack traces).
  */
@@ -13,7 +15,18 @@ function mapMessage(raw: string): string {
   if (!t) {
     return "Something went wrong. Please try again.";
   }
+  // Last-resort net: parse sites are individually guarded, but no raw
+  // JSON-parse garbage ("Unexpected character: <") may ever reach a bubble
+  // or toast, whatever path produced it.
+  if (isRawJsonParseErrorMessage(t)) {
+    return "Your computer sent an unexpected response. Update Stella on your desktop, then try again.";
+  }
   const lower = t.toLowerCase();
+  // Structured version-skew signal (BridgeEndpointUnavailableError) that
+  // escaped a capability gate — phrase it as the actionable thing it is.
+  if (lower.includes("endpoint unavailable")) {
+    return "Your computer sent an unexpected response. Update Stella on your desktop, then try again.";
+  }
   if (
     lower.includes("usage")
     && (lower.includes("limit") || lower.includes("reached"))

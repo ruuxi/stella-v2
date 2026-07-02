@@ -70,7 +70,14 @@ async function requestJson(
     throw new Error(await readErrorMessage(response));
   }
 
-  return (await response.json()) as unknown;
+  // Guarded parse: a 200 with a non-JSON body (proxy/error interstitial)
+  // must surface as clean copy, never a raw "JSON Parse error: …".
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new Error("Could not complete that request. Try again.");
+  }
 }
 
 export const getJson = (

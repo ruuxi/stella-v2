@@ -75,10 +75,19 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: "/",
+    images: [
+      {
+        url: "/og.png",
+        width: 1200,
+        height: 630,
+        alt: "Stella — the app that changes. Your personal AI assistant, on your computer.",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     site: "@stella",
+    images: ["/og.png"],
   },
   robots: {
     index: true,

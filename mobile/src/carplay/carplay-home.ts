@@ -180,3 +180,45 @@ export function buildHome(state: CarPlayHomeState): HomeSection[] {
 export function flattenActions(sections: HomeSection[]): HomeRowAction[] {
   return sections.flatMap((section) => section.rows.map((row) => row.action));
 }
+
+/**
+ * Interop-safe replacement for react-native-carplay's `Template.parseConfig`.
+ *
+ * The library's own implementation does
+ * `const resolveAssetSource = require('react-native/Libraries/Image/resolveAssetSource')`
+ * — but on RN 0.83 that file is an ES module (`export default resolveAssetSource`),
+ * so the bare `require` returns the namespace OBJECT `{ default: fn }`.
+ * Calling it throws `TypeError: Object is not a function` inside every
+ * template constructor / `updateSections` that carries an `image` — which is
+ * exactly the deterministic on-device crash that kept the CarPlay JS takeover
+ * from ever landing (`[js] JS connect handler FAILED: TypeError: Object is
+ * not a function`).
+ *
+ * Mirrors the original semantics: deep-walk the config, replace the value of
+ * every key matching `/[Ii]mage$/` with the resolved asset source, then JSON
+ * round-trip (drops function props like onItemSelect, same as upstream).
+ * Pure — the caller injects the real `Image.resolveAssetSource`.
+ */
+export function parseTemplateConfig(
+  config: unknown,
+  resolveImage: (source: unknown) => unknown,
+): unknown {
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(walk);
+    if (node !== null && typeof node === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(
+        node as Record<string, unknown>,
+      )) {
+        if (/[Ii]mage$/.test(key) && value != null) {
+          out[key] = resolveImage(value);
+        } else {
+          out[key] = walk(value);
+        }
+      }
+      return out;
+    }
+    return node;
+  };
+  return JSON.parse(JSON.stringify(walk(config)));
+}

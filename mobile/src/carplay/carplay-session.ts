@@ -21,10 +21,11 @@
  * platforms without the native module) — it lazy-`require`s it on iOS only.
  */
 
-import { Platform, Settings, type ImageSourcePropType } from "react-native";
+import { Image, Platform, Settings, type ImageSourcePropType } from "react-native";
 import {
   buildHome,
   flattenActions,
+  parseTemplateConfig,
   type CarPlayHomeState,
   type CarPlayPhase,
   type HomeRow,
@@ -135,10 +136,47 @@ class CarPlaySession {
       this.rnc = mod;
       this.CarPlay = mod.CarPlay;
       carPlayLog("react-native-carplay module loaded");
+      this.installParseConfigShim(mod);
       return true;
     } catch (error) {
       carPlayLog(`react-native-carplay require FAILED: ${String(error)}`);
       return false;
+    }
+  }
+
+  /**
+   * Root-cause fix for the build-93 on-car crash
+   * (`[js] JS connect handler FAILED: TypeError: Object is not a function`):
+   * react-native-carplay's `Template.parseConfig` calls a broken
+   * `require('react-native/Libraries/Image/resolveAssetSource')` binding —
+   * on RN 0.83 that returns the ESM namespace object, not the function — so
+   * every template constructor/updateSections with an `image` throws.
+   * Replace the method on the shared base prototype with
+   * {@link parseTemplateConfig} driven by the public `Image.resolveAssetSource`.
+   * Done here (our JS) rather than in the bun patch so the fix rides
+   * expo-updates OTA: the fingerprint hashes the `patches/` dir, and touching
+   * the patch would force a new binary.
+   */
+  private installParseConfigShim(mod: RNCarPlay) {
+    try {
+      const listProto = (mod.ListTemplate as unknown as { prototype: object })
+        .prototype;
+      // parseConfig lives on the base Template prototype; patch it there so
+      // every template subclass gets the fix.
+      const base = Object.getPrototypeOf(listProto) as {
+        parseConfig?: (config: unknown) => unknown;
+      } | null;
+      const target =
+        base && typeof base.parseConfig === "function"
+          ? base
+          : (listProto as { parseConfig?: (config: unknown) => unknown });
+      target.parseConfig = (config: unknown) =>
+        parseTemplateConfig(config, (source) =>
+          Image.resolveAssetSource(source as never),
+        );
+      carPlayLog("installed parseConfig interop shim");
+    } catch (error) {
+      carPlayLog(`parseConfig shim FAILED: ${String(error)}`);
     }
   }
 
@@ -173,6 +211,7 @@ class CarPlaySession {
           this.phase = "idle";
         }
         this.setRootWithRetries();
+        carPlayLog("rendering home rows");
         this.render();
         this.startTimeRefresh();
         carPlayLog(`JS connect handler finished (phase=${this.phase})`);
@@ -282,8 +321,10 @@ class CarPlaySession {
     if (this.listTemplate) return;
     const { ListTemplate } = this.rnc;
 
+    carPlayLog("building home rows");
     const home = this.currentHome();
     this.rowActions = flattenActions(home);
+    carPlayLog("constructing ListTemplate (createTemplate -> native)");
     this.listTemplate = new ListTemplate({
       id: "stella-voice-home",
       title: "Stella",
@@ -295,6 +336,7 @@ class CarPlaySession {
         this.onRowSelected(index);
       },
     });
+    carPlayLog("ListTemplate constructed");
   }
 
   private currentState(): CarPlayHomeState {

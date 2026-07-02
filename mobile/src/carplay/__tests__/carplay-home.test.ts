@@ -4,6 +4,7 @@ import {
   buildTalkRow,
   flattenActions,
   formatRelativeTime,
+  parseTemplateConfig,
   previewText,
   type CarPlayHomeState,
 } from "../carplay-home";
@@ -160,6 +161,53 @@ describe("converse mode row", () => {
     const row = converseRow({ ...base, converseOn: false });
     expect(row.item.text).toBe("Converse mode: Off");
     expect(row.item.detailText).toBe("Tap to hear replies automatically");
+  });
+});
+
+describe("parseTemplateConfig (resolveAssetSource interop shim)", () => {
+  const resolveImage = (source: unknown) => ({
+    uri: `resolved-${String(source)}`,
+    scale: 2,
+  });
+
+  test("resolves image-suffixed keys at any depth", () => {
+    const out = parseTemplateConfig(
+      {
+        type: "list",
+        sections: [{ items: [{ text: "Talk", image: 42 }] }],
+        tabImage: 7,
+      },
+      resolveImage,
+    ) as Record<string, unknown>;
+    expect(out.tabImage).toEqual({ uri: "resolved-7", scale: 2 });
+    const item = (out.sections as { items: { image: unknown }[] }[])[0]
+      .items[0];
+    expect(item.image).toEqual({ uri: "resolved-42", scale: 2 });
+  });
+
+  test("leaves non-image keys untouched and drops function props", () => {
+    const out = parseTemplateConfig(
+      {
+        title: "Stella",
+        onItemSelect: () => undefined,
+        sections: [{ items: [{ text: "row", isPlaying: true }] }],
+      },
+      resolveImage,
+    ) as Record<string, unknown>;
+    expect(out.title).toBe("Stella");
+    expect("onItemSelect" in out).toBe(false);
+    expect(
+      (out.sections as { items: { isPlaying: boolean }[] }[])[0].items[0]
+        .isPlaying,
+    ).toBe(true);
+  });
+
+  test("skips null/undefined image values", () => {
+    const out = parseTemplateConfig(
+      { items: [{ text: "no icon", image: undefined }] },
+      resolveImage,
+    ) as { items: Record<string, unknown>[] };
+    expect("image" in out.items[0]).toBe(false);
   });
 });
 

@@ -235,6 +235,59 @@ unit-tested). Plus granular breadcrumbs through the connect path
 constructed` → `setRootTemplate attempt` → `rendering home rows`) so any
 residual failure names its exact step.
 
+---
+
+# Post-OTA field crash (builds 95/96): SOLVED — RCTAppearance vs CarPlay scene
+
+With the parseConfig shim live, the takeover SUCCEEDED end-to-end (breadcrumbs:
+connect → templates → `setRootTemplate done=YES` → finished, 18:45:09), then
+the whole app died ~4s later and the JS context restarted (18:45:13).
+
+ASC crash log (retrieved via App Store Connect → TestFlight → Crashes,
+submission Jul 2 11:42 AM, 1.0.17 (96), iPhone 13 Pro Max, iOS 26.5):
+
+```
+Exception Type:  EXC_CRASH (SIGABRT)
+Exception Reason: -[CPTemplateApplicationScene windows]: unrecognized selector
+6   React  -[RCTAppearance setColorScheme:] (RCTAppearance.mm:117)
+10  React  ObjCTurboModule::performVoidMethodInvocation
+```
+
+**Root cause — NOT the images/shim:** RN's native
+`RCTAppearance.setColorScheme:` iterates `UIApplication.connectedScenes` with
+an unguarded `for (UIWindowScene *scene in ...)`; a CarPlay head unit adds a
+`CPTemplateApplicationScene` (no `windows` selector) → uncaught NSException →
+app-wide SIGABRT. Trigger: `src/theme/theme-context.tsx` applies the stored
+theme via `Appearance.setColorScheme` shortly after JS boot — so **launching
+(or crash-relaunching) with the car attached is a crash loop**. Crash log
+timing (died 1.8s after launch) and breadcrumbs (theme storage loads seconds
+after connect) both fit. Pre-shim builds "survived" only when the app was
+already running with the theme settled before plugging in.
+
+**Fixes:**
+- `0088680` (pure JS → **OTA to 95/96**): `theme-context` now routes through
+  `setColorSchemeSafely()` (`src/carplay/carplay-appearance.ts`) — defers the
+  native call while CarPlay is connected, or likely connected at launch via a
+  persisted `StellaCarPlayConnected` NSUserDefaults flag (sync-read; covers
+  the theme-before-didConnect race and the crash-relaunch loop); applies
+  1.5s after disconnect or after a 20s stale-flag grace. Policy is pure and
+  bun-tested (`carplay-appearance-policy.ts`).
+- `53fd04a` (native, **build 97**): `patches/react-native@0.83.6.patch` adds
+  an `isKindOfClass:[UIWindowScene class]` guard in `RCTAppearance.mm` — the
+  definitive fix.
+
+**OTA ORDERING (important):** publish the OTA from `0088680`, NOT HEAD —
+`53fd04a` changes `patches/` + `package.json`, which the expo fingerprint
+hashes, so HEAD's fingerprint no longer matches builds 95/96. Then cut
+build 97 from HEAD.
+
+Confidence: high — exception type, crashing frame, trigger timing, and both
+field sessions all line up; the JS guard prevents the only caller, and the
+native patch removes the crash class entirely. Residual risk: cosmetic only
+(native chrome may lag the JS theme while driving until build 97).
+
+---
+
 **Ship path: OTA.** The fix touches only
 `mobile/src/carplay/{carplay-home,carplay-session}.ts` — no native code and
 deliberately NOT the bun patch, because the expo-updates fingerprint hashes

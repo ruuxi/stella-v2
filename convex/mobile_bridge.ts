@@ -9,7 +9,14 @@ import { constantTimeEqual, hashSha256Hex } from "./lib/crypto_utils";
 import { requireBoundedString } from "./shared_validators";
 
 export const MOBILE_BRIDGE_LEASE_MS = 150_000;
-export const MOBILE_BRIDGE_SESSION_TTL_MS = 15 * 60_000;
+/**
+ * Bridge sessions live for an hour (was 15 minutes) so a phone that persisted
+ * its session across an app restart can reconnect without a fresh
+ * challenge/mint round-trip. The secret is stored hashed, the desktop still
+ * re-validates via `consumeSession`, and both ends expire the session
+ * client-side at this same horizon.
+ */
+export const MOBILE_BRIDGE_SESSION_TTL_MS = 60 * 60_000;
 /**
  * Hard caps on the `baseUrls` array stored on each registration row. The
  * array is unbounded by schema (`v.array(v.string())`); without these caps a

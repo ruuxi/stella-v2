@@ -249,6 +249,10 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     sheetSafe: {
       backgroundColor: colors.background,
+      // Soft hairline on the leading (top) edge so the sheet reads against
+      // the page beneath, matching the TopSheet primitive's edge treatment.
+      borderTopColor: colors.border,
+      borderTopWidth: StyleSheet.hairlineWidth,
       flex: 1,
     },
     sheetHandle: {

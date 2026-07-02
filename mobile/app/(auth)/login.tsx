@@ -739,6 +739,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   legalModal: {
     flex: 1,
     backgroundColor: colors.background,
+    // Soft hairline on the leading (top) edge so the sheet reads against the
+    // page beneath, matching the TopSheet primitive's edge treatment.
+    borderTopColor: colors.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   legalModalHeader: {
     alignItems: "center",

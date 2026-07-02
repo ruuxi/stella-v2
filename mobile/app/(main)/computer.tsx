@@ -417,6 +417,7 @@ function ComputerChatSurface({
         onOpenArtifact={setSelectedArtifact}
         onOpenDeviceSheet={() => setDeviceSheetOpen(true)}
         activityTasks={thread.conversationTasks}
+        catchingUp={thread.catchingUp}
       />
       <ComputerDeviceSheet
         visible={deviceSheetOpen}

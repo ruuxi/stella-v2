@@ -107,8 +107,23 @@ export type ChatThread = {
    * Coalesced wake + pull + merge against the canonical desktop rows. A no-op
    * for the cloud transport; safe to call repeatedly (in-flight runs are
    * shared) so resume/focus catch-up syncs never stack.
+   *
+   * Pass `catchUp: true` from the call sites where the user could be looking
+   * at stale content without knowing — landing sync, foreground/refocus
+   * reconnect, manual Force Sync — so `catchingUp` reflects the pull. The
+   * steady-state task poll and the send-path pulls stay unflagged.
    */
-  runDesktopSync: () => Promise<{ offline: boolean }>;
+  runDesktopSync: (options?: { catchUp?: boolean }) => Promise<{
+    offline: boolean;
+  }>;
+  /**
+   * True while a catch-up-classified sync is in flight (see `runDesktopSync`).
+   * If a catch-up call joins an in-flight steady-state run, that run is
+   * promoted — a pull is genuinely happening either way. Cleared when the run
+   * settles: the transcript is confirmed current (or confirmed unreachable,
+   * which the offline affordances own).
+   */
+  catchingUp: boolean;
 };
 
 /**
@@ -223,10 +238,33 @@ export function useChatThread(opts: {
   // a landing sync can't land its merge in the middle of an active turn.
   const desktopAccess = isDesktop ? transport.access : null;
   const desktopDeviceId = desktopAccess?.desktopDeviceId ?? null;
-  const runDesktopSync = useCallback((): Promise<{ offline: boolean }> => {
-    if (!desktopAccess) return Promise.resolve({ offline: false });
-    const existing = desktopSyncRef.current;
-    if (existing) return existing;
+
+  // Catch-up accounting: how many catch-up-classified callers are currently
+  // riding an in-flight run. A depth (not a flag) because coalescing lets
+  // several catch-up callers attach to the same run — each attach balances
+  // with one settle.
+  const [catchingUp, setCatchingUp] = useState(false);
+  const catchUpDepthRef = useRef(0);
+  const trackCatchUpRun = useCallback((run: Promise<unknown>) => {
+    catchUpDepthRef.current += 1;
+    setCatchingUp(true);
+    void run.finally(() => {
+      catchUpDepthRef.current -= 1;
+      if (catchUpDepthRef.current === 0) setCatchingUp(false);
+    });
+  }, []);
+
+  const runDesktopSync = useCallback(
+    (options?: { catchUp?: boolean }): Promise<{ offline: boolean }> => {
+      const catchUp = options?.catchUp === true;
+      if (!desktopAccess) return Promise.resolve({ offline: false });
+      const existing = desktopSyncRef.current;
+      if (existing) {
+        // Promote an in-flight (possibly steady-state) run: a catch-up caller
+        // joined it, and a pull is genuinely happening.
+        if (catchUp) trackCatchUpRun(existing);
+        return existing;
+      }
     // Snapshot the generation so results from a now-stale computer (switched or
     // unmounted mid-flight) are dropped instead of clobbering the current one.
     const generation = syncGenerationRef.current;
@@ -266,9 +304,12 @@ export function useChatThread(opts: {
         }
       }
     })();
-    desktopSyncRef.current = run;
-    return run;
-  }, [desktopAccess, persistSyncState]);
+      desktopSyncRef.current = run;
+      if (catchUp) trackCatchUpRun(run);
+      return run;
+    },
+    [desktopAccess, persistSyncState, trackCatchUpRun],
+  );
 
   // Re-arm the landing sync and invalidate any in-flight one whenever the
   // paired computer changes (or the surface unmounts), so the new computer
@@ -821,5 +862,6 @@ export function useChatThread(opts: {
     send,
     stop,
     runDesktopSync,
+    catchingUp,
   };
 }

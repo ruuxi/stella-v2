@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
@@ -57,6 +58,7 @@ import {
   deriveFloatingHidden,
   type FloatingScrollMetrics,
 } from "../lib/floating-button-visibility";
+import { useCatchUpIndicatorVisible } from "../lib/catch-up-indicator";
 import {
   isStandInArtifactRow,
   shouldAnimateMessageEntry,
@@ -1201,6 +1203,85 @@ function StopButton({
   );
 }
 
+/**
+ * Transient "Catching up" pill — top-center overlay while a catch-up sync
+ * (landing / foreground return / Force Sync) is pulling turns the phone may
+ * have missed. Non-interactive and absolutely positioned so it never shifts
+ * the transcript; appearance/disappearance mirror the floating glass controls'
+ * materialize/dissolve language.
+ */
+function CatchUpPill({
+  visible,
+  styles,
+  colors,
+}: {
+  visible: boolean;
+  styles: ChatStyles;
+  colors: Colors;
+}) {
+  // Stays mounted so the glass can run its native materialize/dissolve
+  // transition; the JS anim fades the content along with it.
+  const anim = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: visible ? 1 : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [anim, visible]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      accessibilityElementsHidden={!visible}
+      style={[
+        styles.catchUpPill,
+        {
+          // Opacity on a Liquid Glass ancestor makes iOS drop the glass
+          // material, so only fade the wrapper on the (non-glass) fallback.
+          opacity: liquidGlassSupported ? 1 : anim,
+          transform: [
+            {
+              translateY: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-8, 0],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <GlassSurface
+        glass="regular"
+        legible
+        present={visible}
+        radius={15}
+        fallbackColor={colors.surface}
+        style={styles.catchUpPillGlass}
+      >
+        {/* Border + content are children of the glass, so fading them is safe. */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            styles.catchUpPillRing,
+            { opacity: anim },
+          ]}
+        />
+        <Animated.View style={[styles.catchUpPillRow, { opacity: anim }]}>
+          <ActivityIndicator size="small" color={colors.textMuted} />
+          <Text
+            style={styles.catchUpPillText}
+            accessibilityLabel="Catching up with your computer"
+          >
+            Catching up
+          </Text>
+        </Animated.View>
+      </GlassSurface>
+    </Animated.View>
+  );
+}
+
 function ScrollToBottomFab({
   visible,
   hasUnread,
@@ -1842,6 +1923,15 @@ export type ChatPaneProps = {
    * non-empty, the pill appears and opens the tray. The cloud chat omits it.
    */
   activityTasks?: MobileTask[];
+
+  /**
+   * True while a catch-up sync is pulling turns the phone may have missed
+   * (landing, foreground/refocus, Force Sync — see `useChatThread`). Renders a
+   * small transient "Catching up" pill at the top of the transcript, debounced
+   * by `useCatchUpIndicatorVisible` so instant pulls never flash it.
+   * Steady-state polls and send-path pulls must not set this.
+   */
+  catchingUp?: boolean;
 };
 
 export function ChatPane({
@@ -1866,6 +1956,7 @@ export function ChatPane({
   dictationHeaders,
   onOpenArtifact,
   activityTasks,
+  catchingUp = false,
 }: ChatPaneProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -2260,6 +2351,10 @@ export function ChatPane({
   // handler, so nothing renders.
   const floatingAnchorRef = useRef<View>(null);
   const hasFloatingMenu = Boolean(onOpenDeviceSheet);
+
+  // Debounced catch-up indicator (show delay + minimum visible time), so
+  // instant no-op pulls on every tab return never flash the pill.
+  const catchUpVisible = useCatchUpIndicatorVisible(catchingUp);
 
   const onPressFloating = useCallback(() => {
     if (!onOpenDeviceSheet) return;
@@ -2692,6 +2787,13 @@ export function ChatPane({
             `box-none` View passes touches through to the list and lets each
             button — and the popovers — keep their own Liquid Glass. */}
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+          {!searchOpen ? (
+            <CatchUpPill
+              visible={catchUpVisible}
+              styles={styles}
+              colors={colors}
+            />
+          ) : null}
           {!historyLoading && !empty ? (
             <ScrollToBottomFab
               visible={scroll.awayFromBottom}
@@ -3113,6 +3215,42 @@ const makeStyles = (colors: Colors) =>
       borderColor: fadeHex(colors.border, 0.6),
       borderRadius: 20,
       borderWidth: StyleSheet.hairlineWidth,
+    },
+    // "Catching up" pill — top-center, overlaid (no layout participation).
+    catchUpPill: {
+      alignSelf: "center",
+      elevation: 2,
+      position: "absolute",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.06,
+      shadowRadius: 5,
+      top: 10,
+    },
+    catchUpPillGlass: {
+      alignItems: "center",
+      borderRadius: 15,
+      height: 30,
+      justifyContent: "center",
+      overflow: "hidden",
+      paddingHorizontal: 12,
+    },
+    // See scrollToBottomFabRing: fading overlay so the hairline dissolves with
+    // the material instead of lingering as an outline.
+    catchUpPillRing: {
+      borderColor: fadeHex(colors.border, 0.6),
+      borderRadius: 15,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
+    catchUpPillRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 7,
+    },
+    catchUpPillText: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 12.5,
     },
     scrollToBottomDot: {
       backgroundColor: colors.accent,

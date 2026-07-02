@@ -2,14 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { Package, Smile, Sparkles } from "lucide-react";
+import { Hourglass, Package, Smile, Sparkles } from "lucide-react";
 import {
   getPublicPackage,
   listMyEmojiPacks,
+  listMyStoreSubmissions,
   listMyUserPets,
 } from "../lib/convex";
 import { userPetToPublicPet } from "../lib/pet-media";
 import type {
+  MyStoreSubmission,
   PublicPet,
   StoreInstall,
   StorePackage,
@@ -76,6 +78,7 @@ export function LibraryTab({
 }: LibraryTabProps) {
   const myUserPets = useQuery(listMyUserPets, {});
   const myPacks = useQuery(listMyEmojiPacks, {});
+  const mySubmissions = useQuery(listMyStoreSubmissions, {});
 
   const userPetIds = useMemo(() => {
     const ids = new Set<string>();
@@ -98,8 +101,13 @@ export function LibraryTab({
   const loadingPets = myUserPets === undefined;
   const loadingPacks = myPacks === undefined;
 
+  const submissions = mySubmissions ?? [];
+
   const totalCount =
-    installedMods.length + myPetCards.length + myEmojiPacks.length;
+    installedMods.length +
+    myPetCards.length +
+    myEmojiPacks.length +
+    submissions.length;
 
   if (!loadingPets && !loadingPacks && totalCount === 0) {
     return (
@@ -164,6 +172,24 @@ export function LibraryTab({
           </div>
         ) : null}
       </LibrarySection>
+
+      {submissions.length > 0 ? (
+        <LibrarySection
+          icon={<Hourglass size={16} aria-hidden />}
+          title="Store submissions"
+          count={submissions.length}
+          empty="No store submissions."
+        >
+          <div className="library-submission-list">
+            {submissions.map((submission) => (
+              <SubmissionRow
+                key={submission.releaseId}
+                submission={submission}
+              />
+            ))}
+          </div>
+        </LibrarySection>
+      ) : null}
 
       <LibrarySection
         icon={<Sparkles size={16} aria-hidden />}
@@ -239,6 +265,47 @@ export function LibraryTab({
         />
       ) : null}
     </main>
+  );
+}
+
+const SUBMISSION_STATUS_LABEL: Record<MyStoreSubmission["status"], string> = {
+  pending: "In review",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
+/**
+ * One store submission awaiting (or past) manual review by the Stella
+ * team. Submissions are per-release: a first release publishes the
+ * package on approval; an update goes live for installers on approval.
+ */
+function SubmissionRow({ submission }: { submission: MyStoreSubmission }) {
+  return (
+    <div className="library-submission-row" data-status={submission.status}>
+      <div className="library-submission-main">
+        <span className="library-submission-name">
+          {submission.displayName}
+        </span>
+        <span className="library-submission-meta">
+          {submission.isFirstRelease
+            ? "New add-on"
+            : `Update — release ${submission.releaseNumber}`}
+          {" · "}
+          {new Date(submission.submittedAt).toLocaleDateString()}
+        </span>
+        {submission.status === "rejected" && submission.rejectionReason ? (
+          <span className="library-submission-reason">
+            {submission.rejectionReason}
+          </span>
+        ) : null}
+      </div>
+      <span
+        className="library-submission-status"
+        data-status={submission.status}
+      >
+        {SUBMISSION_STATUS_LABEL[submission.status]}
+      </span>
+    </div>
   );
 }
 

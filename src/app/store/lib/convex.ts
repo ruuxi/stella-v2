@@ -4,7 +4,9 @@ import type {
   EmojiPackUploadUrl,
   EmojiPackVisibility,
   MediaJobSnapshot,
+  MyStoreSubmission,
   NativeIntegration,
+  PendingStoreSubmission,
   PublicPet,
   StoreCategory,
   StorePackage,
@@ -58,6 +60,38 @@ export const recordPackageInstall = makeFunctionReference<
   { packageId: string },
   null
 >("data/store_packages:recordPackageInstall");
+
+// ── Manual review queue ──────────────────────────────────────────────────────
+
+export const listMyStoreSubmissions = makeFunctionReference<
+  "query",
+  Record<string, never>,
+  MyStoreSubmission[]
+>("data/store_packages:listMySubmissions");
+
+export const isStoreAdmin = makeFunctionReference<
+  "query",
+  Record<string, never>,
+  boolean
+>("data/store_admin:isStoreAdmin");
+
+export const listPendingStoreSubmissions = makeFunctionReference<
+  "query",
+  Record<string, never>,
+  PendingStoreSubmission[]
+>("data/store_admin:listPendingSubmissions");
+
+export const approveStoreSubmission = makeFunctionReference<
+  "mutation",
+  { releaseId: string },
+  null
+>("data/store_admin:approveSubmission");
+
+export const rejectStoreSubmission = makeFunctionReference<
+  "mutation",
+  { releaseId: string; reason?: string },
+  null
+>("data/store_admin:rejectSubmission");
 
 export const listPublicPets = makeFunctionReference<
   "query",

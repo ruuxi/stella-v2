@@ -51,6 +51,48 @@ export type StoreRelease = {
   createdAt: number;
 };
 
+export type StoreSubmissionStatus = "pending" | "approved" | "rejected";
+
+export type StoreAdvisoryReview = {
+  outcome: "passed" | "flagged" | "failed";
+  summary: string;
+  findings: Array<{ path: string; detail: string }>;
+  reviewedAt: number;
+};
+
+/** Submitter-facing view of a release in the manual review queue. */
+export type MyStoreSubmission = {
+  releaseId: string;
+  packageId: string;
+  displayName: string;
+  iconUrl?: string;
+  releaseNumber: number;
+  isFirstRelease: boolean;
+  status: StoreSubmissionStatus;
+  rejectionReason?: string;
+  submittedAt: number;
+  reviewedAt?: number;
+};
+
+/** Stella-team view of a pending submission in the approval queue. */
+export type PendingStoreSubmission = {
+  releaseId: string;
+  ownerId: string;
+  packageId: string;
+  releaseNumber: number;
+  isFirstRelease: boolean;
+  displayName: string;
+  description?: string;
+  category?: StoreCategory;
+  iconUrl?: string;
+  authorUsername?: string;
+  releaseNotes?: string;
+  blueprintMarkdown: string;
+  commits?: Array<{ hash: string; subject: string }>;
+  advisoryReview?: StoreAdvisoryReview;
+  submittedAt: number;
+};
+
 export type NativeIntegration = {
   id: string;
   name: string;

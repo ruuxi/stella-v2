@@ -923,6 +923,280 @@
   padding: 12px 0;
 }
 
+/* ── Store submissions (manual review queue, submitter view) ─────────── */
+
+.library-submission-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 640px;
+}
+
+.library-submission-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-weak, rgba(127, 127, 127, 0.2));
+  border-radius: 10px;
+}
+
+.library-submission-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.library-submission-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.library-submission-meta {
+  font-size: 12px;
+  color: var(--text-weak);
+}
+
+.library-submission-reason {
+  font-size: 12px;
+  color: var(--text-base);
+  margin-top: 4px;
+}
+
+.library-submission-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.library-submission-status[data-status="pending"] {
+  color: var(--text-weak);
+}
+
+.library-submission-status[data-status="approved"] {
+  color: #2f9e63;
+}
+
+.library-submission-status[data-status="rejected"] {
+  color: #d05555;
+}
+
+/* ── Store review queue (Stella team admin page) ─────────────────────── */
+
+.store-admin-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px 32px 64px;
+  max-width: 880px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.store-admin-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.store-admin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-weak, rgba(127, 127, 127, 0.2));
+  border-radius: 12px;
+}
+
+.store-admin-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.store-admin-card-artwork {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.store-admin-card-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.store-admin-card-artwork-letter {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.store-admin-card-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.store-admin-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.store-admin-card-meta {
+  font-size: 12px;
+  color: var(--text-weak);
+}
+
+.store-admin-card-description {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-base);
+  margin: 0;
+}
+
+.store-admin-advisory {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-weak, rgba(127, 127, 127, 0.2));
+  font-size: 12px;
+}
+
+.store-admin-advisory-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.store-admin-advisory[data-outcome="passed"] .store-admin-advisory-header {
+  color: #2f9e63;
+}
+
+.store-admin-advisory[data-outcome="flagged"] .store-admin-advisory-header {
+  color: #d05555;
+}
+
+.store-admin-advisory[data-outcome="failed"] .store-admin-advisory-header {
+  color: var(--text-weak);
+}
+
+.store-admin-advisory-summary {
+  color: var(--text-base);
+  line-height: 1.5;
+}
+
+.store-admin-advisory-findings {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-base);
+}
+
+.store-admin-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-weak);
+}
+
+.store-admin-commit-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-base);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.store-admin-blueprint {
+  margin-top: 10px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--border-weak, rgba(127, 127, 127, 0.2));
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.store-admin-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.store-admin-card-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.store-admin-reason {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-weak, rgba(127, 127, 127, 0.25));
+  background: transparent;
+  color: var(--text-strong);
+}
+
+.store-admin-button {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-weak, rgba(127, 127, 127, 0.3));
+  background: transparent;
+  color: var(--text-strong);
+  cursor: pointer;
+}
+
+.store-admin-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.store-admin-button[data-variant="primary"] {
+  background: var(--text-strong);
+  color: var(--bg-base, #fff);
+  border-color: transparent;
+}
+
+.store-admin-button[data-variant="danger"] {
+  color: #d05555;
+  border-color: rgba(208, 85, 85, 0.4);
+}
+
+@media (max-width: 640px) {
+  .store-admin-page {
+    padding: 16px 18px 48px;
+  }
+}
+
 @media (max-width: 640px) {
   .library-page {
     padding: 16px 18px 40px;

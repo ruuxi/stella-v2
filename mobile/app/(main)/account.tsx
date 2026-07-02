@@ -29,6 +29,13 @@ import {
   setNotificationsMuted,
   subscribeNotificationsMuted,
 } from "../../src/lib/notifications-prefs";
+import {
+  getVoiceTargetPreference,
+  loadVoiceTargetPreference,
+  setVoiceTargetPreference,
+  subscribeVoiceTargetPreference,
+  type VoiceTargetPreference,
+} from "../../src/lib/voice-target";
 import { unregisterForPushNotifications } from "../../src/lib/notifications";
 import { type Colors } from "../../src/theme/colors";
 import {
@@ -49,6 +56,13 @@ const GRADIENT_OPTIONS: { value: GradientMode; label: string }[] = [
   { value: "soft", label: "Soft" },
   { value: "flat", label: "Flat" },
 ];
+
+const VOICE_TARGET_OPTIONS: { value: VoiceTargetPreference; label: string }[] =
+  [
+    { value: "auto", label: "Auto" },
+    { value: "phone", label: "Phone" },
+    { value: "computer", label: "Computer" },
+  ];
 
 function maskEmail(email: string): string {
   const at = email.indexOf("@");
@@ -104,6 +118,19 @@ export default function AccountScreen() {
   const [emailRevealed, setEmailRevealed] = useState(false);
 
   useEffect(() => subscribeNotificationsMuted(setMutedLocal), []);
+
+  const [voiceTarget, setVoiceTargetLocal] = useState<VoiceTargetPreference>(
+    () => getVoiceTargetPreference(),
+  );
+  useEffect(() => {
+    const unsubscribe = subscribeVoiceTargetPreference(setVoiceTargetLocal);
+    void loadVoiceTargetPreference();
+    return unsubscribe;
+  }, []);
+  const chooseVoiceTarget = (value: VoiceTargetPreference) => {
+    setVoiceTargetLocal(value);
+    void setVoiceTargetPreference(value);
+  };
 
   const user = session.data?.user;
   const email = user?.email ?? "";
@@ -437,6 +464,45 @@ export default function AccountScreen() {
           accessibilityLabel="Toggle push notifications"
         />
       </View>
+
+      {pairedDesktops.length > 0 ? (
+        <>
+          <View style={styles.separator} />
+
+          <Text style={styles.sectionLabel}>Talk to Stella</Text>
+          <Text style={styles.emptyHint}>
+            Where hands-free voice (like CarPlay) sends your messages. Auto
+            picks your computer&apos;s chat when that&apos;s where you left off
+            and it&apos;s reachable — otherwise this phone&apos;s chat.
+          </Text>
+          <View style={styles.themeRow}>
+            {VOICE_TARGET_OPTIONS.map((opt) => (
+              <Pressable
+                key={opt.value}
+                onPress={() => {
+                  tapLight();
+                  chooseVoiceTarget(opt.value);
+                }}
+                accessibilityLabel={`Send voice messages to ${opt.label}`}
+                accessibilityState={{ selected: voiceTarget === opt.value }}
+                style={[
+                  styles.themeOption,
+                  voiceTarget === opt.value && styles.themeOptionActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.themeOptionText,
+                    voiceTarget === opt.value && styles.themeOptionTextActive,
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : null}
 
       {isSignedIn ? (
         <>

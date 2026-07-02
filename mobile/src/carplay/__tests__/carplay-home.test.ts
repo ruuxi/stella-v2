@@ -17,6 +17,8 @@ const base: CarPlayHomeState = {
   replies: [],
   newReplyId: null,
   converseOn: true,
+  target: "phone",
+  targetSelectable: false,
   now: NOW,
 };
 
@@ -164,6 +166,32 @@ describe("converse mode row", () => {
   });
 });
 
+describe("voice target row (phone chat vs computer chat)", () => {
+  const targetRow = (state: CarPlayHomeState) =>
+    buildHome(state)[0].rows.find((r) => r.action.kind === "toggleTarget");
+
+  test("hidden when no computer is paired (no dead taps)", () => {
+    expect(targetRow(base) === undefined).toBe(true);
+  });
+
+  test("phone target invites switching to the computer", () => {
+    const row = targetRow({ ...base, targetSelectable: true });
+    expect(row !== undefined).toBe(true);
+    expect(row!.item.text).toBe("Send to: Phone");
+    expect(row!.item.detailText).toContain("tap to use your computer");
+  });
+
+  test("computer target names the computer chat and offers the phone", () => {
+    const row = targetRow({
+      ...base,
+      target: "computer",
+      targetSelectable: true,
+    });
+    expect(row!.item.text).toBe("Send to: Computer");
+    expect(row!.item.detailText).toContain("tap to use this phone");
+  });
+});
+
 describe("parseTemplateConfig (resolveAssetSource interop shim)", () => {
   const resolveImage = (source: unknown) => ({
     uri: `resolved-${String(source)}`,
@@ -229,6 +257,22 @@ describe("buildHome / flattenActions", () => {
       "readLatest",
       "toggleConverse",
       "readReply",
+      "readReply",
+    ]);
+  });
+
+  test("paired state adds the target row after converse mode", () => {
+    const sections = buildHome({
+      ...base,
+      targetSelectable: true,
+      target: "computer",
+      replies: [{ id: "m2", text: "Newest.", at: NOW }],
+    });
+    expect(flattenActions(sections).map((a) => a.kind)).toEqual([
+      "talk",
+      "readLatest",
+      "toggleConverse",
+      "toggleTarget",
       "readReply",
     ]);
   });

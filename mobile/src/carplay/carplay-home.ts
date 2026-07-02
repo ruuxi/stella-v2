@@ -36,6 +36,14 @@ export type CarPlayHomeState = {
   newReplyId: string | null;
   /** Converse mode: while ON, replies auto-play via TTS as they arrive. */
   converseOn: boolean;
+  /** Where dictated messages go: this phone's chat or the paired computer's. */
+  target: "phone" | "computer";
+  /**
+   * Whether a computer is paired at all. Hides the target row when there's
+   * nothing to switch to — a toggle that can't do anything would be a dead
+   * tap, exactly what v2 exists to eliminate.
+   */
+  targetSelectable: boolean;
   /** Current time (ms epoch) for relative timestamps; injected for testing. */
   now: number;
 };
@@ -45,7 +53,8 @@ export type HomeRowAction =
   | { kind: "talk" }
   | { kind: "readReply"; id: string }
   | { kind: "readLatest" }
-  | { kind: "toggleConverse" };
+  | { kind: "toggleConverse" }
+  | { kind: "toggleTarget" };
 
 /** Template-agnostic list row (the session decorates with images). */
 export type HomeRowSpec = {
@@ -158,6 +167,27 @@ export function buildConverseRow(state: CarPlayHomeState): HomeRow {
 }
 
 /**
+ * Voice-target row: where "Talk to Stella" sends the dictated message — the
+ * phone's own chat or the paired computer's Stella over the bridge. Only
+ * rendered when a computer is paired. Tapping pins the other target (the
+ * driver made an explicit choice; auto-follow resumes from the phone's
+ * Settings screen).
+ */
+export function buildTargetRow(state: CarPlayHomeState): HomeRow | null {
+  if (!state.targetSelectable) return null;
+  const onComputer = state.target === "computer";
+  return {
+    item: {
+      text: `Send to: ${onComputer ? "Computer" : "Phone"}`,
+      detailText: onComputer
+        ? "Messages go to your computer's chat — tap to use this phone"
+        : "Messages stay in this phone's chat — tap to use your computer",
+    },
+    action: { kind: "toggleTarget" },
+  };
+}
+
+/**
  * The whole home surface, ordered exactly as rendered. react-native-carplay
  * reports item selection as a FLAT index across all sections (see
  * `parseListItems:startIndex:` in RNCarPlay.m), so callers should flatten the
@@ -168,6 +198,8 @@ export function buildHome(state: CarPlayHomeState): HomeSection[] {
   const readLatest = buildReadLatestRow(state);
   if (readLatest) firstRows.push(readLatest);
   firstRows.push(buildConverseRow(state));
+  const targetRow = buildTargetRow(state);
+  if (targetRow) firstRows.push(targetRow);
   const sections: HomeSection[] = [{ rows: firstRows }];
   const replyRows = buildReplyRows(state);
   if (replyRows.length > 0) {

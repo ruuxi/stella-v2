@@ -9,19 +9,25 @@ import { parseChatArtifacts } from "./mobile-artifacts";
  * the desktop bridge on mount. The carplay thread is the hands-free voice loop
  * driven from CarPlay — it rides the same cloud send pipeline but keeps its own
  * short transcript so the always-mounted CarPlay bridge never races the Chat
- * tab's "cloud" store.
+ * tab's "cloud" store. The carplay-computer thread is that same voice loop
+ * when it targets the paired desktop: it converses with the SAME canonical
+ * desktop conversation as the computer thread, but keeps its own local store
+ * and sync cursor so the two mounted surfaces never race each other's
+ * persistence.
  */
-export type ChatThreadId = "cloud" | "computer" | "carplay";
+export type ChatThreadId = "cloud" | "computer" | "carplay" | "carplay-computer";
 
 const MESSAGES_KEY: Record<ChatThreadId, string> = {
   cloud: "stella-mobile-offline-chat-v1",
   computer: "stella-mobile-computer-chat-v1",
   carplay: "stella-mobile-carplay-chat-v1",
+  "carplay-computer": "stella-mobile-carplay-computer-chat-v1",
 };
 const SYNC_STATE_KEY: Record<ChatThreadId, string> = {
   cloud: "stella-mobile-chat-sync-state-v1",
   computer: "stella-mobile-computer-sync-state-v1",
   carplay: "stella-mobile-carplay-sync-state-v1",
+  "carplay-computer": "stella-mobile-carplay-computer-sync-state-v1",
 };
 const MAX_MESSAGES = 1000;
 

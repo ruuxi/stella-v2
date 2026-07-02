@@ -24,8 +24,12 @@ function parseMainTab(value: string | null): MainTabId | null {
   return null;
 }
 
+export async function loadLastMainTab(): Promise<MainTabId | null> {
+  return parseMainTab(await AsyncStorage.getItem(LAST_MAIN_TAB_KEY));
+}
+
 export async function loadLastMainTabHref(): Promise<string> {
-  const tab = parseMainTab(await AsyncStorage.getItem(LAST_MAIN_TAB_KEY));
+  const tab = await loadLastMainTab();
   return MAIN_TAB_HREFS[tab ?? "chat"];
 }
 

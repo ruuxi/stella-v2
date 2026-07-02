@@ -28,7 +28,9 @@ import {
 import { mergeMessagesById, reconcileSentDesktopTurn } from "./chat-merge";
 import { openDesktopBridgeLive } from "./desktop-bridge-live";
 import {
+  desktopTaskPollIntervalMs,
   shouldArmDesktopTaskPoll,
+  shouldDeferLocalChatPushDuringSend,
   shouldSyncOnLocalChatPush,
 } from "./desktop-sync-policy";
 import {
@@ -360,25 +362,38 @@ export function useChatThread(opts: {
     storageLoadedRef.current = storageLoaded;
   }, [storageLoaded]);
 
+  // A push that lands while `sending` is true can't pull right away (mid-send
+  // gate), but it must not be dropped either: the turn's own agent-started /
+  // task lifecycle events broadcast mid-send, and if the post-turn reconcile
+  // races the desktop persisting those rows the running-task snapshot behind
+  // the activity pill is never re-delivered. Remember it and flush post-send.
+  const pendingPushSyncRef = useRef(false);
+
   useEffect(() => {
     if (!desktopAccess) return;
     let pushDebounce: ReturnType<typeof setTimeout> | null = null;
     const handle = openDesktopBridgeLive({
       access: desktopAccess,
       onLocalChatUpdated: () => {
-        if (
-          !shouldSyncOnLocalChatPush({
-            storageLoaded: storageLoadedRef.current,
-            sending: sendingRef.current,
-          })
-        ) {
+        const gates = {
+          storageLoaded: storageLoadedRef.current,
+          sending: sendingRef.current,
+        };
+        if (!shouldSyncOnLocalChatPush(gates)) {
+          if (shouldDeferLocalChatPushDuringSend(gates)) {
+            pendingPushSyncRef.current = true;
+          }
           return;
         }
         // Debounce bursts (a turn persists several events back-to-back).
         if (pushDebounce) clearTimeout(pushDebounce);
         pushDebounce = setTimeout(() => {
           pushDebounce = null;
-          if (sendingRef.current) return;
+          if (sendingRef.current) {
+            // The send started inside the debounce window — defer, don't drop.
+            pendingPushSyncRef.current = true;
+            return;
+          }
           void runDesktopSync();
         }, 400);
       },
@@ -390,6 +405,17 @@ export function useChatThread(opts: {
       setLivePushConnected(false);
     };
   }, [desktopAccess, runDesktopSync]);
+
+  // Flush push notifications the mid-send gate deferred. `runDesktopSync`
+  // awaits the turn's pending reconcile before reading the cursor, so this
+  // pull can't interleave with the optimistic-row linking it was gated for.
+  useEffect(() => {
+    if (sending) return;
+    if (!storageLoaded) return;
+    if (!pendingPushSyncRef.current) return;
+    pendingPushSyncRef.current = false;
+    void runDesktopSync();
+  }, [sending, storageLoaded, runDesktopSync]);
 
   const appendAssistantText = useCallback((replyId: string, chunk: string) => {
     setMessages((m) =>
@@ -890,22 +916,23 @@ export function useChatThread(opts: {
     // optimistic bubble — duplicating it — while also advancing the cursor
     // past the turn so the post-turn reconcile can't find its rows. Mid-turn
     // activity already streams over the bridge; polling only matters between
-    // turns. And while the localChat push socket is live, the desktop tells
-    // us when the transcript changed — the interval is purely a fallback.
+    // turns. While the localChat push socket is live the poll stays armed at
+    // a slow verification cadence (push owns freshness, the poll guarantees
+    // the running-task snapshot behind the activity pill can't freeze if the
+    // socket silently stops delivering).
     if (
       !shouldArmDesktopTaskPoll({
         isDesktopTransport: Boolean(desktopAccess),
         storageLoaded,
         hasRunningConversationTask,
         sending,
-        livePushConnected,
       })
     ) {
       return;
     }
     const handle = setInterval(() => {
       void runDesktopSync();
-    }, 5_000);
+    }, desktopTaskPollIntervalMs(livePushConnected));
     return () => clearInterval(handle);
   }, [
     desktopAccess,

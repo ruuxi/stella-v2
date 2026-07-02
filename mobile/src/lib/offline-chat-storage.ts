@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, MobileTask } from "../types";
 import { parseChatArtifacts } from "./mobile-artifacts";
 
 /**
@@ -30,6 +30,67 @@ export type ChatSyncState = {
   cursor: string | null;
 };
 
+const TASK_STATUSES = new Set(["running", "completed", "error", "canceled"]);
+
+/**
+ * A persisted `running` snapshot older than this loads as settled, mirroring
+ * the desktop projection's stale-settle (`AGENT_WORK_STALE_MS`) so a task
+ * that finished while the app was closed can't shimmer the pill forever.
+ */
+const STORED_RUNNING_TASK_STALE_MS = 5 * 60_000;
+
+/**
+ * Round-trip the background-task snapshots riding a persisted row. Tasks feed
+ * the activity pill/tray via `collectConversationTasks`; dropping them on load
+ * (the pre-fix behavior) killed the pill on every app relaunch — the sync
+ * cursor is already past the spawning rows, so a cursor delta only re-delivers
+ * them when the agent happens to emit another lifecycle event.
+ */
+function parseStoredTasks(value: unknown): MobileTask[] {
+  if (!Array.isArray(value)) return [];
+  const tasks: MobileTask[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    const title = typeof record.title === "string" ? record.title.trim() : "";
+    const status = record.status;
+    if (!id || !title || typeof status !== "string" || !TASK_STATUSES.has(status)) {
+      continue;
+    }
+    const statusText =
+      typeof record.statusText === "string" ? record.statusText.trim() : "";
+    const reasoningSummaries = Array.isArray(record.reasoningSummaries)
+      ? record.reasoningSummaries.filter(
+          (summary): summary is string =>
+            typeof summary === "string" && summary.trim().length > 0,
+        )
+      : [];
+    const createdAt =
+      typeof record.createdAt === "number" && Number.isFinite(record.createdAt)
+        ? record.createdAt
+        : 0;
+    const completedAt =
+      typeof record.completedAt === "number" &&
+      Number.isFinite(record.completedAt)
+        ? record.completedAt
+        : undefined;
+    const settledStale =
+      status === "running" &&
+      Date.now() - createdAt > STORED_RUNNING_TASK_STALE_MS;
+    tasks.push({
+      id,
+      title,
+      status: settledStale ? "completed" : (status as MobileTask["status"]),
+      ...(statusText && !settledStale ? { statusText } : {}),
+      ...(reasoningSummaries.length > 0 ? { reasoningSummaries } : {}),
+      createdAt,
+      ...(completedAt !== undefined ? { completedAt } : {}),
+    });
+  }
+  return tasks;
+}
+
 function parseRow(row: unknown): ChatMessage | null {
   if (!row || typeof row !== "object") {
     return null;
@@ -50,6 +111,7 @@ function parseRow(row: unknown): ChatMessage | null {
   const conversationId =
     typeof o.conversationId === "string" ? o.conversationId : "";
   const artifacts = parseChatArtifacts(o.artifacts, conversationId);
+  const tasks = parseStoredTasks(o.tasks);
   return {
     id: o.id,
     ...(typeof o.canonicalId === "string" && o.canonicalId.trim()
@@ -61,6 +123,7 @@ function parseRow(row: unknown): ChatMessage | null {
     role: o.role,
     text: o.text,
     ...(artifacts.length > 0 ? { artifacts } : {}),
+    ...(tasks.length > 0 ? { tasks } : {}),
     ...(o.hasImage === true ? { hasImage: true } : {}),
     ...(thumbnailUris.length > 0 ? { thumbnailUris } : {}),
     ...(o.cloudFallback === true ? { cloudFallback: true } : {}),

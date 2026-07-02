@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DESKTOP_TASK_POLL_MS,
+  DESKTOP_TASK_POLL_PUSH_VERIFY_MS,
+  desktopTaskPollIntervalMs,
   shouldArmDesktopTaskPoll,
+  shouldDeferLocalChatPushDuringSend,
   shouldSyncOnLocalChatPush,
 } from "../desktop-sync-policy";
 
@@ -9,7 +13,6 @@ const base = {
   storageLoaded: true,
   hasRunningConversationTask: true,
   sending: false,
-  livePushConnected: false,
 };
 
 describe("shouldArmDesktopTaskPoll", () => {
@@ -26,25 +29,21 @@ describe("shouldArmDesktopTaskPoll", () => {
     ).toBe(false);
   });
 
-  test("never polls mid-send (05e5bf6), even without push", () => {
+  test("never polls mid-send (05e5bf6)", () => {
     expect(shouldArmDesktopTaskPoll({ ...base, sending: true })).toBe(false);
-    expect(
-      shouldArmDesktopTaskPoll({
-        ...base,
-        sending: true,
-        livePushConnected: true,
-      }),
-    ).toBe(false);
   });
 
-  test("stands down while the push socket is connected (no double delivery)", () => {
-    expect(
-      shouldArmDesktopTaskPoll({ ...base, livePushConnected: true }),
-    ).toBe(false);
-    // Push drops → poll resumes: the version-mismatch / disconnect handoff.
-    expect(
-      shouldArmDesktopTaskPoll({ ...base, livePushConnected: false }),
-    ).toBe(true);
+  test("stays armed while the push socket is connected (build-94 regression)", () => {
+    // The pill's task snapshots ride these pulls; push must relax the
+    // cadence, never fully suspend the poll while a task is running.
+    expect(shouldArmDesktopTaskPoll(base)).toBe(true);
+    expect(desktopTaskPollIntervalMs(false)).toBe(DESKTOP_TASK_POLL_MS);
+    expect(desktopTaskPollIntervalMs(true)).toBe(
+      DESKTOP_TASK_POLL_PUSH_VERIFY_MS,
+    );
+    expect(DESKTOP_TASK_POLL_PUSH_VERIFY_MS).toBeGreaterThan(
+      DESKTOP_TASK_POLL_MS,
+    );
   });
 });
 
@@ -58,6 +57,30 @@ describe("shouldSyncOnLocalChatPush", () => {
     ).toBe(false);
     expect(
       shouldSyncOnLocalChatPush({ storageLoaded: false, sending: false }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldDeferLocalChatPushDuringSend", () => {
+  test("mid-send pushes are deferred, not dropped", () => {
+    // The turn's own agent-started/task events broadcast while sending; the
+    // flush after the send is what re-delivers the running-task snapshot if
+    // the reconcile raced the desktop persisting those rows.
+    expect(
+      shouldDeferLocalChatPushDuringSend({ storageLoaded: true, sending: true }),
+    ).toBe(true);
+    expect(
+      shouldDeferLocalChatPushDuringSend({
+        storageLoaded: true,
+        sending: false,
+      }),
+    ).toBe(false);
+    // Pre-hydration pushes stay dropped: the landing sync re-pulls anyway.
+    expect(
+      shouldDeferLocalChatPushDuringSend({
+        storageLoaded: false,
+        sending: true,
+      }),
     ).toBe(false);
   });
 });

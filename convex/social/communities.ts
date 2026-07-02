@@ -15,6 +15,7 @@
 import {
   internalMutation,
   mutation,
+  query,
   type MutationCtx,
 } from '../_generated/server'
 import { internal } from '../_generated/api'
@@ -22,7 +23,10 @@ import type { Doc, Id } from '../_generated/dataModel'
 import { ConvexError, v } from 'convex/values'
 import { socialRoomValidator, ensureSocialProfileDoc } from './shared'
 import { requireBoundedString } from '../shared_validators'
-import { requireConnectedUserId } from '../auth'
+import {
+  getConnectedUserIdOrNull,
+  requireConnectedUserId,
+} from '../auth'
 import {
   enforceMutationRateLimit,
   RATE_STANDARD,
@@ -203,6 +207,60 @@ const detachMemberFromRoomSessions = async (
     await ctx.db.delete(membership._id)
   }
 }
+
+// Bounded member count for invite previews. Past this the card just says
+// "500+ members", which is plenty for a join decision.
+const MAX_PREVIEW_MEMBER_COUNT = 500
+
+/**
+ * Public preview behind invite links/cards: enough to render "Join
+ * <name> (<n> members)" before committing. Deliberately exposes nothing
+ * beyond what accepting the invite would reveal anyway, and only resolves
+ * for full, exact codes (the code space is brute-force rate-limited on
+ * the join mutation; this query returns no more than the join itself).
+ */
+export const getCommunityPreviewByInviteCode = query({
+  args: {
+    inviteCode: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      name: v.string(),
+      memberCount: v.number(),
+      memberCountTruncated: v.boolean(),
+      alreadyMember: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    let inviteCode: string
+    try {
+      inviteCode = normalizeInviteCode(args.inviteCode)
+    } catch {
+      return null
+    }
+    const room = await ctx.db
+      .query('social_rooms')
+      .withIndex('by_inviteCode', (q) => q.eq('inviteCode', inviteCode))
+      .unique()
+    if (!room || room.kind !== 'community') {
+      return null
+    }
+    const members = await ctx.db
+      .query('social_room_members')
+      .withIndex('by_roomId_and_joinedAt', (q) => q.eq('roomId', room._id))
+      .take(MAX_PREVIEW_MEMBER_COUNT + 1)
+    const ownerId = await getConnectedUserIdOrNull(ctx)
+    return {
+      name: room.title ?? 'Community',
+      memberCount: Math.min(members.length, MAX_PREVIEW_MEMBER_COUNT),
+      memberCountTruncated: members.length > MAX_PREVIEW_MEMBER_COUNT,
+      alreadyMember: Boolean(
+        ownerId && members.some((member) => member.ownerId === ownerId),
+      ),
+    }
+  },
+})
 
 export const createCommunity = mutation({
   args: {

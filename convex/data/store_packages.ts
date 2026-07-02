@@ -66,8 +66,20 @@ const MAX_GIT_OBJECT_BYTES = 25 * 1024 * 1024;
 
 // ── arg validators ───────────────────────────────────────────────────────────
 
+// Where a release is headed. "store" (default) lands in the manual
+// approval queue and goes live in the public store once a Stella team
+// member approves it. "circle" is the trusted-circle share path: the
+// package stays unlisted (link-only, never listed in the store) and the
+// release is live immediately — recipients are people the author picked
+// in a community or DM, so there is no review gate.
+export const store_release_audience_validator = v.union(
+  v.literal("store"),
+  v.literal("circle"),
+);
+
 const create_release_args_validator = {
   packageId: v.string(),
+  audience: v.optional(store_release_audience_validator),
   releaseNotes: v.optional(v.string()),
   manifest: store_release_manifest_validator,
   blueprintMarkdown: v.string(),
@@ -616,6 +628,7 @@ export const createFirstReleaseRecord = internalMutation({
   args: {
     ownerId: v.string(),
     packageId: v.string(),
+    audience: v.optional(store_release_audience_validator),
     category: v.optional(store_package_category_validator),
     displayName: v.string(),
     description: v.optional(v.string()),
@@ -645,9 +658,13 @@ export const createFirstReleaseRecord = internalMutation({
       args.category ?? args.manifest.category,
     );
     const description = args.description ?? "";
-    // The package is created "private" and flips to "public" when the
-    // Stella team approves the first release. Until then it is only
-    // visible to its owner.
+    const isCircleRelease = args.audience === "circle";
+    // Store path: the package is created "private" and flips to "public"
+    // when the Stella team approves the first release. Until then it is
+    // only visible to its owner.
+    // Circle path: the package is created "unlisted" (direct-link only,
+    // never listed in the store) and the release goes live immediately —
+    // the audience is a trusted circle the author picked, not the public.
     const packageRef = await ctx.db.insert("store_packages", {
       ownerId: args.ownerId,
       packageId: args.packageId,
@@ -655,8 +672,8 @@ export const createFirstReleaseRecord = internalMutation({
       displayName: args.displayName,
       ...(description ? { description } : {}),
       searchText: buildPackageSearchText(args.displayName, description),
-      latestReleaseNumber: 0,
-      visibility: "private",
+      latestReleaseNumber: isCircleRelease ? 1 : 0,
+      visibility: isCircleRelease ? "unlisted" : "private",
       createdAt: now,
       updatedAt: now,
       ...(args.iconUrl ? { iconUrl: args.iconUrl } : {}),
@@ -679,12 +696,19 @@ export const createFirstReleaseRecord = internalMutation({
       ...(args.gitArtifact ? { gitArtifact: args.gitArtifact } : {}),
       ...(args.diffRef ? { diffRef: args.diffRef } : {}),
       createdAt: now,
-      reviewStatus: "pending",
+      reviewStatus: isCircleRelease ? "approved" : "pending",
+      ...(isCircleRelease ? { reviewedAt: now } : {}),
       ...(args.advisoryReview ? { advisoryReview: args.advisoryReview } : {}),
     });
 
-    // `latestReleaseNumber`/`latestReleaseId` stay at their zero state
-    // until approval — they are the "published" pointers.
+    if (isCircleRelease) {
+      // Circle releases are live at creation, so the published pointers
+      // advance here instead of at approval time.
+      await ctx.db.patch(packageRef, { latestReleaseId: releaseRef });
+    }
+
+    // Store path: `latestReleaseNumber`/`latestReleaseId` stay at their
+    // zero state until approval — they are the "published" pointers.
     const pkg = await ctx.db.get(packageRef);
     const release = await ctx.db.get(releaseRef);
     if (!pkg || !release) {
@@ -702,6 +726,7 @@ export const createUpdateReleaseRecord = internalMutation({
   args: {
     ownerId: v.string(),
     packageId: v.string(),
+    audience: v.optional(store_release_audience_validator),
     releaseNotes: v.optional(v.string()),
     manifest: store_release_manifest_validator,
     blueprintMarkdown: v.string(),
@@ -724,6 +749,18 @@ export const createUpdateReleaseRecord = internalMutation({
       throw new ConvexError({
         code: "NOT_FOUND",
         message: "Store package not found",
+      });
+    }
+
+    const isCircleRelease = args.audience === "circle";
+    if (isCircleRelease && effectiveVisibility(pkg.visibility) !== "unlisted") {
+      // Instant (unreviewed) updates are only allowed for packages that
+      // live entirely on the trusted-circle path. Anything the public
+      // store serves (or that is queued for it) must go through review.
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message:
+          "This add-on is in the public store, so updates need Stella team review. Share the update to the Store instead.",
       });
     }
 
@@ -755,13 +792,27 @@ export const createUpdateReleaseRecord = internalMutation({
       ...(args.gitArtifact ? { gitArtifact: args.gitArtifact } : {}),
       ...(args.diffRef ? { diffRef: args.diffRef } : {}),
       createdAt: now,
-      reviewStatus: "pending",
+      reviewStatus: isCircleRelease ? "approved" : "pending",
+      ...(isCircleRelease ? { reviewedAt: now } : {}),
       ...(args.advisoryReview ? { advisoryReview: args.advisoryReview } : {}),
     });
 
-    // The package's published surface (latest pointers, updatedAt,
-    // icon/author refresh) is intentionally NOT touched here — that
-    // happens when the Stella team approves the release in
+    if (isCircleRelease) {
+      // Circle releases go live immediately: advance the published
+      // pointers the same way `data/store_admin.approveSubmission` does.
+      await ctx.db.patch(pkg._id, {
+        latestReleaseNumber: nextReleaseNumber,
+        latestReleaseId: releaseRef,
+        updatedAt: now,
+        ...(args.manifest.iconUrl && !pkg.iconUrl
+          ? { iconUrl: args.manifest.iconUrl }
+          : {}),
+      });
+    }
+
+    // Store path: the package's published surface (latest pointers,
+    // updatedAt, icon/author refresh) is intentionally NOT touched here —
+    // that happens when the Stella team approves the release in
     // `data/store_admin`. Installers keep seeing the current approved
     // release until then.
 
@@ -1452,15 +1503,20 @@ export const createFirstRelease = action({
           : undefined;
       // Advisory only — the release lands in the manual approval queue
       // regardless; this verdict is attached for the human reviewer.
-      const advisoryReview = await runStoreReleaseReviewAdvisory(ctx, {
-        ownerId,
-        packageId,
-        displayName,
-        description: description ?? "",
-        releaseSummary: releaseNotes,
-        artifactBody: blueprintMarkdown,
-        ...(reviewCommits ? { commits: reviewCommits } : {}),
-      });
+      // Circle releases skip it: there is no reviewer to advise, and the
+      // share is meant to be instant.
+      const advisoryReview =
+        args.audience === "circle"
+          ? undefined
+          : await runStoreReleaseReviewAdvisory(ctx, {
+              ownerId,
+              packageId,
+              displayName,
+              description: description ?? "",
+              releaseSummary: releaseNotes,
+              artifactBody: blueprintMarkdown,
+              ...(reviewCommits ? { commits: reviewCommits } : {}),
+            });
 
       const author = await resolveCallerAuthor(ctx, ownerId);
       const iconUrl =
@@ -1479,6 +1535,7 @@ export const createFirstRelease = action({
         {
           ownerId,
           packageId,
+          ...(args.audience ? { audience: args.audience } : {}),
           displayName,
           ...(description ? { description } : {}),
           releaseNotes,
@@ -1580,15 +1637,20 @@ export const createUpdateRelease = action({
           : undefined;
       // Advisory only — the release lands in the manual approval queue
       // regardless; this verdict is attached for the human reviewer.
-      const advisoryReview = await runStoreReleaseReviewAdvisory(ctx, {
-        ownerId,
-        packageId,
-        displayName: pkg.displayName,
-        description: pkg.description ?? "",
-        releaseSummary: releaseNotes,
-        artifactBody: blueprintMarkdown,
-        ...(reviewCommits ? { commits: reviewCommits } : {}),
-      });
+      // Circle releases skip it: there is no reviewer to advise, and the
+      // share is meant to be instant.
+      const advisoryReview =
+        args.audience === "circle"
+          ? undefined
+          : await runStoreReleaseReviewAdvisory(ctx, {
+              ownerId,
+              packageId,
+              displayName: pkg.displayName,
+              description: pkg.description ?? "",
+              releaseSummary: releaseNotes,
+              artifactBody: blueprintMarkdown,
+              ...(reviewCommits ? { commits: reviewCommits } : {}),
+            });
 
       const author = await resolveCallerAuthor(ctx, ownerId);
       const iconUrl =
@@ -1608,6 +1670,7 @@ export const createUpdateRelease = action({
         {
           ownerId,
           packageId,
+          ...(args.audience ? { audience: args.audience } : {}),
           releaseNotes,
           manifest: releaseManifest,
           blueprintMarkdown,
@@ -1620,6 +1683,7 @@ export const createUpdateRelease = action({
             ? { authorUsername: author.authorUsername }
             : {}),
           ...(author.authorBadge ? { authorBadge: author.authorBadge } : {}),
+          advisoryReview,
         },
       );
     } catch (error) {

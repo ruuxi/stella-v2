@@ -33,7 +33,7 @@ SUBJECT="$(git log -1 --format=%s)"
 
 echo "Exporting release bundle for verification (HEAD ${SHA})..."
 rm -rf dist
-bunx expo export --platform ios
+bunx expo export --platform ios --source-maps
 
 echo "Verifying exported bundle matches git HEAD..."
 bun scripts/verify-ota-export.ts HEAD

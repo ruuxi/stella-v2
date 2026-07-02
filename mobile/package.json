@@ -78,6 +78,7 @@
   },
   "private": true,
   "patchedDependencies": {
-    "react-native-carplay@2.3.0": "patches/react-native-carplay@2.3.0.patch"
+    "react-native-carplay@2.3.0": "patches/react-native-carplay@2.3.0.patch",
+    "react-native@0.83.6": "patches/react-native@0.83.6.patch"
   }
 }

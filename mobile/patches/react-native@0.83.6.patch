@@ -1,0 +1,24 @@
+diff --git a/React/CoreModules/RCTAppearance.mm b/React/CoreModules/RCTAppearance.mm
+index d25d9f64e6bd4f0f54229df0e14aad864f8d10aa..678f6cd5b28fbd7ae2156719abc8eeb8d501f0a5 100644
+--- a/React/CoreModules/RCTAppearance.mm
++++ b/React/CoreModules/RCTAppearance.mm
+@@ -113,8 +113,17 @@ - (dispatch_queue_t)methodQueue
+ {
+   UIUserInterfaceStyle userInterfaceStyle = [RCTConvert UIUserInterfaceStyle:style];
+   NSMutableArray<UIWindow *> *windows = [NSMutableArray new];
+-  for (UIWindowScene *scene in RCTSharedApplication().connectedScenes) {
+-    [windows addObjectsFromArray:scene.windows];
++  // Stella patch: connectedScenes is NOT guaranteed to contain only
++  // UIWindowScenes — a connected CarPlay head unit contributes a
++  // CPTemplateApplicationScene, which does not respond to `windows`. The
++  // unguarded fast-enumeration cast crashed the whole app with
++  // "-[CPTemplateApplicationScene windows]: unrecognized selector" whenever
++  // JS applied a color scheme while CarPlay was attached. Filter by class.
++  for (UIScene *scene in RCTSharedApplication().connectedScenes) {
++    if (![scene isKindOfClass:[UIWindowScene class]]) {
++      continue;
++    }
++    [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
+   }
+ 
+   for (UIWindow *window in windows) {

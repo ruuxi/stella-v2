@@ -494,6 +494,17 @@ export default function AccountScreen() {
 
       <View style={styles.legalBlock}>
         <Pressable
+          onPress={() => router.push("/carplay-diagnostics")}
+          accessibilityLabel="Open CarPlay diagnostics"
+          style={({ pressed }) => [
+            styles.legalRow,
+            pressed && styles.legalRowPressed,
+          ]}
+        >
+          <Text style={styles.legalLabel}>CarPlay diagnostics</Text>
+          <Text style={styles.legalChevron}>›</Text>
+        </Pressable>
+        <Pressable
           onPress={() => void Linking.openURL("https://stella.sh/terms")}
           accessibilityLabel="Open Terms of Service"
           style={({ pressed }) => [

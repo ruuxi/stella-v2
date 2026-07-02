@@ -118,13 +118,26 @@ class CarPlaySession {
     if (Platform.OS !== "ios") return false;
     if (this.rnc) return true;
     try {
+      // Breadcrumb the native-module presence BEFORE requiring the library:
+      // react-native-carplay's CarPlay singleton constructs a
+      // NativeEventEmitter(RNCarPlay) at module scope, which throws when the
+      // interop layer didn't surface the module — and that throw used to be
+      // invisible on-device (console.warn only).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { NativeModules } = require("react-native") as {
+        NativeModules: Record<string, unknown>;
+      };
+      carPlayLog(
+        `NativeModules.RNCarPlay ${NativeModules.RNCarPlay ? "present" : "MISSING"}`,
+      );
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require("react-native-carplay") as RNCarPlay;
       this.rnc = mod;
       this.CarPlay = mod.CarPlay;
+      carPlayLog("react-native-carplay module loaded");
       return true;
     } catch (error) {
-      console.warn("[carplay] react-native-carplay unavailable", error);
+      carPlayLog(`react-native-carplay require FAILED: ${String(error)}`);
       return false;
     }
   }
@@ -132,7 +145,11 @@ class CarPlaySession {
   /** Register connect/disconnect handlers exactly once (called on iOS mount). */
   register() {
     if (this.registered) return;
-    if (!this.load() || !this.CarPlay) return;
+    carPlayLog("session.register() called");
+    if (!this.load() || !this.CarPlay) {
+      carPlayLog("session.register() bailed — CarPlay bridge unavailable");
+      return;
+    }
     this.registered = true;
 
     const handleConnect = () => {

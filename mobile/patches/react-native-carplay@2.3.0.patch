@@ -1,8 +1,11 @@
+diff --git a/node_modules/react-native-carplay/.bun-tag-5da88733b9f803fb b/.bun-tag-5da88733b9f803fb
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/node_modules/react-native-carplay/.bun-tag-8ecb6aa752be0cfb b/.bun-tag-8ecb6aa752be0cfb
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/ios/RNCarPlay.m b/ios/RNCarPlay.m
-index 672a032a2ab8214249c65229d5eccf9583e86c8c..7ac61da68793b74832870be51ebd4733d47c06ee 100644
+index 672a032a2ab8214249c65229d5eccf9583e86c8c..8d256e32e547f06b3afcd8f9f14e6dfc7706a0c9 100644
 --- a/ios/RNCarPlay.m
 +++ b/ios/RNCarPlay.m
 @@ -2,6 +2,28 @@
@@ -57,7 +60,7 @@ index 672a032a2ab8214249c65229d5eccf9583e86c8c..7ac61da68793b74832870be51ebd4733
      }
  }
  
-@@ -36,7 +71,8 @@ + (void) disconnect {
+@@ -36,11 +71,35 @@ + (void) disconnect {
      [store setConnected:false];
      [[store.window subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
  
@@ -67,7 +70,34 @@ index 672a032a2ab8214249c65229d5eccf9583e86c8c..7ac61da68793b74832870be51ebd4733
          [cp sendEventWithName:@"didDisconnect" body:@{}];
      }
  }
-@@ -152,8 +188,10 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
+ 
++// Stella: bypass RCTEventEmitter's listener-count guard. The base
++// sendEventWithName SILENTLY DROPS events while `_listenerCount == 0`
++// (RCTLogWarn only). Under the New Architecture this legacy module is reached
++// through the interop layer, and its `addListener`/`removeListeners`
++// bookkeeping cannot be trusted to have run before CarPlay connects — a
++// dropped `didConnect`/`didSelectListItem` is a permanently dead head unit.
++// RCTDeviceEventEmitter delivery itself works whenever callableJSModules is
++// set, and emitting to it with no JS listeners is a harmless no-op, so emit
++// directly and fall back to the stock path only when callableJSModules is
++// missing (legacy bridge).
++- (void)sendEventWithName:(NSString *)eventName body:(id)body
++{
++    if (self.callableJSModules) {
++        [self.callableJSModules invokeModule:@"RCTDeviceEventEmitter"
++                                      method:@"emit"
++                                    withArgs:body ? @[ eventName, body ] : @[ eventName ]];
++        RNCPStellaLog(@"direct-emit %@ via callableJSModules", eventName);
++    } else {
++        RNCPStellaLog(@"emit %@ via stock sendEventWithName (no callableJSModules)", eventName);
++        [super sendEventWithName:eventName body:body];
++    }
++}
++
+ RCT_EXPORT_MODULE();
+ 
+ + (id)allocWithZone:(NSZone *)zone {
+@@ -152,8 +211,10 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
  
  RCT_EXPORT_METHOD(checkForConnection) {
      RNCPStore *store = [RNCPStore sharedManager];
@@ -78,7 +108,7 @@ index 672a032a2ab8214249c65229d5eccf9583e86c8c..7ac61da68793b74832870be51ebd4733
      }
  }
  
-@@ -458,13 +496,18 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
+@@ -458,13 +519,18 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
  
      store.interfaceController.delegate = self;
  

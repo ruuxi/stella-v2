@@ -248,6 +248,10 @@ function CarPlayBridgeIOS() {
   }, [onTalk, onReadReply, onReadLatest, onToggleConverse]);
 
   useEffect(() => {
+    // First [js] breadcrumb of a healthy run. If a diagnostics dump has native
+    // lines but not this one, the React tree never mounted the bridge (env
+    // gating, provider crash, or JS never ran at all).
+    carPlayLog("CarPlayBridge mounted");
     carPlaySession.register();
   }, []);
 

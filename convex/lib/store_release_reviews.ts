@@ -1,4 +1,3 @@
-import { ConvexError } from "convex/values";
 import { z } from "zod";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
@@ -757,7 +756,29 @@ const reviewImageFile = async (
   });
 };
 
-export const enforceStoreReleaseReviewOrThrow = async (
+/**
+ * Advisory pre-review attached to a submission for the human approval
+ * queue. This is the old auto-review verdict shape reduced to what the
+ * reviewer needs; it never blocks or throws.
+ */
+export type StoreReleaseAdvisoryReview = {
+  outcome: "passed" | "flagged" | "failed";
+  summary: string;
+  findings: Array<{ path: string; detail: string }>;
+  reviewedAt: number;
+};
+
+const MAX_ADVISORY_FINDINGS = 12;
+const MAX_ADVISORY_DETAIL_CHARS = 2_000;
+
+/**
+ * Run the automated LLM review as an ADVISORY signal only. Submissions
+ * land in the manual approval queue regardless of the outcome here —
+ * this exists so the human reviewer sees the machine's opinion next to
+ * the submission. Failures degrade to `outcome: "failed"` rather than
+ * blocking the submission.
+ */
+export const runStoreReleaseReviewAdvisory = async (
   ctx: Pick<ActionCtx, "runQuery" | "scheduler" | "runMutation">,
   args: {
     ownerId: string;
@@ -769,7 +790,7 @@ export const enforceStoreReleaseReviewOrThrow = async (
     artifactBody: string;
     commits?: ReadonlyArray<StoreReleaseCommitForReview>;
   },
-): Promise<void> => {
+): Promise<StoreReleaseAdvisoryReview> => {
   let parsedArtifact: ReturnType<typeof parseReviewableStoreArtifact>;
   try {
     parsedArtifact = parseReviewableStoreArtifact(
@@ -778,11 +799,13 @@ export const enforceStoreReleaseReviewOrThrow = async (
     );
   } catch (error) {
     console.error("[store-review] Failed to parse artifact for review:", error);
-    throw new ConvexError({
-      code: "STORE_REVIEW_FAILED",
-      message:
-        "Store publish was denied because automated review could not inspect the release artifact.",
-    });
+    return {
+      outcome: "failed",
+      summary:
+        "Automated pre-review could not inspect the release artifact.",
+      findings: [],
+      reviewedAt: Date.now(),
+    };
   }
 
   try {
@@ -838,28 +861,43 @@ export const enforceStoreReleaseReviewOrThrow = async (
       const reasonParts: string[] = [];
       if (blockedCodeFiles.length > 0) {
         reasonParts.push(
-          summarizeFindings(blockedCodeFiles, "Security review blocked"),
+          summarizeFindings(blockedCodeFiles, "Security review flagged"),
         );
       }
       if (blockedImageFiles.length > 0) {
         reasonParts.push(
-          summarizeFindings(blockedImageFiles, "Image safety review blocked"),
+          summarizeFindings(blockedImageFiles, "Image safety review flagged"),
         );
       }
-      throw new ConvexError({
-        code: "STORE_REVIEW_REJECTED",
-        message: `Store publish was denied by automated review. ${reasonParts.join(" | ")}`,
-      });
+      const findings = [...blockedCodeFiles, ...blockedImageFiles]
+        .slice(0, MAX_ADVISORY_FINDINGS)
+        .map((verdict) => ({
+          path: verdict.path,
+          detail: (verdict.blockingReason ?? verdict.summary).slice(
+            0,
+            MAX_ADVISORY_DETAIL_CHARS,
+          ),
+        }));
+      return {
+        outcome: "flagged",
+        summary: reasonParts.join(" | ").slice(0, 4_000),
+        findings,
+        reviewedAt: Date.now(),
+      };
     }
+    return {
+      outcome: "passed",
+      summary: "Automated pre-review found no blocking issues.",
+      findings: [],
+      reviewedAt: Date.now(),
+    };
   } catch (error) {
-    if (error instanceof ConvexError) {
-      throw error;
-    }
     console.error("[store-review] Automated review failed:", error);
-    throw new ConvexError({
-      code: "STORE_REVIEW_FAILED",
-      message:
-        "Store publish was denied because automated review could not complete.",
-    });
+    return {
+      outcome: "failed",
+      summary: "Automated pre-review could not complete.",
+      findings: [],
+      reviewedAt: Date.now(),
+    };
   }
 };

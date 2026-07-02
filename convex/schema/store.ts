@@ -84,6 +84,38 @@ export const store_release_diff_ref_validator = v.object({
   sizeBytes: v.number(),
 });
 
+// ── Manual review queue ──────────────────────────────────────────────────────
+
+// Review lifecycle for a release. `undefined` on legacy rows means the
+// release predates the manual queue and is treated as approved (it was
+// published live under the old auto-review flow).
+export const store_release_review_status_validator = v.union(
+  v.literal("pending"),
+  v.literal("approved"),
+  v.literal("rejected"),
+);
+
+// Advisory output of the automated LLM pre-review. It no longer gates
+// publishing — it is attached to the submission so the human reviewer
+// sees it in the approval queue.
+export const store_release_advisory_review_validator = v.object({
+  // "passed" — no blocking findings; "flagged" — the LLM would have
+  // blocked this release; "failed" — the review could not complete.
+  outcome: v.union(
+    v.literal("passed"),
+    v.literal("flagged"),
+    v.literal("failed"),
+  ),
+  summary: v.string(),
+  findings: v.array(
+    v.object({
+      path: v.string(),
+      detail: v.string(),
+    }),
+  ),
+  reviewedAt: v.number(),
+});
+
 // ── Packages + releases ──────────────────────────────────────────────────────
 
 const storePackageFields = {
@@ -143,6 +175,12 @@ const storePackageReleaseFields = {
   // inline, so the release document stays small and reads stay cheap.
   diffRef: v.optional(store_release_diff_ref_validator),
   createdAt: v.number(),
+  // Manual review queue. `undefined` = legacy release published before
+  // manual review existed (treated as approved everywhere).
+  reviewStatus: v.optional(store_release_review_status_validator),
+  reviewedAt: v.optional(v.number()),
+  reviewRejectionReason: v.optional(v.string()),
+  advisoryReview: v.optional(store_release_advisory_review_validator),
 };
 
 export const store_package_validator = v.object({
@@ -199,5 +237,7 @@ export const storeSchema = {
   store_package_releases: defineTable(storePackageReleaseFields)
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
     .index("by_packageRef_and_releaseNumber", ["packageRef", "releaseNumber"])
-    .index("by_packageId_and_releaseNumber", ["packageId", "releaseNumber"]),
+    .index("by_packageId_and_releaseNumber", ["packageId", "releaseNumber"])
+    // Manual approval queue — page pending submissions oldest-first.
+    .index("by_reviewStatus_and_createdAt", ["reviewStatus", "createdAt"]),
 };

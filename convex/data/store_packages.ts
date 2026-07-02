@@ -22,13 +22,15 @@ import {
   store_package_validator,
   store_package_visibility_validator,
   store_publish_result_validator,
+  store_release_advisory_review_validator,
+  store_release_review_status_validator,
   store_release_commit_meta_validator,
   store_release_diff_ref_validator,
   store_release_git_artifact_validator,
   store_release_manifest_validator,
 } from "../schema/store";
 import { socialBadgeValidator } from "../schema/social";
-import { enforceStoreReleaseReviewOrThrow } from "../lib/store_release_reviews";
+import { runStoreReleaseReviewAdvisory } from "../lib/store_release_reviews";
 import { generateStoreIconUrl } from "../lib/store_icon";
 import {
   enforceActionRateLimit,
@@ -591,17 +593,20 @@ export const getReadableReleaseForArtifactInternal = internalQuery({
     const releaseNumber = normalizeReleaseNumber(args.releaseNumber);
     const pkg = await getPackageByPackageId(ctx, normalizedPackageId);
     if (!pkg) return null;
-    if (
-      !isDirectLinkAccessible(pkg.visibility) &&
-      (!args.callerOwnerId || pkg.ownerId !== args.callerOwnerId)
-    ) {
+    const isOwner =
+      args.callerOwnerId !== undefined && pkg.ownerId === args.callerOwnerId;
+    if (!isDirectLinkAccessible(pkg.visibility) && !isOwner) {
       return null;
     }
-    return await getReleaseByPackageIdAndNumber(
+    const release = await getReleaseByPackageIdAndNumber(
       ctx,
       normalizedPackageId,
       releaseNumber,
     );
+    if (!release) return null;
+    // Pending/rejected releases are only installable by their owner.
+    if (!isOwner && !isReleaseApproved(release)) return null;
+    return release;
   },
 });
 
@@ -624,6 +629,7 @@ export const createFirstReleaseRecord = internalMutation({
     iconUrl: v.optional(v.string()),
     authorUsername: v.optional(v.string()),
     authorBadge: v.optional(socialBadgeValidator),
+    advisoryReview: v.optional(store_release_advisory_review_validator),
   },
   handler: async (ctx, args) => {
     const existing = await getPackageByPackageId(ctx, args.packageId);
@@ -639,6 +645,9 @@ export const createFirstReleaseRecord = internalMutation({
       args.category ?? args.manifest.category,
     );
     const description = args.description ?? "";
+    // The package is created "private" and flips to "public" when the
+    // Stella team approves the first release. Until then it is only
+    // visible to its owner.
     const packageRef = await ctx.db.insert("store_packages", {
       ownerId: args.ownerId,
       packageId: args.packageId,
@@ -647,7 +656,7 @@ export const createFirstReleaseRecord = internalMutation({
       ...(description ? { description } : {}),
       searchText: buildPackageSearchText(args.displayName, description),
       latestReleaseNumber: 0,
-      visibility: "public",
+      visibility: "private",
       createdAt: now,
       updatedAt: now,
       ...(args.iconUrl ? { iconUrl: args.iconUrl } : {}),
@@ -670,14 +679,12 @@ export const createFirstReleaseRecord = internalMutation({
       ...(args.gitArtifact ? { gitArtifact: args.gitArtifact } : {}),
       ...(args.diffRef ? { diffRef: args.diffRef } : {}),
       createdAt: now,
+      reviewStatus: "pending",
+      ...(args.advisoryReview ? { advisoryReview: args.advisoryReview } : {}),
     });
 
-    await ctx.db.patch(packageRef, {
-      latestReleaseNumber: 1,
-      latestReleaseId: releaseRef,
-      updatedAt: now,
-    });
-
+    // `latestReleaseNumber`/`latestReleaseId` stay at their zero state
+    // until approval — they are the "published" pointers.
     const pkg = await ctx.db.get(packageRef);
     const release = await ctx.db.get(releaseRef);
     if (!pkg || !release) {
@@ -705,6 +712,7 @@ export const createUpdateReleaseRecord = internalMutation({
     iconUrl: v.optional(v.string()),
     authorUsername: v.optional(v.string()),
     authorBadge: v.optional(socialBadgeValidator),
+    advisoryReview: v.optional(store_release_advisory_review_validator),
   },
   handler: async (ctx, args) => {
     const pkg = await getOwnedPackageByPackageId(
@@ -719,7 +727,18 @@ export const createUpdateReleaseRecord = internalMutation({
       });
     }
 
-    const nextReleaseNumber = pkg.latestReleaseNumber + 1;
+    // Number after the highest EXISTING release (pending ones included),
+    // not `latestReleaseNumber + 1` — the latest pointer only advances on
+    // approval, so stacked pending submissions must not collide.
+    const newestRelease = await ctx.db
+      .query("store_package_releases")
+      .withIndex("by_packageRef_and_releaseNumber", (q) =>
+        q.eq("packageRef", pkg._id),
+      )
+      .order("desc")
+      .first();
+    const nextReleaseNumber =
+      Math.max(pkg.latestReleaseNumber, newestRelease?.releaseNumber ?? 0) + 1;
     const now = Date.now();
     const releaseRef = await ctx.db.insert("store_package_releases", {
       ownerId: args.ownerId,
@@ -736,18 +755,15 @@ export const createUpdateReleaseRecord = internalMutation({
       ...(args.gitArtifact ? { gitArtifact: args.gitArtifact } : {}),
       ...(args.diffRef ? { diffRef: args.diffRef } : {}),
       createdAt: now,
+      reviewStatus: "pending",
+      ...(args.advisoryReview ? { advisoryReview: args.advisoryReview } : {}),
     });
 
-    await ctx.db.patch(pkg._id, {
-      latestReleaseNumber: nextReleaseNumber,
-      latestReleaseId: releaseRef,
-      updatedAt: now,
-      ...(args.iconUrl ? { iconUrl: args.iconUrl } : {}),
-      ...(args.authorUsername ? { authorUsername: args.authorUsername } : {}),
-      // Always patch authorBadge — undefined clears a stale badge if
-      // the author has since canceled their subscription.
-      authorBadge: args.authorBadge,
-    });
+    // The package's published surface (latest pointers, updatedAt,
+    // icon/author refresh) is intentionally NOT touched here — that
+    // happens when the Stella team approves the release in
+    // `data/store_admin`. Installers keep seeing the current approved
+    // release until then.
 
     const updatedPackage = await ctx.db.get(pkg._id);
     const release = await ctx.db.get(releaseRef);
@@ -793,6 +809,13 @@ const isDirectLinkAccessible = (
   const tier = effectiveVisibility(visibility);
   return tier === "public" || tier === "unlisted";
 };
+
+// Legacy releases (no `reviewStatus`) predate the manual approval queue
+// and were published live, so they count as approved.
+const isReleaseApproved = (release: {
+  reviewStatus?: "pending" | "approved" | "rejected";
+}): boolean =>
+  release.reviewStatus === undefined || release.reviewStatus === "approved";
 
 export const listPublicPackages = query({
   args: {
@@ -989,17 +1012,20 @@ export const listPublicReleases = query({
     const normalizedPackageId = normalizePackageId(args.packageId);
     const pkg = await getPackageByPackageId(ctx, normalizedPackageId);
     if (!pkg) return [];
-    if (!isDirectLinkAccessible(pkg.visibility)) {
-      const callerId = await ctx.auth.getUserIdentity();
-      if (!callerId || pkg.ownerId !== callerId.tokenIdentifier) return [];
+    const callerId = await ctx.auth.getUserIdentity();
+    const isOwner = callerId?.tokenIdentifier === pkg.ownerId;
+    if (!isDirectLinkAccessible(pkg.visibility) && !isOwner) {
+      return [];
     }
-    return await ctx.db
+    const releases = await ctx.db
       .query("store_package_releases")
       .withIndex("by_packageId_and_releaseNumber", (q) =>
         q.eq("packageId", normalizedPackageId),
       )
       .order("desc")
       .take(200);
+    // Pending/rejected releases stay owner-only until approved.
+    return isOwner ? releases : releases.filter(isReleaseApproved);
   },
 });
 
@@ -1011,15 +1037,20 @@ export const getPublicRelease = query({
     const releaseNumber = normalizeReleaseNumber(args.releaseNumber);
     const pkg = await getPackageByPackageId(ctx, normalizedPackageId);
     if (!pkg) return null;
-    if (!isDirectLinkAccessible(pkg.visibility)) {
-      const callerId = await ctx.auth.getUserIdentity();
-      if (!callerId || pkg.ownerId !== callerId.tokenIdentifier) return null;
+    const callerId = await ctx.auth.getUserIdentity();
+    const isOwner = callerId?.tokenIdentifier === pkg.ownerId;
+    if (!isDirectLinkAccessible(pkg.visibility) && !isOwner) {
+      return null;
     }
-    return await getReleaseByPackageIdAndNumber(
+    const release = await getReleaseByPackageIdAndNumber(
       ctx,
       normalizedPackageId,
       releaseNumber,
     );
+    if (!release) return null;
+    // Pending/rejected releases stay owner-only until approved.
+    if (!isOwner && !isReleaseApproved(release)) return null;
+    return release;
   },
 });
 
@@ -1106,11 +1137,92 @@ export const setPackageVisibility = mutation({
     if (effectiveVisibility(pkg.visibility) === args.visibility) {
       return null;
     }
+    // A package with no approved release can't be made discoverable —
+    // that would bypass the manual review queue. `latestReleaseNumber`
+    // only advances when a release is approved (legacy packages are >= 1).
+    if (args.visibility !== "private" && pkg.latestReleaseNumber < 1) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message:
+          "This add-on is awaiting review by the Stella team and can't be made public yet.",
+      });
+    }
     await ctx.db.patch(pkg._id, {
       visibility: args.visibility,
       updatedAt: Date.now(),
     });
     return null;
+  },
+});
+
+// ── submitter-facing review status ──────────────────────────────────────────
+
+const store_submission_status_validator = v.object({
+  releaseId: v.id("store_package_releases"),
+  packageId: v.string(),
+  displayName: v.string(),
+  iconUrl: v.optional(v.string()),
+  releaseNumber: v.number(),
+  isFirstRelease: v.boolean(),
+  status: store_release_review_status_validator,
+  rejectionReason: v.optional(v.string()),
+  submittedAt: v.number(),
+  reviewedAt: v.optional(v.number()),
+});
+
+/**
+ * The caller's store submissions (releases that went through the manual
+ * review queue), newest first. Legacy releases published before the
+ * queue existed are omitted — they were never "submissions".
+ */
+export const listMySubmissions = query({
+  args: {},
+  returns: v.array(store_submission_status_validator),
+  handler: async (ctx) => {
+    const ownerId = await getUserIdOrNull(ctx);
+    if (!ownerId) return [];
+    const releases = await ctx.db
+      .query("store_package_releases")
+      .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
+      .order("desc")
+      .take(100);
+    const packageCache = new Map<
+      string,
+      { displayName: string; iconUrl?: string } | null
+    >();
+    const results: Array<Infer<typeof store_submission_status_validator>> = [];
+    for (const release of releases) {
+      if (release.reviewStatus === undefined) continue;
+      let pkg = packageCache.get(release.packageId);
+      if (pkg === undefined) {
+        const record = await ctx.db.get(release.packageRef);
+        pkg = record
+          ? {
+              displayName: record.displayName,
+              ...(record.iconUrl ? { iconUrl: record.iconUrl } : {}),
+            }
+          : null;
+        packageCache.set(release.packageId, pkg);
+      }
+      if (!pkg) continue;
+      results.push({
+        releaseId: release._id,
+        packageId: release.packageId,
+        displayName: pkg.displayName,
+        ...(pkg.iconUrl ? { iconUrl: pkg.iconUrl } : {}),
+        releaseNumber: release.releaseNumber,
+        isFirstRelease: release.releaseNumber === 1,
+        status: release.reviewStatus,
+        ...(release.reviewRejectionReason
+          ? { rejectionReason: release.reviewRejectionReason }
+          : {}),
+        submittedAt: release.createdAt,
+        ...(release.reviewedAt !== undefined
+          ? { reviewedAt: release.reviewedAt }
+          : {}),
+      });
+    }
+    return results;
   },
 });
 
@@ -1338,7 +1450,9 @@ export const createFirstRelease = action({
               },
             ]
           : undefined;
-      await enforceStoreReleaseReviewOrThrow(ctx, {
+      // Advisory only — the release lands in the manual approval queue
+      // regardless; this verdict is attached for the human reviewer.
+      const advisoryReview = await runStoreReleaseReviewAdvisory(ctx, {
         ownerId,
         packageId,
         displayName,
@@ -1380,6 +1494,7 @@ export const createFirstRelease = action({
             ? { authorUsername: author.authorUsername }
             : {}),
           ...(author.authorBadge ? { authorBadge: author.authorBadge } : {}),
+          advisoryReview,
         },
       );
     } catch (error) {
@@ -1463,7 +1578,9 @@ export const createUpdateRelease = action({
               },
             ]
           : undefined;
-      await enforceStoreReleaseReviewOrThrow(ctx, {
+      // Advisory only — the release lands in the manual approval queue
+      // regardless; this verdict is attached for the human reviewer.
+      const advisoryReview = await runStoreReleaseReviewAdvisory(ctx, {
         ownerId,
         packageId,
         displayName: pkg.displayName,

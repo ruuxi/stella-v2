@@ -159,6 +159,22 @@ class CarPlaySession {
    */
   private installParseConfigShim(mod: RNCarPlay) {
     try {
+      // The shim only exists to route around the library's broken
+      // resolveAssetSource require; if the public API we depend on isn't the
+      // expected shape in THIS bundle (minified release interop can differ
+      // from dev), leave the library untouched rather than install a shim
+      // that would throw later.
+      const resolveAssetSource = (
+        Image as unknown as {
+          resolveAssetSource?: (source: unknown) => unknown;
+        }
+      ).resolveAssetSource;
+      if (typeof resolveAssetSource !== "function") {
+        carPlayLog(
+          "parseConfig shim SKIPPED: Image.resolveAssetSource unavailable",
+        );
+        return;
+      }
       const listProto = (mod.ListTemplate as unknown as { prototype: object })
         .prototype;
       // parseConfig lives on the base Template prototype; patch it there so
@@ -170,10 +186,26 @@ class CarPlaySession {
         base && typeof base.parseConfig === "function"
           ? base
           : (listProto as { parseConfig?: (config: unknown) => unknown });
-      target.parseConfig = (config: unknown) =>
-        parseTemplateConfig(config, (source) =>
-          Image.resolveAssetSource(source as never),
-        );
+      const original = target.parseConfig;
+      target.parseConfig = function (
+        this: unknown,
+        config: unknown,
+      ): unknown {
+        try {
+          return parseTemplateConfig(config, (source) =>
+            resolveAssetSource(source),
+          );
+        } catch (error) {
+          // The shim must never be a new way to crash a template: fall back
+          // to the upstream implementation (broken only for image keys) and
+          // leave a breadcrumb naming the failure.
+          carPlayLog(`parseConfig shim threw, using upstream: ${String(error)}`);
+          if (typeof original === "function") {
+            return original.call(this, config);
+          }
+          throw error;
+        }
+      };
       carPlayLog("installed parseConfig interop shim");
     } catch (error) {
       carPlayLog(`parseConfig shim FAILED: ${String(error)}`);

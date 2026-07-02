@@ -129,4 +129,29 @@ describe("activity pill task derivation under push-connected sync", () => {
     expect(loaded[0]?.tasks?.[0]?.status).toBe("completed");
     expect(runningCount(loaded)).toBe(0);
   });
+
+  test("hydration is corruption-tolerant: garbage rows drop, good rows load", async () => {
+    // Simulate a store written by a different (older/newer) code version:
+    // valid rows interleaved with shapes parseRow was never taught about.
+    memoryStore.set(
+      "stella-mobile-computer-chat-v1",
+      JSON.stringify([
+        null,
+        42,
+        "not-a-row",
+        { id: 7, role: "assistant", text: 1 },
+        { id: "bad-tasks", role: "assistant", text: "hi", tasks: { not: "an array" } },
+        {
+          id: "good",
+          role: "assistant",
+          text: "Still here.",
+          createdAt: 1_000,
+          tasks: [task({ status: "completed", completedAt: 2_000 })],
+        },
+      ]),
+    );
+    const loaded = await loadChatMessages("computer");
+    expect(loaded.map((m) => m.id)).toEqual(["bad-tasks", "good"]);
+    expect(loaded[1]?.tasks).toHaveLength(1);
+  });
 });

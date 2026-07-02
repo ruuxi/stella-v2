@@ -144,7 +144,16 @@ export async function loadChatMessages(
     }
     const out: ChatMessage[] = [];
     for (const item of parsed) {
-      const row = parseRow(item);
+      // Hydration must be corruption-tolerant per ROW: parseRow is defensive,
+      // but if a row written by a different code version still manages to
+      // throw, only that row is dropped — never the whole transcript, and
+      // never the boot (this runs during initial mount).
+      let row: ChatMessage | null = null;
+      try {
+        row = parseRow(item);
+      } catch {
+        row = null;
+      }
       if (row) {
         out.push(row);
       }

@@ -1,5 +1,12 @@
 import { useMemo, useRef, useState } from "react";
-import { Stack, usePathname, useRouter } from "expo-router";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  Stack,
+  usePathname,
+  useRouter,
+  type ErrorBoundaryProps,
+} from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { loadAsync, useFonts } from "expo-font";
@@ -38,6 +45,92 @@ import { ShareIntentHandler } from "../src/lib/share-intent-handler";
 import { CarPlayBridge } from "../src/carplay/CarPlayBridge";
 
 void SplashScreen.preventAutoHideAsync();
+
+/** AsyncStorage key holding the last boot-crash breadcrumb (JSON). */
+const BOOT_CRASH_BREADCRUMB_KEY = "stella-mobile-last-boot-crash-v1";
+
+/**
+ * Root-level render-error boundary (picked up by expo-router). Postmortem
+ * armor from the 2026-07-02 OTA boot crash: a render-time ReferenceError in
+ * ChatPane hit `RCTFatal` in release and killed the app before ANY UI — no
+ * error screen, no diagnostics, and expo-updates never rolled back. This
+ * boundary turns any future render/boot throw into a visible error screen
+ * with a retry, persists a breadcrumb for diagnostics, and lifts the native
+ * splash (the crash usually happens while the splash is still up, which would
+ * otherwise hide the fallback and look like a hang).
+ *
+ * Deliberately depends on nothing but react-native primitives + AsyncStorage
+ * so the fallback itself can't be taken down by whatever module just failed.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  useEffect(() => {
+    void SplashScreen.hideAsync().catch(() => undefined);
+    const breadcrumb = JSON.stringify({
+      at: new Date().toISOString(),
+      message: String(error?.message ?? error),
+      stack: typeof error?.stack === "string" ? error.stack.slice(0, 4000) : "",
+    });
+    void AsyncStorage.setItem(BOOT_CRASH_BREADCRUMB_KEY, breadcrumb).catch(
+      () => undefined,
+    );
+  }, [error]);
+
+  return (
+    <View style={bootErrorStyles.root}>
+      <Text style={bootErrorStyles.title}>Something broke at launch</Text>
+      <Text style={bootErrorStyles.detail} numberOfLines={6}>
+        {String(error?.message ?? error)}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => void retry()}
+        style={({ pressed }) => [
+          bootErrorStyles.button,
+          pressed && bootErrorStyles.buttonPressed,
+        ]}
+      >
+        <Text style={bootErrorStyles.buttonLabel}>Try again</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const bootErrorStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    gap: 12,
+    backgroundColor: "#edf3fb",
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#1c2733",
+    textAlign: "center",
+  },
+  detail: {
+    fontSize: 13,
+    color: "#5b6b7b",
+    textAlign: "center",
+  },
+  button: {
+    marginTop: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 22,
+    backgroundColor: "#1c2733",
+  },
+  buttonPressed: {
+    opacity: 0.7,
+  },
+  buttonLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#ffffff",
+  },
+});
 
 function RootStack() {
   return (

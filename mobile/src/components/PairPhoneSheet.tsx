@@ -222,18 +222,25 @@ export function PairPhoneSheet({
             </View>
           </ScrollView>
         </SafeAreaView>
-      </Modal>
 
-      <PairingQrScanner
-        visible={isScanningQr}
-        onClose={() => setIsScanningQr(false)}
-        onCodeScanned={(code) => {
-          setIsScanningQr(false);
-          // Scanning is unambiguous — pair immediately rather than dropping
-          // the code into the manual field for a second confirmation tap.
-          void pair(code);
-        }}
-      />
+        {/*
+          The scanner must be nested inside this Modal, not rendered as a
+          sibling: on iOS a sibling Modal can't present while the pageSheet
+          is already up, so its content mounts (and the camera even scans)
+          without any visible preview. Nesting makes iOS present the
+          full-screen scanner from the sheet's view controller.
+        */}
+        <PairingQrScanner
+          visible={isScanningQr}
+          onClose={() => setIsScanningQr(false)}
+          onCodeScanned={(code) => {
+            setIsScanningQr(false);
+            // Scanning is unambiguous — pair immediately rather than dropping
+            // the code into the manual field for a second confirmation tap.
+            void pair(code);
+          }}
+        />
+      </Modal>
     </>
   );
 }

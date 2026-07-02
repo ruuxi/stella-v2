@@ -417,6 +417,7 @@ declare const fullApi: ApiFromModules<{
   "schema/users": typeof schema_users;
   shared_validators: typeof shared_validators;
   "social/censor": typeof social_censor;
+  "social/communities": typeof social_communities;
   "social/messages": typeof social_messages;
   "social/profiles": typeof social_profiles;
   "social/relationships": typeof social_relationships;

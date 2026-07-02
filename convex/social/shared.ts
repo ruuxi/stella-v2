@@ -102,6 +102,7 @@ export const socialRoomValidator = v.object({
   title: v.optional(v.string()),
   createdByOwnerId: v.string(),
   stellaSessionId: v.optional(v.id("stella_sessions")),
+  inviteCode: v.optional(v.string()),
   createdAt: v.number(),
   updatedAt: v.number(),
   latestMessageAt: v.optional(v.number()),

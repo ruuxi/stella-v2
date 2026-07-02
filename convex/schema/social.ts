@@ -12,6 +12,11 @@ export const socialRoomKindValidator = v.union(
   v.literal("dm"),
   v.literal("group"),
   v.literal("global"),
+  // "community" — a named, invite-code-joinable trusted circle. User-facing
+  // name is always "community" (never "organization"). Membership is not
+  // gated on friendship; anyone with the invite code can join. Reuses the
+  // room/member/message machinery so add-on share links work unchanged.
+  v.literal("community"),
 );
 
 export const socialRoomMemberRoleValidator = v.union(
@@ -113,13 +118,17 @@ export const socialSchema = {
     title: v.optional(v.string()),
     createdByOwnerId: v.string(),
     stellaSessionId: v.optional(v.id("stella_sessions")),
+    // Community rooms only: uppercase join code shared out-of-band by
+    // members ("invite code"). Absent on dm/group/global rooms.
+    inviteCode: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
     latestMessageAt: v.optional(v.number()),
   })
     .index("by_roomKey", ["roomKey"])
     .index("by_createdByOwnerId_and_updatedAt", ["createdByOwnerId", "updatedAt"])
-    .index("by_stellaSessionId", ["stellaSessionId"]),
+    .index("by_stellaSessionId", ["stellaSessionId"])
+    .index("by_inviteCode", ["inviteCode"]),
 
   social_room_members: defineTable({
     roomId: v.id("social_rooms"),

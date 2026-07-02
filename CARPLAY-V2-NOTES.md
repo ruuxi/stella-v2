@@ -101,3 +101,96 @@ Accessibility/SIP gating):
   interleaved) or filter Console.app on `[carplay]`.
 
 Build 92 to be cut by Rahul after review — nothing pushed, no build run.
+
+---
+
+# Build-92 field report (real car): stuck on placeholder — analysis
+
+Observed: placeholder renders, detail text reached **"Still connecting — open
+Stella on your iPhone"**, tap does nothing visible, force-quit/reopen and
+unplug/replug don't recover.
+
+What that tells us for free:
+- The native side is fully healthy: scene delegate ran, placeholder installed,
+  the **tap handler and watchdog fired** (that detail text only appears after
+  ≥4 takeover retries), `gInterfaceController` was live, and
+  `[RNCarPlay connectWithInterfaceController:]` was re-invoked repeatedly.
+- JS never set its root **even with the app foregrounded on the phone** →
+  this is a *deterministic* JS/bridge-side failure, not a headless-launch or
+  timing race.
+
+## Ranked suspects (with the breadcrumb signature each leaves)
+
+1. **`RCTEventEmitter.sendEventWithName` silently drops the event while
+   `_listenerCount == 0`** (`node_modules/react-native/React/Modules/RCTEventEmitter.m`,
+   `shouldEmitEvent = _observationDisabled || _listenerCount > 0`, else
+   RCTLogWarn-and-drop). Under bridgeless New Arch the legacy RNCarPlay module
+   is reached via the interop layer; if its `addListener` bookkeeping doesn't
+   reach the native module instance, **every** emit (didConnect AND
+   didSelectListItem) is dropped forever — exactly matches "retries change
+   nothing, relaunch changes nothing".
+   *Signature:* native lines incl. `RNCarPlay.connect ... callableJSModules=YES`
+   and `checkForConnection called from JS; storeConnected=YES` +
+   `re-emitted didConnect`, `[js] registered onConnect` + poll attempts — but
+   **no `[js] JS connect handler running`**.
+   → **Fixed defensively in `b70a187`**: the patch now overrides
+   `sendEventWithName` in RNCarPlay to emit directly via
+   `callableJSModules → RCTDeviceEventEmitter` (no listener-count guard;
+   harmless no-op if JS listeners truly absent), with a breadcrumb per emit.
+
+2. **`require("react-native-carplay")` throws on device** (e.g.
+   `new NativeEventEmitter(NativeModules.RNCarPlay)` with a nil module if the
+   interop layer didn't surface it in the release build). In build 92 this was
+   swallowed by a console-only warn — invisible.
+   *Signature (build 92):* **zero `[js]` lines at all**.
+   *Signature (build 93, after `b70a187`):* `[js] CarPlayBridge mounted`,
+   `session.register() called`, `NativeModules.RNCarPlay MISSING` /
+   `require FAILED: ...`, `register() bailed`.
+
+3. **JS receives didConnect but native `setRootTemplate` fails** (template
+   missing from RNCPStore, stale/nil interfaceController, or CarPlay rejecting
+   the template).
+   *Signature:* `[js] JS connect handler running` + `setRootTemplate attempt`
+   and then `setRootTemplate(stella-voice-home) template=MISSING` or
+   `completion done=NO error=...` from the patched native module.
+
+4. **CarPlayBridge never mounts** (env gating `hasMobileConfig`, a provider
+   crash above it, or the React tree not rendering in the TestFlight build).
+   Unlikely — the phone app itself works — but until build 93 it was
+   indistinguishable from #2.
+   *Signature (93):* native lines only, **no `[js] CarPlayBridge mounted`**.
+
+5. **Patch not applied in the EAS build** (bun `patchedDependencies` skipped).
+   Verified locally: `mobile/bun.lock` carries the
+   `react-native-carplay@2.3.0 → patches/...` entry and EAS uses bun (bun.lock
+   present), so this is low-probability.
+   *Signature:* scene-delegate `[carplay]` lines present but **no
+   `RNCarPlay.connect bridge=...` / `checkForConnection called from JS`
+   lines** (those only exist in the patched module).
+
+## Getting the breadcrumbs off Rahul's phone
+
+The breadcrumb store (`StellaCarPlayDiagnostics` in NSUserDefaults)
+**persists across app updates** — the lines from today's failed drive are
+still on the phone.
+
+Easiest (no cable, no Xcode): **install build 93 from TestFlight, then in
+Stella: Account tab → "CarPlay diagnostics" → Copy all → paste into a
+message.** Do this BEFORE connecting to the car again — the store keeps only
+the latest 80 lines, and a new connect session will push old ones out.
+
+Live alternative (needs Mac + cable, only shows logs while connected): plug
+the iPhone into the Mac → open **Console.app** → select the iPhone in the
+sidebar → press **Start streaming** → type `carplay` in the search box (top
+right) and press return → reproduce in the car → screenshot/copy the lines.
+
+## Fix/diagnostic commits (post-build-92)
+
+- `b70a187` — bypass RCTEventEmitter listener-count drop (suspect #1 fix) +
+  close the `[js]` breadcrumb blind spots (bridge mount, register entry/bail,
+  NativeModules presence, require failures).
+- `f9d82f4` — in-app CarPlay diagnostics screen (Account → CarPlay
+  diagnostics: list, Copy all, Refresh, Clear).
+
+Build 93 after Rahul reviews. Whatever the dump shows, the signature table
+above maps it straight to the failing layer.

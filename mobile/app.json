@@ -4,6 +4,12 @@
     "name": "Stella",
     "slug": "stella-mobile",
     "version": "1.0.17",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/892d4162-8a4f-40e8-a0d5-b24516cb7537"
+    },
     "orientation": "portrait",
     "scheme": "stella-mobile",
     "icon": "./assets/icon.png",

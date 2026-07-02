@@ -26,6 +26,61 @@ const sortByCreatedAt = (messages: ChatMessage[]): ChatMessage[] => {
 };
 
 /**
+ * Collapse "linked row + unlinked twin" duplicates: the transcript holds a
+ * local row linked to a canonical desktop row (`canonicalId: X`) AND that
+ * canonical row as its own separate row (`id: X`, no `canonicalId`).
+ *
+ * That state is how the "user message rendered twice" bug looks on disk. It
+ * arises when a sync pulls the turn's canonical user row MID-SEND — the
+ * desktop persists it the moment the turn starts, and `mergeMessagesById`
+ * deliberately doesn't text-match, so the not-yet-linked optimistic bubble
+ * can't absorb it; the canonical row lands as its own row stamped with the
+ * *desktop* clock, sorting after the locally-anchored bubble (and, with any
+ * clock skew, after the reply). The stream-end/reconcile linking then marks
+ * the bubble `canonicalId: X`, but the twin survives because that mid-send
+ * pull advanced the cursor past the row — it is never re-delivered, so the
+ * in-merge collapse (which needs the canonical row in `incoming`) never runs.
+ *
+ * This pass heals the pair structurally, whatever created it: the linked
+ * local row wins (stable id, anchored timestamp), adopting the twin's
+ * artifacts if it has none. Returns the input array unchanged (same
+ * reference) when there is nothing to collapse.
+ */
+export const collapseLinkedDuplicates = (
+  messages: ChatMessage[],
+): ChatMessage[] => {
+  const linkedCanonicalIds = new Set<string>();
+  for (const message of messages) {
+    if (message.canonicalId && message.canonicalId !== message.id) {
+      linkedCanonicalIds.add(message.canonicalId);
+    }
+  }
+  if (linkedCanonicalIds.size === 0) return messages;
+  const twinsById = new Map<string, ChatMessage>();
+  for (const message of messages) {
+    if (!message.canonicalId && linkedCanonicalIds.has(message.id)) {
+      twinsById.set(message.id, message);
+    }
+  }
+  if (twinsById.size === 0) return messages;
+  const out: ChatMessage[] = [];
+  for (const message of messages) {
+    if (!message.canonicalId && twinsById.has(message.id)) continue;
+    const twin = message.canonicalId
+      ? twinsById.get(message.canonicalId)
+      : undefined;
+    // The dropped twin may carry content the linked row never received (e.g.
+    // artifacts on a canonical assistant row) — keep it on the survivor.
+    if (twin && twin.artifacts?.length && !message.artifacts?.length) {
+      out.push({ ...message, artifacts: twin.artifacts });
+    } else {
+      out.push(message);
+    }
+  }
+  return out;
+};
+
+/**
  * Merge canonical desktop messages into the local transcript by id without ever
  * discarding local-only rows (e.g. cloud-answered turns). Rows the transcript
  * already reconciled keep their local id (`canonicalId` links them to the
@@ -53,7 +108,10 @@ export const mergeMessagesById = (
   current: ChatMessage[],
   incoming: ChatMessage[],
 ): ChatMessage[] => {
-  if (incoming.length === 0) return current;
+  // Even a no-op delta heals linked-row/unlinked-twin duplicates: the
+  // post-turn reconcile's delta often no longer contains the canonical row a
+  // mid-send pull already consumed (see `collapseLinkedDuplicates`).
+  if (incoming.length === 0) return collapseLinkedDuplicates(current);
   const byId = new Map(current.map((message) => [message.id, message]));
   const order = current.map((message) => message.id);
   for (const message of incoming) {
@@ -111,7 +169,7 @@ export const mergeMessagesById = (
   const merged = order
     .map((id) => byId.get(id))
     .filter((message): message is ChatMessage => Boolean(message));
-  return sortByCreatedAt(merged);
+  return sortByCreatedAt(collapseLinkedDuplicates(merged));
 };
 
 /**

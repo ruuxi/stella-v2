@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ChatMessage } from "../../types";
-import { mergeMessagesById, reconcileSentDesktopTurn } from "../chat-merge";
+import {
+  collapseLinkedDuplicates,
+  mergeMessagesById,
+  reconcileSentDesktopTurn,
+} from "../chat-merge";
 
 const user = (id: string, text: string, extra?: Partial<ChatMessage>): ChatMessage => ({
   id,
@@ -106,6 +110,94 @@ describe("mergeMessagesById", () => {
     ];
     const incoming = [assistant("c", "between", { createdAt: 150 })];
     expect(ids(mergeMessagesById(current, incoming))).toEqual(["a", "c", "b"]);
+  });
+});
+
+describe("mid-send foreground sync duplicate (user row rendered twice)", () => {
+  // Regression: a foreground/refocus/Force-Sync pull that fired MID-SEND
+  // merged the turn's canonical user row before the optimistic bubble was
+  // linked. The twin sorted onto the (skewed-ahead) desktop clock, below the
+  // streaming reply, and — because that pull advanced the cursor past the
+  // turn — the post-turn reconcile's delta never re-delivered it, so nothing
+  // healed the duplicate and it persisted to storage.
+  test("merge heals the twin even when the canonical row is never re-delivered", () => {
+    // Optimistic turn, anchored to the phone clock.
+    let transcript: ChatMessage[] = [
+      user("local-u", "By the way, for the redesign…", { createdAt: 100 }),
+      assistant("local-a", "", { createdAt: 101 }),
+    ];
+    // Mid-send pull: canonical user row, desktop clock slightly ahead. No
+    // link exists yet (text matching is deliberately excluded), so it lands
+    // as its own row BELOW the reply — the bug's visible symptom.
+    transcript = mergeMessagesById(transcript, [
+      user("desk-u", "By the way, for the redesign…", { createdAt: 105 }),
+    ]);
+    expect(ids(transcript)).toEqual(["local-u", "local-a", "desk-u"]);
+    // Stream end: the bridge result links the optimistic rows directly.
+    transcript = transcript.map((m) =>
+      m.id === "local-u"
+        ? { ...m, canonicalId: "desk-u" }
+        : m.id === "local-a"
+          ? { ...m, text: "Sounds good.", requestId: "desk-u" }
+          : m,
+    );
+    // Post-turn reconcile delta: only the canonical reply — desk-u was
+    // already consumed by the mid-send pull. The merge must still collapse
+    // the twin into the linked bubble.
+    const healed = mergeMessagesById(transcript, [
+      assistant("desk-a", "Sounds good.", {
+        requestId: "desk-u",
+        createdAt: 106,
+      }),
+    ]);
+    expect(ids(healed)).toEqual(["local-u", "local-a"]);
+    expect(healed[0]?.canonicalId).toBe("desk-u");
+    expect(healed[1]?.canonicalId).toBe("desk-a");
+  });
+
+  test("an empty delta still heals a persisted twin", () => {
+    const current = [
+      user("local-u", "hello", { canonicalId: "desk-u", createdAt: 100 }),
+      assistant("local-a", "hi", { createdAt: 101 }),
+      user("desk-u", "hello", { createdAt: 105 }),
+    ];
+    expect(ids(mergeMessagesById(current, []))).toEqual([
+      "local-u",
+      "local-a",
+    ]);
+  });
+});
+
+describe("collapseLinkedDuplicates", () => {
+  test("drops the unlinked twin and keeps the linked row's anchor", () => {
+    const healed = collapseLinkedDuplicates([
+      user("local-u", "hello", { canonicalId: "desk-u", createdAt: 100 }),
+      assistant("local-a", "hi", { createdAt: 101 }),
+      user("desk-u", "hello", { createdAt: 105 }),
+    ]);
+    expect(ids(healed)).toEqual(["local-u", "local-a"]);
+    expect(healed[0]?.createdAt).toBe(100);
+  });
+
+  test("adopts the twin's artifacts when the linked row has none", () => {
+    const artifacts = [
+      { id: "art-1", conversationId: "conv-1", payload: {} },
+    ] as unknown as ChatMessage["artifacts"];
+    const healed = collapseLinkedDuplicates([
+      assistant("local-a", "done", { canonicalId: "desk-a", createdAt: 100 }),
+      assistant("desk-a", "done", { createdAt: 105, artifacts }),
+    ]);
+    expect(ids(healed)).toEqual(["local-a"]);
+    expect(healed[0]?.artifacts).toEqual(artifacts);
+  });
+
+  test("leaves unrelated repeats and unlinked rows alone (same reference)", () => {
+    const current = [
+      user("a", "ok", { createdAt: 1 }),
+      user("b", "ok", { createdAt: 2 }),
+      user("c", "later", { canonicalId: "desk-c", createdAt: 3 }),
+    ];
+    expect(collapseLinkedDuplicates(current)).toBe(current);
   });
 });
 

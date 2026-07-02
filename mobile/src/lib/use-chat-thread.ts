@@ -25,7 +25,11 @@ import {
   type WorkingActivity,
   type WorkingIndicatorState,
 } from "../components/working-indicator-state";
-import { mergeMessagesById, reconcileSentDesktopTurn } from "./chat-merge";
+import {
+  collapseLinkedDuplicates,
+  mergeMessagesById,
+  reconcileSentDesktopTurn,
+} from "./chat-merge";
 import { openDesktopBridgeLive } from "./desktop-bridge-live";
 import {
   desktopTaskPollIntervalMs,
@@ -213,7 +217,10 @@ export function useChatThread(opts: {
     ]).then(([loaded, syncState]) => {
       syncConversationIdRef.current = syncState.conversationId;
       syncCursorRef.current = syncState.cursor;
-      setMessages(loaded);
+      // Heal any linked-row/unlinked-twin duplicates persisted by builds that
+      // could pull mid-send (see `collapseLinkedDuplicates`) — the damaged
+      // transcript would otherwise render the duplicate until a delta arrives.
+      setMessages(collapseLinkedDuplicates(loaded));
       setStorageLoaded(true);
     });
   }, [threadId]);
@@ -231,6 +238,17 @@ export function useChatThread(opts: {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  // Mirror of `sending` for reads outside render — notably the mid-send gate
+  // in `runDesktopSync` and the push handler below.
+  const sendingRef = useRef(false);
+  useEffect(() => {
+    sendingRef.current = sending;
+  }, [sending]);
+
+  // A pull blocked by the mid-send gate is remembered here — never dropped —
+  // and flushed once the send settles (the effect below the push socket).
+  const pendingPushSyncRef = useRef(false);
 
   const persistSyncState = useCallback(
     (state: { conversationId?: string | null; cursor?: string | null }) => {
@@ -268,7 +286,15 @@ export function useChatThread(opts: {
   }, []);
 
   const runDesktopSync = useCallback(
-    (options?: { catchUp?: boolean }): Promise<{ offline: boolean }> => {
+    (options?: {
+      catchUp?: boolean;
+      /**
+       * Internal: set only by the send pipeline's own wake → sync → send
+       * step, which legitimately runs while `sending` is true. Every other
+       * caller is deferred by the mid-send gate below.
+       */
+      duringSend?: boolean;
+    }): Promise<{ offline: boolean }> => {
       const catchUp = options?.catchUp === true;
       if (!desktopAccess) return Promise.resolve({ offline: false });
       const existing = desktopSyncRef.current;
@@ -277,6 +303,19 @@ export function useChatThread(opts: {
         // joined it, and a pull is genuinely happening.
         if (catchUp) trackCatchUpRun(existing);
         return existing;
+      }
+      // NEVER pull mid-send (05e5bf6) — enforced here, at the coalescing
+      // point, so callers that don't check `sending` themselves (the Computer
+      // tab's focus/AppState-resume handler, Force Sync) can't start one. The
+      // desktop persists the turn's user row the moment the turn starts; a
+      // mid-send pull would merge that canonical row before the optimistic
+      // bubble is linked — rendering the user's message twice (the twin sorts
+      // onto the desktop clock, below the reply) — while also advancing the
+      // cursor past the turn so the post-turn reconcile can't heal it. Defer
+      // to the post-send flush instead of dropping the request.
+      if (sendingRef.current && options?.duringSend !== true) {
+        pendingPushSyncRef.current = true;
+        return Promise.resolve({ offline: false });
       }
     // Snapshot the generation so results from a now-stale computer (switched or
     // unmounted mid-flight) are dropped instead of clobbering the current one.
@@ -353,10 +392,6 @@ export function useChatThread(opts: {
   // the polls use — so double delivery is harmless even mid-handoff, and the
   // 05e5bf6 mid-send gate is enforced here too (no pulls while `sending`).
   const [livePushConnected, setLivePushConnected] = useState(false);
-  const sendingRef = useRef(false);
-  useEffect(() => {
-    sendingRef.current = sending;
-  }, [sending]);
   const storageLoadedRef = useRef(storageLoaded);
   useEffect(() => {
     storageLoadedRef.current = storageLoaded;
@@ -366,9 +401,9 @@ export function useChatThread(opts: {
   // gate), but it must not be dropped either: the turn's own agent-started /
   // task lifecycle events broadcast mid-send, and if the post-turn reconcile
   // races the desktop persisting those rows the running-task snapshot behind
-  // the activity pill is never re-delivered. Remember it and flush post-send.
-  const pendingPushSyncRef = useRef(false);
-
+  // the activity pill is never re-delivered. Remembered in
+  // `pendingPushSyncRef` (declared above `runDesktopSync`) and flushed
+  // post-send.
   useEffect(() => {
     if (!desktopAccess) return;
     let pushDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -550,7 +585,7 @@ export function useChatThread(opts: {
         // with this turn's stream. If that wake already proved the desktop is
         // offline, surface it now rather than spending a second wake budget.
         patchActivity({ statusText: WAKE_STATUS_COPY.connecting });
-        const synced = await runDesktopSync();
+        const synced = await runDesktopSync({ duringSend: true });
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
           activeDispatchRef.current = null;
           setSending(false);

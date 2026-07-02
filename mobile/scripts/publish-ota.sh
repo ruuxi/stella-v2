@@ -39,4 +39,7 @@ echo "Verifying exported bundle matches git HEAD..."
 bun scripts/verify-ota-export.ts HEAD
 
 echo "Publishing to channel '${CHANNEL}' as: ${SHA} ${SUBJECT}"
-bunx eas-cli update --channel "${CHANNEL}" --message "${SHA} ${SUBJECT}" --non-interactive
+# Channels here (development/preview/production) map 1:1 to the default EAS
+# environments; --environment is mandatory in --non-interactive mode.
+bunx eas-cli update --channel "${CHANNEL}" --environment "${CHANNEL}" \
+  --message "${SHA} ${SUBJECT}" --non-interactive

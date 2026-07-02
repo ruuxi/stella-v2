@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { Appearance, useColorScheme } from "react-native";
+import { useColorScheme } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { setColorSchemeSafely } from "../carplay/carplay-appearance";
 import { type Colors, lightColors, darkColors } from "./colors";
 import { themes, defaultThemeId, getThemeById, type StellaTheme } from "./themes";
 
@@ -118,7 +119,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // text). Only when the theme has no forced mode do we defer to the picker.
   useEffect(() => {
     if (!loaded) return;
-    Appearance.setColorScheme(
+    // CarPlay-safe wrapper: the raw Appearance.setColorScheme crashes the
+    // whole app while a CarPlay scene is connected (RCTAppearance walks
+    // connectedScenes assuming UIWindowScene). See carplay-appearance.ts.
+    setColorSchemeSafely(
       theme.forcedMode
         ? theme.forcedMode
         : preference === "system"

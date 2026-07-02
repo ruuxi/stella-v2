@@ -36,6 +36,24 @@ import {
 export type { CarPlayPhase } from "./carplay-home";
 
 const DIAGNOSTICS_KEY = "StellaCarPlayDiagnostics";
+/**
+ * NSUserDefaults flag mirroring the CarPlay connection state. Persisted so
+ * the NEXT launch (including a crash-relaunch with the car still attached)
+ * can synchronously know a head unit is probably connected before the JS
+ * session has received didConnect — see carplay-appearance-policy.ts.
+ */
+const CONNECTED_FLAG_KEY = "StellaCarPlayConnected";
+
+/** Sync best-effort read of the persisted CarPlay-connected flag. */
+export function readPersistedCarPlayConnected(): boolean {
+  if (Platform.OS !== "ios") return false;
+  try {
+    const value = Settings.get(CONNECTED_FLAG_KEY) as unknown;
+    return value === true || value === 1;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * JS-side CarPlay breadcrumb: logs to the JS console AND appends to the same
@@ -106,6 +124,7 @@ class CarPlaySession {
 
   private registered = false;
   private connected = false;
+  private connectionListeners = new Set<(connected: boolean) => void>();
   private setRootRetryTimers: ReturnType<typeof setTimeout>[] = [];
   private connectPollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -236,6 +255,7 @@ class CarPlaySession {
         );
         const firstConnect = !this.connected;
         this.connected = true;
+        this.publishConnectionState(true);
         this.stopConnectPoll();
         this.buildTemplates();
         carPlayLog("JS templates built");
@@ -279,10 +299,38 @@ class CarPlaySession {
     this.CarPlay.registerOnDisconnect(() => {
       carPlayLog("JS disconnect handler running");
       this.connected = false;
+      this.publishConnectionState(false);
       this.clearSetRootRetries();
       this.stopTimeRefresh();
       this.startConnectPoll();
     });
+  }
+
+  /**
+   * Subscribe to CarPlay connection changes (used by the appearance guard to
+   * re-apply a deferred color scheme after the car disconnects). Returns an
+   * unsubscribe function.
+   */
+  onConnectionChange(listener: (connected: boolean) => void): () => void {
+    this.connectionListeners.add(listener);
+    return () => {
+      this.connectionListeners.delete(listener);
+    };
+  }
+
+  private publishConnectionState(connected: boolean) {
+    try {
+      Settings.set({ [CONNECTED_FLAG_KEY]: connected ? 1 : 0 });
+    } catch {
+      // The persisted flag is best-effort.
+    }
+    for (const listener of this.connectionListeners) {
+      try {
+        listener(connected);
+      } catch (error) {
+        carPlayLog(`connection listener FAILED: ${String(error)}`);
+      }
+    }
   }
 
   /**

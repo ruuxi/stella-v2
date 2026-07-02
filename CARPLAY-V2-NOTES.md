@@ -194,3 +194,53 @@ right) and press return → reproduce in the car → screenshot/copy the lines.
 
 Build 93 after Rahul reviews. Whatever the dump shows, the signature table
 above maps it straight to the failing layer.
+
+---
+
+# Diagnostics verdict (real-car dump, build 93+): CULPRIT FOUND
+
+The dump confirmed suspect #1's fix worked (`RNCarPlay.connect ...
+callableJSModules=YES` → `[js] JS connect handler running` on every retry)
+and exposed the real killer:
+
+```
+[js] JS connect handler FAILED: TypeError: Object is not a function
+```
+
+on every attempt, thrown between "connect handler running" and "templates
+built" — i.e. inside `new ListTemplate()`.
+
+**Root cause:** `react-native-carplay/lib/templates/Template.js:6`
+
+```js
+const resolveAssetSource = require('react-native/Libraries/Image/resolveAssetSource');
+```
+
+On RN 0.83 that file is an **ES module** (`export default resolveAssetSource`),
+so the bare `require` returns the namespace object `{ default: fn }`.
+`parseConfig` then calls it for every key matching `/[Ii]mage$/` — the talk
+row's mic icon — throwing `TypeError: Object is not a function` in **every
+template constructor and every `updateSections`**. Deterministic, device and
+simulator alike; it simply had never been executed before the takeover
+finally got this far. This is why the JS voice home has never rendered on
+this RN version.
+
+**Fix (commit `d7aab96`, pure JS → OTA):** `carplay-session.installParseConfigShim`
+replaces `parseConfig` on the shared `Template` prototype at library load
+with `parseTemplateConfig()` (`carplay-home.ts` — pure walker matching
+upstream semantics: resolve `/[Ii]mage$/` keys at any depth via the public
+`Image.resolveAssetSource`, JSON round-trip drops function props;
+unit-tested). Plus granular breadcrumbs through the connect path
+(`building home rows` → `constructing ListTemplate` → `ListTemplate
+constructed` → `setRootTemplate attempt` → `rendering home rows`) so any
+residual failure names its exact step.
+
+**Ship path: OTA.** The fix touches only
+`mobile/src/carplay/{carplay-home,carplay-session}.ts` — no native code and
+deliberately NOT the bun patch, because the expo-updates fingerprint hashes
+the `patches/` dir; touching `patches/react-native-carplay@2.3.0.patch`
+would change the fingerprint away from `6dd9124f…` and orphan builds 95/96.
+Publish on the existing update channel; no build 97 needed. Expected healthy
+breadcrumb tail after OTA: `installed parseConfig interop shim` … `ListTemplate
+constructed` … `setRootTemplate(stella-voice-home) template=FOUND` …
+`completion done=YES error=none` — and the voice home on the head unit.

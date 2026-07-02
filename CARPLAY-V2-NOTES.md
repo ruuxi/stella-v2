@@ -244,3 +244,15 @@ Publish on the existing update channel; no build 97 needed. Expected healthy
 breadcrumb tail after OTA: `installed parseConfig interop shim` … `ListTemplate
 constructed` … `setRootTemplate(stella-voice-home) template=FOUND` …
 `completion done=YES error=none` — and the voice home on the head unit.
+
+**OTA publish ritual (2026-07-02 boot-crash postmortem).** The first attempt
+to ship this fix was published from a DIRTY working tree: the bundle labeled
+`cc5808e` actually carried a mid-refactor `ChatPane.tsx` (rendered
+`<ActivityTray/>` with its import already deleted) that existed in NO commit —
+release-mode `ReferenceError` on first render, instant crash on every launch
+of builds 95/96, and expo-updates never fell back to the embedded bundle.
+Never run `eas update` by hand again: use `mobile/scripts/publish-ota.sh
+<channel>`, which refuses dirty trees, checks env, exports locally, and proves
+via the Hermes sourcemap's `sourcesContent`
+(`mobile/scripts/verify-ota-export.ts`) that every bundled first-party file
+matches git HEAD byte-for-byte before publishing.

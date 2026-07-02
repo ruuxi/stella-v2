@@ -26,6 +26,7 @@ import {
   type WorkingIndicatorState,
 } from "../components/working-indicator-state";
 import { mergeMessagesById, reconcileSentDesktopTurn } from "./chat-merge";
+import { isNoiseFileArtifact } from "./agent-artifact-consolidation";
 import { collectConversationTasks } from "./mobile-task-merge";
 import { createStreamTextSmoother } from "./stream-text-smoother";
 import { userFacingError } from "./user-facing-error";
@@ -742,6 +743,10 @@ export function useChatThread(opts: {
         // don't belong in the artifacts browser (tapping one would hit the
         // viewer's "no preview" path).
         if (artifact.payload.kind === "agent-work") continue;
+        // Incidental writes (caches, profiles, scratch) stay out of the
+        // browser too — mirrors the desktop noise filter on every
+        // user-facing produced-file surface.
+        if (isNoiseFileArtifact(artifact)) continue;
         if (seen.has(artifact.id)) continue;
         seen.add(artifact.id);
         out.push(artifact);

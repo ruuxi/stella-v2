@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from "react";
-import { Animated, StyleSheet, Text, View } from "react-native";
-import { Icon } from "./Icon";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { Icon, type IconName } from "./Icon";
 import { ShimmerText } from "./ShimmerText";
-import type { MobileDisplayPayload } from "../types";
+import type { ChatArtifact, MobileDisplayPayload } from "../types";
+import { artifactIconName, artifactTitle } from "../lib/mobile-artifacts";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
@@ -12,7 +13,17 @@ type AgentWorkPayload = Extract<MobileDisplayPayload, { kind: "agent-work" }>;
 type AgentWorkCardProps = {
   payload: AgentWorkPayload;
   colors: Colors;
+  /**
+   * Files this background run produced, folded into the card as tappable
+   * pills (the mobile analogue of the desktop `AgentCompletionCard` pills).
+   * Only passed once the run settles — reveal-at-completion, never mid-run.
+   */
+  files?: ChatArtifact[];
+  onOpenArtifact?: (artifact: ChatArtifact) => void;
 };
+
+/** Pills shown before the "+N more" toggle — mirrors the desktop PILL_CAP. */
+const PILL_CAP = 5;
 
 /** A touch quicker than the base shimmer so the in-progress state reads as
  *  lively — mirrors the desktop `BackgroundWorkCard` title sweep. */
@@ -25,11 +36,23 @@ const TITLE_SHIMMER_MS = 1900;
  * settles to a check + status once everything wraps up. State is sync-time, so
  * a running row flips to its finished copy on the next sync.
  */
-export function AgentWorkCard({ payload, colors }: AgentWorkCardProps) {
+export function AgentWorkCard({
+  payload,
+  colors,
+  files,
+  onOpenArtifact,
+}: AgentWorkCardProps) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(3)).current;
+  const [pillsExpanded, setPillsExpanded] = useState(false);
   const running = payload.state === "running";
+  const pills = !running && onOpenArtifact && files?.length ? files : [];
+  const visiblePills =
+    pillsExpanded || pills.length <= PILL_CAP
+      ? pills
+      : pills.slice(0, PILL_CAP);
+  const hiddenPillCount = pills.length - visiblePills.length;
 
   useEffect(() => {
     Animated.parallel([
@@ -50,44 +73,90 @@ export function AgentWorkCard({ payload, colors }: AgentWorkCardProps) {
 
   return (
     <Animated.View
-      style={[styles.row, { opacity, transform: [{ translateY }] }]}
+      style={[styles.card, { opacity, transform: [{ translateY }] }]}
       accessibilityRole="text"
       accessibilityLabel={`${payload.title}. ${payload.subtitle}`}
     >
-      {!running ? (
-        <View style={styles.glyph}>
-          <Icon name="check" size={16} color={colors.text} />
+      <View style={styles.headerRow}>
+        {!running ? (
+          <View style={styles.glyph}>
+            <Icon name="check" size={16} color={colors.text} />
+          </View>
+        ) : null}
+        <View style={styles.text}>
+          <ShimmerText
+            text={payload.title}
+            active={running}
+            color={colors.text}
+            textStyle={styles.title}
+            durationMs={TITLE_SHIMMER_MS}
+            dimAlpha={0.32}
+          />
+          <Text
+            style={styles.subtitle}
+            numberOfLines={1}
+            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+          >
+            {payload.subtitle}
+          </Text>
+        </View>
+      </View>
+      {visiblePills.length > 0 && onOpenArtifact ? (
+        <View style={styles.pills}>
+          {visiblePills.map((artifact) => (
+            <Pressable
+              key={artifact.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${artifactTitle(artifact.payload)}`}
+              onPress={() => onOpenArtifact(artifact)}
+              style={({ pressed }) => [
+                styles.pill,
+                pressed ? styles.pillPressed : null,
+              ]}
+            >
+              <Icon
+                name={artifactIconName(artifact.payload) as IconName}
+                size={13}
+                color={colors.textMuted}
+              />
+              <Text
+                style={styles.pillLabel}
+                numberOfLines={1}
+                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+              >
+                {artifactTitle(artifact.payload)}
+              </Text>
+            </Pressable>
+          ))}
+          {hiddenPillCount > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Show ${hiddenPillCount} more files`}
+              onPress={() => setPillsExpanded(true)}
+              style={({ pressed }) => [
+                styles.pill,
+                pressed ? styles.pillPressed : null,
+              ]}
+            >
+              <Text
+                style={styles.pillLabel}
+                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+              >
+                +{hiddenPillCount} more
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
-      <View style={styles.text}>
-        <ShimmerText
-          text={payload.title}
-          active={running}
-          color={colors.text}
-          textStyle={styles.title}
-          durationMs={TITLE_SHIMMER_MS}
-          dimAlpha={0.32}
-        />
-        <Text
-          style={styles.subtitle}
-          numberOfLines={1}
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-        >
-          {payload.subtitle}
-        </Text>
-      </View>
     </Animated.View>
   );
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    row: {
-      alignItems: "center",
+    card: {
       alignSelf: "flex-start",
       maxWidth: "100%",
-      flexDirection: "row",
-      gap: 10,
       minHeight: 44,
       borderRadius: 12,
       borderWidth: StyleSheet.hairlineWidth,
@@ -97,6 +166,40 @@ const makeStyles = (colors: Colors) =>
       paddingBottom: 8,
       paddingLeft: 11,
       paddingRight: 14,
+    },
+    headerRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 10,
+      minHeight: 28,
+    },
+    pills: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+      marginTop: 8,
+    },
+    pill: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 5,
+      maxWidth: "100%",
+      borderRadius: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+    },
+    pillPressed: {
+      opacity: 0.72,
+    },
+    pillLabel: {
+      color: colors.text,
+      flexShrink: 1,
+      fontFamily: fonts.sans.medium,
+      fontSize: 12,
+      letterSpacing: -0.1,
     },
     glyph: {
       width: 22,

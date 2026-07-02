@@ -58,6 +58,7 @@ import {
   shouldAnimateMessageEntry,
   visibleChatMessages,
 } from "../lib/message-row-identity";
+import { consolidateRowArtifacts } from "../lib/agent-artifact-consolidation";
 import { DictationRecordingBar } from "./DictationRecordingBar";
 import {
   WorkingIndicator,
@@ -80,12 +81,7 @@ import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
-import type {
-  ChatArtifact,
-  ChatMessage,
-  MobileDisplayPayload,
-  MobileTask,
-} from "../types";
+import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
 
 // Required for LayoutAnimation on Android.
 if (
@@ -710,21 +706,6 @@ const shareMessageText = (text: string) => {
 };
 
 type ChatStyles = ReturnType<typeof makeStyles>;
-type AgentWorkArtifact = ChatArtifact & {
-  payload: Extract<MobileDisplayPayload, { kind: "agent-work" }>;
-};
-
-const isAgentWorkArtifact = (
-  artifact: ChatArtifact,
-): artifact is AgentWorkArtifact => artifact.payload.kind === "agent-work";
-
-type MapRouteChatArtifact = ChatArtifact & {
-  payload: Extract<MobileDisplayPayload, { kind: "map-route" }>;
-};
-
-const isMapRouteArtifact = (
-  artifact: ChatArtifact,
-): artifact is MapRouteChatArtifact => artifact.payload.kind === "map-route";
 
 /**
  * The always-visible action row under a finished assistant message: copy, read
@@ -982,19 +963,31 @@ const ChatMessageRow = memo(function ChatMessageRow({
   }
   const artifacts = item.artifacts ?? [];
   const hasText = item.text.trim().length > 0;
-  const agentWorkArtifacts = artifacts.filter(isAgentWorkArtifact);
-  const mapArtifacts = artifacts.filter(isMapRouteArtifact);
-  const fileArtifacts = artifacts.filter(
-    (artifact) =>
-      artifact.payload.kind !== "agent-work" &&
-      artifact.payload.kind !== "map-route",
-  );
+  // Desktop-parity consolidation: on a turn that delegated background work,
+  // the produced files fold INTO the agent-work card as pills (revealed
+  // together at completion) instead of popping as loose file cards; noise
+  // writes are filtered and declared deliverables lead. Rows without agent
+  // work keep the classic loose cards for orchestrator-direct outputs.
+  const {
+    agentWork: agentWorkArtifacts,
+    maps: mapArtifacts,
+    agentFiles,
+    looseFiles,
+    agentWorkSettled,
+  } = consolidateRowArtifacts(artifacts);
   const isStandIn = isStandInArtifactRow(item);
   // Agent-work is non-openable status UI, so it can mount as soon as the bridge
   // knows about the background task — including while the answer text is still
   // streaming. File artifacts stay conservative: only show them once the
   // assistant row has finalized so tapping never races a partial artifact.
   const showAgentWork = !isStandIn && agentWorkArtifacts.length > 0;
+  // Agent-produced files reveal only once every covered agent settled — the
+  // files ride the run's completion, so they're complete by then.
+  const showAgentFiles =
+    showAgentWork &&
+    agentWorkSettled &&
+    Boolean(onOpenArtifact) &&
+    agentFiles.length > 0;
   // Map cards are self-contained payloads (no file to race), but wait for the
   // row to finalize so the card doesn't pop in mid-stream.
   const showMapArtifacts =
@@ -1003,7 +996,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
     !isStreaming &&
     !isStandIn &&
     Boolean(onOpenArtifact) &&
-    fileArtifacts.length > 0;
+    looseFiles.length > 0;
   const showArtifacts = showAgentWork || showMapArtifacts || showFileArtifacts;
   const toolActivity = item.toolSteps
     ? deriveToolActivity(item.toolSteps)
@@ -1024,11 +1017,19 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <View
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
         >
-          {agentWorkArtifacts.map((artifact) => (
+          {agentWorkArtifacts.map((artifact, index) => (
             <AgentWorkCard
               key={artifact.id}
               payload={artifact.payload}
               colors={colors}
+              // The row's produced files fold into its lifecycle card. The
+              // bridge carries no per-agent file attribution, so with several
+              // transitional per-agent cards on one row the consolidated list
+              // rides the last (the sync path collapses them into one grouped
+              // card per turn).
+              {...(showAgentFiles && index === agentWorkArtifacts.length - 1
+                ? { files: agentFiles, onOpenArtifact }
+                : {})}
             />
           ))}
           {showMapArtifacts
@@ -1041,7 +1042,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
               ))
             : null}
           {showFileArtifacts && onOpenArtifact
-            ? fileArtifacts.map((artifact) => (
+            ? looseFiles.map((artifact) => (
                 <ArtifactCard
                   key={artifact.id}
                   artifact={artifact}

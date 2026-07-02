@@ -54,6 +54,10 @@ import { ToolActivityTrace } from "./ToolActivityTrace";
 import { ActivityPill, ActivityTray } from "./ActivityPill";
 import { deriveToolActivity } from "../lib/tool-activity";
 import {
+  deriveFloatingHidden,
+  type FloatingScrollMetrics,
+} from "../lib/floating-button-visibility";
+import {
   isStandInArtifactRow,
   shouldAnimateMessageEntry,
   visibleChatMessages,
@@ -2265,9 +2269,19 @@ export function ChatPane({
   }, [onOpenDeviceSheet]);
 
   // Hide the floating button while scrolling up (reading back through
-  // history) and bring it back when scrolling down toward the latest.
+  // history) and bring it back when scrolling down toward the latest. The
+  // derivation is position-first ("near bottom ⇒ visible", see
+  // `deriveFloatingHidden`) and is re-evaluated not only per scroll event but
+  // also when a gesture settles and when content grows — direction deltas
+  // alone are unreliable (slow drags emit sub-threshold deltas; flings and
+  // auto-scrolls can end without a final downward event).
   const [floatingHidden, setFloatingHidden] = useState(false);
-  const lastScrollYRef = useRef(0);
+  const floatingHiddenRef = useRef(false);
+  const floatingMetricsRef = useRef<FloatingScrollMetrics>({
+    offsetY: 0,
+    contentHeight: 0,
+    layoutHeight: 0,
+  });
   const floatingAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     Animated.timing(floatingAnim, {
@@ -2276,21 +2290,53 @@ export function ChatPane({
       useNativeDriver: true,
     }).start();
   }, [floatingHidden, floatingAnim]);
+  const applyFloatingHidden = useCallback((hidden: boolean) => {
+    floatingHiddenRef.current = hidden;
+    setFloatingHidden(hidden);
+  }, []);
   const handleListScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       scroll.onScroll(e);
-      const y = e.nativeEvent.contentOffset.y;
-      const dy = y - lastScrollYRef.current;
-      lastScrollYRef.current = y;
-      // Ignore rubber-band/overscroll past the top.
-      if (y <= 0) {
-        setFloatingHidden(false);
-        return;
-      }
-      if (dy > 4) setFloatingHidden(false);
-      else if (dy < -4) setFloatingHidden(true);
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      const prevOffsetY = floatingMetricsRef.current.offsetY;
+      floatingMetricsRef.current = {
+        offsetY: contentOffset.y,
+        contentHeight: contentSize.height,
+        layoutHeight: layoutMeasurement.height,
+      };
+      applyFloatingHidden(
+        deriveFloatingHidden(
+          floatingHiddenRef.current,
+          prevOffsetY,
+          floatingMetricsRef.current,
+        ),
+      );
     },
-    [scroll.onScroll],
+    [applyFloatingHidden, scroll.onScroll],
+  );
+  // Re-derive from the resting position alone (zero-delta pass keeps the
+  // hidden latch mid-list but enforces the near-bottom invariant).
+  const refreshFloatingFromPosition = useCallback(() => {
+    const metrics = floatingMetricsRef.current;
+    applyFloatingHidden(
+      deriveFloatingHidden(floatingHiddenRef.current, metrics.offsetY, metrics),
+    );
+  }, [applyFloatingHidden]);
+  // Gesture settled (drag end / momentum end) — the last scroll event may not
+  // have fired or may have carried a sub-threshold delta.
+  const handleListScrollSettle = useCallback(() => {
+    scroll.onScrollSettle();
+    refreshFloatingFromPosition();
+  }, [refreshFloatingFromPosition, scroll.onScrollSettle]);
+  // Content growth (new/streamed messages) changes the distance from the
+  // bottom without a scroll event; keep the invariant honest here too.
+  const handleListContentSizeChange = useCallback(
+    (width: number, height: number) => {
+      scroll.onListContentSizeChange(width, height);
+      floatingMetricsRef.current.contentHeight = height;
+      refreshFloatingFromPosition();
+    },
+    [refreshFloatingFromPosition, scroll.onListContentSizeChange],
   );
 
   const onPressPlus = useCallback(() => {
@@ -2557,9 +2603,9 @@ export function ChatPane({
               ListFooterComponent={listFooter}
               onScroll={handleListScroll}
               onScrollBeginDrag={scroll.onScrollBeginDrag}
-              onScrollEndDrag={scroll.onScrollSettle}
-              onMomentumScrollEnd={scroll.onScrollSettle}
-              onContentSizeChange={scroll.onListContentSizeChange}
+              onScrollEndDrag={handleListScrollSettle}
+              onMomentumScrollEnd={handleListScrollSettle}
+              onContentSizeChange={handleListContentSizeChange}
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={false}
               keyboardDismissMode="on-drag"

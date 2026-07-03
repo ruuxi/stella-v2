@@ -4,6 +4,7 @@ import {
   buildComposioSessionBody,
   composioLinkFromPayload,
   composioSessionIdFromPayload,
+  composioToolkitConnectedFromPayload,
 } from "../../convex/http_routes/native_oauth";
 
 describe("Composio native integrations", () => {
@@ -47,5 +48,65 @@ describe("Composio native integrations", () => {
         redirectUrl: "https://app.composio.dev/link/legacy",
       }),
     ).toBe("https://app.composio.dev/link/legacy");
+  });
+
+  it("reads toolkit connection status across payload shapes", () => {
+    // Connected account, current shape.
+    expect(
+      composioToolkitConnectedFromPayload(
+        {
+          items: [
+            {
+              toolkit: { slug: "gmail" },
+              connection: {
+                isActive: true,
+                connectedAccount: { id: "ca_1", status: "ACTIVE" },
+              },
+            },
+          ],
+        },
+        "gmail",
+      ),
+    ).toBe(true);
+    // Pending OAuth: account exists but is not active yet.
+    expect(
+      composioToolkitConnectedFromPayload(
+        {
+          items: [
+            {
+              toolkit: { slug: "gmail" },
+              connection: {
+                isActive: false,
+                connectedAccount: { id: "ca_1", status: "INITIATED" },
+              },
+            },
+          ],
+        },
+        "gmail",
+      ),
+    ).toBe(false);
+    // No connection object at all.
+    expect(
+      composioToolkitConnectedFromPayload(
+        { items: [{ toolkit: { slug: "gmail" } }] },
+        "gmail",
+      ),
+    ).toBe(false);
+    // Flat/legacy shapes and alternate arrays.
+    expect(
+      composioToolkitConnectedFromPayload(
+        { data: [{ slug: "GMAIL", is_connected: true }] },
+        "gmail",
+      ),
+    ).toBe(true);
+    // Other toolkits don't count.
+    expect(
+      composioToolkitConnectedFromPayload(
+        { items: [{ toolkit: { slug: "notion" }, is_connected: true }] },
+        "gmail",
+      ),
+    ).toBe(false);
+    // Empty payloads.
+    expect(composioToolkitConnectedFromPayload({}, "gmail")).toBe(false);
   });
 });

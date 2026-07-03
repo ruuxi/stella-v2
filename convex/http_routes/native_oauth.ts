@@ -198,6 +198,58 @@ export const composioSessionIdFromPayload = (payload: Record<string, unknown>) =
       : null,
   );
 
+/**
+ * Whether a tool-router `GET /session/{id}/toolkits` payload shows the
+ * given toolkit with a connected account. Tolerant of the shape
+ * variants the tool-router API returns (items/data arrays, nested
+ * toolkit slugs, connection objects or bare booleans).
+ */
+export const composioToolkitConnectedFromPayload = (
+  payload: Record<string, unknown>,
+  toolkit: string,
+): boolean => {
+  const wanted = toolkit.trim().toLowerCase();
+  const items = Array.isArray(payload.items)
+    ? payload.items
+    : Array.isArray(payload.data)
+      ? payload.data
+      : Array.isArray(payload.toolkits)
+        ? payload.toolkits
+        : [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const toolkitRecord =
+      item.toolkit && typeof item.toolkit === "object"
+        ? (item.toolkit as Record<string, unknown>)
+        : null;
+    const slug = (
+      readString(toolkitRecord?.slug) ??
+      readString(item.slug) ??
+      readString(item.name) ??
+      ""
+    ).toLowerCase();
+    if (slug !== wanted) continue;
+    if (item.is_connected === true || item.isConnected === true) return true;
+    const connection =
+      item.connection && typeof item.connection === "object"
+        ? (item.connection as Record<string, unknown>)
+        : null;
+    if (!connection) return false;
+    const connectedAccount =
+      connection.connectedAccount && typeof connection.connectedAccount === "object"
+        ? (connection.connectedAccount as Record<string, unknown>)
+        : connection.connected_account &&
+            typeof connection.connected_account === "object"
+          ? (connection.connected_account as Record<string, unknown>)
+          : null;
+    const status = readString(connectedAccount?.status)?.toUpperCase();
+    if (status) return status === "ACTIVE";
+    return connection.isActive === true || connection.is_active === true;
+  }
+  return false;
+};
+
 export const composioLinkFromPayload = (payload: Record<string, unknown>) =>
   readString((payload as ComposioLinkResponse).link) ??
   readString((payload as ComposioLinkResponse).url) ??
@@ -410,6 +462,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     "/api/native-integrations/catalog",
     "/api/native-integrations/connect-link",
+    "/api/native-integrations/status",
     "/api/native-integrations/run",
     "/api/native-oauth/providers",
     "/api/native-oauth/token",
@@ -492,6 +545,66 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             message: error instanceof Error ? error.message : String(error),
           });
           return errorResponse(502, "Could not create the connection link.", origin);
+        }
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/native-integrations/status",
+    method: "GET",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return errorResponse(401, "Unauthorized", origin);
+        const id = readString(
+          new URL(request.url).searchParams.get("id"),
+        )?.toLowerCase();
+        if (!id) return errorResponse(400, "Missing integration id.", origin);
+        const integration = await loadPublicIntegration(ctx, id);
+        const connector = integration ? readComposioConnector(integration) : null;
+        if (!connector) {
+          return errorResponse(400, "Integration is not Composio-backed.", origin);
+        }
+        const composio = requireComposioConfig();
+        if (!composio.config) return withCors(composio.response, origin);
+        try {
+          // Look up the user's existing session only — a status probe
+          // must never create one.
+          const existing = (await ctx.runQuery(
+            internal.data.integrations.getUserIntegrationByOwnerAndProvider,
+            {
+              ownerId: identity.tokenIdentifier,
+              provider: connector.id,
+            },
+          )) as { externalId?: string; config?: Record<string, unknown> } | null;
+          const sessionId =
+            readString(existing?.externalId) ??
+            readString(existing?.config?.sessionId);
+          if (!sessionId) {
+            return jsonResponse({ connected: false }, 200, origin);
+          }
+          const payload = await composioFetch(
+            `/session/${encodeURIComponent(sessionId)}/toolkits`,
+            { method: "GET" },
+            composio.config,
+          );
+          return jsonResponse(
+            {
+              connected: composioToolkitConnectedFromPayload(
+                payload,
+                connector.toolkit,
+              ),
+            },
+            200,
+            origin,
+          );
+        } catch (error) {
+          console.error("[native-integrations] composio status failed", {
+            id,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return errorResponse(502, "Could not check the connection status.", origin);
         }
       }),
     ),

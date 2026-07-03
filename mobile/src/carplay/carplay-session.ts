@@ -77,8 +77,33 @@ export function carPlayLog(message: string) {
   }
 }
 
-/** Delays for re-asserting the JS root template after a connect. */
-const SET_ROOT_RETRY_DELAYS_MS = [1000, 3000];
+/**
+ * Delays for asserting the JS root template after a connect. There is
+ * deliberately NO immediate attempt: the first call is held back past the
+ * native placeholder's own (async) setRootTemplate completion.
+ *
+ * Why (the build-97 "phone app already open" crash): the native scene
+ * delegate installs its placeholder root and forwards the connect to
+ * RNCarPlay in the same tick. JS's `setRootTemplate` is the ONLY thing that
+ * installs `interfaceController.delegate = RNCarPlay` (RNCarPlay.m). On a
+ * cold start JS is slow, so the placeholder appears while the delegate is
+ * still nil and its appear events go nowhere — safe. But when the CarPlay
+ * scene attaches to an ALREADY-RUNNING app, JS answers the connect within
+ * milliseconds: it sets the delegate and its root BEFORE the placeholder's
+ * async setRootTemplate completes, so the placeholder appears ON TOP with a
+ * live delegate. RNCarPlay's `templateWillAppear` then reads
+ * `userInfo[@"templateId"]` from the placeholder — which has none — and
+ * `[NSMutableDictionary setObject:nil]` throws an uncaught
+ * NSInvalidArgumentException → SIGABRT (reproduced in the CarPlay simulator;
+ * crash stack: sendTemplateEventWithName ← templateWillAppear).
+ *
+ * Deferring our first setRootTemplate past the placeholder's appear window
+ * restores the (proven-safe) cold-start ordering in the warm case too, and
+ * as a bonus stops the placeholder's late completion from stomping the JS
+ * root. Pure JS, so it rides an OTA; the root-cause native fix (give the
+ * placeholder a templateId + nil-guard in RNCarPlay) needs build 98.
+ */
+const SET_ROOT_RETRY_DELAYS_MS = [1500, 3500, 8000];
 /** Poll cadence/cap for nudging native `checkForConnection` until connected. */
 const CONNECT_POLL_INTERVAL_MS = 2000;
 const CONNECT_POLL_MAX_ATTEMPTS = 15;
@@ -340,11 +365,13 @@ class CarPlaySession {
   }
 
   /**
-   * Set the JS root template now and re-assert it after short delays. On the
-   * head unit that failed in the field, the placeholder stayed up even though
-   * the app was live — a single silently-failed `setRootTemplate` (or one that
-   * raced the native placeholder install) leaves a dead UI. Re-issuing the
-   * call is idempotent and cheap; every attempt is logged for on-unit triage.
+   * Assert the JS root template on a delayed schedule (never immediately —
+   * see SET_ROOT_RETRY_DELAYS_MS for why the first attempt MUST trail the
+   * native placeholder's appear window; an immediate call crashes the whole
+   * app when the CarPlay scene attaches to an already-running phone app).
+   * Re-asserting is idempotent and cheap — on the head unit that failed in
+   * the field, a single silently-failed `setRootTemplate` left a dead UI —
+   * and every attempt is logged for on-unit triage.
    */
   private setRootWithRetries() {
     this.clearSetRootRetries();
@@ -357,9 +384,8 @@ class CarPlaySession {
         carPlayLog(`setRootTemplate (${label}) FAILED: ${String(error)}`);
       }
     };
-    attempt("immediate");
     this.setRootRetryTimers = SET_ROOT_RETRY_DELAYS_MS.map((delay) =>
-      setTimeout(() => attempt(`retry+${delay}ms`), delay),
+      setTimeout(() => attempt(`deferred+${delay}ms`), delay),
     );
   }
 

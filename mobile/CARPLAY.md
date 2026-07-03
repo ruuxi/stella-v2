@@ -137,10 +137,17 @@ CarPlay does **not** work in Expo Go — it needs a dev/prebuild build.
 - **react-native-carplay** (2.3.0) is a legacy-arch RCTBridgeModule; it loads on
   the New Architecture via the interop layer. Stella replays an already-connected
   session after registering its JS callback, polls `checkForConnection()` until
-  connected, and re-asserts `setRootTemplate` at +1s/+3s, because on a real head
-  unit the first `didConnect` can be emitted before the JS listener exists (the
-  event is dropped with zero listeners) and a single `setRootTemplate` can fail
-  silently.
+  connected, and asserts `setRootTemplate` at +1.5s/+3.5s/+8s — never
+  immediately — because on a real head unit the first `didConnect` can be
+  emitted before the JS listener exists (the event is dropped with zero
+  listeners) and a single `setRootTemplate` can fail silently. The deliberate
+  delay before the FIRST attempt matters: JS's `setRootTemplate` installs
+  `interfaceController.delegate = RNCarPlay`, and when the CarPlay scene
+  attaches to an already-running app, an immediate JS root-set races the
+  native placeholder's async `setRootTemplate` — the placeholder then appears
+  with a live delegate, RNCarPlay's `templateWillAppear` reads its missing
+  `userInfo.templateId`, and `setObject:nil` aborts the whole app
+  (the build-97 "phone open first, then CarPlay" crash).
 - **Templates are built once per app lifetime.** `react-native-carplay`'s
   `Template` constructor registers NativeEventEmitter listeners keyed by the
   fixed template id and never removes them; rebuilding on each connect would

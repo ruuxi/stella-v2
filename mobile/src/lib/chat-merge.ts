@@ -2,28 +2,43 @@ import type { ChatMessage } from "../types";
 import { isStandInArtifactRow } from "./message-row-identity";
 
 /**
- * Order the transcript by `createdAt` so a synced row lands in its true
- * chronological slot rather than wherever it happened to be appended. The sort
- * is stable (original index breaks ties) and tolerant of legacy rows that
- * predate `createdAt`: a missing timestamp carries forward from the previous
- * row, keeping un-stamped history anchored to its neighbours instead of
- * collapsing to the top.
+ * Order the transcript by the desktop's canonical clock so it converges to
+ * the desktop's own ordering after any sync.
+ *
+ * Canonical rows — anything stamped with `canonicalCreatedAt` at merge/link
+ * time — sort by that desktop-clock key, the same (timestamp, id) order the
+ * desktop transcript and its sync cursor use. Rows with no canonical
+ * identity yet (in-flight optimistic turns, offline error bubbles, rows
+ * persisted by older builds) inherit the previous row's key, staying glued
+ * to their current neighbours in their current relative order.
+ *
+ * Local `createdAt` (phone clock) deliberately does NOT participate: the
+ * phone and desktop clocks can disagree by minutes, and comparing a
+ * phone-anchored turn against a desktop-stamped row is exactly what filed an
+ * older desktop reply BELOW a newer phone-sent exchange (the build-97
+ * ordering bug). The sort is stable (original index breaks ties), so a
+ * transcript that is already converged never moves.
  */
-const sortByCreatedAt = (messages: ChatMessage[]): ChatMessage[] => {
-  let lastSeen = 0;
+const sortCanonically = (messages: ChatMessage[]): ChatMessage[] => {
+  let lastKey = 0;
   const keyed = messages.map((message, index) => {
-    const createdAt =
-      typeof message.createdAt === "number" && Number.isFinite(message.createdAt)
-        ? message.createdAt
-        : lastSeen;
-    lastSeen = createdAt;
-    return { message, index, createdAt };
+    const stamp = message.canonicalCreatedAt;
+    const key =
+      typeof stamp === "number" && Number.isFinite(stamp) ? stamp : lastKey;
+    lastKey = key;
+    return { message, index, key };
   });
-  keyed.sort((a, b) =>
-    a.createdAt === b.createdAt ? a.index - b.index : a.createdAt - b.createdAt,
-  );
+  keyed.sort((a, b) => (a.key === b.key ? a.index - b.index : a.key - b.key));
   return keyed.map((entry) => entry.message);
 };
+
+/**
+ * The desktop-clock ordering stamp for a canonical row arriving off the
+ * bridge (whose `createdAt` IS the desktop timestamp — see
+ * `parseDesktopBridgeMessageRows`).
+ */
+const canonicalStampOf = (canonical: ChatMessage): number | undefined =>
+  canonical.canonicalCreatedAt ?? canonical.createdAt;
 
 /**
  * Collapse "linked row + unlinked twin" duplicates: the transcript holds a
@@ -69,13 +84,29 @@ export const collapseLinkedDuplicates = (
     const twin = message.canonicalId
       ? twinsById.get(message.canonicalId)
       : undefined;
-    // The dropped twin may carry content the linked row never received (e.g.
-    // artifacts on a canonical assistant row) — keep it on the survivor.
-    if (twin && twin.artifacts?.length && !message.artifacts?.length) {
-      out.push({ ...message, artifacts: twin.artifacts });
-    } else {
-      out.push(message);
+    if (twin) {
+      // The dropped twin may carry content the linked row never received:
+      // artifacts on a canonical assistant row, and — the twin being the
+      // canonical row itself — the desktop-clock ordering stamp the survivor
+      // may lack (a stream-end link happens before any delta delivers it).
+      const adoptArtifacts =
+        twin.artifacts?.length && !message.artifacts?.length;
+      const twinStamp =
+        message.canonicalCreatedAt === undefined
+          ? (twin.canonicalCreatedAt ?? twin.createdAt)
+          : undefined;
+      if (adoptArtifacts || twinStamp !== undefined) {
+        out.push({
+          ...message,
+          ...(adoptArtifacts ? { artifacts: twin.artifacts } : {}),
+          ...(twinStamp !== undefined
+            ? { canonicalCreatedAt: twinStamp }
+            : {}),
+        });
+        continue;
+      }
     }
+    out.push(message);
   }
   return out;
 };
@@ -101,8 +132,10 @@ export const collapseLinkedDuplicates = (
  * unlinked twin (`id: X`) — e.g. a poll merged the canonical row before the
  * turn's reconcile linked the bubble — the twin collapses into the linked row
  * so re-delivered canonical rows (task anchors re-emit them) heal the
- * duplicate instead of keeping it. The result is sorted by `createdAt` so
- * freshly-synced history slots in chronologically instead of at the tail.
+ * duplicate instead of keeping it. The result is ordered by the desktop's
+ * canonical clock (see {@link sortCanonically}) so freshly-synced rows slot
+ * into the desktop's sequence instead of at the tail — or, worse, into a
+ * cross-clock position.
  */
 export const mergeMessagesById = (
   current: ChatMessage[],
@@ -144,6 +177,7 @@ export const mergeMessagesById = (
     if (!byId.has(id)) {
       order.push(id);
     }
+    const canonicalCreatedAt = canonicalStampOf(message);
     byId.set(
       id,
       existing
@@ -151,25 +185,34 @@ export const mergeMessagesById = (
             ...message,
             id,
             canonicalId: message.id,
-            // Keep the timestamp the row was first shown with. Canonical rows
-            // carry the *desktop* clock; adopting it for a row that's already
-            // on screen lets the re-sort below yank it out of place when the
-            // two devices' clocks disagree. New rows (no `existing`) still slot
-            // by their canonical time.
+            // Keep the timestamp the row was first shown with as the local
+            // display anchor; ordering runs on the canonical stamp below, so
+            // the two clocks never get compared against each other.
             createdAt: existing.createdAt ?? message.createdAt,
+            // Desktop-clock ordering key (see sortCanonically).
+            ...(canonicalCreatedAt !== undefined
+              ? { canonicalCreatedAt }
+              : existing.canonicalCreatedAt !== undefined
+                ? { canonicalCreatedAt: existing.canonicalCreatedAt }
+                : {}),
             // The canonical desktop row drops attachment thumbnails — keep any
             // the local bubble already has so it doesn't lose its images.
             ...(existing.thumbnailUris?.length && !message.thumbnailUris?.length
               ? { thumbnailUris: existing.thumbnailUris, hasImage: true }
               : {}),
           }
-        : message,
+        : {
+            ...message,
+            ...(canonicalCreatedAt !== undefined
+              ? { canonicalCreatedAt }
+              : {}),
+          },
     );
   }
   const merged = order
     .map((id) => byId.get(id))
     .filter((message): message is ChatMessage => Boolean(message));
-  return sortByCreatedAt(collapseLinkedDuplicates(merged));
+  return sortCanonically(collapseLinkedDuplicates(merged));
 };
 
 /**
@@ -226,14 +269,16 @@ export const reconcileSentDesktopTurn = ({
   const next = current.map((message) => {
     if (message.id === userMessageId && canonicalUser) {
       consumed.add(canonicalUser.id);
+      const canonicalCreatedAt = canonicalStampOf(canonicalUser);
       return {
         ...canonicalUser,
         id: message.id,
         canonicalId: canonicalUser.id,
-        // Anchor to the optimistic send time so the just-sent turn keeps the
-        // position it streamed into, rather than re-sorting onto the desktop
-        // clock (which can jump it above earlier messages mid-render).
+        // Anchor the DISPLAY time to the optimistic send; ordering uses the
+        // canonical desktop stamp so the turn converges to the desktop's
+        // sequence without the two clocks ever being compared.
         createdAt: message.createdAt ?? canonicalUser.createdAt,
+        ...(canonicalCreatedAt !== undefined ? { canonicalCreatedAt } : {}),
         // The canonical desktop row drops attachment thumbnails — keep the
         // ones the user just attached so the bubble doesn't lose its images.
         ...(message.thumbnailUris?.length
@@ -243,12 +288,14 @@ export const reconcileSentDesktopTurn = ({
     }
     if (message.id === replyId && canonicalAssistant) {
       consumed.add(canonicalAssistant.id);
+      const canonicalCreatedAt = canonicalStampOf(canonicalAssistant);
       return {
         ...canonicalAssistant,
         id: message.id,
         canonicalId: canonicalAssistant.id,
-        // Keep the reply pinned where it streamed in; see the user row above.
+        // Keep the reply's display time where it streamed in; see above.
         createdAt: message.createdAt ?? canonicalAssistant.createdAt,
+        ...(canonicalCreatedAt !== undefined ? { canonicalCreatedAt } : {}),
       };
     }
     return message;

@@ -797,17 +797,14 @@ export function useChatThread(opts: {
       setMessages((m) => [
         ...m.map((msg) => {
           if (msg.id !== item.userMessageId) return msg;
-          // Re-stamp a *queued* bubble to its real dispatch time. Its original
-          // `createdAt` is the enqueue moment (when the user tapped send while
-          // the prior turn was still streaming); any messages that landed
-          // during that wait carry later timestamps, so leaving the enqueue
-          // time would let `sortByCreatedAt` slot this row into the past, above
-          // those interleaved messages, instead of where it was actually sent.
-          // An immediate (un-queued) send already dispatches at creation time,
-          // so it keeps its original stamp. The local merge
-          // (`mergeMessagesById`) and post-turn reconcile
-          // (`reconcileSentDesktopTurn`) both preserve this local `createdAt`,
-          // so the row holds this position when sync reconciles.
+          // Re-stamp a *queued* bubble's display time to its real dispatch
+          // moment. Its original `createdAt` is the enqueue moment (when the
+          // user tapped send while the prior turn was still streaming), which
+          // would read as sent before any messages that landed during the
+          // wait. Ordering converges via the canonical desktop stamp once the
+          // turn reconciles (`canonicalCreatedAt` — see `sortCanonically` in
+          // chat-merge); this local `createdAt` stays the display anchor and
+          // is preserved by both the merge and the post-turn reconcile.
           return msg.queued
             ? { ...msg, queued: false, createdAt: dispatchedAt }
             : { ...msg, queued: false };

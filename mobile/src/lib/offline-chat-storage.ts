@@ -126,6 +126,10 @@ function parseRow(row: unknown): ChatMessage | null {
     ...(typeof o.createdAt === "number" && Number.isFinite(o.createdAt)
       ? { createdAt: o.createdAt }
       : {}),
+    ...(typeof o.canonicalCreatedAt === "number" &&
+    Number.isFinite(o.canonicalCreatedAt)
+      ? { canonicalCreatedAt: o.canonicalCreatedAt }
+      : {}),
     role: o.role,
     text: o.text,
     ...(artifacts.length > 0 ? { artifacts } : {}),

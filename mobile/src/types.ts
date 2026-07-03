@@ -153,13 +153,24 @@ export type ChatMessage = {
    */
   requestId?: string;
   /**
-   * Creation time (ms epoch) used to order the transcript. Local rows stamp
-   * this at send time; desktop rows carry the canonical desktop `timestamp`.
-   * Sync merges sort by this so synced history lands in its true chronological
-   * slot instead of being appended to the tail. May be absent on legacy rows
-   * persisted before this field existed.
+   * Creation time (ms epoch) shown for the row and used as its LOCAL anchor.
+   * Local rows stamp this at send time (phone clock); desktop rows carry the
+   * canonical desktop `timestamp`. Transcript ORDERING among canonical rows
+   * uses `canonicalCreatedAt` — not this field — because the two clocks can
+   * disagree by minutes.
    */
   createdAt?: number;
+  /**
+   * Desktop-clock timestamp of the canonical desktop row this message is (or
+   * reconciled to). The desktop transcript — and its sync cursor — order by
+   * this clock, so it is the ordering key among canonical rows; `createdAt`
+   * stays the locally-anchored display stamp. Comparing phone-clock anchors
+   * directly against desktop stamps filed an older desktop reply below a
+   * newer phone-sent exchange (the build-97 ordering bug). Absent on rows
+   * with no canonical identity yet (in-flight optimistic turns, offline
+   * error bubbles) and on rows persisted by older builds.
+   */
+  canonicalCreatedAt?: number;
   role: "assistant" | "user";
   text: string;
   artifacts?: ChatArtifact[];

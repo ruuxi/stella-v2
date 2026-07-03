@@ -103,13 +103,145 @@ describe("mergeMessagesById", () => {
     expect(mergeMessagesById(current, incoming)).toHaveLength(2);
   });
 
-  test("sorts merged rows chronologically with stable ties", () => {
-    const current = [
-      user("a", "first", { createdAt: 100 }),
-      assistant("b", "second", { createdAt: 200 }),
-    ];
+  test("slots a synced row between its canonical neighbours", () => {
+    // History previously merged off the bridge — rows carry canonical stamps.
+    const current = mergeMessagesById(
+      [],
+      [
+        user("a", "first", { createdAt: 100 }),
+        assistant("b", "second", { createdAt: 200 }),
+      ],
+    );
     const incoming = [assistant("c", "between", { createdAt: 150 })];
     expect(ids(mergeMessagesById(current, incoming))).toEqual(["a", "c", "b"]);
+  });
+});
+
+describe("canonical ordering across clock skew (older desktop row filed below newer exchange)", () => {
+  // Regression: the desktop clock ran ahead of the phone's. A deferred pull
+  // delivered an OLDER desktop reply ("that's the full cycle done, 5 reviews,
+  // 7 fix agents…") after the user's next phone-sent exchange ("review loop"
+  // → "round 2 dispatched…") had already streamed and reconciled with
+  // phone-clock anchors. Comparing the desktop stamp against those anchors
+  // filed the older reply at the tail — below the newer exchange. Ordering
+  // now runs on `canonicalCreatedAt` (the desktop's own clock, which its
+  // cursor orders by), so the transcript converges to the desktop's sequence.
+  test("a deferred pull's older desktop reply slots above the newer phone-sent exchange", () => {
+    // Already-synced canonical history (desktop clock ~90s ahead).
+    let transcript = mergeMessagesById(
+      [],
+      [
+        user("desk-u1", "kick off the review loop", { createdAt: 1_000_000 }),
+        assistant("desk-a1", "starting the loop", { createdAt: 1_001_000 }),
+      ],
+    );
+    // Phone sends the next turn; optimistic rows anchor to the phone clock —
+    // numerically BEHIND every desktop stamp above.
+    transcript = [
+      ...transcript,
+      user("local-u", "start round 2 of the review loop", {
+        createdAt: 911_000,
+      }),
+      assistant("local-a", "round 2 dispatched", { createdAt: 911_500 }),
+    ];
+    // Turn ends; the reconcile links the optimistic rows to canonical ids.
+    transcript = reconcileSentDesktopTurn({
+      current: transcript,
+      userMessageId: "local-u",
+      replyId: "local-a",
+      sentText: "start round 2 of the review loop",
+      canonicalMessages: [
+        user("desk-u2", "start round 2 of the review loop", {
+          createdAt: 1_003_000,
+        }),
+        assistant("desk-a2", "round 2 dispatched", {
+          requestId: "desk-u2",
+          createdAt: 1_004_000,
+        }),
+      ],
+      canonicalUserMessageId: "desk-u2",
+    });
+    expect(ids(transcript)).toEqual([
+      "desk-u1",
+      "desk-a1",
+      "local-u",
+      "local-a",
+    ]);
+    // A later (e.g. mid-send-deferred) pull finally delivers the OLDER
+    // desktop reply the phone had never seen. Canonically it precedes the
+    // new exchange; its desktop stamp is numerically LARGER than the
+    // phone-clock anchors, which used to file it at the tail.
+    const merged = mergeMessagesById(transcript, [
+      assistant(
+        "desk-a1b",
+        "that's the full cycle done, 5 reviews, 7 fix agents",
+        { createdAt: 1_002_000 },
+      ),
+    ]);
+    expect(ids(merged)).toEqual([
+      "desk-u1",
+      "desk-a1",
+      "desk-a1b",
+      "local-u",
+      "local-a",
+    ]);
+    // Display anchors survive; only the ordering key is canonical.
+    const localU = merged.find((m) => m.id === "local-u");
+    expect(localU?.createdAt).toBe(911_000);
+    expect(localU?.canonicalCreatedAt).toBe(1_003_000);
+  });
+
+  test("rows without canonical identity stay glued to their neighbours", () => {
+    // A local-only turn (e.g. an offline error exchange that will never gain
+    // canonical ids) must never be split or re-filed by cross-clock
+    // comparison when canonical rows merge around it: it stays attached
+    // behind its predecessor, in its own relative order, regardless of how
+    // its phone-clock anchors compare to the desktop stamps.
+    const transcript = mergeMessagesById(
+      [
+        ...mergeMessagesById(
+          [],
+          [user("desk-u1", "old history", { createdAt: 1_000_000 })],
+        ),
+        user("local-u", "wake my computer", { createdAt: 911_000 }),
+        assistant("local-a", "Your computer is offline.", {
+          createdAt: 911_100,
+        }),
+      ],
+      [assistant("desk-a9", "a genuinely new reply", { createdAt: 1_005_000 })],
+    );
+    expect(ids(transcript)).toEqual([
+      "desk-u1",
+      "local-u",
+      "local-a",
+      "desk-a9",
+    ]);
+  });
+
+  test("a linked-by-requestId reply cannot invert above its unstamped user row", () => {
+    // Phone clock AHEAD of the desktop's this time: the user bubble's local
+    // anchor (100) is numerically larger than the canonical reply stamp (96).
+    const merged = mergeMessagesById(
+      [
+        user("local-u", "question", { canonicalId: "desk-u", createdAt: 100 }),
+        assistant("local-a", "answer", { requestId: "desk-u", createdAt: 101 }),
+      ],
+      [assistant("desk-a", "answer", { requestId: "desk-u", createdAt: 96 })],
+    );
+    expect(ids(merged)).toEqual(["local-u", "local-a"]);
+  });
+
+  test("the healed twin donates its canonical stamp to the linked survivor", () => {
+    // The linked bubble was stamped only locally (stream-end link); the twin
+    // IS the canonical row — its desktop stamp must survive the collapse so
+    // later merges order the turn canonically.
+    const healed = collapseLinkedDuplicates([
+      user("local-u", "hello", { canonicalId: "desk-u", createdAt: 100 }),
+      user("desk-u", "hello", { createdAt: 1_002_000 }),
+    ]);
+    expect(ids(healed)).toEqual(["local-u"]);
+    expect(healed[0]?.canonicalCreatedAt).toBe(1_002_000);
+    expect(healed[0]?.createdAt).toBe(100);
   });
 });
 

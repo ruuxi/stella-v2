@@ -97,34 +97,18 @@ export type ImageTranscoder = (input: {
 }) => Promise<SendableImage | null>;
 
 /**
- * Re-encode to JPEG through expo-image-manipulator when the native module is
- * present in the binary. Returns null (caller falls back to the original
- * bytes) when the module is missing — e.g. an OTA update running on an older
- * build — or when the render fails.
+ * JPEG re-encode is intentionally inactive: expo-image-manipulator is a
+ * native module, and shipping it in package.json changes the fingerprint
+ * runtime, cutting current binaries (build 97, runtime 7fda4711…) off from
+ * OTA updates. The picker's Compatible mode already delivers JPEG for photo
+ * library picks, so this path is a no-op for now.
+ *
+ * When the next native build (98) is cut, restore `expo-image-manipulator`
+ * in package.json and reinstate the manipulateAsync-based transcode here.
+ * Returning null makes callers fall back to the original bytes under their
+ * honest mime type.
  */
-export const transcodeImageToJpeg: ImageTranscoder = async ({ uri }) => {
-  if (!uri) return null;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const manipulator = require("expo-image-manipulator") as {
-      manipulateAsync: (
-        uri: string,
-        actions: unknown[],
-        options: { compress?: number; format?: unknown; base64?: boolean },
-      ) => Promise<{ base64?: string | null }>;
-      SaveFormat: { JPEG: unknown };
-    };
-    const result = await manipulator.manipulateAsync(uri, [], {
-      compress: 0.8,
-      format: manipulator.SaveFormat.JPEG,
-      base64: true,
-    });
-    if (!result.base64) return null;
-    return { base64: result.base64, mimeType: "image/jpeg" };
-  } catch {
-    return null;
-  }
-};
+export const transcodeImageToJpeg: ImageTranscoder = async () => null;
 
 /** Decode just enough of the base64 payload to read the magic numbers. */
 const sniffBase64ImageMimeType = (base64: string): string | null => {

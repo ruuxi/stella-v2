@@ -71,3 +71,41 @@ export const shouldDeferLocalChatPushDuringSend = (args: {
   storageLoaded: boolean;
   sending: boolean;
 }): boolean => args.storageLoaded && args.sending;
+
+/**
+ * Which cursor a pull sends to the desktop.
+ *
+ * Steady-state pulls (task poll, push-notified, send-path reconcile) ride the
+ * cheap `(created_at, id)` delta cursor. Catch-up pulls (landing, foreground
+ * return, reconnect, Force Sync) MUST NOT trust it: the cursor is derived from
+ * the newest *source event* the last pull saw — including tool/agent lifecycle
+ * events — and the desktop's `listMessagesAfter` filter is strictly
+ * `(created_at, id) > cursor`. Any row that lands at or behind the cursor is
+ * invisible to every future delta, permanently:
+ *
+ *   - a row appended with a caller-supplied (earlier) timestamp — the store's
+ *     `created_at` is not monotonic;
+ *   - a same-millisecond insert whose random id sorts below the cursor's id;
+ *   - a burst larger than `maxMessages`, where the returned cursor covers all
+ *     source events but the delivered message page was truncated.
+ *
+ * This poisoned-cursor state was observed in production as "Force Sync
+ * succeeds but nothing arrives": the delta legitimately returns zero rows
+ * while the desktop transcript has them. A full-window pull ignores the
+ * cursor entirely and merges by id, so every catch-up moment re-converges the
+ * transcript no matter how the cursor got ahead. The full pull also returns a
+ * fresh cursor, un-poisoning the steady-state deltas that follow.
+ *
+ * A cursor is only usable at all when it was minted for the conversation we
+ * expect — on a conversation switch the delta must restart from scratch.
+ */
+export const desktopSyncPullPlan = (args: {
+  catchUp: boolean;
+  expectedConversationId: string | null;
+  cursor: string | null;
+}): { sinceCursor: string | null; fullWindow: boolean } => {
+  if (args.catchUp || !args.expectedConversationId || !args.cursor) {
+    return { sinceCursor: null, fullWindow: true };
+  }
+  return { sinceCursor: args.cursor, fullWindow: false };
+};

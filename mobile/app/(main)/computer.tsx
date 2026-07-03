@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  AppState,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useIsFocused } from "expo-router";
 import { isGuest } from "../../src/lib/guest-mode";
 import { SignInPrompt } from "../../src/components/SignInPrompt";
@@ -345,18 +352,37 @@ function ComputerChatSurface({
     // fresh read using the existing connection-status signal.
     const available = await checkStatus(access.desktopDeviceId);
     if (available) {
-      // Connected: cheap delta pull (matching cursors are a no-op);
-      // runDesktopSync coalesces in-flight runs so syncs never stack.
-      void runDesktopSync();
+      // Connected: catch-up pull (full window — the phone may have been away
+      // arbitrarily long, and a delta off a poisoned cursor would silently
+      // no-op). Coalesced, so syncs never stack.
+      void runDesktopSync({ catchUp: true, trigger: "resume" });
       return;
     }
     // Disconnected: re-attempt the same wake handshake, guarded by the shared
     // autoWokeRef so we don't spam the handshake or stack a second attempt.
+    // The catch-up pull itself runs when availability flips back to true (the
+    // reconnect effect below) — a wake with no follow-up sync left the
+    // transcript stale forever.
     if (!offlineRef.current && !wakingRef.current && !autoWokeRef.current) {
       autoWokeRef.current = true;
       triggerWake();
     }
   }, [checkStatus, access.desktopDeviceId, runDesktopSync, triggerWake]);
+
+  // Reconnection invariant: whenever the desktop transitions from unavailable
+  // to available while this surface is mounted — wake handshake landing,
+  // tunnel coming back, push socket reattaching — run a catch-up pull. This is
+  // what actually syncs after the resume handler's wake branch (which can't
+  // pull anything itself: the desktop wasn't reachable yet), and it also
+  // covers connectivity gaps that never went through the resume handler.
+  const wasAvailableRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    const was = wasAvailableRef.current;
+    wasAvailableRef.current = status.available;
+    if (status.available === true && was === false) {
+      void runDesktopSync({ catchUp: true, trigger: "reconnect" });
+    }
+  }, [status.available, runDesktopSync]);
 
   // Mirror into a ref so the once-mounted AppState subscription always invokes
   // the latest closure without re-subscribing.
@@ -380,12 +406,12 @@ function ComputerChatSurface({
     if (isFocused && !wasFocused) void reconnectOrSync();
   }, [isFocused, reconnectOrSync]);
 
-  // Manual "Force Sync" from the device sheet. Reuses the same reconnect-or-sync
-  // path as the automatic mount/focus/AppState triggers: re-check status now, and
-  // if the desktop is reachable run the coalesced `runDesktopSync()` pull off the
-  // persisted cursor; if it is asleep, kick the wake handshake so the sync can
-  // land once it comes online. `runDesktopSync` coalesces in-flight runs and the
-  // `syncing` guard blocks double-taps, so this never stacks work.
+  // Manual "Force Sync" from the device sheet. Runs a catch-up (full-window)
+  // pull — never the delta cursor, so a cursor that got ahead of undelivered
+  // rows can't turn this into a silent no-op — and reports honestly: fresh
+  // rows, or a visible error explaining why nothing came in. `runDesktopSync`
+  // coalesces in-flight runs and the `syncing` guard blocks double-taps, so
+  // this never stacks work.
   const forceSync = useCallback(async () => {
     if (syncing) return;
     tapLight();
@@ -395,13 +421,40 @@ function ComputerChatSurface({
       if (!available) {
         if (!offlineRef.current && !wakingRef.current) triggerWake();
         notifyError();
+        Alert.alert(
+          "Computer unreachable",
+          "Your computer isn't reachable right now. A wake request was sent — try again in a few seconds.",
+        );
         return;
       }
-      const { offline: unreachable } = await runDesktopSync();
-      if (unreachable) notifyError();
-      else notifySuccess();
-    } catch {
+      const outcome = await runDesktopSync({
+        catchUp: true,
+        trigger: "force-sync",
+      });
+      if (outcome.deferred) {
+        notifyError();
+        Alert.alert(
+          "Sync waiting",
+          "A message is still being sent. The sync will run as soon as it finishes.",
+        );
+        return;
+      }
+      if (outcome.offline || outcome.error) {
+        notifyError();
+        Alert.alert(
+          "Sync failed",
+          outcome.error ??
+            "Your computer stopped responding while syncing. Try again.",
+        );
+        return;
+      }
+      notifySuccess();
+    } catch (error) {
       notifyError();
+      Alert.alert(
+        "Sync failed",
+        error instanceof Error ? error.message : "Something went wrong.",
+      );
     } finally {
       setSyncing(false);
     }

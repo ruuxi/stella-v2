@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  desktopSyncPullPlan,
   DESKTOP_TASK_POLL_MS,
   DESKTOP_TASK_POLL_PUSH_VERIFY_MS,
   desktopTaskPollIntervalMs,
@@ -103,5 +104,109 @@ describe("shouldStartDesktopSyncRun (mid-send gate at the coalescing point)", ()
     expect(shouldStartDesktopSyncRun({ sending: true, duringSend: true })).toBe(
       true,
     );
+  });
+});
+
+describe("desktopSyncPullPlan", () => {
+  const CURSOR = "1:1700000000000:row-42";
+
+  test("steady-state pull with a usable cursor rides the delta", () => {
+    expect(
+      desktopSyncPullPlan({
+        catchUp: false,
+        expectedConversationId: "conv-1",
+        cursor: CURSOR,
+      }),
+    ).toEqual({ sinceCursor: CURSOR, fullWindow: false });
+  });
+
+  test("catch-up ignores the cursor and pulls the full window", () => {
+    expect(
+      desktopSyncPullPlan({
+        catchUp: true,
+        expectedConversationId: "conv-1",
+        cursor: CURSOR,
+      }),
+    ).toEqual({ sinceCursor: null, fullWindow: true });
+  });
+
+  test("no known conversation or no cursor → full window either way", () => {
+    expect(
+      desktopSyncPullPlan({
+        catchUp: false,
+        expectedConversationId: null,
+        cursor: CURSOR,
+      }).fullWindow,
+    ).toBe(true);
+    expect(
+      desktopSyncPullPlan({
+        catchUp: false,
+        expectedConversationId: "conv-1",
+        cursor: null,
+      }).fullWindow,
+    ).toBe(true);
+  });
+
+  /**
+   * The production failure this exists for: the desktop's delta filter is
+   * strictly `(created_at, id) > cursor`, and the cursor is minted from the
+   * newest *source event* the last pull saw. Rows can land at-or-behind the
+   * cursor (backdated caller timestamps, same-millisecond inserts with a
+   * smaller random id, >maxMessages truncation) — a "cursor-ahead" state in
+   * which every delta, including Force Sync's, returns zero rows while the
+   * desktop transcript plainly has them. This models the desktop filter and
+   * shows the delta stays empty forever while the catch-up plan's full window
+   * delivers the rows.
+   */
+  test("cursor-ahead: deltas are permanent no-ops, the catch-up full pull heals", () => {
+    type Row = { createdAt: number; id: string };
+    const desktopRows: Row[] = [
+      { createdAt: 1_000, id: "a" },
+      // Same-stamp row whose id sorts BELOW the cursor id — behind the cursor.
+      { createdAt: 2_000, id: "b" },
+      // Backdated insert: appended after the phone's last pull but stamped
+      // earlier than the cursor.
+      { createdAt: 1_500, id: "z-late" },
+    ];
+    // Cursor minted from a newer source event (e.g. a tool lifecycle row).
+    const cursor = { createdAt: 2_000, id: "c-tool-event" };
+    const afterCursor = (row: Row) =>
+      row.createdAt > cursor.createdAt ||
+      (row.createdAt === cursor.createdAt && row.id > cursor.id);
+
+    // Every delta pull: nothing, forever.
+    expect(desktopRows.filter(afterCursor)).toEqual([]);
+
+    // The catch-up plan refuses the delta…
+    const plan = desktopSyncPullPlan({
+      catchUp: true,
+      expectedConversationId: "conv-1",
+      cursor: "1:2000:c-tool-event",
+    });
+    expect(plan.sinceCursor).toBeNull();
+    // …and the full-window read (no cursor filter) returns all rows.
+    expect(desktopRows.length).toBe(3);
+  });
+
+  test("cursor-behind (normal case): the delta stays cheap and correct", () => {
+    type Row = { createdAt: number; id: string };
+    const desktopRows: Row[] = [
+      { createdAt: 1_000, id: "a" },
+      { createdAt: 3_000, id: "d-new" },
+    ];
+    const cursor = { createdAt: 2_000, id: "c" };
+    const afterCursor = (row: Row) =>
+      row.createdAt > cursor.createdAt ||
+      (row.createdAt === cursor.createdAt && row.id > cursor.id);
+
+    const plan = desktopSyncPullPlan({
+      catchUp: false,
+      expectedConversationId: "conv-1",
+      cursor: "1:2000:c",
+    });
+    expect(plan.fullWindow).toBe(false);
+    expect(desktopRows.filter(afterCursor)).toEqual([
+      { createdAt: 3_000, id: "d-new" },
+    ]);
   });
 });

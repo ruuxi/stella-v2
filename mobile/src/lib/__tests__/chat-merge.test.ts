@@ -231,6 +231,40 @@ describe("canonical ordering across clock skew (older desktop row filed below ne
     expect(ids(merged)).toEqual(["local-u", "local-a"]);
   });
 
+  test("same-stamp canonical rows delivered in reverse converge to id order", () => {
+    // Two desktop rows share a millisecond stamp; the later delta happens to
+    // deliver the id-lower one second. The desktop cursor orders by
+    // (timestamp, id), so the transcript must converge to id order —
+    // delivery order alone would diverge from the desktop.
+    const current = mergeMessagesById(
+      [],
+      [assistant("desk-b", "second by id", { createdAt: 1_000_000 })],
+    );
+    const merged = mergeMessagesById(current, [
+      assistant("desk-a", "first by id", { createdAt: 1_000_000 }),
+    ]);
+    expect(ids(merged)).toEqual(["desk-a", "desk-b"]);
+  });
+
+  test("a linked row ties by its canonical id, not its local id", () => {
+    // The linked bubble's LOCAL id ("zzz-local") would sort after "desk-m";
+    // its canonical identity ("desk-a") sorts before. The canonical id must
+    // drive the tie so linked and direct rows converge identically.
+    const merged = mergeMessagesById(
+      [
+        {
+          ...user("zzz-local", "question", {
+            canonicalId: "desk-a",
+            createdAt: 911_000,
+          }),
+          canonicalCreatedAt: 1_000_000,
+        },
+      ],
+      [assistant("desk-m", "same-stamp row", { createdAt: 1_000_000 })],
+    );
+    expect(ids(merged)).toEqual(["zzz-local", "desk-m"]);
+  });
+
   test("the healed twin donates its canonical stamp to the linked survivor", () => {
     // The linked bubble was stamped only locally (stream-end link); the twin
     // IS the canonical row — its desktop stamp must survive the collapse so

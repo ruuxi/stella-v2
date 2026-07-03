@@ -16,20 +16,54 @@ import { isStandInArtifactRow } from "./message-row-identity";
  * phone and desktop clocks can disagree by minutes, and comparing a
  * phone-anchored turn against a desktop-stamped row is exactly what filed an
  * older desktop reply BELOW a newer phone-sent exchange (the build-97
- * ordering bug). The sort is stable (original index breaks ties), so a
- * transcript that is already converged never moves.
+ * ordering bug).
+ *
+ * Canonical rows sharing a stamp tie-break by canonical id (`canonicalId` ??
+ * `id`) — mirroring the desktop cursor's (timestamp, id) order — so two
+ * same-millisecond rows converge identically no matter which delta delivered
+ * them first; delivery order alone would diverge from the desktop. Unstamped
+ * rows keep pure positional stability: they travel with their anchor and
+ * never enter id comparisons (mixing an id tie-break with an index tie-break
+ * in one comparator would break strict weak ordering). A transcript that is
+ * already converged never moves.
  */
 const sortCanonically = (messages: ChatMessage[]): ChatMessage[] => {
-  let lastKey = 0;
-  const keyed = messages.map((message, index) => {
+  type Anchor = {
+    message: ChatMessage;
+    index: number;
+    key: number;
+    /** Canonical tie key mirroring the desktop cursor's id component. */
+    tie: string;
+    /** Unstamped rows glued behind this anchor, in their original order. */
+    trailers: ChatMessage[];
+  };
+  // Rows with no preceding canonical anchor stay at the head, as-is.
+  const headTrailers: ChatMessage[] = [];
+  const anchors: Anchor[] = [];
+  messages.forEach((message, index) => {
     const stamp = message.canonicalCreatedAt;
-    const key =
-      typeof stamp === "number" && Number.isFinite(stamp) ? stamp : lastKey;
-    lastKey = key;
-    return { message, index, key };
+    if (typeof stamp === "number" && Number.isFinite(stamp)) {
+      anchors.push({
+        message,
+        index,
+        key: stamp,
+        tie: message.canonicalId ?? message.id,
+        trailers: [],
+      });
+    } else {
+      const anchor = anchors[anchors.length - 1];
+      (anchor ? anchor.trailers : headTrailers).push(message);
+    }
   });
-  keyed.sort((a, b) => (a.key === b.key ? a.index - b.index : a.key - b.key));
-  return keyed.map((entry) => entry.message);
+  anchors.sort((a, b) => {
+    if (a.key !== b.key) return a.key - b.key;
+    if (a.tie !== b.tie) return a.tie < b.tie ? -1 : 1;
+    return a.index - b.index;
+  });
+  return [
+    ...headTrailers,
+    ...anchors.flatMap((anchor) => [anchor.message, ...anchor.trailers]),
+  ];
 };
 
 /**

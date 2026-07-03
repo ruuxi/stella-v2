@@ -160,6 +160,20 @@ export const agentWorkCardSections = (
   return sections;
 };
 
+/**
+ * Sections for the INLINE chat card. Files appear on the finish card only,
+ * matching desktop: each bridge section exists once ITS agent completed, but
+ * the card itself can still be running (a multi-agent group with stragglers,
+ * or a thread resumed via `send_input` keeps a prior run's rollup files), so
+ * this gates on the whole card settling. Live mid-run files intentionally
+ * remain on the activity pill/sheet, which reads the task stream — never
+ * inline in the transcript.
+ */
+export const inlineAgentWorkCardSections = (
+  artifact: AgentWorkChatArtifact,
+): AgentWorkCardSection[] | null =>
+  artifact.payload.state === "done" ? agentWorkCardSections(artifact) : null;
+
 export const consolidateRowArtifacts = (
   artifacts: readonly ChatArtifact[],
 ): ConsolidatedRowArtifacts => {

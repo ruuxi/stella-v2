@@ -65,7 +65,7 @@ import {
   visibleChatMessages,
 } from "../lib/message-row-identity";
 import {
-  agentWorkCardSections,
+  inlineAgentWorkCardSections,
   consolidateRowArtifacts,
 } from "../lib/agent-artifact-consolidation";
 import { DictationRecordingBar } from "./DictationRecordingBar";
@@ -1028,14 +1028,14 @@ const ChatMessageRow = memo(function ChatMessageRow({
         >
           {agentWorkArtifacts.map((artifact, index) => {
             // Prefer the bridge's per-agent sections (desktop-computed
-            // attribution; each section only exists once its agent
-            // completed, so no extra reveal gate). Older desktops omit the
+            // attribution), gated so files appear on the finish card only —
+            // never mid-run — matching desktop. Older desktops omit the
             // field — fall back to folding the row's own files into the
             // last card once every covered agent settled (with several
             // transitional per-agent cards on one row the consolidated list
             // rides the last; the sync path collapses them into one grouped
             // card per turn).
-            const bridgeSections = agentWorkCardSections(artifact);
+            const bridgeSections = inlineAgentWorkCardSections(artifact);
             const sections =
               bridgeSections ??
               (showAgentFiles && index === agentWorkArtifacts.length - 1

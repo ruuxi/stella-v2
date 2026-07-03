@@ -7,6 +7,7 @@ import type {
 import {
   agentWorkCardSections,
   consolidateRowArtifacts,
+  inlineAgentWorkCardSections,
   isDeclaredOutputPath,
   isNoiseFileArtifact,
   isNoiseProducedPath,
@@ -208,6 +209,35 @@ describe("agentWorkCardSections", () => {
     expect(sections?.[0]?.files[0]?.id).toBe(
       "conv:pdf:/Users/u/.stella/outputs/report.pdf",
     );
+  });
+});
+
+describe("inlineAgentWorkCardSections", () => {
+  const sectionFor = (agentId: string): MobileAgentWorkFileSection => ({
+    agentId,
+    title: "Write the report",
+    files: [
+      { kind: "pdf", filePath: "/Users/u/.stella/outputs/report.pdf" },
+    ],
+  });
+  const work = (state: "running" | "done") => {
+    const raw = agentWork("agent-work:a1", state, [sectionFor("a1")]);
+    const item = consolidateRowArtifacts([raw]).agentWork[0];
+    if (!item) throw new Error("expected agent-work artifact");
+    return item;
+  };
+
+  test("hides files while the card is still running (finish-only inline)", () => {
+    // A running card can already carry sections: a multi-agent group with
+    // stragglers, or a thread resumed via send_input keeps a prior run's
+    // rollup files. Inline chat must not show them mid-run.
+    expect(inlineAgentWorkCardSections(work("running"))).toBe(null);
+  });
+
+  test("reveals files once the card settles", () => {
+    const sections = inlineAgentWorkCardSections(work("done"));
+    expect(sections).toHaveLength(1);
+    expect(sections?.[0]?.title).toBe("Write the report");
   });
 });
 

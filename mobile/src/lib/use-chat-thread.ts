@@ -44,6 +44,7 @@ import {
   isNoiseFileArtifact,
 } from "./agent-artifact-consolidation";
 import { collectConversationTasks } from "./mobile-task-merge";
+import { admitSend } from "./send-admission";
 import { createStreamTextSmoother } from "./stream-text-smoother";
 import { userFacingError } from "./user-facing-error";
 import { notifySuccess } from "./haptics";
@@ -861,6 +862,14 @@ export function useChatThread(opts: {
     setDraft("");
     setAttachments([]);
 
+    // Queue-vs-dispatch is decided on the synchronously-written ref, NOT the
+    // render-state `sending`: a second imperative send in the same
+    // render/effect gap would read a stale `sending === false` from the
+    // closure and dispatch a concurrent turn instead of queueing. `admitSend`
+    // claims the dispatch slot atomically (ref write) when it answers
+    // "dispatch"; `markSending` below mirrors the claim into render state.
+    const admission = admitSend(sendingRef);
+
     const userMessageId = createId();
     const displayText = text || (assets.length ? "Photo" : "");
     const thumbs = assets.slice(0, 3).map((a) => a.uri);
@@ -871,7 +880,7 @@ export function useChatThread(opts: {
       createdAt: Date.now(),
       hasImage: assets.length > 0,
       ...(thumbs.length > 0 ? { thumbnailUris: thumbs } : {}),
-      ...(sending ? { queued: true } : {}),
+      ...(admission === "queue" ? { queued: true } : {}),
     };
 
     LayoutAnimation.configureNext({
@@ -886,14 +895,14 @@ export function useChatThread(opts: {
       text,
       assets,
     };
-    if (sending) {
+    if (admission === "queue") {
       queueRef.current.push(item);
     } else {
       markSending(true);
       void dispatch(item);
     }
     return { userMessageId };
-  }, [attachments, dispatch, draft, markSending, sending, storageLoaded]);
+  }, [attachments, dispatch, draft, markSending, storageLoaded]);
 
   const stop = useCallback(() => {
     // Drop queued follow-ups first so the in-flight finally-handler doesn't

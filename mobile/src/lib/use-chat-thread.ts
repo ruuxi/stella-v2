@@ -35,6 +35,7 @@ import {
   desktopTaskPollIntervalMs,
   shouldArmDesktopTaskPoll,
   shouldDeferLocalChatPushDuringSend,
+  shouldStartDesktopSyncRun,
   shouldSyncOnLocalChatPush,
 } from "./desktop-sync-policy";
 import {
@@ -112,7 +113,13 @@ export type ChatThread = {
   conversationArtifacts: ChatArtifact[];
   /** Background tasks for the activity pill + tray, running-first then newest. */
   conversationTasks: MobileTask[];
-  send: () => void;
+  /**
+   * Submit the current draft/attachments. Returns the optimistic user
+   * bubble's local id when a turn was accepted (dispatched or queued) so
+   * voice callers can locate the turn's reply precisely; null when the send
+   * no-oped (not hydrated, empty draft, or AI consent pending).
+   */
+  send: () => { userMessageId: string } | null;
   stop: () => void;
   /**
    * Coalesced wake + pull + merge against the canonical desktop rows. A no-op
@@ -240,8 +247,17 @@ export function useChatThread(opts: {
   }, [messages]);
 
   // Mirror of `sending` for reads outside render — notably the mid-send gate
-  // in `runDesktopSync` and the push handler below.
+  // in `runDesktopSync` and the push handler below. The ref is written
+  // SYNCHRONOUSLY by `markSending` at every transition (the effect below is
+  // only a belt-and-braces reconciler): the gate is consulted by imperative
+  // callers (focus/AppState resume, Force Sync) that can run in the gap
+  // between `setSending(true)` and its commit, and a ref updated only by an
+  // effect would let those slip a mid-send pull through.
   const sendingRef = useRef(false);
+  const markSending = useCallback((next: boolean) => {
+    sendingRef.current = next;
+    setSending(next);
+  }, []);
   useEffect(() => {
     sendingRef.current = sending;
   }, [sending]);
@@ -312,8 +328,15 @@ export function useChatThread(opts: {
       // bubble is linked — rendering the user's message twice (the twin sorts
       // onto the desktop clock, below the reply) — while also advancing the
       // cursor past the turn so the post-turn reconcile can't heal it. Defer
-      // to the post-send flush instead of dropping the request.
-      if (sendingRef.current && options?.duringSend !== true) {
+      // to the post-send flush instead of dropping the request. `sendingRef`
+      // is written synchronously by `markSending`, so this holds even for
+      // callers racing the `setSending(true)` commit.
+      if (
+        !shouldStartDesktopSyncRun({
+          sending: sendingRef.current,
+          duringSend: options?.duringSend === true,
+        })
+      ) {
         pendingPushSyncRef.current = true;
         return Promise.resolve({ offline: false });
       }
@@ -461,10 +484,10 @@ export function useChatThread(opts: {
   }, []);
 
   const finishDispatch = useCallback(() => {
-    setSending(false);
+    markSending(false);
     setWorkingActivity(IDLE_WORKING_ACTIVITY);
     drainQueueRef.current?.();
-  }, []);
+  }, [markSending]);
 
   // ─── Cloud dispatch ───────────────────────────────────────────────────────
   const dispatchCloud = useCallback(
@@ -588,7 +611,7 @@ export function useChatThread(opts: {
         const synced = await runDesktopSync({ duringSend: true });
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
           activeDispatchRef.current = null;
-          setSending(false);
+          markSending(false);
           return;
         }
         if (synced.offline) {
@@ -635,7 +658,7 @@ export function useChatThread(opts: {
         });
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
           activeDispatchRef.current = null;
-          setSending(false);
+          markSending(false);
           return;
         }
         await textSmoother.drain();
@@ -724,7 +747,7 @@ export function useChatThread(opts: {
         textSmoother.cancel();
         activeDispatchRef.current = null;
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
-          setSending(false);
+          markSending(false);
           return;
         }
         // Deterministic routing: the computer thread never silently falls back
@@ -747,6 +770,7 @@ export function useChatThread(opts: {
     [
       appendAssistantText,
       finishDispatch,
+      markSending,
       patchActivity,
       persistSyncState,
       runDesktopSync,
@@ -811,26 +835,26 @@ export function useChatThread(opts: {
   const drainQueue = useCallback(() => {
     const next = queueRef.current.shift();
     if (!next) return;
-    setSending(true);
+    markSending(true);
     void dispatchRef.current?.(next);
-  }, []);
+  }, [markSending]);
 
   useEffect(() => {
     drainQueueRef.current = drainQueue;
   }, [drainQueue]);
 
-  const send = useCallback(() => {
+  const send = useCallback((): { userMessageId: string } | null => {
     // Don't dispatch until hydration has restored the persisted transcript and
     // sync cursor: sending earlier lets the async load overwrite the optimistic
     // bubble, and lets the landing sync fire mid-stream against a fresh cursor.
     // The draft is left intact so the queued tap lands once we're loaded.
-    if (!storageLoaded) return;
+    if (!storageLoaded) return null;
     const text = draft.trim();
-    if (!text && attachments.length === 0) return;
+    if (!text && attachments.length === 0) return null;
 
     if (!hasAiConsent()) {
       requestAiConsent();
-      return;
+      return null;
     }
 
     const assets = attachments.slice();
@@ -865,10 +889,11 @@ export function useChatThread(opts: {
     if (sending) {
       queueRef.current.push(item);
     } else {
-      setSending(true);
+      markSending(true);
       void dispatch(item);
     }
-  }, [attachments, dispatch, draft, sending, storageLoaded]);
+    return { userMessageId };
+  }, [attachments, dispatch, draft, markSending, sending, storageLoaded]);
 
   const stop = useCallback(() => {
     // Drop queued follow-ups first so the in-flight finally-handler doesn't
@@ -889,9 +914,9 @@ export function useChatThread(opts: {
       );
       activeDispatchRef.current = null;
     }
-    setSending(false);
+    markSending(false);
     setWorkingActivity(IDLE_WORKING_ACTIVITY);
-  }, []);
+  }, [markSending]);
 
   const workingIndicator = useMemo(
     () => buildWorkingIndicatorState({ sending, activity: workingActivity }),

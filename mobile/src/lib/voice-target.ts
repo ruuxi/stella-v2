@@ -78,6 +78,21 @@ export function subscribeVoiceTargetPreference(listener: Listener): () => void {
 }
 
 /**
+ * Map a bridge status-probe outcome to the `computerReachable` input of
+ * {@link resolveVoiceTarget}: a completed probe yields its confirmed
+ * availability; a probe that FAILED (network error, auth hiccup, timeout)
+ * yields null — unknown. Unknown must never demote Auto to the phone: only a
+ * probe that positively answered "not available" may, otherwise the computer
+ * target stands and the send path wakes the desktop or fails audibly with the
+ * spoken offline reply.
+ */
+export function reachabilityFromProbe(
+  outcome: { available: boolean } | null,
+): boolean | null {
+  return outcome ? outcome.available : null;
+}
+
+/**
  * Resolve the preference to a concrete target. Pure so the routing policy is
  * unit-testable; callers gather the async inputs (pairing, last tab, bridge
  * reachability) and pass them in.

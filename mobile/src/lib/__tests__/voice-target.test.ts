@@ -17,9 +17,32 @@ const memoryStore = new Map<string, string>();
 
 import {
   loadVoiceTargetPreference,
+  reachabilityFromProbe,
   resolveVoiceTarget,
   setVoiceTargetPreference,
 } from "../voice-target";
+
+describe("reachabilityFromProbe", () => {
+  test("a completed probe yields its confirmed availability", () => {
+    expect(reachabilityFromProbe({ available: true })).toBe(true);
+    expect(reachabilityFromProbe({ available: false })).toBe(false);
+  });
+
+  test("a failed probe is unknown (null), never 'unreachable'", () => {
+    expect(reachabilityFromProbe(null)).toBe(null);
+  });
+
+  test("a failed probe therefore keeps Auto on the computer target", () => {
+    expect(
+      resolveVoiceTarget({
+        preference: "auto",
+        paired: true,
+        lastMainTab: "computer",
+        computerReachable: reachabilityFromProbe(null),
+      }),
+    ).toBe("computer");
+  });
+});
 
 describe("resolveVoiceTarget", () => {
   test("no paired computer always routes to the phone", () => {

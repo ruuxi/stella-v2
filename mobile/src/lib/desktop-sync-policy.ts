@@ -49,6 +49,19 @@ export const shouldSyncOnLocalChatPush = (args: {
 }): boolean => args.storageLoaded && !args.sending;
 
 /**
+ * Whether a `runDesktopSync` caller may start a new pull right now. Enforced
+ * at the coalescing point so imperative callers that never check `sending`
+ * themselves (focus/AppState resume, Force Sync) cannot start a mid-send
+ * pull; only the send pipeline's own wake → sync step (`duringSend`) may run
+ * while a turn is in flight. Callers denied here defer to the post-send
+ * flush rather than dropping the request.
+ */
+export const shouldStartDesktopSyncRun = (args: {
+  sending: boolean;
+  duringSend: boolean;
+}): boolean => !args.sending || args.duringSend;
+
+/**
  * Whether a push notification blocked only by the mid-send gate should be
  * remembered and flushed once the send settles (rather than dropped). The
  * flush runs through the same coalesced `runDesktopSync`, which awaits the

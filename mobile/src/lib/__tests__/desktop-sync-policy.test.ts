@@ -5,6 +5,7 @@ import {
   desktopTaskPollIntervalMs,
   shouldArmDesktopTaskPoll,
   shouldDeferLocalChatPushDuringSend,
+  shouldStartDesktopSyncRun,
   shouldSyncOnLocalChatPush,
 } from "../desktop-sync-policy";
 
@@ -82,5 +83,25 @@ describe("shouldDeferLocalChatPushDuringSend", () => {
         sending: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldStartDesktopSyncRun (mid-send gate at the coalescing point)", () => {
+  test("idle threads may pull", () => {
+    expect(
+      shouldStartDesktopSyncRun({ sending: false, duringSend: false }),
+    ).toBe(true);
+  });
+
+  test("imperative callers (resume, Force Sync) never pull mid-send", () => {
+    expect(
+      shouldStartDesktopSyncRun({ sending: true, duringSend: false }),
+    ).toBe(false);
+  });
+
+  test("the send pipeline's own wake→sync is exempt", () => {
+    expect(shouldStartDesktopSyncRun({ sending: true, duringSend: true })).toBe(
+      true,
+    );
   });
 });

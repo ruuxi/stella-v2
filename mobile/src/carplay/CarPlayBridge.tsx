@@ -42,6 +42,7 @@ import { loadLastMainTab } from "../lib/last-main-tab";
 import {
   getVoiceTargetPreference,
   loadVoiceTargetPreference,
+  reachabilityFromProbe,
   resolveVoiceTarget,
   setVoiceTargetPreference,
   subscribeVoiceTargetPreference,
@@ -53,6 +54,7 @@ import { useDictation } from "../lib/dictation";
 import { speakReply, stopReadAloud, useReadAloudState } from "../lib/read-aloud";
 import { carPlayLog, carPlaySession, type CarPlayPhase } from "./carplay-session";
 import { RECENT_REPLY_COUNT, type RecentReply } from "./carplay-home";
+import { pickTurnReply } from "./turn-reply";
 
 /**
  * Grace window for the assistant reply row that can land a render tick after
@@ -127,13 +129,15 @@ function CarPlayBridgeIOS() {
         lastMainTab = await loadLastMainTab();
         if (cancelled) return;
         if (lastMainTab === "computer" && access) {
-          try {
-            computerReachable = (
-              await getDesktopBridgeStatus(access.desktopDeviceId)
-            ).available;
-          } catch {
-            computerReachable = false;
-          }
+          // A FAILED probe is unknown (null), not "unreachable": Auto must
+          // only fall back to the phone on a confirmed negative — on a probe
+          // error the computer target stands and the send path wakes the
+          // desktop or fails audibly with the spoken offline reply.
+          computerReachable = reachabilityFromProbe(
+            await getDesktopBridgeStatus(access.desktopDeviceId).catch(
+              () => null,
+            ),
+          );
           if (cancelled) return;
         }
       }
@@ -227,6 +231,11 @@ function CarPlayVoiceLoop({
   // Id of the newest assistant reply that existed *before* the current turn, so
   // the grace re-check only speaks a genuinely new reply, never a stale one.
   const priorReplyIdRef = useRef<string | null>(null);
+  // Local id of the turn's optimistic user bubble (reported by `send()`), so
+  // the auto-speak picks THIS turn's reply structurally — on the computer
+  // target the pre-send sync can merge an older desktop reply the loop had
+  // never seen, and "newest reply that changed" would speak that instead.
+  const sentUserMessageIdRef = useRef<string | null>(null);
   // While true, we're still watching `messages` for this turn's reply to land.
   const watchingReplyRef = useRef(false);
   const replyGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -280,14 +289,17 @@ function CarPlayVoiceLoop({
 
   // Handle this turn's assistant reply if it has actually landed: converse
   // mode ON auto-speaks it; OFF leaves the reply row marked "New" and returns
-  // the home surface to idle. Returns false when no *new* reply (one past
-  // `priorReplyIdRef`) is present yet, so callers can keep waiting instead of
-  // giving up.
+  // the home surface to idle. The reply is located structurally (the first
+  // assistant row after this turn's user bubble — see `pickTurnReply`), never
+  // as "newest reply that changed". Returns false while the turn's reply
+  // hasn't landed yet, so callers keep waiting instead of giving up.
   const trySpeakLatestReply = useCallback(() => {
-    const reply = [...messagesRef.current]
-      .reverse()
-      .find((m) => m.role === "assistant" && m.text.trim().length > 0);
-    if (!reply || reply.id === priorReplyIdRef.current) return false;
+    const reply = pickTurnReply(messagesRef.current, {
+      sentUserMessageId: sentUserMessageIdRef.current,
+      priorReplyId: priorReplyIdRef.current,
+    });
+    if (!reply) return false;
+    sentUserMessageIdRef.current = null;
     lastReplyTextRef.current = reply.text;
     if (!converseOnRef.current) {
       goPhase("idle");
@@ -434,7 +446,8 @@ function CarPlayVoiceLoop({
       .reverse()
       .find((m) => m.role === "assistant" && m.text.trim().length > 0);
     priorReplyIdRef.current = priorReply?.id ?? null;
-    send();
+    const dispatched = send();
+    sentUserMessageIdRef.current = dispatched?.userMessageId ?? null;
     // If `send()` no-ops (no turn ever starts), `sending` never flips true and
     // the turn-finished effect never runs — don't hang on "thinking".
     if (sendStartTimerRef.current) clearTimeout(sendStartTimerRef.current);

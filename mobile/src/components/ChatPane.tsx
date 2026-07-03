@@ -2285,6 +2285,12 @@ export function ChatPane({
       quality: 0.75,
       selectionLimit: 5,
       base64: true,
+      // HEIC bypasses the picker's `quality` JPEG re-encode (raw bytes pass
+      // through), and desktop model providers can't decode HEIC. Ask PhotoKit
+      // for the most compatible representation so library picks arrive as
+      // JPEG at the picker level.
+      preferredAssetRepresentationMode:
+        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
     });
     if (!result.canceled && result.assets.length > 0) {
       tapLight();

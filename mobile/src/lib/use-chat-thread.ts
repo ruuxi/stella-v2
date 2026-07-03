@@ -46,6 +46,7 @@ import {
   isNoiseFileArtifact,
 } from "./agent-artifact-consolidation";
 import { collectConversationTasks } from "./mobile-task-merge";
+import { toSendableImage } from "./image-attachments";
 import { admitSend } from "./send-admission";
 import { createStreamTextSmoother } from "./stream-text-smoother";
 import { userFacingError } from "./user-facing-error";
@@ -78,14 +79,19 @@ const WAKE_STATUS_COPY: Record<DesktopBridgeSendStatus, string | undefined> = {
   running: undefined,
 };
 
-const assetsToBridgeAttachments = (
+const assetsToBridgeAttachments = async (
   assets: ImagePicker.ImagePickerAsset[],
-): DesktopBridgeAttachment[] | null => {
+): Promise<DesktopBridgeAttachment[] | null> => {
   const out: DesktopBridgeAttachment[] = [];
   for (const asset of assets) {
-    if (!asset.base64) return null;
-    const mimeType = asset.mimeType ?? "image/jpeg";
-    out.push({ url: `data:${mimeType};base64,${asset.base64}`, mimeType });
+    // Normalize to a provider-decodable format (iOS library picks and shared
+    // photos are often HEIC, which desktop model providers can't decode).
+    const sendable = await toSendableImage(asset);
+    if (!sendable) return null;
+    out.push({
+      url: `data:${sendable.mimeType};base64,${sendable.base64}`,
+      mimeType: sendable.mimeType,
+    });
   }
   return out;
 };
@@ -603,11 +609,9 @@ export function useChatThread(opts: {
 
       const imagesPayload: { base64: string; mimeType: string }[] = [];
       for (const a of item.assets) {
-        if (!a.base64) continue;
-        imagesPayload.push({
-          base64: a.base64,
-          mimeType: a.mimeType ?? "image/jpeg",
-        });
+        const sendable = await toSendableImage(a);
+        if (!sendable) continue;
+        imagesPayload.push(sendable);
       }
 
       const textSmoother = createStreamTextSmoother({
@@ -719,7 +723,7 @@ export function useChatThread(opts: {
         const result = await sendDesktopBridgeChat({
           access,
           message: item.text,
-          attachments: assetsToBridgeAttachments(item.assets) ?? undefined,
+          attachments: (await assetsToBridgeAttachments(item.assets)) ?? undefined,
           signal: abort.signal,
           onStatus: (status) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;

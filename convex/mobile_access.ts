@@ -369,7 +369,14 @@ export const revokePairedMobileDevice = mutation({
 export const watchIncomingConnectIntent = query({
   args: {
     desktopDeviceId: v.string(),
-    nowMs: v.number(),
+    // Optional legacy polling clock. When a caller passes a per-tick timestamp
+    // it becomes part of the query args, so every poll is a unique
+    // (uncacheable) subscription that re-executes on every tick instead of only
+    // when the underlying intents change. Newer clients omit it and gate on the
+    // returned `expiresAt` themselves, which lets Convex serve this reactive
+    // subscription from cache. Kept optional so existing desktops keep working
+    // unchanged during rollout.
+    nowMs: v.optional(v.number()),
   },
   returns: connectIntentValidator,
   handler: async (ctx, args) => {
@@ -378,18 +385,22 @@ export const watchIncomingConnectIntent = query({
       return null;
     }
     const ownerId = identity.tokenIdentifier;
-    // Range query against the (ownerId, desktopDeviceId, expiresAt) index keeps
-    // the scan bounded to live (un-expired) intents. `nowMs` is supplied by the
-    // caller so this query stays deterministic per the no-Date.now-in-queries
-    // rule; the desktop hook updates it on a polling interval.
+    // Scan by the stable (ownerId, desktopDeviceId) prefix, newest first. When
+    // a caller supplies `nowMs` we additionally bound the range to un-expired
+    // intents for backward-compatible behavior; otherwise we return the
+    // freshest unacknowledged intent and let the caller apply the live expiry
+    // check against `expiresAt` (consistent with the pairing-session queries in
+    // this module, which also delegate live expiry to their callers).
     const intents = await ctx.db
       .query("mobile_connect_intents")
-      .withIndex("by_ownerId_and_desktopDeviceId_and_expiresAt", (q) =>
-        q
+      .withIndex("by_ownerId_and_desktopDeviceId_and_expiresAt", (q) => {
+        const prefix = q
           .eq("ownerId", ownerId)
-          .eq("desktopDeviceId", args.desktopDeviceId)
-          .gt("expiresAt", args.nowMs),
-      )
+          .eq("desktopDeviceId", args.desktopDeviceId);
+        return args.nowMs !== undefined
+          ? prefix.gt("expiresAt", args.nowMs)
+          : prefix;
+      })
       .order("desc")
       .take(CONNECT_INTENT_SCAN_LIMIT);
 

@@ -37,13 +37,15 @@ crons.interval(
 crons.interval(
   "rescue orphaned remote turns",
   { seconds: 60 },
-  internal.channels.connector_delivery.rescueOrphanedTurns,
+  // Cheap gating mutation: runs the bounded orphan read and only schedules the
+  // (expensive) rescue action when there is actually something to rescue.
+  internal.channels.connector_delivery.sweepOrphanedTurns,
   {},
 );
 
 crons.interval(
   "fail stale media jobs",
-  { seconds: 60 },
+  { minutes: 3 },
   internal.media_jobs.markStaleJobsFailed,
   { staleMs: 4 * 60_000, limit: 200 },
 );

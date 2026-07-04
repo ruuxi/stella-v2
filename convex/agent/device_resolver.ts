@@ -114,11 +114,28 @@ const upsertDeviceProfile = async (
   const existing =
     preloadedProfile ?? (await loadDeviceProfile(ctx, ownerId, deviceId));
   if (existing) {
-    await ctx.db.patch(existing._id, {
-      ...(fields.deviceName !== undefined ? { deviceName: fields.deviceName } : {}),
-      ...(fields.devicePublicKey !== undefined ? { devicePublicKey: fields.devicePublicKey } : {}),
-      ...(fields.platform !== undefined ? { platform: fields.platform } : {}),
-    });
+    // The hot heartbeat path calls this every ~30s with the same profile
+    // fields, so patching unconditionally rewrites the `devices` row (and
+    // invalidates its subscribers) on every beat. Only write when a provided
+    // field actually differs from what is stored; presence freshness is
+    // tracked separately in `device_presence`.
+    const deviceNameChanged =
+      fields.deviceName !== undefined &&
+      fields.deviceName !== existing.deviceName;
+    const devicePublicKeyChanged =
+      fields.devicePublicKey !== undefined &&
+      fields.devicePublicKey !== existing.devicePublicKey;
+    const platformChanged =
+      fields.platform !== undefined && fields.platform !== existing.platform;
+    if (deviceNameChanged || devicePublicKeyChanged || platformChanged) {
+      await ctx.db.patch(existing._id, {
+        ...(deviceNameChanged ? { deviceName: fields.deviceName } : {}),
+        ...(devicePublicKeyChanged
+          ? { devicePublicKey: fields.devicePublicKey }
+          : {}),
+        ...(platformChanged ? { platform: fields.platform } : {}),
+      });
+    }
     return existing;
   }
   const id = await ctx.db.insert("devices", {

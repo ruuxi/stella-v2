@@ -10,6 +10,18 @@ import { requireBoundedString } from "./shared_validators";
 
 export const MOBILE_BRIDGE_LEASE_MS = 150_000;
 /**
+ * The desktop re-registers on a short interval (and often fires two requests
+ * back-to-back as its LAN and tunnel URLs become ready). Each register is a
+ * full patch of the same row, which also invalidates every subscription that
+ * reads it. `updatedAt` doubles as the lease heartbeat (`leaseExpiresAt =
+ * updatedAt + MOBILE_BRIDGE_LEASE_MS`), so we still refresh it periodically --
+ * but far less often than the client re-registers. When the registration
+ * content is unchanged we only re-write once the row is older than this
+ * interval, which collapses the redundant burst writes while keeping the lease
+ * comfortably fresh (a third of the lease window).
+ */
+const MOBILE_BRIDGE_REGISTRATION_MIN_REFRESH_MS = MOBILE_BRIDGE_LEASE_MS / 3;
+/**
  * Bridge sessions live for an hour (was 15 minutes) so a phone that persisted
  * its session across an app restart can reconnect without a fresh
  * challenge/mint round-trip. The secret is stored hashed, the desktop still
@@ -148,6 +160,33 @@ export const upsertRegistration = internalMutation({
       .unique();
 
     if (existing) {
+      // Skip redundant writes: when the caller-supplied content matches what is
+      // already stored and the lease is still comfortably fresh, avoid the
+      // patch entirely. This absorbs the desktop's back-to-back duplicate
+      // registrations (and any no-op refreshes) without churning the row or
+      // invalidating the subscriptions that read it. A content change or a
+      // stale-enough lease always falls through to the patch below so the
+      // registration stays authoritative and `updatedAt` keeps the lease live.
+      const baseUrlsUnchanged =
+        existing.baseUrls.length === sanitizedBaseUrls.length &&
+        existing.baseUrls.every((url, i) => url === sanitizedBaseUrls[i]);
+      const platformUnchanged =
+        args.platform === undefined || args.platform === existing.platform;
+      const desktopPublicKeyUnchanged =
+        args.desktopPublicKey === undefined ||
+        args.desktopPublicKey === existing.desktopPublicKey;
+      const leaseStillFresh =
+        args.updatedAt - existing.updatedAt <
+        MOBILE_BRIDGE_REGISTRATION_MIN_REFRESH_MS;
+      if (
+        baseUrlsUnchanged &&
+        platformUnchanged &&
+        desktopPublicKeyUnchanged &&
+        leaseStillFresh
+      ) {
+        return null;
+      }
+
       await ctx.db.patch(existing._id, {
         baseUrls: sanitizedBaseUrls,
         updatedAt: args.updatedAt,

@@ -51,6 +51,19 @@ import { admitSend } from "./send-admission";
 import { createStreamTextSmoother } from "./stream-text-smoother";
 import { userFacingError } from "./user-facing-error";
 import { notifySuccess } from "./haptics";
+import { loadMemoryFacts, rememberFact, forgetFact } from "./chat-memory";
+import {
+  loadCheckpoint,
+  runCompaction,
+  buildCompactedContext,
+} from "./chat-compaction";
+import {
+  buildToolPreamble,
+  createToolBlockFilter,
+  parseToolBlock,
+} from "./chat-tools";
+import { searchMessages, formatRecallResults } from "./chat-recall";
+import { resolveMap, mapArtifactFor } from "./chat-maps";
 import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
 
 /** What a `runDesktopSync` call actually did, so callers can be honest. */
@@ -69,6 +82,19 @@ export type DesktopSyncOutcome = {
 const HISTORY_MESSAGE_LIMIT = 100;
 /** Cap on how many recent artifacts the Artifacts list sheet shows. */
 const MAX_LISTED_ARTIFACTS = 20;
+/** Endpoint the offline (cloud) chat streams answers from. */
+const OFFLINE_CHAT_STREAM_PATH = "/api/mobile/offline-chat/stream";
+/**
+ * Stable conversation id for offline-chat artifacts (map cards). The offline
+ * chat is a single continuous thread, so one id keeps artifact ids stable.
+ */
+const OFFLINE_ARTIFACT_CONVERSATION_ID = "offline-chat";
+/**
+ * Max streamed rounds per turn in the offline tool loop: one answer round plus
+ * at most one recall-continuation round. Keeps the client-side tool loop
+ * bounded (there is no server-side agent loop for the offline responder).
+ */
+const MAX_OFFLINE_TOOL_ROUNDS = 2;
 
 const createId = () =>
   `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -595,15 +621,20 @@ export function useChatThread(opts: {
   const dispatchCloud = useCallback(
     async (item: QueuedSend, replyId: string, abort: AbortController) => {
       const guest = transport.kind === "cloud" ? transport.guest : false;
+      // The offline tool + memory + compaction layer is scoped to the plain
+      // offline chat (the "cloud" Chat tab, guest or signed-in). Other cloud
+      // surfaces that ride the same send pipeline (the CarPlay voice loop)
+      // keep the lean text-only behaviour.
+      const toolsEnabled = threadId === "cloud" && transport.kind === "cloud";
       const queuedIds = new Set(queueRef.current.map((q) => q.userMessageId));
-      const history = messagesRef.current
-        .filter(
-          (m) =>
-            m.id !== item.userMessageId &&
-            m.id !== replyId &&
-            !queuedIds.has(m.id) &&
-            !m.queued,
-        )
+      const priorMessages = messagesRef.current.filter(
+        (m) =>
+          m.id !== item.userMessageId &&
+          m.id !== replyId &&
+          !queuedIds.has(m.id) &&
+          !m.queued,
+      );
+      const baseHistory = priorMessages
         .map((m) => ({ role: m.role, text: m.text }))
         .filter((m) => m.text.trim().length > 0);
 
@@ -640,23 +671,149 @@ export function useChatThread(opts: {
           : {}),
       };
 
-      try {
+      // Aggregate a full completion without touching the UI — used to generate
+      // compaction summaries through the same offline responder.
+      const complete = async (
+        prompt: string,
+        history: { role: ChatMessage["role"]; text: string }[],
+      ): Promise<string> => {
+        let acc = "";
         await streamFn(
-          "/api/mobile/offline-chat/stream",
-          {
-            message: item.text,
-            history,
-            images: imagesPayload,
-          },
+          OFFLINE_CHAT_STREAM_PATH,
+          { message: prompt, history, images: [] },
           (delta) => {
-            // Cloud turns have no tool stream — the only signal is answer
-            // text, so mark streaming as soon as a non-empty delta lands to
-            // retire the "thinking" indicator (matching desktop behaviour).
-            if (/\S/.test(delta)) patchActivity({ isStreamingText: true });
-            textSmoother.push(delta);
+            acc += delta;
           },
           streamOptions,
         );
+        return acc;
+      };
+
+      // Resolve a map tool call and hang the interactive card off the reply.
+      const applyMapTool = async (call: {
+        places?: string[];
+        origin?: string;
+        destination?: string;
+        mode?: string;
+        title?: string;
+      }) => {
+        const outcome = await resolveMap(call);
+        if (!outcome.ok) return;
+        setMessages((m) =>
+          m.map((msg) => {
+            if (msg.id !== replyId) return msg;
+            const existing = msg.artifacts ?? [];
+            const artifact = mapArtifactFor(
+              outcome.result.payload,
+              OFFLINE_ARTIFACT_CONVERSATION_ID,
+              existing.length,
+            );
+            if (existing.some((a) => a.id === artifact.id)) return msg;
+            return { ...msg, artifacts: [...existing, artifact] };
+          }),
+        );
+      };
+
+      try {
+        if (!toolsEnabled) {
+          // Lean path: plain streamed text, no memory/tools/compaction.
+          await streamFn(
+            OFFLINE_CHAT_STREAM_PATH,
+            { message: item.text, history: baseHistory, images: imagesPayload },
+            (delta) => {
+              if (/\S/.test(delta)) patchActivity({ isStreamingText: true });
+              textSmoother.push(delta);
+            },
+            streamOptions,
+          );
+          await textSmoother.drain();
+          ensureFallbackReply();
+          notifySuccess();
+          return;
+        }
+
+        // Durable memory + rolling checkpoint; compact if the running context
+        // is over budget, then build the primed context turn.
+        const [memoryFacts, existingCheckpoint] = await Promise.all([
+          loadMemoryFacts(),
+          loadCheckpoint(),
+        ]);
+        let checkpoint = existingCheckpoint;
+        try {
+          const updated = await runCompaction({
+            messages: priorMessages,
+            checkpoint,
+            summarize: (prompt) => complete(prompt, []),
+          });
+          if (updated) checkpoint = updated;
+        } catch {
+          // Best-effort: a failed compaction just leaves context uncompacted.
+        }
+        const context = buildCompactedContext(priorMessages, checkpoint);
+        const preamble = buildToolPreamble({
+          memoryFacts,
+          summary: context.summary,
+        });
+        const primedHistory: { role: ChatMessage["role"]; text: string }[] = [
+          { role: "user", text: preamble },
+          { role: "assistant", text: "Understood." },
+          ...context.history,
+        ];
+
+        // One answer round, plus at most one recall-continuation round.
+        let message = item.text;
+        let roundImages = imagesPayload;
+        for (let round = 0; round < MAX_OFFLINE_TOOL_ROUNDS; round += 1) {
+          const filter = createToolBlockFilter();
+          await streamFn(
+            OFFLINE_CHAT_STREAM_PATH,
+            { message, history: primedHistory, images: roundImages },
+            (delta) => {
+              // Hide the trailing tool block while the answer streams.
+              const visible = filter.feed(delta);
+              if (!visible) return;
+              if (/\S/.test(visible)) patchActivity({ isStreamingText: true });
+              textSmoother.push(visible);
+            },
+            streamOptions,
+          );
+          const tail = filter.finalize();
+          if (tail) {
+            if (/\S/.test(tail)) patchActivity({ isStreamingText: true });
+            textSmoother.push(tail);
+          }
+
+          const { calls } = parseToolBlock(filter.raw());
+          const recalls: { query: string }[] = [];
+          for (const call of calls) {
+            if (call.tool === "remember") {
+              await rememberFact(call.key, call.value);
+            } else if (call.tool === "forget") {
+              await forgetFact(call.key);
+            } else if (call.tool === "map") {
+              await applyMapTool(call);
+            } else if (call.tool === "recall") {
+              recalls.push({ query: call.query });
+            }
+          }
+
+          if (recalls.length === 0 || round === MAX_OFFLINE_TOOL_ROUNDS - 1) {
+            break;
+          }
+          // Feed the recall results back so the model answers next round.
+          const excludeIds = new Set([item.userMessageId, replyId]);
+          const resultsText = recalls
+            .map((r) =>
+              formatRecallResults(
+                searchMessages(messagesRef.current, r.query, { excludeIds }),
+                r.query,
+              ),
+            )
+            .join("\n\n");
+          message = `Recall results (from your earlier messages in this conversation):\n${resultsText}\n\nUsing these where relevant, answer the user's latest message: "${item.text}". Do not use the recall tool again.`;
+          roundImages = [];
+        }
+
         await textSmoother.drain();
         ensureFallbackReply();
         notifySuccess();
@@ -686,7 +843,7 @@ export function useChatThread(opts: {
         finishDispatch();
       }
     },
-    [appendAssistantText, finishDispatch, patchActivity, transport],
+    [appendAssistantText, finishDispatch, patchActivity, threadId, transport],
   );
 
   // ─── Desktop dispatch ─────────────────────────────────────────────────────

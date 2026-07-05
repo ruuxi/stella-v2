@@ -632,6 +632,20 @@ export function useChatThread(opts: {
     drainQueueRef.current?.();
   }, [markSending]);
 
+  // Non-cancelable final flush for a settled turn. The debounced writer above
+  // is cancelable (its cleanup clears the timeout on unmount), so a turn that
+  // finishes right before the tab unmounts could be lost with no server copy.
+  // Reading through a state updater captures the freshest committed transcript
+  // (later than `messagesRef`, which only catches up in an effect), then
+  // persists it and mirrors it into the recall index immediately.
+  const flushPersistNow = useCallback(() => {
+    setMessages((current) => {
+      void saveChatMessages(threadId, current).catch(() => {});
+      if (threadId === "cloud") void indexMessages(current);
+      return current;
+    });
+  }, [threadId]);
+
   // ─── Cloud dispatch ───────────────────────────────────────────────────────
   const dispatchCloud = useCallback(
     async (item: QueuedSend, replyId: string, abort: AbortController) => {
@@ -704,6 +718,9 @@ export function useChatThread(opts: {
         return acc;
       };
 
+      // Map-tool failures, surfaced on the reply after the answer finishes
+      // streaming so the note lands after the streamed text (see below).
+      const mapErrors: string[] = [];
       // Resolve a map tool call and hang the interactive card off the reply.
       const applyMapTool = async (call: {
         places?: string[];
@@ -713,7 +730,12 @@ export function useChatThread(opts: {
         title?: string;
       }) => {
         const outcome = await resolveMap(call);
-        if (!outcome.ok) return;
+        if (!outcome.ok) {
+          // Don't drop the failure silently: the model already told the user a
+          // map was coming, so a missing card with no explanation is confusing.
+          mapErrors.push(outcome.error);
+          return;
+        }
         setMessages((m) =>
           m.map((msg) => {
             if (msg.id !== replyId) return msg;
@@ -832,6 +854,16 @@ export function useChatThread(opts: {
 
         await textSmoother.drain();
         ensureFallbackReply();
+        if (mapErrors.length > 0) {
+          // Append after the drain so the note follows the streamed answer.
+          const note = mapErrors.join("\n");
+          setMessages((m) =>
+            m.map((msg) => {
+              if (msg.id !== replyId || msg.text.includes(note)) return msg;
+              return { ...msg, text: msg.text ? `${msg.text}\n\n${note}` : note };
+            }),
+          );
+        }
         notifySuccess();
       } catch (e) {
         if (e instanceof StreamAbortError) {
@@ -857,9 +889,19 @@ export function useChatThread(opts: {
           activeDispatchRef.current = null;
         }
         finishDispatch();
+        // Persist + index the settled turn immediately so it survives an
+        // unmount inside the debounce window (offline chat has no server copy).
+        flushPersistNow();
       }
     },
-    [appendAssistantText, finishDispatch, patchActivity, threadId, transport],
+    [
+      appendAssistantText,
+      finishDispatch,
+      flushPersistNow,
+      patchActivity,
+      threadId,
+      transport,
+    ],
   );
 
   // ─── Desktop dispatch ─────────────────────────────────────────────────────

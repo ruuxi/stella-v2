@@ -71,6 +71,24 @@ function getDb(): Promise<SQLite.SQLiteDatabase> {
 }
 
 /**
+ * Serialize DB writes. The mount-time backfill and the debounced mirror both
+ * open `withTransactionAsync` on the shared connection near mount; expo-sqlite
+ * does not queue transactions, so two overlapping BEGINs would throw. Chaining
+ * every write through a single promise guarantees one transaction runs at a
+ * time. The chain is kept alive across individual failures.
+ */
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueWrite<T>(work: () => Promise<T>): Promise<T> {
+  const run = writeQueue.then(work, work);
+  writeQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/**
  * Upsert messages into the index. Only rows whose text/role actually changed
  * touch the FTS index (the conflict WHERE guard skips no-op rewrites, so
  * streaming the same reply many times doesn't re-index on every chunk).
@@ -80,24 +98,33 @@ export async function indexMessages(messages: ChatMessage[]): Promise<void> {
     (message) => typeof message.text === "string" && message.text.trim().length > 0,
   );
   if (rows.length === 0) return;
-  const db = await getDb();
-  await db.withTransactionAsync(async () => {
-    for (const message of rows) {
-      await db.runAsync(
-        `INSERT INTO messages(id, role, text, created_at) VALUES(?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           role = excluded.role,
-           text = excluded.text,
-           created_at = excluded.created_at
-         WHERE messages.text <> excluded.text
-            OR messages.role <> excluded.role`,
-        message.id,
-        message.role,
-        message.text.trim(),
-        typeof message.createdAt === "number" ? message.createdAt : null,
-      );
-    }
-  });
+  try {
+    const db = await getDb();
+    await enqueueWrite(() =>
+      db.withTransactionAsync(async () => {
+        for (const message of rows) {
+          await db.runAsync(
+            `INSERT INTO messages(id, role, text, created_at) VALUES(?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+               role = excluded.role,
+               text = excluded.text,
+               created_at = excluded.created_at
+             WHERE messages.text <> excluded.text
+                OR messages.role <> excluded.role`,
+            message.id,
+            message.role,
+            message.text.trim(),
+            typeof message.createdAt === "number" ? message.createdAt : null,
+          );
+        }
+      }),
+    );
+  } catch {
+    // Best-effort mirror: a failed index write (e.g. a transient SQLite error)
+    // just leaves those rows unsearchable until the next persist re-attempts
+    // them. Swallow rather than surface an unhandled rejection — the debounced
+    // mirror fires this as a floating promise.
+  }
 }
 
 let backfilled = false;
@@ -173,5 +200,5 @@ export async function searchMessages(
 /** Test/maintenance helper: wipe the index (content + FTS stay in sync). */
 export async function clearMessageIndex(): Promise<void> {
   const db = await getDb();
-  await db.execAsync("DELETE FROM messages;");
+  await enqueueWrite(() => db.execAsync("DELETE FROM messages;"));
 }

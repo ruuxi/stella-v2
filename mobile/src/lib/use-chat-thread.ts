@@ -62,7 +62,12 @@ import {
   createToolBlockFilter,
   parseToolBlock,
 } from "./chat-tools";
-import { searchMessages, formatRecallResults } from "./chat-recall";
+import { formatRecallResults } from "./chat-recall";
+import {
+  initMessageIndex,
+  indexMessages,
+  searchMessages,
+} from "./chat-message-index";
 import { resolveMap, mapArtifactFor } from "./chat-maps";
 import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
 
@@ -284,14 +289,24 @@ export function useChatThread(opts: {
   }, [threadId]);
 
   // Debounce persistence so streaming (which mutates `messages` many times a
-  // second) doesn't rewrite the whole history to disk on every chunk.
+  // second) doesn't rewrite the whole history to disk on every chunk. The
+  // offline (cloud) chat also mirrors its messages into the SQLite FTS index
+  // that backs recall (upserts are no-ops for unchanged rows).
   useEffect(() => {
     if (!storageLoaded) return;
     const handle = setTimeout(() => {
       void saveChatMessages(threadId, messages);
+      if (threadId === "cloud") void indexMessages(messages);
     }, 500);
     return () => clearTimeout(handle);
   }, [messages, storageLoaded, threadId]);
+
+  // Open the SQLite recall index once for the offline chat and backfill any
+  // pre-existing AsyncStorage transcript so old messages are searchable.
+  useEffect(() => {
+    if (threadId !== "cloud") return;
+    void initMessageIndex();
+  }, [threadId]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -802,14 +817,15 @@ export function useChatThread(opts: {
           }
           // Feed the recall results back so the model answers next round.
           const excludeIds = new Set([item.userMessageId, replyId]);
-          const resultsText = recalls
-            .map((r) =>
+          const resultParts = await Promise.all(
+            recalls.map(async (r) =>
               formatRecallResults(
-                searchMessages(messagesRef.current, r.query, { excludeIds }),
+                await searchMessages(r.query, { excludeIds }),
                 r.query,
               ),
-            )
-            .join("\n\n");
+            ),
+          );
+          const resultsText = resultParts.join("\n\n");
           message = `Recall results (from your earlier messages in this conversation):\n${resultsText}\n\nUsing these where relevant, answer the user's latest message: "${item.text}". Do not use the recall tool again.`;
           roundImages = [];
         }

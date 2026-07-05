@@ -1,18 +1,16 @@
 import type { ChatMessage } from "../types";
 
 /**
- * Message recall for the offline chat — a deliberately simplified analog of
- * the desktop's Recall tool. The desktop Recall searches across many threads,
- * agents, and machine state; the mobile offline chat is a single continuous
- * thread with no threads or agents, so recall only ever needs to full-text
- * search the chat's OWN prior messages and pull up things said earlier.
+ * Pure helpers behind the offline chat's message recall — a simplified analog
+ * of the desktop's Recall tool. The desktop Recall searches across many
+ * threads, agents, and machine state; the mobile offline chat is a single
+ * continuous thread with no threads or agents, so recall only ever needs to
+ * full-text search the chat's OWN prior messages.
  *
- * The desktop backs Recall with SQLite FTS. The mobile offline chat keeps its
- * transcript in AsyncStorage (no native SQLite module ships in this app), so
- * this is an in-memory ranked search over the already-loaded transcript: the
- * full message history is resident, so searching the array is equivalent to an
- * FTS scan of the on-device messages without pulling in a native dependency
- * that would break the app's over-the-air update path.
+ * The actual search is backed by SQLite FTS5 (see `chat-message-index.ts`);
+ * this module holds the native-free pieces — query tokenization, the FTS5
+ * MATCH expression builder, row -> hit mapping, and result formatting — so they
+ * stay unit-testable without loading the native SQLite module.
  */
 
 export type RecallHit = {
@@ -22,11 +20,20 @@ export type RecallHit = {
   /** A short excerpt centered on the first matched term. */
   snippet: string;
   createdAt: number | undefined;
+  /** Relevance score (higher is better); derived from FTS5 bm25. */
   score: number;
 };
 
+/** A raw row joined out of the SQLite messages table. */
+export type MessageRow = {
+  id: string;
+  role: string;
+  text: string;
+  created_at: number | null;
+};
+
 const SNIPPET_RADIUS = 90;
-const DEFAULT_LIMIT = 8;
+export const DEFAULT_RECALL_LIMIT = 8;
 
 /** Lowercase word tokens (letters/digits), 2+ chars, deduped, order kept. */
 export const tokenize = (input: string): string[] => {
@@ -40,6 +47,18 @@ export const tokenize = (input: string): string[] => {
     out.push(token);
   }
   return out;
+};
+
+/**
+ * Build an FTS5 MATCH expression from a free-text query. Each token is quoted
+ * as a string literal (so query text can never inject FTS5 operators) and the
+ * tokens are OR-joined — any term may match, and bm25 ranks multi-term hits
+ * higher. Returns null when the query has no usable terms.
+ */
+export const buildFtsMatchQuery = (query: string): string | null => {
+  const terms = tokenize(query);
+  if (terms.length === 0) return null;
+  return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(" OR ");
 };
 
 const buildSnippet = (text: string, terms: string[]): string => {
@@ -62,69 +81,28 @@ const buildSnippet = (text: string, terms: string[]): string => {
   }`;
 };
 
-export type SearchOptions = {
-  limit?: number;
-  /** Message ids to skip (e.g. the in-flight turn's own rows). */
-  excludeIds?: Set<string>;
-};
+const normalizeRole = (role: string): ChatMessage["role"] =>
+  role === "user" ? "user" : "assistant";
 
 /**
- * Rank the chat's own messages against a free-text query. Scores by matched
- * distinct terms and total term frequency, with a mild recency tiebreak so a
- * recent mention edges out an equally-relevant older one. Messages matching no
- * query term are dropped entirely (an FTS-style AND-of-any match).
+ * Map a matched SQLite row to a RecallHit. `bm25Rank` is FTS5's bm25 score
+ * (lower is better), negated into a higher-is-better `score`.
  */
-export function searchMessages(
-  messages: ChatMessage[],
+export const rowToHit = (
+  row: MessageRow,
   query: string,
-  options: SearchOptions = {},
-): RecallHit[] {
-  const terms = tokenize(query);
-  if (terms.length === 0) return [];
-  const limit = options.limit ?? DEFAULT_LIMIT;
-  const exclude = options.excludeIds;
-  const total = messages.length;
-
-  const scored: RecallHit[] = [];
-  for (let index = 0; index < total; index += 1) {
-    const message = messages[index]!;
-    if (exclude?.has(message.id)) continue;
-    const body = message.text?.trim();
-    if (!body) continue;
-    const lower = body.toLowerCase();
-    let matchedTerms = 0;
-    let frequency = 0;
-    for (const term of terms) {
-      let from = 0;
-      let hits = 0;
-      for (;;) {
-        const at = lower.indexOf(term, from);
-        if (at === -1) break;
-        hits += 1;
-        from = at + term.length;
-      }
-      if (hits > 0) {
-        matchedTerms += 1;
-        frequency += hits;
-      }
-    }
-    if (matchedTerms === 0) continue;
-    // Distinct-term coverage dominates; frequency and recency break ties.
-    const recency = total > 1 ? index / (total - 1) : 1;
-    const score = matchedTerms * 100 + Math.min(frequency, 20) + recency;
-    scored.push({
-      id: message.id,
-      role: message.role,
-      text: body,
-      snippet: buildSnippet(body, terms),
-      createdAt: message.createdAt,
-      score,
-    });
-  }
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit);
-}
+  bm25Rank: number,
+): RecallHit => ({
+  id: row.id,
+  role: normalizeRole(row.role),
+  text: row.text,
+  snippet: buildSnippet(row.text, tokenize(query)),
+  createdAt:
+    typeof row.created_at === "number" && Number.isFinite(row.created_at)
+      ? row.created_at
+      : undefined,
+  score: Number.isFinite(bm25Rank) ? -bm25Rank : 0,
+});
 
 /** Render recall hits as the tool-result text the model reads to continue. */
 export function formatRecallResults(hits: RecallHit[], query: string): string {

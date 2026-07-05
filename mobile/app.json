@@ -119,7 +119,8 @@
           "microphonePermission": "Stella needs access to your microphone for voice input."
         }
       ],
-      "./plugins/withStellaCarPlay"
+      "./plugins/withStellaCarPlay",
+      "expo-sqlite"
     ],
     "extra": {
       "router": {},

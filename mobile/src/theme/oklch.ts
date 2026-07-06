@@ -9,7 +9,7 @@ export interface OklchColor {
   h: number; // Hue 0-360
 }
 
-export function hexToRgb(hex: string): { r: number; g: number; b: number } {
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
   if (!hex) return { r: 0.5, g: 0.5, b: 0.5 };
   const h = hex.replace("#", "");
   const full =
@@ -25,7 +25,7 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } {
   };
 }
 
-export function rgbToHex(r: number, g: number, b: number): string {
+function rgbToHex(r: number, g: number, b: number): string {
   const toHex = (v: number) => {
     const clamped = Math.max(0, Math.min(1, v));
     return Math.round(clamped * 255).toString(16).padStart(2, "0");
@@ -43,7 +43,7 @@ function srgbToLinear(c: number): number {
   return Math.pow((c + 0.055) / 1.055, 2.4);
 }
 
-export function rgbToOklch(r: number, g: number, b: number): OklchColor {
+function rgbToOklch(r: number, g: number, b: number): OklchColor {
   const lr = srgbToLinear(r);
   const lg = srgbToLinear(g);
   const lb = srgbToLinear(b);
@@ -67,7 +67,7 @@ export function rgbToOklch(r: number, g: number, b: number): OklchColor {
   return { l: L, c: C, h: H };
 }
 
-export function oklchToRgb(oklch: OklchColor): { r: number; g: number; b: number } {
+function oklchToRgb(oklch: OklchColor): { r: number; g: number; b: number } {
   const { l: L, c: C, h: H } = oklch;
   const a = C * Math.cos((H * Math.PI) / 180);
   const b = C * Math.sin((H * Math.PI) / 180);
@@ -88,28 +88,9 @@ export function hexToOklch(hex: string): OklchColor {
   return rgbToOklch(r, g, b);
 }
 
-export function oklchToHex(oklch: OklchColor): string {
+function oklchToHex(oklch: OklchColor): string {
   const { r, g, b } = oklchToRgb(oklch);
   return rgbToHex(r, g, b);
-}
-
-/** Generate a 12-step color scale from a seed color (matches Aura design system). */
-export function generateScale(seed: string, isDark: boolean): string[] {
-  const base = hexToOklch(seed);
-  const scale: string[] = [];
-
-  const lightSteps = isDark
-    ? [0.15, 0.18, 0.22, 0.26, 0.32, 0.38, 0.46, 0.56, base.l, base.l - 0.05, 0.75, 0.93]
-    : [0.99, 0.97, 0.94, 0.9, 0.85, 0.79, 0.72, 0.64, base.l, base.l + 0.05, 0.45, 0.25];
-
-  const chromaMultipliers = isDark
-    ? [0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1, 1, 0.9, 0.6]
-    : [0.1, 0.15, 0.25, 0.35, 0.45, 0.55, 0.7, 0.85, 1, 1, 0.95, 0.85];
-
-  for (let i = 0; i < 12; i++) {
-    scale.push(oklchToHex({ l: lightSteps[i], c: base.c * chromaMultipliers[i], h: base.h }));
-  }
-  return scale;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +98,7 @@ export function generateScale(seed: string, isDark: boolean): string[] {
 // ---------------------------------------------------------------------------
 
 /** Blend a hex color toward the background at a given strength (0 = bg, 1 = color). */
-export function blendToward(hex: string, bg: string, strength: number): string {
+function blendToward(hex: string, bg: string, strength: number): string {
   const c = hexToOklch(hex);
   const b = hexToOklch(bg);
   return oklchToHex({
@@ -125,12 +106,6 @@ export function blendToward(hex: string, bg: string, strength: number): string {
     c: b.c + (c.c - b.c) * strength,
     h: c.c > 0.001 ? c.h : b.h,
   });
-}
-
-/** Darken or lighten a hex color in OKLCH space. */
-export function adjustLightness(hex: string, delta: number): string {
-  const c = hexToOklch(hex);
-  return oklchToHex({ l: Math.max(0, Math.min(1, c.l + delta)), c: c.c, h: c.h });
 }
 
 /** Create a soft/muted version of a color (reduce chroma, blend toward background). */

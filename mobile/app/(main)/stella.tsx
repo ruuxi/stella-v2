@@ -20,20 +20,21 @@ import {
 } from "../../src/lib/desktop-bridge-chat";
 import {
   clearStoredPhoneAccess,
-  completePhonePairing,
   getDesktopBridgeStatus,
   getPreferredPhoneAccess,
   listStoredPairedPhoneAccess,
   requestDesktopConnection,
   type StoredPhoneAccess,
 } from "../../src/lib/phone-access";
+import { normalizePairingCode, pairWithCode } from "../../src/lib/pairing";
+import { useDesktopPlatforms } from "../../src/lib/use-desktop-platforms";
 import { generateShimScript } from "../../src/lib/shim";
-import { registerStellaRefresh } from "../../src/lib/stella-refresh";
 import { userFacingError } from "../../src/lib/user-facing-error";
 import { DesktopTabAnimation } from "../../src/components/DesktopTabAnimation";
 import { SignInPrompt } from "../../src/components/SignInPrompt";
 import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
-import { notifyError, notifySuccess } from "../../src/lib/haptics";
+import { PrimaryButton } from "../../src/components/PrimaryButton";
+import { notifySuccess } from "../../src/lib/haptics";
 import { type Colors } from "../../src/theme/colors";
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
@@ -77,14 +78,6 @@ const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
   });
-
-const PAIRING_CODE_LENGTH = 8;
-
-const normalizePairingCode = (value: string) =>
-  value
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, PAIRING_CODE_LENGTH);
 
 function getBridgeOrigin(bridgeUrl: string): string {
   return new URL(bridgeUrl).origin;
@@ -204,49 +197,16 @@ function AuthenticatedStellaScreen() {
   const [bridgeConnected, setBridgeConnected] = useState(true);
   const [preferredAccess, setPreferredAccess] =
     useState<StoredPhoneAccess | null>(null);
-  const [pairingCode, setPairingCode] = useState(routeCode);
   const [isPairing, setIsPairing] = useState(false);
   const [isPairSheetOpen, setIsPairSheetOpen] = useState(false);
   const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>(
     [],
   );
-  const [desktopPlatforms, setDesktopPlatforms] = useState<
-    Record<string, string | null>
-  >({});
+  const desktopPlatforms = useDesktopPlatforms(pairedDesktops);
 
   useEffect(() => {
     void listStoredPairedPhoneAccess().then(setPairedDesktops);
   }, [preferredAccess]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const missing = pairedDesktops.filter(
-      (access) => !(access.desktopDeviceId in desktopPlatforms),
-    );
-    if (missing.length === 0) return;
-    void Promise.all(
-      missing.map(async (access) => {
-        try {
-          const status = await getDesktopBridgeStatus(access.desktopDeviceId);
-          return [access.desktopDeviceId, status.platform ?? null] as const;
-        } catch {
-          return [access.desktopDeviceId, null] as const;
-        }
-      }),
-    ).then((entries) => {
-      if (cancelled) return;
-      setDesktopPlatforms((prev) => {
-        const next = { ...prev };
-        for (const [id, platform] of entries) {
-          next[id] = platform;
-        }
-        return next;
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [desktopPlatforms, pairedDesktops]);
 
   const updatePreferredAccess = useCallback(
     (nextAccess: StoredPhoneAccess | null) => {
@@ -353,8 +313,8 @@ function AuthenticatedStellaScreen() {
   );
 
   const pairPhone = useCallback(
-    async (value?: string) => {
-      const nextCode = normalizePairingCode(value ?? pairingCode);
+    async (value: string) => {
+      const nextCode = normalizePairingCode(value);
       if (!nextCode) {
         setScreenState(
           readUnavailableState(
@@ -365,31 +325,25 @@ function AuthenticatedStellaScreen() {
         return;
       }
 
-      setPairingCode(nextCode);
       setIsPairing(true);
       setScreenState({
         type: "loading",
         message: "Pairing this phone",
       });
 
-      try {
-        const access = await completePhonePairing({ pairingCode: nextCode });
-        updatePreferredAccess(access);
-        notifySuccess();
+      const result = await pairWithCode(nextCode);
+      setIsPairing(false);
+      if (result.ok) {
+        updatePreferredAccess(result.access);
         // Pairing complete. Land the user on the Computer chat so they can
         // start sending messages immediately; the WebView/tunnel is only
         // spun up when they explicitly tap "View computer".
         router.replace("/computer");
-      } catch (error) {
-        notifyError();
-        setScreenState(
-          readUnavailableState("Pair your phone", userFacingError(error)),
-        );
-      } finally {
-        setIsPairing(false);
+      } else {
+        setScreenState(readUnavailableState("Pair your phone", result.error));
       }
     },
-    [pairingCode, router, updatePreferredAccess],
+    [router, setScreenState, updatePreferredAccess],
   );
 
   useEffect(() => {
@@ -415,10 +369,8 @@ function AuthenticatedStellaScreen() {
         })
         .catch(() => {});
     }, 45_000);
-    registerStellaRefresh(() => void refreshBridge());
     return () => {
       clearInterval(interval);
-      registerStellaRefresh(null);
     };
   }, [isPairingOnly, refreshBridge, setScreenState]);
 
@@ -427,7 +379,6 @@ function AuthenticatedStellaScreen() {
       return;
     }
     attemptedRouteCodeRef.current = routeCode;
-    setPairingCode(routeCode);
     void pairPhone(routeCode);
   }, [pairPhone, routeCode]);
 
@@ -448,7 +399,16 @@ function AuthenticatedStellaScreen() {
   }, [canGoBack, router]);
 
   const handleMessage = (event: WebViewMessageEvent) => {
-    const message = readShimMessage(event.nativeEvent.data);
+    // The desktop's web frontend ships independently of this app, so a newer
+    // desktop can post message types this build doesn't know. Those must
+    // degrade to a no-op — a throw escaping an event handler is a fatal
+    // crash in release builds (no ErrorBoundary catches it).
+    let message: ShimMessage;
+    try {
+      message = readShimMessage(event.nativeEvent.data);
+    } catch {
+      return;
+    }
     if (message.type === "openExternal" && isAllowedExternalUrl(message.url)) {
       void Linking.openURL(message.url);
     }
@@ -484,7 +444,8 @@ function AuthenticatedStellaScreen() {
         </View>
 
         <View style={styles.actionRow}>
-          <Pressable
+          <PrimaryButton
+            label={preferredAccess ? "Pair another computer" : "Pair phone"}
             onPress={() => setIsPairSheetOpen(true)}
             disabled={isPairing}
             accessibilityLabel={
@@ -492,16 +453,7 @@ function AuthenticatedStellaScreen() {
                 ? "Pair another computer"
                 : "Start pairing a computer"
             }
-            style={({ pressed }) => [
-              styles.actionButton,
-              pressed && styles.actionButtonPressed,
-              isPairing && styles.actionButtonDisabled,
-            ]}
-          >
-            <Text style={styles.actionButtonText}>
-              {preferredAccess ? "Pair another computer" : "Pair phone"}
-            </Text>
-          </Pressable>
+          />
 
           {showRetry && (
             <Pressable
@@ -735,27 +687,6 @@ const makeStyles = (colors: Colors, insetBottom: number) => StyleSheet.create({
     gap: 10,
     justifyContent: "center",
     marginTop: "auto",
-  },
-  actionButton: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: 22,
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-  },
-  actionButtonPressed: {
-    opacity: 0.8,
-  },
-  actionButtonDisabled: {
-    opacity: 0.65,
-  },
-  actionButtonText: {
-    color: colors.accentForeground,
-    fontFamily: fonts.sans.semiBold,
-    fontSize: 15,
-    letterSpacing: -0.3,
   },
   secondaryButton: {
     alignItems: "center",

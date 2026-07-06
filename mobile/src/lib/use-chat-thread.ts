@@ -112,17 +112,24 @@ const WAKE_STATUS_COPY: Record<DesktopBridgeSendStatus, string | undefined> = {
 
 const assetsToBridgeAttachments = async (
   assets: ImagePicker.ImagePickerAsset[],
-): Promise<DesktopBridgeAttachment[] | null> => {
+): Promise<DesktopBridgeAttachment[]> => {
   const out: DesktopBridgeAttachment[] = [];
   for (const asset of assets) {
     // Normalize to a provider-decodable format (iOS library picks and shared
     // photos are often HEIC, which desktop model providers can't decode).
+    // Skip individual undecodable assets (matching the cloud path) rather
+    // than dropping the whole batch.
     const sendable = await toSendableImage(asset);
-    if (!sendable) return null;
+    if (!sendable) continue;
     out.push({
       url: `data:${sendable.mimeType};base64,${sendable.base64}`,
       mimeType: sendable.mimeType,
     });
+  }
+  if (assets.length > 0 && out.length === 0) {
+    // Every asset failed: fail the turn visibly instead of dispatching it
+    // without the attachments the user just picked.
+    throw new Error("Couldn't attach that photo. Try a different image.");
   }
   return out;
 };
@@ -235,7 +242,16 @@ export function useChatThread(opts: {
   // (wake copy, compaction) and the bridge's tool/streaming signals patch in
   // independently, so callers only set the fields they own.
   const patchActivity = useCallback((patch: Partial<WorkingActivity>) => {
-    setWorkingActivity((current) => ({ ...current, ...patch }));
+    setWorkingActivity((current) => {
+      // Identity-stable bail-out: streaming patches per network delta, and a
+      // fresh object here re-renders the whole chat surface for no change.
+      for (const key of Object.keys(patch) as (keyof WorkingActivity)[]) {
+        if (!Object.is(current[key], patch[key])) {
+          return { ...current, ...patch };
+        }
+      }
+      return current;
+    });
   }, []);
 
   const queueRef = useRef<QueuedSend[]>([]);
@@ -292,9 +308,12 @@ export function useChatThread(opts: {
   // second) doesn't rewrite the whole history to disk on every chunk. The
   // offline (cloud) chat also mirrors its messages into the SQLite FTS index
   // that backs recall (upserts are no-ops for unchanged rows).
+  const pendingSaveRef = useRef<ChatMessage[] | null>(null);
   useEffect(() => {
     if (!storageLoaded) return;
+    pendingSaveRef.current = messages;
     const handle = setTimeout(() => {
+      pendingSaveRef.current = null;
       void saveChatMessages(threadId, messages);
       if (threadId === "cloud") void indexMessages(messages);
     }, 500);
@@ -306,6 +325,19 @@ export function useChatThread(opts: {
   useEffect(() => {
     if (threadId !== "cloud") return;
     void initMessageIndex();
+  }, [threadId]);
+
+  // Flush the debounced write on unmount/thread change — dropping it loses
+  // the whole in-flight turn for threads with no other source of truth
+  // (CarPlay remounts the hook whenever the voice target flips).
+  useEffect(() => {
+    return () => {
+      const pending = pendingSaveRef.current;
+      if (pending) {
+        pendingSaveRef.current = null;
+        void saveChatMessages(threadId, pending);
+      }
+    };
   }, [threadId]);
 
   useEffect(() => {
@@ -935,10 +967,12 @@ export function useChatThread(opts: {
         if (synced.offline) {
           throw new DesktopOfflineError();
         }
+        const bridgeAttachments = await assetsToBridgeAttachments(item.assets);
         const result = await sendDesktopBridgeChat({
           access,
           message: item.text,
-          attachments: (await assetsToBridgeAttachments(item.assets)) ?? undefined,
+          attachments:
+            bridgeAttachments.length > 0 ? bridgeAttachments : undefined,
           signal: abort.signal,
           onStatus: (status) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;

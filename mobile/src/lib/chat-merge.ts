@@ -181,24 +181,50 @@ export const mergeMessagesById = (
   if (incoming.length === 0) return collapseLinkedDuplicates(current);
   const byId = new Map(current.map((message) => [message.id, message]));
   const order = current.map((message) => message.id);
+  // Lookup indexes over `current` (which the loop below never mutates),
+  // built once so the merge is O(current + incoming) instead of a linear
+  // scan per incoming row. Each keeps `.find`'s first-match semantics.
+  const linkedByCanonicalId = new Map<string, ChatMessage>();
+  const directById = new Map<string, ChatMessage>();
+  const assistantsByRequestId = new Map<string, ChatMessage[]>();
+  for (const candidate of current) {
+    if (
+      candidate.canonicalId !== undefined &&
+      !linkedByCanonicalId.has(candidate.canonicalId)
+    ) {
+      linkedByCanonicalId.set(candidate.canonicalId, candidate);
+    }
+    if (!directById.has(candidate.id)) {
+      directById.set(candidate.id, candidate);
+    }
+    if (
+      candidate.role === "assistant" &&
+      candidate.requestId &&
+      !isStandInArtifactRow(candidate)
+    ) {
+      const bucket = assistantsByRequestId.get(candidate.requestId);
+      if (bucket) {
+        bucket.push(candidate);
+      } else {
+        assistantsByRequestId.set(candidate.requestId, [candidate]);
+      }
+    }
+  }
   for (const message of incoming) {
-    const linked = current.find(
-      (candidate) => candidate.canonicalId === message.id,
-    );
-    const direct = current.find((candidate) => candidate.id === message.id);
+    const linked = linkedByCanonicalId.get(message.id);
+    const direct = directById.get(message.id);
     const byRequestId =
       !linked &&
       !direct &&
       message.role === "assistant" &&
       message.requestId &&
       !isStandInArtifactRow(message)
-        ? current.find(
-            (candidate) =>
-              candidate.role === "assistant" &&
-              candidate.requestId === message.requestId &&
-              !isStandInArtifactRow(candidate) &&
-              (!candidate.canonicalId || candidate.canonicalId === message.id),
-          )
+        ? assistantsByRequestId
+            .get(message.requestId)
+            ?.find(
+              (candidate) =>
+                !candidate.canonicalId || candidate.canonicalId === message.id,
+            )
         : undefined;
     const existing = linked ?? direct ?? byRequestId;
     // Collapse a duplicate: the canonical row was merged as its own row before

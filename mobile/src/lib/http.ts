@@ -46,25 +46,45 @@ const readErrorMessage = async (response: Response) => {
   return "Could not complete that request. Try again.";
 };
 
+// Without an explicit timeout, a black-holed connection (captive portal,
+// cellular handoff) pins callers for the OS default (~60s on iOS).
+const REQUEST_TIMEOUT_MS = 15_000;
+
 async function requestJson(
   path: string,
   request: JsonRequest,
-  options?: { anonymous?: boolean },
+  options?: { anonymous?: boolean; timeoutMs?: number },
 ) {
   assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
   const authHeader = options?.anonymous
     ? null
     : `Bearer ${await getConvexToken()}`;
-  const response = await fetch(`${env.convexSiteUrl}${path}`, {
-    ...request,
-    headers: {
-      ...(authHeader ? { Authorization: authHeader } : {}),
-      ...(request.method === "POST"
-        ? { "Content-Type": "application/json" }
-        : {}),
-      ...request.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    options?.timeoutMs ?? REQUEST_TIMEOUT_MS,
+  );
+  let response: Response;
+  try {
+    response = await fetch(`${env.convexSiteUrl}${path}`, {
+      ...request,
+      headers: {
+        ...(authHeader ? { Authorization: authHeader } : {}),
+        ...(request.method === "POST"
+          ? { "Content-Type": "application/json" }
+          : {}),
+        ...request.headers,
+      },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("Request timed out. Try again.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
@@ -82,24 +102,18 @@ async function requestJson(
 
 export const getJson = (
   path: string,
-  options?: { headers?: Record<string, string> },
-) => requestJson(path, { method: "GET", headers: options?.headers });
+  options?: { headers?: Record<string, string>; timeoutMs?: number },
+) =>
+  requestJson(
+    path,
+    { method: "GET", headers: options?.headers },
+    { timeoutMs: options?.timeoutMs },
+  );
 
 export const postJson = (
   path: string,
   body: unknown,
-  options?: { headers?: Record<string, string> },
-) =>
-  requestJson(path, {
-    method: "POST",
-    body: JSON.stringify(body),
-    headers: options?.headers,
-  });
-
-export const postJsonAnonymous = (
-  path: string,
-  body: unknown,
-  options?: { headers?: Record<string, string> },
+  options?: { headers?: Record<string, string>; timeoutMs?: number },
 ) =>
   requestJson(
     path,
@@ -108,7 +122,22 @@ export const postJsonAnonymous = (
       body: JSON.stringify(body),
       headers: options?.headers,
     },
-    { anonymous: true },
+    { timeoutMs: options?.timeoutMs },
+  );
+
+export const postJsonAnonymous = (
+  path: string,
+  body: unknown,
+  options?: { headers?: Record<string, string>; timeoutMs?: number },
+) =>
+  requestJson(
+    path,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: options?.headers,
+    },
+    { anonymous: true, timeoutMs: options?.timeoutMs },
   );
 
 function executeStream(
@@ -153,34 +182,62 @@ function executeStream(
     }
 
     let processed = 0;
+    let pending = "";
+    let finished = false;
 
-    xhr.onprogress = () => {
-      const chunk = xhr.responseText.slice(processed);
+    // Returns false once the stream is finished ([DONE] or an error frame).
+    const handleLine = (line: string): boolean => {
+      if (!line.startsWith("data: ")) return true;
+      const payload = line.slice(6);
+      if (payload === "[DONE]") return false;
+      try {
+        const parsed = JSON.parse(payload) as { t?: string; error?: string };
+        if (parsed.error) {
+          reject(new Error(parsed.error));
+          xhr.abort();
+          return false;
+        }
+        if (parsed.t) onDelta(parsed.t);
+      } catch {
+        // skip malformed lines
+      }
+      return true;
+    };
+
+    // Progress events fire on arbitrary network-buffer boundaries, so a frame
+    // can arrive split across two events. Only complete lines are parseable:
+    // hold the trailing partial line until the next chunk (or the final flush
+    // in onload), otherwise its delta is silently lost.
+    const consume = (flush: boolean) => {
+      if (finished) return;
+      pending += xhr.responseText.slice(processed);
       processed = xhr.responseText.length;
-
-      const lines = chunk.split("\n");
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const payload = line.slice(6);
-        if (payload === "[DONE]") return;
-        try {
-          const parsed = JSON.parse(payload) as { t?: string; error?: string };
-          if (parsed.error) {
-            reject(new Error(parsed.error));
-            xhr.abort();
-            return;
-          }
-          if (parsed.t) onDelta(parsed.t);
-        } catch {
-          // skip malformed lines
+      const cut = pending.lastIndexOf("\n");
+      let complete: string;
+      if (flush) {
+        complete = pending;
+        pending = "";
+      } else if (cut === -1) {
+        return;
+      } else {
+        complete = pending.slice(0, cut);
+        pending = pending.slice(cut + 1);
+      }
+      for (const line of complete.split("\n")) {
+        if (!handleLine(line)) {
+          finished = true;
+          return;
         }
       }
     };
+
+    xhr.onprogress = () => consume(false);
 
     xhr.onload = () => {
       if (signal) signal.removeEventListener("abort", onAbort);
       if (aborted) return;
       if (xhr.status >= 200 && xhr.status < 300) {
+        consume(true);
         resolve();
       } else {
         let msg = "Could not complete that request. Try again.";

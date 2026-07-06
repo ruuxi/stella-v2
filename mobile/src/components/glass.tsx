@@ -1,12 +1,10 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import {
   Animated,
   Platform,
   Pressable,
   StyleSheet,
   View,
-  type PressableProps,
-  type StyleProp,
   type ViewProps,
   type ViewStyle,
 } from "react-native";
@@ -171,62 +169,6 @@ export function GlassCard({
   );
 }
 
-type GlassButtonProps = Omit<PressableProps, "style" | "children"> & {
-  /** Diameter for a circular button; omit and pass `style` for custom shapes. */
-  size?: number;
-  radius?: number;
-  glass?: GlassStyle;
-  tintColor?: string;
-  ringed?: boolean;
-  fallbackColor?: string;
-  style?: StyleProp<ViewStyle>;
-  children?: ReactNode;
-};
-
-/**
- * Standalone Liquid Glass icon button for controls that float *over* content
- * (scroll-to-bottom, the computer options button, …). Interactive glass on
- * iOS 26+, tinted-circle fallback elsewhere.
- *
- * Do not nest inside another glass surface — Apple's HIG advises against glass
- * on glass, so composer-internal controls stay flat.
- */
-export function GlassButton({
-  size = 40,
-  radius,
-  glass = "clear",
-  tintColor,
-  ringed = true,
-  fallbackColor,
-  style,
-  children,
-  ...rest
-}: GlassButtonProps) {
-  const cornerRadius = radius ?? size / 2;
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        { width: size, height: size },
-        pressed && styles.pressed,
-        style,
-      ]}
-      {...rest}
-    >
-      <GlassSurface
-        glass={glass}
-        interactive
-        tintColor={tintColor}
-        ringed={ringed}
-        radius={cornerRadius}
-        fallbackColor={fallbackColor}
-        style={styles.buttonGlass}
-      >
-        {children}
-      </GlassSurface>
-    </Pressable>
-  );
-}
-
 const TOGGLE_WIDTH = 52;
 const TOGGLE_HEIGHT = 32;
 const TOGGLE_THUMB = 26;
@@ -317,13 +259,6 @@ export function GlassToggle({
 }
 
 const styles = StyleSheet.create({
-  pressed: { opacity: 0.85 },
-  buttonGlass: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-    width: "100%",
-  },
   toggleTrack: {
     borderRadius: TOGGLE_HEIGHT / 2,
     height: TOGGLE_HEIGHT,

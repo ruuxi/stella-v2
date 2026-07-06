@@ -602,13 +602,17 @@ class CarPlaySession {
     if (!this.connected || !this.listTemplate) return;
     try {
       const home = this.currentHome();
-      this.rowActions = flattenActions(home);
+      const rowActions = flattenActions(home);
       this.listTemplate.updateSections(
         home.map((section) => ({
           header: section.header,
           items: section.rows.map((row) => this.decorateRow(row)),
         })),
       );
+      // Adopt the new tap map only after updateSections succeeds: if it threw,
+      // the head unit still shows the OLD rows, and taps must keep resolving
+      // against the actions that match what the driver actually sees.
+      this.rowActions = rowActions;
     } catch (error) {
       carPlayLog(`failed to update home rows: ${String(error)}`);
     }

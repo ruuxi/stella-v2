@@ -12,18 +12,21 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "../../src/components/Icon";
 import { GlassToggle } from "../../src/components/glass";
+import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { authClient } from "../../src/lib/auth-client";
+import { clearAiConsent } from "../../src/lib/ai-consent";
 import { clearCachedToken } from "../../src/lib/auth-token";
 import { clearCachedDesktopBridge } from "../../src/lib/desktop-bridge-chat";
 import { isGuest } from "../../src/lib/guest-mode";
+import { clearAllChatStorage } from "../../src/lib/offline-chat-storage";
 import { userFacingError } from "../../src/lib/user-facing-error";
 import { tapLight } from "../../src/lib/haptics";
 import {
   clearStoredPhoneAccess,
-  getDesktopBridgeStatus,
   listStoredPairedPhoneAccess,
   type StoredPhoneAccess,
 } from "../../src/lib/phone-access";
+import { useDesktopPlatforms } from "../../src/lib/use-desktop-platforms";
 import {
   getNotificationsMuted,
   setNotificationsMuted,
@@ -106,9 +109,7 @@ export default function AccountScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>([]);
-  const [desktopPlatforms, setDesktopPlatforms] = useState<
-    Record<string, string | null>
-  >({});
+  const desktopPlatforms = useDesktopPlatforms(pairedDesktops);
   const [removingDesktopId, setRemovingDesktopId] = useState<string | null>(
     null,
   );
@@ -156,35 +157,22 @@ export default function AccountScreen() {
     void refreshPaired();
   }, [refreshPaired]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const missing = pairedDesktops.filter(
-      (access) => !(access.desktopDeviceId in desktopPlatforms),
+  // Local state carries the departing account's data — chat transcripts in
+  // AsyncStorage and desktop pairing secrets in SecureStore. Wipe it so the
+  // next sign-in on this device can't inherit (or re-send as chat history)
+  // the previous user's messages or reconnect with their computers.
+  const clearLocalAccountState = async () => {
+    const paired = await listStoredPairedPhoneAccess().catch(
+      () => [] as StoredPhoneAccess[],
     );
-    if (missing.length === 0) return;
-    void Promise.all(
-      missing.map(async (access) => {
-        try {
-          const status = await getDesktopBridgeStatus(access.desktopDeviceId);
-          return [access.desktopDeviceId, status.platform ?? null] as const;
-        } catch {
-          return [access.desktopDeviceId, null] as const;
-        }
-      }),
-    ).then((entries) => {
-      if (cancelled) return;
-      setDesktopPlatforms((prev) => {
-        const next = { ...prev };
-        for (const [id, platform] of entries) {
-          next[id] = platform;
-        }
-        return next;
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [desktopPlatforms, pairedDesktops]);
+    await Promise.all(
+      paired.map((access) =>
+        clearStoredPhoneAccess(access.desktopDeviceId).catch(() => {}),
+      ),
+    );
+    await clearAllChatStorage();
+    await refreshPaired();
+  };
 
   const signOut = async () => {
     setIsSigningOut(true);
@@ -193,6 +181,7 @@ export default function AccountScreen() {
       await authClient.signOut();
       clearCachedToken();
       clearCachedDesktopBridge();
+      await clearLocalAccountState();
     } finally {
       setIsSigningOut(false);
     }
@@ -212,6 +201,8 @@ export default function AccountScreen() {
       clearCachedToken();
       clearCachedDesktopBridge();
       await authClient.signOut();
+      await clearLocalAccountState();
+      clearAiConsent();
     } catch (e) {
       Alert.alert("Could not delete account", userFacingError(e));
     } finally {
@@ -326,16 +317,12 @@ export default function AccountScreen() {
       ) : (
         <View style={styles.signInBlock}>
           <Text style={styles.signInTitle}>Sign in to Stella</Text>
-          <Pressable
+          <PrimaryButton
+            label="Sign in"
             onPress={() => router.replace("/login")}
             accessibilityLabel="Sign in to Stella"
-            style={({ pressed }) => [
-              styles.signInButton,
-              pressed && styles.signInButtonPressed,
-            ]}
-          >
-            <Text style={styles.signInButtonText}>Sign in</Text>
-          </Pressable>
+            style={styles.signInButton}
+          />
         </View>
       )}
 
@@ -715,22 +702,8 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: -0.3,
     },
     signInButton: {
-      alignItems: "center",
       alignSelf: "flex-start",
-      backgroundColor: colors.accent,
-      borderRadius: 22,
       marginTop: 10,
-      paddingHorizontal: 24,
-      paddingVertical: 11,
-    },
-    signInButtonPressed: {
-      backgroundColor: colors.accentHover,
-    },
-    signInButtonText: {
-      color: colors.accentForeground,
-      fontFamily: fonts.sans.semiBold,
-      fontSize: 15,
-      letterSpacing: -0.3,
     },
     themeRow: {
       flexDirection: "row",

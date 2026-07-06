@@ -1,8 +1,10 @@
 import { useMemo } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
+import { utf8ToBytes } from "@noble/hashes/utils.js";
 import { Icon } from "./Icon";
 import type { MobileDisplayPayload } from "../types";
+import { bytesToBase64Url } from "../lib/bridge-envelope";
 import { artifactSubtitle, artifactTitle } from "../lib/mobile-artifacts";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";
@@ -26,62 +28,13 @@ export type MapRoutePayload = Extract<
 
 const MAPS_EMBED_BASE_URL = "https://stella.sh/maps/embed";
 
-const BASE64_ALPHABET =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-/** base64url (no padding) of a UTF-8 string, dependency-free for Hermes. */
-const base64UrlEncodeUtf8 = (input: string): string => {
-  const bytes: number[] = [];
-  for (let i = 0; i < input.length; i += 1) {
-    let code = input.charCodeAt(i);
-    if (code >= 0xd800 && code <= 0xdbff && i + 1 < input.length) {
-      const low = input.charCodeAt(i + 1);
-      if (low >= 0xdc00 && low <= 0xdfff) {
-        code = (code - 0xd800) * 0x400 + (low - 0xdc00) + 0x10000;
-        i += 1;
-      }
-    }
-    if (code < 0x80) {
-      bytes.push(code);
-    } else if (code < 0x800) {
-      bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
-    } else if (code < 0x10000) {
-      bytes.push(
-        0xe0 | (code >> 12),
-        0x80 | ((code >> 6) & 0x3f),
-        0x80 | (code & 0x3f),
-      );
-    } else {
-      bytes.push(
-        0xf0 | (code >> 18),
-        0x80 | ((code >> 12) & 0x3f),
-        0x80 | ((code >> 6) & 0x3f),
-        0x80 | (code & 0x3f),
-      );
-    }
-  }
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const b0 = bytes[i]!;
-    const b1 = bytes[i + 1];
-    const b2 = bytes[i + 2];
-    out += BASE64_ALPHABET[b0 >> 2];
-    out += BASE64_ALPHABET[((b0 & 0x03) << 4) | ((b1 ?? 0) >> 4)];
-    if (b1 === undefined) break;
-    out += BASE64_ALPHABET[((b1 & 0x0f) << 2) | ((b2 ?? 0) >> 6)];
-    if (b2 === undefined) break;
-    out += BASE64_ALPHABET[b2 & 0x3f];
-  }
-  return out;
-};
-
 const embedUrl = (payload: MapRoutePayload, dark: boolean): string => {
   // Steps aren't needed to draw the map and eat URL budget.
   const { route, ...rest } = payload;
   const slim = route
     ? { ...rest, route: { ...route, steps: undefined } }
     : rest;
-  const encoded = base64UrlEncodeUtf8(JSON.stringify(slim));
+  const encoded = bytesToBase64Url(utf8ToBytes(JSON.stringify(slim)));
   return `${MAPS_EMBED_BASE_URL}?d=${encoded}&mode=${dark ? "dark" : "light"}&embedded=1`;
 };
 

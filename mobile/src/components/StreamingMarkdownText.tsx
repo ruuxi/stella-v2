@@ -29,6 +29,13 @@ const WORDS_PER_GROUP = 3;
 const FADE_DURATION_MS = 600;
 const WHITESPACE_RE = /^\s+$/;
 
+// The fade is JS-driven (nested Text can't use the native driver — virtual
+// Text nodes have no native view), so each mid-fade group ticks the JS
+// Animated loop per frame. Cap how many animate at once to bound JS-thread
+// work during fast streams; groups past the cap render fully opaque.
+const MAX_CONCURRENT_FADES = 10;
+let activeFadeCount = 0;
+
 function tokenize(value: string): string[] {
   const out: string[] = [];
   const re = /\s+|\S+/g;
@@ -90,6 +97,17 @@ function AnimatedWordGroup({ text }: { text: string }) {
   const opacityRef = useRef(new Animated.Value(0));
 
   useEffect(() => {
+    if (activeFadeCount >= MAX_CONCURRENT_FADES) {
+      opacityRef.current.setValue(1);
+      return;
+    }
+    activeFadeCount += 1;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      activeFadeCount -= 1;
+    };
     // Nested Text opacity can fail silently with the native driver on
     // some Android builds — the fade never registers and text looks
     // fully opaque from the first frame.
@@ -99,8 +117,11 @@ function AnimatedWordGroup({ text }: { text: string }) {
       easing: Easing.out(Easing.quad),
       useNativeDriver: false,
     });
-    anim.start();
-    return () => anim.stop();
+    anim.start(release);
+    return () => {
+      anim.stop();
+      release();
+    };
   }, []);
 
   return (

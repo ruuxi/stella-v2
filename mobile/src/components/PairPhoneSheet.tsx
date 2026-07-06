@@ -10,26 +10,21 @@ import {
   View,
 } from "react-native";
 import {
-  completePhonePairing,
   setPreferredDesktopDeviceId,
   type StoredPhoneAccess,
 } from "../lib/phone-access";
-import { notifyError, notifySuccess } from "../lib/haptics";
-import { userFacingError } from "../lib/user-facing-error";
+import {
+  PAIRING_CODE_LENGTH,
+  normalizePairingCode,
+  pairWithCode,
+} from "../lib/pairing";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
 import { GlassCard } from "./glass";
 import { PairingQrScanner } from "./PairingQrScanner";
-
-const PAIRING_CODE_LENGTH = 8;
-
-const normalizePairingCode = (value: string) =>
-  value
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, PAIRING_CODE_LENGTH);
+import { PrimaryButton } from "./PrimaryButton";
 
 const shortDesktopId = (id: string) => id.slice(0, 4).toUpperCase();
 
@@ -85,16 +80,13 @@ export function PairPhoneSheet({
       }
       setError(null);
       setIsPairing(true);
-      try {
-        const access = await completePhonePairing({ pairingCode: code });
-        notifySuccess();
+      const result = await pairWithCode(code);
+      setIsPairing(false);
+      if (result.ok) {
         setPairingCode("");
-        onPaired(access);
-      } catch (e) {
-        notifyError();
-        setError(userFacingError(e));
-      } finally {
-        setIsPairing(false);
+        onPaired(result.access);
+      } else {
+        setError(result.error);
       }
     },
     [onPaired, pairingCode],
@@ -170,18 +162,12 @@ export function PairPhoneSheet({
               </View>
             ) : null}
 
-            <Pressable
+            <PrimaryButton
+              label="Scan QR code"
               onPress={() => setIsScanningQr(true)}
               disabled={isPairing}
               accessibilityLabel="Scan pairing QR code"
-              style={({ pressed }) => [
-                styles.actionButton,
-                pressed && styles.actionButtonPressed,
-                isPairing && styles.actionButtonDisabled,
-              ]}
-            >
-              <Text style={styles.actionButtonText}>Scan QR code</Text>
-            </Pressable>
+            />
 
             <View style={styles.manualCodeBlock}>
               <Text style={styles.manualCodeLabel}>or enter code manually</Text>
@@ -339,27 +325,6 @@ const makeStyles = (colors: Colors) =>
       fontSize: 13,
       letterSpacing: 0.2,
       textAlign: "center",
-    },
-    actionButton: {
-      alignItems: "center",
-      backgroundColor: colors.accent,
-      borderRadius: 22,
-      justifyContent: "center",
-      minHeight: 44,
-      paddingHorizontal: 24,
-      paddingVertical: 12,
-    },
-    actionButtonPressed: {
-      opacity: 0.8,
-    },
-    actionButtonDisabled: {
-      opacity: 0.65,
-    },
-    actionButtonText: {
-      color: colors.accentForeground,
-      fontFamily: fonts.sans.semiBold,
-      fontSize: 15,
-      letterSpacing: -0.3,
     },
     manualCodeBlock: {
       alignItems: "stretch",

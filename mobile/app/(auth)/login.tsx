@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -29,12 +29,10 @@ import { type Colors } from "../../src/theme/colors";
 import { useColors, useTheme } from "../../src/theme/theme-context";
 import { fadeHex } from "../../src/theme/oklch";
 import { fonts } from "../../src/theme/fonts";
-import { TERMS_OF_SERVICE, PRIVACY_POLICY } from "../../src/lib/legal-text";
+import { LEGAL_TITLES, TERMS_OF_SERVICE, PRIVACY_POLICY } from "../../src/lib/legal-text";
 import { loadLastMainTabHref } from "../../src/lib/last-main-tab";
 
 type LegalDoc = "terms" | "privacy" | null;
-
-const LEGAL_TITLES = { terms: "Terms of Service", privacy: "Privacy Policy" };
 
 const POLL_INTERVAL_MS = 2500;
 const RESEND_GRACE_MS = 15_000;
@@ -64,7 +62,6 @@ export default function LoginScreen() {
   const [submitState, setSubmitState] = useState<SubmitState>({ type: "idle" });
   const [activeLegal, setActiveLegal] = useState<LegalDoc>(null);
   const [canResend, setCanResend] = useState(false);
-  const cancelledRef = useRef(false);
 
   const continueAsGuest = async () => {
     await SecureStore.deleteItemAsync("stella-mobile_cookie");
@@ -234,7 +231,7 @@ export default function LoginScreen() {
   }, [submitState]);
 
   const editEmail = () => {
-    cancelledRef.current = true;
+    // Leaving "sent" cancels the poll via the polling effect's cleanup.
     setSubmitState({ type: "idle" });
   };
 
@@ -242,12 +239,13 @@ export default function LoginScreen() {
   useEffect(() => {
     if (submitState.type !== "sent") return;
     const { requestId } = submitState;
-    cancelledRef.current = false;
+    // Scoped per effect run so a resend's new poll can't revive this one.
+    let cancelled = false;
 
     const poll = async () => {
-      while (!cancelledRef.current) {
+      while (!cancelled) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-        if (cancelledRef.current) return;
+        if (cancelled) return;
 
         try {
           const res = await fetch(
@@ -261,7 +259,7 @@ export default function LoginScreen() {
           };
 
           if (data.status === "completed" && data.sessionCookie) {
-            if (cancelledRef.current) return;
+            if (cancelled) return;
             setSubmitState({ type: "verifying" });
             try {
               const prev = await SecureStore.getItemAsync("stella-mobile_cookie");
@@ -281,7 +279,7 @@ export default function LoginScreen() {
             return;
           }
           if (data.status === "completed") {
-            if (cancelledRef.current) return;
+            if (cancelled) return;
             setSubmitState({
               type: "error",
               message: "Sign-in incomplete. Please try again.",
@@ -290,7 +288,7 @@ export default function LoginScreen() {
           }
 
           if (data.status === "expired") {
-            if (cancelledRef.current) return;
+            if (cancelled) return;
             setSubmitState({
               type: "error",
               message: "Link expired. Please try again.",
@@ -305,7 +303,7 @@ export default function LoginScreen() {
 
     void poll();
     return () => {
-      cancelledRef.current = true;
+      cancelled = true;
     };
   }, [submitState]);
 

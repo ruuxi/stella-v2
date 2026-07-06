@@ -224,3 +224,21 @@ export async function saveChatSyncState(
   }
   await AsyncStorage.setItem(SYNC_STATE_KEY[thread], JSON.stringify(next));
 }
+
+/**
+ * Wipe every thread's transcript and sync cursor. The stores are keyed
+ * globally (not per account), so sign-out and account deletion must clear
+ * them or the next signed-in user inherits — and re-sends as history — the
+ * previous user's messages.
+ */
+export async function clearAllChatStorage(): Promise<void> {
+  const keys = [
+    ...Object.values(MESSAGES_KEY),
+    ...Object.values(SYNC_STATE_KEY),
+  ];
+  try {
+    await AsyncStorage.multiRemove(keys);
+  } catch {
+    // Best-effort: a failed wipe must not block sign-out.
+  }
+}

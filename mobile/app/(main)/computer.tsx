@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   AppState,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -34,6 +33,7 @@ import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
 import { ConnectHeroAnimation } from "../../src/components/ConnectHeroAnimation";
 import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
+import { PrimaryButton } from "../../src/components/PrimaryButton";
 
 const STATUS_POLL_MS = 20_000;
 /**
@@ -127,16 +127,12 @@ function ComputerRouter() {
             Pair this phone with your Stella desktop so you can chat with it
             from anywhere. You only need to do it once.
           </Text>
-          <Pressable
+          <PrimaryButton
+            label="Pair phone"
             onPress={() => setPairSheetOpen(true)}
             accessibilityLabel="Pair this phone"
-            style={({ pressed }) => [
-              styles.primaryButton,
-              pressed && styles.primaryButtonPressed,
-            ]}
-          >
-            <Text style={styles.primaryButtonText}>Pair phone</Text>
-          </Pressable>
+            style={styles.primaryButton}
+          />
         </View>
         <PairPhoneSheet
           visible={pairSheetOpen}
@@ -582,22 +578,6 @@ const makeStyles = (colors: Colors) =>
       marginTop: 28,
     },
     primaryButton: {
-      alignItems: "center",
-      backgroundColor: colors.accent,
-      borderRadius: 22,
-      justifyContent: "center",
       marginTop: 16,
-      minHeight: 44,
-      paddingHorizontal: 28,
-      paddingVertical: 12,
-    },
-    primaryButtonPressed: {
-      opacity: 0.85,
-    },
-    primaryButtonText: {
-      color: colors.accentForeground,
-      fontFamily: fonts.sans.semiBold,
-      fontSize: 15,
-      letterSpacing: -0.3,
     },
   } as const);

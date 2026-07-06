@@ -17,7 +17,6 @@ let cached: boolean | null = null;
 
 type Listener = () => void;
 const requestListeners = new Set<Listener>();
-const grantListeners = new Set<Listener>();
 
 export async function loadAiConsent(): Promise<boolean> {
   if (cached !== null) return cached;
@@ -29,7 +28,6 @@ export async function loadAiConsent(): Promise<boolean> {
 export async function grantAiConsent(): Promise<void> {
   cached = true;
   await SecureStore.setItemAsync(CONSENT_KEY, "1");
-  for (const listener of grantListeners) listener();
 }
 
 export function hasAiConsent(): boolean {
@@ -49,13 +47,6 @@ export function subscribeAiConsentRequested(listener: Listener): () => void {
   requestListeners.add(listener);
   return () => {
     requestListeners.delete(listener);
-  };
-}
-
-export function subscribeAiConsentGranted(listener: Listener): () => void {
-  grantListeners.add(listener);
-  return () => {
-    grantListeners.delete(listener);
   };
 }
 

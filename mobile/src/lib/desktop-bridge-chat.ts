@@ -1039,15 +1039,6 @@ function parseDesktopBridgeMessageRows(
     .filter((message): message is ChatMessage => Boolean(message));
 }
 
-export async function loadDesktopBridgeChatMessages(
-  access: StoredPhoneAccess,
-  maxMessages = DEFAULT_HISTORY_LIMIT,
-): Promise<ChatMessage[]> {
-  const bridge = await resolveDesktopBridge(access);
-  const conversationId = await getDesktopBridgeConversationId(bridge);
-  return await listDesktopBridgeMessages(bridge, conversationId, maxMessages);
-}
-
 export async function syncDesktopBridgeChatMessages({
   access,
   expectedConversationId,
@@ -1756,10 +1747,12 @@ export async function sendDesktopBridgeChat({
         outcomeSettled = true;
         if (inactivityTimer) clearTimeout(inactivityTimer);
         signal?.removeEventListener("abort", onAbort);
-        if (
-          (outcome.kind === "aborted" || outcome.kind === "timeout") &&
-          runId
-        ) {
+        // Cancel the desktop run ONLY on a user-initiated abort. An
+        // inactivity timeout must not kill a healthy run (a single tool call
+        // can legitimately stay silent past the window, and iOS suspends JS
+        // timers in the background so the timer fires the moment the app
+        // foregrounds) — instead the outer loop re-attaches like a disconnect.
+        if (outcome.kind === "aborted" && runId) {
           try {
             void client.invoke("agent:cancelChat", [runId]).catch(() => {});
           } catch {
@@ -1919,15 +1912,17 @@ export async function sendDesktopBridgeChat({
     if (outcome.kind === "fatal") {
       throw finalError ?? outcome.error;
     }
-    if (outcome.kind === "timeout") {
-      throw new Error("Stella did not reply in time. Try again in a moment.");
-    }
-    // disconnected → try to re-attach to the still-running desktop run.
+    // timeout (event silence) and disconnected both fall through to the
+    // re-attach path: the desktop keeps runs alive across socket drops, and
+    // agent:resume replays what we missed (or recovers a finished reply), so
+    // neither outcome should destroy the run or error before retrying.
     if (attempt >= BRIDGE_RECONNECT_MAX_ATTEMPTS) {
       await recoverFinalFromDesktop().catch(() => false);
       if (settled) break;
       throw new Error(
-        "Lost the connection to your desktop. Keep Stella open and try again.",
+        outcome.kind === "timeout"
+          ? "Stella did not reply in time. Try again in a moment."
+          : "Lost the connection to your desktop. Keep Stella open and try again.",
       );
     }
     attempt += 1;

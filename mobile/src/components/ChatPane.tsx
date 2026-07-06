@@ -924,6 +924,19 @@ const ChatMessageRow = memo(function ChatMessageRow({
     });
   };
 
+  // Keyed on the stable sub-objects: the trailing assistant row's `item` is
+  // replaced on every streamed append, but its artifacts/toolSteps keep their
+  // identity, so these derivations must not re-run (and mint fresh objects
+  // that defeat child memoization) once per frame.
+  const consolidated = useMemo(
+    () => consolidateRowArtifacts(item.artifacts ?? []),
+    [item.artifacts],
+  );
+  const toolActivity = useMemo(
+    () => (item.toolSteps ? deriveToolActivity(item.toolSteps) : undefined),
+    [item.toolSteps],
+  );
+
   if (item.role === "user") {
     const thumbs = item.thumbnailUris ?? [];
     const showThumbs = thumbs.length > 0;
@@ -970,7 +983,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
       </View>
     );
   }
-  const artifacts = item.artifacts ?? [];
   const hasText = item.text.trim().length > 0;
   // Desktop-parity consolidation: on a turn that delegated background work,
   // the produced files fold INTO the agent-work card as pills (revealed
@@ -983,7 +995,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
     agentFiles,
     looseFiles,
     agentWorkSettled,
-  } = consolidateRowArtifacts(artifacts);
+  } = consolidated;
   const isStandIn = isStandInArtifactRow(item);
   // Agent-work is non-openable status UI, so it can mount as soon as the bridge
   // knows about the background task — including while the answer text is still
@@ -1007,9 +1019,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
     Boolean(onOpenArtifact) &&
     looseFiles.length > 0;
   const showArtifacts = showAgentWork || showMapArtifacts || showFileArtifacts;
-  const toolActivity = item.toolSteps
-    ? deriveToolActivity(item.toolSteps)
-    : undefined;
   return (
     <View style={styles.assistantRow}>
       {hasText ? (
@@ -2127,7 +2136,12 @@ export function ChatPane({
   }, [scroll.awayFromBottom]);
 
   useEffect(() => {
-    if (!readAloud.enabled) return;
+    if (!readAloud.enabled) {
+      // Drop the latch, or a stream that ended while read-aloud was off would
+      // speak a stale reply the moment the preference is re-enabled.
+      wasStreamingRef.current = false;
+      return;
+    }
     if (streaming) {
       wasStreamingRef.current = true;
       return;
@@ -2468,13 +2482,25 @@ export function ChatPane({
       void pickImage();
       return;
     }
-    const anchor = plusAnchorRef.current;
-    if (!anchor) return;
+    if (!plusAnchorRef.current) return;
     tapLight();
-    Keyboard.dismiss();
-    anchor.measureInWindow((x, y, width, height) => {
-      setPlusMenuAnchor({ x, y, width, height });
-    });
+    const measureAnchor = () => {
+      plusAnchorRef.current?.measureInWindow((x, y, width, height) => {
+        setPlusMenuAnchor({ x, y, width, height });
+      });
+    };
+    if (Keyboard.isVisible()) {
+      // The composer rides the keyboard (composerKeyboardStyle), so measuring
+      // at dismiss time would anchor the menu a keyboard-height above the
+      // button's settled position. Measure once the hide animation completes.
+      const sub = Keyboard.addListener("keyboardDidHide", () => {
+        sub.remove();
+        measureAnchor();
+      });
+      Keyboard.dismiss();
+    } else {
+      measureAnchor();
+    }
   }, [pickImage, plusMenuOptions]);
 
   const dismissPlusMenu = useCallback(() => setPlusMenuAnchor(null), []);
@@ -2591,16 +2617,19 @@ export function ChatPane({
   const searchActive = searchQuery.length > 0;
   // Fold each message once (recomputed only when messages change) so each
   // keystroke just filters precomputed strings instead of re-normalizing the
-  // whole history.
-  const foldedMessages = useMemo(
-    () =>
-      visibleMessages.map((message, index) => ({
-        message,
-        index,
-        folded: foldText(message.text),
-      })),
-    [visibleMessages],
-  );
+  // whole history. Gated on the search being open: during streaming,
+  // `visibleMessages` gets a new identity every frame, and folding the full
+  // transcript per frame is pure waste while the results are unread.
+  const foldedMessages = useMemo(() => {
+    if (!searchOpen) {
+      return [] as { message: ChatMessage; index: number; folded: string }[];
+    }
+    return visibleMessages.map((message, index) => ({
+      message,
+      index,
+      folded: foldText(message.text),
+    }));
+  }, [searchOpen, visibleMessages]);
   const searchResults = useMemo(() => {
     if (!searchActive) return [] as { message: ChatMessage; index: number }[];
     const terms = foldQueryTerms(searchQuery);

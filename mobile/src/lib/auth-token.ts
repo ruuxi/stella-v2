@@ -4,6 +4,9 @@ import { assert, assertObject } from "./assert";
 let cachedToken = "";
 let cachedTokenExpiresAt = 0;
 let inflightTokenPromise: Promise<string> | null = null;
+// Bumped by clearCachedToken so a fetch already in flight at sign-out can't
+// re-cache the previous account's JWT when it resolves.
+let cacheGeneration = 0;
 
 const REFRESH_MARGIN_MS = 60_000;
 
@@ -20,14 +23,17 @@ const decodeJwtPayload = (token: string) => {
 };
 
 async function loadConvexToken() {
+  const generation = cacheGeneration;
   const convex = (authClient as unknown as {
     convex: { token(): Promise<{ data?: { token?: string } }> };
   }).convex;
   const result = await convex.token();
   const token = result.data?.token;
   assert(token, "You need to sign in again.");
-  cachedToken = token;
-  cachedTokenExpiresAt = decodeJwtPayload(token) * 1000 - REFRESH_MARGIN_MS;
+  if (generation === cacheGeneration) {
+    cachedToken = token;
+    cachedTokenExpiresAt = decodeJwtPayload(token) * 1000 - REFRESH_MARGIN_MS;
+  }
   return token;
 }
 
@@ -51,4 +57,5 @@ export function clearCachedToken() {
   cachedToken = "";
   cachedTokenExpiresAt = 0;
   inflightTokenPromise = null;
+  cacheGeneration += 1;
 }

@@ -256,7 +256,13 @@ function CarPlayVoiceLoop({
   }, [messages]);
 
   // Surface the newest assistant replies (newest first) as home-list rows.
+  // Skipped while a turn is in flight: the streaming reply's text grows on
+  // every smoother frame (~60Hz), and pushing each growth into the session
+  // would rebuild the native CarPlay template per animation frame. When
+  // `sending` flips false this effect re-runs and pushes the settled
+  // transcript once.
   useEffect(() => {
+    if (sending) return;
     const replies: RecentReply[] = [];
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
@@ -270,7 +276,7 @@ function CarPlayVoiceLoop({
       if (replies.length >= RECENT_REPLY_COUNT) break;
     }
     carPlaySession.setRecentReplies(replies);
-  }, [messages]);
+  }, [messages, sending]);
 
   // Single entry point for phase changes so we keep a local mirror (the session
   // is imperative and doesn't expose its phase back to React).

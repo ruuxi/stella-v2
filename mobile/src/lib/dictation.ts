@@ -228,9 +228,16 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         const body: Record<string, unknown> = { audio, format };
         if (options.language) body.language = options.language;
 
+        // Audio uploads can be large; allow more than the default 15s.
         const response = options.anonymous
-          ? await postJsonAnonymous(path, body, { headers: options.headers })
-          : await postJson(path, body, { headers: options.headers });
+          ? await postJsonAnonymous(path, body, {
+              headers: options.headers,
+              timeoutMs: 60_000,
+            })
+          : await postJson(path, body, {
+              headers: options.headers,
+              timeoutMs: 60_000,
+            });
 
         try {
           file.delete();

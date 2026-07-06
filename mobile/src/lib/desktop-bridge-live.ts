@@ -34,6 +34,7 @@ export function openDesktopBridgeLive(options: {
   let closed = false;
   let attempt = 0;
   let socket: { close: () => void } | null = null;
+  let connecting = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let unsupportedUntil = 0;
   let connected = false;
@@ -58,12 +59,13 @@ export function openDesktopBridgeLive(options: {
   };
 
   const connect = async () => {
-    if (closed || socket) return;
+    if (closed || connecting || socket) return;
     // "unknown" (cold launch) counts as foreground; only explicit
     // background/inactive states block connecting.
     const appState = AppState.currentState;
     if (appState === "background" || appState === "inactive") return;
     if (Date.now() < unsupportedUntil) return;
+    connecting = true;
     try {
       const bridge = await resolveDesktopBridge(options.access);
       if (!bridgeSupportsLocalChatPush(bridge)) {
@@ -73,8 +75,9 @@ export function openDesktopBridgeLive(options: {
         unsupportedUntil = Date.now() + UNSUPPORTED_RECHECK_MS;
         return;
       }
-      if (closed) return;
-      const opened = await openDesktopBridgeEventSocket(bridge, {
+      if (closed || socket) return;
+      let opened: { close: () => void } | null = null;
+      opened = await openDesktopBridgeEventSocket(bridge, {
         channels: ["localChat:updated"],
         onEvent: (channel) => {
           if (channel === "localChat:updated") {
@@ -82,12 +85,15 @@ export function openDesktopBridgeLive(options: {
           }
         },
         onClose: () => {
+          // Only react if this socket is still the live one — a superseded
+          // or deliberately dropped socket must not clobber shared state.
+          if (socket !== opened) return;
           socket = null;
           setConnected(false);
           scheduleReconnect();
         },
       });
-      if (closed) {
+      if (closed || socket) {
         opened.close();
         return;
       }
@@ -97,6 +103,8 @@ export function openDesktopBridgeLive(options: {
     } catch {
       setConnected(false);
       scheduleReconnect();
+    } finally {
+      connecting = false;
     }
   };
 

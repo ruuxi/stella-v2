@@ -1,8 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, StyleSheet, Text, View } from "react-native";
-import MaskedView from "@react-native-masked-view/masked-view";
-import { LinearGradient } from "expo-linear-gradient";
-import { fadeHex } from "../theme/oklch";
+import { Animated, Easing, StyleSheet, View } from "react-native";
+import { ShimmerText } from "./ShimmerText";
 import {
   StellaAnimation,
   WORKING_INDICATOR_DISPLAY_PT,
@@ -10,7 +8,6 @@ import {
   getWorkingIndicatorLayout,
 } from "./stella-animation";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
-import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
@@ -47,134 +44,6 @@ interface WorkingIndicatorProps {
    * trailing the growing reply (mirrors the desktop handoff).
    */
   exitImmediately?: boolean;
-}
-
-const SHIMMER_DURATION_MS = 1600;
-// Strip is wider than the text so the bright peak fully exits before looping.
-const SHIMMER_GRADIENT_MULTIPLIER = 3;
-// Brightness range of the gradient stops. Tails almost vanish; peak is fully
-// opaque — yields a clearly visible sweeping highlight rather than a subtle
-// breath.
-const SHIMMER_DIM_ALPHA = 0.15;
-const SHIMMER_PEAK_ALPHA = 1;
-
-function ShimmerText({
-  text,
-  active,
-  colors,
-  styles,
-}: {
-  text: string;
-  active: boolean;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const shimmer = useRef(new Animated.Value(0)).current;
-  const [textWidth, setTextWidth] = useState(0);
-
-  useEffect(() => {
-    if (!active || textWidth === 0) {
-      shimmer.stopAnimation();
-      shimmer.setValue(0);
-      return;
-    }
-    const loop = Animated.loop(
-      Animated.timing(shimmer, {
-        toValue: 1,
-        duration: SHIMMER_DURATION_MS,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [active, shimmer, textWidth]);
-
-  const gradientWidth = Math.max(1, textWidth * SHIMMER_GRADIENT_MULTIPLIER);
-  // Slide the strip from x=-(gradientWidth - textWidth) (visible window
-  // shows the strip's right tail) toward x=0 (visible window shows the
-  // strip's left tail). The dim trough in the middle of the strip therefore
-  // crosses the visible mask region left → right exactly once per loop.
-  const gradientTranslate = useMemo(
-    () =>
-      shimmer.interpolate({
-        inputRange: [0, 1],
-        outputRange: [-(gradientWidth - textWidth), 0],
-      }),
-    [shimmer, gradientWidth, textWidth],
-  );
-
-  const dimColor = fadeHex(colors.text, SHIMMER_DIM_ALPHA);
-  const peakColor = fadeHex(colors.text, SHIMMER_PEAK_ALPHA);
-
-  // Measurement pass — render once invisibly so onLayout fires, then we can
-  // size the masked gradient correctly on the next render.
-  if (textWidth === 0) {
-    return (
-      <View style={styles.shimmerWrap}>
-        <Text
-          style={[styles.statusText, styles.shimmerMeasure]}
-          numberOfLines={1}
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}
-        >
-          {text}
-        </Text>
-      </View>
-    );
-  }
-
-  if (!active) {
-    return (
-      <View style={styles.shimmerWrap}>
-        <Text
-          style={styles.statusText}
-          numberOfLines={1}
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}
-        >
-          {text}
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.shimmerWrap}>
-      <MaskedView
-        style={{ height: 20, width: textWidth }}
-        maskElement={
-          <View style={styles.shimmerMaskHost}>
-            <Text
-              style={styles.statusText}
-              numberOfLines={1}
-              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}
-            >
-              {text}
-            </Text>
-          </View>
-        }
-      >
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            width: gradientWidth,
-            height: 20,
-            transform: [{ translateX: gradientTranslate }],
-          }}
-        >
-          <LinearGradient
-            colors={[peakColor, peakColor, dimColor, peakColor, peakColor]}
-            locations={[0, 0.4, 0.5, 0.6, 1]}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
-      </MaskedView>
-    </View>
-  );
 }
 
 function SwapText({
@@ -267,16 +136,25 @@ function SwapText({
     <View style={styles.swapText}>
       {previous ? (
         <Animated.View style={[styles.swapLayer, outStyle]} pointerEvents="none">
-          <ShimmerText
-            text={previous}
-            active={false}
-            colors={colors}
-            styles={styles}
-          />
+          <View style={styles.shimmerWrap}>
+            <ShimmerText
+              text={previous}
+              active={false}
+              color={colors.text}
+              textStyle={styles.statusText}
+            />
+          </View>
         </Animated.View>
       ) : null}
       <Animated.View style={[styles.swapLayer, inStyle]}>
-        <ShimmerText text={current} active={active} colors={colors} styles={styles} />
+        <View style={styles.shimmerWrap}>
+          <ShimmerText
+            text={current}
+            active={active}
+            color={colors.text}
+            textStyle={styles.statusText}
+          />
+        </View>
       </Animated.View>
     </View>
   );
@@ -479,14 +357,5 @@ const makeStyles = (colors: Colors) =>
       fontSize: 14,
       letterSpacing: -0.1,
       lineHeight: 20,
-    },
-    // Invisible measurement copy — needs to render so onLayout fires.
-    shimmerMeasure: {
-      opacity: 0,
-    },
-    // MaskedView's mask is drawn into an alpha channel only — color doesn't
-    // matter as long as the glyphs are fully opaque.
-    shimmerMaskHost: {
-      backgroundColor: "transparent",
     },
   });

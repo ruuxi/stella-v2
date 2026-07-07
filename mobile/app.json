@@ -44,7 +44,7 @@
       }
     },
     "android": {
-      "package": "com.stella.mobile",
+      "package": "com.fromyou.stella",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

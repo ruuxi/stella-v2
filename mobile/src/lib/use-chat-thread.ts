@@ -300,8 +300,37 @@ export function useChatThread(opts: {
       // Heal any linked-row/unlinked-twin duplicates persisted by builds that
       // could pull mid-send (see `collapseLinkedDuplicates`) — the damaged
       // transcript would otherwise render the duplicate until a delta arrives.
-      setMessages(collapseLinkedDuplicates(loaded));
+      const healed = collapseLinkedDuplicates(loaded);
+      setMessages(healed);
       setStorageLoaded(true);
+      // Re-enqueue any queued-but-unsent messages. The optimistic bubbles were
+      // persisted (marked `queued`), but the in-memory dispatch queue was lost
+      // on relaunch — so without this they'd render forever as "sent" yet never
+      // deliver. Rebuild a dispatch for each from its bubble and drain, so a
+      // restart actually sends them. Image-bearing rows are skipped: the picked
+      // asset URIs don't survive a relaunch, so re-sending would drop the photo
+      // (or send an empty turn) — they stay shown as queued instead.
+      const pendingSends = healed.filter(
+        (m) =>
+          m.role === "user" &&
+          m.queued === true &&
+          !m.hasImage &&
+          m.text.trim().length > 0,
+      );
+      for (const row of pendingSends) {
+        queueRef.current.push({
+          dispatchId: createId(),
+          userMessageId: row.id,
+          text: row.text,
+          assets: [],
+        });
+      }
+      // Nothing can be dispatching yet on a fresh mount (send() no-ops until
+      // hydration completes), so draining here just kicks off the first
+      // re-send; the rest drain as each turn settles.
+      if (pendingSends.length > 0) {
+        drainQueueRef.current?.();
+      }
     });
   }, [threadId]);
 

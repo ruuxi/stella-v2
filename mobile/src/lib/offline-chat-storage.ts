@@ -123,6 +123,14 @@ function parseRow(row: unknown): ChatMessage | null {
     ...(typeof o.canonicalId === "string" && o.canonicalId.trim()
       ? { canonicalId: o.canonicalId.trim() }
       : {}),
+    // The turn `requestId` links a phone-sent reply to its canonical desktop
+    // row (see `mergeMessagesById`). Dropping it on reload let a restart's
+    // catch-up sync re-append the already-stored reply as a duplicate when the
+    // row carried a `requestId` but hadn't been stamped with a `canonicalId`
+    // yet (killed before the background reconcile landed).
+    ...(typeof o.requestId === "string" && o.requestId.trim()
+      ? { requestId: o.requestId.trim() }
+      : {}),
     ...(typeof o.createdAt === "number" && Number.isFinite(o.createdAt)
       ? { createdAt: o.createdAt }
       : {}),
@@ -137,6 +145,11 @@ function parseRow(row: unknown): ChatMessage | null {
     ...(o.hasImage === true ? { hasImage: true } : {}),
     ...(thumbnailUris.length > 0 ? { thumbnailUris } : {}),
     ...(o.cloudFallback === true ? { cloudFallback: true } : {}),
+    // A queued-but-unsent bubble must reload as queued, never as a delivered
+    // message. The hook re-enqueues these on hydration so a restart actually
+    // sends them (see `useChatThread`).
+    ...(o.queued === true ? { queued: true } : {}),
+    ...(o.stopped === true ? { stopped: true } : {}),
   };
 }
 

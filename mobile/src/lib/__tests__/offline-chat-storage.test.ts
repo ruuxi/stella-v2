@@ -47,4 +47,26 @@ describe("chat storage round-trip", () => {
     expect(loaded[1]?.canonicalCreatedAt).toBe(1_004_000);
     expect(loaded[2]?.canonicalCreatedAt === undefined).toBe(true);
   });
+
+  test("round-trips queued / stopped / requestId so a restart is honest and de-dupes", async () => {
+    const rows: ChatMessage[] = [
+      // A queued-but-unsent bubble must reload as queued, never as delivered.
+      { id: "q1", role: "user", text: "send me later", createdAt: 5, queued: true },
+      // A reply linked only by requestId (killed before the canonicalId
+      // reconcile) must keep it so the restart catch-up sync de-dupes it.
+      {
+        id: "a1",
+        role: "assistant",
+        text: "partial",
+        createdAt: 6,
+        requestId: "desk-user-1",
+        stopped: true,
+      },
+    ];
+    await saveChatMessages("cloud", rows);
+    const loaded = await loadChatMessages("cloud");
+    expect(loaded[0]?.queued).toBe(true);
+    expect(loaded[1]?.requestId).toBe("desk-user-1");
+    expect(loaded[1]?.stopped).toBe(true);
+  });
 });

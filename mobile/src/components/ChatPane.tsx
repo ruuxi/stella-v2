@@ -67,6 +67,7 @@ import {
 } from "../lib/message-row-identity";
 import {
   inlineAgentWorkCardSections,
+  settledAgentWorkCards,
   consolidateRowArtifacts,
 } from "../lib/agent-artifact-consolidation";
 import { DictationRecordingBar } from "./DictationRecordingBar";
@@ -1071,22 +1072,39 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <View
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
         >
-          {agentWorkArtifacts.map((artifact, index) => {
-            // Prefer the bridge's per-agent sections (desktop-computed
-            // attribution), gated so files appear on the finish card only —
-            // never mid-run — matching desktop. Older desktops omit the
-            // field — fall back to folding the row's own files into the
-            // last card once every covered agent settled (with several
-            // transitional per-agent cards on one row the consolidated list
-            // rides the last; the sync path collapses them into one grouped
-            // card per turn).
+          {agentWorkArtifacts.flatMap((artifact, index) => {
+            // Desktop posts a distinct completion card per finished agent. A
+            // settled multi-agent group splits into one card per agent so each
+            // completion reads as its own card instead of the sibling
+            // completions coalescing into — and overwriting — one grouped card.
+            const splitCards = settledAgentWorkCards(artifact);
+            if (splitCards.length > 1) {
+              return splitCards.map((card) => (
+                <AgentWorkCard
+                  key={card.key}
+                  payload={card.payload}
+                  colors={colors}
+                  {...(card.sections.length > 0 && onOpenArtifact
+                    ? { sections: card.sections, onOpenArtifact }
+                    : {})}
+                />
+              ));
+            }
+            // Single grouped card: prefer the bridge's per-agent sections
+            // (desktop-computed attribution), gated so files appear on the
+            // finish card only — never mid-run — matching desktop. Older
+            // desktops omit the field — fall back to folding the row's own
+            // files into the last card once every covered agent settled (with
+            // several transitional per-agent cards on one row the consolidated
+            // list rides the last; the sync path collapses them into one
+            // grouped card per turn).
             const bridgeSections = inlineAgentWorkCardSections(artifact);
             const sections =
               bridgeSections ??
               (showAgentFiles && index === agentWorkArtifacts.length - 1
                 ? [{ key: `${artifact.id}:files`, files: agentFiles }]
                 : []);
-            return (
+            return [
               <AgentWorkCard
                 key={artifact.id}
                 payload={artifact.payload}
@@ -1094,8 +1112,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 {...(sections.length > 0 && onOpenArtifact
                   ? { sections, onOpenArtifact }
                   : {})}
-              />
-            );
+              />,
+            ];
           })}
           {showMapArtifacts
             ? mapArtifacts.map((artifact) => (

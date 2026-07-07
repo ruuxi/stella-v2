@@ -174,6 +174,55 @@ export const inlineAgentWorkCardSections = (
 ): AgentWorkCardSection[] | null =>
   artifact.payload.state === "done" ? agentWorkCardSections(artifact) : null;
 
+/** One agent-work card to render — either the whole grouped card, or one of
+ *  the per-agent completion cards a settled group splits into. */
+export type AgentWorkCardRender = {
+  /** Stable React key + card identity. */
+  key: string;
+  payload: Extract<MobileDisplayPayload, { kind: "agent-work" }>;
+  /** File pill groups for this card (bridge sections, already noise-safe). */
+  sections: AgentWorkCardSection[];
+};
+
+/**
+ * The card(s) to render for one agent-work artifact.
+ *
+ * Desktop posts a DISTINCT completion card per `agent-completed` event
+ * (`AgentCompletionCard`), so sibling agents finishing on one turn each
+ * surface as their own card. The desktop→mobile bridge instead ships a single
+ * grouped `agent-work` payload per spawning turn (keyed by all its agent ids),
+ * so mobile would otherwise coalesce every completion into one card that just
+ * updates in place — the second agent's finish overwriting the first's card
+ * instead of posting its own.
+ *
+ * Once the grouped card has settled AND the bridge carried per-agent
+ * attribution for more than one agent, split it into one completion card per
+ * agent so each task's finish reads as its own card, matching desktop. A
+ * running card (the live "Working on N tasks" aggregate), a single-agent card,
+ * or a bridge without per-agent sections keeps the single grouped card
+ * unchanged (returned as a one-element list), so the caller's running-state
+ * and row-scoped fallback rendering is untouched.
+ */
+export const settledAgentWorkCards = (
+  artifact: AgentWorkChatArtifact,
+): AgentWorkCardRender[] => {
+  const sections = inlineAgentWorkCardSections(artifact);
+  if (!sections || sections.length <= 1) {
+    return [{ key: artifact.id, payload: artifact.payload, sections: [] }];
+  }
+  return sections.map((section) => ({
+    key: section.key,
+    payload: {
+      ...artifact.payload,
+      total: 1,
+      completed: 1,
+      title: section.title ?? artifact.payload.title,
+      subtitle: "Finished",
+    },
+    sections: [section],
+  }));
+};
+
 export const consolidateRowArtifacts = (
   artifacts: readonly ChatArtifact[],
 ): ConsolidatedRowArtifacts => {

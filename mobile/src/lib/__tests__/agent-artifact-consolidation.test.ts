@@ -12,6 +12,8 @@ import {
   isNoiseFileArtifact,
   isNoiseProducedPath,
   rankDeliverablesFirst,
+  settledAgentWorkCards,
+  type AgentWorkChatArtifact,
 } from "../agent-artifact-consolidation";
 import { isMobileDisplayPayload } from "../mobile-artifacts";
 
@@ -279,5 +281,72 @@ describe("agent-work payload validation with per-agent sections", () => {
       }),
     ).toBe(false);
     expect(isMobileDisplayPayload({ ...base, agents: "nope" })).toBe(false);
+  });
+});
+
+describe("settledAgentWorkCards", () => {
+  const section = (
+    agentId: string,
+    title: string,
+    filePath: string,
+  ): MobileAgentWorkFileSection => ({
+    agentId,
+    title,
+    files: [{ kind: "pdf", filePath }],
+  });
+  const grouped = (
+    state: "running" | "done",
+    agents: MobileAgentWorkFileSection[],
+  ): AgentWorkChatArtifact =>
+    agentWork("grp", state, agents) as AgentWorkChatArtifact;
+
+  test("keeps a running multi-agent group as one aggregate card", () => {
+    const cards = settledAgentWorkCards(
+      grouped("running", [
+        section("a1", "Task A", "/Users/u/.stella/outputs/a.pdf"),
+        section("a2", "Task B", "/Users/u/.stella/outputs/b.pdf"),
+      ]),
+    );
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.key).toBe("grp");
+    expect(cards[0]?.payload.title).toBe("Research task");
+  });
+
+  test("keeps a single-agent settled card as one grouped card", () => {
+    const cards = settledAgentWorkCards(
+      grouped("done", [
+        section("a1", "Task A", "/Users/u/.stella/outputs/a.pdf"),
+      ]),
+    );
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.key).toBe("grp");
+  });
+
+  test("splits a settled multi-agent group into one card per agent", () => {
+    const cards = settledAgentWorkCards(
+      grouped("done", [
+        section("a1", "Task A", "/Users/u/.stella/outputs/a.pdf"),
+        section("a2", "Task B", "/Users/u/.stella/outputs/b.pdf"),
+      ]),
+    );
+    expect(cards).toHaveLength(2);
+    expect(cards.map((card) => card.key)).toEqual(["grp:a1", "grp:a2"]);
+    for (const card of cards) {
+      expect(card.payload.state).toBe("done");
+      expect(card.payload.total).toBe(1);
+      expect(card.payload.completed).toBe(1);
+      expect(card.payload.subtitle).toBe("Finished");
+      expect(card.sections).toHaveLength(1);
+    }
+    expect(cards[0]?.payload.title).toBe("Task A");
+    expect(cards[1]?.payload.title).toBe("Task B");
+  });
+
+  test("keeps a settled group without per-agent attribution as one card", () => {
+    const cards = settledAgentWorkCards(
+      agentWork("grp", "done") as AgentWorkChatArtifact,
+    );
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.key).toBe("grp");
   });
 });

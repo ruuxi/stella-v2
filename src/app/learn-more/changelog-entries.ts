@@ -24,6 +24,59 @@ export type ChangelogEntry = {
 
 export const changelogEntries: ChangelogEntry[] = [
   {
+    release: "v0.0.385 – v0.0.397",
+    date: "July 6, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "Connect apps right from the chat — when Stella needs Gmail, Slack, Notion and more, she offers a one-click connect card and keeps working in the meantime.",
+      "Stella can now hook up your browser on the spot too, with a connect card that retries automatically once the extension is installed.",
+      "Files Stella surfaces show up as clickable links you can open right from the chat.",
+    ],
+    more: [
+      "Stella remembers past conversations better, so she can pull up relevant context on her own.",
+      "Steadier streaming text — no more two-letter starts followed by a dump.",
+      "The Ultra plan badge no longer flickers.",
+      "Stella stays connected to your phone during long, quiet runs.",
+      "Smoother handling when an AI model declines or switches, with a heads-up in the chat.",
+      "Lots of reliability fixes across long conversations, updates, and background tasks.",
+    ],
+  },
+  {
+    release: "v0.0.373 – v0.0.384",
+    date: "July 2, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "The Activity area is now an expandable per-task tray — see each task's live files and progress as it works.",
+      "Tap any image you've attached to a message to view it full-size.",
+    ],
+    more: [
+      "Smoother, more evenly paced streaming text.",
+      "The 'working…' indicator is steadier — it holds until the first words appear and through pauses between steps.",
+      "The composer activity pill is back, shown while the left sidebar is collapsed.",
+      "Canvas pages stay loaded when you close and reopen the side panel.",
+      "The model picker always shows Stella's preset modes and validates your recent picks.",
+      "Tighter spacing between back-to-back messages from the same sender.",
+    ],
+  },
+  {
+    release: "v0.0.362 – v0.0.372",
+    date: "June 30, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "Assistant messages now have a collapsible activity trace, so you can peek at the tools Stella used.",
+      "Newer, smarter models are available, including the latest Anthropic Opus and Fable.",
+    ],
+    more: [
+      "The right panel is now transparent, letting the background gradient show through.",
+      "Open a schedule's details straight from the left sidebar.",
+      "Running tasks are ordered newest-first and stay put instead of jumping around.",
+      "Dictation waits for your words to finish transcribing before sending, and supports longer recordings.",
+      "One-shot answers can fall back across models instead of failing, while your own model picks fail loudly rather than silently swapping.",
+      "OpenRouter images now generate through a dedicated image pipeline.",
+      { text: "Reasoning summaries and activity now sync to Stella on your phone.", product: "Mobile" },
+    ],
+  },
+  {
     release: "v0.0.355 – v0.0.361",
     date: "June 28, 2026",
     tags: ["New", "Polish"],

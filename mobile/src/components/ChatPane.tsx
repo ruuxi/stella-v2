@@ -47,6 +47,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon, type IconName } from "./Icon";
 import { GlassSurface, liquidGlassSupported } from "./glass";
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import { AssistantTextSelection } from "./AssistantTextSelection";
 import { AppBackdrop, TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
 import { ArtifactCard } from "./ArtifactCard";
 import { AgentWorkCard } from "./AgentWorkCard";
@@ -901,6 +902,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   isStreaming,
   onOpenArtifact,
   onOpenMessageMenu,
+  onAskStella,
 }: {
   item: ChatMessage;
   styles: ChatStyles;
@@ -909,7 +911,13 @@ const ChatMessageRow = memo(function ChatMessageRow({
   isStreaming: boolean;
   onOpenArtifact?: (artifact: ChatArtifact) => void;
   onOpenMessageMenu: (request: MessageMenuRequest) => void;
+  /** Puts a selected assistant snippet into the composer ("Ask Stella"). */
+  onAskStella: (text: string) => void;
 }) {
+  // Assistant-only: press-and-hold enters native text selection with a custom
+  // Copy / Ask Stella / Select All row (see the assistant branch below). The
+  // user-message long-press menu is unchanged.
+  const [selecting, setSelecting] = useState(false);
   const openMenu = (e: { nativeEvent: { pageX: number; pageY: number } }) => {
     if (!item.text.trim()) return;
     tapLight();
@@ -1022,22 +1030,39 @@ const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <View style={styles.assistantRow}>
       {hasText ? (
-        // Press-and-hold the reply text to copy/share it, mirroring the user
-        // bubble. `AssistantMarkdown` wraps its content in a plain View for
-        // exactly this — the markdown leaves render as Text/Views that don't
-        // intercept the long-press, and taps still reach inline links. Code
-        // blocks keep their own native text selection.
-        <Pressable
-          onLongPress={openMenu}
-          delayLongPress={350}
-          accessibilityLabel="Press and hold to copy this message"
-        >
-          <AssistantMarkdown
+        selecting && !isStreaming ? (
+          // Native text selection with a custom Copy / Ask Stella / Select All
+          // row. Assistant messages never open the user-message menu.
+          <AssistantTextSelection
             text={item.text}
             colors={colors}
-            isStreaming={isStreaming}
+            onAskStella={onAskStella}
+            onDismiss={() => setSelecting(false)}
           />
-        </Pressable>
+        ) : (
+          // Press-and-hold a finished reply to enter that selection mode. The
+          // wrapping View in `AssistantMarkdown` lets this parent Pressable win
+          // the long-press while taps still reach inline links; code blocks
+          // keep their own native selection.
+          <Pressable
+            onLongPress={
+              isStreaming
+                ? undefined
+                : () => {
+                    tapLight();
+                    setSelecting(true);
+                  }
+            }
+            delayLongPress={350}
+            accessibilityLabel="Press and hold to select this message"
+          >
+            <AssistantMarkdown
+              text={item.text}
+              colors={colors}
+              isStreaming={isStreaming}
+            />
+          </Pressable>
+        )
       ) : null}
       {toolActivity ? (
         <ToolActivityTrace group={toolActivity} colors={colors} />
@@ -2558,6 +2583,20 @@ export function ChatPane({
     }
   }, [streamingAssistantId, scroll.clearStreamingAssistantLayout]);
 
+  // "Ask Stella" from an assistant text selection: drop the snippet into the
+  // composer (appended to any existing draft) and focus it. `draftRef` keeps
+  // this stable so rows don't re-render as the draft changes.
+  const askStella = useCallback(
+    (selected: string) => {
+      const snippet = selected.trim();
+      if (!snippet) return;
+      const current = draftRef.current;
+      onChangeDraft(current.trim() ? `${current.trimEnd()} ${snippet}` : snippet);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    },
+    [onChangeDraft],
+  );
+
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
       const isStreamingAssistant = item.id === streamingAssistantId;
@@ -2580,6 +2619,7 @@ export function ChatPane({
             isStreaming={isStreamingAssistant}
             onOpenArtifact={onOpenArtifact}
             onOpenMessageMenu={setMessageMenu}
+            onAskStella={askStella}
           />
         </FadeInMessage>
       );
@@ -2588,6 +2628,7 @@ export function ChatPane({
       styles,
       colors,
       onOpenArtifact,
+      askStella,
       scroll.onStreamingAssistantLayout,
       streamingAssistantId,
     ],

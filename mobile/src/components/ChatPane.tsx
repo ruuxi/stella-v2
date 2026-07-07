@@ -1022,11 +1022,22 @@ const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <View style={styles.assistantRow}>
       {hasText ? (
-        <AssistantMarkdown
-          text={item.text}
-          colors={colors}
-          isStreaming={isStreaming}
-        />
+        // Press-and-hold the reply text to copy/share it, mirroring the user
+        // bubble. `AssistantMarkdown` wraps its content in a plain View for
+        // exactly this — the markdown leaves render as Text/Views that don't
+        // intercept the long-press, and taps still reach inline links. Code
+        // blocks keep their own native text selection.
+        <Pressable
+          onLongPress={openMenu}
+          delayLongPress={350}
+          accessibilityLabel="Press and hold to copy this message"
+        >
+          <AssistantMarkdown
+            text={item.text}
+            colors={colors}
+            isStreaming={isStreaming}
+          />
+        </Pressable>
       ) : null}
       {toolActivity ? (
         <ToolActivityTrace group={toolActivity} colors={colors} />
@@ -2512,9 +2523,9 @@ export function ChatPane({
   );
   const dismissMessageMenu = useCallback(() => setMessageMenu(null), []);
 
-  // Only user messages open this menu now \u2014 assistant messages carry their
-  // actions inline (copy / read aloud / share) under the bubble, so the menu
-  // just needs copy + share. Read-aloud lives only on the assistant inline row.
+  // Long-press copy/share menu for user AND assistant messages. Assistant
+  // messages also keep their inline actions (copy / read aloud / share) under
+  // the bubble; read-aloud lives only there. The menu just needs copy + share.
   const messageMenuOptions = useMemo<PlusMenuOption[]>(() => {
     if (!messageMenu) return [];
     const text = messageMenu.message.text;

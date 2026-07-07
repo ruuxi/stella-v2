@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ChatMessage } from "../../types";
 import {
   collapseLinkedDuplicates,
+  linkOptimisticTurnToCanonical,
   mergeMessagesById,
   reconcileSentDesktopTurn,
 } from "../chat-merge";
@@ -465,5 +466,83 @@ describe("reconcileSentDesktopTurn", () => {
     });
     expect(result.find((m) => m.id === "local-u")?.canonicalId).toBe("desk-u");
     expect(result.find((m) => m.id === "local-a")?.canonicalId).toBe("desk-a");
+  });
+});
+
+describe("linkOptimisticTurnToCanonical (interrupted/stopped turn)", () => {
+  test("links the optimistic user bubble and reply to the canonical ids", () => {
+    const current = [
+      user("local-u", "message A", { createdAt: 100 }),
+      assistant("local-a", "", { createdAt: 101, stopped: true }),
+    ];
+    const linked = linkOptimisticTurnToCanonical(current, {
+      userMessageId: "local-u",
+      replyId: "local-a",
+      canonicalUserMessageId: "desk-u",
+    });
+    expect(linked.find((m) => m.id === "local-u")?.canonicalId).toBe("desk-u");
+    expect(linked.find((m) => m.id === "local-a")?.requestId).toBe("desk-u");
+  });
+
+  test("never clobbers link fields a completed turn already set", () => {
+    const current = [
+      user("local-u", "message A", { canonicalId: "desk-existing" }),
+      assistant("local-a", "answer", { requestId: "desk-existing" }),
+    ];
+    const linked = linkOptimisticTurnToCanonical(current, {
+      userMessageId: "local-u",
+      replyId: "local-a",
+      canonicalUserMessageId: "desk-u",
+    });
+    expect(linked).toBe(current);
+    expect(linked.find((m) => m.id === "local-u")?.canonicalId).toBe(
+      "desk-existing",
+    );
+  });
+
+  test("is a no-op without a canonical id (bridge never reported one)", () => {
+    const current = [user("local-u", "message A", { createdAt: 100 })];
+    expect(
+      linkOptimisticTurnToCanonical(current, {
+        userMessageId: "local-u",
+        replyId: "local-a",
+        canonicalUserMessageId: "  ",
+      }),
+    ).toBe(current);
+  });
+
+  test("send → stop → send: the first user message stays single after reconcile", () => {
+    // Message A was sent; the user stopped the turn mid-stream. Without the
+    // stop-path link, the optimistic bubble keeps only its local id, so the
+    // next send's wake→sync pulls the canonical user row and mergeMessagesById
+    // (id/canonicalId only) appends it as a duplicate of message A.
+    const afterStopUnlinked = [
+      user("local-u", "message A", { createdAt: 100 }),
+      assistant("local-a", "", { createdAt: 101, stopped: true }),
+    ];
+    const canonicalPull = [
+      user("desk-u", "message A", { createdAt: 100 }),
+    ];
+    // The bug: unlinked bubble + canonical pull duplicates message A.
+    expect(
+      mergeMessagesById(afterStopUnlinked, canonicalPull).filter(
+        (m) => m.role === "user",
+      ),
+    ).toHaveLength(2);
+
+    // The fix: the stop path links the bubble to its canonical id first, so
+    // the same pull folds into the existing bubble — message A stays single.
+    const afterStopLinked = linkOptimisticTurnToCanonical(afterStopUnlinked, {
+      userMessageId: "local-u",
+      replyId: "local-a",
+      canonicalUserMessageId: "desk-u",
+    });
+    const reconciled = mergeMessagesById(afterStopLinked, canonicalPull);
+    const usersA = reconciled.filter(
+      (m) => m.role === "user" && m.text === "message A",
+    );
+    expect(usersA).toHaveLength(1);
+    expect(usersA[0]?.id).toBe("local-u");
+    expect(usersA[0]?.canonicalId).toBe("desk-u");
   });
 });

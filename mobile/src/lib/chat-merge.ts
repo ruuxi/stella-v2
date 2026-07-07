@@ -276,6 +276,54 @@ export const mergeMessagesById = (
 };
 
 /**
+ * Link a phone-sent turn's optimistic rows to their canonical desktop ids
+ * WITHOUT swapping in any canonical content or appending finish/error text.
+ *
+ * Used on the interrupted-turn paths — the user stopped the run, or it errored
+ * after the desktop already persisted the row. The desktop persists the turn's
+ * canonical user row the instant the run starts, so an optimistic user bubble
+ * left unlinked is a duplicate waiting to happen: the next send's wake→sync
+ * pulls that canonical row and `mergeMessagesById`, matching only by
+ * id/`canonicalId`, appends it as a SECOND copy of the same user message
+ * (the "first user message duplicates after stop-then-send" bug). Stamping the
+ * bubble's `canonicalId` (and the reply's `requestId`, the key canonical
+ * assistant rows carry) lets that merge fold the canonical rows into the
+ * existing bubbles instead of duplicating them.
+ *
+ * Only fills the link fields when they're still empty, so it never clobbers a
+ * link a completed turn already established, and returns the input array
+ * unchanged (same reference) when there is nothing to link.
+ */
+export const linkOptimisticTurnToCanonical = (
+  messages: ChatMessage[],
+  {
+    userMessageId,
+    replyId,
+    canonicalUserMessageId,
+  }: {
+    userMessageId: string;
+    replyId: string;
+    canonicalUserMessageId: string;
+  },
+): ChatMessage[] => {
+  const linkId = canonicalUserMessageId.trim();
+  if (!linkId) return messages;
+  let changed = false;
+  const next = messages.map((message) => {
+    if (message.id === userMessageId && !message.canonicalId) {
+      changed = true;
+      return { ...message, canonicalId: linkId };
+    }
+    if (message.id === replyId && !message.requestId) {
+      changed = true;
+      return { ...message, requestId: linkId };
+    }
+    return message;
+  });
+  return changed ? next : messages;
+};
+
+/**
  * After a phone-sent desktop turn completes, swap the optimistic local user
  * bubble and streamed reply for their canonical desktop rows (keeping local
  * ids stable), then merge any other turns that happened on the desktop.

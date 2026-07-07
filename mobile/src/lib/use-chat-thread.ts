@@ -27,6 +27,7 @@ import {
 } from "../components/working-indicator-state";
 import {
   collapseLinkedDuplicates,
+  linkOptimisticTurnToCanonical,
   mergeMessagesById,
   reconcileSentDesktopTurn,
 } from "./chat-merge";
@@ -1079,6 +1080,17 @@ export function useChatThread(opts: {
         });
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
           activeDispatchRef.current = null;
+          // The user stopped as the turn settled. The desktop has already
+          // persisted the canonical user row, so link the optimistic bubble to
+          // it now — otherwise the next send's wake→sync re-merges that row as
+          // a duplicate of this user message (see linkOptimisticTurnToCanonical).
+          setMessages((m) =>
+            linkOptimisticTurnToCanonical(m, {
+              userMessageId: item.userMessageId,
+              replyId,
+              canonicalUserMessageId: result.userMessageId,
+            }),
+          );
           markSending(false);
           return;
         }
@@ -1168,6 +1180,18 @@ export function useChatThread(opts: {
         textSmoother.cancel();
         activeDispatchRef.current = null;
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
+          // The user stopped this turn mid-stream (the abort surfaced here).
+          // The desktop persisted the turn's canonical user row at run start,
+          // so link the optimistic bubble to it now — otherwise the next send's
+          // wake→sync re-merges that canonical row as a duplicate of this user
+          // message (see linkOptimisticTurnToCanonical).
+          setMessages((m) =>
+            linkOptimisticTurnToCanonical(m, {
+              userMessageId: item.userMessageId,
+              replyId,
+              canonicalUserMessageId: canonicalUserMessageIdSeen,
+            }),
+          );
           markSending(false);
           return;
         }

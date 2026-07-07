@@ -133,6 +133,14 @@ type DesktopBridgeChatArgs = {
   onTextDelta?: (delta: string) => void;
   onActivity?: (activity: DesktopBridgeActivity) => void;
   onArtifacts?: (artifacts: ChatArtifact[]) => void;
+  /**
+   * Fired once with the canonical desktop id of the submitted user message as
+   * soon as the bridge reports it (well before the run settles). Lets the
+   * caller link its optimistic bubble to the canonical row even when the turn
+   * later errors/times out — so a subsequent sync reconciles the turn in place
+   * instead of pulling the canonical user row as a duplicate.
+   */
+  onUserMessageId?: (userMessageId: string) => void;
 };
 
 type DesktopBridgeChatResult = {
@@ -1397,6 +1405,7 @@ export async function sendDesktopBridgeChat({
   onTextDelta,
   onActivity,
   onArtifacts,
+  onUserMessageId,
 }: DesktopBridgeChatArgs): Promise<DesktopBridgeChatResult> {
   const text = message.trim();
   if (!text && !attachments?.length) {
@@ -1439,6 +1448,15 @@ export async function sendDesktopBridgeChat({
   let runId = "";
   let requestId = "";
   let submittedUserMessageId = "";
+  // Record the canonical user-message id the first time the bridge reports it
+  // and notify the caller exactly once, so an optimistic bubble can be linked
+  // even if the turn later errors before returning a result.
+  const noteSubmittedUserMessageId = (id: string) => {
+    const trimmed = id.trim();
+    if (!trimmed || submittedUserMessageId) return;
+    submittedUserMessageId = trimmed;
+    onUserMessageId?.(trimmed);
+  };
   let startIssued = false;
   let runStarted = false;
   let settled = false;
@@ -1601,8 +1619,8 @@ export async function sendDesktopBridgeChat({
     const eventUserMessageId = asString(event.userMessageId);
     if (!requestId && eventRequestId) requestId = eventRequestId;
     if (!runId && eventRunId) runId = eventRunId;
-    if (!submittedUserMessageId && eventUserMessageId) {
-      submittedUserMessageId = eventUserMessageId;
+    if (eventUserMessageId) {
+      noteSubmittedUserMessageId(eventUserMessageId);
     }
     if (eventRunId) runStarted = true;
 
@@ -1843,8 +1861,8 @@ export async function sendDesktopBridgeChat({
               const activeUserMessageId = asString(
                 activeRun?.userMessageId,
               ).trim();
-              if (!submittedUserMessageId && activeUserMessageId) {
-                submittedUserMessageId = activeUserMessageId;
+              if (activeUserMessageId) {
+                noteSubmittedUserMessageId(activeUserMessageId);
               }
             }
             const replayEvents = Array.isArray(resume?.events)

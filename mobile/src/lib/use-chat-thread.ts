@@ -948,6 +948,11 @@ export function useChatThread(opts: {
         appendText: (chunk) => appendAssistantText(replyId, chunk),
       });
       let sawDelta = false;
+      // Canonical desktop id of the submitted user message, reported by the
+      // bridge as soon as the desktop persists the row (before the run
+      // settles). Captured so the error path below can link the optimistic
+      // bubble even when the turn times out or disconnects before returning.
+      let canonicalUserMessageIdSeen = "";
 
       try {
         // wake → sync → send: reconcile the existing transcript first (this
@@ -974,6 +979,9 @@ export function useChatThread(opts: {
           attachments:
             bridgeAttachments.length > 0 ? bridgeAttachments : undefined,
           signal: abort.signal,
+          onUserMessageId: (id) => {
+            canonicalUserMessageIdSeen = id;
+          },
           onStatus: (status) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
             // Connection/wake copy is a run-level status; merge it without
@@ -1109,10 +1117,27 @@ export function useChatThread(opts: {
           e instanceof DesktopOfflineError && !sawDelta
             ? "Your computer is offline. Wake it from the menu, then try again."
             : userFacingError(e);
+        // The desktop persists the turn's canonical user row (and, if it got
+        // far enough, the reply) the moment the run starts — even though this
+        // turn errored/timed out locally. If the bridge reported that row's id
+        // before failing, link the optimistic bubble to it now (and stamp the
+        // reply's requestId) so a later poll/catch-up reconciles the turn in
+        // place instead of appending the canonical user row as a duplicate.
+        const linkId = canonicalUserMessageIdSeen.trim();
         setMessages((m) =>
-          m.map((msg) =>
-            msg.id === replyId ? { ...msg, text: msg.text || message } : msg,
-          ),
+          m.map((msg) => {
+            if (msg.id === replyId) {
+              return {
+                ...msg,
+                text: msg.text || message,
+                ...(linkId ? { requestId: linkId } : {}),
+              };
+            }
+            if (msg.id === item.userMessageId && linkId) {
+              return { ...msg, canonicalId: linkId };
+            }
+            return msg;
+          }),
         );
         finishDispatch();
       } finally {

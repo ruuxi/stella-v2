@@ -85,7 +85,22 @@ export type MobileDisplayPayload =
       title?: string;
       createdAt?: number;
     }
-  | { kind: "pdf"; filePath: string; title?: string }
+  | {
+      kind: "pdf";
+      filePath: string;
+      title?: string;
+      /**
+       * On-device PDF (the standalone cloud chat's `pdf` tool generates the
+       * file locally with `expo-print`). Present only for phone-generated
+       * PDFs; a `file://` URI in the app's cache directory that the artifact
+       * viewer previews and the share sheet saves/opens directly, with no
+       * desktop bridge. Absent for bridged desktop PDFs, which stream their
+       * bytes over the bridge from `filePath`.
+       */
+      localUri?: string;
+      /** Size of the on-device file in bytes, when known. */
+      sizeBytes?: number;
+    }
   | {
       kind: "media";
       asset: MobileMediaAsset;

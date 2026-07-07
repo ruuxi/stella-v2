@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,6 +29,7 @@ import {
   readDesktopArtifactFile,
   resolveArtifactBridge,
 } from "../lib/desktop-artifact-data";
+import { readLocalPdfDataUri, sharePdf } from "../lib/chat-pdf";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
@@ -150,6 +152,26 @@ export function ArtifactViewerContent({
   const title = artifact ? artifactTitle(artifact.payload) : "Artifact";
   const subtitle = artifact ? artifactSubtitle(artifact.payload) : "";
 
+  // On-device PDFs carry a local file URI we can hand straight to the OS share
+  // sheet (save to Files / open in another app), with no desktop bridge.
+  const localPdf =
+    artifact &&
+    artifact.payload.kind === "pdf" &&
+    artifact.payload.localUri
+      ? artifact.payload
+      : null;
+  const [sharing, setSharing] = useState(false);
+  const onShare = useCallback(async () => {
+    if (!localPdf || sharing) return;
+    setSharing(true);
+    try {
+      const result = await sharePdf(localPdf);
+      if (!result.ok) Alert.alert("Couldn't share the PDF", result.error);
+    } finally {
+      setSharing(false);
+    }
+  }, [localPdf, sharing]);
+
   useEffect(() => {
     if (!artifact) return;
     let cancelled = false;
@@ -164,6 +186,19 @@ export function ArtifactViewerContent({
       }
       if (payload.kind === "media" && payload.asset.kind === "text") {
         return { kind: "text" as const, text: payload.asset.text };
+      }
+      // On-device PDF (cloud chat's `pdf` tool) — read the local file straight
+      // off disk and preview it inline; no desktop bridge is involved.
+      if (payload.kind === "pdf" && payload.localUri) {
+        const uri = await readLocalPdfDataUri(payload.localUri);
+        return {
+          kind: "web-media" as const,
+          html: mediaHtml(
+            colors,
+            title,
+            `<iframe src="${uri}" title="${escapeHtml(title)}"></iframe>`,
+          ),
+        };
       }
       if (!access) {
         throw new Error("Pair this phone with your desktop again.");
@@ -323,6 +358,25 @@ export function ArtifactViewerContent({
             {subtitle}
           </Text>
         </View>
+        {localPdf ? (
+          <Pressable
+            onPress={onShare}
+            disabled={sharing}
+            accessibilityRole="button"
+            accessibilityLabel="Save or share PDF"
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.shareButton,
+              pressed && styles.backButtonPressed,
+            ]}
+          >
+            {sharing ? (
+              <ActivityIndicator color={colors.text} />
+            ) : (
+              <Icon name="share" size={20} color={colors.text} />
+            )}
+          </Pressable>
+        ) : null}
       </View>
         <View style={styles.body}>
           {loading ? (
@@ -414,6 +468,13 @@ const makeStyles = (colors: ReturnType<typeof useColors>, topInset: number) =>
     },
     backButtonPressed: {
       opacity: 0.6,
+    },
+    shareButton: {
+      alignItems: "center",
+      height: 32,
+      justifyContent: "center",
+      marginLeft: 8,
+      width: 32,
     },
     title: {
       color: colors.text,

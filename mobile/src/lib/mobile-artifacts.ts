@@ -27,6 +27,17 @@ const extensionOf = (filePath: string): string | null => {
     : tail.slice(dot + 1).toUpperCase();
 };
 
+const formatBytes = (bytes: number | undefined): string | null => {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
+    return null;
+  }
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+};
+
 const isMediaAsset = (value: unknown): value is MobileMediaAsset => {
   if (!isRecord(value) || !isString(value.kind)) return false;
   switch (value.kind) {
@@ -70,8 +81,13 @@ export const isMobileDisplayPayload = (
       );
     case "markdown":
     case "source-diff":
-    case "pdf":
       return typeof value.filePath === "string";
+    case "pdf":
+      return (
+        typeof value.filePath === "string" &&
+        (value.localUri === undefined || typeof value.localUri === "string") &&
+        (value.sizeBytes === undefined || isFiniteNumber(value.sizeBytes))
+      );
     case "file-artifact":
       return (
         typeof value.filePath === "string" &&
@@ -267,8 +283,11 @@ export const artifactSubtitle = (payload: MobileDisplayPayload): string => {
         return withFormat("Table", payload.filePath);
       }
       return withFormat("Document", payload.filePath);
-    case "pdf":
-      return withFormat("PDF", payload.filePath);
+    case "pdf": {
+      const base = withFormat("PDF", payload.filePath);
+      const size = formatBytes(payload.sizeBytes);
+      return size ? `${base} · ${size}` : base;
+    }
     case "media":
       switch (payload.asset.kind) {
         case "image":

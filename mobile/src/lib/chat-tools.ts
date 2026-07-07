@@ -31,7 +31,8 @@ export type ToolCall =
       destination?: string;
       mode?: string;
       title?: string;
-    };
+    }
+  | { tool: "pdf"; title?: string; content: string; filename?: string };
 
 const asString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
@@ -40,6 +41,22 @@ const asStringArray = (value: unknown): string[] =>
   Array.isArray(value)
     ? value.map(asString).filter((entry) => entry.length > 0)
     : [];
+
+/**
+ * Coerce a tool field that may arrive as a string or an array of lines (models
+ * sometimes split long PDF bodies into a JSON array to avoid embedding raw
+ * newlines) into a single string. Array entries join with newlines.
+ */
+const asText = (value: unknown): string => {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === "string" ? entry : ""))
+      .join("\n")
+      .trim();
+  }
+  return "";
+};
 
 const toToolCall = (value: unknown): ToolCall | null => {
   if (!value || typeof value !== "object") return null;
@@ -70,6 +87,18 @@ const toToolCall = (value: unknown): ToolCall | null => {
         ...(destination ? { destination } : {}),
         ...(asString(record.mode) ? { mode: asString(record.mode) } : {}),
         ...(asString(record.title) ? { title: asString(record.title) } : {}),
+      };
+    }
+    case "pdf": {
+      const content = asText(record.content ?? record.body ?? record.markdown);
+      if (!content) return null;
+      const title = asString(record.title);
+      const filename = asString(record.filename);
+      return {
+        tool: "pdf",
+        content,
+        ...(title ? { title } : {}),
+        ...(filename ? { filename } : {}),
       };
     }
     default:
@@ -162,7 +191,7 @@ export function createToolBlockFilter() {
 }
 
 const TOOL_INSTRUCTIONS = [
-  "You have four on-device tools, invoked through a text protocol.",
+  "You have five on-device tools, invoked through a text protocol.",
   "To use them, append EXACTLY ONE tool block at the very END of your reply with nothing after it:",
   TOOL_BLOCK_OPEN,
   '{"tool":"remember","key":"home city","value":"Austin, TX"}',
@@ -173,6 +202,7 @@ const TOOL_INSTRUCTIONS = [
   '- forget: remove a stored fact. {"tool":"forget","key":"..."}',
   '- map: show an interactive map card inline (pins and/or a route). {"tool":"map","places":["Blue Bottle, SF"]} or {"tool":"map","origin":"...","destination":"...","mode":"driving"}',
   '- recall: full-text search YOUR earlier messages in this conversation. {"tool":"recall","query":"..."} When you need to recall, reply with ONLY the tool block (no answer text) and wait for the results, then answer.',
+  '- pdf: generate a PDF on the phone and drop it into the chat as a tappable file the user can open, save, or share. Use it whenever the user asks for a PDF (a document, report, summary, letter, cheatsheet…). {"tool":"pdf","title":"Trip Itinerary","content":"# Trip Itinerary\\n\\nDay 1: ..."} The content is the full document body in Markdown (headings, lists, bold, tables, code all render). Put the entire document in `content` as a single JSON string with \\n for line breaks, or as an array of lines. Keep a short spoken reply like "Here is your PDF" as the visible answer; do not paste the whole document into the chat text too.',
 ].join("\n");
 
 /**

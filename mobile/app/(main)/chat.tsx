@@ -12,6 +12,8 @@ import { useTopBarStatus } from "../../src/lib/top-bar-status";
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
+import { ArtifactViewer } from "../../src/components/ArtifactViewer";
+import type { ChatArtifact } from "../../src/types";
 
 /**
  * The Chat tab: a cloud conversation with Stella that works anywhere, with no
@@ -25,6 +27,12 @@ export default function ChatScreen() {
   const offline = useIsOffline();
   const { setConnection: setTopBarConnection } = useTopBarStatus();
   const [mobileDeviceId, setMobileDeviceId] = useState<string | null>(null);
+  // A tapped file artifact (e.g. a PDF the `pdf` tool generated on-device),
+  // previewed + saved/shared from the standalone artifact viewer. The cloud
+  // chat is self-contained, so the viewer runs with no desktop bridge.
+  const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
+    null,
+  );
 
   const transport = useMemo(
     () => ({ kind: "cloud" as const, guest }),
@@ -109,6 +117,13 @@ export default function ChatScreen() {
         onChangeAttachments={thread.setAttachments}
         dictationAnonymous={guest}
         dictationHeaders={dictationHeaders}
+        onOpenArtifact={setSelectedArtifact}
+      />
+      <ArtifactViewer
+        visible={Boolean(selectedArtifact)}
+        artifact={selectedArtifact}
+        access={null}
+        onClose={() => setSelectedArtifact(null)}
       />
     </View>
   );

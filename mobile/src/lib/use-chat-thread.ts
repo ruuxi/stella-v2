@@ -69,6 +69,7 @@ import {
   searchMessages,
 } from "./chat-message-index";
 import { resolveMap, mapArtifactFor } from "./chat-maps";
+import { generatePdf, pdfArtifactFor } from "./chat-pdf";
 import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
 
 /** What a `runDesktopSync` call actually did, so callers can be honest. */
@@ -750,9 +751,10 @@ export function useChatThread(opts: {
         return acc;
       };
 
-      // Map-tool failures, surfaced on the reply after the answer finishes
-      // streaming so the note lands after the streamed text (see below).
+      // Map- and PDF-tool failures, surfaced on the reply after the answer
+      // finishes streaming so the note lands after the streamed text (below).
       const mapErrors: string[] = [];
+      const pdfErrors: string[] = [];
       // Resolve a map tool call and hang the interactive card off the reply.
       const applyMapTool = async (call: {
         places?: string[];
@@ -776,6 +778,33 @@ export function useChatThread(opts: {
               outcome.result.payload,
               OFFLINE_ARTIFACT_CONVERSATION_ID,
               existing.length,
+            );
+            if (existing.some((a) => a.id === artifact.id)) return msg;
+            return { ...msg, artifacts: [...existing, artifact] };
+          }),
+        );
+      };
+
+      // Generate a PDF on-device and hang the tappable file card off the reply.
+      const applyPdfTool = async (call: {
+        title?: string;
+        content: string;
+        filename?: string;
+      }) => {
+        const outcome = await generatePdf(call);
+        if (!outcome.ok) {
+          // The model already told the user a PDF was coming, so a missing file
+          // with no explanation is confusing — surface the failure.
+          pdfErrors.push(outcome.error);
+          return;
+        }
+        setMessages((m) =>
+          m.map((msg) => {
+            if (msg.id !== replyId) return msg;
+            const existing = msg.artifacts ?? [];
+            const artifact = pdfArtifactFor(
+              outcome.result.payload,
+              OFFLINE_ARTIFACT_CONVERSATION_ID,
             );
             if (existing.some((a) => a.id === artifact.id)) return msg;
             return { ...msg, artifacts: [...existing, artifact] };
@@ -861,6 +890,8 @@ export function useChatThread(opts: {
               await forgetFact(call.key);
             } else if (call.tool === "map") {
               await applyMapTool(call);
+            } else if (call.tool === "pdf") {
+              await applyPdfTool(call);
             } else if (call.tool === "recall") {
               recalls.push({ query: call.query });
             }
@@ -886,9 +917,10 @@ export function useChatThread(opts: {
 
         await textSmoother.drain();
         ensureFallbackReply();
-        if (mapErrors.length > 0) {
+        const toolErrors = [...mapErrors, ...pdfErrors];
+        if (toolErrors.length > 0) {
           // Append after the drain so the note follows the streamed answer.
-          const note = mapErrors.join("\n");
+          const note = toolErrors.join("\n");
           setMessages((m) =>
             m.map((msg) => {
               if (msg.id !== replyId || msg.text.includes(note)) return msg;

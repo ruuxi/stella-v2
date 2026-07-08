@@ -602,7 +602,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         ]);
 
         const tools = getVoiceToolSchemas();
-        const model = body.model ?? "gpt-realtime-2";
+        const model = body.model ?? "gpt-realtime-2.1";
         const voice = body.voice ?? "marin";
         const lease = (await ctx.runMutation(
           internal.billing.prepareVoiceRealtimeLease,

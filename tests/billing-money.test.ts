@@ -22,6 +22,30 @@ describe("billing money", () => {
     expect(costMicroCents).toBe(13_030_000_000);
   });
 
+  it("prices gpt-realtime-2.1 identically to gpt-realtime-2", () => {
+    const costMicroCents = computeRealtimeUsageCostMicroCents({
+      model: "gpt-realtime-2.1",
+      textInputTokens: 1_000_000,
+      textCachedInputTokens: 1_000_000,
+      textOutputTokens: 1_000_000,
+      audioInputTokens: 1_000_000,
+      audioCachedInputTokens: 1_000_000,
+      audioOutputTokens: 1_000_000,
+      imageInputTokens: 1_000_000,
+      imageCachedInputTokens: 1_000_000,
+    });
+
+    expect(costMicroCents).toBe(13_030_000_000);
+
+    // Future dated snapshots of 2.1 must price through the base 2.1 rates.
+    expect(
+      computeRealtimeUsageCostMicroCents({
+        model: "gpt-realtime-2.1-2026-08-01",
+        audioOutputTokens: 1_000_000,
+      }),
+    ).toBe(6_400_000_000);
+  });
+
   it("prices gpt-4o-mini-tts text input and audio output", () => {
     const costMicroCents = computeTtsUsageCostMicroCents({
       model: "gpt-4o-mini-tts",

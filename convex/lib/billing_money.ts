@@ -50,6 +50,16 @@ const DEFAULT_REALTIME_PRICE_CATALOG: Record<string, RealtimePriceConfig> = {
     imageInputPerMillionUsd: 5,
     imageCachedInputPerMillionUsd: 0.5,
   },
+  "gpt-realtime-2.1": {
+    textInputPerMillionUsd: 4,
+    textCachedInputPerMillionUsd: 0.4,
+    textOutputPerMillionUsd: 24,
+    audioInputPerMillionUsd: 32,
+    audioCachedInputPerMillionUsd: 0.4,
+    audioOutputPerMillionUsd: 64,
+    imageInputPerMillionUsd: 5,
+    imageCachedInputPerMillionUsd: 0.5,
+  },
 };
 
 const DEFAULT_REALTIME_LLM_PRICE_CATALOG: Record<string, TokenPriceConfig> = {
@@ -99,6 +109,9 @@ const lookupRealtimePriceConfig = (
   model: string,
 ): RealtimePriceConfig | undefined =>
   DEFAULT_REALTIME_PRICE_CATALOG[model] ??
+  (model.startsWith("gpt-realtime-2.1-")
+    ? DEFAULT_REALTIME_PRICE_CATALOG["gpt-realtime-2.1"]
+    : undefined) ??
   (model.startsWith("gpt-realtime-2-")
     ? DEFAULT_REALTIME_PRICE_CATALOG["gpt-realtime-2"]
     : undefined) ??

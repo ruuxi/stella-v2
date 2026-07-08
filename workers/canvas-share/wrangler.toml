@@ -1,0 +1,38 @@
+# Cloudflare Worker: canvas-share serving layer.
+#
+# Serves published canvas documents from the `stella-canvas-shares` R2 bucket
+# at `GET /c/:slug`. The backend (Convex) writes/deletes the objects; this
+# Worker is read-only apart from an optional lazy delete of expired objects.
+#
+# DO NOT deploy from here as part of the backend build. Deploy is a separate,
+# deliberate step once the domain is purchased and prod secrets are set.
+
+name = "canvas-share"
+main = "src/index.ts"
+compatibility_date = "2025-07-01"
+
+# --- R2 binding -------------------------------------------------------------
+# The dedicated bucket being provisioned in parallel. `binding` is the name
+# exposed to the Worker code (env.SHARES_BUCKET).
+[[r2_buckets]]
+binding = "SHARES_BUCKET"
+bucket_name = "stella-canvas-shares"
+
+[vars]
+# Global kill-switch. Set to "1"/"true" (via `wrangler secret`/dashboard/env
+# override) to make every share return 503.
+SHARES_DISABLED = ""
+
+# --- Custom domain / route --------------------------------------------------
+# TODO(domain): the public share domain is pending purchase. Once acquired,
+# wire the route here (or add a [[routes]] / custom domain in the dashboard)
+# and set CANVAS_SHARE_BASE_URL in the backend to match, e.g.:
+#
+#   [[routes]]
+#   pattern = "share.example.com"        # TODO: real domain
+#   custom_domain = true
+#
+# Until then the Worker is reachable only on its *.workers.dev subdomain.
+
+[observability]
+enabled = true

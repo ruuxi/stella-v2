@@ -1,6 +1,7 @@
 "use node";
 
-import { createHash, createHmac, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { uploadR2Object } from "../lib/r2_sigv4";
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import { action } from "../_generated/server";
@@ -46,9 +47,6 @@ const normalizePrefix = (value: string | undefined): string =>
 
 const sha256Hex = (data: string | Buffer): string =>
   createHash("sha256").update(data).digest("hex");
-
-const hmac = (key: string | Buffer, data: string): Buffer =>
-  createHmac("sha256", key).update(data).digest();
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -168,98 +166,6 @@ const downloadImage = async (url: string): Promise<Buffer> => {
   return Buffer.from(await response.arrayBuffer());
 };
 
-const signR2Put = (args: {
-  accessKeyId: string;
-  secretAccessKey: string;
-  endpoint: string;
-  bucket: string;
-  key: string;
-  payloadHash: string;
-  contentType: string;
-  cacheControl: string;
-}): { putUrl: string; headers: Record<string, string> } => {
-  const url = new URL(
-    `${args.endpoint.replace(/\/+$/, "")}/${args.bucket}/${args.key}`,
-  );
-  const region = "auto";
-  const service = "s3";
-  const amzDate = new Date()
-    .toISOString()
-    .replace(/[:-]|\.\d{3}/g, "")
-    .replace(/Z$/, "Z");
-  const dateStamp = amzDate.slice(0, 8);
-  const headersToSign = {
-    host: url.host,
-    "x-amz-content-sha256": args.payloadHash,
-    "x-amz-date": amzDate,
-    "content-type": args.contentType,
-    "cache-control": args.cacheControl,
-  };
-  const signedHeaderKeys = Object.keys(headersToSign).sort();
-  const canonicalHeaders =
-    signedHeaderKeys
-      .map((key) => `${key}:${headersToSign[key as keyof typeof headersToSign].trim()}`)
-      .join("\n") + "\n";
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalRequest = [
-    "PUT",
-    url.pathname,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    args.payloadHash,
-  ].join("\n");
-  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    sha256Hex(canonicalRequest),
-  ].join("\n");
-  const kDate = hmac(`AWS4${args.secretAccessKey}`, dateStamp);
-  const kRegion = hmac(kDate, region);
-  const kService = hmac(kRegion, service);
-  const kSigning = hmac(kService, "aws4_request");
-  const signature = createHmac("sha256", kSigning)
-    .update(stringToSign)
-    .digest("hex");
-  return {
-    putUrl: url.toString(),
-    headers: {
-      ...headersToSign,
-      authorization: `AWS4-HMAC-SHA256 Credential=${args.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
-    },
-  };
-};
-
-const uploadR2Object = async (args: {
-  key: string;
-  bytes: Buffer;
-  r2: {
-    accessKeyId: string;
-    secretAccessKey: string;
-    endpoint: string;
-    bucket: string;
-  };
-}): Promise<void> => {
-  const signed = signR2Put({
-    ...args.r2,
-    key: args.key,
-    payloadHash: sha256Hex(args.bytes),
-    contentType: "image/webp",
-    cacheControl: CACHE_CONTROL,
-  });
-  const response = await fetch(signed.putUrl, {
-    method: "PUT",
-    headers: signed.headers,
-    body: new Uint8Array(args.bytes),
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`R2 upload failed (${response.status})${text ? `: ${text}` : ""}`);
-  }
-};
-
 export const generatePack = action({
   args: {
     prompt: v.string(),
@@ -335,6 +241,8 @@ export const generatePack = action({
         uploadR2Object({
           key: `${baseKey}/sheet-${index + 1}.webp`,
           bytes,
+          contentType: "image/webp",
+          cacheControl: CACHE_CONTROL,
           r2,
         }),
       ),

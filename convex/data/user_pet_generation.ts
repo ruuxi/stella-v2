@@ -1,6 +1,7 @@
 "use node";
 
-import { createHash, createHmac, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { uploadR2Object } from "../lib/r2_sigv4";
 import { Buffer } from "node:buffer";
 import { PNG } from "pngjs";
 import { ConvexError, v } from "convex/values";
@@ -113,9 +114,6 @@ const normalizePrefix = (value: string | undefined): string =>
 
 const sha256Hex = (data: string | Buffer): string =>
   createHash("sha256").update(data).digest("hex");
-
-const hmac = (key: string | Buffer, data: string): Buffer =>
-  createHmac("sha256", key).update(data).digest();
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -311,104 +309,6 @@ const processPetAtlas = (bytes: Buffer): {
   };
 };
 
-const signR2Put = (args: {
-  accessKeyId: string;
-  secretAccessKey: string;
-  endpoint: string;
-  bucket: string;
-  key: string;
-  payloadHash: string;
-  contentType: string;
-  cacheControl: string;
-}): { putUrl: string; headers: Record<string, string> } => {
-  const endpoint = new URL(args.endpoint);
-  const now = new Date();
-  const dateStamp = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const amzDate = `${dateStamp}T${now
-    .toISOString()
-    .slice(11, 19)
-    .replace(/:/g, "")}Z`;
-  const host = endpoint.host;
-  const url = new URL(
-    `${endpoint.protocol}//${host}/${args.bucket}/${args.key
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/")}`,
-  );
-  const headersToSign: Record<string, string> = {
-    "content-type": args.contentType,
-    "cache-control": args.cacheControl,
-    host,
-    "x-amz-content-sha256": args.payloadHash,
-    "x-amz-date": amzDate,
-  };
-  const signedHeaders = Object.keys(headersToSign).sort().join(";");
-  const canonicalHeaders = Object.keys(headersToSign)
-    .sort()
-    .map((key) => `${key}:${headersToSign[key]}\n`)
-    .join("");
-  const canonicalRequest = [
-    "PUT",
-    url.pathname,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    args.payloadHash,
-  ].join("\n");
-  const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    sha256Hex(Buffer.from(canonicalRequest)),
-  ].join("\n");
-  const signingKey = hmac(
-    hmac(hmac(hmac(`AWS4${args.secretAccessKey}`, dateStamp), "auto"), "s3"),
-    "aws4_request",
-  );
-  const signature = createHmac("sha256", signingKey)
-    .update(stringToSign)
-    .digest("hex");
-  return {
-    putUrl: url.toString(),
-    headers: {
-      ...headersToSign,
-      authorization: `AWS4-HMAC-SHA256 Credential=${args.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
-    },
-  };
-};
-
-const uploadR2Object = async (args: {
-  key: string;
-  bytes: Buffer;
-  r2: {
-    accessKeyId: string;
-    secretAccessKey: string;
-    endpoint: string;
-    bucket: string;
-  };
-}): Promise<void> => {
-  const signed = signR2Put({
-    accessKeyId: args.r2.accessKeyId,
-    secretAccessKey: args.r2.secretAccessKey,
-    endpoint: args.r2.endpoint,
-    bucket: args.r2.bucket,
-    key: args.key,
-    payloadHash: sha256Hex(args.bytes),
-    contentType: "image/png",
-    cacheControl: CACHE_CONTROL,
-  });
-  const response = await fetch(signed.putUrl, {
-    method: "PUT",
-    headers: signed.headers,
-    body: new Uint8Array(args.bytes),
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`R2 upload failed (${response.status})${text ? `: ${text}` : ""}`);
-  }
-};
-
 export const generatePet = action({
   args: {
     prompt: v.string(),
@@ -473,8 +373,20 @@ export const generatePet = action({
     const spritesheetKey = `${baseKey}/spritesheet.png`;
     const previewKey = `${baseKey}/preview.png`;
     await Promise.all([
-      uploadR2Object({ key: spritesheetKey, bytes: processed.spritesheet, r2 }),
-      uploadR2Object({ key: previewKey, bytes: processed.preview, r2 }),
+      uploadR2Object({
+        key: spritesheetKey,
+        bytes: processed.spritesheet,
+        contentType: "image/png",
+        cacheControl: CACHE_CONTROL,
+        r2,
+      }),
+      uploadR2Object({
+        key: previewKey,
+        bytes: processed.preview,
+        contentType: "image/png",
+        cacheControl: CACHE_CONTROL,
+        r2,
+      }),
     ]);
 
     return await ctx.runMutation(internal.data.user_pets.createGeneratedPet, {

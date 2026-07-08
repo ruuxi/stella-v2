@@ -801,6 +801,10 @@ export const purgeOwnerCloudData = internalAction({
         }
       })(),
       drainBackups(ctx, ownerId),
+      // Canvas shares: delete R2 objects + rows for this owner.
+      ctx.runAction(internal.data.canvas_shares_actions.purgeOwnerShares, {
+        ownerUserId: ownerId,
+      }),
     ]);
 
     return null;

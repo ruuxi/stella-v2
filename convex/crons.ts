@@ -102,4 +102,11 @@ crons.interval(
   { batchSize: 200 },
 );
 
+crons.interval(
+  "purge expired canvas shares",
+  { hours: 1 },
+  internal.data.canvas_shares_actions.purgeExpiredShares,
+  { batchSize: 200, maxBatches: 10 },
+);
+
 export default crons;

@@ -1,6 +1,7 @@
 "use node";
 
-import { createHash, createHmac, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { signR2Put } from "../lib/r2_sigv4";
 import { ConvexError, v } from "convex/values";
 import { action } from "../_generated/server";
 import { requireConnectedUserIdAction } from "../auth";
@@ -66,77 +67,6 @@ const normalizePrefix = (value: string | undefined): string =>
 
 const sha256Hex = (data: string): string =>
   createHash("sha256").update(data).digest("hex");
-
-const hmac = (key: string | Buffer, data: string): Buffer =>
-  createHmac("sha256", key).update(data).digest();
-
-const signR2Put = (args: {
-  accessKeyId: string;
-  secretAccessKey: string;
-  endpoint: string;
-  bucket: string;
-  key: string;
-  payloadHash: string;
-  contentType: string;
-  cacheControl: string;
-}): {
-  putUrl: string;
-  headers: Record<string, string>;
-} => {
-  const url = new URL(
-    `${args.endpoint.replace(/\/+$/, "")}/${args.bucket}/${args.key}`,
-  );
-  const region = "auto";
-  const service = "s3";
-  const now = new Date();
-  const amzDate = now
-    .toISOString()
-    .replace(/[:-]|\.\d{3}/g, "")
-    .replace(/Z$/, "Z");
-  const dateStamp = amzDate.slice(0, 8);
-  const headersToSign = {
-    host: url.host,
-    "x-amz-content-sha256": args.payloadHash,
-    "x-amz-date": amzDate,
-    "content-type": args.contentType,
-    "cache-control": args.cacheControl,
-  };
-  const signedHeaderKeys = Object.keys(headersToSign).sort();
-  const canonicalHeaders =
-    signedHeaderKeys
-      .map((key) => `${key}:${headersToSign[key as keyof typeof headersToSign].trim()}`)
-      .join("\n") + "\n";
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalRequest = [
-    "PUT",
-    url.pathname,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    args.payloadHash,
-  ].join("\n");
-  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    sha256Hex(canonicalRequest),
-  ].join("\n");
-  const kDate = hmac(`AWS4${args.secretAccessKey}`, dateStamp);
-  const kRegion = hmac(kDate, region);
-  const kService = hmac(kRegion, service);
-  const kSigning = hmac(kService, "aws4_request");
-  const signature = createHmac("sha256", kSigning)
-    .update(stringToSign)
-    .digest("hex");
-  return {
-    putUrl: url.toString(),
-    headers: {
-      ...headersToSign,
-      authorization: `AWS4-HMAC-SHA256 Credential=${args.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
-    },
-  };
-};
 
 export const createUploadUrl = action({
   args: {

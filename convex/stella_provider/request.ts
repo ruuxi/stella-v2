@@ -15,6 +15,7 @@ const IMAGE_CAPABLE_MANAGED_MODEL_PREFIXES = [
   "anthropic/",
   "google/",
   "openai/",
+  "x-ai/grok-4.5",
 ] as const;
 
 /**

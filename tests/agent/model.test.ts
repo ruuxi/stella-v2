@@ -34,7 +34,7 @@ describe("managed model config", () => {
     ]);
   });
 
-  it("routes orchestrator to Kimi K2.6 and general to Kimi K2.7 Code on every tier but Ultra", () => {
+  it("routes orchestrator and general to Grok 4.5 on fallback/default audiences", () => {
     for (const audience of [
       "anonymous",
       "free",
@@ -42,14 +42,38 @@ describe("managed model config", () => {
       "pro",
       "plus",
       "ultra_fallback",
+      "max_fallback",
     ] as const) {
       expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).model).toBe(
-        "accounts/fireworks/models/kimi-k2p6",
+        "x-ai/grok-4.5",
       );
+      expect(
+        getModelConfig(AGENT_IDS.ORCHESTRATOR, audience)
+          .managedGatewayProvider,
+      ).toBe("openrouter");
       expect(getModelConfig(AGENT_IDS.GENERAL, audience).model).toBe(
-        "accounts/fireworks/models/kimi-k2p7-code",
+        "x-ai/grok-4.5",
       );
+      expect(
+        getModelConfig(AGENT_IDS.GENERAL, audience).managedGatewayProvider,
+      ).toBe("openrouter");
     }
+  });
+
+  it("keeps the Max baseline on the Max mode", () => {
+    expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "max").model).toBe(
+      "anthropic/claude-fable-5",
+    );
+    expect(getModelConfig(AGENT_IDS.GENERAL, "max").model).toBe(
+      "anthropic/claude-fable-5",
+    );
+  });
+
+  it("routes Standard through OpenRouter Grok 4.5", () => {
+    const standard = getModeConfig("standard");
+    expect(standard.model).toBe("x-ai/grok-4.5");
+    expect(standard.managedGatewayProvider).toBe("openrouter");
+    expect(standard.providerOptions?.gateway?.order).toEqual(["openrouter"]);
   });
 
   it("runs Ultra orchestrator and general on the Designer model (Opus)", () => {
@@ -59,10 +83,6 @@ describe("managed model config", () => {
     expect(getModelConfig(AGENT_IDS.GENERAL, "ultra").model).toBe(
       "anthropic/claude-opus-4.8",
     );
-    expect(getModeConfig("standard").managedGatewayProvider).toBe("openai");
-    expect(getModeConfig("standard").providerOptions?.openai).toMatchObject({
-      reasoningEffort: "low",
-    });
   });
 
   it("publishes branded tier modes and real managed models in the catalog", () => {
@@ -111,7 +131,7 @@ describe("managed model config", () => {
     );
   });
 
-  it("restricts catalog picks by audience (standard/light only for restricted)", () => {
+  it("restricts catalog picks by audience", () => {
     const allowedFor = (audience: "free" | "go" | "pro") =>
       new Set(
         listStellaCatalogModels(audience)
@@ -119,12 +139,14 @@ describe("managed model config", () => {
           .map((model) => model.id),
       );
 
-    // Restricted tiers may only pick the Standard and Light modes.
+    // Free users may only pick the Standard and Light modes.
     expect(allowedFor("free")).toEqual(
       new Set(["stella/standard", "stella/light"]),
     );
+    // Go is restricted from arbitrary pinning, but it is paid and can pick
+    // paid-only branded modes.
     expect(allowedFor("go")).toEqual(
-      new Set(["stella/standard", "stella/light"]),
+      new Set(["stella/standard", "stella/light", "stella/max"]),
     );
     // Pro+ may pin any catalog model (modes + real managed models).
     expect(
@@ -140,7 +162,7 @@ describe("managed model config", () => {
       defaults.find((entry) => entry.agentType === "orchestrator"),
     ).toMatchObject({
       model: "stella/default",
-      resolvedModel: "accounts/fireworks/models/kimi-k2p6",
+      resolvedModel: "openrouter/x-ai/grok-4.5",
     });
     expect(
       defaults.find((entry) => entry.agentType === "chronicle"),

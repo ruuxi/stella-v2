@@ -39,7 +39,7 @@ describe("resolveModelConfig overrides route through the override's own gateway"
 
   it("ignores a mode override a restricted tier may not pick", async () => {
     // free can't override designer → falls back to orchestrator's backend
-    // default (Kimi on Fireworks).
+    // default (Grok on OpenRouter).
     const resolved = await resolveModelConfig(
       ctx,
       AGENT_IDS.ORCHESTRATOR,
@@ -49,7 +49,7 @@ describe("resolveModelConfig overrides route through the override's own gateway"
         audience: "free",
       },
     );
-    expect(resolved.model).toBe("accounts/fireworks/models/kimi-k2p6");
-    expect(resolved.managedGatewayProvider).toBe("fireworks");
+    expect(resolved.model).toBe("x-ai/grok-4.5");
+    expect(resolved.managedGatewayProvider).toBe("openrouter");
   });
 });

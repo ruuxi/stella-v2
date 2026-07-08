@@ -120,10 +120,11 @@ const GPT_5_4_MINI_MODEL_CONFIG: ModeConfig = {
   },
 };
 
-// Kimi K2.6 on Fireworks. Used as the per-agent default for the orchestrator
-// on every tier except `ultra` (which runs the Designer mode / Opus 4.8). The
-// newer `kimi-k2p7-code` variant is the `priority` mode and powers the general
-// agent.
+const GROK_4_5_MODEL = "x-ai/grok-4.5";
+
+// Kimi K2.6 on Fireworks. Kept as an internal config for compatibility with
+// existing tests/fixtures and any explicit backend use, but no longer used as
+// the orchestrator default.
 const KIMI_K2P6_MODEL_CONFIG: ModeConfig = {
   model: "accounts/fireworks/models/kimi-k2p6",
   fallbackMode: "standard",
@@ -179,14 +180,12 @@ const isInternalModelConfigKey = (
 // keeps its value as a protocol requirement, not a policy choice.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   standard: {
-    model: "openai/gpt-5.5",
+    model: GROK_4_5_MODEL,
     fallbackMode: "light",
-    managedGatewayProvider: "openai",
+    managedGatewayProvider: "openrouter",
     temperature: 1.0,
     providerOptions: {
-      openai: {
-        reasoningEffort: "low",
-      },
+      ...gatewayOptions("openrouter"),
     },
   },
 
@@ -293,14 +292,12 @@ const AUDIENCE_MODE_OVERRIDES: Record<
 // agents that share the underlying modes. Values are a mode or an internal
 // model config key.
 //
-// Every tier except `ultra` runs the orchestrator on Kimi K2.6 and the
-// general agent on Kimi K2.7 Code (the `priority` mode). Ultra runs both on the
-// Designer mode (Claude Opus 4.8) as its premium baseline. `ultra_fallback`
-// (an over-cap Ultra user) is intentionally treated like the other tiers — the
-// fallback exists to drop over-cap users onto the cheaper Kimi models.
-const KIMI_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
-  [AGENT_IDS.ORCHESTRATOR]: "kimi_k2p6",
-  [AGENT_IDS.GENERAL]: "priority",
+// Every managed audience except the Ultra and Max baselines runs the
+// orchestrator and general agent on the Standard mode (Grok 4.5). Ultra keeps
+// Designer (Claude Opus 4.8); Max keeps the Stella Max mode.
+const STANDARD_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
+  [AGENT_IDS.ORCHESTRATOR]: "standard",
+  [AGENT_IDS.GENERAL]: "standard",
 };
 
 const ULTRA_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
@@ -310,8 +307,8 @@ const ULTRA_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
 
 // Stella Max ($1000/mo) plan baseline: the orchestrator and general agent both
 // run on the Stella Max mode (Claude Fable 5), making it the plan's default
-// model. `max_fallback` (an over-cap Max user) drops to the cheaper Kimi models
-// like every other fallback tier.
+// model. `max_fallback` (an over-cap Max user) drops to the Standard/Grok
+// default like every other fallback tier.
 const MAX_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
   [AGENT_IDS.ORCHESTRATOR]: "max",
   [AGENT_IDS.GENERAL]: "max",
@@ -320,18 +317,18 @@ const MAX_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
 const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
   Record<ManagedModelAudience, Partial<Record<string, TaskModelSelection>>>
 > = {
-  anonymous: KIMI_AGENT_OVERRIDES,
-  free: KIMI_AGENT_OVERRIDES,
-  go: KIMI_AGENT_OVERRIDES,
-  pro: KIMI_AGENT_OVERRIDES,
-  plus: KIMI_AGENT_OVERRIDES,
+  anonymous: STANDARD_AGENT_OVERRIDES,
+  free: STANDARD_AGENT_OVERRIDES,
+  go: STANDARD_AGENT_OVERRIDES,
+  pro: STANDARD_AGENT_OVERRIDES,
+  plus: STANDARD_AGENT_OVERRIDES,
   ultra: ULTRA_AGENT_OVERRIDES,
   max: MAX_AGENT_OVERRIDES,
-  go_fallback: KIMI_AGENT_OVERRIDES,
-  pro_fallback: KIMI_AGENT_OVERRIDES,
-  plus_fallback: KIMI_AGENT_OVERRIDES,
-  ultra_fallback: KIMI_AGENT_OVERRIDES,
-  max_fallback: KIMI_AGENT_OVERRIDES,
+  go_fallback: STANDARD_AGENT_OVERRIDES,
+  pro_fallback: STANDARD_AGENT_OVERRIDES,
+  plus_fallback: STANDARD_AGENT_OVERRIDES,
+  ultra_fallback: STANDARD_AGENT_OVERRIDES,
+  max_fallback: STANDARD_AGENT_OVERRIDES,
 };
 
 // Audiences that may NOT override the per-agent default model from the

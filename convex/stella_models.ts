@@ -72,6 +72,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   "openai/gpt-5.4": "GPT-5.4",
   "openai/gpt-5.4-mini": "GPT-5.4 Mini",
   "openai/gpt-5.5": "GPT-5.5",
+  "x-ai/grok-4.5": "Grok 4.5",
   "zai/glm-4.7": "GLM 4.7",
 };
 
@@ -99,7 +100,7 @@ const deriveDisplayName = (upstreamModel: string): string => {
 
 const catalogRoutingModel = (config: ModelConfig): string =>
   config.managedGatewayProvider === "openrouter" &&
-  /^(?:anthropic|google|openai)\//u.test(config.model)
+  !config.model.startsWith("openrouter/")
     ? `openrouter/${config.model}`
     : config.model;
 

@@ -282,6 +282,194 @@ const normalizeResponsesBody = (body: Record<string, unknown>): void => {
   delete body.stream_options;
 };
 
+const normalizeChatContentPart = (
+  part: unknown,
+): Record<string, unknown> | unknown => {
+  if (!part || typeof part !== "object" || Array.isArray(part)) {
+    return part;
+  }
+  const record = part as Record<string, unknown>;
+  if (
+    record.type === "input_text" ||
+    record.type === "output_text" ||
+    record.type === "text"
+  ) {
+    return { type: "text", text: record.text };
+  }
+  if (record.type === "input_image" || record.type === "image_url") {
+    const imageUrl = record.image_url;
+    return {
+      type: "image_url",
+      image_url:
+        typeof imageUrl === "string"
+          ? { url: imageUrl }
+          : imageUrl,
+    };
+  }
+  return part;
+};
+
+const normalizeChatContent = (content: unknown): unknown => {
+  if (!Array.isArray(content)) return content;
+  return content.map(normalizeChatContentPart);
+};
+
+const responsesInputToChatMessages = (input: unknown): unknown => {
+  if (!Array.isArray(input)) return input;
+  return input.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.role === "string") {
+      return [
+        {
+          role: record.role,
+          content: normalizeChatContent(record.content),
+        },
+      ];
+    }
+    if (record.type === "message") {
+      return [
+        {
+          role: typeof record.role === "string" ? record.role : "assistant",
+          content: normalizeChatContent(record.content),
+        },
+      ];
+    }
+    if (record.type === "function_call") {
+      const callId =
+        typeof record.call_id === "string"
+          ? record.call_id
+          : typeof record.id === "string"
+            ? record.id
+            : "";
+      return [
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: callId,
+              type: "function",
+              function: {
+                name: record.name,
+                arguments:
+                  typeof record.arguments === "string"
+                    ? record.arguments
+                    : JSON.stringify(record.arguments ?? {}),
+              },
+            },
+          ],
+        },
+      ];
+    }
+    if (record.type === "function_call_output") {
+      return [
+        {
+          role: "tool",
+          tool_call_id: record.call_id,
+          content:
+            typeof record.output === "string"
+              ? record.output
+              : JSON.stringify(record.output ?? ""),
+        },
+      ];
+    }
+    return [];
+  });
+};
+
+const normalizeChatTools = (tools: unknown): unknown => {
+  if (!Array.isArray(tools)) return tools;
+  return tools.map((tool) => {
+    if (!tool || typeof tool !== "object" || Array.isArray(tool)) {
+      return tool;
+    }
+    const record = tool as Record<string, unknown>;
+    if (
+      record.type === "function" &&
+      typeof record.name === "string" &&
+      record.function === undefined
+    ) {
+      return {
+        type: "function",
+        function: {
+          name: record.name,
+          description: record.description,
+          parameters: record.parameters,
+        },
+      };
+    }
+    return tool;
+  });
+};
+
+const normalizeChatReasoning = (
+  body: Record<string, unknown>,
+  resolvedModel: string,
+): void => {
+  const reasoning =
+    body.reasoning &&
+    typeof body.reasoning === "object" &&
+    !Array.isArray(body.reasoning)
+      ? (body.reasoning as Record<string, unknown>)
+      : null;
+  const effort = reasoning?.effort;
+
+  if (resolvedModel === "x-ai/grok-4.5") {
+    body.reasoning =
+      typeof effort === "string" && effort !== "none" && effort !== "off"
+        ? { effort }
+        : { effort: "low" };
+    return;
+  }
+
+  if (effort !== undefined) {
+    body.reasoning = { effort };
+  } else {
+    delete body.reasoning;
+  }
+};
+
+const normalizeChatCompletionsBody = (
+  body: Record<string, unknown>,
+  resolvedModel: string,
+): void => {
+  if (body.messages === undefined && body.input !== undefined) {
+    body.messages = responsesInputToChatMessages(body.input);
+  }
+  if (
+    body.max_completion_tokens === undefined &&
+    body.max_tokens === undefined &&
+    body.max_output_tokens !== undefined
+  ) {
+    body.max_completion_tokens = body.max_output_tokens;
+  }
+  if (body.tools !== undefined) {
+    body.tools = normalizeChatTools(body.tools);
+  }
+  if (
+    body.response_format === undefined &&
+    body.text &&
+    typeof body.text === "object" &&
+    !Array.isArray(body.text)
+  ) {
+    const format = (body.text as Record<string, unknown>).format;
+    if (format !== undefined) {
+      body.response_format = format;
+    }
+  }
+  normalizeChatReasoning(body, resolvedModel);
+  delete body.input;
+  delete body.max_output_tokens;
+  delete body.prompt_cache_key;
+  delete body.prompt_cache_retention;
+  delete body.store;
+  delete body.include;
+  delete body.text;
+};
+
 export const bodyForUpstream = (
   authorized: AuthorizedStellaRequest,
   provider: ManagedGatewayProvider,
@@ -311,6 +499,9 @@ export const bodyForUpstream = (
   const isChatCompletions =
     provider === "openrouter" ||
     new URL(request.url).pathname.endsWith("/chat/completions");
+  if (provider === "openrouter") {
+    normalizeChatCompletionsBody(body, authorized.resolvedModel);
+  }
   if (body.stream === true && isChatCompletions) {
     const streamOptions =
       body.stream_options &&

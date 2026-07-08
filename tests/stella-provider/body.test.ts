@@ -21,13 +21,17 @@ const makeAuthorized = (
       ? "accounts/fireworks/models/kimi-k2p6"
       : provider === "openai"
         ? "openai/gpt-5.5"
-        : "google/gemini-3-flash-preview",
+        : provider === "openrouter"
+          ? "x-ai/grok-4.5"
+          : "google/gemini-3-flash-preview",
   upstreamModel:
     provider === "fireworks"
       ? "accounts/fireworks/models/kimi-k2p6"
       : provider === "openai"
         ? "gpt-5.5"
-        : "gemini-3-flash-preview",
+        : provider === "openrouter"
+          ? "x-ai/grok-4.5"
+          : "gemini-3-flash-preview",
   serviceTier: "priority",
   apiKey: "test-key",
   tokenEstimate: { inputTokens: 1, outputTokens: 1 },
@@ -147,6 +151,105 @@ describe("bodyForUpstream", () => {
 
     expect(body.messages).toEqual([{ role: "user", content: "hello" }]);
     expect(body.input).toBeUndefined();
+    expect(body.stream_options).toEqual({ include_usage: true });
+  });
+
+  it("converts stale Responses bodies for OpenRouter chat completions", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("openrouter", {
+          model: "stella/standard",
+          input: [
+            {
+              role: "developer",
+              content: "Follow the policy.",
+            },
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: "hi" },
+                {
+                  type: "input_image",
+                  image_url: "data:image/png;base64,abc",
+                },
+              ],
+            },
+          ],
+          tools: [
+            {
+              type: "function",
+              name: "spawn_agent",
+              description: "Start an agent",
+              parameters: { type: "object", properties: {} },
+            },
+          ],
+          max_output_tokens: 1024,
+          reasoning: { effort: "none", summary: "auto" },
+          text: { format: { type: "json_object" } },
+          prompt_cache_key: "stale-cache-key",
+          prompt_cache_retention: "24h",
+          store: false,
+          include: ["reasoning.encrypted_content"],
+          stream: true,
+        }),
+        "openrouter",
+        requestFor("/api/stella/relay/responses"),
+      ),
+    );
+
+    expect(body.model).toBe("x-ai/grok-4.5");
+    expect(body.input).toBeUndefined();
+    expect(body.max_output_tokens).toBeUndefined();
+    expect(body.max_completion_tokens).toBe(1024);
+    expect(body.prompt_cache_key).toBeUndefined();
+    expect(body.prompt_cache_retention).toBeUndefined();
+    expect(body.store).toBeUndefined();
+    expect(body.include).toBeUndefined();
+    expect(body.text).toBeUndefined();
+    expect(body.response_format).toEqual({ type: "json_object" });
+    expect(body.reasoning).toEqual({ effort: "low" });
+    expect(body.messages).toEqual([
+      { role: "developer", content: "Follow the policy." },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "hi" },
+          {
+            type: "image_url",
+            image_url: { url: "data:image/png;base64,abc" },
+          },
+        ],
+      },
+    ]);
+    expect(body.tools).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "spawn_agent",
+          description: "Start an agent",
+          parameters: { type: "object", properties: {} },
+        },
+      },
+    ]);
+    expect(body.stream_options).toEqual({ include_usage: true });
+  });
+
+  it("adds mandatory Grok 4.5 reasoning for OpenRouter chat bodies", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("openrouter", {
+          model: "stella/standard",
+          messages: [{ role: "user", content: "hi" }],
+          reasoning: { effort: "none" },
+          stream: true,
+        }),
+        "openrouter",
+        requestFor("/api/stella/relay/chat/completions"),
+      ),
+    );
+
+    expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
+    expect(body.reasoning).toEqual({ effort: "low" });
     expect(body.stream_options).toEqual({ include_usage: true });
   });
 });

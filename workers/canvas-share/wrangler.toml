@@ -24,15 +24,12 @@ bucket_name = "stella-canvas-shares"
 SHARES_DISABLED = ""
 
 # --- Custom domain / route --------------------------------------------------
-# TODO(domain): the public share domain is pending purchase. Once acquired,
-# wire the route here (or add a [[routes]] / custom domain in the dashboard)
-# and set CANVAS_SHARE_BASE_URL in the backend to match, e.g.:
-#
-#   [[routes]]
-#   pattern = "share.example.com"        # TODO: real domain
-#   custom_domain = true
-#
-# Until then the Worker is reachable only on its *.workers.dev subdomain.
+# Public share domain (registered on Cloudflare Registrar). The custom domain
+# binds the apex hostname to this Worker and auto-manages the DNS record.
+# CANVAS_SHARE_BASE_URL in the backend is set to https://stellashare.app to match.
+[[routes]]
+pattern = "stellashare.app"
+custom_domain = true
 
 [observability]
 enabled = true

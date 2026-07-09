@@ -8,6 +8,15 @@ import {
   saveChatSyncState,
   type ChatThreadId,
 } from "./offline-chat-storage";
+import {
+  acknowledgeDesktopChatOutbox,
+  enqueueDesktopChatOutbox,
+  loadDesktopChatOutbox,
+} from "./desktop-chat-outbox";
+import {
+  restoreOutboxMessages,
+  type DesktopChatOutboxRecord,
+} from "./desktop-chat-outbox-state";
 import { postStream, postStreamAnonymous, StreamAbortError } from "./http";
 import { hasAiConsent, requestAiConsent } from "./ai-consent";
 import { getOrCreateMobileDeviceId, type StoredPhoneAccess } from "./phone-access";
@@ -81,6 +90,8 @@ export type DesktopSyncOutcome = {
   deferred?: boolean;
   /** Rows the desktop returned (pre-merge); present on a completed pull. */
   rows?: number;
+  /** Canonical user identities observed in this pull. */
+  acceptedUserMessageIds?: string[];
   /** Failure message when the pull errored (offline or otherwise). */
   error?: string;
 };
@@ -103,8 +114,16 @@ const OFFLINE_ARTIFACT_CONVERSATION_ID = "offline-chat";
  */
 const MAX_OFFLINE_TOOL_ROUNDS = 2;
 
-const createId = () =>
-  `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+let lastLocalIdOrder = 0;
+const createId = () => {
+  // Fixed-width logical time keeps same-timestamp mobile identities in compose
+  // order when the desktop's canonical `(timestamp, id)` tie-breaker applies.
+  lastLocalIdOrder = Math.max(Date.now(), lastLocalIdOrder + 1);
+  const random =
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `mobile:${String(lastLocalIdOrder).padStart(16, "0")}:${random}`;
+};
 
 const WAKE_STATUS_COPY: Record<DesktopBridgeSendStatus, string | undefined> = {
   connecting: "Reaching your computer",
@@ -144,9 +163,11 @@ const assetsToBridgeAttachments = async (
  */
 type QueuedSend = {
   dispatchId: string;
+  clientRequestId: string;
   userMessageId: string;
   text: string;
   assets: ImagePicker.ImagePickerAsset[];
+  queueSequence?: number;
 };
 
 /**
@@ -257,9 +278,11 @@ export function useChatThread(opts: {
   }, []);
 
   const queueRef = useRef<QueuedSend[]>([]);
+  const acceptedDesktopSendIdsRef = useRef<Set<string>>(new Set());
   const stoppedDispatchIdsRef = useRef<Set<string>>(new Set());
   const activeDispatchRef = useRef<{
     dispatchId: string;
+    userMessageId: string;
     replyId: string;
     abort: AbortController;
   } | null>(null);
@@ -295,37 +318,52 @@ export function useChatThread(opts: {
     void Promise.all([
       loadChatMessages(threadId),
       loadChatSyncState(threadId),
-    ]).then(([loaded, syncState]) => {
+      isDesktop ? loadDesktopChatOutbox(threadId) : Promise.resolve([]),
+    ]).then(([loaded, syncState, storedOutbox]) => {
       syncConversationIdRef.current = syncState.conversationId;
       syncCursorRef.current = syncState.cursor;
       // Heal any linked-row/unlinked-twin duplicates persisted by builds that
       // could pull mid-send (see `collapseLinkedDuplicates`) — the damaged
       // transcript would otherwise render the duplicate until a delta arrives.
-      const healed = collapseLinkedDuplicates(loaded);
+      const healed = restoreOutboxMessages(
+        collapseLinkedDuplicates(loaded),
+        storedOutbox,
+      );
       setMessages(healed);
       setStorageLoaded(true);
       // Re-enqueue any queued-but-unsent messages. The optimistic bubbles were
       // persisted (marked `queued`), but the in-memory dispatch queue was lost
       // on relaunch — so without this they'd render forever as "sent" yet never
       // deliver. Rebuild a dispatch for each from its bubble and drain, so a
-      // restart actually sends them. Image-bearing rows are skipped: the picked
-      // asset URIs don't survive a relaunch, so re-sending would drop the photo
-      // (or send an empty turn) — they stay shown as queued instead.
+      // restart actually sends them. New outbox rows include their attachment
+      // payload; legacy image rows did not, so they remain visible but are not
+      // silently replayed as a text-only "Photo" turn.
+      const outboxByUserMessageId = new Map(
+        storedOutbox.map((record) => [record.userMessageId, record]),
+      );
       const pendingSends = healed.filter(
         (m) =>
           m.role === "user" &&
-          m.queued === true &&
-          !m.hasImage &&
+          (outboxByUserMessageId.has(m.id) ||
+            (m.queued === true && !m.hasImage)) &&
           m.text.trim().length > 0,
       );
       for (const row of pendingSends) {
+        const stored = outboxByUserMessageId.get(row.id);
         queueRef.current.push({
-          dispatchId: createId(),
+          dispatchId: stored?.sendId ?? row.id,
+          clientRequestId: stored?.sendId ?? row.id,
           userMessageId: row.id,
-          text: row.text,
-          assets: [],
+          text: stored?.text ?? row.text,
+          assets: (stored?.assets ?? []) as ImagePicker.ImagePickerAsset[],
+          ...(stored ? { queueSequence: stored.sequence } : {}),
         });
       }
+      queueRef.current.sort(
+        (a, b) =>
+          (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
+          (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
+      );
       // Nothing can be dispatching yet on a fresh mount (send() no-ops until
       // hydration completes), so draining here just kicks off the first
       // re-send; the rest drain as each turn settles.
@@ -333,7 +371,7 @@ export function useChatThread(opts: {
         drainQueueRef.current?.();
       }
     });
-  }, [threadId]);
+  }, [isDesktop, threadId]);
 
   // Debounce persistence so streaming (which mutates `messages` many times a
   // second) doesn't rewrite the whole history to disk on every chunk. The
@@ -402,6 +440,22 @@ export function useChatThread(opts: {
       syncConversationIdRef.current = conversationId;
       syncCursorRef.current = cursor;
       void saveChatSyncState(threadId, { conversationId, cursor });
+    },
+    [threadId],
+  );
+
+  const acknowledgeDesktopSendIds = useCallback(
+    (acceptedIds: Iterable<string>) => {
+      const ids = new Set(
+        [...acceptedIds].map((id) => id.trim()).filter((id) => id.length > 0),
+      );
+      if (ids.size === 0) return;
+      for (const id of ids) acceptedDesktopSendIdsRef.current.add(id);
+      queueRef.current = queueRef.current.filter(
+        (item) =>
+          !ids.has(item.clientRequestId) && !ids.has(item.userMessageId),
+      );
+      void acknowledgeDesktopChatOutbox(threadId, ids).catch(() => {});
     },
     [threadId],
   );
@@ -536,7 +590,14 @@ export function useChatThread(opts: {
           conversationId: next.conversationId,
           cursor: next.cursor,
         });
+        const acceptedUserMessageIds = next.messages
+          .filter((message) => message.role === "user")
+          .map((message) => message.id);
+        acknowledgeDesktopSendIds(acceptedUserMessageIds);
         setMessages((current) => mergeMessagesById(current, next.messages));
+        if (!sendingRef.current && queueRef.current.length > 0) {
+          queueMicrotask(() => drainQueueRef.current?.());
+        }
         recordSyncDiagnostic({
           at: Date.now(),
           trigger,
@@ -549,7 +610,11 @@ export function useChatThread(opts: {
           conversationChanged: next.conversationChanged,
           durationMs: Date.now() - startedAt,
         });
-        return { offline: false, rows: next.messages.length };
+        return {
+          offline: false,
+          rows: next.messages.length,
+          acceptedUserMessageIds,
+        };
       } catch (error) {
         // Best-effort: the device-status poll drives the connection badge, and
         // the next send/landing retries the sync. Report a confirmed offline so
@@ -581,7 +646,12 @@ export function useChatThread(opts: {
       if (catchUp) trackCatchUpRun(run);
       return run;
     },
-    [desktopAccess, persistSyncState, trackCatchUpRun],
+    [
+      acknowledgeDesktopSendIds,
+      desktopAccess,
+      persistSyncState,
+      trackCatchUpRun,
+    ],
   );
   // Self-reference for the coalesce-chained catch-up pull above; a direct
   // recursive reference inside its own useCallback isn't possible.
@@ -1034,15 +1104,43 @@ export function useChatThread(opts: {
         if (synced.offline) {
           throw new DesktopOfflineError();
         }
+        if (
+          synced.acceptedUserMessageIds?.includes(item.userMessageId) ||
+          acceptedDesktopSendIdsRef.current.has(item.userMessageId)
+        ) {
+          acknowledgeDesktopSendIds([
+            item.clientRequestId,
+            item.userMessageId,
+          ]);
+          activeDispatchRef.current = null;
+          setMessages((messages) =>
+            messages
+              .filter((message) => message.id !== replyId)
+              .map((message) =>
+                message.id === item.userMessageId
+                  ? { ...message, queued: false }
+                  : message,
+              ),
+          );
+          finishDispatch();
+          return;
+        }
         const bridgeAttachments = await assetsToBridgeAttachments(item.assets);
         const result = await sendDesktopBridgeChat({
           access,
           message: item.text,
+          clientRequestId: item.clientRequestId,
+          userMessageEventId: item.userMessageId,
           attachments:
             bridgeAttachments.length > 0 ? bridgeAttachments : undefined,
           signal: abort.signal,
           onUserMessageId: (id) => {
             canonicalUserMessageIdSeen = id;
+            acknowledgeDesktopSendIds([
+              item.clientRequestId,
+              item.userMessageId,
+              id,
+            ]);
           },
           onStatus: (status) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
@@ -1210,27 +1308,57 @@ export function useChatThread(opts: {
         // place instead of appending the canonical user row as a duplicate.
         const linkId = canonicalUserMessageIdSeen.trim();
         setMessages((m) =>
-          m.map((msg) => {
-            if (msg.id === replyId) {
-              return {
-                ...msg,
-                text: msg.text || message,
-                ...(linkId ? { requestId: linkId } : {}),
-              };
-            }
-            if (msg.id === item.userMessageId && linkId) {
-              return { ...msg, canonicalId: linkId };
-            }
-            return msg;
-          }),
+          linkId
+            ? m.map((msg) => {
+                if (msg.id === replyId) {
+                  return {
+                    ...msg,
+                    text: msg.text || message,
+                    requestId: linkId,
+                  };
+                }
+                if (msg.id === item.userMessageId) {
+                  return { ...msg, canonicalId: linkId };
+                }
+                return msg;
+              })
+            : m
+                .filter((msg) => msg.id !== replyId)
+                .map((msg) =>
+                  msg.id === item.userMessageId
+                    ? { ...msg, queued: true }
+                    : msg,
+                ),
         );
-        finishDispatch();
+        if (linkId) {
+          finishDispatch();
+        } else {
+          // No canonical identity means the desktop never accepted this send.
+          // Keep the durable item at the head of the compose-order queue, but
+          // do not spin immediately while offline. The next successful
+          // foreground/push/manual sync drains it; relaunch hydration does too.
+          if (
+            !queueRef.current.some(
+              (queued) => queued.clientRequestId === item.clientRequestId,
+            )
+          ) {
+            queueRef.current.push(item);
+            queueRef.current.sort(
+              (a, b) =>
+                (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
+                (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
+            );
+          }
+          markSending(false);
+          setWorkingActivity(IDLE_WORKING_ACTIVITY);
+        }
       } finally {
         textSmoother.cancel();
       }
     },
     [
       appendAssistantText,
+      acknowledgeDesktopSendIds,
       finishDispatch,
       markSending,
       patchActivity,
@@ -1246,6 +1374,7 @@ export function useChatThread(opts: {
       const abort = new AbortController();
       activeDispatchRef.current = {
         dispatchId: item.dispatchId,
+        userMessageId: item.userMessageId,
         replyId,
         abort,
       };
@@ -1331,11 +1460,12 @@ export function useChatThread(opts: {
     const userMessageId = createId();
     const displayText = text || (assets.length ? "Photo" : "");
     const thumbs = assets.slice(0, 3).map((a) => a.uri);
+    const createdAt = Date.now();
     const userMsg: ChatMessage = {
       id: userMessageId,
       role: "user",
       text: displayText,
-      createdAt: Date.now(),
+      createdAt,
       hasImage: assets.length > 0,
       ...(thumbs.length > 0 ? { thumbnailUris: thumbs } : {}),
       ...(admission === "queue" ? { queued: true } : {}),
@@ -1348,31 +1478,88 @@ export function useChatThread(opts: {
     setMessages((m) => [...m, userMsg]);
 
     const item: QueuedSend = {
-      dispatchId: createId(),
+      dispatchId: userMessageId,
+      clientRequestId: userMessageId,
       userMessageId,
       text,
       assets,
     };
-    if (admission === "queue") {
+    if (transport.kind === "desktop") {
+      if (admission === "dispatch") markSending(true);
+      const durableRecord: Omit<DesktopChatOutboxRecord, "sequence"> = {
+        sendId: userMessageId,
+        userMessageId,
+        text,
+        displayText,
+        createdAt,
+        assets,
+      };
+      // Transmission is gated on this write. If iOS kills the process while
+      // AsyncStorage is committing, either no transport happened or hydration
+      // finds this exact stable identity and replays it.
+      void enqueueDesktopChatOutbox(threadId, durableRecord)
+        .then((stored) => {
+          item.queueSequence = stored.sequence;
+          if (acceptedDesktopSendIdsRef.current.has(item.userMessageId)) return;
+          if (admission === "queue") {
+            queueRef.current.push(item);
+            queueRef.current.sort(
+              (a, b) =>
+                (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
+                (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
+            );
+            if (!sendingRef.current) drainQueueRef.current?.();
+            return;
+          }
+          void dispatch(item);
+        })
+        .catch(() => {
+          if (admission === "dispatch") markSending(false);
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === userMessageId
+                ? { ...message, queued: true }
+                : message,
+            ),
+          );
+        });
+    } else if (admission === "queue") {
       queueRef.current.push(item);
     } else {
       markSending(true);
       void dispatch(item);
     }
     return { userMessageId };
-  }, [attachments, dispatch, draft, markSending, storageLoaded]);
+  }, [
+    attachments,
+    dispatch,
+    draft,
+    markSending,
+    storageLoaded,
+    threadId,
+    transport.kind,
+  ]);
 
   const stop = useCallback(() => {
     // Drop queued follow-ups first so the in-flight finally-handler doesn't
     // pick them up after the abort.
     const cancelledIds = queueRef.current.map((q) => q.userMessageId);
     queueRef.current = [];
+    if (cancelledIds.length > 0 && transport.kind === "desktop") {
+      acknowledgeDesktopSendIds(cancelledIds);
+    }
     if (cancelledIds.length > 0) {
       setMessages((m) => m.filter((msg) => !cancelledIds.includes(msg.id)));
     }
     if (activeDispatchRef.current) {
       const active = activeDispatchRef.current;
       stoppedDispatchIdsRef.current.add(active.dispatchId);
+      if (transport.kind === "desktop") {
+        acknowledgeDesktopSendIds([
+          active.dispatchId,
+          active.userMessageId,
+        ]);
+      }
       active.abort.abort();
       setMessages((m) =>
         m.map((msg) =>
@@ -1383,7 +1570,7 @@ export function useChatThread(opts: {
     }
     markSending(false);
     setWorkingActivity(IDLE_WORKING_ACTIVITY);
-  }, [markSending]);
+  }, [acknowledgeDesktopSendIds, markSending, transport.kind]);
 
   const workingIndicator = useMemo(
     () => buildWorkingIndicatorState({ sending, activity: workingActivity }),

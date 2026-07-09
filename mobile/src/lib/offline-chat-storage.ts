@@ -1,5 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { ChatMessage, MobileTask } from "../types";
+import {
+  desktopChatOutboxStorageKeys,
+  waitForDesktopChatOutboxWrites,
+} from "./desktop-chat-outbox";
 import { parseChatArtifacts } from "./mobile-artifacts";
 
 /**
@@ -248,8 +252,12 @@ export async function clearAllChatStorage(): Promise<void> {
   const keys = [
     ...Object.values(MESSAGES_KEY),
     ...Object.values(SYNC_STATE_KEY),
+    ...desktopChatOutboxStorageKeys(),
   ];
   try {
+    // Do not let an enqueue already committing in the background recreate the
+    // old account's outbox after sign-out has removed its storage keys.
+    await waitForDesktopChatOutboxWrites();
     await AsyncStorage.multiRemove(keys);
   } catch {
     // Best-effort: a failed wipe must not block sign-out.

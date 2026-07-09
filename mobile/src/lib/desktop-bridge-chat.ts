@@ -126,6 +126,10 @@ export type DesktopBridgeActivity = {
 type DesktopBridgeChatArgs = {
   access: StoredPhoneAccess;
   message: string;
+  /** Durable logical-send identity, persisted by mobile before transmission. */
+  clientRequestId?: string;
+  /** Stable canonical user-row identity for desktop persistence. */
+  userMessageEventId?: string;
   model?: string | null;
   attachments?: DesktopBridgeAttachment[];
   signal?: AbortSignal;
@@ -1403,6 +1407,8 @@ const isDisconnectError = (error: unknown) => {
 export async function sendDesktopBridgeChat({
   access,
   message,
+  clientRequestId: suppliedClientRequestId,
+  userMessageEventId,
   model,
   attachments,
   signal,
@@ -1430,7 +1436,8 @@ export async function sendDesktopBridgeChat({
     : null;
   // Stable idempotency key: the desktop dedupes retries of this exact send, so
   // reconnecting and re-issuing startChat can never spawn a duplicate run.
-  const clientRequestId = createClientRequestId(conversationId);
+  const clientRequestId =
+    suppliedClientRequestId?.trim() || createClientRequestId(conversationId);
   const startChatArgs = {
     conversationId,
     userPrompt: text || "See the attached image.",
@@ -1439,6 +1446,9 @@ export async function sendDesktopBridgeChat({
     mode: "computer",
     storageMode: "local",
     clientRequestId,
+    ...(userMessageEventId?.trim()
+      ? { userMessageEventId: userMessageEventId.trim() }
+      : {}),
     ...(attachments?.length
       ? { attachments: stagedAttachments ?? attachments }
       : {}),
@@ -1781,6 +1791,7 @@ export async function sendDesktopBridgeChat({
     return await new Promise<ConnectionOutcome>((resolve) => {
       let outcomeSettled = false;
       let resuming = isReconnect;
+      let acceptedReplay = false;
       const pendingLive: unknown[] = [];
       let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
       let client: ReturnType<typeof createBridgeSocketClient>;
@@ -1868,11 +1879,26 @@ export async function sendDesktopBridgeChat({
               requestId = requestId || startedRequestId;
               startIssued = true;
             }
+            // A normal startChat response is returned only after the worker has
+            // durably appended the canonical user row. A replay can also return
+            // the same persisted acceptance directly. Pending in-memory races
+            // deliberately report accepted:false and continue waiting for the
+            // run event instead of cleaning the outbox early.
+            if (startResult?.accepted === true) {
+              const acceptedUserMessageId = asString(
+                startResult.userMessageId,
+              ).trim();
+              if (acceptedUserMessageId) {
+                noteSubmittedUserMessageId(acceptedUserMessageId);
+              }
+              acceptedReplay = startResult.deduplicated === true;
+              if (acceptedReplay) resuming = true;
+            }
             onStatus?.("running");
           }
 
           let activeRunId = "";
-          if (isReconnect) {
+          if (isReconnect || acceptedReplay) {
             const resume = asRecord(
               await client.invoke(
                 "agent:resume",
@@ -1918,13 +1944,22 @@ export async function sendDesktopBridgeChat({
           // On reconnect, if the desktop reports no active run and never
           // replayed a terminal event, the run finished while we were away.
           if (
-            isReconnect &&
+            (isReconnect || acceptedReplay) &&
             !settled &&
             (runStarted || startIssued) &&
             !activeRunId
           ) {
             if (await recoverFinalFromDesktop()) {
               finish({ kind: "finished" });
+              return;
+            }
+            if (acceptedReplay) {
+              finalizeError(
+                new Error(
+                  "Your message was accepted, but its interrupted reply is unavailable. Check the desktop conversation.",
+                ),
+              );
+              finish({ kind: "fatal", error: finalError });
               return;
             }
           }

@@ -325,7 +325,7 @@ describe("meta Muse Spark relay", () => {
 
     expect(body.model).toBe("muse-spark-1.1");
     expect(body.reasoning_effort).toBe("low");
-    expect(body.reasoning).toEqual({ effort: "low" });
+    expect(body.reasoning).toBeUndefined();
     expect(body.stream_options).toEqual({ include_usage: true });
   });
 
@@ -343,7 +343,24 @@ describe("meta Muse Spark relay", () => {
     );
 
     expect(body.reasoning_effort).toBe("high");
-    expect(body.reasoning).toEqual({ effort: "high" });
+    expect(body.reasoning).toBeUndefined();
+  });
+
+  it("uses nested reasoning only for Meta responses", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("meta", {
+          model: "stella/meta/muse-spark-1.1",
+          input: [{ role: "user", content: "hi" }],
+          reasoning_effort: "none",
+        }),
+        "meta",
+        requestFor("/api/stella/meta/v1/responses"),
+      ),
+    );
+
+    expect(body.reasoning_effort).toBeUndefined();
+    expect(body.reasoning).toEqual({ effort: "low" });
   });
 });
 

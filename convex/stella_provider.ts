@@ -432,9 +432,8 @@ const normalizeChatReasoning = (
       ? (body.reasoning as Record<string, unknown>)
       : null;
   const effort = reasoning?.effort;
-  // Meta often accepts a top-level reasoning_effort as well as (or instead of)
-  // the OpenRouter-style `{ reasoning: { effort } }` object. Prefer the body
-  // value when a nested one is absent.
+  // Accept either incoming representation. The endpoint-specific normalization
+  // below keeps only the wire shape that the selected Meta API accepts.
   const topLevelEffort = body.reasoning_effort;
 
   if (resolvedModel === "x-ai/grok-4.5") {
@@ -459,8 +458,8 @@ const normalizeChatReasoning = (
           : undefined;
     const safe =
       raw && raw !== "none" && raw !== "off" ? raw : "low";
-    // Chat Completions accepts the OpenAI top-level form; keep reasoning
-    // envelope for Responses too. Sending both is fine for Meta.
+    // Materialize both forms here so endpoint-specific normalization can retain
+    // the one accepted by its upstream API.
     body.reasoning_effort = safe;
     body.reasoning = { effort: safe };
     return;
@@ -544,9 +543,16 @@ export const bodyForUpstream = (
     provider === "openrouter" || pathIsChatCompletions;
   if (provider === "openrouter" || (provider === "meta" && pathIsChatCompletions)) {
     normalizeChatCompletionsBody(body, authorized.resolvedModel);
+    if (provider === "meta") {
+      // Meta chat completions accepts top-level `reasoning_effort` and rejects
+      // the Responses-style nested `reasoning` object.
+      delete body.reasoning;
+    }
   } else if (provider === "meta" && !pathIsChatCompletions) {
-    // Responses path: still coerce Muse reasoning so we never send effort=none.
+    // Meta Responses has the inverse contract: nested `reasoning` is accepted,
+    // while top-level `reasoning_effort` is rejected as an unknown parameter.
     normalizeChatReasoning(body, authorized.resolvedModel);
+    delete body.reasoning_effort;
   }
   if (body.stream === true && isChatCompletions) {
     const streamOptions =

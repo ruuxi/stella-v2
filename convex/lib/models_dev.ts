@@ -187,7 +187,22 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     sourceModelId: "gpt-5.6-sol",
     inputPerMillionUsd: 5,
     outputPerMillionUsd: 30,
+    cacheReadPerMillionUsd: 0.5,
+    cacheWritePerMillionUsd: 6.25,
     reasoningPerMillionUsd: 30,
+    modalitiesInput: ["text", "image"],
+    modalitiesOutput: ["text"],
+  },
+  // OpenAI GPT-5.6 Luna launch rates: $1 / $6 per 1M tokens. GPT-5.6
+  // cached reads are 90% off and cache writes cost 1.25x uncached input.
+  "openai/gpt-5.6-luna": {
+    sourceProvider: "openai",
+    sourceModelId: "gpt-5.6-luna",
+    inputPerMillionUsd: 1,
+    outputPerMillionUsd: 6,
+    cacheReadPerMillionUsd: 0.1,
+    cacheWritePerMillionUsd: 1.25,
+    reasoningPerMillionUsd: 6,
     modalitiesInput: ["text", "image"],
     modalitiesOutput: ["text"],
   },

@@ -14,7 +14,9 @@ describe("toProviderNativeModel", () => {
     expect(
       toProviderNativeModel("anthropic/claude-opus-4.8", "anthropic"),
     ).toBe("claude-opus-4-8");
-    expect(toProviderNativeModel("openai/gpt-5.5", "openai")).toBe("gpt-5.5");
+    expect(toProviderNativeModel("openai/gpt-5.6-luna", "openai")).toBe(
+      "gpt-5.6-luna",
+    );
     expect(
       toProviderNativeModel("google/gemini-3-flash-preview", "google"),
     ).toBe("gemini-3-flash-preview");

@@ -45,7 +45,30 @@ describe("managed model price entries", () => {
       sourceModelId: "gpt-5.6-sol",
       inputPerMillionUsd: 5,
       outputPerMillionUsd: 30,
+      cacheReadPerMillionUsd: 0.5,
+      cacheWritePerMillionUsd: 6.25,
       reasoningPerMillionUsd: 30,
+    });
+  });
+
+  it("fills GPT-5.6 Luna launch pricing including cache rates", () => {
+    const { entries, missingModels } = buildManagedModelPriceEntries({
+      data: {},
+      modelIds: ["openai/gpt-5.6-luna"],
+      syncedAt: 1,
+    });
+
+    expect(missingModels).toEqual([]);
+    expect(entries[0]).toMatchObject({
+      model: "openai/gpt-5.6-luna",
+      source: "static",
+      sourceProvider: "openai",
+      sourceModelId: "gpt-5.6-luna",
+      inputPerMillionUsd: 1,
+      outputPerMillionUsd: 6,
+      cacheReadPerMillionUsd: 0.1,
+      cacheWritePerMillionUsd: 1.25,
+      reasoningPerMillionUsd: 6,
     });
   });
 

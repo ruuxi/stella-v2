@@ -108,8 +108,8 @@ const gatewayOptions = (
   },
 });
 
-const GPT_5_4_MINI_MODEL_CONFIG: ModeConfig = {
-  model: "openai/gpt-5.4-mini",
+const GPT_5_6_LUNA_MODEL_CONFIG: ModeConfig = {
+  model: "openai/gpt-5.6-luna",
   fallbackMode: "light",
   managedGatewayProvider: "openai",
   temperature: 1.0,
@@ -156,7 +156,7 @@ const HTML_MODEL_CONFIG: ModeConfig = {
 };
 
 const INTERNAL_MODEL_CONFIGS = {
-  gpt_5_4_mini: GPT_5_4_MINI_MODEL_CONFIG,
+  gpt_5_6_luna: GPT_5_6_LUNA_MODEL_CONFIG,
   kimi_k2p6: KIMI_K2P6_MODEL_CONFIG,
   html: HTML_MODEL_CONFIG,
 } as const satisfies Record<string, ModeConfig>;
@@ -428,7 +428,7 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   [AGENT_IDS.FASHION]: "standard",
 
   schedule: "standard",
-  synthesis: "gpt_5_4_mini",
+  synthesis: "gpt_5_6_luna",
   welcome: "standard",
   store_asset_metadata: "vision",
 

@@ -34,7 +34,7 @@ export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
 export const STELLA_MAX_MODEL = `${STELLA_PROVIDER}/max`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 6, 9, 18, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 6, 9, 18, 50);
 
 export type StellaCatalogModel = {
   id: string;
@@ -70,8 +70,8 @@ const DISPLAY_NAMES: Record<string, string> = {
   "inception/mercury-2": "Mercury 2",
   "moonshotai/kimi-k2.5": "Kimi K2.5",
   "openai/gpt-5.4": "GPT-5.4",
-  "openai/gpt-5.4-mini": "GPT-5.4 Mini",
   "openai/gpt-5.5": "GPT-5.5",
+  "openai/gpt-5.6-luna": "GPT-5.6 Luna",
   "openai/gpt-5.6-sol": "GPT-5.6 Sol",
   "x-ai/grok-4.5": "Grok 4.5",
   "meta/muse-spark-1.1": "Muse Spark 1.1",

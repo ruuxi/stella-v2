@@ -4,6 +4,7 @@ import {
   getModelConfig,
   getModeConfig,
   listManagedModelIds,
+  MANAGED_MODEL_AUDIENCES,
 } from "../../convex/agent/model";
 import { AGENT_IDS } from "../../convex/lib/agent_constants";
 import {
@@ -14,24 +15,42 @@ import {
 } from "../../convex/stella_models";
 
 describe("managed model config", () => {
-  it("routes Light through Fireworks", () => {
-    const light = getModeConfig("light");
+  it("preserves the non-GPT Light matrix and moves synthesis to GPT-5.6 Luna", () => {
+    const deepSeekLight = "accounts/fireworks/models/deepseek-v4-flash";
 
-    expect(light.model).toBe("accounts/fireworks/models/deepseek-v4-flash");
-    expect(light.managedGatewayProvider).toBe("fireworks");
-    expect(light.providerOptions?.gateway?.order).toEqual(["fireworks"]);
-  });
+    for (const audience of MANAGED_MODEL_AUDIENCES) {
+      const light = getModeConfig("light", audience);
+      expect(light.model).toBe(deepSeekLight);
+      expect(light.managedGatewayProvider).toBe("fireworks");
+      expect(light.providerOptions?.gateway?.order).toEqual(["fireworks"]);
 
-  it("uses Light as the fallback for Designer", () => {
-    const designer = getModeConfig("designer");
+      for (const mode of ["standard", "builder", "designer"] as const) {
+        const config = getModeConfig(mode, audience);
+        expect(config.fallback).toBe(deepSeekLight);
+        expect(config.fallbackManagedGatewayProvider).toBe("fireworks");
+        expect(config.fallbackProviderOptions?.gateway?.order).toEqual([
+          "fireworks",
+        ]);
+      }
 
-    expect(designer.fallback).toBe(
-      "accounts/fireworks/models/deepseek-v4-flash",
-    );
-    expect(designer.fallbackManagedGatewayProvider).toBe("fireworks");
-    expect(designer.fallbackProviderOptions?.gateway?.order).toEqual([
-      "fireworks",
-    ]);
+      for (const agentType of ["chronicle", "progress_summary"] as const) {
+        expect(getModelConfig(agentType, audience)).toMatchObject({
+          model: deepSeekLight,
+          managedGatewayProvider: "fireworks",
+        });
+      }
+
+      expect(getModelConfig("synthesis", audience)).toMatchObject({
+        model: "openai/gpt-5.6-luna",
+        fallback: deepSeekLight,
+        managedGatewayProvider: "openai",
+        fallbackManagedGatewayProvider: "fireworks",
+      });
+      expect(getModelConfig("html_finish", audience)).toMatchObject({
+        model: "google/gemini-3.5-flash",
+        fallback: deepSeekLight,
+      });
+    }
   });
 
   it("routes orchestrator and general to Muse Spark on fallback/default audiences", () => {
@@ -111,6 +130,15 @@ describe("managed model config", () => {
     ).toMatchObject({
       upstreamModel: "openai/gpt-5.6-sol",
     });
+    expect(
+      catalog.find((model) => model.id === "stella/openai/gpt-5.6-luna"),
+    ).toMatchObject({
+      name: "GPT-5.6 Luna",
+      upstreamModel: "openai/gpt-5.6-luna",
+    });
+    expect(
+      catalog.find((model) => model.id === "stella/openai/gpt-5.4-mini"),
+    ).toBeUndefined();
   });
 
   it("parses and resolves branded mode aliases vs upstream picks", () => {
@@ -182,6 +210,8 @@ describe("managed model config", () => {
     expect(listManagedModelIds()).toContain(
       "accounts/fireworks/models/deepseek-v4-flash",
     );
+    expect(listManagedModelIds()).toContain("openai/gpt-5.6-luna");
+    expect(listManagedModelIds()).not.toContain("openai/gpt-5.4-mini");
   });
 
   it("registers Muse Spark 1.1 as a pinnable managed model", () => {

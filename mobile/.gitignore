@@ -41,3 +41,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Local App Store screenshot exports; archive approved sets outside git.
+/store/apple/screenshot/

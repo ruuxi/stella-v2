@@ -49,6 +49,21 @@ Then open `http://localhost:3000`.
 
 Exports are named with a numeric prefix so they sort correctly in Finder and App Store Connect upload folders.
 
+## Release asset policy
+
+Screenshot PNGs are release assets, not source files. Generated exports under this tool's `out/` folder and staged copies under `mobile/store/apple/screenshot/` stay local and are ignored by git. The committed `mobile/store.config.json` deliberately omits screenshot paths, so a fresh checkout never points EAS Metadata at files that are not in the repository.
+
+The committed config also omits `apple.version`. EAS Metadata otherwise targets the latest available App Store version. When a specific release version has been chosen and exists in App Store Connect, add `apple.version` to the local release config before syncing versioned metadata; do not guess the next version in source control.
+
+For a listing update:
+
+1. Export a fresh iPhone and iPad set and compare every mock screen and claim with the shipping app.
+2. Remove personal data, internal notes, and stale UI before approval.
+3. Archive the approved originals in versioned release-asset storage with a checksum manifest.
+4. Upload them directly in App Store Connect, or copy them into the ignored `mobile/store/apple/screenshot/` folder and add the screenshot map only to a local, uncommitted metadata config before running `eas metadata:push`.
+
+Do not add generated screenshot binaries or committed paths to missing screenshots unless the repository adopts an intentional Git LFS or release-assets convention.
+
 ## Key files
 
 - `src/app/page.tsx`: all slide definitions, mock screens, toolbar controls, and export logic

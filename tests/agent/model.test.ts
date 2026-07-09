@@ -34,7 +34,7 @@ describe("managed model config", () => {
     ]);
   });
 
-  it("routes orchestrator and general to Grok 4.5 on fallback/default audiences", () => {
+  it("routes orchestrator and general to Muse Spark on fallback/default audiences", () => {
     for (const audience of [
       "anonymous",
       "free",
@@ -45,18 +45,18 @@ describe("managed model config", () => {
       "max_fallback",
     ] as const) {
       expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).model).toBe(
-        "x-ai/grok-4.5",
+        "meta/muse-spark-1.1",
       );
       expect(
         getModelConfig(AGENT_IDS.ORCHESTRATOR, audience)
           .managedGatewayProvider,
-      ).toBe("openrouter");
+      ).toBe("meta");
       expect(getModelConfig(AGENT_IDS.GENERAL, audience).model).toBe(
-        "x-ai/grok-4.5",
+        "meta/muse-spark-1.1",
       );
       expect(
         getModelConfig(AGENT_IDS.GENERAL, audience).managedGatewayProvider,
-      ).toBe("openrouter");
+      ).toBe("meta");
     }
   });
 
@@ -69,11 +69,17 @@ describe("managed model config", () => {
     );
   });
 
-  it("routes Standard through OpenRouter Grok 4.5", () => {
+  it("routes Standard through Meta Muse Spark 1.1", () => {
     const standard = getModeConfig("standard");
-    expect(standard.model).toBe("x-ai/grok-4.5");
-    expect(standard.managedGatewayProvider).toBe("openrouter");
-    expect(standard.providerOptions?.gateway?.order).toEqual(["openrouter"]);
+    expect(standard.model).toBe("meta/muse-spark-1.1");
+    expect(standard.managedGatewayProvider).toBe("meta");
+    expect(standard.providerOptions?.openai?.reasoningEffort).toBe("low");
+  });
+
+  it("routes Builder through OpenAI GPT-5.6 Sol", () => {
+    const builder = getModeConfig("builder");
+    expect(builder.model).toBe("openai/gpt-5.6-sol");
+    expect(builder.managedGatewayProvider).toBe("openai");
   });
 
   it("runs Ultra orchestrator and general on the Designer model (Opus)", () => {
@@ -101,9 +107,9 @@ describe("managed model config", () => {
     });
     // Real managed models are still listed alongside the modes.
     expect(
-      catalog.find((model) => model.id === "stella/openai/gpt-5.5"),
+      catalog.find((model) => model.id === "stella/openai/gpt-5.6-sol"),
     ).toMatchObject({
-      upstreamModel: "openai/gpt-5.5",
+      upstreamModel: "openai/gpt-5.6-sol",
     });
   });
 
@@ -112,9 +118,9 @@ describe("managed model config", () => {
       kind: "mode",
       mode: "designer",
     });
-    expect(parseStellaModelSelection("stella/openai/gpt-5.5")).toEqual({
+    expect(parseStellaModelSelection("stella/openai/gpt-5.6-sol")).toEqual({
       kind: "upstream",
-      model: "openai/gpt-5.5",
+      model: "openai/gpt-5.6-sol",
     });
     expect(parseStellaModelSelection("stella/default")).toEqual({
       kind: "default",
@@ -162,7 +168,7 @@ describe("managed model config", () => {
       defaults.find((entry) => entry.agentType === "orchestrator"),
     ).toMatchObject({
       model: "stella/default",
-      resolvedModel: "openrouter/x-ai/grok-4.5",
+      resolvedModel: "meta/muse-spark-1.1",
     });
     expect(
       defaults.find((entry) => entry.agentType === "chronicle"),

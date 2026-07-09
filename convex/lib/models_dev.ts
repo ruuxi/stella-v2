@@ -180,6 +180,17 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesInput: ["text", "image", "video", "pdf"],
     modalitiesOutput: ["text"],
   },
+  // OpenAI GPT-5.6 Sol (limited preview). OpenAI rates: $5 / $30 per 1M.
+  // Prefer models.dev once listed; static prevents incomplete sync + $0 billing.
+  "openai/gpt-5.6-sol": {
+    sourceProvider: "openai",
+    sourceModelId: "gpt-5.6-sol",
+    inputPerMillionUsd: 5,
+    outputPerMillionUsd: 30,
+    reasoningPerMillionUsd: 30,
+    modalitiesInput: ["text", "image"],
+    modalitiesOutput: ["text"],
+  },
 };
 
 export const buildManagedModelPriceEntries = (args: {

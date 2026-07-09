@@ -30,6 +30,25 @@ describe("managed model price entries", () => {
     ]);
   });
 
+  it("fills GPT-5.6 Sol from static overrides when models.dev is empty", () => {
+    const { entries, missingModels } = buildManagedModelPriceEntries({
+      data: {},
+      modelIds: ["openai/gpt-5.6-sol"],
+      syncedAt: 1,
+    });
+
+    expect(missingModels).toEqual([]);
+    expect(entries[0]).toMatchObject({
+      model: "openai/gpt-5.6-sol",
+      source: "static",
+      sourceProvider: "openai",
+      sourceModelId: "gpt-5.6-sol",
+      inputPerMillionUsd: 5,
+      outputPerMillionUsd: 30,
+      reasoningPerMillionUsd: 30,
+    });
+  });
+
   it("still reports truly unknown models as missing", () => {
     const { entries, missingModels } = buildManagedModelPriceEntries({
       data: {},

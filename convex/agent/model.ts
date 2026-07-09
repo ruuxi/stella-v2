@@ -120,7 +120,6 @@ const GPT_5_4_MINI_MODEL_CONFIG: ModeConfig = {
   },
 };
 
-const GROK_4_5_MODEL = "x-ai/grok-4.5";
 
 // Kimi K2.6 on Fireworks. Kept as an internal config for compatibility with
 // existing tests/fixtures and any explicit backend use, but no longer used as
@@ -179,13 +178,18 @@ const isInternalModelConfigKey = (
 // Anthropic's Messages API requires `max_tokens`, so `designer`
 // keeps its value as a protocol requirement, not a policy choice.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
+  // Stella Standard: Muse Spark 1.1 on Meta Model API. Default for
+  // orchestrator + general (non-Ultra / non-Max audiences). Always reasons —
+  // the Meta relay coerces `reasoning_effort: none` to `low`.
   standard: {
-    model: GROK_4_5_MODEL,
+    model: "meta/muse-spark-1.1",
     fallbackMode: "light",
-    managedGatewayProvider: "openrouter",
+    managedGatewayProvider: "meta",
     temperature: 1.0,
     providerOptions: {
-      ...gatewayOptions("openrouter"),
+      openai: {
+        reasoningEffort: "low",
+      },
     },
   },
 
@@ -214,8 +218,9 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
     },
   },
 
+  // Stella Builder: OpenAI GPT-5.6 Sol (preview API id `gpt-5.6-sol`).
   builder: {
-    model: "openai/gpt-5.5",
+    model: "openai/gpt-5.6-sol",
     fallbackMode: "light",
     managedGatewayProvider: "openai",
     temperature: 1.0,
@@ -293,7 +298,7 @@ const AUDIENCE_MODE_OVERRIDES: Record<
 // model config key.
 //
 // Every managed audience except the Ultra and Max baselines runs the
-// orchestrator and general agent on the Standard mode (Grok 4.5). Ultra keeps
+// orchestrator and general agent on the Standard mode (Muse Spark 1.1). Ultra keeps
 // Designer (Claude Opus 4.8); Max keeps the Stella Max mode.
 const STANDARD_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
   [AGENT_IDS.ORCHESTRATOR]: "standard",
@@ -307,7 +312,7 @@ const ULTRA_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
 
 // Stella Max ($1000/mo) plan baseline: the orchestrator and general agent both
 // run on the Stella Max mode (Claude Fable 5), making it the plan's default
-// model. `max_fallback` (an over-cap Max user) drops to the Standard/Grok
+// model. `max_fallback` (an over-cap Max user) drops to the Standard/Muse
 // default like every other fallback tier.
 const MAX_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
   [AGENT_IDS.ORCHESTRATOR]: "max",
@@ -658,13 +663,10 @@ export function isModelMode(value: string): value is ModelMode {
 }
 
 // Managed model ids that are pinnable / price-synced even when they are not
-// currently the default for any mode or agent task. Muse Spark is hosted
-// through Stella's managed Meta gateway; users select it via
-// `stella/meta/muse-spark-1.1` rather than a branded mode, and it does not
-// change Standard or other mode defaults.
-export const ADDITIONAL_MANAGED_MODEL_IDS = [
-  "meta/muse-spark-1.1",
-] as const;
+// currently the default for any mode or agent task. Prefer putting models
+// behind a mode/task selection when they are catalog defaults (e.g. Muse is
+// Standard); use this list only for extras that have no mode of their own.
+export const ADDITIONAL_MANAGED_MODEL_IDS = [] as const;
 
 export function listManagedModelIds(): string[] {
   const modelIds = new Set<string>();

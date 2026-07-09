@@ -39,7 +39,7 @@ describe("resolveModelConfig overrides route through the override's own gateway"
 
   it("ignores a mode override a restricted tier may not pick", async () => {
     // free can't override designer → falls back to orchestrator's backend
-    // default (Grok on OpenRouter).
+    // default (Muse Spark on Meta).
     const resolved = await resolveModelConfig(
       ctx,
       AGENT_IDS.ORCHESTRATOR,
@@ -49,7 +49,7 @@ describe("resolveModelConfig overrides route through the override's own gateway"
         audience: "free",
       },
     );
-    expect(resolved.model).toBe("x-ai/grok-4.5");
-    expect(resolved.managedGatewayProvider).toBe("openrouter");
+    expect(resolved.model).toBe("meta/muse-spark-1.1");
+    expect(resolved.managedGatewayProvider).toBe("meta");
   });
 });

@@ -3,7 +3,7 @@
     "owner": "stella-ai",
     "name": "Stella",
     "slug": "stella-mobile",
-    "version": "1.0.18",
+    "version": "1.0.19",
     "runtimeVersion": {
       "policy": "fingerprint"
     },
@@ -20,6 +20,7 @@
       "backgroundColor": "#edf3fb"
     },
     "ios": {
+      "appleTeamId": "7UVYHQ763X",
       "bundleIdentifier": "com.stella.mobile",
       "buildNumber": "52",
       "supportsTablet": true,

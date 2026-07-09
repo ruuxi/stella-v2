@@ -33,6 +33,7 @@ export const PROVIDER_SDK_MAP: Record<string, SdkType> = {
   zai: "openai",
   inception: "openai",
   fireworks: "openai",
+  meta: "openai",
 
   // Baseten (native SDK)
   baseten: "baseten",

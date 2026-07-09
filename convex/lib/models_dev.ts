@@ -26,7 +26,7 @@ export type ModelsDevApi = Record<string, ModelsDevProviderEntry>;
 
 export type ManagedModelPriceEntry = {
   model: string;
-  source: "models.dev";
+  source: "models.dev" | "static";
   sourceProvider: string;
   sourceModelId: string;
   inputPerMillionUsd: number;
@@ -146,6 +146,42 @@ const sanitizeModalityList = (modalities?: string[]): string[] => {
   return sanitized.length > 0 ? sanitized : ["text"];
 };
 
+/**
+ * Static prices for managed models not yet (or never) present on models.dev.
+ * Used as a fill-in when the models.dev sync would otherwise fail the whole
+ * catalog, and as the authoritative price for Muse Spark until Meta lands on
+ * models.dev with matching rates.
+ *
+ * Prices are USD per 1M tokens. Muse Spark 1.1: $1.25 input / $4.25 output
+ * (Axios-reported Meta Model API customer pricing as of the Muse Spark 1.1
+ * public preview announcement).
+ */
+export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
+  string,
+  {
+    sourceProvider: string;
+    sourceModelId: string;
+    inputPerMillionUsd: number;
+    outputPerMillionUsd: number;
+    cacheReadPerMillionUsd?: number;
+    cacheWritePerMillionUsd?: number;
+    reasoningPerMillionUsd?: number;
+    modalitiesInput?: string[];
+    modalitiesOutput?: string[];
+  }
+> = {
+  "meta/muse-spark-1.1": {
+    sourceProvider: "meta",
+    sourceModelId: "muse-spark-1.1",
+    inputPerMillionUsd: 1.25,
+    outputPerMillionUsd: 4.25,
+    // Reasoning is billed at the output rate when usage separates it.
+    reasoningPerMillionUsd: 4.25,
+    modalitiesInput: ["text", "image", "video", "pdf"],
+    modalitiesOutput: ["text"],
+  },
+};
+
 export const buildManagedModelPriceEntries = (args: {
   data: ModelsDevApi;
   modelIds: string[];
@@ -157,7 +193,28 @@ export const buildManagedModelPriceEntries = (args: {
   for (const model of args.modelIds) {
     const resolved = resolveWithFallback(args.data, model);
     if (!resolved) {
-      missingModels.push(model);
+      const staticPrice = STATIC_MANAGED_MODEL_PRICE_OVERRIDES[model];
+      if (!staticPrice) {
+        missingModels.push(model);
+        continue;
+      }
+
+      entries.push({
+        model,
+        source: "static",
+        sourceProvider: staticPrice.sourceProvider,
+        sourceModelId: staticPrice.sourceModelId,
+        inputPerMillionUsd: staticPrice.inputPerMillionUsd,
+        outputPerMillionUsd: staticPrice.outputPerMillionUsd,
+        cacheReadPerMillionUsd: staticPrice.cacheReadPerMillionUsd ?? 0,
+        cacheWritePerMillionUsd: staticPrice.cacheWritePerMillionUsd ?? 0,
+        reasoningPerMillionUsd:
+          staticPrice.reasoningPerMillionUsd ?? staticPrice.outputPerMillionUsd,
+        modalitiesInput: sanitizeModalityList(staticPrice.modalitiesInput),
+        modalitiesOutput: sanitizeModalityList(staticPrice.modalitiesOutput),
+        sourceUpdatedAt: "",
+        syncedAt: args.syncedAt,
+      });
       continue;
     }
 

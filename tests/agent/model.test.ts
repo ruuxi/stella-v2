@@ -177,4 +177,23 @@ describe("managed model config", () => {
       "accounts/fireworks/models/deepseek-v4-flash",
     );
   });
+
+  it("registers Muse Spark 1.1 as a pinnable managed model", () => {
+    expect(listManagedModelIds()).toContain("meta/muse-spark-1.1");
+    const catalog = listStellaCatalogModels("pro");
+    expect(
+      catalog.find((model) => model.id === "stella/meta/muse-spark-1.1"),
+    ).toMatchObject({
+      name: "Muse Spark 1.1",
+      upstreamModel: "meta/muse-spark-1.1",
+      type: "multimodal",
+      allowedForAudience: true,
+    });
+    // Restricted free tier cannot pin arbitrary managed models.
+    expect(
+      listStellaCatalogModels("free").find(
+        (model) => model.id === "stella/meta/muse-spark-1.1",
+      )?.allowedForAudience,
+    ).toBe(false);
+  });
 });

@@ -43,6 +43,8 @@ export const STELLA_OPENAI_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/openai/v1/r
 export const STELLA_GOOGLE_MODELS_PATH_PREFIX = `${STELLA_API_BASE_PATH}/google/v1beta/models/`;
 export const STELLA_FIREWORKS_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/fireworks/v1/responses`;
 export const STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/openrouter/api/v1/chat/completions`;
+export const STELLA_META_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/meta/v1/chat/completions`;
+export const STELLA_META_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/meta/v1/responses`;
 
 export const SSE_HEARTBEAT_INTERVAL_MS = 45_000;
 export const SSE_STREAM_OPEN_COMMENT = new TextEncoder().encode(

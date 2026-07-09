@@ -37,6 +37,8 @@ import {
   STELLA_MODELS_PATH,
   STELLA_OPENAI_CHAT_COMPLETIONS_PATH,
   STELLA_OPENAI_RESPONSES_PATH,
+  STELLA_META_CHAT_COMPLETIONS_PATH,
+  STELLA_META_RESPONSES_PATH,
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
   STELLA_RELAY_PATH_PREFIX,
   type AuthorizedStellaRequest,
@@ -50,6 +52,8 @@ export {
   STELLA_MODELS_PATH,
   STELLA_OPENAI_CHAT_COMPLETIONS_PATH,
   STELLA_OPENAI_RESPONSES_PATH,
+  STELLA_META_CHAT_COMPLETIONS_PATH,
+  STELLA_META_RESPONSES_PATH,
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
   STELLA_RELAY_PATH_PREFIX,
 } from "./stella_provider/shared";
@@ -197,6 +201,12 @@ export const upstreamUrl = (
       return `${base}/responses`;
     case "openrouter":
       return `${base}/chat/completions`;
+    case "meta":
+      // Meta Model API is OpenAI-compatible. Prefer chat/completions when the
+      // client asked for it; otherwise use Responses (Meta's agentic default).
+      return requestUrl.pathname.endsWith("/chat/completions")
+        ? `${base}/chat/completions`
+        : `${base}/responses`;
     default: {
       const _exhaustive: never = provider;
       return _exhaustive;
@@ -208,7 +218,13 @@ const isResponsesRequest = (
   provider: ManagedGatewayProvider,
   request: Request,
 ): boolean => {
-  if (provider !== "openai" && provider !== "fireworks") return false;
+  if (
+    provider !== "openai" &&
+    provider !== "fireworks" &&
+    provider !== "meta"
+  ) {
+    return false;
+  }
   return !new URL(request.url).pathname.endsWith("/chat/completions");
 };
 
@@ -416,12 +432,37 @@ const normalizeChatReasoning = (
       ? (body.reasoning as Record<string, unknown>)
       : null;
   const effort = reasoning?.effort;
+  // Meta often accepts a top-level reasoning_effort as well as (or instead of)
+  // the OpenRouter-style `{ reasoning: { effort } }` object. Prefer the body
+  // value when a nested one is absent.
+  const topLevelEffort = body.reasoning_effort;
 
   if (resolvedModel === "x-ai/grok-4.5") {
     body.reasoning =
       typeof effort === "string" && effort !== "none" && effort !== "off"
         ? { effort }
         : { effort: "low" };
+    return;
+  }
+
+  // Muse Spark always reasons: `reasoning_effort: "none"` 400s. Map Stella's
+  // "none"/"off" efforts (and missing effort) to a safe default of "low".
+  if (
+    resolvedModel.startsWith("meta/muse-spark") ||
+    resolvedModel === "muse-spark-1.1"
+  ) {
+    const raw =
+      typeof effort === "string"
+        ? effort
+        : typeof topLevelEffort === "string"
+          ? topLevelEffort
+          : undefined;
+    const safe =
+      raw && raw !== "none" && raw !== "off" ? raw : "low";
+    // Chat Completions accepts the OpenAI top-level form; keep reasoning
+    // envelope for Responses too. Sending both is fine for Meta.
+    body.reasoning_effort = safe;
+    body.reasoning = { effort: safe };
     return;
   }
 
@@ -496,11 +537,16 @@ export const bodyForUpstream = (
     normalizeResponsesBody(body);
   }
 
+  const pathIsChatCompletions = new URL(request.url).pathname.endsWith(
+    "/chat/completions",
+  );
   const isChatCompletions =
-    provider === "openrouter" ||
-    new URL(request.url).pathname.endsWith("/chat/completions");
-  if (provider === "openrouter") {
+    provider === "openrouter" || pathIsChatCompletions;
+  if (provider === "openrouter" || (provider === "meta" && pathIsChatCompletions)) {
     normalizeChatCompletionsBody(body, authorized.resolvedModel);
+  } else if (provider === "meta" && !pathIsChatCompletions) {
+    // Responses path: still coerce Muse reasoning so we never send effort=none.
+    normalizeChatReasoning(body, authorized.resolvedModel);
   }
   if (body.stream === true && isChatCompletions) {
     const streamOptions =

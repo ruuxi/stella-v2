@@ -657,6 +657,15 @@ export function isModelMode(value: string): value is ModelMode {
   return Object.prototype.hasOwnProperty.call(BASE_MODE_CONFIGS, value);
 }
 
+// Managed model ids that are pinnable / price-synced even when they are not
+// currently the default for any mode or agent task. Muse Spark is hosted
+// through Stella's managed Meta gateway; users select it via
+// `stella/meta/muse-spark-1.1` rather than a branded mode, and it does not
+// change Standard or other mode defaults.
+export const ADDITIONAL_MANAGED_MODEL_IDS = [
+  "meta/muse-spark-1.1",
+] as const;
+
 export function listManagedModelIds(): string[] {
   const modelIds = new Set<string>();
 
@@ -682,6 +691,10 @@ export function listManagedModelIds(): string[] {
       append(config.model);
       append(config.fallback);
     }
+  }
+
+  for (const modelId of ADDITIONAL_MANAGED_MODEL_IDS) {
+    append(modelId);
   }
 
   return Array.from(modelIds).sort();

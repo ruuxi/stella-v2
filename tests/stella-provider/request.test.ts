@@ -18,6 +18,9 @@ describe("toProviderNativeModel", () => {
     expect(
       toProviderNativeModel("google/gemini-3-flash-preview", "google"),
     ).toBe("gemini-3-flash-preview");
+    expect(toProviderNativeModel("meta/muse-spark-1.1", "meta")).toBe(
+      "muse-spark-1.1",
+    );
   });
 
   it("passes through ids that do not match the relay provider", () => {
@@ -203,6 +206,9 @@ describe("downgradeUnsupportedRequestImages", () => {
     expect(
       downgradeUnsupportedRequestImages(body, "google/gemini-3-flash-preview"),
     ).toBe(body);
+    expect(downgradeUnsupportedRequestImages(body, "meta/muse-spark-1.1")).toBe(
+      body,
+    );
   });
 });
 
@@ -285,6 +291,13 @@ describe("resolveRequestedStellaModel", () => {
         "pro",
       ).config.managedGatewayProvider,
     ).toBe("google");
+    expect(
+      resolveRequestedStellaModel(
+        "orchestrator",
+        { model: "stella/meta/muse-spark-1.1" },
+        "pro",
+      ).config.managedGatewayProvider,
+    ).toBe("meta");
   });
 
   it("coerces an override to the backend default for restricted audiences", () => {

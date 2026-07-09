@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import {
+  resolveManagedGatewayApiKey,
   resolveManagedGatewayConfig,
   type ManagedGatewayProvider,
 } from "../lib/managed_gateway";
@@ -187,12 +188,18 @@ function providerFromBaseUrl(baseUrl: string): string {
   if (baseUrl.includes("generativelanguage.googleapis.com")) {
     return "google";
   }
+  if (baseUrl.includes("api.meta.ai")) {
+    return "meta";
+  }
   return "managed";
 }
 
 function modelIdForGateway(model: string, provider: string): string {
   if (provider === "openai" && model.startsWith("openai/")) {
     return model.slice("openai/".length);
+  }
+  if (provider === "meta" && model.startsWith("meta/")) {
+    return model.slice("meta/".length);
   }
   return model;
 }
@@ -716,7 +723,7 @@ function buildSimpleOptions(args: {
     responseFormat: args.request?.responseFormat,
     extraBody: Object.keys(extraBody).length > 0 ? extraBody : undefined,
     signal: args.request?.signal,
-    apiKey: process.env[managedGateway.apiKeyEnvVar]?.trim(),
+    apiKey: resolveManagedGatewayApiKey(managedGateway),
     headers: args.request?.headers,
     sessionId: args.request?.sessionId,
     cacheRetention: args.request?.cacheRetention,
@@ -732,7 +739,7 @@ async function completeManagedOpenAICompletions(args: {
     model: args.config.model,
     configuredProvider: args.config.managedGatewayProvider,
   });
-  const apiKey = process.env[managedGateway.apiKeyEnvVar]?.trim();
+  const apiKey = resolveManagedGatewayApiKey(managedGateway);
   if (!apiKey) {
     throw new Error(`Missing ${managedGateway.apiKeyEnvVar}`);
   }

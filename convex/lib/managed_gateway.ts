@@ -4,6 +4,7 @@ export const MANAGED_GATEWAY_PROVIDERS = [
   "openai",
   "anthropic",
   "google",
+  "meta",
 ] as const;
 
 export type ManagedGatewayProvider = (typeof MANAGED_GATEWAY_PROVIDERS)[number];
@@ -11,7 +12,17 @@ export type ManagedGatewayProvider = (typeof MANAGED_GATEWAY_PROVIDERS)[number];
 export type ManagedGatewayConfig = {
   provider: ManagedGatewayProvider;
   baseURL: string;
+  /**
+   * Primary Convex env var name for the managed upstream key. Some providers
+   * accept additional documented aliases via `apiKeyEnvVarFallbacks`.
+   */
   apiKeyEnvVar: string;
+  /**
+   * Optional secondary env var names tried when `apiKeyEnvVar` is unset.
+   * Used for Meta's documented `MODEL_API_KEY` alias alongside Stella's
+   * namespaced `META_MODEL_API_KEY`.
+   */
+  apiKeyEnvVarFallbacks?: readonly string[];
 };
 
 const MANAGED_GATEWAY_CONFIGS: Record<ManagedGatewayProvider, ManagedGatewayConfig> = {
@@ -40,6 +51,15 @@ const MANAGED_GATEWAY_CONFIGS: Record<ManagedGatewayProvider, ManagedGatewayConf
     baseURL: "https://generativelanguage.googleapis.com",
     apiKeyEnvVar: "GOOGLE_AI_API_KEY",
   },
+  // Meta Model API (Muse Spark). OpenAI-compatible chat completions / responses
+  // at api.meta.ai. Stella hosts the key — no end-user BYOK for Meta.
+  meta: {
+    provider: "meta",
+    baseURL: "https://api.meta.ai/v1",
+    apiKeyEnvVar: "META_MODEL_API_KEY",
+    // Meta's own docs export the key as MODEL_API_KEY; accept either name.
+    apiKeyEnvVarFallbacks: ["MODEL_API_KEY"],
+  },
 };
 
 const FIREWORKS_MODEL_PREFIXES = [
@@ -51,12 +71,28 @@ const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["openai/", "openai"],
   ["anthropic/", "anthropic"],
   ["google/", "google"],
+  ["meta/", "meta"],
 ] as const;
 
 export function getManagedGatewayConfig(
   provider: ManagedGatewayProvider = "openrouter",
 ): ManagedGatewayConfig {
   return MANAGED_GATEWAY_CONFIGS[provider];
+}
+
+/**
+ * Resolve the managed upstream API key for a gateway, honoring any
+ * documented env-var aliases (`apiKeyEnvVarFallbacks`).
+ */
+export function resolveManagedGatewayApiKey(
+  config: ManagedGatewayConfig,
+): string | undefined {
+  const candidates = [config.apiKeyEnvVar, ...(config.apiKeyEnvVarFallbacks ?? [])];
+  for (const envVar of candidates) {
+    const value = process.env[envVar]?.trim();
+    if (value) return value;
+  }
+  return undefined;
 }
 
 export function inferManagedGatewayProviderFromModel(

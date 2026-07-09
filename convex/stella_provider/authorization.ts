@@ -4,6 +4,7 @@ import type { ManagedModelAudience } from "../agent/model";
 import { errorResponse } from "../http_shared/cors";
 import { getClientAddressKey } from "../lib/http_utils";
 import {
+  resolveManagedGatewayApiKey,
   resolveManagedGatewayConfig,
   resolveManagedGatewayProvider,
   type ManagedGatewayProvider,
@@ -38,6 +39,7 @@ const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
   anthropic: "anthropic/",
   google: "google/",
   openai: "openai/",
+  meta: "meta/",
 };
 
 const STELLA_RELAY_PROBE_SECRET_ENV = "STELLA_RELAY_PROBE_SECRET";
@@ -140,7 +142,7 @@ export async function authorizeStellaRelayRequest(args: {
       model: resolvedModel,
       configuredProvider: config.managedGatewayProvider,
     });
-    const apiKey = process.env[managedGateway.apiKeyEnvVar]?.trim();
+    const apiKey = resolveManagedGatewayApiKey(managedGateway);
     if (!apiKey) {
       return stellaProviderErrorResponse(
         503,
@@ -286,7 +288,7 @@ export async function authorizeStellaRelayRequest(args: {
     model: resolvedModel,
     configuredProvider: config.managedGatewayProvider,
   });
-  const apiKey = process.env[managedGateway.apiKeyEnvVar]?.trim();
+  const apiKey = resolveManagedGatewayApiKey(managedGateway);
   if (!apiKey) {
     return stellaProviderErrorResponse(
       503,

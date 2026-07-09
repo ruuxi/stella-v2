@@ -23,7 +23,9 @@ const makeAuthorized = (
         ? "openai/gpt-5.5"
         : provider === "openrouter"
           ? "x-ai/grok-4.5"
-          : "google/gemini-3-flash-preview",
+          : provider === "meta"
+            ? "meta/muse-spark-1.1"
+            : "google/gemini-3-flash-preview",
   upstreamModel:
     provider === "fireworks"
       ? "accounts/fireworks/models/kimi-k2p6"
@@ -31,7 +33,9 @@ const makeAuthorized = (
         ? "gpt-5.5"
         : provider === "openrouter"
           ? "x-ai/grok-4.5"
-          : "gemini-3-flash-preview",
+          : provider === "meta"
+            ? "muse-spark-1.1"
+            : "gemini-3-flash-preview",
   serviceTier: "priority",
   apiKey: "test-key",
   tokenEstimate: { inputTokens: 1, outputTokens: 1 },
@@ -283,3 +287,63 @@ describe("upstreamUrl", () => {
     );
   });
 });
+
+describe("meta Muse Spark relay", () => {
+  it("routes Meta chat completions to api.meta.ai chat/completions", () => {
+    expect(
+      upstreamUrl(
+        "meta",
+        requestFor("/api/stella/meta/v1/chat/completions"),
+        "muse-spark-1.1",
+      ),
+    ).toBe("https://api.meta.ai/v1/chat/completions");
+  });
+
+  it("routes Meta responses to api.meta.ai responses", () => {
+    expect(
+      upstreamUrl(
+        "meta",
+        requestFor("/api/stella/meta/v1/responses"),
+        "muse-spark-1.1",
+      ),
+    ).toBe("https://api.meta.ai/v1/responses");
+  });
+
+  it("strips the meta/ prefix and coerces none reasoning effort to low", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("meta", {
+          model: "stella/meta/muse-spark-1.1",
+          messages: [{ role: "user", content: "hi" }],
+          reasoning: { effort: "none" },
+          stream: true,
+        }),
+        "meta",
+        requestFor("/api/stella/meta/v1/chat/completions"),
+      ),
+    );
+
+    expect(body.model).toBe("muse-spark-1.1");
+    expect(body.reasoning_effort).toBe("low");
+    expect(body.reasoning).toEqual({ effort: "low" });
+    expect(body.stream_options).toEqual({ include_usage: true });
+  });
+
+  it("preserves supported Muse reasoning effort values", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("meta", {
+          model: "stella/meta/muse-spark-1.1",
+          messages: [{ role: "user", content: "hi" }],
+          reasoning: { effort: "high" },
+        }),
+        "meta",
+        requestFor("/api/stella/meta/v1/chat/completions"),
+      ),
+    );
+
+    expect(body.reasoning_effort).toBe("high");
+    expect(body.reasoning).toEqual({ effort: "high" });
+  });
+});
+

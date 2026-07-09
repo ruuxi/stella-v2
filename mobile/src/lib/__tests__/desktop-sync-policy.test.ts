@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   desktopSyncPullPlan,
+  desktopSyncJoinPlan,
   DESKTOP_TASK_POLL_MS,
   DESKTOP_TASK_POLL_PUSH_VERIFY_MS,
   desktopTaskPollIntervalMs,
   shouldArmDesktopTaskPoll,
   shouldDeferLocalChatPushDuringSend,
   shouldStartDesktopSyncRun,
+  shouldRunDesktopForegroundTimer,
   shouldSyncOnLocalChatPush,
 } from "../desktop-sync-policy";
 
@@ -15,6 +17,7 @@ const base = {
   storageLoaded: true,
   hasRunningConversationTask: true,
   sending: false,
+  appActive: true,
 };
 
 describe("shouldArmDesktopTaskPoll", () => {
@@ -29,6 +32,7 @@ describe("shouldArmDesktopTaskPoll", () => {
     expect(
       shouldArmDesktopTaskPoll({ ...base, hasRunningConversationTask: false }),
     ).toBe(false);
+    expect(shouldArmDesktopTaskPoll({ ...base, appActive: false })).toBe(false);
   });
 
   test("never polls mid-send (05e5bf6)", () => {
@@ -46,6 +50,20 @@ describe("shouldArmDesktopTaskPoll", () => {
     expect(DESKTOP_TASK_POLL_PUSH_VERIFY_MS).toBeGreaterThan(
       DESKTOP_TASK_POLL_MS,
     );
+  });
+});
+
+describe("foreground timer gate", () => {
+  test("runs only while the computer surface is focused and active", () => {
+    expect(
+      shouldRunDesktopForegroundTimer({ focused: true, appActive: true }),
+    ).toBe(true);
+    expect(
+      shouldRunDesktopForegroundTimer({ focused: true, appActive: false }),
+    ).toBe(false);
+    expect(
+      shouldRunDesktopForegroundTimer({ focused: false, appActive: true }),
+    ).toBe(false);
   });
 });
 
@@ -69,7 +87,10 @@ describe("shouldDeferLocalChatPushDuringSend", () => {
     // flush after the send is what re-delivers the running-task snapshot if
     // the reconcile raced the desktop persisting those rows.
     expect(
-      shouldDeferLocalChatPushDuringSend({ storageLoaded: true, sending: true }),
+      shouldDeferLocalChatPushDuringSend({
+        storageLoaded: true,
+        sending: true,
+      }),
     ).toBe(true);
     expect(
       shouldDeferLocalChatPushDuringSend({
@@ -104,6 +125,32 @@ describe("shouldStartDesktopSyncRun (mid-send gate at the coalescing point)", ()
     expect(shouldStartDesktopSyncRun({ sending: true, duringSend: true })).toBe(
       true,
     );
+  });
+});
+
+describe("desktopSyncJoinPlan", () => {
+  test("shares duplicate concurrent catch-up callers", () => {
+    expect(
+      desktopSyncJoinPlan({
+        existingCatchUp: true,
+        requestedCatchUp: true,
+      }),
+    ).toBe("share");
+  });
+
+  test("chains a healer only when the in-flight run is a delta", () => {
+    expect(
+      desktopSyncJoinPlan({
+        existingCatchUp: false,
+        requestedCatchUp: true,
+      }),
+    ).toBe("chain-catch-up");
+    expect(
+      desktopSyncJoinPlan({
+        existingCatchUp: true,
+        requestedCatchUp: false,
+      }),
+    ).toBe("share");
   });
 });
 

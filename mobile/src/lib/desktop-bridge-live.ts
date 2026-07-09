@@ -1,6 +1,7 @@
 import { AppState, type AppStateStatus } from "react-native";
 import {
   bridgeSupportsLocalChatPush,
+  clearCachedDesktopBridge,
   openDesktopBridgeEventSocket,
   resolveDesktopBridge,
 } from "./desktop-bridge-chat";
@@ -38,6 +39,9 @@ export function openDesktopBridgeLive(options: {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let unsupportedUntil = 0;
   let connected = false;
+  const isBackgrounded = () =>
+    AppState.currentState === "background" ||
+    AppState.currentState === "inactive";
 
   const setConnected = (next: boolean) => {
     if (connected === next) return;
@@ -46,7 +50,7 @@ export function openDesktopBridgeLive(options: {
   };
 
   const scheduleReconnect = () => {
-    if (closed || retryTimer) return;
+    if (closed || retryTimer || isBackgrounded()) return;
     attempt += 1;
     const delay = Math.min(
       RECONNECT_MAX_DELAY_MS,
@@ -62,8 +66,7 @@ export function openDesktopBridgeLive(options: {
     if (closed || connecting || socket) return;
     // "unknown" (cold launch) counts as foreground; only explicit
     // background/inactive states block connecting.
-    const appState = AppState.currentState;
-    if (appState === "background" || appState === "inactive") return;
+    if (isBackgrounded()) return;
     if (Date.now() < unsupportedUntil) return;
     connecting = true;
     try {
@@ -84,16 +87,21 @@ export function openDesktopBridgeLive(options: {
             options.onLocalChatUpdated();
           }
         },
-        onClose: () => {
+        onClose: (details) => {
           // Only react if this socket is still the live one — a superseded
           // or deliberately dropped socket must not clobber shared state.
           if (socket !== opened) return;
           socket = null;
           setConnected(false);
+          if (details.code === 4001) {
+            clearCachedDesktopBridge(options.access.desktopDeviceId, {
+              keepPersisted: true,
+            });
+          }
           scheduleReconnect();
         },
       });
-      if (closed || socket) {
+      if (closed || socket || isBackgrounded()) {
         opened.close();
         return;
       }
@@ -101,6 +109,11 @@ export function openDesktopBridgeLive(options: {
       attempt = 0;
       setConnected(true);
     } catch {
+      // The socket itself is the liveness probe. A failed open invalidates the
+      // in-memory route so the next bounded retry performs discovery once.
+      clearCachedDesktopBridge(options.access.desktopDeviceId, {
+        keepPersisted: true,
+      });
       setConnected(false);
       scheduleReconnect();
     } finally {

@@ -46,6 +46,13 @@ import { postJson } from "./http";
 import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
 import type { ToolStep } from "./tool-activity";
 import { agentWorkArtifactId, parseChatArtifacts } from "./mobile-artifacts";
+import {
+  BridgeRecoveryError,
+  bridgeRecoveryReasonForResponse,
+  isBridgeRecoveryError,
+  runWithSingleBridgeRecovery,
+} from "./bridge-recovery";
+import { canReuseDesktopSendBatch } from "./desktop-send-batch-policy";
 
 const DESKTOP_WAKE_ATTEMPTS = 5;
 const DESKTOP_WAKE_RETRY_MS = 3_000;
@@ -62,6 +69,7 @@ const BRIDGE_RUN_TIMEOUT_MS = 45_000;
 const BRIDGE_RECONNECT_MAX_ATTEMPTS = 4;
 const BRIDGE_RECONNECT_BASE_DELAY_MS = 400;
 const BRIDGE_RECONNECT_MAX_DELAY_MS = 4_000;
+const BRIDGE_RESUME_PAGE_EVENTS = 200;
 const DEFAULT_HISTORY_LIMIT = 100;
 const DEVELOPER_RESOURCE_PREVIEWS_KEY = "stella-developer-resource-previews";
 const TIME_TAG_PATTERN =
@@ -92,6 +100,12 @@ export type DesktopBridgeConnection = {
   features: Set<string>;
   /** False once `mobile:hello` returned "unknown channel" (older desktop). */
   helloSupported: boolean;
+  /** First real hello result produced while a fresh session was authorized. */
+  pendingHello?: {
+    requestKey: string;
+    result?: Record<string, unknown>;
+    error?: unknown;
+  };
 };
 
 const bridgeSupportsDeflate = (bridge: DesktopBridgeConnection) =>
@@ -125,6 +139,8 @@ export type DesktopBridgeActivity = {
 
 type DesktopBridgeChatArgs = {
   access: StoredPhoneAccess;
+  /** Reused only for a serialized queued-send batch. */
+  batch?: DesktopBridgeSendBatch;
   message: string;
   /** Durable logical-send identity, persisted by mobile before transmission. */
   clientRequestId?: string;
@@ -168,6 +184,15 @@ export type DesktopBridgeChatSyncResult = {
   conversationChanged: boolean;
   cursor: string | null;
   messages: ChatMessage[];
+  /** Resolved bridge + conversation identity reusable by the send that follows. */
+  preparedSend: DesktopBridgeSendBatch;
+};
+
+type DesktopBridgeHelloRequest = {
+  expectedConversationId?: string | null;
+  sinceCursor?: string | null;
+  maxMessages?: number;
+  negotiateOnly?: boolean;
 };
 
 type PendingResponse = {
@@ -402,13 +427,7 @@ type CachedDesktopBridge = {
   expiresAt: number;
 };
 
-/**
- * One encrypted bridge session is reused across sends/loads instead of being
- * re-handshaked per message. The desktop caps sessions at 15 minutes; we
- * refresh a minute early, and before reusing we probe an authenticated
- * endpoint so a session the desktop has forgotten (it slept, restarted, or
- * rotated its tunnel) triggers a fresh handshake rather than a 401.
- */
+/** One encrypted bridge session is reused across sends/loads. */
 const desktopBridgeCache = new Map<string, CachedDesktopBridge>();
 const inflightBridgeResolves = new Map<
   string,
@@ -482,7 +501,8 @@ const persistDesktopBridge = (
 /**
  * Rebuild a connection from the persisted session (app cold start). The tx
  * seq restarts with slack so the desktop's anti-replay window never sees a
- * reused seq; the caller still liveness-probes before trusting it.
+ * reused seq. The caller's real hello/socket operation is the liveness probe;
+ * a confirmed route/session failure gets one rediscovery attempt.
  */
 const restorePersistedDesktopBridge = async (
   desktopDeviceId: string,
@@ -518,50 +538,38 @@ const restorePersistedDesktopBridge = async (
   return getCachedDesktopBridge(desktopDeviceId);
 };
 
-/** Authenticated liveness probe — confirms the desktop still honors this session. */
-const isCachedBridgeAlive = async (
-  connection: DesktopBridgeConnection,
-): Promise<boolean> => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), BRIDGE_HEALTH_TIMEOUT_MS);
-  try {
-    const response = await fetch(`${connection.baseUrl}/bridge/bootstrap`, {
-      headers: connection.headers,
-      signal: controller.signal,
-    });
-    return response.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
-};
-
 export async function resolveDesktopBridge(
   access: StoredPhoneAccess,
   onStatus?: (status: DesktopBridgeSendStatus) => void,
-  opts?: { forceRefresh?: boolean },
+  opts?: {
+    forceRefresh?: boolean;
+    initialHello?: DesktopBridgeHelloRequest;
+  },
 ): Promise<DesktopBridgeConnection> {
   const desktopDeviceId = access.desktopDeviceId;
 
   if (opts?.forceRefresh) {
     clearCachedDesktopBridge(desktopDeviceId, { keepPersisted: true });
   } else {
-    const cached =
-      getCachedDesktopBridge(desktopDeviceId) ??
-      (await restorePersistedDesktopBridge(desktopDeviceId));
-    if (cached && (await isCachedBridgeAlive(cached))) {
+    const cached = getCachedDesktopBridge(desktopDeviceId);
+    if (cached) {
       onStatus?.("connecting");
       return cached;
-    }
-    if (cached) {
-      clearCachedDesktopBridge(desktopDeviceId, { keepPersisted: true });
     }
     const inflight = inflightBridgeResolves.get(desktopDeviceId);
     if (inflight) return inflight;
   }
 
-  const promise = handshakeDesktopBridge(access, onStatus).finally(() => {
+  const promise = (async () => {
+    if (!opts?.forceRefresh) {
+      const restored = await restorePersistedDesktopBridge(desktopDeviceId);
+      if (restored) {
+        onStatus?.("connecting");
+        return restored;
+      }
+    }
+    return handshakeDesktopBridge(access, onStatus, opts?.initialHello);
+  })().finally(() => {
     if (inflightBridgeResolves.get(desktopDeviceId) === promise) {
       inflightBridgeResolves.delete(desktopDeviceId);
     }
@@ -573,6 +581,7 @@ export async function resolveDesktopBridge(
 async function handshakeDesktopBridge(
   access: StoredPhoneAccess,
   onStatus?: (status: DesktopBridgeSendStatus) => void,
+  initialHello?: DesktopBridgeHelloRequest,
 ): Promise<DesktopBridgeConnection> {
   onStatus?.("connecting");
 
@@ -644,14 +653,16 @@ async function handshakeDesktopBridge(
     features: new Set<string>(),
     helloSupported: true,
   };
-  // One `mobile:hello` learns the desktop's feature set + developer-artifacts
-  // flag (replacing the legacy `/bridge/bootstrap` read). Older desktops
-  // reject the channel; fall back to the bootstrap fetch for the flag.
+  // Fold the caller's real first sync into session authorization. Callers that
+  // only need capabilities send negotiateOnly; old desktops ignore that field
+  // but honor maxMessages:1, preserving compatibility without a large read.
+  const helloRequest: DesktopBridgeHelloRequest = initialHello ?? {
+    negotiateOnly: true,
+    maxMessages: 1,
+  };
   try {
     const hello = asRecord(
-      await invokeDesktopBridge(connection, "mobile:hello", [
-        { maxMessages: 1 },
-      ]),
+      await invokeDesktopBridge(connection, "mobile:hello", [helloRequest]),
     );
     connection.features = new Set(
       Array.isArray(hello?.features)
@@ -660,11 +671,25 @@ async function handshakeDesktopBridge(
     );
     connection.includeDeveloperArtifacts =
       hello?.developerArtifactsEnabled === true;
+    if (initialHello && hello) {
+      connection.pendingHello = {
+        requestKey: JSON.stringify(initialHello),
+        result: hello,
+      };
+    }
   } catch (error) {
     if (isBridgeEndpointMissingError(error)) {
       // Older desktop (channel rejected, or its catch-all answered with an
       // HTML page): permanently demote to the legacy multi-RTT path.
       connection.helloSupported = false;
+    } else if (initialHello) {
+      // Surface the real initial operation through the caller's one-recovery
+      // boundary. Deterministic handler errors are therefore not silently
+      // replayed, while route/session failures get exactly one rediscovery.
+      connection.pendingHello = {
+        requestKey: JSON.stringify(initialHello),
+        error,
+      };
     } else {
       // Transient failure (timeout, edge hiccup): don't kill the handshake
       // over an optional call, and don't permanently demote a capable
@@ -711,7 +736,14 @@ export async function invokeDesktopBridge<T>(
       },
     );
     if (!response.ok) {
-      throw new Error(await readBridgeError(response));
+      const message = await readBridgeError(response);
+      const recoveryReason = bridgeRecoveryReasonForResponse(
+        response.status,
+        message,
+      );
+      if (recoveryReason)
+        throw new BridgeRecoveryError(recoveryReason, message);
+      throw new Error(message);
     }
     // Never raw-parse: a 200 with an HTML body (edge error page, or an older
     // desktop's catch-all answering an unrouted path with index.html) must
@@ -727,12 +759,26 @@ export async function invokeDesktopBridge<T>(
     ) as { result?: T };
     return decoded.result as T;
   } catch (error) {
+    if (isBridgeRecoveryError(error)) throw error;
     if (controller.signal.aborted) {
-      throw new Error("Desktop bridge request timed out.");
+      throw new BridgeRecoveryError(
+        "route",
+        "Desktop bridge request timed out.",
+        { cause: error },
+      );
+    }
+    if (error instanceof BridgeEndpointUnavailableError) {
+      throw new BridgeRecoveryError(
+        "route",
+        "Desktop bridge endpoint is unavailable.",
+        { cause: error },
+      );
     }
     if (isNetworkFailure(error)) {
-      throw new Error(
+      throw new BridgeRecoveryError(
+        "route",
         "Could not reach your desktop tunnel. Keep Stella open on your desktop and try again.",
+        { cause: error },
       );
     }
     throw error;
@@ -1067,87 +1113,132 @@ export async function syncDesktopBridgeChatMessages({
   sinceCursor?: string | null;
   maxMessages?: number;
 }): Promise<DesktopBridgeChatSyncResult> {
-  const bridge = await resolveDesktopBridge(access);
   const expected = expectedConversationId?.trim() || null;
-
-  // Fast path: `mobile:hello` folds conversation-id resolution, the developer
-  // flag and the message delta into one round-trip. Falls back to the legacy
-  // multi-invoke path against older desktops (and demotes the flag so we
-  // don't retry hello on every sync).
-  if (bridge.helloSupported) {
-    try {
-      const hello = asRecord(
-        await invokeDesktopBridge(
-          bridge,
-          "mobile:hello",
-          [
-            {
-              expectedConversationId: expected,
-              sinceCursor: sinceCursor ?? null,
-              maxMessages,
-            },
-          ],
-          BRIDGE_SYNC_TIMEOUT_MS,
-        ),
-      );
-      const conversationId = asString(hello?.conversationId).trim();
-      if (conversationId) {
-        bridge.includeDeveloperArtifacts =
-          hello?.developerArtifactsEnabled === true;
-        if (Array.isArray(hello?.features)) {
-          bridge.features = new Set(
-            hello.features.filter((f): f is string => typeof f === "string"),
-          );
-        }
-        const conversationChanged =
-          hello?.conversationChanged === true ||
-          Boolean(expected && expected !== conversationId);
-        const effectiveCursor = conversationChanged ? null : sinceCursor;
-        const rows = Array.isArray(hello?.messages) ? hello.messages : [];
-        const cursor =
-          asString(hello?.cursor).trim() || effectiveCursor || null;
-        return {
-          conversationId,
-          conversationChanged,
-          cursor,
-          messages: parseDesktopBridgeMessageRows(rows, conversationId),
-        };
-      }
-    } catch (error) {
-      if (!isBridgeEndpointMissingError(error)) throw error;
-      bridge.helloSupported = false;
-    }
-  }
-
-  const conversationId = await getDesktopBridgeConversationId(
-    bridge,
-    BRIDGE_SYNC_TIMEOUT_MS,
-  );
-  const conversationChanged = Boolean(expected && expected !== conversationId);
-  const effectiveCursor = conversationChanged ? null : sinceCursor;
-  const result = asRecord(
-    await invokeDesktopBridge(
-      bridge,
-      "localChat:syncMessages",
-      [
-        {
-          conversationId,
-          sinceCursor: effectiveCursor ?? null,
-          maxMessages,
-          includeDeveloperArtifacts: bridge.includeDeveloperArtifacts,
-        },
-      ],
-      BRIDGE_SYNC_TIMEOUT_MS,
-    ),
-  );
-  const rows = Array.isArray(result?.messages) ? result.messages : [];
-  const cursor = asString(result?.cursor).trim() || effectiveCursor || null;
-  return {
-    conversationId,
-    conversationChanged,
-    cursor,
-    messages: parseDesktopBridgeMessageRows(rows, conversationId),
+  const helloRequest: DesktopBridgeHelloRequest = {
+    expectedConversationId: expected,
+    sinceCursor: sinceCursor ?? null,
+    maxMessages,
   };
+
+  const perform = async (
+    bridge: DesktopBridgeConnection,
+  ): Promise<DesktopBridgeChatSyncResult> => {
+    // A fresh handshake may already have performed this exact hello while the
+    // desktop consumed the new session. Consume it once instead of spending a
+    // second RTT and rebuilding the same transcript window.
+    let pendingHello: Record<string, unknown> | null = null;
+    if (bridge.pendingHello?.requestKey === JSON.stringify(helloRequest)) {
+      const pending = bridge.pendingHello;
+      delete bridge.pendingHello;
+      if (pending.error) throw pending.error;
+      pendingHello = pending.result ?? null;
+    }
+
+    // Fast path: `mobile:hello` folds conversation-id resolution, the developer
+    // flag and the message delta into one round-trip. Falls back to the legacy
+    // multi-invoke path against older desktops.
+    if (bridge.helloSupported) {
+      try {
+        const hello =
+          pendingHello ??
+          asRecord(
+            await invokeDesktopBridge(
+              bridge,
+              "mobile:hello",
+              [helloRequest],
+              BRIDGE_SYNC_TIMEOUT_MS,
+            ),
+          );
+        const conversationId = asString(hello?.conversationId).trim();
+        if (conversationId) {
+          bridge.includeDeveloperArtifacts =
+            hello?.developerArtifactsEnabled === true;
+          if (Array.isArray(hello?.features)) {
+            bridge.features = new Set(
+              hello.features.filter((f): f is string => typeof f === "string"),
+            );
+          }
+          const conversationChanged =
+            hello?.conversationChanged === true ||
+            Boolean(expected && expected !== conversationId);
+          const effectiveCursor = conversationChanged ? null : sinceCursor;
+          const rows = Array.isArray(hello?.messages) ? hello.messages : [];
+          const cursor =
+            asString(hello?.cursor).trim() || effectiveCursor || null;
+          return {
+            conversationId,
+            conversationChanged,
+            cursor,
+            messages: parseDesktopBridgeMessageRows(rows, conversationId),
+            preparedSend: {
+              desktopDeviceId: access.desktopDeviceId,
+              bridge,
+              conversationId,
+              socket: null,
+              closed: false,
+            },
+          };
+        }
+      } catch (error) {
+        if (!isBridgeEndpointMissingError(error)) throw error;
+        bridge.helloSupported = false;
+      }
+    }
+
+    const conversationId = await getDesktopBridgeConversationId(
+      bridge,
+      BRIDGE_SYNC_TIMEOUT_MS,
+    );
+    const conversationChanged = Boolean(
+      expected && expected !== conversationId,
+    );
+    const effectiveCursor = conversationChanged ? null : sinceCursor;
+    const result = asRecord(
+      await invokeDesktopBridge(
+        bridge,
+        "localChat:syncMessages",
+        [
+          {
+            conversationId,
+            sinceCursor: effectiveCursor ?? null,
+            maxMessages,
+            includeDeveloperArtifacts: bridge.includeDeveloperArtifacts,
+          },
+        ],
+        BRIDGE_SYNC_TIMEOUT_MS,
+      ),
+    );
+    const rows = Array.isArray(result?.messages) ? result.messages : [];
+    const cursor = asString(result?.cursor).trim() || effectiveCursor || null;
+    return {
+      conversationId,
+      conversationChanged,
+      cursor,
+      messages: parseDesktopBridgeMessageRows(rows, conversationId),
+      preparedSend: {
+        desktopDeviceId: access.desktopDeviceId,
+        bridge,
+        conversationId,
+        socket: null,
+        closed: false,
+      },
+    };
+  };
+
+  const bridge = await resolveDesktopBridge(access, undefined, {
+    initialHello: helloRequest,
+  });
+  return runWithSingleBridgeRecovery({
+    initial: bridge,
+    operation: perform,
+    recover: async () => {
+      clearCachedDesktopBridge(access.desktopDeviceId, { keepPersisted: true });
+      return resolveDesktopBridge(access, undefined, {
+        forceRefresh: true,
+        initialHello: helloRequest,
+      });
+    },
+  });
 }
 
 type HeaderWebSocketConstructor = new (
@@ -1210,10 +1301,13 @@ function createBridgeSocketClient(
   ws: WebSocket,
   cryptoSession: BridgeCryptoSession,
   onEvent: (channel: string, data: unknown) => void,
-  onClose?: () => void,
+  onClose?: (details: { code: number; reason: string }) => void,
   options?: { compress?: boolean },
 ) {
   const pending = new Map<string, PendingResponse>();
+  let eventHandler = onEvent;
+  let closeHandler = onClose;
+  let closed = false;
 
   ws.onmessage = (event) => {
     let message: unknown = null;
@@ -1233,7 +1327,7 @@ function createBridgeSocketClient(
     if (record.type === "event") {
       const channel = asString(record.channel);
       if (channel) {
-        onEvent(channel, record.data);
+        eventHandler(channel, record.data);
       }
       return;
     }
@@ -1253,13 +1347,14 @@ function createBridgeSocketClient(
     callback.resolve(record.result);
   };
 
-  ws.onclose = () => {
+  ws.onclose = (event) => {
+    closed = true;
     for (const callback of pending.values()) {
       clearTimeout(callback.timer);
       callback.reject(new Error("Desktop bridge disconnected."));
     }
     pending.clear();
-    onClose?.();
+    closeHandler?.({ code: event.code, reason: event.reason });
   };
 
   const send = (payload: unknown) => {
@@ -1268,7 +1363,9 @@ function createBridgeSocketClient(
     }
     ws.send(
       JSON.stringify({
-        envelope: encryptBridgePayload(cryptoSession, "m2d", payload),
+        envelope: encryptBridgePayload(cryptoSession, "m2d", payload, {
+          compress: options?.compress === true,
+        }),
       }),
     );
   };
@@ -1303,10 +1400,52 @@ function createBridgeSocketClient(
       });
     },
     close() {
+      closed = true;
       ws.close();
+    },
+    isOpen() {
+      return !closed && ws.readyState === WebSocket.OPEN;
+    },
+    setHandlers(
+      nextOnEvent: (channel: string, data: unknown) => void,
+      nextOnClose?: (details: { code: number; reason: string }) => void,
+    ) {
+      eventHandler = nextOnEvent;
+      closeHandler = nextOnClose;
+    },
+    clearHandlers() {
+      eventHandler = () => {};
+      closeHandler = undefined;
     },
   };
 }
+
+type BridgeSocketClient = ReturnType<typeof createBridgeSocketClient>;
+
+export type DesktopBridgeSendBatch = {
+  desktopDeviceId: string;
+  bridge: DesktopBridgeConnection;
+  conversationId: string;
+  socket: BridgeSocketClient | null;
+  closed: boolean;
+};
+
+export const canReuseDesktopBridgeSendBatch = (
+  batch: DesktopBridgeSendBatch | null | undefined,
+  desktopDeviceId: string,
+): batch is DesktopBridgeSendBatch =>
+  canReuseDesktopSendBatch(batch, desktopDeviceId);
+
+export const closeDesktopBridgeSendBatch = (
+  batch: DesktopBridgeSendBatch | null | undefined,
+) => {
+  if (!batch || batch.closed) return;
+  batch.closed = true;
+  const socket = batch.socket;
+  batch.socket = null;
+  socket?.clearHandlers();
+  socket?.close();
+};
 
 /**
  * Open a lightweight event-subscription socket on an existing bridge
@@ -1319,7 +1458,7 @@ export async function openDesktopBridgeEventSocket(
   options: {
     channels: string[];
     onEvent: (channel: string, data: unknown) => void;
-    onClose: () => void;
+    onClose: (details: { code: number; reason: string }) => void;
   },
 ): Promise<{ close: () => void }> {
   const ws = await openBridgeWebSocket(bridge);
@@ -1406,6 +1545,7 @@ const isDisconnectError = (error: unknown) => {
 
 export async function sendDesktopBridgeChat({
   access,
+  batch: suppliedBatch,
   message,
   clientRequestId: suppliedClientRequestId,
   userMessageEventId,
@@ -1426,8 +1566,17 @@ export async function sendDesktopBridgeChat({
     throw new BridgeAbortError();
   }
 
-  let activeBridge = await resolveDesktopBridge(access, onStatus);
-  const conversationId = await getDesktopBridgeConversationId(activeBridge);
+  const batch = canReuseDesktopBridgeSendBatch(
+    suppliedBatch,
+    access.desktopDeviceId,
+  )
+    ? suppliedBatch
+    : null;
+  let activeBridge =
+    batch?.bridge ?? (await resolveDesktopBridge(access, onStatus));
+  const conversationId =
+    batch?.conversationId ??
+    (await getDesktopBridgeConversationId(activeBridge));
   // Prefer the encrypted-binary upload lane for attachments (~1.0x wire cost
   // vs ~1.78x inline, and a ~5 MB ceiling instead of ~2.6 MB). Falls back to
   // inline data URLs when the desktop lacks the lane or an upload fails.
@@ -1780,12 +1929,15 @@ export async function sendDesktopBridgeChat({
   const runConnection = async (
     isReconnect: boolean,
   ): Promise<ConnectionOutcome> => {
-    let ws: WebSocket;
-    try {
-      ws = await openBridgeWebSocket(activeBridge, signal);
-    } catch (error) {
-      if (signal?.aborted) return { kind: "aborted" };
-      return { kind: "disconnected" };
+    let reusableClient = batch?.socket?.isOpen() === true ? batch.socket : null;
+    let ws: WebSocket | null = null;
+    if (!reusableClient) {
+      try {
+        ws = await openBridgeWebSocket(activeBridge, signal);
+      } catch {
+        if (signal?.aborted) return { kind: "aborted" };
+        return { kind: "disconnected" };
+      }
     }
 
     return await new Promise<ConnectionOutcome>((resolve) => {
@@ -1794,7 +1946,7 @@ export async function sendDesktopBridgeChat({
       let acceptedReplay = false;
       const pendingLive: unknown[] = [];
       let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
-      let client: ReturnType<typeof createBridgeSocketClient>;
+      let client: BridgeSocketClient;
 
       const onAbort = () => finish({ kind: "aborted" });
 
@@ -1815,7 +1967,17 @@ export async function sendDesktopBridgeChat({
             // best-effort cancellation
           }
         }
-        client.close();
+        if (
+          batch &&
+          outcome.kind !== "disconnected" &&
+          outcome.kind !== "timeout"
+        ) {
+          client.clearHandlers();
+        } else {
+          client.clearHandlers();
+          client.close();
+          if (batch?.socket === client) batch.socket = null;
+        }
         resolve(outcome);
       };
 
@@ -1838,29 +2000,36 @@ export async function sendDesktopBridgeChat({
         });
       };
 
-      client = createBridgeSocketClient(
-        ws,
-        activeBridge.crypto,
-        (channel, data) => {
-          if (channel === "display:update") {
-            mergeArtifacts(
-              filterDesktopBridgeArtifacts(
-                parseChatArtifacts([data], conversationId),
-                activeBridge.includeDeveloperArtifacts,
-              ),
-            );
-            return;
-          }
-          if (channel === "agent:event") {
-            handleLiveAgentEvent(data);
-          }
-        },
-        () => finish({ kind: "disconnected" }),
-        { compress: bridgeSupportsDeflate(activeBridge) },
-      );
-
-      client.subscribe("agent:event");
-      client.subscribe("display:update");
+      const onSocketEvent = (channel: string, data: unknown) => {
+        if (channel === "display:update") {
+          mergeArtifacts(
+            filterDesktopBridgeArtifacts(
+              parseChatArtifacts([data], conversationId),
+              activeBridge.includeDeveloperArtifacts,
+            ),
+          );
+          return;
+        }
+        if (channel === "agent:event") {
+          handleLiveAgentEvent(data);
+        }
+      };
+      const onSocketClose = () => finish({ kind: "disconnected" });
+      if (reusableClient) {
+        client = reusableClient;
+        client.setHandlers(onSocketEvent, onSocketClose);
+      } else {
+        client = createBridgeSocketClient(
+          ws!,
+          activeBridge.crypto,
+          onSocketEvent,
+          onSocketClose,
+          { compress: bridgeSupportsDeflate(activeBridge) },
+        );
+        client.subscribe("agent:event");
+        client.subscribe("display:update");
+        if (batch && !batch.closed) batch.socket = client;
+      }
       signal?.addEventListener("abort", onAbort);
       bumpInactivity();
 
@@ -1899,34 +2068,49 @@ export async function sendDesktopBridgeChat({
 
           let activeRunId = "";
           if (isReconnect || acceptedReplay) {
-            const resume = asRecord(
-              await client.invoke(
-                "agent:resume",
-                [{ conversationId, lastSeq }],
-                BRIDGE_SYNC_TIMEOUT_MS,
-              ),
-            );
-            const activeRun = asRecord(resume?.activeRun);
-            activeRunId = asString(activeRun?.runId).trim();
-            if (activeRunId) {
-              runId = runId || activeRunId;
-              runStarted = true;
-              const activeUserMessageId = asString(
-                activeRun?.userMessageId,
-              ).trim();
-              if (activeUserMessageId) {
-                noteSubmittedUserMessageId(activeUserMessageId);
+            let hasMoreReplay = false;
+            do {
+              const resume = asRecord(
+                await client.invoke(
+                  "agent:resume",
+                  [
+                    {
+                      conversationId,
+                      lastSeq,
+                      maxEvents: BRIDGE_RESUME_PAGE_EVENTS,
+                    },
+                  ],
+                  BRIDGE_SYNC_TIMEOUT_MS,
+                ),
+              );
+              const activeRun = asRecord(resume?.activeRun);
+              activeRunId = activeRunId || asString(activeRun?.runId).trim();
+              if (activeRunId) {
+                runId = runId || activeRunId;
+                runStarted = true;
+                const activeUserMessageId = asString(
+                  activeRun?.userMessageId,
+                ).trim();
+                if (activeUserMessageId) {
+                  noteSubmittedUserMessageId(activeUserMessageId);
+                }
               }
-            }
-            const replayEvents = Array.isArray(resume?.events)
-              ? resume.events
-              : [];
-            for (const replayEvent of replayEvents) {
-              if (await processAgentEvent(replayEvent)) {
-                finish({ kind: "finished" });
-                return;
+              const replayEvents = Array.isArray(resume?.events)
+                ? resume.events
+                : [];
+              for (const replayEvent of replayEvents) {
+                if (await processAgentEvent(replayEvent)) {
+                  finish({ kind: "finished" });
+                  return;
+                }
               }
-            }
+              hasMoreReplay =
+                resume?.hasMore === true && replayEvents.length > 0;
+              if (hasMoreReplay) {
+                // Let React/native input run between bounded replay pages.
+                await sleep(0);
+              }
+            } while (hasMoreReplay && !settled);
           }
 
           // Drain anything that arrived live while we were priming, in order,
@@ -1981,7 +2165,9 @@ export async function sendDesktopBridgeChat({
 
   let attempt = 0;
   let isReconnect = false;
+  let rediscovered = false;
   while (!settled) {
+    const attemptedReconnect = isReconnect;
     const outcome = await runConnection(isReconnect);
     if (settled || outcome.kind === "finished") {
       break;
@@ -2015,13 +2201,20 @@ export async function sendDesktopBridgeChat({
     if (signal?.aborted) {
       throw new BridgeAbortError();
     }
-    // Re-resolve in case the desktop rotated its tunnel URL or token while we
-    // were away; force a fresh handshake so we never re-attach with a session
-    // the desktop has already dropped. Fall back to the last good bridge if
-    // discovery hiccups.
-    activeBridge = await resolveDesktopBridge(access, undefined, {
-      forceRefresh: true,
-    }).catch(() => activeBridge);
+    // First retry the existing authenticated route: most socket closures are
+    // transient and the desktop session remains valid. Rediscover exactly once
+    // only after that reattach also fails, rather than minting a new session on
+    // every backoff attempt.
+    if (attemptedReconnect && !rediscovered) {
+      const refreshed = await resolveDesktopBridge(access, undefined, {
+        forceRefresh: true,
+      }).catch(() => null);
+      if (refreshed) {
+        activeBridge = refreshed;
+        if (batch) batch.bridge = refreshed;
+      }
+      rediscovered = true;
+    }
   }
 
   if (finalError) {

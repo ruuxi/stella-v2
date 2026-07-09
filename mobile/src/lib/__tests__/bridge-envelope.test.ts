@@ -7,6 +7,7 @@ import {
   encryptBridgeBytesCore,
   encryptBridgePayloadCore,
   isUnknownBridgeChannelError,
+  MAX_BRIDGE_ENVELOPE_PLAINTEXT_BYTES,
   parseBase64DataUrl,
   standardBase64ToBytes,
   type BridgeCryptoSession,
@@ -119,9 +120,22 @@ describe("bridge envelope round trips", () => {
       { a: 1 },
       testRandomBytes,
     );
-    expect(() =>
-      decryptBridgePayloadCore(receiver, "d2m", envelope),
-    ).toThrow();
+    expect(() => decryptBridgePayloadCore(receiver, "d2m", envelope)).toThrow();
+  });
+
+  test("rejects compressed envelopes beyond the bounded plaintext limit", () => {
+    const { sender, receiver } = makeSessionPair();
+    const envelope = encryptBridgePayloadCore(
+      sender,
+      "d2m",
+      { text: "x".repeat(MAX_BRIDGE_ENVELOPE_PLAINTEXT_BYTES) },
+      testRandomBytes,
+      { compress: true },
+    );
+    expect(envelope.z).toBe(1);
+    expect(() => decryptBridgePayloadCore(receiver, "d2m", envelope)).toThrow(
+      /decompression limit/,
+    );
   });
 });
 
@@ -197,9 +211,9 @@ describe("replay guard", () => {
       { once: true },
       testRandomBytes,
     );
-    expect(
-      decryptBridgePayloadCore(receiver, "m2d", envelope, guard),
-    ).toEqual({ once: true });
+    expect(decryptBridgePayloadCore(receiver, "m2d", envelope, guard)).toEqual({
+      once: true,
+    });
     expect(() =>
       decryptBridgePayloadCore(receiver, "m2d", envelope, guard),
     ).toThrow(/duplicate/);

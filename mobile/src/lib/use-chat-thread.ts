@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LayoutAnimation } from "react-native";
+import { AppState, LayoutAnimation } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import {
   loadChatMessages,
@@ -21,11 +21,13 @@ import { postStream, postStreamAnonymous, StreamAbortError } from "./http";
 import { hasAiConsent, requestAiConsent } from "./ai-consent";
 import { getOrCreateMobileDeviceId, type StoredPhoneAccess } from "./phone-access";
 import {
+  closeDesktopBridgeSendBatch,
   DesktopOfflineError,
   sendDesktopBridgeChat,
   syncDesktopBridgeChatMessages,
   type DesktopBridgeActivity,
   type DesktopBridgeAttachment,
+  type DesktopBridgeSendBatch,
   type DesktopBridgeSendStatus,
 } from "./desktop-bridge-chat";
 import {
@@ -43,6 +45,7 @@ import {
 import { openDesktopBridgeLive } from "./desktop-bridge-live";
 import {
   desktopSyncPullPlan,
+  desktopSyncJoinPlan,
   desktopTaskPollIntervalMs,
   shouldArmDesktopTaskPoll,
   shouldDeferLocalChatPushDuringSend,
@@ -59,6 +62,7 @@ import { collectConversationTasks } from "./mobile-task-merge";
 import { toSendableImage } from "./image-attachments";
 import { admitSend } from "./send-admission";
 import { createStreamTextSmoother } from "./stream-text-smoother";
+import { shouldReuseQueuedReplayBatch } from "./desktop-send-batch-policy";
 import { userFacingError } from "./user-facing-error";
 import { notifySuccess } from "./haptics";
 import { loadMemoryFacts, rememberFact, forgetFact } from "./chat-memory";
@@ -92,6 +96,8 @@ export type DesktopSyncOutcome = {
   rows?: number;
   /** Canonical user identities observed in this pull. */
   acceptedUserMessageIds?: string[];
+  /** Bridge/conversation/socket seed shared by a serialized replay batch. */
+  preparedSend?: DesktopBridgeSendBatch;
   /** Failure message when the pull errored (offline or otherwise). */
   error?: string;
 };
@@ -257,9 +263,21 @@ export function useChatThread(opts: {
     ImagePicker.ImagePickerAsset[]
   >([]);
   const [sending, setSending] = useState(false);
+  const [appActive, setAppActive] = useState(
+    () =>
+      AppState.currentState !== "background" &&
+      AppState.currentState !== "inactive",
+  );
   const [workingActivity, setWorkingActivity] = useState<WorkingActivity>(
     IDLE_WORKING_ACTIVITY,
   );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (next) => {
+      setAppActive(next === "active" || next === "unknown");
+    });
+    return () => subscription.remove();
+  }, []);
 
   // Merge a partial activity update onto the live snapshot. Run-level status
   // (wake copy, compaction) and the bridge's tool/streaming signals patch in
@@ -293,7 +311,11 @@ export function useChatThread(opts: {
   // The in-flight desktop sync, shared so a send can await the same wake+pull
   // instead of racing a second one (see `runDesktopSync`). Resolves with
   // whether the desktop was unreachable so the send can skip a second wake.
-  const desktopSyncRef = useRef<Promise<DesktopSyncOutcome> | null>(null);
+  const desktopSyncRef = useRef<{
+    promise: Promise<DesktopSyncOutcome>;
+    catchUp: boolean;
+  } | null>(null);
+  const desktopSendBatchRef = useRef<DesktopBridgeSendBatch | null>(null);
   // Bumped whenever the paired computer changes or the surface unmounts, so an
   // in-flight sync started for the previous computer can't persist its cursor
   // or merge its transcript into the new one.
@@ -507,8 +529,15 @@ export function useChatThread(opts: {
         // empty no-op — Force Sync would "succeed" with nothing. Chain a real
         // catch-up pull after the in-flight run settles; the indicator covers
         // the whole wait.
-        if (!catchUp) return existing;
-        const chained = existing.then(() =>
+        const joinPlan = desktopSyncJoinPlan({
+          existingCatchUp: existing.catchUp,
+          requestedCatchUp: catchUp,
+        });
+        if (joinPlan === "share") {
+          if (catchUp) trackCatchUpRun(existing.promise);
+          return existing.promise;
+        }
+        const chained = existing.promise.then(() =>
           runDesktopSyncRef.current({ catchUp: true, trigger }),
         );
         trackCatchUpRun(chained);
@@ -543,106 +572,114 @@ export function useChatThread(opts: {
         });
         return Promise.resolve({ offline: false, deferred: true });
       }
-    // Snapshot the generation so results from a now-stale computer (switched or
-    // unmounted mid-flight) are dropped instead of clobbering the current one.
-    const generation = syncGenerationRef.current;
-    const run = (async (): Promise<DesktopSyncOutcome> => {
-      const startedAt = Date.now();
-      let plan = { sinceCursor: null as string | null, fullWindow: true };
-      try {
-        // Let the previous turn's reconcile settle first so its canonical ids
-        // are linked onto the optimistic rows and its cursor is persisted.
-        // Otherwise this pull (e.g. the next, queued turn's wake→sync firing
-        // the instant the prior turn finished) would re-fetch the previous
-        // turn's rows against a stale cursor and duplicate them.
-        const pendingReconcile = pendingReconcileRef.current;
-        if (pendingReconcile) await pendingReconcile;
-        const expectedConversationId = syncConversationIdRef.current;
-        // Catch-up pulls ignore the delta cursor and re-pull the full window
-        // (see `desktopSyncPullPlan`): a cursor that got ahead of undelivered
-        // rows turns every delta — including Force Sync — into a silent empty
-        // no-op, permanently. The full pull merges by id and returns a fresh
-        // cursor, healing the poisoned state.
-        plan = desktopSyncPullPlan({
-          catchUp,
-          expectedConversationId,
-          cursor: syncCursorRef.current,
-        });
-        const next = await syncDesktopBridgeChatMessages({
-          access: desktopAccess,
-          expectedConversationId,
-          sinceCursor: plan.sinceCursor,
-          maxMessages: HISTORY_MESSAGE_LIMIT,
-        });
-        if (generation !== syncGenerationRef.current) {
+      // Snapshot the generation so results from a now-stale computer (switched or
+      // unmounted mid-flight) are dropped instead of clobbering the current one.
+      const generation = syncGenerationRef.current;
+      let run: Promise<DesktopSyncOutcome> = Promise.resolve({
+        offline: false,
+      });
+      run = (async (): Promise<DesktopSyncOutcome> => {
+        const startedAt = Date.now();
+        let plan = { sinceCursor: null as string | null, fullWindow: true };
+        try {
+          // Let the previous turn's reconcile settle first so its canonical ids
+          // are linked onto the optimistic rows and its cursor is persisted.
+          // Otherwise this pull (e.g. the next, queued turn's wake→sync firing
+          // the instant the prior turn finished) would re-fetch the previous
+          // turn's rows against a stale cursor and duplicate them.
+          const pendingReconcile = pendingReconcileRef.current;
+          if (pendingReconcile) await pendingReconcile;
+          const expectedConversationId = syncConversationIdRef.current;
+          // Catch-up pulls ignore the delta cursor and re-pull the full window
+          // (see `desktopSyncPullPlan`): a cursor that got ahead of undelivered
+          // rows turns every delta — including Force Sync — into a silent empty
+          // no-op, permanently. The full pull merges by id and returns a fresh
+          // cursor, healing the poisoned state.
+          plan = desktopSyncPullPlan({
+            catchUp,
+            expectedConversationId,
+            cursor: syncCursorRef.current,
+          });
+          const next = await syncDesktopBridgeChatMessages({
+            access: desktopAccess,
+            expectedConversationId,
+            sinceCursor: plan.sinceCursor,
+            maxMessages: HISTORY_MESSAGE_LIMIT,
+          });
+          if (generation !== syncGenerationRef.current) {
+            recordSyncDiagnostic({
+              at: Date.now(),
+              trigger,
+              catchUp,
+              sinceCursor: plan.sinceCursor,
+              fullWindow: plan.fullWindow,
+              outcome: "stale-generation",
+              durationMs: Date.now() - startedAt,
+            });
+            return { offline: false };
+          }
+          persistSyncState({
+            conversationId: next.conversationId,
+            cursor: next.cursor,
+          });
+          closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
+          desktopSendBatchRef.current = next.preparedSend;
+          const acceptedUserMessageIds = next.messages
+            .filter((message) => message.role === "user")
+            .map((message) => message.id);
+          acknowledgeDesktopSendIds(acceptedUserMessageIds);
+          setMessages((current) => mergeMessagesById(current, next.messages));
+          if (!sendingRef.current && queueRef.current.length > 0) {
+            queueMicrotask(() => drainQueueRef.current?.());
+          }
           recordSyncDiagnostic({
             at: Date.now(),
             trigger,
             catchUp,
             sinceCursor: plan.sinceCursor,
             fullWindow: plan.fullWindow,
-            outcome: "stale-generation",
+            outcome: "ok",
+            rows: next.messages.length,
+            cursorOut: next.cursor,
+            conversationChanged: next.conversationChanged,
             durationMs: Date.now() - startedAt,
           });
-          return { offline: false };
+          return {
+            offline: false,
+            rows: next.messages.length,
+            acceptedUserMessageIds,
+            preparedSend: next.preparedSend,
+          };
+        } catch (error) {
+          // Best-effort: the device-status poll drives the connection badge, and
+          // the next send/landing retries the sync. Report a confirmed offline so
+          // the send can surface it without spending a second wake budget, and
+          // carry the message so Force Sync can show a real error instead of a
+          // silent no-op.
+          const offline = error instanceof DesktopOfflineError;
+          const message =
+            error instanceof Error ? error.message : String(error);
+          recordSyncDiagnostic({
+            at: Date.now(),
+            trigger,
+            catchUp,
+            sinceCursor: plan.sinceCursor,
+            fullWindow: plan.fullWindow,
+            outcome: offline ? "offline" : "error",
+            durationMs: Date.now() - startedAt,
+            error: message,
+          });
+          return { offline, error: message };
+        } finally {
+          // Only release the shared handle if a newer run hasn't claimed it.
+          if (generation === syncGenerationRef.current) {
+            if (desktopSyncRef.current?.promise === run) {
+              desktopSyncRef.current = null;
+            }
+          }
         }
-        persistSyncState({
-          conversationId: next.conversationId,
-          cursor: next.cursor,
-        });
-        const acceptedUserMessageIds = next.messages
-          .filter((message) => message.role === "user")
-          .map((message) => message.id);
-        acknowledgeDesktopSendIds(acceptedUserMessageIds);
-        setMessages((current) => mergeMessagesById(current, next.messages));
-        if (!sendingRef.current && queueRef.current.length > 0) {
-          queueMicrotask(() => drainQueueRef.current?.());
-        }
-        recordSyncDiagnostic({
-          at: Date.now(),
-          trigger,
-          catchUp,
-          sinceCursor: plan.sinceCursor,
-          fullWindow: plan.fullWindow,
-          outcome: "ok",
-          rows: next.messages.length,
-          cursorOut: next.cursor,
-          conversationChanged: next.conversationChanged,
-          durationMs: Date.now() - startedAt,
-        });
-        return {
-          offline: false,
-          rows: next.messages.length,
-          acceptedUserMessageIds,
-        };
-      } catch (error) {
-        // Best-effort: the device-status poll drives the connection badge, and
-        // the next send/landing retries the sync. Report a confirmed offline so
-        // the send can surface it without spending a second wake budget, and
-        // carry the message so Force Sync can show a real error instead of a
-        // silent no-op.
-        const offline = error instanceof DesktopOfflineError;
-        const message =
-          error instanceof Error ? error.message : String(error);
-        recordSyncDiagnostic({
-          at: Date.now(),
-          trigger,
-          catchUp,
-          sinceCursor: plan.sinceCursor,
-          fullWindow: plan.fullWindow,
-          outcome: offline ? "offline" : "error",
-          durationMs: Date.now() - startedAt,
-          error: message,
-        });
-        return { offline, error: message };
-      } finally {
-        // Only release the shared handle if a newer run hasn't claimed it.
-        if (generation === syncGenerationRef.current) {
-          desktopSyncRef.current = null;
-        }
-      }
-    })();
-      desktopSyncRef.current = run;
+      })();
+      desktopSyncRef.current = { promise: run, catchUp };
       if (catchUp) trackCatchUpRun(run);
       return run;
     },
@@ -668,21 +705,25 @@ export function useChatThread(opts: {
     didMountSyncRef.current = false;
     desktopSyncRef.current = null;
     pendingReconcileRef.current = null;
+    closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
+    desktopSendBatchRef.current = null;
     return () => {
       syncGenerationRef.current += 1;
+      closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
+      desktopSendBatchRef.current = null;
     };
   }, [desktopDeviceId, threadId]);
 
   // Once per surface landing, pull new desktop turns and merge them in.
   useEffect(() => {
-    if (!desktopAccess) return;
+    if (!desktopAccess || !appActive) return;
     if (didMountSyncRef.current) return;
     if (!storageLoaded) return;
     didMountSyncRef.current = true;
     // Catch-up: the phone may have been away arbitrarily long; full-window
     // pull, and the "Catching up" pill covers it.
     void runDesktopSync({ catchUp: true, trigger: "landing" });
-  }, [desktopAccess, runDesktopSync, storageLoaded]);
+  }, [appActive, desktopAccess, runDesktopSync, storageLoaded]);
 
   // ─── localChat push (capability-gated, poll fallback stays) ─────────────
   // While mounted with a desktop transport, hold a push socket: the desktop
@@ -738,18 +779,19 @@ export function useChatThread(opts: {
       handle.close();
       setLivePushConnected(false);
     };
-  }, [desktopAccess, runDesktopSync]);
+  }, [appActive, desktopAccess, runDesktopSync]);
 
   // Flush push notifications the mid-send gate deferred. `runDesktopSync`
   // awaits the turn's pending reconcile before reading the cursor, so this
   // pull can't interleave with the optimistic-row linking it was gated for.
   useEffect(() => {
+    if (!appActive) return;
     if (sending) return;
     if (!storageLoaded) return;
     if (!pendingPushSyncRef.current) return;
     pendingPushSyncRef.current = false;
     void runDesktopSync({ trigger: "post-send-flush" });
-  }, [sending, storageLoaded, runDesktopSync]);
+  }, [appActive, sending, storageLoaded, runDesktopSync]);
 
   const appendAssistantText = useCallback((replyId: string, chunk: string) => {
     setMessages((m) =>
@@ -762,8 +804,13 @@ export function useChatThread(opts: {
   const finishDispatch = useCallback(() => {
     markSending(false);
     setWorkingActivity(IDLE_WORKING_ACTIVITY);
-    drainQueueRef.current?.();
-  }, [markSending]);
+    if (queueRef.current.length > 0 && appActive) {
+      drainQueueRef.current?.();
+    } else {
+      closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
+      desktopSendBatchRef.current = null;
+    }
+  }, [appActive, markSending]);
 
   // Non-cancelable final flush for a settled turn. The debounced writer above
   // is cancelable (its cleanup clears the timeout on unmount), so a turn that
@@ -1092,10 +1139,19 @@ export function useChatThread(opts: {
         // with this turn's stream. If that wake already proved the desktop is
         // offline, surface it now rather than spending a second wake budget.
         patchActivity({ statusText: WAKE_STATUS_COPY.connecting });
-        const synced = await runDesktopSync({
-          duringSend: true,
-          trigger: "send",
+        const reusableBatch = shouldReuseQueuedReplayBatch({
+          queueSequence: item.queueSequence,
+          batchReady: desktopSendBatchRef.current?.closed === false,
         });
+        if (reusableBatch && pendingReconcileRef.current) {
+          await pendingReconcileRef.current;
+        }
+        const synced = reusableBatch
+          ? ({ offline: false } satisfies DesktopSyncOutcome)
+          : await runDesktopSync({
+              duringSend: true,
+              trigger: "send",
+            });
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
           activeDispatchRef.current = null;
           markSending(false);
@@ -1128,6 +1184,7 @@ export function useChatThread(opts: {
         const bridgeAttachments = await assetsToBridgeAttachments(item.assets);
         const result = await sendDesktopBridgeChat({
           access,
+          batch: desktopSendBatchRef.current ?? synced.preparedSend,
           message: item.text,
           clientRequestId: item.clientRequestId,
           userMessageEventId: item.userMessageId,
@@ -1252,9 +1309,7 @@ export function useChatThread(opts: {
                 replyId,
                 sentText: item.text,
                 canonicalMessages: delta.messages,
-                ...(canonicalUserMessageId
-                  ? { canonicalUserMessageId }
-                  : {}),
+                ...(canonicalUserMessageId ? { canonicalUserMessageId } : {}),
               }),
             );
           })
@@ -1351,6 +1406,8 @@ export function useChatThread(opts: {
           }
           markSending(false);
           setWorkingActivity(IDLE_WORKING_ACTIVITY);
+          closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
+          desktopSendBatchRef.current = null;
         }
       } finally {
         textSmoother.cancel();
@@ -1555,10 +1612,7 @@ export function useChatThread(opts: {
       const active = activeDispatchRef.current;
       stoppedDispatchIdsRef.current.add(active.dispatchId);
       if (transport.kind === "desktop") {
-        acknowledgeDesktopSendIds([
-          active.dispatchId,
-          active.userMessageId,
-        ]);
+        acknowledgeDesktopSendIds([active.dispatchId, active.userMessageId]);
       }
       active.abort.abort();
       setMessages((m) =>
@@ -1568,6 +1622,8 @@ export function useChatThread(opts: {
       );
       activeDispatchRef.current = null;
     }
+    closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
+    desktopSendBatchRef.current = null;
     markSending(false);
     setWorkingActivity(IDLE_WORKING_ACTIVITY);
   }, [acknowledgeDesktopSendIds, markSending, transport.kind]);
@@ -1640,6 +1696,7 @@ export function useChatThread(opts: {
         storageLoaded,
         hasRunningConversationTask,
         sending,
+        appActive,
       })
     ) {
       return;
@@ -1650,6 +1707,7 @@ export function useChatThread(opts: {
     return () => clearInterval(handle);
   }, [
     desktopAccess,
+    appActive,
     hasRunningConversationTask,
     livePushConnected,
     runDesktopSync,

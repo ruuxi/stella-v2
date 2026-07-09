@@ -32,15 +32,24 @@ export const shouldArmDesktopTaskPoll = (args: {
   storageLoaded: boolean;
   hasRunningConversationTask: boolean;
   sending: boolean;
+  appActive: boolean;
 }): boolean =>
   args.isDesktopTransport &&
   args.storageLoaded &&
   args.hasRunningConversationTask &&
-  !args.sending;
+  !args.sending &&
+  args.appActive;
 
 /** Poll cadence for an armed task poll under the current push state. */
-export const desktopTaskPollIntervalMs = (livePushConnected: boolean): number =>
+export const desktopTaskPollIntervalMs = (
+  livePushConnected: boolean,
+): number =>
   livePushConnected ? DESKTOP_TASK_POLL_PUSH_VERIFY_MS : DESKTOP_TASK_POLL_MS;
+
+export const shouldRunDesktopForegroundTimer = (args: {
+  focused: boolean;
+  appActive: boolean;
+}): boolean => args.focused && args.appActive;
 
 /** Whether a push-notified transcript change may trigger a sync right now. */
 export const shouldSyncOnLocalChatPush = (args: {
@@ -60,6 +69,13 @@ export const shouldStartDesktopSyncRun = (args: {
   sending: boolean;
   duringSend: boolean;
 }): boolean => !args.sending || args.duringSend;
+
+/** How a caller joins an in-flight transcript pull. */
+export const desktopSyncJoinPlan = (args: {
+  existingCatchUp: boolean;
+  requestedCatchUp: boolean;
+}): "share" | "chain-catch-up" =>
+  args.requestedCatchUp && !args.existingCatchUp ? "chain-catch-up" : "share";
 
 /**
  * Whether a push notification blocked only by the mid-send gate should be

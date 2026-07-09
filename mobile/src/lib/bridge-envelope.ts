@@ -7,7 +7,7 @@
  */
 import { gcm } from "@noble/ciphers/aes.js";
 import { utf8ToBytes } from "@noble/hashes/utils.js";
-import { deflateSync, inflateSync } from "fflate";
+import { deflateSync, Inflate } from "fflate";
 
 export const BRIDGE_CRYPTO_PROTOCOL = "x25519-hkdf-sha256-aes-256-gcm-v1";
 
@@ -22,6 +22,7 @@ export const BRIDGE_FEATURE_DEFLATE = "envelope-deflate";
 export const BRIDGE_FEATURE_BINARY_FILE = "binary-file-lane";
 export const BRIDGE_FEATURE_BINARY_UPLOAD = "binary-upload";
 export const BRIDGE_FEATURE_LOCAL_CHAT_PUSH = "localchat-push";
+export const MAX_BRIDGE_ENVELOPE_PLAINTEXT_BYTES = 16 * 1024 * 1024;
 
 /** Features this phone build supports receiving, sent on every request. */
 export const MOBILE_SUPPORTED_BRIDGE_FEATURES = [
@@ -205,6 +206,32 @@ export const getSessionReplayGuard = (
   return session.rx;
 };
 
+const inflateBridgeEnvelope = (input: Uint8Array): Uint8Array => {
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const inflate = new Inflate((chunk) => {
+    total += chunk.length;
+    if (total > MAX_BRIDGE_ENVELOPE_PLAINTEXT_BYTES) {
+      throw new Error("Bridge envelope exceeds decompression limit");
+    }
+    chunks.push(chunk);
+  });
+  // Feed bounded input chunks so fflate emits incrementally instead of
+  // materializing the complete inflated replay before the limit is checked.
+  const inputChunkBytes = 64 * 1024;
+  for (let offset = 0; offset < input.length; offset += inputChunkBytes) {
+    const end = Math.min(input.length, offset + inputChunkBytes);
+    inflate.push(input.subarray(offset, end), end === input.length);
+  }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return output;
+};
+
 // ── JSON envelope lane ──────────────────────────────────────────────────
 
 const envelopeAad = (
@@ -274,7 +301,7 @@ export const decryptBridgePayloadCore = (
   ).decrypt(base64UrlToBytes(envelope.ct));
   // Only trust the compression flag after authenticated decryption succeeded.
   replayGuard?.check(envelope.seq);
-  const json = envelope.z === 1 ? inflateSync(plaintext) : plaintext;
+  const json = envelope.z === 1 ? inflateBridgeEnvelope(plaintext) : plaintext;
   return JSON.parse(bytesToUtf8(json)) as unknown;
 };
 

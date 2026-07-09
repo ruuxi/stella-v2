@@ -18,6 +18,7 @@ import {
 import { updateStellaWidget } from "../../src/lib/home-widget";
 import { tapLight, notifySuccess, notifyError } from "../../src/lib/haptics";
 import { useChatThread } from "../../src/lib/use-chat-thread";
+import { shouldRunDesktopForegroundTimer } from "../../src/lib/desktop-sync-policy";
 import { useIsOffline } from "../../src/lib/use-network-status";
 import {
   useTopBarStatus,
@@ -169,6 +170,12 @@ function ComputerChatSurface({
     [access],
   );
   const thread = useChatThread({ threadId: "computer", transport });
+  const isFocused = useIsFocused();
+  const [appActive, setAppActive] = useState(
+    () =>
+      AppState.currentState !== "background" &&
+      AppState.currentState !== "inactive",
+  );
 
   const [deviceSheetOpen, setDeviceSheetOpen] = useState(false);
   const [activityHubOpen, setActivityHubOpen] = useState(false);
@@ -227,6 +234,9 @@ function ComputerChatSurface({
   }, [livePushConnected]);
 
   useEffect(() => {
+    if (!shouldRunDesktopForegroundTimer({ focused: isFocused, appActive })) {
+      return;
+    }
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -254,7 +264,7 @@ function ComputerChatSurface({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [checkStatus, access.desktopDeviceId]);
+  }, [appActive, checkStatus, access.desktopDeviceId, isFocused]);
 
   const connection: DesktopConnection =
     status.checking || waking
@@ -294,7 +304,6 @@ function ComputerChatSurface({
   // remains for an explicit retry. Gated on focus and a settled offline read so
   // we don't wake a computer the user isn't even looking at, or when the phone
   // has no connectivity to deliver the request.
-  const isFocused = useIsFocused();
   const autoWokeRef = useRef(false);
   useEffect(() => {
     // Re-arm whenever the user leaves the tab or the desktop comes online, so a
@@ -336,6 +345,7 @@ function ComputerChatSurface({
   }, [offline, waking, isFocused]);
 
   const lastResumeRef = useRef(0);
+  const skipNextAvailabilityCatchUpRef = useRef(false);
   const reconnectOrSync = useCallback(async () => {
     // Only act when this paired-desktop surface is the one the user is on, so
     // we never wake a computer the user isn't looking at.
@@ -344,26 +354,35 @@ function ComputerChatSurface({
     const now = Date.now();
     if (now - lastResumeRef.current < RESUME_DEBOUNCE_MS) return;
     lastResumeRef.current = now;
-    // Re-check now instead of waiting on the throttled poll, then act on the
-    // fresh read using the existing connection-status signal.
-    const available = await checkStatus(access.desktopDeviceId);
-    if (available) {
-      // Connected: catch-up pull (full window — the phone may have been away
-      // arbitrarily long, and a delta off a poisoned cursor would silently
-      // no-op). Coalesced, so syncs never stack.
-      void runDesktopSync({ catchUp: true, trigger: "resume" });
+    // The bridge sync is authoritative and already performs bounded wake /
+    // rediscovery. Starting it directly avoids a serialized backend status
+    // lookup before every foreground catch-up.
+    const outcome = await runDesktopSync({ catchUp: true, trigger: "resume" });
+    if (!outcome.offline && !outcome.error) {
+      skipNextAvailabilityCatchUpRef.current = status.available === false;
+      setStatus((previous) => ({
+        ...previous,
+        checking: false,
+        available: true,
+      }));
+      updateStellaWidget({
+        paired: true,
+        online: true,
+        ...(status.platform ? { platform: status.platform } : {}),
+      });
+      setWaking(false);
       return;
     }
-    // Disconnected: re-attempt the same wake handshake, guarded by the shared
-    // autoWokeRef so we don't spam the handshake or stack a second attempt.
-    // The catch-up pull itself runs when availability flips back to true (the
-    // reconnect effect below) — a wake with no follow-up sync left the
-    // transcript stale forever.
+    setStatus((previous) => ({
+      ...previous,
+      checking: false,
+      available: false,
+    }));
     if (!offlineRef.current && !wakingRef.current && !autoWokeRef.current) {
       autoWokeRef.current = true;
       triggerWake();
     }
-  }, [checkStatus, access.desktopDeviceId, runDesktopSync, triggerWake]);
+  }, [runDesktopSync, status.available, status.platform, triggerWake]);
 
   // Reconnection invariant: whenever the desktop transitions from unavailable
   // to available while this surface is mounted — wake handshake landing,
@@ -376,6 +395,10 @@ function ComputerChatSurface({
     const was = wasAvailableRef.current;
     wasAvailableRef.current = status.available;
     if (status.available === true && was === false) {
+      if (skipNextAvailabilityCatchUpRef.current) {
+        skipNextAvailabilityCatchUpRef.current = false;
+        return;
+      }
       void runDesktopSync({ catchUp: true, trigger: "reconnect" });
     }
   }, [status.available, runDesktopSync]);
@@ -389,7 +412,9 @@ function ComputerChatSurface({
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
-      if (next === "active") void reconnectOrSyncRef.current();
+      const active = next === "active" || next === "unknown";
+      setAppActive(active);
+      if (active) void reconnectOrSyncRef.current();
     });
     return () => sub.remove();
   }, []);

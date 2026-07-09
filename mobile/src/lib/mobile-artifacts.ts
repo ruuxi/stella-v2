@@ -106,6 +106,9 @@ export const isMobileDisplayPayload = (
         isFiniteNumber(value.total) &&
         isFiniteNumber(value.completed) &&
         isFiniteNumber(value.createdAt) &&
+        (value.agentIds === undefined ||
+          (Array.isArray(value.agentIds) &&
+            value.agentIds.every((id) => isString(id) && id.length > 0))) &&
         // Per-agent file sections are optional (older desktops omit them)
         // but must be structurally sound when present.
         (value.agents === undefined ||
@@ -318,7 +321,9 @@ export const artifactSubtitle = (payload: MobileDisplayPayload): string => {
             : `${Math.floor(minutes / 60)} hr${minutes % 60 > 0 ? ` ${minutes % 60} min` : ""}`;
         return `Route · ${km >= 100 ? Math.round(km) : km.toFixed(1)} km · ${duration}`;
       }
-      return payload.markers.length === 1 ? "Map · 1 place" : `Map · ${payload.markers.length} places`;
+      return payload.markers.length === 1
+        ? "Map · 1 place"
+        : `Map · ${payload.markers.length} places`;
   }
 };
 

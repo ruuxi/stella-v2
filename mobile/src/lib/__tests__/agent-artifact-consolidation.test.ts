@@ -17,10 +17,11 @@ import {
 } from "../agent-artifact-consolidation";
 import { isMobileDisplayPayload } from "../mobile-artifacts";
 
-const artifact = (
-  id: string,
-  payload: MobileDisplayPayload,
-): ChatArtifact => ({ id, conversationId: "conv", payload });
+const artifact = (id: string, payload: MobileDisplayPayload): ChatArtifact => ({
+  id,
+  conversationId: "conv",
+  payload,
+});
 
 const markdown = (id: string, filePath: string): ChatArtifact =>
   artifact(id, { kind: "markdown", filePath, createdAt: 1 });
@@ -50,7 +51,9 @@ const mapRoute = (id: string): ChatArtifact =>
 
 describe("isNoiseProducedPath", () => {
   test("flags hidden dirs, caches, and scratch extensions", () => {
-    expect(isNoiseProducedPath("/home/u/.brave-profile/Local State")).toBe(true);
+    expect(isNoiseProducedPath("/home/u/.brave-profile/Local State")).toBe(
+      true,
+    );
     expect(isNoiseProducedPath("/repo/node_modules/pkg/readme.md")).toBe(true);
     expect(isNoiseProducedPath("/proj/__pycache__/mod.pyc")).toBe(true);
     expect(isNoiseProducedPath("/tmp/run/build.log")).toBe(true);
@@ -59,14 +62,18 @@ describe("isNoiseProducedPath", () => {
   });
 
   test("keeps real deliverables — including under ~/.stella/outputs", () => {
-    expect(isNoiseProducedPath("/Users/u/.stella/outputs/report.pdf")).toBe(false);
+    expect(isNoiseProducedPath("/Users/u/.stella/outputs/report.pdf")).toBe(
+      false,
+    );
     expect(isNoiseProducedPath("/Users/u/Documents/notes.md")).toBe(false);
   });
 });
 
 describe("isDeclaredOutputPath", () => {
   test("matches the declared outputs home (prod and dev)", () => {
-    expect(isDeclaredOutputPath("/Users/u/.stella/outputs/report.html")).toBe(true);
+    expect(isDeclaredOutputPath("/Users/u/.stella/outputs/report.html")).toBe(
+      true,
+    );
     expect(isDeclaredOutputPath("/dev/state/outputs/plan.md")).toBe(true);
     expect(isDeclaredOutputPath("/Users/u/Documents/report.html")).toBe(false);
   });
@@ -140,10 +147,7 @@ describe("consolidateRowArtifacts", () => {
     const work = agentWork("agent-work:a1", "done");
     const scratch = markdown("scratch", "/repo/worktree/notes.md");
     const noise = markdown("noise", "/home/u/.brave-profile/state.md");
-    const deliverable = markdown(
-      "out",
-      "/Users/u/.stella/outputs/report.md",
-    );
+    const deliverable = markdown("out", "/Users/u/.stella/outputs/report.md");
     const result = consolidateRowArtifacts([scratch, noise, deliverable, work]);
     expect(result.agentFiles.map((x) => x.id)).toEqual(["out", "scratch"]);
   });
@@ -218,9 +222,7 @@ describe("inlineAgentWorkCardSections", () => {
   const sectionFor = (agentId: string): MobileAgentWorkFileSection => ({
     agentId,
     title: "Write the report",
-    files: [
-      { kind: "pdf", filePath: "/Users/u/.stella/outputs/report.pdf" },
-    ],
+    files: [{ kind: "pdf", filePath: "/Users/u/.stella/outputs/report.pdf" }],
   });
   const work = (state: "running" | "done") => {
     const raw = agentWork("agent-work:a1", state, [sectionFor("a1")]);
@@ -262,6 +264,7 @@ describe("agent-work payload validation with per-agent sections", () => {
     expect(
       isMobileDisplayPayload({
         ...base,
+        agentIds: ["a1"],
         agents: [
           {
             agentId: "a1",
@@ -281,6 +284,7 @@ describe("agent-work payload validation with per-agent sections", () => {
       }),
     ).toBe(false);
     expect(isMobileDisplayPayload({ ...base, agents: "nope" })).toBe(false);
+    expect(isMobileDisplayPayload({ ...base, agentIds: [""] })).toBe(false);
   });
 });
 
@@ -330,7 +334,9 @@ describe("settledAgentWorkCards", () => {
       ]),
     );
     expect(cards).toHaveLength(2);
-    expect(cards.map((card) => card.key)).toEqual(["grp:a1", "grp:a2"]);
+    // The first completion retains the running aggregate's mounted identity;
+    // only the additional completion enters as a new sibling card.
+    expect(cards.map((card) => card.key)).toEqual(["grp", "grp:a2"]);
     for (const card of cards) {
       expect(card.payload.state).toBe("done");
       expect(card.payload.total).toBe(1);

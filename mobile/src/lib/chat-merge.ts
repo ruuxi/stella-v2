@@ -1,69 +1,79 @@
-import type { ChatMessage } from "../types";
+import type { ChatArtifact, ChatMessage } from "../types";
 import { isStandInArtifactRow } from "./message-row-identity";
 
+type CanonicalOrder = { stamp: number; tie: string };
+
+const canonicalOrderOf = (message: ChatMessage): CanonicalOrder | null => {
+  const stamp = message.canonicalCreatedAt;
+  return typeof stamp === "number" && Number.isFinite(stamp)
+    ? { stamp, tie: message.canonicalId ?? message.id }
+    : null;
+};
+
+const compareCanonicalOrder = (
+  a: CanonicalOrder,
+  b: CanonicalOrder,
+): number => {
+  if (a.stamp !== b.stamp) return a.stamp - b.stamp;
+  if (a.tie === b.tie) return 0;
+  return a.tie < b.tie ? -1 : 1;
+};
+
 /**
- * Order the transcript by the desktop's canonical clock so it converges to
- * the desktop's own ordering after any sync.
+ * Insert rows the phone has never rendered into their canonical desktop slots
+ * without re-sorting rows already on screen.
  *
- * Canonical rows — anything stamped with `canonicalCreatedAt` at merge/link
- * time — sort by that desktop-clock key, the same (timestamp, id) order the
- * desktop transcript and its sync cursor use. Rows with no canonical
- * identity yet (in-flight optimistic turns, offline error bubbles, rows
- * persisted by older builds) inherit the previous row's key, staying glued
- * to their current neighbours in their current relative order.
- *
- * Local `createdAt` (phone clock) deliberately does NOT participate: the
- * phone and desktop clocks can disagree by minutes, and comparing a
- * phone-anchored turn against a desktop-stamped row is exactly what filed an
- * older desktop reply BELOW a newer phone-sent exchange (the build-97
- * ordering bug).
- *
- * Canonical rows sharing a stamp tie-break by canonical id (`canonicalId` ??
- * `id`) — mirroring the desktop cursor's (timestamp, id) order — so two
- * same-millisecond rows converge identically no matter which delta delivered
- * them first; delivery order alone would diverge from the desktop. Unstamped
- * rows keep pure positional stability: they travel with their anchor and
- * never enter id comparisons (mixing an id tie-break with an index tie-break
- * in one comparator would break strict weak ordering). A transcript that is
- * already converged never moves.
+ * The old global sort re-keyed an optimistic row when reconciliation supplied
+ * its desktop timestamp. That let a card/message which was already visible
+ * move on completion, on the next turn, or during a full reconnect replay.
+ * Existing array order is now the durable insertion sequence: updates may add
+ * canonical identity, but never alter that sequence. Only genuinely new rows
+ * are ordered, using the desktop cursor's immutable `(timestamp, id)` tuple;
+ * same-stamp ties therefore converge deterministically on a fresh hydration.
+ * Unstamped existing rows remain attached to their current neighbours.
  */
-const sortCanonically = (messages: ChatMessage[]): ChatMessage[] => {
-  type Anchor = {
-    message: ChatMessage;
-    index: number;
-    key: number;
-    /** Canonical tie key mirroring the desktop cursor's id component. */
-    tie: string;
-    /** Unstamped rows glued behind this anchor, in their original order. */
-    trailers: ChatMessage[];
-  };
-  // Rows with no preceding canonical anchor stay at the head, as-is.
-  const headTrailers: ChatMessage[] = [];
-  const anchors: Anchor[] = [];
-  messages.forEach((message, index) => {
-    const stamp = message.canonicalCreatedAt;
-    if (typeof stamp === "number" && Number.isFinite(stamp)) {
-      anchors.push({
-        message,
-        index,
-        key: stamp,
-        tie: message.canonicalId ?? message.id,
-        trailers: [],
-      });
-    } else {
-      const anchor = anchors[anchors.length - 1];
-      (anchor ? anchor.trailers : headTrailers).push(message);
+const insertNewRowsCanonically = (
+  current: ChatMessage[],
+  unseen: ChatMessage[],
+): ChatMessage[] => {
+  if (unseen.length === 0) return current;
+  const indexed = unseen.map((message, index) => ({
+    message,
+    index,
+    order: canonicalOrderOf(message),
+  }));
+  // Bridge rows all carry canonical stamps. If a legacy/locally-created row
+  // does not, keep the batch's insertion order rather than mixing two
+  // incomparable order domains in one comparator.
+  const ordered = indexed.every((entry) => entry.order)
+    ? [...indexed].sort(
+        (a, b) =>
+          compareCanonicalOrder(a.order!, b.order!) || a.index - b.index,
+      )
+    : indexed;
+  const out = [...current];
+  let afterPreviousInsert = 0;
+  for (const entry of ordered) {
+    if (!entry.order) {
+      out.push(entry.message);
+      afterPreviousInsert = out.length;
+      continue;
     }
-  });
-  anchors.sort((a, b) => {
-    if (a.key !== b.key) return a.key - b.key;
-    if (a.tie !== b.tie) return a.tie < b.tie ? -1 : 1;
-    return a.index - b.index;
-  });
-  return [
-    ...headTrailers,
-    ...anchors.flatMap((anchor) => [anchor.message, ...anchor.trailers]),
-  ];
+    let insertAt = out.length;
+    for (let index = afterPreviousInsert; index < out.length; index += 1) {
+      const existingOrder = canonicalOrderOf(out[index]);
+      if (
+        existingOrder &&
+        compareCanonicalOrder(existingOrder, entry.order) > 0
+      ) {
+        insertAt = index;
+        break;
+      }
+    }
+    out.splice(insertAt, 0, entry.message);
+    afterPreviousInsert = insertAt + 1;
+  }
+  return out;
 };
 
 /**
@@ -73,6 +83,181 @@ const sortCanonically = (messages: ChatMessage[]): ChatMessage[] => {
  */
 const canonicalStampOf = (canonical: ChatMessage): number | undefined =>
   canonical.canonicalCreatedAt ?? canonical.createdAt;
+
+const jsonValueEqual = (a: unknown, b: unknown): boolean => {
+  if (Object.is(a, b)) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((value, index) => jsonValueEqual(value, b[index]))
+    );
+  }
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") {
+    return false;
+  }
+  const aRecord = a as Record<string, unknown>;
+  const bRecord = b as Record<string, unknown>;
+  const aKeys = Object.keys(aRecord);
+  const bKeys = Object.keys(bRecord);
+  return (
+    aKeys.length === bKeys.length &&
+    aKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(bRecord, key) &&
+        jsonValueEqual(aRecord[key], bRecord[key]),
+    )
+  );
+};
+
+const agentIdsOf = (artifact: ChatArtifact): Set<string> | null => {
+  if (artifact.payload.kind !== "agent-work") return null;
+  const explicit = artifact.payload.agentIds
+    ?.map((value) => value.trim())
+    .filter(Boolean);
+  const fromId = artifact.id.startsWith("agent-work:")
+    ? artifact.id
+        .slice("agent-work:".length)
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    : [];
+  const ids = explicit?.length ? explicit : fromId;
+  return ids.length > 0 ? new Set(ids) : null;
+};
+
+const isSubset = (candidate: Set<string>, target: Set<string>): boolean => {
+  for (const value of candidate) {
+    if (!target.has(value)) return false;
+  }
+  return true;
+};
+
+/** Keep card identity/order stable and never make an already-visible artifact
+ * disappear because an intermediate projection omitted it. Same-id payloads
+ * (running -> done) update in place; genuinely new artifacts append. */
+const mergeArtifacts = (
+  existing: ChatMessage["artifacts"],
+  incoming: ChatMessage["artifacts"],
+): ChatMessage["artifacts"] => {
+  if (!existing?.length) return incoming;
+  if (!incoming?.length) return existing;
+  let base = existing;
+  let updates = incoming;
+  const incomingAgent = incoming.find((artifact) => agentIdsOf(artifact));
+  const incomingAgentIds = incomingAgent ? agentIdsOf(incomingAgent) : null;
+  if (incomingAgent && incomingAgentIds) {
+    const existingAgents = existing
+      .map((artifact) => ({ artifact, ids: agentIdsOf(artifact) }))
+      .filter((entry): entry is { artifact: ChatArtifact; ids: Set<string> } =>
+        Boolean(entry.ids),
+      );
+    const covering = existingAgents.find(
+      (entry) =>
+        isSubset(incomingAgentIds, entry.ids) &&
+        entry.ids.size > incomingAgentIds.size,
+    );
+    if (covering) {
+      // Do not let a stale single-agent replay downgrade an aggregate already
+      // visible on the row.
+      updates = incoming.filter((artifact) => artifact !== incomingAgent);
+    } else {
+      const covered = existingAgents.filter((entry) =>
+        isSubset(entry.ids, incomingAgentIds),
+      );
+      if (covered.length > 0) {
+        const stable = covered[0]!.artifact;
+        const removed = new Set(
+          covered.slice(1).map((entry) => entry.artifact.id),
+        );
+        base =
+          removed.size > 0
+            ? existing.filter((artifact) => !removed.has(artifact.id))
+            : existing;
+        updates = incoming.map((artifact) =>
+          artifact === incomingAgent
+            ? { ...artifact, id: stable.id }
+            : artifact,
+        );
+      }
+    }
+  }
+  const incomingById = new Map(
+    updates.map((artifact) => [artifact.id, artifact]),
+  );
+  let changed = false;
+  const next = base.map((artifact) => {
+    const update = incomingById.get(artifact.id);
+    if (!update) return artifact;
+    incomingById.delete(artifact.id);
+    if (jsonValueEqual(artifact, update)) return artifact;
+    changed = true;
+    return update;
+  });
+  for (const artifact of updates) {
+    if (!incomingById.has(artifact.id)) continue;
+    incomingById.delete(artifact.id);
+    next.push(artifact);
+    changed = true;
+  }
+  return changed || base !== existing ? next : existing;
+};
+
+const reuseEqualMessage = (
+  existing: ChatMessage,
+  candidate: ChatMessage,
+): ChatMessage => {
+  const next = { ...candidate } as ChatMessage;
+  for (const key of ["toolSteps", "tasks", "thumbnailUris"] as const) {
+    if (
+      jsonValueEqual(existing[key], candidate[key]) &&
+      (Object.prototype.hasOwnProperty.call(existing, key) ||
+        Object.prototype.hasOwnProperty.call(candidate, key))
+    ) {
+      (next as unknown as Record<string, unknown>)[key] = existing[key];
+    }
+  }
+  const existingRecord = existing as unknown as Record<string, unknown>;
+  const nextRecord = next as unknown as Record<string, unknown>;
+  const existingKeys = Object.keys(existingRecord);
+  const nextKeys = Object.keys(nextRecord);
+  return existingKeys.length === nextKeys.length &&
+    existingKeys.every((key) => Object.is(existingRecord[key], nextRecord[key]))
+    ? existing
+    : next;
+};
+
+const mergeCanonicalMessage = (
+  existing: ChatMessage,
+  canonical: ChatMessage,
+): ChatMessage => {
+  const canonicalCreatedAt =
+    existing.canonicalCreatedAt ?? canonicalStampOf(canonical);
+  const artifacts = mergeArtifacts(existing.artifacts, canonical.artifacts);
+  const candidate: ChatMessage = {
+    ...canonical,
+    id: existing.id,
+    // A direct canonical replay needs no second identity field. Linked local
+    // rows retain their local list key and adopt the desktop id exactly once.
+    ...(existing.id !== canonical.id || existing.canonicalId
+      ? { canonicalId: canonical.id }
+      : {}),
+    createdAt: existing.createdAt ?? canonical.createdAt,
+    ...(canonicalCreatedAt !== undefined ? { canonicalCreatedAt } : {}),
+    ...(existing.requestId && !canonical.requestId
+      ? { requestId: existing.requestId }
+      : {}),
+    ...(artifacts?.length ? { artifacts } : {}),
+    ...(existing.thumbnailUris?.length && !canonical.thumbnailUris?.length
+      ? { thumbnailUris: existing.thumbnailUris, hasImage: true }
+      : {}),
+  };
+  return reuseEqualMessage(existing, candidate);
+};
+
+const sameMessageSequence = (a: ChatMessage[], b: ChatMessage[]): boolean =>
+  a.length === b.length && a.every((message, index) => message === b[index]);
 
 /**
  * Collapse "linked row + unlinked twin" duplicates: the transcript holds a
@@ -133,9 +318,7 @@ export const collapseLinkedDuplicates = (
         out.push({
           ...message,
           ...(adoptArtifacts ? { artifacts: twin.artifacts } : {}),
-          ...(twinStamp !== undefined
-            ? { canonicalCreatedAt: twinStamp }
-            : {}),
+          ...(twinStamp !== undefined ? { canonicalCreatedAt: twinStamp } : {}),
         });
         continue;
       }
@@ -166,10 +349,9 @@ export const collapseLinkedDuplicates = (
  * unlinked twin (`id: X`) — e.g. a poll merged the canonical row before the
  * turn's reconcile linked the bubble — the twin collapses into the linked row
  * so re-delivered canonical rows (task anchors re-emit them) heal the
- * duplicate instead of keeping it. The result is ordered by the desktop's
- * canonical clock (see {@link sortCanonically}) so freshly-synced rows slot
- * into the desktop's sequence instead of at the tail — or, worse, into a
- * cross-clock position.
+ * duplicate instead of keeping it. Existing rows keep their exact order;
+ * freshly-seen rows alone slot into the desktop's canonical sequence (see
+ * {@link insertNewRowsCanonically}).
  */
 export const mergeMessagesById = (
   current: ChatMessage[],
@@ -179,15 +361,17 @@ export const mergeMessagesById = (
   // post-turn reconcile's delta often no longer contains the canonical row a
   // mid-send pull already consumed (see `collapseLinkedDuplicates`).
   if (incoming.length === 0) return collapseLinkedDuplicates(current);
-  const byId = new Map(current.map((message) => [message.id, message]));
-  const order = current.map((message) => message.id);
+  const healedCurrent = collapseLinkedDuplicates(current);
+  const byId = new Map(healedCurrent.map((message) => [message.id, message]));
+  const order = healedCurrent.map((message) => message.id);
+  const unseenIds: string[] = [];
   // Lookup indexes over `current` (which the loop below never mutates),
   // built once so the merge is O(current + incoming) instead of a linear
   // scan per incoming row. Each keeps `.find`'s first-match semantics.
   const linkedByCanonicalId = new Map<string, ChatMessage>();
   const directById = new Map<string, ChatMessage>();
   const assistantsByRequestId = new Map<string, ChatMessage[]>();
-  for (const candidate of current) {
+  for (const candidate of healedCurrent) {
     if (
       candidate.canonicalId !== undefined &&
       !linkedByCanonicalId.has(candidate.canonicalId)
@@ -236,43 +420,32 @@ export const mergeMessagesById = (
     const id = existing?.id ?? message.id;
     if (!byId.has(id)) {
       order.push(id);
+      unseenIds.push(id);
     }
-    const canonicalCreatedAt = canonicalStampOf(message);
     byId.set(
       id,
       existing
-        ? {
-            ...message,
-            id,
-            canonicalId: message.id,
-            // Keep the timestamp the row was first shown with as the local
-            // display anchor; ordering runs on the canonical stamp below, so
-            // the two clocks never get compared against each other.
-            createdAt: existing.createdAt ?? message.createdAt,
-            // Desktop-clock ordering key (see sortCanonically).
-            ...(canonicalCreatedAt !== undefined
-              ? { canonicalCreatedAt }
-              : existing.canonicalCreatedAt !== undefined
-                ? { canonicalCreatedAt: existing.canonicalCreatedAt }
-                : {}),
-            // The canonical desktop row drops attachment thumbnails — keep any
-            // the local bubble already has so it doesn't lose its images.
-            ...(existing.thumbnailUris?.length && !message.thumbnailUris?.length
-              ? { thumbnailUris: existing.thumbnailUris, hasImage: true }
-              : {}),
-          }
+        ? mergeCanonicalMessage(existing, message)
         : {
             ...message,
-            ...(canonicalCreatedAt !== undefined
-              ? { canonicalCreatedAt }
+            ...(canonicalStampOf(message) !== undefined
+              ? { canonicalCreatedAt: canonicalStampOf(message) }
               : {}),
           },
     );
   }
-  const merged = order
+  const retainedIds = new Set(unseenIds);
+  const retained = order
+    .filter((id) => !retainedIds.has(id))
     .map((id) => byId.get(id))
     .filter((message): message is ChatMessage => Boolean(message));
-  return sortCanonically(collapseLinkedDuplicates(merged));
+  const unseen = unseenIds
+    .map((id) => byId.get(id))
+    .filter((message): message is ChatMessage => Boolean(message));
+  const merged = collapseLinkedDuplicates(
+    insertNewRowsCanonically(retained, unseen),
+  );
+  return sameMessageSequence(current, merged) ? current : merged;
 };
 
 /**
@@ -364,8 +537,7 @@ export const reconcileSentDesktopTurn = ({
     ) ??
     canonicalMessages.find((message) => message.role === "user");
   const assistantCandidates = canonicalMessages.filter(
-    (message) =>
-      message.role === "assistant" && !isStandInArtifactRow(message),
+    (message) => message.role === "assistant" && !isStandInArtifactRow(message),
   );
   const canonicalAssistant =
     (canonicalUserMessageId
@@ -377,34 +549,27 @@ export const reconcileSentDesktopTurn = ({
   const next = current.map((message) => {
     if (message.id === userMessageId && canonicalUser) {
       consumed.add(canonicalUser.id);
-      const canonicalCreatedAt = canonicalStampOf(canonicalUser);
-      return {
-        ...canonicalUser,
-        id: message.id,
-        canonicalId: canonicalUser.id,
-        // Anchor the DISPLAY time to the optimistic send; ordering uses the
-        // canonical desktop stamp so the turn converges to the desktop's
-        // sequence without the two clocks ever being compared.
-        createdAt: message.createdAt ?? canonicalUser.createdAt,
-        ...(canonicalCreatedAt !== undefined ? { canonicalCreatedAt } : {}),
-        // The canonical desktop row drops attachment thumbnails — keep the
-        // ones the user just attached so the bubble doesn't lose its images.
-        ...(message.thumbnailUris?.length
-          ? { thumbnailUris: message.thumbnailUris, hasImage: true }
-          : {}),
-      };
+      return mergeCanonicalMessage(
+        {
+          ...message,
+          canonicalId: canonicalUser.id,
+        },
+        {
+          ...canonicalUser,
+          // The canonical desktop row drops attachment thumbnails — keep the
+          // ones the user just attached so the bubble doesn't lose its images.
+          ...(message.thumbnailUris?.length
+            ? { thumbnailUris: message.thumbnailUris, hasImage: true }
+            : {}),
+        },
+      );
     }
     if (message.id === replyId && canonicalAssistant) {
       consumed.add(canonicalAssistant.id);
-      const canonicalCreatedAt = canonicalStampOf(canonicalAssistant);
-      return {
-        ...canonicalAssistant,
-        id: message.id,
-        canonicalId: canonicalAssistant.id,
-        // Keep the reply's display time where it streamed in; see above.
-        createdAt: message.createdAt ?? canonicalAssistant.createdAt,
-        ...(canonicalCreatedAt !== undefined ? { canonicalCreatedAt } : {}),
-      };
+      return mergeCanonicalMessage(
+        { ...message, canonicalId: canonicalAssistant.id },
+        canonicalAssistant,
+      );
     }
     return message;
   });

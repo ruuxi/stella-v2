@@ -210,8 +210,11 @@ export const settledAgentWorkCards = (
   if (!sections || sections.length <= 1) {
     return [{ key: artifact.id, payload: artifact.payload, sections: [] }];
   }
-  return sections.map((section) => ({
-    key: section.key,
+  return sections.map((section, index) => ({
+    // The running aggregate already rendered with `artifact.id`. Keep that
+    // key for the first completion card so settling updates the mounted card
+    // in place; only additional per-agent completions enter as new siblings.
+    key: index === 0 ? artifact.id : section.key,
     payload: {
       ...artifact.payload,
       total: 1,

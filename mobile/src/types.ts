@@ -117,6 +117,9 @@ export type MobileDisplayPayload =
        */
       kind: "agent-work";
       state: "running" | "done";
+      /** Spawn-order membership for stable aggregate reconciliation. Optional
+       * because older desktop bridges only encoded membership in the id. */
+      agentIds?: string[];
       total: number;
       completed: number;
       title: string;
@@ -176,14 +179,14 @@ export type ChatMessage = {
    */
   createdAt?: number;
   /**
-   * Desktop-clock timestamp of the canonical desktop row this message is (or
-   * reconciled to). The desktop transcript — and its sync cursor — order by
-   * this clock, so it is the ordering key among canonical rows; `createdAt`
-   * stays the locally-anchored display stamp. Comparing phone-clock anchors
-   * directly against desktop stamps filed an older desktop reply below a
-   * newer phone-sent exchange (the build-97 ordering bug). Absent on rows
-   * with no canonical identity yet (in-flight optimistic turns, offline
-   * error bubbles) and on rows persisted by older builds.
+   * First-seen desktop timestamp for the canonical row this message is (or
+   * reconciled to). It positions genuinely new sync rows against canonical
+   * neighbours, then stays immutable: once a row is visible, replay,
+   * reconciliation, and card-state updates preserve the array's insertion
+   * order instead of globally re-sorting it. `createdAt` remains the local
+   * display stamp. Absent on rows with no canonical identity yet (in-flight
+   * optimistic turns, offline error bubbles) and on rows persisted by older
+   * builds.
    */
   canonicalCreatedAt?: number;
   role: "assistant" | "user";

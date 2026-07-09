@@ -7,7 +7,11 @@ import {
   reconcileSentDesktopTurn,
 } from "../chat-merge";
 
-const user = (id: string, text: string, extra?: Partial<ChatMessage>): ChatMessage => ({
+const user = (
+  id: string,
+  text: string,
+  extra?: Partial<ChatMessage>,
+): ChatMessage => ({
   id,
   role: "user",
   text,
@@ -27,6 +31,26 @@ const assistant = (
 
 const ids = (messages: ChatMessage[]) => messages.map((m) => m.id);
 
+const agentCard = (
+  id: string,
+  state: "running" | "done",
+  createdAt = 100,
+  agentIds?: string[],
+): NonNullable<ChatMessage["artifacts"]>[number] => ({
+  id,
+  conversationId: "conv-1",
+  payload: {
+    kind: "agent-work",
+    state,
+    ...(agentIds ? { agentIds } : {}),
+    total: 1,
+    completed: state === "done" ? 1 : 0,
+    title: "Research the issue",
+    subtitle: state === "done" ? "Finished" : "Working in background",
+    createdAt,
+  },
+});
+
 describe("mergeMessagesById", () => {
   test("matches by canonicalId and keeps the local id and timestamp", () => {
     const current = [
@@ -41,7 +65,10 @@ describe("mergeMessagesById", () => {
 
   test("does not duplicate when the canonical row is re-delivered (task anchors)", () => {
     const current = [
-      user("local-1", "run the task", { canonicalId: "desk-1", createdAt: 100 }),
+      user("local-1", "run the task", {
+        canonicalId: "desk-1",
+        createdAt: 100,
+      }),
       assistant("local-2", "on it", { canonicalId: "desk-2", createdAt: 101 }),
     ];
     const incoming = [
@@ -280,6 +307,241 @@ describe("canonical ordering across clock skew (older desktop row filed below ne
   });
 });
 
+describe("visible agent-card order is immutable", () => {
+  test("a running card first appears by updating its existing message row", () => {
+    const current = mergeMessagesById(
+      [],
+      [
+        user("desk-u1", "start the work", { createdAt: 100 }),
+        assistant("desk-a1", "On it", {
+          requestId: "desk-u1",
+          createdAt: 101,
+        }),
+        user("desk-u2", "anything else?", { createdAt: 200 }),
+        assistant("desk-a2", "No", { requestId: "desk-u2", createdAt: 201 }),
+      ],
+    );
+    const untouchedNextUser = current[2];
+    const merged = mergeMessagesById(current, [
+      assistant("desk-a1", "On it", {
+        requestId: "desk-u1",
+        createdAt: 101,
+        artifacts: [agentCard("agent-work:t1", "running")],
+      }),
+    ]);
+
+    expect(ids(merged)).toEqual(["desk-u1", "desk-a1", "desk-u2", "desk-a2"]);
+    expect(merged[1]?.artifacts?.[0]?.id).toBe("agent-work:t1");
+    expect(merged[2]).toBe(untouchedNextUser);
+  });
+
+  test("card completion updates in place after the next turn without moving it", () => {
+    const current = mergeMessagesById(
+      [],
+      [
+        user("desk-u1", "start the work", { createdAt: 100 }),
+        assistant("desk-a1", "On it", {
+          requestId: "desk-u1",
+          createdAt: 101,
+          artifacts: [agentCard("agent-work:t1", "running")],
+        }),
+        user("desk-u2", "next question", { createdAt: 200 }),
+        assistant("desk-a2", "next answer", {
+          requestId: "desk-u2",
+          createdAt: 201,
+        }),
+      ],
+    );
+    const originalCardId = current[1]?.artifacts?.[0]?.id;
+    const originalNextTurn = current.slice(2);
+
+    // A task projection can be replayed with a normalized/older row timestamp.
+    // That timestamp is metadata for a row already visible, never permission to
+    // move it above its user message or the preceding history.
+    const completed = mergeMessagesById(current, [
+      assistant("desk-a1", "On it", {
+        requestId: "desk-u1",
+        createdAt: 50,
+        artifacts: [agentCard("agent-work:t1", "done")],
+      }),
+    ]);
+
+    expect(ids(completed)).toEqual(ids(current));
+    expect(completed[1]?.id).toBe("desk-a1");
+    expect(completed[1]?.artifacts?.[0]?.id).toBe(originalCardId);
+    expect(completed[1]?.artifacts?.[0]?.payload).toMatchObject({
+      state: "done",
+    });
+    expect(completed[1]?.canonicalCreatedAt).toBe(101);
+    expect(completed.slice(2)).toEqual(originalNextTurn);
+    expect(completed[2]).toBe(originalNextTurn[0]);
+    expect(completed[3]).toBe(originalNextTurn[1]);
+  });
+
+  test("card -> next optimistic message -> next reply keeps the shown sequence", () => {
+    const runningCard = agentCard("agent-work:t1", "running");
+    const current: ChatMessage[] = [
+      ...mergeMessagesById(
+        [],
+        [assistant("desk-history", "Earlier", { createdAt: 100 })],
+      ),
+      user("local-u1", "start research", { createdAt: 1_000 }),
+      assistant("local-a1", "Working", {
+        createdAt: 1_001,
+        requestId: "desk-u1",
+        artifacts: [runningCard],
+      }),
+      user("local-u2", "use the newest data", { createdAt: 1_002 }),
+      assistant("local-a2", "Updated answer", {
+        createdAt: 1_003,
+        requestId: "desk-u2",
+      }),
+    ];
+
+    // Reconcile the card turn after the follow-up is already visible. The
+    // canonical projection intentionally omits the live card and carries an
+    // earlier stamp: neither may remove/reinsert/move what the user saw.
+    const firstReconcile = reconcileSentDesktopTurn({
+      current,
+      userMessageId: "local-u1",
+      replyId: "local-a1",
+      sentText: "start research",
+      canonicalUserMessageId: "desk-u1",
+      canonicalMessages: [
+        user("desk-u1", "start research", { createdAt: 50 }),
+        assistant("desk-a1", "Working", {
+          requestId: "desk-u1",
+          createdAt: 51,
+        }),
+      ],
+    });
+    expect(ids(firstReconcile)).toEqual([
+      "desk-history",
+      "local-u1",
+      "local-a1",
+      "local-u2",
+      "local-a2",
+    ]);
+    expect(firstReconcile[2]?.artifacts?.[0]).toBe(runningCard);
+
+    // The next assistant response reconciles on the same desktop millisecond.
+    // Canonical ids could sort in either lexical direction, but those already
+    // visible rows retain their insertion order and stable local list keys.
+    const secondReconcile = reconcileSentDesktopTurn({
+      current: firstReconcile,
+      userMessageId: "local-u2",
+      replyId: "local-a2",
+      sentText: "use the newest data",
+      canonicalUserMessageId: "desk-u2",
+      canonicalMessages: [
+        user("desk-u2", "use the newest data", { createdAt: 60 }),
+        assistant("desk-a2", "Updated answer", {
+          requestId: "desk-u2",
+          createdAt: 60,
+        }),
+      ],
+    });
+    expect(ids(secondReconcile)).toEqual(ids(firstReconcile));
+    expect(secondReconcile[2]?.artifacts?.[0]?.id).toBe("agent-work:t1");
+  });
+
+  test("full reconnect replay is an identity-stable no-op", () => {
+    const canonical = [
+      user("desk-u1", "start the work", { createdAt: 100 }),
+      assistant("desk-a1", "Done", {
+        requestId: "desk-u1",
+        createdAt: 101,
+        artifacts: [agentCard("agent-work:t1", "done")],
+      }),
+      user("desk-u2", "next", { createdAt: 101 }),
+      assistant("desk-a2", "answer", {
+        requestId: "desk-u2",
+        createdAt: 102,
+      }),
+    ];
+    const current = mergeMessagesById([], canonical);
+    const replay = canonical.map(
+      (message) => JSON.parse(JSON.stringify(message)) as ChatMessage,
+    );
+    const caughtUp = mergeMessagesById(current, replay);
+
+    expect(caughtUp).toBe(current);
+    expect(ids(caughtUp)).toEqual(ids(current));
+    expect(caughtUp[1]?.artifacts).toBe(current[1]?.artifacts);
+  });
+
+  test("same-timestamp rows are deterministic when new, then frozen once shown", () => {
+    const hydrated = mergeMessagesById(
+      [],
+      [
+        assistant("desk-b", "B", { createdAt: 100 }),
+        assistant("desk-a", "A", { createdAt: 100 }),
+      ],
+    );
+    expect(ids(hydrated)).toEqual(["desk-a", "desk-b"]);
+
+    const replayed = mergeMessagesById(hydrated, [
+      assistant("desk-b", "B updated", { createdAt: 99 }),
+      assistant("desk-a", "A updated", { createdAt: 101 }),
+    ]);
+    expect(ids(replayed)).toEqual(["desk-a", "desk-b"]);
+  });
+
+  test("an expanding multi-agent aggregate keeps the first visible card key", () => {
+    const current = mergeMessagesById(
+      [],
+      [
+        assistant("desk-a", "Working", {
+          createdAt: 100,
+          artifacts: [
+            agentCard("agent-work:t1", "running", 100, ["t1"]),
+            agentCard("agent-work:t2", "running", 101, ["t2"]),
+          ],
+        }),
+      ],
+    );
+    const expanded = mergeMessagesById(current, [
+      assistant("desk-a", "Working", {
+        createdAt: 100,
+        artifacts: [agentCard("agent-work:t1", "done", 100, ["t1", "t2"])],
+      }),
+    ]);
+
+    expect(expanded).toHaveLength(1);
+    expect(expanded[0]?.artifacts).toHaveLength(1);
+    expect(expanded[0]?.artifacts?.[0]).toMatchObject({
+      id: "agent-work:t1",
+      payload: { state: "done", agentIds: ["t1", "t2"] },
+    });
+  });
+
+  test("new desktop identity migrates a legacy grouped card without remounting", () => {
+    const current = mergeMessagesById(
+      [],
+      [
+        assistant("desk-a", "Working", {
+          createdAt: 100,
+          artifacts: [
+            agentCard("agent-work:t1,t2", "running", 100, ["t1", "t2"]),
+          ],
+        }),
+      ],
+    );
+    const migrated = mergeMessagesById(current, [
+      assistant("desk-a", "Working", {
+        createdAt: 100,
+        artifacts: [agentCard("agent-work:t1", "done", 100, ["t1", "t2"])],
+      }),
+    ]);
+
+    expect(migrated[0]?.artifacts).toHaveLength(1);
+    expect(migrated[0]?.artifacts?.[0]?.id).toBe("agent-work:t1,t2");
+    expect(migrated[0]?.artifacts?.[0]?.payload).toMatchObject({
+      state: "done",
+    });
+  });
+});
+
 describe("mid-send foreground sync duplicate (user row rendered twice)", () => {
   // Regression: a foreground/refocus/Force-Sync pull that fired MID-SEND
   // merged the turn's canonical user row before the optimistic bubble was
@@ -328,10 +590,7 @@ describe("mid-send foreground sync duplicate (user row rendered twice)", () => {
       assistant("local-a", "hi", { createdAt: 101 }),
       user("desk-u", "hello", { createdAt: 105 }),
     ];
-    expect(ids(mergeMessagesById(current, []))).toEqual([
-      "local-u",
-      "local-a",
-    ]);
+    expect(ids(mergeMessagesById(current, []))).toEqual(["local-u", "local-a"]);
   });
 });
 
@@ -520,9 +779,7 @@ describe("linkOptimisticTurnToCanonical (interrupted/stopped turn)", () => {
       user("local-u", "message A", { createdAt: 100 }),
       assistant("local-a", "", { createdAt: 101, stopped: true }),
     ];
-    const canonicalPull = [
-      user("desk-u", "message A", { createdAt: 100 }),
-    ];
+    const canonicalPull = [user("desk-u", "message A", { createdAt: 100 })];
     // The bug: unlinked bubble + canonical pull duplicates message A.
     expect(
       mergeMessagesById(afterStopUnlinked, canonicalPull).filter(

@@ -972,7 +972,12 @@ function parseTasks(value: unknown): MobileTask[] {
     const id = asString(record.id).trim();
     const title = asString(record.title).trim();
     const status = record.status;
-    if (!id || !title || typeof status !== "string" || !TASK_STATUSES.has(status)) {
+    if (
+      !id ||
+      !title ||
+      typeof status !== "string" ||
+      !TASK_STATUSES.has(status)
+    ) {
       continue;
     }
     const statusText = asString(record.statusText).trim();
@@ -1492,6 +1497,15 @@ export async function sendDesktopBridgeChat({
       .filter(Boolean);
     return agentIds.length > 0 ? new Set(agentIds) : null;
   };
+  const agentIdsOf = (artifact: ChatArtifact): Set<string> | null => {
+    if (artifact.payload.kind !== "agent-work") return null;
+    const explicit = artifact.payload.agentIds
+      ?.map((value) => value.trim())
+      .filter(Boolean);
+    return explicit?.length
+      ? new Set(explicit)
+      : parseAgentWorkArtifactId(artifact.id);
+  };
   const isSubset = (candidate: Set<string>, target: Set<string>) => {
     for (const value of candidate) {
       if (!target.has(value)) return false;
@@ -1500,28 +1514,41 @@ export async function sendDesktopBridgeChat({
   };
   const mergeArtifacts = (artifacts: ChatArtifact[]) => {
     let changed = false;
-    for (const artifact of artifacts) {
-      const nextAgentIds =
-        artifact.payload.kind === "agent-work"
-          ? parseAgentWorkArtifactId(artifact.id)
-          : null;
+    for (const incomingArtifact of artifacts) {
+      let artifact = incomingArtifact;
+      const nextAgentIds = agentIdsOf(artifact);
       if (nextAgentIds) {
-        let coveredByExistingGroup = false;
+        const covered: ChatArtifact[] = [];
+        let coveredByExistingGroup: ChatArtifact | null = null;
         for (const existing of artifactById.values()) {
-          if (existing.id === artifact.id) continue;
-          if (existing.payload.kind !== "agent-work") continue;
-          const existingAgentIds = parseAgentWorkArtifactId(existing.id);
+          const existingAgentIds = agentIdsOf(existing);
           if (!existingAgentIds) continue;
           if (isSubset(nextAgentIds, existingAgentIds)) {
-            coveredByExistingGroup = true;
+            coveredByExistingGroup = existing;
             break;
           }
           if (isSubset(existingAgentIds, nextAgentIds)) {
+            covered.push(existing);
+          }
+        }
+        if (coveredByExistingGroup) {
+          if (
+            JSON.stringify(coveredByExistingGroup.payload) ===
+            JSON.stringify(artifact.payload)
+          ) {
+            continue;
+          }
+          artifact = { ...artifact, id: coveredByExistingGroup.id };
+        } else if (covered.length > 0) {
+          // Preserve the first card that became visible; a later aggregate
+          // projection updates it and removes only the now-covered siblings.
+          const stableId = covered[0]!.id;
+          for (const existing of covered.slice(1)) {
             artifactById.delete(existing.id);
             changed = true;
           }
+          artifact = { ...artifact, id: stableId };
         }
-        if (coveredByExistingGroup) continue;
       }
       const existing = artifactById.get(artifact.id);
       if (
@@ -1644,6 +1671,7 @@ export async function sendDesktopBridgeChat({
             payload: {
               kind: "agent-work",
               state: "running",
+              agentIds: [agentId],
               total: 1,
               completed: 0,
               title,
@@ -1691,9 +1719,8 @@ export async function sendDesktopBridgeChat({
       activityHasToolActivity = true;
       // Resolve the entry this end refers to, tolerant of a missing/renamed
       // id, so a phantom entry can't pin a tool active forever.
-      let key = toolCallId && activeToolCalls.has(toolCallId)
-        ? toolCallId
-        : undefined;
+      let key =
+        toolCallId && activeToolCalls.has(toolCallId) ? toolCallId : undefined;
       if (!key && toolName) {
         for (const [k, v] of activeToolCalls) {
           if (v.toolName === toolName) key = k;

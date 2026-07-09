@@ -5,22 +5,23 @@ This is a small Next.js export tool for Stella marketing assets. It lives at rep
 ## What it does
 
 - Renders live Stella animation icon concepts on HTML for static PNG export
-- Renders six App Store slides as marketing ads, not literal UI docs
-- Uses Stella's real mobile icon assets and repo-derived product copy
+- Renders six App Store slides with deterministic, production-faithful mobile fixtures
+- Uses Stella's current mobile navigation, icon assets, terminology, and product copy
 - Supports `Carbon`, `Midnight`, and `Editorial` visual themes
 - Supports both `iPhone` and `iPad` layouts
-- Exports PNGs at Apple's portrait screenshot sizes
+- Exports PNGs at Apple's 6.5-inch iPhone and 13-inch iPad portrait sizes
 
 ## Assumptions
 
-- No raw mobile screenshot set was present, so the tool generates polished mock UI based on the real mobile flows in `mobile/app/(main)` and `mobile/app/(auth)`.
+- Paired-computer states depend on a live Stella desktop bridge, so the studio uses deterministic safe fixtures modeled on the current production components in `mobile/app/(main)` and `mobile/src/components`.
+- The fixtures show the production narrow top bar and wide sidebar patterns, including the current `Chat`, `Computer`, and `Settings` labels. They do not claim to show live account or backend state.
 - The narrative arc is:
-  1. desktop control on your phone
-  2. everyday chat
-  3. real computer tasks
-  4. quick pairing
-  5. flexible input
-  6. personalization and polish
+  1. personal AI chat
+  2. text and voice input
+  3. paired-computer tasks and activity
+  4. QR or manual-code pairing
+  5. local-first storage with clear AI-processing language
+  6. appearance, notifications, paired computers, and legal settings
 
 ## Run it
 
@@ -42,10 +43,32 @@ Then open `http://localhost:3000`.
 
 ### App Store slides
 
-1. Pick a theme.
-2. Pick `iPhone` or `iPad`.
-3. Pick the target export size.
-4. Use `Export current` or `Export all`.
+For a reviewable production export, run:
+
+```bash
+cd app-store-screenshots
+bunx playwright install chromium # first run only
+NODE_ENV=production bun run build
+NODE_ENV=production bun run start -- -p 3000
+```
+
+In a second terminal:
+
+```bash
+cd app-store-screenshots
+bun run export:store
+```
+
+The export script clears old PNGs from the two target device folders and writes the six approved filenames directly to the ignored local path:
+
+```text
+mobile/store/apple/screenshot/en-US/APP_IPHONE_65/
+mobile/store/apple/screenshot/en-US/APP_IPAD_PRO_3GEN_129/
+```
+
+Set `STELLA_SCREENSHOT_URL` to use a server on another port. Set `STELLA_SCREENSHOT_OUTPUT` to write somewhere other than the default ignored store path.
+
+The interactive studio still supports theme, device, and size selection for previews and one-off exports.
 
 Exports are named with a numeric prefix so they sort correctly in Finder and App Store Connect upload folders.
 

@@ -73,8 +73,8 @@ const IPHONE_CANVAS = { w: 1290, h: 2796 } as const;
 const IPAD_CANVAS = { w: 2064, h: 2752 } as const;
 
 const IPHONE_SIZES: readonly ExportSize[] = [
-  { label: '6.7" (iPhone 15/16 Pro Max)', w: 1290, h: 2796 },
   { label: '6.5" (iPhone 11/XS Max)', w: 1242, h: 2688 },
+  { label: '6.7" (iPhone 15/16 Pro Max)', w: 1290, h: 2796 },
   { label: '5.5" (iPhone 8 Plus)', w: 1242, h: 2208 },
 ];
 
@@ -96,10 +96,10 @@ const IMAGE_PATHS = ["/mockup.png", "/app-icon.png", "/splash-icon.png", "/stell
 const imageCache: Record<string, string> = {};
 
 /** Marketing chrome outside the device frame (badges, floating cards, pills). */
-const MARKETING_FONT_SCALE = 1.22;
-/** Text inside the phone / iPad mock screens only (captions on the slide stay unchanged). */
-const SCREEN_MOCK_FONT_SCALE = 1.48;
-const MOCK_PAD_SCALE = 1.06;
+const MARKETING_FONT_SCALE = 1.08;
+/** Keep fixture type close to the production mobile scale. */
+const SCREEN_MOCK_FONT_SCALE = 1;
+const MOCK_PAD_SCALE = 1;
 
 const THEMES = {
   carbon: {
@@ -119,17 +119,18 @@ const THEMES = {
     card: "rgba(255,255,255,0.86)",
     cardBorder: "rgba(15, 98, 254, 0.10)",
     shadow: "0 32px 80px rgba(15, 23, 42, 0.18)",
-    screenBg: "#f8fbff",
-    screenSurface: "rgba(255,255,255,0.88)",
-    screenPanel: "#e7eef7",
-    screenBorder: "rgba(15, 23, 42, 0.08)",
-    screenText: "#162130",
-    screenTextMuted: "#66758a",
-    screenAccent: "#0f62fe",
-    screenAccentSoft: "#dce7ff",
+    // Mirrors mobile's current default Pearl theme.
+    screenBg: "#ffffff",
+    screenSurface: "#fbfbfb",
+    screenPanel: "#f6f6f6",
+    screenBorder: "#e8e8e8",
+    screenText: "#111111",
+    screenTextMuted: "#737373",
+    screenAccent: "#2563eb",
+    screenAccentSoft: "#dbe7fe",
     screenAccentForeground: "#ffffff",
-    screenSuccess: "#42be65",
-    screenDanger: "#d9485f",
+    screenSuccess: "#16a34a",
+    screenDanger: "#dc2626",
   },
   midnight: {
     name: "Midnight",
@@ -600,25 +601,40 @@ function ScreenShell({
   theme: ThemeTokens;
   device: Device;
   title: string;
-  activeTab: "chat" | "desktop" | "account";
+  activeTab: "chat" | "computer" | "settings";
   children: ReactNode;
 }) {
-  const padding =
-    Math.round((device === "iphone" ? 34 : 46) * MOCK_PAD_SCALE);
-  const textSize =
-    (device === "iphone" ? 24 : 26) * SCREEN_MOCK_FONT_SCALE;
-  const smallSize =
-    (device === "iphone" ? 13 : 16) * SCREEN_MOCK_FONT_SCALE;
+  const padding = Math.round((device === "iphone" ? 30 : 38) * MOCK_PAD_SCALE);
+  const smallSize = (device === "iphone" ? 13 : 15) * SCREEN_MOCK_FONT_SCALE;
+  const tabs = [
+    { key: "chat", label: "Chat", glyph: "●" },
+    { key: "computer", label: "Computer", glyph: "▣" },
+    { key: "settings", label: "Settings", glyph: "⚙" },
+  ] as const;
+
+  const content = (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 0,
+        minHeight: 0,
+        padding,
+        display: "flex",
+        flexDirection: "column",
+        gap: padding * 0.5,
+      }}
+    >
+      {children}
+    </div>
+  );
 
   return (
     <div
       style={{
         width: "100%",
         height: "100%",
-        padding,
         display: "flex",
         flexDirection: "column",
-        gap: padding * 0.55,
         background: `linear-gradient(180deg, ${theme.screenBg} 0%, ${theme.screenPanel} 100%)`,
         color: theme.screenText,
       }}
@@ -628,111 +644,89 @@ function ScreenShell({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          fontFamily: "var(--font-ibm-plex-mono)",
+          fontFamily: "var(--font-manrope)",
           fontSize: smallSize,
           color: theme.screenTextMuted,
-          letterSpacing: 0.8,
+          padding: `${device === "iphone" ? 18 : 22}px ${padding}px 0`,
         }}
       >
         <span>9:41</span>
-        <span>LTE 100%</span>
+        <span>5G&nbsp;&nbsp;100%</span>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-        }}
-      >
-        <div
-          style={{
-            width: device === "iphone" ? 54 : 66,
-            height: device === "iphone" ? 54 : 66,
-            borderRadius: 18,
-            background: theme.screenSurface,
-            display: "grid",
-            placeItems: "center",
-            boxShadow: `0 12px 32px ${theme.screenBorder}`,
-            border: `1px solid ${theme.screenBorder}`,
-          }}
-        >
-          <img
-            src={img("/splash-icon.png")}
-            alt=""
-            draggable={false}
-            style={{ width: "72%", height: "72%" }}
-          />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div
+      {device === "ipad" ? (
+        <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+          <aside
             style={{
-              fontFamily: "var(--font-ibm-plex-mono)",
-              fontSize: smallSize * 0.88,
-              letterSpacing: 1.2,
-              color: theme.screenTextMuted,
+              width: "27%",
+              padding: "34px 20px",
+              borderRight: `1px solid ${theme.screenBorder}`,
+              background: theme.screenSurface,
             }}
           >
-            STELLA
-          </div>
-          <div
-            style={{
-              fontSize: textSize,
-              lineHeight: 1,
-              letterSpacing: -0.8,
-              fontWeight: 700,
-            }}
-          >
-            {title}
-          </div>
-        </div>
-        <Marker
-          color={theme.screenSuccess}
-          size={(device === "iphone" ? 12 : 14) * SCREEN_MOCK_FONT_SCALE}
-        />
-      </div>
-
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: padding * 0.42 }}>
-        {children}
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: 10,
-          padding: 10,
-          borderRadius: 999,
-          background: theme.screenSurface,
-          border: `1px solid ${theme.screenBorder}`,
-          boxShadow: `0 16px 40px ${theme.screenBorder}`,
-        }}
-      >
-        {[
-          { key: "chat", label: "Chat" },
-          { key: "desktop", label: "Desktop" },
-          { key: "account", label: "Account" },
-        ].map((tab) => {
-          const active = tab.key === activeTab;
-          return (
-            <div
-              key={tab.key}
-              style={{
-                padding: "12px 10px",
-                textAlign: "center",
-                borderRadius: 999,
-                background: active ? theme.screenAccentSoft : "transparent",
-                color: active ? theme.screenText : theme.screenTextMuted,
-                fontWeight: active ? 700 : 600,
-                fontSize:
-                  (device === "iphone" ? 14 : 16) * SCREEN_MOCK_FONT_SCALE,
-              }}
-            >
-              {tab.label}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 30 }}>
+              <img
+                src={img("/splash-icon.png")}
+                alt=""
+                draggable={false}
+                style={{ width: 44, height: 44, borderRadius: 12 }}
+              />
+              <span style={{ fontSize: 21, fontWeight: 700 }}>Stella</span>
             </div>
-          );
-        })}
-      </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              {tabs.map((tab) => {
+                const active = tab.key === activeTab;
+                return (
+                  <div
+                    key={tab.key}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      background: active ? theme.screenAccentSoft : "transparent",
+                      color: active ? theme.screenAccent : theme.screenTextMuted,
+                      fontSize: 17,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <span style={{ width: 20, textAlign: "center" }}>{tab.glyph}</span>
+                    {tab.label}
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+          <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+            {content}
+          </main>
+        </div>
+      ) : (
+        <>
+          <div
+            style={{
+              height: 54,
+              padding: "0 18px",
+              display: "grid",
+              gridTemplateColumns: "48px 1fr 48px",
+              alignItems: "center",
+            }}
+          >
+            <span style={{ fontSize: 25, color: theme.screenText }}>☰</span>
+            <span style={{ textAlign: "center", fontSize: 17, fontWeight: 650 }}>{title}</span>
+            <span style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 5 }}>
+              {activeTab === "computer" ? (
+                <>
+                  <span style={{ fontSize: 20 }}>▣</span>
+                  <Marker color={theme.screenSuccess} size={8} />
+                </>
+              ) : null}
+            </span>
+          </div>
+          {content}
+        </>
+      )}
     </div>
   );
 }
@@ -754,16 +748,18 @@ function Bubble({
     <div
       style={{
         alignSelf: align === "right" ? "flex-end" : "flex-start",
-        maxWidth: "78%",
-        padding: device === "iphone" ? "17px 19px" : "19px 24px",
-        borderRadius: 24,
-        background: accent ? theme.screenAccentSoft : theme.screenSurface,
-        color: accent ? theme.screenText : theme.screenText,
-        border: `1px solid ${theme.screenBorder}`,
+        maxWidth: align === "right" ? "82%" : "90%",
+        padding:
+          align === "right"
+            ? device === "iphone" ? "13px 15px" : "15px 18px"
+            : "4px 2px",
+        borderRadius: align === "right" ? "18px 18px 5px 18px" : 0,
+        background: align === "right" ? theme.screenAccentSoft : "transparent",
+        color: theme.screenText,
+        border: align === "right" ? `1px solid ${theme.screenBorder}` : "none",
         fontSize:
           (device === "iphone" ? 16 : 18) * SCREEN_MOCK_FONT_SCALE,
         lineHeight: 1.4,
-        boxShadow: `0 12px 30px ${theme.screenBorder}`,
       }}
     >
       {children}
@@ -786,7 +782,7 @@ function Composer({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "48px 1fr 48px",
+        gridTemplateColumns: "42px 1fr 42px",
         gap: 11,
         alignItems: "center",
         padding: 11,
@@ -798,14 +794,14 @@ function Composer({
     >
       <div
         style={{
-          width: 48,
-          height: 48,
+          width: 42,
+          height: 42,
           borderRadius: "50%",
           border: `1px dashed ${theme.screenBorder}`,
           display: "grid",
           placeItems: "center",
           color: theme.screenTextMuted,
-          fontSize: 26 * SCREEN_MOCK_FONT_SCALE,
+          fontSize: 22 * SCREEN_MOCK_FONT_SCALE,
         }}
       >
         +
@@ -821,8 +817,8 @@ function Composer({
       </div>
       <div
         style={{
-          width: 48,
-          height: 48,
+          width: 42,
+          height: 42,
           borderRadius: "50%",
           display: "grid",
           placeItems: "center",
@@ -832,7 +828,7 @@ function Composer({
           fontSize: 17 * SCREEN_MOCK_FONT_SCALE,
         }}
       >
-        ^
+        ↑
       </div>
     </div>
   );
@@ -894,7 +890,7 @@ function HeroComputerScreen({
   device: Device;
 }) {
   return (
-    <ScreenShell theme={theme} device={device} title="Computer" activeTab="desktop">
+    <ScreenShell theme={theme} device={device} title="Computer" activeTab="computer">
       <div
         style={{
           flex: 1,
@@ -1035,7 +1031,7 @@ function ComputerTasksScreen({
   device: Device;
 }) {
   return (
-    <ScreenShell theme={theme} device={device} title="Computer" activeTab="desktop">
+    <ScreenShell theme={theme} device={device} title="Computer" activeTab="computer">
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <Bubble theme={theme} device={device} align="right" accent>
           Open the project brief and save a PDF summary.
@@ -1055,8 +1051,8 @@ function ComputerTasksScreen({
           }}
         >
           {[
-            { label: "Open desktop app", color: theme.screenSuccess },
-            { label: "Grab the latest brief", color: theme.screenSuccess },
+            { label: "Open project brief", color: theme.screenSuccess },
+            { label: "Read latest version", color: theme.screenSuccess },
             { label: "Save PDF summary", color: theme.screenAccent },
           ].map((step) => (
             <div key={step.label} style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -1086,7 +1082,7 @@ function PairingScreenMock({
   device: Device;
 }) {
   return (
-    <ScreenShell theme={theme} device={device} title="Desktop" activeTab="desktop">
+    <ScreenShell theme={theme} device={device} title="Computer" activeTab="computer">
       <div
         style={{
           flex: 1,
@@ -1107,7 +1103,7 @@ function PairingScreenMock({
             textAlign: "center",
           }}
         >
-          Pair your phone
+          Pair your phone first
         </div>
         <div
           style={{
@@ -1119,7 +1115,7 @@ function PairingScreenMock({
             paddingInline: "7%",
           }}
         >
-          Enter the code shown on your computer. After that, Stella reconnects automatically.
+          Pair this phone with Stella on your computer. You only need to do it once.
         </div>
         <div
           style={{
@@ -1152,13 +1148,13 @@ function PairingScreenMock({
               letterSpacing: 3,
             }}
           >
-            ABCD-EFGH
+            ABCDEFGH
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           {[
-            { label: "Pair Phone", background: theme.screenAccent, color: theme.screenAccentForeground },
-            { label: "Try again", background: theme.screenSurface, color: theme.screenText },
+            { label: "Scan QR code", background: theme.screenAccent, color: theme.screenAccentForeground },
+            { label: "Pair with code", background: theme.screenSurface, color: theme.screenText },
           ].map((button) => (
             <div
               key={button.label}
@@ -1183,7 +1179,7 @@ function PairingScreenMock({
   );
 }
 
-function AccountScreenMock({
+function SettingsScreenMock({
   theme,
   device,
 }: {
@@ -1201,102 +1197,57 @@ function AccountScreenMock({
     "#c0caf5",
   ];
 
-  return (
-    <ScreenShell theme={theme} device={device} title="Account" activeTab="account">
-      <div style={{ display: "grid", gap: 18 }}>
-        <div>
-          <div
-            style={{
-              fontFamily: "var(--font-cormorant)",
-              fontSize:
-                (device === "iphone" ? 42 : 50) * SCREEN_MOCK_FONT_SCALE,
-              lineHeight: 1,
-              letterSpacing: -1.4,
-            }}
-          >
-            Stella
-          </div>
-          <div
-            style={{
-              color: theme.screenTextMuted,
-              fontSize:
-                (device === "iphone" ? 16 : 18) * SCREEN_MOCK_FONT_SCALE,
-            }}
-          >
-            rahul@stella.sh
-          </div>
-        </div>
+  const sectionLabel: CSSProperties = {
+    color: theme.screenTextMuted,
+    fontSize: device === "iphone" ? 13 : 15,
+    fontWeight: 600,
+    marginBottom: 10,
+  };
 
+  return (
+    <ScreenShell theme={theme} device={device} title="Settings" activeTab="settings">
+      <div style={{ display: "grid", gap: device === "iphone" ? 17 : 20 }}>
         <div
           style={{
-            borderTop: `1px solid ${theme.screenBorder}`,
-            paddingTop: 18,
+            fontFamily: "var(--font-cormorant)",
+            fontSize: device === "iphone" ? 34 : 42,
+            lineHeight: 1,
+            letterSpacing: -1.2,
           }}
         >
-          <div
-            style={{
-              color: theme.screenTextMuted,
-              fontFamily: "var(--font-ibm-plex-mono)",
-              textTransform: "uppercase",
-              fontSize:
-                (device === "iphone" ? 12 : 14) * SCREEN_MOCK_FONT_SCALE,
-              marginBottom: 12,
-            }}
-          >
-            Mode
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-              gap: 10,
-            }}
-          >
+          Settings
+        </div>
+
+        <section>
+          <div style={sectionLabel}>Appearance</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 9 }}>
             {["System", "Light", "Dark"].map((item, index) => (
               <div
                 key={item}
                 style={{
                   borderRadius: 999,
-                  padding: "12px 10px",
+                  padding: "10px 8px",
                   textAlign: "center",
                   background: index === 0 ? theme.screenAccentSoft : theme.screenSurface,
                   border: `1px solid ${theme.screenBorder}`,
                   fontWeight: index === 0 ? 700 : 600,
-                  fontSize:
-                    (device === "iphone" ? 15 : 17) * SCREEN_MOCK_FONT_SCALE,
+                  fontSize: device === "iphone" ? 14 : 16,
                 }}
               >
                 {item}
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
-        <div>
-          <div
-            style={{
-              color: theme.screenTextMuted,
-              fontFamily: "var(--font-ibm-plex-mono)",
-              textTransform: "uppercase",
-              fontSize:
-                (device === "iphone" ? 12 : 14) * SCREEN_MOCK_FONT_SCALE,
-              marginBottom: 12,
-            }}
-          >
-            Theme
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-              gap: 12,
-            }}
-          >
+        <section>
+          <div style={sectionLabel}>Theme</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 9 }}>
             {dotColors.map((color, index) => (
               <div
                 key={color}
                 style={{
-                  height: device === "iphone" ? 54 : 64,
+                  height: device === "iphone" ? 44 : 52,
                   borderRadius: 999,
                   display: "grid",
                   placeItems: "center",
@@ -1306,8 +1257,8 @@ function AccountScreenMock({
               >
                 <span
                   style={{
-                    width: device === "iphone" ? 24 : 28,
-                    height: device === "iphone" ? 24 : 28,
+                    width: device === "iphone" ? 20 : 24,
+                    height: device === "iphone" ? 20 : 24,
                     borderRadius: "50%",
                     background: color,
                   }}
@@ -1315,32 +1266,79 @@ function AccountScreenMock({
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
         <div
           style={{
-            display: "grid",
-            gap: 10,
-            marginTop: "auto",
+            borderTop: `1px solid ${theme.screenBorder}`,
+            borderBottom: `1px solid ${theme.screenBorder}`,
+            padding: "14px 0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
           }}
         >
-          {["Terms of Service", "Privacy Policy", "Sign out"].map((row) => (
+          <div>
+            <div style={{ fontSize: device === "iphone" ? 15 : 17, fontWeight: 650 }}>
+              Allow push notifications
+            </div>
+            <div style={{ color: theme.screenTextMuted, fontSize: device === "iphone" ? 12 : 14 }}>
+              Know when your computer finishes a request.
+            </div>
+          </div>
+          <div
+            style={{
+              width: 48,
+              height: 28,
+              borderRadius: 999,
+              background: theme.screenAccent,
+              padding: 3,
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
+            <span style={{ width: 22, height: 22, borderRadius: "50%", background: "#f8fbff" }} />
+          </div>
+        </div>
+
+        <section>
+          <div style={sectionLabel}>Paired computers</div>
+          <div
+            style={{
+              borderRadius: 16,
+              padding: "13px 15px",
+              background: theme.screenSurface,
+              border: `1px solid ${theme.screenBorder}`,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: device === "iphone" ? 15 : 17, fontWeight: 650 }}>Computer</div>
+              <div style={{ color: theme.screenTextMuted, fontSize: device === "iphone" ? 12 : 14 }}>
+                Paired
+              </div>
+            </div>
+            <Marker color={theme.screenSuccess} size={9} />
+          </div>
+        </section>
+
+        <div style={{ display: "grid", gap: 8 }}>
+          {["Terms of Service", "Privacy Policy"].map((row) => (
             <div
               key={row}
               style={{
-                borderRadius: 20,
-                padding: "16px 18px",
-                background: theme.screenSurface,
-                border: `1px solid ${theme.screenBorder}`,
+                padding: "11px 2px",
+                borderBottom: `1px solid ${theme.screenBorder}`,
                 display: "flex",
                 justifyContent: "space-between",
-                alignItems: "center",
-                fontSize:
-                  (device === "iphone" ? 16 : 18) * SCREEN_MOCK_FONT_SCALE,
+                fontSize: device === "iphone" ? 14 : 16,
               }}
             >
               <span>{row}</span>
-              <span style={{ color: theme.screenTextMuted }}>&gt;</span>
+              <span style={{ color: theme.screenTextMuted }}>›</span>
             </div>
           ))}
         </div>
@@ -1409,12 +1407,12 @@ function FeatureListCard({
   style?: CSSProperties;
 }) {
   const items = [
-    "Desktop mode",
-    "Local-first privacy",
+    "Computer pairing",
+    "Voice input",
     "Photo attachments",
-    "Offline chat",
-    "Magic links",
-    "17 themes",
+    "Local chat history",
+    "Model choices",
+    "Themes",
   ];
 
   return (
@@ -1513,7 +1511,7 @@ function HeroSlide({ canvas, device, theme }: SlideRenderContext) {
             color: theme.text,
           }}
         >
-          Stella lives on your devices to do anything you need.
+          Chat on your phone. Pair your computer when you want Stella to act there.
         </p>
         <p
           style={{
@@ -1522,7 +1520,7 @@ function HeroSlide({ canvas, device, theme }: SlideRenderContext) {
             color: theme.muted,
           }}
         >
-          Private by design. Control your computer from your phone.
+          Voice input, local-first history, and flexible model choices.
         </p>
       </div>
 
@@ -1536,7 +1534,7 @@ function HeroSlide({ canvas, device, theme }: SlideRenderContext) {
           transform: "translateX(-50%)",
         }}
       >
-        <HeroComputerScreen theme={theme} device={device} />
+        <ChatScreenMock theme={theme} device={device} />
       </DeviceFrame>
     </SlideCanvas>
   );
@@ -1550,15 +1548,15 @@ function ChatSlide({ canvas, device, theme }: SlideRenderContext) {
       <Caption
         canvas={canvas}
         theme={theme}
-        label="Pocket assistant"
+        label="Text or voice"
         headline={
           <>
-            Ask Stella
+            Ask by text
             <br />
-            anything.
+            or voice.
           </>
         }
-        body="The chat surface already sells a clear value: quick answers, tidy next steps, and a composer that supports voice."
+        body="Talk through an idea, turn notes into next steps, or speak when typing is inconvenient."
         width={canvas.w * (device === "iphone" ? 0.46 : 0.36)}
         align="right"
         style={{
@@ -1605,15 +1603,15 @@ function TasksSlide({ canvas, device, theme }: SlideRenderContext) {
       <Caption
         canvas={canvas}
         theme={theme}
-        label="Computer mode"
+        label="Computer and activity"
         headline={
           <>
-            Run tasks
+            Keep work
             <br />
-            from your phone.
+            moving.
           </>
         }
-        body="Repo copy in the mobile app already promises real actions on your computer. This slide turns that into a single concrete payoff."
+        body="Send a task to your paired computer and follow its progress from your phone."
         width={canvas.w * (device === "iphone" ? 0.42 : 0.3)}
         style={{
           left: canvas.w * 0.08,
@@ -1623,8 +1621,8 @@ function TasksSlide({ canvas, device, theme }: SlideRenderContext) {
 
       <FloatingCard
         theme={theme}
-        title="Live status"
-        body="Open the brief. Save the PDF."
+        title="Activity"
+        body="2 tasks complete"
         style={{
           left: canvas.w * 0.08,
           top: canvas.h * 0.44,
@@ -1635,11 +1633,12 @@ function TasksSlide({ canvas, device, theme }: SlideRenderContext) {
       <FloatingCard
         theme={theme}
         title="Result"
-        body="Done before you get back."
+        body="PDF ready"
         style={{
-          left: canvas.w * 0.16,
+          left: canvas.w * 0.1,
           bottom: canvas.h * 0.12,
           transform: "rotate(3deg)",
+          maxWidth: 250,
         }}
       />
 
@@ -1667,15 +1666,15 @@ function PairingSlide({ canvas, device, theme }: SlideRenderContext) {
       <Caption
         canvas={canvas}
         theme={theme}
-        label="Fast setup"
+        label="Computer pairing"
         headline={
           <>
-            Pair once.
+            Pair your
             <br />
-            Reconnect fast.
+            computer.
           </>
         }
-        body="Use the code from your desktop app to pair your phone. After that, Stella reconnects when you are back at your machine."
+        body="Scan the QR code or enter the code shown in Stella on your computer."
         width={canvas.w * (device === "iphone" ? 0.66 : 0.44)}
         style={{
           left: canvas.w * 0.08,
@@ -1691,8 +1690,7 @@ function PairingSlide({ canvas, device, theme }: SlideRenderContext) {
           top: canvas.h * 0.12,
         }}
       >
-        Code flow
-        <span style={{ letterSpacing: 2.4 }}>ABCD-EFGH</span>
+        QR or pairing code
       </Badge>
 
       <DeviceFrame
@@ -1720,7 +1718,7 @@ function PrivacyScreenMock({
   const rowSize = (device === "iphone" ? 16 : 18) * SCREEN_MOCK_FONT_SCALE;
 
   return (
-    <ScreenShell theme={theme} device={device} title="Privacy" activeTab="account">
+    <ScreenShell theme={theme} device={device} title="Privacy" activeTab="settings">
       <div
         style={{
           flex: 1,
@@ -1739,9 +1737,9 @@ function PrivacyScreenMock({
             textAlign: "center",
           }}
         >
-          Your data stays
+          Local-first,
           <br />
-          on your devices
+          with clear choices
         </div>
         <p
           style={{
@@ -1753,7 +1751,7 @@ function PrivacyScreenMock({
             paddingInline: "4%",
           }}
         >
-          Chats and local context are stored on your phone and computer — not on Stella&apos;s servers.
+          Chat history stays on your devices. Requests go to the AI service you choose for processing.
         </p>
         <div
           style={{
@@ -1767,9 +1765,9 @@ function PrivacyScreenMock({
           }}
         >
           {[
-            "Messages are not uploaded for cloud storage",
-            "Your conversations stay local by default",
-            "You keep control of what stays on-device",
+            "Chat history and local context stay on your devices",
+            "Requests are processed by your selected AI service",
+            "The Stella app is open source",
           ].map((line) => (
             <div
               key={line}
@@ -1798,47 +1796,47 @@ function PrivacySlide({ canvas, device, theme }: SlideRenderContext) {
         label="Privacy"
         headline={
           <>
-            Local-first.
+            Local-first,
             <br />
-            Not cloud-first.
+            with clear choices.
           </>
         }
-        body="Stella keeps chats and context on your devices instead of warehousing messages on company servers."
-        width={canvas.w * (device === "iphone" ? 0.42 : 0.3)}
-        align="right"
-        style={{
-          right: canvas.w * 0.08,
-          top: canvas.h * 0.12,
-        }}
-      />
-
-      <FloatingCard
-        theme={theme}
-        title="On your hardware"
-        body="Phone and desktop hold the conversation."
+        body="Chat history stays on your devices. Requests go to the AI service you choose for processing."
+        width={canvas.w * (device === "iphone" ? 0.48 : 0.34)}
         style={{
           left: canvas.w * 0.08,
-          top: canvas.h * 0.18,
-          transform: "rotate(-5deg)",
+          top: canvas.h * 0.08,
         }}
       />
 
       <FloatingCard
         theme={theme}
-        title="No server inbox"
-        body="We do not store your message history in the cloud."
+        title="Stored locally"
+        body="Chat history and local context"
         style={{
-          left: canvas.w * 0.12,
-          bottom: canvas.h * 0.15,
+          left: canvas.w * 0.08,
+          top: canvas.h * 0.49,
+          transform: "rotate(-5deg)",
+          maxWidth: 300,
+        }}
+      />
+
+      <FloatingCard
+        theme={theme}
+        title="Sent for processing"
+        body="Requests to your selected AI service"
+        style={{
+          left: canvas.w * 0.1,
+          bottom: canvas.h * 0.13,
           transform: "rotate(4deg)",
-          maxWidth: 380,
+          maxWidth: 300,
         }}
       />
 
       <DeviceFrame
         device={device}
         style={{
-          width: device === "iphone" ? "66%" : "52%",
+          width: device === "iphone" ? "58%" : "48%",
           right: device === "iphone" ? "4%" : "8%",
           bottom: device === "iphone" ? "1%" : "4%",
         }}
@@ -1849,7 +1847,7 @@ function PrivacySlide({ canvas, device, theme }: SlideRenderContext) {
   );
 }
 
-function AccountSlide({ canvas, device, theme }: SlideRenderContext) {
+function SettingsSlide({ canvas, device, theme }: SlideRenderContext) {
   return (
     <SlideCanvas
       canvas={canvas}
@@ -1859,15 +1857,15 @@ function AccountSlide({ canvas, device, theme }: SlideRenderContext) {
       <Caption
         canvas={canvas}
         theme={theme}
-        label="Craft and control"
+        label="Settings"
         headline={
           <>
-            Make Stella
+            Set it up
             <br />
-            yours.
+            your way.
           </>
         }
-        body="The account tab shows polish beyond chat alone: mode controls, theme selection, legal links, and a more personal feel."
+        body="Choose appearance, notifications, voice routing, and paired computers in one place."
         width={canvas.w * (device === "iphone" ? 0.4 : 0.28)}
         style={{
           left: canvas.w * 0.56,
@@ -1880,7 +1878,7 @@ function AccountSlide({ canvas, device, theme }: SlideRenderContext) {
         canvas={canvas}
         style={{
           left: canvas.w * 0.56,
-          top: canvas.h * 0.40,
+          top: canvas.h * (device === "iphone" ? 0.43 : 0.48),
         }}
       />
 
@@ -1913,7 +1911,7 @@ function AccountSlide({ canvas, device, theme }: SlideRenderContext) {
           transform: "rotate(-3deg)",
         }}
       >
-        <AccountScreenMock theme={theme} device={device} />
+        <SettingsScreenMock theme={theme} device={device} />
       </DeviceFrame>
     </SlideCanvas>
   );
@@ -1971,49 +1969,49 @@ function makeSlides(): SlideDefinition[] {
           AI assistant.
         </>
       ),
-      body: "Large icon, headline, and the three pillars: personal AI, private, desktop control.",
+      body: "Lead with everyday chat, then show how the phone connects to the computer.",
       render: HeroSlide,
     },
     {
       slug: "chat",
       tabLabel: "Chat",
-      sectionLabel: "Pocket assistant",
+      sectionLabel: "Text or voice",
       headline: (
         <>
-          Ask Stella
+          Ask by text
           <br />
-          anything.
+          or voice.
         </>
       ),
-      body: "Show the mobile chat experience as the everyday entry point.",
+      body: "Show the everyday chat and voice experience with safe fixture data.",
       render: ChatSlide,
     },
     {
       slug: "tasks",
       tabLabel: "Tasks",
-      sectionLabel: "Computer mode",
+      sectionLabel: "Computer and activity",
       headline: (
         <>
-          Run tasks
+          Keep work
           <br />
-          from your phone.
+          moving.
         </>
       ),
-      body: "Turn the computer mode promise into a concrete work result.",
+      body: "Show a paired-computer task with visible progress and a finished file.",
       render: TasksSlide,
     },
     {
       slug: "pairing",
       tabLabel: "Pairing",
-      sectionLabel: "Fast setup",
+      sectionLabel: "Computer pairing",
       headline: (
         <>
-          Pair once.
+          Pair your
           <br />
-          Reconnect fast.
+          computer.
         </>
       ),
-      body: "Show the desktop pairing code flow: pair once, then automatic reconnects when you return.",
+      body: "Use the current QR or manual-code pairing flow.",
       render: PairingSlide,
     },
     {
@@ -2022,27 +2020,27 @@ function makeSlides(): SlideDefinition[] {
       sectionLabel: "Privacy",
       headline: (
         <>
-          Local-first.
+          Local-first,
           <br />
-          Not cloud-first.
+          with clear choices.
         </>
       ),
-      body: "Spell out local storage and no cloud message warehousing — a clear trust story for the App Store.",
+      body: "Distinguish local chat history from AI request processing.",
       render: PrivacySlide,
     },
     {
-      slug: "account",
-      tabLabel: "Themes",
-      sectionLabel: "Craft and control",
+      slug: "settings",
+      tabLabel: "Settings",
+      sectionLabel: "Settings",
       headline: (
         <>
-          Make Stella
+          Set it up
           <br />
-          yours.
+          your way.
         </>
       ),
-      body: "Finish with trust, personalization, and polish.",
-      render: AccountSlide,
+      body: "Finish on current appearance, notification, pairing, and legal controls.",
+      render: SettingsSlide,
     },
   ];
 }
@@ -2207,12 +2205,11 @@ export default function ScreenshotsPage() {
                 Stella App Store Screenshots
               </p>
               <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white md:text-5xl">
-                Export-ready marketing slides from the mobile app itself.
+                Production-faithful App Store slides for Stella Mobile.
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-white/72 md:text-lg">
-                Built from `mobile/` because no raw screenshot set was present. The copy, iconography,
-                pairing story, chat surface, computer mode, and theme treatment all come from the
-                existing Stella mobile app.
+                Deterministic fixtures mirror the current chat, Computer, pairing, privacy,
+                and Settings surfaces without exposing a real account or live data.
               </p>
             </div>
 
@@ -2240,9 +2237,8 @@ export default function ScreenshotsPage() {
             <div className="rounded-[24px] border border-white/10 bg-slate-950/30 p-4">
               <div className="text-xs uppercase tracking-[0.25em] text-white/45">Narrative arc</div>
               <p className="mt-3 text-sm leading-7 text-white/70">
-                Hero desktop control, everyday chat, real task execution, device pairing, local privacy,
-                and polished personalization. Slides two and five intentionally use more visual contrast so the
-                set does not feel templated.
+                Personal AI chat, text and voice input, visible Computer activity, pairing,
+                local-first storage with clear processing language, and Settings.
               </p>
             </div>
 
@@ -2379,6 +2375,7 @@ export default function ScreenshotsPage() {
         {slides.map((slide, index) => (
           <div
             key={`${slide.slug}-${device}-${themeId}`}
+            data-export-slide={slide.slug}
             ref={(node) => {
               slideRefs.current[index] = node;
             }}

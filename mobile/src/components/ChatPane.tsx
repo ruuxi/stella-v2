@@ -39,6 +39,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
+import { appendOfflineChatAttachments } from "../lib/offline-chat-request";
 import Reanimated, {
   useAnimatedKeyboard,
   useAnimatedStyle,
@@ -1966,6 +1967,11 @@ export type ChatPaneProps = {
   attachments?: ImagePicker.ImagePickerAsset[];
   /** Replace the attachment list (e.g. add picked or remove one). */
   onChangeAttachments?: (next: ImagePicker.ImagePickerAsset[]) => void;
+  /**
+   * Optional overall cap for this transport. Picker-level limits reset per
+   * launch, so normal chat supplies its backend request limit here.
+   */
+  maxAttachments?: number;
 
   /**
    * Opens the computer device sheet (status, wake, view-screen,
@@ -2021,6 +2027,7 @@ export function ChatPane({
   enableAttachments,
   attachments,
   onChangeAttachments,
+  maxAttachments,
   onOpenDeviceSheet,
   dictationAnonymous,
   dictationHeaders,
@@ -2363,9 +2370,20 @@ export function ChatPane({
     if (!result.canceled && result.assets.length > 0) {
       tapLight();
       const current = attachments ?? [];
-      onChangeAttachments([...current, ...result.assets]);
+      const next = appendOfflineChatAttachments(
+        current,
+        result.assets,
+        maxAttachments ?? Number.MAX_SAFE_INTEGER,
+      );
+      onChangeAttachments(next.attachments);
+      if (next.rejected > 0 && maxAttachments !== undefined) {
+        Alert.alert(
+          "Too many photos",
+          `You can attach up to ${maxAttachments} photos at a time.`,
+        );
+      }
     }
-  }, [attachments, enableAttachments, onChangeAttachments]);
+  }, [attachments, enableAttachments, maxAttachments, onChangeAttachments]);
 
   const takePhoto = useCallback(async () => {
     if (!enableAttachments || !onChangeAttachments) return;
@@ -2386,9 +2404,20 @@ export function ChatPane({
     if (!result.canceled && result.assets.length > 0) {
       tapLight();
       const current = attachments ?? [];
-      onChangeAttachments([...current, ...result.assets]);
+      const next = appendOfflineChatAttachments(
+        current,
+        result.assets,
+        maxAttachments ?? Number.MAX_SAFE_INTEGER,
+      );
+      onChangeAttachments(next.attachments);
+      if (next.rejected > 0 && maxAttachments !== undefined) {
+        Alert.alert(
+          "Too many photos",
+          `You can attach up to ${maxAttachments} photos at a time.`,
+        );
+      }
     }
-  }, [attachments, enableAttachments, onChangeAttachments]);
+  }, [attachments, enableAttachments, maxAttachments, onChangeAttachments]);
 
   const removeAttachment = useCallback(
     (uri: string) => {

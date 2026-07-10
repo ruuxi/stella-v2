@@ -69,4 +69,21 @@ describe("chat storage round-trip", () => {
     expect(loaded[1]?.requestId).toBe("desk-user-1");
     expect(loaded[1]?.stopped).toBe(true);
   });
+
+  test("round-trips normal-chat image metadata for history reload", async () => {
+    const rows: ChatMessage[] = [
+      {
+        id: "image-u",
+        role: "user",
+        text: "What is this?",
+        createdAt: 10,
+        hasImage: true,
+        thumbnailUris: ["file:///cached/photo.png"],
+      },
+    ];
+
+    await saveChatMessages("cloud", rows);
+    const loaded = await loadChatMessages("cloud");
+    expect(loaded).toEqual(rows);
+  });
 });

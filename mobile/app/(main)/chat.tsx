@@ -7,6 +7,7 @@ import {
   subscribePendingShare,
 } from "../../src/lib/pending-share";
 import { useChatThread } from "../../src/lib/use-chat-thread";
+import { MAX_OFFLINE_CHAT_IMAGES } from "../../src/lib/offline-chat-request";
 import { useIsOffline } from "../../src/lib/use-network-status";
 import { useTopBarStatus } from "../../src/lib/top-bar-status";
 import { useColors } from "../../src/theme/theme-context";
@@ -115,6 +116,7 @@ export default function ChatScreen() {
         enableAttachments
         attachments={thread.attachments}
         onChangeAttachments={thread.setAttachments}
+        maxAttachments={MAX_OFFLINE_CHAT_IMAGES}
         dictationAnonymous={guest}
         dictationHeaders={dictationHeaders}
         onOpenArtifact={setSelectedArtifact}

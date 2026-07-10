@@ -60,6 +60,11 @@ import {
 } from "./agent-artifact-consolidation";
 import { collectConversationTasks } from "./mobile-task-merge";
 import { toSendableImage } from "./image-attachments";
+import {
+  buildOfflineChatRequest,
+  prepareOfflineChatImages,
+  type OfflineChatImagePayload,
+} from "./offline-chat-request";
 import { admitSend } from "./send-admission";
 import { createStreamTextSmoother } from "./stream-text-smoother";
 import { shouldReuseQueuedReplayBatch } from "./desktop-send-batch-policy";
@@ -340,7 +345,7 @@ export function useChatThread(opts: {
     void Promise.all([
       loadChatMessages(threadId),
       loadChatSyncState(threadId),
-      isDesktop ? loadDesktopChatOutbox(threadId) : Promise.resolve([]),
+      loadDesktopChatOutbox(threadId),
     ]).then(([loaded, syncState, storedOutbox]) => {
       syncConversationIdRef.current = syncState.conversationId;
       syncCursorRef.current = syncState.cursor;
@@ -847,11 +852,22 @@ export function useChatThread(opts: {
         .map((m) => ({ role: m.role, text: m.text }))
         .filter((m) => m.text.trim().length > 0);
 
-      const imagesPayload: { base64: string; mimeType: string }[] = [];
-      for (const a of item.assets) {
-        const sendable = await toSendableImage(a);
-        if (!sendable) continue;
-        imagesPayload.push(sendable);
+      let imagesPayload: OfflineChatImagePayload[];
+      try {
+        imagesPayload = await prepareOfflineChatImages(item.assets);
+      } catch (error) {
+        setMessages((messages) =>
+          messages.map((message) =>
+            message.id === replyId
+              ? { ...message, text: userFacingError(error) }
+              : message,
+          ),
+        );
+        acknowledgeDesktopSendIds([item.dispatchId, item.userMessageId]);
+        activeDispatchRef.current = null;
+        finishDispatch();
+        flushPersistNow();
+        return;
       }
 
       const textSmoother = createStreamTextSmoother({
@@ -889,7 +905,7 @@ export function useChatThread(opts: {
         let acc = "";
         await streamFn(
           OFFLINE_CHAT_STREAM_PATH,
-          { message: prompt, history, images: [] },
+          buildOfflineChatRequest({ message: prompt, history, images: [] }),
           (delta) => {
             acc += delta;
           },
@@ -964,7 +980,11 @@ export function useChatThread(opts: {
           // Lean path: plain streamed text, no memory/tools/compaction.
           await streamFn(
             OFFLINE_CHAT_STREAM_PATH,
-            { message: item.text, history: baseHistory, images: imagesPayload },
+            buildOfflineChatRequest({
+              message: item.text,
+              history: baseHistory,
+              images: imagesPayload,
+            }),
             (delta) => {
               if (/\S/.test(delta)) patchActivity({ isStreamingText: true });
               textSmoother.push(delta);
@@ -1012,7 +1032,11 @@ export function useChatThread(opts: {
           const filter = createToolBlockFilter();
           await streamFn(
             OFFLINE_CHAT_STREAM_PATH,
-            { message, history: primedHistory, images: roundImages },
+            buildOfflineChatRequest({
+              message,
+              history: primedHistory,
+              images: roundImages,
+            }),
             (delta) => {
               // Hide the trailing tool block while the answer streams.
               const visible = filter.feed(delta);
@@ -1096,6 +1120,7 @@ export function useChatThread(opts: {
         }
       } finally {
         textSmoother.cancel();
+        acknowledgeDesktopSendIds([item.dispatchId, item.userMessageId]);
         if (activeDispatchRef.current?.replyId === replyId) {
           activeDispatchRef.current = null;
         }
@@ -1107,6 +1132,7 @@ export function useChatThread(opts: {
     },
     [
       appendAssistantText,
+      acknowledgeDesktopSendIds,
       finishDispatch,
       flushPersistNow,
       patchActivity,
@@ -1555,51 +1581,45 @@ export function useChatThread(opts: {
       text,
       assets,
     };
-    if (transport.kind === "desktop") {
-      if (admission === "dispatch") markSending(true);
-      const durableRecord: Omit<DesktopChatOutboxRecord, "sequence"> = {
-        sendId: userMessageId,
-        userMessageId,
-        text,
-        displayText,
-        createdAt,
-        assets,
-      };
-      // Transmission is gated on this write. If iOS kills the process while
-      // AsyncStorage is committing, either no transport happened or hydration
-      // finds this exact stable identity and replays it.
-      void enqueueDesktopChatOutbox(threadId, durableRecord)
-        .then((stored) => {
-          item.queueSequence = stored.sequence;
-          if (acceptedDesktopSendIdsRef.current.has(item.userMessageId)) return;
-          if (admission === "queue") {
-            queueRef.current.push(item);
-            queueRef.current.sort(
-              (a, b) =>
-                (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
-                (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
-            );
-            if (!sendingRef.current) drainQueueRef.current?.();
-            return;
-          }
-          void dispatch(item);
-        })
-        .catch(() => {
-          if (admission === "dispatch") markSending(false);
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === userMessageId
-                ? { ...message, queued: true }
-                : message,
-            ),
+    if (admission === "dispatch") markSending(true);
+    const durableRecord: Omit<DesktopChatOutboxRecord, "sequence"> = {
+      sendId: userMessageId,
+      userMessageId,
+      text,
+      displayText,
+      createdAt,
+      assets,
+    };
+    // Both transports gate transmission on this write. If iOS kills the
+    // process while AsyncStorage is committing, either no transport happened
+    // or hydration finds this exact stable identity and replays it, including
+    // the image bytes.
+    void enqueueDesktopChatOutbox(threadId, durableRecord)
+      .then((stored) => {
+        item.queueSequence = stored.sequence;
+        if (acceptedDesktopSendIdsRef.current.has(item.userMessageId)) return;
+        if (admission === "queue") {
+          queueRef.current.push(item);
+          queueRef.current.sort(
+            (a, b) =>
+              (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
+              (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
           );
-        });
-    } else if (admission === "queue") {
-      queueRef.current.push(item);
-    } else {
-      markSending(true);
-      void dispatch(item);
-    }
+          if (!sendingRef.current) drainQueueRef.current?.();
+          return;
+        }
+        void dispatch(item);
+      })
+      .catch(() => {
+        if (admission === "dispatch") markSending(false);
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === userMessageId
+              ? { ...message, queued: true }
+              : message,
+          ),
+        );
+      });
     return { userMessageId };
   }, [
     attachments,
@@ -1608,7 +1628,6 @@ export function useChatThread(opts: {
     markSending,
     storageLoaded,
     threadId,
-    transport.kind,
   ]);
 
   const stop = useCallback(() => {
@@ -1616,7 +1635,7 @@ export function useChatThread(opts: {
     // pick them up after the abort.
     const cancelledIds = queueRef.current.map((q) => q.userMessageId);
     queueRef.current = [];
-    if (cancelledIds.length > 0 && transport.kind === "desktop") {
+    if (cancelledIds.length > 0) {
       acknowledgeDesktopSendIds(cancelledIds);
     }
     if (cancelledIds.length > 0) {
@@ -1625,9 +1644,7 @@ export function useChatThread(opts: {
     if (activeDispatchRef.current) {
       const active = activeDispatchRef.current;
       stoppedDispatchIdsRef.current.add(active.dispatchId);
-      if (transport.kind === "desktop") {
-        acknowledgeDesktopSendIds([active.dispatchId, active.userMessageId]);
-      }
+      acknowledgeDesktopSendIds([active.dispatchId, active.userMessageId]);
       active.abort.abort();
       setMessages((m) =>
         m.map((msg) =>
@@ -1640,7 +1657,7 @@ export function useChatThread(opts: {
     desktopSendBatchRef.current = null;
     markSending(false);
     setWorkingActivity(IDLE_WORKING_ACTIVITY);
-  }, [acknowledgeDesktopSendIds, markSending, transport.kind]);
+  }, [acknowledgeDesktopSendIds, markSending]);
 
   const workingIndicator = useMemo(
     () => buildWorkingIndicatorState({ sending, activity: workingActivity }),

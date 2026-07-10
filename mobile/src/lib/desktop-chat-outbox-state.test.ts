@@ -20,7 +20,7 @@ const pending = (
   assets: [],
 });
 
-describe("desktop chat durable outbox", () => {
+describe("chat durable outbox", () => {
   test("does not expose a transmissible record before durable enqueue completes", () => {
     const durable: DesktopChatOutboxRecord[] = [];
     const attemptedBeforeCommit = durable.find((record) => record.sendId === "send-1");
@@ -134,5 +134,31 @@ describe("desktop chat durable outbox", () => {
       new Set(["send-b", "send-a"]),
     );
     expect(records.map((record) => record.sendId)).toEqual(["send-c"]);
+  });
+
+  test("retains cloud image bytes and thumbnail metadata for restart replay", () => {
+    const imageRecord = {
+      ...pending("cloud-image", "Photo", 10),
+      assets: [
+        {
+          uri: "file:///photo.png",
+          width: 100,
+          height: 80,
+          base64: "iVBORw0KGgo=",
+          mimeType: "image/png",
+        },
+      ],
+    };
+    const outbox = appendDesktopChatOutboxRecord([], imageRecord).records;
+    expect(outbox[0]?.assets[0]).toMatchObject({
+      base64: "iVBORw0KGgo=",
+      mimeType: "image/png",
+    });
+    expect(restoreOutboxMessages([], outbox)[0]).toMatchObject({
+      id: "cloud-image",
+      queued: true,
+      hasImage: true,
+      thumbnailUris: ["file:///photo.png"],
+    });
   });
 });

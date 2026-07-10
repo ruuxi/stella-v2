@@ -134,6 +134,31 @@ const isSubset = (candidate: Set<string>, target: Set<string>): boolean => {
   return true;
 };
 
+/** Whether two rows carry the same delegated-agent run. The live mobile stream
+ * temporarily puts every turn artifact on one optimistic assistant row; the
+ * canonical desktop projection is authoritative about which assistant row
+ * actually owns that lifecycle event. */
+const messagesShareAgentWork = (
+  left: ChatMessage,
+  right: ChatMessage,
+): boolean => {
+  const leftAgentIds = (left.artifacts ?? [])
+    .map(agentIdsOf)
+    .filter((ids): ids is Set<string> => Boolean(ids));
+  if (leftAgentIds.length === 0) return false;
+  const rightAgentIds = (right.artifacts ?? [])
+    .map(agentIdsOf)
+    .filter((ids): ids is Set<string> => Boolean(ids));
+  return leftAgentIds.some((leftIds) =>
+    rightAgentIds.some((rightIds) => {
+      for (const id of leftIds) {
+        if (rightIds.has(id)) return true;
+      }
+      return false;
+    }),
+  );
+};
+
 /** Keep card identity/order stable and never make an already-visible artifact
  * disappear because an intermediate projection omitted it. Same-id payloads
  * (running -> done) update in place; genuinely new artifacts append. */
@@ -505,10 +530,13 @@ export const linkOptimisticTurnToCanonical = (
  * submitted user message — links the turn precisely when present: the user row
  * by its id, the assistant row by `requestId` (the desktop stamps replies with
  * their turn's user-message id). Text/last-assistant matching remains only as
- * a fallback for older desktops that don't report it. Stand-in artifact rows
- * (`<id>:artifacts` / `<id>:agent` — role "assistant", empty text) are never
- * eligible: adopting one would blank the streamed reply and orphan the real
- * one.
+ * a fallback for older desktops that don't report it. When a streamed turn
+ * produced several assistant rows, the canonical row carrying the same agent
+ * card wins over the generic last-assistant match. That keeps the optimistic
+ * card anchored to its desktop spawn position while later assistant rows slot
+ * in below it. Stand-in artifact rows (`<id>:artifacts` / `<id>:agent` — role
+ * "assistant", empty text) are never eligible: adopting one would blank the
+ * streamed reply and orphan the real one.
  */
 export const reconcileSentDesktopTurn = ({
   current,
@@ -539,12 +567,24 @@ export const reconcileSentDesktopTurn = ({
   const assistantCandidates = canonicalMessages.filter(
     (message) => message.role === "assistant" && !isStandInArtifactRow(message),
   );
+  const turnAssistantCandidates = canonicalUserMessageId
+    ? assistantCandidates.filter(
+        (message) => message.requestId === canonicalUserMessageId,
+      )
+    : assistantCandidates;
+  const eligibleAssistantCandidates =
+    turnAssistantCandidates.length > 0
+      ? turnAssistantCandidates
+      : assistantCandidates;
+  const optimisticAssistant = current.find((message) => message.id === replyId);
   const canonicalAssistant =
-    (canonicalUserMessageId
-      ? [...assistantCandidates]
+    (optimisticAssistant
+      ? [...eligibleAssistantCandidates]
           .reverse()
-          .find((message) => message.requestId === canonicalUserMessageId)
-      : undefined) ?? [...assistantCandidates].reverse()[0];
+          .find((message) =>
+            messagesShareAgentWork(optimisticAssistant, message),
+          )
+      : undefined) ?? [...eligibleAssistantCandidates].reverse()[0];
   const consumed = new Set<string>();
   const next = current.map((message) => {
     if (message.id === userMessageId && canonicalUser) {

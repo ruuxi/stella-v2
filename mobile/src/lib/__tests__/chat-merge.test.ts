@@ -715,6 +715,51 @@ describe("reconcileSentDesktopTurn", () => {
     expect(ids(result)).toContain("desk-a2");
   });
 
+  test("keeps a live agent card on its canonical spawn row before a later reply", () => {
+    const result = reconcileSentDesktopTurn({
+      current: [
+        user("local-u", "start the research", { createdAt: 100 }),
+        assistant("local-a", "I asked a research agent.", {
+          createdAt: 101,
+          requestId: "desk-u",
+          artifacts: [agentCard("agent-work:t1", "running", 101, ["t1"])],
+        }),
+      ],
+      userMessageId: "local-u",
+      replyId: "local-a",
+      sentText: "start the research",
+      canonicalUserMessageId: "desk-u",
+      canonicalMessages: [
+        user("desk-u", "start the research", { createdAt: 90 }),
+        assistant("desk-a1", "I asked a research agent.", {
+          requestId: "desk-u",
+          createdAt: 91,
+          artifacts: [agentCard("agent-work:t1", "done", 91, ["t1"])],
+        }),
+        assistant("desk-a2", "Meanwhile, here is the rest of the answer.", {
+          requestId: "desk-u",
+          createdAt: 92,
+        }),
+      ],
+    });
+
+    expect(ids(result)).toEqual(["local-u", "local-a", "desk-a2"]);
+    expect(result[1]).toMatchObject({
+      id: "local-a",
+      canonicalId: "desk-a1",
+      text: "I asked a research agent.",
+      artifacts: [
+        {
+          id: "agent-work:t1",
+          payload: { kind: "agent-work", state: "done" },
+        },
+      ],
+    });
+    expect(result[2]?.text).toBe("Meanwhile, here is the rest of the answer.");
+    expect(result[2]?.artifacts).toBe(undefined);
+    expect(result.flatMap((message) => message.artifacts ?? [])).toHaveLength(1);
+  });
+
   test("falls back to text/last-assistant matching without a canonical id", () => {
     const result = reconcileSentDesktopTurn({
       ...baseTurn(),

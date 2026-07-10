@@ -30,6 +30,10 @@ import {
   resolveArtifactBridge,
 } from "../lib/desktop-artifact-data";
 import { readLocalPdfDataUri, sharePdf } from "../lib/chat-pdf";
+import {
+  DOCUMENT_PAGE_BACKGROUND,
+  prepareDocumentHtml,
+} from "../lib/html-document-preview";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
@@ -55,6 +59,11 @@ type ArtifactViewerContentProps = {
 
 type LoadedArtifact =
   | { kind: "html"; html: string }
+  /**
+   * A print-style HTML *document* (canvas HTML, office preview). Rendered on
+   * a paper-white surface regardless of app theme; see html-document-preview.
+   */
+  | { kind: "html-document"; html: string }
   | { kind: "url"; uri: string }
   | { kind: "markdown"; text: string }
   | { kind: "text"; text: string }
@@ -207,11 +216,13 @@ export function ArtifactViewerContent({
 
       if (payload.kind === "office") {
         return {
-          kind: "html" as const,
-          html: await loadExistingOfficePreviewHtml(
-            bridge,
-            artifact.conversationId,
-            payload.previewRef.sessionId,
+          kind: "html-document" as const,
+          html: prepareDocumentHtml(
+            await loadExistingOfficePreviewHtml(
+              bridge,
+              artifact.conversationId,
+              payload.previewRef.sessionId,
+            ),
           ),
         };
       }
@@ -220,11 +231,13 @@ export function ArtifactViewerContent({
         payload.artifactKind !== "delimited-table"
       ) {
         return {
-          kind: "html" as const,
-          html: await loadOfficePreviewHtml(
-            bridge,
-            artifact.conversationId,
-            payload.filePath,
+          kind: "html-document" as const,
+          html: prepareDocumentHtml(
+            await loadOfficePreviewHtml(
+              bridge,
+              artifact.conversationId,
+              payload.filePath,
+            ),
           ),
         };
       }
@@ -241,7 +254,10 @@ export function ArtifactViewerContent({
       if (result.missing) throw new Error("This file is no longer available.");
 
       if (payload.kind === "canvas-html") {
-        return { kind: "html" as const, html: bytesToText(result.bytes) };
+        return {
+          kind: "html-document" as const,
+          html: prepareDocumentHtml(bytesToText(result.bytes)),
+        };
       }
       if (payload.kind === "markdown") {
         return { kind: "markdown" as const, text: bytesToText(result.bytes) };
@@ -398,6 +414,15 @@ export function ArtifactViewerContent({
                 </View>
               )}
             />
+          ) : loaded?.kind === "html-document" ? (
+            <WebView
+              originWhitelist={["*"]}
+              source={{ html: loaded.html }}
+              style={styles.documentWebview}
+              // Documents render on their own paper-white surface; never let
+              // Android WebView force-darken them into unreadability.
+              forceDarkOn={false}
+            />
           ) : loaded?.kind === "html" || loaded?.kind === "web-media" ? (
             <WebView
               originWhitelist={["*"]}
@@ -493,6 +518,10 @@ const makeStyles = (colors: ReturnType<typeof useColors>, topInset: number) =>
     },
     webview: {
       backgroundColor: colors.background,
+      flex: 1,
+    },
+    documentWebview: {
+      backgroundColor: DOCUMENT_PAGE_BACKGROUND,
       flex: 1,
     },
     image: {

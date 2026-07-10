@@ -12,6 +12,7 @@ declare module "bun:test" {
     toMatchObject(expected: unknown): void;
     toBeNull(): void;
     toBeGreaterThan(expected: number): void;
+    toBeLessThan(expected: number): void;
     toThrow(expected?: unknown): void;
   }
   export const describe: (name: string, fn: () => void) => void;

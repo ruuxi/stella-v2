@@ -697,6 +697,166 @@ describe("collapseLinkedDuplicates", () => {
   });
 });
 
+describe("interrupted streaming snapshots (orphaned partial assistant rows)", () => {
+  const FULL_TEXT =
+    "Here's the plan. Acknowledges their Jul 8 answer (the pricing one) and builds on your existing thread with a concrete follow-up.";
+  // Each interruption strands a snapshot cut off mid-word by the stream
+  // smoother — a strict prefix of the full reply.
+  const PARTIAL_1 = "Here's the plan. Acknowledges their Jul 8 answer (";
+  const PARTIAL_2 =
+    "Here's the plan. Acknowledges their Jul 8 answer (the pricing one) and builds on your existing th";
+
+  test("double interruption: canonical reply arrives, exactly one assistant row remains with the full text", () => {
+    const current = [
+      user("local-u", "draft the reply", {
+        canonicalId: "desk-u",
+        createdAt: 100,
+      }),
+      // Interruption #1 and #2: replayed dispatches streamed into fresh rows;
+      // both partials carry the turn linkage stamped at desktop acceptance.
+      assistant("partial-1", PARTIAL_1, { requestId: "desk-u", createdAt: 101 }),
+      assistant("partial-2", PARTIAL_2, { requestId: "desk-u", createdAt: 102 }),
+    ];
+    const merged = mergeMessagesById(current, [
+      assistant("desk-a", FULL_TEXT, {
+        requestId: "desk-u",
+        createdAt: 110,
+        canonicalCreatedAt: 110,
+      }),
+    ]);
+    const assistants = merged.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.text).toBe(FULL_TEXT);
+    expect(ids(merged)).toEqual(["local-u", "partial-1"]);
+    expect(assistants[0]?.canonicalId).toBe("desk-a");
+  });
+
+  test("persisted damage heals on hydration: partials + already-merged canonical row collapse to one", () => {
+    // The exact on-disk shape of the screenshot: two stale partials above the
+    // full canonical reply, all rendered as separate assistant messages.
+    const healed = collapseLinkedDuplicates([
+      user("local-u", "draft the reply", {
+        canonicalId: "desk-u",
+        createdAt: 100,
+      }),
+      assistant("partial-1", PARTIAL_1, { requestId: "desk-u", createdAt: 101 }),
+      assistant("partial-2", PARTIAL_2, { requestId: "desk-u", createdAt: 102 }),
+      assistant("desk-a", FULL_TEXT, {
+        requestId: "desk-u",
+        createdAt: 110,
+        canonicalCreatedAt: 110,
+      }),
+    ]);
+    const assistants = healed.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.text).toBe(FULL_TEXT);
+  });
+
+  test("resumed dispatch completes: turn reconcile sweeps the earlier partial", () => {
+    // Interruption stranded partial-1; the replayed dispatch streamed the full
+    // reply into a fresh row which the post-turn reconcile links canonically.
+    const reconciled = reconcileSentDesktopTurn({
+      current: [
+        user("local-u", "draft the reply", { createdAt: 100 }),
+        assistant("partial-1", PARTIAL_1, {
+          requestId: "desk-u",
+          createdAt: 101,
+        }),
+        assistant("local-a2", FULL_TEXT, {
+          requestId: "desk-u",
+          createdAt: 102,
+        }),
+      ],
+      userMessageId: "local-u",
+      replyId: "local-a2",
+      sentText: "draft the reply",
+      canonicalMessages: [
+        user("desk-u", "draft the reply", { createdAt: 105 }),
+        assistant("desk-a", FULL_TEXT, {
+          requestId: "desk-u",
+          createdAt: 110,
+          canonicalCreatedAt: 110,
+        }),
+      ],
+      canonicalUserMessageId: "desk-u",
+    });
+    const assistants = reconciled.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.id).toBe("local-a2");
+    expect(assistants[0]?.text).toBe(FULL_TEXT);
+  });
+
+  test("whitespace normalization differences do not block the sweep", () => {
+    // The canonical text carries a blank line the raw streamed chunks did not.
+    const healed = collapseLinkedDuplicates([
+      assistant("partial-1", "First li", { requestId: "desk-u", createdAt: 101 }),
+      assistant("partial-2", "First line\nsecond li", {
+        requestId: "desk-u",
+        createdAt: 102,
+      }),
+      assistant("desk-a", "First line\n\nsecond line done.", {
+        requestId: "desk-u",
+        createdAt: 110,
+        canonicalCreatedAt: 110,
+      }),
+    ]);
+    const assistants = healed.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.text).toBe("First line\n\nsecond line done.");
+  });
+
+  test("adopts a swept snapshot's artifacts when the surviving row has none", () => {
+    const card = agentCard("agent-work:agent-1", "running", 100, ["agent-1"]);
+    const healed = collapseLinkedDuplicates([
+      assistant("partial-1", PARTIAL_1, { requestId: "desk-u", createdAt: 101 }),
+      assistant("partial-2", PARTIAL_2, {
+        requestId: "desk-u",
+        createdAt: 102,
+        artifacts: [card],
+      }),
+      assistant("desk-a", FULL_TEXT, {
+        requestId: "desk-u",
+        createdAt: 110,
+        canonicalCreatedAt: 110,
+      }),
+    ]);
+    const assistants = healed.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.text).toBe(FULL_TEXT);
+    expect(assistants[0]?.artifacts).toEqual([card]);
+  });
+
+  test("never deletes genuinely distinct messages", () => {
+    const current = [
+      // Multi-message turn: preamble + post-tool answer, same requestId, both
+      // canonical-backed and not prefixes of each other — both stay.
+      assistant("desk-a1", "Let me check that first.", {
+        requestId: "desk-u",
+        createdAt: 100,
+        canonicalCreatedAt: 100,
+      }),
+      assistant("desk-a2", FULL_TEXT, {
+        requestId: "desk-u",
+        createdAt: 110,
+        canonicalCreatedAt: 110,
+      }),
+      // Prefix text but a DIFFERENT turn — stays.
+      assistant("other-turn", PARTIAL_1, {
+        requestId: "desk-u2",
+        createdAt: 111,
+      }),
+      // Same turn but not a prefix of any backed row — stays.
+      assistant("not-prefix", "Something else entirely.", {
+        requestId: "desk-u",
+        createdAt: 112,
+      }),
+      // No turn linkage at all — never considered, even with prefix text.
+      assistant("unlinked", PARTIAL_2, { createdAt: 113 }),
+    ];
+    expect(collapseLinkedDuplicates(current)).toBe(current);
+  });
+});
+
 describe("reconcileSentDesktopTurn", () => {
   const baseTurn = () => ({
     userMessageId: "local-u",

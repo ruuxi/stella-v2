@@ -1198,6 +1198,20 @@ export function useChatThread(opts: {
               item.userMessageId,
               id,
             ]);
+            // Link the turn's optimistic rows to their canonical identity NOW,
+            // not just when the turn settles: if the app is killed/suspended or
+            // the bridge drops mid-stream, the persisted partial reply row
+            // would otherwise carry no `requestId`, so no later merge could
+            // ever fold the canonical reply into it (or sweep it as a
+            // superseded snapshot) — it would render forever as a stale
+            // partial duplicate above the full reply.
+            setMessages((m) =>
+              linkOptimisticTurnToCanonical(m, {
+                userMessageId: item.userMessageId,
+                replyId,
+                canonicalUserMessageId: id,
+              }),
+            );
           },
           onStatus: (status) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;

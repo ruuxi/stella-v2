@@ -355,6 +355,97 @@ const collapseRequestLinkedAssistantDuplicates = (
     .map((message) => replacements.get(message.id) ?? message);
 };
 
+/** Whitespace-insensitive text key for the superseded-partial sweep below:
+ * streamed chunks and the canonical row can disagree on newline/trailing
+ * whitespace normalization without being different responses. */
+const partialTextKey = (text: string): string =>
+  text.replace(/\s+/g, " ").trim();
+
+/**
+ * Drop interrupted streaming snapshots that a canonical-backed row of the SAME
+ * turn has superseded.
+ *
+ * An assistant reply row can die mid-stream (app kill/suspension, dropped
+ * bridge socket) with only partial text — cut off mid-word by the stream
+ * smoother — and a replayed dispatch then streams the continuation into a NEW
+ * reply row. Each interruption strands one partial row; once the turn's
+ * canonical reply lands (adopted by one of the rows via `requestId`, or merged
+ * as its own row), those leftovers render as extra assistant messages above
+ * the full reply, forever.
+ *
+ * A row is swept only when ALL of these hold, so genuinely distinct messages
+ * are never deleted:
+ *  - it is an assistant row linked to a turn (`requestId`) but NOT to a
+ *    canonical desktop row (no `canonicalId`, no `canonicalCreatedAt`) — i.e.
+ *    a local streaming snapshot, not desktop history;
+ *  - some OTHER row of the same turn IS canonical-backed and its text starts
+ *    with the snapshot's text (whitespace-insensitive) — the snapshot is a
+ *    strict earlier cut of that very response. A multi-message turn's other
+ *    rows (preamble + post-tool answer) are canonical-backed and don't prefix
+ *    each other, so they always survive.
+ *
+ * Artifacts a swept snapshot collected that the surviving row lacks are
+ * adopted so a card never disappears. Returns the input array unchanged (same
+ * reference) when there is nothing to sweep.
+ */
+const sweepSupersededPartialReplies = (
+  messages: ChatMessage[],
+): ChatMessage[] => {
+  const backedByRequestId = new Map<string, ChatMessage[]>();
+  for (const message of messages) {
+    if (
+      message.role !== "assistant" ||
+      !message.requestId ||
+      isStandInArtifactRow(message) ||
+      (!message.canonicalId && message.canonicalCreatedAt === undefined)
+    ) {
+      continue;
+    }
+    const bucket = backedByRequestId.get(message.requestId);
+    if (bucket) bucket.push(message);
+    else backedByRequestId.set(message.requestId, [message]);
+  }
+  if (backedByRequestId.size === 0) return messages;
+  const survivors: ChatMessage[] = [];
+  const adoptedArtifacts = new Map<string, ChatArtifact[]>();
+  let swept = false;
+  for (const message of messages) {
+    const isSnapshot =
+      message.role === "assistant" &&
+      Boolean(message.requestId) &&
+      !message.canonicalId &&
+      message.canonicalCreatedAt === undefined &&
+      !isStandInArtifactRow(message) &&
+      message.text.trim().length > 0;
+    if (isSnapshot) {
+      const key = partialTextKey(message.text);
+      const backed = backedByRequestId
+        .get(message.requestId!)
+        ?.find(
+          (candidate) =>
+            candidate.id !== message.id &&
+            partialTextKey(candidate.text).startsWith(key),
+        );
+      if (backed) {
+        swept = true;
+        if (message.artifacts?.length && !backed.artifacts?.length) {
+          adoptedArtifacts.set(backed.id, message.artifacts);
+        }
+        continue;
+      }
+    }
+    survivors.push(message);
+  }
+  if (!swept) return messages;
+  if (adoptedArtifacts.size === 0) return survivors;
+  return survivors.map((message) => {
+    const artifacts = adoptedArtifacts.get(message.id);
+    return artifacts && !message.artifacts?.length
+      ? { ...message, artifacts }
+      : message;
+  });
+};
+
 /**
  * Collapse optimistic/canonical twins in either identity phase: an assistant
  * reply may still have only its turn `requestId`, or a settled local row may
@@ -373,10 +464,17 @@ const collapseRequestLinkedAssistantDuplicates = (
  * in-merge collapse (which needs the canonical row in `incoming`) never runs.
  *
  * This pass heals either pair structurally, whatever created it: the local row
- * wins (stable id, anchored timestamp) and adopts canonical content. Returns
- * the input array unchanged (same reference) when there is nothing to collapse.
+ * wins (stable id, anchored timestamp) and adopts canonical content. It then
+ * sweeps interrupted streaming snapshots the turn's canonical reply superseded
+ * (see {@link sweepSupersededPartialReplies}). Returns the input array
+ * unchanged (same reference) when there is nothing to collapse.
  */
 export const collapseLinkedDuplicates = (
+  messages: ChatMessage[],
+): ChatMessage[] =>
+  sweepSupersededPartialReplies(collapseLinkedTwinDuplicates(messages));
+
+const collapseLinkedTwinDuplicates = (
   messages: ChatMessage[],
 ): ChatMessage[] => {
   const requestHealed = collapseRequestLinkedAssistantDuplicates(messages);

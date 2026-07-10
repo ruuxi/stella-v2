@@ -1,20 +1,29 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
-export const desktop_release_artifact_ref_validator = v.object({
-  kind: v.literal("native-helpers"),
-  platform: v.string(),
-  manifestUrl: v.string(),
-  manifestSha: v.optional(v.string()),
-  commit: v.optional(v.string()),
-  builtAt: v.optional(v.string()),
-  sourceRevisionId: v.optional(v.string()),
-  asset: v.object({
-    url: v.string(),
-    sha256: v.string(),
-    sizeBytes: v.number(),
-  }),
+const releaseAssetValidator = v.object({
+  url: v.string(),
+  sha256: v.string(),
+  sizeBytes: v.number(),
 });
+
+export const desktop_release_artifact_ref_validator = v.union(
+  v.object({
+    kind: v.literal("native-helpers"),
+    platform: v.string(),
+    manifestUrl: v.string(),
+    manifestSha: v.optional(v.string()),
+    commit: v.optional(v.string()),
+    builtAt: v.optional(v.string()),
+    sourceRevisionId: v.optional(v.string()),
+    asset: releaseAssetValidator,
+  }),
+  v.object({
+    kind: v.literal("stella-browser"),
+    platform: v.string(),
+    asset: releaseAssetValidator,
+  }),
+);
 
 // One row per platform identifier (e.g. "darwin-arm64", "darwin-x64",
 // "win-x64"). The CI publish job upserts the latest published release

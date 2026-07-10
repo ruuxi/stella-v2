@@ -98,7 +98,7 @@ const normalizeSourcePack = (
   return { url, sha256, size: value.size };
 };
 
-const normalizeArtifactRefs = (
+export const normalizeArtifactRefs = (
   value: NonNullable<PublishRequestBody["assets"]>[string]["artifactRefs"],
 ) => {
   if (!value) return null;
@@ -107,9 +107,8 @@ const normalizeArtifactRefs = (
   for (const ref of value) {
     const asset = ref?.asset;
     if (
-      ref?.kind !== "native-helpers" ||
+      (ref?.kind !== "native-helpers" && ref?.kind !== "stella-browser") ||
       typeof ref.platform !== "string" ||
-      typeof ref.manifestUrl !== "string" ||
       !asset ||
       typeof asset.url !== "string" ||
       typeof asset.sha256 !== "string" ||
@@ -117,15 +116,29 @@ const normalizeArtifactRefs = (
     ) {
       return null;
     }
-    const manifestUrl = ref.manifestUrl.trim();
     const assetUrl = asset.url.trim();
     const assetSha256 = asset.sha256.trim().toLowerCase();
-    if (!/^https:\/\//i.test(manifestUrl)) return null;
     if (!/^https:\/\//i.test(assetUrl)) return null;
     if (!/^sha256:[0-9a-f]{64}$/.test(assetSha256)) return null;
     if (!Number.isInteger(asset.sizeBytes) || asset.sizeBytes <= 0) {
       return null;
     }
+    const normalizedAsset = {
+      url: assetUrl,
+      sha256: assetSha256,
+      sizeBytes: asset.sizeBytes,
+    };
+    if (ref.kind === "stella-browser") {
+      refs.push({
+        kind: "stella-browser" as const,
+        platform: ref.platform.trim(),
+        asset: normalizedAsset,
+      });
+      continue;
+    }
+    if (typeof ref.manifestUrl !== "string") return null;
+    const manifestUrl = ref.manifestUrl.trim();
+    if (!/^https:\/\//i.test(manifestUrl)) return null;
     refs.push({
       kind: "native-helpers" as const,
       platform: ref.platform.trim(),
@@ -143,11 +156,7 @@ const normalizeArtifactRefs = (
       ref.sourceRevisionId.trim()
         ? { sourceRevisionId: ref.sourceRevisionId.trim() }
         : {}),
-      asset: {
-        url: assetUrl,
-        sha256: assetSha256,
-        sizeBytes: asset.sizeBytes,
-      },
+      asset: normalizedAsset,
     });
   }
   return refs;

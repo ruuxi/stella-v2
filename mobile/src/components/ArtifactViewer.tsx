@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,7 +11,7 @@ import {
 } from "react-native";
 import { Icon } from "./Icon";
 import { Image } from "expo-image";
-import { WebView } from "react-native-webview";
+import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { TopSheet } from "./TopSheet";
@@ -38,6 +39,7 @@ import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
+import { classifyCanvasNavigation } from "../lib/canvas-navigation";
 
 type ArtifactViewerProps = {
   artifact: ChatArtifact | null;
@@ -59,6 +61,7 @@ type ArtifactViewerContentProps = {
 
 type LoadedArtifact =
   | { kind: "html"; html: string }
+  | { kind: "canvas-html"; html: string }
   /**
    * A print-style HTML *document* (canvas HTML, office preview). Rendered on
    * a paper-white surface regardless of app theme; see html-document-preview.
@@ -76,6 +79,99 @@ const escapeHtml = (value: string): string =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+
+const CANVAS_NAVIGATION_SCRIPT = String.raw`
+(() => {
+  const navigate = (rawHref) => {
+    const href = rawHref.trim();
+    if (href.startsWith("#")) {
+      let fragment;
+      try { fragment = decodeURIComponent(href.slice(1)); } catch { return; }
+      if (!fragment) {
+        window.scrollTo({ top: 0, behavior: "auto" });
+        return;
+      }
+      const target = document.getElementById(fragment) ||
+        document.querySelector('[name="' + CSS.escape(fragment) + '"]');
+      target?.scrollIntoView();
+      return;
+    }
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: "stella:canvas-navigate",
+      href,
+    }));
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    const anchor = target && typeof target.closest === "function"
+      ? target.closest("a[href]")
+      : null;
+    if (!anchor) return;
+    event.preventDefault();
+    event.stopPropagation();
+    navigate(anchor.getAttribute("href") || "");
+  }, true);
+
+  document.addEventListener("submit", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const form = event.target;
+    if (form && typeof form.getAttribute === "function") {
+      navigate(form.getAttribute("action") || "");
+    }
+  }, true);
+})();
+true;
+`;
+
+function CanvasDocumentWebView({ html, style }: { html: string; style: object }) {
+  const webViewRef = useRef<WebView>(null);
+  const allowedInitialLoadRef = useRef(false);
+
+  const handleMessage = useCallback((event: WebViewMessageEvent) => {
+    try {
+      const message = JSON.parse(event.nativeEvent.data) as {
+        type?: unknown;
+        href?: unknown;
+      };
+      if (
+        message.type !== "stella:canvas-navigate" ||
+        typeof message.href !== "string"
+      ) {
+        return;
+      }
+      const navigation = classifyCanvasNavigation(message.href);
+      if (navigation.kind === "external") {
+        void Linking.openURL(navigation.url).catch(() => undefined);
+      }
+    } catch {
+      // Ignore malformed messages from untrusted canvas code.
+    }
+  }, []);
+
+  return (
+    <WebView
+      ref={webViewRef}
+      originWhitelist={["*"]}
+      source={{ html }}
+      style={style}
+      forceDarkOn={false}
+      injectedJavaScript={CANVAS_NAVIGATION_SCRIPT}
+      onMessage={handleMessage}
+      onShouldStartLoadWithRequest={(request) => {
+        const isCanvasDocument =
+          request.url === "about:blank" ||
+          request.url.startsWith("data:text/html");
+        if (!allowedInitialLoadRef.current && isCanvasDocument) {
+          allowedInitialLoadRef.current = true;
+          return true;
+        }
+        return false;
+      }}
+    />
+  );
+}
 
 const mediaHtml = (colors: Colors, title: string, body: string) =>
   `<!doctype html>
@@ -255,7 +351,7 @@ export function ArtifactViewerContent({
 
       if (payload.kind === "canvas-html") {
         return {
-          kind: "html-document" as const,
+          kind: "canvas-html" as const,
           html: prepareDocumentHtml(bytesToText(result.bytes)),
         };
       }
@@ -413,6 +509,11 @@ export function ArtifactViewerContent({
                   <ActivityIndicator color={colors.textMuted} />
                 </View>
               )}
+            />
+          ) : loaded?.kind === "canvas-html" ? (
+            <CanvasDocumentWebView
+              html={loaded.html}
+              style={styles.documentWebview}
             />
           ) : loaded?.kind === "html-document" ? (
             <WebView

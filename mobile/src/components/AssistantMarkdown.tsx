@@ -29,6 +29,7 @@ import {
   MarkdownStream,
   createMarkdownSession,
   type CustomRenderers,
+  type CustomRendererProps,
   type MarkdownSession,
   type NodeStyleOverrides,
   type PartialMarkdownTheme,
@@ -38,6 +39,7 @@ import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
 import { streamingTextRenderers } from "./StreamingMarkdownText";
+import { AssistantMarkdownTable } from "./AssistantMarkdownTable";
 
 const BASE_FONT_SIZE = 17;
 
@@ -164,8 +166,6 @@ function buildNodeStyles(colors: Colors): NodeStyleOverrides {
 }
 
 const PARSER_OPTIONS = { gfm: true, math: false, html: false } as const;
-const EMPTY_RENDERERS: CustomRenderers = {};
-
 const containerStyle = StyleSheet.create({
   // The wrapping View lets the parent Pressable still receive long-press —
   // markdown children render as Text/Views that don't intercept it.
@@ -205,7 +205,6 @@ export function AssistantMarkdown({
     const s = createMarkdownSession();
     if (textRef.current.length > 0) s.reset(textRef.current);
     return s;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- session lifecycle tied to streaming-mode latch, not text identity
   }, [useStreamingMode]);
 
   // Push monotonic deltas into the session. Reset on any non-prefix
@@ -235,7 +234,19 @@ export function AssistantMarkdown({
     };
   }, [session]);
 
-  const renderers = useStreamingMode ? streamingTextRenderers : EMPTY_RENDERERS;
+  const renderers = useMemo<CustomRenderers>(
+    () => ({
+      ...(useStreamingMode ? streamingTextRenderers : {}),
+      table: ({ node, Renderer }: CustomRendererProps) => (
+        <AssistantMarkdownTable
+          node={node}
+          Renderer={Renderer}
+          colors={colors}
+        />
+      ),
+    }),
+    [colors, useStreamingMode],
+  );
 
   const onLinkPress = useCallback((url: string): boolean => {
     void openLink(url);

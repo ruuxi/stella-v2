@@ -4,9 +4,9 @@
  * Provider deltas arrive in bursts (one token, then a 40-char clump, then a
  * stall), so appending each delta 1:1 to the rendered message makes the text
  * lurch. This smoother buffers inbound text and meters it out on a
- * requestAnimationFrame loop so reveals land on display-refresh boundaries
- * (smoother than a free-running `setTimeout`). The release rate is adaptive: a
- * steady floor of a couple code points per frame while the buffer is small,
+ * requestAnimationFrame loop (with a bounded timer fallback) so reveals land
+ * on display-refresh boundaries whenever the native loop is healthy. The
+ * adaptive release rate keeps a steady floor of a couple code points per frame,
  * scaling up so any backlog drains within a fixed number of frames. The buffer
  * therefore can never lag meaningfully behind the model, yet a slow trickle
  * still reads as smooth typing.
@@ -20,14 +20,21 @@ const STREAM_MIN_CHARS_PER_FRAME = 2;
 /** Any backlog drains over at most this many frames (~100ms at 60fps). */
 const STREAM_CATCH_UP_FRAMES = 6;
 /**
+ * React Native can leave a requested frame pending while Fabric has no active
+ * native frame loop. Do not let that turn the live stream into a completion
+ * dump: if the frame callback has not run promptly, advance the same paced
+ * reveal from a JS timer. A healthy rAF always wins and cancels this fallback.
+ */
+const STREAM_FRAME_FALLBACK_MS = 50;
+/**
  * `drain()` waits for the rAF pacer to empty the buffer, but rAF can be
  * starved (a backgrounded tab, an idle Fabric frame loop) and leave the last
  * few code points unrevealed forever. A settled turn awaits `drain()` before
  * it clears the `sending` flag and drains the send queue, so a hung drain
  * freezes the composer in the streaming state and queued messages never send.
- * This guard force-flushes whatever's left if the pacer hasn't finished in
- * time — well beyond the ~100ms a healthy backlog takes, so it never cuts a
- * live reveal short, only rescues a genuinely stalled one.
+ * The live frame fallback below normally prevents this. This final guard still
+ * force-flushes whatever is left if both scheduling paths stall while a turn
+ * is settling, so queue progress never depends on UI frame delivery.
  */
 const STREAM_DRAIN_SAFETY_MS = 1200;
 
@@ -49,6 +56,8 @@ export function createStreamTextSmoother({
   // the whole pending string for surrogate pairs every frame.
   let pending: string[] = [];
   let frame: ReturnType<typeof requestAnimationFrame> | null = null;
+  let frameFallback: ReturnType<typeof setTimeout> | null = null;
+  let scheduledFrameToken = 0;
   let cancelled = false;
   const drainWaiters = new Set<() => void>();
   // Safety timer that force-flushes the buffer if the rAF pacer stalls, so a
@@ -56,9 +65,15 @@ export function createStreamTextSmoother({
   let drainGuard: ReturnType<typeof setTimeout> | null = null;
 
   const clearFrame = () => {
-    if (frame === null) return;
-    cancelAnimationFrame(frame);
-    frame = null;
+    scheduledFrameToken += 1;
+    if (frame !== null) {
+      cancelAnimationFrame(frame);
+      frame = null;
+    }
+    if (frameFallback !== null) {
+      clearTimeout(frameFallback);
+      frameFallback = null;
+    }
   };
 
   const clearDrainGuard = () => {
@@ -68,7 +83,7 @@ export function createStreamTextSmoother({
   };
 
   const resolveDrainWaiters = () => {
-    if (pending.length > 0 || frame !== null) return;
+    if (pending.length > 0 || frame !== null || frameFallback !== null) return;
     clearDrainGuard();
     const waiters = Array.from(drainWaiters);
     drainWaiters.clear();
@@ -88,12 +103,24 @@ export function createStreamTextSmoother({
   };
 
   const schedule = () => {
-    if (cancelled || frame !== null || pending.length === 0) return;
-    frame = requestAnimationFrame(tick);
+    if (
+      cancelled ||
+      frame !== null ||
+      frameFallback !== null ||
+      pending.length === 0
+    ) {
+      return;
+    }
+    const token = ++scheduledFrameToken;
+    frame = requestAnimationFrame(() => tick(token));
+    frameFallback = setTimeout(() => tick(token), STREAM_FRAME_FALLBACK_MS);
   };
 
-  const tick = () => {
-    frame = null;
+  const tick = (token: number) => {
+    // rAF and the fallback race to own this reveal step. Whichever arrives
+    // first invalidates the other so a single schedule can never append twice.
+    if (token !== scheduledFrameToken) return;
+    clearFrame();
     if (cancelled || pending.length === 0) {
       resolveDrainWaiters();
       return;

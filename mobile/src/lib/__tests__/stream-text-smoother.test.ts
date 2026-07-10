@@ -27,10 +27,44 @@ const withRaf = async (
 };
 
 describe("stream text smoother drain", () => {
+  test("reveals live text before completion when rAF is starved", async () => {
+    await withRaf(
+      () => 1,
+      () => {},
+      async () => {
+        const input = "abcdefghijklmnopqrstuvwxyz";
+        let out = "";
+        let resolveFirstAppend = () => {};
+        const firstAppend = new Promise<void>((resolve) => {
+          resolveFirstAppend = resolve;
+        });
+        const smoother = createStreamTextSmoother({
+          appendText: (text) => {
+            out += text;
+            resolveFirstAppend();
+          },
+        });
+
+        smoother.push(input);
+        const revealedBeforeCompletion = await new Promise<boolean>((resolve) => {
+          const timeout = setTimeout(() => resolve(false), 500);
+          void firstAppend.then(() => {
+            clearTimeout(timeout);
+            resolve(true);
+          });
+        });
+
+        expect(revealedBeforeCompletion).toBe(true);
+        expect(out.length).toBeGreaterThan(0);
+        expect(out.length < input.length).toBe(true);
+        smoother.cancel();
+      },
+    );
+  });
+
   test("drain still resolves and flushes the buffer when rAF is starved", async () => {
     // A frame loop that never fires — models a backgrounded tab / idle Fabric
-    // loop. Without the safety timer the drain promise (and the turn that
-    // awaits it before clearing `sending`) would hang forever.
+    // loop. The timer fallback must still empty the buffer and resolve drain.
     await withRaf(
       () => 1,
       () => {},
@@ -45,7 +79,7 @@ describe("stream text smoother drain", () => {
         const start = Date.now();
         await smoother.drain();
         expect(out).toBe("hello world");
-        // Settled via the safety flush, not an unbounded hang.
+        // Settled via paced fallback ticks, not an unbounded hang.
         expect(Date.now() - start < 3000).toBe(true);
       },
     );

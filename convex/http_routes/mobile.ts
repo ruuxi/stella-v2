@@ -15,6 +15,13 @@ import {
   resolveFallbackConfig,
   resolveModelConfig,
 } from "../agent/model_resolver";
+import {
+  buildOfflineChatContext,
+  modelSupportsOfflineImages,
+  offlineImageCapabilityError,
+  parseOfflineImages,
+  type OfflineChatImage,
+} from "../mobile_chat_images";
 import { OFFLINE_RESPONDER_SYSTEM_PROMPT } from "../prompts/offline_responder";
 import { getResponseLanguageSystemPrompt } from "../prompts/system_assembly";
 import {
@@ -47,15 +54,7 @@ import {
   verifyPairedMobileProof,
   verifyPairedMobileSecret,
 } from "../mobile_access";
-import type {
-  AssistantMessage,
-  Context,
-  ImageContent,
-  Message,
-  TextContent,
-  Usage,
-  UserMessage,
-} from "../runtime_ai/types";
+import type { AssistantMessage } from "../runtime_ai/types";
 
 const OFFLINE_CHAT_RATE_LIMIT = 12;
 const OFFLINE_CHAT_RATE_WINDOW_MS = 60_000;
@@ -89,9 +88,6 @@ const MAX_BRIDGE_PUBLIC_KEY_LENGTH = 128;
 const MOBILE_BRIDGE_PAIR_PROOF_MAX_SKEW_MS = 5 * 60_000;
 const MAX_OFFLINE_HISTORY_ITEMS = 40;
 const MAX_OFFLINE_MESSAGE_CHARS = 12_000;
-const MAX_OFFLINE_IMAGES = 5;
-/** ~6M chars base64 ≈ ~4.5MB decoded — guardrail per image */
-const MAX_IMAGE_BASE64_CHARS = 6_000_000;
 
 /** Per-owner cap for the desktop bridge endpoints (cheap reads/writes). */
 const MOBILE_BRIDGE_RATE_LIMIT = 60;
@@ -105,26 +101,6 @@ const MAGIC_LINK_STATUS_RATE_WINDOW_MS = 60_000;
 /** Per-IP cap on `/api/mobile/pairing/complete` so brute-force is bounded. */
 const MOBILE_PAIRING_COMPLETE_RATE_LIMIT = 30;
 const MOBILE_PAIRING_COMPLETE_RATE_WINDOW_MS = 60_000;
-
-const EMPTY_USAGE: Usage = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-};
-
-const assistantHistoryMessage = (text: string): AssistantMessage => ({
-  role: "assistant",
-  content: [{ type: "text", text }],
-  api: "openai-completions",
-  provider: "managed",
-  model: "offline-history",
-  usage: EMPTY_USAGE,
-  stopReason: "stop",
-  timestamp: Date.now(),
-});
 
 const parseOfflineHistory = (
   raw: unknown,
@@ -150,88 +126,6 @@ const parseOfflineHistory = (
     out.push({ role, text: trimmed });
   }
   return out.slice(-MAX_OFFLINE_HISTORY_ITEMS);
-};
-
-const parseOfflineImages = (
-  raw: unknown,
-): Array<{ base64: string; mimeType: string }> => {
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  const out: Array<{ base64: string; mimeType: string }> = [];
-  for (const item of raw) {
-    if (out.length >= MAX_OFFLINE_IMAGES) {
-      break;
-    }
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-    const record = item as { base64?: unknown; mimeType?: unknown };
-    const base64 = typeof record.base64 === "string" ? record.base64 : "";
-    if (!base64 || base64.length > MAX_IMAGE_BASE64_CHARS) {
-      continue;
-    }
-    const mimeType =
-      typeof record.mimeType === "string" && record.mimeType.trim().length > 0
-        ? record.mimeType.trim()
-        : "image/jpeg";
-    out.push({ base64, mimeType });
-  }
-  return out;
-};
-
-const buildOfflineChatContext = (args: {
-  systemPrompt: string;
-  history: Array<{ role: "user" | "assistant"; text: string }>;
-  message: string;
-  images: Array<{ base64: string; mimeType: string }>;
-}): Context => {
-  const messages: Message[] = [];
-  for (const turn of args.history) {
-    if (turn.role === "user") {
-      messages.push({
-        role: "user",
-        content: turn.text,
-        timestamp: Date.now(),
-      });
-    } else {
-      messages.push(assistantHistoryMessage(turn.text));
-    }
-  }
-
-  const parts: Array<TextContent | ImageContent> = [];
-  const msg = args.message.trim();
-  if (msg) {
-    parts.push({ type: "text", text: msg });
-  }
-  for (const img of args.images) {
-    parts.push({
-      type: "image",
-      data: img.base64,
-      mimeType: img.mimeType,
-    });
-  }
-  if (parts.length === 0) {
-    parts.push({ type: "text", text: "(Image)" });
-  }
-
-  let userContent: UserMessage["content"];
-  if (parts.length === 1 && parts[0].type === "text") {
-    userContent = parts[0].text;
-  } else {
-    userContent = parts;
-  }
-
-  messages.push({
-    role: "user",
-    content: userContent,
-    timestamp: Date.now(),
-  });
-
-  return {
-    systemPrompt: args.systemPrompt,
-    messages,
-  };
 };
 
 const MAGIC_LINK_RATE_LIMIT = 3;
@@ -562,7 +456,7 @@ const generateOfflineReply = async (args: {
   message: string;
   isAnonymous: boolean;
   history: Array<{ role: "user" | "assistant"; text: string }>;
-  images: Array<{ base64: string; mimeType: string }>;
+  images: OfflineChatImage[];
   model?: string | null;
 }) => {
   const modelAccess = await resolveManagedModelAccess(args.ctx, args.ownerId, {
@@ -587,6 +481,16 @@ const generateOfflineReply = async (args: {
     args.ownerId,
     { access: modelAccess },
   );
+  const capabilityError = offlineImageCapabilityError(
+    primaryConfig,
+    args.images,
+  );
+  if (capabilityError) {
+    throw new ConvexError({
+      code: "UNSUPPORTED_INPUT_MODALITY",
+      message: capabilityError,
+    });
+  }
 
   const responderLocaleDirective = getResponseLanguageSystemPrompt(
     await args.ctx.runQuery(internal.data.preferences.getLocaleForOwner, {
@@ -624,7 +528,10 @@ const generateOfflineReply = async (args: {
   try {
     result = await execute(primaryConfig);
   } catch (error) {
-    if (!fallbackConfig) {
+    if (
+      !fallbackConfig ||
+      (args.images.length > 0 && !modelSupportsOfflineImages(fallbackConfig))
+    ) {
       throw error;
     }
     activeModel = fallbackConfig.model;
@@ -651,7 +558,7 @@ const streamOfflineReply = async (args: {
   message: string;
   isAnonymous: boolean;
   history: Array<{ role: "user" | "assistant"; text: string }>;
-  images: Array<{ base64: string; mimeType: string }>;
+  images: OfflineChatImage[];
   model?: string | null;
   origin: string | null;
 }): Promise<Response> => {
@@ -669,6 +576,10 @@ const streamOfflineReply = async (args: {
     args.ownerId,
     { access: modelAccess, modelOverride: args.model },
   );
+  const capabilityError = offlineImageCapabilityError(config, args.images);
+  if (capabilityError) {
+    return errorResponse(422, capabilityError, args.origin);
+  }
 
   const responderLocaleDirective = getResponseLanguageSystemPrompt(
     await args.ctx.runQuery(internal.data.preferences.getLocaleForOwner, {
@@ -806,7 +717,11 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             ? body.message.slice(0, MAX_OFFLINE_MESSAGE_CHARS).trim()
             : "";
         const history = parseOfflineHistory(body?.history);
-        const images = parseOfflineImages(body?.images);
+        const imageResult = parseOfflineImages(body?.images);
+        if (!imageResult.ok) {
+          return errorResponse(400, imageResult.error, origin);
+        }
+        const images = imageResult.images;
         const model = typeof body?.model === "string" ? body.model : null;
 
         if (!message && images.length === 0) {
@@ -827,8 +742,13 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return jsonResponse({ text }, 200, origin);
         } catch (error) {
           console.error("[mobile/offline-chat] Error:", error);
+          const code = readConvexErrorCode(error);
           const status =
-            readConvexErrorCode(error) === "USAGE_LIMIT_REACHED" ? 429 : 500;
+            code === "USAGE_LIMIT_REACHED"
+              ? 429
+              : code === "UNSUPPORTED_INPUT_MODALITY"
+                ? 422
+                : 500;
           return errorResponse(
             status,
             readConvexErrorMessage(error, "Could not send your message"),
@@ -891,7 +811,11 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             ? body.message.slice(0, MAX_OFFLINE_MESSAGE_CHARS).trim()
             : "";
         const history = parseOfflineHistory(body.history);
-        const images = parseOfflineImages(body.images);
+        const imageResult = parseOfflineImages(body.images);
+        if (!imageResult.ok) {
+          return errorResponse(400, imageResult.error, origin);
+        }
+        const images = imageResult.images;
         const model = typeof body.model === "string" ? body.model : null;
 
         if (!message && images.length === 0) {

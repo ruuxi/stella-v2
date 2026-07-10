@@ -594,6 +594,76 @@ describe("mid-send foreground sync duplicate (user row rendered twice)", () => {
   });
 });
 
+describe("queued send followed by full catch-up", () => {
+  test("collapses a request-linked twin of the prior assistant", () => {
+    // An interleaved sync inserted the prior turn's canonical assistant before
+    // the stream-end state update stamped the optimistic bubble's requestId.
+    // The queued follow-up is visible by the time a full catch-up replays both
+    // turns. Before the fix, direct-id matching kept updating desk-a1 and never
+    // applied the requestId fallback to local-a1, so both identical rows stayed.
+    let current: ChatMessage[] = [
+      user("local-u1", "Run the review", {
+        canonicalId: "desk-u1",
+        createdAt: 100,
+      }),
+      assistant("local-a1", "Review dispatched", {
+        createdAt: 101,
+        artifacts: [agentCard("agent-work:t1", "running", 101, ["t1"])],
+      }),
+      user("local-u2", "Now summarize it", {
+        queued: true,
+        createdAt: 102,
+      }),
+    ];
+    current = mergeMessagesById(current, [
+      assistant("desk-a1", "Review dispatched", {
+        requestId: "desk-u1",
+        createdAt: 91,
+        artifacts: [agentCard("agent-work:t1", "done", 91, ["t1"])],
+      }),
+    ]);
+    expect(
+      current.filter((message) => message.text === "Review dispatched"),
+    ).toHaveLength(2);
+    // Stream completion now supplies the request link, but the direct canonical
+    // twin is already in the array and used to mask that fallback forever.
+    current = current.map((message) =>
+      message.id === "local-a1"
+        ? { ...message, requestId: "desk-u1" }
+        : message,
+    );
+
+    const caughtUp = mergeMessagesById(current, [
+      user("desk-u1", "Run the review", { createdAt: 90 }),
+      assistant("desk-a1", "Review dispatched", {
+        requestId: "desk-u1",
+        createdAt: 91,
+        artifacts: [agentCard("agent-work:t1", "done", 91, ["t1"])],
+      }),
+      // Durable queued sends use their local outbox id as the canonical user
+      // row id, so the catch-up must update this row rather than append it.
+      user("local-u2", "Now summarize it", { createdAt: 93 }),
+    ]);
+
+    expect(
+      caughtUp.filter(
+        (message) =>
+          message.role === "assistant" && message.text === "Review dispatched",
+      ),
+    ).toHaveLength(1);
+    expect(ids(caughtUp)).toEqual(["local-u1", "local-a1", "local-u2"]);
+    expect(caughtUp.find((message) => message.id === "local-a1")).toMatchObject(
+      {
+        canonicalId: "desk-a1",
+        artifacts: [{ payload: { kind: "agent-work", state: "done" } }],
+      },
+    );
+    expect(
+      caughtUp.filter((message) => message.id === "local-u2"),
+    ).toHaveLength(1);
+  });
+});
+
 describe("collapseLinkedDuplicates", () => {
   test("drops the unlinked twin and keeps the linked row's anchor", () => {
     const healed = collapseLinkedDuplicates([
@@ -757,7 +827,9 @@ describe("reconcileSentDesktopTurn", () => {
     });
     expect(result[2]?.text).toBe("Meanwhile, here is the rest of the answer.");
     expect(result[2]?.artifacts).toBe(undefined);
-    expect(result.flatMap((message) => message.artifacts ?? [])).toHaveLength(1);
+    expect(result.flatMap((message) => message.artifacts ?? [])).toHaveLength(
+      1,
+    );
   });
 
   test("falls back to text/last-assistant matching without a canonical id", () => {

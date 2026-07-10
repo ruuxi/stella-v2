@@ -285,9 +285,81 @@ const sameMessageSequence = (a: ChatMessage[], b: ChatMessage[]): boolean =>
   a.length === b.length && a.every((message, index) => message === b[index]);
 
 /**
- * Collapse "linked row + unlinked twin" duplicates: the transcript holds a
- * local row linked to a canonical desktop row (`canonicalId: X`) AND that
- * canonical row as its own separate row (`id: X`, no `canonicalId`).
+ * Heal the assistant form of the optimistic/canonical twin before the generic
+ * id merge sees it. The streamed local reply is stamped with the turn's
+ * `requestId` immediately, but it may not have a `canonicalId` yet. If a sync
+ * inserted the canonical reply first, a later replay finds that direct id and
+ * never reaches the request-id fallback, leaving both rows rendered forever.
+ *
+ * Canonical sync rows carry `canonicalCreatedAt`; optimistic rows do not. That
+ * lets us distinguish the two without text-matching arbitrary history. A turn
+ * with several assistant rows is linked only by shared agent-work identity or
+ * an exact unique text match; a single canonical candidate is unambiguous.
+ */
+const collapseRequestLinkedAssistantDuplicates = (
+  messages: ChatMessage[],
+): ChatMessage[] => {
+  const canonicalByRequestId = new Map<string, ChatMessage[]>();
+  for (const message of messages) {
+    if (
+      message.role !== "assistant" ||
+      !message.requestId ||
+      message.canonicalId ||
+      message.canonicalCreatedAt === undefined ||
+      isStandInArtifactRow(message)
+    ) {
+      continue;
+    }
+    const bucket = canonicalByRequestId.get(message.requestId);
+    if (bucket) bucket.push(message);
+    else canonicalByRequestId.set(message.requestId, [message]);
+  }
+  if (canonicalByRequestId.size === 0) return messages;
+
+  const replacements = new Map<string, ChatMessage>();
+  const consumedCanonicalIds = new Set<string>();
+  for (const optimistic of messages) {
+    if (
+      optimistic.role !== "assistant" ||
+      !optimistic.requestId ||
+      optimistic.canonicalId ||
+      optimistic.canonicalCreatedAt !== undefined ||
+      isStandInArtifactRow(optimistic)
+    ) {
+      continue;
+    }
+    const candidates = canonicalByRequestId.get(optimistic.requestId) ?? [];
+    const agentMatch = candidates.find((candidate) =>
+      messagesShareAgentWork(optimistic, candidate),
+    );
+    const textMatches = candidates.filter(
+      (candidate) => candidate.text === optimistic.text,
+    );
+    const canonical =
+      agentMatch ??
+      (textMatches.length === 1 ? textMatches[0] : undefined) ??
+      (candidates.length === 1 ? candidates[0] : undefined);
+    if (!canonical || consumedCanonicalIds.has(canonical.id)) continue;
+    consumedCanonicalIds.add(canonical.id);
+    replacements.set(
+      optimistic.id,
+      mergeCanonicalMessage(
+        { ...optimistic, canonicalId: canonical.id },
+        canonical,
+      ),
+    );
+  }
+  if (replacements.size === 0) return messages;
+  return messages
+    .filter((message) => !consumedCanonicalIds.has(message.id))
+    .map((message) => replacements.get(message.id) ?? message);
+};
+
+/**
+ * Collapse optimistic/canonical twins in either identity phase: an assistant
+ * reply may still have only its turn `requestId`, or a settled local row may
+ * already be linked to the desktop row (`canonicalId: X`) while that canonical
+ * row also exists separately (`id: X`, no `canonicalId`).
  *
  * That state is how the "user message rendered twice" bug looks on disk. It
  * arises when a sync pulls the turn's canonical user row MID-SEND — the
@@ -300,30 +372,30 @@ const sameMessageSequence = (a: ChatMessage[], b: ChatMessage[]): boolean =>
  * pull advanced the cursor past the row — it is never re-delivered, so the
  * in-merge collapse (which needs the canonical row in `incoming`) never runs.
  *
- * This pass heals the pair structurally, whatever created it: the linked
- * local row wins (stable id, anchored timestamp), adopting the twin's
- * artifacts if it has none. Returns the input array unchanged (same
- * reference) when there is nothing to collapse.
+ * This pass heals either pair structurally, whatever created it: the local row
+ * wins (stable id, anchored timestamp) and adopts canonical content. Returns
+ * the input array unchanged (same reference) when there is nothing to collapse.
  */
 export const collapseLinkedDuplicates = (
   messages: ChatMessage[],
 ): ChatMessage[] => {
+  const requestHealed = collapseRequestLinkedAssistantDuplicates(messages);
   const linkedCanonicalIds = new Set<string>();
-  for (const message of messages) {
+  for (const message of requestHealed) {
     if (message.canonicalId && message.canonicalId !== message.id) {
       linkedCanonicalIds.add(message.canonicalId);
     }
   }
-  if (linkedCanonicalIds.size === 0) return messages;
+  if (linkedCanonicalIds.size === 0) return requestHealed;
   const twinsById = new Map<string, ChatMessage>();
-  for (const message of messages) {
+  for (const message of requestHealed) {
     if (!message.canonicalId && linkedCanonicalIds.has(message.id)) {
       twinsById.set(message.id, message);
     }
   }
-  if (twinsById.size === 0) return messages;
+  if (twinsById.size === 0) return requestHealed;
   const out: ChatMessage[] = [];
-  for (const message of messages) {
+  for (const message of requestHealed) {
     if (!message.canonicalId && twinsById.has(message.id)) continue;
     const twin = message.canonicalId
       ? twinsById.get(message.canonicalId)

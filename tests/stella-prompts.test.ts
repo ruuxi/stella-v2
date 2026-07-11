@@ -4,28 +4,22 @@ import path from "node:path";
 import { describe, expect, it } from "bun:test";
 
 import { STELLA_PROMPT_DEFAULTS } from "../convex/stella_prompt_defaults.generated";
+import {
+  STELLA_PROMPT_IDS,
+  STELLA_PROMPT_MAX_CONTENT_BYTES,
+  deriveStellaPromptRevision,
+  nextStellaPromptPublishedAt,
+  readBoundedPromptPublishBody,
+  validateStellaPromptInputs,
+} from "../convex/stella_prompt_contract";
 
 describe("Stella prompt defaults", () => {
   it("matches every canonical markdown file byte-for-byte", async () => {
     expect(STELLA_PROMPT_DEFAULTS.prompts).toHaveLength(16);
-    expect(STELLA_PROMPT_DEFAULTS.prompts.map((prompt) => prompt.id)).toEqual([
-      "agents/orchestrator.md",
-      "agents/general.md",
-      "agents/schedule.md",
-      "agents/fashion.md",
-      "agents/social_session.md",
-      "agents/explore.md",
-      "agents/dream.md",
-      "agents/install_update.md",
-      "prompts/dream-scheduled.md",
-      "prompts/chronicle-summarizer.md",
-      "prompts/memory-review.md",
-      "prompts/thread-compaction.md",
-      "prompts/fallback-orchestrator.md",
-      "prompts/fallback-subagent.md",
-      "prompts/personality-stella.md",
-      "prompts/personality-professional.md",
-    ]);
+    expect(STELLA_PROMPT_DEFAULTS.prompts.map((prompt) => prompt.id)).toEqual(
+      [...STELLA_PROMPT_IDS].sort((a, b) => a.localeCompare(b)),
+    );
+    expect(STELLA_PROMPT_DEFAULTS.publishedAt).toBe(0);
     for (const prompt of STELLA_PROMPT_DEFAULTS.prompts) {
       const content = await readFile(
         path.join(
@@ -49,5 +43,76 @@ describe("Stella prompt defaults", () => {
       )
       .digest("hex");
     expect(STELLA_PROMPT_DEFAULTS.revision).toBe(expectedRevision);
+  });
+
+  it("stores agent bodies without capability-bearing frontmatter", async () => {
+    for (const prompt of STELLA_PROMPT_DEFAULTS.prompts.filter((value) =>
+      value.id.startsWith("agents/"),
+    )) {
+      expect(prompt.content.startsWith("---\n")).toBe(false);
+      const source = await readFile(
+        path.join(
+          import.meta.dirname,
+          "..",
+          "..",
+          "stella",
+          "runtime",
+          "extensions",
+          "stella-runtime",
+          prompt.id,
+        ),
+        "utf-8",
+      );
+      const frontmatter = source.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
+      expect(frontmatter).not.toBeNull();
+      expect(prompt.content).toBe(source.slice(frontmatter![0].length));
+    }
+  });
+
+  it("validates the publish set all-or-nothing and derives its revision", async () => {
+    const prompts = STELLA_PROMPT_DEFAULTS.prompts.map(({ id, content }) => ({
+      id,
+      content,
+    }));
+    expect(validateStellaPromptInputs(prompts)).toEqual({ ok: true, prompts });
+    expect(await deriveStellaPromptRevision(prompts)).toBe(
+      STELLA_PROMPT_DEFAULTS.revision,
+    );
+    expect(validateStellaPromptInputs(prompts.slice(1)).ok).toBe(false);
+    expect(
+      validateStellaPromptInputs([...prompts.slice(0, -1), prompts[0]!]).ok,
+    ).toBe(false);
+    expect(
+      validateStellaPromptInputs([
+        ...prompts.slice(0, -1),
+        { id: "prompts/unexpected.md", content: "no" },
+      ]).ok,
+    ).toBe(false);
+    expect(
+      validateStellaPromptInputs([
+        {
+          ...prompts[0]!,
+          content: "x".repeat(STELLA_PROMPT_MAX_CONTENT_BYTES + 1),
+        },
+        ...prompts.slice(1),
+      ]).ok,
+    ).toBe(false);
+  });
+
+  it("rejects an oversized publish request before parsing JSON", async () => {
+    const request = new Request("https://example.test", {
+      method: "POST",
+      headers: { "content-length": String(2 * 1024 * 1024) },
+      body: "{}",
+    });
+    await expect(readBoundedPromptPublishBody(request)).resolves.toEqual({
+      ok: false,
+      error: "Request body is too large.",
+    });
+  });
+
+  it("issues a monotonic publication time even when the server clock does not advance", () => {
+    expect(nextStellaPromptPublishedAt([100, 100], 99)).toBe(101);
+    expect(nextStellaPromptPublishedAt([], 200)).toBe(200);
   });
 });

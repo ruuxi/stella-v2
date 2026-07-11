@@ -2,6 +2,11 @@ import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { requireAdminRequest } from "../http_shared/admin";
+import {
+  STELLA_PROMPT_REVISION_PATTERN,
+  readBoundedPromptPublishBody,
+  validateStellaPromptInputs,
+} from "../stella_prompt_contract";
 
 const ADMIN_DELETE_PATH = "/api/admin/delete";
 const ADMIN_BILLING_PLAN_PATH = "/api/admin/billing/plan";
@@ -151,29 +156,27 @@ export const registerAdminRoutes = (http: HttpRouter) => {
     handler: httpAction(async (ctx, request) => {
       const admin = requireAdminRequest(request);
       if (!admin.ok) return admin.response;
-      const body = (await parseRequestJson(request)) as AdminPromptsBody | null;
+      const parsedBody = await readBoundedPromptPublishBody(request);
+      if (!parsedBody.ok) {
+        return jsonResponse(400, { error: parsedBody.error });
+      }
+      const body = parsedBody.value as AdminPromptsBody | null;
       const revision =
         typeof body?.revision === "string" ? body.revision.trim() : "";
-      const prompts = Array.isArray(body?.prompts)
-        ? body.prompts
-            .filter(
-              (prompt): prompt is { id: string; content: string } =>
-                typeof prompt?.id === "string" &&
-                typeof prompt.content === "string",
-            )
-            .map((prompt) => ({ id: prompt.id, content: prompt.content }))
-        : [];
-      if (!revision || prompts.length === 0) {
+      if (!STELLA_PROMPT_REVISION_PATTERN.test(revision)) {
         return jsonResponse(400, {
-          error: "revision and prompts are required",
+          error: "revision must be a lowercase SHA-256 hex string",
         });
+      }
+      const validated = validateStellaPromptInputs(body?.prompts);
+      if (!validated.ok) {
+        return jsonResponse(400, { error: validated.error });
       }
       return jsonResponse(
         200,
         await ctx.runMutation(internal.stella_prompts.publish, {
           revision,
-          prompts,
-          updatedAt: Date.now(),
+          prompts: validated.prompts,
         }),
       );
     }),

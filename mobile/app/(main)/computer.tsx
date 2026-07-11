@@ -533,6 +533,8 @@ function ComputerChatSurface({
         onClose={() => setActivityHubOpen(false)}
         tasks={thread.conversationTasks}
         artifacts={thread.conversationArtifacts}
+        artifactsByTaskId={thread.activityArtifactsByTaskId}
+        conversationArtifacts={thread.conversationOwnedArtifacts}
         access={access}
       />
       <ComputerDeviceSheet

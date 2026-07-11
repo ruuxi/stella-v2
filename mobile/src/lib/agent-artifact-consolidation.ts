@@ -126,6 +126,9 @@ export type ConsolidatedRowArtifacts = {
 /** One pill group on the agent-work card. */
 export type AgentWorkCardSection = {
   key: string;
+  /** Owning background thread. Used by the activity hub to nest files under
+   *  the same task row as the desktop left sidebar. */
+  agentId?: string;
   /** Header naming the agent's task; omitted for fallback folding (the card
    *  title already names the work). */
   title?: string;
@@ -149,6 +152,7 @@ export const agentWorkCardSections = (
     if (agent.files.length === 0) continue;
     sections.push({
       key: `${artifact.id}:${agent.agentId}`,
+      agentId: agent.agentId,
       title: agent.title,
       files: agent.files.map((file, index) => ({
         id: artifactId(file, artifact.conversationId, index),

@@ -59,6 +59,7 @@ import {
   isNoiseFileArtifact,
 } from "./agent-artifact-consolidation";
 import { collectConversationTasks } from "./mobile-task-merge";
+import { groupActivityArtifacts } from "./activity-hub-model";
 import { toSendableImage } from "./image-attachments";
 import {
   buildOfflineChatRequest,
@@ -206,6 +207,10 @@ export type ChatThread = {
   conversationArtifacts: ChatArtifact[];
   /** Background tasks for the activity pill + tray, running-first then newest. */
   conversationTasks: MobileTask[];
+  /** Files grouped by their owning background task for the activity hub. */
+  activityArtifactsByTaskId: ReadonlyMap<string, ChatArtifact[]>;
+  /** Direct orchestrator files owned by the conversation rather than a task. */
+  conversationOwnedArtifacts: ChatArtifact[];
   /**
    * Submit the current draft/attachments. Returns the optimistic user
    * bubble's local id when a turn was accepted (dispatched or queued) so
@@ -1706,6 +1711,11 @@ export function useChatThread(opts: {
     return collectConversationTasks(messages);
   }, [messages]);
 
+  const activityArtifactGroups = useMemo(
+    () => groupActivityArtifacts(messages, conversationArtifacts),
+    [conversationArtifacts, messages],
+  );
+
   const hasRunningConversationTask = conversationTasks.some(
     (task) => task.status === "running",
   );
@@ -1757,6 +1767,8 @@ export function useChatThread(opts: {
     storageLoaded,
     conversationArtifacts,
     conversationTasks,
+    activityArtifactsByTaskId: activityArtifactGroups.byTaskId,
+    conversationOwnedArtifacts: activityArtifactGroups.conversation,
     send,
     stop,
     runDesktopSync,

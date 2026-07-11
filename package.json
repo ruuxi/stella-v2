@@ -10,6 +10,8 @@
     "discord:gateway": "bun scripts/discord-gateway-worker.ts",
     "generate:desktop-api": "node scripts/generate-desktop-convex-api.mjs",
     "generate:desktop-api:deployment": "convex-helpers ts-api-spec --output-file ../stella/runtime/contracts/convex-api.ts",
+    "prompts:sync-defaults": "bun scripts/sync-stella-prompt-defaults.ts",
+    "prompts:publish": "bun scripts/sync-stella-prompt-defaults.ts && bun scripts/publish-stella-prompts.ts",
     "test": "bun test tests/"
   },
   "dependencies": {

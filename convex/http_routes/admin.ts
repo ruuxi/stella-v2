@@ -27,6 +27,11 @@ type AdminPartnerBadgeBody = {
   granted?: boolean;
 };
 
+type AdminPromptsBody = {
+  revision?: string;
+  prompts?: Array<{ id?: string; content?: string }>;
+};
+
 const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
     status,
@@ -65,20 +70,24 @@ const isBillingPlan = (
 
 const readBillingPlanBody = async (
   request: Request,
-): Promise<{
-  ownerId: string;
-  plan?: "free" | "go" | "pro" | "plus" | "ultra" | "max";
-  usageMode?: "default" | "unlimited";
-  subscriptionStatus?: string;
-  resetUsage?: boolean;
-} | Response> => {
+): Promise<
+  | {
+      ownerId: string;
+      plan?: "free" | "go" | "pro" | "plus" | "ultra" | "max";
+      usageMode?: "default" | "unlimited";
+      subscriptionStatus?: string;
+      resetUsage?: boolean;
+    }
+  | Response
+> => {
   const body = (await parseRequestJson(request)) as AdminBillingPlanBody | null;
   const ownerId = typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
   if (!ownerId) {
     return jsonResponse(400, { error: "Missing ownerId." });
   }
 
-  const rawPlan = typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
+  const rawPlan =
+    typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
   let plan: "free" | "go" | "pro" | "plus" | "ultra" | "max" | undefined;
   if (rawPlan && isBillingPlan(rawPlan)) {
     plan = rawPlan;
@@ -87,14 +96,18 @@ const readBillingPlanBody = async (
   }
 
   const rawUsageMode =
-    typeof body?.usageMode === "string" ? body.usageMode.trim().toLowerCase() : "";
+    typeof body?.usageMode === "string"
+      ? body.usageMode.trim().toLowerCase()
+      : "";
   let usageMode: "default" | "unlimited" | undefined;
   if (typeof body?.unlimited === "boolean") {
     usageMode = body.unlimited ? "unlimited" : "default";
   } else if (rawUsageMode === "default" || rawUsageMode === "unlimited") {
     usageMode = rawUsageMode;
   } else if (rawUsageMode) {
-    return jsonResponse(400, { error: `Unsupported usageMode: ${rawUsageMode}` });
+    return jsonResponse(400, {
+      error: `Unsupported usageMode: ${rawUsageMode}`,
+    });
   }
 
   const subscriptionStatus =
@@ -116,7 +129,9 @@ const readBillingPlanBody = async (
 const readPartnerBadgeBody = async (
   request: Request,
 ): Promise<{ ownerId: string; granted: boolean } | Response> => {
-  const body = (await parseRequestJson(request)) as AdminPartnerBadgeBody | null;
+  const body = (await parseRequestJson(
+    request,
+  )) as AdminPartnerBadgeBody | null;
   const ownerId = typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
   if (!ownerId) {
     return jsonResponse(400, { error: "Missing ownerId." });
@@ -130,6 +145,39 @@ const readPartnerBadgeBody = async (
 };
 
 export const registerAdminRoutes = (http: HttpRouter) => {
+  http.route({
+    path: "/api/admin/stella/prompts",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const admin = requireAdminRequest(request);
+      if (!admin.ok) return admin.response;
+      const body = (await parseRequestJson(request)) as AdminPromptsBody | null;
+      const revision =
+        typeof body?.revision === "string" ? body.revision.trim() : "";
+      const prompts = Array.isArray(body?.prompts)
+        ? body.prompts
+            .filter(
+              (prompt): prompt is { id: string; content: string } =>
+                typeof prompt?.id === "string" &&
+                typeof prompt.content === "string",
+            )
+            .map((prompt) => ({ id: prompt.id, content: prompt.content }))
+        : [];
+      if (!revision || prompts.length === 0) {
+        return jsonResponse(400, {
+          error: "revision and prompts are required",
+        });
+      }
+      return jsonResponse(
+        200,
+        await ctx.runMutation(internal.stella_prompts.publish, {
+          revision,
+          prompts,
+          updatedAt: Date.now(),
+        }),
+      );
+    }),
+  });
   http.route({
     path: ADMIN_BILLING_PLAN_PATH,
     method: "POST",
@@ -224,15 +272,16 @@ export const registerAdminRoutes = (http: HttpRouter) => {
         case "feedback":
           return jsonResponse(
             200,
-            await ctx.runMutation(internal.admin_deletes.deleteFeedback, { id }),
+            await ctx.runMutation(internal.admin_deletes.deleteFeedback, {
+              id,
+            }),
           );
         case "desktop_release":
           return jsonResponse(
             200,
-            await ctx.runMutation(
-              internal.admin_deletes.deleteDesktopRelease,
-              { platform: id },
-            ),
+            await ctx.runMutation(internal.admin_deletes.deleteDesktopRelease, {
+              platform: id,
+            }),
           );
         case "social_message":
           return jsonResponse(
@@ -281,7 +330,9 @@ export const registerAdminRoutes = (http: HttpRouter) => {
           });
         }
         default:
-          return jsonResponse(400, { error: `Unsupported delete kind: ${kind}` });
+          return jsonResponse(400, {
+            error: `Unsupported delete kind: ${kind}`,
+          });
       }
     }),
   });

@@ -18,6 +18,7 @@ import { petsSchema } from "./schema/pets";
 import { emojiPacksSchema } from "./schema/emoji_packs";
 import { userPetsSchema } from "./schema/user_pets";
 import { canvasSharesSchema } from "./schema/canvas_shares";
+import { promptsSchema } from "./schema/prompts";
 
 export default defineSchema({
   ...conversationsSchema,
@@ -39,4 +40,5 @@ export default defineSchema({
   ...emojiPacksSchema,
   ...userPetsSchema,
   ...canvasSharesSchema,
+  ...promptsSchema,
 });

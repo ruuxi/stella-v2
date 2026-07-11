@@ -19,6 +19,7 @@ import { registerSynthesisRoutes } from "./http_routes/synthesis";
 import { registerVoiceRoutes } from "./http_routes/voice";
 import { registerDictationRoutes } from "./http_routes/dictation";
 import { registerXRoutes } from "./http_routes/x";
+import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
 
 // Stella provider endpoints
 import {
@@ -104,6 +105,16 @@ http.route({
   path: STELLA_MODELS_PATH,
   method: "OPTIONS",
   handler: stellaModelsOptionsHandler,
+});
+http.route({
+  path: STELLA_PROMPTS_PATH,
+  method: "OPTIONS",
+  handler: stellaModelsOptionsHandler,
+});
+http.route({
+  path: STELLA_PROMPTS_PATH,
+  method: "GET",
+  handler: stellaPrompts,
 });
 http.route({
   path: STELLA_MODELS_PATH,

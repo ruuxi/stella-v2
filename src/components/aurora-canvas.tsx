@@ -4,6 +4,9 @@ import { useEffect, useRef } from "react";
 import { Renderer, Triangle, Program, Mesh } from "ogl";
 import { shouldRunAuroraShader } from "@/lib/device-perf";
 
+const MAX_RENDER_DPR = 1;
+const FRAME_INTERVAL_MS = 1000 / 30;
+
 const vertex = /* glsl */ `
   attribute vec2 uv;
   attribute vec2 position;
@@ -64,6 +67,15 @@ const fragment = /* glsl */ `
 
   void main() {
     vec2 uv = vUv;
+
+    /* These regions are guaranteed to have zero alpha below: rightRamp is
+     * zero through x=0.20 and vert is zero through y=0.05. Return before the
+     * five FBM evaluations so transparent pixels do no noise work. */
+    if (uv.x <= 0.20 || uv.y <= 0.05) {
+      gl_FragColor = vec4(0.0);
+      return;
+    }
+
     float t = uTime * 0.06;
 
     vec2 p = vec2(uv.x * uAspect, uv.y) * vec2(1.7, 0.66);
@@ -123,7 +135,10 @@ export function AuroraCanvas({ className }: { className?: string }) {
         canvas,
         alpha: true,
         premultipliedAlpha: false,
-        dpr: Math.min(window.devicePixelRatio || 1, 1.75),
+        // The FBM shader runs five four-octave noise fields per pixel. Retina
+        // resolution is invisible in this deliberately soft effect, but at
+        // DPR 2 it quadruples the fragment work for no useful visual gain.
+        dpr: Math.min(window.devicePixelRatio || 1, MAX_RENDER_DPR),
       });
     } catch {
       return;
@@ -171,14 +186,18 @@ export function AuroraCanvas({ className }: { className?: string }) {
     window.addEventListener("resize", resize);
 
     let raf = 0;
-    // Only render while the hero is actually on screen. Without this both
-    // aurora canvases keep a full-viewport WebGL loop running the entire time
-    // the user scrolls down the page, which is the main source of scroll lag as
-    // you approach the lower sections.
+    let lastRenderTime = -FRAME_INTERVAL_MS;
+    // Only render while the hero is actually on screen, and cap this decorative
+    // background at 30fps. The motion is intentionally slow, so rendering at
+    // the display's full refresh rate only burns GPU time and competes with
+    // scrolling and the hero entrance animation.
     let inView = true;
     const frame = (t: number) => {
-      program.uniforms.uTime.value = t * 0.001;
-      renderer.render({ scene: mesh });
+      if (t - lastRenderTime >= FRAME_INTERVAL_MS) {
+        lastRenderTime = t;
+        program.uniforms.uTime.value = t * 0.001;
+        renderer.render({ scene: mesh });
+      }
       raf = requestAnimationFrame(frame);
     };
     const play = () => {
@@ -233,6 +252,7 @@ export function AuroraCanvas({ className }: { className?: string }) {
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", onVisibility);
       reduceMotion.removeEventListener?.("change", onReduceChange);
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
   }, []);
 

@@ -7,7 +7,25 @@ import { STELLA_PROMPT_DEFAULTS } from "../convex/stella_prompt_defaults.generat
 
 describe("Stella prompt defaults", () => {
   it("matches every canonical markdown file byte-for-byte", async () => {
-    expect(STELLA_PROMPT_DEFAULTS.prompts).toHaveLength(9);
+    expect(STELLA_PROMPT_DEFAULTS.prompts).toHaveLength(16);
+    expect(STELLA_PROMPT_DEFAULTS.prompts.map((prompt) => prompt.id)).toEqual([
+      "agents/orchestrator.md",
+      "agents/general.md",
+      "agents/schedule.md",
+      "agents/fashion.md",
+      "agents/social_session.md",
+      "agents/explore.md",
+      "agents/dream.md",
+      "agents/install_update.md",
+      "prompts/dream-scheduled.md",
+      "prompts/chronicle-summarizer.md",
+      "prompts/memory-review.md",
+      "prompts/thread-compaction.md",
+      "prompts/fallback-orchestrator.md",
+      "prompts/fallback-subagent.md",
+      "prompts/personality-stella.md",
+      "prompts/personality-professional.md",
+    ]);
     for (const prompt of STELLA_PROMPT_DEFAULTS.prompts) {
       const content = await readFile(
         path.join(

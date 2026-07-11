@@ -28,13 +28,23 @@ const entries = [
       `${id}.md`,
     ),
   })),
-  {
-    id: "prompts/dream-scheduled.md",
+  ...[
+    "dream-scheduled",
+    "chronicle-summarizer",
+    "memory-review",
+    "thread-compaction",
+    "fallback-orchestrator",
+    "fallback-subagent",
+    "personality-stella",
+    "personality-professional",
+  ].map((id) => ({
+    id: `prompts/${id}.md`,
     source: path.join(
       stellaRoot,
-      "runtime/extensions/stella-runtime/prompts/dream-scheduled.md",
+      "runtime/extensions/stella-runtime/prompts",
+      `${id}.md`,
     ),
-  },
+  })),
 ];
 
 await fs.rm(destinationRoot, { recursive: true, force: true });

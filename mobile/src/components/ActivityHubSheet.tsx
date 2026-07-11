@@ -19,6 +19,8 @@ import {
   initialActivityWindow,
   loadNewerActivityWindow,
   loadOlderActivityWindow,
+  rebaseActivityWindow,
+  sortHubTasksByRecency,
 } from "../lib/activity-hub-model";
 import type { StoredPhoneAccess } from "../lib/phone-access";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
@@ -243,16 +245,15 @@ export function ActivityHubSheet({
     setActivityWindow((current) =>
       current.end === 0
         ? initialActivityWindow(tasks.length)
-        : {
-            start: Math.min(current.start, Math.max(0, tasks.length - 1)),
-            end: Math.min(tasks.length, current.end),
-          },
+        : rebaseActivityWindow(current, tasks.length),
     );
   }, [tasks.length]);
 
+  const hubTasks = useMemo(() => sortHubTasksByRecency(tasks), [tasks]);
+
   const matchingTasks = useMemo(
-    () => filterHubTasks(tasks, query),
-    [tasks, query],
+    () => filterHubTasks(hubTasks, query),
+    [hubTasks, query],
   );
   const matchingArtifacts = useMemo(
     () => filterHubArtifacts(artifacts, query),
@@ -271,8 +272,8 @@ export function ActivityHubSheet({
   );
   const shownTasks = useMemo(() => {
     if (!searching)
-      return tasks.slice(activityWindow.start, activityWindow.end);
-    return tasks.filter(
+      return hubTasks.slice(activityWindow.start, activityWindow.end);
+    return hubTasks.filter(
       (task) =>
         matchingTaskIds.has(task.id) ||
         (artifactsByTaskId.get(task.id) ?? []).some((artifact) =>
@@ -286,7 +287,7 @@ export function ActivityHubSheet({
     matchingArtifactIds,
     matchingTaskIds,
     searching,
-    tasks,
+    hubTasks,
   ]);
   const shownConversationArtifacts = searching
     ? conversationArtifacts.filter((artifact) =>
@@ -308,10 +309,10 @@ export function ActivityHubSheet({
     if (nearTop && activityWindow.start > 0) {
       pagingLockedRef.current = true;
       setActivityWindow((current) => loadNewerActivityWindow(current));
-    } else if (nearBottom && activityWindow.end < tasks.length) {
+    } else if (nearBottom && activityWindow.end < hubTasks.length) {
       pagingLockedRef.current = true;
       setActivityWindow((current) =>
-        loadOlderActivityWindow(current, tasks.length),
+        loadOlderActivityWindow(current, hubTasks.length),
       );
     } else {
       return;

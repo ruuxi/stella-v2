@@ -1,8 +1,9 @@
 import {
   agentWorkCardSections,
   isAgentWorkArtifact,
+  isNoiseFileArtifact,
 } from "./agent-artifact-consolidation";
-import type { ChatArtifact, ChatMessage } from "../types";
+import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
 
 export const ACTIVITY_PAGE_SIZE = 16;
 const MAX_WINDOW_PAGES = 3;
@@ -21,6 +22,20 @@ export const initialActivityWindow = (total: number): ActivityWindow => ({
   start: 0,
   end: Math.min(ACTIVITY_PAGE_SIZE, total),
 });
+
+export const rebaseActivityWindow = (
+  window: ActivityWindow,
+  total: number,
+): ActivityWindow => {
+  if (total <= 0) return { start: 0, end: 0 };
+  const intendedSize = Math.max(1, window.end - window.start);
+  if (window.start < total && window.end <= total) return window;
+  const end = Math.min(total, Math.max(intendedSize, window.end));
+  return {
+    start: Math.max(0, end - intendedSize),
+    end,
+  };
+};
 
 export const loadOlderActivityWindow = (
   window: ActivityWindow,
@@ -47,11 +62,53 @@ export const loadNewerActivityWindow = (
   };
 };
 
+const taskActivityAt = (task: MobileTask): number =>
+  typeof task.completedAt === "number" && Number.isFinite(task.completedAt)
+    ? task.completedAt
+    : task.createdAt;
+
+/** Strict recency ordering for the hub. Unlike the activity pill, status does
+ *  not affect rank, so an old running task cannot displace newer history. */
+export const sortHubTasksByRecency = (
+  tasks: readonly MobileTask[],
+): MobileTask[] =>
+  [...tasks].sort(
+    (a, b) => taskActivityAt(b) - taskActivityAt(a) || a.id.localeCompare(b.id),
+  );
+
+/** Full, newest-first artifact dataset for ownership and search. Display
+ *  pagination is applied later to activity rows, never to this source. */
+export const collectActivityHubArtifacts = (
+  messages: readonly Pick<ChatMessage, "artifacts">[],
+): ChatArtifact[] => {
+  const seen = new Set<string>();
+  const out: ChatArtifact[] = [];
+  const push = (artifact: ChatArtifact) => {
+    if (isNoiseFileArtifact(artifact) || seen.has(artifact.id)) return;
+    seen.add(artifact.id);
+    out.push(artifact);
+  };
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    for (const artifact of messages[index].artifacts ?? []) {
+      if (isAgentWorkArtifact(artifact)) {
+        for (const section of agentWorkCardSections(artifact) ?? []) {
+          for (const file of section.files) push(file);
+        }
+        continue;
+      }
+      push(artifact);
+    }
+  }
+  return out;
+};
+
 /**
  * Attribute the activity hub's already-deduped artifact list to the task that
  * produced each file. Modern desktop bridges carry an exact agent id on each
- * agent-work file section. Older row-scoped payloads fall back to the first
- * task on their spawning message. Artifacts from the orchestrator itself stay
+ * agent-work file section; every remaining loose artifact on those rows is
+ * orchestrator-direct by contract. Older row-scoped payloads fall back only
+ * when exactly one task can own the files. Ambiguous and direct artifacts stay
  * owned by the conversation instead of becoming a global Files section.
  */
 export const groupActivityArtifacts = (
@@ -62,7 +119,14 @@ export const groupActivityArtifacts = (
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    const fallbackTaskId = message.tasks?.[0]?.id;
+    const hasConsolidatedAgentWork = (message.artifacts ?? []).some(
+      (artifact) =>
+        isAgentWorkArtifact(artifact) && artifact.payload.agents !== undefined,
+    );
+    const fallbackTaskId =
+      !hasConsolidatedAgentWork && message.tasks?.length === 1
+        ? message.tasks[0].id
+        : undefined;
     for (const artifact of message.artifacts ?? []) {
       if (isAgentWorkArtifact(artifact)) {
         for (const section of agentWorkCardSections(artifact) ?? []) {

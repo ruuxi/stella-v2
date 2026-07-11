@@ -53,13 +53,11 @@ import {
   shouldSyncOnLocalChatPush,
 } from "./desktop-sync-policy";
 import { recordSyncDiagnostic } from "./sync-diagnostics";
-import {
-  agentWorkCardSections,
-  isAgentWorkArtifact,
-  isNoiseFileArtifact,
-} from "./agent-artifact-consolidation";
 import { collectConversationTasks } from "./mobile-task-merge";
-import { groupActivityArtifacts } from "./activity-hub-model";
+import {
+  collectActivityHubArtifacts,
+  groupActivityArtifacts,
+} from "./activity-hub-model";
 import { toSendableImage } from "./image-attachments";
 import {
   buildOfflineChatRequest,
@@ -111,7 +109,6 @@ export type DesktopSyncOutcome = {
 /** Cap on how many desktop messages we pull per sync. */
 const HISTORY_MESSAGE_LIMIT = 100;
 /** Cap on how many recent artifacts the Artifacts list sheet shows. */
-const MAX_LISTED_ARTIFACTS = 20;
 /** Endpoint the offline (cloud) chat streams answers from. */
 const OFFLINE_CHAT_STREAM_PATH = "/api/mobile/offline-chat/stream";
 /**
@@ -203,7 +200,7 @@ export type ChatThread = {
   /** Live working-indicator props — active/label reflect the current step. */
   workingIndicator: WorkingIndicatorState;
   storageLoaded: boolean;
-  /** Recent artifacts in the conversation, newest first and de-duplicated. */
+  /** All artifacts in the conversation, newest first and de-duplicated. */
   conversationArtifacts: ChatArtifact[];
   /** Background tasks for the activity pill + tray, running-first then newest. */
   conversationTasks: MobileTask[];
@@ -1670,36 +1667,7 @@ export function useChatThread(opts: {
   );
 
   const conversationArtifacts = useMemo(() => {
-    const seen = new Set<string>();
-    const out: ChatArtifact[] = [];
-    const push = (artifact: ChatArtifact): boolean => {
-      // Incidental writes (caches, profiles, scratch) stay out of the
-      // browser — mirrors the desktop noise filter on every user-facing
-      // produced-file surface.
-      if (isNoiseFileArtifact(artifact)) return false;
-      if (seen.has(artifact.id)) return false;
-      seen.add(artifact.id);
-      out.push(artifact);
-      return out.length >= MAX_LISTED_ARTIFACTS;
-    };
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      for (const artifact of messages[i].artifacts ?? []) {
-        // Agent-work cards are inline-chat only — not openable files, so the
-        // card itself doesn't belong in the artifacts browser — but the files
-        // riding its per-agent sections do (consolidating bridges no longer
-        // ship them loose).
-        if (isAgentWorkArtifact(artifact)) {
-          for (const section of agentWorkCardSections(artifact) ?? []) {
-            for (const file of section.files) {
-              if (push(file)) return out;
-            }
-          }
-          continue;
-        }
-        if (push(artifact)) return out;
-      }
-    }
-    return out;
+    return collectActivityHubArtifacts(messages);
   }, [messages]);
 
   // Every background task across the conversation, newest first, running ones

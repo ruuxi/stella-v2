@@ -19,6 +19,10 @@ import { useMagicLinkAuth } from "@/lib/use-magic-link-auth";
 import { isConvexConfigured } from "@/lib/convex-urls";
 import formStyles from "@/app/sign-in/sign-in.module.css";
 import { SocialSignInButtons } from "./social-sign-in-buttons";
+import {
+  openSignInDialog,
+  SIGN_IN_DIALOG_EVENT,
+} from "./sign-in-dialog-events";
 import styles from "./sign-in-dialog.module.css";
 
 const AUTH_TOKEN_PATTERN = /^[A-Za-z0-9._~-]{8,2048}$/;
@@ -35,12 +39,7 @@ const SignInDialogContext = createContext<SignInDialogContextValue | null>(null)
  * top-level helpers in `store-client.tsx`). Prefer `useSignInDialog().open()`
  * inside React components.
  */
-const SIGN_IN_DIALOG_EVENT = "stella:open-sign-in";
-
-export function openSignInDialog() {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(SIGN_IN_DIALOG_EVENT));
-}
+export { openSignInDialog } from "./sign-in-dialog-events";
 
 /**
  * Provider that mounts a single global sign-in dialog and exposes `open`/`close`
@@ -165,7 +164,7 @@ function useOAuthReturnToken() {
         store?.notify("$sessionSignal");
       } catch {
         if (cancelled) return;
-        window.dispatchEvent(new CustomEvent(SIGN_IN_DIALOG_EVENT));
+        openSignInDialog();
       }
     };
 
@@ -184,7 +183,7 @@ export function useSignInDialog(): SignInDialogContextValue {
   return {
     open: () => {
       if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent(SIGN_IN_DIALOG_EVENT));
+        openSignInDialog();
       }
     },
     close: () => {},

@@ -1,4 +1,4 @@
-import { openSignInDialog } from "@/components/auth/sign-in-dialog";
+import { openSignInDialog } from "@/components/auth/sign-in-dialog-events";
 import { getConvexToken } from "@/lib/auth-token";
 import type {
   DesktopStoreBridge,

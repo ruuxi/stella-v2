@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+const REVALIDATING_ASSET_CACHE =
+  "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
+
 const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
@@ -10,9 +13,44 @@ const nextConfig: NextConfig = {
     formats: ["image/avif", "image/webp"],
     // Whitelist the quality levels used via the `quality` prop (default is [75]).
     qualities: [75, 82],
-    // Optimized variants are content-addressed and effectively immutable;
-    // cache them aggressively at the CDN/edge.
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**.fal.media",
+      },
+    ],
+    // Keep generated variants warm in the optimizer cache. Browser caching is
+    // controlled separately below because public source filenames are mutable.
     minimumCacheTTL: 31536000,
+  },
+  async headers() {
+    return [
+      {
+        // These files are deployed assets, but their public URLs are not
+        // content-hashed. Cache them for repeat visits without marking them
+        // immutable, so a same-name replacement is picked up within a day.
+        source:
+          "/:asset(stella-logo|stella-logo-ui|stella-wallpaper).:ext(png|jpg|svg)",
+        headers: [
+          { key: "Cache-Control", value: REVALIDATING_ASSET_CACHE },
+        ],
+      },
+      {
+        // Next appends a content hash to these URLs in generated metadata, but
+        // keep the direct, unhashed route bounded rather than immutable.
+        source: "/:asset(icon|apple-icon).png",
+        headers: [
+          { key: "Cache-Control", value: REVALIDATING_ASSET_CACHE },
+        ],
+      },
+      {
+        source:
+          "/:folder(mock-app-icons|doc-mocks|app-mocks|demos)/:path*.:ext(png|jpg|jpeg|webp|avif|svg)",
+        headers: [
+          { key: "Cache-Control", value: REVALIDATING_ASSET_CACHE },
+        ],
+      },
+    ];
   },
 };
 

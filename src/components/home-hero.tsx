@@ -12,7 +12,6 @@ export function HomeHero() {
   return (
     <main className={styles.hero} aria-labelledby="hero-title">
       <AuroraCanvas className={styles.aurora} />
-      <AuroraCanvas className={`${styles.aurora} ${styles.auroraReverse}`} />
 
       <section className={styles.inner}>
         <div className={styles.content}>

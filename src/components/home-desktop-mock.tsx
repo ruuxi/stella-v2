@@ -543,6 +543,8 @@ const SCROLL_THEMES = [
   "nightowl",
 ];
 const RENDER_SCALE = 0.6;
+const GRADIENT_CACHE_LIMIT = 12;
+const gradientImageCache = new Map<string, ImageData>();
 const WORKSPACE_ACTIONS = [
   { label: "Read replies aloud", icon: VolumeX },
   { label: "New chat", icon: MessageSquarePlus },
@@ -873,6 +875,7 @@ function renderGradient(
   canvas: HTMLCanvasElement,
   colors: ThemeColors,
   blobs: GradientBlob[],
+  cacheKey: string,
 ) {
   const parent = canvas.parentElement;
   const width = parent?.clientWidth ?? 0;
@@ -881,11 +884,20 @@ function renderGradient(
 
   const w = Math.round(width * RENDER_SCALE);
   const h = Math.round(height * RENDER_SCALE);
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
+  const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  canvas.width = w;
-  canvas.height = h;
+  const sizedCacheKey = `${cacheKey}:${w}x${h}`;
+  const cached = gradientImageCache.get(sizedCacheKey);
+  if (cached) {
+    // Refresh insertion order so the bounded cache behaves like a small LRU.
+    gradientImageCache.delete(sizedCacheKey);
+    gradientImageCache.set(sizedCacheKey, cached);
+    ctx.putImageData(cached, 0, 0);
+    return;
+  }
 
   const bg = parseHex(colors.gradientAnchor ?? colors.background);
   const data = ctx.createImageData(w, h);
@@ -926,6 +938,11 @@ function renderGradient(
   }
 
   ctx.putImageData(data, 0, 0);
+  gradientImageCache.set(sizedCacheKey, data);
+  if (gradientImageCache.size > GRADIENT_CACHE_LIMIT) {
+    const oldest = gradientImageCache.keys().next().value;
+    if (oldest) gradientImageCache.delete(oldest);
+  }
 }
 
 function cssVars(
@@ -1188,7 +1205,14 @@ export function HomeMiniChatMock({
 
   const paint = useCallback(() => {
     const blobs = buildBlobs(selectedTheme.id, resolvedMode, colors);
-    if (canvasRef.current) renderGradient(canvasRef.current, colors, blobs);
+    if (canvasRef.current) {
+      renderGradient(
+        canvasRef.current,
+        colors,
+        blobs,
+        `${selectedTheme.id}:${resolvedMode}`,
+      );
+    }
   }, [colors, resolvedMode, selectedTheme.id]);
 
   useEffect(() => {
@@ -1199,9 +1223,18 @@ export function HomeMiniChatMock({
     if (typeof ResizeObserver === "undefined") return;
     const canvas = canvasRef.current;
     if (!canvas?.parentElement) return;
-    const observer = new ResizeObserver(() => paint());
+    let raf = 0;
+    const observer = new ResizeObserver(() => {
+      if (!raf) raf = requestAnimationFrame(() => {
+        raf = 0;
+        paint();
+      });
+    });
     observer.observe(canvas.parentElement);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [paint]);
 
   return (
@@ -1223,10 +1256,8 @@ export function HomeDesktopMock() {
   const mode: ThemeMode = "light";
   const sectionRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const miniCanvasRef = useRef<HTMLCanvasElement>(null);
   const chatCanvasRef = useRef<HTMLCanvasElement>(null);
   const fadeCanvasRef = useRef<HTMLCanvasElement>(null);
-  const miniFadeRef = useRef<HTMLCanvasElement>(null);
   const chatFadeRef = useRef<HTMLCanvasElement>(null);
   const firstPaintRef = useRef(true);
   const selectedTheme =
@@ -1240,12 +1271,9 @@ export function HomeDesktopMock() {
 
   const paint = useCallback(() => {
     const blobs = buildBlobs(selectedTheme.id, resolvedMode, colors);
-    for (const canvas of [
-      canvasRef.current,
-      miniCanvasRef.current,
-      chatCanvasRef.current,
-    ]) {
-      if (canvas) renderGradient(canvas, colors, blobs);
+    const cacheKey = `${selectedTheme.id}:${resolvedMode}`;
+    for (const canvas of [canvasRef.current, chatCanvasRef.current]) {
+      if (canvas) renderGradient(canvas, colors, blobs, cacheKey);
     }
   }, [colors, resolvedMode, selectedTheme.id]);
 
@@ -1256,7 +1284,6 @@ export function HomeDesktopMock() {
   useEffect(() => {
     const pairs: Array<[HTMLCanvasElement | null, HTMLCanvasElement | null]> = [
       [canvasRef.current, fadeCanvasRef.current],
-      [miniCanvasRef.current, miniFadeRef.current],
       [chatCanvasRef.current, chatFadeRef.current],
     ];
 
@@ -1353,15 +1380,20 @@ export function HomeDesktopMock() {
 
   useEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => paint());
-    for (const canvas of [
-      canvasRef.current,
-      miniCanvasRef.current,
-      chatCanvasRef.current,
-    ]) {
+    let raf = 0;
+    const observer = new ResizeObserver(() => {
+      if (!raf) raf = requestAnimationFrame(() => {
+        raf = 0;
+        paint();
+      });
+    });
+    for (const canvas of [canvasRef.current, chatCanvasRef.current]) {
       if (canvas?.parentElement) observer.observe(canvas.parentElement);
     }
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [paint]);
 
   return (

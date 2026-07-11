@@ -1,33 +1,29 @@
 "use client";
 
-import { memo } from "react";
-import {
-  Streamdown,
-  defaultRehypePlugins,
-  defaultRemarkPlugins,
-} from "streamdown";
+import dynamic from "next/dynamic";
 
-const REMARK_PLUGINS = Object.values(defaultRemarkPlugins);
-const REHYPE_PLUGINS = Object.values(defaultRehypePlugins);
+const LazyStoreMarkdownRenderer = dynamic(() =>
+  import("./store-markdown-renderer").then(
+    (module) => module.StoreMarkdownRenderer,
+  ),
+  {
+    loading: () => (
+      <div className="markdown" aria-busy="true">
+        Loading formatted text…
+      </div>
+    ),
+  },
+);
 
 type StoreMarkdownProps = {
   text: string;
   className?: string;
 };
 
-/** Renders Store release copy with the same Streamdown stack as desktop chat. */
-export const StoreMarkdown = memo(function StoreMarkdown({
+/** Defers the Store markdown stack until formatted copy is actually visible. */
+export function StoreMarkdown({
   text,
   className,
 }: StoreMarkdownProps) {
-  return (
-    <Streamdown
-      className={className ? `markdown ${className}` : "markdown"}
-      remarkPlugins={REMARK_PLUGINS}
-      rehypePlugins={REHYPE_PLUGINS}
-      linkSafety={{ enabled: false }}
-    >
-      {text}
-    </Streamdown>
-  );
-});
+  return <LazyStoreMarkdownRenderer text={text} className={className} />;
+}

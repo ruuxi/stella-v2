@@ -1,11 +1,25 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { X } from "lucide-react";
 import { resolveStoreAuthorDisplay } from "../lib/format";
 import type { StoreBadge } from "../lib/types";
 import { getGradient, getInitial } from "../lib/artwork";
 import { storeTabs, type HostedStoreTab } from "../lib/constants";
+
+export function isOptimizableStoreImage(url: string | undefined): url is string {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      (parsed.hostname === "fal.media" || parsed.hostname.endsWith(".fal.media"))
+    );
+  } catch {
+    return false;
+  }
+}
 
 export function EmojiCellPreview({
   sheetUrl,
@@ -73,20 +87,38 @@ export function PackageArtwork({
 }) {
   const [failed, setFailed] = useState(false);
   const showImage = Boolean(iconUrl) && !failed;
+  const optimizeImage = isOptimizableStoreImage(iconUrl);
   return (
     <div
       className={`store-artwork ${className}`}
       style={{ background: getGradient(name) }}
     >
-      {showImage ? (
+      {showImage && optimizeImage ? (
+        <Image
+          alt=""
+          className="store-artwork-img"
+          src={iconUrl}
+          width={96}
+          height={96}
+          sizes="96px"
+          onError={() => setFailed(true)}
+          draggable={false}
+          loading="lazy"
+          quality={75}
+        />
+      ) : showImage ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           alt=""
           className="store-artwork-img"
           src={iconUrl}
+          width={96}
+          height={96}
           onError={() => setFailed(true)}
           draggable={false}
           loading="lazy"
+          decoding="async"
+          fetchPriority="low"
         />
       ) : (
         <span className={letterClassName}>{getInitial(name)}</span>

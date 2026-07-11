@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import Image from "next/image";
 import {
   ChevronLeft,
   ChevronRight,
@@ -35,6 +36,7 @@ import {
   AuthorChip,
   EmojiCellPreview,
   EmptyState,
+  isOptimizableStoreImage,
   PackageArtwork,
   StoreModal,
   StoreLoadingSpinner,
@@ -180,9 +182,29 @@ export function EmojiPackCard({
         aria-label={`Open ${pack.displayName}`}
         onClick={onOpen}
       >
-        {pack.coverUrl ? (
+        {pack.coverUrl && isOptimizableStoreImage(pack.coverUrl) ? (
+          <Image
+            alt=""
+            className="emoji-pack-cover-img"
+            src={pack.coverUrl}
+            width={56}
+            height={56}
+            sizes="56px"
+            loading="lazy"
+            quality={75}
+          />
+        ) : pack.coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img alt="" className="emoji-pack-cover-img" src={pack.coverUrl} />
+          <img
+            alt=""
+            className="emoji-pack-cover-img"
+            src={pack.coverUrl}
+            width={56}
+            height={56}
+            loading="lazy"
+            decoding="async"
+            fetchPriority="low"
+          />
         ) : (
           <span className="emoji-pack-cover-glyph" aria-hidden>
             {pack.coverEmoji}

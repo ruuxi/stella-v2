@@ -2,8 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
+import { SIGN_IN_DIALOG_EVENT } from "./sign-in-dialog-events";
 
-const SIGN_IN_DIALOG_EVENT = "stella:open-sign-in";
 const LazySignInDialogProvider = dynamic(() =>
   import("./sign-in-dialog").then((module) => module.SignInDialogProvider),
 );

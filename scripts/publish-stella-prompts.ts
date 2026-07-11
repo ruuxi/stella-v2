@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { STELLA_PROMPT_IDS } from "../convex/stella_prompt_contract";
+import { publishStellaPromptsRequest } from "./lib/publish-stella-prompts-request";
 
 const root = path.resolve(import.meta.dirname, "..");
 const rawSiteUrl = (
@@ -58,25 +59,11 @@ if (
   );
 }
 
-const controller = new AbortController();
-const timeout = setTimeout(() => controller.abort(), 10_000);
-let response: Response;
-try {
-  response = await fetch(new URL("/api/admin/stella/prompts", site), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ revision, prompts }),
-    signal: controller.signal,
-  });
-} finally {
-  clearTimeout(timeout);
-}
-if (!response.ok) {
-  throw new Error(
-    `Publish failed: HTTP ${response.status} ${await response.text()}`,
-  );
-}
-console.log(await response.text());
+console.log(
+  await publishStellaPromptsRequest({
+    endpoint: new URL("/api/admin/stella/prompts", site),
+    token,
+    revision,
+    prompts,
+  }),
+);

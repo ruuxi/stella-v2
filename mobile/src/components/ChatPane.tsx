@@ -3582,7 +3582,12 @@ const makeStyles = (colors: Colors) =>
     userTogglePressed: {
       color: colors.text,
     },
-    userThumbStrip: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+    userThumbStrip: {
+      alignSelf: "flex-start",
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+    },
     userThumbsAbove: { marginBottom: 8 },
     userThumbImage: {
       backgroundColor: colors.muted,

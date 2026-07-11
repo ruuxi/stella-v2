@@ -17,6 +17,46 @@ type StoredPrompt = {
   updatedAt: number;
 };
 
+type PromptResponseSnapshot = {
+  prompts: Array<{ id: string; sha256: string; content: string }>;
+  revision: string;
+  publishedAt: number;
+};
+
+export const stellaPromptPublicationEtag = (
+  publishedAt: number,
+  revision: string,
+): string => `"${publishedAt}-${revision}"`;
+
+export const stellaPromptResponse = (
+  request: Request,
+  snapshot: PromptResponseSnapshot,
+): Response => {
+  const etag = stellaPromptPublicationEtag(
+    snapshot.publishedAt,
+    snapshot.revision,
+  );
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control":
+      "public, max-age=60, s-maxage=300, stale-while-revalidate=300",
+    "Content-Type": "application/json; charset=utf-8",
+    ETag: etag,
+  };
+  if (request.headers.get("if-none-match") === etag) {
+    return new Response(null, { status: 304, headers });
+  }
+  return new Response(
+    JSON.stringify({
+      schemaVersion: STELLA_PROMPT_SCHEMA_VERSION,
+      revision: snapshot.revision,
+      publishedAt: snapshot.publishedAt,
+      prompts: snapshot.prompts,
+    }),
+    { status: 200, headers },
+  );
+};
+
 const isCompleteStoredSnapshot = (stored: StoredPrompt[]): boolean => {
   if (stored.length !== STELLA_PROMPT_COUNT) return false;
   const expected = new Set<string>(STELLA_PROMPT_IDS);
@@ -43,28 +83,13 @@ export const stellaPrompts = httpAction(async (ctx, request) => {
   const publishedAt = useStored
     ? stored[0]!.updatedAt
     : STELLA_PROMPT_DEFAULTS.publishedAt;
-  const etag = `"${revision}"`;
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Cache-Control":
-      "public, max-age=60, s-maxage=300, stale-while-revalidate=300",
-    "Content-Type": "application/json; charset=utf-8",
-    ETag: etag,
-  };
-  if (request.headers.get("if-none-match") === etag) {
-    return new Response(null, { status: 304, headers });
-  }
-  return new Response(
-    JSON.stringify({
-      schemaVersion: STELLA_PROMPT_SCHEMA_VERSION,
-      revision,
-      publishedAt,
-      prompts: prompts.map(({ id, sha256, content }) => ({
-        id,
-        sha256,
-        content,
-      })),
-    }),
-    { status: 200, headers },
-  );
+  return stellaPromptResponse(request, {
+    revision,
+    publishedAt,
+    prompts: prompts.map(({ id, sha256, content }) => ({
+      id,
+      sha256,
+      content,
+    })),
+  });
 });

@@ -5,6 +5,10 @@ import { describe, expect, it } from "bun:test";
 
 import { STELLA_PROMPT_DEFAULTS } from "../convex/stella_prompt_defaults.generated";
 import {
+  stellaPromptPublicationEtag,
+  stellaPromptResponse,
+} from "../convex/stella_prompts_http";
+import {
   STELLA_PROMPT_IDS,
   STELLA_PROMPT_MAX_CONTENT_BYTES,
   deriveStellaPromptRevision,
@@ -114,5 +118,37 @@ describe("Stella prompt defaults", () => {
   it("issues a monotonic publication time even when the server clock does not advance", () => {
     expect(nextStellaPromptPublishedAt([100, 100], 99)).toBe(101);
     expect(nextStellaPromptPublishedAt([], 200)).toBe(200);
+  });
+
+  it("uses the complete publication identity for A/B/A conditional requests", () => {
+    const revisionA = "a".repeat(64);
+    const oldA = stellaPromptPublicationEtag(10, revisionA);
+    const currentA = stellaPromptPublicationEtag(20, revisionA);
+    expect(oldA).not.toBe(currentA);
+
+    const response = stellaPromptResponse(
+      new Request("https://example.test/api/stella/prompts", {
+        headers: { "If-None-Match": oldA },
+      }),
+      {
+        prompts: STELLA_PROMPT_DEFAULTS.prompts,
+        revision: revisionA,
+        publishedAt: 20,
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("etag")).toBe(currentA);
+
+    const unchanged = stellaPromptResponse(
+      new Request("https://example.test/api/stella/prompts", {
+        headers: { "If-None-Match": currentA },
+      }),
+      {
+        prompts: STELLA_PROMPT_DEFAULTS.prompts,
+        revision: revisionA,
+        publishedAt: 20,
+      },
+    );
+    expect(unchanged.status).toBe(304);
   });
 });

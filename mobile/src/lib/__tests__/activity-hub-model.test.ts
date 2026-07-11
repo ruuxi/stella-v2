@@ -5,6 +5,7 @@ import { agentWorkCardSections } from "../agent-artifact-consolidation";
 import { filterHubArtifacts } from "../activity-hub-search";
 import {
   ACTIVITY_PAGE_SIZE,
+  activityHubTaskRowKey,
   collectActivityHubArtifacts,
   groupActivityArtifacts,
   initialActivityWindow,
@@ -173,5 +174,61 @@ describe("activity hub paging window", () => {
       start: 0,
       end: 8,
     });
+  });
+
+  test("keeps a stable keyed anchor across both bounded rollover directions", () => {
+    const tasks = Array.from({ length: 80 }, (_, index) =>
+      task(`row-${index}`),
+    );
+    const rowHeight = 80;
+    const intraRowOffset = 13;
+    const viewportTop = (index: number, scrollOffset: number) =>
+      index * rowHeight - scrollOffset;
+    const forwardBefore = { start: 0, end: 48 };
+    const forwardAfter = loadOlderActivityWindow(forwardBefore, tasks.length);
+    const forwardAnchor = tasks[40];
+    const forwardKey = activityHubTaskRowKey(forwardAnchor);
+    const forwardOldIndex = 40;
+    expect(forwardAfter).toEqual({ start: 16, end: 64 });
+    const forwardNewIndex = tasks
+      .slice(forwardAfter.start, forwardAfter.end)
+      .findIndex((entry) => activityHubTaskRowKey(entry) === forwardKey);
+    expect(forwardNewIndex).toBe(24);
+    expect(
+      viewportTop(
+        forwardNewIndex,
+        forwardNewIndex * rowHeight + intraRowOffset,
+      ),
+    ).toBe(
+      viewportTop(
+        forwardOldIndex,
+        forwardOldIndex * rowHeight + intraRowOffset,
+      ),
+    );
+
+    const reverseBefore = forwardAfter;
+    const reverseAfter = loadNewerActivityWindow(reverseBefore);
+    const reverseAnchor = tasks[32];
+    const reverseKey = activityHubTaskRowKey(reverseAnchor);
+    const reverseOldIndex = tasks
+      .slice(reverseBefore.start, reverseBefore.end)
+      .findIndex((entry) => activityHubTaskRowKey(entry) === reverseKey);
+    expect(reverseAfter).toEqual({ start: 0, end: 48 });
+    const reverseNewIndex = tasks
+      .slice(reverseAfter.start, reverseAfter.end)
+      .findIndex((entry) => activityHubTaskRowKey(entry) === reverseKey);
+    expect(reverseOldIndex).toBe(16);
+    expect(reverseNewIndex).toBe(32);
+    expect(
+      viewportTop(
+        reverseNewIndex,
+        reverseNewIndex * rowHeight + intraRowOffset,
+      ),
+    ).toBe(
+      viewportTop(
+        reverseOldIndex,
+        reverseOldIndex * rowHeight + intraRowOffset,
+      ),
+    );
   });
 });

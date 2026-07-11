@@ -76,6 +76,10 @@ export const sortHubTasksByRecency = (
     (a, b) => taskActivityAt(b) - taskActivityAt(a) || a.id.localeCompare(b.id),
   );
 
+/** Stable virtualized-row identity used by LegendList's data-change anchor. */
+export const activityHubTaskRowKey = (task: Pick<MobileTask, "id">): string =>
+  `task:${task.id}`;
+
 /** Full, newest-first artifact dataset for ownership and search. Display
  *  pagination is applied later to activity rows, never to this source. */
 export const collectActivityHubArtifacts = (

@@ -1,13 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 import {
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+  LegendList,
+  type LegendListRenderItemProps,
+} from "@legendapp/list/react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArtifactCard } from "./ArtifactCard";
 import { ArtifactViewerContent } from "./ArtifactViewer";
@@ -16,6 +12,7 @@ import { ShimmerText } from "./ShimmerText";
 import { TopSheet } from "./TopSheet";
 import { filterHubArtifacts, filterHubTasks } from "../lib/activity-hub-search";
 import {
+  activityHubTaskRowKey,
   initialActivityWindow,
   loadNewerActivityWindow,
   loadOlderActivityWindow,
@@ -196,6 +193,13 @@ type ActivityHubSheetProps = {
   access: StoredPhoneAccess | null;
 };
 
+type ActivityHubListRow =
+  | { kind: "task"; task: MobileTask; artifacts: ChatArtifact[] }
+  | { kind: "conversation"; artifacts: ChatArtifact[] };
+
+const activityHubListRowKey = (row: ActivityHubListRow): string =>
+  row.kind === "task" ? activityHubTaskRowKey(row.task) : "conversation";
+
 /**
  * The activity hub — the unified top sheet the floating activity pill opens.
  * One searchable overview of the conversation's background work (running /
@@ -289,37 +293,58 @@ export function ActivityHubSheet({
     searching,
     hubTasks,
   ]);
-  const shownConversationArtifacts = searching
-    ? conversationArtifacts.filter((artifact) =>
-        matchingArtifactIds.has(artifact.id),
-      )
-    : conversationArtifacts;
-  const hasResults =
-    shownTasks.length > 0 || shownConversationArtifacts.length > 0;
-
-  const handleActivityScroll = (
-    event: NativeSyntheticEvent<NativeScrollEvent>,
-  ) => {
-    if (searching || pagingLockedRef.current) return;
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    if (contentSize.height <= layoutMeasurement.height + 48) return;
-    const nearTop = contentOffset.y <= 48;
-    const nearBottom =
-      contentOffset.y + layoutMeasurement.height >= contentSize.height - 48;
-    if (nearTop && activityWindow.start > 0) {
-      pagingLockedRef.current = true;
-      setActivityWindow((current) => loadNewerActivityWindow(current));
-    } else if (nearBottom && activityWindow.end < hubTasks.length) {
-      pagingLockedRef.current = true;
-      setActivityWindow((current) =>
-        loadOlderActivityWindow(current, hubTasks.length),
-      );
-    } else {
-      return;
+  const shownConversationArtifacts = useMemo(
+    () =>
+      searching
+        ? conversationArtifacts.filter((artifact) =>
+            matchingArtifactIds.has(artifact.id),
+          )
+        : conversationArtifacts,
+    [conversationArtifacts, matchingArtifactIds, searching],
+  );
+  const listRows = useMemo<ActivityHubListRow[]>(() => {
+    const rows: ActivityHubListRow[] = shownTasks.map((task) => ({
+      kind: "task",
+      task,
+      artifacts: (artifactsByTaskId.get(task.id) ?? []).filter(
+        (artifact) => !searching || matchingArtifactIds.has(artifact.id),
+      ),
+    }));
+    if (shownConversationArtifacts.length > 0) {
+      rows.push({
+        kind: "conversation",
+        artifacts: shownConversationArtifacts,
+      });
     }
+    return rows;
+  }, [
+    artifactsByTaskId,
+    matchingArtifactIds,
+    searching,
+    shownConversationArtifacts,
+    shownTasks,
+  ]);
+
+  const releasePagingLock = () => {
     setTimeout(() => {
       pagingLockedRef.current = false;
     }, 180);
+  };
+  const loadNewer = () => {
+    if (searching || pagingLockedRef.current) return;
+    if (activityWindow.start <= 0) return;
+    pagingLockedRef.current = true;
+    setActivityWindow((current) => loadNewerActivityWindow(current));
+    releasePagingLock();
+  };
+  const loadOlder = () => {
+    if (searching || pagingLockedRef.current) return;
+    if (activityWindow.end >= hubTasks.length) return;
+    pagingLockedRef.current = true;
+    setActivityWindow((current) =>
+      loadOlderActivityWindow(current, hubTasks.length),
+    );
+    releasePagingLock();
   };
 
   return (
@@ -349,23 +374,40 @@ export function ActivityHubSheet({
               maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
             />
           </View>
-          <ScrollView
+          <LegendList<ActivityHubListRow>
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            showsVerticalScrollIndicator={false}
-            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-            onScroll={handleActivityScroll}
-            scrollEventThrottle={16}
-          >
-            <Text
-              style={styles.sectionLabel}
-              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-            >
-              Activity
-            </Text>
-            {!hasResults ? (
+            data={listRows}
+            keyExtractor={activityHubListRowKey}
+            renderItem={({
+              item,
+            }: LegendListRenderItemProps<ActivityHubListRow>) =>
+              item.kind === "task" ? (
+                <TaskRow
+                  task={item.task}
+                  artifacts={item.artifacts}
+                  onOpenArtifact={setOpenArtifact}
+                  colors={colors}
+                  styles={styles}
+                />
+              ) : (
+                <ConversationFilesRow
+                  artifacts={item.artifacts}
+                  colors={colors}
+                  styles={styles}
+                  onOpenArtifact={setOpenArtifact}
+                />
+              )
+            }
+            ListHeaderComponent={
+              <Text
+                style={styles.sectionLabel}
+                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+              >
+                Activity
+              </Text>
+            }
+            ListEmptyComponent={
               <Text
                 style={styles.empty}
                 maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
@@ -374,30 +416,19 @@ export function ActivityHubSheet({
                   ? "No matching activity or files."
                   : "No background work yet."}
               </Text>
-            ) : (
-              <View style={styles.taskList}>
-                {shownTasks.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    artifacts={(artifactsByTaskId.get(task.id) ?? []).filter(
-                      (artifact) =>
-                        !searching || matchingArtifactIds.has(artifact.id),
-                    )}
-                    onOpenArtifact={setOpenArtifact}
-                    colors={colors}
-                    styles={styles}
-                  />
-                ))}
-                <ConversationFilesRow
-                  artifacts={shownConversationArtifacts}
-                  colors={colors}
-                  styles={styles}
-                  onOpenArtifact={setOpenArtifact}
-                />
-              </View>
-            )}
-          </ScrollView>
+            }
+            ItemSeparatorComponent={() => <View style={styles.rowSeparator} />}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+            maintainVisibleContentPosition={{ data: true, size: true }}
+            onStartReached={loadNewer}
+            onStartReachedThreshold={0.15}
+            onEndReached={loadOlder}
+            onEndReachedThreshold={0.15}
+            estimatedItemSize={76}
+            recycleItems
+          />
         </View>
       )}
     </TopSheet>
@@ -458,8 +489,8 @@ const makeStyles = (colors: Colors, topInset: number) =>
       paddingHorizontal: 2,
       paddingVertical: 6,
     },
-    taskList: {
-      gap: 4,
+    rowSeparator: {
+      height: 4,
     },
     taskGroup: {
       gap: 2,

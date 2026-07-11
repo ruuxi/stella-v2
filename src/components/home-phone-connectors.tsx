@@ -445,7 +445,7 @@ export function HomePhoneConnectors() {
         </div>
 
         <div
-          className={`home-atlas-media home-atlas-media--right home-atlas-fade ${styles.media}`}
+          className={`home-atlas-media home-atlas-media--right ${styles.media}`}
           data-reveal-child
           style={{ ["--reveal-index" as string]: 1 }}
         >

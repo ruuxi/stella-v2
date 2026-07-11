@@ -211,7 +211,7 @@ export function HomeSingleChat() {
               ))}
             </svg>
 
-            <div className={`home-atlas-fade ${styles.frame}`}>
+            <div className={styles.frame}>
               <span className={styles.merge} aria-hidden="true" />
               <HomeMiniChatMock className={styles.miniWindow} themeId="sage">
                 <div className={styles.liveChat}>

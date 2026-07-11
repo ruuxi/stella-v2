@@ -81,7 +81,7 @@ export function HomeDocuments() {
           >
             <div className={styles.request} aria-hidden="true">
               <span className={styles.requestMark}>
-                <Image src="/stella-logo.svg" alt="" width={13} height={13} />
+                <Image src="/stella-logo-ui.png" alt="" width={13} height={13} />
               </span>
               <span className={styles.requestText}>
                 {shownTyped || "Ask for the files you need…"}

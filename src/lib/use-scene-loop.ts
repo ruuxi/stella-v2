@@ -55,13 +55,16 @@ export function useSceneLoop(
   useEffect(() => {
     if (!running) return;
     let cancelled = false;
+    const pending = new Map<number, () => void>();
 
     const sleep = (ms: number) =>
       new Promise<void>((resolve, reject) => {
-        setTimeout(() => {
+        const timer = window.setTimeout(() => {
+          pending.delete(timer);
           if (cancelled) reject(new SceneCancel());
           else resolve();
         }, ms);
+        pending.set(timer, () => reject(new SceneCancel()));
       });
 
     const type = async (
@@ -89,6 +92,11 @@ export function useSceneLoop(
 
     return () => {
       cancelled = true;
+      for (const [timer, cancel] of pending) {
+        window.clearTimeout(timer);
+        cancel();
+      }
+      pending.clear();
       resetRef.current();
     };
   }, [running, restartDelayMs]);

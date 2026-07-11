@@ -295,7 +295,7 @@ export function HomeComputerUse() {
                 <div className={styles.automation}>
                   <span className={styles.automationMark}>
                     <Image
-                      src="/stella-logo.svg"
+                      src="/stella-logo-ui.png"
                       alt=""
                       width={13}
                       height={13}
@@ -323,7 +323,7 @@ export function HomeComputerUse() {
                   <span className={styles.cursorLabel}>
                     <span className={styles.cursorLabelMark}>
                       <Image
-                        src="/stella-logo.svg"
+                        src="/stella-logo-ui.png"
                         alt=""
                         width={9}
                         height={9}

@@ -495,7 +495,7 @@ export function ExtensionSection() {
         <div className="ob-extension__card">
           <span className="ob-extension__logo" aria-hidden="true">
             <Image
-              src="/stella-logo.svg"
+              src="/stella-logo-ui.png"
               alt=""
               width={48}
               height={48}

@@ -130,7 +130,7 @@ export function MobileShowcase() {
             </div>
             <div className="mobile-phone__header">
               <div className="mobile-phone__avatar">
-                <Image src="/stella-logo.svg" alt="" width={22} height={22} />
+                <Image src="/stella-logo-ui.png" alt="" width={22} height={22} />
               </div>
               <div className="mobile-phone__contact">
                 <span className="mobile-phone__name">Stella</span>
@@ -265,7 +265,7 @@ export function MobilePhoneVisual({
                     {!msg.isGrouped && (
                       <div className="discord-msg__avatar">
                         {msg.role === "stella" ? (
-                          <Image src="/stella-logo.svg" alt="" width={18} height={18} />
+                          <Image src="/stella-logo-ui.png" alt="" width={18} height={18} />
                         ) : (
                           <span className="discord-msg__user-avatar">Y</span>
                         )}
@@ -349,7 +349,7 @@ export function MobilePhoneVisual({
                   <div className="slack-msg__avatar">
                     {msg.role === "stella" ? (
                       <>
-                        <Image src="/stella-logo.svg" alt="" width={18} height={18} />
+                        <Image src="/stella-logo-ui.png" alt="" width={18} height={18} />
                         <span className="slack-msg__online" />
                       </>
                     ) : (
@@ -424,7 +424,7 @@ export function MobilePhoneVisual({
             <span className="telegram-header__back">&lsaquo;</span>
             <div className="telegram-header__center">
               <div className="telegram-header__avatar">
-                <Image src="/stella-logo.svg" alt="" width={18} height={18} />
+                <Image src="/stella-logo-ui.png" alt="" width={18} height={18} />
               </div>
               <div className="telegram-header__info">
                 <span className="telegram-header__name">Stella</span>
@@ -491,7 +491,7 @@ export function MobilePhoneVisual({
           <div className="teams-header">
             <span className="teams-header__back">&lsaquo;</span>
             <div className="teams-header__avatar">
-              <Image src="/stella-logo.svg" alt="" width={16} height={16} />
+              <Image src="/stella-logo-ui.png" alt="" width={16} height={16} />
             </div>
             <div className="teams-header__info">
               <span className="teams-header__name">Stella</span>
@@ -507,7 +507,7 @@ export function MobilePhoneVisual({
                 {!msg.isGrouped && (
                   <div className="teams-msg__avatar">
                     {msg.role === "stella" ? (
-                      <Image src="/stella-logo.svg" alt="" width={16} height={16} />
+                      <Image src="/stella-logo-ui.png" alt="" width={16} height={16} />
                     ) : (
                       <span className="teams-msg__user-avatar">Y</span>
                     )}
@@ -566,7 +566,7 @@ export function MobilePhoneVisual({
         </div>
         <div className="mobile-phone__header">
           <div className="mobile-phone__avatar">
-            <Image src="/stella-logo.svg" alt="" width={22} height={22} />
+            <Image src="/stella-logo-ui.png" alt="" width={22} height={22} />
           </div>
           <div className="mobile-phone__contact">
             <span className="mobile-phone__name">Stella</span>

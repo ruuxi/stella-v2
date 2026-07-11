@@ -371,7 +371,7 @@ function MiniSidebar() {
     <aside className="mini-sidebar">
       <div className="mini-sidebar__brand">
         <span className="mini-sidebar__brand-logo" aria-hidden="true">
-          <img src="/stella-logo.svg" alt="" />
+          <img src="/stella-logo-ui.png" alt="" />
         </span>
         <span className="mini-sidebar__brand-text">Stella</span>
       </div>

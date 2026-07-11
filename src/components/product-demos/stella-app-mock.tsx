@@ -2539,7 +2539,7 @@ export function StellaAppMock({
                 matching `desktop/src/shell/sidebar/sidebar.css`. */}
             <div className="sam-sidebar-brand">
               <span className="sam-sidebar-brand-logo" aria-hidden="true">
-                <img src="/stella-logo.svg" alt="" />
+                <img src="/stella-logo-ui.png" alt="" />
               </span>
               <span className="sam-sidebar-brand-text">Stella</span>
             </div>

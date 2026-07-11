@@ -293,7 +293,7 @@ export default function VoicePage() {
       <footer className="grid-shell site-footer section-border">
         <div className="footer-brand">
           <Link className="brand-mark brand-mark--footer" href="/">
-            <Image src="/stella-logo.svg" alt="Stella" width={42} height={42} />
+            <Image src="/stella-logo-ui.png" alt="Stella" width={42} height={42} />
             <span className="brand-text">Stella</span>
           </Link>
           <FooterLegalLinks />

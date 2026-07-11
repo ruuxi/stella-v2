@@ -10,7 +10,7 @@ export function SiteHeader() {
           <span className="brand-mark__logo">
             <Image
               className="brand-mark__logo-img"
-              src="/stella-logo.svg"
+              src="/stella-logo-ui.png"
               alt=""
               width={64}
               height={64}

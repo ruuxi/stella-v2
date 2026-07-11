@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import React, {
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   BIRTH_DURATION,
   FLASH_DURATION,
@@ -91,7 +97,8 @@ export const StellaAnimation = React.forwardRef<
     const brightestRef = useRef<HTMLSpanElement>(null);
     const requestRef = useRef<number | undefined>(undefined);
     const animateRef = useRef<(() => void) | null>(null);
-    const pausedRef = useRef(paused);
+    const pausedRef = useRef(true);
+    const [runtimeActive, setRuntimeActive] = useState(false);
     const timeRef = useRef<number>(0);
     const birthRef = useRef<number>(initialBirthProgress);
     const flashRef = useRef<number>(0);
@@ -164,11 +171,41 @@ export const StellaAnimation = React.forwardRef<
     }, [externalOutputLevel]);
 
     useEffect(() => {
-      pausedRef.current = paused;
-      if (!paused && !requestRef.current && animateRef.current) {
+      const container = containerRef.current;
+      if (!container) return;
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      let inView = false;
+
+      const update = () => {
+        setRuntimeActive(
+          inView &&
+            document.visibilityState !== "hidden" &&
+            !reduceMotion.matches,
+        );
+      };
+      const observer = new IntersectionObserver(([entry]) => {
+        inView = Boolean(entry?.isIntersecting);
+        update();
+      });
+      observer.observe(container);
+      document.addEventListener("visibilitychange", update);
+      reduceMotion.addEventListener?.("change", update);
+      update();
+
+      return () => {
+        observer.disconnect();
+        document.removeEventListener("visibilitychange", update);
+        reduceMotion.removeEventListener?.("change", update);
+      };
+    }, []);
+
+    useEffect(() => {
+      const effectivelyPaused = paused || !runtimeActive;
+      pausedRef.current = effectivelyPaused;
+      if (!effectivelyPaused && !requestRef.current && animateRef.current) {
         requestRef.current = requestAnimationFrame(animateRef.current);
       }
-    }, [paused]);
+    }, [paused, runtimeActive]);
 
     useLayoutEffect(() => {
       const container = containerRef.current;

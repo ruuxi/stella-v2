@@ -48,9 +48,15 @@ export function openSignInDialog() {
  * inline, so links and buttons across the marketing site can avoid a full
  * navigation away from the current page.
  */
-export function SignInDialogProvider({ children }: { children: ReactNode }) {
+export function SignInDialogProvider({
+  children,
+  initiallyOpen = false,
+}: {
+  children?: ReactNode;
+  initiallyOpen?: boolean;
+}) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(initiallyOpen);
   useOAuthReturnToken();
 
   const open = useCallback(() => {
@@ -173,12 +179,12 @@ function useOAuthReturnToken() {
 export function useSignInDialog(): SignInDialogContextValue {
   const ctx = useContext(SignInDialogContext);
   if (ctx) return ctx;
-  // Fallback for trees that don't have the provider (e.g. preview builds
-  // without Convex configured): just navigate to the dedicated page.
+  // The root dialog host is deliberately lazy, so callers normally sit outside
+  // the provider. Wake the host via the same event used by non-React callers.
   return {
     open: () => {
       if (typeof window !== "undefined") {
-        window.location.href = "/sign-in";
+        window.dispatchEvent(new CustomEvent(SIGN_IN_DIALOG_EVENT));
       }
     },
     close: () => {},
@@ -203,7 +209,7 @@ function DialogBody({ onClose }: { onClose: () => void }) {
     <>
       <Link className={styles.brand} href="/" onClick={onClose}>
         <span className={styles.brandLogo}>
-          <Image src="/stella-logo.svg" alt="" width={28} height={28} />
+          <Image src="/stella-logo-ui.png" alt="" width={28} height={28} />
         </span>
         <span className={styles.brandText}>Stella</span>
       </Link>

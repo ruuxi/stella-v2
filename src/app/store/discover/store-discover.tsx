@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { Package, Search } from "lucide-react";
 import {
@@ -47,9 +48,22 @@ import {
   PackageCard,
 } from "./discover-ui";
 import { InstallConfirmDialog } from "./install-confirm-dialog";
-import { PetsTab } from "../pets/pets-tab";
-import { EmojisTab } from "../emojis/emojis-tab";
-import { LibraryTab } from "../library/library-tab";
+
+// These tabs carry their own queries, media processing and sizeable UI trees.
+// Keep them out of the initial Discover bundle and load each only when visited.
+const StoreTabLoading = () => <StoreLoadingSpinner />;
+const PetsTab = dynamic(
+  () => import("../pets/pets-tab").then((module) => module.PetsTab),
+  { loading: StoreTabLoading },
+);
+const EmojisTab = dynamic(
+  () => import("../emojis/emojis-tab").then((module) => module.EmojisTab),
+  { loading: StoreTabLoading },
+);
+const LibraryTab = dynamic(
+  () => import("../library/library-tab").then((module) => module.LibraryTab),
+  { loading: StoreTabLoading },
+);
 
 export function StoreClientInner() {
   const isEmbedded = useIsEmbeddedWebsite();

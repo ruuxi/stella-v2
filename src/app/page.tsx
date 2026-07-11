@@ -2,14 +2,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
-import { HomeComputerUse } from "@/components/home-computer-use";
-import { HomeMakeYours } from "@/components/home-make-yours";
 import { HomeDesktopMock } from "@/components/home-desktop-mock";
-import { HomeDocuments } from "@/components/home-documents";
+import { HomeDeferredSections } from "@/components/home-deferred-sections";
 import { HomeHero } from "@/components/home-hero";
-import { HomeOpenPrivate } from "@/components/home-open-private";
-import { HomePhoneConnectors } from "@/components/home-phone-connectors";
-import { HomeSingleChat } from "@/components/home-single-chat";
 import { SiteHeader } from "@/components/site-header";
 
 export default function Home() {
@@ -20,18 +15,13 @@ export default function Home() {
       <main>
         <HomeHero />
         <HomeDesktopMock />
-        <HomeMakeYours />
-        <HomeSingleChat />
-        <HomeComputerUse />
-        <HomePhoneConnectors />
-        <HomeDocuments />
-        <HomeOpenPrivate />
+        <HomeDeferredSections />
       </main>
 
       <footer className="grid-shell site-footer section-deferred-render section-border">
         <div className="footer-brand">
           <Link className="brand-mark brand-mark--footer" href="/">
-            <Image src="/stella-logo.svg" alt="Stella" width={42} height={42} />
+            <Image src="/stella-logo-ui.png" alt="Stella" width={42} height={42} />
             <span className="brand-text">Stella</span>
           </Link>
 

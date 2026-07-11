@@ -1,8 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Cormorant_Garamond, IBM_Plex_Mono, Manrope } from "next/font/google";
 import { getSiteUrl } from "@/lib/site-url";
-import { ConvexAuthProvider } from "@/components/auth/convex-auth-provider";
-import { SignInDialogProvider } from "@/components/auth/sign-in-dialog";
+import { SignInDialogHost } from "@/components/auth/sign-in-dialog-host";
 import { EmbeddedInitScript } from "@/components/embedded/embedded-init-script";
 import { EmbeddedThemeBridge } from "@/components/embedded/embedded-theme-bridge";
 import { PerfInitScript } from "@/components/perf-init-script";
@@ -29,7 +28,9 @@ const display = Cormorant_Garamond({
   subsets: ["latin"],
   display: "swap",
   style: ["normal", "italic"],
-  preload: true,
+  // This display face is not needed for the first paint on every route.
+  // Avoid competing with the primary UI font and route imagery globally.
+  preload: false,
   adjustFontFallback: true,
 });
 
@@ -166,9 +167,8 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
-        <ConvexAuthProvider>
-          <SignInDialogProvider>{children}</SignInDialogProvider>
-        </ConvexAuthProvider>
+        {children}
+        <SignInDialogHost />
         <EmbeddedThemeBridge />
         <RevealOnScroll />
       </body>

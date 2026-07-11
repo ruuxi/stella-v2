@@ -197,7 +197,7 @@ export function StellaSidebar({
         <div className="stella-sidebar__titlebar" />
         <div className="stella-sidebar__brand">
           <span className="stella-sidebar__brand-logo" aria-hidden="true">
-            <img src="/stella-logo.svg" alt="" />
+            <img src="/stella-logo-ui.png" alt="" />
           </span>
           <span className="stella-sidebar__brand-text">Stella</span>
         </div>

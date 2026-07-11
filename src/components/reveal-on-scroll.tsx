@@ -41,9 +41,13 @@ export function RevealOnScroll() {
       },
     );
 
-    const observeAll = () => {
-      const nodes = document.querySelectorAll<HTMLElement>("[data-reveal]");
-      nodes.forEach((node) => {
+    const observeNode = (node: Element) => {
+      const candidates: Element[] = [];
+      if (node.matches("[data-reveal]")) candidates.push(node);
+      candidates.push(...node.querySelectorAll("[data-reveal]"));
+
+      candidates.forEach((candidate) => {
+        const node = candidate as HTMLElement;
         if (observed.has(node)) return;
         observed.add(node);
 
@@ -61,10 +65,16 @@ export function RevealOnScroll() {
       });
     };
 
-    observeAll();
+    observeNode(document.body);
 
     // Watch for any sections rendered after hydration (dynamic imports, etc).
-    const mutation = new MutationObserver(() => observeAll());
+    const mutation = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const added of record.addedNodes) {
+          if (added instanceof Element) observeNode(added);
+        }
+      }
+    });
     mutation.observe(document.body, { childList: true, subtree: true });
 
     return () => {

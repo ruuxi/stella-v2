@@ -392,7 +392,7 @@ export function SelfModShell({
               <div className="selfmod-shell__brand">
                 <span className="selfmod-shell__brand-logo" aria-hidden="true">
                   <img
-                    src="/stella-logo.svg"
+                    src="/stella-logo-ui.png"
                     alt=""
                     className="selfmod-shell__brand-logo-art"
                   />

@@ -28,7 +28,7 @@ export function SignInView() {
         <div className={styles.shell}>
           <Link className={styles.brand} href="/">
             <span className={styles.brandLogo}>
-              <Image src="/stella-logo.svg" alt="" width={32} height={32} />
+              <Image src="/stella-logo-ui.png" alt="" width={32} height={32} />
             </span>
             <span className={styles.brandText}>Stella</span>
           </Link>
@@ -82,7 +82,7 @@ function MagicLinkPanel() {
       <div className={styles.shell}>
         <Link className={styles.brand} href="/">
           <span className={styles.brandLogo}>
-            <Image src="/stella-logo.svg" alt="" width={32} height={32} />
+            <Image src="/stella-logo-ui.png" alt="" width={32} height={32} />
           </span>
           <span className={styles.brandText}>Stella</span>
         </Link>
@@ -248,7 +248,7 @@ function SignedInPanel({ user }: { user: SessionUser }) {
       <div className={styles.shell}>
         <Link className={styles.brand} href="/">
           <span className={styles.brandLogo}>
-            <Image src="/stella-logo.svg" alt="" width={32} height={32} />
+            <Image src="/stella-logo-ui.png" alt="" width={32} height={32} />
           </span>
           <span className={styles.brandText}>Stella</span>
         </Link>

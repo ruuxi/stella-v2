@@ -21,7 +21,7 @@ export default function LearnMoreLayout({
         <div className="footer-brand">
           <Link className="brand-mark brand-mark--footer" href="/">
             <Image
-              src="/stella-logo.svg"
+              src="/stella-logo-ui.png"
               alt="Stella"
               width={42}
               height={42}

@@ -1300,6 +1300,8 @@ export function HomeDesktopMock() {
     const el = sectionRef.current;
     if (!el) return;
     let raf = 0;
+    let nearViewport = false;
+    let listening = false;
     const update = () => {
       raf = 0;
       const rect = el.getBoundingClientRect();
@@ -1316,10 +1318,33 @@ export function HomeDesktopMock() {
     const onScroll = () => {
       if (!raf) raf = requestAnimationFrame(update);
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    update();
+    const syncListeners = () => {
+      const shouldListen = nearViewport && document.visibilityState !== "hidden";
+      if (shouldListen === listening) return;
+      listening = shouldListen;
+      if (listening) {
+        window.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener("resize", onScroll);
+        update();
+      } else {
+        window.removeEventListener("scroll", onScroll);
+        window.removeEventListener("resize", onScroll);
+        if (raf) cancelAnimationFrame(raf);
+        raf = 0;
+      }
+    };
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        nearViewport = Boolean(entry?.isIntersecting);
+        syncListeners();
+      },
+      { rootMargin: "100% 0px" },
+    );
+    observer.observe(el);
+    document.addEventListener("visibilitychange", syncListeners);
     return () => {
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", syncListeners);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
       if (raf) cancelAnimationFrame(raf);

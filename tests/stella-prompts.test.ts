@@ -49,7 +49,7 @@ describe("Stella prompt defaults", () => {
     expect(STELLA_PROMPT_DEFAULTS.revision).toBe(expectedRevision);
   });
 
-  it("stores agent bodies without capability-bearing frontmatter", async () => {
+  it("keeps agent prompts backend-owned and free of capability-bearing frontmatter", async () => {
     for (const prompt of STELLA_PROMPT_DEFAULTS.prompts.filter((value) =>
       value.id.startsWith("agents/"),
     )) {
@@ -58,18 +58,14 @@ describe("Stella prompt defaults", () => {
         path.join(
           import.meta.dirname,
           "..",
-          "..",
-          "stella",
-          "runtime",
-          "extensions",
+          "prompts",
           "stella-runtime",
           prompt.id,
         ),
         "utf-8",
       );
-      const frontmatter = source.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
-      expect(frontmatter).not.toBeNull();
-      expect(prompt.content).toBe(source.slice(frontmatter![0].length));
+      expect(source.startsWith("---\n")).toBe(false);
+      expect(prompt.content).toBe(source);
     }
   });
 

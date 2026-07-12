@@ -83,6 +83,7 @@ describe("bodyForUpstream", () => {
 
     expect(body.service_tier).toBeUndefined();
     expect(body.model).toBe("gpt-5.5");
+    expect(body.store).toBe(false);
   });
 
   it("strips legacy messages from OpenAI Responses bodies", () => {
@@ -363,4 +364,3 @@ describe("meta Muse Spark relay", () => {
     expect(body.reasoning).toEqual({ effort: "low" });
   });
 });
-

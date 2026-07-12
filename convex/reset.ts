@@ -98,8 +98,8 @@ export const resetAllUserData = action({
     // 2. Drain each owner-scoped table in its own mutation so we never
     //    read + delete from N tables in a single transaction. The per-table
     //    drains are independent, so run them concurrently.
-    await Promise.all(
-      OWNER_TABLES.map(async ([table]) => {
+    await Promise.all([
+      ...OWNER_TABLES.map(async ([table]) => {
         let hasMore = true;
         while (hasMore) {
           const result: { hasMore: boolean } = await ctx.runMutation(
@@ -109,7 +109,17 @@ export const resetAllUserData = action({
           hasMore = result.hasMore;
         }
       }),
-    );
+      (async () => {
+        let hasMore = true;
+        while (hasMore) {
+          const result: { hasMore: boolean } = await ctx.runMutation(
+            internal.stella_provider.deleteOwnerRelayResumeStream,
+            { ownerId },
+          );
+          hasMore = result.hasMore;
+        }
+      })(),
+    ]);
 
     return null;
   },

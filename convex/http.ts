@@ -34,8 +34,10 @@ import {
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
   STELLA_RELAY_PATH_PREFIX,
   stellaProviderModels,
+  stellaProviderCancel,
   stellaProviderOptions,
   stellaProviderRelay,
+  stellaProviderResume,
 } from "./stella_provider";
 
 const http = httpRouter();
@@ -152,6 +154,16 @@ http.route({
   pathPrefix: STELLA_RELAY_PATH_PREFIX,
   method: "POST",
   handler: stellaProviderRelay(),
+});
+http.route({
+  pathPrefix: STELLA_RELAY_PATH_PREFIX,
+  method: "GET",
+  handler: stellaProviderResume,
+});
+http.route({
+  pathPrefix: STELLA_RELAY_PATH_PREFIX,
+  method: "DELETE",
+  handler: stellaProviderCancel,
 });
 
 http.route({

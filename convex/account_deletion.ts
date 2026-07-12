@@ -794,6 +794,16 @@ export const purgeOwnerCloudData = internalAction({
         let hasMore = true;
         while (hasMore) {
           const result: { hasMore: boolean } = await ctx.runMutation(
+            internal.stella_provider.deleteOwnerRelayResumeStream,
+            { ownerId },
+          );
+          hasMore = result.hasMore;
+        }
+      })(),
+      (async () => {
+        let hasMore = true;
+        while (hasMore) {
+          const result: { hasMore: boolean } = await ctx.runMutation(
             internal.account_deletion._deleteEmojiPackBatch,
             { ownerId },
           );

@@ -217,6 +217,7 @@ import type * as social_rooms from "../social/rooms.js";
 import type * as social_sessions from "../social/sessions.js";
 import type * as social_shared from "../social/shared.js";
 import type * as stella_models from "../stella_models.js";
+import type * as stella_prompt_contract from "../stella_prompt_contract.js";
 import type * as stella_prompts from "../stella_prompts.js";
 import type * as stella_prompts_http from "../stella_prompts_http.js";
 import type * as stella_provider from "../stella_provider.js";
@@ -446,6 +447,7 @@ declare const fullApi: ApiFromModules<{
   "social/sessions": typeof social_sessions;
   "social/shared": typeof social_shared;
   stella_models: typeof stella_models;
+  stella_prompt_contract: typeof stella_prompt_contract;
   stella_prompts: typeof stella_prompts;
   stella_prompts_http: typeof stella_prompts_http;
   stella_provider: typeof stella_provider;

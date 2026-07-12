@@ -22,15 +22,17 @@ const usage = {
 };
 
 const makeModel = (provider: string): Model<"openai-responses"> => ({
-  id: provider === "fireworks"
-    ? "accounts/fireworks/models/kimi-k2p6"
-    : "gpt-5.5",
+  id:
+    provider === "fireworks"
+      ? "accounts/fireworks/models/kimi-k2p6"
+      : "gpt-5.5",
   name: provider,
   api: "openai-responses",
   provider,
-  baseUrl: provider === "fireworks"
-    ? "https://api.fireworks.ai/inference/v1"
-    : "https://api.openai.com/v1",
+  baseUrl:
+    provider === "fireworks"
+      ? "https://api.fireworks.ai/inference/v1"
+      : "https://api.openai.com/v1",
   reasoning: false,
   input: ["text"],
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -184,7 +186,9 @@ describe("backend OpenAI Responses stream conversion", () => {
           type: "message",
           id: "msg_0",
           role: "assistant",
-          content: [{ type: "output_text", text: "Hello world", annotations: [] }],
+          content: [
+            { type: "output_text", text: "Hello world", annotations: [] },
+          ],
           status: "completed",
         },
       },
@@ -249,7 +253,9 @@ describe("backend OpenAI Responses stream conversion", () => {
           type: "message",
           id: "msg_0",
           role: "assistant",
-          content: [{ type: "output_text", text: "Hello world", annotations: [] }],
+          content: [
+            { type: "output_text", text: "Hello world", annotations: [] },
+          ],
           status: "completed",
         },
       },
@@ -404,7 +410,9 @@ describe("backend OpenAI Responses stream conversion", () => {
           type: "message",
           id: "msg_0",
           role: "assistant",
-          content: [{ type: "output_text", text: "Hello world", annotations: [] }],
+          content: [
+            { type: "output_text", text: "Hello world", annotations: [] },
+          ],
           status: "completed",
         },
       },
@@ -437,5 +445,38 @@ describe("backend OpenAI Responses stream conversion", () => {
     expect(output.content).toEqual([
       expect.objectContaining({ type: "text", text: "Hello world" }),
     ]);
+  });
+
+  it("maps response.incomplete max output termination to length", async () => {
+    const output: AssistantMessage = {
+      role: "assistant",
+      content: [],
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.5",
+      usage,
+      stopReason: "stop",
+      timestamp: 1,
+    };
+    const stream = new AssistantMessageEventStream();
+    await processResponsesStream(
+      [
+        {
+          type: "response.incomplete",
+          response: {
+            id: "resp-incomplete",
+            status: "incomplete",
+            incomplete_details: { reason: "max_output_tokens" },
+          },
+        },
+      ] as Parameters<typeof processResponsesStream>[0],
+      output,
+      stream,
+      makeModel("openai"),
+    );
+    stream.end();
+
+    expect(output.responseId).toBe("resp-incomplete");
+    expect(output.stopReason).toBe("length");
   });
 });

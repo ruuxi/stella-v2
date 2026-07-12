@@ -1,29 +1,54 @@
 /**
  * Relay-owned OpenAI Responses resume protocol.
  *
- * Retention model:
- * - Provider requests remain `store: false`; prompts and request/tool schemas
- *   are never written here.
- * - Only downstream SSE response events needed for cursor replay are retained.
- * - Streams expire as a unit after 10 minutes and are capped at 4 MiB or 8,192
- *   events, whichever comes first. A capped stream fails closed for resume.
+ * Provider requests remain `store: false`. The transient buffer may contain
+ * plaintext response text, reasoning, and tool arguments because the relay
+ * must continue receiving the upstream stream after a client disconnects.
+ * It never stores request bodies, prompts, input messages, tool definitions,
+ * credentials, or request headers.
  */
 
 export const STELLA_RELAY_RESUME_VERSION = "1";
 export const STELLA_RELAY_RESUME_HEADER = "x-stella-relay-resume";
 export const STELLA_RELAY_REQUEST_ID_HEADER = "x-stella-relay-request-id";
-export const STELLA_RELAY_RESUME_TTL_MS = 10 * 60 * 1000;
+
+// Logical access expires two minutes after the latest live activity, with a
+// hard fifteen-minute lifetime even if an upstream never terminates.
+export const STELLA_RELAY_RESUME_TTL_MS = 2 * 60 * 1000;
+export const STELLA_RELAY_RESUME_HARD_TTL_MS = 15 * 60 * 1000;
 export const STELLA_RELAY_RESUME_STALE_MS = 30 * 1000;
-export const STELLA_RELAY_RESUME_MAX_BYTES = 4 * 1024 * 1024;
-export const STELLA_RELAY_RESUME_MAX_EVENTS = 8_192;
-export const STELLA_RELAY_RESUME_MAX_EVENT_BYTES = 256 * 1024;
-export const STELLA_RELAY_RESUME_CHUNK_MAX_BYTES = 128 * 1024;
-export const STELLA_RELAY_RESUME_CHUNK_MAX_EVENTS = 128;
-export const STELLA_RELAY_RESUME_POLL_MS = 100;
+
+export const STELLA_RELAY_RESUME_MAX_BYTES = 1024 * 1024;
+export const STELLA_RELAY_RESUME_MAX_EVENTS = 4_096;
+export const STELLA_RELAY_RESUME_MAX_EVENT_BYTES = 128 * 1024;
+export const STELLA_RELAY_RESUME_RAW_FRAME_MAX_BYTES = 256 * 1024;
+export const STELLA_RELAY_RESUME_CHUNK_MAX_BYTES = 64 * 1024;
+export const STELLA_RELAY_RESUME_CHUNK_MAX_EVENTS = 64;
+export const STELLA_RELAY_RESUME_QUERY_MAX_CHUNKS = 2;
+
+export const STELLA_RELAY_RESUME_POLL_MIN_MS = 100;
+export const STELLA_RELAY_RESUME_POLL_MAX_MS = 1_000;
+export const STELLA_RELAY_RESUME_LEASE_TTL_MS = 15_000;
+export const STELLA_RELAY_CANCEL_INTENT_TTL_MS = 2 * 60 * 1000;
+export const STELLA_RELAY_RESUME_MAX_STREAM_LEASES = 2;
+export const STELLA_RELAY_RESUME_MAX_OWNER_LEASES = 8;
+export const STELLA_RELAY_RESUME_RATE_PER_OWNER = 30;
+export const STELLA_RELAY_RESUME_RATE_PER_STREAM = 10;
+export const STELLA_RELAY_RESUME_RATE_WINDOW_MS = 60_000;
+
+export const STELLA_RELAY_RESUME_MAX_OWNER_STREAMS = 8;
+export const STELLA_RELAY_RESUME_MAX_OWNER_BYTES = 4 * 1024 * 1024;
+export const STELLA_RELAY_RESUME_MAX_GLOBAL_STREAMS = 2_048;
+export const STELLA_RELAY_RESUME_MAX_GLOBAL_BYTES = 256 * 1024 * 1024;
+
+export const STELLA_RELAY_CLEANUP_MAX_DOCS = 16;
+export const STELLA_RELAY_CLEANUP_MAX_BYTES = 256 * 1024;
+export const STELLA_RELAY_CLEANUP_MAX_BATCHES = 20;
 
 export type RelayResumeStatus =
   | "streaming"
   | "completed"
+  | "incomplete"
   | "failed"
   | "error"
   | "canceled"
@@ -36,7 +61,7 @@ export type RelayResumeEvent = {
   eventType: string;
   responseId?: string;
   responseStatus?: string;
-  terminalStatus?: "completed" | "failed" | "error";
+  terminalStatus?: "completed" | "incomplete" | "failed" | "error";
 };
 
 export type RelayResumeFrame =
@@ -65,6 +90,8 @@ const terminalStatusForEvent = (
   switch (eventType) {
     case "response.completed":
       return "completed";
+    case "response.incomplete":
+      return "incomplete";
     case "response.failed":
       return "failed";
     case "error":
@@ -74,50 +101,94 @@ const terminalStatusForEvent = (
   }
 };
 
-const splitFrame = (buffer: string): { frame: string; rest: string } | null => {
-  const lf = buffer.indexOf("\n\n");
-  const crlf = buffer.indexOf("\r\n\r\n");
-  if (lf < 0 && crlf < 0) return null;
-  if (crlf >= 0 && (lf < 0 || crlf < lf)) {
-    return {
-      frame: buffer.slice(0, crlf + 4),
-      rest: buffer.slice(crlf + 4),
-    };
+const lineEndingLength = (
+  value: string,
+  index: number,
+  final: boolean,
+): number => {
+  const char = value[index];
+  if (char === "\n") return 1;
+  if (char !== "\r") return 0;
+  if (value[index + 1] === "\n") return 2;
+  return index + 1 < value.length || final ? 1 : 0;
+};
+
+const findEventBoundary = (value: string, final: boolean): number | null => {
+  for (let index = 0; index < value.length; index += 1) {
+    const first = lineEndingLength(value, index, final);
+    if (first === 0) continue;
+    const secondStart = index + first;
+    const second = lineEndingLength(value, secondStart, final);
+    if (second > 0) return secondStart + second;
+    index = secondStart - 1;
   }
-  return {
-    frame: buffer.slice(0, lf + 2),
-    rest: buffer.slice(lf + 2),
-  };
+  return null;
 };
 
 const dataFromFrame = (frame: string): string | null => {
-  const values = frame
-    .split(/\r?\n/u)
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).replace(/^ /u, ""));
+  const values: string[] = [];
+  for (const line of frame.split(/\r\n|\r|\n/u)) {
+    if (!line || line.startsWith(":")) continue;
+    const colon = line.indexOf(":");
+    const field = colon < 0 ? line : line.slice(0, colon);
+    let value = colon < 0 ? "" : line.slice(colon + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+    if (field === "data") values.push(value);
+  }
   return values.length > 0 ? values.join("\n") : null;
 };
+
+export class RelayResumeFrameTooLargeError extends Error {
+  constructor() {
+    super("Upstream SSE frame exceeded the Stella relay pending-frame limit");
+    this.name = "RelayResumeFrameTooLargeError";
+  }
+}
 
 export class RelayResumeSseParser {
   private buffer = "";
   private nextSequence = 1;
 
   push(text: string): RelayResumeFrame[] {
-    this.buffer += text;
     const frames: RelayResumeFrame[] = [];
-    while (true) {
-      const split = splitFrame(this.buffer);
-      if (!split) break;
-      this.buffer = split.rest;
-      frames.push(this.parseFrame(split.frame));
+    // Process large transport chunks incrementally so the raw pending frame is
+    // bounded even when fetch hands us a multi-megabyte Uint8Array.
+    for (let offset = 0; offset < text.length; offset += 16 * 1024) {
+      this.buffer += text.slice(offset, offset + 16 * 1024);
+      frames.push(...this.extractFrames(false));
+      if (
+        encoder.encode(this.buffer).byteLength >
+        STELLA_RELAY_RESUME_RAW_FRAME_MAX_BYTES
+      ) {
+        throw new RelayResumeFrameTooLargeError();
+      }
     }
     return frames;
   }
 
-  finish(): string {
-    const remainder = this.buffer;
-    this.buffer = "";
-    return remainder;
+  finish(): { frames: RelayResumeFrame[]; remainder: string } {
+    const frames = this.extractFrames(true);
+    if (this.buffer.length > 0) {
+      frames.push(this.parseFrame(this.buffer));
+      this.buffer = "";
+    }
+    return { frames, remainder: "" };
+  }
+
+  pendingBytes(): number {
+    return encoder.encode(this.buffer).byteLength;
+  }
+
+  private extractFrames(final: boolean): RelayResumeFrame[] {
+    const frames: RelayResumeFrame[] = [];
+    while (true) {
+      const boundary = findEventBoundary(this.buffer, final);
+      if (boundary === null) break;
+      const frame = this.buffer.slice(0, boundary);
+      this.buffer = this.buffer.slice(boundary);
+      frames.push(this.parseFrame(frame));
+    }
+    return frames;
   }
 
   private parseFrame(frame: string): RelayResumeFrame {
@@ -143,21 +214,19 @@ export class RelayResumeSseParser {
     const response = asRecord(record.response);
     const responseId = stringField(response, "id");
     const responseStatus = stringField(response, "status");
-    const rewritten = {
-      ...record,
-      stella_relay_sequence: sequence,
-    };
+    const terminalStatus = terminalStatusForEvent(eventType);
     return {
       kind: "event",
       event: {
         sequence,
-        frame: `data: ${JSON.stringify(rewritten)}\n\n`,
+        frame: `data: ${JSON.stringify({
+          ...record,
+          stella_relay_sequence: sequence,
+        })}\n\n`,
         eventType,
         ...(responseId ? { responseId } : {}),
         ...(responseStatus ? { responseStatus } : {}),
-        ...(terminalStatusForEvent(eventType)
-          ? { terminalStatus: terminalStatusForEvent(eventType) }
-          : {}),
+        ...(terminalStatus ? { terminalStatus } : {}),
       },
     };
   }
@@ -209,6 +278,7 @@ export const relayResumeChunkEvents = (
 export type RelayResumeAccessSnapshot = {
   ownerId: string;
   expiresAt: number;
+  hardExpiresAt: number;
   lastSequence: number;
 };
 
@@ -225,7 +295,10 @@ export const decideRelayResumeAccess = (args: {
   if (!args.snapshot || args.snapshot.ownerId !== args.ownerId) {
     return { ok: false, status: 404, message: "Relay response not found" };
   }
-  if (args.snapshot.expiresAt <= args.nowMs) {
+  if (
+    args.snapshot.expiresAt <= args.nowMs ||
+    args.snapshot.hardExpiresAt <= args.nowMs
+  ) {
     return { ok: false, status: 410, message: "Relay resume cursor expired" };
   }
   if (args.startingAfter > args.snapshot.lastSequence) {
@@ -243,11 +316,27 @@ export const relayResumeStreamIsStale = (
   nowMs: number,
 ): boolean => nowMs - updatedAt > STELLA_RELAY_RESUME_STALE_MS;
 
+export const relayResumeNextPollDelay = (
+  currentMs: number,
+  deliveredEvents: boolean,
+): number =>
+  deliveredEvents
+    ? STELLA_RELAY_RESUME_POLL_MIN_MS
+    : Math.min(
+        STELLA_RELAY_RESUME_POLL_MAX_MS,
+        Math.max(STELLA_RELAY_RESUME_POLL_MIN_MS, currentMs * 2),
+      );
+
 export const relayResumeTerminalSuffix = (
   status: RelayResumeStatus,
   lastSequence: number,
 ): string[] | null => {
-  if (status === "completed" || status === "failed" || status === "error") {
+  if (
+    status === "completed" ||
+    status === "incomplete" ||
+    status === "failed" ||
+    status === "error"
+  ) {
     return ["data: [DONE]\n\n"];
   }
   if (status === "upstream_eof" || status === "truncated") {
@@ -278,3 +367,9 @@ export const relayResumeTerminalSuffix = (
   }
   return null;
 };
+
+export const isValidRelayRequestId = (value: string | null): value is string =>
+  typeof value === "string" &&
+  value.length >= 16 &&
+  value.length <= 100 &&
+  /^[A-Za-z0-9_-]+$/u.test(value);

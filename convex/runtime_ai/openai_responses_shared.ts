@@ -649,7 +649,7 @@ export async function processResponsesStream<TApi extends Api>(
       continue;
     }
 
-    if (event.type === "response.completed") {
+    if (event.type === "response.completed" || event.type === "response.incomplete") {
       const response = event.response;
       if (response?.id) {
         output.responseId = response.id;

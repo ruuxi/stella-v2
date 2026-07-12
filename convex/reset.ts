@@ -113,8 +113,8 @@ export const resetAllUserData = action({
         let hasMore = true;
         while (hasMore) {
           const result: { hasMore: boolean } = await ctx.runMutation(
-            internal.stella_provider.deleteOwnerRelayResumeStream,
-            { ownerId },
+            internal.stella_provider.relay_resume_store.deleteOwnerRelayResumeBatch,
+            { ownerId, nowMs: Date.now() },
           );
           hasMore = result.hasMore;
         }

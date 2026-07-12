@@ -12,7 +12,8 @@
     "generate:desktop-api:deployment": "convex-helpers ts-api-spec --output-file ../stella/runtime/contracts/convex-api.ts",
     "prompts:sync-defaults": "bun scripts/sync-stella-prompt-defaults.ts",
     "prompts:publish": "bun scripts/sync-stella-prompt-defaults.ts && bun scripts/publish-stella-prompts.ts",
-    "test": "bun test tests/"
+    "test": "bun test tests/",
+    "test:convex": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.6.11",
@@ -32,11 +33,14 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@types/node": "^25.9.1",
     "@types/pngjs": "^6.0.5",
     "@typescript/native-preview": "^7.0.0-dev.20260527.2",
     "convex-helpers": "^0.1.119",
-    "typescript": "^6.0.3"
+    "convex-test": "^0.0.54",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   },
   "trustedDependencies": [
     "esbuild",

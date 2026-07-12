@@ -2,10 +2,14 @@ import { describe, expect, it } from "bun:test";
 
 import {
   RelayResumeSseParser,
+  RelayResumeFrameTooLargeError,
   STELLA_RELAY_RESUME_MAX_BYTES,
+  STELLA_RELAY_RESUME_QUERY_MAX_CHUNKS,
+  STELLA_RELAY_RESUME_RAW_FRAME_MAX_BYTES,
   decideRelayResumeAccess,
   relayResumeChunkEvents,
   relayResumeEventBytes,
+  relayResumeNextPollDelay,
   relayResumeStreamIsStale,
   relayResumeTerminalSuffix,
 } from "../../convex/stella_provider/relay_resume";
@@ -106,12 +110,79 @@ describe("relay-owned Responses SSE cursoring", () => {
     expect(suffix[0]).toContain('"stella_relay_sequence":3');
     expect(suffix[1]).toBe("data: [DONE]\n\n");
   });
+
+  it("parses UTF-8 splits, all SSE line endings, comments, and multiline data", () => {
+    const parser = new RelayResumeSseParser();
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    const wire =
+      ": keepalive\r\r" +
+      'data: {"type":"response.output_text.delta",\r\ndata: "delta":"🙂"}\r\n\r\n' +
+      'data: {"type":"response.incomplete","response":{"status":"incomplete"}}\n\n';
+    const bytes = encoder.encode(wire);
+    const frames = [];
+    for (let index = 0; index < bytes.length; index += 1) {
+      frames.push(
+        ...parser.push(
+          decoder.decode(bytes.slice(index, index + 1), { stream: true }),
+        ),
+      );
+    }
+    frames.push(...parser.push(decoder.decode()));
+    frames.push(...parser.finish().frames);
+
+    expect(frames[0]).toMatchObject({ kind: "passthrough", replaySafe: true });
+    expect(frames[1]).toMatchObject({
+      kind: "event",
+      event: { eventType: "response.output_text.delta" },
+    });
+    expect(frames[1]?.kind === "event" ? frames[1].event.frame : "").toContain(
+      "🙂",
+    );
+    expect(frames[2]).toMatchObject({
+      kind: "event",
+      event: { terminalStatus: "incomplete" },
+    });
+  });
+
+  it("rejects malformed and unbounded unterminated SSE frames", () => {
+    const malformed = new RelayResumeSseParser().push("data: {bad json}\n\n");
+    expect(malformed).toEqual([
+      expect.objectContaining({ kind: "passthrough", replaySafe: false }),
+    ]);
+
+    const parser = new RelayResumeSseParser();
+    expect(() =>
+      parser.push(
+        `data: ${"x".repeat(STELLA_RELAY_RESUME_RAW_FRAME_MAX_BYTES + 1)}`,
+      ),
+    ).toThrow(RelayResumeFrameTooLargeError);
+  });
+
+  it("handles malformed fields and dispatches a final EOF-terminated event", () => {
+    const ignoredField = new RelayResumeSseParser().push(
+      "bogus-field: ignored\ndata\n\n",
+    );
+    expect(ignoredField).toEqual([
+      expect.objectContaining({ kind: "passthrough", replaySafe: false }),
+    ]);
+
+    const parser = new RelayResumeSseParser();
+    expect(parser.push('data: {"type":"response.completed"}')).toEqual([]);
+    expect(parser.finish().frames).toEqual([
+      expect.objectContaining({
+        kind: "event",
+        event: expect.objectContaining({ terminalStatus: "completed" }),
+      }),
+    ]);
+  });
 });
 
 describe("relay resume isolation and retention", () => {
   const snapshot = {
     ownerId: "owner:a",
     expiresAt: 20_000,
+    hardExpiresAt: 30_000,
     lastSequence: 7,
   };
 
@@ -153,6 +224,9 @@ describe("relay resume isolation and retention", () => {
       "data: [DONE]\n\n",
     ]);
     expect(relayResumeTerminalSuffix("error", 7)).toEqual(["data: [DONE]\n\n"]);
+    expect(relayResumeTerminalSuffix("incomplete", 7)).toEqual([
+      "data: [DONE]\n\n",
+    ]);
     expect(relayResumeTerminalSuffix("streaming", 7)).toBeNull();
     expect(relayResumeTerminalSuffix("canceled", 7)?.[0]).toContain(
       '"code":"relay_stream_canceled"',
@@ -162,5 +236,13 @@ describe("relay resume isolation and retention", () => {
   it("fails an orphaned stream after the redeploy heartbeat window", () => {
     expect(relayResumeStreamIsStale(10_000, 40_000)).toBe(false);
     expect(relayResumeStreamIsStale(10_000, 40_001)).toBe(true);
+  });
+
+  it("bounds incremental reads and exponentially backs off when caught up", () => {
+    expect(STELLA_RELAY_RESUME_QUERY_MAX_CHUNKS).toBeLessThanOrEqual(2);
+    expect(relayResumeNextPollDelay(100, false)).toBe(200);
+    expect(relayResumeNextPollDelay(800, false)).toBe(1_000);
+    expect(relayResumeNextPollDelay(1_000, false)).toBe(1_000);
+    expect(relayResumeNextPollDelay(1_000, true)).toBe(100);
   });
 });

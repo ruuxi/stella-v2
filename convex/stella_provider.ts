@@ -1,11 +1,5 @@
-import {
-  httpAction,
-  internalMutation,
-  internalQuery,
-  type ActionCtx,
-} from "./_generated/server";
+import { httpAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
 import { type ManagedModelAudience } from "./agent/model";
 import {
   corsPreflightHandler,
@@ -35,20 +29,20 @@ import {
 } from "./stella_provider/authorization";
 import { downgradeUnsupportedRequestImages } from "./stella_provider/request";
 import { createRelayUsageParser } from "./stella_provider/relay_usage";
-import { relayResumeStatusValidator } from "./schema/relay_resume";
 import {
+  RelayResumeFrameTooLargeError,
   RelayResumeSseParser,
   STELLA_RELAY_REQUEST_ID_HEADER,
   STELLA_RELAY_RESUME_HEADER,
-  STELLA_RELAY_RESUME_MAX_BYTES,
-  STELLA_RELAY_RESUME_MAX_EVENT_BYTES,
-  STELLA_RELAY_RESUME_MAX_EVENTS,
-  STELLA_RELAY_RESUME_POLL_MS,
+  STELLA_RELAY_RESUME_POLL_MIN_MS,
+  STELLA_RELAY_RESUME_RATE_PER_OWNER,
+  STELLA_RELAY_RESUME_RATE_PER_STREAM,
+  STELLA_RELAY_RESUME_RATE_WINDOW_MS,
   STELLA_RELAY_RESUME_TTL_MS,
   STELLA_RELAY_RESUME_VERSION,
   relayResumeChunkEvents,
-  decideRelayResumeAccess,
-  relayResumeEventBytes,
+  isValidRelayRequestId,
+  relayResumeNextPollDelay,
   relayResumeSyntheticErrorFrame,
   relayResumeStreamIsStale,
   relayResumeTerminalSuffix,
@@ -179,6 +173,7 @@ const cloneForwardHeaders = (
       lower === "x-api-key" ||
       lower === "x-goog-api-key" ||
       lower === "x-stella-relay" ||
+      lower.startsWith("x-stella-relay-") ||
       lower === "x-stella-agent-type" ||
       lower === "host" ||
       lower === "content-length"
@@ -602,372 +597,19 @@ export const bodyForUpstream = (
   return JSON.stringify(body);
 };
 
-const relayResumeEventValidator = v.object({
-  sequence: v.number(),
-  frame: v.string(),
-  eventType: v.string(),
-  responseId: v.optional(v.string()),
-  responseStatus: v.optional(v.string()),
-  terminalStatus: v.optional(
-    v.union(v.literal("completed"), v.literal("failed"), v.literal("error")),
-  ),
-});
-
-const relayResumeStoredEventValidator = v.object({
-  sequence: v.number(),
-  frame: v.string(),
-});
-
-export const createRelayResumeStream = internalMutation({
-  args: {
-    relayRequestId: v.string(),
-    ownerId: v.string(),
-    provider: v.string(),
-    model: v.string(),
-    upstreamStatus: v.number(),
-    upstreamRequestId: v.optional(v.string()),
-    nowMs: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("stella_relay_response_streams")
-      .withIndex("by_relayRequestId", (q) =>
-        q.eq("relayRequestId", args.relayRequestId),
-      )
-      .unique();
-    if (existing) return null;
-    await ctx.db.insert("stella_relay_response_streams", {
-      relayRequestId: args.relayRequestId,
-      ownerId: args.ownerId,
-      provider: args.provider,
-      model: args.model,
-      status: "streaming",
-      upstreamStatus: args.upstreamStatus,
-      upstreamRequestId: args.upstreamRequestId?.slice(0, 200),
-      lastSequence: 0,
-      eventCount: 0,
-      storedBytes: 0,
-      nextChunkIndex: 0,
-      createdAt: args.nowMs,
-      updatedAt: args.nowMs,
-      expiresAt: args.nowMs + STELLA_RELAY_RESUME_TTL_MS,
-    });
-    return null;
-  },
-});
-
-export const appendRelayResumeEvents = internalMutation({
-  args: {
-    relayRequestId: v.string(),
-    events: v.array(relayResumeEventValidator),
-    nowMs: v.number(),
-  },
-  returns: v.object({
-    accepted: v.boolean(),
-    status: relayResumeStatusValidator,
-  }),
-  handler: async (ctx, args) => {
-    const stream = await ctx.db
-      .query("stella_relay_response_streams")
-      .withIndex("by_relayRequestId", (q) =>
-        q.eq("relayRequestId", args.relayRequestId),
-      )
-      .unique();
-    if (!stream) return { accepted: false, status: "truncated" as const };
-    if (stream.status !== "streaming") {
-      return { accepted: false, status: stream.status };
-    }
-    if (args.events.length === 0) {
-      return { accepted: true, status: stream.status };
-    }
-
-    let expected = stream.lastSequence + 1;
-    let addedBytes = 0;
-    for (const event of args.events) {
-      if (event.sequence !== expected) {
-        throw new Error("Relay resume event sequence is not contiguous");
-      }
-      expected += 1;
-      const eventBytes = relayResumeEventBytes(event);
-      if (eventBytes > STELLA_RELAY_RESUME_MAX_EVENT_BYTES) {
-        await ctx.db.patch(stream._id, {
-          status: "truncated",
-          lastEventType: event.eventType,
-          updatedAt: args.nowMs,
-        });
-        return { accepted: false, status: "truncated" as const };
-      }
-      addedBytes += eventBytes;
-    }
-    if (
-      stream.eventCount + args.events.length > STELLA_RELAY_RESUME_MAX_EVENTS ||
-      stream.storedBytes + addedBytes > STELLA_RELAY_RESUME_MAX_BYTES
-    ) {
-      await ctx.db.patch(stream._id, {
-        status: "truncated",
-        lastEventType: args.events[args.events.length - 1]?.eventType,
-        updatedAt: args.nowMs,
-      });
-      return { accepted: false, status: "truncated" as const };
-    }
-
-    const chunks = relayResumeChunkEvents(args.events);
-    let chunkIndex = stream.nextChunkIndex;
-    for (const events of chunks) {
-      const storedBytes = events.reduce(
-        (sum, event) => sum + relayResumeEventBytes(event),
-        0,
-      );
-      await ctx.db.insert("stella_relay_response_chunks", {
-        relayRequestId: args.relayRequestId,
-        chunkIndex,
-        firstSequence: events[0]!.sequence,
-        lastSequence: events[events.length - 1]!.sequence,
-        events: events.map(({ sequence, frame }) => ({ sequence, frame })),
-        storedBytes,
-        createdAt: args.nowMs,
-        expiresAt: stream.expiresAt,
-      });
-      chunkIndex += 1;
-    }
-
-    const lastEvent = args.events[args.events.length - 1]!;
-    const terminal = args.events.find((event) => event.terminalStatus);
-    await ctx.db.patch(stream._id, {
-      status: terminal?.terminalStatus ?? "streaming",
-      responseId:
-        [...args.events].reverse().find((event) => event.responseId)
-          ?.responseId ?? stream.responseId,
-      lastEventType: lastEvent.eventType,
-      lastResponseStatus:
-        [...args.events].reverse().find((event) => event.responseStatus)
-          ?.responseStatus ?? stream.lastResponseStatus,
-      lastSequence: lastEvent.sequence,
-      eventCount: stream.eventCount + args.events.length,
-      storedBytes: stream.storedBytes + addedBytes,
-      nextChunkIndex: chunkIndex,
-      updatedAt: args.nowMs,
-    });
-    return {
-      accepted: true,
-      status: (terminal?.terminalStatus ?? "streaming") as
-        | "streaming"
-        | "completed"
-        | "failed"
-        | "error",
-    };
-  },
-});
-
-export const touchRelayResumeStream = internalMutation({
-  args: { relayRequestId: v.string(), nowMs: v.number() },
-  returns: relayResumeStatusValidator,
-  handler: async (ctx, args) => {
-    const stream = await ctx.db
-      .query("stella_relay_response_streams")
-      .withIndex("by_relayRequestId", (q) =>
-        q.eq("relayRequestId", args.relayRequestId),
-      )
-      .unique();
-    if (stream?.status === "streaming") {
-      await ctx.db.patch(stream._id, { updatedAt: args.nowMs });
-    }
-    return stream?.status ?? "upstream_eof";
-  },
-});
-
-export const cancelRelayResumeStream = internalMutation({
-  args: {
-    relayRequestId: v.string(),
-    ownerId: v.string(),
-    nowMs: v.number(),
-  },
-  returns: v.union(
-    v.literal("not_found"),
-    v.literal("expired"),
-    relayResumeStatusValidator,
-  ),
-  handler: async (ctx, args) => {
-    const stream = await ctx.db
-      .query("stella_relay_response_streams")
-      .withIndex("by_relayRequestId", (q) =>
-        q.eq("relayRequestId", args.relayRequestId),
-      )
-      .unique();
-    if (!stream || stream.ownerId !== args.ownerId) return "not_found";
-    if (stream.expiresAt <= args.nowMs) return "expired";
-    if (stream.status !== "streaming") return stream.status;
-    await ctx.db.patch(stream._id, {
-      status: "canceled",
-      updatedAt: args.nowMs,
-    });
-    return "canceled";
-  },
-});
-
-export const finishRelayResumeStream = internalMutation({
-  args: {
-    relayRequestId: v.string(),
-    status: v.union(
-      v.literal("upstream_eof"),
-      v.literal("error"),
-      v.literal("truncated"),
-    ),
-    nowMs: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const stream = await ctx.db
-      .query("stella_relay_response_streams")
-      .withIndex("by_relayRequestId", (q) =>
-        q.eq("relayRequestId", args.relayRequestId),
-      )
-      .unique();
-    if (stream?.status === "streaming") {
-      await ctx.db.patch(stream._id, {
-        status: args.status,
-        updatedAt: args.nowMs,
-      });
-    }
-    return null;
-  },
-});
-
-const relayResumeSnapshotValidator = v.union(
-  v.null(),
-  v.object({
-    ownerId: v.string(),
-    status: relayResumeStatusValidator,
-    expiresAt: v.number(),
-    updatedAt: v.number(),
-    lastSequence: v.number(),
-    responseId: v.optional(v.string()),
-    upstreamRequestId: v.optional(v.string()),
-    lastEventType: v.optional(v.string()),
-    lastResponseStatus: v.optional(v.string()),
-    events: v.array(relayResumeStoredEventValidator),
-  }),
-);
-
-export const getRelayResumeSnapshot = internalQuery({
-  args: {
-    relayRequestId: v.string(),
-    startingAfter: v.number(),
-    nowMs: v.number(),
-  },
-  returns: relayResumeSnapshotValidator,
-  handler: async (ctx, args) => {
-    const stream = await ctx.db
-      .query("stella_relay_response_streams")
-      .withIndex("by_relayRequestId", (q) =>
-        q.eq("relayRequestId", args.relayRequestId),
-      )
-      .unique();
-    if (!stream) return null;
-    const chunks = await ctx.db
-      .query("stella_relay_response_chunks")
-      .withIndex("by_relayRequestId_and_chunkIndex", (q) =>
-        q.eq("relayRequestId", args.relayRequestId),
-      )
-      .order("asc")
-      .take(64);
-    return {
-      ownerId: stream.ownerId,
-      status: stream.status,
-      expiresAt: stream.expiresAt,
-      updatedAt: stream.updatedAt,
-      lastSequence: stream.lastSequence,
-      responseId: stream.responseId,
-      upstreamRequestId: stream.upstreamRequestId,
-      lastEventType: stream.lastEventType,
-      lastResponseStatus: stream.lastResponseStatus,
-      events: chunks.flatMap((chunk) =>
-        chunk.events.filter((event) => event.sequence > args.startingAfter),
-      ),
-    };
-  },
-});
-
-export const purgeExpiredRelayResumeStreams = internalMutation({
-  args: {
-    nowMs: v.optional(v.number()),
-    limit: v.optional(v.number()),
-  },
-  returns: v.object({ streams: v.number(), chunks: v.number() }),
-  handler: async (ctx, args) => {
-    const nowMs = args.nowMs ?? Date.now();
-    const limit = Math.max(1, Math.min(200, Math.floor(args.limit ?? 100)));
-    const expiredStreams = await ctx.db
-      .query("stella_relay_response_streams")
-      .withIndex("by_expiresAt", (q) => q.lte("expiresAt", nowMs))
-      .take(limit);
-    let chunksDeleted = 0;
-    for (const stream of expiredStreams) {
-      const chunks = await ctx.db
-        .query("stella_relay_response_chunks")
-        .withIndex("by_relayRequestId_and_chunkIndex", (q) =>
-          q.eq("relayRequestId", stream.relayRequestId),
-        )
-        .take(64);
-      for (const chunk of chunks) {
-        await ctx.db.delete(chunk._id);
-        chunksDeleted += 1;
-      }
-      await ctx.db.delete(stream._id);
-    }
-    const orphanChunks = await ctx.db
-      .query("stella_relay_response_chunks")
-      .withIndex("by_expiresAt", (q) => q.lte("expiresAt", nowMs))
-      .take(limit);
-    for (const chunk of orphanChunks) {
-      await ctx.db.delete(chunk._id);
-      chunksDeleted += 1;
-    }
-    return { streams: expiredStreams.length, chunks: chunksDeleted };
-  },
-});
-
-/**
- * Deletes one owner's short-lived relay stream records and their event chunks.
- * Account deletion and user-requested cloud reset loop this mutation until it
- * returns false so response event data does not wait for the TTL cron.
- */
-export const deleteOwnerRelayResumeStream = internalMutation({
-  args: { ownerId: v.string() },
-  returns: v.object({ hasMore: v.boolean() }),
-  handler: async (ctx, args) => {
-    const [stream] = await ctx.db
-      .query("stella_relay_response_streams")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .take(1);
-    if (!stream) return { hasMore: false };
-
-    const chunks = await ctx.db
-      .query("stella_relay_response_chunks")
-      .withIndex("by_relayRequestId_and_chunkIndex", (q) =>
-        q.eq("relayRequestId", stream.relayRequestId),
-      )
-      .take(64);
-    await Promise.all(chunks.map((chunk) => ctx.db.delete(chunk._id)));
-    await ctx.db.delete(stream._id);
-    return { hasMore: true };
-  },
-});
-
-type RelayResumeSnapshot = {
+type RelayResumePage = {
   ownerId: string;
   status:
     | "streaming"
     | "completed"
+    | "incomplete"
     | "failed"
     | "error"
     | "canceled"
     | "upstream_eof"
     | "truncated";
   expiresAt: number;
+  hardExpiresAt: number;
   updatedAt: number;
   lastSequence: number;
   responseId?: string;
@@ -975,23 +617,16 @@ type RelayResumeSnapshot = {
   lastEventType?: string;
   lastResponseStatus?: string;
   events: Array<{ sequence: number; frame: string }>;
+  hasMore: boolean;
+  chunksRead: number;
+  bytesRead: number;
 };
-
-const relayResumeSnapshot = async (
-  ctx: ActionCtx,
-  relayRequestId: string,
-  startingAfter: number,
-): Promise<RelayResumeSnapshot | null> =>
-  await ctx.runQuery(internal.stella_provider.getRelayResumeSnapshot, {
-    relayRequestId,
-    startingAfter,
-    nowMs: Date.now(),
-  });
 
 const relayResumeIdFromRequest = (request: Request): string | null => {
   const pathname = new URL(request.url).pathname;
-  const match = /\/responses\/([A-Za-z0-9_-]+)$/u.exec(pathname);
-  return match?.[1] ?? null;
+  const candidate =
+    /\/responses\/([A-Za-z0-9_-]+)$/u.exec(pathname)?.[1] ?? null;
+  return isValidRelayRequestId(candidate) ? candidate : null;
 };
 
 const relayResumeCursorFromRequest = (request: Request): number | null => {
@@ -1016,11 +651,260 @@ const relayResumeHeaders = (request: Request): Headers => {
   return headers;
 };
 
+const relayResumePage = async (
+  ctx: ActionCtx,
+  relayRequestId: string,
+  startingAfter: number,
+): Promise<RelayResumePage | null> =>
+  await ctx.runQuery(
+    internal.stella_provider.relay_resume_store.getRelayResumePage,
+    { relayRequestId, startingAfter },
+  );
+
+const rateLimitRelayResume = async (
+  ctx: ActionCtx,
+  request: Request,
+  ownerId: string,
+  relayRequestId: string,
+): Promise<Response | null> => {
+  const [ownerLimit, streamLimit] = await Promise.all([
+    ctx.runMutation(internal.rate_limits.consumeWebhookRateLimit, {
+      scope: "stella_relay_resume_owner",
+      key: ownerId,
+      limit: STELLA_RELAY_RESUME_RATE_PER_OWNER,
+      windowMs: STELLA_RELAY_RESUME_RATE_WINDOW_MS,
+      blockMs: STELLA_RELAY_RESUME_RATE_WINDOW_MS,
+    }),
+    ctx.runMutation(internal.rate_limits.consumeWebhookRateLimit, {
+      scope: "stella_relay_resume_stream",
+      key: `${ownerId}:${relayRequestId}`,
+      limit: STELLA_RELAY_RESUME_RATE_PER_STREAM,
+      windowMs: STELLA_RELAY_RESUME_RATE_WINDOW_MS,
+      blockMs: STELLA_RELAY_RESUME_RATE_WINDOW_MS,
+    }),
+  ]);
+  if (ownerLimit.allowed && streamLimit.allowed) return null;
+  const retryAfterMs = Math.max(
+    ownerLimit.retryAfterMs,
+    streamLimit.retryAfterMs,
+  );
+  const response = stellaProviderErrorResponse(
+    429,
+    "Relay resume rate limit exceeded",
+    request,
+  );
+  response.headers.set("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
+  return response;
+};
+
+const relayLeaseErrorResponse = (
+  result:
+    | "not_found"
+    | "expired"
+    | "cursor_ahead"
+    | "stream_limit"
+    | "owner_limit",
+  request: Request,
+): Response => {
+  switch (result) {
+    case "not_found":
+      return stellaProviderErrorResponse(
+        404,
+        "Relay response not found",
+        request,
+      );
+    case "expired":
+      return stellaProviderErrorResponse(
+        410,
+        "Relay resume cursor expired",
+        request,
+      );
+    case "cursor_ahead":
+      return stellaProviderErrorResponse(
+        416,
+        "Relay resume cursor is ahead of the stream",
+        request,
+      );
+    case "stream_limit":
+    case "owner_limit": {
+      const response = stellaProviderErrorResponse(
+        429,
+        "Too many concurrent relay resume connections",
+        request,
+      );
+      response.headers.set("Retry-After", "2");
+      return response;
+    }
+  }
+};
+
+const makeRelayResumeResponse = async (args: {
+  ctx: ActionCtx;
+  request: Request;
+  ownerId: string;
+  relayRequestId: string;
+  startingAfter: number;
+  applyRateLimit: boolean;
+}): Promise<Response> => {
+  if (args.applyRateLimit) {
+    const limited = await rateLimitRelayResume(
+      args.ctx,
+      args.request,
+      args.ownerId,
+      args.relayRequestId,
+    );
+    if (limited) return limited;
+  }
+
+  const leaseId = crypto.randomUUID();
+  const leaseResult = await args.ctx.runMutation(
+    internal.stella_provider.relay_resume_store.acquireRelayResumeLease,
+    {
+      leaseId,
+      relayRequestId: args.relayRequestId,
+      ownerId: args.ownerId,
+      startingAfter: args.startingAfter,
+      nowMs: Date.now(),
+    },
+  );
+  if (leaseResult !== "acquired") {
+    return relayLeaseErrorResponse(leaseResult, args.request);
+  }
+
+  const initial = await relayResumePage(
+    args.ctx,
+    args.relayRequestId,
+    args.startingAfter,
+  );
+  if (!initial || initial.ownerId !== args.ownerId) {
+    await args.ctx.runMutation(
+      internal.stella_provider.relay_resume_store.releaseRelayResumeLease,
+      { leaseId, ownerId: args.ownerId },
+    );
+    return stellaProviderErrorResponse(
+      404,
+      "Relay response not found",
+      args.request,
+    );
+  }
+
+  const headers = relayResumeHeaders(args.request);
+  headers.set(STELLA_RELAY_REQUEST_ID_HEADER, args.relayRequestId);
+  if (initial.responseId)
+    headers.set("x-stella-response-id", initial.responseId);
+  if (initial.upstreamRequestId) {
+    headers.set("x-stella-upstream-request-id", initial.upstreamRequestId);
+  }
+
+  const encoder = new TextEncoder();
+  let cursor = args.startingAfter;
+  let pendingFrames: string[] = [];
+  let done = false;
+  let released = false;
+  let pollDelayMs = STELLA_RELAY_RESUME_POLL_MIN_MS;
+  let lastLeaseRefreshAt = Date.now();
+  const release = async () => {
+    if (released) return;
+    released = true;
+    await args.ctx.runMutation(
+      internal.stella_provider.relay_resume_store.releaseRelayResumeLease,
+      { leaseId, ownerId: args.ownerId },
+    );
+  };
+
+  const stream = new ReadableStream<Uint8Array>({
+    async cancel() {
+      await release();
+    },
+    async pull(controller) {
+      try {
+        while (pendingFrames.length === 0 && !done) {
+          const page = await relayResumePage(
+            args.ctx,
+            args.relayRequestId,
+            cursor,
+          );
+          if (!page || page.ownerId !== args.ownerId) {
+            throw new Error("Relay response disappeared during resume");
+          }
+
+          if (page.events.length > 0) {
+            pendingFrames = page.events.map((event) => event.frame);
+            cursor = page.events[page.events.length - 1]!.sequence;
+            pollDelayMs = relayResumeNextPollDelay(pollDelayMs, true);
+            break;
+          }
+
+          const terminalSuffix = relayResumeTerminalSuffix(
+            page.status,
+            page.lastSequence,
+          );
+          if (terminalSuffix && cursor >= page.lastSequence) {
+            pendingFrames = terminalSuffix;
+            done = true;
+            break;
+          }
+
+          const nowMs = Date.now();
+          if (page.expiresAt <= nowMs || page.hardExpiresAt <= nowMs) {
+            pendingFrames = [
+              relayResumeSyntheticErrorFrame({
+                sequence: page.lastSequence + 1,
+                code: "relay_stream_lost",
+                message:
+                  "The Stella relay resume cursor expired. The original request was not replayed.",
+              }),
+              "data: [DONE]\n\n",
+            ];
+            done = true;
+            break;
+          }
+          if (relayResumeStreamIsStale(page.updatedAt, nowMs)) {
+            await args.ctx.runMutation(
+              internal.stella_provider.relay_resume_store
+                .finishRelayResumeStream,
+              {
+                relayRequestId: args.relayRequestId,
+                ownerId: args.ownerId,
+                status: "upstream_eof",
+                nowMs,
+              },
+            );
+            continue;
+          }
+          if (nowMs - lastLeaseRefreshAt >= 5_000) {
+            const refreshed = await args.ctx.runMutation(
+              internal.stella_provider.relay_resume_store
+                .refreshRelayResumeLease,
+              { leaseId, ownerId: args.ownerId, nowMs },
+            );
+            if (!refreshed) throw new Error("Relay resume lease expired");
+            lastLeaseRefreshAt = nowMs;
+          }
+          await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
+          pollDelayMs = relayResumeNextPollDelay(pollDelayMs, false);
+        }
+
+        const frame = pendingFrames.shift();
+        if (frame) controller.enqueue(encoder.encode(frame));
+        if (done && pendingFrames.length === 0) {
+          await release();
+          controller.close();
+        }
+      } catch (error) {
+        await release().catch(() => undefined);
+        controller.error(error);
+      }
+    },
+  });
+
+  return new Response(stream, { status: 200, headers });
+};
+
 export const stellaProviderResume = httpAction(async (ctx, request) => {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
+  if (!identity)
     return stellaProviderErrorResponse(401, "Unauthorized", request);
-  }
   const relayRequestId = relayResumeIdFromRequest(request);
   const startingAfter = relayResumeCursorFromRequest(request);
   if (!relayRequestId || startingAfter === null) {
@@ -1030,109 +914,14 @@ export const stellaProviderResume = httpAction(async (ctx, request) => {
       request,
     );
   }
-
-  const initial = await relayResumeSnapshot(ctx, relayRequestId, startingAfter);
-  const now = Date.now();
-  const access = decideRelayResumeAccess({
+  return await makeRelayResumeResponse({
+    ctx,
+    request,
     ownerId: identity.tokenIdentifier,
-    snapshot: initial,
+    relayRequestId,
     startingAfter,
-    nowMs: now,
+    applyRateLimit: true,
   });
-  if (!access.ok) {
-    return stellaProviderErrorResponse(access.status, access.message, request);
-  }
-  if (!initial) {
-    return stellaProviderErrorResponse(
-      404,
-      "Relay response not found",
-      request,
-    );
-  }
-
-  const headers = relayResumeHeaders(request);
-  headers.set(STELLA_RELAY_REQUEST_ID_HEADER, relayRequestId);
-  if (initial.responseId)
-    headers.set("x-stella-response-id", initial.responseId);
-  if (initial.upstreamRequestId) {
-    headers.set("x-stella-upstream-request-id", initial.upstreamRequestId);
-  }
-
-  let downstreamOpen = true;
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    cancel() {
-      downstreamOpen = false;
-    },
-    start(controller) {
-      void (async () => {
-        let cursor = startingAfter;
-        try {
-          while (downstreamOpen) {
-            const snapshot = await relayResumeSnapshot(
-              ctx,
-              relayRequestId,
-              cursor,
-            );
-            if (!snapshot || snapshot.ownerId !== identity.tokenIdentifier) {
-              throw new Error("Relay response disappeared during resume");
-            }
-            for (const event of snapshot.events) {
-              if (event.sequence <= cursor) continue;
-              controller.enqueue(encoder.encode(event.frame));
-              cursor = event.sequence;
-            }
-
-            const terminalSuffix = relayResumeTerminalSuffix(
-              snapshot.status,
-              snapshot.lastSequence,
-            );
-            if (terminalSuffix) {
-              for (const frame of terminalSuffix) {
-                controller.enqueue(encoder.encode(frame));
-              }
-              break;
-            }
-            const pollNow = Date.now();
-            if (snapshot.expiresAt <= pollNow) {
-              controller.enqueue(
-                encoder.encode(
-                  relayResumeSyntheticErrorFrame({
-                    sequence: snapshot.lastSequence + 1,
-                    code: "relay_stream_lost",
-                    message:
-                      "The Stella relay resume cursor expired. The original request was not replayed.",
-                  }),
-                ),
-              );
-              break;
-            }
-            if (relayResumeStreamIsStale(snapshot.updatedAt, pollNow)) {
-              await ctx.runMutation(
-                internal.stella_provider.finishRelayResumeStream,
-                {
-                  relayRequestId,
-                  status: "upstream_eof",
-                  nowMs: pollNow,
-                },
-              );
-              continue;
-            }
-            await new Promise((resolve) =>
-              setTimeout(resolve, STELLA_RELAY_RESUME_POLL_MS),
-            );
-          }
-        } catch (error) {
-          if (downstreamOpen) controller.error(error);
-          downstreamOpen = false;
-          return;
-        }
-        if (downstreamOpen) controller.close();
-      })();
-    },
-  });
-
-  return new Response(stream, { status: 200, headers });
 });
 
 export const stellaProviderCancel = httpAction(async (ctx, request) => {
@@ -1149,7 +938,7 @@ export const stellaProviderCancel = httpAction(async (ctx, request) => {
     );
   }
   const result = await ctx.runMutation(
-    internal.stella_provider.cancelRelayResumeStream,
+    internal.stella_provider.relay_resume_store.cancelRelayResumeStream,
     {
       relayRequestId,
       ownerId: identity.tokenIdentifier,
@@ -1192,19 +981,19 @@ const safeUpstreamRequestId = (headers: Headers): string | undefined => {
   return undefined;
 };
 
-const relayResumeCapableRequest = (
+const relayResumeEligibleRequest = (
   authorized: AuthorizedStellaRequest,
   request: Request,
-  response: Response,
 ): boolean =>
   authorized.relayProvider === "openai" &&
   authorized.ownerId !== "probe:stella-relay" &&
   isResponsesRequest(authorized.relayProvider, request) &&
   authorized.requestJson.stream === true &&
-  response.ok &&
-  response.headers.get("content-type")?.includes("text/event-stream") ===
-    true &&
   new URL(request.url).pathname.startsWith(STELLA_RELAY_PATH_PREFIX);
+
+const relayResumeCapableResponse = (response: Response): boolean =>
+  response.ok &&
+  response.headers.get("content-type")?.includes("text/event-stream") === true;
 
 export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
   httpAction(async (ctx, request) => {
@@ -1218,7 +1007,111 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
     const startedAt = Date.now();
     const relayProvider = authorized.relayProvider;
     const usageParser = createRelayUsageParser(relayProvider);
+    let relayRequestId: string | undefined;
+    if (relayResumeEligibleRequest(authorized, request)) {
+      const requestedId = request.headers.get(STELLA_RELAY_REQUEST_ID_HEADER);
+      if (requestedId && !isValidRelayRequestId(requestedId)) {
+        return stellaProviderErrorResponse(
+          400,
+          "Invalid relay request id",
+          request,
+        );
+      }
+      const candidate = requestedId ?? `stella-relay-${crypto.randomUUID()}`;
+      const reservation = await ctx.runMutation(
+        internal.stella_provider.relay_resume_store.reserveRelayResumeStream,
+        {
+          relayRequestId: candidate,
+          ownerId: authorized.ownerId,
+          provider: relayProvider,
+          model: authorized.resolvedModel,
+          nowMs: Date.now(),
+        },
+      );
+      if (reservation === "existing") {
+        return await makeRelayResumeResponse({
+          ctx,
+          request,
+          ownerId: authorized.ownerId,
+          relayRequestId: candidate,
+          startingAfter: 0,
+          applyRateLimit: true,
+        });
+      }
+      if (reservation === "canceled") {
+        return stellaProviderErrorResponse(
+          499,
+          "Relay response canceled",
+          request,
+        );
+      }
+      if (reservation === "conflict") {
+        return stellaProviderErrorResponse(
+          409,
+          "Relay request id conflict",
+          request,
+        );
+      }
+      if (reservation === "owner_quota" || reservation === "global_quota") {
+        const response = stellaProviderErrorResponse(
+          429,
+          "Transient relay buffer quota exceeded",
+          request,
+        );
+        response.headers.set("Retry-After", "5");
+        return response;
+      }
+      relayRequestId = candidate;
+    }
+
     let upstreamResponse: Response;
+    const upstreamController = relayRequestId
+      ? new AbortController()
+      : undefined;
+    let stopCancellationMonitor = false;
+    let lastPreHeaderTouchAt = Date.now();
+    const cancellationMonitor = relayRequestId
+      ? (async () => {
+          try {
+            while (!stopCancellationMonitor) {
+              const status = await ctx.runQuery(
+                internal.stella_provider.relay_resume_store
+                  .getRelayResumeStatus,
+                { relayRequestId, ownerId: authorized.ownerId },
+              );
+              if (status === "canceled") {
+                upstreamController?.abort(new Error("Relay response canceled"));
+                return;
+              }
+              const nowMs = Date.now();
+              if (nowMs - lastPreHeaderTouchAt >= 10_000) {
+                await ctx.runMutation(
+                  internal.stella_provider.relay_resume_store
+                    .touchRelayResumeStream,
+                  {
+                    relayRequestId,
+                    ownerId: authorized.ownerId,
+                    nowMs,
+                  },
+                );
+                lastPreHeaderTouchAt = nowMs;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+          } catch (error) {
+            console.error(
+              "[stella-provider] Relay cancellation monitor failed",
+              {
+                relayRequestId,
+                error: error instanceof Error ? error.name : "unknown",
+              },
+            );
+            upstreamController?.abort(
+              new Error("Relay cancellation state became unavailable"),
+            );
+          }
+        })()
+      : undefined;
     try {
       upstreamResponse = await fetch(
         upstreamUrl(relayProvider, request, authorized.upstreamModel),
@@ -1230,9 +1123,16 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
             authorized.apiKey,
           ),
           body: bodyForUpstream(authorized, relayProvider, request),
+          ...(upstreamController ? { signal: upstreamController.signal } : {}),
         },
       );
     } catch (error) {
+      const relayStatus = relayRequestId
+        ? await ctx.runQuery(
+            internal.stella_provider.relay_resume_store.getRelayResumeStatus,
+            { relayRequestId, ownerId: authorized.ownerId },
+          )
+        : "not_found";
       console.error("[stella-provider] Relay fetch failed:", error);
       await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
         ownerId: authorized.ownerId,
@@ -1243,11 +1143,32 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
         inputTokens: authorized.tokenEstimate.inputTokens,
         outputTokens: authorized.tokenEstimate.outputTokens,
       });
+      if (relayStatus === "canceled") {
+        return stellaProviderErrorResponse(
+          499,
+          "Relay response canceled",
+          request,
+        );
+      }
+      if (relayRequestId) {
+        await ctx.runMutation(
+          internal.stella_provider.relay_resume_store.finishRelayResumeStream,
+          {
+            relayRequestId,
+            ownerId: authorized.ownerId,
+            status: "error",
+            nowMs: Date.now(),
+          },
+        );
+      }
       return stellaProviderErrorResponse(
         502,
         "Failed to reach Stella upstream gateway",
         request,
       );
+    } finally {
+      stopCancellationMonitor = true;
+      await cancellationMonitor;
     }
 
     const responseHeaders = new Headers(upstreamResponse.headers);
@@ -1258,35 +1179,28 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
     responseHeaders.set("Vary", "Origin");
     responseHeaders.delete("content-length");
 
-    if (!upstreamResponse.ok && upstreamResponse.body) {
-      const [forErrLog, forForward] = upstreamResponse.body.tee();
-      upstreamResponse = new Response(forForward, {
+    if (!upstreamResponse.ok) {
+      console.error("[stella-provider] Upstream request failed", {
+        relayRequestId,
+        upstreamRequestId: safeUpstreamRequestId(upstreamResponse.headers),
+        provider: relayProvider,
         status: upstreamResponse.status,
-        statusText: upstreamResponse.statusText,
-        headers: upstreamResponse.headers,
       });
-      void (async () => {
-        try {
-          const reader = forErrLog.getReader();
-          const decoder = new TextDecoder();
-          let collected = "";
-          while (collected.length < 2048) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) collected += decoder.decode(value, { stream: true });
-          }
-          await reader.cancel();
-          console.error(
-            `[stella-provider] upstream ${relayProvider} returned ${upstreamResponse.status}: ${collected.slice(0, 2048)}`,
-          );
-        } catch {
-          // Best-effort provider error logging.
-        }
-      })();
     }
 
     const upstreamBody = upstreamResponse.body;
     if (!upstreamBody) {
+      if (relayRequestId) {
+        await ctx.runMutation(
+          internal.stella_provider.relay_resume_store.finishRelayResumeStream,
+          {
+            relayRequestId,
+            ownerId: authorized.ownerId,
+            status: "error",
+            nowMs: Date.now(),
+          },
+        );
+      }
       await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
         ownerId: authorized.ownerId,
         agentType: authorized.agentType,
@@ -1303,38 +1217,53 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
       });
     }
 
-    let relayRequestId: string | undefined;
-    if (relayResumeCapableRequest(authorized, request, upstreamResponse)) {
-      const candidate = crypto.randomUUID();
-      try {
-        await ctx.runMutation(
-          internal.stella_provider.createRelayResumeStream,
-          {
-            relayRequestId: candidate,
-            ownerId: authorized.ownerId,
-            provider: relayProvider,
-            model: authorized.resolvedModel,
-            upstreamStatus: upstreamResponse.status,
-            upstreamRequestId: safeUpstreamRequestId(upstreamResponse.headers),
-            nowMs: Date.now(),
-          },
-        );
-        relayRequestId = candidate;
-        responseHeaders.set(
-          STELLA_RELAY_RESUME_HEADER,
-          STELLA_RELAY_RESUME_VERSION,
-        );
-        responseHeaders.set(STELLA_RELAY_REQUEST_ID_HEADER, relayRequestId);
-        responseHeaders.set(
-          "Access-Control-Expose-Headers",
-          `${STELLA_RELAY_RESUME_HEADER}, ${STELLA_RELAY_REQUEST_ID_HEADER}`,
-        );
-      } catch (error) {
-        console.error(
-          "[stella-provider] Failed to initialize relay resume:",
-          error,
+    if (relayRequestId && relayResumeCapableResponse(upstreamResponse)) {
+      const activation = await ctx.runMutation(
+        internal.stella_provider.relay_resume_store.activateRelayResumeStream,
+        {
+          relayRequestId,
+          ownerId: authorized.ownerId,
+          upstreamStatus: upstreamResponse.status,
+          upstreamRequestId: safeUpstreamRequestId(upstreamResponse.headers),
+          nowMs: Date.now(),
+        },
+      );
+      if (activation === "canceled") {
+        await upstreamBody.cancel().catch(() => undefined);
+        return stellaProviderErrorResponse(
+          499,
+          "Relay response canceled",
+          request,
         );
       }
+      if (activation !== "streaming") {
+        await upstreamBody.cancel().catch(() => undefined);
+        return stellaProviderErrorResponse(
+          409,
+          "Relay response is not active",
+          request,
+        );
+      }
+      responseHeaders.set(
+        STELLA_RELAY_RESUME_HEADER,
+        STELLA_RELAY_RESUME_VERSION,
+      );
+      responseHeaders.set(STELLA_RELAY_REQUEST_ID_HEADER, relayRequestId);
+      responseHeaders.set(
+        "Access-Control-Expose-Headers",
+        `${STELLA_RELAY_RESUME_HEADER}, ${STELLA_RELAY_REQUEST_ID_HEADER}`,
+      );
+    } else if (relayRequestId) {
+      await ctx.runMutation(
+        internal.stella_provider.relay_resume_store.finishRelayResumeStream,
+        {
+          relayRequestId,
+          ownerId: authorized.ownerId,
+          status: "error",
+          nowMs: Date.now(),
+        },
+      );
+      relayRequestId = undefined;
     }
 
     let downstreamOpen = true;
@@ -1354,6 +1283,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
           let relayStatus:
             | "streaming"
             | "completed"
+            | "incomplete"
             | "failed"
             | "error"
             | "canceled"
@@ -1376,8 +1306,14 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
             if (!relayRequestId || relayStatus !== "streaming") return;
             relayStatus = status;
             await ctx.runMutation(
-              internal.stella_provider.finishRelayResumeStream,
-              { relayRequestId, status, nowMs: Date.now() },
+              internal.stella_provider.relay_resume_store
+                .finishRelayResumeStream,
+              {
+                relayRequestId,
+                ownerId: authorized.ownerId,
+                status,
+                nowMs: Date.now(),
+              },
             );
           };
           const persistAndForward = async (events: RelayResumeEvent[]) => {
@@ -1387,7 +1323,8 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
                 accepted: boolean;
                 status: typeof relayStatus;
               } = await ctx.runMutation(
-                internal.stella_provider.appendRelayResumeEvents,
+                internal.stella_provider.relay_resume_store
+                  .appendRelayResumeEvents,
                 { relayRequestId, events: batch, nowMs: Date.now() },
               );
               relayStatus = result.status;
@@ -1427,10 +1364,21 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
               if (outcome.kind === "heartbeat") {
                 lastHeartbeatAt = Date.now();
                 if (relayRequestId && relayStatus === "streaming") {
-                  relayStatus = await ctx.runMutation(
-                    internal.stella_provider.touchRelayResumeStream,
-                    { relayRequestId, nowMs: lastHeartbeatAt },
+                  const touchedStatus = await ctx.runMutation(
+                    internal.stella_provider.relay_resume_store
+                      .touchRelayResumeStream,
+                    {
+                      relayRequestId,
+                      ownerId: authorized.ownerId,
+                      nowMs: lastHeartbeatAt,
+                    },
                   );
+                  if (touchedStatus === "not_found") {
+                    relayStatus = "upstream_eof";
+                    await reader.cancel();
+                    break;
+                  }
+                  relayStatus = touchedStatus;
                   if (relayStatus === "canceled") {
                     await reader.cancel();
                     break;
@@ -1455,6 +1403,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
                 resumeDecoder.decode(value, { stream: true }),
               );
               let events: RelayResumeEvent[] = [];
+              let unsafeFrame = false;
               for (const frame of frames) {
                 if (frame.kind === "event") {
                   events.push(frame.event);
@@ -1464,8 +1413,14 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
                 events = [];
                 if (frame.kind === "passthrough" && !frame.replaySafe) {
                   await markUnrecoverable("truncated");
+                  unsafeFrame = true;
+                  break;
                 }
                 enqueue(encoder.encode(frame.frame));
+              }
+              if (unsafeFrame) {
+                await reader.cancel();
+                break;
               }
               const accepted = await persistAndForward(events);
               if (!accepted) {
@@ -1476,18 +1431,27 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
 
             usageParser.pushText(usageDecoder.decode());
             if (resumeDecoder && resumeParser) {
-              const finalFrames = resumeParser.push(resumeDecoder.decode());
-              const finalEvents = finalFrames.flatMap((frame) =>
-                frame.kind === "event" ? [frame.event] : [],
-              );
-              await persistAndForward(finalEvents);
+              const decodedFinal = resumeParser.push(resumeDecoder.decode());
+              const finished = resumeParser.finish();
+              const finalFrames = [...decodedFinal, ...finished.frames];
+              let finalEvents: RelayResumeEvent[] = [];
+              let unsafeFinalFrame = false;
               for (const frame of finalFrames) {
-                if (frame.kind !== "event")
-                  enqueue(encoder.encode(frame.frame));
+                if (frame.kind === "event") {
+                  finalEvents.push(frame.event);
+                  continue;
+                }
+                await persistAndForward(finalEvents);
+                finalEvents = [];
+                if (frame.kind === "passthrough" && !frame.replaySafe) {
+                  await markUnrecoverable("truncated");
+                  unsafeFinalFrame = true;
+                  break;
+                }
+                enqueue(encoder.encode(frame.frame));
               }
-              const remainder = resumeParser.finish();
-              if (remainder) enqueue(encoder.encode(remainder));
-              if (relayStatus === "streaming") {
+              if (!unsafeFinalFrame) await persistAndForward(finalEvents);
+              if (relayStatus === "streaming" && !unsafeFinalFrame) {
                 await markUnrecoverable("upstream_eof");
               }
             }
@@ -1537,7 +1501,11 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
               lastStatus: relayStatus,
               error: error instanceof Error ? error.message : String(error),
             });
-            await markUnrecoverable("upstream_eof").catch(() => undefined);
+            await markUnrecoverable(
+              error instanceof RelayResumeFrameTooLargeError
+                ? "truncated"
+                : "upstream_eof",
+            ).catch(() => undefined);
             await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
               ownerId: authorized.ownerId,
               agentType: authorized.agentType,

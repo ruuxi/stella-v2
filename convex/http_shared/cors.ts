@@ -41,7 +41,7 @@ export const getCorsHeaders = (origin: string | null) => {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, X-Device-ID, X-Stella-Agent-Type, X-Stella-Voice-Session-ID, X-Stella-Mobile-Device-Id, X-Stella-Mobile-Pair-Secret, X-Stella-Mobile-Pair-Proof, X-Stella-Mobile-Pair-Proof-Issued-At, X-Stella-Mobile-Pair-Proof-Challenge, X-Stella-Mobile-Public-Key, X-Stella-Bridge-Session-Id, X-Stella-Bridge-Session-Secret, X-Stella-Bridge-Challenge-Id, X-Stella-Bridge-Encrypted",
+      "Content-Type, Authorization, X-Device-ID, X-Stella-Agent-Type, X-Stella-Relay-Request-Id, X-Stella-Voice-Session-ID, X-Stella-Mobile-Device-Id, X-Stella-Mobile-Pair-Secret, X-Stella-Mobile-Pair-Proof, X-Stella-Mobile-Pair-Proof-Issued-At, X-Stella-Mobile-Pair-Proof-Challenge, X-Stella-Mobile-Public-Key, X-Stella-Bridge-Session-Id, X-Stella-Bridge-Session-Secret, X-Stella-Bridge-Challenge-Id, X-Stella-Bridge-Encrypted",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "86400",
     "Permissions-Policy": PERMISSIONS_POLICY,

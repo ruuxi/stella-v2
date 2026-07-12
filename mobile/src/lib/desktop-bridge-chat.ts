@@ -1058,6 +1058,115 @@ function parseTasks(value: unknown): MobileTask[] {
   return tasks;
 }
 
+/**
+ * The desktop's user-facing Activity feed only shows GENERAL agents spawned
+ * via `spawn_agent`; orchestrator-internal helpers never surface as rows.
+ * Mirrors `isActivityFeedTask` in the desktop renderer.
+ */
+const ACTIVITY_FEED_AGENT_TYPE = "general";
+
+/**
+ * One authoritative thread-activity row (the runtime's `runtime_agents`
+ * projection) converted to a `MobileTask`. Unlike the per-message task fold,
+ * these rows are the desktop's single source of truth for thread state — a
+ * running row here is running, no staleness heuristics needed.
+ */
+function parseThreadActivityTasks(value: unknown): MobileTask[] {
+  if (!Array.isArray(value)) return [];
+  const tasks: MobileTask[] = [];
+  for (const entry of value) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const agentType = asString(record.agentType).trim();
+    if (agentType && agentType !== ACTIVITY_FEED_AGENT_TYPE) continue;
+    const id = asString(record.threadId).trim();
+    const status = record.status;
+    if (!id || typeof status !== "string" || !TASK_STATUSES.has(status)) {
+      continue;
+    }
+    const title = asString(record.description).trim() || "Background work";
+    const startedAt =
+      typeof record.startedAt === "number" && Number.isFinite(record.startedAt)
+        ? record.startedAt
+        : 0;
+    const completedAt =
+      typeof record.completedAt === "number" &&
+      Number.isFinite(record.completedAt)
+        ? record.completedAt
+        : undefined;
+    tasks.push({
+      id,
+      title,
+      status: status as MobileTask["status"],
+      createdAt: startedAt,
+      ...(status !== "running" && completedAt !== undefined
+        ? { completedAt }
+        : {}),
+    });
+  }
+  return tasks;
+}
+
+/**
+ * Fetch the conversation's authoritative background-task set from the
+ * desktop's `runtime_agents` projection. Returns null against older desktops
+ * that don't expose `localChat:listThreadActivity` (callers keep the
+ * synced-message task fold as their only source).
+ */
+export async function fetchDesktopBridgeThreadTasks(
+  access: StoredPhoneAccess,
+  conversationId: string,
+): Promise<MobileTask[] | null> {
+  try {
+    const bridge = await resolveDesktopBridge(access);
+    const rows = await invokeDesktopBridge<unknown[]>(
+      bridge,
+      "localChat:listThreadActivity",
+      [{ conversationId }],
+    );
+    return parseThreadActivityTasks(rows);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The desktop renderer's ephemeral per-thread decoration snapshot, broadcast
+ * as `localChat:taskDecorationUpdated`: mid-run statusText ticks plus the
+ * generated reasoning phrases, keyed by agent/thread id. Present only for
+ * running threads; replaced wholesale per broadcast.
+ */
+export type DesktopTaskDecoration = {
+  statusTextByAgentId: Record<string, string>;
+  reasoningSummariesByAgentId: Record<string, string[]>;
+};
+
+export function parseDesktopTaskDecoration(
+  value: unknown,
+): DesktopTaskDecoration {
+  const record = asRecord(value);
+  const statusTextByAgentId: Record<string, string> = {};
+  for (const [rawId, rawText] of Object.entries(
+    asRecord(record?.statusTextByAgentId) ?? {},
+  )) {
+    const id = rawId.trim();
+    const text = typeof rawText === "string" ? rawText.trim() : "";
+    if (id && text) statusTextByAgentId[id] = text;
+  }
+  const reasoningSummariesByAgentId: Record<string, string[]> = {};
+  for (const [rawId, rawList] of Object.entries(
+    asRecord(record?.reasoningSummariesByAgentId) ?? {},
+  )) {
+    const id = rawId.trim();
+    if (!id || !Array.isArray(rawList)) continue;
+    const cleaned = rawList
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter((entry) => entry.length > 0);
+    if (cleaned.length > 0) reasoningSummariesByAgentId[id] = cleaned;
+  }
+  return { statusTextByAgentId, reasoningSummariesByAgentId };
+}
+
 function parseDesktopBridgeMessageRows(
   rows: unknown[],
   conversationId: string,

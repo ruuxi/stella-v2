@@ -635,6 +635,7 @@ export function generateShimScript(
       listMessages: function(p) { return invoke('localChat:listMessages', p); },
       listMessagesBefore: function(p) { return invoke('localChat:listMessagesBefore', p); },
       listActivity: function(p) { return invoke('localChat:listActivity', p); },
+      listThreadActivity: function(p) { return invoke('localChat:listThreadActivity', p); },
       listFiles: function(p) { return invoke('localChat:listFiles', p); },
       getEventCount: function(p) { return invoke('localChat:getEventCount', p); },
       appendEvent: function(p) { return invoke('localChat:appendEvent', p); },
@@ -643,6 +644,8 @@ export function generateShimScript(
       getSyncCheckpoint: function(p) { return invoke('localChat:getSyncCheckpoint', p); },
       setSyncCheckpoint: function(p) { return invoke('localChat:setSyncCheckpoint', p); },
       onUpdated: function(cb) { return subscribe('localChat:updated', cb); },
+      onThreadActivityUpdated: function(cb) { return subscribe('localChat:threadActivityUpdated', cb); },
+      onTaskDecorationUpdated: function(cb) { return subscribe('localChat:taskDecorationUpdated', cb); },
     },
 
     // ── Social sessions ─────────────────────────────────────────────────

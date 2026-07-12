@@ -23,12 +23,14 @@ import { getOrCreateMobileDeviceId, type StoredPhoneAccess } from "./phone-acces
 import {
   closeDesktopBridgeSendBatch,
   DesktopOfflineError,
+  fetchDesktopBridgeThreadTasks,
   sendDesktopBridgeChat,
   syncDesktopBridgeChatMessages,
   type DesktopBridgeActivity,
   type DesktopBridgeAttachment,
   type DesktopBridgeSendBatch,
   type DesktopBridgeSendStatus,
+  type DesktopTaskDecoration,
 } from "./desktop-bridge-chat";
 import {
   buildWorkingIndicatorState,
@@ -53,7 +55,10 @@ import {
   shouldSyncOnLocalChatPush,
 } from "./desktop-sync-policy";
 import { recordSyncDiagnostic } from "./sync-diagnostics";
-import { collectConversationTasks } from "./mobile-task-merge";
+import {
+  collectConversationTasks,
+  overlayDesktopThreadTasks,
+} from "./mobile-task-merge";
 import {
   collectActivityHubArtifacts,
   groupActivityArtifacts,
@@ -732,6 +737,86 @@ export function useChatThread(opts: {
     void runDesktopSync({ catchUp: true, trigger: "landing" });
   }, [appActive, desktopAccess, runDesktopSync, storageLoaded]);
 
+  // ─── Authoritative thread activity (runtime_agents projection) ──────────
+  // The synced-message task fold only learns about a running agent from its
+  // persisted spawn/terminal rows; mid-run state (progress ticks) is never
+  // persisted. These two slices carry the live picture instead: the desktop's
+  // authoritative task rows (fetched on `localChat:threadActivityUpdated`
+  // pushes) and the renderer's ephemeral decoration snapshot (statusText +
+  // reasoning phrases, carried on `localChat:taskDecorationUpdated` pushes).
+  // Both stay null against older desktops — the fold is then the only source,
+  // matching pre-push behavior.
+  const [desktopThreadTasks, setDesktopThreadTasks] = useState<
+    MobileTask[] | null
+  >(null);
+  const [desktopTaskDecoration, setDesktopTaskDecoration] =
+    useState<DesktopTaskDecoration | null>(null);
+  // Single-flight with a trailing rerun: transition bursts (a fan-out spawning
+  // five agents) collapse into at most one in-flight fetch plus one follow-up.
+  type ThreadTasksFetchState = {
+    scopeKey: string;
+    inFlight: boolean;
+    queued: boolean;
+  };
+  const threadTasksScopeKey = `${desktopDeviceId ?? ""}\u0000${threadId}`;
+  const threadTasksFetchRef = useRef<ThreadTasksFetchState>({
+    scopeKey: threadTasksScopeKey,
+    inFlight: false,
+    queued: false,
+  });
+  // Scope changes must invalidate an old request during render, before its
+  // promise can commit results into the newly-selected thread. A new scope
+  // gets its own single-flight state, so it also never queues behind (or gets
+  // fetched through) the previous computer's `desktopAccess` closure.
+  if (threadTasksFetchRef.current.scopeKey !== threadTasksScopeKey) {
+    threadTasksFetchRef.current = {
+      scopeKey: threadTasksScopeKey,
+      inFlight: false,
+      queued: false,
+    };
+  }
+  const refreshDesktopThreadTasks = useCallback(async () => {
+    if (!desktopAccess) return;
+    const state = threadTasksFetchRef.current;
+    if (state.scopeKey !== threadTasksScopeKey) return;
+    if (state.inFlight) {
+      state.queued = true;
+      return;
+    }
+    state.inFlight = true;
+    try {
+      do {
+        state.queued = false;
+        const conversationId = syncConversationIdRef.current;
+        if (!conversationId) return;
+        const tasks = await fetchDesktopBridgeThreadTasks(
+          desktopAccess,
+          conversationId,
+        );
+        // The user may switch threads or computers while the bridge request is
+        // in flight. Only the still-current scope may publish its result.
+        if (threadTasksFetchRef.current !== state) return;
+        if (tasks) setDesktopThreadTasks(tasks);
+      } while (state.queued);
+    } finally {
+      state.inFlight = false;
+    }
+  }, [desktopAccess, threadTasksScopeKey]);
+
+  // The activity overlay is per-computer, per-conversation state.
+  useEffect(() => {
+    setDesktopThreadTasks(null);
+    setDesktopTaskDecoration(null);
+  }, [desktopDeviceId, threadId]);
+
+  // Landing fetch: the conversation id hydrates from disk with the sync
+  // state, so returning threads get the authoritative running set without
+  // waiting for the next thread transition to push one.
+  useEffect(() => {
+    if (!desktopAccess || !storageLoaded || !appActive) return;
+    void refreshDesktopThreadTasks();
+  }, [appActive, desktopAccess, refreshDesktopThreadTasks, storageLoaded]);
+
   // ─── localChat push (capability-gated, poll fallback stays) ─────────────
   // While mounted with a desktop transport, hold a push socket: the desktop
   // broadcasts `localChat:updated` on every persisted chat event, and each
@@ -779,14 +864,36 @@ export function useChatThread(opts: {
           void runDesktopSync({ trigger: "push" });
         }, 400);
       },
-      onConnectedChange: setLivePushConnected,
+      // Authoritative task rows: a thread transition (spawn, retitle,
+      // terminal) pushes the signal; the coalesced fetch pulls the projection.
+      // No mid-send gate — the fetch reads a side table, never the transcript
+      // cursor, so it can't interleave with optimistic-row linking.
+      onThreadActivityUpdated: (payload) => {
+        const current = syncConversationIdRef.current;
+        if (
+          payload.conversationId &&
+          current &&
+          payload.conversationId !== current
+        ) {
+          return;
+        }
+        void refreshDesktopThreadTasks();
+      },
+      // Decoration pushes carry the snapshot itself — store and render.
+      onTaskDecorationUpdated: setDesktopTaskDecoration,
+      onConnectedChange: (connected) => {
+        setLivePushConnected(connected);
+        // (Re)connect: pull the current running set — any transitions that
+        // broadcast while the socket was down are already folded into it.
+        if (connected) void refreshDesktopThreadTasks();
+      },
     });
     return () => {
       if (pushDebounce) clearTimeout(pushDebounce);
       handle.close();
       setLivePushConnected(false);
     };
-  }, [appActive, desktopAccess, runDesktopSync]);
+  }, [appActive, desktopAccess, refreshDesktopThreadTasks, runDesktopSync]);
 
   // Flush push notifications the mid-send gate deferred. `runDesktopSync`
   // awaits the turn's pending reconcile before reading the cursor, so this
@@ -1671,13 +1778,18 @@ export function useChatThread(opts: {
   }, [messages]);
 
   // Every background task across the conversation, newest first, running ones
-  // pinned to the top — the data behind the activity pill + tray. Tasks ride on
-  // their spawning message and task-update sync rows; dedupe by id while
-  // letting terminal updates beat older running snapshots so zombie tasks do
-  // not stay pinned in the pill/tray.
+  // pinned to the top — the data behind the activity pill + tray. The synced
+  // message fold provides durable history; the desktop's authoritative thread
+  // rows override status/title for tasks they cover (and surface running
+  // threads the loaded window missed), and the live decoration snapshot
+  // supplies mid-run statusText/reasoning that is never persisted.
   const conversationTasks = useMemo(() => {
-    return collectConversationTasks(messages);
-  }, [messages]);
+    return overlayDesktopThreadTasks(
+      collectConversationTasks(messages),
+      desktopThreadTasks,
+      desktopTaskDecoration,
+    );
+  }, [desktopTaskDecoration, desktopThreadTasks, messages]);
 
   const activityArtifactGroups = useMemo(
     () => groupActivityArtifacts(messages, conversationArtifacts),

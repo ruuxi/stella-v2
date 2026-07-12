@@ -3,7 +3,9 @@ import {
   bridgeSupportsLocalChatPush,
   clearCachedDesktopBridge,
   openDesktopBridgeEventSocket,
+  parseDesktopTaskDecoration,
   resolveDesktopBridge,
+  type DesktopTaskDecoration,
 } from "./desktop-bridge-chat";
 import type { StoredPhoneAccess } from "./phone-access";
 
@@ -31,6 +33,18 @@ export function openDesktopBridgeLive(options: {
   access: StoredPhoneAccess;
   onLocalChatUpdated: () => void;
   onConnectedChange: (connected: boolean) => void;
+  /**
+   * The desktop broadcasts `localChat:threadActivityUpdated` on every
+   * background-thread transition (spawn, retitle, terminal) — the signal to
+   * refetch the authoritative task set via `fetchDesktopBridgeThreadTasks`.
+   * Older desktops never emit it; the subscription is simply silent.
+   */
+  onThreadActivityUpdated?: (payload: { conversationId?: string }) => void;
+  /**
+   * Mid-run decoration snapshot (statusText ticks + reasoning phrases) for
+   * running threads. Carries the data itself — no refetch needed.
+   */
+  onTaskDecorationUpdated?: (decoration: DesktopTaskDecoration) => void;
 }): DesktopBridgeLiveHandle {
   let closed = false;
   let attempt = 0;
@@ -81,10 +95,34 @@ export function openDesktopBridgeLive(options: {
       if (closed || socket) return;
       let opened: { close: () => void } | null = null;
       opened = await openDesktopBridgeEventSocket(bridge, {
-        channels: ["localChat:updated"],
-        onEvent: (channel) => {
+        channels: [
+          "localChat:updated",
+          ...(options.onThreadActivityUpdated
+            ? ["localChat:threadActivityUpdated"]
+            : []),
+          ...(options.onTaskDecorationUpdated
+            ? ["localChat:taskDecorationUpdated"]
+            : []),
+        ],
+        onEvent: (channel, data) => {
           if (channel === "localChat:updated") {
             options.onLocalChatUpdated();
+            return;
+          }
+          if (channel === "localChat:threadActivityUpdated") {
+            const conversationId =
+              data && typeof data === "object" && "conversationId" in data
+                ? String(
+                    (data as { conversationId?: unknown }).conversationId ?? "",
+                  ).trim()
+                : "";
+            options.onThreadActivityUpdated?.(
+              conversationId ? { conversationId } : {},
+            );
+            return;
+          }
+          if (channel === "localChat:taskDecorationUpdated") {
+            options.onTaskDecorationUpdated?.(parseDesktopTaskDecoration(data));
           }
         },
         onClose: (details) => {

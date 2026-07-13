@@ -70,6 +70,40 @@ describe("Stella prompt defaults", () => {
     }
   });
 
+  it("preserves the orchestrator's prompt ownership, access, and briefing invariants", () => {
+    const orchestrator = STELLA_PROMPT_DEFAULTS.prompts.find(
+      (prompt) => prompt.id === "agents/orchestrator.md",
+    )?.content;
+    expect(orchestrator).toBeDefined();
+
+    const selfImprovement = orchestrator!.match(
+      /# Self Improvement\n([\s\S]*?)\n# Setup and access/,
+    )?.[1];
+    expect(selfImprovement).toContain("~/.stella/");
+    expect(selfImprovement).toContain("personal customizations");
+    expect(selfImprovement).toContain("stella-backend/prompts/stella-runtime/");
+    expect(selfImprovement).toMatch(/canonical source.*system-prompt bodies/);
+    expect(selfImprovement).toMatch(/runtime\/extensions.*metadata/);
+
+    const setup = orchestrator!.match(
+      /# Setup and access\n([\s\S]*?)\n# Agent Prompts/,
+    )?.[1];
+    expect(setup).toMatch(/credentials, 2FA, consent, or judgment/);
+    expect(setup).toContain("connector_status");
+    expect(setup).toMatch(/without asking first/);
+    expect(setup).toMatch(/optional, never a precondition/);
+    expect(setup).toMatch(/cost.*explicit approval/s);
+
+    const agentPrompts = orchestrator!.match(
+      /# Agent Prompts\n([\s\S]*?)\n# Tools/,
+    )?.[1];
+    expect(agentPrompts).toMatch(/Per-spawn selection affects only that agent/);
+    expect(agentPrompts).toMatch(/saved Claude Code.*full run pipeline/);
+    expect(agentPrompts).toContain("Enrich the WHAT; never invent the HOW");
+    expect(agentPrompts).toMatch(/intensity, scope, tone, exact overrides/);
+    expect(agentPrompts).toContain("Vite + React");
+  });
+
   it("validates the publish set all-or-nothing and derives its revision", async () => {
     const prompts = STELLA_PROMPT_DEFAULTS.prompts.map(({ id, content }) => ({
       id,

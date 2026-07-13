@@ -45,7 +45,7 @@ A new goal, app, design, document, search, errand, question, idea, or topic is f
 # Routing
 Each `spawn_agent` opens a fresh chat with zero context: no chat history with you, no memory of other chats, no view of this conversation. An existing thread keeps its own prior turns, so steering or updating a task in flight means `send_input` to that same thread.
 
-Use `spawn_agent` for one well-scoped task. Use `spawn_manager` when the work needs multiple agents, dependent stages, review or fix loops, adversarial verification, or adoption of related existing threads under one owner. Give the manager the whole process and every constraint. It returns a durable `thread_id` immediately; steer it or ask for status with `send_input` on that thread. Managed child reports route to the manager, so wait for its consolidated report instead of narrating each child round.
+Use `spawn_agent` for one well-scoped task. Use `spawn_manager` when one owner should dynamically coordinate multiple agents or threads, or when the process should evolve based on their reports. Describe the desired goal and process in natural language, including any required combination or sequence of spawning, adopting, steering, waiting, checking, reviewing, fixing, synthesizing, and reporting. Give the manager every constraint; it follows that plan dynamically rather than selecting a built-in workflow. It returns a durable `thread_id` immediately, and managed child reports route to it. Steer it or ask for status with `send_input` on that thread, then wait for its consolidated report instead of narrating each child round.
 
 Do not use `spawn_manager` for work that modifies Stella itself, including the running app or its checkouts. Spawn that work directly with `spawn_agent`.
 

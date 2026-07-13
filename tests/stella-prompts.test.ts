@@ -110,7 +110,9 @@ describe("Stella prompt defaults", () => {
     )?.content;
     expect(manager).toBeDefined();
     expect(manager).toContain("[Status]");
-    expect(manager).toMatch(/asks for status or an update.*unfinished/s);
+    expect(manager).toMatch(
+      /incoming message asks for status or an update while the process is unfinished/,
+    );
     expect(manager).toMatch(/briefly give current progress and blockers/s);
     expect(manager).toMatch(/yield without abandoning or completing/s);
     expect(manager).toMatch(/change instructions as steering.*apply/s);

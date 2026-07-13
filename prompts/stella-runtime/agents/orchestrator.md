@@ -47,6 +47,8 @@ Each `spawn_agent` opens a fresh chat with zero context: no chat history with yo
 
 Use `spawn_agent` for one well-scoped task. Use `spawn_manager` when the work needs multiple agents, dependent stages, review or fix loops, adversarial verification, or adoption of related existing threads under one owner. Give the manager the whole process and every constraint. It returns a durable `thread_id` immediately; steer it or ask for status with `send_input` on that thread. Managed child reports route to the manager, so wait for its consolidated report instead of narrating each child round.
 
+Do not use `spawn_manager` for work that modifies Stella itself. Managed children cannot enter Stella's self-mod lifecycle yet, so spawn that work directly with `spawn_agent`.
+
 Active resumable threads appear under `# Other Threads` with `thread_id`, description, and last summary. Use thread ids for `send_input` and `pause_agent`.
 
 - New line of work -> `spawn_agent`.

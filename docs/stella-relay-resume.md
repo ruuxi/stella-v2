@@ -6,21 +6,27 @@ continue to send `store: false`.
 
 ## Protocol
 
-Resume buffering is enabled only when the client proposes its own relay
-request id in the `x-stella-relay-request-id` request header. A client that
-does not send the header (an older build during a backend-first rollout)
-cannot resume and may replay a pre-event POST, so the relay does not reserve
-or buffer for it — buffering would leave an orphaned upstream run and
-double-execute the request. Such requests keep the previous pure-passthrough
-behavior.
+Resume buffering is enabled for every authenticated, streaming OpenAI
+Responses request on the managed relay. New clients propose a random relay id
+in `x-stella-relay-request-id`. Older clients already reuse a stable,
+per-request `Idempotency-Key`; the backend hashes that key together with the
+authenticated owner to derive the same opaque relay id on every POST attempt.
+Thus a repeated old-client POST reaches the existing reservation and streams
+from cursor zero instead of allocating a second upstream execution. A request
+that supplies neither a proposed relay id nor a usable idempotency key is
+rejected before upstream work.
 
-A newer client talking to an older backend still fails closed: once it has
+A newer client talking to an older backend fails closed: once it has
 attempted the POST with its proposed id, any zero-event EOF or pre-header
 transport failure advances to `GET ...?starting_after=0`. If that backend does
 not implement resume, the GET fails and the POST is not replayed.
 
-For an authenticated, streaming OpenAI Responses request on the managed relay
-that proposes a relay request id, the initial response advertises:
+An older client talking to a newer backend may still select POST after a
+pre-event transport failure, but it repeats the same `Idempotency-Key`. The
+backend maps that attempt to the first relay stream and never repeats the
+upstream request.
+
+The initial response advertises:
 
 - `x-stella-relay-resume: 1`
 - `x-stella-relay-request-id: <opaque id>`

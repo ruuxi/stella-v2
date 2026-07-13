@@ -44,6 +44,7 @@ import {
   STELLA_RELAY_RESUME_VERSION,
   relayResumeChunkEvents,
   isValidRelayRequestId,
+  relayRequestIdFromIdempotencyKey,
   relayResumeNextPollDelay,
   relayResumeSyntheticErrorFrame,
   relayResumeStreamIsStale,
@@ -1117,12 +1118,27 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
         request,
       );
     }
-    // Resume buffering is only enabled when the client proposes its own relay
-    // request id. A client that does not send the header cannot resume and
-    // may replay a pre-event POST; buffering for it would leave an orphaned
-    // upstream run and double-execute the request during rollout windows.
-    if (requestedRelayId && relayResumeEligibleRequest(authorized, request)) {
-      const candidate = requestedRelayId;
+    const resumeEligible = relayResumeEligibleRequest(authorized, request);
+    if (resumeEligible) {
+      const idempotencyKey = request.headers.get("idempotency-key")?.trim();
+      // New clients propose a random relay id directly. Older clients already
+      // reuse Idempotency-Key across resilient POST attempts, so derive the
+      // same opaque relay id on every attempt. Either direction therefore
+      // reaches one reservation and at most one upstream execution.
+      let candidate = requestedRelayId;
+      if (!candidate) {
+        if (!idempotencyKey || idempotencyKey.length > 200) {
+          return stellaProviderErrorResponse(
+            400,
+            "A stable Idempotency-Key is required for streaming Stella relay requests",
+            request,
+          );
+        }
+        candidate = await relayRequestIdFromIdempotencyKey(
+          authorized.ownerId,
+          idempotencyKey,
+        );
+      }
       const reservation = await ctx.runMutation(
         internal.stella_provider.relay_resume_store.reserveRelayResumeStream,
         {

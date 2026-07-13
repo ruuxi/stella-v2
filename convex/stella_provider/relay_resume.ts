@@ -399,3 +399,24 @@ export const isValidRelayRequestId = (value: string | null): value is string =>
   value.length >= 16 &&
   value.length <= 100 &&
   /^[A-Za-z0-9_-]+$/u.test(value);
+
+/**
+ * Older Stella clients already reuse one opaque Idempotency-Key for every
+ * reconnect attempt belonging to a logical Responses request. Hash that key
+ * with the authenticated owner to obtain a stable, non-revealing relay id, so
+ * a replayed POST resolves to the existing durable stream instead of starting
+ * another upstream execution.
+ */
+export const relayRequestIdFromIdempotencyKey = async (
+  ownerId: string,
+  idempotencyKey: string,
+): Promise<string> => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`stella-relay-v1\0${ownerId}\0${idempotencyKey}`),
+  );
+  const hex = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `stella-relay-${hex}`;
+};

@@ -10,6 +10,7 @@ import {
   relayResumeChunkEvents,
   relayResumeEventBytes,
   relayResumeNextPollDelay,
+  relayRequestIdFromIdempotencyKey,
   relayResumeStreamIsStale,
   relayResumeTerminalSuffix,
 } from "../../convex/stella_provider/relay_resume";
@@ -18,6 +19,27 @@ const sse = (event: Record<string, unknown>): string =>
   `data: ${JSON.stringify(event)}\n\n`;
 
 describe("relay-owned Responses SSE cursoring", () => {
+  it("derives stable owner-scoped opaque relay ids for old clients", async () => {
+    const first = await relayRequestIdFromIdempotencyKey(
+      "owner-a",
+      "stella-response-stable-key",
+    );
+    expect(
+      await relayRequestIdFromIdempotencyKey(
+        "owner-a",
+        "stella-response-stable-key",
+      ),
+    ).toBe(first);
+    expect(
+      await relayRequestIdFromIdempotencyKey(
+        "owner-b",
+        "stella-response-stable-key",
+      ),
+    ).not.toBe(first);
+    expect(first).toMatch(/^stella-relay-[a-f0-9]{64}$/u);
+    expect(first).not.toContain("stable-key");
+  });
+
   it("assigns stable monotonic relay sequences across split transport chunks", () => {
     const parser = new RelayResumeSseParser();
     const wire =

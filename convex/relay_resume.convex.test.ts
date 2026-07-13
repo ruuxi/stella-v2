@@ -4,9 +4,7 @@ import { convexTest, type TestConvex } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
-import type { ActionCtx } from "./_generated/server";
 import schema from "./schema";
-import { stellaProviderRelay, stellaProviderResume } from "./stella_provider";
 import {
   STELLA_RELAY_CLEANUP_MAX_BYTES,
   STELLA_RELAY_CLEANUP_MAX_DOCS,
@@ -50,51 +48,6 @@ const asIdentity = (t: TestConvex<typeof schema>, subject: string) =>
     subject,
     tokenIdentifier: `https://issuer.test|${subject}`,
   });
-
-const actionCtxForOwner = (
-  t: TestConvex<typeof schema>,
-  ownerId: string,
-): ActionCtx => {
-  const ownerParts = ownerId.split("|");
-  return {
-    auth: {
-      getUserIdentity: async () => ({
-        issuer: "https://issuer.test",
-        subject: ownerParts[ownerParts.length - 1] ?? ownerId,
-        tokenIdentifier: ownerId,
-      }),
-    },
-    runMutation: t.mutation.bind(t),
-    runQuery: t.query.bind(t),
-    scheduler: {
-      // Usage logging is outside the relay-resume behavior under test.
-      runAfter: async () => undefined,
-    },
-  } as unknown as ActionCtx;
-};
-
-const invokeRelayPost = async (
-  ctx: ActionCtx,
-  request: Request,
-): Promise<Response> => {
-  const action = stellaProviderRelay() as unknown as {
-    _handler: (
-      actionCtx: ActionCtx,
-      actionRequest: Request,
-    ) => Promise<Response>;
-  };
-  return await action._handler(ctx, request);
-};
-
-const invokeRelayResume = async (
-  ctx: ActionCtx,
-  request: Request,
-): Promise<Response> => {
-  const action = stellaProviderResume as unknown as {
-    _handler: (actionCtx: ActionCtx, actionRequest: Request) => Promise<Response>;
-  };
-  return await action._handler(ctx, request);
-};
 
 const insertLiveStream = async (
   t: TestConvex<typeof schema>,
@@ -209,14 +162,18 @@ const ensureBillingTestEnv = () => {
 };
 
 const relayPost = (
-  relayRequestId: string,
+  relayRequestId?: string,
   signal?: AbortSignal,
+  idempotencyKey = "stella-response-test-idempotency-key",
 ): RequestInit => ({
   method: "POST",
   headers: {
     "content-type": "application/json",
+    "idempotency-key": idempotencyKey,
     "x-stella-agent-type": "synthesis",
-    "x-stella-relay-request-id": relayRequestId,
+    ...(relayRequestId
+      ? { "x-stella-relay-request-id": relayRequestId }
+      : {}),
   },
   body: JSON.stringify({
     model: "stella/openai/gpt-5.6-luna",
@@ -249,6 +206,43 @@ const event = (
 });
 
 describe("relay resume Convex persistence and HTTP actions", () => {
+  it("allows stable idempotency keys through the registered POST preflight", async () => {
+    const t = createTest();
+    const response = await t.fetch(
+      "/api/stella/relay/openai/v1/responses",
+      {
+        method: "OPTIONS",
+        headers: {
+          origin: "http://localhost:57314",
+          "access-control-request-method": "POST",
+          "access-control-request-headers":
+            "authorization,content-type,idempotency-key",
+        },
+      },
+    );
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Headers")).toContain(
+      "Idempotency-Key",
+    );
+  });
+
+  it("dispatches the registered POST route through the authentication adapter", async () => {
+    const t = createTest();
+    ensureBillingTestEnv();
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    try {
+      const response = await t.fetch(
+        "/api/stella/relay/openai/v1/responses",
+        relayPost("stella-relay-unauthenticated-route"),
+      );
+      expect(response.status).toBe(401);
+      expect(await response.text()).toContain("Unauthorized");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it("runs one POST upstream, persists before forwarding, and resumes through GET", async () => {
     const t = createTest();
     ensureBillingTestEnv();
@@ -280,15 +274,9 @@ describe("relay resume Convex persistence and HTTP actions", () => {
 
     try {
       const asOwner = asIdentity(t, "owner-a");
-      // Invoke the registered production HTTP handler with a convex-test
-      // backed ActionCtx. convex-test's router invalidates its action context
-      // as soon as t.fetch returns, while a streaming HTTP action is designed
-      // to keep using that context until its Response body closes.
-      const post = await invokeRelayPost(
-        actionCtxForOwner(t, ownerA),
-        new Request("https://relay.test/api/stella/relay/openai/v1/responses", {
-          ...relayPost(relayRequestId),
-        }),
+      const post = await asOwner.fetch(
+        "/api/stella/relay/openai/v1/responses",
+        relayPost(relayRequestId),
       );
       expect(post.status).toBe(200);
       expect(post.headers.get("x-stella-relay-resume")).toBe("1");
@@ -296,6 +284,13 @@ describe("relay resume Convex persistence and HTTP actions", () => {
         relayRequestId,
       );
 
+      await waitFor(async () => {
+        const page = await t.query(
+          internal.stella_provider.relay_resume_store.getRelayResumePage,
+          { relayRequestId, startingAfter: 0 },
+        );
+        return page?.lastSequence === 3;
+      });
       const reader = post.body!.getReader();
       const first = await reader.read();
       expect(first.done).toBe(false);
@@ -333,6 +328,115 @@ describe("relay resume Convex persistence and HTTP actions", () => {
     }
   });
 
+  it("deduplicates an old-client repeated POST through the registered route", async () => {
+    const t = createTest();
+    ensureBillingTestEnv();
+    const idempotencyKey = "stella-response-old-client-reconnect";
+    let upstreamExecutions = 0;
+    let upstreamController:
+      | ReadableStreamDefaultController<Uint8Array>
+      | undefined;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => {
+        upstreamExecutions += 1;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              upstreamController = controller;
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        );
+      });
+
+    try {
+      const asOwner = asIdentity(t, "owner-a");
+      const first = await asOwner.fetch(
+        "/api/stella/relay/openai/v1/responses",
+        relayPost(undefined, undefined, idempotencyKey),
+      );
+      expect(first.status).toBe(200);
+      const assignedRelayId = first.headers.get("x-stella-relay-request-id");
+      expect(assignedRelayId).toMatch(/^stella-relay-[a-f0-9]{64}$/u);
+      expect(first.headers.get("x-stella-relay-resume")).toBe("1");
+
+      // Simulate the old client losing the POST body before event one. The
+      // relay continues persisting upstream even though this body is closed.
+      await first.body!.cancel();
+
+      // Retry immediately, while the first upstream execution has not emitted
+      // an event. The stable key must hit the existing reservation.
+      const repeated = await asOwner.fetch(
+        "/api/stella/relay/openai/v1/responses",
+        relayPost(undefined, undefined, idempotencyKey),
+      );
+      expect(repeated.status).toBe(200);
+      expect(repeated.headers.get("x-stella-relay-request-id")).toBe(
+        assignedRelayId,
+      );
+      expect(upstreamExecutions).toBe(1);
+
+      const wire =
+        [
+          event(1, "response.created"),
+          event(2, "response.output_text.delta", "old-client-durable"),
+          event(3, "response.completed"),
+        ]
+          .map((item) => item.frame)
+          .join("") + "data: [DONE]\n\n";
+      upstreamController!.enqueue(new TextEncoder().encode(wire));
+      upstreamController!.close();
+      await waitFor(async () => {
+        const page = await t.query(
+          internal.stella_provider.relay_resume_store.getRelayResumePage,
+          { relayRequestId: assignedRelayId!, startingAfter: 0 },
+        );
+        return page?.lastSequence === 3;
+      });
+
+      const replay = (await readSseFrames(t, repeated.body!)).join("");
+      expect(replay).toContain("old-client-durable");
+      expect(replay).toContain("response.completed");
+      expect(upstreamExecutions).toBe(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("rejects an eligible stream without either stable request identity before upstream", async () => {
+    const t = createTest();
+    ensureBillingTestEnv();
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    try {
+      const response = await asIdentity(t, "owner-a").fetch(
+        "/api/stella/relay/openai/v1/responses",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stella-agent-type": "synthesis",
+          },
+          body: JSON.stringify({
+            model: "stella/openai/gpt-5.6-luna",
+            input: "hello",
+            stream: true,
+            store: false,
+          }),
+        },
+      );
+      expect(response.status).toBe(400);
+      expect(await response.text()).toContain("Idempotency-Key");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it("lets DELETE win a live POST reservation without a second upstream execution", async () => {
     const t = createTest();
     ensureBillingTestEnv();
@@ -359,11 +463,9 @@ describe("relay resume Convex persistence and HTTP actions", () => {
 
     try {
       const asOwner = asIdentity(t, "owner-a");
-      const postPromise = invokeRelayPost(
-        actionCtxForOwner(t, ownerA),
-        new Request("https://relay.test/api/stella/relay/openai/v1/responses", {
-          ...relayPost(relayRequestId),
-        }),
+      const postPromise = asOwner.fetch(
+        "/api/stella/relay/openai/v1/responses",
+        relayPost(relayRequestId),
       );
       await waitFor(async () => {
         const status = await t.query(
@@ -769,12 +871,12 @@ describe("relay resume delivery gating and abuse bounds", () => {
         expiresInMs: 60_000,
         frames: [event(1).frame],
       });
-      const ctx = actionCtxForOwner(t, ownerA);
+      const asOwner = asIdentity(t, "owner-a");
       const url =
-        "https://relay.test/api/stella/relay/responses/stella-relay-backpressured-consumers?starting_after=0";
+        "/api/stella/relay/responses/stella-relay-backpressured-consumers?starting_after=0";
       const open = await Promise.all(
         Array.from({ length: STELLA_RELAY_RESUME_MAX_STREAM_LEASES }, () =>
-          invokeRelayResume(ctx, new Request(url)),
+          asOwner.fetch(url),
         ),
       );
       expect(open.map((response) => response.status)).toEqual([200, 200]);
@@ -782,10 +884,10 @@ describe("relay resume delivery gating and abuse bounds", () => {
       // No body is read. Advance beyond the original 15-second lease TTL;
       // the independent five-second heartbeat must keep both slots occupied.
       await vi.advanceTimersByTimeAsync(16_000);
-      const rejected = await invokeRelayResume(ctx, new Request(url));
+      const rejected = await asOwner.fetch(url);
       expect(rejected.status).toBe(429);
 
-      await Promise.all(open.map((response) => response.body!.cancel()));
+      await Promise.all(open.map((response) => cancelBody(t, response)));
     } finally {
       vi.useRealTimers();
     }

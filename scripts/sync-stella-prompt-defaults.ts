@@ -16,6 +16,7 @@ const generatedPath = path.join(
 );
 const agentIds = [
   "orchestrator",
+  "manager",
   "general",
   "schedule",
   "fashion",

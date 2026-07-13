@@ -10,6 +10,7 @@ import {
 } from "../convex/stella_prompts_http";
 import {
   STELLA_PROMPT_IDS,
+  STELLA_PROMPT_COUNT,
   STELLA_PROMPT_MAX_CONTENT_BYTES,
   deriveStellaPromptRevision,
   nextStellaPromptPublishedAt,
@@ -19,7 +20,7 @@ import {
 
 describe("Stella prompt defaults", () => {
   it("matches every canonical markdown file byte-for-byte", async () => {
-    expect(STELLA_PROMPT_DEFAULTS.prompts).toHaveLength(16);
+    expect(STELLA_PROMPT_DEFAULTS.prompts).toHaveLength(STELLA_PROMPT_COUNT);
     expect(STELLA_PROMPT_DEFAULTS.prompts.map((prompt) => prompt.id)).toEqual(
       [...STELLA_PROMPT_IDS].sort((a, b) => a.localeCompare(b)),
     );

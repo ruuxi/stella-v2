@@ -1,25 +1,33 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import {
   internalAction,
   internalMutation,
   internalQuery,
   type MutationCtx,
+  type QueryCtx,
 } from "../_generated/server";
 import { relayResumeStatusValidator } from "../schema/relay_resume";
 import {
   STELLA_RELAY_CLEANUP_MAX_BATCHES,
   STELLA_RELAY_CLEANUP_MAX_BYTES,
   STELLA_RELAY_CLEANUP_MAX_DOCS,
+  STELLA_RELAY_CLEANUP_MAX_INTENT_DOCS,
+  STELLA_RELAY_CLEANUP_MAX_LEASE_DOCS,
+  STELLA_RELAY_CLEANUP_MAX_PURGE_DOCS,
   STELLA_RELAY_CANCEL_INTENT_TTL_MS,
+  STELLA_RELAY_OWNER_PURGE_TTL_MS,
   STELLA_RELAY_RESUME_HARD_TTL_MS,
   STELLA_RELAY_RESUME_LEASE_TTL_MS,
   STELLA_RELAY_RESUME_MAX_BYTES,
   STELLA_RELAY_RESUME_MAX_EVENT_BYTES,
   STELLA_RELAY_RESUME_MAX_EVENTS,
   STELLA_RELAY_RESUME_MAX_GLOBAL_BYTES,
+  STELLA_RELAY_RESUME_MAX_GLOBAL_INTENTS,
   STELLA_RELAY_RESUME_MAX_GLOBAL_STREAMS,
   STELLA_RELAY_RESUME_MAX_OWNER_BYTES,
+  STELLA_RELAY_RESUME_MAX_OWNER_INTENTS,
   STELLA_RELAY_RESUME_MAX_OWNER_LEASES,
   STELLA_RELAY_RESUME_MAX_OWNER_STREAMS,
   STELLA_RELAY_RESUME_MAX_STREAM_LEASES,
@@ -31,6 +39,7 @@ import {
 } from "./relay_resume";
 
 const GLOBAL_QUOTA_KEY = "global";
+const GLOBAL_INTENT_QUOTA_KEY = "intents:global";
 const CLEANUP_STATE_KEY = "relay-resume";
 
 const relayResumeEventValidator = v.object({
@@ -55,6 +64,7 @@ const relayResumeStoredEventValidator = v.object({
 });
 
 const ownerQuotaKey = (ownerId: string) => `owner:${ownerId}`;
+const ownerIntentQuotaKey = (ownerId: string) => `intents:owner:${ownerId}`;
 
 const getQuota = async (ctx: MutationCtx, scopeKey: string) =>
   await ctx.db
@@ -103,6 +113,39 @@ const releaseStreamQuota = async (
   );
 };
 
+// Cancellation tombstones are counted through the same quota table
+// (streamCount holds the intent count) so they can never grow unmetered.
+const adjustIntentCounts = async (
+  ctx: MutationCtx,
+  ownerId: string,
+  delta: number,
+  nowMs: number,
+) => {
+  await adjustQuota(ctx, GLOBAL_INTENT_QUOTA_KEY, delta, 0, nowMs);
+  await adjustQuota(ctx, ownerIntentQuotaKey(ownerId), delta, 0, nowMs);
+};
+
+const deleteIntent = async (
+  ctx: MutationCtx,
+  intent: { _id: Id<"stella_relay_cancellation_intents">; ownerId: string },
+  nowMs: number,
+) => {
+  await ctx.db.delete(intent._id);
+  await adjustIntentCounts(ctx, intent.ownerId, -1, nowMs);
+};
+
+const activeOwnerPurge = async (
+  ctx: MutationCtx | QueryCtx,
+  ownerId: string,
+  nowMs: number,
+) => {
+  const purge = await ctx.db
+    .query("stella_relay_owner_purges")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  return purge !== null && purge.expiresAt > nowMs;
+};
+
 export const reserveRelayResumeStream = internalMutation({
   args: {
     relayRequestId: v.string(),
@@ -118,8 +161,15 @@ export const reserveRelayResumeStream = internalMutation({
     v.literal("conflict"),
     v.literal("owner_quota"),
     v.literal("global_quota"),
+    v.literal("owner_purged"),
   ),
   handler: async (ctx, args) => {
+    // Transactional deletion gate: while this owner's relay data is being
+    // purged (account deletion or cloud reset), no new stream may be
+    // reserved, so a purge drain that observes zero rows stays at zero rows.
+    if (await activeOwnerPurge(ctx, args.ownerId, args.nowMs)) {
+      return "owner_purged";
+    }
     const cancellationIntent = await ctx.db
       .query("stella_relay_cancellation_intents")
       .withIndex("by_relayRequestId", (q) =>
@@ -129,7 +179,7 @@ export const reserveRelayResumeStream = internalMutation({
     if (cancellationIntent) {
       if (cancellationIntent.ownerId !== args.ownerId) return "conflict";
       if (cancellationIntent.expiresAt > args.nowMs) return "canceled";
-      await ctx.db.delete(cancellationIntent._id);
+      await deleteIntent(ctx, cancellationIntent, args.nowMs);
     }
 
     const existing = await ctx.db
@@ -234,6 +284,11 @@ export const appendRelayResumeEvents = internalMutation({
       )
       .unique();
     if (!stream) return { accepted: false, status: "truncated" as const };
+    // Stop persisting immediately once the owner's purge begins so active
+    // relay work halts and the purge drain converges.
+    if (await activeOwnerPurge(ctx, stream.ownerId, args.nowMs)) {
+      return { accepted: false, status: "canceled" as const };
+    }
     if (
       stream.status !== "streaming" ||
       stream.hardExpiresAt <= args.nowMs ||
@@ -386,6 +441,7 @@ export const cancelRelayResumeStream = internalMutation({
   returns: v.union(
     v.literal("not_found"),
     v.literal("expired"),
+    v.literal("intent_quota"),
     relayResumeStatusValidator,
   ),
   handler: async (ctx, args) => {
@@ -408,18 +464,36 @@ export const cancelRelayResumeStream = internalMutation({
       ) {
         return "not_found";
       }
+      // A deleting owner must not be able to create or extend a tombstone.
+      // Check the gate before the idempotent refresh as well as before insert.
+      if (await activeOwnerPurge(ctx, args.ownerId, args.nowMs)) {
+        return "canceled";
+      }
       if (existingIntent) {
         await ctx.db.patch(existingIntent._id, {
           expiresAt: args.nowMs + STELLA_RELAY_CANCEL_INTENT_TTL_MS,
         });
-      } else {
-        await ctx.db.insert("stella_relay_cancellation_intents", {
-          relayRequestId: args.relayRequestId,
-          ownerId: args.ownerId,
-          createdAt: args.nowMs,
-          expiresAt: args.nowMs + STELLA_RELAY_CANCEL_INTENT_TTL_MS,
-        });
+        return "canceled";
       }
+      const [globalIntents, ownerIntents] = await Promise.all([
+        getQuota(ctx, GLOBAL_INTENT_QUOTA_KEY),
+        getQuota(ctx, ownerIntentQuotaKey(args.ownerId)),
+      ]);
+      if (
+        (globalIntents?.streamCount ?? 0) >=
+          STELLA_RELAY_RESUME_MAX_GLOBAL_INTENTS ||
+        (ownerIntents?.streamCount ?? 0) >=
+          STELLA_RELAY_RESUME_MAX_OWNER_INTENTS
+      ) {
+        return "intent_quota";
+      }
+      await ctx.db.insert("stella_relay_cancellation_intents", {
+        relayRequestId: args.relayRequestId,
+        ownerId: args.ownerId,
+        createdAt: args.nowMs,
+        expiresAt: args.nowMs + STELLA_RELAY_CANCEL_INTENT_TTL_MS,
+      });
+      await adjustIntentCounts(ctx, args.ownerId, 1, args.nowMs);
       return "canceled";
     }
     if (stream.ownerId !== args.ownerId) return "not_found";
@@ -556,6 +630,9 @@ export const acquireRelayResumeLease = internalMutation({
       )
       .unique();
     if (!stream || stream.ownerId !== args.ownerId) return "not_found";
+    if (await activeOwnerPurge(ctx, args.ownerId, args.nowMs)) {
+      return "not_found";
+    }
     if (stream.expiresAt <= args.nowMs || stream.hardExpiresAt <= args.nowMs) {
       return "expired";
     }
@@ -597,24 +674,35 @@ export const acquireRelayResumeLease = internalMutation({
 
 export const refreshRelayResumeLease = internalMutation({
   args: { leaseId: v.string(), ownerId: v.string(), nowMs: v.number() },
-  returns: v.boolean(),
+  returns: v.union(
+    v.object({ accessExpiresAt: v.number() }),
+    v.literal("not_found"),
+    v.literal("expired"),
+  ),
   handler: async (ctx, args) => {
     const lease = await ctx.db
       .query("stella_relay_response_leases")
       .withIndex("by_leaseId", (q) => q.eq("leaseId", args.leaseId))
       .unique();
-    if (
-      !lease ||
-      lease.ownerId !== args.ownerId ||
-      lease.expiresAt <= args.nowMs
-    ) {
-      return false;
+    if (!lease || lease.ownerId !== args.ownerId) return "not_found";
+    if (lease.expiresAt <= args.nowMs) return "expired";
+    const stream = await ctx.db
+      .query("stella_relay_response_streams")
+      .withIndex("by_relayRequestId", (q) =>
+        q.eq("relayRequestId", lease.relayRequestId),
+      )
+      .unique();
+    if (!stream || stream.ownerId !== args.ownerId) return "not_found";
+    if (await activeOwnerPurge(ctx, args.ownerId, args.nowMs)) {
+      return "not_found";
     }
+    const accessExpiresAt = Math.min(stream.expiresAt, stream.hardExpiresAt);
+    if (accessExpiresAt <= args.nowMs) return "expired";
     await ctx.db.patch(lease._id, {
       updatedAt: args.nowMs,
       expiresAt: args.nowMs + STELLA_RELAY_RESUME_LEASE_TTL_MS,
     });
-    return true;
+    return { accessExpiresAt };
   },
 });
 
@@ -677,21 +765,33 @@ export const cleanupRelayResumeBatch = internalMutation({
     let deletedDocuments = 0;
     let deletedBytes = 0;
 
+    // Per-class budgets keep the sweep fair: a tombstone or lease backlog can
+    // never starve stream/chunk deletion, which always receives the remaining
+    // document budget below.
     const expiredCancellationIntents = await ctx.db
       .query("stella_relay_cancellation_intents")
       .withIndex("by_expiresAt", (q) => q.lte("expiresAt", args.nowMs))
-      .take(STELLA_RELAY_CLEANUP_MAX_DOCS);
+      .take(STELLA_RELAY_CLEANUP_MAX_INTENT_DOCS);
     for (const intent of expiredCancellationIntents) {
-      await ctx.db.delete(intent._id);
+      await deleteIntent(ctx, intent, args.nowMs);
       deletedDocuments += 1;
     }
 
     const expiredLeases = await ctx.db
       .query("stella_relay_response_leases")
       .withIndex("by_expiresAt", (q) => q.lte("expiresAt", args.nowMs))
-      .take(STELLA_RELAY_CLEANUP_MAX_DOCS - deletedDocuments);
+      .take(STELLA_RELAY_CLEANUP_MAX_LEASE_DOCS);
     for (const lease of expiredLeases) {
       await ctx.db.delete(lease._id);
+      deletedDocuments += 1;
+    }
+
+    const expiredPurges = await ctx.db
+      .query("stella_relay_owner_purges")
+      .withIndex("by_expiresAt", (q) => q.lte("expiresAt", args.nowMs))
+      .take(STELLA_RELAY_CLEANUP_MAX_PURGE_DOCS);
+    for (const purge of expiredPurges) {
+      await ctx.db.delete(purge._id);
       deletedDocuments += 1;
     }
 
@@ -703,6 +803,7 @@ export const cleanupRelayResumeBatch = internalMutation({
       expiredCancellationIntents[0]?.expiresAt,
       expiredStream?.expiresAt,
       expiredLeases[0]?.expiresAt,
+      expiredPurges[0]?.expiresAt,
     ].filter((value): value is number => value !== undefined);
     let oldestExpiredAt =
       expiredTimestamps.length > 0 ? Math.min(...expiredTimestamps) : undefined;
@@ -834,6 +935,51 @@ export const drainExpiredRelayResumeStreams = internalAction({
   },
 });
 
+/**
+ * Open the owner purge gate. While the gate is active every mutation that
+ * could create or extend this owner's relay resume data (stream reservation,
+ * event appends, tombstone writes, resume leases) is transactionally refused,
+ * which makes the drain below race-free against in-flight relay work.
+ */
+export const beginOwnerRelayResumePurge = internalMutation({
+  args: { ownerId: v.string(), nowMs: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("stella_relay_owner_purges")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .unique();
+    const expiresAt = args.nowMs + STELLA_RELAY_OWNER_PURGE_TTL_MS;
+    if (existing) await ctx.db.patch(existing._id, { expiresAt });
+    else {
+      await ctx.db.insert("stella_relay_owner_purges", {
+        ownerId: args.ownerId,
+        createdAt: args.nowMs,
+        expiresAt,
+      });
+    }
+    return null;
+  },
+});
+
+/**
+ * Close the owner purge gate after a completed cloud-data reset so the owner
+ * can use relay resume again. Account deletion leaves the gate in place; the
+ * cleanup sweep removes it after `STELLA_RELAY_OWNER_PURGE_TTL_MS`.
+ */
+export const finishOwnerRelayResumePurge = internalMutation({
+  args: { ownerId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("stella_relay_owner_purges")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .unique();
+    if (existing) await ctx.db.delete(existing._id);
+    return null;
+  },
+});
+
 export const deleteOwnerRelayResumeBatch = internalMutation({
   args: { ownerId: v.string(), nowMs: v.number() },
   returns: v.object({ hasMore: v.boolean() }),
@@ -845,9 +991,9 @@ export const deleteOwnerRelayResumeBatch = internalMutation({
       )
       .take(STELLA_RELAY_CLEANUP_MAX_DOCS);
     if (cancellationIntents.length > 0) {
-      await Promise.all(
-        cancellationIntents.map((intent) => ctx.db.delete(intent._id)),
-      );
+      for (const intent of cancellationIntents) {
+        await deleteIntent(ctx, intent, args.nowMs);
+      }
       return { hasMore: true };
     }
 
@@ -860,6 +1006,11 @@ export const deleteOwnerRelayResumeBatch = internalMutation({
     if (!stream) {
       const quota = await getQuota(ctx, ownerQuotaKey(args.ownerId));
       if (quota) await ctx.db.delete(quota._id);
+      const intentQuota = await getQuota(
+        ctx,
+        ownerIntentQuotaKey(args.ownerId),
+      );
+      if (intentQuota) await ctx.db.delete(intentQuota._id);
       return { hasMore: false };
     }
 

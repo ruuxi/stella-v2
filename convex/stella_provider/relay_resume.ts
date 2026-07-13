@@ -13,9 +13,12 @@ export const STELLA_RELAY_RESUME_HEADER = "x-stella-relay-resume";
 export const STELLA_RELAY_REQUEST_ID_HEADER = "x-stella-relay-request-id";
 
 // Logical access expires two minutes after the latest live activity, with a
-// hard fifteen-minute lifetime even if an upstream never terminates.
+// hard ten-minute lifetime even if an upstream never terminates. Ten minutes
+// matches the Convex HTTP-action lifetime that bounds the relay action which
+// produces events, so the advertised resume window never promises more than
+// the platform can actually serve.
 export const STELLA_RELAY_RESUME_TTL_MS = 2 * 60 * 1000;
-export const STELLA_RELAY_RESUME_HARD_TTL_MS = 15 * 60 * 1000;
+export const STELLA_RELAY_RESUME_HARD_TTL_MS = 10 * 60 * 1000;
 export const STELLA_RELAY_RESUME_STALE_MS = 30 * 1000;
 
 export const STELLA_RELAY_RESUME_MAX_BYTES = 1024 * 1024;
@@ -29,21 +32,36 @@ export const STELLA_RELAY_RESUME_QUERY_MAX_CHUNKS = 2;
 export const STELLA_RELAY_RESUME_POLL_MIN_MS = 100;
 export const STELLA_RELAY_RESUME_POLL_MAX_MS = 1_000;
 export const STELLA_RELAY_RESUME_LEASE_TTL_MS = 15_000;
+// Consumers must revalidate their lease at least this often; a consumer that
+// stops refreshing loses delivery instead of lingering outside the caps.
+export const STELLA_RELAY_RESUME_LEASE_REFRESH_MS = 5_000;
 export const STELLA_RELAY_CANCEL_INTENT_TTL_MS = 2 * 60 * 1000;
 export const STELLA_RELAY_RESUME_MAX_STREAM_LEASES = 2;
 export const STELLA_RELAY_RESUME_MAX_OWNER_LEASES = 8;
 export const STELLA_RELAY_RESUME_RATE_PER_OWNER = 30;
 export const STELLA_RELAY_RESUME_RATE_PER_STREAM = 10;
+export const STELLA_RELAY_CANCEL_RATE_PER_OWNER = 30;
 export const STELLA_RELAY_RESUME_RATE_WINDOW_MS = 60_000;
 
 export const STELLA_RELAY_RESUME_MAX_OWNER_STREAMS = 8;
 export const STELLA_RELAY_RESUME_MAX_OWNER_BYTES = 4 * 1024 * 1024;
 export const STELLA_RELAY_RESUME_MAX_GLOBAL_STREAMS = 2_048;
 export const STELLA_RELAY_RESUME_MAX_GLOBAL_BYTES = 256 * 1024 * 1024;
+// Cancellation tombstones are tiny but must not become an unmetered write
+// channel: they are quota-bounded per owner and service-wide.
+export const STELLA_RELAY_RESUME_MAX_OWNER_INTENTS = 32;
+export const STELLA_RELAY_RESUME_MAX_GLOBAL_INTENTS = 4_096;
+
+export const STELLA_RELAY_OWNER_PURGE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export const STELLA_RELAY_CLEANUP_MAX_DOCS = 16;
 export const STELLA_RELAY_CLEANUP_MAX_BYTES = 256 * 1024;
 export const STELLA_RELAY_CLEANUP_MAX_BATCHES = 20;
+// Fair per-class sweep budgets: tombstones and leases can never starve
+// stream/chunk deletion, which always keeps the remaining document budget.
+export const STELLA_RELAY_CLEANUP_MAX_INTENT_DOCS = 4;
+export const STELLA_RELAY_CLEANUP_MAX_LEASE_DOCS = 4;
+export const STELLA_RELAY_CLEANUP_MAX_PURGE_DOCS = 2;
 
 export type RelayResumeStatus =
   | "streaming"
@@ -148,6 +166,7 @@ export class RelayResumeFrameTooLargeError extends Error {
 export class RelayResumeSseParser {
   private buffer = "";
   private nextSequence = 1;
+  private bomPending = true;
 
   push(text: string): RelayResumeFrame[] {
     const frames: RelayResumeFrame[] = [];
@@ -155,6 +174,13 @@ export class RelayResumeSseParser {
     // bounded even when fetch hands us a multi-megabyte Uint8Array.
     for (let offset = 0; offset < text.length; offset += 16 * 1024) {
       this.buffer += text.slice(offset, offset + 16 * 1024);
+      // The SSE grammar allows exactly one leading U+FEFF before the first
+      // field; strip it once even when the byte-level decoder was configured
+      // to preserve it or the mark arrived split across transport chunks.
+      if (this.bomPending && this.buffer.length > 0) {
+        this.bomPending = false;
+        if (this.buffer[0] === "\uFEFF") this.buffer = this.buffer.slice(1);
+      }
       frames.push(...this.extractFrames(false));
       if (
         encoder.encode(this.buffer).byteLength >

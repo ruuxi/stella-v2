@@ -82,6 +82,18 @@ export const relayResumeSchema = {
     .index("by_ownerId_and_expiresAt", ["ownerId", "expiresAt"])
     .index("by_expiresAt", ["expiresAt"]),
 
+  // Owner purge gates make account deletion / cloud reset race-free: while a
+  // gate is active, stream reservation, event persistence, tombstone writes,
+  // and resume leases for that owner are transactionally refused, so a purge
+  // drain cannot observe zero rows and then have plaintext reappear.
+  stella_relay_owner_purges: defineTable({
+    ownerId: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_ownerId", ["ownerId"])
+    .index("by_expiresAt", ["expiresAt"]),
+
   stella_relay_response_quotas: defineTable({
     scopeKey: v.string(),
     streamCount: v.number(),

@@ -159,6 +159,58 @@ describe("relay-owned Responses SSE cursoring", () => {
     ).toThrow(RelayResumeFrameTooLargeError);
   });
 
+  it("strips exactly one leading byte-order mark, including split BOM bytes", () => {
+    // Character-level BOM ahead of the first field.
+    const charBom = new RelayResumeSseParser().push(
+      `\uFEFF${sse({ type: "response.created", response: { id: "resp_bom" } })}`,
+    );
+    expect(charBom).toEqual([
+      expect.objectContaining({
+        kind: "event",
+        event: expect.objectContaining({ eventType: "response.created" }),
+      }),
+    ]);
+
+    // Byte-level BOM split across transport chunks, decoded by a decoder that
+    // preserves the mark (regression: the parser must not depend on decoder
+    // BOM handling).
+    const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+    const bytes = new TextEncoder().encode(
+      `\uFEFF${sse({ type: "response.output_text.delta", delta: "hi" })}`,
+    );
+    const parser = new RelayResumeSseParser();
+    const frames = [
+      ...parser.push(decoder.decode(bytes.slice(0, 2), { stream: true })),
+      ...parser.push(decoder.decode(bytes.slice(2), { stream: true })),
+    ];
+    expect(frames).toEqual([
+      expect.objectContaining({
+        kind: "event",
+        event: expect.objectContaining({
+          eventType: "response.output_text.delta",
+          sequence: 1,
+        }),
+      }),
+    ]);
+
+    // Only the leading mark is special: a later U+FEFF is content.
+    const midStream = new RelayResumeSseParser();
+    midStream.push(sse({ type: "response.created" }));
+    const later = midStream.push(
+      `data: {"type":"response.output_text.delta","delta":"\uFEFF"}\n\n`,
+    );
+    expect(later).toEqual([
+      expect.objectContaining({
+        kind: "event",
+        event: expect.objectContaining({ sequence: 2 }),
+      }),
+    ]);
+    expect(
+      later[0]!.kind === "event" &&
+        (JSON.parse(later[0]!.event.frame.slice(6)) as { delta: string }).delta,
+    ).toBe("\uFEFF");
+  });
+
   it("handles malformed fields and dispatches a final EOF-terminated event", () => {
     const ignoredField = new RelayResumeSseParser().push(
       "bogus-field: ignored\ndata\n\n",

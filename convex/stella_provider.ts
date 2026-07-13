@@ -32,8 +32,10 @@ import { createRelayUsageParser } from "./stella_provider/relay_usage";
 import {
   RelayResumeFrameTooLargeError,
   RelayResumeSseParser,
+  STELLA_RELAY_CANCEL_RATE_PER_OWNER,
   STELLA_RELAY_REQUEST_ID_HEADER,
   STELLA_RELAY_RESUME_HEADER,
+  STELLA_RELAY_RESUME_LEASE_REFRESH_MS,
   STELLA_RELAY_RESUME_POLL_MIN_MS,
   STELLA_RELAY_RESUME_RATE_PER_OWNER,
   STELLA_RELAY_RESUME_RATE_PER_STREAM,
@@ -801,8 +803,14 @@ const makeRelayResumeResponse = async (args: {
   let pendingFrames: string[] = [];
   let done = false;
   let released = false;
+  let leaseInvalid = false;
   let pollDelayMs = STELLA_RELAY_RESUME_POLL_MIN_MS;
-  let lastLeaseRefreshAt = Date.now();
+  // Delivery gate state: buffered plaintext frames become undeliverable the
+  // instant logical access expires, using the same expiry the cleanup sweep
+  // uses to make rows deletable. Synthetic terminal frames (which carry no
+  // response content) remain deliverable after that point.
+  let accessExpiresAt = Math.min(initial.expiresAt, initial.hardExpiresAt);
+  let lastKnownSequence = initial.lastSequence;
   const release = async () => {
     if (released) return;
     released = true;
@@ -811,92 +819,151 @@ const makeRelayResumeResponse = async (args: {
       { leaseId, ownerId: args.ownerId },
     );
   };
+  const expireDelivery = () => {
+    pendingFrames = [
+      relayResumeSyntheticErrorFrame({
+        sequence: lastKnownSequence + 1,
+        code: "relay_stream_lost",
+        message:
+          "The Stella relay resume cursor expired. The original request was not replayed.",
+      }),
+      "data: [DONE]\n\n",
+    ];
+    done = true;
+  };
+  const revalidateLease = async (): Promise<boolean> => {
+    const nowMs = Date.now();
+    const result = await args.ctx.runMutation(
+      internal.stella_provider.relay_resume_store.refreshRelayResumeLease,
+      { leaseId, ownerId: args.ownerId, nowMs },
+    );
+    if (result === "not_found" || result === "expired") {
+      leaseInvalid = true;
+      return false;
+    }
+    accessExpiresAt = result.accessExpiresAt;
+    if (Date.now() >= accessExpiresAt) {
+      leaseInvalid = true;
+      return false;
+    }
+    return true;
+  };
 
-  const stream = new ReadableStream<Uint8Array>({
-    async cancel() {
-      await release();
-    },
-    async pull(controller) {
+  // Keep every open HTTP consumer represented by a live lease even when its
+  // reader is backpressured and does not pull for a while. Per-pull validation
+  // below remains the delivery gate; this heartbeat only preserves the
+  // concurrency accounting between pulls.
+  const keepLeaseAlive = async () => {
+    while (!released && !done) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, STELLA_RELAY_RESUME_LEASE_REFRESH_MS),
+      );
+      if (released || done) return;
       try {
-        while (pendingFrames.length === 0 && !done) {
-          const page = await relayResumePage(
-            args.ctx,
-            args.relayRequestId,
-            cursor,
-          );
-          if (!page || page.ownerId !== args.ownerId) {
-            throw new Error("Relay response disappeared during resume");
-          }
-
-          if (page.events.length > 0) {
-            pendingFrames = page.events.map((event) => event.frame);
-            cursor = page.events[page.events.length - 1]!.sequence;
-            pollDelayMs = relayResumeNextPollDelay(pollDelayMs, true);
-            break;
-          }
-
-          const terminalSuffix = relayResumeTerminalSuffix(
-            page.status,
-            page.lastSequence,
-          );
-          if (terminalSuffix && cursor >= page.lastSequence) {
-            pendingFrames = terminalSuffix;
-            done = true;
-            break;
-          }
-
-          const nowMs = Date.now();
-          if (page.expiresAt <= nowMs || page.hardExpiresAt <= nowMs) {
-            pendingFrames = [
-              relayResumeSyntheticErrorFrame({
-                sequence: page.lastSequence + 1,
-                code: "relay_stream_lost",
-                message:
-                  "The Stella relay resume cursor expired. The original request was not replayed.",
-              }),
-              "data: [DONE]\n\n",
-            ];
-            done = true;
-            break;
-          }
-          if (relayResumeStreamIsStale(page.updatedAt, nowMs)) {
-            await args.ctx.runMutation(
-              internal.stella_provider.relay_resume_store
-                .finishRelayResumeStream,
-              {
-                relayRequestId: args.relayRequestId,
-                ownerId: args.ownerId,
-                status: "upstream_eof",
-                nowMs,
-              },
-            );
-            continue;
-          }
-          if (nowMs - lastLeaseRefreshAt >= 5_000) {
-            const refreshed = await args.ctx.runMutation(
-              internal.stella_provider.relay_resume_store
-                .refreshRelayResumeLease,
-              { leaseId, ownerId: args.ownerId, nowMs },
-            );
-            if (!refreshed) throw new Error("Relay resume lease expired");
-            lastLeaseRefreshAt = nowMs;
-          }
-          await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
-          pollDelayMs = relayResumeNextPollDelay(pollDelayMs, false);
-        }
-
-        const frame = pendingFrames.shift();
-        if (frame) controller.enqueue(encoder.encode(frame));
-        if (done && pendingFrames.length === 0) {
-          await release();
-          controller.close();
-        }
-      } catch (error) {
-        await release().catch(() => undefined);
-        controller.error(error);
+        if (!(await revalidateLease())) return;
+      } catch {
+        leaseInvalid = true;
+        return;
       }
+    }
+  };
+
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      start() {
+        void keepLeaseAlive();
+      },
+      async cancel() {
+        await release();
+      },
+      async pull(controller) {
+        try {
+          if (!done) {
+            if (leaseInvalid || !(await revalidateLease())) expireDelivery();
+          }
+          while (pendingFrames.length === 0 && !done) {
+            const beforeReadMs = Date.now();
+            if (beforeReadMs >= accessExpiresAt) {
+              expireDelivery();
+              break;
+            }
+            // Enforce the lease, owner purge gate, and logical expiry before
+            // every database page read, not only when the connection starts.
+            if (!(await revalidateLease())) {
+              expireDelivery();
+              break;
+            }
+            const page = await relayResumePage(
+              args.ctx,
+              args.relayRequestId,
+              cursor,
+            );
+            if (!page || page.ownerId !== args.ownerId) {
+              throw new Error("Relay response disappeared during resume");
+            }
+            accessExpiresAt = Math.min(page.expiresAt, page.hardExpiresAt);
+            lastKnownSequence = page.lastSequence;
+            if (Date.now() >= accessExpiresAt) {
+              expireDelivery();
+              break;
+            }
+
+            if (page.events.length > 0) {
+              pendingFrames = page.events.map((event) => event.frame);
+              cursor = page.events[page.events.length - 1]!.sequence;
+              pollDelayMs = relayResumeNextPollDelay(pollDelayMs, true);
+              break;
+            }
+
+            const terminalSuffix = relayResumeTerminalSuffix(
+              page.status,
+              page.lastSequence,
+            );
+            if (terminalSuffix && cursor >= page.lastSequence) {
+              pendingFrames = terminalSuffix;
+              done = true;
+              break;
+            }
+
+            if (relayResumeStreamIsStale(page.updatedAt, Date.now())) {
+              await args.ctx.runMutation(
+                internal.stella_provider.relay_resume_store
+                  .finishRelayResumeStream,
+                {
+                  relayRequestId: args.relayRequestId,
+                  ownerId: args.ownerId,
+                  status: "upstream_eof",
+                  nowMs: Date.now(),
+                },
+              );
+              continue;
+            }
+            await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
+            pollDelayMs = relayResumeNextPollDelay(pollDelayMs, false);
+          }
+
+          // Enforce the same gate again immediately before each plaintext frame
+          // leaves the action. A page can contain several frames and cleanup or
+          // expiry may advance while the consumer applies backpressure.
+          if (!done && pendingFrames.length > 0) {
+            if (!(await revalidateLease())) expireDelivery();
+          }
+          const frame = pendingFrames.shift();
+          if (frame) controller.enqueue(encoder.encode(frame));
+          if (done && pendingFrames.length === 0) {
+            await release();
+            controller.close();
+          }
+        } catch (error) {
+          await release().catch(() => undefined);
+          controller.error(error);
+        }
+      },
     },
-  });
+    // Strictly demand-driven: without eager pulls, no plaintext frame can sit
+    // in the stream's internal queue past the expiry/lease gate above.
+    { highWaterMark: 0 },
+  );
 
   return new Response(stream, { status: 200, headers });
 };
@@ -937,6 +1004,29 @@ export const stellaProviderCancel = httpAction(async (ctx, request) => {
       request,
     );
   }
+  // Cancellations write tombstones, so they are rate limited like resumes.
+  const cancelLimit = await ctx.runMutation(
+    internal.rate_limits.consumeWebhookRateLimit,
+    {
+      scope: "stella_relay_cancel_owner",
+      key: identity.tokenIdentifier,
+      limit: STELLA_RELAY_CANCEL_RATE_PER_OWNER,
+      windowMs: STELLA_RELAY_RESUME_RATE_WINDOW_MS,
+      blockMs: STELLA_RELAY_RESUME_RATE_WINDOW_MS,
+    },
+  );
+  if (!cancelLimit.allowed) {
+    const response = stellaProviderErrorResponse(
+      429,
+      "Relay cancel rate limit exceeded",
+      request,
+    );
+    response.headers.set(
+      "Retry-After",
+      String(Math.ceil(cancelLimit.retryAfterMs / 1000)),
+    );
+    return response;
+  }
   const result = await ctx.runMutation(
     internal.stella_provider.relay_resume_store.cancelRelayResumeStream,
     {
@@ -958,6 +1048,15 @@ export const stellaProviderCancel = httpAction(async (ctx, request) => {
       "Relay resume cursor expired",
       request,
     );
+  }
+  if (result === "intent_quota") {
+    const response = stellaProviderErrorResponse(
+      429,
+      "Relay cancellation quota exceeded",
+      request,
+    );
+    response.headers.set("Retry-After", "60");
+    return response;
   }
   return new Response(null, {
     status: 204,
@@ -1008,16 +1107,22 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
     const relayProvider = authorized.relayProvider;
     const usageParser = createRelayUsageParser(relayProvider);
     let relayRequestId: string | undefined;
-    if (relayResumeEligibleRequest(authorized, request)) {
-      const requestedId = request.headers.get(STELLA_RELAY_REQUEST_ID_HEADER);
-      if (requestedId && !isValidRelayRequestId(requestedId)) {
-        return stellaProviderErrorResponse(
-          400,
-          "Invalid relay request id",
-          request,
-        );
-      }
-      const candidate = requestedId ?? `stella-relay-${crypto.randomUUID()}`;
+    const requestedRelayId = request.headers.get(
+      STELLA_RELAY_REQUEST_ID_HEADER,
+    );
+    if (requestedRelayId !== null && !isValidRelayRequestId(requestedRelayId)) {
+      return stellaProviderErrorResponse(
+        400,
+        "Invalid relay request id",
+        request,
+      );
+    }
+    // Resume buffering is only enabled when the client proposes its own relay
+    // request id. A client that does not send the header cannot resume and
+    // may replay a pre-event POST; buffering for it would leave an orphaned
+    // upstream run and double-execute the request during rollout windows.
+    if (requestedRelayId && relayResumeEligibleRequest(authorized, request)) {
+      const candidate = requestedRelayId;
       const reservation = await ctx.runMutation(
         internal.stella_provider.relay_resume_store.reserveRelayResumeStream,
         {
@@ -1049,6 +1154,13 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
         return stellaProviderErrorResponse(
           409,
           "Relay request id conflict",
+          request,
+        );
+      }
+      if (reservation === "owner_purged") {
+        return stellaProviderErrorResponse(
+          403,
+          "Relay resume is unavailable while this account's data is being deleted",
           request,
         );
       }

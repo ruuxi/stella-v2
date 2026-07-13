@@ -6,8 +6,21 @@ continue to send `store: false`.
 
 ## Protocol
 
-For an authenticated, streaming OpenAI Responses request on the managed relay,
-the initial response advertises:
+Resume buffering is enabled only when the client proposes its own relay
+request id in the `x-stella-relay-request-id` request header. A client that
+does not send the header (an older build during a backend-first rollout)
+cannot resume and may replay a pre-event POST, so the relay does not reserve
+or buffer for it — buffering would leave an orphaned upstream run and
+double-execute the request. Such requests keep the previous pure-passthrough
+behavior.
+
+A newer client talking to an older backend still fails closed: once it has
+attempted the POST with its proposed id, any zero-event EOF or pre-header
+transport failure advances to `GET ...?starting_after=0`. If that backend does
+not implement resume, the GET fails and the POST is not replayed.
+
+For an authenticated, streaming OpenAI Responses request on the managed relay
+that proposes a relay request id, the initial response advertises:
 
 - `x-stella-relay-resume: 1`
 - `x-stella-relay-request-id: <opaque id>`
@@ -47,14 +60,41 @@ limits are eight streams and 4 MiB; service-wide limits are 2,048 streams and
 without replaying the request.
 
 Logical access expires two minutes after the latest live activity and has a
-hard fifteen-minute lifetime from request start. Cleanup runs every minute,
-deletes at most 16 documents and 256 KiB per mutation, drains up to 20 batches,
-and reschedules itself until the backlog is empty. Cleanup lag and failed
-sweeps are stored as content-free operational diagnostics. Physical rows are
-normally removed within minutes after logical expiry, but scheduler outages,
-backlog, recovery systems, and provider-managed backups mean there is no
-absolute physical-deletion guarantee. User data reset and account deletion run
-the same bounded deletion until the owner's active rows are gone.
+hard ten-minute lifetime from request start. Ten minutes matches the Convex
+HTTP-action lifetime that bounds the relay action producing events, so the
+advertised resume window never promises more than the platform can serve.
+Expiry is enforced on every delivery: each pull of the resume body revalidates
+the consumer's lease and the stream's logical expiry before another frame is
+handed out, the body is strictly demand-driven (`highWaterMark: 0`) so no
+plaintext frame sits in an internal queue past that gate, and already-buffered
+frames are replaced by a synthetic terminal error the moment access expires.
+An open response refreshes its lease independently of reader pulls, so a
+backpressured consumer continues counting against the two-per-stream and
+eight-per-owner concurrency caps; every frame delivery separately revalidates
+that lease and fails closed if it has disappeared or expired.
+
+Cleanup runs every minute with fair per-class budgets — at most 4 cancellation
+tombstones, 4 leases, and 2 purge gates per sweep, with the remaining document
+budget always reserved for streams and chunks — deletes at most 16 documents
+and 256 KiB per mutation, drains up to 20 batches, and reschedules itself
+until the backlog is empty. Cleanup lag and failed sweeps are stored as
+content-free operational diagnostics. Physical rows are normally removed
+within minutes after logical expiry, but scheduler outages, backlog, recovery
+systems, and provider-managed backups mean there is no absolute
+physical-deletion guarantee.
+
+Cancellation tombstones are quota-bounded (32 per owner, 4,096 service-wide)
+and the `DELETE` endpoint is rate limited per owner, so cancellations cannot
+become an unmetered write channel.
+
+User data reset and account deletion first open a transactional owner purge
+gate: while it is active, stream reservation, event appends, new tombstones,
+and resume leases for that owner are refused, so in-flight relay work halts
+and the drain cannot race with new plaintext. The drain then deletes the
+owner's rows in bounded batches, runs a final pass after active work has been
+rejected, and — for reset only — lifts the gate. Account deletion leaves the
+gate in place for any still-valid tokens; the cleanup sweep removes it after
+24 hours.
 
 ## Failure behavior
 

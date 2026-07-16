@@ -16,7 +16,6 @@ import type {
   RuntimeToolEndEvent,
   RuntimeToolStartEvent,
   RuntimeUserMessageEvent,
-  SelfModMonitor,
 } from "../agent-runtime.js";
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
@@ -24,7 +23,6 @@ import type { LocalContextEvent } from "../local-history.js";
 import type {
   FashionToolApi,
   ScheduleToolApi,
-  SourceImportToolApi,
   AgentToolRequest,
   AgentToolSnapshot,
   ToolContext,
@@ -41,7 +39,6 @@ import type { RuntimeStore } from "../storage/runtime-store.js";
 import type {
   StorePackageRecord,
   StorePackageReleaseRecord,
-  SelfModHmrState,
 } from "@stella/contracts";
 import type {
   HostAppBrowserContextSnapshot,
@@ -54,7 +51,6 @@ import type {
   RuntimeVoiceOrchestratorConfig,
   RuntimeVoiceOrchestratorConfigRequest,
   RuntimePromptMessage,
-  StorePublishArgs,
 } from "@stella/contracts/protocol";
 import type { LocalChatAppendEventArgs } from "../storage/shared.js";
 
@@ -71,66 +67,6 @@ export type StellaHostRunnerOptions = {
   /** UDS path for the worker-side CLI bridge (see runtime/worker/cli-bridge-server.ts).
    *  Forwarded into PTY env as `STELLA_CLI_BRIDGE_SOCK`. */
   cliBridgeSocketPath?: string;
-  selfModMonitor?: SelfModMonitor | null;
-  selfModLifecycle?: {
-    beginRun: (args: {
-      runId: string;
-      rootRunId?: string;
-      taskDescription: string;
-      taskPrompt: string;
-      conversationId: string;
-      packageId?: string;
-      releaseNumber?: number;
-      mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-    }) => Promise<void> | void;
-    finalizeRun: (args: {
-      runId: string;
-      rootRunId?: string;
-      taskDescription: string;
-      taskPrompt: string;
-      conversationId: string;
-      /**
-       * Engine thread key of the agent that authored this run (for
-       * orchestrator: equals `conversationId`; for resumable subagents:
-       * the persisted `agentId`/`threadId`). Recorded as the
-       * `Stella-Thread` commit trailer so the revert-notice hook can
-       * route the "user undid your change" reminder back to the same
-       * thread when the orchestrator later resumes it via `send_input`.
-       * Optional for backwards compatibility — commits without it can
-       * still be reverted, the notice just routes to the orchestrator
-       * only.
-       */
-      threadKey?: string;
-      succeeded: boolean;
-      /**
-       * Durable feature identity for this run's commits: the authoring
-       * thread's group key when grouped, else its thread key. Stamped
-       * as the `Stella-Feature-Id` trailer and used as the feature
-       * roster key.
-       */
-      featureId?: string;
-      /**
-       * Human feature name (group label or thread description); frozen
-       * into the roster at the feature's first commit and slugified
-       * into the `Stella-Feature-Title` trailer.
-       */
-      featureTitle?: string;
-      /**
-       * Returns a 1-line user-friendly commit subject (≤ 12 words).
-       * Returning `null` falls back to the task description.
-       */
-      commitMessageProvider?: (args: {
-        taskDescription: string;
-        files: string[];
-        diffPreview: string;
-        conversationId?: string;
-      }) => Promise<string | null>;
-    }) => Promise<void> | void;
-    cancelRun?: (runId: string) => Promise<void> | void;
-  } | null;
-  selfModHmrController?:
-    | import("../self-mod/hmr.js").SelfModHmrController
-    | null;
   requestCredential?: (payload: {
     provider: string;
     label?: string;
@@ -195,7 +131,6 @@ export type StellaHostRunnerOptions = {
     source: RuntimeAuthRefreshSource;
   }) => Promise<HostRuntimeAuthRefreshResult>;
   scheduleApi?: ScheduleToolApi;
-  sourceImportApi?: SourceImportToolApi;
   fashionApi?: FashionToolApi;
   runtimeStore: RuntimeStore;
   getAppBrowserContext?: () =>
@@ -220,12 +155,6 @@ export type ChatPayload = {
   attachments?: RuntimeAttachmentRef[];
   agentType?: string;
   storageMode?: "cloud" | "local";
-  selfModMetadata?: {
-    packageId?: string;
-    releaseNumber?: number;
-    mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-    expectedChangedFiles?: string[];
-  };
 };
 
 export type RuntimeSendMessageInput = {
@@ -285,7 +214,6 @@ export type AgentCallbacks = {
     reason: string;
   }) => void;
   onAgentEvent?: (event: AgentLifecycleEvent) => void;
-  onSelfModHmrState?: (event: SelfModHmrState) => void;
 };
 
 export type QueuedOrchestratorTurn = {
@@ -402,9 +330,6 @@ export type RunnerContext = {
   stellaMediaCliPath?: string;
   stellaXApiCliPath?: string;
   cliBridgeSocketPath?: string;
-  selfModMonitor?: SelfModMonitor | null;
-  selfModLifecycle?: StellaHostRunnerOptions["selfModLifecycle"];
-  selfModHmrController?: StellaHostRunnerOptions["selfModHmrController"];
   requestCredential?: StellaHostRunnerOptions["requestCredential"];
   requestComputerUseAppApproval?: StellaHostRunnerOptions["requestComputerUseAppApproval"];
   requestRuntimeAuthRefresh?: StellaHostRunnerOptions["requestRuntimeAuthRefresh"];
@@ -444,9 +369,7 @@ export type RunnerContext = {
      */
     drainCompletedShellProducedFiles: (
       sessionIds?: string[],
-    ) => Promise<
-      import("@stella/contracts/file-changes").ProducedFileRecord[]
-    >;
+    ) => Promise<import("@stella/contracts/file-changes").ProducedFileRecord[]>;
     killAllShells: () => void;
     killShell: (sessionId: string) => Promise<void> | void;
     killShellsByPort: (port: number) => void;
@@ -464,17 +387,6 @@ export type StoreOperations = {
     packageId: string,
     releaseNumber: number,
   ) => Promise<StorePackageReleaseRecord | null>;
-  createFirstStoreRelease: (
-    args: StorePublishArgs,
-  ) => Promise<StorePackageReleaseRecord>;
-  createStoreReleaseUpdate: (
-    args: StorePublishArgs,
-  ) => Promise<StorePackageReleaseRecord>;
-  getStoreGitObjectUrls: (
-    packageId: string,
-    releaseNumber: number,
-    shas: string[],
-  ) => Promise<Array<{ sha: string; r2Key: string; downloadUrl: string }>>;
 };
 
 export type RunnerPublicApi = {
@@ -527,9 +439,6 @@ export type RunnerPublicApi = {
   getStorePackage: StoreOperations["getStorePackage"];
   listStorePackageReleases: StoreOperations["listStorePackageReleases"];
   getStorePackageRelease: StoreOperations["getStorePackageRelease"];
-  createFirstStoreRelease: StoreOperations["createFirstStoreRelease"];
-  createStoreReleaseUpdate: StoreOperations["createStoreReleaseUpdate"];
-  getStoreGitObjectUrls: StoreOperations["getStoreGitObjectUrls"];
   handleLocalChat: (
     payload: ChatPayload,
     callbacks: AgentCallbacks,

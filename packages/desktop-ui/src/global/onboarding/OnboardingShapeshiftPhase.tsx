@@ -1,5 +1,5 @@
 /**
- * Shapeshift phase — the self-modification lesson, taught by doing.
+ * Shapeshift phase — the transformation lesson, taught by doing.
  *
  * Users reported not understanding that Stella rewrites its own app.
  * Telling them again wasn't going to fix that, so this phase puts a
@@ -229,7 +229,7 @@ export function OnboardingShapeshiftPhase({
     : justUndid
       ? "Reverted. Every change keeps a one-click undo, so nothing is ever permanent."
       : completedRuns >= 2
-        ? "Changes you love can be published to the Store, and anything other people built installs the same way."
+        ? "The Store is where you can browse what other people have built."
         : "That was real code changing while the app stayed running. Press Undo on the receipt to take it back.";
 
   return (

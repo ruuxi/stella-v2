@@ -34,19 +34,9 @@ import type {
   DiscoveredApp as SharedDiscoveredApp,
   AllUserSignals as SharedAllUserSignals,
   AllUserSignalsResult as SharedAllUserSignalsResult,
-  SelfModCommitSummary as SharedSelfModCommitSummary,
-  StoreReleaseArtifact as SharedStoreReleaseArtifact,
   StoreReleaseManifest as SharedStoreReleaseManifest,
   StorePackageRecord as SharedStorePackageRecord,
   StorePackageReleaseRecord as SharedStorePackageReleaseRecord,
-  StoreInstallRecord as SharedStoreInstallRecord,
-  DesktopReleaseSourceHistoryRef as SharedDesktopReleaseSourceHistoryRef,
-  StellaReleaseArtifactRef as SharedStellaReleaseArtifactRef,
-  SelfModFeatureSnapshot as SharedSelfModFeatureSnapshot,
-  SelfModFeatureRosterEntry as SharedSelfModFeatureRosterEntry,
-  SelfModFeatureRosterPage as SharedSelfModFeatureRosterPage,
-  SelfModHmrPhase as SharedSelfModHmrPhase,
-  SelfModHmrState as SharedSelfModHmrState,
   AgentHealth as SharedAgentHealth,
   LocalLlmCredentialSummary as SharedLocalLlmCredentialSummary,
   LocalCronSchedule as SharedLocalCronSchedule,
@@ -136,20 +126,9 @@ export type DiscoveredApp = SharedDiscoveredApp;
 export type AllUserSignals = SharedAllUserSignals;
 export type AllUserSignalsResult = SharedAllUserSignalsResult;
 export type AgentStreamIpcEvent = AgentStreamEvent;
-export type SelfModCommitSummary = SharedSelfModCommitSummary;
-export type StoreReleaseArtifact = SharedStoreReleaseArtifact;
 export type StoreReleaseManifest = SharedStoreReleaseManifest;
 export type StorePackageRecord = SharedStorePackageRecord;
 export type StorePackageReleaseRecord = SharedStorePackageReleaseRecord;
-export type StoreInstallRecord = SharedStoreInstallRecord;
-export type DesktopReleaseSourceHistoryRef =
-  SharedDesktopReleaseSourceHistoryRef;
-export type StellaReleaseArtifactRef = SharedStellaReleaseArtifactRef;
-export type SelfModFeatureSnapshot = SharedSelfModFeatureSnapshot;
-export type SelfModFeatureRosterEntry = SharedSelfModFeatureRosterEntry;
-export type SelfModFeatureRosterPage = SharedSelfModFeatureRosterPage;
-export type SelfModHmrPhase = SharedSelfModHmrPhase;
-export type SelfModHmrState = SharedSelfModHmrState;
 export type AgentHealth = SharedAgentHealth;
 export type LocalLlmCredentialSummary = SharedLocalLlmCredentialSummary;
 export type LocalLlmOAuthProviderSummary = {
@@ -456,12 +435,6 @@ export type ElectronOverlayApi = {
   onMorphEnd: (
     callback: (payload: { transitionId: string }) => void,
   ) => () => void;
-  onMorphState: (
-    callback: (payload: {
-      transitionId: string;
-      state: SelfModHmrState;
-    }) => void,
-  ) => () => void;
   morphReady: (transitionId: string) => void;
   morphDone: (transitionId: string) => void;
 };
@@ -658,12 +631,6 @@ export type ElectronAgentApi = {
     agentType?: string;
     storageMode?: "cloud" | "local";
     clientRequestId?: string;
-    selfModMetadata?: {
-      packageId?: string;
-      releaseNumber?: number;
-      mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-      expectedChangedFiles?: string[];
-    };
   }) => Promise<{
     requestId: string;
     userMessageId?: string;
@@ -691,7 +658,6 @@ export type ElectronAgentApi = {
     events: AgentStreamIpcEvent[];
   }>;
   onStream: (callback: (event: AgentStreamIpcEvent) => void) => () => void;
-  onSelfModHmrState: (callback: (event: SelfModHmrState) => void) => () => void;
   /**
    * Runtime availability transitions (worker disconnected / reconnected).
    * Renderer hooks subscribe so they can re-resume chat replay after the
@@ -706,25 +672,6 @@ export type ElectronAgentApi = {
       pendingRuntimeRestart?: boolean;
     }) => void,
   ) => () => void;
-  selfModApply: (commitHash?: string) => Promise<unknown>;
-  selfModRevert: (commitHash?: string, steps?: number) => Promise<unknown>;
-  getCrashRecoveryStatus: () => Promise<
-    | {
-        kind: "dirty";
-        changedFileCount: number;
-        latestChangedAtMs: number | null;
-      }
-    | {
-        kind: "clean";
-        latestSelfModCommit: SelfModCommitSummary | null;
-      }
-  >;
-  discardUnfinishedSelfModChanges: (conversationId?: string) => Promise<{
-    discardedFileCount: number;
-    discardedFiles: string[];
-  }>;
-  getLastSelfModCommit: () => Promise<string | null>;
-  listSelfModCommits: (limit?: number) => Promise<SelfModCommitSummary[]>;
   triggerViteError: () => Promise<{ ok: boolean }>;
   fixViteError: () => Promise<{ ok: boolean }>;
 };
@@ -1162,136 +1109,6 @@ export type ElectronSystemApi = {
   }) => Promise<{ ok: boolean; error?: string }>;
 };
 
-export type InstallManifestSnapshot = {
-  version: string;
-  platform: string;
-  installPath: string;
-  installedAt: string;
-  desktopReleaseTag: string | null;
-  desktopReleaseCommit: string | null;
-  desktopInstallBaseCommit: string | null;
-  installState: {
-    status: "complete";
-    desktopReleaseTag: string | null;
-    desktopReleaseCommit: string;
-    localHeadCommit: string | null;
-    nativeHelpersSha: string | null;
-    completedAt: string;
-  } | null;
-  lastUpdateAttempt: {
-    status: "updating" | "complete" | "failed";
-    targetTag: string | null;
-    targetCommit: string;
-    startedAt: string;
-    finishedAt: string | null;
-    reason: string | null;
-    operationId: string | null;
-    phase:
-      | "started"
-      | "source-pack-preflight"
-      | "source-pack-write"
-      | "source-pack-commit"
-      | "content-landing"
-      | "git-fetch"
-      | "git-merge"
-      | "dependency-install"
-      | "native-refresh"
-      | "record-complete"
-      | "agent-fallback"
-      | null;
-    mode: "source-pack" | "git" | "native-helpers" | "agent" | null;
-    recoveryAction: "resume" | "discard" | "needs-agent" | null;
-    startingHeadCommit: string | null;
-    updatedAt: string | null;
-    changedFiles: string[];
-    ownedTempPaths: string[];
-    nativeHelpersManifestUrl: string | null;
-  } | null;
-};
-
-export type DesktopUpdateFastApplyResult =
-  | {
-      status: "applied";
-      manifest: InstallManifestSnapshot | null;
-      headCommit: string;
-      changedFiles: string[];
-      dependencyInstallRan: boolean;
-      nativeHelpersRefreshed: boolean;
-      /**
-       * True when the running app verifiably reloaded onto the updated code.
-       * False means the update landed on disk but the app still runs the old
-       * code — the UI must not claim the update is live.
-       */
-      reloaded: boolean;
-    }
-  | {
-      status: "needs-agent";
-      reason: string;
-      headCommit?: string;
-      changedFiles?: string[];
-      sourcePackFile?: string;
-      sourcePackConflictFile?: string;
-      sourcePackConflictJson?: string;
-    };
-
-export type DesktopUpdateRollbackResult =
-  | {
-      status: "rolled-back";
-      headCommit: string;
-      restoredFiles: string[];
-    }
-  | {
-      status: "skipped";
-      reason: string;
-      headCommit?: string;
-    };
-
-export type ElectronUpdatesApi = {
-  getInstallManifest: () => Promise<InstallManifestSnapshot | null>;
-  tryApplyCleanUpdate: (payload: {
-    baseCommit: string;
-    targetCommit: string;
-    releaseTag: string;
-    sourcePackRef?: {
-      kind: "url";
-      url: string;
-      sha256: string;
-      sizeBytes: number;
-    };
-    artifactRefs?: StellaReleaseArtifactRef[];
-  }) => Promise<DesktopUpdateFastApplyResult>;
-  recordSourceHistory: (payload: {
-    targetCommit: string;
-    releaseTag: string;
-    sourceHistoryRef?: DesktopReleaseSourceHistoryRef;
-  }) => Promise<
-    { ok: true; revisionId: string } | { ok: false; reason: string }
-  >;
-  refreshNativeHelpers: (
-    releaseTag: string,
-    artifactRefs?: StellaReleaseArtifactRef[],
-  ) => Promise<{
-    ok: boolean;
-    manifestUrl: string;
-    stdout: string;
-    stderr: string;
-  }>;
-  recordAppliedCommit: (
-    commit: string,
-    tag?: string,
-    options?: {
-      mode?: "git-ancestry" | "release-pointer";
-      startingHeadCommit?: string;
-      agentRunId?: string;
-    },
-  ) => Promise<InstallManifestSnapshot | null>;
-  rollbackCanceledUpdate: (payload: {
-    startingHeadCommit: string;
-    releaseTag?: string;
-    changedFiles?: string[];
-  }) => Promise<DesktopUpdateRollbackResult>;
-};
-
 export type ElectronOnboardingApi = {
   synthesizeCoreMemory: (
     payload: OnboardingSynthesisRequest,
@@ -1382,11 +1199,6 @@ export type ElectronScheduleApi = {
 };
 
 export type ElectronStoreApi = {
-  readFeatureSnapshot: () => Promise<SelfModFeatureSnapshot | null>;
-  listFeatureRoster: (payload?: {
-    limit?: number;
-    offset?: number;
-  }) => Promise<SelfModFeatureRosterPage>;
   listPackages: () => Promise<StorePackageRecord[]>;
   getPackage: (packageId: string) => Promise<StorePackageRecord | null>;
   listPackageReleases: (
@@ -1396,38 +1208,6 @@ export type ElectronStoreApi = {
     packageId: string;
     releaseNumber: number;
   }) => Promise<StorePackageReleaseRecord | null>;
-  listInstalledMods: () => Promise<StoreInstallRecord[]>;
-  installFromBlueprint: (payload: {
-    packageId: string;
-    releaseNumber: number;
-  }) => Promise<StoreInstallRecord | null>;
-  publishSelectedFeatures: (payload: {
-    attachedFeatureNames: string[];
-    /** Roster featureIds parallel to the names (`""` for legacy entries). */
-    attachedFeatureIds?: string[];
-    packageId: string;
-    asUpdate: boolean;
-    displayName?: string;
-    description?: string;
-    category?:
-      | "apps-games"
-      | "productivity"
-      | "customization"
-      | "skills-agents"
-      | "integrations"
-      | "other";
-    manifest: Record<string, unknown>;
-    releaseNotes?: string;
-    /**
-     * "store" (default): manual approval queue for the public store.
-     * "circle": unlisted, live immediately — trusted-circle shares.
-     */
-    audience?: "store" | "circle";
-  }) => Promise<StorePackageReleaseRecord>;
-  uninstallPackage: (packageId: string) => Promise<{
-    packageId: string;
-    revertedCommits: string[];
-  }>;
 };
 
 export type EmbeddedWebsiteTheme = {
@@ -1924,7 +1704,6 @@ export type ElectronApi = {
   dictation: ElectronDictationApi;
   agent: ElectronAgentApi;
   system: ElectronSystemApi;
-  updates: ElectronUpdatesApi;
   onboarding: ElectronOnboardingApi;
   discovery: ElectronDiscoveryApi;
   browser: ElectronBrowserApi;

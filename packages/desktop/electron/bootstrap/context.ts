@@ -19,7 +19,6 @@ import type { SelectionWatcherService } from "../services/selection-watcher-serv
 import type { UiStateService } from "../services/ui-state-service.js";
 import type { UiStateStore } from "@stella/runtime/kernel/ui-state/store";
 import { WindowManager } from "../windows/window-manager.js";
-import { createHmrTransitionController } from "../self-mod/hmr-morph.js";
 import type {
   StellaBrowserBridgeResource,
   StellaBrowserBridgeStatus,
@@ -57,9 +56,6 @@ export type BootstrapState = {
    *  open burst. Idempotent. */
   startHostRunner: (() => void) | null;
   deviceId: string | null;
-  hmrTransitionController: ReturnType<
-    typeof createHmrTransitionController
-  > | null;
   isQuitting: boolean;
   localChatUpdateUnsubscribe: (() => void) | null;
   threadActivityUpdateUnsubscribe: (() => void) | null;
@@ -217,7 +213,6 @@ export const createBootstrapContext = (
     deferredStartupSequence: null,
     startHostRunner: null,
     deviceId: null,
-    hmrTransitionController: null,
     isQuitting: false,
     localChatUpdateUnsubscribe: null,
     threadActivityUpdateUnsubscribe: null,

@@ -3,22 +3,11 @@ import type {
   LocalCronJobRecord,
   LocalHeartbeatConfigRecord,
   ScheduledConversationEvent,
-  SelfModFeatureRosterEntry,
-  SelfModFeatureRosterPage,
-  SelfModFeatureSnapshot,
-  SelfModCommitSummary,
-  SelfModHmrState,
   SocialSessionRuntimeRecord,
   SocialSessionServiceSnapshot,
-  StoreInstallRecord,
   StorePackageRecord,
   StorePackageReleaseRecord,
-  StoreReleaseArtifact,
   StoreReleaseGitArtifact,
-  StoreReleaseGitObjectUpload,
-  StoreReleaseSourcePackRef,
-  StoreReleaseSourcePack,
-  StellaReleaseArtifactRef,
 } from "@stella/contracts";
 import type {
   AgentRunFinishOutcome,
@@ -34,22 +23,11 @@ export type {
   LocalCronJobRecord,
   LocalHeartbeatConfigRecord,
   ScheduledConversationEvent,
-  SelfModFeatureRosterEntry,
-  SelfModFeatureRosterPage,
-  SelfModFeatureSnapshot,
-  SelfModCommitSummary,
-  SelfModHmrState,
   SocialSessionRuntimeRecord,
   SocialSessionServiceSnapshot,
-  StoreInstallRecord,
   StorePackageRecord,
   StorePackageReleaseRecord,
-  StoreReleaseArtifact,
   StoreReleaseGitArtifact,
-  StoreReleaseGitObjectUpload,
-  StoreReleaseSourcePackRef,
-  StoreReleaseSourcePack,
-  StellaReleaseArtifactRef,
 };
 
 export const STELLA_RUNTIME_PROTOCOL_VERSION = "v1";
@@ -128,18 +106,10 @@ export const METHOD_NAMES = {
   LOCAL_CHAT_LIST_SYNC_MESSAGES: "localChat.listSyncMessages",
   LOCAL_CHAT_GET_SYNC_CHECKPOINT: "localChat.getSyncCheckpoint",
   LOCAL_CHAT_SET_SYNC_CHECKPOINT: "localChat.setSyncCheckpoint",
-  STORE_MODS_LIST_INSTALLED: "storeMods.listInstalledMods",
   STORE_LIST_PACKAGES: "store.listPackages",
   STORE_GET_PACKAGE: "store.getPackage",
   STORE_LIST_RELEASES: "store.listReleases",
   STORE_GET_RELEASE: "store.getRelease",
-  STORE_CREATE_FIRST_RELEASE: "store.createFirstRelease",
-  STORE_CREATE_RELEASE_UPDATE: "store.createReleaseUpdate",
-  STORE_PUBLISH_SELECTED_FEATURES: "store.publishSelectedFeatures",
-  STORE_INSTALL_FROM_BLUEPRINT: "store.installFromBlueprint",
-  STORE_UNINSTALL_MOD: "store.uninstallMod",
-  SELF_MOD_FEATURE_SNAPSHOT_READ: "selfMod.featureSnapshot.read",
-  SELF_MOD_FEATURE_ROSTER_LIST: "selfMod.featureRoster.list",
   SCHEDULE_LIST_CRON_JOBS: "schedule.listCronJobs",
   SCHEDULE_LIST_HEARTBEATS: "schedule.listHeartbeats",
   SCHEDULE_LIST_EVENTS: "schedule.listConversationEvents",
@@ -149,12 +119,6 @@ export const METHOD_NAMES = {
   PROJECTS_REGISTER_DIRECTORY: "projects.registerDirectory",
   PROJECTS_START: "projects.start",
   PROJECTS_STOP: "projects.stop",
-  SELF_MOD_APPLY: "selfMod.apply",
-  SELF_MOD_REVERT: "selfMod.revert",
-  SELF_MOD_CRASH_RECOVERY_STATUS: "selfMod.crashRecoveryStatus",
-  SELF_MOD_DISCARD_UNFINISHED: "selfMod.discardUnfinished",
-  SELF_MOD_LAST_COMMIT: "selfMod.lastCommit",
-  SELF_MOD_RECENT_COMMITS: "selfMod.recentCommits",
   SHELL_KILL_ALL: "shell.killAll",
   SHELL_KILL_BY_PORT: "shell.killByPort",
   DISCOVERY_COLLECT_BROWSER_DATA: "discovery.collectBrowserData",
@@ -180,9 +144,6 @@ export const METHOD_NAMES = {
   HOST_SYSTEM_OPEN_EXTERNAL: "host.system.openExternal",
   HOST_WINDOW_SHOW: "host.window.show",
   HOST_WINDOW_FOCUS: "host.window.focus",
-  HOST_HMR_RUN_TRANSITION: "host.hmr.runTransition",
-  HOST_RUNTIME_RELOAD_PAUSE: "host.runtimeReload.pause",
-  HOST_RUNTIME_RELOAD_RESUME: "host.runtimeReload.resume",
   HOST_RUNTIME_AUTH_REFRESH: "host.runtimeAuth.refresh",
   INTERNAL_WORKER_INITIALIZE: "internal.worker.initialize",
   INTERNAL_WORKER_CONFIGURE: "internal.worker.configure",
@@ -221,28 +182,6 @@ export const METHOD_NAMES = {
   INTERNAL_WORKER_GET_STORE_PACKAGE: "internal.worker.getStorePackage",
   INTERNAL_WORKER_LIST_STORE_RELEASES: "internal.worker.listStoreReleases",
   INTERNAL_WORKER_GET_STORE_RELEASE: "internal.worker.getStoreRelease",
-  INTERNAL_WORKER_CREATE_FIRST_STORE_RELEASE:
-    "internal.worker.createFirstStoreRelease",
-  INTERNAL_WORKER_CREATE_STORE_RELEASE_UPDATE:
-    "internal.worker.createStoreReleaseUpdate",
-  INTERNAL_WORKER_PUBLISH_STORE_SELECTED_FEATURES:
-    "internal.worker.publishStoreSelectedFeatures",
-  INTERNAL_WORKER_INSTALL_FROM_BLUEPRINT:
-    "internal.worker.installFromBlueprint",
-  INTERNAL_WORKER_UNINSTALL_STORE_MOD: "internal.worker.uninstallStoreMod",
-  INTERNAL_WORKER_FEATURE_SNAPSHOT_READ:
-    "internal.worker.selfMod.featureSnapshotRead",
-  INTERNAL_WORKER_FEATURE_ROSTER_LIST:
-    "internal.worker.selfMod.featureRosterList",
-  INTERNAL_WORKER_RESUME_HMR: "internal.worker.resumeHmr",
-  INTERNAL_WORKER_SELF_MOD_EXTERNAL_BEGIN:
-    "internal.worker.selfMod.externalBegin",
-  INTERNAL_WORKER_SELF_MOD_EXTERNAL_FINISH:
-    "internal.worker.selfMod.externalFinish",
-  INTERNAL_WORKER_SOURCE_PACK_HISTORY_RECORD:
-    "internal.worker.sourcePackHistory.record",
-  INTERNAL_WORKER_SOURCE_HISTORY_HAS_COMMIT:
-    "internal.worker.sourceHistory.hasCommit",
   INTERNAL_WORKER_KILL_ALL_SHELLS: "internal.worker.killAllShells",
   INTERNAL_WORKER_KILL_SHELL_BY_PORT: "internal.worker.killShellByPort",
   INTERNAL_WORKER_LOCAL_CHAT_GET_OR_CREATE_DEFAULT:
@@ -265,8 +204,6 @@ export const METHOD_NAMES = {
     "internal.worker.discovery.collectBrowserData",
   INTERNAL_WORKER_DISCOVERY_COLLECT_ALL_SIGNALS:
     "internal.worker.discovery.collectAllSignals",
-  INTERNAL_WORKER_STORE_MODS_LIST_INSTALLED:
-    "internal.worker.storeMods.listInstalledMods",
   INTERNAL_WORKER_SCHEDULE_LIST_CRON_JOBS:
     "internal.worker.schedule.listCronJobs",
   INTERNAL_WORKER_SCHEDULE_LIST_HEARTBEATS:
@@ -292,15 +229,6 @@ export const METHOD_NAMES = {
   INTERNAL_WORKER_DREAM_TRIGGER_NOW: "internal.worker.dream.triggerNow",
   INTERNAL_WORKER_CHRONICLE_SUMMARY_TICK:
     "internal.worker.chronicle.summaryTick",
-  INTERNAL_WORKER_SELF_MOD_APPLY: "internal.worker.selfMod.apply",
-  INTERNAL_WORKER_SELF_MOD_REVERT: "internal.worker.selfMod.revert",
-  INTERNAL_WORKER_SELF_MOD_CRASH_RECOVERY_STATUS:
-    "internal.worker.selfMod.crashRecoveryStatus",
-  INTERNAL_WORKER_SELF_MOD_DISCARD_UNFINISHED:
-    "internal.worker.selfMod.discardUnfinished",
-  INTERNAL_WORKER_SELF_MOD_LAST_COMMIT: "internal.worker.selfMod.lastCommit",
-  INTERNAL_WORKER_SELF_MOD_RECENT_COMMITS:
-    "internal.worker.selfMod.recentCommits",
   INTERNAL_STORE_LOAD_THREAD_MESSAGES: "internal.store.loadThreadMessages",
   INTERNAL_STORE_LIST_ACTIVE_THREADS: "internal.store.listActiveThreads",
   INTERNAL_STORE_GET_ORCHESTRATOR_REMINDER_STATE:
@@ -316,9 +244,6 @@ export const METHOD_NAMES = {
     "internal.store.updateOrchestratorReminderCounter",
   INTERNAL_STORE_RECORD_RUN_EVENT: "internal.store.recordRunEvent",
   INTERNAL_STORE_LIST_LOCAL_CHAT_EVENTS: "internal.store.listLocalChatEvents",
-  INTERNAL_STORE_BEGIN_SELF_MOD_RUN: "internal.store.beginSelfModRun",
-  INTERNAL_STORE_FINALIZE_SELF_MOD_RUN: "internal.store.finalizeSelfModRun",
-  INTERNAL_STORE_CANCEL_SELF_MOD_RUN: "internal.store.cancelSelfModRun",
   INTERNAL_SCHEDULE_LIST_CRON_JOBS: "internal.schedule.listCronJobs",
   INTERNAL_SCHEDULE_ADD_CRON_JOB: "internal.schedule.addCronJob",
   INTERNAL_SCHEDULE_UPDATE_CRON_JOB: "internal.schedule.updateCronJob",
@@ -345,9 +270,7 @@ export const NOTIFICATION_NAMES = {
   RUNTIME_RELOADING: "runtime.reloading",
   RUNTIME_LAGGED: "runtime.lagged",
   RUN_EVENT: "run.event",
-  RUN_SELF_MOD_HMR_STATE: "run.selfModHmrState",
   VOICE_AGENT_EVENT: "voice.agentEvent",
-  VOICE_SELF_MOD_HMR_STATE: "voice.selfModHmrState",
   LOCAL_CHAT_UPDATED: "localChat.updated",
   THREAD_ACTIVITY_UPDATED: "localChat.threadActivityUpdated",
   SCHEDULE_UPDATED: "schedule.updated",
@@ -409,8 +332,8 @@ export type RuntimeHealthSnapshot = {
   activeAgentCount: number;
   /**
    * True when the host detected that the connected worker is running stale
-   * runtime code (build-stamp mismatch on reattach, or a runtime-relevant
-   * self-mod apply) but deferred the restart because work is in flight.
+   * runtime code (build-stamp mismatch on reattach) but deferred the restart
+   * because work is in flight.
    * The worker restarts automatically at the first quiescent moment.
    */
   pendingWorkerRestart?: boolean;
@@ -474,12 +397,6 @@ export type RuntimeChatPayload = {
   userMessageTimestamp?: number;
   agentType?: string;
   storageMode?: "cloud" | "local";
-  selfModMetadata?: {
-    packageId?: string;
-    releaseNumber?: number;
-    mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-    expectedChangedFiles?: string[];
-  };
 };
 
 export type RuntimeVoiceTranscriptPayload = {
@@ -606,56 +523,11 @@ export type RuntimeAutomationTurnResult =
   | { status: "busy"; finalText: ""; error: string }
   | { status: "error"; finalText: ""; error: string };
 
-export type RuntimeSelfModRevertResult = {
-  commitHash: string;
-  revertedCommitHashes: string[];
-  message: string;
-  /** Conversation id parsed from the reverted commit's `Stella-Conversation` trailer (null when absent). */
-  conversationId?: string | null;
-  /** Originating agent thread key parsed from the reverted commit's `Stella-Thread` trailer (null when absent). Used by the revert-notice hook to fan the hidden reminder to the specific resumable subagent that authored the commit. */
-  originThreadKey?: string | null;
-  /** Files touched by the reverted commit(s); used by the revert-notice hook for the hidden reminder. */
-  files?: string[];
-};
-
-export type RuntimeSelfModApplyResult = {
-  commitHash?: string;
-  applied: boolean;
-  message?: string;
-};
-
-export type RuntimeCrashRecoveryStatus =
-  | {
-      kind: "dirty";
-      changedFileCount: number;
-      latestChangedAtMs: number | null;
-    }
-  | {
-      kind: "clean";
-      latestSelfModCommit: {
-        commitHash: string;
-        name: string;
-        description: string;
-        timestampMs: number;
-      } | null;
-    };
-
-export type RuntimeDiscardUnfinishedResult = {
-  discardedFileCount: number;
-  discardedFiles: string[];
-};
-
 export type RuntimeLocalAgentRequest = {
   conversationId: string;
   description: string;
   prompt: string;
   agentType?: string;
-  selfModMetadata?: {
-    packageId?: string;
-    releaseNumber?: number;
-    mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-    expectedChangedFiles?: string[];
-  };
 };
 
 export type RuntimeLocalAgentSnapshot = {
@@ -695,12 +567,6 @@ export type RuntimeAgentEventPayload = {
   fatal?: boolean;
   finalText?: string;
   persisted?: boolean;
-  selfModApplied?: {
-    commitHash: string;
-    files: string[];
-    batchIndex: number;
-    status?: "pending" | "applied";
-  };
   agentId?: string;
   agentType?: string;
   description?: string;
@@ -728,12 +594,6 @@ export type RuntimeAgentEventPayload = {
 export type RuntimeVoiceAgentEventPayload = {
   requestId: string;
   event: RuntimeAgentEventPayload;
-};
-
-export type RuntimeVoiceHmrStatePayload = {
-  requestId: string;
-  runId?: string;
-  state: SelfModHmrState;
 };
 
 export type RunResumeEventsResult = {
@@ -822,51 +682,6 @@ export type HostAppBrowserContextSnapshot = {
   activeBrowserTab: HostActiveBrowserTab | null;
 };
 
-/** See `StorePublishSelectedFeaturesArgs.audience`. */
-export type StoreReleaseAudience = "store" | "circle";
-
-export type StorePublishArgs = {
-  packageId: string;
-  releaseNumber: number;
-  displayName: string;
-  /** Optional listing description; only meaningful on a first release. */
-  description?: string;
-  releaseNotes?: string;
-  manifest: StoreReleaseArtifact["manifest"];
-  artifact: StoreReleaseArtifact;
-  gitObjectUploads?: StoreReleaseGitObjectUpload[];
-  /** See `StorePublishSelectedFeaturesArgs.audience`. */
-  audience?: StoreReleaseAudience;
-};
-
-/**
- * Source-backed publish path. The renderer only selects local feature names and
- * listing metadata; the worker resolves those names to commits/source packs.
- */
-export type StorePublishSelectedFeaturesArgs = {
-  attachedFeatureNames: string[];
-  /**
-   * Roster featureIds parallel to `attachedFeatureNames` (`""` for legacy
-   * entries without one). Feature names are not unique, so the worker
-   * resolves by id first and only falls back to the name when the id is
-   * blank.
-   */
-  attachedFeatureIds?: string[];
-  packageId: string;
-  asUpdate: boolean;
-  displayName?: string;
-  description?: string;
-  category?: StoreReleaseArtifact["manifest"]["category"];
-  manifest: StoreReleaseArtifact["manifest"];
-  releaseNotes?: string;
-  /**
-   * Release destination. "store" (default) submits into the manual
-   * approval queue for the public store; "circle" is the trusted-circle
-   * share path — unlisted, link-only, live immediately without review.
-   */
-  audience?: StoreReleaseAudience;
-};
-
 export type RuntimeStoreApi = {
   listPackages: () => Promise<StorePackageRecord[]>;
   getPackage: (packageId: string) => Promise<StorePackageRecord | null>;
@@ -875,19 +690,6 @@ export type RuntimeStoreApi = {
     packageId: string,
     releaseNumber: number,
   ) => Promise<StorePackageReleaseRecord | null>;
-  createFirstRelease: (
-    args: StorePublishArgs,
-  ) => Promise<StorePackageReleaseRecord>;
-  createReleaseUpdate: (
-    args: StorePublishArgs,
-  ) => Promise<StorePackageReleaseRecord>;
-  publishSelectedFeatures: (
-    args: StorePublishSelectedFeaturesArgs,
-  ) => Promise<StorePackageReleaseRecord>;
-};
-
-export type RuntimeStoreModApi = {
-  listInstalledMods: () => Promise<StoreInstallRecord[]>;
 };
 
 export type RuntimeScheduleApi = {

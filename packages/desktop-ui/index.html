@@ -35,7 +35,8 @@
 
       @font-face {
         font-family: "Cormorant Garamond Launch";
-        src: url("/src/assets/fonts/cormorant-garamond-regular.ttf") format("truetype");
+        src: url("/src/assets/fonts/cormorant-garamond-regular.ttf")
+          format("truetype");
         font-display: block;
         font-style: normal;
         font-weight: 500;
@@ -123,8 +124,16 @@
       }
 
       @keyframes stella-launch-dot {
-        0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
-        40% { opacity: 1; transform: translateY(-2px); }
+        0%,
+        80%,
+        100% {
+          opacity: 0.2;
+          transform: translateY(0);
+        }
+        40% {
+          opacity: 1;
+          transform: translateY(-2px);
+        }
       }
 
       .stella-launch__rescue {
@@ -144,7 +153,11 @@
       }
 
       .stella-launch__rescue-hint {
-        font-family: "Manrope", -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family:
+          "Manrope",
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
         font-size: 13px;
         opacity: 0.6;
       }
@@ -156,7 +169,11 @@
 
       .stella-launch__btn {
         appearance: none;
-        font-family: "Manrope", -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family:
+          "Manrope",
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
         font-size: 13px;
         font-weight: 500;
         padding: 6px 14px;
@@ -165,7 +182,9 @@
         background: rgba(0, 0, 0, 0.04);
         color: inherit;
         cursor: default;
-        transition: background 150ms ease, border-color 150ms ease;
+        transition:
+          background 150ms ease,
+          border-color 150ms ease;
       }
 
       .stella-launch__btn:hover:not(:disabled) {
@@ -188,8 +207,20 @@
       }
     </style>
     <!-- Preload critical fonts (must match fonts.css @font-face usage) -->
-    <link rel="preload" href="/src/assets/fonts/cormorant-garamond-regular.ttf" as="font" type="font/ttf" crossorigin="anonymous" />
-    <link rel="preload" href="/src/assets/fonts/manrope.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <link
+      rel="preload"
+      href="/src/assets/fonts/cormorant-garamond-regular.ttf"
+      as="font"
+      type="font/ttf"
+      crossorigin="anonymous"
+    />
+    <link
+      rel="preload"
+      href="/src/assets/fonts/manrope.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin="anonymous"
+    />
   </head>
   <body>
     <div id="stella-launch" class="stella-launch" aria-hidden="true">
@@ -202,11 +233,12 @@
         <div id="stella-launch-rescue" class="stella-launch__rescue">
           <div class="stella-launch__rescue-hint">Taking longer than usual</div>
           <div class="stella-launch__rescue-actions">
-            <button type="button" class="stella-launch__btn" id="stella-launch-restart">
+            <button
+              type="button"
+              class="stella-launch__btn"
+              id="stella-launch-restart"
+            >
               Restart app
-            </button>
-            <button type="button" class="stella-launch__btn" id="stella-launch-undo">
-              Undo last change
             </button>
           </div>
         </div>
@@ -221,7 +253,9 @@
         </div>
         <div class="stella-mini-boot__body">
           <div class="stella-mini-boot__mark">Stella</div>
-          <div class="stella-mini-boot__line stella-mini-boot__line--wide"></div>
+          <div
+            class="stella-mini-boot__line stella-mini-boot__line--wide"
+          ></div>
           <div class="stella-mini-boot__line"></div>
         </div>
       </div>

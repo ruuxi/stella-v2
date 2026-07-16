@@ -23,7 +23,14 @@ const AGENT_MD = [
 describe("loadParsedAgentsFromDir", () => {
   it("loads every shipped capability record through the standard agent markdown contract", () => {
     const agents = loadParsedAgentsFromDir(
-      path.resolve(process.cwd(), "..", "runtime", "extensions", "stella-runtime", "agent-metadata"),
+      path.resolve(
+        process.cwd(),
+        "..",
+        "runtime",
+        "extensions",
+        "stella-runtime",
+        "agent-metadata",
+      ),
     );
 
     expect(agents.map((agent) => agent.id).sort()).toEqual(
@@ -32,7 +39,6 @@ describe("loadParsedAgentsFromDir", () => {
         "explore",
         "fashion",
         "general",
-        "install_update",
         "manager",
         "orchestrator",
         "schedule",
@@ -44,7 +50,14 @@ describe("loadParsedAgentsFromDir", () => {
 
   it("loads the bundled manager fallback with only agent-management tools", () => {
     const agents = loadParsedAgentsFromDir(
-      path.resolve(process.cwd(), "..", "runtime", "extensions", "stella-runtime", "agent-metadata"),
+      path.resolve(
+        process.cwd(),
+        "..",
+        "runtime",
+        "extensions",
+        "stella-runtime",
+        "agent-metadata",
+      ),
     );
     const manager = agents.find((agent) => agent.id === "manager");
     expect(manager?.toolsAllowlist).toEqual([

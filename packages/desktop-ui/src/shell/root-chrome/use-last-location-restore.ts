@@ -33,7 +33,7 @@ export function useLastLocationRestore(router: Router): void {
     >;
     // User apps live on the dynamic `/apps/$slug` route, which never
     // appears in `routesByPath`, so restores to them were silently
-    // dropped — a self-mod covered reload or app restart while the user
+    // dropped — a covered reload or app restart while the user
     // was on an app page dumped them back to /chat.
     const isUserAppPath = /^\/apps\/[a-z][a-z0-9-]*$/.test(pathname);
     if (

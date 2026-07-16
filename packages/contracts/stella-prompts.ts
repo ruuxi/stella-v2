@@ -9,7 +9,6 @@ export const STELLA_PROMPT_IDS = [
   "agents/social_session.md",
   "agents/explore.md",
   "agents/dream.md",
-  "agents/install_update.md",
   "prompts/dream-scheduled.md",
   "prompts/chronicle-summarizer.md",
   "prompts/memory-review.md",

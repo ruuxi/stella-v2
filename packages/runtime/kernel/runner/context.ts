@@ -410,17 +410,12 @@ export const createRunnerContext = ({
   stellaMediaCliPath,
   stellaXApiCliPath,
   cliBridgeSocketPath,
-  selfModMonitor,
-  selfModLifecycle,
-  selfModHmrController,
   requestCredential,
   requestBrowserExtensionConnect,
   requestComputerUseAppApproval,
   requestConnectorConnection,
   requestRuntimeAuthRefresh,
   scheduleApi,
-  sourceImportApi,
-
   fashionApi,
   runtimeStore,
   getAppBrowserContext,
@@ -565,7 +560,6 @@ export const createRunnerContext = ({
         void client.close().catch(() => undefined);
       }
     },
-    sourceImportApi,
     contextProvider: async (payload) => {
       const agent = resolveAgent(context, AGENT_IDS.ORCHESTRATOR);
       const model = getConfiguredModel(context, AGENT_IDS.ORCHESTRATOR, agent);
@@ -681,9 +675,6 @@ export const createRunnerContext = ({
     stellaBrowserBinPath,
     stellaOfficeBinPath,
     stellaComputerCliPath,
-    selfModMonitor,
-    selfModLifecycle,
-    selfModHmrController,
     requestCredential,
     requestRuntimeAuthRefresh,
     scheduleApi,
@@ -793,12 +784,6 @@ export type BuildAgentContextArgs = {
   /** Effective Orchestrator route inherited by a durable Manager thread. */
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   toolWorkspaceRoot?: string;
-  selfModMetadata?: {
-    packageId?: string;
-    releaseNumber?: number;
-    mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-    expectedChangedFiles?: string[];
-  };
 } & ResolvedAgentModelRoute;
 
 const normalizeCapturedReasoningEffort = (

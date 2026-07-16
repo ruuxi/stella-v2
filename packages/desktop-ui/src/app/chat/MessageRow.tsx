@@ -3,7 +3,7 @@
  *
  * Each message renders as a single row in chronological order, with no
  * per-turn user/assistant grouping. Tool-derived artifacts (web-search
- * badge, office preview, end-resource pill, self-mod undo) attach to
+ * badge, office preview, and end-resource pill) attach to
  * the assistant row that immediately followed the producing tool events.
  *
  * Streaming is NOT a separate row: live stream chunks update an
@@ -62,7 +62,6 @@ import { ScheduleReceiptChip } from "@/app/chat/ScheduleReceiptChip";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { AgentCompletionCard } from "@/app/chat/AgentCompletionCard";
 import { ToolActivityTrace } from "@/app/chat/ToolActivityTrace";
-import { SelfModUndoButton } from "@/app/chat/SelfModUndoButton";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
@@ -642,9 +641,6 @@ export const AssistantMessageRow = memo(
           ) : row.resourcePayload ? (
             <EndResourceCard payload={row.resourcePayload} />
           ) : null}
-          {row.selfModApplied && (
-            <SelfModUndoButton selfModApplied={row.selfModApplied} />
-          )}
           {hasScheduleReceipt && row.scheduleReceipt && (
             <ScheduleReceiptChip
               affected={row.scheduleReceipt.affected}

@@ -131,9 +131,7 @@ export const buildSubagentSystemPrompt = async (
   // get the same `before_agent_start` fan-out so user extensions that
   // subscribe to the event for a subagent agentType (e.g. layering
   // additional system-prompt context onto General/Explore runs) are
-  // actually invoked. The bundled self-mod hook is a no-op here because
-  // it gates on `triggersSelfModDetection`, which only the orchestrator
-  // declares — but extensions don't need to know that.
+  // actually invoked without extensions needing engine-specific knowledge.
   if (!opts.hookEmitter) {
     return effectiveSystemPrompt;
   }

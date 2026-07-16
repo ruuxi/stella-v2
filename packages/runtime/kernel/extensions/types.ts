@@ -1,9 +1,6 @@
 import type { ToolContext, ToolResult } from "../tools/types.js";
 import type { ParsedAgent } from "../agents/types.js";
-import type {
-  AgentMessage,
-  AgentToolResult,
-} from "../agent-core/types.js";
+import type { AgentMessage, AgentToolResult } from "../agent-core/types.js";
 import type { AssistantMessageEvent } from "../../ai/types.js";
 import type { RuntimePromptMessage } from "@stella/contracts/protocol";
 
@@ -176,14 +173,7 @@ export type AgentEndPayload = HookRuntimeContext & {
   services?: import("./services.js").RuntimeRunServices;
 };
 
-export type AgentEndHookResult = {
-  selfModApplied?: {
-    commitHash: string;
-    files: string[];
-    batchIndex: number;
-    status?: "pending" | "applied";
-  };
-};
+export type AgentEndHookResult = Record<string, never>;
 
 export type TurnStartPayload = HookRuntimeContext & {
   agentType: string;
@@ -296,8 +286,14 @@ export type SessionShutdownPayload = HookRuntimeContext & {
 export interface HookEventMap {
   before_tool: { payload: BeforeToolPayload; result: BeforeToolHookResult };
   after_tool: { payload: AfterToolPayload; result: AfterToolHookResult };
-  before_agent_start: { payload: BeforeAgentStartPayload; result: BeforeAgentStartHookResult };
-  before_user_message: { payload: BeforeUserMessagePayload; result: BeforeUserMessageHookResult };
+  before_agent_start: {
+    payload: BeforeAgentStartPayload;
+    result: BeforeAgentStartHookResult;
+  };
+  before_user_message: {
+    payload: BeforeUserMessagePayload;
+    result: BeforeUserMessageHookResult;
+  };
   agent_start: { payload: AgentStartPayload; result: void };
   agent_end: { payload: AgentEndPayload; result: AgentEndHookResult };
   turn_start: { payload: TurnStartPayload; result: TurnStartHookResult };
@@ -308,10 +304,19 @@ export interface HookEventMap {
   tool_execution_start: { payload: ToolExecutionStartPayload; result: void };
   tool_execution_update: { payload: ToolExecutionUpdatePayload; result: void };
   tool_execution_end: { payload: ToolExecutionEndPayload; result: void };
-  before_compact: { payload: BeforeCompactPayload; result: BeforeCompactHookResult };
+  before_compact: {
+    payload: BeforeCompactPayload;
+    result: BeforeCompactHookResult;
+  };
   session_compact: { payload: SessionCompactPayload; result: void };
-  before_provider_request: { payload: BeforeProviderRequestPayload; result: BeforeProviderRequestHookResult };
-  after_provider_response: { payload: AfterProviderResponsePayload; result: void };
+  before_provider_request: {
+    payload: BeforeProviderRequestPayload;
+    result: BeforeProviderRequestHookResult;
+  };
+  after_provider_response: {
+    payload: AfterProviderResponsePayload;
+    result: void;
+  };
   session_start: { payload: SessionStartPayload; result: void };
   session_shutdown: { payload: SessionShutdownPayload; result: void };
 }
@@ -401,7 +406,7 @@ export interface ExtensionRegistrationApi {
  *
  * The second argument carries runtime services (see
  * `runtime/kernel/extensions/services.ts`) that bundled-as-extension
- * hooks like self-mod + memory need access to at registration
+ * hooks like memory need access to at registration
  * time. Third-party extensions are free to ignore the services arg —
  * but the field is non-optional in the type so the loader can always
  * pass it without conditional plumbing.

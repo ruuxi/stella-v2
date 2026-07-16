@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { isWorkerRestartRelevantPath } from "../kernel/self-mod/path-relevance.js";
 
 /**
  * Runtime code-identity stamp used by the staleness handshake between the
@@ -9,8 +8,8 @@ import { isWorkerRestartRelevantPath } from "../kernel/self-mod/path-relevance.j
  *
  * The detached worker deliberately outlives the Electron host (grace window
  * so in-flight agent runs survive a desktop restart). The cost: a host that
- * reconnects after a self-mod apply or desktop update can silently adopt a
- * worker running old runtime code. This stamp makes that detectable:
+ * reconnects after a desktop update can silently adopt a worker running old
+ * runtime code. This stamp makes that detectable:
  *
  *   - The worker computes the stamp of the runtime tree it loaded at boot
  *     and writes it to `~/.stella/runtime/<rootHash>/build-stamp.txt`
@@ -21,12 +20,11 @@ import { isWorkerRestartRelevantPath } from "../kernel/self-mod/path-relevance.j
  *     restarts it immediately when idle, or defers until quiescence.
  *
  * The stamp is stat-based (relative path + size + mtimeMs) over the files
- * whose change is worker-restart-relevant (`isWorkerRestartRelevantPath`,
- * the same rule set the dev watcher and the self-mod classifier use). No
- * file contents are read, so computing it is a cheap directory walk. A
+ * in the runtime tree. No file contents are read, so computing it is a cheap
+ * directory walk. A
  * real code change virtually always changes size or mtime; mtime-preserving
  * copies with identical sizes are the only blind spot and don't occur in
- * either the self-mod apply or desktop-update paths.
+ * the desktop-update path.
  */
 
 /** Sentinel returned when the stamp cannot be computed (missing tree, IO error). */
@@ -40,6 +38,18 @@ const SKIPPED_DIR_NAMES = new Set([
   "browser-data",
   "bun-transpiler-cache",
 ]);
+
+const HOST_OWNED_RUNTIME_PREFIXES = [
+  "kernel/convex-urls",
+  "kernel/dev-projects/",
+  "kernel/home/",
+  "kernel/local-scheduler-service",
+  "kernel/preferences/local-preferences",
+  "kernel/shared/",
+  "kernel/storage/",
+  "kernel/tools/network-guards",
+  "kernel/tools/stella-browser-bridge-config",
+];
 
 const hasStampedSuffix = (name: string): boolean => {
   const lower = name.toLowerCase();
@@ -70,9 +80,11 @@ const collectStampLines = (
     if (!entry.isFile() || !hasStampedSuffix(name)) continue;
     const absPath = path.join(currentDir, name);
     const relPath = path.relative(rootDir, absPath).replace(/\\/g, "/");
-    // The relevance rules speak repo-relative "packages/runtime/..." paths; the walk
-    // is rooted at the runtime tree itself, so re-prefix before matching.
-    if (!isWorkerRestartRelevantPath(`packages/runtime/${relPath}`)) continue;
+    if (
+      HOST_OWNED_RUNTIME_PREFIXES.some((prefix) => relPath.startsWith(prefix))
+    ) {
+      continue;
+    }
     let size = 0;
     let mtimeMs = 0;
     try {

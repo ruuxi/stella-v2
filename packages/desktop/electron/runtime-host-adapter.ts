@@ -1,4 +1,3 @@
-import type { SelfModHmrState } from "@stella/contracts";
 import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery";
 import {
   AGENT_STREAM_EVENT_TYPES,
@@ -14,12 +13,6 @@ import type {
   RuntimeVoiceChatPayload,
   RuntimeVoiceOrchestratorConfigRequest,
   RuntimeVoiceToolCallPayload,
-  SelfModCommitSummary,
-  StellaReleaseArtifactRef,
-  StoreReleaseGitArtifact,
-  StoreReleaseSourcePack,
-  StorePublishArgs,
-  StorePublishSelectedFeaturesArgs,
 } from "@stella/contracts/protocol";
 import {
   StellaRuntimeHost,
@@ -39,7 +32,6 @@ type AgentCallbacks = {
   onToolStart: (event: RuntimeAgentEventPayload) => void;
   onToolEnd: (event: RuntimeAgentEventPayload) => void;
   onAgentEvent?: (event: AgentLifecycleEvent) => void;
-  onSelfModHmrState?: (event: SelfModHmrState) => void;
 };
 
 export type RuntimeAvailabilitySnapshot = {
@@ -166,9 +158,6 @@ export class RuntimeHostAdapter {
       if (!dispatched) {
         this.dispatchLocalChatSessionEventByRun(event, event.requestId);
       }
-    });
-    this.host.on("run-self-mod-hmr-state", (payload) => {
-      this.dispatchLocalChatSessionHmrState(payload);
     });
   }
 
@@ -354,28 +343,6 @@ export class RuntimeHostAdapter {
     return true;
   }
 
-  private dispatchLocalChatSessionHmrState(payload: {
-    runId?: string;
-    state: SelfModHmrState;
-  }) {
-    if (payload.runId) {
-      for (const session of this.localChatSessions.values()) {
-        if (!session.knownRunIds.has(payload.runId)) {
-          continue;
-        }
-        session.callbacks.onSelfModHmrState?.(payload.state);
-      }
-      return;
-    }
-
-    for (const session of this.localChatSessions.values()) {
-      if (session.activeRunIds.size === 0) {
-        continue;
-      }
-      session.callbacks.onSelfModHmrState?.(payload.state);
-    }
-  }
-
   private emitAvailabilityChange() {
     const snapshot = this.getAvailabilitySnapshot();
     if (
@@ -558,10 +525,7 @@ export class RuntimeHostAdapter {
       // remains authoritative and usable until its active work drains. During
       // the actual stop/start window workerHealth is not ready, so sends still
       // wait without locking the user out for the entire deferral period.
-      if (
-        workerHealth?.ready === true &&
-        snapshot.ready
-      ) {
+      if (workerHealth?.ready === true && snapshot.ready) {
         return;
       }
       if (Date.now() >= deadline) {
@@ -712,9 +676,7 @@ export class RuntimeHostAdapter {
       conversationId: string;
       userPrompt: string;
       selectedText?: string | null;
-      chatContext?:
-        | import("@stella/contracts").ChatContext
-        | null;
+      chatContext?: import("@stella/contracts").ChatContext | null;
       deviceId?: string;
       platform?: string;
       timezone?: string;
@@ -781,12 +743,6 @@ export class RuntimeHostAdapter {
     description: string;
     prompt: string;
     agentType?: string;
-    selfModMetadata?: {
-      packageId?: string;
-      releaseNumber?: number;
-      mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-      expectedChangedFiles?: string[];
-    };
   }) {
     return this.host.runBlockingLocalAgent(payload);
   }
@@ -796,12 +752,6 @@ export class RuntimeHostAdapter {
     description: string;
     prompt: string;
     agentType?: string;
-    selfModMetadata?: {
-      packageId?: string;
-      releaseNumber?: number;
-      mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-      expectedChangedFiles?: string[];
-    };
   }) {
     return this.host.createBackgroundAgent(payload);
   }
@@ -928,35 +878,8 @@ export class RuntimeHostAdapter {
       }
       dispatch(eventPayload.event);
     });
-    const offHmr = this.host.on("voice-self-mod-hmr-state", (hmrPayload) => {
-      if (hmrPayload.requestId !== requestId) {
-        return;
-      }
-      if (hmrPayload.runId) {
-        knownRunIds.add(hmrPayload.runId);
-      }
-      callbacks.onSelfModHmrState?.(hmrPayload.state);
-    });
-    const offRunHmr = this.host.on("run-self-mod-hmr-state", (hmrPayload) => {
-      if (!hmrPayload.runId && knownRunIds.size === 0) {
-        return;
-      }
-      if (
-        hmrPayload.runId &&
-        knownRunIds.size > 0 &&
-        !knownRunIds.has(hmrPayload.runId)
-      ) {
-        return;
-      }
-      if (hmrPayload.runId) {
-        knownRunIds.add(hmrPayload.runId);
-      }
-      callbacks.onSelfModHmrState?.(hmrPayload.state);
-    });
     unsubscribe = () => {
       offEvent();
-      offHmr();
-      offRunHmr();
     };
 
     try {
@@ -996,48 +919,6 @@ export class RuntimeHostAdapter {
     return this.host.listStorePackages();
   }
 
-  listInstalledMods() {
-    return this.host.listInstalledMods();
-  }
-
-  readSelfModFeatureSnapshot() {
-    return this.host.readSelfModFeatureSnapshot();
-  }
-
-  listSelfModFeatureRoster(payload?: { limit?: number; offset?: number }) {
-    return this.host.listSelfModFeatureRoster(payload);
-  }
-
-  beginExternalSelfMod(payload: { runId: string; paths: string[] }) {
-    return this.host.beginExternalSelfMod(payload);
-  }
-
-  finishExternalSelfMod(payload: { runId: string; succeeded: boolean }) {
-    return this.host.finishExternalSelfMod(payload);
-  }
-
-  recordSourcePackHistory(payload: {
-    sourcePack: StoreReleaseSourcePack;
-    origin?:
-      | "self-mod"
-      | "store-install"
-      | "store-update"
-      | "store-uninstall"
-      | "desktop-update"
-      | "official";
-    packageId?: string;
-    releaseNumber?: number;
-    featureId?: string;
-    description?: string;
-    commitHash?: string | null;
-  }) {
-    return this.host.recordSourcePackHistory(payload);
-  }
-
-  hasSourceRevisionForCommit(commitHash: string) {
-    return this.host.hasSourceRevisionForCommit(commitHash);
-  }
-
   getStorePackage(packageId: string) {
     return this.host.getStorePackage(packageId);
   }
@@ -1048,35 +929,6 @@ export class RuntimeHostAdapter {
 
   getStorePackageRelease(packageId: string, releaseNumber: number) {
     return this.host.getStorePackageRelease(packageId, releaseNumber);
-  }
-
-  createFirstStoreRelease(args: StorePublishArgs) {
-    return this.host.createFirstStoreRelease(args);
-  }
-
-  createStoreReleaseUpdate(args: StorePublishArgs) {
-    return this.host.createStoreReleaseUpdate(args);
-  }
-
-  publishStoreSelectedFeatures(args: StorePublishSelectedFeaturesArgs) {
-    return this.host.publishStoreSelectedFeatures(args);
-  }
-
-  uninstallStoreMod(packageId: string) {
-    return this.host.uninstallStoreMod(packageId);
-  }
-
-  installFromBlueprint(payload: {
-    packageId: string;
-    releaseNumber: number;
-    displayName: string;
-    blueprintMarkdown: string;
-    gitArtifact?: StoreReleaseGitArtifact;
-    diff?: string;
-    artifactRefs?: StellaReleaseArtifactRef[];
-    commits?: Array<{ hash: string; subject: string; diff: string }>;
-  }) {
-    return this.host.installFromBlueprint(payload);
   }
 
   listCronJobs() {
@@ -1164,30 +1016,6 @@ export class RuntimeHostAdapter {
 
   getSocialSessionStatus() {
     return this.host.getSocialSessionStatus();
-  }
-
-  revertSelfModCommit(payload: { commitHash?: string; steps?: number }) {
-    return this.host.revertSelfModCommit(payload);
-  }
-
-  applySelfModCommit(payload: { commitHash?: string }) {
-    return this.host.applySelfModCommit(payload);
-  }
-
-  getCrashRecoveryStatus() {
-    return this.host.getCrashRecoveryStatus();
-  }
-
-  discardUnfinishedSelfModChanges(payload?: { conversationId?: string }) {
-    return this.host.discardUnfinishedSelfModChanges(payload);
-  }
-
-  getLastSelfModCommit() {
-    return this.host.getLastSelfModCommit();
-  }
-
-  listRecentSelfModCommits(limit?: number): Promise<SelfModCommitSummary[]> {
-    return this.host.listRecentSelfModCommits(limit);
   }
 
   killAllShells() {

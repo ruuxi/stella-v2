@@ -1,8 +1,4 @@
-import type {
-  HookEvent,
-  HookDefinition,
-  HookEventMap,
-} from "./types.js";
+import type { HookEvent, HookDefinition, HookEventMap } from "./types.js";
 
 export class HookEmitter {
   private hooks: HookDefinition[] = [];
@@ -32,9 +28,8 @@ export class HookEmitter {
    * Emit an event and collect results from matching hooks.
    * Hooks are called in registration order.
    *
-   * `agent_end` results are shallow-merged so an extension result cannot
-   * accidentally erase bundled fields such as `selfModApplied`. Other events
-   * keep last-result-wins semantics, except `before_tool` short-circuits on
+   * `agent_end` results are shallow-merged. Other events keep
+   * last-result-wins semantics, except `before_tool` short-circuits on
    * `cancel: true`. Use {@link emitAll} when every result must be composed.
    */
   async emit<E extends HookEvent>(
@@ -44,10 +39,18 @@ export class HookEmitter {
   ): Promise<HookEventMap[E]["result"] | void> {
     const matching = this.hooks.filter((hook) => {
       if (hook.event !== event) return false;
-      if (hook.filter?.tool && filterContext?.tool && hook.filter.tool !== filterContext.tool) {
+      if (
+        hook.filter?.tool &&
+        filterContext?.tool &&
+        hook.filter.tool !== filterContext.tool
+      ) {
         return false;
       }
-      if (hook.filter?.agentType && filterContext?.agentType && hook.filter.agentType !== filterContext.agentType) {
+      if (
+        hook.filter?.agentType &&
+        filterContext?.agentType &&
+        hook.filter.agentType !== filterContext.agentType
+      ) {
         return false;
       }
       return true;
@@ -64,7 +67,11 @@ export class HookEmitter {
 
     for (const hook of matching) {
       try {
-        const result = await (hook.handler as (p: HookEventMap[E]["payload"]) => Promise<HookEventMap[E]["result"] | void>)(payload);
+        const result = await (
+          hook.handler as (
+            p: HookEventMap[E]["payload"],
+          ) => Promise<HookEventMap[E]["result"] | void>
+        )(payload);
         if (result === undefined || result === null) {
           continue;
         }
@@ -97,7 +104,10 @@ export class HookEmitter {
           return result;
         }
       } catch (error) {
-        console.error(`[stella:hook] Error in ${event} hook:`, (error as Error).message);
+        console.error(
+          `[stella:hook] Error in ${event} hook:`,
+          (error as Error).message,
+        );
       }
     }
 

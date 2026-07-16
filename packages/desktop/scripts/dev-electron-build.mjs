@@ -15,8 +15,8 @@
  *   - `esbuild.stop()` after every build so the service process exits instead
  *     of idling resident.
  *   - A bare `fs.watch` over the source roots (native fs events, ~0 cost)
- *     drives debounced rebuilds while the app runs — self-mod runs and manual
- *     user edits both land through it.
+ *     drives debounced rebuilds while the app runs — manual user edits land
+ *     through it.
  *   - A stat fingerprint of the source roots persisted next to the outputs
  *     lets a warm launch skip the startup build entirely when nothing changed
  *     since the last successful build.
@@ -50,10 +50,14 @@ const runtimeStaticAssetRoots = [
 ];
 const electronRuntimeEntryPoints = {
   "electron/main": "packages/desktop/electron/main.ts",
-  "runtime/kernel/cli/stella-computer": "packages/runtime/kernel/cli/stella-computer.ts",
-  "runtime/kernel/cli/stella-connect": "packages/runtime/kernel/cli/stella-connect.ts",
-  "runtime/kernel/cli/stella-media": "packages/runtime/kernel/cli/stella-media.ts",
-  "runtime/kernel/tools/deferred-delete-cli": "packages/runtime/kernel/tools/deferred-delete-cli.ts",
+  "runtime/kernel/cli/stella-computer":
+    "packages/runtime/kernel/cli/stella-computer.ts",
+  "runtime/kernel/cli/stella-connect":
+    "packages/runtime/kernel/cli/stella-connect.ts",
+  "runtime/kernel/cli/stella-media":
+    "packages/runtime/kernel/cli/stella-media.ts",
+  "runtime/kernel/tools/deferred-delete-cli":
+    "packages/runtime/kernel/tools/deferred-delete-cli.ts",
 };
 // The worker builds on its own so we can code-split it: the heavy runner
 // subgraph is lazily imported in server.ts, and splitting lands it in a
@@ -67,7 +71,16 @@ const preloadEntryPoints = {
   "electron/preload": "packages/desktop/electron/preload.ts",
 };
 const storeWebPreloadEntryPoints = {
-  "electron/store-web-preload": "packages/desktop/electron/store-web-preload.ts",
+  "electron/store-web-preload":
+    "packages/desktop/electron/store-web-preload.ts",
+};
+
+// Workspace packages are source inputs in this monorepo, not installed
+// runtime dependencies. Resolve them before `packages: "external"` is applied
+// so Electron never attempts to execute their TypeScript sources directly.
+const workspaceAliases = {
+  "@stella/contracts": path.join(repoRootDir, "packages", "contracts"),
+  "@stella/runtime": path.join(repoRootDir, "packages", "runtime"),
 };
 
 const fingerprintFilePath = path.join(
@@ -120,6 +133,7 @@ const isBundleSourceRelPath = (relPosixPath) => {
 const createBuildOptions = () => [
   {
     absWorkingDir: repoRootDir,
+    alias: workspaceAliases,
     bundle: true,
     entryPoints: electronRuntimeEntryPoints,
     external: ["electron"],
@@ -133,6 +147,7 @@ const createBuildOptions = () => [
   },
   {
     absWorkingDir: repoRootDir,
+    alias: workspaceAliases,
     bundle: true,
     entryPoints: workerEntryPoints,
     external: ["electron"],
@@ -153,6 +168,7 @@ const createBuildOptions = () => [
   },
   {
     absWorkingDir: repoRootDir,
+    alias: workspaceAliases,
     bundle: true,
     external: ["electron"],
     entryPoints: preloadEntryPoints,
@@ -166,6 +182,7 @@ const createBuildOptions = () => [
   },
   {
     absWorkingDir: repoRootDir,
+    alias: workspaceAliases,
     bundle: true,
     external: ["electron"],
     entryPoints: storeWebPreloadEntryPoints,

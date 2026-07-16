@@ -37,7 +37,6 @@ import type {
   RuntimeToolEndEvent,
   RuntimeToolStartEvent,
 } from "./types.js";
-import type { SelfModAppliedPayload } from "@stella/contracts/local-chat";
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 
 const logger = createRuntimeLogger("agent-runtime.events");
@@ -163,7 +162,9 @@ export const createRunEventRecorder = ({
       };
     },
 
-    recordAssistantMessageEnd(message: AgentMessage): RuntimeAssistantMessageEvent | null {
+    recordAssistantMessageEnd(
+      message: AgentMessage,
+    ): RuntimeAssistantMessageEvent | null {
       const text = extractAssistantText(message).trim();
       const event = recordAssistantTextEnd(text, message.timestamp);
       if (event && assistantMessageHasToolCall(message)) {
@@ -244,9 +245,10 @@ export const createRunEventRecorder = ({
       const seq = nextSeq();
       const toolCallId = redactSensitiveText(args.toolCallId);
       const toolName = redactSensitiveText(args.toolName);
-      const sanitizedArgs = sanitizeSensitiveData(
-        args.toolArgs,
-      ) as Record<string, unknown>;
+      const sanitizedArgs = sanitizeSensitiveData(args.toolArgs) as Record<
+        string,
+        unknown
+      >;
       store.recordRunEvent({
         timestamp: now(),
         runId,
@@ -323,7 +325,6 @@ export const createRunEventRecorder = ({
 
     recordRunEnd(args: {
       finalText: string;
-      selfModApplied?: SelfModAppliedPayload;
       responseTarget?: RuntimeEndEvent["responseTarget"];
     }): RuntimeEndEvent {
       const seq = nextSeq();
@@ -335,7 +336,6 @@ export const createRunEventRecorder = ({
         seq,
         type: RUNTIME_RUN_EVENT_TYPES.RUN_END,
         finalText: args.finalText,
-        ...(args.selfModApplied ? { selfModApplied: args.selfModApplied } : {}),
       });
       return {
         runId,
@@ -344,7 +344,6 @@ export const createRunEventRecorder = ({
         userMessageId: currentUserMessageId,
         finalText: args.finalText,
         persisted: true,
-        ...(args.selfModApplied ? { selfModApplied: args.selfModApplied } : {}),
         ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
         ...(uiVisibility ? { uiVisibility } : {}),
       };

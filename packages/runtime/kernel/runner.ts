@@ -50,7 +50,9 @@ const buildVoiceHistoryItems = (
       }>
     | undefined,
 ): RuntimeVoiceHistoryItem[] => {
-  const entries = (threadHistory ?? []).slice(-VOICE_ORCHESTRATOR_HISTORY_LIMIT);
+  const entries = (threadHistory ?? []).slice(
+    -VOICE_ORCHESTRATOR_HISTORY_LIMIT,
+  );
   const history: RuntimeVoiceHistoryItem[] = [];
   for (const entry of entries) {
     const content = entry.content.trim();
@@ -280,9 +282,6 @@ export const createStellaHostRunner = (
     getStorePackage: storeOperations.getStorePackage,
     listStorePackageReleases: storeOperations.listStorePackageReleases,
     getStorePackageRelease: storeOperations.getStorePackageRelease,
-    createFirstStoreRelease: storeOperations.createFirstStoreRelease,
-    createStoreReleaseUpdate: storeOperations.createStoreReleaseUpdate,
-    getStoreGitObjectUrls: storeOperations.getStoreGitObjectUrls,
     handleLocalChat: orchestratorController.handleLocalChat,
     sendMessage: orchestratorController.sendMessage,
     sendUserMessage: orchestratorController.sendUserMessage,
@@ -337,7 +336,8 @@ export const createStellaHostRunner = (
         callbacks: noopRuntimeCallbacks,
         toolExecutor: async () => ({ error: "Voice config has no executor." }),
         toolCatalog: context.toolHost.getToolCatalog(agentType, {
-          model: resolved.resolvedLlm.toolPolicyModel ?? resolved.resolvedLlm.model,
+          model:
+            resolved.resolvedLlm.toolPolicyModel ?? resolved.resolvedLlm.model,
           agentEngine: agentContext.agentEngine,
         }),
         deviceId: context.deviceId,
@@ -349,7 +349,8 @@ export const createStellaHostRunner = (
         hookEmitter: context.hookEmitter,
       });
       const toolCatalog = context.toolHost.getToolCatalog(agentType, {
-        model: resolved.resolvedLlm.toolPolicyModel ?? resolved.resolvedLlm.model,
+        model:
+          resolved.resolvedLlm.toolPolicyModel ?? resolved.resolvedLlm.model,
         agentEngine: agentContext.agentEngine,
       });
       const history = buildVoiceHistoryItems(agentContext.threadHistory);
@@ -411,12 +412,10 @@ export const createStellaHostRunner = (
 
     triggerDreamNow: async (trigger = "manual") => {
       try {
-        const { maybeSpawnDreamRun } = await import(
-          "./agent-runtime/dream-scheduler.js"
-        );
-        const { resolveRunnerLlmRoute } = await import(
-          "./runner/model-selection.js"
-        );
+        const { maybeSpawnDreamRun } =
+          await import("./agent-runtime/dream-scheduler.js");
+        const { resolveRunnerLlmRoute } =
+          await import("./runner/model-selection.js");
         const { AGENT_IDS } = await import("@stella/contracts/agent-runtime");
         const pendingItems =
           context.runtimeStore.dreamInboxStore.countUnprocessed();
@@ -457,12 +456,10 @@ export const createStellaHostRunner = (
 
     runChronicleSummaryTick: async (window) => {
       try {
-        const { runChronicleSummary } = await import(
-          "./memory/chronicle-summarizer.js"
-        );
-        const { resolveRunnerLlmRoute } = await import(
-          "./runner/model-selection.js"
-        );
+        const { runChronicleSummary } =
+          await import("./memory/chronicle-summarizer.js");
+        const { resolveRunnerLlmRoute } =
+          await import("./runner/model-selection.js");
         const { AGENT_IDS } = await import("@stella/contracts/agent-runtime");
         const chronicleAgent = resolveAgent(context, AGENT_IDS.CHRONICLE);
         const chronicleModel = getConfiguredModel(

@@ -9,7 +9,6 @@ export const AGENT_IDS = {
   EXPLORE: "explore",
   DREAM: "dream",
   CHRONICLE: "chronicle",
-  INSTALL_UPDATE: "install_update",
 } as const;
 
 export type AgentId = (typeof AGENT_IDS)[keyof typeof AGENT_IDS];
@@ -62,8 +61,6 @@ export type AgentCapabilities = {
   triggersDreamScheduler?: boolean;
   /** Trigger the orchestrator memory-review pass on successful real user turns. */
   triggersMemoryReview?: boolean;
-  /** Run self-mod baseline capture and detect-applied around the run. */
-  triggersSelfModDetection?: boolean;
 };
 
 type AgentDefinition = {
@@ -77,7 +74,6 @@ type AgentDefinition = {
   includeInAgentRoster?: boolean;
   usesLocalCliRuntime: boolean;
   promptRole: AgentPromptRole;
-  controlsSelfModHmr: boolean;
   localCliWorkingDirectory: LocalCliWorkingDirectory | null;
   modelSettings: AgentModelSettings | null;
   /** Optional capability bundle. Defaults to no capabilities. */
@@ -95,7 +91,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     runsAsSubagent: false,
     usesLocalCliRuntime: true,
     promptRole: "orchestrator",
-    controlsSelfModHmr: false,
     localCliWorkingDirectory: "frontend",
     modelSettings: {
       description: "Top-level agent that delegates tasks",
@@ -112,7 +107,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
       injectsSkillCatalog: true,
       triggersDreamScheduler: true,
       triggersMemoryReview: true,
-      triggersSelfModDetection: true,
     },
   },
   {
@@ -126,7 +120,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     includeInAgentRoster: false,
     usesLocalCliRuntime: true,
     promptRole: "subagent",
-    controlsSelfModHmr: false,
     localCliWorkingDirectory: null,
     modelSettings: null,
   },
@@ -140,7 +133,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     runsAsSubagent: false,
     usesLocalCliRuntime: false,
     promptRole: "subagent",
-    controlsSelfModHmr: false,
     localCliWorkingDirectory: null,
     modelSettings: {
       description: "Turns plain-language requests into local schedules",
@@ -158,7 +150,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     includeInAgentRoster: false,
     usesLocalCliRuntime: false,
     promptRole: "subagent",
-    controlsSelfModHmr: false,
     localCliWorkingDirectory: null,
     modelSettings: {
       description: "Builds outfit looks and fashion outputs",
@@ -175,7 +166,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     runsAsSubagent: true,
     usesLocalCliRuntime: true,
     promptRole: "subagent",
-    controlsSelfModHmr: false,
     localCliWorkingDirectory: "frontend",
     modelSettings: {
       description:
@@ -201,7 +191,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     includeInAgentRoster: false,
     usesLocalCliRuntime: false,
     promptRole: "subagent",
-    controlsSelfModHmr: false,
     localCliWorkingDirectory: null,
     modelSettings: {
       description: "Works inside shared Stella Together folders",
@@ -217,7 +206,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     runsAsSubagent: false,
     usesLocalCliRuntime: false,
     promptRole: "subagent",
-    controlsSelfModHmr: false,
     localCliWorkingDirectory: null,
     modelSettings: {
       description: "Responds when Stella is offline",
@@ -235,7 +223,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     includeInAgentRoster: false,
     usesLocalCliRuntime: false,
     promptRole: "subagent",
-    controlsSelfModHmr: false,
     localCliWorkingDirectory: null,
     modelSettings: {
       description: "Finds relevant context before a task starts",
@@ -253,7 +240,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     includeInAgentRoster: false,
     usesLocalCliRuntime: false,
     promptRole: "subagent",
-    controlsSelfModHmr: false,
     localCliWorkingDirectory: null,
     modelSettings: {
       description: "Consolidates memory in the background",
@@ -271,29 +257,10 @@ const BUILTIN_AGENT_DEFINITIONS = [
     includeInAgentRoster: false,
     usesLocalCliRuntime: false,
     promptRole: "subagent",
-    controlsSelfModHmr: false,
     localCliWorkingDirectory: null,
     modelSettings: {
       description: "Summarizes screen activity for memory",
       order: 6,
-    },
-  },
-  {
-    id: AGENT_IDS.INSTALL_UPDATE,
-    name: "Install Update",
-    description:
-      "Integrates an upstream Stella update into the user's local fork via Stella source-pack conflict resolution or a real `git merge` fallback. Restricted to a narrow git plus dependency-install exec_command allowlist; biases toward preserving the user's customizations on conflicts.",
-    activityLabel: "Updating",
-    bundledCore: true,
-    runsAsSubagent: false,
-    includeInAgentRoster: false,
-    usesLocalCliRuntime: false,
-    promptRole: "subagent",
-    controlsSelfModHmr: true,
-    localCliWorkingDirectory: null,
-    modelSettings: {
-      description: "Applies Stella updates",
-      order: 7,
     },
   },
 ] as const satisfies readonly AgentDefinition[];
@@ -387,9 +354,6 @@ export const agentHasCapability = (
   const value = getAgentCapabilities(agentType)[capability];
   return value !== undefined && value !== false;
 };
-
-export const agentControlsSelfModHmr = (agentType: string): boolean =>
-  getAgentDefinition(agentType)?.controlsSelfModHmr === true;
 
 export const getAgentSteeringMode = (
   agentType: string,

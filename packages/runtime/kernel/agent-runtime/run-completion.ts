@@ -12,8 +12,6 @@ import type {
   SubagentRunOptions,
   SubagentRunResult,
 } from "./types.js";
-import type { SelfModAppliedPayload } from "@stella/contracts/local-chat";
-import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 
 const logger = createRuntimeLogger("agent-runtime.completion");
 
@@ -72,7 +70,9 @@ const INTERRUPT_MESSAGE_RE =
 const safeErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message || fallback : fallback;
 
-const normalizeInterruptionReason = (value: string | undefined): string | null => {
+const normalizeInterruptionReason = (
+  value: string | undefined,
+): string | null => {
   const trimmed = value?.trim();
   if (!trimmed) {
     return null;
@@ -80,7 +80,11 @@ const normalizeInterruptionReason = (value: string | undefined): string | null =
   if (trimmed.toLowerCase() === "this operation was aborted") {
     return "Canceled";
   }
-  if (/^(?:aborted|request was aborted\.?|request aborted by user|claude code run aborted\.?)$/i.test(trimmed)) {
+  if (
+    /^(?:aborted|request was aborted\.?|request aborted by user|claude code run aborted\.?)$/i.test(
+      trimmed,
+    )
+  ) {
     return "Canceled";
   }
   return trimmed;
@@ -91,13 +95,13 @@ export const resolveInterruptionReason = (args: {
   error?: unknown;
 }): string | null => {
   const signalReason = args.abortSignal?.aborted
-    ? normalizeInterruptionReason(
+    ? (normalizeInterruptionReason(
         args.abortSignal.reason instanceof Error
           ? args.abortSignal.reason.message
           : typeof args.abortSignal.reason === "string"
             ? args.abortSignal.reason
             : undefined,
-      ) ?? "Canceled"
+      ) ?? "Canceled")
     : null;
   if (signalReason) {
     return signalReason;
@@ -141,12 +145,12 @@ const emitAgentEndHook = async (
     messagesSnapshot: AgentMessage[];
     orchestratorTokenEstimate?: number;
   },
-): Promise<SelfModAppliedPayload | null> => {
+): Promise<void> => {
   if (!opts.hookEmitter) {
-    return null;
+    return;
   }
   try {
-    const result = await opts.hookEmitter.emit(
+    await opts.hookEmitter.emit(
       "agent_end",
       {
         agentType: opts.agentType,
@@ -182,17 +186,16 @@ const emitAgentEndHook = async (
       },
       { agentType: opts.agentType },
     );
-    return result?.selfModApplied ?? null;
   } catch {
-    return null;
+    return;
   }
 };
 
 /**
  * Cleanup-only `agent_end` emission for non-success outcomes.
  *
- * The result is discarded because non-success paths cannot surface
- * `selfModApplied`, but the event still lets hooks reclaim run-scoped state.
+ * The result is discarded, but the event still lets hooks reclaim run-scoped
+ * state.
  */
 const emitAgentEndCleanup = (
   opts: OrchestratorRunOptions,
@@ -238,7 +241,7 @@ const emitSubagentAgentEnd = (
      * `suppressCompletionSideEffects` flag that the subagent finalize
      * path uses for one-shot internal calls (commit-subject namer,
      * feature-snapshot namer, …). When true, we still fire `agent_end`
-     * so balanced-lifecycle hooks (self-mod baseline cleanup, etc.)
+     * so balanced-lifecycle hooks
      * run, but `services` is intentionally minimal so post-finalize
      * side-effect hooks (dream notify, thread summaries
      * record) self-skip. Pre-migration these were
@@ -317,9 +320,7 @@ const runCompactionWithHooks = async (args: {
   messageCount: number;
 }): Promise<{ compacted: boolean }> => {
   let shouldCompact = true;
-  let hookCompaction:
-    | { summary: string; preserveLastN?: number }
-    | undefined;
+  let hookCompaction: { summary: string; preserveLastN?: number } | undefined;
   if (args.opts.hookEmitter) {
     const hookResult = await args.opts.hookEmitter
       .emit(
@@ -373,11 +374,7 @@ const runCompactionWithHooks = async (args: {
   });
 
   // Only notify observers when an overlay was actually written.
-  if (
-    result.compacted &&
-    args.opts.hookEmitter &&
-    hookCompaction?.summary
-  ) {
+  if (result.compacted && args.opts.hookEmitter && hookCompaction?.summary) {
     void args.opts.hookEmitter
       .emit(
         "session_compact",
@@ -423,18 +420,12 @@ export const finalizeOrchestratorSuccess = async (args: {
         outcome: "success",
       }),
     );
-  if (args.opts.agentType === AGENT_IDS.INSTALL_UPDATE) {
-    // The install-update agent legitimately holds run-end until its child
-    // agents land the update commit — that wait must not be ceilinged.
-    await runBeforeRunEnd();
-  } else {
-    await boundedFinalizeStage({
-      stage: "beforeRunEnd",
-      runId: args.runId,
-      fallback: undefined,
-      work: runBeforeRunEnd,
-    });
-  }
+  await boundedFinalizeStage({
+    stage: "beforeRunEnd",
+    runId: args.runId,
+    fallback: undefined,
+    work: runBeforeRunEnd,
+  });
 
   // Estimated orchestrator thread size on the same basis the compaction
   // trigger uses, so post-finalize hooks can drive the token-interval Dream
@@ -455,10 +446,10 @@ export const finalizeOrchestratorSuccess = async (args: {
     });
   }
 
-  const selfModApplied = await boundedFinalizeStage({
+  await boundedFinalizeStage({
     stage: "agent_end-hooks",
     runId: args.runId,
-    fallback: null,
+    fallback: undefined,
     work: () =>
       emitAgentEndHook(args.opts, {
         finalText: args.finalText,
@@ -479,7 +470,6 @@ export const finalizeOrchestratorSuccess = async (args: {
   args.opts.callbacks.onEnd(
     args.runEvents.recordRunEnd({
       finalText: args.finalText,
-      ...(selfModApplied ? { selfModApplied } : {}),
       ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
     }),
   );

@@ -2,20 +2,21 @@ import { createElement } from "react";
 import { ChatPanelTab, type ChatPanelOpenRequest } from "@/shell/ChatSidebar";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useChatMessages } from "@/context/use-chat-messages";
-import { StoreSidePanel } from "@/features/store/StoreSidePanel";
 import { TrashTabContent } from "./TrashTabContent";
 import { HomeLauncherTab } from "./HomeLauncherTab";
 import { MediaTabContent } from "./tab-content";
 import { CanvasTabContent } from "./canvas-tab/CanvasTabContent";
 import { getCanvasHtmlItems } from "./canvas-tab/canvas-items";
-import { displayTabs, useDisplayPanelExpanded } from "@/features/workspace-display/tab-store";
+import {
+  displayTabs,
+  useDisplayPanelExpanded,
+} from "@/features/workspace-display/tab-store";
 import { engineOverlay } from "./engine-overlay-store";
 import {
   CANVAS_DISPLAY_TAB_ID,
   CHAT_DISPLAY_TAB_ID,
   HOME_DISPLAY_TAB_ID,
   MEDIA_DISPLAY_TAB_ID,
-  STORE_DISPLAY_TAB_ID,
   TRASH_DISPLAY_TAB_ID,
   registerWorkspaceDefaultTabs,
 } from "@/features/workspace-display/default-tabs";
@@ -27,7 +28,6 @@ export {
   CHAT_DISPLAY_TAB_ID,
   HOME_DISPLAY_TAB_ID,
   MEDIA_DISPLAY_TAB_ID,
-  STORE_DISPLAY_TAB_ID,
   TRASH_DISPLAY_TAB_ID,
 } from "@/features/workspace-display/default-tabs";
 
@@ -116,16 +116,6 @@ export function ensureChatDisplayTab(): void {
   openChatDisplayTab(null, { activate: false, openPanel: false });
 }
 
-export function openStoreDisplayTab(): void {
-  displayTabs.openTab({
-    id: STORE_DISPLAY_TAB_ID,
-    kind: "store",
-    title: "Store",
-    tooltip: "Your add-ons + recent changes",
-    render: () => createElement(StoreSidePanel),
-  });
-}
-
 export function openTrashDisplayTab(): void {
   displayTabs.openTab({
     id: TRASH_DISPLAY_TAB_ID,
@@ -182,7 +172,6 @@ registerWorkspaceDefaultTabs({
     openChatDisplayTab(openRequest as ChatPanelOpenRequest | null, opts),
   openHomeDisplayTab,
   ensureChatDisplayTab,
-  openStoreDisplayTab,
   openTrashDisplayTab,
   openEngineDisplayTab,
   openMediaDisplayTab,

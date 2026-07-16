@@ -57,13 +57,12 @@ The loader also imports extension folders that have `index.ts`. Those factories 
 - `registerPrompt(prompt)`
 - `on(event, handler, filter?)`
 
-The factory's second argument is `ExtensionServices`. Use it for runtime-owned services such as `stellaDataDir`, `stellaAppDir`, `store`, and `selfModMonitor` instead of reaching through runner internals.
+The factory's second argument is `ExtensionServices`. Use it for runtime-owned services such as `stellaDataDir`, `stellaAppDir`, and `store` instead of reaching through runner internals.
 
 ## Built-In Stella Runtime
 
 Stella-specific behavior should live in `runtime/extensions/stella-runtime/`, not as hardcoded branches in the kernel. Existing hooks there cover:
 
-- Self-mod baseline capture and detect-applied
 - Stale-user and dynamic-memory reminders
 - Memory injection cadence and bundle assembly
 - Memory review, Dream scheduler notifications, home suggestion refresh, and thread-summary recording

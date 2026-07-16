@@ -21,7 +21,7 @@ export const createNodeReplTool = (
     name: "node_repl",
     agentTypes: [AGENT_IDS.GENERAL],
     description:
-      "Run JavaScript in a persistent Node REPL with top-level await. Setup is already done: bindings persist between calls; nodeRepl exposes write/emitImage and cwd/home/tmp; frozen sky controls desktop apps; frozen browser controls owned browser tabs; and frozen tools exposes this agent's allowed Stella tools. Use Promise.all with tools methods for independent calls. Nested tools preserve normal permissions, cancellation, file tracking, produced-file tracking, and self-mod behavior. Batch dependent browser/computer actions in one cell, then observe only when the next action needs fresh state. Use fresh element IDs from the latest sky app state.",
+      "Run JavaScript in a persistent Node REPL with top-level await. Setup is already done: bindings persist between calls; nodeRepl exposes write/emitImage and cwd/home/tmp; frozen sky controls desktop apps; frozen browser controls owned browser tabs; and frozen tools exposes this agent's allowed Stella tools. Use Promise.all with tools methods for independent calls. Nested tools preserve normal permissions, cancellation, file tracking, and produced-file tracking. Batch dependent browser/computer actions in one cell, then observe only when the next action needs fresh state. Use fresh element IDs from the latest sky app state.",
     promptSnippet:
       "Run persistent JavaScript, orchestrate allowed Stella tools, and control apps through frozen sky/browser clients",
     parameters: {
@@ -57,7 +57,8 @@ export const createNodeReplTool = (
           ...(extras?.onUpdate ? { onToolUpdate: extras.onUpdate } : {}),
           onToolResult: (nested) => {
             if (nested.fileChanges) fileChanges.push(...nested.fileChanges);
-            if (nested.producedFiles) producedFiles.push(...nested.producedFiles);
+            if (nested.producedFiles)
+              producedFiles.push(...nested.producedFiles);
           },
         });
         return {

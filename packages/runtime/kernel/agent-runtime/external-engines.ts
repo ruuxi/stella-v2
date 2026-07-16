@@ -1182,23 +1182,14 @@ export const runExternalOrchestratorTurn = async (
     return null;
   }
 
-  // Self-mod baseline capture is performed by the bundled self-mod hook on
-  // `before_agent_start`; the matching detect-applied runs on `agent_end`
-  // and threads the result onto RuntimeEndEvent.selfModApplied.
   const session = createExternalOrchestratorRunSession(opts, {
     runId: opts.runId ?? `local:${crypto.randomUUID()}`,
   });
   const liveAgent = createExternalLiveAgent();
 
   try {
-    // Thread `session.runId` into the prompt build so the
-    // `before_agent_start` hook's payload carries the run id. Without
-    // this, the bundled self-mod hook bails (it requires `payload.runId`
-    // to key its baseline cache), the cache stays empty, and the
-    // matching `agent_end` finds no entry — silently breaking the
-    // morph overlay for the Claude Code orchestrator path. The Pi
-    // path threads the session runId through `OrchestratorSession.runTurn`
-    // already; mirror that here.
+    // Thread `session.runId` into the prompt build so lifecycle hooks receive
+    // the same run identity as the native engine path.
     const systemPrompt = await buildRuntimeSystemPrompt({
       ...opts,
       runId: session.runId,
@@ -1339,9 +1330,7 @@ export const runExternalSubagentTurn = async (
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
       },
     });
-    // Thread session.runId so a future `triggersSelfModDetection`
-    // subagent (none today) would have the same baseline-capture
-    // wiring as the orchestrator.
+    // Thread session.runId so subagent hooks receive stable run identity.
     const systemPrompt = await buildSubagentSystemPrompt({
       ...opts,
       runId: session.runId,

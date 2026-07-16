@@ -1,5 +1,5 @@
 /**
- * HMR / self-mod morph timing — overlay `MorphTransition` + `hmr-morph.ts` only.
+ * Shared morph timing for the overlay transition.
  * (Onboarding demo morphs keep separate constants for isolation; values are aligned manually.)
  *
  * Design principle: the morph cover should hide the entire visible renderer

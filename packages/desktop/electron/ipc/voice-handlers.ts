@@ -225,18 +225,6 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
     });
   };
 
-  const emitVoiceHmrState = (state: unknown) => {
-    const miniWindow = options.windowManager.getMiniWindow();
-    const fullWindow = options.windowManager.getFullWindow();
-    const targetWindow =
-      options.uiState.window === "mini"
-        ? (miniWindow ?? fullWindow)
-        : (fullWindow ?? miniWindow);
-    if (targetWindow && !targetWindow.isDestroyed()) {
-      targetWindow.webContents.send("agent:selfModHmrState", state);
-    }
-  };
-
   const broadcastRuntimeState = () => {
     const windows = options.windowManager.getAllWindows();
     const petWindow = options.getPetWindow?.() ?? null;
@@ -662,9 +650,6 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
             statusText: event.statusText,
           });
         },
-        onSelfModHmrState: (state) => {
-          emitVoiceHmrState(state);
-        },
         onRunFinished: (event) => {
           if (event.outcome === "error") {
             console.error(
@@ -691,10 +676,7 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
 
   ipcMain.handle(
     IPC_VOICE_EXECUTE_TOOL,
-    async (
-      _event,
-      payload: RuntimeVoiceToolCallPayload,
-    ) => {
+    async (_event, payload: RuntimeVoiceToolCallPayload) => {
       if (!options.uiState.isVoiceRtcActive) {
         throw new Error("Voice mode is no longer active.");
       }

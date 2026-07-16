@@ -12,7 +12,6 @@ import type {
 } from "@/features/chat/lib/event-transforms";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
-import type { SelfModApplied } from "@/features/chat/self-mod-types";
 import { toolActivityEqual } from "@/features/chat/lib/tool-activity";
 import type {
   AssistantRowViewModel,
@@ -71,29 +70,6 @@ const channelEnvelopeEqual = (
     a.kind === b.kind &&
     reactionsEqual(a.reactions, b.reactions)
   );
-};
-
-const selfModAppliedEqual = (
-  a: SelfModApplied | undefined,
-  b: SelfModApplied | undefined,
-): boolean => {
-  if (a === b) return true;
-  if (!a || !b) return a === b;
-  if (a.commitHash !== b.commitHash || a.batchIndex !== b.batchIndex) {
-    return false;
-  }
-  if ((a.status ?? "applied") !== (b.status ?? "applied")) {
-    return false;
-  }
-  if (a.files.length !== b.files.length) {
-    return false;
-  }
-  for (let i = 0; i < a.files.length; i += 1) {
-    if (a.files[i] !== b.files[i]) {
-      return false;
-    }
-  }
-  return true;
 };
 
 const scheduleReceiptEqual = (
@@ -370,7 +346,9 @@ const mapArtifactsEqual = (
     // Artifacts are immutable once persisted; id + marker count + polyline
     // identity is enough to detect a different payload on the same slot.
     if (a[i].map.markers.length !== b[i].map.markers.length) return false;
-    if ((a[i].map.route?.polyline ?? null) !== (b[i].map.route?.polyline ?? null))
+    if (
+      (a[i].map.route?.polyline ?? null) !== (b[i].map.route?.polyline ?? null)
+    )
       return false;
   }
   return true;
@@ -406,7 +384,6 @@ const assistantRowEqual = (
   sourceDiffPayloadsEqual(a.sourceDiffPayloads, b.sourceDiffPayloads) &&
   webSearchResultsEqual(a.webSearchResults, b.webSearchResults) &&
   mapArtifactsEqual(a.mapArtifacts, b.mapArtifacts) &&
-  selfModAppliedEqual(a.selfModApplied, b.selfModApplied) &&
   scheduleReceiptEqual(a.scheduleReceipt, b.scheduleReceipt) &&
   backgroundWorkEqual(a.backgroundWork, b.backgroundWork) &&
   agentCompletionEqual(a.agentCompletion, b.agentCompletion) &&

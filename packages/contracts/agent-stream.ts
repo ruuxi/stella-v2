@@ -5,13 +5,6 @@ import type {
   TaskToolActivity,
 } from "./agent-runtime.js";
 
-export type SelfModAppliedData = {
-  featureId: string;
-  files: string[];
-  batchIndex: number;
-  status?: "pending" | "applied";
-};
-
 export type AgentResponseTarget =
   | { type: "user_turn" }
   | { type: "agent_turn"; agentId: string }
@@ -43,7 +36,6 @@ export type AgentStreamEvent = {
   fatal?: boolean;
   finalText?: string;
   persisted?: boolean;
-  selfModApplied?: SelfModAppliedData;
   agentId?: string;
   agentType?: AgentIdLike;
   description?: string;

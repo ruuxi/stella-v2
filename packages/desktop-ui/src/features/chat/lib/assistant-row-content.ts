@@ -30,7 +30,6 @@ export const assistantRowHasVisibleContent = (
   (row.webSearchResults?.length ?? 0) > 0 ||
   (row.mapArtifacts?.length ?? 0) > 0 ||
   (row.sourceDiffPayloads?.length ?? 0) > 0 ||
-  Boolean(row.selfModApplied) ||
   Boolean(row.customSlot) ||
   (row.scheduleReceipt?.affected.length ?? 0) > 0 ||
   Boolean(row.voiceSession) ||

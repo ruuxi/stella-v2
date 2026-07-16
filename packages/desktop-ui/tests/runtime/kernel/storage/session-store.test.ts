@@ -64,7 +64,6 @@ describe("session-store", () => {
         agent_depth INTEGER NOT NULL,
         max_agent_depth INTEGER,
         parent_agent_id TEXT,
-        self_mod_metadata_json TEXT,
         status TEXT NOT NULL,
         started_at INTEGER NOT NULL,
         completed_at INTEGER,

@@ -20,7 +20,7 @@ jobs:
               owner,
               repo,
               issue_number: number,
-              body: "Thanks for the interest! Stella isn't accepting external pull requests right now — feel free to fork and modify your own copy. (Stella is self-modifying by design, so individual installs already diverge.)",
+              body: "Thanks for the interest! Stella isn't accepting external pull requests right now — feel free to fork and modify your own copy. Individual installs are locally owned and may diverge.",
             });
             await github.rest.pulls.update({
               owner,

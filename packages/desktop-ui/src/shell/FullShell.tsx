@@ -16,7 +16,6 @@ import { useBootstrapState } from "@/bootstrap/bootstrap-state";
 import { useWindowType } from "@/shared/hooks/use-window-type";
 import { router } from "@/router";
 import { ShiftingGradient } from "./background/ShiftingGradient";
-import { MorphInputAbsorber } from "./MorphInputAbsorber";
 import { AskStellaSelectionChip } from "./selection/AskStellaSelectionChip";
 import "./full-shell.layout.css";
 import "./mobile.css";
@@ -34,9 +33,8 @@ const onboardingChunkPromise: { current: Promise<unknown> | null } = {
 };
 const loadOnboardingChunk = () => {
   if (!onboardingChunkPromise.current) {
-    onboardingChunkPromise.current = import(
-      "@/global/onboarding/OnboardingOverlay"
-    );
+    onboardingChunkPromise.current =
+      import("@/global/onboarding/OnboardingOverlay");
   }
   return onboardingChunkPromise.current;
 };
@@ -229,8 +227,6 @@ export const FullShell = () => {
         colorMode={gradientColor}
         lightweight={false}
       />
-      <MorphInputAbsorber />
-
       <div className="full-body">
         {appReady ? (
           <>

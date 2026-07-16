@@ -1,6 +1,3 @@
-import crypto from "crypto";
-import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   runOrchestratorTurn,
   type RuntimeRunCallbacks,
@@ -18,199 +15,11 @@ import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
-import {
-  AGENT_IDS,
-  agentControlsSelfModHmr,
-  agentHasCapability,
-} from "@stella/contracts/agent-runtime";
-import { extractApplyPatchTargetPaths } from "../tools/apply-patch.js";
-import { resolveToolPath } from "../tools/path-inference.js";
-import { isKnownSafeCommand } from "../tools/safe-commands.js";
-import type { ToolContext, ToolResult } from "../tools/types.js";
-import type {
-  FileChangeRecord,
-  ProducedFileRecord,
-} from "@stella/contracts/file-changes";
+import { agentHasCapability } from "@stella/contracts/agent-runtime";
 
 type BuildAgentContext = (
   args: BuildAgentContextArgs,
 ) => Promise<LocalAgentContext>;
-
-const waitForBackgroundAgentsForRootRun = async (
-  context: RunnerContext,
-  runId: string,
-  abortSignal?: AbortSignal,
-) => {
-  while (
-    context.state.localAgentManager
-      ?.listActiveAgentRuns()
-      .some((agentRun) => agentRun.runId === runId)
-  ) {
-    if (abortSignal?.aborted) {
-      return;
-    }
-    await delay(250, undefined, { signal: abortSignal }).catch(() => undefined);
-  }
-};
-
-type OrchestratorSelfModMetadata = NonNullable<
-  Parameters<BuildAgentContext>[0]["selfModMetadata"]
->;
-
-const collectWrittenPaths = (
-  records: ReadonlyArray<FileChangeRecord | ProducedFileRecord> | undefined,
-): string[] => {
-  if (!records || records.length === 0) return [];
-  const out: string[] = [];
-  for (const record of records) {
-    if (typeof record.path === "string" && record.path.length > 0) {
-      out.push(record.path);
-    }
-    if (record.kind.type === "update" && record.kind.move_path) {
-      out.push(record.kind.move_path);
-    }
-  }
-  return out;
-};
-
-const resolveExpectedSelfModWritePaths = (
-  metadata: OrchestratorSelfModMetadata | undefined,
-  stellaAppDir: string | undefined,
-): string[] => {
-  const root = stellaAppDir?.trim();
-  const expected = metadata?.expectedChangedFiles;
-  if (!root || !Array.isArray(expected) || expected.length === 0) return [];
-  const out = new Set<string>();
-  for (const filePath of expected) {
-    const trimmed = filePath.trim();
-    if (!trimmed) continue;
-    out.add(path.isAbsolute(trimmed) ? trimmed : path.join(root, trimmed));
-  }
-  return [...out];
-};
-
-const inferPreWritePaths = (
-  toolName: string,
-  args: Record<string, unknown>,
-  context: ToolContext,
-): string[] => {
-  if (toolName === "apply_patch") {
-    const patch = String(args.input ?? args.patch ?? "").trim();
-    if (!patch) return [];
-    try {
-      return extractApplyPatchTargetPaths(patch)
-        .map((target) => resolveToolPath(target, args, context))
-        .filter((target): target is string => Boolean(target));
-    } catch {
-      return [];
-    }
-  }
-
-  if (
-    toolName === "Write" ||
-    toolName === "Edit" ||
-    toolName === "StrReplace"
-  ) {
-    const resolved = resolveToolPath(args.file_path, args, context);
-    return resolved ? [resolved] : [];
-  }
-
-  return [];
-};
-
-const getShellExecutionState = (
-  result: ToolResult,
-): { sessionId: string | null; running: boolean } | null => {
-  const payload = result.details ?? result.result;
-  if (typeof payload === "string") {
-    const match = payload.match(/\bShell ID:\s*([^\s]+)/);
-    if (match) {
-      return { sessionId: match[1] ?? null, running: true };
-    }
-  }
-  if (!payload || typeof payload !== "object") return null;
-  const record = payload as { session_id?: unknown; running?: unknown };
-  if (typeof record.running !== "boolean") return null;
-  return {
-    sessionId: typeof record.session_id === "string" ? record.session_id : null,
-    running: record.running,
-  };
-};
-
-const normalizeNestedToolName = (raw: unknown): string => {
-  const value = typeof raw === "string" ? raw.trim() : "";
-  return value.startsWith("functions.")
-    ? value.slice("functions.".length)
-    : value;
-};
-
-const getParallelToolEntries = (
-  args: Record<string, unknown>,
-): Array<{ toolName: string; parameters: Record<string, unknown> }> => {
-  if (!Array.isArray(args.tool_uses)) return [];
-  const out: Array<{ toolName: string; parameters: Record<string, unknown> }> =
-    [];
-  for (const entry of args.tool_uses) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as { recipient_name?: unknown; parameters?: unknown };
-    const toolName = normalizeNestedToolName(record.recipient_name);
-    const parameters =
-      record.parameters && typeof record.parameters === "object"
-        ? (record.parameters as Record<string, unknown>)
-        : {};
-    out.push({ toolName, parameters });
-  }
-  return out;
-};
-
-const parallelContainsShellCommand = (args: Record<string, unknown>): boolean =>
-  getParallelToolEntries(args).some(
-    (entry) => entry.toolName === "exec_command",
-  );
-
-const isReadOnlyShellCommand = (args: Record<string, unknown>): boolean => {
-  const command =
-    typeof args.cmd === "string"
-      ? args.cmd
-      : typeof args.command === "string"
-        ? args.command
-        : "";
-  return command.trim().length > 0 && isKnownSafeCommand(command);
-};
-
-const parallelContainsGuardedShellCommand = (
-  args: Record<string, unknown>,
-): boolean =>
-  getParallelToolEntries(args).some(
-    (entry) =>
-      entry.toolName === "exec_command" &&
-      !isReadOnlyShellCommand(entry.parameters),
-  );
-
-const getParallelRunningShellSessions = (result: ToolResult): string[] => {
-  const details = result.details;
-  if (!details || typeof details !== "object") return [];
-  const results = (details as { results?: unknown }).results;
-  if (!Array.isArray(results)) return [];
-  const sessionIds: string[] = [];
-  for (const entry of results) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as {
-      tool_name?: unknown;
-      result?: unknown;
-      details?: unknown;
-    };
-    if (record.tool_name !== "exec_command") continue;
-    const shellState = getShellExecutionState({
-      result: record.result,
-      details: record.details,
-    });
-    if (shellState?.running && shellState.sessionId) {
-      sessionIds.push(shellState.sessionId);
-    }
-  }
-  return sessionIds;
-};
 
 export type PreparedOrchestratorRun = {
   runId: string;
@@ -229,7 +38,6 @@ export type PreparedOrchestratorRun = {
     externalMessageId?: string;
   };
   toolWorkspaceRoot?: string;
-  selfModMetadata?: OrchestratorSelfModMetadata;
   agentContext: LocalAgentContext;
   resolvedLlm: ResolvedLlmRoute;
   abortController: AbortController;
@@ -259,7 +67,6 @@ export const prepareOrchestratorRun = async (args: {
     provider?: string;
     externalMessageId?: string;
   };
-  selfModMetadata?: Parameters<BuildAgentContext>[0]["selfModMetadata"];
   toolWorkspaceRoot?: string;
 }): Promise<PreparedOrchestratorRun> => {
   const isUserTurn = args.uiVisibility !== "hidden";
@@ -286,9 +93,6 @@ export const prepareOrchestratorRun = async (args: {
       conversationId: args.conversationId,
       agentType: args.agentType,
       runId: args.runId,
-      ...(args.selfModMetadata
-        ? { selfModMetadata: args.selfModMetadata }
-        : {}),
       ...(args.toolWorkspaceRoot
         ? { toolWorkspaceRoot: args.toolWorkspaceRoot }
         : {}),
@@ -332,9 +136,6 @@ export const prepareOrchestratorRun = async (args: {
       ...(args.toolWorkspaceRoot
         ? { toolWorkspaceRoot: args.toolWorkspaceRoot }
         : {}),
-      ...(args.selfModMetadata
-        ? { selfModMetadata: args.selfModMetadata }
-        : {}),
       agentContext,
       resolvedLlm,
       abortController,
@@ -368,379 +169,69 @@ export const launchPreparedOrchestratorRun = (args: {
 }): void => {
   const { prepared, context } = args;
 
-  // Long-lived per-conversation session for the Pi engine path. The Pi
-  // path inside `runOrchestratorTurn` routes through `session.runTurn(opts)`
-  // so the underlying `Agent` (and its `state.messages`) survives across
-  // turns. External engines ignore the session and use their own per-turn
-  // flow.
   const orchestratorSession = getOrCreateOrchestratorSession(
     context.state.orchestratorSessions,
     prepared.conversationId,
   );
 
-  const shouldAttachSelfModLifecycle =
-    agentControlsSelfModHmr(prepared.agentType) &&
-    Boolean(context.selfModLifecycle);
-  let selfModLifecycleClosed = !shouldAttachSelfModLifecycle;
-  // Whether THIS run actually performed self-mod work (recorded write paths
-  // or took the shell mutation guard). Attaching the lifecycle alone must not
-  // count: a purely-delegating orchestrator turn (spawn/resume background
-  // agents, answer, done) has no delta to protect, and holding its run-end
-  // hostage to hours-long children makes the whole conversation read as
-  // "busy" forever after the reply.
-  let selfModWorkObserved = false;
-  const guardedShellSessionLeases = new Map<string, Set<string>>();
-  const guardedShellLeaseSessions = new Map<string, string>();
-
-  const endShellMutationGuard = async () => {
-    const result = await context.selfModHmrController
-      ?.endShellMutationGuard()
-      .catch((error) => {
-        console.warn(
-          "[self-mod-hmr] failed to end shell mutation guard:",
-          (error as Error).message,
-        );
-        return null;
-      });
-    if (result?.ok && result.changedPaths.length > 0) {
-      try {
-        await recordWritePaths(
-          result.changedPaths.map((repoRelativePath) =>
-            context.stellaAppDir
-              ? `${context.stellaAppDir}/${repoRelativePath}`
-              : repoRelativePath,
-          ),
-        );
-      } catch (error) {
-        console.warn(
-          "[self-mod-hmr] failed to record suppressed shell updates:",
-          (error as Error).message,
-        );
-      }
-    }
-  };
-
-  const retainShellGuardLease = (sessionIds: string[]): boolean => {
-    const uniqueSessionIds = [...new Set(sessionIds.filter(Boolean))];
-    if (uniqueSessionIds.length === 0) return false;
-    const leaseId = crypto.randomUUID();
-    const sessions = new Set(uniqueSessionIds);
-    guardedShellSessionLeases.set(leaseId, sessions);
-    for (const sessionId of sessions) {
-      guardedShellLeaseSessions.set(sessionId, leaseId);
-    }
-    return true;
-  };
-
-  const releaseShellSessionGuard = async (sessionId: string) => {
-    const leaseId = guardedShellLeaseSessions.get(sessionId);
-    if (!leaseId) return;
-    const sessions = guardedShellSessionLeases.get(leaseId);
-    if (!sessions) return;
-    sessions.delete(sessionId);
-    guardedShellLeaseSessions.delete(sessionId);
-    if (sessions.size === 0) {
-      guardedShellSessionLeases.delete(leaseId);
-      await endShellMutationGuard();
-    }
-  };
-
-  const recordWritePaths = async (
-    paths: string[],
-    options?: { captureSnapshot?: boolean },
-  ) => {
-    if (!shouldAttachSelfModLifecycle || !context.selfModHmrController) {
-      return;
-    }
-    if (paths.length === 0) return;
-    selfModWorkObserved = true;
-    await context.selfModHmrController.recordWrite(
-      prepared.runId,
-      paths,
-      options,
-    );
-  };
-
-  const recordToolWrites = async (event: {
-    fileChanges?: FileChangeRecord[];
-    producedFiles?: ProducedFileRecord[];
-  }) => {
-    const paths = [
-      ...collectWrittenPaths(event.fileChanges),
-      ...collectWrittenPaths(event.producedFiles),
-    ];
-    try {
-      await recordWritePaths(paths);
-    } catch (error) {
-      console.warn(
-        "[self-mod-hmr] recordWrite failed (continuing):",
-        (error as Error).message,
-      );
-    }
-  };
-
-  const toolExecutor: Parameters<
-    typeof runOrchestratorTurn
-  >[0]["toolExecutor"] = async (
-    toolName,
-    toolArgs,
-    toolContext,
-    signal,
-    onUpdate,
-  ) => {
-    const isShellCommand = toolName === "exec_command";
-    const shouldGuardShellCommand =
-      isShellCommand && !isReadOnlyShellCommand(toolArgs);
-    const isShellPoll = toolName === "write_stdin";
-    const isParallelWithShellCommands =
-      toolName === "multi_tool_use_parallel" &&
-      parallelContainsShellCommand(toolArgs);
-    const isParallelWithGuardedShellCommands =
-      toolName === "multi_tool_use_parallel" &&
-      parallelContainsGuardedShellCommand(toolArgs);
-    const shellSessionId =
-      typeof toolArgs.session_id === "string" ? toolArgs.session_id : null;
-    const isGuardedShellPoll =
-      isShellPoll && shellSessionId
-        ? guardedShellLeaseSessions.has(shellSessionId)
-        : false;
-    let shellGuardActive = false;
-    if (
-      (shouldGuardShellCommand || isParallelWithGuardedShellCommands) &&
-      shouldAttachSelfModLifecycle
-    ) {
-      shellGuardActive = Boolean(
-        await context.selfModHmrController
-          ?.beginShellMutationGuard()
-          .catch((error) => {
-            console.warn(
-              "[self-mod-hmr] failed to begin shell mutation guard:",
-              (error as Error).message,
-            );
-            return false;
-          }),
-      );
-      if (shellGuardActive) {
-        // A guarded mutating shell may write paths the engine never reports;
-        // treat the guard itself as self-mod work for run-end gating.
-        selfModWorkObserved = true;
-      }
-      if (
-        !shellGuardActive &&
-        prepared.agentType !== AGENT_IDS.INSTALL_UPDATE
-      ) {
-        return {
-          error:
-            "Self-mod HMR shell guard failed before running a mutating shell command.",
-        };
-      }
-      if (!shellGuardActive) {
-        console.warn(
-          "[self-mod-hmr] shell mutation guard unavailable for install-update; running bounded update command without HMR guard.",
-        );
-      }
-    }
-
-    try {
-      const preWritePaths = inferPreWritePaths(toolName, toolArgs, toolContext);
-      if (preWritePaths.length > 0) {
-        try {
-          await recordWritePaths(preWritePaths, { captureSnapshot: false });
-        } catch (error) {
-          console.warn(
-            "[self-mod-hmr] pre-write recordWrite failed:",
-            (error as Error).message,
-          );
-          return {
-            error: `Self-mod HMR tracking failed before write: ${(error as Error).message}`,
-          };
-        }
-      }
-
-      const result = await context.toolHost.executeTool(
+  void runOrchestratorTurn({
+    runId: prepared.runId,
+    conversationId: prepared.conversationId,
+    userMessageId: args.userMessageId,
+    agentType: prepared.agentType,
+    userPrompt: prepared.userPrompt,
+    ...(prepared.uiVisibility ? { uiVisibility: prepared.uiVisibility } : {}),
+    ...(prepared.promptMessages?.length
+      ? { promptMessages: prepared.promptMessages }
+      : {}),
+    ...(prepared.responseTarget
+      ? { responseTarget: prepared.responseTarget }
+      : {}),
+    attachments: prepared.attachments,
+    ...(prepared.connectorDeliveryTarget
+      ? { connectorDeliveryTarget: prepared.connectorDeliveryTarget }
+      : {}),
+    agentContext: prepared.agentContext,
+    callbacks: args.runtimeCallbacks,
+    toolCatalog: context.toolHost.getToolCatalog(prepared.agentType, {
+      model: prepared.resolvedLlm.toolPolicyModel ?? prepared.resolvedLlm.model,
+      agentEngine: prepared.agentContext.agentEngine,
+      includeDeferred: true,
+    }),
+    toolExecutor: async (toolName, toolArgs, toolContext, signal, onUpdate) =>
+      await context.toolHost.executeTool(
         toolName,
         toolArgs,
         toolContext,
         signal,
         onUpdate,
-      );
-      if (isShellCommand || isParallelWithShellCommands || isGuardedShellPoll) {
-        await recordToolWrites({
-          fileChanges: result.fileChanges,
-          producedFiles: result.producedFiles,
-        });
-      }
-      const shellState = getShellExecutionState(result);
-      if (
-        isShellCommand &&
-        shellGuardActive &&
-        shellState?.running &&
-        shellState.sessionId
-      ) {
-        if (retainShellGuardLease([shellState.sessionId])) {
-          shellGuardActive = false;
-        }
-      } else if (isParallelWithShellCommands && shellGuardActive) {
-        const runningSessionIds = getParallelRunningShellSessions(result);
-        if (retainShellGuardLease(runningSessionIds)) {
-          shellGuardActive = false;
-        }
-      } else if (
-        isGuardedShellPoll &&
-        shellSessionId &&
-        (shellState?.running === false || shellState == null)
-      ) {
-        await releaseShellSessionGuard(shellSessionId);
-      }
-      return result;
-    } finally {
-      if (shellGuardActive) {
-        await endShellMutationGuard();
-      }
+      ),
+    deviceId: context.deviceId,
+    stellaDataDir: context.stellaDataDir,
+    ...(context.cliBridgeSocketPath
+      ? { cliBridgeSocketPath: context.cliBridgeSocketPath }
+      : {}),
+    resolvedLlm: prepared.resolvedLlm,
+    store: context.runtimeStore,
+    abortSignal: prepared.abortController.signal,
+    stellaAppDir: context.stellaAppDir,
+    ...(prepared.toolWorkspaceRoot
+      ? { toolWorkspaceRoot: prepared.toolWorkspaceRoot }
+      : {}),
+    hookEmitter: context.hookEmitter,
+    onExecutionSessionCreated: args.onExecutionSessionCreated,
+    orchestratorSession,
+    compactionScheduler: context.state.compactionScheduler,
+    ...(prepared.userTurnsSinceMemoryReview != null
+      ? { userTurnsSinceMemoryReview: prepared.userTurnsSinceMemoryReview }
+      : {}),
+  }).catch((error) => {
+    if (isReportedOrchestratorError(error)) {
+      return;
     }
-  };
-
-  void (async () => {
-    if (shouldAttachSelfModLifecycle) {
-      // Only install-update reaches this path (controlsSelfModHmr), so a
-      // missing metadata payload still means a desktop update.
-      const selfModMetadata = prepared.selfModMetadata ?? {
-        mode: "desktop-update" as const,
-      };
-      await context.selfModHmrController?.beginRun(prepared.runId);
-      const expectedWritePaths = resolveExpectedSelfModWritePaths(
-        selfModMetadata,
-        context.stellaAppDir,
-      );
-      if (expectedWritePaths.length > 0) {
-        await Promise.resolve(
-          context.selfModHmrController?.recordWrite(
-            prepared.runId,
-            expectedWritePaths,
-            {
-              captureSnapshot: false,
-            },
-          ),
-        ).catch((error) => {
-          console.warn(
-            "[self-mod-hmr] failed to pre-track expected self-mod update paths:",
-            (error as Error).message,
-          );
-        });
-      }
-      await Promise.resolve(
-        context.selfModLifecycle!.beginRun({
-          runId: prepared.runId,
-          taskDescription: "Install Stella update",
-          taskPrompt: prepared.userPrompt,
-          conversationId: prepared.conversationId,
-          ...selfModMetadata,
-        }),
-      );
-    }
-
-    await runOrchestratorTurn({
-      runId: prepared.runId,
-      conversationId: prepared.conversationId,
-      userMessageId: args.userMessageId,
-      agentType: prepared.agentType,
-      userPrompt: prepared.userPrompt,
-      ...(prepared.uiVisibility ? { uiVisibility: prepared.uiVisibility } : {}),
-      ...(prepared.promptMessages?.length
-        ? { promptMessages: prepared.promptMessages }
-        : {}),
-      ...(prepared.responseTarget
-        ? { responseTarget: prepared.responseTarget }
-        : {}),
-      attachments: prepared.attachments,
-      ...(prepared.connectorDeliveryTarget
-        ? { connectorDeliveryTarget: prepared.connectorDeliveryTarget }
-        : {}),
-      agentContext: prepared.agentContext,
-      callbacks: args.runtimeCallbacks,
-      toolCatalog: context.toolHost.getToolCatalog(prepared.agentType, {
-        model:
-          prepared.resolvedLlm.toolPolicyModel ?? prepared.resolvedLlm.model,
-        agentEngine: prepared.agentContext.agentEngine,
-        includeDeferred: true,
-      }),
-      toolExecutor,
-      deviceId: context.deviceId,
-      stellaDataDir: context.stellaDataDir,
-      ...(context.cliBridgeSocketPath
-        ? { cliBridgeSocketPath: context.cliBridgeSocketPath }
-        : {}),
-      resolvedLlm: prepared.resolvedLlm,
-      store: context.runtimeStore,
-      abortSignal: prepared.abortController.signal,
-      stellaAppDir: context.stellaAppDir,
-      ...(prepared.toolWorkspaceRoot
-        ? { toolWorkspaceRoot: prepared.toolWorkspaceRoot }
-        : {}),
-      selfModMonitor: context.selfModMonitor,
-      hookEmitter: context.hookEmitter,
-      onExecutionSessionCreated: args.onExecutionSessionCreated,
-      orchestratorSession,
-      beforeRunEnd: async () => {
-        if (!shouldAttachSelfModLifecycle || selfModLifecycleClosed) {
-          return;
-        }
-        // Hold run-end for background agents ONLY when this run's own
-        // self-mod delta could still be affected by them: the run recorded
-        // self-mod work itself, or it's the install-update agent (whose
-        // children land the update commit the finalize records). A
-        // delegating-only turn (spawn/resume agents, reply, done) must end
-        // immediately — children carry this run's rootRunId for grouping,
-        // and waiting on them held conversations "busy" for the entire
-        // lifetime of hours-long benchmark agents.
-        if (
-          selfModWorkObserved ||
-          prepared.agentType === AGENT_IDS.INSTALL_UPDATE
-        ) {
-          await waitForBackgroundAgentsForRootRun(
-            context,
-            prepared.runId,
-            prepared.abortController.signal,
-          );
-        }
-        await Promise.resolve(
-          context.selfModLifecycle!.finalizeRun({
-            runId: prepared.runId,
-            taskDescription: "Install Stella update",
-            taskPrompt: prepared.userPrompt,
-            conversationId: prepared.conversationId,
-            // Orchestrator's threadKey is the conversationId itself
-            // (`resolveOrchestratorThreadKey`). Recorded as the
-            // `Stella-Thread` trailer so a future revert routes the
-            // notice back to the orchestrator session.
-            threadKey: prepared.conversationId,
-            succeeded: true,
-          }),
-        );
-        selfModLifecycleClosed = true;
-      },
-      compactionScheduler: context.state.compactionScheduler,
-      ...(prepared.userTurnsSinceMemoryReview != null
-        ? { userTurnsSinceMemoryReview: prepared.userTurnsSinceMemoryReview }
-        : {}),
-    });
-  })()
-    .catch((error) => {
-      if (isReportedOrchestratorError(error)) {
-        return;
-      }
-      args.cleanupRun(prepared.runId);
-      args.onFatalError(error);
-    })
-    .finally(() => {
-      if (!shouldAttachSelfModLifecycle || selfModLifecycleClosed) {
-        return;
-      }
-      selfModLifecycleClosed = true;
-      void Promise.resolve(
-        context.selfModLifecycle?.cancelRun?.(prepared.runId),
-      ).catch(() => undefined);
-    });
+    args.cleanupRun(prepared.runId);
+    args.onFatalError(error);
+  });
 };
 
 export const startPreparedOrchestratorRun = async (args: {
@@ -765,7 +256,6 @@ export const startPreparedOrchestratorRun = async (args: {
     provider?: string;
     externalMessageId?: string;
   };
-  selfModMetadata?: Parameters<BuildAgentContext>[0]["selfModMetadata"];
   userMessageId: string;
   cleanupRun: (runId: string, onCleanup?: () => void) => void;
   onFatalError: (error: unknown) => void;
@@ -789,7 +279,6 @@ export const startPreparedOrchestratorRun = async (args: {
     ...(args.connectorDeliveryTarget
       ? { connectorDeliveryTarget: args.connectorDeliveryTarget }
       : {}),
-    ...(args.selfModMetadata ? { selfModMetadata: args.selfModMetadata } : {}),
   });
 
   args.onPrepared?.(prepared);

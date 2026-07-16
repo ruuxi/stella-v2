@@ -1,6 +1,6 @@
 /**
  * File tools: Read, Write, Edit handlers.
- * Self-mod writes are direct filesystem writes; no staging interception.
+ * File writes are direct filesystem writes; no staging interception.
  */
 
 import { promises as fs } from "fs";

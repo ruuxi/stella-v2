@@ -17,7 +17,11 @@ import type { App } from "electron";
  * are backend-owned and are joined with this frontmatter during remote sync.
  */
 export const resolveBundledAgentMetadataDir = (stellaAppDir: string): string => {
+  const resourcesPath = process.env.STELLA_APP_RESOURCES_PATH?.trim();
   const candidates = [
+    ...(resourcesPath
+      ? [path.join(resourcesPath, "runtime", "extensions", "stella-runtime", "agent-metadata")]
+      : []),
     path.join(stellaAppDir, "packages", "runtime", "extensions", "stella-runtime", "agent-metadata"),
     path.join(stellaAppDir, "runtime", "extensions", "stella-runtime", "agent-metadata"),
   ];
@@ -43,7 +47,9 @@ export const resolveDefaultStellaDataDir = (): string =>
   path.join(os.homedir(), ".stella");
 
 export const resolveStellaDataSeedDir = (stellaAppDir: string): string => {
+  const resourcesPath = process.env.STELLA_APP_RESOURCES_PATH?.trim();
   const candidates = [
+    ...(resourcesPath ? [path.join(resourcesPath, "home-seed")] : []),
     path.join(stellaAppDir, "packages", "home-seed"),
     path.join(stellaAppDir, "home-seed"),
   ];

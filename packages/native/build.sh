@@ -148,10 +148,6 @@ build_parakeet_cpp_x64() {
   echo "Build successful: $OUTPUT_DIR/parakeet_cpp_transcriber (x86_64)"
 }
 
-echo "Building disclaim-spawn (macOS)..."
-build_c_universal "disclaim-spawn" "../scripts/disclaim-spawn.c"
-echo "Build successful: $OUTPUT_DIR/disclaim-spawn"
-
 echo "Building window_info (macOS)..."
 build_swift_universal "window_info" "src/window_info.swift" -framework CoreGraphics -framework AppKit -framework ScreenCaptureKit
 echo "Build successful: $OUTPUT_DIR/window_info"

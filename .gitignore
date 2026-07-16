@@ -24,11 +24,9 @@ DEV-CONTEXT.md
 /packages/desktop/.low-resource-build-cache.json
 /packages/desktop/.dev-electron-bundle-fingerprint.json
 /packages/desktop/.electron-dev-app.pid
-/packages/desktop/.electron-dev-runner.pid
-/packages/desktop/.electron-dev-runner.ready
-/packages/desktop/.vite-dev-url
 /packages/desktop/dist-electron/
 /packages/desktop/release/
+/packages/desktop/resources/bun/current/
 /packages/desktop/workspace/
 /packages/desktop/resources/parakeet/*
 !/packages/desktop/resources/parakeet/.gitkeep

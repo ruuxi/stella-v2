@@ -79,7 +79,7 @@ export class ExternalLinkService {
   }
 
   /**
-   * Call in dev with the same base URL Vite uses (from .vite-dev-url), including LAN hosts.
+   * Call in dev with the same fixed loopback base URL used by Vite.
    */
   trustDevServerBaseUrl(baseUrl: string) {
     const trimmed = baseUrl.trim()

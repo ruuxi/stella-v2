@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import { isLowMemoryWindowsDevice } from '../resource-profile.js'
+import { resolveRendererRoot } from '../renderer-location.js'
 
 export type WindowLoadMode = 'full' | 'mini' | 'overlay' | 'pet'
 
@@ -48,7 +49,7 @@ export const loadWindow = (
 
   const entryFile = getWindowEntryFile(options.mode)
   const candidates = [
-    path.resolve(options.electronDir, '../../../dist', entryFile),
+    path.join(resolveRendererRoot(options.electronDir), entryFile),
     path.resolve(options.electronDir, '../dist', entryFile),
   ]
   const filePath =

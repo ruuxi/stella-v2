@@ -49,7 +49,7 @@ export class MiniWindowController {
       mode: 'mini',
       createWindow: () => {
         const isMac = process.platform === 'darwin'
-        const useNativeVibrancy = isMac && process.env.STELLA_STATIC_PREVIEW !== '1'
+        const useNativeVibrancy = isMac
         const windowIcon = !isMac ? resolveAppIconPath(this.options.electronDir) : undefined
         const initial = this.nextInitialBounds
 

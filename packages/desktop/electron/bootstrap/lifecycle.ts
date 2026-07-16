@@ -1,5 +1,5 @@
 import { app, dialog, globalShortcut } from "electron";
-import { writeFileSync } from "node:fs";
+import path from "node:path";
 import { applyDockIcon } from "../app-icon.js";
 import type { BootstrapContext } from "./context.js";
 import { shutdownBootstrapRuntime } from "./resets.js";
@@ -93,13 +93,17 @@ export const registerBootstrapLifecycle = (context: BootstrapContext) => {
     .then(async () => {
       if (app.isPackaged) {
         process.env.STELLA_APP_RESOURCES_PATH = process.resourcesPath;
+        process.env.STELLA_BUN_PATH = path.join(
+          process.resourcesPath,
+          "bin",
+          process.platform === "win32" ? "bun.exe" : "bun",
+        );
       }
       if (process.platform === "darwin") {
         app.dock?.show();
       }
       applyDockIcon(context.config.electronDir);
       await initializeBootstrapApplication(context);
-      applyDockIcon(context.config.electronDir);
     })
     .catch((error) => {
       void handleFatalStartupFailure(error);
@@ -114,15 +118,6 @@ export const registerBootstrapLifecycle = (context: BootstrapContext) => {
       return;
     }
 
-    const devUserQuitRequestFile = process.env.STELLA_DEV_USER_QUIT_REQUEST_FILE;
-    if (devUserQuitRequestFile) {
-      try {
-        writeFileSync(devUserQuitRequestFile, `${process.pid}\n`, "utf8");
-      } catch {
-        // Best-effort dev-supervisor signal; quitting must never depend on it.
-      }
-    }
-
     event.preventDefault();
     context.state.isQuitting = true;
 
@@ -130,7 +125,13 @@ export const registerBootstrapLifecycle = (context: BootstrapContext) => {
       await context.state.processRuntime.runPhase("before-quit");
       await context.state.processRuntime.runPhase("will-quit");
       quitAfterCleanup = true;
-      app.exit(0);
+      // Electron patches process.exit through its app lifecycle; native
+      // modules can therefore keep it alive after the quit event. Every
+      // managed service and child has completed cleanup above, so call Node's
+      // final exit primitive and preserve a clean status code.
+      (
+        process as NodeJS.Process & { reallyExit: (code?: number) => never }
+      ).reallyExit(0);
     })();
   });
 };

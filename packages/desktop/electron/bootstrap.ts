@@ -24,11 +24,15 @@ import {
 import { activateStagedStellaBrowserBinaryForInstall } from './utils/stella-browser-paths.js'
 import { resolvePackagedPromptSiteUrl } from './prompt-site-config.js'
 const __dirname = import.meta.dirname
-const stellaAppDir = path.resolve(__dirname, '..', '..', '..', '..')
+const stellaAppDir = app.isPackaged
+  ? app.getAppPath()
+  : path.resolve(__dirname, '..', '..', '..', '..')
 const stellaDataDirPath = resolveRuntimeStatePath(undefined, stellaAppDir)
 
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
-const useDevServer = isDev && process.env.STELLA_STATIC_PREVIEW !== '1'
+// app.isPackaged is the authority. Environment variables inherited from a
+// terminal or launcher must never turn a signed build back into a Vite client.
+const isDev = !app.isPackaged
+const useDevServer = isDev
 const installDevBrokenPipeGuards = () => {
   if (!isDev) {
     return

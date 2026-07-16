@@ -34,7 +34,7 @@ export type MicrophonePermissionStatus =
   | 'unknown'
 
 const permissionCache = new Map<MacPermissionKind, boolean>()
-const STELLA_BUNDLE_IDS = ['com.stella.app', 'com.github.Electron'] as const
+const STELLA_BUNDLE_ID = 'com.stella.app'
 
 const TCC_SERVICE_BY_KIND: Record<
   'accessibility' | 'screen' | 'microphone',
@@ -159,12 +159,11 @@ export const resetMacPermission = async (
   if (process.platform !== 'darwin') return false
 
   const service = TCC_SERVICE_BY_KIND[kind]
-  const results = await Promise.all(
-    STELLA_BUNDLE_IDS.map((bundleId) =>
-      runExecFile('tccutil', ['reset', service, bundleId]),
-    ),
-  )
-  const ok = results.some(Boolean)
+  const ok = await runExecFile('tccutil', [
+    'reset',
+    service,
+    STELLA_BUNDLE_ID,
+  ])
   if (ok && (kind === 'accessibility' || kind === 'screen')) {
     permissionCache.delete(kind)
   }

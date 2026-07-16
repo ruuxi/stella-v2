@@ -66,6 +66,10 @@ const electronRuntimeEntryPoints = {
 // radius to the worker.
 const workerEntryPoints = {
   "runtime/worker/entry": "packages/runtime/worker/entry.ts",
+  "runtime/worker/social-sessions/packaged-smoke":
+    "packages/runtime/worker/social-sessions/packaged-smoke.ts",
+  "runtime/extensions/stella-runtime/index":
+    "packages/runtime/extensions/stella-runtime/index.ts",
 };
 const preloadEntryPoints = {
   "electron/preload": "packages/desktop/electron/preload.ts",
@@ -136,11 +140,19 @@ const createBuildOptions = () => [
     alias: workspaceAliases,
     bundle: true,
     entryPoints: electronRuntimeEntryPoints,
-    external: ["electron"],
+    external: [
+      "electron",
+      "bun:*",
+      "@silvia-odwyer/photon-node",
+      "mac-screen-capture-permissions",
+      "uiohook-napi",
+    ],
+    banner: {
+      js: 'import { createRequire as __stellaCreateRequire } from "node:module"; import { fileURLToPath as __stellaFileURLToPath } from "node:url"; import { dirname as __stellaDirname } from "node:path"; const require = __stellaCreateRequire(import.meta.url); const __filename = __stellaFileURLToPath(import.meta.url); const __dirname = __stellaDirname(__filename);',
+    },
     format: "esm",
     logLevel: "warning",
     outdir: path.join("packages", "desktop", outdir),
-    packages: "external",
     platform: "node",
     target: nodeTarget,
     tsconfig: path.join("packages", "desktop", "tsconfig.electron.json"),
@@ -150,7 +162,16 @@ const createBuildOptions = () => [
     alias: workspaceAliases,
     bundle: true,
     entryPoints: workerEntryPoints,
-    external: ["electron"],
+    external: [
+      "electron",
+      "bun:*",
+      // Keep packages whose runtime behavior depends on their installed-file
+      // layout external. electron-builder copies these two small trees next
+      // to the packaged worker; everything else is bundled so the sidecar
+      // never depends on app.asar/node_modules.
+      "undici",
+      "@silvia-odwyer/photon-node",
+    ],
     format: "esm",
     // Split the lazily-imported runner subgraph into its own chunk(s). Chunks
     // sit next to entry.js (under runtime/worker/chunks/) so Bun resolves them
@@ -161,7 +182,6 @@ const createBuildOptions = () => [
     metafile: true,
     logLevel: "warning",
     outdir: path.join("packages", "desktop", outdir),
-    packages: "external",
     platform: "node",
     target: nodeTarget,
     tsconfig: path.join("packages", "desktop", "tsconfig.electron.json"),
@@ -175,7 +195,6 @@ const createBuildOptions = () => [
     format: "cjs",
     logLevel: "warning",
     outdir: path.join("packages", "desktop", outdir),
-    packages: "external",
     platform: "node",
     target: nodeTarget,
     tsconfig: path.join("packages", "desktop", "tsconfig.preload.json"),
@@ -189,7 +208,6 @@ const createBuildOptions = () => [
     format: "esm",
     logLevel: "warning",
     outdir: path.join("packages", "desktop", outdir),
-    packages: "external",
     platform: "node",
     target: nodeTarget,
     tsconfig: path.join("packages", "desktop", "tsconfig.preload.json"),

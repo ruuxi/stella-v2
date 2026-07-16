@@ -8,10 +8,7 @@ import {
   stopDevProcesses,
 } from './lib/dev-reset.mjs';
 
-const macPermissionBundleIds = [
-  'com.github.Electron',
-  'com.stella.app',
-];
+const macPermissionBundleIds = ['com.stella.app'];
 const macPermissionServices = [
   'Accessibility',
   'ScreenCapture',

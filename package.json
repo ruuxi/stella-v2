@@ -23,18 +23,19 @@
     "reset": "node packages/desktop/scripts/reset-dev.mjs",
     "reset:all": "node packages/desktop/scripts/reset-dev.mjs --with-permissions",
     "reset:sql": "node packages/desktop/scripts/reset-sql.mjs",
-    "native:build": "cd packages/native && npm install && npm run build",
+    "native:build": "cd packages/native && bun run build",
     "native:download": "node packages/desktop/scripts/download-native-helpers.mjs",
     "stella-browser:download": "node packages/desktop/scripts/download-stella-browser.mjs",
     "workspace:create-app": "node packages/desktop/scripts/create-workspace-app.mjs",
     "electron:install": "bun ./node_modules/electron/install.js",
     "deps:prewarm": "node packages/desktop/scripts/prewarm-vite-deps.mjs",
-    "electron:dev": "node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback && node packages/desktop/scripts/electron-dev-runner.mjs",
+    "electron:dev": "node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback && node packages/desktop/scripts/dev-electron-build.mjs --once && concurrently -k \"bun run dev\" \"node packages/desktop/scripts/launch-electron-dev.mjs\"",
     "electron:typecheck": "node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.electron.json --pretty false --noEmit && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.preload.json --pretty false --noEmit",
     "electron:typecheck:watch": "concurrently -k --kill-others-on-fail \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.electron.json --preserveWatchOutput --noEmit\" \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.preload.json --preserveWatchOutput --noEmit\"",
-    "electron:build": "bun run native:build && bun run build && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.electron.json && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.preload.json && electron-builder",
-    "electron:preview": "bun run electron:dev:low-resource",
-    "electron:dev:low-resource": "node packages/desktop/scripts/electron-low-resource-build.mjs && node packages/desktop/scripts/electron-static-preview.mjs",
+    "electron:build": "bun run native:build && bun run packaging:prepare-bun && bun run build && bun run electron:typecheck && node packages/desktop/scripts/dev-electron-build.mjs --once && electron-builder",
+    "electron:pack": "bun run native:build && bun run packaging:prepare-bun && bun run build && bun run electron:typecheck && node packages/desktop/scripts/dev-electron-build.mjs --once && electron-builder --mac dir",
+    "packaging:prepare-bun": "node packages/desktop/scripts/prepare-bundled-bun.mjs",
+    "packaging:verify-social": "node packages/desktop/scripts/verify-packaged-social-session.mjs",
     "postinstall": "node packages/desktop/scripts/postinstall-dist-electron.mjs && node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback --best-effort",
     "check:boundary": "node packages/runtime/scripts/check-boundary.mjs"
   },
@@ -146,16 +147,57 @@
     },
     "directories": {
       "output": "packages/desktop/release",
-      "buildResources": "packages/desktop/build"
+      "buildResources": "packages/desktop/build",
+      "app": "packages/desktop"
     },
     "files": [
-      "packages/desktop-ui/dist/**/*",
-      "packages/desktop/dist-electron/**/*"
+      "package.json",
+      "dist-electron/electron/**/*",
+      "electron/recovery.html",
+      {
+        "from": "../desktop-ui/dist",
+        "to": "renderer"
+      }
     ],
     "extraResources": [
       {
         "from": "packages/desktop/resources/audio",
         "to": "audio",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "packages/desktop/resources/models",
+        "to": "models",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "packages/desktop/resources/bun/current",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "packages/desktop/dist-electron/runtime",
+        "to": "runtime",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node_modules/undici",
+        "to": "node_modules/undici",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node_modules/@silvia-odwyer/photon-node",
+        "to": "node_modules/@silvia-odwyer/photon-node",
         "filter": [
           "**/*"
         ]
@@ -177,13 +219,6 @@
         ]
       },
       {
-        "from": "packages/runtime/extensions",
-        "to": "runtime/extensions",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
         "from": "packages/stella-browser",
         "to": "stella-browser",
         "filter": [
@@ -192,22 +227,35 @@
           "out/**",
           "extension/**"
         ]
+      },
+      {
+        "from": "packages/stella-office",
+        "to": "stella-office",
+        "filter": [
+          "package.json",
+          "bin/**",
+          "scripts/**"
+        ]
       }
     ],
     "win": {
       "target": "nsis",
-      "icon": "packages/desktop/build/icon.ico"
+      "icon": "icon.ico"
     },
     "mac": {
       "target": "dmg",
-      "icon": "packages/desktop/build/icon.icns",
+      "icon": "icon.icns",
+      "identity": "-",
+      "hardenedRuntime": false,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Stella uses your microphone for voice conversations."
+        "NSMicrophoneUsageDescription": "Stella uses your microphone for voice conversations.",
+        "NSScreenCaptureUsageDescription": "Stella uses screen recording when you ask it to see or capture your screen.",
+        "NSAccessibilityUsageDescription": "Stella uses Accessibility when you enable global shortcuts and computer control."
       }
     },
     "linux": {
       "target": "AppImage",
-      "icon": "packages/desktop/build/icon.png"
+      "icon": "icon.png"
     }
   },
   "trustedDependencies": [

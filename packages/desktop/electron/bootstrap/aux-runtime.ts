@@ -1,4 +1,4 @@
-import { getDevServerUrl } from "../dev-url.js";
+import { getDevServerUrl } from "../renderer-location.js";
 import { buildMobileBridgeBootstrap } from "../services/mobile-bridge/bootstrap-payload.js";
 import { createStellaBrowserBridgeResource } from "../process-resources/browser-bridge-resource.js";
 import { createMobileBridgeResource } from "../process-resources/mobile-bridge-resource.js";

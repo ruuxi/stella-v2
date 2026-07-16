@@ -145,8 +145,7 @@ export const reloadShellMainWindow = (
 const resolveRecoveryHtmlPath = (electronDir: string): string | null => {
   const candidates = [
     path.join(electronDir, 'recovery.html'),
-    path.resolve(electronDir, '../../../electron/recovery.html'),
-    path.resolve(electronDir, '../../../../electron/recovery.html'),
+    path.resolve(electronDir, '../../electron/recovery.html'),
   ]
   for (const candidate of candidates) {
     try {

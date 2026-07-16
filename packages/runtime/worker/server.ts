@@ -111,7 +111,6 @@ import type {
   createStellaHostRunner,
   StellaHostRunnerOptions,
 } from "../kernel/runner.js";
-import { getDevServerUrl } from "./dev-url.js";
 import {
   startCliBridgeServer,
   type CliBridgeServer,
@@ -177,6 +176,18 @@ const resolveDesktopCliEntrypoint = (
   packageName: string,
   entrypoint: string,
 ): string => {
+  const resourcesPath = process.env.STELLA_APP_RESOURCES_PATH?.trim();
+  if (resourcesPath) {
+    const packaged = path.join(
+      resourcesPath,
+      packageName,
+      "bin",
+      entrypoint,
+    );
+    if (existsSync(packaged)) {
+      return packaged;
+    }
+  }
   const desktopLocal = path.join(
     stellaAppDir,
     "desktop",

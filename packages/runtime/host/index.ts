@@ -499,6 +499,9 @@ export class StellaRuntimeHost {
     const stellaAppDir = this.options.initializeParams.stellaAppDir;
     const udsFactory = buildUdsConnectionFactory({
       stellaAppDir,
+      ...(process.env.STELLA_BUN_PATH?.trim()
+        ? { bunBinaryPath: process.env.STELLA_BUN_PATH.trim() }
+        : {}),
       expectedProtocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,
       hostExecutablePath: process.execPath,
       onError: (error) => {

@@ -16,8 +16,6 @@ dist-electron
 dist-ssr
 *.local
 *.tsbuildinfo
-.vite-dev-url
-.electron-dev-runner.pid
 .stella-dev-runtime/
 .stella-hmr-state.json
 .stella-runtime-reload-state.json

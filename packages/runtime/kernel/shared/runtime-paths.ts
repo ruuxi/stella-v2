@@ -55,7 +55,11 @@ export function getStellaAppDir(): string {
  */
 export function resolveRuntimeSourceAsset(...segments: string[]): string {
   const root = getStellaAppDir();
+  const resourcesPath = process.env.STELLA_APP_RESOURCES_PATH?.trim();
   const candidates = [
+    ...(resourcesPath
+      ? [path.join(resourcesPath, "runtime", ...segments)]
+      : []),
     path.join(root, "packages", "runtime", ...segments),
     path.join(root, "packages", "desktop", "dist-electron", "runtime", ...segments),
   ];
@@ -74,11 +78,15 @@ export function resolveRuntimeSourceAsset(...segments: string[]): string {
  */
 export function resolveBundledRuntimeFile(relativeToRuntimeRoot: string): string {
   const root = getStellaAppDir();
+  const resourcesPath = process.env.STELLA_APP_RESOURCES_PATH?.trim();
   const segments = relativeToRuntimeRoot.replace(/\\/g, "/").split("/");
   const sourceSegments = segments.map((segment, index) =>
     index === segments.length - 1 ? segment.replace(/\.js$/, ".ts") : segment,
   );
   const candidates = [
+    ...(resourcesPath
+      ? [path.join(resourcesPath, "runtime", ...segments)]
+      : []),
     path.join(root, "packages", "desktop", "dist-electron", "runtime", ...segments),
     path.join(root, "packages", "runtime", ...sourceSegments),
   ];

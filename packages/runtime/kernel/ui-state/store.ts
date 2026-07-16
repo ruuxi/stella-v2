@@ -15,7 +15,7 @@
 
 import fs from "fs";
 import path from "path";
-import { ensurePrivateDirSync } from "../shared/private-fs.js";
+import { ensurePrivateDirSync } from "@stella/runtime/kernel/shared/private-fs";
 import {
   UI_STATE_FILE_NAME,
   type UiStateChanges,

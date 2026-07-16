@@ -1,4 +1,6 @@
+import { app } from "electron";
 import { stopAllDesktopAutomationDaemons } from "../services/desktop-automation-cleanup.js";
+import { stopOwnedCrashReporterHandler } from "../services/crash-reporter-handler.js";
 import { stopOrphanedStellaBrowserDaemons } from "../services/stella-browser-bridge-service.js";
 import { stopLocalParakeet } from "../dictation/local-parakeet.js";
 import { stopNativeHelperDaemons } from "../native-helper-daemon.js";
@@ -8,6 +10,12 @@ import type { BootstrapContext } from "./context.js";
 export const registerBootstrapProcessCleanups = (context: BootstrapContext) => {
   const { processRuntime } = context.state;
 
+  // Electron's macOS crashpad helper is detached by default and otherwise
+  // outlives the app. Register this first so reverse-order cleanup runs it
+  // last, after every crash-reporting client and managed child has stopped.
+  processRuntime.registerCleanup("before-quit", "crash-reporter-handler", () => {
+    stopOwnedCrashReporterHandler(app.getPath("crashDumps"));
+  });
   processRuntime.registerCleanup("before-quit", "auth-refresh-loop", () => {
     context.services.authService.stopAuthRefreshLoop();
   });
@@ -15,7 +23,11 @@ export const registerBootstrapProcessCleanups = (context: BootstrapContext) => {
     context.state.stellaHostRunner?.killAllShells();
   });
   processRuntime.registerCleanup("before-quit", "runtime-worker", async () => {
-    await context.state.stellaHostRunner?.stop({ killWorker: false });
+    // A true application quit owns the whole local process tree. Restart
+    // resilience is handled while Electron remains alive; once quit begins,
+    // stop the detached worker so its social-session Vite groups are reaped by
+    // the worker shutdown hook instead of lingering indefinitely.
+    await context.state.stellaHostRunner?.stop({ killWorker: true });
     context.state.stellaHostRunner = null;
   });
   processRuntime.registerCleanup("before-quit", "browser-bridge", async () => {

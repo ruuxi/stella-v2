@@ -19,7 +19,7 @@
 
 import type { Plugin, ViteDevServer } from "vite";
 import { UiStateStore } from "@stella/runtime/kernel/ui-state/store";
-import { resolveRuntimeStatePath } from "@stella/runtime/kernel/home/stella-home";
+import { resolveRuntimeStatePath } from "@stella/runtime/kernel/home/stella-paths";
 import {
   UI_STATE_DEV_ENDPOINT,
   UI_STATE_DEV_EVENT,

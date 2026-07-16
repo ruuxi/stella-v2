@@ -18,7 +18,10 @@ import { LocalChatHistoryService } from "../services/local-chat-history-service.
 import { SecurityPolicyService } from "../services/security-policy-service.js";
 import { SelectionWatcherService } from "../services/selection-watcher-service.js";
 import { UiStateService } from "../services/ui-state-service.js";
-import { getDevServerUrl } from "../dev-url.js";
+import {
+  getDevServerUrl,
+  resolveRendererRoot,
+} from "../renderer-location.js";
 import { hasMacPermission } from "../utils/macos-permissions.js";
 import { loadLocalPreferences } from "@stella/runtime/kernel/preferences/local-preferences";
 import { DEFAULT_RADIAL_TRIGGER_CODE } from "@stella/contracts/radial-trigger";
@@ -65,7 +68,7 @@ export const createBootstrapServices = (options: {
     externalLinkService.trustDevServerBaseUrl(getDevServerUrl());
   } else {
     externalLinkService.trustFileRendererRoot(
-      path.resolve(config.electronDir, "../../../dist"),
+      resolveRendererRoot(config.electronDir),
     );
   }
   // A canvas-share link (`<CANVAS_SHARE_BASE_URL>/c/<slug>`) clicked/opened

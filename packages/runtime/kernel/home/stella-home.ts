@@ -220,15 +220,16 @@ export const resolveStellaDataDir = async (
   explicitStatePath?: string,
 ): Promise<StellaDataDir> => {
   const stellaAppDir = resolveStellaAppDir(app, explicitRoot);
-  const runtimeRoot = path.join(stellaAppDir, "runtime");
-  const workspacePath = path.join(stellaAppDir, "workspace");
-
-  const extensionsPath = path.join(runtimeRoot, "extensions");
   const statePath = resolveRuntimeStatePath(
     app,
     stellaAppDir,
     explicitStatePath,
   );
+  const mutableRoot = app.isPackaged ? statePath : stellaAppDir;
+  const runtimeRoot = path.join(mutableRoot, "runtime");
+  const workspacePath = path.join(mutableRoot, "workspace");
+
+  const extensionsPath = path.join(runtimeRoot, "extensions");
   const workspaceAppsPath = path.join(workspacePath, "apps");
 
   process.env.STELLA_APP_DIR = stellaAppDir;

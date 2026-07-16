@@ -144,10 +144,20 @@ async function loadExtensionFactories(
       continue;
     }
 
-    const filePath = path.join(extensionDir, "index.ts");
-    try {
-      await fs.access(filePath);
-    } catch {
+    const entryCandidates = ["index.js", "index.ts"].map((fileName) =>
+      path.join(extensionDir, fileName),
+    );
+    let filePath: string | undefined;
+    for (const candidate of entryCandidates) {
+      try {
+        await fs.access(candidate);
+        filePath = candidate;
+        break;
+      } catch {
+        // Try the next supported extension entry format.
+      }
+    }
+    if (!filePath) {
       continue;
     }
 

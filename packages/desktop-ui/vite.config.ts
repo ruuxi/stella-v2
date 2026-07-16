@@ -9,7 +9,6 @@ import { uiStateSharedStore } from "./vite/ui-state-plugin";
 
 const __dirname = import.meta.dirname;
 
-const DEV_URL_FILE = path.resolve(__dirname, "..", "desktop", ".vite-dev-url");
 // Written by the supervisor after every electron-bundle build; not a renderer
 // module, and its write cadence would only churn the watcher.
 const BUNDLE_FINGERPRINT_FILE = path.resolve(
@@ -43,6 +42,9 @@ const DIST_ELECTRON_DIR = path.resolve(
 const NATIVE_DIR = path.resolve(__dirname, "..", "native");
 const RELEASE_DIR = path.resolve(__dirname, "..", "desktop", "release");
 const VITE_WORKSPACE_ROOT = searchForWorkspaceRoot(__dirname);
+const DEV_SERVER_URL = new URL(
+  process.env.STELLA_DEV_SERVER_URL?.trim() || "http://127.0.0.1:57314",
+);
 
 const normalizeWatchedFilePath = (filePath: string) =>
   path.resolve(filePath).replace(/\\/g, "/");
@@ -144,7 +146,6 @@ function pdfWorkerAsset(): Plugin {
   };
 }
 
-/** Writes the resolved dev server URL to .vite-dev-url so Electron can discover it. */
 /**
  * Vite injects an inline React Refresh init script into `index.html`
  * during dev (`<script type="module">injectIntoGlobalHook(window);…</script>`).
@@ -214,34 +215,6 @@ function bunHttpServerCloseFix(): Plugin {
   };
 }
 
-function devServerUrl(): Plugin {
-  return {
-    name: "dev-server-url",
-    configureServer(server) {
-      try {
-        fs.unlinkSync(DEV_URL_FILE);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          throw error;
-        }
-      }
-      server.httpServer?.once("listening", () => {
-        const addr = server.httpServer?.address();
-        if (addr && typeof addr === "object") {
-          // Derive the URL from the actual bound address so the dev URL
-          // and the listener can never disagree. Hardcoding `localhost`
-          // here used to race against Chromium's resolver picking an
-          // address family the http server hadn't bound (e.g. Vite binds
-          // ::1 only, Chromium tries 127.0.0.1 first → ERR_CONNECTION_REFUSED).
-          const host =
-            addr.family === "IPv6" ? `[${addr.address}]` : addr.address;
-          fs.writeFileSync(DEV_URL_FILE, `http://${host}:${addr.port}`);
-        }
-      });
-    },
-  };
-}
-
 const packageNameFromModuleId = (id: string): string | null => {
   const normalized = id.replace(/\\/g, "/");
   const marker = "/node_modules/";
@@ -278,7 +251,6 @@ export default defineConfig({
     tailwindcss(),
     devCspRelax(),
     bunHttpServerCloseFix(),
-    devServerUrl(),
     uiStateSharedStore(),
     pdfWorkerAsset(),
   ],
@@ -379,10 +351,10 @@ export default defineConfig({
         "./src/mini-entry.tsx",
       ],
     },
-    // Pin to a single IPv4 loopback port and publish that exact address via
-    // the dev-url plugin above so desktop and browser shells share one URL.
-    host: "127.0.0.1",
-    port: 57314,
+    // Defaults to the standard Stella loopback URL; an override lets an
+    // isolated development checkout run beside another Stella instance.
+    host: DEV_SERVER_URL.hostname,
+    port: Number(DEV_SERVER_URL.port || 80),
     strictPort: true,
     forwardConsole: true,
     // Vite's red overlay is replaced by the renderer-side CrashSurface (see
@@ -404,7 +376,6 @@ export default defineConfig({
         // startup readdirp walk + stat-per-file and ongoing Windows watch churn.
         `${NATIVE_DIR.replace(/\\/g, "/")}/**`,
         `${RELEASE_DIR.replace(/\\/g, "/")}/**`,
-        normalizeWatchedFilePath(DEV_URL_FILE),
         normalizeWatchedFilePath(BUNDLE_FINGERPRINT_FILE),
       ],
     },

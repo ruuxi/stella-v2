@@ -72,7 +72,7 @@ export class FullWindowController {
       mode: 'full',
       createWindow: () => {
         const isMac = process.platform === 'darwin'
-        const useNativeVibrancy = isMac && process.env.STELLA_STATIC_PREVIEW !== '1'
+        const useNativeVibrancy = isMac
         const windowIcon = !isMac ? resolveAppIconPath(this.options.electronDir) : undefined
         const initialBounds = resolveFullWindowInitialBounds()
 

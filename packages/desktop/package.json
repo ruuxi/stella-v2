@@ -1,13 +1,24 @@
 {
   "name": "@stella/desktop",
   "version": "0.0.0",
+  "description": "Stella desktop application",
+  "author": {
+    "name": "ruuxi",
+    "email": "lolruuxi@gmail.com"
+  },
   "private": true,
   "type": "module",
+  "main": "dist-electron/electron/main.js",
   "exports": {
     "./electron/*.js": "./electron/*.ts",
     "./electron/*": "./electron/*.ts"
   },
   "dependencies": {
+    "@silvia-odwyer/photon-node": "0.3.4",
+    "mac-screen-capture-permissions": "^2.1.0",
+    "uiohook-napi": "^1.5.5"
+  },
+  "devDependencies": {
     "@stella/contracts": "workspace:*",
     "@stella/runtime": "workspace:*"
   }

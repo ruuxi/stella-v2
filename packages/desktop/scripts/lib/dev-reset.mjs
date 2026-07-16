@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, promises as fs } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 
@@ -10,17 +10,12 @@ export const stellaStatePath = resolve(
   process.env.STELLA_DATA_DIR?.trim() || resolve(homedir(), '.stella'),
 );
 
-const runnerScriptPath = resolve(desktopDir, 'scripts', 'electron-dev-runner.mjs');
-const runnerPidFilePath = resolve(desktopDir, '.electron-dev-runner.pid');
 const devElectronBinaryPathFragments = [
   resolve(repoRootDir, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron'),
-  resolve(desktopDir, '.stella-dev-runtime', 'Stella.app', 'Contents', 'MacOS', 'Electron'),
 ].map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
 export const desktopGeneratedPaths = [
-  resolve(desktopDir, '.vite-dev-url'),
   resolve(desktopDir, '.stella-hmr-state.json'),
-  resolve(desktopDir, '.stella-dev-runtime'),
   resolve(desktopDir, 'dist-electron'),
 ];
 
@@ -45,15 +40,6 @@ export const stellaStateRuntimePaths = [
   'stella.sqlite-shm',
   'stella.sqlite-wal',
 ].map((relativePath) => resolve(stellaStatePath, relativePath));
-
-const pathExists = async (targetPath) => {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 const killWindowsTree = (pid) =>
   new Promise((resolvePromise) => {
@@ -107,48 +93,6 @@ const killPosixTree = async (pid) => {
   }
 };
 
-const assertDevRunnerScriptExists = () => {
-  if (!existsSync(runnerScriptPath)) {
-    throw new Error(`Missing runner script: ${runnerScriptPath}`);
-  }
-};
-
-const stopExistingDevRunner = async () => {
-  if (!(await pathExists(runnerPidFilePath))) {
-    return false;
-  }
-
-  try {
-    const raw = await fs.readFile(runnerPidFilePath, 'utf8');
-    const parsed = JSON.parse(raw);
-    const pid = Number(parsed?.pid);
-
-    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
-      await fs.rm(runnerPidFilePath, { force: true });
-      return false;
-    }
-
-    try {
-      process.kill(pid, 0);
-    } catch {
-      await fs.rm(runnerPidFilePath, { force: true });
-      return false;
-    }
-
-    if (process.platform === 'win32') {
-      await killWindowsTree(pid);
-    } else {
-      await killPosixTree(pid);
-    }
-
-    await fs.rm(runnerPidFilePath, { force: true });
-    return true;
-  } catch {
-    await fs.rm(runnerPidFilePath, { force: true });
-    return false;
-  }
-};
-
 const stopResidualDevElectron = async () => {
   if (process.platform === 'win32') {
     return 0;
@@ -199,20 +143,15 @@ export const clearPaths = async (paths, options = { recursive: true }) => {
 };
 
 export const stopDevProcesses = async () => {
-  assertDevRunnerScriptExists();
-  const stoppedRunner = await stopExistingDevRunner();
   const stoppedResidualElectron = await stopResidualDevElectron();
   return {
-    stoppedRunner,
     stoppedResidualElectron,
   };
 };
 
 export const formatStoppedProcessLines = ({
-  stoppedRunner,
   stoppedResidualElectron,
 }) => [
-  stoppedRunner ? 'Stopped the existing dev runner.' : '',
   stoppedResidualElectron > 0
     ? `Stopped ${stoppedResidualElectron} residual Electron dev process${stoppedResidualElectron === 1 ? '' : 'es'}.`
     : '',

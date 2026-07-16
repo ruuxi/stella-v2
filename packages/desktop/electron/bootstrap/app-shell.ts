@@ -1,9 +1,8 @@
 import { app } from "electron";
-import { mkdirSync, writeFileSync } from "fs";
 import { hasMacPermission } from "../utils/macos-permissions.js";
 import path from "path";
 import { resolveStellaDataDir } from "@stella/runtime/kernel/home/stella-home";
-import { getDevServerUrl } from "../dev-url.js";
+import { getDevServerUrl } from "../renderer-location.js";
 import { OverlayWindowController } from "../windows/overlay-window.js";
 import { PetWindowController } from "../windows/pet-window.js";
 import { WindowManager } from "../windows/window-manager.js";
@@ -19,34 +18,6 @@ import { startDeferredStartup } from "./deferred-startup.js";
 import { getMainLogger } from "../observability/main-logger.js";
 
 const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
-
-const markDesktopReadyForLauncher = () => {
-  const readyFile = process.env.STELLA_ELECTRON_READY_FILE?.trim();
-  if (!readyFile) {
-    return;
-  }
-
-  try {
-    mkdirSync(path.dirname(readyFile), { recursive: true });
-    writeFileSync(
-      readyFile,
-      JSON.stringify(
-        {
-          pid: Number(process.env.STELLA_ELECTRON_DEV_RUNNER_PID || 0) || null,
-          readyAt: new Date().toISOString(),
-          elapsedMs: Math.round(process.uptime() * 1000),
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-  } catch (error) {
-    getMainLogger()?.process("startup.launcher-ready-marker.failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-};
 
 const readStellaWebBaseUrl = () => {
   const raw =
@@ -205,7 +176,6 @@ const finalizeWindowLaunch = (context: BootstrapContext) => {
       getMainLogger()?.process("startup.first-paint", {
         elapsedMs: Math.round(process.uptime() * 1000),
       });
-      markDesktopReadyForLauncher();
       triggerDeferredStartup("first-paint");
     });
   }

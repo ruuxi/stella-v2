@@ -74,6 +74,7 @@ const resolveStellaBinDir = (context?: ToolContext): string => {
 const bundledCandidates = (context?: ToolContext): string[] => {
   const platformPackage = `sdk-${process.platform}-${process.arch === "x64" ? "x64" : process.arch}`;
   const roots = [
+    process.env.STELLA_APP_RESOURCES_PATH,
     context?.stellaAppDir,
     process.env.STELLA_APP_DIR,
     path.resolve(__dirname, "..", "..", ".."),

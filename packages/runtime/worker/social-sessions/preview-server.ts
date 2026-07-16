@@ -7,10 +7,11 @@
  * same session, restarts crashed servers, and tears everything down on
  * service stop.
  *
- * Dependencies are installed with `bun install`, then Vite is started via
- * `bun x vite` inside the per-session folder. The caller must have `bun` on
- * PATH. Each child runs as the leader of its own process group on Unix so the
- * whole tree can be killed.
+ * Dependencies are installed with the Bun executable running this worker,
+ * then Vite is started through that same binary. In packaged builds this is
+ * the bundled Bun under Contents/Resources/bin, independent of the user's
+ * PATH. Each child leads its own process group on Unix so the whole tree can
+ * be killed.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -335,7 +336,7 @@ export class SocialPreviewServerManager {
 
     let child: ChildProcess;
     try {
-      child = spawn("bun", ["x", "vite", "--host", "127.0.0.1"], {
+      child = spawn(process.execPath, ["x", "vite", "--host", "127.0.0.1"], {
         cwd: entry.workspacePath,
         env,
         stdio: ["ignore", "pipe", "pipe"],
@@ -464,7 +465,7 @@ export class SocialPreviewServerManager {
       workspacePath: entry.workspacePath,
     });
 
-    const child = spawn("bun", ["install", "--silent"], {
+    const child = spawn(process.execPath, ["install", "--silent"], {
       cwd: entry.workspacePath,
       env: { ...process.env, FORCE_COLOR: "0" },
       stdio: ["ignore", "pipe", "pipe"],

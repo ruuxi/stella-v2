@@ -22,15 +22,13 @@ const PERMISSION_CARDS: PermissionCard[] = [
   {
     kind: "accessibility",
     title: "Accessibility",
-    description:
-      "Required to act on selected text or what's under the cursor.",
+    description: "Required to act on selected text or what's under the cursor.",
     actionLabel: "Enable",
   },
   {
     kind: "screen",
     title: "Screen Capture",
-    description:
-      "Required for screenshots and screen sharing.",
+    description: "Required for screenshots and screen sharing.",
     actionLabel: "Enable",
     requiresRelaunch: true,
   },
@@ -227,9 +225,7 @@ export function OnboardingPermissions({
           }
 
           const detailParts = [
-            card.requiresRelaunch
-              ? "Reopen Stella after enabling."
-              : null,
+            card.requiresRelaunch ? "Reopen Stella after enabling." : null,
             card.kind === "microphone" && microphoneDenied
               ? "Previously denied on this Mac"
               : null,
@@ -270,8 +266,8 @@ export function OnboardingPermissions({
         <div className="onboarding-permissions-restart">
           <span className="onboarding-permission-card__meta">
             Microphone access was denied earlier, so macOS will not prompt
-            Stella again automatically. Reset it, then reopen Stella from the
-            launcher.
+            Stella again automatically. Reset it, then reopen Stella from
+            Applications.
           </span>
           <div className="onboarding-permissions-actions">
             <button
@@ -297,7 +293,7 @@ export function OnboardingPermissions({
         <div className="onboarding-permissions-restart">
           <span className="onboarding-permission-card__meta">
             macOS needs Stella to close before this permission takes effect.
-            After it closes, reopen Stella from the launcher.
+            After it closes, reopen Stella from Applications.
           </span>
           <button
             className="onboarding-confirm"

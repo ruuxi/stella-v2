@@ -179,7 +179,7 @@ int runServe(const char* modelPath) {
     emit(false, nullptr, "Failed to load Parakeet model.", nullptr);
     return 1;
   }
-  // Ready signal (no id), matching the Swift helper's serve handshake.
+  // Service-ready message (no id), matching the Swift helper protocol.
   emit(true, nullptr, nullptr, nullptr);
 
   std::string line;

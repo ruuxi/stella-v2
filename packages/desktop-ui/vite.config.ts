@@ -171,7 +171,7 @@ function devCspRelax(): Plugin {
  * Bun's node:http never settles `server.close(callback)` once a WebSocket
  * upgrade has happened on the server (zombie upgrade sockets keep the
  * connection count from draining — oven-sh/bun#13184). The production
- * launcher runs this whole supervisor under Bun, and Vite's config-change
+ * desktop dev command runs this whole supervisor under Bun, and Vite's config-change
  * restart awaits exactly that callback inside `server.close()`, so an update
  * that rewrites vite.config.ts while the renderer's HMR socket is connected
  * hangs the restart forever and leaves the app headless. Deliver the close

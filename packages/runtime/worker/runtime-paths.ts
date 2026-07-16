@@ -7,7 +7,7 @@ import path from "node:path";
  *
  * We key everything on a content-derived hash of the absolute root path
  * so that multiple Stella installs on the same machine (e.g. dev tree at
- * `~/projects/stella` plus a launcher install at `~/Stella`) don't share
+ * a source checkout plus a packaged install) don't share
  * a pidfile/socket and accidentally talk to each other's worker.
  *
  * Layout:

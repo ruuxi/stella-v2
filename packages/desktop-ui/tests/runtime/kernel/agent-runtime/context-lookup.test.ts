@@ -32,9 +32,7 @@ import {
 // runRecall drives its steps through completeSimple; the tests script its
 // responses. readAssistantText stays real (it reads the fake message text).
 vi.mock("@stella/runtime/ai/stream", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@stella/runtime/ai/stream")
-  >()),
+  ...(await importOriginal<typeof import("@stella/runtime/ai/stream")>()),
   completeSimple: vi.fn(),
 }));
 
@@ -248,7 +246,7 @@ describe("buildContextLookupUserPrompt", () => {
         "Recall hooks: mini window, pinned, macOS spaces",
         "",
         "## 2026-05-27 — Unrelated release",
-        "Outcome: Built launcher release assets.",
+        "Outcome: Built legacy release assets.",
       ].join("\n"),
     );
 
@@ -271,7 +269,7 @@ describe("buildContextLookupUserPrompt", () => {
     expect(prompt).toContain(
       "4: Outcome: Mini window follows spaces only when pinned.",
     );
-    expect(prompt).not.toContain("Built launcher release assets.");
+    expect(prompt).not.toContain("Built legacy release assets.");
     expect(prompt).toContain("Full ~/.stella/memories/MEMORY.md omitted");
   });
 

@@ -11,6 +11,7 @@ import { getNativeConnectorReadiness } from "../connectors/connection-status.js"
 import {
   requestConnectorConnectionFromBridge,
   requestConnectorCredentialFromBridge,
+  requestConnectorTokenStoreFromBridge,
   requestBackendConnectorActionFromBridge,
   type ConnectorConnectionResult,
   type ConnectorCredentialResult,
@@ -38,6 +39,7 @@ import {
   deleteConnectorAccessTokens,
   loadConnectorAccessToken,
   loadConnectorTokenPayload,
+  setConnectorTokenStoreBroker,
 } from "../connectors/oauth.js";
 import {
   getNativeOAuthProviderConfig,
@@ -66,6 +68,37 @@ import { resolveStatePath } from "./shared.js";
 
 const stateRoot = path.resolve(resolveStatePath());
 const stellaAppDir = stateRoot;
+const cliBridgeSocketPath = process.env.STELLA_CLI_BRIDGE_SOCK?.trim();
+
+if (cliBridgeSocketPath) {
+  setConnectorTokenStoreBroker({
+    load: async (tokenKey) => {
+      const result = await requestConnectorTokenStoreFromBridge({
+        socketPath: cliBridgeSocketPath,
+        request: { operation: "load", tokenKey },
+      });
+      if (!result.ok) {
+        if (result.reason === "unsupported") return null;
+        throw new Error(result.reason);
+      }
+      return result.payload ?? null;
+    },
+    save: async (tokenKey, payload) => {
+      const result = await requestConnectorTokenStoreFromBridge({
+        socketPath: cliBridgeSocketPath,
+        request: { operation: "save", tokenKey, payload },
+      });
+      if (!result.ok) throw new Error(result.reason);
+    },
+    delete: async (tokenKeys) => {
+      const result = await requestConnectorTokenStoreFromBridge({
+        socketPath: cliBridgeSocketPath,
+        request: { operation: "delete", tokenKeys },
+      });
+      if (!result.ok) throw new Error(result.reason);
+    },
+  });
+}
 
 const printJson = (value: unknown) => {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);

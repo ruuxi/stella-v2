@@ -1,6 +1,6 @@
 /**
  * Top-bar display-tab switcher. A standalone Home icon returns to the home
- * launcher, and a separate chip shows the active non-home surface (Chat,
+ * overview, and a separate chip shows the active non-home surface (Chat,
  * Media, Canvas, …); clicking the chip opens a menu listing the other open
  * surfaces. Lives in the panel chrome (full window) and the mini window's
  * top bar.

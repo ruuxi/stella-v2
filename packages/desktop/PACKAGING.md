@@ -14,7 +14,7 @@ starts the ordinary Vite server at `http://127.0.0.1:57314`, waits for that
 URL, and launches the stock Electron binary with `--dev`. Isolated checkouts
 can override the loopback URL with `STELLA_DEV_SERVER_URL`. There is no
 bundle rename, Info.plist rewrite, icon swap, re-sign, responsibility-disclaim
-shim, PID/ready handshake, or generated dev-URL file.
+shim, generated supervisor markers, or generated dev-URL file.
 
 ## Runtime sidecar and packaged binaries
 
@@ -50,7 +50,9 @@ Connected builds supply `VITE_CONVEX_URL` and `VITE_CONVEX_SITE_URL` at Vite
 build time. They are public service locations, not credentials. An
 unconfigured local package still mounts the offline shell and Bun runtime; its
 cloud-backed auth and synchronization features stay unavailable until those
-public URLs are supplied.
+public URLs are supplied. Electron-main public configuration is baked from
+`packages/desktop/config/app-config.json`; the app never reads or writes a
+source-checkout environment file at runtime.
 
 ## M2 signing
 

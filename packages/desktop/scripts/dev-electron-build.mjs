@@ -134,6 +134,27 @@ const isBundleSourceRelPath = (relPosixPath) => {
   return bundleSourceExtensions.has(path.posix.extname(relPosixPath));
 };
 
+// Some dependencies import their own package.json for name/version metadata.
+// Keep that runtime metadata without embedding upstream development scripts and
+// devDependencies into Stella's production JavaScript bundle.
+const pruneDependencyPackageMetadataPlugin = {
+  name: "prune-dependency-package-metadata",
+  setup(build) {
+    build.onLoad({ filter: /package\.json$/ }, async (args) => {
+      if (!args.path.includes(`${path.sep}node_modules${path.sep}`)) {
+        return null;
+      }
+      const parsed = JSON.parse(await fsPromises.readFile(args.path, "utf8"));
+      delete parsed.scripts;
+      delete parsed.devDependencies;
+      return {
+        contents: JSON.stringify(parsed),
+        loader: "json",
+      };
+    });
+  },
+};
+
 const createBuildOptions = () => [
   {
     absWorkingDir: repoRootDir,
@@ -152,6 +173,7 @@ const createBuildOptions = () => [
     },
     format: "esm",
     logLevel: "warning",
+    plugins: [pruneDependencyPackageMetadataPlugin],
     outdir: path.join("packages", "desktop", outdir),
     platform: "node",
     target: nodeTarget,
@@ -181,6 +203,7 @@ const createBuildOptions = () => [
     // Consumed by assertWorkerBundleBoundary after each build.
     metafile: true,
     logLevel: "warning",
+    plugins: [pruneDependencyPackageMetadataPlugin],
     outdir: path.join("packages", "desktop", outdir),
     platform: "node",
     target: nodeTarget,
@@ -194,6 +217,7 @@ const createBuildOptions = () => [
     entryPoints: preloadEntryPoints,
     format: "cjs",
     logLevel: "warning",
+    plugins: [pruneDependencyPackageMetadataPlugin],
     outdir: path.join("packages", "desktop", outdir),
     platform: "node",
     target: nodeTarget,
@@ -207,6 +231,7 @@ const createBuildOptions = () => [
     entryPoints: storeWebPreloadEntryPoints,
     format: "esm",
     logLevel: "warning",
+    plugins: [pruneDependencyPackageMetadataPlugin],
     outdir: path.join("packages", "desktop", outdir),
     platform: "node",
     target: nodeTarget,

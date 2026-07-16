@@ -8,7 +8,7 @@ const __dirname = import.meta.dirname;
  * Locate the Stella browser service and extension directory.
  *
  * In development the service lives at `desktop/stella-browser/`. Packaged
- * builds copy its launcher, native binaries, and extension into Electron's
+ * builds copy its command shim, native binaries, and extension into Electron's
  * resources directory.
  *
  * Instead of re-threading yet another root through every caller, we resolve

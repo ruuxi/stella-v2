@@ -1,11 +1,11 @@
 /* ============================================================
-   Home launcher — body of the Home display tab while the user is
+   Home overview — body of the Home display tab while the user is
    on home (`/chat`). Quiet list of the other display surfaces the
    user can jump into. Activity / files / schedules already live in
    the left sidebar, so this surface doesn't repeat them.
    ============================================================ */
 
-.chat-home-launcher {
+.chat-home-overview {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -15,11 +15,11 @@
   scrollbar-width: none;
 }
 
-.chat-home-launcher::-webkit-scrollbar {
+.chat-home-overview::-webkit-scrollbar {
   display: none;
 }
 
-.chat-home-launcher__list {
+.chat-home-overview__list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -28,7 +28,7 @@
   gap: 4px;
 }
 
-.chat-home-launcher__entry {
+.chat-home-overview__entry {
   width: 100%;
   display: flex;
   align-items: center;
@@ -46,19 +46,19 @@
     color 120ms ease;
 }
 
-.chat-home-launcher__entry:hover {
+.chat-home-overview__entry:hover {
   background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--text-strong);
 }
 
-.chat-home-launcher__entry:focus-visible {
+.chat-home-overview__entry:focus-visible {
   outline: none;
   background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--text-strong);
   box-shadow: var(--focus-ring);
 }
 
-.chat-home-launcher__entry-icon {
+.chat-home-overview__entry-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -68,7 +68,7 @@
   color: var(--text-base);
 }
 
-.chat-home-launcher__entry-text {
+.chat-home-overview__entry-text {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -76,13 +76,13 @@
   flex: 1;
 }
 
-.chat-home-launcher__entry-label {
+.chat-home-overview__entry-label {
   font-size: var(--font-size-base);
   font-weight: var(--weight-medium);
   color: var(--text-strong);
 }
 
-.chat-home-launcher__entry-description {
+.chat-home-overview__entry-description {
   font-size: var(--font-size-sm);
   color: var(--text-base);
   overflow: hidden;
@@ -91,7 +91,7 @@
 }
 
 @media (max-height: 580px) {
-  .chat-home-launcher__entry-description {
+  .chat-home-overview__entry-description {
     display: none;
   }
 }

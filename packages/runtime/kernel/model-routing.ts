@@ -8,11 +8,12 @@ import {
   formatLlmRouteFailure,
   type LlmRouteFailure,
 } from "@stella/contracts/llm-route-failure";
-import { getLocalLlmCredential } from "./storage/llm-credentials.js";
 import {
-  getLocalLlmOAuthApiKey,
-  hasLocalLlmOAuthCredential,
-} from "./storage/llm-oauth-credentials.js";
+  getAccessibleLocalLlmApiKey,
+  getAccessibleLocalLlmOAuthApiKey,
+  hasAccessibleLocalLlmApiKey,
+  hasAccessibleLocalLlmOAuthCredential,
+} from "./storage/local-llm-credential-access.js";
 import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import {
   findRegistryModel,
@@ -130,26 +131,23 @@ export const resolvedLlmSupportsCredentiallessCalls = (
   resolved.route === "direct-provider" &&
   resolved.model.baseUrl.trim().length > 0;
 
-const getCredential = (
-  stellaAppDir: string,
-  providerId: string,
-): string | null => getLocalLlmCredential(stellaAppDir, providerId);
-
 const hasLocalProviderAuth = (
   stellaAppDir: string,
   providerId: string,
 ): boolean =>
-  Boolean(getCredential(stellaAppDir, providerId)) ||
-  hasLocalLlmOAuthCredential(stellaAppDir, providerId);
+  hasAccessibleLocalLlmApiKey(stellaAppDir, providerId) ||
+  hasAccessibleLocalLlmOAuthCredential(stellaAppDir, providerId);
 
 const getLocalProviderApiKey = async (
   stellaAppDir: string,
   providerId: string,
 ): Promise<string | undefined> => {
-  const apiKey = getCredential(stellaAppDir, providerId)?.trim();
+  const apiKey = (
+    await getAccessibleLocalLlmApiKey(stellaAppDir, providerId)
+  )?.trim();
   if (apiKey) return apiKey;
   const oauthKey = (
-    await getLocalLlmOAuthApiKey(stellaAppDir, providerId)
+    await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, providerId)
   )?.trim();
   return oauthKey || undefined;
 };

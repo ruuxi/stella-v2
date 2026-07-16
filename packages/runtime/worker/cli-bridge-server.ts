@@ -18,7 +18,12 @@ import { constants as fsConstants, promises as fsPromises } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import path from "node:path";
 import { runtimeIpcPathUsesFilesystem } from "./runtime-paths.js";
-import type { BackendConnectorActionResult } from "../kernel/connectors/cli-broker-client.js";
+import type {
+  BackendConnectorActionResult,
+  ConnectorTokenStoreRequest,
+  ConnectorTokenStoreResult,
+} from "../kernel/connectors/cli-broker-client.js";
+import type { ConnectorTokenPayload } from "../kernel/connectors/oauth.js";
 
 type RequestMessage = {
   id?: string | number;
@@ -31,6 +36,9 @@ type ResponseMessage =
   | { id: string | number; error: { message: string } };
 
 export type CliBridgeHandlers = {
+  requestConnectorTokenStore?: (
+    request: ConnectorTokenStoreRequest,
+  ) => Promise<ConnectorTokenStoreResult>;
   /**
    * Resolves with `{ ok: true }` once the credential is persisted on
    * disk, or `{ ok: false, reason }` when the user dismisses the dialog
@@ -226,6 +234,78 @@ const dispatch = async (
   signal?: AbortSignal,
 ): Promise<unknown> => {
   switch (method) {
+    case "connector.tokenStore": {
+      if (!handlers.requestConnectorTokenStore) {
+        return { ok: false, reason: "unsupported" };
+      }
+      const record =
+        params && typeof params === "object" && !Array.isArray(params)
+          ? (params as Record<string, unknown>)
+          : {};
+      if (record.operation === "load") {
+        const tokenKey =
+          typeof record.tokenKey === "string" ? record.tokenKey.trim() : "";
+        if (
+          !tokenKey ||
+          Object.keys(record).some(
+            (key) => !["operation", "tokenKey"].includes(key),
+          )
+        ) {
+          throw new Error("connector.tokenStore: invalid load request");
+        }
+        return await handlers.requestConnectorTokenStore({
+          operation: "load",
+          tokenKey,
+        });
+      }
+      if (record.operation === "save") {
+        const tokenKey =
+          typeof record.tokenKey === "string" ? record.tokenKey.trim() : "";
+        const payload =
+          record.payload &&
+          typeof record.payload === "object" &&
+          !Array.isArray(record.payload)
+            ? (record.payload as Record<string, unknown>)
+            : null;
+        if (
+          !tokenKey ||
+          !payload ||
+          typeof payload.accessToken !== "string" ||
+          !payload.accessToken ||
+          Object.keys(record).some(
+            (key) => !["operation", "tokenKey", "payload"].includes(key),
+          )
+        ) {
+          throw new Error("connector.tokenStore: invalid save request");
+        }
+        return await handlers.requestConnectorTokenStore({
+          operation: "save",
+          tokenKey,
+          payload: payload as unknown as ConnectorTokenPayload,
+        });
+      }
+      if (record.operation === "delete") {
+        const tokenKeys = Array.isArray(record.tokenKeys)
+          ? record.tokenKeys
+              .filter((value): value is string => typeof value === "string")
+              .map((value) => value.trim())
+              .filter(Boolean)
+          : [];
+        if (
+          tokenKeys.length === 0 ||
+          Object.keys(record).some(
+            (key) => !["operation", "tokenKeys"].includes(key),
+          )
+        ) {
+          throw new Error("connector.tokenStore: invalid delete request");
+        }
+        return await handlers.requestConnectorTokenStore({
+          operation: "delete",
+          tokenKeys,
+        });
+      }
+      throw new Error("connector.tokenStore: unsupported operation");
+    }
     case "connector.runBackendAction": {
       if (!handlers.runBackendConnectorAction) {
         return { ok: false, reason: "unsupported" };

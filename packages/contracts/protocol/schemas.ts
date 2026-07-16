@@ -19,6 +19,9 @@ export const runtimeConfigureParamsSchema = Type.Object({
   hasConnectedAccount: Type.Optional(Type.Boolean()),
   cloudSyncEnabled: Type.Optional(Type.Boolean()),
   modelCatalogUpdatedAt: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  localLlmCredentialsUpdatedAt: Type.Optional(
+    Type.Union([Type.Number(), Type.Null()]),
+  ),
 });
 
 export const protocolSchemas = {

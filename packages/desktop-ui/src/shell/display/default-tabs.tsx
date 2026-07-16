@@ -3,7 +3,7 @@ import { ChatPanelTab, type ChatPanelOpenRequest } from "@/shell/ChatSidebar";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useChatMessages } from "@/context/use-chat-messages";
 import { TrashTabContent } from "./TrashTabContent";
-import { HomeLauncherTab } from "./HomeLauncherTab";
+import { HomeOverviewTab } from "./HomeOverviewTab";
 import { MediaTabContent } from "./tab-content";
 import { CanvasTabContent } from "./canvas-tab/CanvasTabContent";
 import { getCanvasHtmlItems } from "./canvas-tab/canvas-items";
@@ -91,7 +91,7 @@ export function openChatDisplayTab(
 }
 
 /**
- * Open the Home launcher tab — the quiet launcher of other display
+ * Open the Home overview tab with the other display
  * surfaces (Canvas / Media / Trash) shown when the user summons the panel
  * while on home. Home itself is the chat, so the panel never opens to a
  * duplicate chat there.
@@ -102,7 +102,7 @@ export function openHomeDisplayTab(): void {
     kind: "home",
     title: "Home",
     tooltip: "Jump into Canvas, Media, Store, and more",
-    render: () => createElement(HomeLauncherTab),
+    render: () => createElement(HomeOverviewTab),
   });
 }
 

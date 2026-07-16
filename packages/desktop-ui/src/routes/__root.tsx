@@ -331,7 +331,7 @@ function RootChrome() {
 
   // Route-aware default surface for a manual panel summon (right-click /
   // keyboard). Home never opens to a duplicate chat — it shows the Home
-  // launcher; every other route opens the chat viewer. An already-active
+  // overview; every other route opens the chat viewer. An already-active
   // artifact viewer (media / canvas / pdf / …) reopens as-is regardless of
   // route so summoning doesn't lose what the user was looking at.
   const openDefaultPanelSurface = useCallback(() => {
@@ -439,8 +439,8 @@ function RootChrome() {
   });
 
   // Auto-follow the route with the panel's default surface: navigating to
-  // home flips an open Chat panel to the Home launcher, and navigating away
-  // from home flips an open Home launcher to Chat. Only the default
+  // home flips an open Chat panel to the Home overview, and navigating away
+  // from home flips an open Home overview to Chat. Only the default
   // surfaces follow the route — an open artifact viewer (Media / Canvas /
   // PDF / …) is left untouched so navigation never yanks the user off it,
   // and a closed panel stays closed (it picks the right surface on summon).

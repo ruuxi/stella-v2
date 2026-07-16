@@ -96,6 +96,7 @@ export class RuntimeHostAdapter {
     hasConnectedAccount?: boolean;
     cloudSyncEnabled?: boolean;
     modelCatalogUpdatedAt?: number | null;
+    localLlmCredentialsUpdatedAt?: number | null;
   } = {};
   private queuedConfigPatch: {
     convexUrl?: string | null;
@@ -104,6 +105,7 @@ export class RuntimeHostAdapter {
     hasConnectedAccount?: boolean;
     cloudSyncEnabled?: boolean;
     modelCatalogUpdatedAt?: number | null;
+    localLlmCredentialsUpdatedAt?: number | null;
   } = {};
   private configFlushQueued = false;
   private readonly localChatSessions = new Map<string, LocalChatSession>();
@@ -460,6 +462,7 @@ export class RuntimeHostAdapter {
     hasConnectedAccount?: boolean;
     cloudSyncEnabled?: boolean;
     modelCatalogUpdatedAt?: number | null;
+    localLlmCredentialsUpdatedAt?: number | null;
   }) {
     this.pendingConfig = {
       ...this.pendingConfig,
@@ -574,6 +577,12 @@ export class RuntimeHostAdapter {
     this.queueRuntimeConfigPatch({
       modelCatalogUpdatedAt:
         typeof value === "number" && Number.isFinite(value) ? value : null,
+    });
+  }
+
+  refreshLocalLlmCredentials() {
+    this.queueRuntimeConfigPatch({
+      localLlmCredentialsUpdatedAt: Date.now(),
     });
   }
 

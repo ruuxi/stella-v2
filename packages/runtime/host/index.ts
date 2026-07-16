@@ -44,6 +44,8 @@ import {
   type HostAppBrowserContextSnapshot,
   type HostDisplayUpdateParams,
   type HostHeartbeatSignature,
+  type HostLlmCredentialsRequest,
+  type HostLlmCredentialsResult,
   type HostWindowTarget,
   type LocalCronJobRecord,
   type LocalHeartbeatConfigRecord,
@@ -146,10 +148,13 @@ export type RuntimeHostHandlers = {
     description?: string;
     placeholder?: string;
   }) => Promise<{ secretId: string; provider: string; label: string }>;
+  requestLlmCredentials?: (
+    request: HostLlmCredentialsRequest,
+  ) => Promise<HostLlmCredentialsResult>;
   /**
    * Performs connector token persistence in the desktop host, which delegates
-   * to the configured stable protected-storage owner (the signed launcher on
-   * macOS). Raw token payloads cross only the owner-only local runtime socket
+   * to the Electron host's safeStorage owner. Raw token payloads cross only
+   * the owner-only local runtime socket
    * and are never persisted outside the protected connector store.
    */
   requestConnectorTokenStore?: (
@@ -317,6 +322,7 @@ type WorkerInitializationState = {
   hasConnectedAccount: boolean;
   cloudSyncEnabled: boolean;
   modelCatalogUpdatedAt: number | null;
+  localLlmCredentialsUpdatedAt: number | null;
 };
 
 const AGENT_EVENT_BUFFER_LIMIT = 1_000;
@@ -2018,7 +2024,7 @@ export class StellaRuntimeHost {
     await this.workerController.ensureStarted();
     const readyAt = Date.now();
     // Restart-latency breakdown: stopMs (drain + kill grace) vs startMs (spawn
-    // + cold parse + ready probe + init handshake). Pairs with the worker-side
+    // + cold parse + initialization exchange). Pairs with the worker-side
     // `worker.kill-latency` and `startup.post-ready-complete` lines.
     getFileLogger()?.process("host.worker-restart-latency", {
       stopMs: stoppedAt - startedAt,
@@ -2808,6 +2814,8 @@ export class StellaRuntimeHost {
       hasConnectedAccount: this.configCache.hasConnectedAccount ?? false,
       cloudSyncEnabled: this.configCache.cloudSyncEnabled ?? false,
       modelCatalogUpdatedAt: this.configCache.modelCatalogUpdatedAt ?? null,
+      localLlmCredentialsUpdatedAt:
+        this.configCache.localLlmCredentialsUpdatedAt ?? null,
     };
   }
 
@@ -2911,6 +2919,17 @@ export class StellaRuntimeHost {
             description?: string;
             placeholder?: string;
           },
+        );
+      },
+    );
+    peer.registerRequestHandler(
+      METHOD_NAMES.HOST_LLM_CREDENTIALS_REQUEST,
+      async (params) => {
+        if (!this.options.hostHandlers.requestLlmCredentials) {
+          return { ok: false, reason: "unsupported" };
+        }
+        return await this.options.hostHandlers.requestLlmCredentials(
+          params as HostLlmCredentialsRequest,
         );
       },
     );

@@ -6,7 +6,7 @@ import path from "node:path";
 import {
   coercePersonalityId,
   type PersonalityId,
-} from "../../contracts/personality.js";
+} from "@stella/contracts/personality";
 import { getPersonalityVoiceId } from "../preferences/local-preferences.js";
 import { readHomePrompt } from "../prompts/home-prompts.js";
 import {

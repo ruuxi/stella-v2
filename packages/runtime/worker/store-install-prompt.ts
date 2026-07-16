@@ -1,4 +1,4 @@
-import type { StoreReleaseCommit } from "../contracts/index.js";
+import type { StoreReleaseCommit } from "@stella/contracts";
 
 export type StoreInstallPromptArgs = {
   displayName: string;

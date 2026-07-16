@@ -14,7 +14,7 @@ import { createPortal } from "react-dom";
 import {
   type DisplayTabPayload,
   normalizeDisplayPayload,
-} from "@/shared/contracts/display-payload";
+} from "@stella/contracts/desktop/display-payload";
 import {
   DISPLAY_MAIN_CONTENT_MIN_WIDTH,
   DISPLAY_PANEL_MIN_WIDTH,

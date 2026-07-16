@@ -21,8 +21,8 @@ import {
   type ConnectorOAuthCallbackResult,
   type ConnectorOAuthCallbackWaiter,
   saveConnectorAccessToken,
-} from "../../../runtime/kernel/connectors/oauth.js";
-import type { WindowManagerTarget } from "../../../runtime/kernel/lifecycle-targets.js";
+} from "@stella/runtime/kernel/connectors/oauth";
+import type { WindowManagerTarget } from "@stella/runtime/kernel/lifecycle-targets";
 import type {
   ConnectorCredentialRequestMode,
   ConnectorCredentialRequestPayload,

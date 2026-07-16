@@ -7,8 +7,8 @@ import {
   parseWorkerArgs,
   parseWorkerListenUrl,
   startWorkerTransport,
-} from "../../../../runtime/worker/transport.js";
-import { WorkerPeerBroker } from "../../../../runtime/worker/peer-broker.js";
+} from "@stella/runtime/worker/transport";
+import { WorkerPeerBroker } from "@stella/runtime/worker/peer-broker";
 
 describe("parseWorkerListenUrl", () => {
   it("defaults to stdio when no URL is provided", () => {

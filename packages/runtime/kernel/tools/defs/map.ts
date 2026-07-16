@@ -14,14 +14,14 @@
  * (the model can answer without a card), never a broken card.
  */
 
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   isMapRouteArtifact,
   MAPS_RESOLVE_PATH,
   MAPS_SITE_BASE_URL,
   MAPS_SITE_URL_ENV,
   type MapRouteArtifact,
-} from "../../../contracts/map-artifact.js";
+} from "@stella/contracts/map-artifact";
 import type { ToolDefinition } from "../types.js";
 
 export type MapToolOptions = {

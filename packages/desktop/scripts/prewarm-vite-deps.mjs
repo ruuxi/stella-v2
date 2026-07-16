@@ -16,6 +16,7 @@ import path from "node:path";
 
 const scriptDir = import.meta.dirname;
 const desktopDir = path.resolve(scriptDir, "..");
+const desktopUiDir = path.resolve(desktopDir, "..", "desktop-ui");
 
 // Match the dev server's env so the dep hash (which folds in NODE_ENV/mode)
 // lines up with what `electron:dev` resolves at launch.
@@ -35,8 +36,8 @@ try {
   };
   const config = await resolveConfig(
     {
-      configFile: path.join(desktopDir, "vite.config.ts"),
-      root: desktopDir,
+      configFile: path.join(desktopUiDir, "vite.config.ts"),
+      root: desktopUiDir,
       customLogger: logger,
     },
     "serve",

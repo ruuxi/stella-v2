@@ -7,14 +7,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   readCachedServerCatalog,
   writeCachedServerCatalog,
-} from "../../../../../runtime/kernel/connectors/catalog-cache.js";
+} from "@stella/runtime/kernel/connectors/catalog-cache";
 import {
   buildConnectorKeywordIndex,
   getConnectorKeywordIndex,
   matchConnectorsInMessage,
   resetConnectorKeywordIndexCache,
-} from "../../../../../runtime/kernel/connectors/keyword-index.js";
-import type { NativeConnectorCatalogEntry } from "../../../../../runtime/kernel/connectors/native-integrations.js";
+} from "@stella/runtime/kernel/connectors/keyword-index";
+import type { NativeConnectorCatalogEntry } from "@stella/runtime/kernel/connectors/native-integrations";
 
 const roots: string[] = [];
 

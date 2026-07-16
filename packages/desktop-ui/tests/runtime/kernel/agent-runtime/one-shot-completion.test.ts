@@ -13,7 +13,7 @@ const scheduledSessionCloses: Array<{ sessionKey: string; timeoutMs: number }> =
 const codexCalls: Array<Record<string, unknown>> = [];
 
 vi.mock(
-  "../../../../../runtime/kernel/integrations/claude-code-agent-runtime.js",
+  "@stella/runtime/kernel/integrations/claude-code-agent-runtime",
   () => ({
     shouldUseClaudeCodeAgentRuntime: () => claudeCodeEngineActive,
     runClaudeCodeAgentTextCompletion: async (args: Record<string, unknown>) => {
@@ -24,7 +24,7 @@ vi.mock(
 );
 
 vi.mock(
-  "../../../../../runtime/kernel/integrations/codex-agent-runtime.js",
+  "@stella/runtime/kernel/integrations/codex-agent-runtime",
   () => ({
     runCodexAgentTurn: async (args: Record<string, unknown>) => {
       codexCalls.push(args);
@@ -34,7 +34,7 @@ vi.mock(
 );
 
 vi.mock(
-  "../../../../../runtime/kernel/integrations/claude-code-session-runtime.js",
+  "@stella/runtime/kernel/integrations/claude-code-session-runtime",
   () => ({
     closeClaudeCodeSessionWhenIdle: (sessionKey: string) => {
       closedSessionKeys.push(sessionKey);
@@ -49,7 +49,7 @@ vi.mock(
 );
 
 const completeSimpleCalls: Array<Record<string, unknown>> = [];
-vi.mock("../../../../../runtime/ai/stream.js", () => ({
+vi.mock("@stella/runtime/ai/stream", () => ({
   completeSimple: async (model: unknown, context: unknown, options: unknown) => {
     completeSimpleCalls.push({ model, context, options });
     return { content: [{ type: "text", text: "relay summary" }] };
@@ -57,7 +57,7 @@ vi.mock("../../../../../runtime/ai/stream.js", () => ({
   readAssistantText: () => "relay summary",
 }));
 
-import { runOneShotCompletion } from "../../../../../runtime/kernel/agent-runtime/one-shot-completion.js";
+import { runOneShotCompletion } from "@stella/runtime/kernel/agent-runtime/one-shot-completion";
 
 const makeRuntime = (args: { authToken: string | null; dataDir: string }) => ({
   stellaAppDir: "/tmp/does-not-matter-app-dir",

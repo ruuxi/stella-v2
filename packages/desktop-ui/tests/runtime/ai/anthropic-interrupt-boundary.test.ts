@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createThinkingAbortGate, streamAnthropic } from "../../../../runtime/ai/providers/anthropic.js";
-import type { AssistantMessageEvent, Context, Model } from "../../../../runtime/ai/types.js";
+import { createThinkingAbortGate, streamAnthropic } from "@stella/runtime/ai/providers/anthropic";
+import type { AssistantMessageEvent, Context, Model } from "@stella/runtime/ai/types";
 
 // --- Gate unit tests: the boundary state machine in isolation -------------
 

@@ -10,8 +10,8 @@ import path from "path";
 import {
   ensurePrivateDir,
   writePrivateFile,
-} from "../../../runtime/kernel/home/private-fs.js";
-import type { WindowManagerTarget } from "../../../runtime/kernel/lifecycle-targets.js";
+} from "@stella/runtime/kernel/home/private-fs";
+import type { WindowManagerTarget } from "@stella/runtime/kernel/lifecycle-targets";
 
 const SECURITY_POLICY_VERSION = 2;
 const SECURITY_APPROVAL_PREFIX = "v1:";

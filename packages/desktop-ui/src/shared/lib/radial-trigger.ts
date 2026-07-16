@@ -1,1 +1,1 @@
-export * from "../../../../runtime/contracts/radial-trigger.js";
+export * from "@stella/contracts/radial-trigger";

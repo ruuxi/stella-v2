@@ -24,11 +24,11 @@ import { WakewordService } from "../services/wakeword-service.js";
 import {
   loadLocalPreferences,
   saveLocalPreferences,
-} from "../../../runtime/kernel/preferences/local-preferences.js";
+} from "@stella/runtime/kernel/preferences/local-preferences";
 import {
   IPC_PREFERENCES_GET_WAKE_WORD,
   IPC_PREFERENCES_SET_WAKE_WORD,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js";
 import { registerFashionHandlers } from "../ipc/fashion-handlers.js";
 import { registerScheduleHandlers } from "../ipc/schedule-handlers.js";

@@ -21,8 +21,8 @@ import {
   type TaskItem,
 } from "@/features/chat/lib/event-transforms";
 import { agentProgressSummaryStore } from "@/features/chat/agent-progress-summary-store";
-import { AGENT_IDS } from "../../../../runtime/contracts/agent-runtime.js";
-import { redactSensitiveText } from "../../../../runtime/contracts/sensitive-data.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { redactSensitiveText } from "@stella/contracts/sensitive-data";
 
 const FIRST_DELAY_MS = 10_000;
 const INTERVAL_MS = 30_000;

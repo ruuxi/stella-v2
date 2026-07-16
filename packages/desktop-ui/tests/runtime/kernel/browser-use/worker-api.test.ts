@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   installBrowserWorkerApi,
   type BrowserWorkerCall,
-} from "../../../../../runtime/kernel/browser-use/worker-api.js";
+} from "@stella/runtime/kernel/browser-use/worker-api";
 
 type RecordedCall = {
   method: "command" | "chain";

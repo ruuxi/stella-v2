@@ -3,12 +3,12 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   createRuntimeUnavailableError,
   type JsonRpcPeer,
-} from "../protocol/rpc-peer.js";
+} from "@stella/contracts/protocol/rpc-peer";
 import type {
   AgentHealth,
   RuntimeActiveRun,
   SocialSessionServiceSnapshot,
-} from "../protocol/index.js";
+} from "@stella/contracts/protocol";
 
 export type WorkerConnection = {
   process: ChildProcessWithoutNullStreams;

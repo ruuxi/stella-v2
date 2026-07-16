@@ -38,7 +38,7 @@ import {
   PERSONALITY_OPTIONS,
   isKnownPersonalityId,
   type PersonalityId,
-} from "../../../../../runtime/contracts/personality.js";
+} from "@stella/contracts/personality";
 import { getSettingsErrorMessage } from "./shared";
 
 const SETTINGS_PERMISSION_RESTART_KINDS = ["screen"] as const;

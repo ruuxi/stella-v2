@@ -17,7 +17,7 @@ import {
   deleteConnectorAccessTokens,
   loadConnectorAccessToken,
 } from "./connectors/oauth.js";
-import { AGENT_IDS } from "../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type {
   RunnerPublicApi,
   StellaHostRunnerOptions,
@@ -36,7 +36,7 @@ export {
 
 import type { ToolResult } from "./tools/types.js";
 import type { RuntimeRunCallbacks } from "./agent-runtime/types.js";
-import type { RuntimeVoiceHistoryItem } from "../protocol/index.js";
+import type { RuntimeVoiceHistoryItem } from "@stella/contracts/protocol";
 
 const VOICE_ORCHESTRATOR_HISTORY_LIMIT = 80;
 
@@ -417,7 +417,7 @@ export const createStellaHostRunner = (
         const { resolveRunnerLlmRoute } = await import(
           "./runner/model-selection.js"
         );
-        const { AGENT_IDS } = await import("../contracts/agent-runtime.js");
+        const { AGENT_IDS } = await import("@stella/contracts/agent-runtime");
         const pendingItems =
           context.runtimeStore.dreamInboxStore.countUnprocessed();
         if (pendingItems === 0) {
@@ -463,7 +463,7 @@ export const createStellaHostRunner = (
         const { resolveRunnerLlmRoute } = await import(
           "./runner/model-selection.js"
         );
-        const { AGENT_IDS } = await import("../contracts/agent-runtime.js");
+        const { AGENT_IDS } = await import("@stella/contracts/agent-runtime");
         const chronicleAgent = resolveAgent(context, AGENT_IDS.CHRONICLE);
         const chronicleModel = getConfiguredModel(
           context,

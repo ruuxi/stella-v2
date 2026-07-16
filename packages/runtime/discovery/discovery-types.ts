@@ -5,7 +5,7 @@
  * and type definitions for all signal collectors.
  */
 
-import type { DiscoveryCategory } from '../contracts/discovery.js'
+import type { DiscoveryCategory } from '@stella/contracts/discovery'
 
 // ---------------------------------------------------------------------------
 // Discovery Categories

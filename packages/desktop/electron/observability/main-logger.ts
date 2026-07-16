@@ -4,7 +4,7 @@ import {
   initFileLogger,
   installGlobalErrorLogging,
   type FileLogger,
-} from '../../../runtime/observability/file-logger.js'
+} from '@stella/runtime/observability/file-logger'
 
 /**
  * Electron main-process diagnostics wiring.

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { readImageFileSettled } from "../../../../../runtime/kernel/shared/read-image-file.js";
+import { readImageFileSettled } from "@stella/runtime/kernel/shared/read-image-file";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();

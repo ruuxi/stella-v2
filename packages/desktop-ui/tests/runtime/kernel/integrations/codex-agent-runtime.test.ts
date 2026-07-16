@@ -20,16 +20,16 @@ import {
   runCodexAgentTurn,
   shutdownCodexAppServerRuntime,
   shouldUseCodexAgentRuntime,
-} from "../../../../../runtime/kernel/integrations/codex-agent-runtime.js";
+} from "@stella/runtime/kernel/integrations/codex-agent-runtime";
 import {
   buildClaudePromptFromMessages,
   buildExternalStellaHistoryPromptMessage,
   selectExternalOrchestratorEngine,
-} from "../../../../../runtime/kernel/agent-runtime/external-engines.js";
+} from "@stella/runtime/kernel/agent-runtime/external-engines";
 import {
   DEFAULT_CODEX_MODEL,
   updateLocalModelPreferences,
-} from "../../../../../runtime/kernel/preferences/local-preferences.js";
+} from "@stella/runtime/kernel/preferences/local-preferences";
 
 describe("Codex agent runtime", () => {
   afterEach(() => {

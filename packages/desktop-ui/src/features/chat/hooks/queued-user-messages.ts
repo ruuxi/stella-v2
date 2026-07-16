@@ -1,5 +1,5 @@
-import type { ChatContext } from '../../../../../runtime/contracts/index.js'
-import type { MessageMetadata } from '../../../../../runtime/contracts/local-chat.js'
+import type { ChatContext } from '@stella/contracts'
+import type { MessageMetadata } from '@stella/contracts/local-chat'
 
 export type QueuedUserMessage = {
   id: string

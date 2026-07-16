@@ -3,8 +3,8 @@ import {
   prunePendingFollowUpReplies,
   recordPendingFollowUpReplyEntry,
   resolveLiveChatMessageDelivery,
-} from "../../../../../runtime/kernel/runner/shared.js";
-import type { PendingFollowUpReply } from "../../../../../runtime/kernel/runner/types.js";
+} from "@stella/runtime/kernel/runner/shared";
+import type { PendingFollowUpReply } from "@stella/runtime/kernel/runner/types";
 
 describe("resolveLiveChatMessageDelivery", () => {
   it("steers user messages on the native engine", () => {

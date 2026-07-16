@@ -15,14 +15,14 @@ import { setupEnvironment } from "dugite";
 import type {
   AgentModelReasoningEffort,
   AgentRuntimeEngine,
-} from "../../contracts/agent-engine.js";
-import { AGENT_IDS } from "../../contracts/agent-runtime.js";
-import type { FileChangeRecord } from "../../contracts/file-changes.js";
-import { redactSensitiveText } from "../../contracts/sensitive-data.js";
+} from "@stella/contracts/agent-engine";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import type { FileChangeRecord } from "@stella/contracts/file-changes";
+import { redactSensitiveText } from "@stella/contracts/sensitive-data";
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
-} from "../../protocol/index.js";
+} from "@stella/contracts/protocol";
 import type { ToolResult, ToolUpdateCallback } from "../tools/types.js";
 import { executeToolWithInactivityBound } from "./tool-inactivity.js";
 import {

@@ -1,7 +1,7 @@
 import type {
   PersonalityId,
   PersonalityOption,
-} from "../../../../runtime/contracts/personality.js";
+} from "@stella/contracts/personality";
 
 type PersonalityPhaseProps = {
   personalityOptions: readonly PersonalityOption[];

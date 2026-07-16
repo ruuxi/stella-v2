@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolvePackagedPromptSiteUrl } from "../../electron/prompt-site-config.js";
+import { resolvePackagedPromptSiteUrl } from "@stella/desktop/electron/prompt-site-config.js";
 
 const roots = new Set<string>();
 const originalEnvironment = {

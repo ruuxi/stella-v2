@@ -1,5 +1,5 @@
 import type { RealtimeTransport } from "../transports/types";
-import type { RealtimeVoiceProvider } from "../../../../../../../runtime/contracts/local-preferences";
+import type { RealtimeVoiceProvider } from "@stella/contracts/local-preferences";
 
 export type RealtimeProviderKey = RealtimeVoiceProvider;
 

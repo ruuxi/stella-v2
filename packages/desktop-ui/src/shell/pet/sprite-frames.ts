@@ -1,4 +1,4 @@
-import type { PetAnimationState } from "@/shared/contracts/pet";
+import type { PetAnimationState } from "@stella/contracts/desktop/pet";
 
 /**
  * Pet sprite-sheet geometry.

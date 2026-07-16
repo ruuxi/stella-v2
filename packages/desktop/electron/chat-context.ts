@@ -5,7 +5,7 @@ import {
   getWindowInfoAtPoint,
 } from './window-capture.js'
 import { captureWindowContent } from './window-content-capture.js'
-import type { ChatContext } from '../../runtime/contracts/index.js'
+import type { ChatContext } from '@stella/contracts'
 
 type CaptureChatContextOptions = {
   excludeCurrentProcessWindows?: boolean

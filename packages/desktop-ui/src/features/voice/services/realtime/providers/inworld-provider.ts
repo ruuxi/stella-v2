@@ -17,7 +17,7 @@
 import {
   DEFAULT_INWORLD_REALTIME_MODEL,
   DEFAULT_INWORLD_REALTIME_VOICE,
-} from "../../../../../../../runtime/contracts/realtime-voice-catalog";
+} from "@stella/contracts/realtime-voice-catalog";
 import { OpenAIWebRTCTransport } from "../transports/openai-webrtc-transport";
 import { bearerSdpFetcher } from "../transports/sdp-fetchers";
 import { buildInworldSessionConfig } from "./stella-provider";

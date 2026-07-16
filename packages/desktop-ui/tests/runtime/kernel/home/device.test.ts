@@ -7,7 +7,7 @@ import {
   getDeviceRecordPath,
   getOrCreateDeviceIdentity,
   resetDeviceIdentity,
-} from "../../../../../runtime/kernel/home/device.js";
+} from "@stella/runtime/kernel/home/device";
 
 const roots = new Set<string>();
 const originalDevStorage = process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE;

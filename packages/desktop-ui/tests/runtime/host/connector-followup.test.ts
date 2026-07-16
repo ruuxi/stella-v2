@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { LocalChatUpdatedPayload } from "../../../../runtime/contracts/local-chat.js";
-import { resolveConnectorFollowupAction } from "../../../../runtime/host/connector-followup.js";
+import type { LocalChatUpdatedPayload } from "@stella/contracts/local-chat";
+import { resolveConnectorFollowupAction } from "@stella/runtime/host/connector-followup";
 
 const payload = (
   type: string,

@@ -1,0 +1,12 @@
+{
+  "name": "@stella/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./protocol": "./protocol/index.ts",
+    "./protocol/*": "./protocol/*.ts",
+    "./*": "./*.ts"
+  }
+}

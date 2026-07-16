@@ -57,12 +57,12 @@ import {
   DEFAULT_INWORLD_REALTIME_SPEED,
   getDefaultRealtimeVoice,
   getRealtimeVoiceCatalog,
-} from "../../../../runtime/contracts/realtime-voice-catalog";
+} from "@stella/contracts/realtime-voice-catalog";
 import {
   resolveRealtimeUnderlyingProvider,
   type RealtimeVoicePreferences,
   type RealtimeVoiceUnderlyingProvider,
-} from "../../../../runtime/contracts/local-preferences";
+} from "@stella/contracts/local-preferences";
 import "./VoiceProviderPicker.css";
 
 interface VoiceProviderPickerProps {

@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 
 const scriptDir = import.meta.dirname;
 const desktopDir = resolve(scriptDir, '..', '..');
-const repoRootDir = resolve(desktopDir, '..');
+const repoRootDir = resolve(desktopDir, '..', '..');
 export const stellaStatePath = resolve(
   process.env.STELLA_DATA_DIR?.trim() || resolve(homedir(), '.stella'),
 );

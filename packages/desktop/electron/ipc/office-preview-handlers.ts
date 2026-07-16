@@ -7,19 +7,19 @@ import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import {
   IPC_OFFICE_PREVIEW_LIST,
   IPC_OFFICE_PREVIEW_START,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import type {
   OfficePreviewFormat,
   OfficePreviewRef,
   OfficePreviewSnapshot,
-} from "../../../runtime/contracts/office-preview.js";
+} from "@stella/contracts/office-preview";
 import { listOfficePreviewSnapshots } from "../bootstrap/office-preview-bridge.js";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import {
   isDisplayReadPathInLocalChatFiles,
   isMobileBridgeSender,
 } from "./display-handlers.js";
-import type { LocalChatEventRecord } from "../../../runtime/kernel/storage/shared.js";
+import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 
 type OfficePreviewHandlersOptions = {
   getStellaAppDir: () => string | null;

@@ -13,7 +13,7 @@
  *     to summarize cheaply.
  */
 
-import type { LocalCronSchedule } from "../../../../runtime/kernel/shared/scheduling";
+import type { LocalCronSchedule } from "@stella/contracts/scheduling";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;

@@ -8,7 +8,7 @@ import {
   DISCOVERY_CATEGORIES_CHANGED_EVENT,
   DISCOVERY_CATEGORIES_KEY,
   type DiscoveryCategory,
-} from "../../../../runtime/contracts/discovery.js";
+} from "@stella/contracts/discovery";
 import {
   BROWSERS,
   DISCOVERY_CATEGORIES,

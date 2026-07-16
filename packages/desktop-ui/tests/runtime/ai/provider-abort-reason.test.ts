@@ -1,10 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { streamAnthropic } from "../../../../runtime/ai/providers/anthropic.js";
-import { streamGoogleGeminiCli } from "../../../../runtime/ai/providers/google-gemini-cli.js";
-import type { AssistantMessageEvent, Context, Model } from "../../../../runtime/ai/types.js";
-import { anomalousStreamStopError, providerAbortedStopMessage } from "../../../../runtime/ai/utils/provider-stop.js";
+import { streamAnthropic } from "@stella/runtime/ai/providers/anthropic";
+import { streamGoogleGeminiCli } from "@stella/runtime/ai/providers/google-gemini-cli";
+import type { AssistantMessageEvent, Context, Model } from "@stella/runtime/ai/types";
+import { anomalousStreamStopError, providerAbortedStopMessage } from "@stella/runtime/ai/utils/provider-stop";
 
 /**
  * Layer-1 regression tests for the "An unknown error occurred" swallow:

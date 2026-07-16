@@ -4,20 +4,20 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
-import { createAgentOrchestration } from "../../../../../runtime/kernel/runner/agent-orchestration.js";
-import { createSelfModHmrController } from "../../../../../runtime/kernel/self-mod/hmr.js";
-import { handleApplyPatch } from "../../../../../runtime/kernel/tools/apply-patch.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { createAgentOrchestration } from "@stella/runtime/kernel/runner/agent-orchestration";
+import { createSelfModHmrController } from "@stella/runtime/kernel/self-mod/hmr";
+import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch";
 import {
   createShellState,
   handleExecCommand,
-} from "../../../../../runtime/kernel/tools/shell.js";
+} from "@stella/runtime/kernel/tools/shell";
 import type {
   ToolContext,
   ToolResult,
-} from "../../../../../runtime/kernel/tools/types.js";
+} from "@stella/runtime/kernel/tools/types";
 
-vi.mock("../../../../../runtime/kernel/model-routing.js", () => ({
+vi.mock("@stella/runtime/kernel/model-routing", () => ({
   resolveLlmRoute: vi.fn(() => ({
     model: { id: "test-model", provider: "test-provider" },
     route: "direct-provider",
@@ -79,7 +79,7 @@ const getMockRuntime = (): MockRuntimeState =>
   (globalThis as unknown as { __stellaOrchHmrMock?: MockRuntimeState })
     .__stellaOrchHmrMock ?? mockRuntime;
 
-vi.mock("../../../../../runtime/kernel/agent-runtime.js", () => ({
+vi.mock("@stella/runtime/kernel/agent-runtime", () => ({
   shutdownSubagentRuntimes: vi.fn(),
   runSubagentTask: vi.fn(
     async (opts: {
@@ -225,7 +225,7 @@ vi.mock("../../../../../runtime/kernel/agent-runtime.js", () => ({
           : runtime.mode === "running_shell"
             ? await opts.toolExecutor(
                 "exec_command",
-                { cmd: "bun run dev --watch desktop/src/foo.tsx" },
+                { cmd: "bun run dev --watch packages/desktop-ui/src/foo.tsx" },
                 context,
               )
             : runtime.mode === "parallel_running_shell"
@@ -236,13 +236,13 @@ vi.mock("../../../../../runtime/kernel/agent-runtime.js", () => ({
                       {
                         recipient_name: "functions.exec_command",
                         parameters: {
-                          cmd: "bun run dev --watch desktop/src/a.tsx",
+                          cmd: "bun run dev --watch packages/desktop-ui/src/a.tsx",
                         },
                       },
                       {
                         recipient_name: "functions.exec_command",
                         parameters: {
-                          cmd: "bun run dev --watch desktop/src/b.tsx",
+                          cmd: "bun run dev --watch packages/desktop-ui/src/b.tsx",
                         },
                       },
                     ],
@@ -252,7 +252,7 @@ vi.mock("../../../../../runtime/kernel/agent-runtime.js", () => ({
               : runtime.mode === "safe_shell_alias"
                 ? await opts.toolExecutor(
                     "exec_command",
-                    { command: "rg value desktop/src/foo.tsx" },
+                    { command: "rg value packages/desktop-ui/src/foo.tsx" },
                     context,
                   )
                 : runtime.mode === "real_shell_write"
@@ -263,7 +263,7 @@ vi.mock("../../../../../runtime/kernel/agent-runtime.js", () => ({
                           "node",
                           "-e",
                           JSON.stringify(
-                            "const fs = require('fs'); fs.writeFileSync('desktop/src/foo.tsx', \"export const value = 'after';\\n\");",
+                            "const fs = require('fs'); fs.writeFileSync('packages/desktop-ui/src/foo.tsx', \"export const value = 'after';\\n\");",
                           ),
                         ].join(" "),
                       },
@@ -282,7 +282,7 @@ vi.mock("../../../../../runtime/kernel/agent-runtime.js", () => ({
                           "exec_command",
                           {
                             command:
-                              "perl -pi -e s/before/after/ desktop/src/foo.tsx",
+                              "perl -pi -e s/before/after/ packages/desktop-ui/src/foo.tsx",
                           },
                           context,
                         )
@@ -294,7 +294,7 @@ vi.mock("../../../../../runtime/kernel/agent-runtime.js", () => ({
                           )
                         : await opts.toolExecutor(
                             "exec_command",
-                            { cmd: "rg value desktop/src/foo.tsx" },
+                            { cmd: "rg value packages/desktop-ui/src/foo.tsx" },
                             context,
                           );
       opts.callbacks?.onToolEnd?.({
@@ -462,7 +462,7 @@ const createTestContext = (root: string, hmrController: unknown) => {
 describe("agent orchestration self-mod HMR tracking", () => {
   it("applies post-apply_patch content, not the pre-write snapshot", async () => {
     const root = await makeTempRoot();
-    const filePath = path.join(root, "desktop/src/foo.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/foo.tsx");
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, "export const value = 'before';\n");
     mockRuntime.root = root;
@@ -647,7 +647,7 @@ describe("agent orchestration self-mod HMR tracking", () => {
 
   it("records real exec_command filesystem writes from producedFiles", async () => {
     const root = await makeTempRoot();
-    const filePath = path.join(root, "desktop/src/foo.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/foo.tsx");
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, "export const value = 'before';\n");
     mockRuntime.root = root;
@@ -709,7 +709,7 @@ describe("agent orchestration self-mod HMR tracking", () => {
 
   it("records suppressed Vite shell updates when producedFiles misses a generated file", async () => {
     const root = await makeTempRoot();
-    const routeTreePath = path.join(root, "desktop/src/routeTree.gen.ts");
+    const routeTreePath = path.join(root, "packages/desktop-ui/src/routeTree.gen.ts");
     await mkdir(path.dirname(routeTreePath), { recursive: true });
     await writeFile(routeTreePath, "export const routeTree = 'before';\n");
     mockRuntime.root = root;
@@ -731,7 +731,7 @@ describe("agent orchestration self-mod HMR tracking", () => {
         callOrder.push("guard-end");
         return {
           ok: true,
-          changedPaths: ["desktop/src/routeTree.gen.ts"],
+          changedPaths: ["packages/desktop-ui/src/routeTree.gen.ts"],
         };
       }),
       hasRun: vi.fn(() => true),
@@ -812,7 +812,7 @@ describe("agent orchestration self-mod HMR tracking", () => {
 
   it("cancels tracked writes instead of finalizing when interruption is terminal", async () => {
     const root = await makeTempRoot();
-    const filePath = path.join(root, "desktop/src/foo.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/foo.tsx");
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, "export const value = 'before';\n");
     mockRuntime.root = root;
@@ -877,7 +877,7 @@ describe("agent orchestration self-mod HMR tracking", () => {
 
   it("does not finalize self-mod HMR for the run interrupted by send_input", async () => {
     const root = await makeTempRoot();
-    const srcDir = path.join(root, "desktop/src");
+    const srcDir = path.join(root, "packages/desktop-ui/src");
     await mkdir(srcDir, { recursive: true });
     const fileNames = ["a.tsx", "b.tsx", "c.tsx", "d.tsx", "e.tsx"];
     await Promise.all(
@@ -976,7 +976,7 @@ describe("agent orchestration self-mod HMR tracking", () => {
       }),
     );
     expect(appliedPaths.sort()).toEqual(
-      fileNames.map((fileName) => `desktop/src/${fileName}`).sort(),
+      fileNames.map((fileName) => `packages/desktop-ui/src/${fileName}`).sort(),
     );
     expect(context.selfModLifecycle.cancelRun).not.toHaveBeenCalled();
     expect(context.selfModLifecycle.finalizeRun).toHaveBeenCalledTimes(1);
@@ -984,7 +984,7 @@ describe("agent orchestration self-mod HMR tracking", () => {
 
   it("cancels the paused self-mod run and begins a fresh run on immediate resume", async () => {
     const root = await makeTempRoot();
-    const srcDir = path.join(root, "desktop/src");
+    const srcDir = path.join(root, "packages/desktop-ui/src");
     await mkdir(srcDir, { recursive: true });
     const firstPath = path.join(srcDir, "paused.tsx");
     const resumedPath = path.join(srcDir, "resumed.tsx");
@@ -1080,7 +1080,7 @@ describe("agent orchestration self-mod HMR tracking", () => {
     expect(new Set(begunRunIds).size).toBe(2);
     expect(canceledRunIds).toEqual([begunRunIds[0]]);
     expect(finalizedRunIds).toEqual([begunRunIds[1]]);
-    expect(appliedPaths).toEqual(["desktop/src/resumed.tsx"]);
+    expect(appliedPaths).toEqual(["packages/desktop-ui/src/resumed.tsx"]);
   });
 
   it("kills still-running guarded shell sessions and still finalizes self-mod", async () => {
@@ -1331,7 +1331,7 @@ describe("agent orchestration self-mod HMR tracking", () => {
       storageMode: "local",
       selfModMetadata: {
         mode: "desktop-update",
-        expectedChangedFiles: ["desktop/src/update-target.tsx"],
+        expectedChangedFiles: ["packages/desktop-ui/src/update-target.tsx"],
       },
     });
     const snapshot = await waitForAgentStatus(
@@ -1343,7 +1343,7 @@ describe("agent orchestration self-mod HMR tracking", () => {
     expect(controller.beginShellMutationGuard).toHaveBeenCalledTimes(1);
     expect(controller.recordWrite).toHaveBeenCalledWith(
       expect.any(String),
-      [path.join(root, "desktop/src/update-target.tsx")],
+      [path.join(root, "packages/desktop-ui/src/update-target.tsx")],
       { captureSnapshot: false },
     );
     expect(controller.endShellMutationGuard).not.toHaveBeenCalled();

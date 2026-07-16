@@ -5,8 +5,8 @@ import {
   desktopReleaseManifestUrl,
   recordDesktopUpdateSourceHistory,
   sourceHistoryRefFromDesktopReleaseManifest,
-} from "../../../electron/ipc/desktop-source-history.js";
-import type { StoreReleaseSourcePack } from "../../../../runtime/contracts/index.js";
+} from "@stella/desktop/electron/ipc/desktop-source-history.js";
+import type { StoreReleaseSourcePack } from "@stella/contracts";
 
 const sourcePack: StoreReleaseSourcePack = {
   kind: "stella-source-pack",

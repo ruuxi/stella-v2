@@ -9,7 +9,7 @@
 // site / browser handler today; the format is reserved so we can wire
 // one in later without a schema break.
 
-import { parseSocialInviteLink } from "@/shared/social/invite-links";
+import { parseSocialInviteLink } from "@stella/contracts/desktop/invite-links";
 
 const SHARE_LINK_PREFIX = "stella://store/";
 

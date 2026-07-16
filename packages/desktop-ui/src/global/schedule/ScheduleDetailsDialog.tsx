@@ -26,7 +26,7 @@ import type {
   LocalCronJobRecord,
   LocalHeartbeatConfigRecord,
   ScheduleToolAffectedRef,
-} from "../../../../runtime/kernel/shared/scheduling";
+} from "@stella/contracts/scheduling";
 import { formatNextRun, summarizeSchedule } from "./format-schedule";
 import "./schedule-details-dialog.css";
 

@@ -3,11 +3,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applyStellaSourcePack } from "../../../../runtime/kernel/self-mod/stella-source-control.js";
+import { applyStellaSourcePack } from "@stella/runtime/kernel/self-mod/stella-source-control";
 
 const scriptPath = path.resolve(
   import.meta.dirname,
-  "../../../scripts/generate-desktop-source-pack.mjs",
+  "../../../../desktop/scripts/generate-desktop-source-pack.mjs",
 );
 
 const git = (cwd: string, args: string[]) => {
@@ -55,11 +55,11 @@ describe("generate-desktop-source-pack", () => {
       "export const enabled = true;\n",
       "utf8",
     );
-    await mkdir(path.join(repoRoot, "desktop", "native", "out", "darwin"), {
+    await mkdir(path.join(repoRoot, "packages", "native", "out", "darwin"), {
       recursive: true,
     });
     await writeFile(
-      path.join(repoRoot, "desktop", "native", "out", "darwin", "helper"),
+      path.join(repoRoot, "packages", "native", "out", "darwin", "helper"),
       "binary-ish helper payload\n",
       "utf8",
     );

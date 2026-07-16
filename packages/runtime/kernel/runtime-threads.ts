@@ -5,7 +5,7 @@
  * to 'evicted'; the rows survive and stay resumable via `send_input`
  * and discoverable via `Recall`.
  */
-import type { TaskLifecycleStatus } from "../contracts/agent-runtime.js";
+import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 
 export const MAX_ACTIVE_RUNTIME_THREADS = 16;
 

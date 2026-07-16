@@ -85,11 +85,11 @@ const excludedPrefixes = [
   "node_modules/",
   "release-root/",
   "release-assets/",
-  "desktop/dist/",
-  "desktop/dist-electron/",
-  "desktop/native/out/",
-  "desktop/stella-browser/bin/",
-  "desktop/stella-office/bin/",
+  "packages/desktop-ui/dist/",
+  "packages/desktop/dist-electron/",
+  "packages/native/out/",
+  "packages/stella-browser/bin/",
+  "packages/stella-office/bin/",
 ];
 
 const excludedSuffixes = [".tar", ".tar.gz", ".tar.zst", ".zip", ".dmg"];
@@ -103,7 +103,7 @@ const shouldIncludePath = (filePath) => {
   if (excludedSuffixes.some((suffix) => normalized.endsWith(suffix))) {
     return false;
   }
-  if (/^desktop\/resources\/models\/.+\.onnx$/i.test(normalized)) {
+  if (/^packages\/desktop\/resources\/models\/.+\.onnx$/i.test(normalized)) {
     return false;
   }
   return true;

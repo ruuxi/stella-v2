@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createStellaRoute } from "../../../../runtime/kernel/model-routing-stella.js";
-import { streamSimple } from "../../../../runtime/ai/stream.js";
-import { transformMessages } from "../../../../runtime/ai/providers/transform-messages.js";
-import type { Context, Message, Model } from "../../../../runtime/ai/types.js";
+import { createStellaRoute } from "@stella/runtime/kernel/model-routing-stella";
+import { streamSimple } from "@stella/runtime/ai/stream";
+import { transformMessages } from "@stella/runtime/ai/providers/transform-messages";
+import type { Context, Message, Model } from "@stella/runtime/ai/types";
 
 /**
  * Wire-shape integration tests for the Stella relay path.

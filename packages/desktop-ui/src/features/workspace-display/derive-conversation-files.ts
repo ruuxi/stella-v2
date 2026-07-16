@@ -15,11 +15,11 @@ import {
   isProducedFileRecordArray,
   MAX_PRODUCED_FILES_PER_COMMAND,
   type FileChangeRecord,
-} from "../../../../runtime/contracts/file-changes.js";
+} from "@stella/contracts/file-changes";
 import {
   isDisplayTabPayload,
   type DisplayTabPayload,
-} from "@/shared/contracts/display-payload";
+} from "@stella/contracts/desktop/display-payload";
 import { buildPayloadFromBarePath } from "@/features/chat/lib/derive-turn-resource";
 import { isNoiseProducedPath } from "@/features/workspace-display/path-to-viewer";
 

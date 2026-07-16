@@ -21,7 +21,7 @@ import {
   type StellaAnimationHandle,
 } from "@/shell/ascii-creature/StellaAnimation";
 import type { Phase } from "@/global/onboarding/onboarding-flow";
-import type { DiscoveryCategory } from "../../../../runtime/contracts/discovery.js";
+import type { DiscoveryCategory } from "@stella/contracts/discovery";
 import type { LegalDocument } from "@/global/legal/legal-text";
 import { LegalDialog } from "@/global/legal/LegalDialog";
 import { CREATURE_INITIAL_SIZE } from "@/global/onboarding/use-onboarding-overlay";

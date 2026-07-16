@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MobileBridgeService } from "../../electron/services/mobile-bridge/service.js";
+import { MobileBridgeService } from "@stella/desktop/electron/services/mobile-bridge/service.js";
 import {
   isMobileBridgeRequestChannel,
   isMobileBridgeEventChannel,
-} from "../../electron/services/mobile-bridge/bridge-policy.js";
-import { MOBILE_BRIDGE_FEATURES } from "../../electron/services/mobile-bridge/capabilities.js";
+} from "@stella/desktop/electron/services/mobile-bridge/bridge-policy.js";
+import { MOBILE_BRIDGE_FEATURES } from "@stella/desktop/electron/services/mobile-bridge/capabilities.js";
 
 const createService = () =>
   new MobileBridgeService({

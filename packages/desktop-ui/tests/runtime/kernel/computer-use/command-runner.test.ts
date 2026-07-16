@@ -4,10 +4,10 @@ import {
   createInProcessComputerCommandRunner,
   runComputerCommandSubprocess,
   type ComputerCommandRequest,
-} from "../../../../../runtime/kernel/computer-use/command-runner.js";
-import { createCliDiagnosticsComputerUseSession } from "../../../../../runtime/kernel/computer-use/cli-diagnostics-session.js";
-import type { ComputerUseRequest } from "../../../../../runtime/kernel/computer-use/contract.js";
-import { executeComputerUseRequest } from "../../../../../runtime/kernel/computer-use/session.js";
+} from "@stella/runtime/kernel/computer-use/command-runner";
+import { createCliDiagnosticsComputerUseSession } from "@stella/runtime/kernel/computer-use/cli-diagnostics-session";
+import type { ComputerUseRequest } from "@stella/runtime/kernel/computer-use/contract";
+import { executeComputerUseRequest } from "@stella/runtime/kernel/computer-use/session";
 
 describe("computer command runner", () => {
   it("terminates commands whose combined output exceeds the configured bound", async () => {

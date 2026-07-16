@@ -9,9 +9,9 @@ import { LOCAL_CONTEXT_EVENT_TYPES } from "../local-history.js";
 import {
   readConfiguredConvexUrl as sanitizeConvexDeploymentUrl,
   readConfiguredStellaBaseUrl as sanitizeStellaBase,
-} from "../convex-urls.js";
-import { isOrchestratorAgentType } from "../../contracts/agent-runtime.js";
-import { formatAgentTerminalStateSystemReminder } from "../../contracts/system-reminders.js";
+} from "@stella/contracts/convex-urls";
+import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
+import { formatAgentTerminalStateSystemReminder } from "@stella/contracts/system-reminders";
 import { redactMemoryText } from "../memory/redaction.js";
 import { readHomePrompt } from "../prompts/home-prompts.js";
 

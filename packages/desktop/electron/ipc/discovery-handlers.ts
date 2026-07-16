@@ -1,7 +1,7 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
-import type { BrowserData, BrowserType } from "../../../runtime/discovery/browser-data.js";
-import type { AllUserSignalsResult } from "../../../runtime/discovery/types.js";
-import type { DiscoveryKnowledgeSeedPayload } from "../../../runtime/contracts/discovery.js";
+import type { BrowserData, BrowserType } from "@stella/runtime/discovery/browser-data";
+import type { AllUserSignalsResult } from "@stella/runtime/discovery/types";
+import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery";
 import type { StellaHostRunner } from "../stella-host-runner.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
 import {
@@ -13,7 +13,7 @@ import {
   IPC_DISCOVERY_LIST_BROWSER_PROFILES,
   IPC_DISCOVERY_WRITE_CORE_MEMORY,
   IPC_DISCOVERY_WRITE_KNOWLEDGE,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 
 type DiscoveryHandlersOptions = {
   getStellaHostRunner: () => StellaHostRunner | null;

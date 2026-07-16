@@ -4,7 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "nodenext",
     "outDir": "dist-electron",
-    "rootDir": "..",
+    "rootDir": "../..",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -13,9 +13,6 @@
   },
   "include": [
     "electron/preload.ts",
-    "electron/store-web-preload.ts",
-    "../runtime/contracts/**/*",
-    "../runtime/protocol/**/*",
-    "src/shared/contracts/**/*"
+    "electron/store-web-preload.ts"
   ]
 }

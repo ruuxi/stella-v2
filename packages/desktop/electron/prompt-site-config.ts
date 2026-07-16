@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { readConfiguredConvexSiteUrl } from "../../runtime/kernel/convex-urls.js";
+import { readConfiguredConvexSiteUrl } from "@stella/contracts/convex-urls";
 
 const ENV_KEYS = [
   "STELLA_CONVEX_SITE_URL",

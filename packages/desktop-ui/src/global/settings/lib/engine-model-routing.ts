@@ -1,5 +1,5 @@
 import type { CatalogModel } from "./model-catalog";
-import { DEFAULT_CODEX_MODEL } from "../../../../../runtime/contracts/agent-engine";
+import { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
 
 export type ModelPickerEngine = "default" | "codex_cli" | "claude_code_local";
 

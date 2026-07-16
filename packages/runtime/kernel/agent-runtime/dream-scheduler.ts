@@ -56,7 +56,7 @@ import {
   runClaudeCodeAgentTextCompletion,
   shouldUseClaudeCodeAgentRuntime,
 } from "../integrations/claude-code-agent-runtime.js";
-import { AGENT_IDS } from "../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { readHomePrompt } from "../prompts/home-prompts.js";
 
 const logger = createRuntimeLogger("agent-runtime.dream-scheduler");

@@ -12,8 +12,8 @@ import {
   getNativeConnectorTools,
   listNativeConnectors,
   type NativeConnectorCatalogEntry,
-} from "../../../../../runtime/kernel/connectors/native-integrations.js";
-import { isNativeOAuthLocalExecutionProductionReady } from "../../../../../runtime/kernel/connectors/native-oauth-provider-config.js";
+} from "@stella/runtime/kernel/connectors/native-integrations";
+import { isNativeOAuthLocalExecutionProductionReady } from "@stella/runtime/kernel/connectors/native-oauth-provider-config";
 
 const roots: string[] = [];
 const createRoot = () => {

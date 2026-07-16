@@ -8,8 +8,8 @@ import type {
   ToolCall,
 } from "../../ai/types.js";
 import { completeSimple, readAssistantText } from "../../ai/stream.js";
-import { AGENT_IDS } from "../../contracts/agent-runtime.js";
-import type { HostAppBrowserContextSnapshot } from "../../protocol/index.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import type { HostAppBrowserContextSnapshot } from "@stella/contracts/protocol";
 import type { LocalContextEvent } from "../local-history.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import { readOptionalTextFile } from "../shared/read-optional-text-file.js";
@@ -22,7 +22,7 @@ import type {
   TranscriptSearchHit,
 } from "../storage/runtime-store.js";
 import { tokenizeSearchQuery } from "../storage/runtime-store.js";
-import { formatDateTimeReminder } from "../message-timestamp.js";
+import { formatDateTimeReminder } from "@stella/contracts/message-timestamp";
 import {
   deriveRuntimeThreadLiveState,
   formatRuntimeThreadStatusSuffix,

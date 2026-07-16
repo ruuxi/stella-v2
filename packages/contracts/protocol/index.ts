@@ -19,15 +19,15 @@ import type {
   StoreReleaseSourcePackRef,
   StoreReleaseSourcePack,
   StellaReleaseArtifactRef,
-} from "../contracts/index.js";
+} from "@stella/contracts";
 import type {
   AgentRunFinishOutcome,
   TaskLifecycleStatus,
-} from "../contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 import type {
   FileChangeRecord,
   ProducedFileRecord,
-} from "../contracts/file-changes.js";
+} from "@stella/contracts/file-changes";
 
 export type {
   AgentHealth,
@@ -396,7 +396,7 @@ export type HostRuntimeAuthRefreshResult = {
   hasConnectedAccount: boolean;
 };
 
-import type { ChatContext } from "../contracts/index.js";
+import type { ChatContext } from "@stella/contracts";
 
 export type RuntimeHealthSnapshot = {
   ready: boolean;

@@ -1,5 +1,5 @@
 # Testing folder (contains API keys)
-../testing-folder/
+../../testing-folder/
 
 # Logs
 logs
@@ -30,14 +30,6 @@ src/routeTree.gen.ts
 # Copied from node_modules/pdfjs-dist; not source-controlled.
 public/vendor/pdfjs/
 
-# Local Parakeet/Core ML dictation model cache.
-resources/parakeet/*
-!resources/parakeet/.gitkeep
-# parakeet.cpp GGUF cache (Windows + Intel macOS local dictation).
-resources/parakeet-cpp/*
-!resources/parakeet-cpp/.gitkeep
-native/src/parakeet-helper/.build/
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -52,38 +44,6 @@ native/src/parakeet-helper/.build/
 # Local-only debug output for the emoji sprite generator.
 .emoji-sprites-debug/
 
-# Agent Browser
-stella-browser/node_modules/
-stella-browser/dist/
-stella-browser/out/
-stella-browser/cli/target/
-stella-browser/cli/*.o
-# Platform browser-service executables are built by desktop release CI and
-# delivered through per-platform release artifacts, like native/out helpers.
-stella-browser/bin/stella-browser-darwin-*
-stella-browser/bin/stella-browser-linux-*
-stella-browser/bin/stella-browser-win32-*.exe
-stella-browser/*.png
-stella-browser/*.jpeg
-stella-browser/*.jpg
-stella-browser/.pnpm-store/
-stella-browser/opensrc/
-stella-browser/docs/node_modules/
-stella-browser/docs/.next/
-stella-browser/docs/out/
-stella-browser/nul
-stella-browser/_bench_chain.js
-stella-browser/bun.lock
 coverage/
-
-# Build artifacts
-release/
-workspace/
-# Native helpers are built per-platform on CI (build-native-helpers.yml) and
-# distributed via R2; the launcher (and dev-time `bun run native:download`)
-# downloads the platform-relevant tarball into native/out/<platform>/.
-native/out/
-native/*.exe
-native/*.obj
 
 SECURITY-REVIEW.md

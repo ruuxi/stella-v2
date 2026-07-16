@@ -1,6 +1,6 @@
 import React from "react";
 import { Lock } from "@/ui/icons";
-import type { DiscoveryCategory } from "../../../../runtime/contracts/discovery.js";
+import type { DiscoveryCategory } from "@stella/contracts/discovery";
 import { DISCOVERY_CATEGORIES } from "./onboarding-flow";
 import { getPlatform } from "@/platform/electron/platform";
 import { OnboardingSelectionTile } from "./OnboardingSelectionTile";

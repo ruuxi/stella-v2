@@ -12,11 +12,11 @@
  */
 
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import type { OfficePreviewRef } from "../../../../runtime/contracts/office-preview.js";
+import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import {
   sourceDiffBatches,
   useSourceDiffBatches,

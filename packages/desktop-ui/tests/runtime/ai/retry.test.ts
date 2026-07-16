@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isRetryableConnectionError,
   retryWithBackoff,
-} from "../../../../runtime/ai/utils/retry.js";
+} from "@stella/runtime/ai/utils/retry";
 
 describe("provider retry policy", () => {
   afterEach(() => {

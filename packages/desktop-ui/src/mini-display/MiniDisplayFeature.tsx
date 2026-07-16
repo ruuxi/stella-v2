@@ -13,7 +13,7 @@ import { DisplayTabIcon } from "../features/workspace-display/icons";
 import {
   normalizeDisplayPayload,
   type DisplayTabPayload,
-} from "../shared/contracts/display-payload";
+} from "@stella/contracts/desktop/display-payload";
 
 const MINI_HOME_DISPLAY_TAB_ID = "mini:home";
 

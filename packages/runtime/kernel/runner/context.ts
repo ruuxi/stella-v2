@@ -17,7 +17,7 @@ import { ConvexClient } from "convex/browser";
 import {
   formatDateTimeReminder,
   THIRTY_MINUTES_MS,
-} from "../message-timestamp.js";
+} from "@stella/contracts/message-timestamp";
 import {
   buildRuntimeThreadKey,
   parseThreadCheckpoint,
@@ -39,14 +39,14 @@ import {
   AGENT_IDS,
   agentHasCapability,
   isLocalCliAgentId,
-} from "../../contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 import type {
   AgentModelConfigSnapshot,
   AgentModelReasoningEffort,
   AgentRuntimeEngine,
   SpawnEngineSelection,
   SpawnReasoningEffort,
-} from "../../contracts/agent-engine.js";
+} from "@stella/contracts/agent-engine";
 import { getCodexRuntimePreferences } from "../integrations/codex-agent-runtime.js";
 import {
   getClaudeCodeAgentModelId,

@@ -17,19 +17,52 @@ DEV-CONTEXT.md
 
 # Workspace installs
 /node_modules/
-/runtime/node_modules/
+/packages/runtime/node_modules/
+/packages/desktop/node_modules/
 /.stella-runtime-reload-state.json
-/desktop/.low-resource-build-cache.json
-/desktop/.dev-electron-bundle-fingerprint.json
-/desktop/.electron-dev-app.pid
-/desktop/.electron-dev-runner.pid
-/desktop/.electron-dev-runner.ready
+/packages/desktop/.stella-dev-runtime/
+/packages/desktop/.low-resource-build-cache.json
+/packages/desktop/.dev-electron-bundle-fingerprint.json
+/packages/desktop/.electron-dev-app.pid
+/packages/desktop/.electron-dev-runner.pid
+/packages/desktop/.electron-dev-runner.ready
+/packages/desktop/.vite-dev-url
+/packages/desktop/dist-electron/
+/packages/desktop/release/
+/packages/desktop/workspace/
+/packages/desktop/resources/parakeet/*
+!/packages/desktop/resources/parakeet/.gitkeep
+/packages/desktop/resources/parakeet-cpp/*
+!/packages/desktop/resources/parakeet-cpp/.gitkeep
+/packages/native/src/parakeet-helper/.build/
+/packages/native/out/
+/packages/native/*.exe
+/packages/native/*.obj
+/packages/stella-browser/node_modules/
+/packages/stella-browser/dist/
+/packages/stella-browser/out/
+/packages/stella-browser/cli/target/
+/packages/stella-browser/cli/*.o
+/packages/stella-browser/bin/stella-browser-darwin-*
+/packages/stella-browser/bin/stella-browser-linux-*
+/packages/stella-browser/bin/stella-browser-win32-*.exe
+/packages/stella-browser/*.png
+/packages/stella-browser/*.jpeg
+/packages/stella-browser/*.jpg
+/packages/stella-browser/.pnpm-store/
+/packages/stella-browser/opensrc/
+/packages/stella-browser/docs/node_modules/
+/packages/stella-browser/docs/.next/
+/packages/stella-browser/docs/out/
+/packages/stella-browser/nul
+/packages/stella-browser/_bench_chain.js
 /.stella-dev-splash.html
 /.stella-dev-splash-main.cjs
 /.stella-dev-splash.lock
 /.stella-dev-splash.ready
 # V8 compile cache for the dev Electron main process (machine-specific bytecode).
 /.stella-dev/
+/.stella-dev-user-quit-request
 /.stella-launch.log
 /.stella-desktop-download.tar.zst
 /.stella-native-helpers-download.tar.zst
@@ -47,7 +80,7 @@ DEV-CONTEXT.md
 /.tanstack/
 
 # Exec worker fallback CJS cache (Node-test runtime only; Bun loads .ts directly).
-runtime/kernel/exec/.exec-worker-cache/
+packages/runtime/kernel/exec/.exec-worker-cache/
 
 .env.local
 

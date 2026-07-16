@@ -11,7 +11,7 @@ import type {
   OfficePreviewFormat,
   OfficePreviewRef,
   OfficePreviewSnapshot,
-} from "../../../../runtime/contracts/office-preview.js";
+} from "@stella/contracts/office-preview";
 import { useOfficePreview } from "@/features/chat/office-preview-store";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
 import { Select } from "@/ui/select";

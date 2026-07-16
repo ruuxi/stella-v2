@@ -4,21 +4,21 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { writeCachedServerCatalog } from "../../../../../runtime/kernel/connectors/catalog-cache.js";
+import { writeCachedServerCatalog } from "@stella/runtime/kernel/connectors/catalog-cache";
 import {
   getConnectorDecline,
   recordConnectorDecline,
-} from "../../../../../runtime/kernel/connectors/connect-preferences.js";
+} from "@stella/runtime/kernel/connectors/connect-preferences";
 import {
   enableNativeConnector,
   type NativeConnectorCatalogEntry,
-} from "../../../../../runtime/kernel/connectors/native-integrations.js";
+} from "@stella/runtime/kernel/connectors/native-integrations";
 import {
   createConnectorStatusTool,
   resetConnectorStatusCatalogMemo,
   type ConnectorConnectionRequester,
-} from "../../../../../runtime/kernel/tools/defs/connector-status.js";
-import type { ToolContext } from "../../../../../runtime/kernel/tools/types.js";
+} from "@stella/runtime/kernel/tools/defs/connector-status";
+import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 
 const context: ToolContext = {
   conversationId: "c1",

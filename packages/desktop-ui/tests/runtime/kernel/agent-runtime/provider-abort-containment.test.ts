@@ -12,11 +12,11 @@ import {
   safetyRetryStatusMessage,
   safetySwapStatusMessage,
   serializeQuarantineRecord,
-} from "../../../../../runtime/kernel/agent-runtime/provider-abort-containment.js";
-import { providerAbortedStopMessage } from "../../../../../runtime/ai/utils/provider-stop.js";
-import type { AgentMessage } from "../../../../../runtime/kernel/agent-core/types.js";
-import type { Api, Model, StopReason } from "../../../../../runtime/ai/types.js";
-import type { ResolvedLlmRoute } from "../../../../../runtime/kernel/model-routing.js";
+} from "@stella/runtime/kernel/agent-runtime/provider-abort-containment";
+import { providerAbortedStopMessage } from "@stella/runtime/ai/utils/provider-stop";
+import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types";
+import type { Api, Model, StopReason } from "@stella/runtime/ai/types";
+import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
 
 const usage = {
   input: 1,

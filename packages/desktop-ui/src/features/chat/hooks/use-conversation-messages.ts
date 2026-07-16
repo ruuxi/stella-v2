@@ -35,7 +35,7 @@ import {
   type StableMessageListState,
 } from "@/features/chat/lib/stable-rows";
 import { showToast } from "@/ui/toast";
-import type { MessageRecord } from "../../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 
 export const MESSAGE_PAGE_SIZE = 200;
 /**

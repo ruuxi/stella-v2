@@ -6,8 +6,8 @@ import {
   handleBash,
   resolveShellNodeBinary,
   runShell,
-} from "../../../../../runtime/kernel/tools/shell.js";
-import type { ToolContext } from "../../../../../runtime/kernel/tools/types.js";
+} from "@stella/runtime/kernel/tools/shell";
+import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();

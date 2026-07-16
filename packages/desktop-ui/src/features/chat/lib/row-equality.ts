@@ -10,8 +10,8 @@ import type {
   Attachment,
   ChannelEnvelope,
 } from "@/features/chat/lib/event-transforms";
-import type { OfficePreviewRef } from "../../../../../runtime/contracts/office-preview.js";
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { OfficePreviewRef } from "@stella/contracts/office-preview";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import type { SelfModApplied } from "@/features/chat/self-mod-types";
 import { toolActivityEqual } from "@/features/chat/lib/tool-activity";
 import type {

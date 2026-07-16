@@ -15,30 +15,30 @@ import {
   DEFAULT_RADIAL_TRIGGER_CODE,
   normalizeRadialTriggerCode,
   type RadialTriggerCode,
-} from "../../contracts/radial-trigger.js";
+} from "@stella/contracts/radial-trigger";
 import {
   DEFAULT_MINI_DOUBLE_TAP_MODIFIER,
   normalizeMiniDoubleTapModifier,
   type MiniDoubleTapModifier,
-} from "../../contracts/mini-double-tap.js";
+} from "@stella/contracts/mini-double-tap";
 import {
   coerceRealtimeVoiceProvider,
   type RealtimeVoicePreferences,
   type RealtimeVoiceSelections,
   type RealtimeVoiceUnderlyingProvider,
-} from "../../contracts/local-preferences.js";
+} from "@stella/contracts/local-preferences";
 import {
   coerceAgentRuntimeEngine,
   DEFAULT_CODEX_MODEL,
   type AgentRuntimeEngine,
-} from "../../contracts/agent-engine.js";
+} from "@stella/contracts/agent-engine";
 import {
   isKnownPersonalityId,
   type PersonalityId,
-} from "../../contracts/personality.js";
+} from "@stella/contracts/personality";
 
 type AgentEngine = AgentRuntimeEngine;
-export { DEFAULT_CODEX_MODEL } from "../../contracts/agent-engine.js";
+export { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
 export const DEFAULT_CLAUDE_CODE_MODEL = "default";
 export type ReasoningEffort =
   | "default"
@@ -64,11 +64,11 @@ export type {
   RealtimeVoiceSelections,
   RealtimeVoicePreferences,
   ReadAloudVoiceProvider,
-} from "../../contracts/local-preferences.js";
+} from "@stella/contracts/local-preferences";
 export {
   resolveRealtimeUnderlyingProvider,
   resolveReadAloudProvider,
-} from "../../contracts/local-preferences.js";
+} from "@stella/contracts/local-preferences";
 
 export type LocalPreferences = {
   /** Default models keyed by agent type. */

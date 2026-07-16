@@ -1,6 +1,6 @@
-import type { AgentModelConfigSnapshot } from "../../contracts/agent-engine.js";
-import type { TaskLifecycleStatus } from "../../contracts/agent-runtime.js";
-import type { ThreadActivityRecord } from "../../contracts/local-chat.js";
+import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
+import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
+import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
 import {
   MAX_ACTIVE_RUNTIME_THREADS,
   MAX_GROUP_MEMBER_THREADS,
@@ -50,7 +50,7 @@ import {
   toJsonString,
   toJsonValueString,
 } from "./shared.js";
-import { isUiHiddenChatMessagePayload } from "../../chat-event-visibility.js";
+import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 import { DreamInboxStore } from "../memory/dream-inbox-store.js";
 
 /**

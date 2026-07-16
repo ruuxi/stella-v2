@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getToolResultPreview } from "../../../../runtime/kernel/agent-runtime/shared.js";
+import { getToolResultPreview } from "@stella/runtime/kernel/agent-runtime/shared";
 import { pickScheduleToolSummary } from "@/global/schedule/schedule-receipt-summary";
 
 describe("getToolResultPreview", () => {

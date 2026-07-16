@@ -32,13 +32,13 @@ import { postServiceJson } from "@/platform/http/service-request";
 import { getVoiceSessionPromptConfig } from "@/prompts";
 import {
   formatRealtimeSystemMessage,
-} from "../../../../../../runtime/contracts/system-reminders.js";
+} from "@stella/contracts/system-reminders";
 import type {
   RuntimeVoiceHistoryItem,
   RuntimeVoiceToolMetadata,
-} from "../../../../../../runtime/protocol/index.js";
+} from "@stella/contracts/protocol";
 import { computeAnalyserEnergy } from "@/features/voice/services/audio-energy";
-import type { EventRecord } from "../../../../../../runtime/contracts/local-chat.js";
+import type { EventRecord } from "@stella/contracts/local-chat";
 import { createRealtimeTransport } from "./providers/provider-registry";
 import type { RealtimeProviderKey, VoiceSessionToken } from "./providers/types";
 import type { RealtimeTransport } from "./transports/types";

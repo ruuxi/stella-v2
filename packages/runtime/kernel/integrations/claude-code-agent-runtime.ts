@@ -17,7 +17,7 @@ import {
 import type {
   AgentModelReasoningEffort,
   AgentRuntimeEngine,
-} from "../../contracts/agent-engine.js";
+} from "@stella/contracts/agent-engine";
 import {
   resolveLocalCliCwd,
   textFromUnknown,

@@ -4,17 +4,17 @@ import {
   AGENT_ORPHANED_RESTART_CANCEL_REASON,
   LocalAgentManager,
   sanitizeTaskToolArgsHint,
-} from "../../../../../runtime/kernel/agents/local-agent-manager.js";
-import type { AgentLifecycleEvent } from "../../../../../runtime/kernel/agents/local-agent-manager.js";
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
+} from "@stella/runtime/kernel/agents/local-agent-manager";
+import type { AgentLifecycleEvent } from "@stella/runtime/kernel/agents/local-agent-manager";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   createStateContext,
   handleSendInput,
-} from "../../../../../runtime/kernel/tools/state.js";
+} from "@stella/runtime/kernel/tools/state";
 import type {
   ToolContext,
   ToolResult,
-} from "../../../../../runtime/kernel/tools/types.js";
+} from "@stella/runtime/kernel/tools/types";
 import {
   __privateTaskDecorationStore,
   clearTaskDecoration,
@@ -22,7 +22,7 @@ import {
   getTaskDecoration,
 } from "@/features/chat/streaming/task-decoration-store";
 import { waitForAgentSettled } from "../../../helpers/agent.js";
-import { buildAgentEventPrompt } from "../../../../../runtime/kernel/runner/shared.js";
+import { buildAgentEventPrompt } from "@stella/runtime/kernel/runner/shared";
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));

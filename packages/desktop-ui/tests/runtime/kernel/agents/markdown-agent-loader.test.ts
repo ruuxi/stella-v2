@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadParsedAgentsFromDir } from "../../../../../runtime/kernel/agents/markdown-agent-loader.js";
+import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();
@@ -23,10 +23,7 @@ const AGENT_MD = [
 describe("loadParsedAgentsFromDir", () => {
   it("loads every shipped capability record through the standard agent markdown contract", () => {
     const agents = loadParsedAgentsFromDir(
-      new URL(
-        "../../../../../runtime/extensions/stella-runtime/agent-metadata/",
-        import.meta.url,
-      ),
+      path.resolve(process.cwd(), "..", "runtime", "extensions", "stella-runtime", "agent-metadata"),
     );
 
     expect(agents.map((agent) => agent.id).sort()).toEqual(
@@ -47,10 +44,7 @@ describe("loadParsedAgentsFromDir", () => {
 
   it("loads the bundled manager fallback with only agent-management tools", () => {
     const agents = loadParsedAgentsFromDir(
-      new URL(
-        "../../../../../runtime/extensions/stella-runtime/agent-metadata/",
-        import.meta.url,
-      ),
+      path.resolve(process.cwd(), "..", "runtime", "extensions", "stella-runtime", "agent-metadata"),
     );
     const manager = agents.find((agent) => agent.id === "manager");
     expect(manager?.toolsAllowlist).toEqual([

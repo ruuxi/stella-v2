@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getMainLogger } from "../observability/main-logger.js";
-import { resolveLogPaths } from "../../../runtime/observability/log-paths.js";
+import { resolveLogPaths } from "@stella/runtime/observability/log-paths";
 import {
   getLocalModelPreferences,
   getOnboardingCompleted,
@@ -34,15 +34,15 @@ import {
   updateLocalModelPreferences,
   type LocalModelPreferencesSnapshot,
   type ReasoningEffort,
-} from "../../../runtime/kernel/preferences/local-preferences.js";
-import { coerceAgentRuntimeEngine } from "../../../runtime/contracts/agent-engine.js";
+} from "@stella/runtime/kernel/preferences/local-preferences";
+import { coerceAgentRuntimeEngine } from "@stella/contracts/agent-engine";
 import {
   coercePersonalityId,
   isKnownPersonalityId,
-} from "../../../runtime/contracts/personality.js";
-import { writePersonality } from "../../../runtime/kernel/personality/personality.js";
-import { listCodexAppServerModels } from "../../../runtime/kernel/integrations/codex-agent-runtime.js";
-import { listClaudeCodeModels } from "../../../runtime/kernel/integrations/claude-code-session-runtime.js";
+} from "@stella/contracts/personality";
+import { writePersonality } from "@stella/runtime/kernel/personality/personality";
+import { listCodexAppServerModels } from "@stella/runtime/kernel/integrations/codex-agent-runtime";
+import { listClaudeCodeModels } from "@stella/runtime/kernel/integrations/claude-code-session-runtime";
 import type { StellaHostRunner } from "../stella-host-runner.js";
 import type { AuthService } from "../services/auth-service.js";
 import type { BackupService } from "../services/backup-service.js";
@@ -52,28 +52,28 @@ import {
   getLocalLlmCredential,
   listLocalLlmCredentials,
   saveLocalLlmCredential,
-} from "../../../runtime/kernel/storage/llm-credentials.js";
+} from "@stella/runtime/kernel/storage/llm-credentials";
 import {
   deleteLocalLlmOAuthCredential,
   getLocalLlmOAuthApiKey,
   listLocalLlmOAuthCredentials,
   saveLocalLlmOAuthCredential,
-} from "../../../runtime/kernel/storage/llm-oauth-credentials.js";
+} from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import {
   getOAuthProvider,
   getOAuthProviders,
-} from "../../../runtime/ai/utils/oauth/index.js";
-import type { RuntimeSocialSessionStatus } from "../../../runtime/protocol/index.js";
-import { isRuntimeUnavailableError } from "../../../runtime/protocol/rpc-peer.js";
+} from "@stella/runtime/ai/utils/oauth/index";
+import type { RuntimeSocialSessionStatus } from "@stella/contracts/protocol";
+import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import {
   DEFAULT_RADIAL_TRIGGER_CODE,
   normalizeRadialTriggerCode,
   type RadialTriggerCode,
-} from "../../src/shared/lib/radial-trigger.js";
+} from "@stella/contracts/radial-trigger";
 import {
   normalizeMiniDoubleTapModifier,
   type MiniDoubleTapModifier,
-} from "../../src/shared/lib/mini-double-tap.js";
+} from "@stella/contracts/mini-double-tap";
 import {
   IPC_APP_QUIT_FOR_RESTART,
   IPC_AUTH_APPLY_SESSION_COOKIE,
@@ -130,7 +130,7 @@ import {
   IPC_PREFERENCES_SET_READ_ALOUD,
   IPC_SOCIAL_SESSIONS_QUEUE_TURN,
   IPC_SOCIAL_SESSIONS_UPDATE_STATUS,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 import {
   hasMacPermission,

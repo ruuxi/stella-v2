@@ -12,7 +12,7 @@
 import {
   normalizeDisplayPayload,
   type DisplayTabPayload,
-} from "@/shared/contracts/display-payload";
+} from "@stella/contracts/desktop/display-payload";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { canvasShareBaseUrl, isCanvasShareUrl } from "@/shared/lib/canvas-share";
 

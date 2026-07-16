@@ -1,14 +1,14 @@
-import type { DisplayPayload } from "../../src/shared/contracts/display-payload.js";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import {
   isFileChangeRecordArray,
   isProducedFileRecordArray,
   type FileChangeRecord,
-} from "../../../runtime/contracts/file-changes.js";
-import { isUiHiddenChatMessagePayload } from "../../../runtime/chat-event-visibility.js";
+} from "@stella/contracts/file-changes";
+import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 import {
   isMapRouteArtifact,
   type MapRouteArtifact,
-} from "../../../runtime/contracts/map-artifact.js";
+} from "@stella/contracts/map-artifact";
 
 /**
  * Inline "background work" card for the mobile chat — the companion to the

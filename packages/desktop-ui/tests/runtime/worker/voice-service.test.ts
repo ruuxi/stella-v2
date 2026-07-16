@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { VoiceRuntimeService } from "../../../../runtime/worker/voice/service.js";
+import { VoiceRuntimeService } from "@stella/runtime/worker/voice/service";
 
 const makeService = () => {
   const threadMessages: Array<{

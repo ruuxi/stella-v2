@@ -14,7 +14,7 @@ import {
   MAX_PRODUCED_FILES_PER_COMMAND,
   type FileChangeRecord,
   type ProducedFileRecord,
-} from "../../contracts/file-changes.js";
+} from "@stella/contracts/file-changes";
 import type {
   ToolContext,
   ToolResult,
@@ -25,12 +25,12 @@ import { MAX_OUTPUT, truncate } from "./utils.js";
 import { resolveBundledRuntimeFile } from "../shared/runtime-paths.js";
 import { isDangerousCommand } from "./command-safety.js";
 import { getInstallUpdateCommandDenialReason } from "./install-update-allowlist.js";
-import { AGENT_IDS } from "../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";
 import { inferShellMentionedPaths } from "./path-inference.js";
 import { isKnownSafeCommand } from "./safe-commands.js";
 import { sanitizeToolVisibleText } from "./safety.js";
-import type { OfficePreviewRef } from "../../contracts/office-preview.js";
+import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import {
   purgeExpiredDeferredDeletes,
   trashPathsForDeferredDelete,

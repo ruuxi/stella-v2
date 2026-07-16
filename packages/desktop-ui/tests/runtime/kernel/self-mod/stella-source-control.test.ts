@@ -11,7 +11,7 @@ import {
   mergeTextContent,
   stripStellaSourceChangeSetContent,
   type StellaSourceTree,
-} from "../../../../../runtime/kernel/self-mod/stella-source-control.js";
+} from "@stella/runtime/kernel/self-mod/stella-source-control";
 
 const text = (content: string) => ({ kind: "text" as const, content });
 

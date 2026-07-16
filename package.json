@@ -1,39 +1,42 @@
 {
-  "name": "stella",
+  "name": "stella-v2",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "desktop/dist-electron/desktop/electron/main.js",
+  "workspaces": [
+    "packages/*"
+  ],
+  "main": "packages/desktop/dist-electron/electron/main.js",
   "scripts": {
-    "dev": "cd desktop && vite",
-    "preview": "cd desktop && vite preview",
-    "build": "bun run routes:generate && cd desktop && ../node_modules/typescript-7/bin/tsc --build && vite build && node scripts/check-renderer-bundle-budget.mjs",
+    "dev": "cd packages/desktop-ui && vite",
+    "preview": "cd packages/desktop-ui && vite preview",
+    "build": "bun run routes:generate && node node_modules/typescript-7/bin/tsc --build packages/desktop-ui && cd packages/desktop-ui && ../../node_modules/.bin/vite build && node ../desktop/scripts/check-renderer-bundle-budget.mjs",
     "format": "bunx prettier@3.6.2 --write .",
     "format:check": "bunx prettier@3.6.2 --check .",
-    "lint": "cd desktop && eslint .",
-    "logs": "node desktop/scripts/open-logs.mjs",
-    "test": "cd desktop && vitest",
-    "test:run": "cd desktop && vitest run",
-    "test:electron": "cd desktop && vitest run --config vitest.electron.config.ts",
-    "test:stella-browser": "cargo test --manifest-path desktop/stella-browser/cli/Cargo.toml -- --skip test_all_documented_actions_are_handled && node --test desktop/stella-browser/extension/*.test.js desktop/stella-browser/extension/**/*.test.js && vitest run desktop/tests/runtime/kernel/browser-use/*.test.ts",
-    "routes:generate": "cd desktop && bunx --package @tanstack/router-cli@1.166.40 tsr generate",
-    "reset": "cd desktop && node scripts/reset-dev.mjs",
-    "reset:all": "cd desktop && node scripts/reset-dev.mjs --with-permissions",
-    "reset:sql": "cd desktop && node scripts/reset-sql.mjs",
-    "native:build": "cd desktop/native && npm install && npm run build",
-    "native:download": "node desktop/scripts/download-native-helpers.mjs",
-    "stella-browser:download": "node desktop/scripts/download-stella-browser.mjs",
-    "workspace:create-app": "cd desktop && node scripts/create-workspace-app.mjs",
+    "lint": "cd packages/desktop-ui && eslint .",
+    "logs": "node packages/desktop/scripts/open-logs.mjs",
+    "test": "cd packages/desktop-ui && vitest",
+    "test:run": "cd packages/desktop-ui && vitest run",
+    "test:electron": "cd packages/desktop-ui && vitest run --config vitest.electron.config.ts",
+    "test:stella-browser": "cargo test --manifest-path packages/stella-browser/cli/Cargo.toml -- --skip test_all_documented_actions_are_handled && node --test packages/stella-browser/extension/*.test.js packages/stella-browser/extension/**/*.test.js && vitest run packages/desktop-ui/tests/runtime/kernel/browser-use/*.test.ts",
+    "routes:generate": "cd packages/desktop-ui && bunx --package @tanstack/router-cli@1.166.40 tsr generate",
+    "reset": "node packages/desktop/scripts/reset-dev.mjs",
+    "reset:all": "node packages/desktop/scripts/reset-dev.mjs --with-permissions",
+    "reset:sql": "node packages/desktop/scripts/reset-sql.mjs",
+    "native:build": "cd packages/native && npm install && npm run build",
+    "native:download": "node packages/desktop/scripts/download-native-helpers.mjs",
+    "stella-browser:download": "node packages/desktop/scripts/download-stella-browser.mjs",
+    "workspace:create-app": "node packages/desktop/scripts/create-workspace-app.mjs",
     "electron:install": "bun ./node_modules/electron/install.js",
-    "deps:prewarm": "node desktop/scripts/prewarm-vite-deps.mjs",
-    "electron:dev": "node desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback && node desktop/scripts/electron-dev-runner.mjs",
-    "electron:typecheck": "cd desktop && ../node_modules/typescript-7/bin/tsc -p tsconfig.electron.json --pretty false --noEmit && ../node_modules/typescript-7/bin/tsc -p tsconfig.preload.json --pretty false --noEmit",
-    "electron:typecheck:watch": "cd desktop && concurrently -k --kill-others-on-fail \"../node_modules/typescript-7/bin/tsc -w -p tsconfig.electron.json --preserveWatchOutput --noEmit\" \"../node_modules/typescript-7/bin/tsc -w -p tsconfig.preload.json --preserveWatchOutput --noEmit\"",
-    "electron:build": "bun run native:build && cd desktop && ../node_modules/typescript-7/bin/tsc --build && vite build && node scripts/check-renderer-bundle-budget.mjs && ../node_modules/typescript-7/bin/tsc -p tsconfig.electron.json && ../node_modules/typescript-7/bin/tsc -p tsconfig.preload.json && cd .. && electron-builder",
+    "deps:prewarm": "node packages/desktop/scripts/prewarm-vite-deps.mjs",
+    "electron:dev": "node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback && node packages/desktop/scripts/electron-dev-runner.mjs",
+    "electron:typecheck": "node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.electron.json --pretty false --noEmit && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.preload.json --pretty false --noEmit",
+    "electron:typecheck:watch": "concurrently -k --kill-others-on-fail \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.electron.json --preserveWatchOutput --noEmit\" \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.preload.json --preserveWatchOutput --noEmit\"",
+    "electron:build": "bun run native:build && bun run build && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.electron.json && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.preload.json && electron-builder",
     "electron:preview": "bun run electron:dev:low-resource",
-    "electron:dev:low-resource": "node desktop/scripts/electron-low-resource-build.mjs && node desktop/scripts/electron-static-preview.mjs",
-    "postinstall": "node desktop/scripts/postinstall-dist-electron.mjs && node desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback --best-effort",
-    "check:boundary": "node runtime/scripts/check-boundary.mjs"
+    "electron:dev:low-resource": "node packages/desktop/scripts/electron-low-resource-build.mjs && node packages/desktop/scripts/electron-static-preview.mjs",
+    "postinstall": "node packages/desktop/scripts/postinstall-dist-electron.mjs && node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback --best-effort",
+    "check:boundary": "node packages/runtime/scripts/check-boundary.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.99.0",
@@ -90,6 +93,7 @@
     "tailwindcss": "^4.3.0",
     "three": "^0.184.0",
     "uiohook-napi": "^1.5.5",
+    "unified": "^11.0.5",
     "undici": "^8.3.0",
     "ws": "^8.21.0",
     "yaml": "^2.9.0",
@@ -97,6 +101,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/mdast": "^4.0.4",
     "@types/node": "^25.9.1",
     "@types/picomatch": "^4.0.3",
     "@types/qrcode": "^1.5.6",
@@ -140,31 +145,31 @@
       ]
     },
     "directories": {
-      "output": "desktop/release",
-      "buildResources": "desktop/build"
+      "output": "packages/desktop/release",
+      "buildResources": "packages/desktop/build"
     },
     "files": [
-      "desktop/dist/**/*",
-      "desktop/dist-electron/**/*"
+      "packages/desktop-ui/dist/**/*",
+      "packages/desktop/dist-electron/**/*"
     ],
     "extraResources": [
       {
-        "from": "desktop/resources/audio",
+        "from": "packages/desktop/resources/audio",
         "to": "audio",
         "filter": [
           "**/*"
         ]
       },
       {
-        "from": "desktop/native/out",
+        "from": "packages/native/out",
         "to": "native/out",
         "filter": [
           "**/*"
         ]
       },
       {
-        "from": "runtime/home-seed",
-        "to": "runtime/home-seed",
+        "from": "packages/home-seed",
+        "to": "home-seed",
         "filter": [
           "DREAM.md",
           "skills/**",
@@ -172,14 +177,14 @@
         ]
       },
       {
-        "from": "runtime/extensions",
+        "from": "packages/runtime/extensions",
         "to": "runtime/extensions",
         "filter": [
           "**/*"
         ]
       },
       {
-        "from": "desktop/stella-browser",
+        "from": "packages/stella-browser",
         "to": "stella-browser",
         "filter": [
           "package.json",
@@ -191,18 +196,18 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "desktop/build/icon.ico"
+      "icon": "packages/desktop/build/icon.ico"
     },
     "mac": {
       "target": "dmg",
-      "icon": "desktop/build/icon.icns",
+      "icon": "packages/desktop/build/icon.icns",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Stella uses your microphone for voice conversations."
       }
     },
     "linux": {
       "target": "AppImage",
-      "icon": "desktop/build/icon.png"
+      "icon": "packages/desktop/build/icon.png"
     }
   },
   "trustedDependencies": [

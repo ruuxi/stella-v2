@@ -10,7 +10,7 @@ import {
   resolveChatGptEngineModel,
   resolveChatGptModelSelection,
 } from "../../../src/global/settings/lib/engine-model-routing";
-import { DEFAULT_CODEX_MODEL } from "../../../../runtime/contracts/agent-engine";
+import { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
 
 const catalogModel = (provider: string, modelId: string): CatalogModel => ({
   id: `${provider}/${modelId}`,

@@ -12,7 +12,7 @@ import {
 import {
   type FileChangeRecord,
   fileChange,
-} from "../../contracts/file-changes.js";
+} from "@stella/contracts/file-changes";
 
 type FileOp =
   | { kind: "add"; path: string; lines: string[] }

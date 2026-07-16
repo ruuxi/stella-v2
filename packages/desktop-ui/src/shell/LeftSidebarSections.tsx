@@ -64,7 +64,7 @@ import {
   type TaskGroup,
   type TaskItem,
 } from "@/features/chat/lib/event-transforms";
-import { AGENT_IDS } from "../../../runtime/contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   deriveConversationFiles,
   type ConversationFileEntry,
@@ -83,7 +83,7 @@ import {
   type ActivityHistorySection,
 } from "@/shell/display/ActivityHistoryDialog";
 import { ScheduleDetailsDialog } from "@/global/schedule/ScheduleDetailsDialog";
-import type { ScheduleToolAffectedRef } from "../../../runtime/kernel/shared/scheduling";
+import type { ScheduleToolAffectedRef } from "@stella/contracts/scheduling";
 import { TextShimmer } from "@/app/chat/TextShimmer";
 import { AgentProgressSummaries } from "@/shell/AgentProgressSummaries";
 import { useAgentProgressSummaries } from "@/features/chat/agent-progress-summary-store";

@@ -5,28 +5,28 @@ import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   AGENT_PAUSE_CANCEL_REASON,
   type AgentLifecycleEvent,
   type LocalAgentManager,
-} from "../../../../../runtime/kernel/agents/local-agent-manager.js";
-import { createAgentOrchestration } from "../../../../../runtime/kernel/runner/agent-orchestration.js";
+} from "@stella/runtime/kernel/agents/local-agent-manager";
+import { createAgentOrchestration } from "@stella/runtime/kernel/runner/agent-orchestration";
 import {
   handleSendInput,
   handleSpawnManager,
-} from "../../../../../runtime/kernel/tools/state.js";
-import type { AgentModelConfigSnapshot } from "../../../../../runtime/contracts/agent-engine.js";
-import type { RunnerContext } from "../../../../../runtime/kernel/runner/types.js";
+} from "@stella/runtime/kernel/tools/state";
+import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
+import type { RunnerContext } from "@stella/runtime/kernel/runner/types";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../../runtime/kernel/storage/database-init.js";
-import { SessionStore } from "../../../../../runtime/kernel/storage/session-store.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
 import type {
   LocalChatAppendEventArgs,
   SqliteDatabase,
-} from "../../../../../runtime/kernel/storage/shared.js";
+} from "@stella/runtime/kernel/storage/shared";
 
 type MockRunArgs = {
   agentId?: string;
@@ -48,7 +48,7 @@ const runMock = vi.hoisted(() => ({
       }>),
 }));
 
-vi.mock("../../../../../runtime/kernel/agent-runtime.js", () => ({
+vi.mock("@stella/runtime/kernel/agent-runtime", () => ({
   runSubagentTask: (args: MockRunArgs) => {
     if (!runMock.handler) throw new Error("Missing manager test run handler");
     return runMock.handler(args);

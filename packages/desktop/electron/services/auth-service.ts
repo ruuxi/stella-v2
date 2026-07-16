@@ -13,17 +13,17 @@ import {
   getCookie,
   getSetCookie,
 } from "@convex-dev/better-auth/client/plugins";
-import type { PiRunnerTarget } from "../../../runtime/kernel/lifecycle-targets.js";
-import { readConfiguredConvexSiteUrl } from "../../../runtime/kernel/convex-urls.js";
+import type { PiRunnerTarget } from "@stella/runtime/kernel/lifecycle-targets";
+import { readConfiguredConvexSiteUrl } from "@stella/contracts/convex-urls";
 import {
   deleteProtectedValue,
   protectValue,
   unprotectValue,
-} from "../../../runtime/kernel/shared/protected-storage.js";
+} from "@stella/runtime/kernel/shared/protected-storage";
 import type {
   HostRuntimeAuthRefreshResult,
   RuntimeAuthRefreshSource,
-} from "../../../runtime/protocol/index.js";
+} from "@stella/contracts/protocol";
 import { isSocialInviteDeepLink } from "./social-deep-links.js";
 
 const AUTH_CALLBACK_TOKEN_PATTERN = /^[A-Za-z0-9._~-]{8,2048}$/;

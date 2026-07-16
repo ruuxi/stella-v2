@@ -5,8 +5,8 @@ import {
 	isLatestAssistantThinkingModifiedError,
 	stripDanglingThinkingFromLatestAssistant,
 	stripThinkingFromLastAssistantParam,
-} from "../../../../runtime/ai/providers/anthropic.js";
-import type { AssistantMessage, Message } from "../../../../runtime/ai/types.js";
+} from "@stella/runtime/ai/providers/anthropic";
+import type { AssistantMessage, Message } from "@stella/runtime/ai/types";
 
 const usage = {
 	input: 0,

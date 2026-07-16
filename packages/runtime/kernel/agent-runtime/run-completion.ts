@@ -12,8 +12,8 @@ import type {
   SubagentRunOptions,
   SubagentRunResult,
 } from "./types.js";
-import type { SelfModAppliedPayload } from "../../contracts/local-chat.js";
-import { AGENT_IDS } from "../../contracts/agent-runtime.js";
+import type { SelfModAppliedPayload } from "@stella/contracts/local-chat";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 
 const logger = createRuntimeLogger("agent-runtime.completion");
 

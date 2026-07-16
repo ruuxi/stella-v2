@@ -13,8 +13,8 @@
  */
 
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
-import type { WebSearchResultHit } from "../../../../../runtime/contracts/local-chat.js";
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
+import type { WebSearchResultHit } from "@stella/contracts/local-chat";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 
 /** Cap so the strip stays a single tidy row regardless of result count. */
 const MAX_WEB_SEARCH_IMAGE_CARDS = 4;

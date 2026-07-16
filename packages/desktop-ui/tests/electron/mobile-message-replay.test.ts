@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import { rm } from "node:fs/promises";
-import { LocalChatHistoryService } from "../../electron/services/local-chat-history-service.js";
+import { LocalChatHistoryService } from "@stella/desktop/electron/services/local-chat-history-service.js";
 
 const roots = new Set<string>();
 

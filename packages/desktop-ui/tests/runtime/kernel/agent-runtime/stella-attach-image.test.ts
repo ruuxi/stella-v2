@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   extractAttachImageBlocks,
   truncateModelVisibleToolText,
-} from "../../../../../runtime/kernel/agent-runtime/tool-adapters.js";
-import { MAX_IMAGE_BASE64_BYTES } from "../../../../../runtime/ai/utils/image-payload.js";
+} from "@stella/runtime/kernel/agent-runtime/tool-adapters";
+import { MAX_IMAGE_BASE64_BYTES } from "@stella/runtime/ai/utils/image-payload";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();

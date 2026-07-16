@@ -1,4 +1,4 @@
-import type { TaskToolActivity } from "../../../../runtime/contracts/agent-runtime.js";
+import type { TaskToolActivity } from "@stella/contracts/agent-runtime";
 
 type FriendlyToolLabels = {
   active: string;

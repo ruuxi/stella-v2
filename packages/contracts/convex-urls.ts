@@ -1,7 +1,7 @@
 import {
   normalizeStellaSiteUrl,
   stellaApiBaseUrlFromSiteUrl,
-} from "../contracts/stella-api.js";
+} from "@stella/contracts/stella-api";
 
 const trimUrl = (value: string): string => value.trim().replace(/\/+$/, "");
 

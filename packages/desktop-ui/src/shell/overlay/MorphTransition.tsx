@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { SelfModHmrState } from "../../../../runtime/contracts/index.js";
+import type { SelfModHmrState } from "@stella/contracts";
 import {
   DEFAULT_MORPH_TIMING_SETTINGS,
   MORPH_STEADY_STRENGTH,
   type MorphVisualTiming,
-} from "../../shared/contracts/morph-timing";
+} from "@stella/contracts/desktop/morph-timing";
 import { useTheme } from "@/context/theme-context";
 import { shouldUseLowPowerEffects } from "@/shared/lib/device-perf";
 

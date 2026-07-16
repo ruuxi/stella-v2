@@ -13,7 +13,7 @@ import {
 import { Button } from "@/ui/button";
 import { showToast } from "@/ui/toast";
 import { PetSprite } from "@/shell/pet/PetSprite";
-import type { PetAnimationState } from "@/shared/contracts/pet";
+import type { PetAnimationState } from "@stella/contracts/desktop/pet";
 import { writeSelectedPetId } from "@/shell/pet/pet-preferences";
 import { addInstalledPet } from "./installed-pets";
 import {

@@ -7,8 +7,8 @@ import type {
   OfficePreviewFormat,
   OfficePreviewSnapshot,
   OfficePreviewStatus,
-} from "../../../runtime/contracts/office-preview.js";
-import { IPC_OFFICE_PREVIEW_UPDATE } from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/office-preview";
+import { IPC_OFFICE_PREVIEW_UPDATE } from "@stella/contracts/desktop/ipc-channels";
 import { broadcastToWindows, type BootstrapContext } from "./context.js";
 
 type OfficePreviewManifest = {

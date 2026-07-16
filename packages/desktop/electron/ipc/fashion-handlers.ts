@@ -28,7 +28,7 @@ import {
   IPC_FASHION_PICK_TRY_ON_IMAGES,
   IPC_FASHION_START_OUTFIT_BATCH,
   IPC_FASHION_START_TRY_ON,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import type { StellaHostRunner } from "../stella-host-runner.js";
 import {
   registerPrivilegedHandle,

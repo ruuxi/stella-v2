@@ -6,15 +6,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   runCodexAgentTurn,
   shutdownCodexAppServerRuntime,
-} from "../../../../../runtime/kernel/integrations/codex-agent-runtime.js";
+} from "@stella/runtime/kernel/integrations/codex-agent-runtime";
 import {
   runClaudeCodeTurn,
   shutdownClaudeCodeRuntime,
-} from "../../../../../runtime/kernel/integrations/claude-code-session-runtime.js";
+} from "@stella/runtime/kernel/integrations/claude-code-session-runtime";
 import {
   buildExternalCliChildEnv,
   resolveExternalCliPath,
-} from "../../../../../runtime/kernel/integrations/external-cli-resolution.js";
+} from "@stella/runtime/kernel/integrations/external-cli-resolution";
 
 const writeExecutable = (filePath: string, source = "#!/bin/sh\nexit 0\n") => {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });

@@ -3,7 +3,7 @@
  * data-uri conversion, and local-import wiring through the desktop
  * media `saveOutput` IPC.
  */
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { openDisplayPayloadTab } from "./open-payload";
 
 export const SUPPORTED_MEDIA_MIME_PREFIXES = [

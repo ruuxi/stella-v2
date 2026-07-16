@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { JsonRpcPeer } from "../../../../runtime/protocol/rpc-peer.js";
-import { WorkerPeerBroker } from "../../../../runtime/worker/peer-broker.js";
+import { JsonRpcPeer } from "@stella/contracts/protocol/rpc-peer";
+import { WorkerPeerBroker } from "@stella/runtime/worker/peer-broker";
 
 /**
  * Wires two `JsonRpcPeer` instances together over a microtask-queued

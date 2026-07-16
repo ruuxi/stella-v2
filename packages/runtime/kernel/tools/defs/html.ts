@@ -15,8 +15,8 @@
 
 import path from "node:path";
 import fs from "node:fs/promises";
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
-import { fileChange } from "../../../contracts/file-changes.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { fileChange } from "@stella/contracts/file-changes";
 import type { ToolDefinition } from "../types.js";
 
 export type HtmlToolOptions = {

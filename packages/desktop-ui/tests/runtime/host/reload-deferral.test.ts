@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { StellaRuntimeHost } from "../../../../runtime/host/index.js";
-import { METHOD_NAMES } from "../../../../runtime/protocol/index.js";
+import { StellaRuntimeHost } from "@stella/runtime/host";
+import { METHOD_NAMES } from "@stella/contracts/protocol";
 
 const createHost = () =>
   new StellaRuntimeHost({

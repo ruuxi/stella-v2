@@ -13,7 +13,7 @@ import {
   type RefObject,
 } from "react";
 import type { LegendListRef } from "@legendapp/list/react";
-import type { MessageRecord } from "../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 import { useEventRows } from "@/features/chat/hooks/use-event-rows";
 import { ChatTimeline } from "./ChatTimeline";
 import type { InlineWorkingIndicatorMountProps } from "./InlineWorkingIndicator";

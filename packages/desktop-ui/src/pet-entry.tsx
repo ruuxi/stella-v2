@@ -9,7 +9,7 @@ import { convexClient } from "./platform/convex/convex-client";
 import { useDesktopConvexAuth } from "./global/auth/DesktopConvexAuthProvider";
 import { ToastProvider } from "./ui/toast";
 import { PetOverlay } from "./shell/pet/PetOverlay";
-import type { PetOverlayStatus } from "./shared/contracts/pet";
+import type { PetOverlayStatus } from "@stella/contracts/desktop/pet";
 import { writePetOpenPreference } from "./shell/pet/pet-preferences";
 import { applyLowPowerDocumentFlag } from "./shared/lib/device-perf";
 

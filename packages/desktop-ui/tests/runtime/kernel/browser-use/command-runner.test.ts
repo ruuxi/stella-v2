@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BrowserCommandRunnerError,
   runBrowserCommand,
-} from "../../../../../runtime/kernel/browser-use/command-runner.js";
+} from "@stella/runtime/kernel/browser-use/command-runner";
 
 const request = (args: string[]) => ({
   command: process.execPath,

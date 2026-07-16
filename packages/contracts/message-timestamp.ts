@@ -2,7 +2,7 @@
 import {
   formatTimestampSystemReminder,
   wrapSystemReminder,
-} from "../contracts/system-reminders.js";
+} from "@stella/contracts/system-reminders";
 
 export { wrapSystemReminder };
 

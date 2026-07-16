@@ -5,7 +5,7 @@ import path from "path";
 import {
   clearRipgrepPathCacheForTests,
   resolveRipgrepPath,
-} from "../../../../../runtime/kernel/tools/ripgrep";
+} from "@stella/runtime/kernel/tools/ripgrep";
 
 describe("ripgrep resolver", () => {
   const originalPath = process.env.PATH;

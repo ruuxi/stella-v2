@@ -9,7 +9,7 @@ import {
   isWorkerRestartRelevantPath,
   normalizeContentionPath,
   toSelfModRelevantKey,
-} from "../../../../../runtime/kernel/self-mod/path-relevance.js";
+} from "@stella/runtime/kernel/self-mod/path-relevance";
 
 const repoRoot = path.resolve("/tmp/stella-fake-root");
 
@@ -17,10 +17,10 @@ describe("normalizeContentionPath", () => {
   it("returns repo-relative posix path for source files", () => {
     expect(
       normalizeContentionPath(
-        path.join(repoRoot, "desktop", "src", "app.tsx"),
+        path.join(repoRoot, "packages", "desktop-ui", "src", "app.tsx"),
         repoRoot,
       ),
-    ).toBe("desktop/src/app.tsx");
+    ).toBe("packages/desktop-ui/src/app.tsx");
   });
 
   it("rejects paths outside the repo root", () => {
@@ -32,7 +32,7 @@ describe("normalizeContentionPath", () => {
   it("rejects excluded path segments (node_modules, dist, .git, dist-electron)", () => {
     expect(
       normalizeContentionPath(
-        path.join(repoRoot, "desktop", "node_modules", "x", "index.js"),
+        path.join(repoRoot, "packages", "desktop-ui", "node_modules", "x", "index.js"),
         repoRoot,
       ),
     ).toBeNull();
@@ -44,7 +44,7 @@ describe("normalizeContentionPath", () => {
     ).toBeNull();
     expect(
       normalizeContentionPath(
-        path.join(repoRoot, "desktop", "dist", "bundle.js"),
+        path.join(repoRoot, "packages", "desktop-ui", "dist", "bundle.js"),
         repoRoot,
       ),
     ).toBeNull();
@@ -61,7 +61,7 @@ describe("normalizeContentionPath", () => {
     ]) {
       expect(
         normalizeContentionPath(
-          path.join(repoRoot, "desktop", "exports", filename),
+          path.join(repoRoot, "packages", "desktop-ui", "exports", filename),
           repoRoot,
         ),
       ).toBeNull();
@@ -71,13 +71,13 @@ describe("normalizeContentionPath", () => {
   it("allows text renderer assets that Vite serves as source modules", () => {
     expect(
       normalizeContentionPath(
-        path.join(repoRoot, "desktop", "src", "icons", "logo.svg"),
+        path.join(repoRoot, "packages", "desktop-ui", "src", "icons", "logo.svg"),
         repoRoot,
       ),
-    ).toBe("desktop/src/icons/logo.svg");
+    ).toBe("packages/desktop-ui/src/icons/logo.svg");
     expect(
       normalizeContentionPath(
-        path.join(repoRoot, "desktop", "exports", "logo.svg"),
+        path.join(repoRoot, "packages", "desktop-ui", "exports", "logo.svg"),
         repoRoot,
       ),
     ).toBeNull();
@@ -89,7 +89,7 @@ describe("normalizeContentionPath", () => {
     ).toBe("bun.lockb");
     expect(
       normalizeContentionPath(
-        path.join(repoRoot, "desktop", "exports", "lock.lockb"),
+        path.join(repoRoot, "packages", "desktop-ui", "exports", "lock.lockb"),
         repoRoot,
       ),
     ).toBeNull();
@@ -98,16 +98,16 @@ describe("normalizeContentionPath", () => {
   it("allows legacy nested package manifests before artifact suffix exclusion", () => {
     expect(
       normalizeContentionPath(
-        path.join(repoRoot, "desktop", "package.json"),
+        path.join(repoRoot, "packages", "desktop-ui", "package.json"),
         repoRoot,
       ),
-    ).toBe("desktop/package.json");
+    ).toBe("packages/desktop-ui/package.json");
     expect(
       normalizeContentionPath(
-        path.join(repoRoot, "desktop", "stella-browser", "bun.lockb"),
+        path.join(repoRoot, "packages", "stella-browser", "bun.lockb"),
         repoRoot,
       ),
-    ).toBe("desktop/stella-browser/bun.lockb");
+    ).toBe("packages/stella-browser/bun.lockb");
   });
 
   it("rejects the repo root itself", () => {
@@ -117,14 +117,14 @@ describe("normalizeContentionPath", () => {
 
 describe("isRendererHmrRelevantPath", () => {
   it("accepts renderer modules that can be applied by the Vite overlay", () => {
-    expect(isRendererHmrRelevantPath("desktop/src/app.tsx")).toBe(true);
-    expect(isRendererHmrRelevantPath("desktop/src/icons/logo.svg")).toBe(true);
+    expect(isRendererHmrRelevantPath("packages/desktop-ui/src/app.tsx")).toBe(true);
+    expect(isRendererHmrRelevantPath("packages/desktop-ui/src/icons/logo.svg")).toBe(true);
   });
 
   it("rejects restart-required and non-renderer paths from renderer HMR contention", () => {
-    expect(isRendererHmrRelevantPath("desktop/electron/main.ts")).toBe(false);
-    expect(isRendererHmrRelevantPath("desktop/vite.config.ts")).toBe(false);
-    expect(isRendererHmrRelevantPath("runtime/kernel/runner.ts")).toBe(false);
+    expect(isRendererHmrRelevantPath("packages/desktop/electron/main.ts")).toBe(false);
+    expect(isRendererHmrRelevantPath("packages/desktop-ui/vite.config.ts")).toBe(false);
+    expect(isRendererHmrRelevantPath("packages/runtime/kernel/runner.ts")).toBe(false);
     expect(isRendererHmrRelevantPath("package.json")).toBe(false);
     expect(isRendererHmrRelevantPath("bun.lock")).toBe(false);
     expect(isRendererHmrRelevantPath("bun.lockb")).toBe(false);
@@ -143,61 +143,61 @@ describe("isRendererHmrRelevantPath", () => {
 
 describe("isWorkerRestartRelevantPath", () => {
   it("flags runtime/kernel paths that are not host-owned", () => {
-    expect(isWorkerRestartRelevantPath("runtime/kernel/runner.ts")).toBe(true);
+    expect(isWorkerRestartRelevantPath("packages/runtime/kernel/runner.ts")).toBe(true);
     expect(
-      isWorkerRestartRelevantPath("runtime/kernel/agent-runtime/run-events.ts"),
+      isWorkerRestartRelevantPath("packages/runtime/kernel/agent-runtime/run-events.ts"),
     ).toBe(true);
   });
 
   it("does not flag host-owned runtime/kernel paths", () => {
-    expect(isWorkerRestartRelevantPath("runtime/kernel/storage/foo.ts")).toBe(false);
-    expect(isWorkerRestartRelevantPath("runtime/kernel/shared/util.ts")).toBe(false);
+    expect(isWorkerRestartRelevantPath("packages/runtime/kernel/storage/foo.ts")).toBe(false);
+    expect(isWorkerRestartRelevantPath("packages/runtime/kernel/shared/util.ts")).toBe(false);
     expect(
-      isWorkerRestartRelevantPath("runtime/kernel/preferences/local-preferences.ts"),
+      isWorkerRestartRelevantPath("packages/runtime/kernel/preferences/local-preferences.ts"),
     ).toBe(false);
   });
 
-  it("flags runtime/ai, runtime/worker, runtime/protocol/jsonl paths", () => {
-    expect(isWorkerRestartRelevantPath("runtime/ai/index.ts")).toBe(true);
-    expect(isWorkerRestartRelevantPath("runtime/worker/server.ts")).toBe(true);
-    expect(isWorkerRestartRelevantPath("runtime/protocol/jsonl/peer.ts")).toBe(true);
+  it("flags runtime/ai, runtime/worker, packages/contracts/protocol/jsonl paths", () => {
+    expect(isWorkerRestartRelevantPath("packages/runtime/ai/index.ts")).toBe(true);
+    expect(isWorkerRestartRelevantPath("packages/runtime/worker/server.ts")).toBe(true);
+    expect(isWorkerRestartRelevantPath("packages/contracts/protocol/jsonl/peer.ts")).toBe(true);
   });
 
   it("flags shipped agent metadata so applied capability updates restart the worker", () => {
     expect(
       isWorkerRestartRelevantPath(
-        "runtime/extensions/stella-runtime/agent-metadata/orchestrator.md",
+        "packages/runtime/extensions/stella-runtime/agent-metadata/orchestrator.md",
       ),
     ).toBe(true);
   });
 
   it("does not flag desktop/* paths", () => {
-    expect(isWorkerRestartRelevantPath("desktop/src/app.tsx")).toBe(false);
+    expect(isWorkerRestartRelevantPath("packages/desktop-ui/src/app.tsx")).toBe(false);
   });
 });
 
 describe("isFullWindowReloadRelevantPath", () => {
   it("flags Vite-served browser resources that need a full window reload", () => {
-    expect(isFullWindowReloadRelevantPath("desktop/index.html")).toBe(true);
-    expect(isFullWindowReloadRelevantPath("desktop/mini.html")).toBe(true);
-    expect(isFullWindowReloadRelevantPath("desktop/overlay.html")).toBe(true);
-    expect(isFullWindowReloadRelevantPath("desktop/pet.html")).toBe(true);
+    expect(isFullWindowReloadRelevantPath("packages/desktop-ui/index.html")).toBe(true);
+    expect(isFullWindowReloadRelevantPath("packages/desktop-ui/mini.html")).toBe(true);
+    expect(isFullWindowReloadRelevantPath("packages/desktop-ui/overlay.html")).toBe(true);
+    expect(isFullWindowReloadRelevantPath("packages/desktop-ui/pet.html")).toBe(true);
   });
 
   it("flags sidebar app metadata because it changes the eager app glob", () => {
     expect(
-      isFullWindowReloadRelevantPath("desktop/src/app/launch-checklist/metadata.ts"),
+      isFullWindowReloadRelevantPath("packages/desktop-ui/src/app/launch-checklist/metadata.ts"),
     ).toBe(true);
   });
 
   it("flags theme registry modules because the theme picker reads a glob snapshot", () => {
     expect(
       isFullWindowReloadRelevantPath(
-        "desktop/src/shared/theme/themes/interstellar.ts",
+        "packages/desktop-ui/src/shared/theme/themes/interstellar.ts",
       ),
     ).toBe(true);
     expect(
-      isFullWindowReloadRelevantPath("desktop/src/shared/theme/themes/index.ts"),
+      isFullWindowReloadRelevantPath("packages/desktop-ui/src/shared/theme/themes/index.ts"),
     ).toBe(true);
   });
 
@@ -206,14 +206,14 @@ describe("isFullWindowReloadRelevantPath", () => {
     expect(isFullWindowReloadRelevantPath("bun.lock")).toBe(false);
     expect(isFullWindowReloadRelevantPath("bun.lockb")).toBe(false);
     expect(isFullWindowReloadRelevantPath("tsconfig.json")).toBe(false);
-    expect(isFullWindowReloadRelevantPath("desktop/vite.config.ts")).toBe(false);
+    expect(isFullWindowReloadRelevantPath("packages/desktop-ui/vite.config.ts")).toBe(false);
   });
 
   it("does not flag ordinary desktop modules", () => {
-    expect(isFullWindowReloadRelevantPath("desktop/src/app.tsx")).toBe(false);
+    expect(isFullWindowReloadRelevantPath("packages/desktop-ui/src/app.tsx")).toBe(false);
     expect(
       isFullWindowReloadRelevantPath(
-        "desktop/src/app/launch-checklist/LaunchChecklistView.tsx",
+        "packages/desktop-ui/src/app/launch-checklist/LaunchChecklistView.tsx",
       ),
     ).toBe(false);
   });
@@ -221,15 +221,15 @@ describe("isFullWindowReloadRelevantPath", () => {
 
 describe("isViteTrackablePath", () => {
   it("accepts only files the Vite overlay can pin or reload", () => {
-    expect(isViteTrackablePath("desktop/src/app.tsx")).toBe(true);
-    expect(isViteTrackablePath("desktop/src/icons/logo.svg")).toBe(true);
-    expect(isViteTrackablePath("desktop/index.html")).toBe(true);
-    expect(isViteTrackablePath("desktop/mini.html")).toBe(true);
-    expect(isViteTrackablePath("desktop/overlay.html")).toBe(true);
-    expect(isViteTrackablePath("desktop/pet.html")).toBe(true);
+    expect(isViteTrackablePath("packages/desktop-ui/src/app.tsx")).toBe(true);
+    expect(isViteTrackablePath("packages/desktop-ui/src/icons/logo.svg")).toBe(true);
+    expect(isViteTrackablePath("packages/desktop-ui/index.html")).toBe(true);
+    expect(isViteTrackablePath("packages/desktop-ui/mini.html")).toBe(true);
+    expect(isViteTrackablePath("packages/desktop-ui/overlay.html")).toBe(true);
+    expect(isViteTrackablePath("packages/desktop-ui/pet.html")).toBe(true);
     expect(isViteTrackablePath("package.json")).toBe(false);
-    expect(isViteTrackablePath("desktop/vite.config.ts")).toBe(false);
-    expect(isViteTrackablePath("runtime/kernel/runner.ts")).toBe(false);
+    expect(isViteTrackablePath("packages/desktop-ui/vite.config.ts")).toBe(false);
+    expect(isViteTrackablePath("packages/runtime/kernel/runner.ts")).toBe(false);
   });
 });
 
@@ -239,32 +239,32 @@ describe("isRestartRequiredNonHmrPath", () => {
     expect(isRestartRequiredNonHmrPath("bun.lock")).toBe(true);
     expect(isRestartRequiredNonHmrPath("bun.lockb")).toBe(true);
     expect(
-      isRestartRequiredNonHmrPath("desktop/stella-browser/bun.lockb"),
+      isRestartRequiredNonHmrPath("packages/stella-browser/bun.lockb"),
     ).toBe(true);
-    expect(isRestartRequiredNonHmrPath("desktop/vite.config.ts")).toBe(true);
-    expect(isRestartRequiredNonHmrPath("desktop/electron/main.ts")).toBe(true);
+    expect(isRestartRequiredNonHmrPath("packages/desktop-ui/vite.config.ts")).toBe(true);
+    expect(isRestartRequiredNonHmrPath("packages/desktop/electron/main.ts")).toBe(true);
     expect(
       isRestartRequiredNonHmrPath(
-        "desktop/stella-browser/bin/stella-browser-darwin-arm64",
+        "packages/stella-browser/bin/stella-browser-darwin-arm64",
       ),
     ).toBe(true);
-    expect(isRestartRequiredNonHmrPath("runtime/kernel/runner.ts")).toBe(true);
+    expect(isRestartRequiredNonHmrPath("packages/runtime/kernel/runner.ts")).toBe(true);
   });
 
   it("does not flag renderer HMR paths", () => {
-    expect(isRestartRequiredNonHmrPath("desktop/src/app.tsx")).toBe(false);
+    expect(isRestartRequiredNonHmrPath("packages/desktop-ui/src/app.tsx")).toBe(false);
   });
 });
 
 describe("isSelfModRelevantPath", () => {
   it("accepts renderer, full-reload, worker, and restart-required paths", () => {
-    expect(isSelfModRelevantPath("desktop/src/app.tsx")).toBe(true);
-    expect(isSelfModRelevantPath("desktop/index.html")).toBe(true);
-    expect(isSelfModRelevantPath("desktop/mini.html")).toBe(true);
-    expect(isSelfModRelevantPath("desktop/overlay.html")).toBe(true);
-    expect(isSelfModRelevantPath("desktop/pet.html")).toBe(true);
-    expect(isSelfModRelevantPath("runtime/kernel/runner.ts")).toBe(true);
-    expect(isSelfModRelevantPath("desktop/vite.config.ts")).toBe(true);
+    expect(isSelfModRelevantPath("packages/desktop-ui/src/app.tsx")).toBe(true);
+    expect(isSelfModRelevantPath("packages/desktop-ui/index.html")).toBe(true);
+    expect(isSelfModRelevantPath("packages/desktop-ui/mini.html")).toBe(true);
+    expect(isSelfModRelevantPath("packages/desktop-ui/overlay.html")).toBe(true);
+    expect(isSelfModRelevantPath("packages/desktop-ui/pet.html")).toBe(true);
+    expect(isSelfModRelevantPath("packages/runtime/kernel/runner.ts")).toBe(true);
+    expect(isSelfModRelevantPath("packages/desktop-ui/vite.config.ts")).toBe(true);
     expect(isSelfModRelevantPath("package.json")).toBe(true);
   });
 
@@ -280,29 +280,29 @@ describe("toSelfModRelevantKey", () => {
       toSelfModRelevantKey(path.join(repoRoot, "package.json"), repoRoot),
     ).toBe("package.json");
     expect(
-      toSelfModRelevantKey(path.join(repoRoot, "desktop", "index.html"), repoRoot),
-    ).toBe("desktop/index.html");
+      toSelfModRelevantKey(path.join(repoRoot, "packages", "desktop-ui", "index.html"), repoRoot),
+    ).toBe("packages/desktop-ui/index.html");
     expect(
-      toSelfModRelevantKey(path.join(repoRoot, "desktop", "mini.html"), repoRoot),
-    ).toBe("desktop/mini.html");
-    expect(
-      toSelfModRelevantKey(
-        path.join(repoRoot, "runtime", "kernel", "runner.ts"),
-        repoRoot,
-      ),
-    ).toBe("runtime/kernel/runner.ts");
+      toSelfModRelevantKey(path.join(repoRoot, "packages", "desktop-ui", "mini.html"), repoRoot),
+    ).toBe("packages/desktop-ui/mini.html");
     expect(
       toSelfModRelevantKey(
-        path.join(repoRoot, "desktop", "package.json"),
+        path.join(repoRoot, "packages", "runtime", "kernel", "runner.ts"),
         repoRoot,
       ),
-    ).toBe("desktop/package.json");
+    ).toBe("packages/runtime/kernel/runner.ts");
     expect(
       toSelfModRelevantKey(
-        path.join(repoRoot, "desktop", "stella-browser", "bun.lockb"),
+        path.join(repoRoot, "packages", "desktop-ui", "package.json"),
         repoRoot,
       ),
-    ).toBe("desktop/stella-browser/bun.lockb");
+    ).toBe("packages/desktop-ui/package.json");
+    expect(
+      toSelfModRelevantKey(
+        path.join(repoRoot, "packages", "stella-browser", "bun.lockb"),
+        repoRoot,
+      ),
+    ).toBe("packages/stella-browser/bun.lockb");
   });
 
   it("still rejects unrelated paths", () => {

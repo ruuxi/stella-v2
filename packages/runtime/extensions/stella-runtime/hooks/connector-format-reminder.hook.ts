@@ -1,5 +1,5 @@
 import type { HookDefinition } from "../../../kernel/extensions/types.js";
-import { wrapInternalSystemReminder } from "../../../contracts/system-reminders.js";
+import { wrapInternalSystemReminder } from "@stella/contracts/system-reminders";
 
 /**
  * Connector-surface transition reminder (stella-runtime).

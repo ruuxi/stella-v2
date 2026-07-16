@@ -3,13 +3,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { commitGitMessage } from "../../../../../runtime/kernel/self-mod/git/commit.js";
-import { listFilesForCommit } from "../../../../../runtime/kernel/self-mod/git/log.js";
+import { commitGitMessage } from "@stella/runtime/kernel/self-mod/git/commit";
+import { listFilesForCommit } from "@stella/runtime/kernel/self-mod/git/log";
 import {
   revertSelfModCommit,
   rollbackGitChangesSince,
-} from "../../../../../runtime/kernel/self-mod/git/revert.js";
-import { parseStellaCommitTrailers } from "../../../../../runtime/kernel/self-mod/git/trailers.js";
+} from "@stella/runtime/kernel/self-mod/git/revert";
+import { parseStellaCommitTrailers } from "@stella/runtime/kernel/self-mod/git/trailers";
 
 describe("parseStellaCommitTrailers — Stella-Thread", () => {
   it("parses Stella-Thread alongside Stella-Conversation", () => {

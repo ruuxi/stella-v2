@@ -1,6 +1,6 @@
 import { useContext } from "react";
 import { ChatMessagesContext } from "@/context/chat-messages-context";
-import type { MessageRecord } from "../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 
 /**
  * Subscribe to the live chat timeline (the per-frame streaming message

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ComputerUseRequest } from "../../../../../runtime/kernel/computer-use/contract.js";
+import type { ComputerUseRequest } from "@stella/runtime/kernel/computer-use/contract";
 import {
   ComputerUseProtocolError,
   ComputerUseSessionError,
   createComputerUseSession,
   executeComputerUseRequest,
-} from "../../../../../runtime/kernel/computer-use/session.js";
+} from "@stella/runtime/kernel/computer-use/session";
 
 const request = {
   schemaVersion: 1,

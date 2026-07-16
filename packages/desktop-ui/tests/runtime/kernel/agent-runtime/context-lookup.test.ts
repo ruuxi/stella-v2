@@ -16,24 +16,24 @@ import {
   formatTranscriptSearchResults,
   resolveRecallSearchAction,
   runRecall,
-} from "../../../../../runtime/kernel/agent-runtime/context-lookup.js";
+} from "@stella/runtime/kernel/agent-runtime/context-lookup";
 import type {
   AssistantMessage,
   Context,
   Message,
   ToolResultMessage,
-} from "../../../../../runtime/ai/types.js";
-import { completeSimple } from "../../../../../runtime/ai/stream.js";
+} from "@stella/runtime/ai/types";
+import { completeSimple } from "@stella/runtime/ai/stream";
 import {
   runClaudeCodeAgentTextCompletion,
   shouldUseClaudeCodeAgentRuntime,
-} from "../../../../../runtime/kernel/integrations/claude-code-agent-runtime.js";
+} from "@stella/runtime/kernel/integrations/claude-code-agent-runtime";
 
 // runRecall drives its steps through completeSimple; the tests script its
 // responses. readAssistantText stays real (it reads the fake message text).
-vi.mock("../../../../../runtime/ai/stream.js", async (importOriginal) => ({
+vi.mock("@stella/runtime/ai/stream", async (importOriginal) => ({
   ...(await importOriginal<
-    typeof import("../../../../../runtime/ai/stream.js")
+    typeof import("@stella/runtime/ai/stream")
   >()),
   completeSimple: vi.fn(),
 }));
@@ -42,10 +42,10 @@ vi.mock("../../../../../runtime/ai/stream.js", async (importOriginal) => ({
 // data dir with no preferences file); the Claude Code tests flip it on and
 // script the CLI turn.
 vi.mock(
-  "../../../../../runtime/kernel/integrations/claude-code-agent-runtime.js",
+  "@stella/runtime/kernel/integrations/claude-code-agent-runtime",
   async (importOriginal) => ({
     ...(await importOriginal<
-      typeof import("../../../../../runtime/kernel/integrations/claude-code-agent-runtime.js")
+      typeof import("@stella/runtime/kernel/integrations/claude-code-agent-runtime")
     >()),
     shouldUseClaudeCodeAgentRuntime: vi.fn(() => false),
     runClaudeCodeAgentTextCompletion: vi.fn(),
@@ -54,8 +54,8 @@ vi.mock(
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../../runtime/kernel/storage/database-init.js";
-import type { SqliteDatabase } from "../../../../../runtime/kernel/storage/shared.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 const roots = new Set<string>();
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createRuntimePromptAgentMessage,
   createUserPromptMessage,
-} from "../../../../../runtime/kernel/agent-runtime/run-preparation.js";
+} from "@stella/runtime/kernel/agent-runtime/run-preparation";
 
 describe("run preparation attachments", () => {
   it("only converts image data URLs into image content blocks", () => {

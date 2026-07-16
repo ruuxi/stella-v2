@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   probeBackendIntegrationConnection,
   waitForBackendIntegrationConnection,
-} from "../../../electron/ipc/backend-integration-status.js";
+} from "@stella/desktop/electron/ipc/backend-integration-status.js";
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {

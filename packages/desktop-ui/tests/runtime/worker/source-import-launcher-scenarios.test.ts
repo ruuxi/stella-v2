@@ -17,19 +17,19 @@ import {
   createStellaSourcePack,
   hashSourceTree,
   type StellaSourceTree,
-} from "../../../../runtime/kernel/self-mod/stella-source-control.js";
-import { StoreModService } from "../../../../runtime/kernel/self-mod/store-mod-service.js";
+} from "@stella/runtime/kernel/self-mod/stella-source-control";
+import { StoreModService } from "@stella/runtime/kernel/self-mod/store-mod-service";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../runtime/kernel/storage/database-init.js";
-import { StellaSourceHistoryStore } from "../../../../runtime/kernel/storage/stella-source-history-store.js";
-import { StoreModStore } from "../../../../runtime/kernel/storage/store-mod-store.js";
-import type { SqliteDatabase } from "../../../../runtime/kernel/storage/shared.js";
-import type { ExternalSourceImportRunner } from "../../../../runtime/worker/source-import-external.js";
-import { importExternalSource } from "../../../../runtime/worker/source-import-external.js";
-import type { SourceImportLifecycle } from "../../../../runtime/worker/source-import.js";
-import { trySourceImportFastPath } from "../../../../runtime/worker/source-import.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import { StellaSourceHistoryStore } from "@stella/runtime/kernel/storage/stella-source-history-store";
+import { StoreModStore } from "@stella/runtime/kernel/storage/store-mod-store";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import type { ExternalSourceImportRunner } from "@stella/runtime/worker/source-import-external";
+import { importExternalSource } from "@stella/runtime/worker/source-import-external";
+import type { SourceImportLifecycle } from "@stella/runtime/worker/source-import";
+import { trySourceImportFastPath } from "@stella/runtime/worker/source-import";
 
 const execFileAsync = promisify(execFile);
 const text = (content: string) => ({ kind: "text" as const, content });

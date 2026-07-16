@@ -1,5 +1,5 @@
 import { webContents } from "electron";
-import { IPC_RUNTIME_AVAILABILITY } from "../../src/shared/contracts/ipc-channels.js";
+import { IPC_RUNTIME_AVAILABILITY } from "@stella/contracts/desktop/ipc-channels";
 import type { StellaHostRunner } from "../stella-host-runner.js";
 import type { RuntimeAvailabilitySnapshot } from "../runtime-host-adapter.js";
 

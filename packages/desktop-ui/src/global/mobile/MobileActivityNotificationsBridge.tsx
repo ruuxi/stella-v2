@@ -4,7 +4,7 @@ import { api } from "@/convex/api";
 import { type TaskItem } from "@/features/chat/lib/event-transforms";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
-import { AGENT_IDS } from "../../../../runtime/contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 
 const MOUNT_GRACE_MS = 2_000;
 

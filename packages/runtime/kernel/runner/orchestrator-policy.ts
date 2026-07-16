@@ -1,11 +1,11 @@
-import { AGENT_IDS } from "../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { canResolveRunnerLlmRoute } from "./model-selection.js";
 import { sanitizeStellaBase } from "./shared.js";
 import type { AgentHealth, ChatPayload, RunnerContext } from "./types.js";
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
-} from "../../protocol/index.js";
+} from "@stella/contracts/protocol";
 
 export type OrchestratorRuntimeDeps = {
   resolveAgent: (agentType: string) => unknown;

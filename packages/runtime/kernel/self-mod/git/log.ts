@@ -1,5 +1,5 @@
-import type { SelfModCommitSummary } from "../../../contracts/index.js";
-import type { SelfModAppliedPayload } from "../../../contracts/local-chat.js";
+import type { SelfModCommitSummary } from "@stella/contracts";
+import type { SelfModAppliedPayload } from "@stella/contracts/local-chat";
 import {
   assertGitRepository,
   normalizeGitPath,

@@ -1,6 +1,6 @@
 import { cn } from "@/shared/lib/utils";
 import { useDeferredChatMessages } from "@/features/chat/hooks/use-deferred-chat-messages";
-import type { MessageRecord } from "../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
 import type { ChatColumnScroll } from "@/features/chat/chat-column-types";
 import { ConversationEvents } from "@/app/chat/ConversationEvents";

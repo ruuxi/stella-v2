@@ -2,7 +2,7 @@ import { execFile } from 'child_process'
 import { app as electronApp } from 'electron'
 import { runNativeHelper, runNativeHelperDetailed } from './native-helper.js'
 import { requestRecentAppsDaemon } from './native-helper-daemon.js'
-import type { RecentApp } from '../src/shared/contracts/home.js'
+import type { RecentApp } from '@stella/contracts/desktop/home'
 
 // Dedicated home-suggestion helper. Lives in `home_apps.swift` (separate
 // from `desktop_automation` so the agent-facing tool stays untouched by

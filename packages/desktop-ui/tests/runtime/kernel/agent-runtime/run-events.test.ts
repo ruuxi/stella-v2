@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { AssistantMessageEventStream } from "../../../../../runtime/ai/utils/event-stream.js";
-import type { AssistantMessage } from "../../../../../runtime/ai/types.js";
-import { runAgentLoop } from "../../../../../runtime/kernel/agent-core/agent-loop.js";
-import type { AgentEvent } from "../../../../../runtime/kernel/agent-core/types.js";
-import { createPiTools } from "../../../../../runtime/kernel/agent-runtime/tool-adapters.js";
+import { AssistantMessageEventStream } from "@stella/runtime/ai/utils/event-stream";
+import type { AssistantMessage } from "@stella/runtime/ai/types";
+import { runAgentLoop } from "@stella/runtime/kernel/agent-core/agent-loop";
+import type { AgentEvent } from "@stella/runtime/kernel/agent-core/types";
+import { createPiTools } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
 import type {
   RuntimeStatusEvent,
   RuntimeToolEndEvent,
   RuntimeToolStartEvent,
-} from "../../../../../runtime/kernel/agent-runtime/types.js";
+} from "@stella/runtime/kernel/agent-runtime/types";
 import {
   createRunEventRecorder,
   subscribeRuntimeAgentEvents,
-} from "../../../../../runtime/kernel/agent-runtime/run-events.js";
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
+} from "@stella/runtime/kernel/agent-runtime/run-events";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   initialStoreState,
   streamStoreReducer,

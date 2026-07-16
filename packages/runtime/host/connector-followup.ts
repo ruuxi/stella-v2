@@ -1,4 +1,4 @@
-import type { LocalChatUpdatedPayload } from "../contracts/local-chat.js";
+import type { LocalChatUpdatedPayload } from "@stella/contracts/local-chat";
 
 export type ConnectorFollowupAction =
   | { type: "ignore" }

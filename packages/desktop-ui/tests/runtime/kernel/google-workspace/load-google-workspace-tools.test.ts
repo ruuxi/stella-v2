@@ -3,8 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { loadGoogleWorkspaceTools } from "../../../../../runtime/kernel/google-workspace/load-google-workspace-tools.js";
-import { saveConnectorTokenPayload } from "../../../../../runtime/kernel/connectors/oauth.js";
+import { loadGoogleWorkspaceTools } from "@stella/runtime/kernel/google-workspace/load-google-workspace-tools";
+import { saveConnectorTokenPayload } from "@stella/runtime/kernel/connectors/oauth";
 
 describe("loadGoogleWorkspaceTools", () => {
   it("registers provider-safe allowlisted tools and time helpers work without Google auth", async () => {

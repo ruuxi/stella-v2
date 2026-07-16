@@ -4,13 +4,13 @@ import {
   createSkyClient,
   type AuthorizeApp,
   type SkyAction,
-} from "../../../../../runtime/kernel/computer-use/client.js";
+} from "@stella/runtime/kernel/computer-use/client";
 import type {
   ComputerUseAppPolicy,
   ComputerUseRequest,
   ComputerUseTarget,
-} from "../../../../../runtime/kernel/computer-use/contract.js";
-import type { ComputerUseSession } from "../../../../../runtime/kernel/computer-use/session.js";
+} from "@stella/runtime/kernel/computer-use/contract";
+import type { ComputerUseSession } from "@stella/runtime/kernel/computer-use/session";
 
 const envelope = (request: ComputerUseRequest) => ({
   schemaVersion: request.schemaVersion,

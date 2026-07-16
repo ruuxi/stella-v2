@@ -35,12 +35,12 @@ import type {
   TaskToolActivity,
   TaskLifecycleStatus,
   TerminalTaskLifecycleStatus,
-} from "../../contracts/agent-runtime.js";
-import { AGENT_IDS } from "../../contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type {
   FileChangeRecord,
   ProducedFileRecord,
-} from "../../contracts/file-changes.js";
+} from "@stella/contracts/file-changes";
 import type {
   ToolContext,
   ToolResult,
@@ -62,8 +62,8 @@ import type {
   AgentRuntimeEngine,
   SpawnEngineSelection,
   SpawnReasoningEffort,
-} from "../../contracts/agent-engine.js";
-import type { RuntimeActiveRun } from "../../protocol/index.js";
+} from "@stella/contracts/agent-engine";
+import type { RuntimeActiveRun } from "@stella/contracts/protocol";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import {
   type SubagentSession,

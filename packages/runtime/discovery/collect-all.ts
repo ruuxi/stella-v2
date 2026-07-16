@@ -66,7 +66,7 @@ import {
 } from "../kernel/home/private-fs.js";
 
 import type { AllUserSignals, AllUserSignalsResult } from "./types.js";
-import type { DiscoveryCategory } from "../contracts/discovery.js";
+import type { DiscoveryCategory } from "@stella/contracts/discovery";
 import type {
   BrowserBookmarks,
   SafariData,
@@ -77,7 +77,7 @@ import type {
 import type { FirefoxSignals } from "./firefox-data.js";
 import type { SteamLibrarySignals } from "./steam-library.js";
 import type { MusicLibrarySignals } from "./music-library.js";
-import type { BrowserType } from "../contracts/index.js";
+import type { BrowserType } from "@stella/contracts";
 
 const log = (...args: unknown[]) => console.error("[collect-all]", ...args);
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { WorkerLifecycleServer } from "../../../../runtime/worker/lifecycle-server.js";
+import { WorkerLifecycleServer } from "@stella/runtime/worker/lifecycle-server";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

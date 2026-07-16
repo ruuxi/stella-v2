@@ -1,7 +1,7 @@
 import {
   LEADING_TIME_TAG_RE,
   TRAILING_TIME_TAG_RE,
-} from "../message-timestamp.js";
+} from "@stella/contracts/message-timestamp";
 
 const isMessageEventType = (type: string) =>
   type === "user_message" || type === "assistant_message";

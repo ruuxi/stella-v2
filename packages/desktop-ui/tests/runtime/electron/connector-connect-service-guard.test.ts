@@ -15,15 +15,15 @@ vi.mock("electron", () => ({
   shell: { openExternal: vi.fn() },
 }));
 
-import { writeCachedServerCatalog } from "../../../../runtime/kernel/connectors/catalog-cache.js";
-import { getNativeConnectorReadiness } from "../../../../runtime/kernel/connectors/connection-status.js";
+import { writeCachedServerCatalog } from "@stella/runtime/kernel/connectors/catalog-cache";
+import { getNativeConnectorReadiness } from "@stella/runtime/kernel/connectors/connection-status";
 import {
   buildNativeConnectorCatalog,
   enableNativeConnector,
   type NativeConnectorCatalogEntry,
-} from "../../../../runtime/kernel/connectors/native-integrations.js";
-import { setConnectorTokenStoreBroker } from "../../../../runtime/kernel/connectors/oauth.js";
-import { ConnectorConnectService } from "../../../electron/services/connector-connect-service.js";
+} from "@stella/runtime/kernel/connectors/native-integrations";
+import { setConnectorTokenStoreBroker } from "@stella/runtime/kernel/connectors/oauth";
+import { ConnectorConnectService } from "@stella/desktop/electron/services/connector-connect-service.js";
 
 const roots: string[] = [];
 const backendEntry = (

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyElectronExit,
   shouldSuppressWatcherRestart,
-} from "../../../scripts/dev-electron-exit-policy.mjs";
+} from "../../../../desktop/scripts/dev-electron-exit-policy.mjs";
 
 describe("dev Electron exit policy", () => {
   it("lets an explicit relaunch request restart after a clean exit", () => {

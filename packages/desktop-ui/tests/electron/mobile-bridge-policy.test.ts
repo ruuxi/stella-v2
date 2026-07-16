@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildMobileBridgeBootstrap } from "../../electron/services/mobile-bridge/bootstrap-payload.js";
+import { buildMobileBridgeBootstrap } from "@stella/desktop/electron/services/mobile-bridge/bootstrap-payload.js";
 import {
   MOBILE_BRIDGE_CAPABILITIES,
   MOBILE_BRIDGE_EVENT_CAPABILITIES,
   MOBILE_BRIDGE_REQUEST_CAPABILITIES,
-} from "../../electron/services/mobile-bridge/capabilities.js";
+} from "@stella/desktop/electron/services/mobile-bridge/capabilities.js";
 import {
   isMobileBridgeEventChannel,
   isMobileBridgeRequestChannel,
-} from "../../electron/services/mobile-bridge/bridge-policy.js";
+} from "@stella/desktop/electron/services/mobile-bridge/bridge-policy.js";
 
 describe("mobile bridge policy", () => {
   it("allows the chat channels used by the mobile desktop WebView", () => {

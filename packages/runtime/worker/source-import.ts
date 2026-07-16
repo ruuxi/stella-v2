@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   StoreInstallRecord,
   StoreReleaseSourcePack,
-} from "../contracts/index.js";
+} from "@stella/contracts";
 import { listGitDirtyFiles } from "../kernel/self-mod/git/log.js";
 import type { StellaSourceApplyResult } from "../kernel/self-mod/stella-source-control.js";
 import type { StoreModService } from "../kernel/self-mod/store-mod-service.js";

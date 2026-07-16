@@ -15,7 +15,7 @@ import type {
   StoreReleaseCommit,
   StoreReleaseGitArtifact,
   StoreReleaseGitObjectUpload,
-} from "../contracts/index.js";
+} from "@stella/contracts";
 import { runGitStatus } from "../kernel/self-mod/git/exec.js";
 import { orderCommitHashesChronologically } from "../kernel/self-mod/git/log.js";
 import type { StoreModStore } from "../kernel/storage/store-mod-store.js";

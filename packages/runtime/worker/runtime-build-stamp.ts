@@ -48,7 +48,7 @@ const hasStampedSuffix = (name: string): boolean => {
 
 /**
  * The worker entry lives at `<bundleRoot>/worker/entry.js` (bundled) or
- * `<repoRoot>/runtime/worker/entry.ts` (unbundled/vitest). Either way the
+ * `<repoRoot>/packages/runtime/worker/entry.ts` (unbundled/vitest). Either way the
  * runtime tree root is one directory up from the entry's directory.
  */
 export const resolveRuntimeBundleRoot = (workerEntryPath: string): string =>
@@ -70,9 +70,9 @@ const collectStampLines = (
     if (!entry.isFile() || !hasStampedSuffix(name)) continue;
     const absPath = path.join(currentDir, name);
     const relPath = path.relative(rootDir, absPath).replace(/\\/g, "/");
-    // The relevance rules speak repo-relative "runtime/..." paths; the walk
+    // The relevance rules speak repo-relative "packages/runtime/..." paths; the walk
     // is rooted at the runtime tree itself, so re-prefix before matching.
-    if (!isWorkerRestartRelevantPath(`runtime/${relPath}`)) continue;
+    if (!isWorkerRestartRelevantPath(`packages/runtime/${relPath}`)) continue;
     let size = 0;
     let mtimeMs = 0;
     try {

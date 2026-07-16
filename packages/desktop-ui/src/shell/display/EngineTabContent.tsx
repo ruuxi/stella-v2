@@ -49,8 +49,8 @@ import {
   getPlanLabel,
   isRestrictedModelOverrideAudience,
 } from "@/global/billing/audience";
-import type { RealtimeVoicePreferences } from "../../../../runtime/contracts/local-preferences";
-import { DEFAULT_CODEX_MODEL } from "../../../../runtime/contracts/agent-engine";
+import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
+import { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
 import { EngineRuntimeModelPanel } from "./EngineRuntimeModelPanel";
 import { useLlmCredentials } from "@/global/settings/hooks/use-llm-credentials";
 import {

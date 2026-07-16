@@ -25,7 +25,7 @@ import {
   DEFAULT_INWORLD_REALTIME_MODEL,
   DEFAULT_INWORLD_REALTIME_SPEED,
   DEFAULT_INWORLD_REALTIME_TTS_MODEL,
-} from "../../../../../../../runtime/contracts/realtime-voice-catalog";
+} from "@stella/contracts/realtime-voice-catalog";
 import { OpenAIWebRTCTransport } from "../transports/openai-webrtc-transport";
 import {
   bearerSdpFetcher,

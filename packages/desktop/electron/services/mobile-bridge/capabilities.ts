@@ -113,7 +113,7 @@ import {
   IPC_VOICE_PERSIST_TRANSCRIPT,
   IPC_VOICE_RUNTIME_STATE,
   IPC_VOICE_WEB_SEARCH,
-} from "../../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import {
   BRIDGE_FEATURE_BINARY_FILE,
   BRIDGE_FEATURE_BINARY_UPLOAD,

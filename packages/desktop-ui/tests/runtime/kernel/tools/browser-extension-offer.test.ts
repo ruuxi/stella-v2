@@ -5,8 +5,8 @@ import {
   maybeOfferBrowserExtensionConnect,
   maybeRequestBrowserExtensionConnect,
   resetBrowserExtensionOfferGate,
-} from "../../../../../runtime/kernel/tools/browser-extension-offer.js";
-import type { ToolResult } from "../../../../../runtime/kernel/tools/types.js";
+} from "@stella/runtime/kernel/tools/browser-extension-offer";
+import type { ToolResult } from "@stella/runtime/kernel/tools/types";
 
 const EXTENSION_ERROR =
   "Error: Extension not connected. Install the Stella Browser Bridge extension and connect it.";

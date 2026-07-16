@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Model } from "../../../../runtime/ai/types.js";
+import type { Model } from "@stella/runtime/ai/types";
 import {
   getStellaVerbatimUpstreamModel,
   isOpenEndedGatewayProvider,
   isOpenEndedModelReference,
-} from "../../../../runtime/kernel/model-routing-matching.js";
+} from "@stella/runtime/kernel/model-routing-matching";
 
 const credentials = new Map<string, string>();
 const oauthCredentials = new Set<string>();
@@ -28,12 +28,12 @@ describe("open-ended model routing classification", () => {
   });
 });
 
-vi.mock("../../../../runtime/kernel/storage/llm-credentials.js", () => ({
+vi.mock("@stella/runtime/kernel/storage/llm-credentials", () => ({
   getLocalLlmCredential: (_stellaAppDir: string, provider: string) =>
     credentials.get(provider) ?? null,
 }));
 
-vi.mock("../../../../runtime/kernel/storage/llm-oauth-credentials.js", () => ({
+vi.mock("@stella/runtime/kernel/storage/llm-oauth-credentials", () => ({
   hasLocalLlmOAuthCredential: (_stellaAppDir: string, provider: string) =>
     oauthCredentials.has(provider),
   getLocalLlmOAuthApiKey: async (_stellaAppDir: string, provider: string) =>
@@ -72,7 +72,7 @@ const OPENROUTER_TEMPLATE = model(
   { contextWindow: 8_000, maxTokens: 4_096 },
 );
 
-vi.mock("../../../../runtime/ai/models.js", () => ({
+vi.mock("@stella/runtime/ai/models", () => ({
   getModelProviders: () => [
     "openai",
     "openai-codex",
@@ -150,7 +150,7 @@ describe("resolveLlmRoute", () => {
     // must NOT silently re-route through Stella's managed gateway — surface a
     // clear error so the caller can toast and the user can switch models.
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     expect(() =>
@@ -165,7 +165,7 @@ describe("resolveLlmRoute", () => {
 
   it("uses Stella's backend default sentinel when no model is specified", async () => {
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -184,7 +184,7 @@ describe("resolveLlmRoute", () => {
   it("routes explicit `stella/<provider>/<model>` ids through Stella unchanged", async () => {
     credentials.set("anthropic", "anthropic-key");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -204,7 +204,7 @@ describe("resolveLlmRoute", () => {
 
   it("routes Stella aliases (stella/designer, etc.) through Stella unchanged", async () => {
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -220,7 +220,7 @@ describe("resolveLlmRoute", () => {
 
   it("ignores engine-native registry shadows when one managed provider matches", async () => {
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -239,7 +239,7 @@ describe("resolveLlmRoute", () => {
 
   it("fails deterministically for a genuine managed-provider collision", async () => {
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     expect(() =>
@@ -254,12 +254,12 @@ describe("resolveLlmRoute", () => {
 
   it("lets catalog metadata resolve a genuine managed-provider collision", async () => {
     const { resolveLlmRouteForCatalogEnrichment } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
     const {
       invalidateStellaModelCatalogCache,
       withStellaModelCatalogMetadata,
-    } = await import("../../../../runtime/kernel/stella-model-catalog.js");
+    } = await import("@stella/runtime/kernel/stella-model-catalog");
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn(
       async () =>
@@ -311,7 +311,7 @@ describe("resolveLlmRoute", () => {
   it("refreshes near-expiry Stella tokens before model calls", async () => {
     const refreshAuthToken = vi.fn(async () => "fresh-stella-token");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -334,7 +334,7 @@ describe("resolveLlmRoute", () => {
     const refreshAuthToken = vi.fn(async () => "fresh-stella-token");
     const currentToken = jwtWithExpiry(Date.now() + 30_000);
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -356,7 +356,7 @@ describe("resolveLlmRoute", () => {
   it("routes by parsed provider id when a matching local credential exists", async () => {
     credentials.set("anthropic", "anthropic-key");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -375,7 +375,7 @@ describe("resolveLlmRoute", () => {
   it("routes the orchestrator through the existing ChatGPT OAuth credential", async () => {
     oauthCredentials.add("openai-codex");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -397,7 +397,7 @@ describe("resolveLlmRoute", () => {
     credentials.set("anthropic", "anthropic-key");
     credentials.set("openai", "openai-key");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const anthropicRoute = resolveLlmRoute({
@@ -425,7 +425,7 @@ describe("resolveLlmRoute", () => {
     // loudly so the user can add an Anthropic key or switch models.
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     expect(() =>
@@ -441,7 +441,7 @@ describe("resolveLlmRoute", () => {
   it("routes explicit `openrouter/<provider>/<model>` through OpenRouter directly", async () => {
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -460,7 +460,7 @@ describe("resolveLlmRoute", () => {
   it("fails loudly when the requested provider has no credential (other providers authed)", async () => {
     credentials.set("anthropic", "anthropic-key");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     expect(() =>
@@ -479,7 +479,7 @@ describe("resolveLlmRoute", () => {
     // the OpenRouter template and let OpenRouter validate the id upstream.
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -507,7 +507,7 @@ describe("resolveLlmRoute", () => {
     // generous 200k context floor regardless of the template.
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -537,7 +537,7 @@ describe("resolveLlmRoute", () => {
     expect(OPENROUTER_TEMPLATE.input).toEqual(["text"]);
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -552,7 +552,7 @@ describe("resolveLlmRoute", () => {
 
   it("still requires a key for a synthesized gateway model", async () => {
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     expect(() =>
@@ -570,7 +570,7 @@ describe("resolveLlmRoute", () => {
     // so an id missing from the static registry is a loud failure.
     credentials.set("anthropic", "anthropic-key");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     expect(() =>
@@ -585,7 +585,7 @@ describe("resolveLlmRoute", () => {
 
   it("fails loudly for an unsupported provider prefix", async () => {
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     expect(() =>
@@ -603,7 +603,7 @@ describe("resolveLlmRoute", () => {
     // "ready" because a managed Stella route exists; the bad pick surfaces as a
     // toast at run time instead.
     const { canResolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     expect(
@@ -618,7 +618,7 @@ describe("resolveLlmRoute", () => {
 
   it("reports not-ready when neither a key nor a Stella account is available", async () => {
     const { canResolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     expect(
@@ -634,7 +634,7 @@ describe("resolveLlmRoute", () => {
   it("uses OAuth credentials when no API key is set for the requested provider", async () => {
     oauthCredentials.add("anthropic");
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -651,7 +651,7 @@ describe("resolveLlmRoute", () => {
 
   it("routes local OpenAI-compatible models directly without credentials", async () => {
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
@@ -671,7 +671,7 @@ describe("resolveLlmRoute", () => {
 
   it("routes local OpenAI-compatible models with a custom base URL", async () => {
     const { resolveLlmRoute } = await import(
-      "../../../../runtime/kernel/model-routing.js"
+      "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({

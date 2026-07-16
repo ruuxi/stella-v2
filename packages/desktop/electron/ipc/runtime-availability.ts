@@ -1,5 +1,5 @@
 import type { StellaHostRunner } from "../stella-host-runner.js";
-import { createRuntimeUnavailableError } from "../../../runtime/protocol/rpc-peer.js";
+import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 
 export const waitForConnectedRunner = async (
   getStellaHostRunner: () => StellaHostRunner | null,

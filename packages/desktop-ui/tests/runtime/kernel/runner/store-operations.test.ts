@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createStoreOperations } from "../../../../../runtime/kernel/runner/store-operations.js";
-import type { StorePackageRecord } from "../../../../../runtime/contracts/index.js";
+import { createStoreOperations } from "@stella/runtime/kernel/runner/store-operations";
+import type { StorePackageRecord } from "@stella/contracts";
 
 const refs = {
   data: {

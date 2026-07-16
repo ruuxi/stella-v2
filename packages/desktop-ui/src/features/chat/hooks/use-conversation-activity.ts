@@ -30,7 +30,7 @@ import {
   type LocalActivityWindowSnapshot,
 } from "@/features/chat/services/local-activity-store";
 import { showToast } from "@/ui/toast";
-import type { EventRecord } from "../../../../../runtime/contracts/local-chat.js";
+import type { EventRecord } from "@stella/contracts/local-chat";
 
 export const ACTIVITY_PAGE_SIZE = 500;
 const LOCAL_ACTIVITY_LOAD_RETRY_MS = 300;

@@ -10,8 +10,8 @@ import { useCallback, useMemo } from "react";
 import type {
   DisplayPayload,
   DisplayTabPayload,
-} from "@/shared/contracts/display-payload";
-import { getDisplayPayloadTitle } from "@/shared/contracts/display-payload";
+} from "@stella/contracts/desktop/display-payload";
+import { getDisplayPayloadTitle } from "@stella/contracts/desktop/display-payload";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import {
   openDisplayPayloadTab,

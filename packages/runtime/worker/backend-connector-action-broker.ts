@@ -14,7 +14,7 @@ import type { BackendConnectorActionResult } from "../kernel/connectors/cli-brok
 import {
   redactSensitiveText,
   sanitizeSensitiveData,
-} from "../contracts/sensitive-data.js";
+} from "@stella/contracts/sensitive-data";
 
 type SiteAuth = { baseUrl: string; authToken: string };
 

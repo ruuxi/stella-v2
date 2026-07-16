@@ -26,8 +26,8 @@ const REQUEST_TIMEOUT_MS = 1_500;
 // fast than block the agent.
 const TRACK_MAX_WAIT_MS = 5_000;
 const APPLY_MAX_WAIT_MS = 10_000;
-const GENERATED_ROUTE_TREE_PATH = "desktop/src/routeTree.gen.ts";
-const ROUTES_DIR_PREFIX = "desktop/src/routes/";
+const GENERATED_ROUTE_TREE_PATH = "packages/desktop-ui/src/routeTree.gen.ts";
+const ROUTES_DIR_PREFIX = "packages/desktop-ui/src/routes/";
 
 type HmrControllerOptions = {
   getDevServerUrl: () => string;

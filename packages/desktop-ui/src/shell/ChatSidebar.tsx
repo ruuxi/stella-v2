@@ -39,7 +39,7 @@ import {
   ScreenshotPreviewOverlay,
 } from "@/app/chat/ScreenshotPreview";
 import type { ChatContext } from "@/shared/types/electron";
-import type { MessageRecord } from "../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
 import { restoreQueuedTextToComposer } from "@/features/chat/hooks/queued-user-messages";
 import type { AnnotationSelection } from "./use-full-shell-chat";

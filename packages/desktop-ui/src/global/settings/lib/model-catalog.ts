@@ -1,8 +1,8 @@
-import { getAllModels } from "../../../../../runtime/ai/models.js";
-import type { Api, Model } from "../../../../../runtime/ai/types.js";
+import { getAllModels } from "@stella/contracts/model-catalog";
+import type { Api, Model } from "@stella/contracts/model-catalog";
 // Provider display names live in a shared, browser-safe runtime module so the
 // model picker and the runtime route-error toasts can't drift apart.
-import { getProviderDisplayName } from "../../../../../runtime/ai/provider-display.js";
+import { getProviderDisplayName } from "@stella/contracts/provider-display";
 import { LOCAL_MODEL_PROVIDER_KEYS } from "./llm-providers";
 
 export type CatalogModelSource = "stella" | "local";

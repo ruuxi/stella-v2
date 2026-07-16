@@ -14,10 +14,10 @@ import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { STELLA_PROMPT_IDS } from "../../../../../runtime/contracts/stella-prompts.js";
-import { stellaPromptEndpointFromSiteUrl } from "../../../../../runtime/contracts/stella-api.js";
-import { buildDreamSystemPrompt } from "../../../../../runtime/kernel/agent-runtime/dream-scheduler.js";
-import { loadParsedAgentsFromDir } from "../../../../../runtime/kernel/agents/markdown-agent-loader.js";
+import { STELLA_PROMPT_IDS } from "@stella/contracts/stella-prompts";
+import { stellaPromptEndpointFromSiteUrl } from "@stella/contracts/stella-api";
+import { buildDreamSystemPrompt } from "@stella/runtime/kernel/agent-runtime/dream-scheduler";
+import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
 import {
   StalePromptManifestError,
   applyPromptManifestIfCurrent,
@@ -29,13 +29,13 @@ import {
   reconcileRemotePromptManifest,
   resolvePromptManifest,
   type RemotePromptManifest,
-} from "../../../../../runtime/kernel/home/prompt-manifest-sync.js";
+} from "@stella/runtime/kernel/home/prompt-manifest-sync";
 
 const roots = new Set<string>();
-const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
+const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
 const managerMetadataDir = path.join(
   repoRoot,
-  "runtime/extensions/stella-runtime/agent-metadata",
+  "packages/runtime/extensions/stella-runtime/agent-metadata",
 );
 const promptSyncBundles = new Map<string, Promise<string>>();
 const tempDir = async () => {
@@ -62,7 +62,7 @@ const buildPromptSyncBundle = async (home: string): Promise<string> => {
   const outfile = path.join(home, "prompt-manifest-sync.bundle.mjs");
   const bundle = build({
     entryPoints: [
-      path.join(repoRoot, "runtime/kernel/home/prompt-manifest-sync.ts"),
+      path.join(repoRoot, "packages/runtime/kernel/home/prompt-manifest-sync.ts"),
     ],
     outfile,
     bundle: true,

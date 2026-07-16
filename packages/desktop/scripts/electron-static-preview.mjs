@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 let electronBinary = require("electron");
 const scriptDir = import.meta.dirname;
 const desktopDir = resolve(scriptDir, "..");
-const repoRootDir = resolve(desktopDir, "..");
+const repoRootDir = resolve(desktopDir, "..", "..");
 
 // Match `dev-electron.mjs`: give the Electron bundle the Stella.app identity
 // (icon, name, signature) and launch it through `disclaim-spawn` so the Dock

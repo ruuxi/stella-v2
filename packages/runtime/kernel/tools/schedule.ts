@@ -4,7 +4,7 @@ import type {
   ScheduleToolAffectedRef,
   ScheduleToolChangeSet,
   ScheduleToolDetails,
-} from "../shared/scheduling.js";
+} from "@stella/contracts/scheduling";
 import type {
   ScheduleToolApi,
   AgentToolApi,

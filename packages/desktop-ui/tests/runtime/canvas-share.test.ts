@@ -5,7 +5,7 @@ import {
   isCanvasShareUrl,
   parseCanvasShareSlug,
   readCanvasShareBaseUrl,
-} from "../../../runtime/contracts/canvas-share";
+} from "@stella/contracts/canvas-share";
 
 const BASE = "https://share.example.com";
 

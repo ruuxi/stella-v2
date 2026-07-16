@@ -42,27 +42,33 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = import.meta.dirname;
 const desktopDir = path.resolve(scriptDir, "..");
-const repoRootDir = path.resolve(desktopDir, "..");
+const repoRootDir = path.resolve(desktopDir, "..", "..");
 const outdir = "dist-electron";
 const nodeTarget = `node${process.versions.node.split(".")[0]}`;
 const runtimeStaticAssetRoots = [
-  "runtime/extensions/stella-runtime/agent-metadata",
+  "packages/runtime/extensions/stella-runtime/agent-metadata",
 ];
-const electronRuntimeEntryPoints = [
-  "desktop/electron/main.ts",
-  "runtime/kernel/cli/stella-computer.ts",
-  "runtime/kernel/cli/stella-connect.ts",
-  "runtime/kernel/cli/stella-media.ts",
-  "runtime/kernel/tools/deferred-delete-cli.ts",
-];
+const electronRuntimeEntryPoints = {
+  "electron/main": "packages/desktop/electron/main.ts",
+  "runtime/kernel/cli/stella-computer": "packages/runtime/kernel/cli/stella-computer.ts",
+  "runtime/kernel/cli/stella-connect": "packages/runtime/kernel/cli/stella-connect.ts",
+  "runtime/kernel/cli/stella-media": "packages/runtime/kernel/cli/stella-media.ts",
+  "runtime/kernel/tools/deferred-delete-cli": "packages/runtime/kernel/tools/deferred-delete-cli.ts",
+};
 // The worker builds on its own so we can code-split it: the heavy runner
 // subgraph is lazily imported in server.ts, and splitting lands it in a
 // separate chunk instead of inflating entry.js — so the worker reaches "ready"
 // without parsing it. Kept apart from main/CLIs to limit splitting's blast
 // radius to the worker.
-const workerEntryPoints = ["runtime/worker/entry.ts"];
-const preloadEntryPoints = ["desktop/electron/preload.ts"];
-const storeWebPreloadEntryPoints = ["desktop/electron/store-web-preload.ts"];
+const workerEntryPoints = {
+  "runtime/worker/entry": "packages/runtime/worker/entry.ts",
+};
+const preloadEntryPoints = {
+  "electron/preload": "packages/desktop/electron/preload.ts",
+};
+const storeWebPreloadEntryPoints = {
+  "electron/store-web-preload": "packages/desktop/electron/store-web-preload.ts",
+};
 
 const fingerprintFilePath = path.join(
   desktopDir,
@@ -75,15 +81,21 @@ const fingerprintFilePath = path.join(
  * (see e.g. `desktop/electron/preload.ts`). `runtime/home-seed/` is seed
  * data, never bundled, and excluded so seeding churn doesn't trigger builds.
  */
-const bundleSourceRoots = ["desktop/electron", "desktop/src/shared", "runtime"];
-const bundleSourceExcludedPrefixes = ["runtime/home-seed/"];
+const bundleSourceRoots = [
+  "packages/contracts",
+  "packages/desktop/electron",
+  "packages/runtime",
+];
+const bundleSourceExcludedPrefixes = ["packages/home-seed/"];
 const bundleConfigFiles = [
   "package.json",
   "bun.lock",
   "tsconfig.json",
-  "desktop/tsconfig.json",
-  "desktop/tsconfig.electron.json",
-  "desktop/tsconfig.preload.json",
+  "packages/contracts/package.json",
+  "packages/desktop/package.json",
+  "packages/desktop/tsconfig.electron.json",
+  "packages/desktop/tsconfig.preload.json",
+  "packages/runtime/package.json",
 ];
 const bundleSourceExtensions = new Set([
   ".ts",
@@ -113,12 +125,11 @@ const createBuildOptions = () => [
     external: ["electron"],
     format: "esm",
     logLevel: "warning",
-    outbase: ".",
-    outdir: path.join("desktop", outdir),
+    outdir: path.join("packages", "desktop", outdir),
     packages: "external",
     platform: "node",
     target: nodeTarget,
-    tsconfig: path.join("desktop", "tsconfig.electron.json"),
+    tsconfig: path.join("packages", "desktop", "tsconfig.electron.json"),
   },
   {
     absWorkingDir: repoRootDir,
@@ -134,12 +145,11 @@ const createBuildOptions = () => [
     // Consumed by assertWorkerBundleBoundary after each build.
     metafile: true,
     logLevel: "warning",
-    outbase: ".",
-    outdir: path.join("desktop", outdir),
+    outdir: path.join("packages", "desktop", outdir),
     packages: "external",
     platform: "node",
     target: nodeTarget,
-    tsconfig: path.join("desktop", "tsconfig.electron.json"),
+    tsconfig: path.join("packages", "desktop", "tsconfig.electron.json"),
   },
   {
     absWorkingDir: repoRootDir,
@@ -148,12 +158,11 @@ const createBuildOptions = () => [
     entryPoints: preloadEntryPoints,
     format: "cjs",
     logLevel: "warning",
-    outbase: ".",
-    outdir: path.join("desktop", outdir),
+    outdir: path.join("packages", "desktop", outdir),
     packages: "external",
     platform: "node",
     target: nodeTarget,
-    tsconfig: path.join("desktop", "tsconfig.preload.json"),
+    tsconfig: path.join("packages", "desktop", "tsconfig.preload.json"),
   },
   {
     absWorkingDir: repoRootDir,
@@ -162,12 +171,11 @@ const createBuildOptions = () => [
     entryPoints: storeWebPreloadEntryPoints,
     format: "esm",
     logLevel: "warning",
-    outbase: ".",
-    outdir: path.join("desktop", outdir),
+    outdir: path.join("packages", "desktop", outdir),
     packages: "external",
     platform: "node",
     target: nodeTarget,
-    tsconfig: path.join("desktop", "tsconfig.preload.json"),
+    tsconfig: path.join("packages", "desktop", "tsconfig.preload.json"),
   },
 ];
 
@@ -182,11 +190,11 @@ const createBuildOptions = () => [
  * imports `runtime/kernel/home/stella-paths.ts` instead.
  */
 const workerBannedInputs = [
-  "runtime/kernel/home/stella-home.ts",
-  "runtime/kernel/home/prompt-manifest-sync.ts",
-  "runtime/kernel/home/skills-sync.ts",
+  "packages/runtime/kernel/home/stella-home.ts",
+  "packages/runtime/kernel/home/prompt-manifest-sync.ts",
+  "packages/runtime/kernel/home/skills-sync.ts",
 ];
-const workerBannedInputPrefixes = ["desktop/electron/"];
+const workerBannedInputPrefixes = ["packages/desktop/electron/"];
 
 const assertWorkerBundleBoundary = (metafile) => {
   const inputs = Object.keys(metafile?.inputs ?? {}).map((input) =>
@@ -224,7 +232,11 @@ const copyRuntimeStaticAssets = async () => {
   await Promise.all(
     runtimeStaticAssetRoots.map(async (rootRelativePath) => {
       const sourceDir = path.join(repoRootDir, rootRelativePath);
-      const targetDir = path.join(desktopDir, outdir, rootRelativePath);
+      const targetDir = path.join(
+        desktopDir,
+        outdir,
+        rootRelativePath.replace(/^packages\/runtime/, "runtime"),
+      );
       try {
         await fsPromises.rm(targetDir, {
           force: true,
@@ -366,7 +378,7 @@ const writeBundleFingerprint = (fingerprint) => {
 };
 
 export const requiredOutputsExist = () => {
-  const outBase = path.join(desktopDir, outdir, "desktop", "electron");
+  const outBase = path.join(desktopDir, outdir, "electron");
   return (
     existsSync(path.join(outBase, "main.js")) &&
     existsSync(path.join(outBase, "preload.js"))

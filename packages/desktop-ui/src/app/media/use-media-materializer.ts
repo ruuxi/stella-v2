@@ -20,7 +20,7 @@ import type {
   DisplayPayload,
   DisplayTabPayload,
   MediaAsset,
-} from "@/shared/contracts/display-payload"
+} from "@stella/contracts/desktop/display-payload"
 import {
   extractOutput,
   saveOutputToStella,

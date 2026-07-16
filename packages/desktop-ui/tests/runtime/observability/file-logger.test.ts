@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { FileLogger } from "../../../../runtime/observability/file-logger.js";
-import { scrubText } from "../../../../runtime/observability/scrub.js";
+import { FileLogger } from "@stella/runtime/observability/file-logger";
+import { scrubText } from "@stella/runtime/observability/scrub";
 
 const makeLogger = async (retentionDays?: number) => {
   const logDir = await mkdtemp(path.join(tmpdir(), "stella-logs-"));

@@ -9,12 +9,12 @@ import {
   getConnectorDecline,
   listConnectorDeclines,
   recordConnectorDecline,
-} from "../../../../../runtime/kernel/connectors/connect-preferences.js";
+} from "@stella/runtime/kernel/connectors/connect-preferences";
 import {
   discoverConnectors,
   scoreConnectorMatch,
-} from "../../../../../runtime/kernel/connectors/discovery.js";
-import { enableNativeConnector } from "../../../../../runtime/kernel/connectors/native-integrations.js";
+} from "@stella/runtime/kernel/connectors/discovery";
+import { enableNativeConnector } from "@stella/runtime/kernel/connectors/native-integrations";
 
 const roots: string[] = [];
 

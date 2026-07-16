@@ -11,11 +11,11 @@ import { buildOnboardingFirstReport } from "@/global/onboarding/services/first-r
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { uiState } from "@/platform/ui-state";
 import { showToast } from "@/ui/toast";
-import type { DiscoveryCategory } from "../../../../runtime/contracts/discovery.js";
+import type { DiscoveryCategory } from "@stella/contracts/discovery";
 import {
   BROWSER_PROFILE_KEY,
   BROWSER_SELECTION_KEY,
-} from "../../../../runtime/contracts/discovery.js";
+} from "@stella/contracts/discovery";
 
 const withBrowserDiscoveryCategory = (
   categories: DiscoveryCategory[],

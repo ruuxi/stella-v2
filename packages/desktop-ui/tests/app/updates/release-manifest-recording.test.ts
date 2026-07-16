@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { writeAppliedReleaseManifest } from "../../../electron/ipc/updates-handlers.js";
+import { writeAppliedReleaseManifest } from "@stella/desktop/electron/ipc/updates-handlers.js";
 
 const roots = new Set<string>();
 const servers = new Set<http.Server>();

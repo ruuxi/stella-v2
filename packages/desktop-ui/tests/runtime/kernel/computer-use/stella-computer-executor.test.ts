@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { executeStellaComputerCommand } from "../../../../../runtime/kernel/computer-use/stella-computer-executor.js";
-import { runStellaComputerCli } from "../../../../../runtime/kernel/cli/stella-computer.js";
+import { executeStellaComputerCommand } from "@stella/runtime/kernel/computer-use/stella-computer-executor";
+import { runStellaComputerCli } from "@stella/runtime/kernel/cli/stella-computer";
 
 describe("shared Stella computer executor", () => {
   it("returns help through the in-process result contract", async () => {

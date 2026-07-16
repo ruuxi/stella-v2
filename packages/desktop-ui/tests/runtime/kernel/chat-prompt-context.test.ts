@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ChatContext } from "../../../../runtime/contracts/index.js";
-import { buildChatPromptMessages } from "../../../../runtime/kernel/chat-prompt-context.js";
+import type { ChatContext } from "@stella/contracts";
+import { buildChatPromptMessages } from "@stella/runtime/kernel/chat-prompt-context";
 
 const contextWindow = (app: string, title: string): ChatContext["window"] => ({
   app,

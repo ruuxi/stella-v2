@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
-import { createRevertNoticeHook } from "../../../../../runtime/extensions/stella-runtime/hooks/revert-notice.hook.js";
-import type { ExtensionServices } from "../../../../../runtime/kernel/extensions/services.js";
-import type { SelfModRevertRecord } from "../../../../../runtime/kernel/storage/self-mod-reverts.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { createRevertNoticeHook } from "@stella/runtime/extensions/stella-runtime/hooks/revert-notice.hook";
+import type { ExtensionServices } from "@stella/runtime/kernel/extensions/services";
+import type { SelfModRevertRecord } from "@stella/runtime/kernel/storage/self-mod-reverts";
 
 type StoreStub = {
   listPendingOrchestratorReverts: ReturnType<typeof vi.fn>;

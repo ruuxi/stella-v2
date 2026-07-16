@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { reconcileBundledSkills } from "../../../../../runtime/kernel/home/skills-sync.js";
+import { reconcileBundledSkills } from "@stella/runtime/kernel/home/skills-sync";
 
 const roots = new Set<string>();
 

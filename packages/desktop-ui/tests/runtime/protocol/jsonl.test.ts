@@ -2,8 +2,8 @@ import type { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 
-import { RPC_ERROR_CODES } from "../../../../runtime/protocol/index.js";
-import { attachJsonRpcPeerToStreams } from "../../../../runtime/protocol/jsonl.js";
+import { RPC_ERROR_CODES } from "@stella/contracts/protocol";
+import { attachJsonRpcPeerToStreams } from "@stella/contracts/protocol/jsonl";
 
 const waitForEvent = (stream: EventEmitter, eventName: string) =>
   new Promise<void>((resolve) => {

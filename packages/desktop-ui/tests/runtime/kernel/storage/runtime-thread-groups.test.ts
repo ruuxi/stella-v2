@@ -8,14 +8,14 @@ import {
   MAX_GROUP_MEMBER_THREADS,
   buildActiveThreadsPrompt,
   type RuntimeThreadRecord,
-} from "../../../../../runtime/kernel/runtime-threads.js";
-import { slugify } from "../../../../../runtime/kernel/shared/slug.js";
+} from "@stella/runtime/kernel/runtime-threads";
+import { slugify } from "@stella/runtime/kernel/shared/slug";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../../runtime/kernel/storage/database-init.js";
-import { SessionStore } from "../../../../../runtime/kernel/storage/session-store.js";
-import type { SqliteDatabase } from "../../../../../runtime/kernel/storage/shared.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 type TestContext = {
   rootPath: string;

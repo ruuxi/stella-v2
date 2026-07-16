@@ -29,7 +29,7 @@
  * skipped so the realtime voice agent never gets double-spoken.
  */
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import type { MessageRecord } from "../../../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 import { stripMarkdownForTts } from "./markdown-strip";
 import { fetchReadAloudAudio } from "./tts-client";
 import { playReadAloud, stopReadAloud } from "./read-aloud-player";

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   EventRecord,
   LocalChatUpdatedPayload,
-} from "../../../runtime/contracts/local-chat";
+} from "@stella/contracts/local-chat";
 import {
   __privateLocalFilesStore,
   subscribeToLocalFilesWindow,

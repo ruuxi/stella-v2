@@ -20,7 +20,7 @@ import {
   UI_STATE_FILE_NAME,
   type UiStateChanges,
   type UiStateSnapshot,
-} from "../../contracts/ui-state.js";
+} from "@stella/contracts/ui-state";
 
 const FLUSH_DEBOUNCE_MS = 150;
 const WATCH_DEBOUNCE_MS = 50;

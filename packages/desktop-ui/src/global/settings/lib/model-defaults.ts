@@ -1,4 +1,4 @@
-import { MODEL_SETTINGS_AGENTS } from "../../../../../runtime/contracts/agent-runtime.js";
+import { MODEL_SETTINGS_AGENTS } from "@stella/contracts/agent-runtime";
 import { STELLA_DEFAULT_MODEL } from "@/shared/stella-api";
 
 export type ModelDefaultEntry = {

@@ -7,27 +7,27 @@ import type { WindowManager } from "../windows/window-manager.js";
 import type { OverlayWindowController } from "../windows/overlay-window.js";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
 import { applyShortcutRegistration } from "./shortcut-registration.js";
-import type { VoiceRuntimeSnapshot } from "../../../runtime/contracts/index.js";
+import type { VoiceRuntimeSnapshot } from "@stella/contracts";
 import {
   getRealtimeVoicePreferences,
   loadLocalPreferences,
   resolveRealtimeVoiceId,
   saveLocalPreferences,
-} from "../../../runtime/kernel/preferences/local-preferences.js";
+} from "@stella/runtime/kernel/preferences/local-preferences";
 import {
   DEFAULT_INWORLD_REALTIME_MODEL,
   DEFAULT_INWORLD_REALTIME_VOICE,
   DEFAULT_OPENAI_REALTIME_VOICE,
   DEFAULT_XAI_REALTIME_VOICE,
-} from "../../../runtime/contracts/realtime-voice-catalog.js";
-import { AGENT_STREAM_EVENT_TYPES } from "../../../runtime/contracts/agent-runtime.js";
-import { getLocalLlmCredential } from "../../../runtime/kernel/storage/llm-credentials.js";
-import { getLocalLlmOAuthApiKey } from "../../../runtime/kernel/storage/llm-oauth-credentials.js";
-import { redactMemoryText } from "../../../runtime/kernel/memory/redaction.js";
+} from "@stella/contracts/realtime-voice-catalog";
+import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
+import { getLocalLlmCredential } from "@stella/runtime/kernel/storage/llm-credentials";
+import { getLocalLlmOAuthApiKey } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
+import { redactMemoryText } from "@stella/runtime/kernel/memory/redaction";
 import type {
   RuntimeVoiceToolCallPayload,
   RuntimeVoiceToolCallResult,
-} from "../../../runtime/protocol/index.js";
+} from "@stella/contracts/protocol";
 import {
   IPC_VOICE_CREATE_OPENAI_SESSION,
   IPC_VOICE_EXECUTE_TOOL,
@@ -36,7 +36,7 @@ import {
   IPC_VOICE_CREATE_INWORLD_SESSION,
   IPC_VOICE_REPORT_SESSION_ERROR,
   IPC_VOICE_SESSION_ERROR,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 
 type VoiceHandlersOptions = {
   uiState: UiState;

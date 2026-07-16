@@ -10,7 +10,7 @@ import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import {
   AGENT_IDS,
   AGENT_STREAM_EVENT_TYPES,
-} from "../../../../runtime/contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 import {
   isAgentStartedEvent,
   isAgentCompletedEvent,

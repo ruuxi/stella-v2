@@ -371,7 +371,7 @@ const loadTabsModule = async (options: MockOptions = {}) => {
   const mock = createChromeMock(options);
   vi.stubGlobal("chrome", mock.chrome);
   const module = (await import(
-    "../../../stella-browser/extension/commands/tabs.js"
+    "../../../../stella-browser/extension/commands/tabs.js"
   )) as TabsModule;
   return { module, state: mock.state };
 };

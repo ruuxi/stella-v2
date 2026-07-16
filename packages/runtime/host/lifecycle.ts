@@ -19,7 +19,7 @@ import {
 import {
   STELLA_RUNTIME_READY_METHOD,
   type RuntimeInitializeResult,
-} from "../protocol/index.js";
+} from "@stella/contracts/protocol";
 import {
   probeRunningWorker,
   removeStaleRuntimeArtifacts,

@@ -12,12 +12,14 @@ import path from "node:path";
 
 const scriptDir = import.meta.dirname;
 const desktopDir = path.resolve(scriptDir, "..");
-const repoRootDir = path.resolve(desktopDir, "..");
+const repoRootDir = path.resolve(desktopDir, "..", "..");
 const cacheFilePath = path.join(desktopDir, ".low-resource-build-cache.json");
 
 const inputRoots = [
-  "desktop",
-  "runtime",
+  "packages/desktop",
+  "packages/desktop-ui",
+  "packages/runtime",
+  "packages/contracts",
   "package.json",
   "bun.lock",
   "tsconfig.json",
@@ -33,24 +35,24 @@ const ignoredPathSegments = new Set([
 ]);
 
 const requiredOutputs = [
-  "desktop/dist/index.html",
-  "desktop/dist/mini.html",
-  "desktop/dist/overlay.html",
-  "desktop/dist/pet.html",
-  "desktop/dist-electron/desktop/electron/main.js",
-  "desktop/dist-electron/desktop/electron/preload.js",
-  "desktop/dist-electron/desktop/electron/store-web-preload.js",
-  "desktop/dist-electron/runtime/worker/entry.js",
-  "desktop/dist-electron/runtime/kernel/cli/stella-computer.js",
-  "desktop/dist-electron/runtime/kernel/cli/stella-connect.js",
-  "desktop/dist-electron/runtime/kernel/cli/stella-media.js",
-  "desktop/dist-electron/runtime/kernel/tools/deferred-delete-cli.js",
+  "packages/desktop-ui/dist/index.html",
+  "packages/desktop-ui/dist/mini.html",
+  "packages/desktop-ui/dist/overlay.html",
+  "packages/desktop-ui/dist/pet.html",
+  "packages/desktop/dist-electron/electron/main.js",
+  "packages/desktop/dist-electron/electron/preload.js",
+  "packages/desktop/dist-electron/electron/store-web-preload.js",
+  "packages/desktop/dist-electron/runtime/worker/entry.js",
+  "packages/desktop/dist-electron/runtime/kernel/cli/stella-computer.js",
+  "packages/desktop/dist-electron/runtime/kernel/cli/stella-connect.js",
+  "packages/desktop/dist-electron/runtime/kernel/cli/stella-media.js",
+  "packages/desktop/dist-electron/runtime/kernel/tools/deferred-delete-cli.js",
 ];
 
 const shouldIgnoreRelativePath = (relativePath) =>
-  relativePath === path.join("desktop", ".low-resource-build-cache.json") ||
+  relativePath === path.join("packages", "desktop", ".low-resource-build-cache.json") ||
   relativePath ===
-    path.join("desktop", ".dev-electron-bundle-fingerprint.json") ||
+    path.join("packages", "desktop", ".dev-electron-bundle-fingerprint.json") ||
   relativePath
     .split(path.sep)
     .some((segment) => ignoredPathSegments.has(segment));
@@ -169,5 +171,5 @@ if (cachedFingerprint === currentFingerprint && requiredOutputsExist()) {
 
 console.log("[electron-low-resource] Build inputs changed; rebuilding.");
 await run("bun", ["run", "build"]);
-await run("node", ["desktop/scripts/dev-electron-build.mjs", "--once"]);
+await run("node", ["packages/desktop/scripts/dev-electron-build.mjs", "--once"]);
 writeCache(fingerprintInputs());

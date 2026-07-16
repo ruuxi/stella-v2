@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ensureStellaDataDirSeeded } from "../../../../../runtime/kernel/home/stella-home.js";
+import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
 
 const roots = new Set<string>();
 
@@ -24,7 +24,7 @@ describe("ensureStellaDataDirSeeded", () => {
   it("seeds only bundled defaults into Stella home", async () => {
     const stellaAppDir = await createTempDir("stella-seed-root-");
     const stellaDataDir = await createTempDir("stella-home-");
-    const seedRoot = path.join(stellaAppDir, "runtime", "home-seed");
+    const seedRoot = path.join(stellaAppDir, "packages", "home-seed");
 
     await mkdir(path.join(seedRoot, "skills", "stella-desktop"), {
       recursive: true,
@@ -34,7 +34,7 @@ describe("ensureStellaDataDirSeeded", () => {
     await mkdir(
       path.join(
         stellaAppDir,
-        "runtime/extensions/stella-runtime/agent-metadata",
+        "packages/runtime/extensions/stella-runtime/agent-metadata",
       ),
       { recursive: true },
     );
@@ -49,7 +49,7 @@ describe("ensureStellaDataDirSeeded", () => {
     await writeFile(
       path.join(
         stellaAppDir,
-        "runtime/extensions/stella-runtime/agent-metadata/manager.md",
+        "packages/runtime/extensions/stella-runtime/agent-metadata/manager.md",
       ),
       "---\nname: Manager\ndescription: manager\ntools: spawn_agent, send_input, pause_agent\nmaxAgentDepth: 2\n---\n\nbundled manager\n",
     );

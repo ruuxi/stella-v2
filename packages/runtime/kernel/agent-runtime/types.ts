@@ -22,12 +22,12 @@ import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
   RuntimeAgentEventPayload,
-} from "../../protocol/index.js";
+} from "@stella/contracts/protocol";
 import type {
   FileChangeRecord,
   ProducedFileRecord,
-} from "../../contracts/file-changes.js";
-import type { SelfModAppliedPayload } from "../../contracts/local-chat.js";
+} from "@stella/contracts/file-changes";
+import type { SelfModAppliedPayload } from "@stella/contracts/local-chat";
 
 export type SelfModMonitor = {
   getBaselineHead: (repoRoot: string) => Promise<string | null>;

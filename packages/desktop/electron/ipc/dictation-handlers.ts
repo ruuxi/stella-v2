@@ -24,7 +24,7 @@ import {
   getDictationSoundEffectsEnabled,
   loadLocalPreferences,
   saveLocalPreferences,
-} from "../../../runtime/kernel/preferences/local-preferences.js";
+} from "@stella/runtime/kernel/preferences/local-preferences";
 import { runNativeHelper } from "../native-helper.js";
 import {
   applyShortcutRegistration,

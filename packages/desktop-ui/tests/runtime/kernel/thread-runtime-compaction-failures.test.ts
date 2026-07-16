@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const completeSimpleMock = vi.fn();
 
-vi.mock("../../../../runtime/ai/stream.js", () => ({
+vi.mock("@stella/runtime/ai/stream", () => ({
   completeSimple: (...args: unknown[]) => completeSimpleMock(...args),
   readAssistantText: (message: {
     content: Array<{ type: string; text?: string }>;
@@ -24,10 +24,10 @@ vi.mock("../../../../runtime/ai/stream.js", () => ({
       .trim(),
 }));
 
-import { maybeCompactRuntimeThread } from "../../../../runtime/kernel/thread-runtime.js";
-import { compactRuntimeThreadHistory } from "../../../../runtime/kernel/agent-runtime/thread-memory.js";
-import type { RuntimeStore } from "../../../../runtime/kernel/storage/runtime-store.js";
-import type { ResolvedLlmRoute } from "../../../../runtime/kernel/model-routing.js";
+import { maybeCompactRuntimeThread } from "@stella/runtime/kernel/thread-runtime";
+import { compactRuntimeThreadHistory } from "@stella/runtime/kernel/agent-runtime/thread-memory";
+import type { RuntimeStore } from "@stella/runtime/kernel/storage/runtime-store";
+import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
 
 // ~10k chars per message; 60 messages ≈ 150k estimated tokens — far past the
 // 60k orchestrator trigger, and big enough that the raw formatted middle

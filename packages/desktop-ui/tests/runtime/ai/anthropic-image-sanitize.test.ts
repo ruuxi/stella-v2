@@ -6,14 +6,14 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages.js";
 import { describe, expect, it } from "vitest";
 
-import { convertMessages } from "../../../../runtime/ai/providers/anthropic.js";
+import { convertMessages } from "@stella/runtime/ai/providers/anthropic";
 import {
 	detectImageMediaType,
 	isCompleteImage,
 	MAX_IMAGE_BASE64_BYTES,
 	sanitizeInlineImagePayload,
-} from "../../../../runtime/ai/utils/image-payload.js";
-import type { Message, Model } from "../../../../runtime/ai/types.js";
+} from "@stella/runtime/ai/utils/image-payload";
+import type { Message, Model } from "@stella/runtime/ai/types";
 
 const model: Model<"anthropic-messages"> = {
 	id: "claude-opus-4.7",

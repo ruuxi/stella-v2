@@ -7,9 +7,9 @@ export type {
   AgentResponseTarget,
   AgentStreamEvent,
   SelfModAppliedData,
-} from "../../../../../runtime/contracts/agent-stream.js";
+} from "@stella/contracts/agent-stream";
 
-import type { AgentResponseTarget } from "../../../../../runtime/contracts/agent-stream.js";
+import type { AgentResponseTarget } from "@stella/contracts/agent-stream";
 
 /**
  * In-memory assistant message currently being streamed.

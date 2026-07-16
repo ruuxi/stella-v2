@@ -6,7 +6,7 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
-import type { ChatContext } from "../../../runtime/contracts/index.js";
+import type { ChatContext } from "@stella/contracts";
 import type { CaptureService } from "../services/capture-service.js";
 import type { RegionCaptureResult, RegionSelection } from "../types.js";
 import {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../../runtime/kernel/model-routing.js", () => ({
+vi.mock("@stella/runtime/kernel/model-routing", () => ({
   readGrokCliSessionToken: () => undefined,
 }));
 
@@ -8,8 +8,8 @@ import {
   getModel,
   getModels,
   unregisterModel,
-} from "../../../../runtime/ai/models.js";
-import { registerGrokLiveModels } from "../../../../runtime/kernel/grok-live-models.js";
+} from "@stella/runtime/ai/models";
+import { registerGrokLiveModels } from "@stella/runtime/kernel/grok-live-models";
 
 const GROK = "grok" as never;
 

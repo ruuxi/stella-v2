@@ -15,21 +15,21 @@ import {
   runClaudeCodeTurn,
   scheduleClaudeCodeSessionCloseWhenIdle,
   shutdownClaudeCodeRuntime,
-} from "../../../../../runtime/kernel/integrations/claude-code-session-runtime.js";
-import { recordClaudeCodeResolvedModel } from "../../../../../runtime/kernel/integrations/claude-code-resolved-models.js";
+} from "@stella/runtime/kernel/integrations/claude-code-session-runtime";
+import { recordClaudeCodeResolvedModel } from "@stella/runtime/kernel/integrations/claude-code-resolved-models";
 import {
   buildClaudeCodeTurnPrompts,
   buildClaudePromptFromMessages,
   buildExternalStellaHistoryPromptMessage,
   getExternalEngineSessionId,
   setExternalEngineSessionId,
-} from "../../../../../runtime/kernel/agent-runtime/external-engines.js";
+} from "@stella/runtime/kernel/agent-runtime/external-engines";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../../runtime/kernel/storage/database-init.js";
-import { SessionStore } from "../../../../../runtime/kernel/storage/session-store.js";
-import type { SqliteDatabase } from "../../../../../runtime/kernel/storage/shared.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 import { DatabaseSync } from "node:sqlite";
 
 describe("claude-code-session-runtime", () => {
@@ -727,7 +727,7 @@ describe("claude-code-session-runtime", () => {
     const helperPath = path.join(dir, "fake-claude.mjs");
     fs.mkdirSync(binDir, { recursive: true });
     fs.symlinkSync(
-      path.resolve(process.cwd(), "../node_modules"),
+      path.resolve(process.cwd(), "../../node_modules"),
       path.join(dir, "node_modules"),
       "dir",
     );
@@ -807,7 +807,7 @@ describe("claude-code-session-runtime", () => {
     const logPath = path.join(dir, "prompts.log");
     fs.mkdirSync(binDir, { recursive: true });
     fs.symlinkSync(
-      path.resolve(process.cwd(), "../node_modules"),
+      path.resolve(process.cwd(), "../../node_modules"),
       path.join(dir, "node_modules"),
       "dir",
     );
@@ -916,7 +916,7 @@ describe("claude-code-session-runtime", () => {
     const logPath = path.join(dir, "prompts.log");
     fs.mkdirSync(binDir, { recursive: true });
     fs.symlinkSync(
-      path.resolve(process.cwd(), "../node_modules"),
+      path.resolve(process.cwd(), "../../node_modules"),
       path.join(dir, "node_modules"),
       "dir",
     );

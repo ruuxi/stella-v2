@@ -9,7 +9,7 @@ import {
   useMaterializedMediaPayload,
   useMaterializedMediaPayloadSnapshot,
 } from "@/app/media/media-materializer-state";
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { useDisplayFileBlobs } from "@/shared/hooks/use-display-file-data";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { notifyAssistantScrollFollowLayoutChange } from "@/shell/chat-scroll-follow";

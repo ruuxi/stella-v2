@@ -3,7 +3,7 @@ import {
   buildStoreInstallPrompt,
   buildStoreInstallReviewPrompt,
   parseStoreInstallReviewDecision,
-} from "../../../../runtime/worker/store-install-prompt.js";
+} from "@stella/runtime/worker/store-install-prompt";
 
 describe("buildStoreInstallPrompt", () => {
   it("frames Store reference diffs as agent inputs", () => {

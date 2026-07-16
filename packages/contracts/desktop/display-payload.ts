@@ -1,5 +1,5 @@
-import type { OfficePreviewRef } from "../../../../runtime/contracts/office-preview.js";
-import { isOfficePreviewRef } from "../../../../runtime/contracts/office-preview.js";
+import type { OfficePreviewRef } from "@stella/contracts/office-preview";
+import { isOfficePreviewRef } from "@stella/contracts/office-preview";
 
 export type DisplayFileArtifactKind =
   | "office-document"

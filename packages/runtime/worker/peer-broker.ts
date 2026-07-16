@@ -1,12 +1,12 @@
 import {
   RPC_ERROR_CODES,
   type JsonRpcMessage,
-} from "../protocol/index.js";
+} from "@stella/contracts/protocol";
 import {
   JsonRpcPeer,
   RpcError,
   type JsonRpcPeer as JsonRpcPeerInstance,
-} from "../protocol/rpc-peer.js";
+} from "@stella/contracts/protocol/rpc-peer";
 
 type RequestHandler = (params: unknown) => Promise<unknown> | unknown;
 type NotificationHandler = (params: unknown) => Promise<void> | void;

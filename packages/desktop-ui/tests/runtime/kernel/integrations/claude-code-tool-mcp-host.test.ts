@@ -10,7 +10,7 @@ import {
   createClaudeCodeToolMcpHost,
   type ClaudeCodeToolMcpActiveTurn,
   type ClaudeCodeToolMcpHost,
-} from "../../../../../runtime/kernel/integrations/claude-code-tool-mcp-host.js";
+} from "@stella/runtime/kernel/integrations/claude-code-tool-mcp-host";
 
 const tools = [
   {

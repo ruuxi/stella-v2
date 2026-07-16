@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createOrchestratorCoordinator } from "../../../../../runtime/kernel/runner/orchestrator-coordinator.js";
-import type { RunnerContext } from "../../../../../runtime/kernel/runner/types.js";
+import { createOrchestratorCoordinator } from "@stella/runtime/kernel/runner/orchestrator-coordinator";
+import type { RunnerContext } from "@stella/runtime/kernel/runner/types";
 
 const waitForQueuedMicrotasks = async () => {
   await new Promise<void>((resolve) => queueMicrotask(resolve));

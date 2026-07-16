@@ -1,0 +1,13 @@
+{
+  "name": "@stella/desktop-ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@stella/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@stella/desktop": "workspace:*",
+    "@stella/runtime": "workspace:*"
+  }
+}

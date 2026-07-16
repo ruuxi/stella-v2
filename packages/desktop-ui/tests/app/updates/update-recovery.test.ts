@@ -16,8 +16,8 @@ import {
   createStellaSourcePack,
   hashSourceTree,
   type StellaSourceTree,
-} from "../../../../runtime/kernel/self-mod/stella-source-control.js";
-import { createRuntimeUnavailableError } from "../../../../runtime/protocol/rpc-peer.js";
+} from "@stella/runtime/kernel/self-mod/stella-source-control";
+import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import {
   nativeHelperPlatformKey,
   recordAppliedDesktopUpdate,
@@ -26,7 +26,7 @@ import {
   stageStellaBrowserUpdate,
   tryApplyCleanDesktopUpdate,
   verifyMergeApplied,
-} from "../../../electron/ipc/updates-handlers.js";
+} from "@stella/desktop/electron/ipc/updates-handlers.js";
 
 describe("desktop release artifact platform selection", () => {
   it.each([

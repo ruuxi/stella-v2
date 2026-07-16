@@ -2,19 +2,19 @@ import {
   getOrCreateDeviceIdentity,
   resetDeviceIdentity as resetStoredDeviceIdentity,
   signDeviceHeartbeat,
-} from "../../../runtime/kernel/home/device.js";
-import { getSoundNotificationsEnabled } from "../../../runtime/kernel/preferences/local-preferences.js";
+} from "@stella/runtime/kernel/home/device";
+import { getSoundNotificationsEnabled } from "@stella/runtime/kernel/preferences/local-preferences";
 import {
   deleteConnectorAccessTokens,
   loadConnectorTokenPayload,
   saveConnectorTokenPayload,
-} from "../../../runtime/kernel/connectors/oauth.js";
+} from "@stella/runtime/kernel/connectors/oauth";
 import {
   ensureStellaDataDirSeeded,
   syncStellaPromptSnapshot,
-} from "../../../runtime/kernel/home/stella-home.js";
-import type { SelfModHmrState } from "../../../runtime/contracts/index.js";
-import { stellaPromptEndpointFromSiteUrl } from "../../../runtime/contracts/stella-api.js";
+} from "@stella/runtime/kernel/home/stella-home";
+import type { SelfModHmrState } from "@stella/contracts";
+import { stellaPromptEndpointFromSiteUrl } from "@stella/contracts/stella-api";
 import {
   createStellaHostRunner,
   type RuntimeHostHandlers,
@@ -27,7 +27,7 @@ import {
   broadcastToWindows,
 } from "./context.js";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
-import { IPC_AUTH_RUNTIME_REFRESH_REQUESTED } from "../../src/shared/contracts/ipc-channels.js";
+import { IPC_AUTH_RUNTIME_REFRESH_REQUESTED } from "@stella/contracts/desktop/ipc-channels";
 import { showStellaNotification } from "../services/notification-service.js";
 import { getActiveBrowserTabForBundleId } from "../active-browser-tab.js";
 import { listRecentApps } from "../recent-apps.js";

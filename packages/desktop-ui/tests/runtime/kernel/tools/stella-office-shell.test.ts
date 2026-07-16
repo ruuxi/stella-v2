@@ -5,11 +5,11 @@ import {
   createShellState,
   extractOfficePreviewRef,
   runShell,
-} from "../../../../../runtime/kernel/tools/shell.js";
+} from "@stella/runtime/kernel/tools/shell";
 
 const officeWrapperPath = path.resolve(
   process.cwd(),
-  "stella-office",
+  "../stella-office",
   "bin",
   "stella-office.js",
 );

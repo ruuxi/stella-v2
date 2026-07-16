@@ -5,8 +5,8 @@ import { DatabaseSync } from "node:sqlite";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../runtime/kernel/storage/database-init.js";
-import type { SqliteDatabase } from "../../../runtime/kernel/storage/shared.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 export type SqliteTestContext<TStore> = {
   rootPath: string;

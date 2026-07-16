@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getFileEditToolFamily,
   rewriteFileEditToolNames,
-} from "../../../../../runtime/kernel/tools/file-edit-policy.js";
+} from "@stella/runtime/kernel/tools/file-edit-policy";
 
 const model = (provider: string, id: string, api = provider) => ({
   provider,

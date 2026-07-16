@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ResolvedNativeCatalog } from "../../../../runtime/kernel/connectors/catalog-cache.js";
-import type { NativeConnectorCatalogEntry } from "../../../../runtime/kernel/connectors/native-integrations.js";
-import { createBackendConnectorActionBroker } from "../../../../runtime/worker/backend-connector-action-broker.js";
+import type { ResolvedNativeCatalog } from "@stella/runtime/kernel/connectors/catalog-cache";
+import type { NativeConnectorCatalogEntry } from "@stella/runtime/kernel/connectors/native-integrations";
+import { createBackendConnectorActionBroker } from "@stella/runtime/worker/backend-connector-action-broker";
 
 const composioEntry: NativeConnectorCatalogEntry = {
   id: "outlook",

@@ -17,7 +17,6 @@ import { resolveRuntimeSourceAsset } from "../../kernel/shared/runtime-paths.js"
 
 const bundledAgentMetadataDir = () =>
   resolveRuntimeSourceAsset(
-    "runtime",
     "extensions",
     "stella-runtime",
     "agent-metadata",

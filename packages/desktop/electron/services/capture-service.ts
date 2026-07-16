@@ -7,7 +7,7 @@ import {
 } from 'electron'
 import { captureChatContext } from '../chat-context.js'
 import { globalShortcut } from 'electron'
-import type { ChatContext } from '../../../runtime/contracts/index.js'
+import type { ChatContext } from '@stella/contracts'
 import type {
   RegionCaptureResult,
   RegionSelection,
@@ -22,7 +22,7 @@ import {
   captureRegionScreenshotNative,
   captureWindowScreenshot,
 } from '../window-capture.js'
-import { IPC_CAPTURE_REGION_FAILED } from '../../src/shared/contracts/ipc-channels.js'
+import { IPC_CAPTURE_REGION_FAILED } from '@stella/contracts/desktop/ipc-channels'
 import { hasMacPermission } from '../utils/macos-permissions.js'
 import { computeTargetDims } from '../vision-coordinate-space.js'
 

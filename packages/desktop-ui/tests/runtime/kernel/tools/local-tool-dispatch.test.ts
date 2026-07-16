@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { TOOL_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
-import { dispatchLocalTool } from "../../../../../runtime/kernel/tools/local-tool-dispatch.js";
+import { TOOL_IDS } from "@stella/contracts/agent-runtime";
+import { dispatchLocalTool } from "@stella/runtime/kernel/tools/local-tool-dispatch";
 
 const activeRoots = new Set<string>();
 

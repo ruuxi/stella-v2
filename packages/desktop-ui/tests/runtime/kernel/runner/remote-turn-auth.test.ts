@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createRemoteTurnBridge } from "../../../../../runtime/kernel/remote-turn-bridge.js";
+import { createRemoteTurnBridge } from "@stella/runtime/kernel/remote-turn-bridge";
 import {
   getConvexErrorCode,
   getConvexErrorMessage,
   isConvexDeviceKeyMismatchError,
   isConvexUnauthenticatedError,
   shouldStopRemoteTurnForAuthFailure,
-} from "../../../../../runtime/kernel/runner.js";
+} from "@stella/runtime/kernel/runner";
 
 describe("remote-turn auth failure handling", () => {
   it("detects Convex unauthenticated errors from nested error data", () => {

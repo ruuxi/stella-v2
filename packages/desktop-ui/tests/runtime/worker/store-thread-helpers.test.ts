@@ -11,13 +11,13 @@ import {
   collectStoreReleaseGitArtifact,
   normalizeStoreThreadFeatureIds,
   normalizeStoreThreadFeatureNames,
-} from "../../../../runtime/worker/store-thread-helpers.js";
+} from "@stella/runtime/worker/store-thread-helpers";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../runtime/kernel/storage/database-init.js";
-import type { SqliteDatabase } from "../../../../runtime/kernel/storage/shared.js";
-import { StoreModStore } from "../../../../runtime/kernel/storage/store-mod-store.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import { StoreModStore } from "@stella/runtime/kernel/storage/store-mod-store";
 
 const git = (cwd: string, args: string[]) => {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });

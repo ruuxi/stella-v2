@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getInstallUpdateCommandDenialReason } from "../../../../../runtime/kernel/tools/install-update-allowlist.js";
+import { getInstallUpdateCommandDenialReason } from "@stella/runtime/kernel/tools/install-update-allowlist";
 
 describe("install-update command allowlist", () => {
   it("allows the root dependency install used after package updates", () => {

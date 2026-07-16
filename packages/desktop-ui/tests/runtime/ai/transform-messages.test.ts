@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { transformMessages } from "../../../../runtime/ai/providers/transform-messages.js";
-import type { Message, Model } from "../../../../runtime/ai/types.js";
+import { transformMessages } from "@stella/runtime/ai/providers/transform-messages";
+import type { Message, Model } from "@stella/runtime/ai/types";
 
 const usage = {
   input: 0,

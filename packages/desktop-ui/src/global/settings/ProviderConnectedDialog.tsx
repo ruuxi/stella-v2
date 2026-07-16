@@ -13,7 +13,7 @@ import {
   PROVIDER_CONNECTED_EVENT,
   type ProviderConnectedEventDetail,
 } from "@/global/settings/hooks/use-llm-credentials";
-import type { RealtimeVoicePreferences } from "../../../../runtime/contracts/local-preferences";
+import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import "./ProviderConnectedDialog.css";
 
 const ASSISTANT_AGENT_KEYS = ["orchestrator", "general"] as const;

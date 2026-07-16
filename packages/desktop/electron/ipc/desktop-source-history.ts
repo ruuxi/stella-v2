@@ -1,7 +1,7 @@
 import type {
   DesktopReleaseSourceHistoryRef,
   StoreReleaseSourcePack,
-} from "../../../runtime/contracts/index.js";
+} from "@stella/contracts";
 
 export const DEFAULT_DESKTOP_RELEASES_PUBLIC_BASE_URL =
   "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop/releases";

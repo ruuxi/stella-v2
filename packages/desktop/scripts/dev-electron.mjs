@@ -40,7 +40,7 @@ const DEV_BARE_RELAUNCH_EXECUTABLE = "StellaDevRelaunch";
 const LEGACY_DEV_PROTOCOL_APP_NAME = "stella-dev-protocol-app";
 const scriptDir = import.meta.dirname;
 const desktopDir = resolve(scriptDir, "..");
-const repoRootDir = resolve(desktopDir, "..");
+const repoRootDir = resolve(desktopDir, "..", "..");
 const watchedDir = path.join(desktopDir, "dist-electron");
 const runtimeReloadStateFile = path.join(
   repoRootDir,

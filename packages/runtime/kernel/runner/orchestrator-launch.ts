@@ -17,12 +17,12 @@ import type { ResolvedLlmRoute } from "../model-routing.js";
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
-} from "../../protocol/index.js";
+} from "@stella/contracts/protocol";
 import {
   AGENT_IDS,
   agentControlsSelfModHmr,
   agentHasCapability,
-} from "../../contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 import { extractApplyPatchTargetPaths } from "../tools/apply-patch.js";
 import { resolveToolPath } from "../tools/path-inference.js";
 import { isKnownSafeCommand } from "../tools/safe-commands.js";
@@ -30,7 +30,7 @@ import type { ToolContext, ToolResult } from "../tools/types.js";
 import type {
   FileChangeRecord,
   ProducedFileRecord,
-} from "../../contracts/file-changes.js";
+} from "@stella/contracts/file-changes";
 
 type BuildAgentContext = (
   args: BuildAgentContextArgs,

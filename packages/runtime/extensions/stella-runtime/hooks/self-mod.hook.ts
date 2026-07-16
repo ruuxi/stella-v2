@@ -1,4 +1,4 @@
-import { agentHasCapability } from "../../../contracts/agent-runtime.js";
+import { agentHasCapability } from "@stella/contracts/agent-runtime";
 import type { HookDefinition } from "../../../kernel/extensions/types.js";
 import type { SelfModMonitor } from "../../../kernel/agent-runtime/types.js";
 

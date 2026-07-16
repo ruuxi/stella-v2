@@ -7,8 +7,8 @@ import type {
   StoreReleaseGitArtifact,
   StoreReleaseGitObjectUpload,
   StoreReleaseManifest,
-} from "../../contracts/index.js";
-import type { StorePublishArgs } from "../../protocol/index.js";
+} from "@stella/contracts";
+import type { StorePublishArgs } from "@stella/contracts/protocol";
 import type { RunnerContext, StoreOperations } from "./types.js";
 
 export const createStoreOperations = (

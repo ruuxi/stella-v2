@@ -7,7 +7,7 @@
  * gets back a ready-to-connect transport.
  */
 
-import { coerceRealtimeVoiceProvider } from "../../../../../../../runtime/contracts/local-preferences";
+import { coerceRealtimeVoiceProvider } from "@stella/contracts/local-preferences";
 import { inworldProvider } from "./inworld-provider";
 import { openaiProvider } from "./openai-provider";
 import { stellaProvider } from "./stella-provider";

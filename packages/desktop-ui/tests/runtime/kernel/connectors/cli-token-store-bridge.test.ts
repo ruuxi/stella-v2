@@ -3,8 +3,8 @@ import { stat } from "node:fs/promises";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { requestConnectorTokenStoreFromBridge } from "../../../../../runtime/kernel/connectors/cli-broker-client.js";
-import { startCliBridgeServer } from "../../../../../runtime/worker/cli-bridge-server.js";
+import { requestConnectorTokenStoreFromBridge } from "@stella/runtime/kernel/connectors/cli-broker-client";
+import { startCliBridgeServer } from "@stella/runtime/worker/cli-bridge-server";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();

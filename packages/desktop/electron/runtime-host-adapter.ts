@@ -1,10 +1,10 @@
-import type { SelfModHmrState } from "../../runtime/contracts/index.js";
-import type { DiscoveryKnowledgeSeedPayload } from "../../runtime/contracts/discovery.js";
+import type { SelfModHmrState } from "@stella/contracts";
+import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery";
 import {
   AGENT_STREAM_EVENT_TYPES,
   isTaskLifecycleEventType,
   isTaskLifecycleTerminalType,
-} from "../../runtime/contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 import type {
   RuntimeActiveRun,
   RuntimeAgentEventPayload,
@@ -20,14 +20,14 @@ import type {
   StoreReleaseSourcePack,
   StorePublishArgs,
   StorePublishSelectedFeaturesArgs,
-} from "../../runtime/protocol/index.js";
+} from "@stella/contracts/protocol";
 import {
   StellaRuntimeHost,
   type StellaRuntimeHostOptions,
-} from "../../runtime/host/index.js";
-import { createRuntimeUnavailableError } from "../../runtime/protocol/rpc-peer.js";
-import type { AgentLifecycleEvent } from "../../runtime/kernel/agents/local-agent-manager.js";
-import { readConfiguredStellaSiteUrl } from "../../runtime/kernel/convex-urls.js";
+} from "@stella/runtime/host";
+import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
+import type { AgentLifecycleEvent } from "@stella/runtime/kernel/agents/local-agent-manager";
+import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
 
 type AgentCallbacks = {
   onRunStarted?: (event: RuntimeAgentEventPayload) => void;
@@ -713,7 +713,7 @@ export class RuntimeHostAdapter {
       userPrompt: string;
       selectedText?: string | null;
       chatContext?:
-        | import("../../runtime/contracts/index.js").ChatContext
+        | import("@stella/contracts").ChatContext
         | null;
       deviceId?: string;
       platform?: string;
@@ -987,7 +987,7 @@ export class RuntimeHostAdapter {
   }
 
   runOneShotCompletion(
-    payload: import("../../runtime/protocol/index.js").RuntimeOneShotCompletionRequest,
+    payload: import("@stella/contracts/protocol").RuntimeOneShotCompletionRequest,
   ) {
     return this.host.runOneShotCompletion(payload);
   }
@@ -1097,13 +1097,13 @@ export class RuntimeHostAdapter {
 
   updateCronJob(
     jobId: string,
-    patch: import("../../runtime/kernel/shared/scheduling.js").LocalCronJobUpdatePatch,
+    patch: import("@stella/contracts/scheduling").LocalCronJobUpdatePatch,
   ) {
     return this.host.updateCronJob(jobId, patch);
   }
 
   upsertHeartbeat(
-    input: import("../../runtime/kernel/shared/scheduling.js").LocalHeartbeatUpsertInput,
+    input: import("@stella/contracts/scheduling").LocalHeartbeatUpsertInput,
   ) {
     return this.host.upsertHeartbeat(input);
   }
@@ -1127,7 +1127,7 @@ export class RuntimeHostAdapter {
   onLocalChatUpdated(
     listener: (
       payload:
-        | import("../../runtime/contracts/local-chat.js").LocalChatUpdatedPayload
+        | import("@stella/contracts/local-chat").LocalChatUpdatedPayload
         | null,
     ) => void,
   ) {
@@ -1136,7 +1136,7 @@ export class RuntimeHostAdapter {
 
   onThreadActivityUpdated(
     listener: (
-      payload: import("../../runtime/contracts/local-chat.js").ThreadActivityUpdatedPayload,
+      payload: import("@stella/contracts/local-chat").ThreadActivityUpdatedPayload,
     ) => void,
   ) {
     return this.host.on("thread-activity-updated", listener);

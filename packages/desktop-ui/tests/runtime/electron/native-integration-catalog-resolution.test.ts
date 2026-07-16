@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ ipcMain: { handle: vi.fn(), on: vi.fn() } }));
 
-import { writeCachedServerCatalog } from "../../../../runtime/kernel/connectors/catalog-cache.js";
-import type { NativeConnectorCatalogEntry } from "../../../../runtime/kernel/connectors/native-integrations.js";
-import { resolveDesktopNativeConnectorEntry } from "../../../electron/ipc/native-integration-handlers.js";
+import { writeCachedServerCatalog } from "@stella/runtime/kernel/connectors/catalog-cache";
+import type { NativeConnectorCatalogEntry } from "@stella/runtime/kernel/connectors/native-integrations";
+import { resolveDesktopNativeConnectorEntry } from "@stella/desktop/electron/ipc/native-integration-handlers.js";
 
 const roots: string[] = [];
 const backendEntry = (

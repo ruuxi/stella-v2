@@ -1,4 +1,4 @@
-import { AGENT_IDS } from "../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { shouldUseClaudeCodeAgentRuntime } from "../integrations/claude-code-agent-runtime.js";
 import {
   canResolveLlmRoute,

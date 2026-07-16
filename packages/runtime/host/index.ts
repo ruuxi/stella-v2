@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { ConvexClient } from "convex/browser";
 import { anyApi } from "convex/server";
-import { readConfiguredConvexUrl } from "../kernel/convex-urls.js";
+import { readConfiguredConvexUrl } from "@stella/contracts/convex-urls";
 import type { ConnectorTokenPayload } from "../kernel/connectors/oauth.js";
 import { resolveBundledRuntimeFile } from "../kernel/shared/runtime-paths.js";
 import { getFileLogger } from "../observability/file-logger.js";
@@ -25,14 +25,14 @@ import type {
   LocalCronJobCreateInput,
   LocalCronJobUpdatePatch,
   LocalHeartbeatUpsertInput,
-} from "../kernel/shared/scheduling.js";
-import type { DiscoveryKnowledgeSeedPayload } from "../contracts/discovery.js";
+} from "@stella/contracts/scheduling";
+import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery";
 import type {
   LocalChatUpdatedPayload,
   ThreadActivityUpdatedPayload,
-} from "../contracts/local-chat.js";
-import { createEmptySocialSessionServiceSnapshot } from "../contracts/index.js";
-import { AGENT_STREAM_EVENT_TYPES } from "../contracts/agent-runtime.js";
+} from "@stella/contracts/local-chat";
+import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
+import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { resolveConnectorFollowupAction } from "./connector-followup.js";
 import {
   METHOD_NAMES,
@@ -86,11 +86,11 @@ import {
   type StoreReleaseSourcePack,
   type RuntimeInitializeParams,
   type RuntimeInitializeResult,
-} from "../protocol/index.js";
+} from "@stella/contracts/protocol";
 import {
   createRuntimeUnavailableError,
   type JsonRpcPeer,
-} from "../protocol/rpc-peer.js";
+} from "@stella/contracts/protocol/rpc-peer";
 import {
   RuntimeWorkerLifecycleController,
   type WorkerConnection,

@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { TOOL_IDS } from "../../contracts/agent-runtime.js";
+import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import {
   memoryFilePath,
   memorySummaryPath,

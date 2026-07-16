@@ -60,10 +60,10 @@ if (!platformKey) {
   );
 }
 
-const repoRoot = path.resolve(import.meta.dirname, "..", "..");
+const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 const outDir = path.join(
   repoRoot,
-  "desktop",
+  "packages",
   "stella-browser",
   "out",
   platformKey,

@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import { session } from "electron";
 import path from "path";
-import { resetMessageStorage } from "../../../runtime/kernel/storage/reset-message-storage.js";
+import { resetMessageStorage } from "@stella/runtime/kernel/storage/reset-message-storage";
 import { type BootstrapContext, broadcastLocalChatUpdated } from "./context.js";
 
 export type BootstrapResetFlows = {

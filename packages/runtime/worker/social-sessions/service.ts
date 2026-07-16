@@ -1,8 +1,8 @@
 import path from "path";
 import { promises as fs } from "fs";
 import { ConvexClient } from "convex/browser";
-import { api } from "../../contracts/convex-api.js";
-import { readConfiguredConvexUrl } from "../../kernel/convex-urls.js";
+import { api } from "@stella/contracts/convex-api";
+import { readConfiguredConvexUrl } from "@stella/contracts/convex-urls";
 import type {
   RuntimeActiveRun,
   RuntimeAutomationTurnRequest,
@@ -10,7 +10,7 @@ import type {
   RuntimeSocialSessionStatus,
   SocialSessionServiceSnapshot,
   SocialSessionRuntimeRecord,
-} from "../../protocol/index.js";
+} from "@stella/contracts/protocol";
 import type { SocialSessionRole, SocialSessionSyncRecord } from "./store.js";
 import {
   applySessionFileOp,

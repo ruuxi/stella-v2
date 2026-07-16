@@ -21,7 +21,7 @@ vi.mock("fs", () => ({
   },
 }));
 
-vi.mock("../../../runtime/kernel/home/private-fs.js", () => ({
+vi.mock("@stella/runtime/kernel/home/private-fs", () => ({
   ensurePrivateDir: mocks.ensurePrivateDir,
   writePrivateFile: mocks.writePrivateFile,
 }));
@@ -37,7 +37,7 @@ vi.mock("electron", () => ({
 }));
 
 const { SecurityPolicyService } = await import(
-  "../../electron/services/security-policy-service.js"
+  "@stella/desktop/electron/services/security-policy-service.js"
 );
 
 const createService = () => {

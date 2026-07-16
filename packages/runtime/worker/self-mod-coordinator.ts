@@ -28,7 +28,7 @@ import {
   METHOD_NAMES,
   type RuntimeSelfModApplyResult,
   type RuntimeSelfModRevertResult,
-} from "../protocol/index.js";
+} from "@stella/contracts/protocol";
 import {
   deriveApplyTransitionRequirements,
   type ApplyOptions,

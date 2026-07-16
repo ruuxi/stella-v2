@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isKnownSafeCommand } from "../../../../../runtime/kernel/tools/safe-commands.js";
+import { isKnownSafeCommand } from "@stella/runtime/kernel/tools/safe-commands";
 
 describe("isKnownSafeCommand", () => {
   it("accepts the simple read-only allowlist", () => {

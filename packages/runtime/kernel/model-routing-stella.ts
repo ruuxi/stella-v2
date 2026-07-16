@@ -12,8 +12,8 @@ import {
   STELLA_STANDARD_MODEL,
   stellaManagedRelayBaseUrlFromSiteUrl,
   type StellaRelayProvider,
-} from "../contracts/stella-api.js";
-import { readConfiguredStellaSiteUrl } from "./convex-urls.js";
+} from "@stella/contracts/stella-api";
+import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
 import type { ResolvedLlmRoute } from "./model-routing.js";
 
 /**

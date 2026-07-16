@@ -7,7 +7,7 @@ import {
   FALLBACK_FINDINGS,
   runExplore,
   sanitizeExploreToolArgs,
-} from "../../../../../runtime/kernel/agent-runtime/explore.js";
+} from "@stella/runtime/kernel/agent-runtime/explore";
 
 const activeRoots = new Set<string>();
 

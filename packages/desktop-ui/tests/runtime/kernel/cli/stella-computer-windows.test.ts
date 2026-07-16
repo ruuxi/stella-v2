@@ -24,8 +24,8 @@ import {
   getWindowsSelectionOptions,
   spawnWindowsDaemonProcess,
   withWindowsComputerSessionLock,
-} from "../../../../../runtime/kernel/cli/stella-computer-windows.js";
-import { runWithComputerExecutionContext } from "../../../../../runtime/kernel/computer-use/execution-context.js";
+} from "@stella/runtime/kernel/cli/stella-computer-windows";
+import { runWithComputerExecutionContext } from "@stella/runtime/kernel/computer-use/execution-context";
 
 describe("Windows stella-computer wrapper", () => {
   it("encodes deferred UTF-8 text selection requests without shell rewriting", () => {
@@ -310,13 +310,17 @@ describe("Windows stella-computer wrapper", () => {
 
 describe("Windows native Computer Use architecture", () => {
   const nativeSource = readFileSync(
-    path.resolve(process.cwd(), "native/src/stella_computer_helper.cpp"),
+    path.resolve(process.cwd(), "../native/src/stella_computer_helper.cpp"),
     "utf8",
   );
   const wrapperSource = readFileSync(
     path.resolve(
       process.cwd(),
-      "../runtime/kernel/cli/stella-computer-windows.ts",
+      "..",
+      "runtime",
+      "kernel",
+      "cli",
+      "stella-computer-windows.ts",
     ),
     "utf8",
   );

@@ -57,7 +57,7 @@ import {
   useSelectedPetId,
   writePetOpenPreference,
 } from "@/shell/pet/pet-preferences";
-import type { PetAnimationState } from "@/shared/contracts/pet";
+import type { PetAnimationState } from "@stella/contracts/desktop/pet";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { CreatePetDialog } from "./CreatePetDialog";
 import { SharePetDialog } from "./SharePetDialog";

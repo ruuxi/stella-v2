@@ -1,10 +1,10 @@
 import type { WindowInfo } from "./window-capture.js";
-import type { ChatContext } from "../../runtime/contracts/index.js";
+import type { ChatContext } from "@stella/contracts";
 import type {
   UiMode,
   WindowMode,
   UiState,
-} from "../src/shared/contracts/ui.js";
+} from "@stella/contracts/desktop/ui";
 
 export type { UiMode, WindowMode, UiState };
 

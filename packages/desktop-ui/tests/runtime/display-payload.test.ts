@@ -4,7 +4,7 @@ import {
   isDisplayPayload,
   normalizeDisplayPayload,
   type DisplayPayload,
-} from "../../src/shared/contracts/display-payload";
+} from "@stella/contracts/desktop/display-payload";
 
 describe("normalizeDisplayPayload", () => {
   it("rejects string payloads", () => {

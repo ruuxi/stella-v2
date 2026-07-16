@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   executePreparedToolCall,
   type PreparedToolCall,
-} from "../../../../../runtime/kernel/agent-core/agent-loop.js";
+} from "@stella/runtime/kernel/agent-core/agent-loop";
 import type {
   AgentTool,
   AgentToolResult,
-} from "../../../../../runtime/kernel/agent-core/types.js";
+} from "@stella/runtime/kernel/agent-core/types";
 
 const makePrepared = (
   execute: AgentTool["execute"],

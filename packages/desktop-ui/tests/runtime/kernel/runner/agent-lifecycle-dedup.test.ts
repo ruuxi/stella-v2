@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentEventPrompt } from "../../../../../runtime/kernel/runner/shared.js";
+import { buildAgentEventPrompt } from "@stella/runtime/kernel/runner/shared";
 import {
   AGENT_PAUSE_CANCEL_REASON,
   AGENT_SHUTDOWN_CANCEL_REASON,
-} from "../../../../../runtime/kernel/agents/local-agent-manager.js";
+} from "@stella/runtime/kernel/agents/local-agent-manager";
 
 describe("task lifecycle deduping", () => {
   it("does not build hidden orchestrator prompts for agent-started", () => {

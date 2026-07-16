@@ -9,13 +9,13 @@ import {
   createStellaSourcePack,
   hashSourceTree,
   type StellaSourceTree,
-} from "../../../../runtime/kernel/self-mod/stella-source-control.js";
-import type { StoreModService } from "../../../../runtime/kernel/self-mod/store-mod-service.js";
+} from "@stella/runtime/kernel/self-mod/stella-source-control";
+import type { StoreModService } from "@stella/runtime/kernel/self-mod/store-mod-service";
 import {
   importExternalSource,
   prepareExternalSourceImport,
-} from "../../../../runtime/worker/source-import-external.js";
-import { trySourceImportFastPath } from "../../../../runtime/worker/source-import.js";
+} from "@stella/runtime/worker/source-import-external";
+import { trySourceImportFastPath } from "@stella/runtime/worker/source-import";
 
 const execFileAsync = promisify(execFile);
 const text = (content: string) => ({ kind: "text" as const, content });

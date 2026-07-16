@@ -6,11 +6,11 @@
  */
 
 import { getSynthesisPromptConfig } from "@/prompts";
-import type { DiscoveryCategory } from "../../../../../runtime/contracts/discovery.js";
+import type { DiscoveryCategory } from "@stella/contracts/discovery";
 import type {
   OnboardingSynthesisResponse,
   OnboardingWelcomeHtmlResponse,
-} from "@/shared/contracts/onboarding";
+} from "@stella/contracts/desktop/onboarding";
 
 type SynthesisResult = OnboardingSynthesisResponse;
 

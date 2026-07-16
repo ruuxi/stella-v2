@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { registerApiProvider } from "../../../../../runtime/ai/api-registry.js";
+import { registerApiProvider } from "@stella/runtime/ai/api-registry";
 import type {
   Api,
   AssistantMessage,
@@ -13,10 +13,10 @@ import type {
   Model,
   SimpleStreamOptions,
   StreamOptions,
-} from "../../../../../runtime/ai/types.js";
-import { maybeSpawnDreamRun } from "../../../../../runtime/kernel/agent-runtime/dream-scheduler.js";
-import type { ResolvedLlmRoute } from "../../../../../runtime/kernel/model-routing.js";
-import type { RuntimeStore } from "../../../../../runtime/kernel/storage/runtime-store.js";
+} from "@stella/runtime/ai/types";
+import { maybeSpawnDreamRun } from "@stella/runtime/kernel/agent-runtime/dream-scheduler";
+import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
+import type { RuntimeStore } from "@stella/runtime/kernel/storage/runtime-store";
 
 const activeRoots = new Set<string>();
 

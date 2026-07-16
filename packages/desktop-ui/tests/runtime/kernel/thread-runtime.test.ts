@@ -4,9 +4,9 @@ import {
   formatThreadCheckpointMessage,
   resolveCompactionProtectHeadMessages,
   splitThreadMessagesForCompaction,
-} from "../../../../runtime/kernel/thread-runtime.js";
-import { AGENT_IDS } from "../../../../runtime/contracts/agent-runtime.js";
-import type { PersistedRuntimeThreadPayload } from "../../../../runtime/kernel/storage/shared.js";
+} from "@stella/runtime/kernel/thread-runtime";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import type { PersistedRuntimeThreadPayload } from "@stella/runtime/kernel/storage/shared";
 
 const createBootstrapDoc = (entryId: string, timestamp: number) => ({
   entryId,

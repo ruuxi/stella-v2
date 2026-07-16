@@ -6,7 +6,7 @@
  * existing agent-management tools but cannot create another manager.
  */
 
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   handleSendInput,
   handleSpawnAgent,

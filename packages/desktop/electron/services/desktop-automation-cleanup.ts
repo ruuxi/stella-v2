@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import { resolveStatePath } from "../../../runtime/kernel/cli/shared.js";
+import { resolveStatePath } from "@stella/runtime/kernel/cli/shared";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 
 const stellaComputerStateRoot = () =>

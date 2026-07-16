@@ -7,14 +7,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../../runtime/kernel/storage/database-init.js";
-import type { SqliteDatabase } from "../../../../../runtime/kernel/storage/shared.js";
-import { createToolHost } from "../../../../../runtime/kernel/tools/host.js";
-import type { ToolContext } from "../../../../../runtime/kernel/tools/types.js";
-import { getRuntimeToolMetadata } from "../../../../../runtime/kernel/agent-runtime/tool-adapters.js";
-import { loadParsedAgentsFromDir } from "../../../../../runtime/kernel/agents/markdown-agent-loader.js";
-import { loadStellaRuntimeAgents } from "../../../../../runtime/extensions/stella-runtime/index.js";
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import { createToolHost } from "@stella/runtime/kernel/tools/host";
+import type { ToolContext } from "@stella/runtime/kernel/tools/types";
+import { getRuntimeToolMetadata } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
+import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
+import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 
 type TestHostContext = {
   rootPath: string;
@@ -26,7 +26,7 @@ type TestHostContext = {
 };
 
 const activeContexts = new Set<TestHostContext>();
-const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
+const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
 
 const createTestHost = async (
   validateSpawnModel?: (modelName: string) => void,
@@ -127,7 +127,7 @@ const makeToolContext = (agentType: string): ToolContext => ({
 describe("orchestrator direct tool surface", () => {
   it("keeps orchestrator capabilities readable by the pre-metadata-only loader", () => {
     const agents = loadParsedAgentsFromDir(
-      path.join(repoRoot, "runtime/extensions/stella-runtime/agent-metadata"),
+      path.join(repoRoot, "packages/runtime/extensions/stella-runtime/agent-metadata"),
     );
     const orchestrator = agents.find((agent) => agent.id === "orchestrator");
 
@@ -186,7 +186,7 @@ describe("orchestrator direct tool surface", () => {
 
     const agents = loadStellaRuntimeAgents(
       rootPath,
-      path.join(repoRoot, "runtime/extensions/stella-runtime/agent-metadata"),
+      path.join(repoRoot, "packages/runtime/extensions/stella-runtime/agent-metadata"),
     );
     const advertisedToolNames = (agentType: string) => {
       const agent = agents.find((candidate) => candidate.id === agentType);

@@ -12,7 +12,7 @@ import type {
   StoreInstallRecord,
   StorePackageRecord,
   StorePackageReleaseRecord,
-} from "../../../runtime/contracts/index.js";
+} from "@stella/contracts";
 import type { StellaHostRunner } from "../stella-host-runner.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";

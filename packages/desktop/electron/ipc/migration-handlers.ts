@@ -6,12 +6,12 @@ import {
   runThirdPartyMigration,
   type ThirdPartyMigrationSelection,
   type ThirdPartyMigrationSource,
-} from "../../../runtime/kernel/migration/third-party-importers.js";
+} from "@stella/runtime/kernel/migration/third-party-importers";
 import {
   IPC_MIGRATION_DETECT_SOURCES,
   IPC_MIGRATION_PREVIEW,
   IPC_MIGRATION_RUN,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 
 type MigrationHandlersOptions = {
   getStellaDataDir: () => string | null;

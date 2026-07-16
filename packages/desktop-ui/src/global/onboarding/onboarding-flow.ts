@@ -1,4 +1,4 @@
-import type { DiscoveryCategory } from "../../../../runtime/contracts/discovery.js";
+import type { DiscoveryCategory } from "@stella/contracts/discovery";
 
 export type Phase =
   | "intro"

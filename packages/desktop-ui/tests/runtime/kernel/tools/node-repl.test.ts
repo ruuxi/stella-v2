@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
-import { NodeReplKernelRegistry } from "../../../../../runtime/kernel/computer-use/kernel.js";
-import { createNodeReplTool } from "../../../../../runtime/kernel/tools/defs/node-repl.js";
-import type { ToolContext } from "../../../../../runtime/kernel/tools/types.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { NodeReplKernelRegistry } from "@stella/runtime/kernel/computer-use/kernel";
+import { createNodeReplTool } from "@stella/runtime/kernel/tools/defs/node-repl";
+import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 
 const context: ToolContext = {
   conversationId: "conversation-1",

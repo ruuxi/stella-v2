@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { AssistantMessage } from "../../../../../runtime/ai/types.js";
-import { AssistantMessageEventStream } from "../../../../../runtime/ai/utils/event-stream.js";
-import { isContextOverflow } from "../../../../../runtime/ai/utils/overflow.js";
-import { runAgentLoop } from "../../../../../runtime/kernel/agent-core/agent-loop.js";
+import type { AssistantMessage } from "@stella/runtime/ai/types";
+import { AssistantMessageEventStream } from "@stella/runtime/ai/utils/event-stream";
+import { isContextOverflow } from "@stella/runtime/ai/utils/overflow";
+import { runAgentLoop } from "@stella/runtime/kernel/agent-core/agent-loop";
 
 const OVERFLOW_CONTEXT_WINDOW = 80_000;
 

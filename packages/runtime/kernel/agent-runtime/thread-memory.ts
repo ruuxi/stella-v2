@@ -16,7 +16,7 @@ import type {
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
-import type { RuntimePromptMessage } from "../../protocol/index.js";
+import type { RuntimePromptMessage } from "@stella/contracts/protocol";
 import {
   buildRuntimeThreadKey,
   maybeCompactRuntimeThread,

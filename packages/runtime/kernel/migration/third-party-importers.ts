@@ -16,7 +16,7 @@ import { ensurePrivateDirSync } from "../shared/private-fs.js";
 import type {
   LocalCronJobCreateInput,
   LocalCronSchedule,
-} from "../shared/scheduling.js";
+} from "@stella/contracts/scheduling";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,

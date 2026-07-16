@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useState, type ReactNode } from "react";
-import type { MediaAsset } from "@/shared/contracts/display-payload";
+import type { MediaAsset } from "@stella/contracts/desktop/display-payload";
 import {
   useDisplayFileBlobs,
   type DisplayFileBlob,

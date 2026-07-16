@@ -3,14 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   handleSchedule,
   type ScheduleWaitPolicy,
-} from "../../../../../runtime/kernel/tools/schedule.js";
-import { LocalAgentManager } from "../../../../../runtime/kernel/agents/local-agent-manager.js";
+} from "@stella/runtime/kernel/tools/schedule";
+import { LocalAgentManager } from "@stella/runtime/kernel/agents/local-agent-manager";
 import type {
   AgentToolApi,
   AgentToolSnapshot,
   ToolContext,
   ToolResult,
-} from "../../../../../runtime/kernel/tools/types.js";
+} from "@stella/runtime/kernel/tools/types";
 
 const context: ToolContext = {
   conversationId: "c1",

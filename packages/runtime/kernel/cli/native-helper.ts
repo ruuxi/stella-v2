@@ -38,7 +38,7 @@ export const resolveNativeHelperPath = (baseName: string): string | null => {
     cliDir
       ? path.resolve(
           cliDir,
-          "../../../desktop/native/out",
+          "../../../native/out",
           platformDir,
           fileName,
         )
@@ -46,10 +46,10 @@ export const resolveNativeHelperPath = (baseName: string): string | null => {
     cliDir
       ? path.resolve(cliDir, "../../../../native/out", platformDir, fileName)
       : null,
-    path.resolve(process.cwd(), "desktop/native/out", platformDir, fileName),
+    path.resolve(process.cwd(), "packages/native/out", platformDir, fileName),
     path.resolve(
       __dirname,
-      "../../../desktop/native/out",
+      "../../../native/out",
       platformDir,
       fileName,
     ),
@@ -118,7 +118,7 @@ export const runNativeHelper = async (args: {
   const helperPath = resolveNativeHelperPath(args.helperName);
   if (!helperPath) {
     throw new Error(
-      `Native helper "${args.helperName}" was not found. Build desktop/native first.`,
+      `Native helper "${args.helperName}" was not found. Build packages/native first.`,
     );
   }
 

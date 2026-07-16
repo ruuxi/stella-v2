@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { AGENT_STREAM_EVENT_TYPES } from "../../../runtime/contracts/agent-runtime.js";
-import { shouldAckWorkerRunEvent } from "../../../runtime/host/index.js";
-import { RuntimeHostAdapter } from "../../electron/runtime-host-adapter.js";
+import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
+import { shouldAckWorkerRunEvent } from "@stella/runtime/host";
+import { RuntimeHostAdapter } from "@stella/desktop/electron/runtime-host-adapter.js";
 
 const createAdapter = () =>
   new RuntimeHostAdapter({

@@ -1,7 +1,7 @@
 import { promises as fsPromises } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import type { StoreReleaseSourcePack } from "../contracts/index.js";
+import type { StoreReleaseSourcePack } from "@stella/contracts";
 import {
   sourceBlobFromBuffer,
   type StellaSourceTree,

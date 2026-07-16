@@ -2,20 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { AgentMessage } from "../../../../../runtime/kernel/agent-core/types.js";
+import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types";
 import type {
   OrchestratorRunOptions,
   SubagentRunOptions,
-} from "../../../../../runtime/kernel/agent-runtime/types.js";
-import { BackgroundCompactionScheduler } from "../../../../../runtime/kernel/agent-runtime/compaction-scheduler.js";
-import { OrchestratorSession } from "../../../../../runtime/kernel/agent-runtime/orchestrator-session.js";
-import { SubagentSession } from "../../../../../runtime/kernel/agent-runtime/subagent-session.js";
-import { createExternalOrchestratorRunSession } from "../../../../../runtime/kernel/agent-runtime/run-session.js";
-import { loadStellaRuntimeAgents } from "../../../../../runtime/extensions/stella-runtime/index.js";
+} from "@stella/runtime/kernel/agent-runtime/types";
+import { BackgroundCompactionScheduler } from "@stella/runtime/kernel/agent-runtime/compaction-scheduler";
+import { OrchestratorSession } from "@stella/runtime/kernel/agent-runtime/orchestrator-session";
+import { SubagentSession } from "@stella/runtime/kernel/agent-runtime/subagent-session";
+import { createExternalOrchestratorRunSession } from "@stella/runtime/kernel/agent-runtime/run-session";
+import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
 
 const executeRuntimeAgentPrompt = vi.fn();
 
-vi.mock("../../../../../runtime/kernel/agent-runtime/run-execution.js", () => ({
+vi.mock("@stella/runtime/kernel/agent-runtime/run-execution", () => ({
   executeRuntimeAgentPrompt: (...args: unknown[]) =>
     executeRuntimeAgentPrompt(...args),
 }));
@@ -153,8 +153,12 @@ describe("OrchestratorSession", () => {
       ].join("\n"),
     );
     const metadataDir = path.resolve(
-      import.meta.dirname,
-      "../../../../../runtime/extensions/stella-runtime/agent-metadata",
+      process.cwd(),
+      "..",
+      "runtime",
+      "extensions",
+      "stella-runtime",
+      "agent-metadata",
     );
     const beforeReload = loadStellaRuntimeAgents(tempRoot, oldMetadataDir).find(
       (agent) => agent.id === "orchestrator",

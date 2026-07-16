@@ -1,5 +1,5 @@
 import { createContext } from "react";
-import type { MessageRecord } from "../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 
 /**
  * High-frequency channel for the live chat timeline.

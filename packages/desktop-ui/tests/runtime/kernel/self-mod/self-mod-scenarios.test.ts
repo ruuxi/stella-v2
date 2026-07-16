@@ -14,14 +14,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../../runtime/kernel/storage/database-init.js";
-import type { SqliteDatabase } from "../../../../../runtime/kernel/storage/shared.js";
-import { StellaSourceHistoryStore } from "../../../../../runtime/kernel/storage/stella-source-history-store.js";
-import { StoreModStore } from "../../../../../runtime/kernel/storage/store-mod-store.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import { StellaSourceHistoryStore } from "@stella/runtime/kernel/storage/stella-source-history-store";
+import { StoreModStore } from "@stella/runtime/kernel/storage/store-mod-store";
 import {
   StoreModService,
-} from "../../../../../runtime/kernel/self-mod/store-mod-service.js";
-import { createSelfModHmrController } from "../../../../../runtime/kernel/self-mod/hmr.js";
+} from "@stella/runtime/kernel/self-mod/store-mod-service";
+import { createSelfModHmrController } from "@stella/runtime/kernel/self-mod/hmr";
 import {
   detectSelfModAppliedSince,
   getGitHead,
@@ -29,13 +29,13 @@ import {
   listRecentGitCommits,
   listRecentSelfModCommits,
   orderCommitHashesChronologically,
-} from "../../../../../runtime/kernel/self-mod/git/log.js";
+} from "@stella/runtime/kernel/self-mod/git/log";
 import {
   revertGitCommits,
   revertSelfModCommit,
-} from "../../../../../runtime/kernel/self-mod/git/revert.js";
-import { readGitObjectsBatch } from "../../../../../runtime/kernel/self-mod/git/snapshots.js";
-import { parseStellaCommitTrailers } from "../../../../../runtime/kernel/self-mod/git/trailers.js";
+} from "@stella/runtime/kernel/self-mod/git/revert";
+import { readGitObjectsBatch } from "@stella/runtime/kernel/self-mod/git/snapshots";
+import { parseStellaCommitTrailers } from "@stella/runtime/kernel/self-mod/git/trailers";
 
 const git = (cwd: string, args: string[], env?: Record<string, string>) => {
   const result = spawnSync("git", args, {
@@ -67,9 +67,9 @@ const createHarness = async (): Promise<Harness> => {
   git(repoRoot, ["config", "user.email", "test@stella.local"]);
   git(repoRoot, ["config", "user.name", "Stella Test"]);
   git(repoRoot, ["config", "commit.gpgsign", "false"]);
-  await mkdir(path.join(repoRoot, "desktop", "src"), { recursive: true });
+  await mkdir(path.join(repoRoot, "packages", "desktop-ui", "src"), { recursive: true });
   await writeFile(
-    path.join(repoRoot, "desktop", "src", "seed.tsx"),
+    path.join(repoRoot, "packages", "desktop-ui", "src", "seed.tsx"),
     "export const seed = 1;\n",
     "utf8",
   );
@@ -129,7 +129,7 @@ describe("agent finalize", () => {
     });
     await writeRepoFile(
       h.repoRoot,
-      "desktop/src/panel.tsx",
+      "packages/desktop-ui/src/panel.tsx",
       "export const panel = true;\n",
     );
     let providerArgs: { files: string[] } | null = null;
@@ -143,9 +143,9 @@ describe("agent finalize", () => {
         return "Add a panel to the home screen";
       },
     });
-    expect(providerArgs).toEqual({ files: ["desktop/src/panel.tsx"] });
+    expect(providerArgs).toEqual({ files: ["packages/desktop-ui/src/panel.tsx"] });
 
-    expect(finalized?.files).toEqual(["desktop/src/panel.tsx"]);
+    expect(finalized?.files).toEqual(["packages/desktop-ui/src/panel.tsx"]);
     expect(finalized?.blockedFiles).toEqual([]);
     expect(await listGitDirtyFiles(h.repoRoot)).toEqual([]);
 
@@ -155,7 +155,7 @@ describe("agent finalize", () => {
     expect(trailers.conversationId).toBe("conv-1");
     expect(trailers.threadKey).toBe("thread-1");
     expect(commitFiles(h.repoRoot, finalized!.commitHash)).toEqual([
-      "desktop/src/panel.tsx",
+      "packages/desktop-ui/src/panel.tsx",
     ]);
   });
 
@@ -163,7 +163,7 @@ describe("agent finalize", () => {
     // User has uncommitted work BEFORE the agent run starts.
     await writeRepoFile(
       h.repoRoot,
-      "desktop/src/seed.tsx",
+      "packages/desktop-ui/src/seed.tsx",
       "export const seed = 999; // user WIP\n",
     );
     await writeRepoFile(h.repoRoot, "notes.txt", "user scratch notes\n");
@@ -174,7 +174,7 @@ describe("agent finalize", () => {
     });
     await writeRepoFile(
       h.repoRoot,
-      "desktop/src/agent.tsx",
+      "packages/desktop-ui/src/agent.tsx",
       "export const agent = 1;\n",
     );
     const finalized = await h.service.finalizeSelfModRun({
@@ -183,20 +183,20 @@ describe("agent finalize", () => {
       conversationId: "conv-messy",
     });
 
-    expect(finalized?.files).toEqual(["desktop/src/agent.tsx"]);
+    expect(finalized?.files).toEqual(["packages/desktop-ui/src/agent.tsx"]);
     expect(finalized?.blockedFiles.sort()).toEqual([
-      "desktop/src/seed.tsx",
+      "packages/desktop-ui/src/seed.tsx",
       "notes.txt",
     ].sort());
     expect(commitFiles(h.repoRoot, finalized!.commitHash)).toEqual([
-      "desktop/src/agent.tsx",
+      "packages/desktop-ui/src/agent.tsx",
     ]);
     // User WIP is still dirty, byte-for-byte intact.
     expect((await listGitDirtyFiles(h.repoRoot)).sort()).toEqual(
-      ["desktop/src/seed.tsx", "notes.txt"].sort(),
+      ["packages/desktop-ui/src/seed.tsx", "notes.txt"].sort(),
     );
     expect(
-      await readFile(path.join(h.repoRoot, "desktop/src/seed.tsx"), "utf8"),
+      await readFile(path.join(h.repoRoot, "packages/desktop-ui/src/seed.tsx"), "utf8"),
     ).toContain("user WIP");
   });
 
@@ -217,13 +217,13 @@ describe("agent finalize", () => {
       taskDescription: "Run B",
     });
 
-    await writeRepoFile(h.repoRoot, "desktop/src/a.tsx", "export const a = 1;\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/a.tsx", "export const a = 1;\n");
     await controller.recordWrite("run-a", [
-      path.join(h.repoRoot, "desktop/src/a.tsx"),
+      path.join(h.repoRoot, "packages/desktop-ui/src/a.tsx"),
     ]);
-    await writeRepoFile(h.repoRoot, "desktop/src/b.tsx", "export const b = 1;\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/b.tsx", "export const b = 1;\n");
     await controller.recordWrite("run-b", [
-      path.join(h.repoRoot, "desktop/src/b.tsx"),
+      path.join(h.repoRoot, "packages/desktop-ui/src/b.tsx"),
     ]);
 
     // A finishes first while B is still running.
@@ -237,17 +237,17 @@ describe("agent finalize", () => {
     });
     controller.finalize("run-a");
 
-    expect(finalizedA?.files).toEqual(["desktop/src/a.tsx"]);
-    expect(finalizedA?.blockedFiles).toEqual(["desktop/src/b.tsx"]);
+    expect(finalizedA?.files).toEqual(["packages/desktop-ui/src/a.tsx"]);
+    expect(finalizedA?.blockedFiles).toEqual(["packages/desktop-ui/src/b.tsx"]);
     expect(commitFiles(h.repoRoot, finalizedA!.commitHash)).toEqual([
-      "desktop/src/a.tsx",
+      "packages/desktop-ui/src/a.tsx",
     ]);
     expect(
       parseStellaCommitTrailers(commitBody(h.repoRoot, finalizedA!.commitHash))
         .conversationId,
     ).toBe("conv-a");
     // B's file is still dirty, waiting for B's own finalize.
-    expect(await listGitDirtyFiles(h.repoRoot)).toEqual(["desktop/src/b.tsx"]);
+    expect(await listGitDirtyFiles(h.repoRoot)).toEqual(["packages/desktop-ui/src/b.tsx"]);
 
     // B finishes later and commits its own file under its own conversation.
     const finalizedB = await h.service.finalizeSelfModRun({
@@ -260,9 +260,9 @@ describe("agent finalize", () => {
     });
     controller.finalize("run-b");
 
-    expect(finalizedB?.files).toEqual(["desktop/src/b.tsx"]);
+    expect(finalizedB?.files).toEqual(["packages/desktop-ui/src/b.tsx"]);
     expect(commitFiles(h.repoRoot, finalizedB!.commitHash)).toEqual([
-      "desktop/src/b.tsx",
+      "packages/desktop-ui/src/b.tsx",
     ]);
     expect(
       parseStellaCommitTrailers(commitBody(h.repoRoot, finalizedB!.commitHash))
@@ -276,7 +276,7 @@ describe("agent finalize", () => {
       runId: "run-cancel",
       taskDescription: "Doomed run",
     });
-    await writeRepoFile(h.repoRoot, "desktop/src/tmp.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/tmp.tsx", "export {};\n");
     const before = await getGitHead(h.repoRoot);
 
     h.service.cancelSelfModRun("run-cancel");
@@ -288,7 +288,7 @@ describe("agent finalize", () => {
 
     expect(finalized).toBeNull();
     expect(await getGitHead(h.repoRoot)).toBe(before);
-    expect(await listGitDirtyFiles(h.repoRoot)).toEqual(["desktop/src/tmp.tsx"]);
+    expect(await listGitDirtyFiles(h.repoRoot)).toEqual(["packages/desktop-ui/src/tmp.tsx"]);
   });
 
   it("failed run (succeeded: false) commits nothing", async () => {
@@ -296,7 +296,7 @@ describe("agent finalize", () => {
       runId: "run-fail",
       taskDescription: "Failing run",
     });
-    await writeRepoFile(h.repoRoot, "desktop/src/fail.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/fail.tsx", "export {};\n");
     const before = await getGitHead(h.repoRoot);
     const finalized = await h.service.finalizeSelfModRun({
       runId: "run-fail",
@@ -311,7 +311,7 @@ describe("agent finalize", () => {
       runId: "run-subject-fallback",
       taskDescription: "Tidy up settings",
     });
-    await writeRepoFile(h.repoRoot, "desktop/src/s1.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/s1.tsx", "export {};\n");
     const fallback = await h.service.finalizeSelfModRun({
       runId: "run-subject-fallback",
       succeeded: true,
@@ -328,7 +328,7 @@ describe("agent finalize", () => {
       runId: "run-subject-long",
       taskDescription: "Long subject run",
     });
-    await writeRepoFile(h.repoRoot, "desktop/src/s2.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/s2.tsx", "export {};\n");
     const long = await h.service.finalizeSelfModRun({
       runId: "run-subject-long",
       succeeded: true,
@@ -344,7 +344,7 @@ describe("agent finalize", () => {
       runId: "run-bad-thread",
       taskDescription: "Bad thread key",
     });
-    await writeRepoFile(h.repoRoot, "desktop/src/t.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/t.tsx", "export {};\n");
     const finalized = await h.service.finalizeSelfModRun({
       runId: "run-bad-thread",
       succeeded: true,
@@ -360,14 +360,14 @@ describe("agent finalize", () => {
 
   it("records source history in the background, chained in commit order", async () => {
     await h.service.beginSelfModRun({ runId: "r1", taskDescription: "One" });
-    await writeRepoFile(h.repoRoot, "desktop/src/one.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/one.tsx", "export {};\n");
     const first = await h.service.finalizeSelfModRun({
       runId: "r1",
       succeeded: true,
       conversationId: "conv-bg",
     });
     await h.service.beginSelfModRun({ runId: "r2", taskDescription: "Two" });
-    await writeRepoFile(h.repoRoot, "desktop/src/two.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/two.tsx", "export {};\n");
     const second = await h.service.finalizeSelfModRun({
       runId: "r2",
       succeeded: true,
@@ -386,7 +386,7 @@ describe("agent finalize", () => {
 
   it("author commits accrue to the durable feature roster and the snapshot is the roster head", async () => {
     await h.service.beginSelfModRun({ runId: "n1", taskDescription: "One" });
-    await writeRepoFile(h.repoRoot, "desktop/src/n1.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/n1.tsx", "export {};\n");
     const first = await h.service.finalizeSelfModRun({
       runId: "n1",
       succeeded: true,
@@ -405,7 +405,7 @@ describe("agent finalize", () => {
     // A later commit with the same feature id extends the SAME feature:
     // the name stays frozen even when a different title is supplied.
     await h.service.beginSelfModRun({ runId: "n2", taskDescription: "Two" });
-    await writeRepoFile(h.repoRoot, "desktop/src/n2.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/n2.tsx", "export {};\n");
     const second = await h.service.finalizeSelfModRun({
       runId: "n2",
       succeeded: true,
@@ -431,7 +431,7 @@ describe("agent finalize", () => {
   it("detectSelfModAppliedSince reports the latest self-mod commit after a baseline", async () => {
     const baseline = await getGitHead(h.repoRoot);
     await h.service.beginSelfModRun({ runId: "d1", taskDescription: "Detect" });
-    await writeRepoFile(h.repoRoot, "desktop/src/detect.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/detect.tsx", "export {};\n");
     const finalized = await h.service.finalizeSelfModRun({
       runId: "d1",
       succeeded: true,
@@ -443,7 +443,7 @@ describe("agent finalize", () => {
       sinceHead: baseline,
     });
     expect(detected?.commitHash).toBe(finalized!.commitHash);
-    expect(detected?.files).toEqual(["desktop/src/detect.tsx"]);
+    expect(detected?.files).toEqual(["packages/desktop-ui/src/detect.tsx"]);
 
     expect(
       await detectSelfModAppliedSince({
@@ -481,7 +481,7 @@ describe("undo (revert)", () => {
   it("reverts the latest self-mod commit and reads attribution from the original commit", async () => {
     await makeSelfModCommit(
       "u1",
-      "desktop/src/undo.tsx",
+      "packages/desktop-ui/src/undo.tsx",
       "export const v = 1;\n",
       "conv-undo",
       "thread-undo",
@@ -491,10 +491,10 @@ describe("undo (revert)", () => {
     expect(result.revertedCommitHashes).toHaveLength(1);
     expect(result.conversationId).toBe("conv-undo");
     expect(result.originThreadKey).toBe("thread-undo");
-    expect(result.files).toEqual(["desktop/src/undo.tsx"]);
+    expect(result.files).toEqual(["packages/desktop-ui/src/undo.tsx"]);
     // The file the commit created is gone again.
     await expect(
-      readFile(path.join(h.repoRoot, "desktop/src/undo.tsx"), "utf8"),
+      readFile(path.join(h.repoRoot, "packages/desktop-ui/src/undo.tsx"), "utf8"),
     ).rejects.toThrow();
     // History gained a revert commit (no history rewriting).
     expect(git(h.repoRoot, ["show", "-s", "--format=%s", "HEAD"])).toContain(
@@ -505,13 +505,13 @@ describe("undo (revert)", () => {
   it("supports undoing two changes one after the other", async () => {
     const first = await makeSelfModCommit(
       "u-first",
-      "desktop/src/first.tsx",
+      "packages/desktop-ui/src/first.tsx",
       "export const first = 1;\n",
       "conv-1",
     );
     const second = await makeSelfModCommit(
       "u-second",
-      "desktop/src/second.tsx",
+      "packages/desktop-ui/src/second.tsx",
       "export const second = 1;\n",
       "conv-2",
     );
@@ -528,10 +528,10 @@ describe("undo (revert)", () => {
     expect(undoFirst.conversationId).toBe("conv-1");
 
     await expect(
-      readFile(path.join(h.repoRoot, "desktop/src/first.tsx"), "utf8"),
+      readFile(path.join(h.repoRoot, "packages/desktop-ui/src/first.tsx"), "utf8"),
     ).rejects.toThrow();
     await expect(
-      readFile(path.join(h.repoRoot, "desktop/src/second.tsx"), "utf8"),
+      readFile(path.join(h.repoRoot, "packages/desktop-ui/src/second.tsx"), "utf8"),
     ).rejects.toThrow();
   });
 
@@ -549,7 +549,7 @@ describe("undo (revert)", () => {
   it("refuses multi-step reverts (attribution would collapse)", async () => {
     await makeSelfModCommit(
       "u-multi",
-      "desktop/src/multi.tsx",
+      "packages/desktop-ui/src/multi.tsx",
       "export {};\n",
       "conv-multi",
     );
@@ -588,8 +588,8 @@ describe("store uninstall", () => {
   };
 
   it("direct-reverts a clean tip install stack and clears the ledger", async () => {
-    const c1 = await makeInstallCommit("i1", "quiet-mode", "desktop/src/q1.tsx");
-    const c2 = await makeInstallCommit("i2", "quiet-mode", "desktop/src/q2.tsx");
+    const c1 = await makeInstallCommit("i1", "quiet-mode", "packages/desktop-ui/src/q1.tsx");
+    const c2 = await makeInstallCommit("i2", "quiet-mode", "packages/desktop-ui/src/q2.tsx");
     h.service.recordInstall({
       packageId: "quiet-mode",
       releaseNumber: 1,
@@ -609,22 +609,22 @@ describe("store uninstall", () => {
     expect(result.revertedCommits).toEqual([c2, c1]);
     expect(h.service.getInstall("quiet-mode")).toBeNull();
     await expect(
-      readFile(path.join(h.repoRoot, "desktop/src/q1.tsx"), "utf8"),
+      readFile(path.join(h.repoRoot, "packages/desktop-ui/src/q1.tsx"), "utf8"),
     ).rejects.toThrow();
     await expect(
-      readFile(path.join(h.repoRoot, "desktop/src/q2.tsx"), "utf8"),
+      readFile(path.join(h.repoRoot, "packages/desktop-ui/src/q2.tsx"), "utf8"),
     ).rejects.toThrow();
     expect(await listGitDirtyFiles(h.repoRoot)).toEqual([]);
   });
 
   it("requires the agent fallback when the working tree is dirty", async () => {
-    const c1 = await makeInstallCommit("i-dirty", "noisy-mode", "desktop/src/n1.tsx");
+    const c1 = await makeInstallCommit("i-dirty", "noisy-mode", "packages/desktop-ui/src/n1.tsx");
     h.service.recordInstall({
       packageId: "noisy-mode",
       releaseNumber: 1,
       installCommitHash: c1,
     });
-    await writeRepoFile(h.repoRoot, "desktop/src/wip.tsx", "// user WIP\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/wip.tsx", "// user WIP\n");
 
     const result = await h.service.uninstall("noisy-mode");
     expect(result.fallbackRequired).toBe(true);
@@ -635,7 +635,7 @@ describe("store uninstall", () => {
   });
 
   it("direct-reverts a buried install when later edits do not overlap", async () => {
-    const c1 = await makeInstallCommit("i-old", "old-mode", "desktop/src/o1.tsx");
+    const c1 = await makeInstallCommit("i-old", "old-mode", "packages/desktop-ui/src/o1.tsx");
     h.service.recordInstall({
       packageId: "old-mode",
       releaseNumber: 1,
@@ -650,7 +650,7 @@ describe("store uninstall", () => {
       runId: "later",
       taskDescription: "Later work",
     });
-    await writeRepoFile(h.repoRoot, "desktop/src/later.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/later.tsx", "export {};\n");
     await h.service.finalizeSelfModRun({
       runId: "later",
       succeeded: true,
@@ -664,10 +664,10 @@ describe("store uninstall", () => {
     // The add-on's own file is gone; the later, unrelated edit survives and the
     // tree is left clean.
     await expect(
-      readFile(path.join(h.repoRoot, "desktop/src/o1.tsx"), "utf8"),
+      readFile(path.join(h.repoRoot, "packages/desktop-ui/src/o1.tsx"), "utf8"),
     ).rejects.toThrow();
     expect(
-      await readFile(path.join(h.repoRoot, "desktop/src/later.tsx"), "utf8"),
+      await readFile(path.join(h.repoRoot, "packages/desktop-ui/src/later.tsx"), "utf8"),
     ).toBe("export {};\n");
     expect(await listGitDirtyFiles(h.repoRoot)).toEqual([]);
   });
@@ -676,7 +676,7 @@ describe("store uninstall", () => {
     // Reverting the same commit twice forces a mid-sequence conflict: the
     // first revert succeeds, the second tries to re-apply the inverse diff
     // onto already-reverted content.
-    await writeRepoFile(h.repoRoot, "desktop/src/seed.tsx", "export const seed = 2;\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/seed.tsx", "export const seed = 2;\n");
     git(h.repoRoot, ["add", "."]);
     git(h.repoRoot, ["commit", "-q", "-m", "Bump seed"]);
     const bump = (await getGitHead(h.repoRoot))!;
@@ -709,12 +709,12 @@ describe("commit listing and ordering", () => {
       });
       await writeRepoFile(
         h.repoRoot,
-        `desktop/src/file-${index}.tsx`,
+        `packages/desktop-ui/src/file-${index}.tsx`,
         `export const v = ${index};\n`,
       );
       await writeRepoFile(
         h.repoRoot,
-        `desktop/src/helper-${index}.ts`,
+        `packages/desktop-ui/src/helper-${index}.ts`,
         `export const helper = ${index};\n`,
       );
       const finalized = await h.service.finalizeSelfModRun({
@@ -736,7 +736,7 @@ describe("commit listing and ordering", () => {
       releaseNumber: 3,
       applyMode: "install",
     });
-    await writeRepoFile(h.repoRoot, "desktop/src/pkg.tsx", "export {};\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/pkg.tsx", "export {};\n");
     await h.service.finalizeSelfModRun({
       runId: "install-x",
       succeeded: true,
@@ -753,8 +753,8 @@ describe("commit listing and ordering", () => {
       expect(summary.fileCount).toBe(2);
       expect(summary.files.sort()).toEqual(
         [
-          `desktop/src/file-${4 - index}.tsx`,
-          `desktop/src/helper-${4 - index}.ts`,
+          `packages/desktop-ui/src/file-${4 - index}.tsx`,
+          `packages/desktop-ui/src/helper-${4 - index}.ts`,
         ].sort(),
       );
       expect(summary.conversationId).toBe(`conv-${4 - index}`);
@@ -764,7 +764,7 @@ describe("commit listing and ordering", () => {
 
   it("marks recent self-mod commits tainted when their files are dirty again", async () => {
     await h.service.beginSelfModRun({ runId: "t1", taskDescription: "Taint" });
-    await writeRepoFile(h.repoRoot, "desktop/src/taint.tsx", "export const t = 1;\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/taint.tsx", "export const t = 1;\n");
     const finalized = await h.service.finalizeSelfModRun({
       runId: "t1",
       succeeded: true,
@@ -775,16 +775,16 @@ describe("commit listing and ordering", () => {
     expect(summaries[0]?.commitHash).toBe(finalized!.commitHash);
     expect(summaries[0]?.tainted).toBeUndefined();
 
-    await writeRepoFile(h.repoRoot, "desktop/src/taint.tsx", "export const t = 2;\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/taint.tsx", "export const t = 2;\n");
     summaries = await listRecentSelfModCommits(h.repoRoot, 5);
     expect(summaries[0]?.tainted).toBe(true);
-    expect(summaries[0]?.taintedFiles).toEqual(["desktop/src/taint.tsx"]);
+    expect(summaries[0]?.taintedFiles).toEqual(["packages/desktop-ui/src/taint.tsx"]);
   });
 
   it("orders shuffled linear commits topologically without walking unrelated history", async () => {
     const hashes: string[] = [];
     for (let index = 0; index < 4; index += 1) {
-      await writeRepoFile(h.repoRoot, `desktop/src/o-${index}.ts`, `// ${index}\n`);
+      await writeRepoFile(h.repoRoot, `packages/desktop-ui/src/o-${index}.ts`, `// ${index}\n`);
       git(h.repoRoot, ["add", "."]);
       git(h.repoRoot, ["commit", "-q", "-m", `Ordered ${index}`]);
       hashes.push((await getGitHead(h.repoRoot))!);
@@ -802,13 +802,13 @@ describe("commit listing and ordering", () => {
     const base = (await getGitHead(h.repoRoot))!;
     // Branch commit.
     git(h.repoRoot, ["checkout", "-q", "-b", "side"]);
-    await writeRepoFile(h.repoRoot, "desktop/src/side.ts", "// side\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/side.ts", "// side\n");
     git(h.repoRoot, ["add", "."]);
     git(h.repoRoot, ["commit", "-q", "-m", "Side change"]);
     const side = (await getGitHead(h.repoRoot))!;
     // Main commit.
     git(h.repoRoot, ["checkout", "-q", "main"]);
-    await writeRepoFile(h.repoRoot, "desktop/src/main.ts", "// main\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/main.ts", "// main\n");
     git(h.repoRoot, ["add", "."]);
     git(h.repoRoot, ["commit", "-q", "-m", "Main change"]);
     const mainChange = (await getGitHead(h.repoRoot))!;
@@ -856,8 +856,8 @@ describe("commit listing and ordering", () => {
 describe("readGitObjectsBatch", () => {
   it("reads base+next blobs for a commit in one batch, mapping missing paths to null", async () => {
     const h = await createHarness();
-    await writeRepoFile(h.repoRoot, "desktop/src/seed.tsx", "export const seed = 2;\n");
-    await writeRepoFile(h.repoRoot, "desktop/src/new.tsx", "export const fresh = 1;\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/seed.tsx", "export const seed = 2;\n");
+    await writeRepoFile(h.repoRoot, "packages/desktop-ui/src/new.tsx", "export const fresh = 1;\n");
     git(h.repoRoot, ["add", "."]);
     git(h.repoRoot, ["commit", "-q", "-m", "Second commit"]);
     const head = (await getGitHead(h.repoRoot))!;
@@ -866,21 +866,21 @@ describe("readGitObjectsBatch", () => {
     const objects = await readGitObjectsBatch({
       repoRoot: h.repoRoot,
       specs: [
-        `${parent}:desktop/src/seed.tsx`,
-        `${head}:desktop/src/seed.tsx`,
-        `${parent}:desktop/src/new.tsx`,
-        `${head}:desktop/src/new.tsx`,
+        `${parent}:packages/desktop-ui/src/seed.tsx`,
+        `${head}:packages/desktop-ui/src/seed.tsx`,
+        `${parent}:packages/desktop-ui/src/new.tsx`,
+        `${head}:packages/desktop-ui/src/new.tsx`,
       ],
     });
 
-    expect(objects.get(`${parent}:desktop/src/seed.tsx`)?.toString("utf8")).toBe(
+    expect(objects.get(`${parent}:packages/desktop-ui/src/seed.tsx`)?.toString("utf8")).toBe(
       "export const seed = 1;\n",
     );
-    expect(objects.get(`${head}:desktop/src/seed.tsx`)?.toString("utf8")).toBe(
+    expect(objects.get(`${head}:packages/desktop-ui/src/seed.tsx`)?.toString("utf8")).toBe(
       "export const seed = 2;\n",
     );
-    expect(objects.get(`${parent}:desktop/src/new.tsx`)).toBeNull();
-    expect(objects.get(`${head}:desktop/src/new.tsx`)?.toString("utf8")).toBe(
+    expect(objects.get(`${parent}:packages/desktop-ui/src/new.tsx`)).toBeNull();
+    expect(objects.get(`${head}:packages/desktop-ui/src/new.tsx`)?.toString("utf8")).toBe(
       "export const fresh = 1;\n",
     );
   });

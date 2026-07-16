@@ -1,12 +1,12 @@
-import { RUNTIME_RUN_EVENT_TYPES } from "../../contracts/agent-runtime.js";
+import { RUNTIME_RUN_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import {
   redactSensitiveText,
   sanitizeSensitiveData,
-} from "../../contracts/sensitive-data.js";
+} from "@stella/contracts/sensitive-data";
 import {
   isFileChangeRecordArray,
   isProducedFileRecordArray,
-} from "../../contracts/file-changes.js";
+} from "@stella/contracts/file-changes";
 import type { AgentEvent, AgentMessage } from "../agent-core/types.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
@@ -37,8 +37,8 @@ import type {
   RuntimeToolEndEvent,
   RuntimeToolStartEvent,
 } from "./types.js";
-import type { SelfModAppliedPayload } from "../../contracts/local-chat.js";
-import type { RuntimeAgentEventPayload } from "../../protocol/index.js";
+import type { SelfModAppliedPayload } from "@stella/contracts/local-chat";
+import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 
 const logger = createRuntimeLogger("agent-runtime.events");
 type PersistedAssistantContent = Extract<

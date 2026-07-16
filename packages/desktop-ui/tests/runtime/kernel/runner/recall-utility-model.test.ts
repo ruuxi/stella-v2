@@ -8,20 +8,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import type { Model } from "../../../../../runtime/ai/types.js";
-import type { RunnerContext } from "../../../../../runtime/kernel/runner/types.js";
+import type { Model } from "@stella/runtime/ai/types";
+import type { RunnerContext } from "@stella/runtime/kernel/runner/types";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const credentials = new Map<string, string>();
 const oauthCredentials = new Set<string>();
 
-vi.mock("../../../../../runtime/kernel/storage/llm-credentials.js", () => ({
+vi.mock("@stella/runtime/kernel/storage/llm-credentials", () => ({
   getLocalLlmCredential: (_stellaAppDir: string, provider: string) =>
     credentials.get(provider) ?? null,
 }));
 
 vi.mock(
-  "../../../../../runtime/kernel/storage/llm-oauth-credentials.js",
+  "@stella/runtime/kernel/storage/llm-oauth-credentials",
   () => ({
     hasLocalLlmOAuthCredential: (_stellaAppDir: string, provider: string) =>
       oauthCredentials.has(provider),
@@ -35,7 +35,7 @@ vi.mock(
 // candidate-selection behavior under test. The call counter lets tests
 // assert which engine paths touch the catalog at all.
 const catalogMetadataCalls = vi.hoisted(() => ({ count: 0 }));
-vi.mock("../../../../../runtime/kernel/stella-model-catalog.js", () => ({
+vi.mock("@stella/runtime/kernel/stella-model-catalog", () => ({
   withStellaModelCatalogMetadata: async (args: { route: unknown }) => {
     catalogMetadataCalls.count += 1;
     return args.route;
@@ -58,7 +58,7 @@ const model = (
   maxTokens: 8_192,
 });
 
-vi.mock("../../../../../runtime/ai/models.js", () => ({
+vi.mock("@stella/runtime/ai/models", () => ({
   getAllModels: () => [
     model("anthropic", "claude-opus-4-8", "anthropic"),
     model("openrouter", "openai/gpt-5.5"),
@@ -107,7 +107,7 @@ afterEach(() => {
 });
 
 const loadModule = async () =>
-  await import("../../../../../runtime/kernel/runner/model-selection.js");
+  await import("@stella/runtime/kernel/runner/model-selection");
 
 describe("resolveRunnerUtilityLlmRoute (Recall pin)", () => {
   it("pins signed-in users to stella/light regardless of the orchestrator model", async () => {

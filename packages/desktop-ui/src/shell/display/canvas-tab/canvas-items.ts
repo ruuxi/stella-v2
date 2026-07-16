@@ -6,7 +6,7 @@
  */
 
 import { uiState } from "@/platform/ui-state";
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 
 export type CanvasHtmlItem = {
   id: string;

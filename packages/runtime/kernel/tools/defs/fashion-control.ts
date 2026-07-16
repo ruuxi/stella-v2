@@ -5,7 +5,7 @@
  * spawns the Fashion subagent that owns this surface.
  */
 
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   handleFashionCreateCheckout,
   handleFashionCreateOutfit,

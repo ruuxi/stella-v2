@@ -1,5 +1,5 @@
 import { BROWSERS, type BrowserId } from "./onboarding-flow";
-import type { DiscoveryCategory } from "../../../../runtime/contracts/discovery.js";
+import type { DiscoveryCategory } from "@stella/contracts/discovery";
 import { OnboardingDiscovery } from "./OnboardingDiscovery";
 import { OnboardingReveal } from "./OnboardingReveal";
 import { OnboardingSelectionTile } from "./OnboardingSelectionTile";

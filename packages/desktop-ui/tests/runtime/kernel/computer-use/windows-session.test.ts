@@ -8,17 +8,17 @@ import {
   COMPUTER_USE_SCHEMA_VERSION,
   type ComputerUseAction,
   type ComputerUseRequest,
-} from "../../../../../runtime/kernel/computer-use/contract.js";
-import { executeComputerUseRequest } from "../../../../../runtime/kernel/computer-use/session.js";
+} from "@stella/runtime/kernel/computer-use/contract";
+import { executeComputerUseRequest } from "@stella/runtime/kernel/computer-use/session";
 import {
   createWindowsComputerUseSession,
   type WindowsComputerHelperRequest,
-} from "../../../../../runtime/kernel/computer-use/windows-session.js";
-import { runWithComputerExecutionContext } from "../../../../../runtime/kernel/computer-use/execution-context.js";
+} from "@stella/runtime/kernel/computer-use/windows-session";
+import { runWithComputerExecutionContext } from "@stella/runtime/kernel/computer-use/execution-context";
 import type {
   WinHelperRequest,
   WinSnapshot,
-} from "../../../../../runtime/kernel/cli/stella-computer-windows.js";
+} from "@stella/runtime/kernel/cli/stella-computer-windows";
 
 const envelope = (requestId: string, sessionId = "windows-session") => ({
   schemaVersion: COMPUTER_USE_SCHEMA_VERSION,

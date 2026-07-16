@@ -3,15 +3,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   buildSubagentPromptMessages,
   buildSystemPrompt,
   buildHistorySource,
   buildStartupPromptMessages,
-} from "../../../../../runtime/kernel/agent-runtime/thread-memory.js";
-import { buildDefaultTransformContext } from "../../../../../runtime/kernel/agent-runtime/shared.js";
-import type { AgentMessage } from "../../../../../runtime/kernel/agent-core/types.js";
+} from "@stella/runtime/kernel/agent-runtime/thread-memory";
+import { buildDefaultTransformContext } from "@stella/runtime/kernel/agent-runtime/shared";
+import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types";
 
 describe("buildSystemPrompt", () => {
   it("adds structured file-editing guidance when apply_patch is available", () => {

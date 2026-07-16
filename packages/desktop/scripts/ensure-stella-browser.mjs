@@ -11,8 +11,8 @@ const bestEffort = args.has("--best-effort");
 if (process.env.STELLA_SKIP_BROWSER_HYDRATE === "1") {
   process.exit(0);
 }
-const repoRoot = path.resolve(import.meta.dirname, "..", "..");
-const browserRoot = path.join(repoRoot, "desktop", "stella-browser");
+const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
+const browserRoot = path.join(repoRoot, "packages", "stella-browser");
 
 const platformKey =
   os.platform() === "win32" && os.arch() === "x64"

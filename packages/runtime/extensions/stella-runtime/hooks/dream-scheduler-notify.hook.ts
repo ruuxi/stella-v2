@@ -1,4 +1,4 @@
-import { agentHasCapability } from "../../../contracts/agent-runtime.js";
+import { agentHasCapability } from "@stella/contracts/agent-runtime";
 import { createRuntimeLogger } from "../../../kernel/debug.js";
 import type { HookDefinition } from "../../../kernel/extensions/types.js";
 import type { RuntimeStore } from "../../../kernel/storage/runtime-store.js";

@@ -13,10 +13,10 @@ import {
   enableNativeConnector,
   getNativeConnectorTools,
   type NativeConnectorCatalogEntry,
-} from "../../../runtime/kernel/connectors/native-integrations.js";
-import { STELLA_BROWSER_EXTENSION_ID } from "../../../runtime/kernel/tools/stella-browser-bridge-config.js";
+} from "@stella/runtime/kernel/connectors/native-integrations";
+import { STELLA_BROWSER_EXTENSION_ID } from "@stella/runtime/kernel/tools/stella-browser-bridge-config";
 import { isStellaExtensionInstalled } from "./stella-browser-bridge-service.js";
-import type { WindowManagerTarget } from "../../../runtime/kernel/lifecycle-targets.js";
+import type { WindowManagerTarget } from "@stella/runtime/kernel/lifecycle-targets";
 import {
   ensureNativeCredential,
   loadConfiguredOAuthProviders,

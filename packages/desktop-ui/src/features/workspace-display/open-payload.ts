@@ -1,4 +1,4 @@
-import type { DisplayTabPayload } from "@/shared/contracts/display-payload";
+import type { DisplayTabPayload } from "@stella/contracts/desktop/display-payload";
 import { displayTabs } from "./tab-store";
 import {
   pushAndOpenSourceDiffBatch,

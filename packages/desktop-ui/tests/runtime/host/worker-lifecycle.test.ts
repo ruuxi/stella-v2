@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   RuntimeWorkerLifecycleController,
   type WorkerConnection,
-} from "../../../../runtime/host/worker-lifecycle.js";
+} from "@stella/runtime/host/worker-lifecycle";
 
 const createMockConnection = (): WorkerConnection => {
   const process = new EventEmitter() as WorkerConnection["process"];

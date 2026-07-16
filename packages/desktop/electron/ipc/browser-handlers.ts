@@ -8,8 +8,8 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
-import { getStellaBrowserBridgeEnv } from "../../../runtime/kernel/tools/stella-browser-bridge-config.js";
-import { BrowserSession } from "../../../runtime/kernel/browser-use/client.js";
+import { getStellaBrowserBridgeEnv } from "@stella/runtime/kernel/tools/stella-browser-bridge-config";
+import { BrowserSession } from "@stella/runtime/kernel/browser-use/client";
 import { resolveStellaBrowserRoot } from "../utils/stella-browser-paths.js";
 import {
   normalizeUrlForPrivilegedRendererFetch,
@@ -21,7 +21,7 @@ import {
   IPC_MEDIA_COPY_IMAGE,
   IPC_MEDIA_GET_DIR,
   IPC_MEDIA_SAVE_OUTPUT,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 
 type BrowserFetchInit = {
   method?: "GET" | "POST";

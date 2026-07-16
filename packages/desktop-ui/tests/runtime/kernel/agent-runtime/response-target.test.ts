@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createOrchestratorResponseTargetTracker,
   createAgentLifecycleResponseTarget,
-} from "../../../../../runtime/kernel/agent-runtime/response-target.js";
+} from "@stella/runtime/kernel/agent-runtime/response-target";
 
 describe("orchestrator response target tracking", () => {
   it("classifies a spawn_agent reply as a task turn", () => {

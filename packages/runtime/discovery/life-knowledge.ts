@@ -3,7 +3,7 @@ import path from "node:path";
 import type {
   DiscoveryCategory,
   DiscoveryKnowledgeSeedPayload,
-} from "../contracts/discovery.js";
+} from "@stella/contracts/discovery";
 
 const USER_PROFILE_SLUG = "user-profile";
 const USER_PROFILE_TITLE = "User Profile";

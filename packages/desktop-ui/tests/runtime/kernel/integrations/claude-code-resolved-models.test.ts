@@ -4,7 +4,7 @@ import {
   formatClaudeCodeResolvedModel,
   readClaudeCodeResolvedModels,
   recordClaudeCodeResolvedModel,
-} from "../../../../../runtime/kernel/integrations/claude-code-resolved-models.js";
+} from "@stella/runtime/kernel/integrations/claude-code-resolved-models";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();

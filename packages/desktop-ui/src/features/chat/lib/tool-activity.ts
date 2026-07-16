@@ -37,7 +37,7 @@ import {
 import {
   AGENT_IDS,
   isOrchestratorAgentType,
-} from "../../../../../runtime/contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 
 /** Coarse tool family the leading icon + summary phrasing key off. */
 export type ToolActivityCategory =

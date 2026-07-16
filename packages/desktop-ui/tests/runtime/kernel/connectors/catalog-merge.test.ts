@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildMergedConnectorCatalog } from "../../../../../runtime/kernel/connectors/catalog-cache.js";
+import { buildMergedConnectorCatalog } from "@stella/runtime/kernel/connectors/catalog-cache";
 import {
   buildNativeConnectorCatalog,
   getNativeConnectorCatalogEntry,
   type NativeConnectorCatalogEntry,
-} from "../../../../../runtime/kernel/connectors/native-integrations.js";
+} from "@stella/runtime/kernel/connectors/native-integrations";
 
 const composioEntry = (
   id: string,

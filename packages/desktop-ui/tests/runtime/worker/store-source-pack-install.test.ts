@@ -15,7 +15,7 @@ import {
   createStellaSourcePack,
   hashSourceTree,
   type StellaSourceTree,
-} from "../../../../runtime/kernel/self-mod/stella-source-control.js";
+} from "@stella/runtime/kernel/self-mod/stella-source-control";
 import {
   collectSourcePackPaths,
   findStoreSourcePackApplyObstruction,
@@ -23,7 +23,7 @@ import {
   storePublishTouchesDependencyFiles,
   storeSourcePathToAbsolute,
   writeSourcePackApplyResult,
-} from "../../../../runtime/worker/store-source-pack-install.js";
+} from "@stella/runtime/worker/store-source-pack-install";
 
 const text = (content: string) => ({ kind: "text" as const, content });
 

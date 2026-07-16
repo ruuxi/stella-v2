@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRuntimeThreadPayload } from "../../../../../runtime/kernel/storage/shared.js";
+import { parseRuntimeThreadPayload } from "@stella/runtime/kernel/storage/shared";
 
 const VALID_USAGE = {
   input: 0,

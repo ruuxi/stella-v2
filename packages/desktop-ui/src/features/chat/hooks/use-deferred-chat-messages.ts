@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { MessageRecord } from "../../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 
 /**
  * Keep the last painted timeline stable during direct user scrolling.

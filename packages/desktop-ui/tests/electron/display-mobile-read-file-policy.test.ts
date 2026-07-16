@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isDisplayReadPathInLocalChatFiles } from "../../electron/ipc/display-handlers.js";
-import type { LocalChatEventRecord } from "../../../runtime/kernel/storage/shared.js";
+import { isDisplayReadPathInLocalChatFiles } from "@stella/desktop/electron/ipc/display-handlers.js";
+import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 
 describe("mobile display read file policy", () => {
   it("allows paths recorded in recent local chat file events", () => {

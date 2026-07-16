@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   discoveryKnowledgeExists,
   writeDiscoveryKnowledge,
-} from "../../../../runtime/discovery/life-knowledge.js";
-import type { DiscoveryKnowledgeSeedPayload } from "../../../../runtime/contracts/discovery.js";
+} from "@stella/runtime/discovery/life-knowledge";
+import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery";
 
 const tempDirs: string[] = [];
 

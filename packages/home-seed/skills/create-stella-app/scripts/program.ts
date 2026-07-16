@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 /**
- * Scaffold a new single-file Stella app under desktop/src/app/_user/.
+ * Scaffold a new single-file Stella app under packages/desktop-ui/src/app/_user/.
  *
  * Creates exactly one file by copying templates/app.tsx.tmpl with
  * placeholder substitution:
  *
- *   desktop/src/app/_user/<slug>.tsx
+ *   packages/desktop-ui/src/app/_user/<slug>.tsx
  *
  * The file exports `default function App()` (the component) and a
  * named `meta = { label, createdAt }` consumed by the apps page
@@ -36,7 +36,17 @@ function findRepoRoot(start: string): string | null {
   let dir = start;
   while (dir !== "/") {
     if (
-      existsSync(join(dir, "desktop", "src", "app", "_shared", "app-metadata.ts"))
+      existsSync(
+        join(
+          dir,
+          "packages",
+          "desktop-ui",
+          "src",
+          "app",
+          "_shared",
+          "app-metadata.ts",
+        ),
+      )
     ) {
       return dir;
     }
@@ -52,11 +62,11 @@ const REPO_ROOT =
   findRepoRoot(SCRIPT_DIR) ??
   fail(
     "could not locate Stella repo root from cwd or script dir " +
-      "(no desktop/src/app/_shared found). cd into the Stella install root " +
+      "(no packages/desktop-ui/src/app/_shared found). cd into the Stella install root " +
       "and re-run.",
   );
 
-const USER_APPS_DIR = join(REPO_ROOT, "desktop/src/app/_user");
+const USER_APPS_DIR = join(REPO_ROOT, "packages/desktop-ui/src/app/_user");
 
 interface Args {
   slug: string;
@@ -123,13 +133,13 @@ function main(): void {
 
   console.log("");
   console.log(
-    `scaffolded user app "${args.label}" at desktop/src/app/_user/${args.slug}.tsx`,
+    `scaffolded user app "${args.label}" at packages/desktop-ui/src/app/_user/${args.slug}.tsx`,
   );
   console.log(`it will show up on the /apps page and open at /apps/${args.slug}.`);
   console.log("next steps:");
   console.log(`  1. replace the stub body of ${args.slug}.tsx with the real surface`);
   console.log("  2. validate (run from the Stella install root):");
-  console.log("     node node_modules/typescript-7/lib/tsc.js -p desktop/tsconfig.app.json --noEmit");
+  console.log("     node node_modules/typescript-7/lib/tsc.js -p packages/desktop-ui/tsconfig.app.json --noEmit");
 }
 
 main();

@@ -1,4 +1,4 @@
-import { AGENT_IDS } from "../../../../runtime/contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { getDeviceIdOrNull } from "@/platform/electron/device";
 import type {
   AgentStreamIpcEvent,

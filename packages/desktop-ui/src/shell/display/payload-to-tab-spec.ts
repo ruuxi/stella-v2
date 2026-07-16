@@ -14,8 +14,8 @@ import { uiState } from "@/platform/ui-state";
 import type {
   DisplayPayload,
   DisplayTabPayload,
-} from "@/shared/contracts/display-payload";
-import { getDisplayPayloadTitle } from "@/shared/contracts/display-payload";
+} from "@stella/contracts/desktop/display-payload";
+import { getDisplayPayloadTitle } from "@stella/contracts/desktop/display-payload";
 import {
   UrlTabContent,
   MarkdownTabContent,

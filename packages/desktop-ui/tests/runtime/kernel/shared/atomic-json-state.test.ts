@@ -7,10 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   readJsonStateFile,
   updateJsonStateFile,
-} from "../../../../../runtime/kernel/shared/atomic-json-state.js";
-import { recordConnectorDecline } from "../../../../../runtime/kernel/connectors/connect-preferences.js";
-import { listConnectorDeclines } from "../../../../../runtime/kernel/connectors/connect-preferences.js";
-import { recordReminderShown } from "../../../../../runtime/kernel/runner/reminder-window-gate.js";
+} from "@stella/runtime/kernel/shared/atomic-json-state";
+import { recordConnectorDecline } from "@stella/runtime/kernel/connectors/connect-preferences";
+import { listConnectorDeclines } from "@stella/runtime/kernel/connectors/connect-preferences";
+import { recordReminderShown } from "@stella/runtime/kernel/runner/reminder-window-gate";
 
 const roots: string[] = [];
 

@@ -1,4 +1,4 @@
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { ToolDefinition } from "../types.js";
 
 export type RecallToolOptions = {

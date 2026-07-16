@@ -6,14 +6,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   handleEdit,
   handleWrite,
-} from "../../../../../runtime/kernel/tools/file.js";
-import { handleApplyPatch } from "../../../../../runtime/kernel/tools/apply-patch.js";
+} from "@stella/runtime/kernel/tools/file";
+import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch";
 import {
   createShellState,
   drainCompletedProducedFiles,
   handleExecCommand,
   handleWriteStdin,
-} from "../../../../../runtime/kernel/tools/shell.js";
+} from "@stella/runtime/kernel/tools/shell";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createAsyncTempDirTracker();

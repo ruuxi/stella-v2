@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ThirdPartyMigrationWizard } from "@/global/migration/ThirdPartyMigrationWizard";
-import type { ThirdPartyMigrationReport } from "@/shared/contracts/migration";
+import type { ThirdPartyMigrationReport } from "@stella/contracts/desktop/migration";
 
 type OnboardingMigrationPhaseProps = {
   splitTransitionActive: boolean;

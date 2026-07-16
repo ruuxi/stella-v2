@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isWorkerBusyForRestart,
   StellaRuntimeHost,
-} from "../../../../runtime/host/index.js";
-import { computeRuntimeBuildStamp } from "../../../../runtime/worker/runtime-build-stamp.js";
-import { resolveRuntimePaths } from "../../../../runtime/worker/runtime-paths.js";
+} from "@stella/runtime/host";
+import { computeRuntimeBuildStamp } from "@stella/runtime/worker/runtime-build-stamp";
+import { resolveRuntimePaths } from "@stella/runtime/worker/runtime-paths";
 
 /**
  * Staleness handshake + idle/deferred restart tests. These drive the host's

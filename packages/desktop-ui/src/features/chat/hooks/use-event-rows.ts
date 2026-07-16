@@ -7,13 +7,13 @@ import {
   isAssistantMessage,
   isUserMessage,
 } from "@/features/chat/lib/event-transforms";
-import type { MessageRecord } from "../../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 import {
   AGENT_IDS,
   isOrchestratorReservedBuiltinAgentId,
-} from "../../../../../runtime/contracts/agent-runtime.js";
-import { isOfficePreviewRef } from "../../../../../runtime/contracts/office-preview.js";
-import type { ScheduleToolAffectedRef } from "../../../../../runtime/kernel/shared/scheduling";
+} from "@stella/contracts/agent-runtime";
+import { isOfficePreviewRef } from "@stella/contracts/office-preview";
+import type { ScheduleToolAffectedRef } from "@stella/contracts/scheduling";
 import { pickScheduleToolSummary } from "@/global/schedule/schedule-receipt-summary";
 import {
   collectTurnSourceDiffPayloads,

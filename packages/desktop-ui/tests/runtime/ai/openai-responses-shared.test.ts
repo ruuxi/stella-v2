@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeOpenAIFunctionName } from "../../../../runtime/ai/providers/openai-responses-shared";
+import { normalizeOpenAIFunctionName } from "@stella/runtime/ai/providers/openai-responses-shared";
 
 describe("runtime OpenAI Responses function names", () => {
   it("keeps canonical underscore tool names unchanged", () => {

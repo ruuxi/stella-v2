@@ -87,12 +87,12 @@ import {
   type StorePublishArgs,
   type StorePublishSelectedFeaturesArgs,
   type RuntimeLocalAgentRequest,
-} from "../protocol/index.js";
+} from "@stella/contracts/protocol";
 import type {
   StorePackageReleaseRecord,
   StoreReleaseCommit,
   StoreReleaseGitArtifact,
-} from "../contracts/index.js";
+} from "@stella/contracts";
 import {
   AGENT_IDS,
   AGENT_RUN_FINISH_OUTCOMES,
@@ -100,8 +100,8 @@ import {
   type AgentIdLike,
   type AgentRunFinishOutcome,
   type AgentStreamEventType,
-} from "../contracts/agent-runtime.js";
-import { fileChange } from "../contracts/file-changes.js";
+} from "@stella/contracts/agent-runtime";
+import { fileChange } from "@stella/contracts/file-changes";
 import { prepareStoredLocalChatPayload } from "../kernel/storage/local-chat-payload.js";
 import { collectAllSignals } from "../discovery/collect-all.js";
 import { sweepStaleConnectorBridgeProcesses } from "../kernel/connectors/process-registry.js";
@@ -169,7 +169,7 @@ import type {
   LocalChatEventRecord,
   SqliteDatabase,
 } from "../kernel/storage/shared.js";
-import { createEmptySocialSessionServiceSnapshot } from "../contracts/index.js";
+import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { SocialSessionService } from "./social-sessions/service.js";
 import { SocialSessionStore } from "./social-sessions/store.js";
 import { VoiceRuntimeService } from "./voice/service.js";
@@ -3728,7 +3728,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       return await collectAllSignals(
         state.init.stellaDataDirPath,
         payload.categories as
-          | import("../contracts/discovery.js").DiscoveryCategory[]
+          | import("@stella/contracts/discovery").DiscoveryCategory[]
           | undefined,
         payload.selectedBrowser,
         payload.selectedProfile,

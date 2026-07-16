@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../../runtime/kernel/storage/database-init.js";
-import { SessionStore } from "../../../../../runtime/kernel/storage/session-store.js";
-import type { SqliteDatabase } from "../../../../../runtime/kernel/storage/shared.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 type TestContext = {
   rootPath: string;

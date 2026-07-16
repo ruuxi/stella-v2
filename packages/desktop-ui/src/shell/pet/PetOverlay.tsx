@@ -11,7 +11,7 @@ import type {
   PetAnimationState,
   PetOverlayState,
   PetOverlayStatus,
-} from "@/shared/contracts/pet";
+} from "@stella/contracts/desktop/pet";
 import type { VoiceRuntimeSnapshot } from "@/shared/types/electron";
 import { DEFAULT_PET_ID } from "./built-in-pets";
 import { useSelectedPet } from "./pet-catalog-context";

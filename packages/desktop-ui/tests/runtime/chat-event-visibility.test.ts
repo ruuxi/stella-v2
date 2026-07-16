@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isUiDisplayableChatEvent } from "../../../runtime/chat-event-visibility";
+import { isUiDisplayableChatEvent } from "@stella/contracts/chat-event-visibility";
 
 type TestEvent = {
   _id: string;

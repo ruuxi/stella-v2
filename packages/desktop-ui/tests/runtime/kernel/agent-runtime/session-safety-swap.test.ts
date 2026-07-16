@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Agent } from "../../../../../runtime/kernel/agent-core/agent.js";
-import type { AgentMessage } from "../../../../../runtime/kernel/agent-core/types.js";
-import type { LocalAgentContext } from "../../../../../runtime/kernel/agents/local-agent-manager.js";
-import { PiSessionCore } from "../../../../../runtime/kernel/agent-runtime/pi-session-core.js";
+import type { Agent } from "@stella/runtime/kernel/agent-core/agent";
+import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types";
+import type { LocalAgentContext } from "@stella/runtime/kernel/agents/local-agent-manager";
+import { PiSessionCore } from "@stella/runtime/kernel/agent-runtime/pi-session-core";
 import {
   QUARANTINE_CUSTOM_TYPE,
   QUARANTINE_PLACEHOLDER,
   SAFETY_SWAP_STELLA_MODEL_ID,
   serializeQuarantineRecord,
-} from "../../../../../runtime/kernel/agent-runtime/provider-abort-containment.js";
-import { executeRuntimeAgentPrompt } from "../../../../../runtime/kernel/agent-runtime/run-execution.js";
-import type { ResolvedLlmRoute } from "../../../../../runtime/kernel/model-routing.js";
-import { providerAbortedStopMessage } from "../../../../../runtime/ai/utils/provider-stop.js";
-import type { Api, Model, StopReason } from "../../../../../runtime/ai/types.js";
+} from "@stella/runtime/kernel/agent-runtime/provider-abort-containment";
+import { executeRuntimeAgentPrompt } from "@stella/runtime/kernel/agent-runtime/run-execution";
+import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
+import { providerAbortedStopMessage } from "@stella/runtime/ai/utils/provider-stop";
+import type { Api, Model, StopReason } from "@stella/runtime/ai/types";
 
 const SAFETY_ABORT_MESSAGE = providerAbortedStopMessage("refusal");
 

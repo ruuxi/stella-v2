@@ -19,13 +19,13 @@ import { describe, expect, it } from "vitest";
 import {
   convertMessages,
   getCompat,
-} from "../../../../runtime/ai/providers/openai-completions.js";
+} from "@stella/runtime/ai/providers/openai-completions";
 import type {
   AssistantMessage,
   Context,
   Model,
   ToolResultMessage,
-} from "../../../../runtime/ai/types.js";
+} from "@stella/runtime/ai/types";
 
 const makeModel = (
   provider: string,

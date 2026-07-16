@@ -4,7 +4,7 @@ import {
   formatStateDiffBlock,
   shouldUseDiffOnly,
   type StateDiffTarget,
-} from "../../../../../runtime/kernel/cli/stella-computer-state-diff.js";
+} from "@stella/runtime/kernel/cli/stella-computer-state-diff";
 
 const target = (overrides: Partial<StateDiffTarget> = {}): StateDiffTarget => ({
   appName: "Spotify",

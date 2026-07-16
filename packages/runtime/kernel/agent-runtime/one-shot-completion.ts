@@ -43,7 +43,7 @@ import { createRuntimeLogger } from "../debug.js";
 import type {
   RuntimeOneShotCompletionRequest,
   RuntimeOneShotCompletionResult,
-} from "../../protocol/index.js";
+} from "@stella/contracts/protocol";
 
 const logger = createRuntimeLogger("agent-runtime.one-shot-completion");
 

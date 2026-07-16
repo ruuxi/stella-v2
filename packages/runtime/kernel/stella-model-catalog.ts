@@ -2,13 +2,13 @@ import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { formatLlmRouteFailure } from "../ai/llm-route-failure.js";
+import { formatLlmRouteFailure } from "@stella/contracts/llm-route-failure";
 import type { Api, Model } from "../ai/types.js";
 import {
   STELLA_DEFAULT_MODEL,
   STELLA_MODELS_PATH,
   normalizeStellaSiteUrl,
-} from "../contracts/stella-api.js";
+} from "@stella/contracts/stella-api";
 import { writePrivateFile } from "./shared/private-fs.js";
 import type { ResolvedLlmRoute } from "./model-routing.js";
 import {

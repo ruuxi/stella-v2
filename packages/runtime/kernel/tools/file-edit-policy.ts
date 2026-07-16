@@ -1,5 +1,5 @@
-import { AGENT_IDS } from "../../contracts/agent-runtime.js";
-import type { AgentRuntimeEngine } from "../../contracts/agent-engine.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import type { AgentRuntimeEngine } from "@stella/contracts/agent-engine";
 import type { Api, Model } from "../../ai/types.js";
 
 export const APPLY_PATCH_TOOL_NAME = "apply_patch";

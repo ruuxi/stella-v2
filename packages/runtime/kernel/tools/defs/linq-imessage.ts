@@ -1,6 +1,6 @@
 import { anyApi } from "convex/server";
 
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { ToolContext, ToolDefinition, ToolResult } from "../types.js";
 
 const LINQ_DEFERRED = {

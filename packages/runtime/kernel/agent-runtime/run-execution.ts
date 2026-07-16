@@ -4,7 +4,7 @@ import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
-} from "../../protocol/index.js";
+} from "@stella/contracts/protocol";
 import {
   subscribeRuntimeAgentEvents,
   type RuntimeRunEventRecorder,

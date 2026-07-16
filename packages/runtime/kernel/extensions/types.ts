@@ -5,7 +5,7 @@ import type {
   AgentToolResult,
 } from "../agent-core/types.js";
 import type { AssistantMessageEvent } from "../../ai/types.js";
-import type { RuntimePromptMessage } from "../../protocol/index.js";
+import type { RuntimePromptMessage } from "@stella/contracts/protocol";
 
 export interface ToolDefinition {
   /** Tool name (must be unique). */

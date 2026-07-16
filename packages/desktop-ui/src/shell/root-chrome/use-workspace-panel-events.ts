@@ -5,7 +5,7 @@ import {
   STELLA_OPEN_PANEL_CHAT_EVENT,
   type StellaOpenPanelChatDetail,
 } from "@/shared/lib/stella-orb-chat";
-import type { DisplayTabPayload } from "@/shared/contracts/display-payload";
+import type { DisplayTabPayload } from "@stella/contracts/desktop/display-payload";
 import type { RightSidebarHandle } from "@/shell/RightSidebar";
 import { displayTabs } from "@/features/workspace-display/tab-store";
 

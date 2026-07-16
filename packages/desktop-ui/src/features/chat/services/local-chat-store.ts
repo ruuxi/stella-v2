@@ -18,7 +18,7 @@
  * messages.
  */
 import { type EventRecord } from "@/features/chat/lib/event-transforms";
-import type { LocalChatUpdatedPayload } from "../../../../../runtime/contracts/local-chat.js";
+import type { LocalChatUpdatedPayload } from "@stella/contracts/local-chat";
 
 /**
  * Absent outside Electron (plain-browser `bun run dev`): chat persistence

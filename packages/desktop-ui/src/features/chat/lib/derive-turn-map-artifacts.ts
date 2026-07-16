@@ -14,8 +14,8 @@ import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import {
   isMapRouteArtifact,
   type MapRouteArtifact,
-} from "../../../../../runtime/contracts/map-artifact.js";
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
+} from "@stella/contracts/map-artifact";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 
 /** Keep a runaway turn from stacking maps down the timeline. */
 const MAX_MAP_CARDS_PER_TURN = 3;

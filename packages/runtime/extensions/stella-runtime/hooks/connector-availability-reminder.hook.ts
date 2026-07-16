@@ -1,4 +1,4 @@
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { getConnectorDecline } from "../../../kernel/connectors/connect-preferences.js";
 import { getNativeConnectorConnectionState } from "../../../kernel/connectors/connection-status.js";
 import {
@@ -7,7 +7,7 @@ import {
 } from "../../../kernel/connectors/keyword-index.js";
 import type { NativeConnectorCatalogEntry } from "../../../kernel/connectors/native-integrations.js";
 import type { HookDefinition } from "../../../kernel/extensions/types.js";
-import { wrapSystemReminder } from "../../../kernel/message-timestamp.js";
+import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
 import {
   isReminderShownInActiveWindow,
   recordReminderShown,

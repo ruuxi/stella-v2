@@ -28,12 +28,12 @@ import {
   VIDEO_EXTS,
   extOf,
   type ExternalOpener,
-} from "../../src/shared/contracts/external-openers.js";
+} from "@stella/contracts/desktop/external-openers";
 import {
   IPC_SHELL_LIST_OPENERS,
   IPC_SHELL_OPEN_PATH,
   IPC_SHELL_OPEN_WITH,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 
 type MacAppDef = {
   id: string;

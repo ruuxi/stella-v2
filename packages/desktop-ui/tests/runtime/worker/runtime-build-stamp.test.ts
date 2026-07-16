@@ -6,7 +6,7 @@ import {
   computeRuntimeBuildStamp,
   resolveRuntimeBundleRoot,
   RUNTIME_BUILD_STAMP_UNAVAILABLE,
-} from "../../../../runtime/worker/runtime-build-stamp.js";
+} from "@stella/runtime/worker/runtime-build-stamp";
 
 const tempDirs: string[] = [];
 

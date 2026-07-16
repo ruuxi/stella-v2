@@ -8,16 +8,16 @@
  */
 import type { UiState, WindowMode } from "./ui";
 import type { Theme } from "@/shared/theme/themes/types";
-import type { AgentStreamEvent } from "../../../../runtime/contracts/agent-stream.js";
+import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
 import type {
   EventRecord,
   LocalChatUpdatedPayload,
   ThreadActivityRecord,
   ThreadActivityUpdatedPayload,
   MessageRecord,
-} from "../../../../runtime/contracts/local-chat.js";
-import type { RealtimeVoicePreferences } from "../../../../runtime/contracts/local-preferences";
-import type { MorphVisualTiming } from "../contracts/morph-timing";
+} from "@stella/contracts/local-chat";
+import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
+import type { MorphVisualTiming } from "@stella/contracts/morph-timing";
 import type {
   ChatContext as SharedChatContext,
   ChatContextFile as SharedChatContextFile,
@@ -60,28 +60,28 @@ import type {
   VoiceRuntimeSnapshot as SharedVoiceRuntimeSnapshot,
   SocialSessionRuntimeRecord as SharedSocialSessionRuntimeRecord,
   SocialSessionServiceSnapshot as SharedSocialSessionServiceSnapshot,
-} from "../../../../runtime/contracts/index.js";
+} from "@stella/contracts";
 import type {
   DiscoveryCategory,
   DiscoveryKnowledgeSeedPayload,
-} from "../../../../runtime/contracts/discovery.js";
+} from "@stella/contracts/discovery";
 import type {
   OnboardingSynthesisRequest,
   OnboardingSynthesisResponse,
   OnboardingWelcomeHtmlRequest,
   OnboardingWelcomeHtmlResponse,
-} from "../contracts/onboarding";
+} from "@stella/contracts/onboarding";
 import type {
   RuntimeSocialSessionStatus,
   RuntimeVoiceOrchestratorConfig,
   RuntimeVoiceToolCallPayload,
   RuntimeVoiceToolCallResult,
-} from "../../../../runtime/protocol/index.js";
+} from "@stella/contracts/protocol";
 import type {
   OfficePreviewRef as SharedOfficePreviewRef,
   OfficePreviewSnapshot as SharedOfficePreviewSnapshot,
-} from "../../../../runtime/contracts/office-preview.js";
-import type { DisplayPayload } from "../contracts/display-payload";
+} from "@stella/contracts/office-preview";
+import type { DisplayPayload } from "@stella/contracts/display-payload";
 
 type MobileAgentWorkPayloadForSync = {
   kind: "agent-work";
@@ -110,7 +110,7 @@ import type {
   BackupStatusSnapshot as SharedBackupStatusSnapshot,
   BackupSummary as SharedBackupSummary,
   RestoreBackupResult as SharedRestoreBackupResult,
-} from "../contracts/backup";
+} from "@stella/contracts/backup";
 import type { RadialTriggerCode as SharedRadialTriggerCode } from "@/shared/lib/radial-trigger";
 import type { MiniDoubleTapModifier as SharedMiniDoubleTapModifier } from "@/shared/lib/mini-double-tap";
 import type {
@@ -118,7 +118,7 @@ import type {
   ThirdPartyMigrationReport,
   ThirdPartyMigrationSelection,
   ThirdPartyMigrationSource,
-} from "../contracts/migration";
+} from "@stella/contracts/migration";
 
 export type ChatContext = SharedChatContext;
 export type ChatContextFile = SharedChatContextFile;

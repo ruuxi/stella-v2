@@ -41,7 +41,7 @@ import {
   routeLifecycleEvents,
   type LifecycleRoutingState,
 } from "@/features/chat/lib/route-lifecycle-events";
-import type { MessageRecord } from "../../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 
 const SCHEDULED_EVENTS_OVERLAY_MAX = 200;
 

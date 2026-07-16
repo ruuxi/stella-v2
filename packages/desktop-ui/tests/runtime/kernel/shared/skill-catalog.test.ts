@@ -8,7 +8,7 @@ import {
   buildSkillCatalogPromptState,
   renderFullSkillCatalogBlock,
   renderSkillCatalogBlock,
-} from "../../../../../runtime/kernel/shared/skill-catalog.js";
+} from "@stella/runtime/kernel/shared/skill-catalog";
 
 const roots = new Set<string>();
 

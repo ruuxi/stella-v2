@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getModels } from "../../../../runtime/ai/models.js";
-import type { Model } from "../../../../runtime/ai/types.js";
-import type { ResolvedLlmRoute } from "../../../../runtime/kernel/model-routing.js";
-import { resolveAgentThinkingLevel } from "../../../../runtime/kernel/agent-runtime/shared.js";
+import { getModels } from "@stella/runtime/ai/models";
+import type { Model } from "@stella/runtime/ai/types";
+import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
+import { resolveAgentThinkingLevel } from "@stella/runtime/kernel/agent-runtime/shared";
 
 // Regression guard for the stale generated model registry that shipped without
 // the current Anthropic models. When `claude-opus-4-8` is missing from the

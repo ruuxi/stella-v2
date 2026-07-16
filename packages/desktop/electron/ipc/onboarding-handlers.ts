@@ -5,7 +5,7 @@ import type {
   OnboardingSynthesisResponse,
   OnboardingWelcomeHtmlRequest,
   OnboardingWelcomeHtmlResponse,
-} from "../../src/shared/contracts/onboarding.js";
+} from "@stella/contracts/desktop/onboarding";
 
 type OnboardingHandlersOptions = {
   authService: AuthService;

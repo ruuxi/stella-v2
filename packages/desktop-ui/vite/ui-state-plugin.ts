@@ -18,15 +18,15 @@
  */
 
 import type { Plugin, ViteDevServer } from "vite";
-import { UiStateStore } from "../../runtime/kernel/ui-state/store.js";
-import { resolveRuntimeStatePath } from "../../runtime/kernel/home/stella-home.js";
+import { UiStateStore } from "@stella/runtime/kernel/ui-state/store";
+import { resolveRuntimeStatePath } from "@stella/runtime/kernel/home/stella-home";
 import {
   UI_STATE_DEV_ENDPOINT,
   UI_STATE_DEV_EVENT,
   sanitizeUiStateChanges,
   type UiStateChanges,
   type UiStateDevChangedEvent,
-} from "../../runtime/contracts/ui-state.js";
+} from "@stella/contracts/ui-state";
 
 const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);

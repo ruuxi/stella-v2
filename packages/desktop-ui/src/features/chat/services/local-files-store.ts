@@ -13,7 +13,7 @@
 import type {
   EventRecord,
   LocalChatUpdatedPayload,
-} from "../../../../../runtime/contracts/local-chat.js";
+} from "@stella/contracts/local-chat";
 
 // Absent outside Electron (plain-browser `bun run dev`): degrade to an
 // empty, update-free files window instead of erroring.

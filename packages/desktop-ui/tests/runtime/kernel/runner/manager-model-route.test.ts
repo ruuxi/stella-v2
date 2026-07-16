@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
-import { resolveAgentModelRoute } from "../../../../../runtime/kernel/runner/context.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { resolveAgentModelRoute } from "@stella/runtime/kernel/runner/context";
 
 const routeMocks = vi.hoisted(() => ({
   withMetadata: vi.fn(async (_context, agentType: string, model: string) => ({
@@ -16,7 +16,7 @@ const routeMocks = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock("../../../../../runtime/kernel/runner/model-selection.js", () => ({
+vi.mock("@stella/runtime/kernel/runner/model-selection", () => ({
   resolveRunnerLlmRoute: vi.fn(),
   resolveRunnerUtilityLlmRoute: vi.fn(),
   resolveRunnerLlmRouteWithMetadata: routeMocks.withMetadata,

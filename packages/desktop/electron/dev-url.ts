@@ -14,11 +14,11 @@ export function getDevServerUrl(): string {
   }
   const candidates = [
     process.env.STELLA_APP_DIR
-      ? path.join(process.env.STELLA_APP_DIR, 'desktop', '.vite-dev-url')
+      ? path.join(process.env.STELLA_APP_DIR, 'packages', 'desktop', '.vite-dev-url')
       : null,
     path.resolve(__dirname, '../../../../desktop/.vite-dev-url'),
     path.resolve(__dirname, '../.vite-dev-url'),
-    path.resolve(process.cwd(), 'desktop', '.vite-dev-url'),
+    path.resolve(process.cwd(), 'packages', 'desktop', '.vite-dev-url'),
     path.resolve(process.cwd(), '.vite-dev-url'),
   ].filter((candidate): candidate is string => Boolean(candidate))
 

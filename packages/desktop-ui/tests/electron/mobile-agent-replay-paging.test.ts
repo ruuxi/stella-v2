@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pageMobileAgentReplayEvents } from "../../electron/ipc/agent-handlers.js";
+import { pageMobileAgentReplayEvents } from "@stella/desktop/electron/ipc/agent-handlers.js";
 
 describe("mobile agent replay paging", () => {
   it("keeps legacy callers on the complete replay window", () => {

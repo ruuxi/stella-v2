@@ -20,25 +20,25 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
-import { buildMemoryReviewSystemPrompt } from "../../../../../runtime/kernel/agent-runtime/memory-review.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { buildMemoryReviewSystemPrompt } from "@stella/runtime/kernel/agent-runtime/memory-review";
 import {
   reconcileSelectedPersonality,
   replacePersonalityIfHomeHashMatches,
   resolvePersonalityPresetContent,
-} from "../../../../../runtime/kernel/home/personality-sync.js";
+} from "@stella/runtime/kernel/home/personality-sync";
 import {
   reconcileRemotePromptManifest,
   type RemotePromptManifest,
-} from "../../../../../runtime/kernel/home/prompt-manifest-sync.js";
-import { buildChronicleSystemPrompt } from "../../../../../runtime/kernel/memory/chronicle-summarizer.js";
+} from "@stella/runtime/kernel/home/prompt-manifest-sync";
+import { buildChronicleSystemPrompt } from "@stella/runtime/kernel/memory/chronicle-summarizer";
 import {
   readOrSeedPersonality,
   writePersonality,
-} from "../../../../../runtime/kernel/personality/personality.js";
-import { setPersonalityVoiceId } from "../../../../../runtime/kernel/preferences/local-preferences.js";
-import { defaultPromptForAgentType } from "../../../../../runtime/kernel/runner/shared.js";
-import { resolveThreadCompactionSystemPrompt } from "../../../../../runtime/kernel/thread-runtime.js";
+} from "@stella/runtime/kernel/personality/personality";
+import { setPersonalityVoiceId } from "@stella/runtime/kernel/preferences/local-preferences";
+import { defaultPromptForAgentType } from "@stella/runtime/kernel/runner/shared";
+import { resolveThreadCompactionSystemPrompt } from "@stella/runtime/kernel/thread-runtime";
 
 const roots = new Set<string>();
 const tempDir = async () => {

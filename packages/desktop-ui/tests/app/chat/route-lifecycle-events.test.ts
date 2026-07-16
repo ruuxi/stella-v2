@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   EventRecord,
   MessageRecord,
-} from "../../../runtime/contracts/local-chat";
+} from "@stella/contracts/local-chat";
 import {
   createLifecycleRoutingState,
   routeLifecycleEvents,

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runMobileHello } from "../../electron/ipc/mobile-hello-handlers.js";
+import { runMobileHello } from "@stella/desktop/electron/ipc/mobile-hello-handlers.js";
 
 const makeOptions = () => {
   const syncMessages = vi.fn(() => ({

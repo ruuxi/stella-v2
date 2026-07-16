@@ -13,16 +13,16 @@ import {
   readConfiguredCanvasShareBaseUrl,
   resolveSharedCanvasPayload,
 } from "../services/canvas-share-service.js";
-import { isCanvasShareUrl } from "../../../runtime/contracts/canvas-share.js";
+import { isCanvasShareUrl } from "@stella/contracts/canvas-share";
 import { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { SecurityPolicyService } from "../services/security-policy-service.js";
 import { SelectionWatcherService } from "../services/selection-watcher-service.js";
 import { UiStateService } from "../services/ui-state-service.js";
 import { getDevServerUrl } from "../dev-url.js";
 import { hasMacPermission } from "../utils/macos-permissions.js";
-import { loadLocalPreferences } from "../../../runtime/kernel/preferences/local-preferences.js";
-import { DEFAULT_RADIAL_TRIGGER_CODE } from "../../src/shared/lib/radial-trigger.js";
-import type { ChatContext } from "../../../runtime/contracts/index.js";
+import { loadLocalPreferences } from "@stella/runtime/kernel/preferences/local-preferences";
+import { DEFAULT_RADIAL_TRIGGER_CODE } from "@stella/contracts/radial-trigger";
+import type { ChatContext } from "@stella/contracts";
 import type {
   BootstrapConfig,
   BootstrapServices,

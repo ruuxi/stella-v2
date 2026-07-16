@@ -4,7 +4,7 @@ import {
   isCanvasShareSlug,
   parseCanvasShareSlug,
   readCanvasShareBaseUrl,
-} from "../../../runtime/contracts/canvas-share.js";
+} from "@stella/contracts/canvas-share";
 
 /**
  * Main-process side of the canvas-share deep link. Given a

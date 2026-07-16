@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   activateStagedStellaBrowserBinary,
   resolveStellaBrowserBinaryPath,
-} from "../../electron/utils/stella-browser-paths.js";
+} from "@stella/desktop/electron/utils/stella-browser-paths.js";
 
 const roots: string[] = [];
 

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createShellState,
   runShell,
-} from "../../../../../runtime/kernel/tools/shell.js";
+} from "@stella/runtime/kernel/tools/shell";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const officeWrapperPath = path.resolve(

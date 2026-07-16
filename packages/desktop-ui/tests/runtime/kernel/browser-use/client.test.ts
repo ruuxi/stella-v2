@@ -13,7 +13,7 @@ import {
   BrowserSessionDisposedError,
   getBrowserDaemonPort,
   MAX_BROWSER_CHAIN_STEPS,
-} from "../../../../../runtime/kernel/browser-use/client.js";
+} from "@stella/runtime/kernel/browser-use/client";
 
 type RequestRecord = Record<string, unknown>;
 type ResponseRecord = Record<string, unknown> | undefined;

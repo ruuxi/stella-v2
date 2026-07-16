@@ -7,19 +7,19 @@ import {
   getNativeConnectorOAuthConfig,
   listNativeConnectors,
   type NativeConnectorCatalogEntry,
-} from "../../../runtime/kernel/connectors/native-integrations.js";
+} from "@stella/runtime/kernel/connectors/native-integrations";
 import {
   resolveNativeConnectorCatalog,
   type ResolvedNativeCatalog,
-} from "../../../runtime/kernel/connectors/catalog-cache.js";
+} from "@stella/runtime/kernel/connectors/catalog-cache";
 import {
   hasNativeOAuthProviderClientIdOverride,
   isNativeOAuthProviderConfigReady,
-} from "../../../runtime/kernel/connectors/native-oauth-provider-config.js";
-import { loadConnectorAccessToken } from "../../../runtime/kernel/connectors/oauth.js";
+} from "@stella/runtime/kernel/connectors/native-oauth-provider-config";
+import { loadConnectorAccessToken } from "@stella/runtime/kernel/connectors/oauth";
 import { waitForBackendIntegrationConnection } from "./backend-integration-status.js";
-import { loadConfig } from "../../../runtime/kernel/google-workspace/config.js";
-import { SCOPES as GOOGLE_WORKSPACE_SCOPES } from "../../../runtime/kernel/google-workspace/scopes.js";
+import { loadConfig } from "@stella/runtime/kernel/google-workspace/config";
+import { SCOPES as GOOGLE_WORKSPACE_SCOPES } from "@stella/runtime/kernel/google-workspace/scopes";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
 
 export type NativeIntegrationHandlersOptions = {

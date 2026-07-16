@@ -2,7 +2,7 @@ import type { ParsedAgent } from "./types.js";
 import {
   BUNDLED_CORE_AGENT_IDS,
   getAgentDefinition,
-} from "../../contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 import { loadParsedAgentsFromDir } from "./markdown-agent-loader.js";
 import { resolveRuntimeSourceAsset } from "../shared/runtime-paths.js";
 
@@ -12,7 +12,6 @@ const BUNDLED_AGENT_ORDER = new Map<string, number>(
 
 const resolveBundledAgentDir = (): string =>
   resolveRuntimeSourceAsset(
-    "runtime",
     "extensions",
     "stella-runtime",
     "agents",

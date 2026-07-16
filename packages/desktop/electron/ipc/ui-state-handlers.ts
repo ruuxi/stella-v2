@@ -15,17 +15,17 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
-import { UiStateStore } from "../../../runtime/kernel/ui-state/store.js";
+import { UiStateStore } from "@stella/runtime/kernel/ui-state/store";
 import {
   sanitizeUiStateChanges,
   type UiStateChanges,
-} from "../../../runtime/contracts/ui-state.js";
+} from "@stella/contracts/ui-state";
 import {
   IPC_UI_STATE_KV_APPLY,
   IPC_UI_STATE_KV_CHANGED,
   IPC_UI_STATE_KV_CLEAR,
   IPC_UI_STATE_KV_SNAPSHOT,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 
 export type UiStateKvHandlersOptions = {
   stellaDataDirPath: string;

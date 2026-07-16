@@ -8,14 +8,14 @@ import {
   handleEdit,
   handleWrite,
   replaceTextInFile,
-} from "../../../../../runtime/kernel/tools/file.js";
-import { handleApplyPatch } from "../../../../../runtime/kernel/tools/apply-patch.js";
+} from "@stella/runtime/kernel/tools/file";
+import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch";
 import {
   pendingFileWriteLockCount,
   withFileWriteLock,
   withFileWriteLocks,
   writeFileWithNulGuard,
-} from "../../../../../runtime/kernel/tools/file-write-lock.js";
+} from "@stella/runtime/kernel/tools/file-write-lock";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createAsyncTempDirTracker();

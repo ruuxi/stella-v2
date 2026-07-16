@@ -8,7 +8,7 @@ import {
   encryptBridgePayload,
   MAX_BRIDGE_ENVELOPE_PLAINTEXT_BYTES,
   type BridgeCryptoSession,
-} from "../../electron/services/mobile-bridge/crypto.js";
+} from "@stella/desktop/electron/services/mobile-bridge/crypto.js";
 import { randomBytes } from "crypto";
 
 const makeSessionPair = (): {

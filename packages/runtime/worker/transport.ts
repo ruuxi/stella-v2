@@ -7,12 +7,12 @@ import {
 import { PassThrough } from "node:stream";
 import { existsSync, promises as fsPromises } from "node:fs";
 import path from "node:path";
-import { attachJsonRpcPeerToStreams } from "../protocol/jsonl.js";
+import { attachJsonRpcPeerToStreams } from "@stella/contracts/protocol/jsonl";
 import {
   STELLA_RUNTIME_PROTOCOL_VERSION,
   STELLA_RUNTIME_READY_METHOD,
   type JsonRpcMessage,
-} from "../protocol/index.js";
+} from "@stella/contracts/protocol";
 import type { WorkerPeerBroker } from "./peer-broker.js";
 import {
   isWindowsNamedPipePath,

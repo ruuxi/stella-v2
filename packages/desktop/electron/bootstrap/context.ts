@@ -17,7 +17,7 @@ import type { LocalChatHistoryService } from "../services/local-chat-history-ser
 import type { SecurityPolicyService } from "../services/security-policy-service.js";
 import type { SelectionWatcherService } from "../services/selection-watcher-service.js";
 import type { UiStateService } from "../services/ui-state-service.js";
-import type { UiStateStore } from "../../../runtime/kernel/ui-state/store.js";
+import type { UiStateStore } from "@stella/runtime/kernel/ui-state/store";
 import { WindowManager } from "../windows/window-manager.js";
 import { createHmrTransitionController } from "../self-mod/hmr-morph.js";
 import type {
@@ -179,7 +179,7 @@ export const broadcastSocialInvite = (
 export const broadcastLocalChatUpdated = (
   context: BootstrapContext,
   payload?:
-    | import("../../../runtime/contracts/local-chat.js").LocalChatUpdatedPayload
+    | import("@stella/contracts/local-chat").LocalChatUpdatedPayload
     | null,
 ) => {
   broadcastToWindowsAndMobile(context, "localChat:updated", payload ?? null);
@@ -187,7 +187,7 @@ export const broadcastLocalChatUpdated = (
 
 export const broadcastThreadActivityUpdated = (
   context: BootstrapContext,
-  payload: import("../../../runtime/contracts/local-chat.js").ThreadActivityUpdatedPayload,
+  payload: import("@stella/contracts/local-chat").ThreadActivityUpdatedPayload,
 ) => {
   broadcastToWindowsAndMobile(
     context,

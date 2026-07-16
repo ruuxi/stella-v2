@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useDeferredChatMessages } from "@/features/chat/hooks/use-deferred-chat-messages";
-import type { MessageRecord } from "../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 
 const message = (id: string): MessageRecord => ({
   _id: id,

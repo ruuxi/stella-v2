@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { MODELS } from "../../../../../runtime/ai/models.generated.js";
+import { MODELS } from "@stella/contracts/models.generated";
 import {
   registerModel,
   unregisterModel,
-} from "../../../../../runtime/ai/models.js";
-import type { Model } from "../../../../../runtime/ai/types.js";
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
+} from "@stella/runtime/ai/models";
+import type { Model } from "@stella/runtime/ai/types";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   createStateContext,
   handleSendInput,
   handleSpawnAgent,
   handleSpawnManager,
   parseSpawnAgentModel,
-} from "../../../../../runtime/kernel/tools/state.js";
-import { AGENT_PAUSE_CANCEL_REASON } from "../../../../../runtime/kernel/agents/local-agent-manager.js";
-import type { AgentToolRequest } from "../../../../../runtime/kernel/tools/types.js";
+} from "@stella/runtime/kernel/tools/state";
+import { AGENT_PAUSE_CANCEL_REASON } from "@stella/runtime/kernel/agents/local-agent-manager";
+import type { AgentToolRequest } from "@stella/runtime/kernel/tools/types";
 
 const COLON_BEARING_REGISTRY_REFERENCES = Object.entries(MODELS).flatMap(
   ([registryProvider, models]) =>

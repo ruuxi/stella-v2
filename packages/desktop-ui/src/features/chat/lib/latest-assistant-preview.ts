@@ -1,4 +1,4 @@
-import type { MessageRecord } from "../../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 import { stripMarkdownForTts } from "@/features/voice/services/read-aloud/markdown-strip";
 
 export type LatestAssistantPreview = {

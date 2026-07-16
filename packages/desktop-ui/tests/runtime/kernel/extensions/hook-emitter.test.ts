@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HookEmitter } from "../../../../../runtime/kernel/extensions/hook-emitter.js";
+import { HookEmitter } from "@stella/runtime/kernel/extensions/hook-emitter";
 
 describe("HookEmitter", () => {
   describe("has", () => {

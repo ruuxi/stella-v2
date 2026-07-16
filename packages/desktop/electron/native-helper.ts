@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { resolveNativeHelperPath } from './native-helper-path.js'
-import { getFileLogger } from '../../runtime/observability/file-logger.js'
+import { getFileLogger } from '@stella/runtime/observability/file-logger'
 
 type RunNativeHelperOptions = {
   timeout: number

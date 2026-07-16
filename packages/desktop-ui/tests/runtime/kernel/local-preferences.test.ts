@@ -8,7 +8,7 @@ import {
   resolveRealtimeUnderlyingProvider,
   resolveRealtimeVoiceId,
   updateLocalModelPreferences,
-} from "../../../../runtime/kernel/preferences/local-preferences.js";
+} from "@stella/runtime/kernel/preferences/local-preferences";
 import { createSyncTempDirTracker } from "../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();

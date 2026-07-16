@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseComputerUseRequest,
   parseComputerUseResponse,
-} from "../../../../../runtime/kernel/computer-use/contract.js";
+} from "@stella/runtime/kernel/computer-use/contract";
 
 const envelope = {
   schemaVersion: 1,

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
-import { startPreparedOrchestratorRun } from "../../../../../runtime/kernel/runner/orchestrator-launch.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { startPreparedOrchestratorRun } from "@stella/runtime/kernel/runner/orchestrator-launch";
 
-vi.mock("../../../../../runtime/kernel/runner/model-selection.js", () => ({
+vi.mock("@stella/runtime/kernel/runner/model-selection", () => ({
   resolveRunnerLlmRouteWithMetadata: vi.fn(async () => ({
     model: { id: "test-model", provider: "test-provider" },
     route: "direct-provider",
@@ -11,7 +11,7 @@ vi.mock("../../../../../runtime/kernel/runner/model-selection.js", () => ({
   })),
 }));
 
-vi.mock("../../../../../runtime/kernel/agent-runtime.js", () => ({
+vi.mock("@stella/runtime/kernel/agent-runtime", () => ({
   runOrchestratorTurn: vi.fn(async (opts: {
     runId: string;
     agentType: string;

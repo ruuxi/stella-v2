@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SelectedTextResult } from "../../electron/selected-text.js";
+import type { SelectedTextResult } from "@stella/desktop/electron/selected-text.js";
 
 vi.mock("electron", () => ({
   globalShortcut: {
@@ -8,14 +8,14 @@ vi.mock("electron", () => ({
   },
 }));
 
-vi.mock("../../electron/selected-text.js", () => ({
+vi.mock("@stella/desktop/electron/selected-text.js", () => ({
   getSelectedText: vi.fn(),
 }));
 
 const { SelectionWatcherService } = await import(
-  "../../electron/services/selection-watcher-service.js"
+  "@stella/desktop/electron/services/selection-watcher-service.js"
 );
-const { getSelectedText } = await import("../../electron/selected-text.js");
+const { getSelectedText } = await import("@stella/desktop/electron/selected-text.js");
 
 const getSelectedTextMock = vi.mocked(getSelectedText);
 

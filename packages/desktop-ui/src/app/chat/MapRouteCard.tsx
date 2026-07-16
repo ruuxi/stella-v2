@@ -6,7 +6,7 @@ import {
   mapsEmbedUrl,
   type MapRouteArtifact,
   type MapTravelMode,
-} from "../../../../runtime/contracts/map-artifact.js";
+} from "@stella/contracts/map-artifact";
 import type { TurnMapArtifact } from "@/features/chat/lib/derive-turn-map-artifacts";
 import { notifyAssistantScrollFollowLayoutChange } from "@/shell/chat-scroll-follow";
 import "./map-route-card.css";

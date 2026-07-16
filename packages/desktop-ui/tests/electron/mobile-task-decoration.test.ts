@@ -2,8 +2,8 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocalChatHistoryService } from "../../electron/services/local-chat-history-service.js";
-import type { TaskDecorationUpdatedPayload } from "../../../runtime/contracts/local-chat.js";
+import { LocalChatHistoryService } from "@stella/desktop/electron/services/local-chat-history-service.js";
+import type { TaskDecorationUpdatedPayload } from "@stella/contracts/local-chat";
 
 const services: LocalChatHistoryService[] = [];
 

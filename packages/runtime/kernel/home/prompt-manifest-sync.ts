@@ -14,11 +14,11 @@ import {
   STELLA_PROMPT_MAX_TOTAL_CONTENT_BYTES,
   STELLA_PROMPT_REVISION_PATTERN,
   STELLA_PROMPT_SCHEMA_VERSION,
-} from "../../contracts/stella-prompts.js";
+} from "@stella/contracts/stella-prompts";
 import {
   STELLA_PROMPTS_PATH,
   stellaPromptEndpointFromSiteUrl,
-} from "../../contracts/stella-api.js";
+} from "@stella/contracts/stella-api";
 import { ensurePrivateDir } from "../shared/private-fs.js";
 import {
   createFileEntryAdapter,

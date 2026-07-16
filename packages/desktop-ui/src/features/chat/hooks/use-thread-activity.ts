@@ -14,7 +14,7 @@ import {
   type ThreadActivitySnapshot,
 } from "@/features/chat/services/thread-activity-store";
 import { showToast } from "@/ui/toast";
-import type { ThreadActivityRecord } from "../../../../../runtime/contracts/local-chat.js";
+import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
 
 const EMPTY_RECORDS: ThreadActivityRecord[] = [];
 

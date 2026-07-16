@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import { MobileBridgeService } from "../../electron/services/mobile-bridge/service.js";
+import { MobileBridgeService } from "@stella/desktop/electron/services/mobile-bridge/service.js";
 import {
   BRIDGE_FEATURE_DEFLATE,
   decryptBridgePayload,
   type BridgeCryptoSession,
-} from "../../electron/services/mobile-bridge/crypto.js";
+} from "@stella/desktop/electron/services/mobile-bridge/crypto.js";
 import { randomBytes } from "crypto";
 
 const createService = () =>

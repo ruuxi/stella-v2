@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { filterOfficePreviewSnapshotsForMobile } from "../../electron/ipc/office-preview-handlers.js";
-import type { OfficePreviewSnapshot } from "../../../runtime/contracts/office-preview.js";
-import type { LocalChatEventRecord } from "../../../runtime/kernel/storage/shared.js";
+import { filterOfficePreviewSnapshotsForMobile } from "@stella/desktop/electron/ipc/office-preview-handlers.js";
+import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
+import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 
 const snapshot = (
   sessionId: string,

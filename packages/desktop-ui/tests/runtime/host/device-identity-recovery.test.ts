@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { StellaRuntimeHost } from "../../../../runtime/host/index.js";
+import { StellaRuntimeHost } from "@stella/runtime/host";
 
 describe("runtime host device identity recovery", () => {
   afterEach(() => {

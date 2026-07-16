@@ -9,7 +9,7 @@ import {
   parseUserProfileEntries,
   readUserProfile,
   userProfilePath,
-} from "../../../../../runtime/kernel/memory/user-profile-store.js";
+} from "@stella/runtime/kernel/memory/user-profile-store";
 
 let dir: string;
 

@@ -16,7 +16,7 @@
 
 import type { Plugin } from "unified";
 import type { Link, Parent, Root, RootContent, Text } from "mdast";
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import {
   basenameOf,
   extensionOf,

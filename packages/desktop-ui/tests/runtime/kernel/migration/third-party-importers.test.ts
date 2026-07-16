@@ -8,12 +8,12 @@ import {
   detectThirdPartyMigrationSources,
   previewThirdPartyMigration,
   runThirdPartyMigration,
-} from "../../../../../runtime/kernel/migration/third-party-importers.js";
+} from "@stella/runtime/kernel/migration/third-party-importers";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../../runtime/kernel/storage/database-init.js";
-import type { SqliteDatabase } from "../../../../../runtime/kernel/storage/shared.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 const tempRoots = new Set<string>();
 

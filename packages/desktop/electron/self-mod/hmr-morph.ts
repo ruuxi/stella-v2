@@ -16,7 +16,7 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { nativeImage, type BrowserWindow } from "electron";
-import type { SelfModHmrState } from "../../../runtime/contracts/index.js";
+import type { SelfModHmrState } from "@stella/contracts";
 import {
   DEFAULT_MORPH_TIMING_SETTINGS,
   MORPH_DONE_TIMEOUT_MS,
@@ -30,7 +30,7 @@ import {
   MORPH_SETTLE_RECENT_ACTIVITY_MS,
   RELOAD_CAPTURE_EXTRA_SETTLE_MS,
   type MorphTimingTierSettings,
-} from "../../src/shared/contracts/morph-timing.js";
+} from "@stella/contracts/desktop/morph-timing";
 import type { OverlayWindowController } from "../windows/overlay-window.js";
 import {
   captureWindowDataUrl,

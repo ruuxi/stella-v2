@@ -110,7 +110,7 @@ const EXCLUDED_FILE_SUFFIXES: ReadonlyArray<string> = [
 ];
 
 const RENDERER_HMR_PREFIXES: ReadonlyArray<string> = [
-  "desktop/src/",
+  "packages/desktop-ui/src/",
 ];
 
 const RENDERER_TEXT_ASSET_SUFFIXES = new Set<string>([
@@ -118,14 +118,14 @@ const RENDERER_TEXT_ASSET_SUFFIXES = new Set<string>([
 ]);
 
 const FULL_WINDOW_RELOAD_FILES = new Set<string>([
-  "desktop/index.html",
-  "desktop/mini.html",
-  "desktop/overlay.html",
-  "desktop/pet.html",
+  "packages/desktop-ui/index.html",
+  "packages/desktop-ui/mini.html",
+  "packages/desktop-ui/overlay.html",
+  "packages/desktop-ui/pet.html",
 ]);
 
-const SIDEBAR_APP_METADATA_RE = /^desktop\/src\/app\/[^/]+\/metadata\.ts$/;
-const THEME_REGISTRY_MODULE_RE = /^desktop\/src\/shared\/theme\/themes\/[^/]+\.ts$/;
+const SIDEBAR_APP_METADATA_RE = /^packages\/desktop-ui\/src\/app\/[^/]+\/metadata\.ts$/;
+const THEME_REGISTRY_MODULE_RE = /^packages\/desktop-ui\/src\/shared\/theme\/themes\/[^/]+\.ts$/;
 
 /**
  * Top-level files (no directory prefix) that still count as relevant —
@@ -148,15 +148,15 @@ const RESTART_REQUIRED_MANIFEST_BASENAMES = new Set<string>([
 ]);
 
 const RUNTIME_KERNEL_HOST_OWNED_PREFIXES: ReadonlyArray<string> = [
-  "runtime/kernel/convex-urls",
-  "runtime/kernel/dev-projects/",
-  "runtime/kernel/home/",
-  "runtime/kernel/local-scheduler-service",
-  "runtime/kernel/preferences/local-preferences",
-  "runtime/kernel/shared/",
-  "runtime/kernel/storage/",
-  "runtime/kernel/tools/network-guards",
-  "runtime/kernel/tools/stella-browser-bridge-config",
+  "packages/runtime/kernel/convex-urls",
+  "packages/runtime/kernel/dev-projects/",
+  "packages/runtime/kernel/home/",
+  "packages/runtime/kernel/local-scheduler-service",
+  "packages/runtime/kernel/preferences/local-preferences",
+  "packages/runtime/kernel/shared/",
+  "packages/runtime/kernel/storage/",
+  "packages/runtime/kernel/tools/network-guards",
+  "packages/runtime/kernel/tools/stella-browser-bridge-config",
 ];
 
 const toPosix = (value: string): string => value.replace(/\\/g, POSIX_SEP);
@@ -262,13 +262,13 @@ export const isWorkerRestartRelevantPath = (repoRelativePath: string): boolean =
   const normalized = toPosix(repoRelativePath);
 
   if (
-    normalized.startsWith("runtime/discovery/") &&
-    !normalized.startsWith("runtime/discovery/browser-data")
+    normalized.startsWith("packages/runtime/discovery/") &&
+    !normalized.startsWith("packages/runtime/discovery/browser-data")
   ) {
     return true;
   }
   if (
-    normalized.startsWith("runtime/kernel/") &&
+    normalized.startsWith("packages/runtime/kernel/") &&
     !RUNTIME_KERNEL_HOST_OWNED_PREFIXES.some((prefix) =>
       normalized.startsWith(prefix),
     )
@@ -276,16 +276,16 @@ export const isWorkerRestartRelevantPath = (repoRelativePath: string): boolean =
     return true;
   }
   if (
-    normalized.startsWith("runtime/ai/") ||
-    normalized.startsWith("runtime/worker/") ||
-    normalized.startsWith("runtime/protocol/jsonl")
+    normalized.startsWith("packages/runtime/ai/") ||
+    normalized.startsWith("packages/runtime/worker/") ||
+    normalized.startsWith("packages/contracts/protocol/jsonl")
   ) {
     return true;
   }
   // Agent metadata is loaded into the worker's extension registry at startup.
   // An applied update must restart the worker so long-lived conversations do
   // not retain the previous capability allowlist (for example, spawn_manager).
-  if (normalized.startsWith("runtime/extensions/stella-runtime/agent-metadata/")) {
+  if (normalized.startsWith("packages/runtime/extensions/stella-runtime/agent-metadata/")) {
     return true;
   }
   return false;
@@ -317,12 +317,12 @@ export const isRestartRequiredNonHmrPath = (
   }
   return (
     isRestartRequiredManifestPath(normalized) ||
-    normalized === "desktop/vite.config.ts" ||
+    normalized === "packages/desktop-ui/vite.config.ts" ||
     // Vite config dependencies (the self-mod HMR plugin lives here);
     // editing them restarts the dev server, so treat like vite.config.ts.
-    normalized.startsWith("desktop/vite/") ||
-    normalized.startsWith("desktop/electron/") ||
-    normalized.startsWith("desktop/stella-browser/bin/") ||
+    normalized.startsWith("packages/desktop-ui/vite/") ||
+    normalized.startsWith("packages/desktop/electron/") ||
+    normalized.startsWith("packages/stella-browser/bin/") ||
     isWorkerRestartRelevantPath(normalized)
   );
 };

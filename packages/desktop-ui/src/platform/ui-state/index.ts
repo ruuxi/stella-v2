@@ -19,7 +19,7 @@ import {
   UI_STATE_DEV_EVENT,
   type UiStateChanges,
   type UiStateDevChangedEvent,
-} from "../../../../runtime/contracts/ui-state.js";
+} from "@stella/contracts/ui-state";
 
 const FLUSH_DELAY_MS = 10;
 

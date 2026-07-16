@@ -18,7 +18,7 @@ import path from "node:path";
 import {
   AGENT_IDS,
   getAgentDefinition,
-} from "../../contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 
 import type { Api, Model } from "../../ai/types.js";
 import {

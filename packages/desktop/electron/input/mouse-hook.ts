@@ -3,11 +3,11 @@ import {
   DEFAULT_RADIAL_TRIGGER_CODE,
   isRadialTriggerPressed,
   type RadialTriggerCode,
-} from "../../src/shared/lib/radial-trigger.js";
+} from "@stella/contracts/radial-trigger";
 import {
   DEFAULT_MINI_DOUBLE_TAP_MODIFIER,
   type MiniDoubleTapModifier,
-} from "../../src/shared/lib/mini-double-tap.js";
+} from "@stella/contracts/mini-double-tap";
 import { areGlobalShortcutsSuspended } from "../ipc/global-shortcuts.js";
 
 // uIOhook keycodes for the Option/Alt key (left + right). On macOS this is

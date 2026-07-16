@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_IDS } from "../../../../../runtime/contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   getBundledCoreAgentFallback,
   loadBundledAgents,
   mergeBundledAndExtensionAgents,
-} from "../../../../../runtime/kernel/agents/agents.js";
-import type { ParsedAgent } from "../../../../../runtime/kernel/agents/types.js";
+} from "@stella/runtime/kernel/agents/agents";
+import type { ParsedAgent } from "@stella/runtime/kernel/agents/types";
 
 describe("agents", () => {
   it("does not load roster agents from checked-in prompt definitions", () => {

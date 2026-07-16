@@ -3,7 +3,7 @@ import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import type { RuntimeAttachmentRef } from "../../protocol/index.js";
+import type { RuntimeAttachmentRef } from "@stella/contracts/protocol";
 import type {
   ToolMetadata,
   ToolResult,
@@ -15,8 +15,8 @@ import { SAFETY_ABORT_FABLE_ATTEMPTS } from "../agent-runtime/provider-abort-con
 import type {
   FileChangeKind,
   FileChangeRecord,
-} from "../../contracts/file-changes.js";
-import { sanitizeSensitiveData } from "../../contracts/sensitive-data.js";
+} from "@stella/contracts/file-changes";
+import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
 import {
   CLAUDE_CODE_MODEL_ALIASES,
   formatClaudeCodeResolvedModel,

@@ -1,5 +1,5 @@
 import { useEffect, type MutableRefObject } from "react";
-import { AGENT_STREAM_EVENT_TYPES } from "../../../../../runtime/contracts/agent-runtime.js";
+import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import type { AgentStreamEvent } from "../streaming/streaming-types";
 
 type ActiveRunSnapshot = {

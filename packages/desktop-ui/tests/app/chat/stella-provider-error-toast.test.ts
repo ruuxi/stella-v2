@@ -4,7 +4,7 @@ import {
   detectLlmRouteFailureKind,
   formatLlmRouteFailure,
   type LlmRouteFailure,
-} from "../../../../runtime/ai/llm-route-failure.js";
+} from "@stella/contracts/llm-route-failure";
 import { resolveStellaProviderErrorToast } from "@/features/chat/streaming/stella-provider-error-toast";
 
 // Locks the runtime↔desktop contract: route failures are matched by their

@@ -49,7 +49,6 @@ export const getOAuthProviderCatalog = (): readonly OAuthCatalogProvider[] => {
     return cachedCatalog;
   }
   const catalogPath = resolveRuntimeSourceAsset(
-    "runtime",
     "kernel",
     "connectors",
     CATALOG_JSON_BASENAME,

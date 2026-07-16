@@ -2,7 +2,7 @@ import { useEffect, useMemo, useReducer, useRef } from "react";
 import type {
   PetOverlayState,
   PetOverlayStatus,
-} from "@/shared/contracts/pet";
+} from "@stella/contracts/desktop/pet";
 import {
   getEventText,
   selectFreshActivityTasks,
@@ -10,7 +10,7 @@ import {
   type TaskItem,
 } from "@/features/chat/lib/event-transforms";
 import { filterMessagesForUiDisplay } from "@/features/chat/lib/message-display";
-import type { MessageRecord } from "../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 import { getWorkingIndicatorDisplayStatus } from "@/features/chat/working-indicator-state";
 import {
   readLastSeenPetAssistantMessageId,

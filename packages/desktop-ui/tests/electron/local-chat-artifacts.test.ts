@@ -4,8 +4,8 @@ import {
   buildMobileSyncMessages,
   decodeMobileSyncCursor,
   deriveMobileArtifactsForMessage,
-} from "../../electron/services/local-chat-artifacts.js";
-import type { MessageRecord } from "../../../runtime/contracts/local-chat.js";
+} from "@stella/desktop/electron/services/local-chat-artifacts.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 
 const baseMessage = (overrides: Partial<MessageRecord>): MessageRecord => ({
   _id: "message-1",

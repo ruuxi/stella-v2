@@ -32,7 +32,7 @@ const DEFAULT_MANIFEST_URL =
 const DOWNLOAD_RETRY_DELAYS_MS = [750, 1_500, 3_000, 6_000];
 
 const __dirname = import.meta.dirname;
-const repoRoot = path.resolve(__dirname, "..", "..");
+const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
 const args = process.argv.slice(2);
 let manifestUrl = DEFAULT_MANIFEST_URL;
@@ -89,7 +89,7 @@ if (!platformDir) {
   process.exit(1);
 }
 
-const outDir = path.join(repoRoot, "desktop", "native", "out", platformDir);
+const outDir = path.join(repoRoot, "packages", "native", "out", platformDir);
 const installManifestPath = path.join(outDir, ".stella-native-helpers.json");
 const sentinel = path.join(
   outDir,

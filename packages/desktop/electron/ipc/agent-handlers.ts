@@ -14,17 +14,17 @@ import {
   type AgentIdLike,
   type AgentRunFinishOutcome,
   type AgentStreamEventType,
-} from "../../../runtime/contracts/agent-runtime.js";
-import type { SelfModHmrState } from "../../../runtime/contracts/index.js";
-import { IPC_AGENT_ONE_SHOT_COMPLETION } from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/agent-runtime";
+import type { SelfModHmrState } from "@stella/contracts";
+import { IPC_AGENT_ONE_SHOT_COMPLETION } from "@stella/contracts/desktop/ipc-channels";
 import type {
   RuntimeOneShotCompletionRequest,
   RuntimeOneShotCompletionResult,
-} from "../../../runtime/protocol/index.js";
+} from "@stella/contracts/protocol";
 import type { StellaHostRunner } from "../stella-host-runner.js";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
-import { getFileLogger } from "../../../runtime/observability/file-logger.js";
+import { getFileLogger } from "@stella/runtime/observability/file-logger";
 
 type AgentHandlersOptions = {
   getStellaHostRunner: () => StellaHostRunner | null;
@@ -709,7 +709,7 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
         userPrompt: string;
         selectedText?: string | null;
         chatContext?:
-          | import("../../../runtime/contracts/index.js").ChatContext
+          | import("@stella/contracts").ChatContext
           | null;
         deviceId?: string;
         platform?: string;

@@ -17,7 +17,7 @@ import {
   getAgentFollowUpMode,
   getAgentSteeringMode,
   getLocalCliWorkingDirectory,
-} from "../../contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 import {
   isBootstrapStartupDocMessage,
   stripStaleImageBlocks,

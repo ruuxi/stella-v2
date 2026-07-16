@@ -3,18 +3,18 @@ import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { handleApplyPatch } from "../../../../../runtime/kernel/tools/apply-patch.js";
-import { createToolHost } from "../../../../../runtime/kernel/tools/host.js";
+import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch";
+import { createToolHost } from "@stella/runtime/kernel/tools/host";
 import {
   createShellState,
   handleExecCommand,
   handleWriteStdin,
-} from "../../../../../runtime/kernel/tools/shell.js";
-import { handleViewImage } from "../../../../../runtime/kernel/tools/view-image.js";
+} from "@stella/runtime/kernel/tools/shell";
+import { handleViewImage } from "@stella/runtime/kernel/tools/view-image";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createAsyncTempDirTracker();
-const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
+const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
 
 afterEach(() => tempDirs.cleanup());
 
@@ -810,7 +810,7 @@ EOF`,
   it("exposes persistent Computer Use through node_repl in the general agent metadata", async () => {
     const metadataPath = path.join(
       repoRoot,
-      "runtime/extensions/stella-runtime/agent-metadata/general.md",
+      "packages/runtime/extensions/stella-runtime/agent-metadata/general.md",
     );
     const metadata = await readFile(metadataPath, "utf-8");
     const toolsLine = metadata

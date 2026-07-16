@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { startCliBridgeServer } from "../../../../runtime/worker/cli-bridge-server.js";
-import { createSecureCliBridgeEndpoint } from "../../../../runtime/worker/runtime-paths.js";
+import { startCliBridgeServer } from "@stella/runtime/worker/cli-bridge-server";
+import { createSecureCliBridgeEndpoint } from "@stella/runtime/worker/runtime-paths";
 
 const roots: string[] = [];
 const servers: Array<{ stop: () => Promise<void> }> = [];

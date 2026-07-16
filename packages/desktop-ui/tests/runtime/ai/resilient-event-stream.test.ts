@@ -4,7 +4,7 @@ import {
   resilientEventStream,
   StreamReconnectError,
   type StreamReconnectInfo,
-} from "../../../../runtime/ai/utils/resilient-event-stream.js";
+} from "@stella/runtime/ai/utils/resilient-event-stream";
 
 type TestEvent = {
   sequence: number;

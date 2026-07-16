@@ -92,7 +92,7 @@ export const registerScheduleHandlers = (options: ScheduleHandlersOptions) => {
       payload: {
         jobId?: string;
         patch?: import(
-          "../../../runtime/kernel/shared/scheduling.js"
+          "@stella/contracts/scheduling"
         ).LocalCronJobUpdatePatch;
       },
     ) => {
@@ -110,7 +110,7 @@ export const registerScheduleHandlers = (options: ScheduleHandlersOptions) => {
     async (
       _event,
       payload: import(
-        "../../../runtime/kernel/shared/scheduling.js"
+        "@stella/contracts/scheduling"
       ).LocalHeartbeatUpsertInput,
     ) => {
       return await (await waitForRunner()).upsertHeartbeat(payload);

@@ -40,7 +40,8 @@ import { startElectronLifecycle } from "./dev-electron.mjs";
 
 const scriptDir = import.meta.dirname;
 const desktopDir = resolve(scriptDir, "..");
-const repoRootDir = resolve(desktopDir, "..");
+const desktopUiDir = resolve(desktopDir, "..", "desktop-ui");
+const repoRootDir = resolve(desktopDir, "..", "..");
 const viteBinPath = resolve(
   repoRootDir,
   "node_modules",
@@ -48,7 +49,7 @@ const viteBinPath = resolve(
   "bin",
   "vite.js",
 );
-const viteConfigPath = resolve(desktopDir, "vite.config.ts");
+const viteConfigPath = resolve(desktopUiDir, "vite.config.ts");
 const viteDevUrlPath = resolve(desktopDir, ".vite-dev-url");
 const pidFilePath = resolve(desktopDir, ".electron-dev-runner.pid");
 const readyFilePath = resolve(desktopDir, ".electron-dev-runner.ready");
@@ -413,7 +414,8 @@ const startVite = async () => {
   const { createServer } = await import("vite");
   const server = await createServer({
     configFile: viteConfigPath,
-    root: desktopDir,
+    configLoader: "runner",
+    root: desktopUiDir,
   });
   await server.listen();
   const address = server.httpServer?.address();

@@ -5,8 +5,8 @@ import {
 import type {
   FileChangeRecord,
   ProducedFileRecord,
-} from "../../../contracts/file-changes.js";
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
+} from "@stella/contracts/file-changes";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { ToolDefinition } from "../types.js";
 
 export type NodeReplToolOptions = NodeReplKernelManagerOptions & {

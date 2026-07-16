@@ -8,18 +8,18 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   resolveNativeConnectorCatalog,
   writeCachedServerCatalog,
-} from "../../../../../runtime/kernel/connectors/catalog-cache.js";
-import type { NativeConnectorCatalogEntry } from "../../../../../runtime/kernel/connectors/native-integrations.js";
+} from "@stella/runtime/kernel/connectors/catalog-cache";
+import type { NativeConnectorCatalogEntry } from "@stella/runtime/kernel/connectors/native-integrations";
 import {
   createConnectorStatusTool,
   resetConnectorStatusCatalogMemo,
-} from "../../../../../runtime/kernel/tools/defs/connector-status.js";
-import { startCliBridgeServer } from "../../../../../runtime/worker/cli-bridge-server.js";
+} from "@stella/runtime/kernel/tools/defs/connector-status";
+import { startCliBridgeServer } from "@stella/runtime/worker/cli-bridge-server";
 
 const roots: string[] = [];
 const servers: Array<{ stop: () => Promise<void> }> = [];
-const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
-const cliPath = path.join(repoRoot, "runtime/kernel/cli/stella-connect.ts");
+const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
+const cliPath = path.join(repoRoot, "packages/runtime/kernel/cli/stella-connect.ts");
 
 const backendEntry = (
   id: string,

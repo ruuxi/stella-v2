@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 
 const MATERIALIZED_KEY = "stella-media-materialized-jobs";
 const MATERIALIZED_PAYLOADS_KEY = "stella-media-materialized-payloads";

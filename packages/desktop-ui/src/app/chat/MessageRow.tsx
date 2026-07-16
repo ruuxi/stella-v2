@@ -56,7 +56,7 @@ import {
 import { InlineGeneratedImageStrip } from "@/app/chat/InlineGeneratedImageCard";
 import { WebSearchResultsStrip } from "@/app/chat/WebSearchResultsStrip";
 import { MapRouteCards } from "@/app/chat/MapRouteCard";
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
 import { ScheduleReceiptChip } from "@/app/chat/ScheduleReceiptChip";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";

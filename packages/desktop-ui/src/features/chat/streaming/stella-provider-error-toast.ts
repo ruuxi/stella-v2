@@ -2,7 +2,7 @@ import {
   BYOK_TOAST_ACTION,
   OPEN_MODEL_PICKER_EVENT,
 } from '@/global/billing/byok-action'
-import { detectLlmRouteFailureKind } from '../../../../../runtime/ai/llm-route-failure.js'
+import { detectLlmRouteFailureKind } from '@stella/contracts/llm-route-failure'
 import type { ToastOptions } from '@/ui/toast'
 
 const normalizeErrorText = (value: string | null | undefined): string =>

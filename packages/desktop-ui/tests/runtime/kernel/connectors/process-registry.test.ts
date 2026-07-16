@@ -7,7 +7,7 @@ import {
   sweepStaleConnectorBridgeProcesses,
   writeConnectorBridgeProcessRecord,
   type ConnectorBridgeProcessRecord,
-} from "../../../../../runtime/kernel/connectors/process-registry.js";
+} from "@stella/runtime/kernel/connectors/process-registry";
 
 const roots: string[] = [];
 

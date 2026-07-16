@@ -6,20 +6,20 @@ import {
   NodeReplKernelRegistry,
   type ComputerUseSessionFactory,
   type ComputerUseSessionFactoryOptions,
-} from "../../../../../runtime/kernel/computer-use/kernel.js";
+} from "@stella/runtime/kernel/computer-use/kernel";
 import type {
   BrowserSessionClient,
   BrowserSessionOptions,
-} from "../../../../../runtime/kernel/browser-use/client.js";
+} from "@stella/runtime/kernel/browser-use/client";
 import type {
   ComputerUseRequest,
   ComputerUseResponse,
-} from "../../../../../runtime/kernel/computer-use/contract.js";
+} from "@stella/runtime/kernel/computer-use/contract";
 import type {
   ComputerUseSession,
   ComputerUseSessionRequestOptions,
-} from "../../../../../runtime/kernel/computer-use/session.js";
-import type { ToolContext } from "../../../../../runtime/kernel/tools/types.js";
+} from "@stella/runtime/kernel/computer-use/session";
+import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 
 const context = (agentId: string): ToolContext => ({
   conversationId: "conversation-1",

@@ -4,9 +4,10 @@ import { spawnSync } from "node:child_process";
 import { ensureElectronBinary } from "./ensure-electron-binary.mjs";
 
 const scriptDir = import.meta.dirname;
-const repoRoot = path.resolve(scriptDir, "..", "..");
+const repoRoot = path.resolve(scriptDir, "..", "..", "..");
 const workerEntry = path.join(
   repoRoot,
+  "packages",
   "desktop",
   "dist-electron",
   "runtime",

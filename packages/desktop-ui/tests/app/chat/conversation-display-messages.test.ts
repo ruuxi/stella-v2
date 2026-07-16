@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MessageRecord } from "../../../../runtime/contracts/local-chat";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 import type { StreamingAssistantOverlay } from "@/features/chat/streaming/streaming-types";
 import {
   createDisplayOrderComparator,

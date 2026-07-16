@@ -6,7 +6,7 @@
  * (Photo / Edit / Animate / Sound / Voice / 3D); other surfaces
  * (e.g. `MediaStudio`) reuse this list rather than redefining one.
  */
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 
 export type MediaTabItem = {
   id: string;

@@ -1,4 +1,4 @@
-import type { OfficePreviewRef } from "../../../../runtime/contracts/office-preview.js";
+import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { useOfficePreview } from "@/features/chat/office-preview-store";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
 import { FilePreviewCardShell } from "./FilePreviewCardShell";

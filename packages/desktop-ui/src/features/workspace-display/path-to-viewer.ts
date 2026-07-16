@@ -10,8 +10,8 @@ import type { DisplayTabKind } from "./types";
 import type {
   DisplayFileArtifactKind,
   DisplayPayload,
-} from "@/shared/contracts/display-payload";
-import { DEVELOPER_EXTS } from "@/shared/contracts/external-openers";
+} from "@stella/contracts/desktop/display-payload";
+import { DEVELOPER_EXTS } from "@stella/contracts/desktop/external-openers";
 
 /**
  * Returns the first on-disk file path the payload references, or `null`
@@ -206,7 +206,7 @@ export const isDeclaredOutputPath = (filePath: string): boolean =>
  * apply ONE filter. Re-exported here to keep this module the renderer-side
  * home for path classification.
  */
-export { isNoiseProducedPath } from "../../../../runtime/contracts/file-changes.js";
+export { isNoiseProducedPath } from "@stella/contracts/file-changes";
 
 export const isDeveloperResourceExtension = (
   extension: string | null,

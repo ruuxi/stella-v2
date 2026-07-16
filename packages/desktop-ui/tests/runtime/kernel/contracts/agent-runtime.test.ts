@@ -3,7 +3,7 @@ import {
   AGENT_IDS,
   getLocalCliWorkingDirectory,
   isLocalCliAgentId,
-} from "../../../../../runtime/contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 
 describe("agent runtime contracts", () => {
   it("keeps the orchestrator on the local CLI runtime", () => {

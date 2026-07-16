@@ -1,5 +1,5 @@
 import type { HookDefinition } from "../../../kernel/extensions/types.js";
-import { wrapSystemReminder } from "../../../kernel/message-timestamp.js";
+import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
 
 /**
  * Stale-user reminder (stella-runtime).

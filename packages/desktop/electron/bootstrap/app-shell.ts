@@ -2,7 +2,7 @@ import { app } from "electron";
 import { mkdirSync, writeFileSync } from "fs";
 import { hasMacPermission } from "../utils/macos-permissions.js";
 import path from "path";
-import { resolveStellaDataDir } from "../../../runtime/kernel/home/stella-home.js";
+import { resolveStellaDataDir } from "@stella/runtime/kernel/home/stella-home";
 import { getDevServerUrl } from "../dev-url.js";
 import { OverlayWindowController } from "../windows/overlay-window.js";
 import { PetWindowController } from "../windows/pet-window.js";

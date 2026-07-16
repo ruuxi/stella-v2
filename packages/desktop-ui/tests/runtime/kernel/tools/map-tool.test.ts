@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { createMapTool } from "../../../../../runtime/kernel/tools/defs/map.js";
+import { createMapTool } from "@stella/runtime/kernel/tools/defs/map";
 import {
   appleMapsUrl,
   isMapRouteArtifact,
   mapsEmbedUrl,
   type MapRouteArtifact,
-} from "../../../../../runtime/contracts/map-artifact.js";
-import type { ToolContext } from "../../../../../runtime/kernel/tools/types.js";
+} from "@stella/contracts/map-artifact";
+import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 
 const context: ToolContext = {
   conversationId: "c1",

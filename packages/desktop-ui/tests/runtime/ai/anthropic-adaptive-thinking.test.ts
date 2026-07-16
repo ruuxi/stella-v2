@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   supportsAdaptiveThinking,
   supportsDisablingThinking,
-} from "../../../../runtime/ai/providers/anthropic.js";
+} from "@stella/runtime/ai/providers/anthropic";
 
 // Regression guard for the thinking-shape gate. 5-generation Claude models
 // (and Opus/Sonnet 4.6+) reject the legacy budget-based

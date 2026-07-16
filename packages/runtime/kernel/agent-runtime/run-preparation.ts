@@ -3,7 +3,7 @@ import type { ImageContent } from "../../ai/types.js";
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
-} from "../../protocol/index.js";
+} from "@stella/contracts/protocol";
 import { resolveLocalCliCwd } from "./shared.js";
 import { buildSystemPrompt } from "./thread-memory.js";
 import type { OrchestratorRunOptions, SubagentRunOptions } from "./types.js";

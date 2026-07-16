@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createRunEventRecorder } from "../../../../../runtime/kernel/agent-runtime/run-events.js";
-import { buildPreambleToolBoundaryMessage } from "../../../../../runtime/kernel/agent-runtime/external-engines.js";
+import { createRunEventRecorder } from "@stella/runtime/kernel/agent-runtime/run-events";
+import { buildPreambleToolBoundaryMessage } from "@stella/runtime/kernel/agent-runtime/external-engines";
 
 const makeRecorder = () => {
   const store = { recordRunEvent: vi.fn() };

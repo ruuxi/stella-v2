@@ -13,7 +13,7 @@
  */
 
 import { useMemo, useState } from "react";
-import type { ScheduleToolAffectedRef } from "../../../../runtime/kernel/shared/scheduling";
+import type { ScheduleToolAffectedRef } from "@stella/contracts/scheduling";
 import { Clock } from "@/ui/icons";
 import { formatNextRun } from "@/global/schedule/format-schedule";
 import { ScheduleDetailsDialog } from "@/global/schedule/ScheduleDetailsDialog";

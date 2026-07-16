@@ -21,15 +21,15 @@
  * `fileChanges` automatically participates in the resource pill.
  */
 
-import { isOfficePreviewRef } from "../../../../../runtime/contracts/office-preview.js";
+import { isOfficePreviewRef } from "@stella/contracts/office-preview";
 import {
   type FileChangeRecord,
   isFileChangeRecordArray,
   isProducedFileRecordArray,
   type ProducedFileRecord,
-} from "../../../../../runtime/contracts/file-changes.js";
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
-import type { OfficePreviewRef } from "../../../../../runtime/contracts/office-preview.js";
+} from "@stella/contracts/file-changes";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
+import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import {
   kindForPath,
   basenameOf,

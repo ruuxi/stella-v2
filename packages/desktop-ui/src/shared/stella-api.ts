@@ -1,1 +1,1 @@
-export * from "../../../runtime/contracts/stella-api.js";
+export * from "@stella/contracts/stella-api";

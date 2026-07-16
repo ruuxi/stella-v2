@@ -7,8 +7,8 @@ import {
   getClaudeCodeAgentModelId,
   getClaudeCodeRuntimeEffortLevel,
   shouldUseClaudeCodeAgentRuntime,
-} from "../../../../../runtime/kernel/integrations/claude-code-agent-runtime.js";
-import { updateLocalModelPreferences } from "../../../../../runtime/kernel/preferences/local-preferences.js";
+} from "@stella/runtime/kernel/integrations/claude-code-agent-runtime";
+import { updateLocalModelPreferences } from "@stella/runtime/kernel/preferences/local-preferences";
 
 describe("Claude Code agent runtime selector", () => {
   it("uses a per-spawn effort without changing the saved Claude preference", () => {

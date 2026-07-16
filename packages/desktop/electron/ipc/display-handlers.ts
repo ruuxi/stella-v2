@@ -8,7 +8,7 @@ import {
   IPC_DISPLAY_READ_FILE,
   IPC_DISPLAY_TRASH_FORCE_DELETE,
   IPC_DISPLAY_TRASH_LIST,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import {
   readConfiguredCanvasShareBaseUrl,
   resolveSharedCanvasPayload,
@@ -17,14 +17,14 @@ import {
   listDeferredDeletes,
   purgeAllDeferredDeletes,
   purgeDeferredDelete,
-} from "../../../runtime/kernel/tools/deferred-delete.js";
+} from "@stella/runtime/kernel/tools/deferred-delete";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import {
   isFileChangeRecordArray,
   isProducedFileRecordArray,
   type FileChangeRecord,
-} from "../../../runtime/contracts/file-changes.js";
-import type { LocalChatEventRecord } from "../../../runtime/kernel/storage/shared.js";
+} from "@stella/contracts/file-changes";
+import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 
 type DisplayHandlersOptions = {
   getStellaAppDir: () => string | null;

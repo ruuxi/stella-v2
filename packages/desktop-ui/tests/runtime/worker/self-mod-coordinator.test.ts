@@ -10,27 +10,27 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { METHOD_NAMES } from "../../../../runtime/protocol/index.js";
+import { METHOD_NAMES } from "@stella/contracts/protocol";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../runtime/kernel/storage/database-init.js";
-import type { SqliteDatabase } from "../../../../runtime/kernel/storage/shared.js";
-import { SessionStore } from "../../../../runtime/kernel/storage/session-store.js";
-import type { RuntimeStore } from "../../../../runtime/kernel/storage/runtime-store.js";
-import { StoreModStore } from "../../../../runtime/kernel/storage/store-mod-store.js";
-import { StoreModService } from "../../../../runtime/kernel/self-mod/store-mod-service.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
+import type { RuntimeStore } from "@stella/runtime/kernel/storage/runtime-store";
+import { StoreModStore } from "@stella/runtime/kernel/storage/store-mod-store";
+import { StoreModService } from "@stella/runtime/kernel/self-mod/store-mod-service";
 import {
   createSelfModHmrController,
   type SelfModHmrController,
-} from "../../../../runtime/kernel/self-mod/hmr.js";
-import { getGitHead, listGitDirtyFiles } from "../../../../runtime/kernel/self-mod/git/log.js";
+} from "@stella/runtime/kernel/self-mod/hmr";
+import { getGitHead, listGitDirtyFiles } from "@stella/runtime/kernel/self-mod/git/log";
 import {
   createSelfModCoordinator,
   type PendingSelfModApply,
   type SelfModCoordinator,
-} from "../../../../runtime/worker/self-mod-coordinator.js";
-import type { WorkerPeerLike } from "../../../../runtime/worker/peer-broker.js";
+} from "@stella/runtime/worker/self-mod-coordinator";
+import type { WorkerPeerLike } from "@stella/runtime/worker/peer-broker";
 
 const git = (cwd: string, args: string[]) => {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
@@ -68,9 +68,9 @@ const createHarness = async (): Promise<Harness> => {
   git(repoRoot, ["config", "user.email", "test@stella.local"]);
   git(repoRoot, ["config", "user.name", "Stella Test"]);
   git(repoRoot, ["config", "commit.gpgsign", "false"]);
-  await mkdir(path.join(repoRoot, "desktop", "src"), { recursive: true });
+  await mkdir(path.join(repoRoot, "packages", "desktop-ui", "src"), { recursive: true });
   await writeFile(
-    path.join(repoRoot, "desktop", "src", "seed.tsx"),
+    path.join(repoRoot, "packages", "desktop-ui", "src", "seed.tsx"),
     "export const seed = 1;\n",
     "utf8",
   );
@@ -207,7 +207,7 @@ describe("self-mod coordinator", () => {
     await runAgentSelfMod(
       h,
       "run-1",
-      "desktop/src/feature.tsx",
+      "packages/desktop-ui/src/feature.tsx",
       "export const feature = true;\n",
       "conv-1",
     );
@@ -222,7 +222,7 @@ describe("self-mod coordinator", () => {
     const pending = h.pendingApplies.get(head)!;
     expect(pending.commitHash).toBe(head);
     expect(pending.conversationId).toBe("conv-1");
-    expect(pending.files).toEqual(["desktop/src/feature.tsx"]);
+    expect(pending.files).toEqual(["packages/desktop-ui/src/feature.tsx"]);
     // No morph transition was raised and the reload pause is still held.
     expect(methodsOf(h, METHOD_NAMES.HOST_HMR_RUN_TRANSITION)).toHaveLength(0);
     expect(pausedRunIds(h)).toEqual(["run-1"]);
@@ -237,7 +237,7 @@ describe("self-mod coordinator", () => {
     await runAgentSelfMod(
       h,
       "run-install",
-      "desktop/src/mod.tsx",
+      "packages/desktop-ui/src/mod.tsx",
       "export const mod = true;\n",
       "store-install:pkg-a",
       "install",
@@ -258,7 +258,7 @@ describe("self-mod coordinator", () => {
     await runAgentSelfMod(
       h,
       "run-desktop-update",
-      "desktop/src/desktop-update.tsx",
+      "packages/desktop-ui/src/desktop-update.tsx",
       "export const updated = true;\n",
       "install-update-conversation",
       "desktop-update",
@@ -283,7 +283,7 @@ describe("self-mod coordinator", () => {
     await runAgentSelfMod(
       h,
       "run-1",
-      "desktop/src/one.tsx",
+      "packages/desktop-ui/src/one.tsx",
       "export const one = 1;\n",
       "conv-1",
     );
@@ -291,7 +291,7 @@ describe("self-mod coordinator", () => {
     await runAgentSelfMod(
       h,
       "run-2",
-      "desktop/src/two.tsx",
+      "packages/desktop-ui/src/two.tsx",
       "export const two = 2;\n",
       "conv-1",
     );
@@ -335,7 +335,7 @@ describe("self-mod coordinator", () => {
     await runAgentSelfMod(
       h,
       "run-undo",
-      "desktop/src/undo.tsx",
+      "packages/desktop-ui/src/undo.tsx",
       "export const undo = 1;\n",
       "conv-undo",
     );
@@ -355,7 +355,7 @@ describe("self-mod coordinator", () => {
     expect(result.originThreadKey).toBe("thread-run-undo");
     // The file is gone and the tree is clean (revert commit, not reset).
     await expect(
-      readFile(path.join(h.repoRoot, "desktop/src/undo.tsx"), "utf8"),
+      readFile(path.join(h.repoRoot, "packages/desktop-ui/src/undo.tsx"), "utf8"),
     ).rejects.toThrow();
     expect(await listGitDirtyFiles(h.repoRoot)).toEqual([]);
 
@@ -365,7 +365,7 @@ describe("self-mod coordinator", () => {
       h.sessionStore.listPendingOrchestratorReverts("conv-undo");
     expect(orchestratorPending).toHaveLength(1);
     expect(orchestratorPending[0]?.commitHash).toBe(head);
-    expect(orchestratorPending[0]?.files).toEqual(["desktop/src/undo.tsx"]);
+    expect(orchestratorPending[0]?.files).toEqual(["packages/desktop-ui/src/undo.tsx"]);
     expect(
       h.sessionStore.listPendingOriginThreadReverts("thread-run-undo"),
     ).toHaveLength(1);
@@ -385,9 +385,9 @@ describe("self-mod coordinator", () => {
     const before = await getGitHead(h.repoRoot);
     await h.coordinator.externalLifecycle.beginExternalSelfMod({
       runId: "ext-1",
-      paths: ["desktop/src/ext.tsx"],
+      paths: ["packages/desktop-ui/src/ext.tsx"],
     });
-    await writeRepoFile(h, "desktop/src/ext.tsx", "export const ext = 1;\n");
+    await writeRepoFile(h, "packages/desktop-ui/src/ext.tsx", "export const ext = 1;\n");
     await h.coordinator.externalLifecycle.finishExternalSelfMod({
       runId: "ext-1",
       succeeded: false,

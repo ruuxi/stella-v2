@@ -5,8 +5,8 @@ import {
   type RenderProcessGoneDetails,
 } from 'electron'
 import { RADIAL_SIZE } from '../layout-constants.js'
-import type { SelfModHmrState } from '../../../runtime/contracts/index.js'
-import type { MorphVisualTiming } from '../../src/shared/contracts/morph-timing.js'
+import type { SelfModHmrState } from '@stella/contracts'
+import type { MorphVisualTiming } from '@stella/contracts/desktop/morph-timing'
 import { loadWindow } from './window-load.js'
 import { createSharedWebPreferences } from './shared-window-preferences.js'
 import {

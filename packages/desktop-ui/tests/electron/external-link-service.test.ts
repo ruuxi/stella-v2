@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ExternalLinkService } from "../../electron/services/external-link-service";
+import { ExternalLinkService } from "@stella/desktop/electron/services/external-link-service";
 
 describe("ExternalLinkService renderer trust", () => {
   it("trusts only the configured Stella dev origin for shell renderer URLs", () => {

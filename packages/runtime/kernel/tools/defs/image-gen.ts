@@ -5,7 +5,7 @@
  * wait for, download, or open it itself.
  */
 
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { createMediaToolHandlers } from "../media.js";
 import type { ToolDefinition, ToolHandler } from "../types.js";
 

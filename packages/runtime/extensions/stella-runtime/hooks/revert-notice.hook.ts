@@ -1,6 +1,6 @@
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
-import type { RuntimePromptMessage } from "../../../protocol/index.js";
-import { wrapSystemReminder } from "../../../kernel/message-timestamp.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import type { RuntimePromptMessage } from "@stella/contracts/protocol";
+import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
 import type { ExtensionServices } from "../../../kernel/extensions/services.js";
 import type { HookDefinition } from "../../../kernel/extensions/types.js";
 import type { SelfModRevertRecord } from "../../../kernel/storage/self-mod-reverts.js";

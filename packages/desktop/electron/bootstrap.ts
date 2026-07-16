@@ -16,7 +16,7 @@ import {
   getTotalSystemMemoryMb,
   isLowMemoryWindowsDevice,
 } from './resource-profile.js'
-import { resolveRuntimeStatePath } from '../../runtime/kernel/home/stella-home.js'
+import { resolveRuntimeStatePath } from '@stella/runtime/kernel/home/stella-home'
 import {
   initializeBootstrapSingleInstance,
   registerBootstrapLifecycle,

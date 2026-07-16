@@ -9,12 +9,12 @@ import {
   createStellaSourcePack,
   hashSourceTree,
   type StellaSourceTree,
-} from "../../../../../runtime/kernel/self-mod/stella-source-control.js";
+} from "@stella/runtime/kernel/self-mod/stella-source-control";
 import {
   collectSourcePackPaths,
   readLocalSourceTree,
   writeSourcePackApplyResult,
-} from "../../../../../runtime/worker/store-source-pack-install.js";
+} from "@stella/runtime/worker/store-source-pack-install";
 
 const git = (cwd: string, args: string[]) => {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });

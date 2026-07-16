@@ -20,7 +20,7 @@
 import type {
   EventRecord,
   MessageRecord,
-} from "../../../../../runtime/contracts/local-chat.js";
+} from "@stella/contracts/local-chat";
 
 export type StableTurnRowsState<T extends { id: string }> = {
   byId: Map<string, T>;

@@ -2,7 +2,7 @@ import type {
   RuntimeActiveRun,
   RuntimeAutomationTurnRequest,
   RuntimeAutomationTurnResult,
-} from "../protocol/index.js";
+} from "@stella/contracts/protocol";
 
 type Awaitable<T> = T | Promise<T>;
 

@@ -12,13 +12,13 @@ import {
   IPC_PET_SET_OPEN,
   IPC_PET_STATUS,
   IPC_PET_TOGGLE_MINI,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import type { WindowManager } from "../windows/window-manager.js";
 import type { PetWindowController } from "../windows/pet-window.js";
 import type {
   PetOverlayState,
   PetOverlayStatus,
-} from "../../src/shared/contracts/pet.js";
+} from "@stella/contracts/desktop/pet";
 
 type PetHandlersOptions = {
   windowManager: WindowManager;

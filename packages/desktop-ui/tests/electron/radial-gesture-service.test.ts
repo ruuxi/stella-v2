@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ChatContext } from "../../../runtime/contracts/index.js";
+import type { ChatContext } from "@stella/contracts";
 
 vi.mock("electron", () => ({
   globalShortcut: {
@@ -23,7 +23,7 @@ vi.mock("uiohook-napi", () => ({
 }));
 
 const { RadialGestureService } = await import(
-  "../../electron/services/radial-gesture-service.js"
+  "@stella/desktop/electron/services/radial-gesture-service.js"
 );
 
 type HandleSelectionOnly = {

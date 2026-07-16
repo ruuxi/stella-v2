@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loginOpenAICodex } from "../../../../runtime/ai/utils/oauth/openai-codex.js";
+import { loginOpenAICodex } from "@stella/runtime/ai/utils/oauth/openai-codex";
 
 describe("OpenAI Codex OAuth callback lifecycle", () => {
   afterEach(() => vi.unstubAllGlobals());

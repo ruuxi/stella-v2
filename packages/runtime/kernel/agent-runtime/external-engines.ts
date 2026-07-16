@@ -66,8 +66,8 @@ import type {
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
-} from "../../protocol/index.js";
-import { sanitizeSensitiveData } from "../../contracts/sensitive-data.js";
+} from "@stella/contracts/protocol";
+import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
 
 const EMPTY_USAGE: Usage = {
   input: 0,

@@ -6,12 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   resolveLlmRoute,
   resolveLlmRouteForCatalogEnrichment,
-} from "../../../../runtime/kernel/model-routing.js";
+} from "@stella/runtime/kernel/model-routing";
 import {
   invalidateStellaModelCatalogCache,
   withStellaModelCatalogMetadata,
-} from "../../../../runtime/kernel/stella-model-catalog.js";
-import { getFileEditToolFamily } from "../../../../runtime/kernel/tools/file-edit-policy.js";
+} from "@stella/runtime/kernel/stella-model-catalog";
+import { getFileEditToolFamily } from "@stella/runtime/kernel/tools/file-edit-policy";
 
 const originalFetch = globalThis.fetch;
 

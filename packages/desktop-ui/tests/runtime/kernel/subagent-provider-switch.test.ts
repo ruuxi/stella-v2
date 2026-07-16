@@ -12,18 +12,18 @@
 // different resolver, or the wrong credential directory), this fails loudly.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Model } from "../../../../runtime/ai/types.js";
+import type { Model } from "@stella/runtime/ai/types";
 import { createSyncTempDirTracker } from "../../helpers/temp.js";
 
 const credentials = new Map<string, string>();
 const oauthCredentials = new Set<string>();
 
-vi.mock("../../../../runtime/kernel/storage/llm-credentials.js", () => ({
+vi.mock("@stella/runtime/kernel/storage/llm-credentials", () => ({
   getLocalLlmCredential: (_stellaAppDir: string, provider: string) =>
     credentials.get(provider) ?? null,
 }));
 
-vi.mock("../../../../runtime/kernel/storage/llm-oauth-credentials.js", () => ({
+vi.mock("@stella/runtime/kernel/storage/llm-oauth-credentials", () => ({
   hasLocalLlmOAuthCredential: (_stellaAppDir: string, provider: string) =>
     oauthCredentials.has(provider),
   getLocalLlmOAuthApiKey: async (_stellaAppDir: string, provider: string) =>
@@ -46,7 +46,7 @@ const model = (
   maxTokens: 8_192,
 });
 
-vi.mock("../../../../runtime/ai/models.js", () => ({
+vi.mock("@stella/runtime/ai/models", () => ({
   getAllModels: () => [
     model("anthropic", "claude-opus-4-8", "anthropic"),
     model("openrouter", "openai/gpt-5.5"),
@@ -87,10 +87,10 @@ beforeEach(() => {
 
 const loadModules = async () => {
   const { resolveLlmRoute } = await import(
-    "../../../../runtime/kernel/model-routing.js"
+    "@stella/runtime/kernel/model-routing"
   );
   const { getModelOverride, updateLocalModelPreferences } = await import(
-    "../../../../runtime/kernel/preferences/local-preferences.js"
+    "@stella/runtime/kernel/preferences/local-preferences"
   );
   return { resolveLlmRoute, getModelOverride, updateLocalModelPreferences };
 };

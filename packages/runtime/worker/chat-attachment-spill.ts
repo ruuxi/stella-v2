@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES } from "../ai/utils/image-caps.js";
-import type { RuntimeAttachmentRef } from "../protocol/index.js";
+import type { RuntimeAttachmentRef } from "@stella/contracts/protocol";
 
 /**
  * Total decoded bytes of composer images allowed inline on a single chat

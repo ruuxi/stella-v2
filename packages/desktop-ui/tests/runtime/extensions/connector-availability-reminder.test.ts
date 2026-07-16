@@ -4,17 +4,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { writeCachedServerCatalog } from "../../../../runtime/kernel/connectors/catalog-cache.js";
-import { recordConnectorDecline } from "../../../../runtime/kernel/connectors/connect-preferences.js";
-import { resetConnectorKeywordIndexCache } from "../../../../runtime/kernel/connectors/keyword-index.js";
+import { writeCachedServerCatalog } from "@stella/runtime/kernel/connectors/catalog-cache";
+import { recordConnectorDecline } from "@stella/runtime/kernel/connectors/connect-preferences";
+import { resetConnectorKeywordIndexCache } from "@stella/runtime/kernel/connectors/keyword-index";
 import {
   enableNativeConnector,
   type NativeConnectorCatalogEntry,
-} from "../../../../runtime/kernel/connectors/native-integrations.js";
-import type { BeforeUserMessagePayload } from "../../../../runtime/kernel/extensions/types.js";
-import { createConnectorAvailabilityReminderHook } from "../../../../runtime/extensions/stella-runtime/hooks/connector-availability-reminder.hook.js";
-import { recordReminderShown } from "../../../../runtime/kernel/runner/reminder-window-gate.js";
-import { formatThreadCheckpointMessage } from "../../../../runtime/kernel/thread-runtime.js";
+} from "@stella/runtime/kernel/connectors/native-integrations";
+import type { BeforeUserMessagePayload } from "@stella/runtime/kernel/extensions/types";
+import { createConnectorAvailabilityReminderHook } from "@stella/runtime/extensions/stella-runtime/hooks/connector-availability-reminder.hook";
+import { recordReminderShown } from "@stella/runtime/kernel/runner/reminder-window-gate";
+import { formatThreadCheckpointMessage } from "@stella/runtime/kernel/thread-runtime";
 
 const roots: string[] = [];
 

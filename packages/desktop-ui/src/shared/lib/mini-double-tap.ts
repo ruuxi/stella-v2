@@ -1,1 +1,1 @@
-export * from "../../../../runtime/contracts/mini-double-tap.js";
+export * from "@stella/contracts/mini-double-tap";

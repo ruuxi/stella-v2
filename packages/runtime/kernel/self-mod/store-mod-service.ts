@@ -2,7 +2,7 @@ import type {
   SelfModFeatureRosterPage,
   SelfModFeatureSnapshot,
   StoreInstallRecord,
-} from "../../contracts/index.js";
+} from "@stella/contracts";
 import { StoreModStore } from "../storage/store-mod-store.js";
 import { commitGitMessage, getStagedDiffPreview } from "./git/commit.js";
 import {

@@ -7,12 +7,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../../runtime/kernel/storage/database-init.js";
-import type { SqliteDatabase } from "../../../../../runtime/kernel/storage/shared.js";
-import { StellaSourceHistoryStore } from "../../../../../runtime/kernel/storage/stella-source-history-store.js";
-import { StoreModStore } from "../../../../../runtime/kernel/storage/store-mod-store.js";
-import { StoreModService } from "../../../../../runtime/kernel/self-mod/store-mod-service.js";
-import { buildStellaSourceChangeSetForGitCommit } from "../../../../../runtime/kernel/self-mod/stella-source-history.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import { StellaSourceHistoryStore } from "@stella/runtime/kernel/storage/stella-source-history-store";
+import { StoreModStore } from "@stella/runtime/kernel/storage/store-mod-store";
+import { StoreModService } from "@stella/runtime/kernel/self-mod/store-mod-service";
+import { buildStellaSourceChangeSetForGitCommit } from "@stella/runtime/kernel/self-mod/stella-source-history";
 
 const git = (cwd: string, args: string[]) => {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });

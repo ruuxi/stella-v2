@@ -35,30 +35,30 @@ import {
   IPC_UPDATES_REFRESH_NATIVE_HELPERS,
   IPC_UPDATES_ROLLBACK_CANCELED,
   IPC_UPDATES_TRY_APPLY_CLEAN,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import type { StellaHostRunner } from "../stella-host-runner.js";
 import type {
   DesktopReleaseSourceHistoryRef,
   DesktopReleaseSourcePackRef,
   StellaReleaseArtifactRef,
   StoreReleaseSourcePack,
-} from "../../../runtime/contracts/index.js";
+} from "@stella/contracts";
 import {
   type StellaSourceApplyResult,
   type StellaSourceApplyConflict,
   type StellaSourceBlob,
-} from "../../../runtime/kernel/self-mod/stella-source-control.js";
-import { rollbackGitChangesSince } from "../../../runtime/kernel/self-mod/git/revert.js";
-import { isRuntimeUnavailableError } from "../../../runtime/protocol/rpc-peer.js";
+} from "@stella/runtime/kernel/self-mod/stella-source-control";
+import { rollbackGitChangesSince } from "@stella/runtime/kernel/self-mod/git/revert";
+import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import {
   applyCleanSourceImportToWorkingTree,
   preflightSourcePackImport,
-} from "../../../runtime/worker/source-import-core.js";
+} from "@stella/runtime/worker/source-import-core";
 import {
   STORE_PUBLISH_DEPENDENCY_FILE_NAMES,
   runStorePublishDependencyInstall,
   storePublishTouchesDependencyFiles,
-} from "../../../runtime/worker/store-source-pack-install.js";
+} from "@stella/runtime/worker/store-source-pack-install";
 import {
   desktopSourcePackCanApplyLocally,
   desktopSourcePackMatchesBaseCommit,
@@ -69,7 +69,7 @@ import {
 import {
   getFileLogger,
   type LogFields,
-} from "../../../runtime/observability/file-logger.js";
+} from "@stella/runtime/observability/file-logger";
 import { waitForConnectedRunner } from "./runtime-availability.js";
 import { invalidateNativeHelperPathCache } from "../native-helper-path.js";
 import { activateStagedStellaBrowserBinaryForInstall } from "../utils/stella-browser-paths.js";

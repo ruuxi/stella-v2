@@ -1,4 +1,4 @@
-import type { RuntimeAgentEventPayload } from "../../protocol/index.js";
+import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 
 // Sub-agent management tool names. These all share the same task ids and
 // `thread_id`-shaped payloads.

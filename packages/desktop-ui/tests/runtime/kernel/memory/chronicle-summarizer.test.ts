@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { registerApiProvider } from "../../../../../runtime/ai/api-registry.js";
+import { registerApiProvider } from "@stella/runtime/ai/api-registry";
 import type {
   Api,
   AssistantMessage,
@@ -13,14 +13,14 @@ import type {
   Model,
   SimpleStreamOptions,
   StreamOptions,
-} from "../../../../../runtime/ai/types.js";
+} from "@stella/runtime/ai/types";
 import {
   chronicleSummaryFilePath,
   runChronicleSummary,
   type ChronicleSummaryResult,
-} from "../../../../../runtime/kernel/memory/chronicle-summarizer.js";
-import type { ResolvedLlmRoute } from "../../../../../runtime/kernel/model-routing.js";
-import { setChronicleMemoryPreference } from "../../../../../runtime/kernel/preferences/local-preferences.js";
+} from "@stella/runtime/kernel/memory/chronicle-summarizer";
+import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
+import { setChronicleMemoryPreference } from "@stella/runtime/kernel/preferences/local-preferences";
 
 type TestContext = {
   rootPath: string;
@@ -287,7 +287,7 @@ describe("chronicle-summarizer", () => {
           enqueued.push(args);
         },
       },
-    } as unknown as import("../../../../../runtime/kernel/storage/runtime-store.js").RuntimeStore;
+    } as unknown as import("@stella/runtime/kernel/storage/runtime-store").RuntimeStore;
     const result = await runChronicleSummary({
       stellaDataDir: rootPath,
       window: "10m",

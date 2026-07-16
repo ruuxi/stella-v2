@@ -11,7 +11,7 @@ import {
   buildAgentCompletionSections,
   type AgentCompletionSection,
 } from "./agent-completion";
-import type { TaskToolActivity } from "../../../../../runtime/contracts/agent-runtime.js";
+import type { TaskToolActivity } from "@stella/contracts/agent-runtime";
 
 export type BackgroundTaskCardStatus =
   | "running"

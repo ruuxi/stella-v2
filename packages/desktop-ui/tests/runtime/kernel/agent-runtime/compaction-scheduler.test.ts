@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BackgroundCompactionScheduler } from "../../../../../runtime/kernel/agent-runtime/compaction-scheduler.js";
+import { BackgroundCompactionScheduler } from "@stella/runtime/kernel/agent-runtime/compaction-scheduler";
 
 /**
  * Helper: a deferred Promise<void> with externally-resolvable controls.

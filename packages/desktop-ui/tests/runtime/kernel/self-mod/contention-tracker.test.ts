@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createContentionTracker } from "../../../../../runtime/kernel/self-mod/contention-tracker.js";
+import { createContentionTracker } from "@stella/runtime/kernel/self-mod/contention-tracker";
 
 const runIds = (runs: { runId: string }[]) => runs.map((r) => r.runId).sort();
 

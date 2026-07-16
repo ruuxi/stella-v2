@@ -1,4 +1,4 @@
-import type { MessageRecord } from '../../../../../runtime/contracts/local-chat.js'
+import type { MessageRecord } from '@stella/contracts/local-chat'
 import { useLocale } from '@/shared/i18n'
 import { useTierRestrictedModelToast } from './use-tier-restricted-model-toast'
 import {

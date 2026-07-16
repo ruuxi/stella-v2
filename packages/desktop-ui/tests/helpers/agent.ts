@@ -1,4 +1,4 @@
-import { LocalAgentManager } from "../../runtime/kernel/agents/local-agent-manager.js";
+import { LocalAgentManager } from "@stella/runtime/kernel/agents/local-agent-manager";
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));

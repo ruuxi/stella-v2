@@ -12,7 +12,7 @@ const {
   createMorphVisibilitySamplePoints,
   isLikelySameWindowBounds,
   shouldShowMorphForWindow,
-} = await import("../../electron/windows/morph-visibility.js");
+} = await import("@stella/desktop/electron/windows/morph-visibility.js");
 
 const targetBounds = { x: 100, y: 80, width: 800, height: 600 };
 

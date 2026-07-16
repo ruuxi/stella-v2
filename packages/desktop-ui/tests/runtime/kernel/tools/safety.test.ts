@@ -3,12 +3,12 @@ import { writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { buildChatPromptMessages } from "../../../../../runtime/kernel/chat-prompt-context.js";
-import { handleRead } from "../../../../../runtime/kernel/tools/file.js";
+import { buildChatPromptMessages } from "@stella/runtime/kernel/chat-prompt-context";
+import { handleRead } from "@stella/runtime/kernel/tools/file";
 import {
   createShellState,
   handleExecCommand,
-} from "../../../../../runtime/kernel/tools/shell.js";
+} from "@stella/runtime/kernel/tools/shell";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createAsyncTempDirTracker();

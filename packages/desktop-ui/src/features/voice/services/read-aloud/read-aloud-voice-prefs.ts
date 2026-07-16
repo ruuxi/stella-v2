@@ -6,8 +6,8 @@
  * on-demand per-message read-aloud action (`manual-read-aloud.ts`) so both
  * speak with the exact same voice the user picked.
  */
-import { resolveReadAloudProvider } from "../../../../../../runtime/contracts/local-preferences.js";
-import { getDefaultRealtimeVoice } from "../../../../../../runtime/contracts/realtime-voice-catalog.js";
+import { resolveReadAloudProvider } from "@stella/contracts/local-preferences";
+import { getDefaultRealtimeVoice } from "@stella/contracts/realtime-voice-catalog";
 import type { ReadAloudVoiceFamily } from "./tts-client";
 
 export type ReadAloudVoicePrefs = {

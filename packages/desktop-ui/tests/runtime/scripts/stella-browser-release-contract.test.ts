@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const repoRoot = path.resolve(import.meta.dirname, "../../../..");
+const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
 const readRepoFile = (filePath: string) =>
   readFile(path.join(repoRoot, filePath), "utf8");
 
@@ -41,7 +41,7 @@ describe("Stella Browser release contract", () => {
 
   it("preserves the installed browser binary until its replacement is ready", async () => {
     const downloader = await readRepoFile(
-      "desktop/scripts/download-stella-browser.mjs",
+      "packages/desktop/scripts/download-stella-browser.mjs",
     );
     expect(downloader).toContain("renameSync(binaryPath, previousPath)");
     expect(downloader).toContain("renameSync(previousPath, binaryPath)");
@@ -67,7 +67,7 @@ describe("Stella Browser release contract", () => {
       "ensure-stella-browser.mjs --allow-build-fallback",
     );
     const ensureScript = await readRepoFile(
-      "desktop/scripts/ensure-stella-browser.mjs",
+      "packages/desktop/scripts/ensure-stella-browser.mjs",
     );
     expect(ensureScript).toContain("download-stella-browser.mjs");
     expect(ensureScript).not.toMatch(
@@ -87,7 +87,7 @@ describe("Stella Browser release contract", () => {
       const result = spawnSync(
         process.execPath,
         [
-          path.join(repoRoot, "desktop/scripts/download-stella-browser.mjs"),
+          path.join(repoRoot, "packages/desktop/scripts/download-stella-browser.mjs"),
           "--manifest-file",
           manifestPath,
           "--expected-source-sha",

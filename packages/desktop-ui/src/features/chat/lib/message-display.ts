@@ -1,9 +1,9 @@
 import type { EventRecord } from "./event-transforms";
-import type { MessageRecord } from "../../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 import {
   isUiDisplayableChatEvent,
   isUiHiddenChatMessagePayload,
-} from "../../../../../runtime/chat-event-visibility.js";
+} from "@stella/contracts/chat-event-visibility";
 
 export const isUiHiddenMessagePayload = isUiHiddenChatMessagePayload;
 

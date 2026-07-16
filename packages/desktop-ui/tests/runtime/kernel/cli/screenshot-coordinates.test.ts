@@ -1,7 +1,7 @@
 import path from "node:path";
 import { writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { screenshotPixelToScreenPoint } from "../../../../../runtime/kernel/cli/screenshot-coordinates.js";
+import { screenshotPixelToScreenPoint } from "@stella/runtime/kernel/cli/screenshot-coordinates";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();

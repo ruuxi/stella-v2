@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { afterRequiredCliBridgeReady } from "../../../../runtime/worker/required-cli-bridge.js";
+import { afterRequiredCliBridgeReady } from "@stella/runtime/worker/required-cli-bridge";
 
 describe("required CLI bridge worker readiness gate", () => {
   it("does not construct the worker-ready response until bridge startup resolves", async () => {

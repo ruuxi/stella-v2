@@ -3,7 +3,7 @@ import { useMediaMaterializer } from "@/app/media/use-media-materializer";
 import {
   type DisplayTabPayload,
   normalizeDisplayPayload,
-} from "@/shared/contracts/display-payload";
+} from "@stella/contracts/desktop/display-payload";
 import type { RightSidebarHandle } from "@/shell/RightSidebar";
 
 type UseDisplayPayloadRoutingOptions = {

@@ -10,13 +10,13 @@ import {
 } from "../../../vite/self-mod-hmr-plugin";
 
 const repoRoot = path
-  .resolve(import.meta.dirname, "../../../..")
+  .resolve(import.meta.dirname, "../../../../..")
   .replace(/\\/g, "/");
 
 describe("resolveSelfModHmrAbsolutePath", () => {
   it("resolves repo-relative paths inside the repo", () => {
-    expect(resolveSelfModHmrAbsolutePath("desktop/src/app.tsx")).toBe(
-      path.resolve(repoRoot, "desktop/src/app.tsx").replace(/\\/g, "/"),
+    expect(resolveSelfModHmrAbsolutePath("packages/desktop-ui/src/app.tsx")).toBe(
+      path.resolve(repoRoot, "packages/desktop-ui/src/app.tsx").replace(/\\/g, "/"),
     );
   });
 
@@ -29,8 +29,8 @@ describe("resolveSelfModHmrAbsolutePath", () => {
 
 describe("resolveSelfModOverlayImportPath", () => {
   it("resolves extensionless overlay-owned imports even when disk is missing", () => {
-    const importer = path.resolve(repoRoot, "desktop/src/App.tsx");
-    const target = path.resolve(repoRoot, "desktop/src/new-module.tsx").replace(/\\/g, "/");
+    const importer = path.resolve(repoRoot, "packages/desktop-ui/src/App.tsx");
+    const target = path.resolve(repoRoot, "packages/desktop-ui/src/new-module.tsx").replace(/\\/g, "/");
 
     expect(
       resolveSelfModOverlayImportPath("./new-module", importer, (absPath) =>
@@ -40,8 +40,8 @@ describe("resolveSelfModOverlayImportPath", () => {
   });
 
   it("resolves overlay-owned index imports", () => {
-    const importer = path.resolve(repoRoot, "desktop/src/App.tsx");
-    const target = path.resolve(repoRoot, "desktop/src/new-panel/index.tsx").replace(/\\/g, "/");
+    const importer = path.resolve(repoRoot, "packages/desktop-ui/src/App.tsx");
+    const target = path.resolve(repoRoot, "packages/desktop-ui/src/new-panel/index.tsx").replace(/\\/g, "/");
 
     expect(
       resolveSelfModOverlayImportPath("./new-panel", importer, (absPath) =>
@@ -51,7 +51,7 @@ describe("resolveSelfModOverlayImportPath", () => {
   });
 
   it("rejects non-renderer and package imports", () => {
-    const importer = path.resolve(repoRoot, "desktop/src/App.tsx");
+    const importer = path.resolve(repoRoot, "packages/desktop-ui/src/App.tsx");
     const packageJson = path.resolve(repoRoot, "package.json").replace(/\\/g, "/");
 
     expect(

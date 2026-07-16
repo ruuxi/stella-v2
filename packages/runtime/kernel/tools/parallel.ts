@@ -1,7 +1,7 @@
 import type {
   FileChangeRecord,
   ProducedFileRecord,
-} from "../../contracts/file-changes.js";
+} from "@stella/contracts/file-changes";
 import type { ToolContext, ToolHandlerExtras, ToolResult } from "./types.js";
 
 export const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";

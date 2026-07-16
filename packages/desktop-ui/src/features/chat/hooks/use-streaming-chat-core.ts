@@ -5,7 +5,7 @@ import { getOrCreateDeviceId } from '@/platform/electron/device-id'
 import type { SendMessageArgs } from '../streaming/chat-types'
 import type { MessageMetadata } from '@/features/chat/lib/event-transforms'
 import type { EventRecord } from '@/features/chat/lib/event-transforms'
-import type { MessageRecord } from '../../../../../runtime/contracts/local-chat.js'
+import type { MessageRecord } from '@stella/contracts/local-chat'
 import { resolveComposerContextState } from '../composer-context'
 import { shouldTreatResumedAnswerAsStarted } from '@/features/chat/working-indicator-state'
 import {

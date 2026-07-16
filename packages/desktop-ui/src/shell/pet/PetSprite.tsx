@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from "react";
-import type { PetAnimationState } from "@/shared/contracts/pet";
+import type { PetAnimationState } from "@stella/contracts/desktop/pet";
 import {
   formatFramePosition,
   resolveAnimation,

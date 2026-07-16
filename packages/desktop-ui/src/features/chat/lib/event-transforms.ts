@@ -2,12 +2,12 @@ import {
   AGENT_IDS,
   type TaskLifecycleStatus,
   type TaskToolActivity,
-} from '../../../../../runtime/contracts/agent-runtime.js'
+} from '@stella/contracts/agent-runtime'
 import { normalizeDisplayStatusText } from '../status-utils'
 import type {
   FileChangeRecord,
   ProducedFileRecord,
-} from '../../../../../runtime/contracts/file-changes.js'
+} from '@stella/contracts/file-changes'
 import type {
   Attachment,
   ChannelEnvelope,
@@ -17,7 +17,7 @@ import type {
   ThreadActivityRecord,
   ToolRequestPayload,
   ToolResultPayload,
-} from '../../../../../runtime/contracts/local-chat.js'
+} from '@stella/contracts/local-chat'
 
 export type {
   Attachment,

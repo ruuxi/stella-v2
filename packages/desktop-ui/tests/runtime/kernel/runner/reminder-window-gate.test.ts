@@ -8,8 +8,8 @@ import {
   getLastCompactionAt,
   isReminderShownInActiveWindow,
   recordReminderShown,
-} from "../../../../../runtime/kernel/runner/reminder-window-gate.js";
-import { formatThreadCheckpointMessage } from "../../../../../runtime/kernel/thread-runtime.js";
+} from "@stella/runtime/kernel/runner/reminder-window-gate";
+import { formatThreadCheckpointMessage } from "@stella/runtime/kernel/thread-runtime";
 
 const roots: string[] = [];
 

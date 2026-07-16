@@ -1,1 +1,1 @@
-export * from "../../../runtime/contracts/convex-api.js";
+export * from "@stella/contracts/convex-api";

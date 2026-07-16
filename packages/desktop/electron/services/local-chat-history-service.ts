@@ -1,13 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { fileChange } from "../../../runtime/contracts/file-changes.js";
+import { fileChange } from "@stella/contracts/file-changes";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../runtime/kernel/storage/database-init.js";
-import { prepareStoredLocalChatPayload } from "../../../runtime/kernel/storage/local-chat-payload.js";
-import { SessionStore } from "../../../runtime/kernel/storage/session-store.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import { prepareStoredLocalChatPayload } from "@stella/runtime/kernel/storage/local-chat-payload";
+import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
 import type {
   LocalChatActivityWindow,
   LocalChatAppendEventArgs,
@@ -16,12 +16,12 @@ import type {
   LocalChatMessageRecord,
   LocalChatMessageWindow,
   SqliteDatabase,
-} from "../../../runtime/kernel/storage/shared.js";
+} from "@stella/runtime/kernel/storage/shared";
 import type {
   LocalChatUpdatedPayload,
   TaskDecorationUpdatedPayload,
   ThreadActivityRecord,
-} from "../../../runtime/contracts/local-chat.js";
+} from "@stella/contracts/local-chat";
 import {
   buildMobileSyncMessagesPage,
   buildMobileSyncMessages,

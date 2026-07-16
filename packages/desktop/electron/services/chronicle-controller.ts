@@ -8,7 +8,7 @@ import {
   getChronicleEnabled,
   getChroniclePendingEnable,
   setChronicleMemoryPreference,
-} from "../../../runtime/kernel/preferences/local-preferences.js";
+} from "@stella/runtime/kernel/preferences/local-preferences";
 
 /**
  * ChronicleController owns the lifecycle of the `chronicle` Swift sidecar.

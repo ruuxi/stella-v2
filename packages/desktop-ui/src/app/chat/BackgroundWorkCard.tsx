@@ -36,7 +36,7 @@ import {
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
 import { MessageSquarePlus, Send, X } from "@/ui/icons";
 import { TextShimmer } from "@/app/chat/TextShimmer";
-import type { TaskToolActivity } from "../../../../runtime/contracts/agent-runtime.js";
+import type { TaskToolActivity } from "@stella/contracts/agent-runtime";
 import { friendlyInlineToolStatus } from "@/app/chat/friendly-tool-status";
 import {
   getTaskDecoration,

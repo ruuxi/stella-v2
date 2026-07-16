@@ -6,23 +6,23 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
 import { setupEnvironment } from "dugite";
-import type { RuntimeHealthSnapshot } from "../../../runtime/protocol/index.js";
+import type { RuntimeHealthSnapshot } from "@stella/contracts/protocol";
 import type { StellaHostRunner } from "../stella-host-runner.js";
 import {
   ensurePrivateDir,
   writePrivateFile,
-} from "../../../runtime/kernel/shared/private-fs.js";
+} from "@stella/runtime/kernel/shared/private-fs";
 import {
   deleteProtectedValue,
   protectValue,
   unprotectValue,
-} from "../../../runtime/kernel/shared/protected-storage.js";
+} from "@stella/runtime/kernel/shared/protected-storage";
 import type {
   BackupNowResult,
   BackupStatusSnapshot,
   BackupSummary,
   RestoreBackupResult,
-} from "../../src/shared/contracts/backup.js";
+} from "@stella/contracts/desktop/backup";
 
 const execFileAsync = promisify(execFile);
 

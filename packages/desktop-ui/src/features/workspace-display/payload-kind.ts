@@ -1,4 +1,4 @@
-import type { DisplayTabPayload } from "@/shared/contracts/display-payload";
+import type { DisplayTabPayload } from "@stella/contracts/desktop/display-payload";
 import type { DisplayTabKind } from "./types";
 import { kindForPath } from "./path-to-viewer";
 

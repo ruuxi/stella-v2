@@ -1,8 +1,8 @@
-import type { ChatContext } from "../contracts/index.js";
+import type { ChatContext } from "@stella/contracts";
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
-} from "../protocol/index.js";
+} from "@stella/contracts/protocol";
 import { sanitizePromptContext } from "./tools/safety.js";
 
 type BuildChatPromptMessagesArgs = {

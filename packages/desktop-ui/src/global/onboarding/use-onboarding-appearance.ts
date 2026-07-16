@@ -7,7 +7,7 @@ import {
   isKnownPersonalityId,
   type PersonalityId,
   type PersonalityOption,
-} from "../../../../runtime/contracts/personality.js";
+} from "@stella/contracts/personality";
 
 export function useOnboardingAppearance() {
   const [personalityVoiceId, setPersonalityVoiceIdState] =

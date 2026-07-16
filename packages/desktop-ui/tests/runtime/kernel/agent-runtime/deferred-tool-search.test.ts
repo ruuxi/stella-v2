@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { createPiTools } from "../../../../../runtime/kernel/agent-runtime/tool-adapters.js";
-import type { ToolMetadata } from "../../../../../runtime/kernel/tools/types.js";
-import { buildLocalHistoryFromEvents } from "../../../../../runtime/kernel/local-history.js";
+import { createPiTools } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
+import type { ToolMetadata } from "@stella/runtime/kernel/tools/types";
+import { buildLocalHistoryFromEvents } from "@stella/runtime/kernel/local-history";
 
 const firstText = (content: { type: string; text?: string }[]) =>
   content[0]?.text ?? "";

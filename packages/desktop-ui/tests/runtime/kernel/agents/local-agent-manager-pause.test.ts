@@ -4,8 +4,8 @@ import {
   LocalAgentManager,
   AGENT_PAUSE_CANCEL_REASON,
   type AgentLifecycleEvent,
-} from "../../../../../runtime/kernel/agents/local-agent-manager.js";
-import type { ToolResult } from "../../../../../runtime/kernel/tools/types.js";
+} from "@stella/runtime/kernel/agents/local-agent-manager";
+import type { ToolResult } from "@stella/runtime/kernel/tools/types";
 import { waitForAgentSettled } from "../../../helpers/agent.js";
 
 const waitFor = async (

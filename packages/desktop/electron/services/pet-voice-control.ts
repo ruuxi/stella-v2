@@ -1,7 +1,7 @@
 import type { PetWindowController } from "../windows/pet-window.js";
 import type { UiStateService } from "./ui-state-service.js";
 import type { WindowManager } from "../windows/window-manager.js";
-import { IPC_PET_SET_OPEN } from "../../src/shared/contracts/ipc-channels.js";
+import { IPC_PET_SET_OPEN } from "@stella/contracts/desktop/ipc-channels";
 
 type PetVoiceControlDeps = {
   uiStateService: UiStateService;

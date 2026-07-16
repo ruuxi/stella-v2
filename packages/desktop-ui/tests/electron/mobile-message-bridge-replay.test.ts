@@ -70,14 +70,14 @@ afterEach(async () => {
 describe("mobile bridge replay end to end", () => {
   it("returns one durable canonical acceptance through repeated bridge invokes", async () => {
     const { startCapturingHandlers } = await import(
-      "../../electron/services/mobile-bridge/handler-registry.js"
+      "@stella/desktop/electron/services/mobile-bridge/handler-registry.js"
     );
     const stopCapturing = startCapturingHandlers();
     const [{ registerAgentHandlers }, { LocalChatHistoryService }, { MobileBridgeService }] =
       await Promise.all([
-        import("../../electron/ipc/agent-handlers.js"),
-        import("../../electron/services/local-chat-history-service.js"),
-        import("../../electron/services/mobile-bridge/service.js"),
+        import("@stella/desktop/electron/ipc/agent-handlers.js"),
+        import("@stella/desktop/electron/services/local-chat-history-service.js"),
+        import("@stella/desktop/electron/services/mobile-bridge/service.js"),
       ]);
 
     const root = path.join(

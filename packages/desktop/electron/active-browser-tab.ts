@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import type { ActiveBrowserTab } from '../src/shared/contracts/home.js'
+import type { ActiveBrowserTab } from '@stella/contracts/desktop/home'
 
 /**
  * macOS bundle ids → AppleScript dialect for "active tab URL + title". The

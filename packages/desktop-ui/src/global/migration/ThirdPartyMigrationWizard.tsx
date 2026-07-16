@@ -12,7 +12,7 @@ import type {
   ThirdPartyMigrationReportItem,
   ThirdPartyMigrationSelection,
   ThirdPartyMigrationSource,
-} from "@/shared/contracts/migration";
+} from "@stella/contracts/desktop/migration";
 import { showToast } from "@/ui/toast";
 
 import "./ThirdPartyMigrationWizard.css";

@@ -4,9 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { initializeDesktopDatabase } from "../../../../../runtime/kernel/storage/database-init.js";
-import { RunEventLog } from "../../../../../runtime/kernel/storage/run-event-log.js";
-import type { SqliteDatabase } from "../../../../../runtime/kernel/storage/shared.js";
+import { initializeDesktopDatabase } from "@stella/runtime/kernel/storage/database-init";
+import { RunEventLog } from "@stella/runtime/kernel/storage/run-event-log";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 describe("RunEventLog", () => {
   let tempDir: string;

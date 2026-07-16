@@ -2,9 +2,9 @@ import {
   AGENT_RUN_FINISH_OUTCOMES,
   AGENT_STREAM_EVENT_TYPES,
   type AgentStreamEventType,
-} from "../../contracts/agent-runtime.js";
+} from "@stella/contracts/agent-runtime";
 import { prepareStoredLocalChatPayload } from "../../kernel/storage/local-chat-payload.js";
-import type { MessageMetadata } from "../../contracts/local-chat.js";
+import type { MessageMetadata } from "@stella/contracts/local-chat";
 import type {
   RuntimeAgentEventPayload,
   RuntimePromptMessage,
@@ -16,7 +16,7 @@ import type {
   RuntimeVoiceToolCallPayload,
   RuntimeVoiceToolCallResult,
   RuntimeWebSearchResult,
-} from "../../protocol/index.js";
+} from "@stella/contracts/protocol";
 import type {
   RuntimeEndEvent,
   RuntimeErrorEvent,
@@ -26,7 +26,7 @@ import type {
   RuntimeToolStartEvent,
 } from "../../kernel/agent-runtime.js";
 import type { AgentLifecycleEvent } from "../../kernel/agents/local-agent-manager.js";
-import type { SelfModHmrState } from "../../contracts/index.js";
+import type { SelfModHmrState } from "@stella/contracts";
 import type { ChatStore } from "../../kernel/storage/chat-store.js";
 import type { ToolContext, ToolResult } from "../../kernel/tools/types.js";
 import { textFromUnknown } from "../../kernel/agent-runtime/shared.js";

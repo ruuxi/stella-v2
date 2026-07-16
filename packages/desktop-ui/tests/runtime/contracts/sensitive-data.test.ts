@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { redactSensitiveText } from "../../../../runtime/contracts/sensitive-data.js";
+import { redactSensitiveText } from "@stella/contracts/sensitive-data";
 
 describe("redactSensitiveText", () => {
   describe("benign assignments stay readable", () => {

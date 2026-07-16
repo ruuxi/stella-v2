@@ -15,7 +15,7 @@ import {
   loadConnectorTokenPayload,
   saveConnectorAccessToken,
   setConnectorTokenStoreBroker,
-} from "../../../../../runtime/kernel/connectors/oauth.js";
+} from "@stella/runtime/kernel/connectors/oauth";
 
 type TestServer = {
   baseUrl: string;

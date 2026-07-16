@@ -18,7 +18,7 @@ import path from "node:path";
 // cached zip with native OS tooling instead of trusting `extract-zip`.
 
 const scriptDir = import.meta.dirname;
-const repoRootDir = path.resolve(scriptDir, "..", "..");
+const repoRootDir = path.resolve(scriptDir, "..", "..", "..");
 const electronDir = path.join(repoRootDir, "node_modules", "electron");
 
 function log(message) {

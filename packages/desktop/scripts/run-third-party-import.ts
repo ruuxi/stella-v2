@@ -7,7 +7,7 @@ import {
   runThirdPartyMigration,
   type ThirdPartyMigrationSelection,
   type ThirdPartyMigrationSource,
-} from "../../runtime/kernel/migration/third-party-importers.js";
+} from "@stella/runtime/kernel/migration/third-party-importers";
 
 type RequestPayload = {
   action?: "detect" | "preview" | "run";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { executeToolWithInactivityBound } from "../../../../../runtime/kernel/integrations/tool-inactivity.js";
+import { executeToolWithInactivityBound } from "@stella/runtime/kernel/integrations/tool-inactivity";
 
 describe("executeToolWithInactivityBound", () => {
   it("cancels a tool that never settles and returns an error result", async () => {

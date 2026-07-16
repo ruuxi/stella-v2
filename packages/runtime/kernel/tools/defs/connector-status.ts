@@ -17,7 +17,7 @@
  *    so the offer is never repeated.
  */
 
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   resolveNativeConnectorCatalog,
   type NativeCatalogSource,

@@ -4,26 +4,16 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "outDir": "dist-electron",
-    "rootDir": "..",
+    "rootDir": "../..",
     "lib": ["ES2022"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["node", "bun-types"],
-    "composite": true,
+    "types": ["node", "bun-types"]
   },
   "include": [
-    "electron/**/*",
-    "../runtime/**/*",
-    "src/shared/contracts/**/*",
-    "src/shared/ai/**/*",
-    "src/shared/lib/convex-urls.ts",
-    "src/shared/lib/mini-double-tap.ts",
-    "src/shared/lib/radial-trigger.ts",
-    "src/shared/social/invite-links.ts",
-    "src/shared/stella-api.ts",
-    "src/convex/api.ts"
+    "electron/**/*"
   ],
   "exclude": ["electron/preload.ts", "electron/store-web-preload.ts", "**/*.test.ts"],
 }

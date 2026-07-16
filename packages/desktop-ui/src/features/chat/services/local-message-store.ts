@@ -17,8 +17,8 @@
 import type {
   LocalChatUpdatedPayload,
   MessageRecord,
-} from "../../../../../runtime/contracts/local-chat.js";
-import { isUiHiddenChatMessagePayload } from "../../../../../runtime/chat-event-visibility.js";
+} from "@stella/contracts/local-chat";
+import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 
 // Absent outside Electron (plain-browser `bun run dev`): chat history lives
 // in main-process SQLite, so browser tabs degrade to an empty, update-free

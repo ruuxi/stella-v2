@@ -4,7 +4,7 @@ import type { AgentTool } from "../agent-core/types.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { TextContent } from "../../ai/types.js";
 import { DEVICE_TOOL_NAMES } from "../tools/schemas.js";
-import type { AgentModelConfigSnapshot } from "../../contracts/agent-engine.js";
+import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import type {
   ToolContext,
   ToolMetadata,
@@ -12,7 +12,7 @@ import type {
   ToolUpdateCallback,
 } from "../tools/types.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
-import { TOOL_IDS } from "../../contracts/agent-runtime.js";
+import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import { AnyToolArgsSchema, textFromUnknown } from "./shared.js";
 import { dispatchLocalTool } from "../tools/local-tool-dispatch.js";
 import {

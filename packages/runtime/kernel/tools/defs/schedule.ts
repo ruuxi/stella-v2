@@ -5,7 +5,7 @@
  * agent which builds the actual cron / heartbeat configuration.
  */
 
-import { AGENT_IDS } from "../../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { handleSchedule } from "../schedule.js";
 import type {
   ScheduleToolApi,

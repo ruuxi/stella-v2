@@ -2,8 +2,8 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { streamOpenAIResponses } from "../../../../runtime/ai/providers/openai-responses.js";
-import type { Context, Model } from "../../../../runtime/ai/types.js";
+import { streamOpenAIResponses } from "@stella/runtime/ai/providers/openai-responses";
+import type { Context, Model } from "@stella/runtime/ai/types";
 
 const servers = new Set<http.Server>();
 

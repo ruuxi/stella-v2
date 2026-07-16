@@ -2,23 +2,23 @@
  * Shared type definitions for the tools system.
  */
 
-import type { TaskLifecycleStatus } from "../../contracts/agent-runtime.js";
+import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 import type {
   AgentModelConfigSnapshot,
   SpawnEngineSelection,
   SpawnReasoningEffort,
-} from "../../contracts/agent-engine.js";
+} from "@stella/contracts/agent-engine";
 import type {
   FileChangeRecord,
   ProducedFileRecord,
-} from "../../contracts/file-changes.js";
+} from "@stella/contracts/file-changes";
 import type {
   LocalCronJobCreateInput,
   LocalCronJobRecord,
   LocalCronJobUpdatePatch,
   LocalHeartbeatConfigRecord,
   LocalHeartbeatUpsertInput,
-} from "../shared/scheduling.js";
+} from "@stella/contracts/scheduling";
 import type { RuntimeThreadRecord } from "../runtime-threads.js";
 
 export type ToolContext = {

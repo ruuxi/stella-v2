@@ -15,7 +15,7 @@
  */
 
 import { useSyncExternalStore } from "react";
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { displayTabs } from "./tab-store";
 
 export type SourceDiffBatch = {

@@ -6,7 +6,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import type { ToolContext, ToolResult } from "./types.js";
-import { fileChange } from "../../contracts/file-changes.js";
+import { fileChange } from "@stella/contracts/file-changes";
 import {
   expandHomePath,
   readFileSafe,

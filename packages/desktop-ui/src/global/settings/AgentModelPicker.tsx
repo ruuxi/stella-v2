@@ -15,7 +15,7 @@ import {
   type ReadAloudVoiceProvider,
   type RealtimeVoicePreferences,
   type RealtimeVoiceUnderlyingProvider,
-} from "../../../../runtime/contracts/local-preferences";
+} from "@stella/contracts/local-preferences";
 import { Select } from "@/ui/select";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-catalog";

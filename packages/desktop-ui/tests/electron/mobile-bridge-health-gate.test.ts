@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MobileBridgeService } from "../../electron/services/mobile-bridge/service.js";
+import { MobileBridgeService } from "@stella/desktop/electron/services/mobile-bridge/service.js";
 
 const TUNNEL_URL = "https://desktop.example.com";
 

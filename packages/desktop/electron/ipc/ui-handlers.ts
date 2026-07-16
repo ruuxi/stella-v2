@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { writeFileSync } from "node:fs";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
-import { IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE } from "../../src/shared/contracts/ipc-channels.js";
+import { IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE } from "@stella/contracts/desktop/ipc-channels";
 import type { UiState } from "../types.js";
 import type { WindowManager } from "../windows/window-manager.js";
 

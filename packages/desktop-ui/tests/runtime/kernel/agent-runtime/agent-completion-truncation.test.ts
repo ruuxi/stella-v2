@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getAgentCompletion } from "../../../../../runtime/kernel/agent-runtime/shared.js";
-import type { AssistantMessage, StopReason } from "../../../../../runtime/ai/types.js";
+import { getAgentCompletion } from "@stella/runtime/kernel/agent-runtime/shared";
+import type { AssistantMessage, StopReason } from "@stella/runtime/ai/types";
 
 const usage = (output: number) => ({
   input: 2,

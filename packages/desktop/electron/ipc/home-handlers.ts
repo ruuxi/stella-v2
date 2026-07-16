@@ -3,7 +3,7 @@ import {
   IPC_HOME_CAPTURE_APP_WINDOW,
   IPC_HOME_GET_ACTIVE_BROWSER_TAB,
   IPC_HOME_LIST_RECENT_APPS,
-} from "../../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import { getActiveBrowserTabForBundleId } from "../active-browser-tab.js";
 import { captureAppWindow } from "../capture-app-window.js";
 import { listRecentApps } from "../recent-apps.js";

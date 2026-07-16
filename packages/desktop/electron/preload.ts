@@ -5,22 +5,22 @@ import type {
   DesktopReleaseSourceHistoryRef,
   SelfModHmrState,
   StellaReleaseArtifactRef,
-} from "../../runtime/contracts/index.js";
+} from "@stella/contracts";
 import type {
   LocalChatUpdatedPayload,
   ThreadActivityUpdatedPayload,
-} from "../../runtime/contracts/local-chat.js";
-import type { RadialTriggerCode } from "../src/shared/lib/radial-trigger.js";
-import type { MiniDoubleTapModifier } from "../src/shared/lib/mini-double-tap.js";
-import type { MorphTimingSettings } from "../src/shared/contracts/morph-timing.js";
-import type { OfficePreviewSnapshot } from "../../runtime/contracts/office-preview.js";
-import type { RealtimeVoicePreferences } from "../../runtime/contracts/local-preferences.js";
+} from "@stella/contracts/local-chat";
+import type { RadialTriggerCode } from "@stella/contracts/radial-trigger";
+import type { MiniDoubleTapModifier } from "@stella/contracts/mini-double-tap";
+import type { MorphTimingSettings } from "@stella/contracts/desktop/morph-timing";
+import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
+import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import type {
   ThirdPartyMigrationPreview,
   ThirdPartyMigrationReport,
   ThirdPartyMigrationSelection,
   ThirdPartyMigrationSource,
-} from "../src/shared/contracts/migration.js";
+} from "@stella/contracts/desktop/migration";
 import {
   IPC_BROWSER_FETCH_JSON,
   IPC_BROWSER_FETCH_TEXT,
@@ -50,14 +50,14 @@ import {
   IPC_OFFICE_PREVIEW_START,
   IPC_OFFICE_PREVIEW_UPDATE,
   IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE,
-} from "../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import type {
   OnboardingSynthesisRequest,
   OnboardingSynthesisResponse,
   OnboardingWelcomeHtmlRequest,
   OnboardingWelcomeHtmlResponse,
-} from "../src/shared/contracts/onboarding.js";
-import type { DiscoveryKnowledgeSeedPayload } from "../../runtime/contracts/discovery.js";
+} from "@stella/contracts/desktop/onboarding";
+import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery";
 import {
   IPC_APP_QUIT_FOR_RESTART,
   IPC_AUTH_APPLY_SESSION_COOKIE,
@@ -135,13 +135,13 @@ import {
   IPC_VOICE_CREATE_INWORLD_SESSION,
   IPC_VOICE_REPORT_SESSION_ERROR,
   IPC_VOICE_SESSION_ERROR,
-} from "../src/shared/contracts/ipc-channels.js";
+} from "@stella/contracts/desktop/ipc-channels";
 import type {
   RuntimeSocialSessionStatus,
   RuntimeVoiceOrchestratorConfig,
   RuntimeVoiceToolCallPayload,
   RuntimeVoiceToolCallResult,
-} from "../../runtime/protocol/index.js";
+} from "@stella/contracts/protocol";
 
 // ---------------------------------------------------------------------------
 // IPC listener helpers — eliminate boilerplate for the 3 common patterns.
@@ -829,7 +829,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       userPrompt: string;
       selectedText?: string | null;
       chatContext?:
-        | import("../../runtime/contracts/index.js").ChatContext
+        | import("@stella/contracts").ChatContext
         | null;
       deviceId?: string;
       platform?: string;

@@ -2,18 +2,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Api, Model } from "../ai/types.js";
-import { AGENT_IDS } from "../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { getModels } from "../ai/models.js";
 import {
   formatLlmRouteFailure,
   type LlmRouteFailure,
-} from "../ai/llm-route-failure.js";
+} from "@stella/contracts/llm-route-failure";
 import { getLocalLlmCredential } from "./storage/llm-credentials.js";
 import {
   getLocalLlmOAuthApiKey,
   hasLocalLlmOAuthCredential,
 } from "./storage/llm-oauth-credentials.js";
-import { STELLA_DEFAULT_MODEL } from "../contracts/stella-api.js";
+import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import {
   findRegistryModel,
   getEngineNativeStellaModelAlternative,

@@ -5,7 +5,7 @@ import {
   resolveRuntimePaths,
   runtimeIpcListenUrl,
   runtimeIpcPathUsesFilesystem,
-} from "../../../../runtime/worker/runtime-paths.js";
+} from "@stella/runtime/worker/runtime-paths";
 
 describe("resolveRuntimePaths", () => {
   it("uses filesystem socket paths on POSIX platforms", () => {

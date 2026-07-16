@@ -5,8 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { callApiConnector } from "../../../../../runtime/kernel/connectors/api-client.js";
-import { saveConnectorAccessToken } from "../../../../../runtime/kernel/connectors/oauth.js";
+import { callApiConnector } from "@stella/runtime/kernel/connectors/api-client";
+import { saveConnectorAccessToken } from "@stella/runtime/kernel/connectors/oauth";
 
 type TestServer = {
   baseUrl: string;

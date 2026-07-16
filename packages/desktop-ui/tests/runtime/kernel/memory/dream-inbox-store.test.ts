@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { DreamInboxStore } from "../../../../../runtime/kernel/memory/dream-inbox-store.js";
+import { DreamInboxStore } from "@stella/runtime/kernel/memory/dream-inbox-store";
 import { createSqliteTestContextFactory } from "../../../helpers/sqlite-test-context.js";
 
 const testContexts = createSqliteTestContextFactory(

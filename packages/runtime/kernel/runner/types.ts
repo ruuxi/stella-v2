@@ -18,7 +18,7 @@ import type {
   RuntimeUserMessageEvent,
   SelfModMonitor,
 } from "../agent-runtime.js";
-import type { RuntimeAgentEventPayload } from "../../protocol/index.js";
+import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { LocalContextEvent } from "../local-history.js";
 import type {
@@ -42,7 +42,7 @@ import type {
   StorePackageRecord,
   StorePackageReleaseRecord,
   SelfModHmrState,
-} from "../../contracts/index.js";
+} from "@stella/contracts";
 import type {
   HostAppBrowserContextSnapshot,
   HostRuntimeAuthRefreshResult,
@@ -55,7 +55,7 @@ import type {
   RuntimeVoiceOrchestratorConfigRequest,
   RuntimePromptMessage,
   StorePublishArgs,
-} from "../../protocol/index.js";
+} from "@stella/contracts/protocol";
 import type { LocalChatAppendEventArgs } from "../storage/shared.js";
 
 export type StellaHostRunnerOptions = {
@@ -445,7 +445,7 @@ export type RunnerContext = {
     drainCompletedShellProducedFiles: (
       sessionIds?: string[],
     ) => Promise<
-      import("../../contracts/file-changes.js").ProducedFileRecord[]
+      import("@stella/contracts/file-changes").ProducedFileRecord[]
     >;
     killAllShells: () => void;
     killShell: (sessionId: string) => Promise<void> | void;

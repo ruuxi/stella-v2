@@ -8,11 +8,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { commitGitMessage } from "../../../../../runtime/kernel/self-mod/git/commit.js";
-import { withRepoCommitLock } from "../../../../../runtime/kernel/self-mod/git/commit-lock.js";
-import { isRefLockContentionOutput } from "../../../../../runtime/kernel/self-mod/git/exec.js";
-import { getGitHead } from "../../../../../runtime/kernel/self-mod/git/log.js";
-import { revertGitCommits } from "../../../../../runtime/kernel/self-mod/git/revert.js";
+import { commitGitMessage } from "@stella/runtime/kernel/self-mod/git/commit";
+import { withRepoCommitLock } from "@stella/runtime/kernel/self-mod/git/commit-lock";
+import { isRefLockContentionOutput } from "@stella/runtime/kernel/self-mod/git/exec";
+import { getGitHead } from "@stella/runtime/kernel/self-mod/git/log";
+import { revertGitCommits } from "@stella/runtime/kernel/self-mod/git/revert";
 
 const git = (cwd: string, args: string[]) => {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });

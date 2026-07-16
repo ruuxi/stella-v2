@@ -16,7 +16,7 @@ import {
   type EventRecord,
   type TaskItem,
 } from "@/features/chat/lib/event-transforms";
-import type { ThreadActivityRecord } from "../../../../runtime/contracts/local-chat.js";
+import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
 import {
   buildInlineWorkingIndicatorProps,
   getInlineWorkingIndicatorActive,

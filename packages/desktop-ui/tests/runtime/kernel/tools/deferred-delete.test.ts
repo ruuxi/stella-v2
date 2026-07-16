@@ -11,16 +11,16 @@ import {
   purgeDeferredDelete,
   purgeExpiredDeferredDeletes,
   trashPathsForDeferredDelete,
-} from "../../../../../runtime/kernel/tools/deferred-delete.js";
+} from "@stella/runtime/kernel/tools/deferred-delete";
 import {
   extractNativeWindowsDeleteTargets,
   extractPowerShellDeleteTargets,
   extractWindowsCmdDeleteTargets,
-} from "../../../../../runtime/kernel/tools/deferred-delete-cli.js";
+} from "@stella/runtime/kernel/tools/deferred-delete-cli";
 import {
   createShellState,
   handleExecCommand,
-} from "../../../../../runtime/kernel/tools/shell.js";
+} from "@stella/runtime/kernel/tools/shell";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createAsyncTempDirTracker();

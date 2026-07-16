@@ -28,13 +28,13 @@ import type {
   LocalAgentContext,
   AgentLifecycleEvent,
 } from "../agents/local-agent-manager.js";
-import { AGENT_IDS, isLocalCliAgentId } from "../../contracts/agent-runtime.js";
+import { AGENT_IDS, isLocalCliAgentId } from "@stella/contracts/agent-runtime";
 import {
   isFileChangeRecordArray,
   isProducedFileRecordArray,
   type FileChangeRecord,
   type ProducedFileRecord,
-} from "../../contracts/file-changes.js";
+} from "@stella/contracts/file-changes";
 import type { RunnerContext } from "./types.js";
 import { buildAgentEventPrompt } from "./shared.js";
 import {
@@ -407,7 +407,7 @@ export const createAgentOrchestration = (
       agentType?: string;
       deliverAs?: "steer" | "followUp";
       callbackRunId?: string;
-      responseTarget?: import("../../protocol/index.js").RuntimeAgentEventPayload["responseTarget"];
+      responseTarget?: import("@stella/contracts/protocol").RuntimeAgentEventPayload["responseTarget"];
       customType?: string;
       display?: boolean;
     }) => Promise<void>;

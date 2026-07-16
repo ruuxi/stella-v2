@@ -16,12 +16,12 @@ import {
   type RuntimeThreadRecord,
 } from "../runtime-threads.js";
 import { AGENT_PAUSE_CANCEL_REASON } from "../agents/local-agent-manager.js";
-import { AGENT_IDS } from "../../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type {
   AgentRuntimeEngine,
   SpawnEngineSelection,
   SpawnReasoningEffort,
-} from "../../contracts/agent-engine.js";
+} from "@stella/contracts/agent-engine";
 import { isRegisteredModelReference } from "../../ai/models.js";
 import {
   isOpenEndedModelReference,

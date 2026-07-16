@@ -23,7 +23,7 @@ import {
   AGENT_IDS,
   AGENT_RUN_FINISH_OUTCOMES,
   AGENT_STREAM_EVENT_TYPES,
-} from '../../../../../runtime/contracts/agent-runtime.js'
+} from '@stella/contracts/agent-runtime'
 import type { StreamStoreAction } from './store'
 import {
   isStellaLimitOrAuthReason,

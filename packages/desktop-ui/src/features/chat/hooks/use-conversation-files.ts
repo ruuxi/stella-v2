@@ -25,7 +25,7 @@ import {
   type LocalFilesWindowSnapshot,
 } from "@/features/chat/services/local-files-store";
 import { showToast } from "@/ui/toast";
-import type { EventRecord } from "../../../../../runtime/contracts/local-chat.js";
+import type { EventRecord } from "@stella/contracts/local-chat";
 
 export const FILES_PAGE_SIZE = 500;
 const LOCAL_FILES_LOAD_RETRY_MS = 300;

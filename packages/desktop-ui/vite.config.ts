@@ -8,35 +8,36 @@ import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite"
 import { selfModHmrControl } from "./vite/self-mod-hmr-plugin"
 import { uiStateSharedStore } from "./vite/ui-state-plugin"
 
+const __dirname = import.meta.dirname
 
-const DEV_URL_FILE = path.resolve(__dirname, '.vite-dev-url')
+const DEV_URL_FILE = path.resolve(__dirname, '..', 'desktop', '.vite-dev-url')
 // Written by the supervisor after every electron-bundle build; not a renderer
 // module, and its write cadence would only churn the watcher.
 const BUNDLE_FINGERPRINT_FILE = path.resolve(
   __dirname,
   '.dev-electron-bundle-fingerprint.json',
 )
-const STELLA_REPO_ROOT = path.resolve(__dirname, '..')
+const STELLA_REPO_ROOT = path.resolve(__dirname, '..', '..')
 const SELF_MOD_RUNTIME_RELOAD_STATE_FILE = path.resolve(
   STELLA_REPO_ROOT,
   '.stella-runtime-reload-state.json',
 )
-const BUNDLED_STELLA_DATA_SEED_DIR = path.resolve(__dirname, '..', 'runtime', 'home-seed')
+const BUNDLED_STELLA_DATA_SEED_DIR = path.resolve(STELLA_REPO_ROOT, 'packages', 'home-seed')
 // esbuild owns this tree (the Electron-main/preload bundles); the dev script
 // runs its own purpose-built recursive watcher over it. Vite's default
 // auto-ignore only covers build.outDir ('dist'), so without this entry Vite's
 // renderer chokidar watcher also subscribes to the esbuild output and filters
 // its write bursts on every electron rebuild (heavier ReadDirectoryChangesW
 // churn on Windows). Keep Vite out of it entirely.
-const DIST_ELECTRON_DIR = path.resolve(__dirname, 'dist-electron')
+const DIST_ELECTRON_DIR = path.resolve(__dirname, '..', 'desktop', 'dist-electron')
 // Large build/artifact trees that never participate in renderer HMR. Without
 // these, Vite's chokidar root watcher (rooted at desktop/) subscribes to
 // ~14.5k files under native/ (5.8GB, incl. the 5.2GB wakeword model tree) and
 // release/ (1.2GB packaged installers) — a needless recursive readdirp walk +
 // stat-per-file at startup and (on Windows) ongoing ReadDirectoryChangesW churn.
 // Nothing under these is a renderer module, so prune them from the watch tree.
-const NATIVE_DIR = path.resolve(__dirname, 'native')
-const RELEASE_DIR = path.resolve(__dirname, 'release')
+const NATIVE_DIR = path.resolve(__dirname, '..', 'native')
+const RELEASE_DIR = path.resolve(__dirname, '..', 'desktop', 'release')
 const VITE_WORKSPACE_ROOT = searchForWorkspaceRoot(__dirname)
 
 const normalizeWatchedFilePath = (filePath: string) =>

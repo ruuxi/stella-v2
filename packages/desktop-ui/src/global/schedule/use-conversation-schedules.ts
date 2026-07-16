@@ -17,7 +17,7 @@ import type {
   LocalCronJobRecord,
   LocalCronSchedule,
   LocalHeartbeatConfigRecord,
-} from "../../../../runtime/kernel/shared/scheduling";
+} from "@stella/contracts/scheduling";
 
 export type ScheduleEntry =
   | {

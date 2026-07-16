@@ -3,7 +3,7 @@ import type { Readable } from "node:stream";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
-import { getFileLogger } from "../../../runtime/observability/file-logger.js";
+import { getFileLogger } from "@stella/runtime/observability/file-logger";
 
 /**
  * Manages the lifecycle of the native `wakeword_listener` child process.

@@ -27,8 +27,8 @@
 import type {
   EventRecord,
   MessageRecord,
-} from "../../../../../runtime/contracts/local-chat.js";
-import { isUiHiddenChatMessagePayload } from "../../../../../runtime/chat-event-visibility.js";
+} from "@stella/contracts/local-chat";
+import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 
 const isTurnDecorationEvent = (event: EventRecord): boolean =>
   event.type === "tool_request" ||

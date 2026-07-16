@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAutomationAgentCallbacks } from "../../../../../runtime/kernel/runner/orchestrator-callbacks.js";
+import { createAutomationAgentCallbacks } from "@stella/runtime/kernel/runner/orchestrator-callbacks";
 
 describe("automation orchestrator callbacks", () => {
   it("exposes every run end event before resolving the automation result", async () => {

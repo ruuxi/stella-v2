@@ -10,13 +10,13 @@ const moduleDir = import.meta.dirname;
 let cachedRoot: string | null = null;
 
 /**
- * Repo root that contains the `runtime/` source tree.
+ * Repo root that contains the `packages/runtime/` source tree.
  *
  * Prefers `STELLA_APP_DIR` (set in the Electron main process and inherited by
  * spawned sidecar children); falls back to walking up from this module until a
- * `package.json` + `runtime/` marker is found so vitest and any child without
+ * `package.json` + `packages/runtime/` marker is found so vitest and any child without
  * the env still resolve. Stella runs from its source tree, so source-tree
- * assets always live under `<root>/runtime/...`.
+ * assets always live under `<root>/packages/runtime/...`.
  */
 export function getStellaAppDir(): string {
   if (cachedRoot) return cachedRoot;
@@ -31,7 +31,7 @@ export function getStellaAppDir(): string {
   for (let i = 0; i < 16; i += 1) {
     if (
       existsSync(path.join(dir, "package.json")) &&
-      existsSync(path.join(dir, "runtime"))
+      existsSync(path.join(dir, "packages", "runtime"))
     ) {
       cachedRoot = dir;
       return cachedRoot;
@@ -42,29 +42,29 @@ export function getStellaAppDir(): string {
   }
 
   // Last resort: assume the canonical source layout
-  // (<root>/runtime/kernel/shared -> <root>).
-  cachedRoot = path.resolve(moduleDir, "..", "..", "..");
+  // (<root>/packages/runtime/kernel/shared -> <root>).
+  cachedRoot = path.resolve(moduleDir, "..", "..", "..", "..");
   return cachedRoot;
 }
 
 /**
- * Resolve a data asset that ships in the repo's source tree under `runtime/`
+ * Resolve a data asset that ships in the repo's source tree under `packages/runtime/`
  * (e.g. the OAuth catalog JSON, bundled agent markdown). The STELLA_APP_DIR path
- * is canonical; the dev-build copy under `desktop/dist-electron/` is a fallback
+ * is canonical; the dev-build copy under `packages/desktop/dist-electron/` is a fallback
  * for callers that only see the bundled tree.
  */
 export function resolveRuntimeSourceAsset(...segments: string[]): string {
   const root = getStellaAppDir();
   const candidates = [
-    path.join(root, ...segments),
-    path.join(root, "desktop", "dist-electron", ...segments),
+    path.join(root, "packages", "runtime", ...segments),
+    path.join(root, "packages", "desktop", "dist-electron", "runtime", ...segments),
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
 }
 
 /**
  * Resolve a compiled runtime file that lives under the bundled
- * `desktop/dist-electron/runtime/` tree (worker entry, sidecar CLIs, the
+ * `packages/desktop/dist-electron/runtime/` tree (worker entry, sidecar CLIs, the
  * deferred-delete helper). Anchored on STELLA_APP_DIR rather than this module's
  * `import.meta` — esbuild inlines shared modules into each entry/chunk, so a
  * shared helper's own location is not a stable offset to sibling files. The
@@ -79,8 +79,8 @@ export function resolveBundledRuntimeFile(relativeToRuntimeRoot: string): string
     index === segments.length - 1 ? segment.replace(/\.js$/, ".ts") : segment,
   );
   const candidates = [
-    path.join(root, "desktop", "dist-electron", "runtime", ...segments),
-    path.join(root, "runtime", ...sourceSegments),
+    path.join(root, "packages", "desktop", "dist-electron", "runtime", ...segments),
+    path.join(root, "packages", "runtime", ...sourceSegments),
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
 }

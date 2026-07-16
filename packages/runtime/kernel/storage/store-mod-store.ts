@@ -6,7 +6,7 @@ import type {
   StoreInstallRecord,
   StoreThreadMessage,
   StoreThreadSnapshot,
-} from "../../contracts/index.js";
+} from "@stella/contracts";
 import { slugify } from "../shared/slug.js";
 import type { SqliteDatabase } from "./shared.js";
 

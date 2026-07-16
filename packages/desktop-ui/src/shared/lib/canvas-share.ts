@@ -15,7 +15,7 @@ import {
   isCanvasShareUrl,
   parseCanvasShareSlug,
   readCanvasShareBaseUrl,
-} from "../../../../runtime/contracts/canvas-share.js";
+} from "@stella/contracts/canvas-share";
 
 export {
   buildCanvasShareUrl,

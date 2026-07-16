@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { MessageRecord } from "../../../../../runtime/contracts/local-chat.js";
+import type { MessageRecord } from "@stella/contracts/local-chat";
 import { getLatestAssistantPreview } from "@/features/chat/lib/latest-assistant-preview";
 
 type UseAssistantReplyPeekOptions = {

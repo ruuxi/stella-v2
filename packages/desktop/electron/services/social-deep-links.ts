@@ -13,7 +13,7 @@
 //
 // All three are *requests*, not actions: the renderer's SocialInviteLayer
 // shows a confirmation dialog before anything happens.
-import { parseSocialInviteLink } from "../../src/shared/social/invite-links.js";
+import { parseSocialInviteLink } from "@stella/contracts/desktop/invite-links";
 
 /**
  * Whether `value` is a well-formed social/store deep link for the given

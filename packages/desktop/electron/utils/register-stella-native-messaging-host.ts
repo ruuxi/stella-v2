@@ -19,7 +19,7 @@ import {
   STELLA_BROWSER_EXTENSION_ID,
   STELLA_NATIVE_MESSAGING_HOST_NAME,
   getStellaBrowserSocketDir,
-} from "../../../runtime/kernel/tools/stella-browser-bridge-config.js";
+} from "@stella/runtime/kernel/tools/stella-browser-bridge-config";
 import {
   activateStagedStellaBrowserBinary,
   resolveStellaBrowserBinaryPath,

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSelfModHmrController,
   deriveApplyTransitionRequirements,
-} from "../../../../../runtime/kernel/self-mod/hmr.js";
+} from "@stella/runtime/kernel/self-mod/hmr";
 
 const tempRoots: string[] = [];
 
@@ -40,8 +40,8 @@ describe("self-mod HMR controller", () => {
         controller.apply([
           {
             runId: "run-a",
-            paths: ["desktop/src/foo.tsx"],
-            files: [{ path: "desktop/src/foo.tsx", content: "export const a = 1" }],
+            paths: ["packages/desktop-ui/src/foo.tsx"],
+            files: [{ path: "packages/desktop-ui/src/foo.tsx", content: "export const a = 1" }],
             runtimeRestartRelevantPaths: [],
             processRestartRelevantPaths: [],
             restartRelevantPaths: [],
@@ -64,7 +64,7 @@ describe("self-mod HMR controller", () => {
       return new Response("forbidden", { status: 403 });
     }) as typeof fetch;
     const root = makeTempRoot();
-    const filePath = path.join(root, "desktop/src/foo.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/foo.tsx");
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, "export const a = 1;\n");
     const controller = createSelfModHmrController({
@@ -90,7 +90,7 @@ describe("self-mod HMR controller", () => {
     );
     globalThis.fetch = fetchMock as typeof fetch;
     const root = makeTempRoot();
-    const filePath = path.join(root, "desktop/src/stale.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/stale.tsx");
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, "export const value = 'stale';\n");
     const controller = createSelfModHmrController({
@@ -155,9 +155,9 @@ describe("self-mod HMR controller", () => {
 
   it("separates runtime restarts, process restarts, and browser reloads", async () => {
     const root = makeTempRoot();
-    const runtimePath = path.join(root, "runtime/worker/server.ts");
-    const electronPath = path.join(root, "desktop/electron/main.ts");
-    const metadataPath = path.join(root, "desktop/src/app/example/metadata.ts");
+    const runtimePath = path.join(root, "packages/runtime/worker/server.ts");
+    const electronPath = path.join(root, "packages/desktop/electron/main.ts");
+    const metadataPath = path.join(root, "packages/desktop-ui/src/app/example/metadata.ts");
     mkdirSync(path.dirname(runtimePath), { recursive: true });
     mkdirSync(path.dirname(electronPath), { recursive: true });
     mkdirSync(path.dirname(metadataPath), { recursive: true });
@@ -180,13 +180,13 @@ describe("self-mod HMR controller", () => {
 
     expect(result.appliedRuns).toHaveLength(1);
     expect(result.appliedRuns[0]!.runtimeRestartRelevantPaths).toEqual([
-      "runtime/worker/server.ts",
+      "packages/runtime/worker/server.ts",
     ]);
     expect(result.appliedRuns[0]!.processRestartRelevantPaths).toEqual([
-      "desktop/electron/main.ts",
+      "packages/desktop/electron/main.ts",
     ]);
     expect(result.appliedRuns[0]!.fullReloadRelevantPaths).toEqual([
-      "desktop/src/app/example/metadata.ts",
+      "packages/desktop-ui/src/app/example/metadata.ts",
     ]);
     expect(result.hasRuntimeRestartRelevantPaths).toBe(true);
     expect(result.hasProcessRestartRelevantPaths).toBe(true);
@@ -242,8 +242,8 @@ describe("self-mod HMR controller", () => {
 
   it("includes the generated route tree when a route file changes", async () => {
     const root = makeTempRoot();
-    const routePath = path.join(root, "desktop/src/routes/settings.tsx");
-    const routeTreePath = path.join(root, "desktop/src/routeTree.gen.ts");
+    const routePath = path.join(root, "packages/desktop-ui/src/routes/settings.tsx");
+    const routeTreePath = path.join(root, "packages/desktop-ui/src/routeTree.gen.ts");
     mkdirSync(path.dirname(routePath), { recursive: true });
     writeFileSync(routePath, "export const Route = null;\n");
     writeFileSync(routeTreePath, "export const routeTree = 'generated';\n");
@@ -259,16 +259,16 @@ describe("self-mod HMR controller", () => {
 
     expect(result.appliedRuns).toHaveLength(1);
     expect(result.appliedRuns[0]!.paths).toEqual([
-      "desktop/src/routes/settings.tsx",
-      "desktop/src/routeTree.gen.ts",
+      "packages/desktop-ui/src/routes/settings.tsx",
+      "packages/desktop-ui/src/routeTree.gen.ts",
     ]);
     expect(result.appliedRuns[0]!.files).toEqual([
       {
-        path: "desktop/src/routes/settings.tsx",
+        path: "packages/desktop-ui/src/routes/settings.tsx",
         content: "export const Route = null;\n",
       },
       {
-        path: "desktop/src/routeTree.gen.ts",
+        path: "packages/desktop-ui/src/routeTree.gen.ts",
         content: "export const routeTree = 'generated';\n",
       },
     ]);
@@ -278,7 +278,7 @@ describe("self-mod HMR controller", () => {
     const root = makeTempRoot();
     const metadataPath = path.join(
       root,
-      "desktop/src/app/launch-checklist/metadata.ts",
+      "packages/desktop-ui/src/app/launch-checklist/metadata.ts",
     );
     mkdirSync(path.dirname(metadataPath), { recursive: true });
     writeFileSync(metadataPath, "export default { id: 'launch-checklist' };\n");
@@ -294,18 +294,18 @@ describe("self-mod HMR controller", () => {
 
     expect(result.appliedRuns).toHaveLength(1);
     expect(result.appliedRuns[0]!.paths).toEqual([
-      "desktop/src/app/launch-checklist/metadata.ts",
+      "packages/desktop-ui/src/app/launch-checklist/metadata.ts",
     ]);
     expect(result.appliedRuns[0]!.fullReloadRelevantPaths).toEqual([
-      "desktop/src/app/launch-checklist/metadata.ts",
+      "packages/desktop-ui/src/app/launch-checklist/metadata.ts",
     ]);
     expect(result.hasFullReloadRelevantPaths).toBe(true);
   });
 
   it("captures the generated route tree at finalize time", async () => {
     const root = makeTempRoot();
-    const routePath = path.join(root, "desktop/src/routes/settings.tsx");
-    const routeTreePath = path.join(root, "desktop/src/routeTree.gen.ts");
+    const routePath = path.join(root, "packages/desktop-ui/src/routes/settings.tsx");
+    const routeTreePath = path.join(root, "packages/desktop-ui/src/routeTree.gen.ts");
     mkdirSync(path.dirname(routePath), { recursive: true });
     writeFileSync(routePath, "export const Route = null;\n");
     writeFileSync(routeTreePath, "export const routeTree = 'stale';\n");
@@ -321,7 +321,7 @@ describe("self-mod HMR controller", () => {
     const result = controller.finalize("run-a");
 
     expect(result.appliedRuns[0]!.files).toContainEqual({
-      path: "desktop/src/routeTree.gen.ts",
+      path: "packages/desktop-ui/src/routeTree.gen.ts",
       content: "export const routeTree = 'fresh';\n",
     });
   });
@@ -329,7 +329,7 @@ describe("self-mod HMR controller", () => {
   it("untracks a path if the run finalizes while Vite tracking is in flight", async () => {
     const originalFetch = globalThis.fetch;
     const root = makeTempRoot();
-    const filePath = path.join(root, "desktop/src/race.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/race.tsx");
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, "export const value = 'race';\n");
     const requestedPaths: string[] = [];
@@ -382,14 +382,14 @@ describe("self-mod HMR controller", () => {
           [
             {
               runId: "run-a",
-              paths: ["desktop/src/foo.tsx"],
+              paths: ["packages/desktop-ui/src/foo.tsx"],
               files: [
-                { path: "desktop/src/foo.tsx", content: "export const a = 1" },
+                { path: "packages/desktop-ui/src/foo.tsx", content: "export const a = 1" },
               ],
               runtimeRestartRelevantPaths: [],
               processRestartRelevantPaths: [],
               restartRelevantPaths: [],
-              fullReloadRelevantPaths: ["desktop/src/foo.tsx"],
+              fullReloadRelevantPaths: ["packages/desktop-ui/src/foo.tsx"],
             },
           ],
           { suppressClientFullReload: true },
@@ -422,14 +422,14 @@ describe("self-mod HMR controller", () => {
           [
             {
               runId: "run-a",
-              paths: ["desktop/index.html"],
+              paths: ["packages/desktop-ui/index.html"],
               files: [
-                { path: "desktop/index.html", content: "<html></html>\n" },
+                { path: "packages/desktop-ui/index.html", content: "<html></html>\n" },
               ],
               runtimeRestartRelevantPaths: [],
               processRestartRelevantPaths: [],
               restartRelevantPaths: [],
-              fullReloadRelevantPaths: ["desktop/index.html"],
+              fullReloadRelevantPaths: ["packages/desktop-ui/index.html"],
             },
           ],
           { forceClientFullReload: true },
@@ -451,7 +451,7 @@ describe("self-mod HMR controller", () => {
         return new Response(
           JSON.stringify({
             ok: true,
-            changedPaths: ["desktop/src/routeTree.gen.ts"],
+            changedPaths: ["packages/desktop-ui/src/routeTree.gen.ts"],
           }),
           { status: 200 },
         );
@@ -467,7 +467,7 @@ describe("self-mod HMR controller", () => {
     try {
       await expect(controller.endShellMutationGuard()).resolves.toEqual({
         ok: true,
-        changedPaths: ["desktop/src/routeTree.gen.ts"],
+        changedPaths: ["packages/desktop-ui/src/routeTree.gen.ts"],
       });
     } finally {
       globalThis.fetch = originalFetch;
@@ -492,9 +492,9 @@ describe("self-mod HMR controller", () => {
         controller.discard([
           {
             runId: "run-a",
-            paths: ["desktop/src/foo.tsx", "package.json"],
+            paths: ["packages/desktop-ui/src/foo.tsx", "package.json"],
             files: [
-              { path: "desktop/src/foo.tsx", content: "export const a = 1" },
+              { path: "packages/desktop-ui/src/foo.tsx", content: "export const a = 1" },
               { path: "package.json", content: '{"name":"x"}\n' },
             ],
             runtimeRestartRelevantPaths: [],
@@ -504,7 +504,7 @@ describe("self-mod HMR controller", () => {
           },
         ]),
       ).resolves.toBe(true);
-      expect(body).toEqual({ paths: ["desktop/src/foo.tsx"] });
+      expect(body).toEqual({ paths: ["packages/desktop-ui/src/foo.tsx"] });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -512,7 +512,7 @@ describe("self-mod HMR controller", () => {
 
   it("does not use pre-write tracking content as the applied snapshot", async () => {
     const root = makeTempRoot();
-    const filePath = path.join(root, "desktop/src/foo.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/foo.tsx");
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, "export const value = 'before';\n");
     const controller = createSelfModHmrController({
@@ -532,7 +532,7 @@ describe("self-mod HMR controller", () => {
     expect(result.appliedRuns).toHaveLength(1);
     expect(result.appliedRuns[0]!.files).toEqual([
       {
-        path: "desktop/src/foo.tsx",
+        path: "packages/desktop-ui/src/foo.tsx",
         content: "export const value = 'after';\n",
       },
     ]);
@@ -541,8 +541,8 @@ describe("self-mod HMR controller", () => {
   it("snapshots already-owned post-write paths before tracking newly owned paths", async () => {
     const originalFetch = globalThis.fetch;
     const root = makeTempRoot();
-    const oldPath = path.join(root, "desktop/src/old.tsx");
-    const newPath = path.join(root, "desktop/src/new.tsx");
+    const oldPath = path.join(root, "packages/desktop-ui/src/old.tsx");
+    const newPath = path.join(root, "packages/desktop-ui/src/new.tsx");
     mkdirSync(path.dirname(oldPath), { recursive: true });
     writeFileSync(oldPath, "export const value = 'before';\n");
     writeFileSync(newPath, "export const value = 'new';\n");
@@ -572,11 +572,11 @@ describe("self-mod HMR controller", () => {
       expect(result.appliedRuns).toHaveLength(1);
       expect(result.appliedRuns[0]!.files).toEqual([
         {
-          path: "desktop/src/old.tsx",
+          path: "packages/desktop-ui/src/old.tsx",
           content: "export const value = 'after';\n",
         },
         {
-          path: "desktop/src/new.tsx",
+          path: "packages/desktop-ui/src/new.tsx",
           content: "export const value = 'new';\n",
         },
       ]);
@@ -587,7 +587,7 @@ describe("self-mod HMR controller", () => {
 
   it("applies a held run's finalize-time snapshot when an overlapping run cancels", async () => {
     const root = makeTempRoot();
-    const filePath = path.join(root, "desktop/src/foo.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/foo.tsx");
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, "export const value = 'a';\n");
 
@@ -612,7 +612,7 @@ describe("self-mod HMR controller", () => {
     expect(cancelResult.appliedRuns[0]!.runId).toBe("run-a");
     expect(cancelResult.appliedRuns[0]!.files).toEqual([
       {
-        path: "desktop/src/foo.tsx",
+        path: "packages/desktop-ui/src/foo.tsx",
         content: "export const value = 'a';\n",
       },
     ]);
@@ -620,7 +620,7 @@ describe("self-mod HMR controller", () => {
 
   it("represents finalized deletes as a missing file instead of an empty module", async () => {
     const root = makeTempRoot();
-    const filePath = path.join(root, "desktop/src/delete-me.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/delete-me.tsx");
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, "export const value = 'present';\n");
 
@@ -638,7 +638,7 @@ describe("self-mod HMR controller", () => {
     expect(result.appliedRuns).toHaveLength(1);
     expect(result.appliedRuns[0]!.files).toEqual([
       {
-        path: "desktop/src/delete-me.tsx",
+        path: "packages/desktop-ui/src/delete-me.tsx",
         deleted: true,
       },
     ]);
@@ -646,7 +646,7 @@ describe("self-mod HMR controller", () => {
 
   it("does not let a cancelled recreate override a held delete", async () => {
     const root = makeTempRoot();
-    const filePath = path.join(root, "desktop/src/delete-held.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/delete-held.tsx");
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, "export const value = 'present';\n");
 
@@ -671,7 +671,7 @@ describe("self-mod HMR controller", () => {
     expect(cancelResult.appliedRuns).toHaveLength(1);
     expect(cancelResult.appliedRuns[0]!.files).toEqual([
       {
-        path: "desktop/src/delete-held.tsx",
+        path: "packages/desktop-ui/src/delete-held.tsx",
         deleted: true,
       },
     ]);
@@ -679,7 +679,7 @@ describe("self-mod HMR controller", () => {
 
   it("does not let an earlier overlapping cancellation pollute a held run snapshot", async () => {
     const root = makeTempRoot();
-    const filePath = path.join(root, "desktop/src/early-overlap.tsx");
+    const filePath = path.join(root, "packages/desktop-ui/src/early-overlap.tsx");
     mkdirSync(path.dirname(filePath), { recursive: true });
 
     const controller = createSelfModHmrController({
@@ -703,7 +703,7 @@ describe("self-mod HMR controller", () => {
     expect(cancelResult.appliedRuns).toHaveLength(1);
     expect(cancelResult.appliedRuns[0]!.files).toEqual([
       {
-        path: "desktop/src/early-overlap.tsx",
+        path: "packages/desktop-ui/src/early-overlap.tsx",
         content: "export const value = 'a';\n",
       },
     ]);

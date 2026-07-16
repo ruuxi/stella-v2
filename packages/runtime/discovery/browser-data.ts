@@ -24,7 +24,7 @@ import type {
   BrowserProfile,
   ClusterKeyword,
   SearchQuery,
-} from "../contracts/index.js";
+} from "@stella/contracts";
 
 export type {
   BrowserType,

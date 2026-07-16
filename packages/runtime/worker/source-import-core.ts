@@ -1,4 +1,4 @@
-import type { StoreReleaseSourcePack } from "../contracts/index.js";
+import type { StoreReleaseSourcePack } from "@stella/contracts";
 import {
   applyStellaSourcePack,
   type StellaSourceApplyResult,

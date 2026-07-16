@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentMessage } from "../../../../../runtime/kernel/agent-core/types.js";
+import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types";
 import {
   buildKnownMemoryContext,
   buildMemoryReviewTranscript,
@@ -10,9 +10,9 @@ import {
   maxMessageTimestamp,
   parseMemoryReviewCandidate,
   sliceMessagesSinceReview,
-} from "../../../../../runtime/kernel/agent-runtime/memory-review.js";
-import { DreamInboxStore } from "../../../../../runtime/kernel/memory/dream-inbox-store.js";
-import type { RuntimeStore } from "../../../../../runtime/kernel/storage/runtime-store.js";
+} from "@stella/runtime/kernel/agent-runtime/memory-review";
+import { DreamInboxStore } from "@stella/runtime/kernel/memory/dream-inbox-store";
+import type { RuntimeStore } from "@stella/runtime/kernel/storage/runtime-store";
 import { createSqliteTestContextFactory } from "../../../helpers/sqlite-test-context.js";
 
 const testContexts = createSqliteTestContextFactory(

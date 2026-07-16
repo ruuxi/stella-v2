@@ -2,6 +2,9 @@ import { defineConfig } from 'vitest/config';
 import path from 'path';
 
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_CONVEX_URL': JSON.stringify('http://127.0.0.1:3210'),
+  },
   test: {
     globals: true,
     server: {

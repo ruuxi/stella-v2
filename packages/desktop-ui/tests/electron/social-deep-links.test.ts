@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isSocialInviteDeepLink } from "../../electron/services/social-deep-links";
+import { isSocialInviteDeepLink } from "@stella/desktop/electron/services/social-deep-links";
 
 // Classification behind the auth-service protocol funnel: URLs accepted
 // here are routed to the renderer's confirmation layer; everything else

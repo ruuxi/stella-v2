@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
 import type { BrowserBookmarks, BookmarkEntry } from "./discovery-types.js";
-import type { BrowserType } from "../contracts/index.js";
+import type { BrowserType } from "@stella/contracts";
 
 const log = (...args: unknown[]) =>
   console.error("[browser-bookmarks]", ...args);

@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { Socket } from "node:net";
-import { attachJsonRpcPeerToStreams } from "../protocol/jsonl.js";
+import { attachJsonRpcPeerToStreams } from "@stella/contracts/protocol/jsonl";
 import {
   startOrAttachWorker,
   stopRunningWorker,

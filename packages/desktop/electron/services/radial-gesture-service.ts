@@ -10,9 +10,9 @@ import {
   getWindowInfoAtPoint,
 } from "../window-capture.js";
 import { getAppIconForWindow } from "../window-app-icon.js";
-import type { ChatContext } from "../../../runtime/contracts/index.js";
-import type { RadialTriggerCode } from "../../src/shared/lib/radial-trigger.js";
-import type { MiniDoubleTapModifier } from "../../src/shared/lib/mini-double-tap.js";
+import type { ChatContext } from "@stella/contracts";
+import type { RadialTriggerCode } from "@stella/contracts/radial-trigger";
+import type { MiniDoubleTapModifier } from "@stella/contracts/mini-double-tap";
 
 const RADIAL_CONTEXT_CAPTURE_DELAY_MS = 180;
 

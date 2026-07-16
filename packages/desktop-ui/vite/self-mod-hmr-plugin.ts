@@ -12,7 +12,9 @@ import type { Plugin } from "vite"
 import {
   isViteTrackablePath,
   normalizeContentionPath,
-} from "../../runtime/kernel/self-mod/path-relevance.js"
+} from "@stella/runtime/kernel/self-mod/path-relevance"
+
+const __dirname = import.meta.dirname
 
 /**
  * Per-request flag that bypasses the self-mod pre-period snapshot for
@@ -37,7 +39,7 @@ const selfModRequestContext = new AsyncLocalStorage<{
 }>()
 
 const SELF_MOD_HMR_ENDPOINT_BASE = '/__stella/self-mod/hmr'
-const STELLA_REPO_ROOT = path.resolve(__dirname, '..', '..')
+const STELLA_REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 const SELF_MOD_HMR_MODE_ENV = 'STELLA_SELF_MOD_HMR_MODE'
 
 type ApplyRunPayload = { runId?: unknown; paths?: unknown; files?: unknown }
@@ -222,13 +224,13 @@ const isAuthorizedSelfModRequest = (
 const DELETED_OVERLAY_MODULE = 'throw new Error("This module was deleted by Stella self-mod.");\n'
 
 const SHELL_SNAPSHOT_ROOTS = [
-  path.resolve(STELLA_REPO_ROOT, 'desktop', 'src'),
+  path.resolve(STELLA_REPO_ROOT, 'packages', 'desktop-ui', 'src'),
 ]
 const SHELL_SNAPSHOT_EXPLICIT_FILES = [
-  'desktop/index.html',
-  'desktop/mini.html',
-  'desktop/overlay.html',
-  'desktop/pet.html',
+  'packages/desktop-ui/index.html',
+  'packages/desktop-ui/mini.html',
+  'packages/desktop-ui/overlay.html',
+  'packages/desktop-ui/pet.html',
 ]
 const SHELL_SNAPSHOT_EXCLUDED_DIRS = new Set([
   'node_modules',

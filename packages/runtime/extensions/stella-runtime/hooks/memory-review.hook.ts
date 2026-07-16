@@ -1,4 +1,4 @@
-import { agentHasCapability } from "../../../contracts/agent-runtime.js";
+import { agentHasCapability } from "@stella/contracts/agent-runtime";
 import {
   MEMORY_REVIEW_TURN_THRESHOLD,
   spawnMemoryReview,

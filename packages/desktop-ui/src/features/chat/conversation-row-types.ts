@@ -3,18 +3,18 @@ import type {
   Attachment,
   ChannelEnvelope,
 } from "@/features/chat/lib/event-transforms";
-import type { DisplayPayload } from "@/shared/contracts/display-payload";
+import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import type { AgentResponseTarget } from "@/features/chat/streaming/streaming-types";
 import type { SelfModApplied } from "@/features/chat/self-mod-types";
 import type { WebSearchImageHit } from "@/features/chat/lib/derive-turn-web-search";
-import type { TaskToolActivity } from "../../../../runtime/contracts/agent-runtime.js";
+import type { TaskToolActivity } from "@stella/contracts/agent-runtime";
 import type { TurnMapArtifact } from "@/features/chat/lib/derive-turn-map-artifacts";
 import type { PastedTextDescriptor } from "@/features/chat/lib/paste-context";
 import type { ToolActivityGroup } from "@/features/chat/lib/tool-activity";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
-import type { OfficePreviewRef } from "../../../../runtime/contracts/office-preview.js";
-import type { VoiceSessionSummaryMetadata } from "../../../../runtime/contracts/local-chat.js";
-import type { ScheduleToolAffectedRef } from "../../../../runtime/kernel/shared/scheduling";
+import type { OfficePreviewRef } from "@stella/contracts/office-preview";
+import type { VoiceSessionSummaryMetadata } from "@stella/contracts/local-chat";
+import type { ScheduleToolAffectedRef } from "@stella/contracts/scheduling";
 
 export type UserRowViewModel = {
   kind: "user";

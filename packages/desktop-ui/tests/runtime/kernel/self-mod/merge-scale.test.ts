@@ -5,7 +5,7 @@
  * files quickly and correctly.
  */
 import { describe, expect, it } from "vitest";
-import { mergeTextContent } from "../../../../../runtime/kernel/self-mod/stella-source-control.js";
+import { mergeTextContent } from "@stella/runtime/kernel/self-mod/stella-source-control";
 
 const bigFile = (lines: number): string[] =>
   Array.from({ length: lines }, (_, index) => `const line${index} = ${index};\n`);

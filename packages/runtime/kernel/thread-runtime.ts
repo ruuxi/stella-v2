@@ -5,7 +5,7 @@ import type {
 } from "./storage/shared.js";
 import type { RuntimeStore } from "./storage/runtime-store.js";
 import type { ResolvedLlmRoute } from "./model-routing.js";
-import { AGENT_IDS } from "../contracts/agent-runtime.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import fs from "node:fs";
 import path from "node:path";
 import { createRuntimeLogger } from "./debug.js";

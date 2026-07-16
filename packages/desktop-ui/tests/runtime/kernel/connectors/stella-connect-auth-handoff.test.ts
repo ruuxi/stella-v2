@@ -6,14 +6,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { writeCachedServerCatalog } from "../../../../../runtime/kernel/connectors/catalog-cache.js";
-import type { NativeConnectorCatalogEntry } from "../../../../../runtime/kernel/connectors/native-integrations.js";
-import { startCliBridgeServer } from "../../../../../runtime/worker/cli-bridge-server.js";
+import { writeCachedServerCatalog } from "@stella/runtime/kernel/connectors/catalog-cache";
+import type { NativeConnectorCatalogEntry } from "@stella/runtime/kernel/connectors/native-integrations";
+import { startCliBridgeServer } from "@stella/runtime/worker/cli-bridge-server";
 
 const roots: string[] = [];
 const bridges: Array<{ stop: () => Promise<void> }> = [];
-const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
-const cliPath = path.join(repoRoot, "runtime/kernel/cli/stella-connect.ts");
+const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
+const cliPath = path.join(repoRoot, "packages/runtime/kernel/cli/stella-connect.ts");
 
 const outlookEntry: NativeConnectorCatalogEntry = {
   id: "outlook",

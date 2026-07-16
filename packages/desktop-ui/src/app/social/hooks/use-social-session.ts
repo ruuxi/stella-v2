@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/api";
-import type { RuntimeSocialSessionStatus } from "../../../../../runtime/protocol/index.js";
+import type { RuntimeSocialSessionStatus } from "@stella/contracts/protocol";
 
 const TURNS_PAGE_SIZE = 20;
 

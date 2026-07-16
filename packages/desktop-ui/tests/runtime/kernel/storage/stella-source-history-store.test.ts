@@ -7,13 +7,13 @@ import {
   createStellaSourceChangeSetFromTrees,
   hashSourceTree,
   type StellaSourceTree,
-} from "../../../../../runtime/kernel/self-mod/stella-source-control.js";
+} from "@stella/runtime/kernel/self-mod/stella-source-control";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
-} from "../../../../../runtime/kernel/storage/database-init.js";
-import type { SqliteDatabase } from "../../../../../runtime/kernel/storage/shared.js";
-import { StellaSourceHistoryStore } from "../../../../../runtime/kernel/storage/stella-source-history-store.js";
+} from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import { StellaSourceHistoryStore } from "@stella/runtime/kernel/storage/stella-source-history-store";
 
 type TestContext = {
   rootPath: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stripStaleImageBlocks } from "../../../../../runtime/kernel/agent-runtime/thread-memory.js";
+import { stripStaleImageBlocks } from "@stella/runtime/kernel/agent-runtime/thread-memory";
 
 type TestMessage = {
   role: string;

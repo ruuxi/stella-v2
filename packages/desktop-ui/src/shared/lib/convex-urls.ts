@@ -1,4 +1,4 @@
 export {
   readConfiguredConvexSiteUrl,
   readConfiguredConvexUrl,
-} from "../../../../runtime/kernel/convex-urls.js";
+} from "@stella/contracts/convex-urls";

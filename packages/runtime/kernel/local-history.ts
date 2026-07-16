@@ -1,7 +1,7 @@
 import {
   formatTimestampForHistory,
   THIRTY_MINUTES_MS,
-} from "./message-timestamp.js";
+} from "@stella/contracts/message-timestamp";
 
 // Internal sub-agent management tool names. Tool calls/results for these are
 // runtime coordination details; model-visible task updates are delivered as

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Model } from "../../../../../runtime/ai/types.js";
+import type { Model } from "@stella/runtime/ai/types";
 import {
   captureEffectiveModelConfig,
   resolveAgentEngineForRun,
   resolveSpawnReasoningEffortForModel,
-} from "../../../../../runtime/kernel/runner/context.js";
-import type { ResolvedLlmRoute } from "../../../../../runtime/kernel/model-routing.js";
+} from "@stella/runtime/kernel/runner/context";
+import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
 
 describe("spawn_agent engine precedence", () => {
   it("lets an explicit plain-model spawn override a saved Codex engine", () => {

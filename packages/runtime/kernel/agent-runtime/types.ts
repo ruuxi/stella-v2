@@ -27,15 +27,6 @@ import type {
   FileChangeRecord,
   ProducedFileRecord,
 } from "@stella/contracts/file-changes";
-import type { SelfModAppliedPayload } from "@stella/contracts/local-chat";
-
-export type SelfModMonitor = {
-  getBaselineHead: (repoRoot: string) => Promise<string | null>;
-  detectAppliedSince: (args: {
-    repoRoot: string;
-    sinceHead: string | null;
-  }) => Promise<SelfModAppliedPayload | null>;
-};
 
 export type RuntimeStreamEvent = {
   runId: string;
@@ -139,7 +130,6 @@ export type RuntimeEndEvent = {
   userMessageId: string;
   finalText: string;
   persisted: boolean;
-  selfModApplied?: SelfModAppliedPayload;
   fileChanges?: FileChangeRecord[];
   producedFiles?: ProducedFileRecord[];
   uiVisibility?: "visible" | "hidden";
@@ -208,7 +198,6 @@ export type BaseRunOptions = {
     provider?: string;
     externalMessageId?: string;
   };
-  selfModMetadata?: AgentToolRequest["selfModMetadata"];
   agentContext: LocalAgentContext;
   toolCatalog?: ToolMetadata[];
   toolExecutor: (
@@ -227,7 +216,6 @@ export type BaseRunOptions = {
   abortSignal?: AbortSignal;
   stellaAppDir?: string;
   toolWorkspaceRoot?: string;
-  selfModMonitor?: SelfModMonitor | null;
   hookEmitter?: HookEmitter;
   responseTarget?: RuntimeAgentEventPayload["responseTarget"];
   /**

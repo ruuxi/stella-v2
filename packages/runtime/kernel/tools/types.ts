@@ -149,12 +149,6 @@ export type AgentToolRequest = {
   parentAgentId?: string;
   threadId?: string;
   storageMode: "cloud" | "local";
-  selfModMetadata?: {
-    packageId?: string;
-    releaseNumber?: number;
-    mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-    expectedChangedFiles?: string[];
-  };
 };
 
 export type AgentToolSnapshot = {
@@ -238,7 +232,6 @@ export type ToolHostOptions = {
   stellaXApiCliPath?: string;
   cliBridgeSocketPath?: string;
   agentApi?: AgentToolApi;
-  sourceImportApi?: SourceImportToolApi;
   /**
    * Validates a plain model-reference string passed to spawn_agent's `model`
    * parameter. Throws with the standard route-failure message when the model
@@ -460,53 +453,6 @@ export type ScheduleToolApi = {
   runHeartbeat: (
     conversationId: string,
   ) => Promise<LocalHeartbeatConfigRecord | null>;
-};
-
-export type SourceImportToolTrust = "trusted" | "untrusted";
-
-export type SourceImportToolScope =
-  | { kind: "all" }
-  | { kind: "feature"; label: string };
-
-export type SourceImportToolSource =
-  | {
-      kind: "local-path";
-      path: string;
-      ref?: string;
-    }
-  | {
-      kind: "git";
-      url: string;
-      ref?: string;
-    };
-
-export type SourceImportToolResult = {
-  status: "applied" | "applied-by-agent" | "no-changes" | "needs-agent";
-  message: string;
-  importRoot?: string;
-  sourceRoot?: string;
-  commitHash?: string | null;
-  threadId?: string;
-  fastPath?: {
-    attempted: boolean;
-    applied: boolean;
-    reason?: string;
-  };
-  review?: {
-    skipped: boolean;
-    reason?: string;
-  };
-};
-
-export type SourceImportToolApi = {
-  importSource: (args: {
-    source: SourceImportToolSource;
-    scope: SourceImportToolScope;
-    trust: SourceImportToolTrust;
-    conversationId: string;
-    requestId: string;
-    signal?: AbortSignal;
-  }) => Promise<SourceImportToolResult>;
 };
 
 export type ToolHandler = (

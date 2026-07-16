@@ -271,70 +271,6 @@ export type AllUserSignalsResult = {
   error?: string;
 };
 
-/**
- * Lightweight summary of one recent self-mod commit, surfaced to runtime
- * diagnostic UIs (Vite error overlay revert button, crash surface, taint
- * monitor toast). `commitHash` can be passed straight back into revert
- * APIs.
- *
- * Distinct from `SelfModFeatureSnapshot` below — this one is per-commit
- * and used by the diagnostic surface; the snapshot is the rolling
- * normie-friendly grouping used by the Store side panel.
- */
-export type SelfModCommitSummary = {
-  commitHash: string;
-  name: string;
-  description: string;
-  timestampMs: number;
-  tainted?: boolean;
-  taintedFiles?: string[];
-};
-
-/**
- * One entry in the feature snapshot the Store side panel renders.
- * Derived from the durable feature roster (newest features first):
- * `featureId` is the Stella-Feature-Id stamped into the commits'
- * trailers (the authoring thread's group key, falling back to its
- * thread key; `legacy-…` for entries seeded from the pre-roster LLM
- * snapshot), `name` is frozen at the feature's first commit, and
- * `commitHashes` accrue per commit — grouping is deterministic, no LLM
- * regeneration, so names never churn and features never fall off.
- */
-export type SelfModFeatureSnapshotItem = {
-  name: string;
-  commitHashes: string[];
-  featureId?: string;
-};
-
-export type SelfModFeatureSnapshot = {
-  items: SelfModFeatureSnapshotItem[];
-  generatedAt: number;
-};
-
-/**
- * Durable feature-roster row backing the snapshot above. Rows accrue
- * forever; the Store panel paginates instead of forgetting.
- */
-export type SelfModFeatureRosterEntry = {
-  featureId: string;
-  name: string;
-  conversationId?: string;
-  createdAt: number;
-  lastCommitAt: number;
-  commitCount: number;
-};
-
-/**
- * One page of the feature roster, as served to the Store side panel's
- * "Show older" pagination. Entries carry their commit hashes so features
- * older than the snapshot window stay exactly as publishable as snapshot
- * items.
- */
-export type SelfModFeatureRosterPage = {
-  entries: Array<SelfModFeatureRosterEntry & { commitHashes: string[] }>;
-  total: number;
-};
-
 export type StorePackageCategory =
   | "apps-games"
   | "productivity"
@@ -353,47 +289,6 @@ export type StoreReleaseCommit = {
   subject: string;
   /** Output of `git show -U10 --find-renames --no-color` post-redaction. */
   diff: string;
-};
-
-export type StoreReleaseSourceBlob =
-  | { kind: "text"; content: string }
-  | { kind: "binary"; contentBase64: string };
-
-export type StoreReleaseSourceChange = {
-  path: string;
-  baseHash: string | null;
-  nextHash: string | null;
-  /** Touched-path base content; never the full original source tree. */
-  base?: StoreReleaseSourceBlob;
-  /** Touched-path incoming content; omitted only for deletes/history-only packs. */
-  next?: StoreReleaseSourceBlob;
-};
-
-export type StoreReleaseSourceChangeSet = {
-  schemaVersion: 1;
-  baseRevisionId: string;
-  parentRevisionIds: string[];
-  revisionId: string;
-  featureId?: string;
-  description?: string;
-  changes: StoreReleaseSourceChange[];
-};
-
-export type StoreReleaseSourcePack = {
-  kind: "stella-source-pack";
-  schemaVersion: 1;
-  baseRevisionId: string;
-  revisionId: string;
-  featureId?: string;
-  description?: string;
-  changeSets: StoreReleaseSourceChangeSet[];
-};
-
-export type StoreReleaseSourcePackRef = {
-  kind: "r2";
-  r2Key: string;
-  sha256: string;
-  sizeBytes: number;
 };
 
 export type StoreReleaseGitObjectType = "blob" | "tree" | "commit";
@@ -422,70 +317,6 @@ export type StoreReleaseDiffRef = {
   r2Key: string;
   sha256: string;
   sizeBytes: number;
-};
-
-export type StoreReleaseGitObjectUpload = StoreReleaseGitObject & {
-  compressedBytes: Uint8Array;
-};
-
-export type DesktopReleaseSourcePackRef = {
-  kind: "url";
-  url: string;
-  sha256: string;
-  sizeBytes: number;
-};
-
-export type DesktopReleaseSourceHistoryRef = {
-  kind: "url";
-  url: string;
-  sha256: string;
-  sizeBytes: number;
-};
-
-export type StellaReleaseArtifactRef =
-  | {
-      kind: "native-helpers";
-      platform: string;
-      /** Pinned manifest for this helper build; avoids drifting to latest. */
-      manifestUrl: string;
-      manifestSha?: string;
-      commit?: string;
-      builtAt?: string;
-      sourceRevisionId?: string;
-      asset: {
-        url: string;
-        sha256: string;
-        sizeBytes: number;
-      };
-    }
-  | {
-      kind: "stella-browser";
-      platform: string;
-      asset: {
-        url: string;
-        sha256: string;
-        sizeBytes: number;
-      };
-    };
-
-/**
- * A published Store release carries a canonical git-object feature commit plus
- * a lightweight listing summary. The sanitized diff is kept for preview,
- * review, and agent fallback when the automatic merge path cannot apply.
- */
-export type StoreReleaseArtifact = {
-  kind: "blueprint";
-  schemaVersion: 2;
-  manifest: StoreReleaseManifest;
-  blueprintMarkdown: string;
-  /** Git-object Store transport for new source-backed installs. */
-  gitArtifact?: StoreReleaseGitArtifact;
-  /** Sanitized squashed diff for preview, review, and agent fallback. */
-  diff?: string;
-  /** R2 reference for large sanitized diffs. */
-  diffRef?: StoreReleaseDiffRef;
-  /** Legacy per-commit reference diffs selected by the publisher's local Store flow. */
-  commits?: StoreReleaseCommit[];
 };
 
 export type StoreReleaseManifest = {
@@ -529,10 +360,7 @@ export type StorePackageReleaseRecord = {
   releaseNumber: number;
   manifest: StoreReleaseManifest;
   blueprintMarkdown: string;
-  /**
-   * Per-commit reference diffs the install agent uses. Stored in R2
-   * (`commitsDiffRef`); only present here after on-demand hydration.
-   */
+  /** Per-commit reference diffs, present after on-demand hydration. */
   commits?: StoreReleaseCommit[];
   /** R2 reference for the per-commit diff bundle. */
   commitsDiffRef?: StoreReleaseDiffRef;
@@ -541,60 +369,6 @@ export type StorePackageReleaseRecord = {
   diff?: string;
   diffRef?: StoreReleaseDiffRef;
   createdAt: number;
-};
-
-/**
- * Persisted record of an installed Store add-on. The install flow
- * records both the local Git commit(s) used for undo and the Stella source
- * revision(s) used to understand which source graph state was installed.
- */
-export type StoreInstallRecord = {
-  packageId: string;
-  releaseNumber: number;
-  installCommitHash: string | null;
-  installCommitHashes: string[];
-  sourceRevisionId: string | null;
-  sourceRevisionIds: string[];
-  installedAt: number;
-};
-
-export type StoreThreadMessage = {
-  _id: string;
-  role: "user" | "assistant" | "system_event";
-  text: string;
-  isBlueprint?: boolean;
-  denied?: boolean;
-  published?: boolean;
-  publishedReleaseNumber?: number;
-  pending?: boolean;
-  attachedFeatureNames?: string[];
-  editingBlueprint?: boolean;
-  createdAt: number;
-};
-
-export type StoreThreadSnapshot = {
-  threadId: string;
-  messages: StoreThreadMessage[];
-};
-
-export type StoreThreadSendInput = {
-  text: string;
-  attachedFeatureNames?: string[];
-  editingBlueprint?: boolean;
-};
-
-export type SelfModHmrPhase =
-  | "idle"
-  | "paused"
-  | "morph-forward"
-  | "applying"
-  | "reloading"
-  | "morph-handoff";
-
-export type SelfModHmrState = {
-  phase: SelfModHmrPhase;
-  paused: boolean;
-  requiresFullReload: boolean;
 };
 
 export type AgentHealth =

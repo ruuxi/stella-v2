@@ -29,7 +29,6 @@ describe("assistantRowHasNonBackgroundContent", () => {
     ["inlineImagePayloads", { inlineImagePayloads: [{} as never] }],
     ["webSearchResults", { webSearchResults: [{} as never] }],
     ["sourceDiffPayloads", { sourceDiffPayloads: [{} as never] }],
-    ["selfModApplied", { selfModApplied: {} as never }],
     ["scheduleReceipt", { scheduleReceipt: { affected: [] } }],
     ["voiceSession", { voiceSession: {} as never }],
     ["toolActivity", { toolActivity: {} as never }],
@@ -82,7 +81,6 @@ describe("assistantRowHasVisibleContent", () => {
     ["webSearchResults", { webSearchResults: [{} as never] }],
     ["mapArtifacts", { mapArtifacts: [{} as never] }],
     ["sourceDiffPayloads", { sourceDiffPayloads: [{} as never] }],
-    ["selfModApplied", { selfModApplied: {} as never }],
     ["customSlot", { customSlot: {} as never }],
     ["scheduleReceipt", { scheduleReceipt: { affected: [{} as never] } }],
     ["voiceSession", { voiceSession: {} as never }],
@@ -148,9 +146,9 @@ describe("eventRowRendersContent", () => {
   });
 
   it("keeps an empty assistant row while it streams (scroll-follow target)", () => {
-    expect(
-      eventRowRendersContent({ ...baseRow(), isStreaming: true }),
-    ).toBe(true);
+    expect(eventRowRendersContent({ ...baseRow(), isStreaming: true })).toBe(
+      true,
+    );
   });
 
   it("drops a settled assistant row that paints nothing", () => {

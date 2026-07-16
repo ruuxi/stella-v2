@@ -244,9 +244,7 @@ export const startElectronLifecycle = ({ readiness, electronEnv, onExit }) => {
       `[electron-main] protected storage via launcher: ${launcherProtectedStorageBin}`,
     );
   } else if (process.platform === "win32") {
-    console.log(
-      "[electron-main] protected storage via OS safeStorage (DPAPI)",
-    );
+    console.log("[electron-main] protected storage via OS safeStorage (DPAPI)");
   }
 
   let shuttingDown = false;
@@ -265,7 +263,7 @@ export const startElectronLifecycle = ({ readiness, electronEnv, onExit }) => {
    * Last-seen `{ size, mtimeMs, hash }` fingerprint for every restart-relevant
    * build output under `dist-electron/`. The fs watcher fires on mtime/write
    * events; without a content gate a byte-identical rewrite would tear down
-   * Electron (and the in-flight self-mod morph cover with it) for nothing.
+   * Electron for nothing.
    * The `hash` stays the source of truth for the gate; the `size`/`mtimeMs`
    * pair is only a cheap pre-check that lets us skip re-reading multi-MB
    * outputs when stat proves the file is unchanged.
@@ -895,7 +893,11 @@ exec "$electron_bin" "\${non_launch_args[@]}"
       };
 
       const signalAppProcess = (signal) => {
-        if (!child.pid || child.exitCode !== null || child.signalCode !== null) {
+        if (
+          !child.pid ||
+          child.exitCode !== null ||
+          child.signalCode !== null
+        ) {
           return;
         }
         if (process.platform !== "win32") {
@@ -1051,7 +1053,7 @@ exec "$electron_bin" "\${non_launch_args[@]}"
 
       // Content gate: only honor the watcher tick when the file's bytes
       // actually changed. Restarting Electron on byte-identical rewrites is
-      // the visible failure that kills self-mod morph covers.
+      // a visible source of unnecessary process churn.
       const absPath = path.join(watchedDir, filename);
       const previousEntry = lastBuildHashes.has(absPath)
         ? lastBuildHashes.get(absPath)

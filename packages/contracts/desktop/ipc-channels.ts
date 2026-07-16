@@ -68,8 +68,7 @@ export const IPC_REGION_CLICK = "region:click" as const;
 export const IPC_REGION_GET_WINDOW_CAPTURE = "region:getWindowCapture" as const;
 export const IPC_REGION_CANCEL = "region:cancel" as const;
 export const IPC_CAPTURE_PAGE_DATA_URL = "capture:pageDataUrl" as const;
-export const IPC_CAPTURE_REGION_FAILED =
-  "capture:regionCaptureFailed" as const;
+export const IPC_CAPTURE_REGION_FAILED = "capture:regionCaptureFailed" as const;
 
 // ── Radial ──────────────────────────────────────────────────────────────────
 
@@ -159,7 +158,6 @@ export const IPC_AGENT_SEND_INPUT = "agent:sendInput" as const;
 export const IPC_AGENT_CANCEL_CHAT = "agent:cancelChat" as const;
 export const IPC_AGENT_RESUME = "agent:resume" as const;
 export const IPC_AGENT_EVENT = "agent:event" as const;
-export const IPC_AGENT_SELF_MOD_HMR_STATE = "agent:selfModHmrState" as const;
 /**
  * Fired by the main process whenever the runtime client transitions
  * between connected and disconnected — most importantly after the
@@ -169,10 +167,6 @@ export const IPC_AGENT_SELF_MOD_HMR_STATE = "agent:selfModHmrState" as const;
  * and back.
  */
 export const IPC_RUNTIME_AVAILABILITY = "runtime:availability" as const;
-export const IPC_SELFMOD_APPLY = "selfmod:apply" as const;
-export const IPC_SELFMOD_REVERT = "selfmod:revert" as const;
-export const IPC_SELFMOD_LAST_COMMIT = "selfmod:lastCommit" as const;
-export const IPC_SELFMOD_RECENT_COMMITS = "selfmod:recentCommits" as const;
 export const IPC_DEVTEST_TRIGGER_VITE_ERROR =
   "devtest:triggerViteError" as const;
 export const IPC_DEVTEST_FIX_VITE_ERROR = "devtest:fixViteError" as const;
@@ -301,21 +295,6 @@ export const IPC_CREDENTIAL_REQUEST = "credential:request" as const;
 export const IPC_CREDENTIAL_SUBMIT = "credential:submit" as const;
 export const IPC_CREDENTIAL_CANCEL = "credential:cancel" as const;
 
-// ── Updates ─────────────────────────────────────────────────────────────────
-
-export const IPC_UPDATES_GET_INSTALL_MANIFEST =
-  "updates:getInstallManifest" as const;
-export const IPC_UPDATES_TRY_APPLY_CLEAN =
-  "updates:tryApplyCleanUpdate" as const;
-export const IPC_UPDATES_RECORD_SOURCE_HISTORY =
-  "updates:recordSourceHistory" as const;
-export const IPC_UPDATES_RECORD_APPLIED_COMMIT =
-  "updates:recordAppliedCommit" as const;
-export const IPC_UPDATES_REFRESH_NATIVE_HELPERS =
-  "updates:refreshNativeHelpers" as const;
-export const IPC_UPDATES_ROLLBACK_CANCELED =
-  "updates:rollbackCanceledUpdate" as const;
-
 // ── Onboarding ──────────────────────────────────────────────────────────────
 
 export const IPC_ONBOARDING_SYNTHESIZE =
@@ -377,18 +356,10 @@ export const IPC_SCHEDULE_UPDATED = "schedule:updated" as const;
 
 // ── Store ───────────────────────────────────────────────────────────────────
 
-export const IPC_STORE_READ_FEATURE_SNAPSHOT =
-  "store:readFeatureSnapshot" as const;
-export const IPC_STORE_LIST_FEATURE_ROSTER =
-  "store:listFeatureRoster" as const;
 export const IPC_STORE_LIST_PACKAGES = "store:listPackages" as const;
 export const IPC_STORE_GET_PACKAGE = "store:getPackage" as const;
 export const IPC_STORE_LIST_RELEASES = "store:listReleases" as const;
 export const IPC_STORE_GET_RELEASE = "store:getRelease" as const;
-export const IPC_STORE_LIST_INSTALLED = "store:listInstalledMods" as const;
-export const IPC_STORE_INSTALL_FROM_BLUEPRINT =
-  "store:installFromBlueprint" as const;
-export const IPC_STORE_UNINSTALL = "store:uninstallMod" as const;
 // ── Fashion ─────────────────────────────────────────────────────────────────
 //
 // The body photo intentionally does NOT round-trip through Convex storage —

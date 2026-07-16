@@ -3,7 +3,7 @@
  *
  * Builds the tool execution environment for a Stella session.
  *
- * Every model-facing tool lives as a self-contained `ToolDefinition` under
+ * Every model-facing tool lives as a contained `ToolDefinition` under
  * `runtime/kernel/tools/defs/`. `buildBuiltinTools()` returns the full set;
  * the host indexes them by name into a single Map that drives both:
  *
@@ -15,10 +15,7 @@
  */
 
 import path from "node:path";
-import {
-  AGENT_IDS,
-  getAgentDefinition,
-} from "@stella/contracts/agent-runtime";
+import { AGENT_IDS, getAgentDefinition } from "@stella/contracts/agent-runtime";
 
 import type { Api, Model } from "../../ai/types.js";
 import {
@@ -80,7 +77,6 @@ export const createToolHost = ({
   requestBrowserExtensionConnect,
   requestComputerUseAppApproval,
   agentApi,
-  sourceImportApi,
   validateSpawnModel,
   validateSpawnModelWithMetadata,
   scheduleApi,
@@ -199,7 +195,6 @@ export const createToolHost = ({
       ? { requestBrowserExtensionConnect }
       : {}),
     agentApi,
-    sourceImportApi,
     scheduleApi,
 
     fashionApi,

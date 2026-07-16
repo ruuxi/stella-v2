@@ -10,7 +10,6 @@ import type {
   RuntimePromptMessage,
   RuntimeVoiceAgentEventPayload,
   RuntimeVoiceChatPayload,
-  RuntimeVoiceHmrStatePayload,
   RuntimeVoiceOrchestratorConfig,
   RuntimeVoiceOrchestratorConfigRequest,
   RuntimeVoiceToolCallPayload,
@@ -26,7 +25,6 @@ import type {
   RuntimeToolStartEvent,
 } from "../../kernel/agent-runtime.js";
 import type { AgentLifecycleEvent } from "../../kernel/agents/local-agent-manager.js";
-import type { SelfModHmrState } from "@stella/contracts";
 import type { ChatStore } from "../../kernel/storage/chat-store.js";
 import type { ToolContext, ToolResult } from "../../kernel/tools/types.js";
 import { textFromUnknown } from "../../kernel/agent-runtime/shared.js";
@@ -54,7 +52,6 @@ type VoiceRunner = {
       onError: (event: RuntimeErrorEvent) => void;
       onEnd: (event: RuntimeEndEvent) => void;
       onAgentEvent?: (event: AgentLifecycleEvent) => void;
-      onSelfModHmrState?: (state: SelfModHmrState) => void;
     },
   ) => Promise<{ runId: string }>;
   appendThreadMessage: (args: {
@@ -94,18 +91,21 @@ type VoiceRuntimeServiceOptions = {
   getDeviceId: () => string | null;
   onLocalChatUpdated: () => void;
   emitAgentEvent: (payload: RuntimeVoiceAgentEventPayload) => void;
-  emitSelfModHmrState: (payload: RuntimeVoiceHmrStatePayload) => void;
 };
 
 const normalizeError = (error: unknown) =>
-  error instanceof Error ? error : new Error(String(error ?? "Unknown voice runtime error"));
+  error instanceof Error
+    ? error
+    : new Error(String(error ?? "Unknown voice runtime error"));
 
 const VOICE_TOOL_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
 const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = 30_000;
 const THREAD_VISIBLE_JSON_MAX_CHARS = 12_000;
 
 const truncate = (value: string, maxChars: number): string =>
-  value.length <= maxChars ? value : `${value.slice(0, maxChars)}...(truncated)`;
+  value.length <= maxChars
+    ? value
+    : `${value.slice(0, maxChars)}...(truncated)`;
 
 const stringifyBounded = (value: unknown, maxChars: number): string => {
   if (typeof value === "string") return truncate(value.trim(), maxChars);
@@ -121,7 +121,10 @@ const formatModelVisibleToolOutput = (result: ToolResult): string => {
     return `Error: ${sanitizeToolError(result.error)}`;
   }
   return sanitizeToolVisibleText(
-    truncate(textFromUnknown(sanitizeToolResult(result.result)), MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS),
+    truncate(
+      textFromUnknown(sanitizeToolResult(result.result)),
+      MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS,
+    ),
   );
 };
 
@@ -155,7 +158,8 @@ export class VoiceRuntimeService {
     const chatStore = this.options.getChatStore();
     if (chatStore) {
       const timestamp = Date.now();
-      const type = payload.role === "user" ? "user_message" : "assistant_message";
+      const type =
+        payload.role === "user" ? "user_message" : "assistant_message";
       const metadata: MessageMetadata = {};
       if (payload.uiVisibility) {
         metadata.ui = { visibility: payload.uiVisibility };
@@ -179,7 +183,8 @@ export class VoiceRuntimeService {
             ...(hasMetadata ? { metadata } : {}),
           },
           timestamp,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+          timezone:
+            Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
         }),
       });
       this.options.onLocalChatUpdated();
@@ -187,10 +192,7 @@ export class VoiceRuntimeService {
     return { ok: true as const };
   }
 
-  async webSearch(payload: {
-    query: string;
-    category?: string;
-  }) {
+  async webSearch(payload: { query: string; category?: string }) {
     return await this.ensureRunner().webSearch(payload.query, {
       category: payload.category,
     });
@@ -199,9 +201,8 @@ export class VoiceRuntimeService {
   async getOrchestratorConfig(
     payload: RuntimeVoiceOrchestratorConfigRequest,
   ): Promise<RuntimeVoiceOrchestratorConfig> {
-    const config = await this.ensureRunner().getVoiceOrchestratorConfig(
-      payload,
-    );
+    const config =
+      await this.ensureRunner().getVoiceOrchestratorConfig(payload);
     this.toolConfigCache.set(payload.conversationId, {
       config,
       cachedAt: Date.now(),
@@ -226,20 +227,16 @@ export class VoiceRuntimeService {
         error: `${payload.name} is not available to the voice orchestrator.`,
       };
     } else {
-      result = await runner.executeTool(
-        payload.name,
-        payload.args,
-        {
-          conversationId: payload.conversationId,
-          deviceId: this.options.getDeviceId() ?? "unknown",
-          requestId: payload.callId,
-          runId,
-          rootRunId: runId,
-          agentType: "orchestrator",
-          storageMode: "local",
-          allowedToolNames,
-        },
-      );
+      result = await runner.executeTool(payload.name, payload.args, {
+        conversationId: payload.conversationId,
+        deviceId: this.options.getDeviceId() ?? "unknown",
+        requestId: payload.callId,
+        runId,
+        rootRunId: runId,
+        agentType: "orchestrator",
+        storageMode: "local",
+        allowedToolNames,
+      });
     }
 
     const output = formatModelVisibleToolOutput(result);
@@ -393,9 +390,7 @@ export class VoiceRuntimeService {
           ? { producedFiles: result.producedFiles }
           : {}),
         agentType: "orchestrator",
-        ...(result.error
-          ? { error: sanitizeToolError(result.error) }
-          : {}),
+        ...(result.error ? { error: sanitizeToolError(result.error) } : {}),
       },
     });
   }
@@ -482,7 +477,8 @@ export class VoiceRuntimeService {
                 requestId: payload.requestId,
                 event: {
                   type: event.type,
-                  runId: event.rootRunId ?? activeRunId ?? payload.conversationId,
+                  runId:
+                    event.rootRunId ?? activeRunId ?? payload.conversationId,
                   seq: syntheticSeq++,
                   agentId: event.agentId,
                   agentType: event.agentType,
@@ -492,13 +488,6 @@ export class VoiceRuntimeService {
                   error: event.error,
                   statusText: event.statusText,
                 },
-              });
-            },
-            onSelfModHmrState: (state) => {
-              this.options.emitSelfModHmrState({
-                requestId: payload.requestId,
-                runId: activeRunId || undefined,
-                state,
               });
             },
             onEnd: (event) => {

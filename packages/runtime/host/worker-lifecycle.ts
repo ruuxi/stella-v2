@@ -17,7 +17,7 @@ export type WorkerConnection = {
   /**
    * True when the connection factory attached to an already-running
    * detached worker instead of spawning a fresh one. Reattached workers may
-   * be running stale runtime code (the desktop restarted across a self-mod
+   * be running stale runtime code (the desktop restarted across a
    * apply or update), so the host runs the staleness handshake on them;
    * freshly spawned workers are by definition current.
    */
@@ -128,9 +128,7 @@ export type RuntimeWorkerLifecycleControllerOptions = {
    * `killWorkerOnStop?.(reason)` is true (so an Electron restart leaves
    * the worker running for the next host). Tests inject a mock here.
    */
-  createConnectionAsync: (
-    workerEntryPath: string,
-  ) => Promise<WorkerConnection>;
+  createConnectionAsync: (workerEntryPath: string) => Promise<WorkerConnection>;
   initializeConnection: (connection: WorkerConnection) => Promise<void>;
   onConnectionStarted: (connection: WorkerConnection) => Promise<void>;
   onUnexpectedExit: () => Promise<void> | void;
@@ -311,15 +309,15 @@ export class RuntimeWorkerLifecycleController {
     }
     this.setState("stopping");
     this.stoppingPid = connection.pid;
-    const shouldKill =
-      this.options.killWorkerOnStop?.(reason) ?? true;
-    this.stopPromise = (shouldKill
-      ? this.options.killWorker
-        ? this.options
-            .killWorker()
-            .then(() => disconnectWorker(connection.process, 100))
-        : waitForWorkerProcessExit(connection.process)
-      : disconnectWorker(connection.process)
+    const shouldKill = this.options.killWorkerOnStop?.(reason) ?? true;
+    this.stopPromise = (
+      shouldKill
+        ? this.options.killWorker
+          ? this.options
+              .killWorker()
+              .then(() => disconnectWorker(connection.process, 100))
+          : waitForWorkerProcessExit(connection.process)
+        : disconnectWorker(connection.process)
     ).finally(() => {
       if (this.connection?.pid === connection.pid) {
         this.connection = null;
@@ -378,5 +376,4 @@ export class RuntimeWorkerLifecycleController {
     if (!connection || connection.peer.isClosed()) return null;
     return await this.options.fetchHealth(connection);
   }
-
 }

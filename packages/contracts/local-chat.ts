@@ -128,20 +128,6 @@ export type ChannelEnvelope = {
   providerPayload?: unknown;
 };
 
-/**
- * Self-mod commit produced by the run that authored the surrounding
- * assistant message. Patched onto the assistant payload after `agent_end`
- * by `attachSelfModToAssistantMessage` in the worker so the renderer can
- * render the inline "Undo changes" affordance directly off the persisted
- * row (survives renderer reload, no separate in-memory map).
- */
-export type SelfModAppliedPayload = {
-  commitHash: string;
-  files: string[];
-  batchIndex: number;
-  status?: "pending" | "applied";
-};
-
 export type MessagePayload = {
   text?: string;
   contextText?: string;
@@ -157,7 +143,6 @@ export type MessagePayload = {
     totalTokens?: number;
   };
   metadata?: MessageMetadata;
-  selfModApplied?: SelfModAppliedPayload;
 };
 
 export type MessageMetadata = {

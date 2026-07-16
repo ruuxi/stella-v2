@@ -1,6 +1,6 @@
 /**
  * Deterministic slugs for runtime thread keys, thread-group keys, and
- * self-mod feature trailers.
+ * stable feature identifiers.
  *
  * Slugs are derived once at write time from orchestrator-authored text
  * (spawn descriptions, group labels) and never regenerated, so the ids

@@ -531,8 +531,6 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   db.exec("DROP TABLE IF EXISTS runtime_run_events;");
   db.exec("DROP TABLE IF EXISTS runtime_memories;");
   db.exec("DROP TABLE IF EXISTS runtime_tasks;");
-  db.exec("DROP TABLE IF EXISTS self_mod_batches;");
-  db.exec("DROP TABLE IF EXISTS self_mod_features;");
 
   // Worker-side ring buffer of streamed run events. Each row represents one
   // notification the worker sent to a connected client over JSON-RPC. The
@@ -556,11 +554,6 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     CREATE INDEX IF NOT EXISTS idx_run_event_log_created
     ON run_event_log(created_at);
   `);
-  // Old install ledger that tracked apply-commit hashes per package.
-  // Replaced by `store_installs` (one row per installed package, single
-  // commit hash captured from the blueprint-implementing general-agent run).
-  db.exec("DROP TABLE IF EXISTS store_mod_installs;");
-
   db.exec(`
     CREATE TABLE IF NOT EXISTS runtime_threads (
       thread_key TEXT PRIMARY KEY,
@@ -658,7 +651,6 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       agent_depth INTEGER NOT NULL,
       max_agent_depth INTEGER,
       parent_agent_id TEXT,
-      self_mod_metadata_json TEXT,
       model_config_json TEXT,
       status TEXT NOT NULL,
       started_at INTEGER NOT NULL,
@@ -751,222 +743,6 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   } catch {
     // Column already exists.
   }
-
-  // Rolling-window snapshot of recent self-mod commits, named by a cheap
-  // LLM. Single row, regenerated on every successful self-mod commit. The
-  // side panel reads this row to render the "features list" the user
-  // selects from when publishing a source-backed Store release.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS self_mod_feature_snapshot (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      items_json TEXT NOT NULL,
-      generated_at INTEGER NOT NULL
-    );
-  `);
-
-  // Durable feature roster: one row per self-mod feature, keyed by the
-  // Stella-Feature-Id stamped into commit trailers at commit time (the
-  // authoring thread's group key, falling back to its thread key).
-  // Unlike the rolling snapshot above, rows accrue forever — features
-  // never fall off; the Store panel paginates instead. Names are frozen
-  // at first commit (write-once) so they never churn.
-  // NOTE: `self_mod_features` is a legacy name dropped on every init —
-  // do not rename this table to it.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS store_feature_roster (
-      feature_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      conversation_id TEXT,
-      created_at INTEGER NOT NULL,
-      last_commit_at INTEGER NOT NULL,
-      commit_count INTEGER NOT NULL DEFAULT 0
-    );
-  `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS store_feature_commits (
-      feature_id TEXT NOT NULL,
-      commit_hash TEXT NOT NULL,
-      committed_at INTEGER NOT NULL,
-      PRIMARY KEY (feature_id, commit_hash)
-    );
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_store_feature_roster_last_commit
-    ON store_feature_roster(last_commit_at);
-  `);
-
-  // Wipe any older shape of this table before recreating it. The first
-  // iteration of the revert ledger used a single `consumed_at` watermark;
-  // the current schema replaced it with separate orchestrator vs
-  // origin-thread consumption slots plus `origin_thread_key`. No
-  // production data exists yet, so a hard-cut drop here is morally
-  // equivalent to redefining the table — per the workspace rule against
-  // migrations, this stays a one-line drop rather than ALTER TABLE.
-  db.exec("DROP TABLE IF EXISTS self_mod_reverts;");
-
-  // Ledger of self-mod reverts the user has triggered from the inline
-  // "Undo changes" affordance. The revert-notice hook
-  // (`runtime/extensions/stella-runtime/hooks/revert-notice.hook.ts`)
-  // reads unconsumed rows on `before_user_message`, injects a short
-  // hidden system reminder, and flips the appropriate `consumed_by_*`
-  // slot so the reminder fires exactly once per agent.
-  //
-  // Two-slot consumption ladder:
-  //   - `consumed_by_orchestrator`: orchestrator's turn slot. Drained
-  //     whenever the orchestrator builds a user-turn prompt for this
-  //     conversation (`payload.agentType === orchestrator`).
-  //   - `consumed_by_origin_thread`: drained when the SPECIFIC agent
-  //     that authored the reverted commit (matched by `Stella-Thread`
-  //     commit trailer == `payload.threadKey`) builds a user-turn
-  //     prompt. Resumable subagents have stable threadKeys
-  //     (`buildRuntimeThreadKey` returns the persisted thread id), so
-  //     the same general agent the orchestrator later resumes via
-  //     `send_input` picks up the notice.
-  //
-  // `origin_thread_key` is optional: commits authored before the
-  // `Stella-Thread` trailer existed (or where threadKey wasn't
-  // available at finalize time) get NULL here and rely on
-  // orchestrator-only routing.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS self_mod_reverts (
-      revert_id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      origin_thread_key TEXT,
-      commit_hash TEXT NOT NULL,
-      files_json TEXT NOT NULL,
-      reverted_at INTEGER NOT NULL,
-      consumed_by_orchestrator INTEGER NOT NULL DEFAULT 0,
-      consumed_by_origin_thread INTEGER NOT NULL DEFAULT 0
-    );
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_self_mod_reverts_pending_orchestrator
-    ON self_mod_reverts(conversation_id, consumed_by_orchestrator, reverted_at);
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_self_mod_reverts_pending_origin_thread
-    ON self_mod_reverts(origin_thread_key, consumed_by_origin_thread, reverted_at);
-  `);
-
-  // One row per installed Store add-on. The blueprint-driven install
-  // flow runs a general agent that implements the blueprint; we capture
-  // the self-mod commit hashes here so uninstall can revert installs
-  // plus later updates in reverse order.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS store_installs (
-      package_id TEXT PRIMARY KEY,
-      release_number INTEGER NOT NULL,
-      install_commit_hash TEXT,
-      install_commit_hashes_json TEXT NOT NULL DEFAULT '[]',
-      source_revision_id TEXT,
-      source_revision_ids_json TEXT NOT NULL DEFAULT '[]',
-      installed_at INTEGER NOT NULL
-    );
-  `);
-  try {
-    db.exec(`
-      ALTER TABLE store_installs
-      ADD COLUMN install_commit_hashes_json TEXT NOT NULL DEFAULT '[]';
-    `);
-  } catch {
-    // Column already exists.
-  }
-  try {
-    db.exec(`
-      ALTER TABLE store_installs
-      ADD COLUMN source_revision_id TEXT;
-    `);
-  } catch {
-    // Column already exists.
-  }
-  try {
-    db.exec(`
-      ALTER TABLE store_installs
-      ADD COLUMN source_revision_ids_json TEXT NOT NULL DEFAULT '[]';
-    `);
-  } catch {
-    // Column already exists.
-  }
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_store_installs_installed_at
-    ON store_installs(installed_at);
-  `);
-
-  // Local Stella source-history graph. The rows store revision identity,
-  // parent links, feature/package attribution, and changed-path hashes only.
-  // Full source content stays in the working tree or in explicit share packs.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS stella_source_revisions (
-      revision_id TEXT PRIMARY KEY,
-      base_revision_id TEXT NOT NULL,
-      parent_revision_ids_json TEXT NOT NULL,
-      feature_id TEXT,
-      description TEXT,
-      origin TEXT NOT NULL,
-      commit_hash TEXT UNIQUE,
-      package_id TEXT,
-      release_number INTEGER,
-      change_set_json TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    );
-  `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS stella_source_revision_commits (
-      commit_hash TEXT PRIMARY KEY,
-      revision_id TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      FOREIGN KEY(revision_id) REFERENCES stella_source_revisions(revision_id) ON DELETE CASCADE
-    );
-  `);
-  db.exec(`
-    INSERT OR IGNORE INTO stella_source_revision_commits (
-      commit_hash,
-      revision_id,
-      created_at
-    )
-    SELECT commit_hash, revision_id, created_at
-    FROM stella_source_revisions
-    WHERE commit_hash IS NOT NULL AND commit_hash != '';
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_stella_source_revisions_commit
-    ON stella_source_revisions(commit_hash);
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_stella_source_revision_commits_revision
-    ON stella_source_revision_commits(revision_id, created_at);
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_stella_source_revisions_feature_created
-    ON stella_source_revisions(feature_id, created_at);
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_stella_source_revisions_package_created
-    ON stella_source_revisions(package_id, created_at);
-  `);
-
-  // Legacy local Store draft thread table. Kept so older local databases open
-  // cleanly, but the current Store publish flow selects source changes
-  // directly and does not use this thread.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS store_thread_messages (
-      id TEXT PRIMARY KEY,
-      role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system_event')),
-      text TEXT NOT NULL,
-      is_blueprint INTEGER NOT NULL DEFAULT 0,
-      denied INTEGER NOT NULL DEFAULT 0,
-      published INTEGER NOT NULL DEFAULT 0,
-      published_release_number INTEGER,
-      pending INTEGER NOT NULL DEFAULT 0,
-      attached_feature_names_json TEXT NOT NULL DEFAULT '[]',
-      editing_blueprint INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    );
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_store_thread_messages_created
-    ON store_thread_messages(created_at, id);
-  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS social_session_sync_state (

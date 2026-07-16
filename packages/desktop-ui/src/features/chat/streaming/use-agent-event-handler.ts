@@ -13,49 +13,43 @@
  * the lifecycle, and `useConversationDisplayMessages` for the merge
  * with persisted SQLite-backed messages.
  */
-import { useCallback, type Dispatch, type MutableRefObject } from 'react'
-import { showToast } from '@/ui/toast'
-import {
-  clearTaskDecoration,
-  decorateTask,
-} from './task-decoration-store'
+import { useCallback, type Dispatch, type MutableRefObject } from "react";
+import { showToast } from "@/ui/toast";
+import { clearTaskDecoration, decorateTask } from "./task-decoration-store";
 import {
   AGENT_IDS,
   AGENT_RUN_FINISH_OUTCOMES,
   AGENT_STREAM_EVENT_TYPES,
-} from '@stella/contracts/agent-runtime'
-import type { StreamStoreAction } from './store'
+} from "@stella/contracts/agent-runtime";
+import type { StreamStoreAction } from "./store";
 import {
   isStellaLimitOrAuthReason,
   resolveStellaProviderErrorToast,
-} from './stella-provider-error-toast'
-import type {
-  AgentResponseTarget,
-  AgentStreamEvent,
-} from './streaming-types'
+} from "./stella-provider-error-toast";
+import type { AgentResponseTarget, AgentStreamEvent } from "./streaming-types";
 
 type ReasoningQueueEntry = {
-  agentId: string
-  conversationId: string
-  runId?: string
-  chunk: string
-}
+  agentId: string;
+  conversationId: string;
+  runId?: string;
+  chunk: string;
+};
 
 type UseAgentEventHandlerOptions = {
-  dispatch: Dispatch<StreamStoreAction>
+  dispatch: Dispatch<StreamStoreAction>;
   refs: {
-    activeConversationIdRef: MutableRefObject<string | null>
+    activeConversationIdRef: MutableRefObject<string | null>;
     activeRunIdByConversationRef: MutableRefObject<
       Record<string, string | null>
-    >
-    lastSeqByConversationRef: MutableRefObject<Map<string, number>>
-    terminalRunIdsRef: MutableRefObject<Set<string>>
-    pendingRequestIdsRef: MutableRefObject<Set<string>>
-    resumeSeqByConversationRef: MutableRefObject<Map<string, number>>
-    seenSourceEventKeysRef: MutableRefObject<Set<string>>
-  }
+    >;
+    lastSeqByConversationRef: MutableRefObject<Map<string, number>>;
+    terminalRunIdsRef: MutableRefObject<Set<string>>;
+    pendingRequestIdsRef: MutableRefObject<Set<string>>;
+    resumeSeqByConversationRef: MutableRefObject<Map<string, number>>;
+    seenSourceEventKeysRef: MutableRefObject<Set<string>>;
+  };
   streaming: {
-    setPendingUserMessageId: Dispatch<React.SetStateAction<string | null>>
+    setPendingUserMessageId: Dispatch<React.SetStateAction<string | null>>;
     /**
      * Hooks into the per-slot overlay lifecycle exposed by
      * `useLocalAgentStream`. Each runtime stream event maps onto
@@ -68,44 +62,44 @@ type UseAgentEventHandlerOptions = {
      *   - RUN_FINISHED → finalizeRunOnFinish
      */
     beginStreamingRun: (args: {
-      runId: string
-      userMessageId: string | null
-    }) => void
+      runId: string;
+      userMessageId: string | null;
+    }) => void;
     acceptStreamChunk: (args: {
-      runId: string
-      userMessageId: string | null
-      responseTarget?: AgentResponseTarget | null
-      chunk: string
-    }) => void
+      runId: string;
+      userMessageId: string | null;
+      responseTarget?: AgentResponseTarget | null;
+      chunk: string;
+    }) => void;
     finalizeMessageBoundary: (args: {
-      runId: string
-      userMessageId: string | null
-      canonicalMessageId?: string
-      canonicalText?: string
-    }) => void
-    finalizeRunOnFinish: (args: { runId: string }) => void
-  }
+      runId: string;
+      userMessageId: string | null;
+      canonicalMessageId?: string;
+      canonicalText?: string;
+    }) => void;
+    finalizeRunOnFinish: (args: { runId: string }) => void;
+  };
   reasoning: {
-    queueAgentReasoningChunk: (entry: ReasoningQueueEntry) => void
-    flushPendingReasoningChunks: (onlyAgentId?: string) => void
-    discardPendingReasoningChunks: (agentId: string) => void
-  }
+    queueAgentReasoningChunk: (entry: ReasoningQueueEntry) => void;
+    flushPendingReasoningChunks: (onlyAgentId?: string) => void;
+    discardPendingReasoningChunks: (agentId: string) => void;
+  };
   lifecycle?: {
     onRunStarted?: (event: {
-      runId: string
-      conversationId: string
-      userMessageId?: string
-    }) => void
+      runId: string;
+      conversationId: string;
+      userMessageId?: string;
+    }) => void;
     onRunFinished?: (event: {
-      runId: string
-      conversationId: string
-      userMessageId?: string
-      outcome: 'completed' | 'error' | 'canceled'
-    }) => void
-  }
-}
+      runId: string;
+      conversationId: string;
+      userMessageId?: string;
+      outcome: "completed" | "error" | "canceled";
+    }) => void;
+  };
+};
 
-type AgentEventSource = 'live' | 'replay'
+type AgentEventSource = "live" | "replay";
 
 /**
  * Main-process `agent:event` sequences are globally monotonic, including the
@@ -118,24 +112,24 @@ export const acceptConversationAgentEventSequence = (
   conversationId: string,
   seq: number,
 ): boolean => {
-  if (!Number.isFinite(seq) || seq <= 0) return true
-  const previousSeq = lastSeqByConversation.get(conversationId) ?? 0
-  if (seq <= previousSeq) return false
-  lastSeqByConversation.set(conversationId, seq)
-  return true
-}
+  if (!Number.isFinite(seq) || seq <= 0) return true;
+  const previousSeq = lastSeqByConversation.get(conversationId) ?? 0;
+  if (seq <= previousSeq) return false;
+  lastSeqByConversation.set(conversationId, seq);
+  return true;
+};
 
 export const acceptAgentEventSourceIdentity = (
   seenKeys: Set<string>,
-  event: Pick<AgentStreamEvent, 'type' | 'runId' | 'seq' | 'sourceSeq'>,
+  event: Pick<AgentStreamEvent, "type" | "runId" | "seq" | "sourceSeq">,
 ): boolean => {
-  const sourceSeq = event.sourceSeq ?? event.seq
-  if (!Number.isFinite(sourceSeq) || sourceSeq <= 0) return true
-  const key = `${event.runId}:${sourceSeq}:${event.type}`
-  if (seenKeys.has(key)) return false
-  seenKeys.add(key)
-  return true
-}
+  const sourceSeq = event.sourceSeq ?? event.seq;
+  if (!Number.isFinite(sourceSeq) || sourceSeq <= 0) return true;
+  const key = `${event.runId}:${sourceSeq}:${event.type}`;
+  if (seenKeys.has(key)) return false;
+  seenKeys.add(key);
+  return true;
+};
 
 export function useAgentEventHandler({
   dispatch,
@@ -152,37 +146,39 @@ export function useAgentEventHandler({
     seenSourceEventKeysRef,
     terminalRunIdsRef,
     pendingRequestIdsRef,
-  } = refs
+  } = refs;
   const {
     setPendingUserMessageId,
     beginStreamingRun,
     acceptStreamChunk,
     finalizeMessageBoundary,
     finalizeRunOnFinish,
-  } = streaming
+  } = streaming;
   const {
     queueAgentReasoningChunk,
     flushPendingReasoningChunks,
     discardPendingReasoningChunks,
-  } = reasoning
+  } = reasoning;
 
   return useCallback(
-    (event: AgentStreamEvent, source: AgentEventSource = 'live') => {
+    (event: AgentStreamEvent, source: AgentEventSource = "live") => {
       const conversationId =
-        event.conversationId ?? activeConversationIdRef.current ?? null
+        event.conversationId ?? activeConversationIdRef.current ?? null;
       if (!conversationId) {
-        return
+        return;
       }
 
-      const seq = Number.isFinite(event.seq) ? event.seq : 0
-      if (!acceptAgentEventSourceIdentity(seenSourceEventKeysRef.current, event)) {
-        return
+      const seq = Number.isFinite(event.seq) ? event.seq : 0;
+      if (
+        !acceptAgentEventSourceIdentity(seenSourceEventKeysRef.current, event)
+      ) {
+        return;
       }
       if (seq > 0) {
         const previousResumeSeq =
-          resumeSeqByConversationRef.current.get(conversationId) ?? 0
+          resumeSeqByConversationRef.current.get(conversationId) ?? 0;
         if (seq > previousResumeSeq) {
-          resumeSeqByConversationRef.current.set(conversationId, seq)
+          resumeSeqByConversationRef.current.set(conversationId, seq);
         }
       }
       if (
@@ -192,35 +188,35 @@ export function useAgentEventHandler({
           seq,
         )
       ) {
-        return
+        return;
       }
 
       if (event.requestId) {
-        pendingRequestIdsRef.current.delete(event.requestId)
+        pendingRequestIdsRef.current.delete(event.requestId);
       }
 
       const isOrchestratorEvent =
-        (event.agentType ?? AGENT_IDS.ORCHESTRATOR) === AGENT_IDS.ORCHESTRATOR
+        (event.agentType ?? AGENT_IDS.ORCHESTRATOR) === AGENT_IDS.ORCHESTRATOR;
       const activeRunForConversation =
-        activeRunIdByConversationRef.current[conversationId] ?? null
+        activeRunIdByConversationRef.current[conversationId] ?? null;
       const isPrimaryRun =
         Boolean(activeRunForConversation) &&
-        activeRunForConversation === event.runId
+        activeRunForConversation === event.runId;
 
       const applyRunFinished = (args: {
-        outcome: 'completed' | 'error' | 'canceled'
-        reason?: string
+        outcome: "completed" | "error" | "canceled";
+        reason?: string;
       }) => {
         if (terminalRunIdsRef.current.has(event.runId)) {
-          return
+          return;
         }
-        terminalRunIdsRef.current.add(event.runId)
+        terminalRunIdsRef.current.add(event.runId);
         dispatch({
-          type: 'run-finished',
+          type: "run-finished",
           runId: event.runId,
           conversationId,
           outcome: args.outcome,
-        })
+        });
         lifecycle?.onRunFinished?.({
           runId: event.runId,
           conversationId,
@@ -228,14 +224,14 @@ export function useAgentEventHandler({
             ? { userMessageId: event.userMessageId }
             : {}),
           outcome: args.outcome,
-        })
+        });
         if (
           conversationId === activeConversationIdRef.current &&
-          source === 'live'
+          source === "live"
         ) {
-          const finishReason = args.reason || event.error
+          const finishReason = args.reason || event.error;
           if (args.outcome === AGENT_RUN_FINISH_OUTCOMES.ERROR) {
-            showToast(resolveStellaProviderErrorToast(finishReason))
+            showToast(resolveStellaProviderErrorToast(finishReason));
           } else if (
             args.outcome === AGENT_RUN_FINISH_OUTCOMES.CANCELED &&
             isStellaLimitOrAuthReason(finishReason)
@@ -247,7 +243,7 @@ export function useAgentEventHandler({
             // only appeared the next time they sent a message. Only toast when
             // the reason actually names a limit/auth issue so ordinary
             // user-initiated cancels stay silent.
-            showToast(resolveStellaProviderErrorToast(finishReason))
+            showToast(resolveStellaProviderErrorToast(finishReason));
           }
         }
         if (
@@ -262,76 +258,71 @@ export function useAgentEventHandler({
           // already delivered. If no persisted twin is written for a failed
           // run, the partial live row remains available until conversation
           // cleanup.
-          finalizeRunOnFinish({ runId: event.runId })
-          setPendingUserMessageId(null)
+          finalizeRunOnFinish({ runId: event.runId });
+          setPendingUserMessageId(null);
         }
-        // `selfModApplied` is patched onto the persisted assistant
-        // message payload by the worker (`attachSelfModToAssistantMessage`
-        // in runtime/worker/server.ts → onEnd). The renderer projects it
-        // off the chat row in `use-event-rows.ts`, so we no longer mirror
-        // it in renderer-local state.
-      }
+      };
 
       switch (event.type) {
         case AGENT_STREAM_EVENT_TYPES.RUN_STARTED: {
-          if (event.uiVisibility === 'hidden') {
-            break
+          if (event.uiVisibility === "hidden") {
+            break;
           }
           if (event.requestId) {
-            pendingRequestIdsRef.current.delete(event.requestId)
+            pendingRequestIdsRef.current.delete(event.requestId);
           }
-          terminalRunIdsRef.current.delete(event.runId)
+          terminalRunIdsRef.current.delete(event.runId);
           dispatch({
-            type: 'run-started',
+            type: "run-started",
             runId: event.runId,
             conversationId,
             requestId: event.requestId,
             userMessageId: event.userMessageId,
             uiVisibility: event.uiVisibility,
-          })
+          });
           lifecycle?.onRunStarted?.({
             runId: event.runId,
             conversationId,
             ...(event.userMessageId
               ? { userMessageId: event.userMessageId }
               : {}),
-          })
+          });
           if (conversationId === activeConversationIdRef.current) {
             const anchorUserMessageId =
-              event.responseTarget && event.responseTarget.type !== 'user_turn'
+              event.responseTarget && event.responseTarget.type !== "user_turn"
                 ? null
-                : (event.userMessageId ?? null)
+                : (event.userMessageId ?? null);
             beginStreamingRun({
               runId: event.runId,
               userMessageId: anchorUserMessageId,
-            })
-            setPendingUserMessageId(anchorUserMessageId)
+            });
+            setPendingUserMessageId(anchorUserMessageId);
           }
-          break
+          break;
         }
         case AGENT_STREAM_EVENT_TYPES.STREAM: {
           const isReactivation =
             !isPrimaryRun &&
             isOrchestratorEvent &&
-            terminalRunIdsRef.current.has(event.runId)
+            terminalRunIdsRef.current.has(event.runId);
           if (isReactivation) {
-            terminalRunIdsRef.current.delete(event.runId)
+            terminalRunIdsRef.current.delete(event.runId);
             dispatch({
-              type: 'run-started',
+              type: "run-started",
               runId: event.runId,
               conversationId,
               requestId: event.requestId,
-            })
+            });
             beginStreamingRun({
               runId: event.runId,
               userMessageId: event.userMessageId ?? null,
-            })
+            });
           }
           dispatch({
-            type: 'run-status',
+            type: "run-status",
             runId: event.runId,
             statusText: null,
-          })
+          });
           if (
             (isPrimaryRun || isReactivation) &&
             isOrchestratorEvent &&
@@ -344,14 +335,14 @@ export function useAgentEventHandler({
                 ? { responseTarget: event.responseTarget }
                 : {}),
               chunk: event.chunk,
-            })
+            });
             // The first accepted text delta starts the visual stream; its
             // first animation frame follows immediately after this handoff.
             if (/\S/.test(event.chunk)) {
-              dispatch({ type: 'mark-streaming-text', runId: event.runId })
+              dispatch({ type: "mark-streaming-text", runId: event.runId });
             }
           }
-          break
+          break;
         }
         case AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE: {
           // Boundary between two assistant messages within the same run
@@ -374,7 +365,7 @@ export function useAgentEventHandler({
               ...(event.assistantMessageText !== undefined
                 ? { canonicalText: event.assistantMessageText }
                 : {}),
-            })
+            });
             // Preamble → tool-call handoff: if this finalized message ends
             // with a tool call, clear the streaming-text flag now so the
             // working indicator re-appears at the boundary and stays up
@@ -382,53 +373,53 @@ export function useAgentEventHandler({
             // lingering dismissed over the visible preamble text.
             if (event.followedByToolCall) {
               dispatch({
-                type: 'assistant-message-boundary',
+                type: "assistant-message-boundary",
                 runId: event.runId,
                 followedByToolCall: true,
-              })
+              });
             }
           }
-          break
+          break;
         }
         case AGENT_STREAM_EVENT_TYPES.STATUS: {
-          if (event.statusState === 'model-fallback') {
+          if (event.statusState === "model-fallback") {
             // The engine swapped the model out from under the user — either
             // the stella engine's Fable 5 -> Opus 4.8 safety retry or Claude
             // Code's --fallback-model overload switch. The configured model
             // is not the one answering, so make the switch visible.
             if (conversationId === activeConversationIdRef.current) {
               showToast({
-                title: 'Switched to a fallback model',
+                title: "Switched to a fallback model",
                 description:
                   event.statusText ||
-                  'The configured model was unavailable, so this session switched to a fallback model.',
-                variant: 'error',
+                  "The configured model was unavailable, so this session switched to a fallback model.",
+                variant: "error",
                 duration: 10000,
-              })
+              });
             }
-            break
+            break;
           }
-          if (event.statusState === 'provider-retry') {
+          if (event.statusState === "provider-retry") {
             if (conversationId === activeConversationIdRef.current) {
               showToast({
-                title: 'Reconnecting to Stella',
-                description: event.statusText || 'Trying again in a moment.',
-                variant: 'default',
+                title: "Reconnecting to Stella",
+                description: event.statusText || "Trying again in a moment.",
+                variant: "default",
                 duration: 4000,
-              })
+              });
             }
-            break
+            break;
           }
           dispatch({
-            type: 'run-status',
+            type: "run-status",
             runId: event.runId,
             statusText: event.statusText
-              ? event.statusState === 'compacting'
-                ? event.statusText || 'Compacting context'
+              ? event.statusState === "compacting"
+                ? event.statusText || "Compacting context"
                 : event.statusText
               : null,
-          })
-          break
+          });
+          break;
         }
         case AGENT_STREAM_EVENT_TYPES.AGENT_STARTED:
         case AGENT_STREAM_EVENT_TYPES.AGENT_REASONING:
@@ -436,15 +427,15 @@ export function useAgentEventHandler({
         case AGENT_STREAM_EVENT_TYPES.AGENT_COMPLETED:
         case AGENT_STREAM_EVENT_TYPES.AGENT_FAILED:
         case AGENT_STREAM_EVENT_TYPES.AGENT_CANCELED: {
-          const runId = event.rootRunId ?? event.runId
+          const runId = event.rootRunId ?? event.runId;
           if (!event.agentId) {
-            return
+            return;
           }
           if (runId) {
             dispatch({
-              type: 'tool-activity-observed',
+              type: "tool-activity-observed",
               runId,
-            })
+            });
           }
 
           // Authoritative thread state (status, description, timestamps,
@@ -459,33 +450,33 @@ export function useAgentEventHandler({
             event.type === AGENT_STREAM_EVENT_TYPES.AGENT_FAILED ||
             event.type === AGENT_STREAM_EVENT_TYPES.AGENT_CANCELED
           ) {
-            discardPendingReasoningChunks(event.agentId)
-            clearTaskDecoration(event.agentId)
-            break
+            discardPendingReasoningChunks(event.agentId);
+            clearTaskDecoration(event.agentId);
+            break;
           }
 
           if (event.type === AGENT_STREAM_EVENT_TYPES.AGENT_REASONING) {
             if (!event.chunk) {
-              return
+              return;
             }
             queueAgentReasoningChunk({
               agentId: event.agentId,
               conversationId,
               runId,
               chunk: event.chunk,
-            })
-            break
+            });
+            break;
           }
 
           if (event.type === AGENT_STREAM_EVENT_TYPES.AGENT_STARTED) {
             // A fresh start (spawn or send_input re-activation) begins a
             // clean decoration — stale reasoning/status from the previous
             // attempt must not bleed into the new one.
-            discardPendingReasoningChunks(event.agentId)
-            clearTaskDecoration(event.agentId)
+            discardPendingReasoningChunks(event.agentId);
+            clearTaskDecoration(event.agentId);
           }
 
-          flushPendingReasoningChunks(event.agentId)
+          flushPendingReasoningChunks(event.agentId);
           decorateTask({
             agentId: event.agentId,
             conversationId,
@@ -493,38 +484,38 @@ export function useAgentEventHandler({
             anchorTurnId: event.userMessageId,
             statusText: event.statusText,
             toolActivity: event.toolActivity,
-          })
-          break
+          });
+          break;
         }
         case AGENT_STREAM_EVENT_TYPES.TOOL_START: {
           dispatch({
-            type: 'tool-start',
+            type: "tool-start",
             runId: event.runId,
             conversationId,
             ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
             ...(event.toolName ? { toolName: event.toolName } : {}),
             statusText: event.statusText ?? null,
-          })
-          break
+          });
+          break;
         }
         case AGENT_STREAM_EVENT_TYPES.TOOL_END: {
           dispatch({
-            type: 'tool-end',
+            type: "tool-end",
             runId: event.runId,
             ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
             ...(event.toolName ? { toolName: event.toolName } : {}),
-          })
-          break
+          });
+          break;
         }
         case AGENT_STREAM_EVENT_TYPES.RUN_FINISHED: {
           applyRunFinished({
             outcome: event.outcome ?? AGENT_RUN_FINISH_OUTCOMES.ERROR,
             reason: event.reason ?? event.error,
-          })
-          break
+          });
+          break;
         }
         default:
-          break
+          break;
       }
     },
     [
@@ -546,5 +537,5 @@ export function useAgentEventHandler({
       setPendingUserMessageId,
       terminalRunIdsRef,
     ],
-  )
+  );
 }

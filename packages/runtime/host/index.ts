@@ -52,19 +52,14 @@ import {
   type RuntimeAutomationTurnResult,
   type RuntimeChatPayload,
   type RuntimeConfigureParams,
-  type RuntimeCrashRecoveryStatus,
-  type RuntimeDiscardUnfinishedResult,
   type RuntimeHealthSnapshot,
   type RuntimeSocialSessionStatus,
-  type RuntimeSelfModApplyResult,
-  type RuntimeSelfModRevertResult,
   type RuntimeLocalAgentRequest,
   type RuntimeLocalAgentSnapshot,
   type RuntimeOneShotCompletionRequest,
   type RuntimeOneShotCompletionResult,
   type RuntimeVoiceAgentEventPayload,
   type RuntimeVoiceChatPayload,
-  type RuntimeVoiceHmrStatePayload,
   type RuntimeVoiceOrchestratorConfig,
   type RuntimeVoiceOrchestratorConfigRequest,
   type RuntimeVoiceToolCallPayload,
@@ -73,17 +68,8 @@ import {
   type RuntimeWebSearchResult,
   type RunResumeEventsResult,
   type ScheduledConversationEvent,
-  type SelfModFeatureRosterPage,
-  type SelfModFeatureSnapshot,
-  type SelfModCommitSummary,
-  type SelfModHmrState,
-  type StoreInstallRecord,
   type StorePackageRecord,
   type StorePackageReleaseRecord,
-  type StorePublishArgs,
-  type StorePublishSelectedFeaturesArgs,
-  type StoreReleaseGitArtifact,
-  type StoreReleaseSourcePack,
   type RuntimeInitializeParams,
   type RuntimeInitializeResult,
 } from "@stella/contracts/protocol";
@@ -114,9 +100,7 @@ type RuntimeHostEvents = {
   "runtime-reloading": { reason: string };
   "runtime-lagged": { droppedCount: number };
   "run-event": RuntimeAgentEventPayload;
-  "run-self-mod-hmr-state": { runId?: string; state: SelfModHmrState };
   "voice-agent-event": RuntimeVoiceAgentEventPayload;
-  "voice-self-mod-hmr-state": RuntimeVoiceHmrStatePayload;
   "local-chat-updated": LocalChatUpdatedPayload | null;
   "thread-activity-updated": ThreadActivityUpdatedPayload;
   "schedule-updated": void;
@@ -314,32 +298,6 @@ export type RuntimeHostHandlers = {
   openExternal?: (url: string) => Promise<void> | void;
   showWindow?: (target: HostWindowTarget) => Promise<void> | void;
   focusWindow?: (target: HostWindowTarget) => Promise<void> | void;
-  runHmrTransition?: (payload: {
-    /**
-     * The run ids in the apply batch that this morph cover wraps. Used by
-     * the host for diagnostics and for tagging the post-apply screenshot.
-     */
-    runIds: string[];
-    /**
-     * Visible root run ids that should receive transition state events.
-     * These can differ from runIds, which are internal self-mod run ids used
-     * by the worker for apply/release bookkeeping.
-     */
-    stateRunIds?: string[];
-    requiresFullReload: boolean;
-    requiresRuntimeRestart?: boolean;
-    requiresProcessRestart?: boolean;
-    /**
-     * Triggers the worker-side overlay apply for this batch (POSTs `/apply`
-     * to the Vite plugin). Called by the host once the morph cover is on
-     * screen so the renderer never visibly crosses the swap.
-     */
-    applyBatch: (options?: {
-      suppressClientFullReload?: boolean;
-      forceClientFullReload?: boolean;
-    }) => Promise<{ requiresClientFullReload?: boolean } | void>;
-    reportState?: (state: SelfModHmrState) => Promise<void> | void;
-  }) => Promise<void> | void;
 };
 
 export type StellaRuntimeHostOptions = {
@@ -363,7 +321,6 @@ type WorkerInitializationState = {
 
 const AGENT_EVENT_BUFFER_LIMIT = 1_000;
 const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1_000;
-const SELF_MOD_RUNTIME_RELOAD_STATE_FILE = ".stella-runtime-reload-state.json";
 const DEVICE_HEARTBEAT_INTERVAL_MS = 30_000;
 const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = 1e10;
 
@@ -458,7 +415,7 @@ export class StellaRuntimeHost {
   private watcher: FSWatcher | null = null;
   private reloadTimer: NodeJS.Timeout | null = null;
   private deferredRuntimeReload = false;
-  // Coalescing for the dev-watcher / self-mod reload path only: while a
+  // Coalescing for the dev-watcher reload path only: while a
   // scheduled reload's restart is queued or running, further reload requests
   // collapse into a single trailing re-run instead of stacking one full restart
   // per file event. This does NOT guard direct restartWorker() callers (e.g.
@@ -466,20 +423,9 @@ export class StellaRuntimeHost {
   // the controller's stop/start promises keep concurrent calls safe.
   private restartInProgress = false;
   private restartRequestedDuringRestart = false;
-  // Number of self-mod morph transitions the renderer is currently covering
-  // (bracketed around every HOST_HMR_RUN_TRANSITION handler run). A runtime
-  // worker restart that fires WHILE a morph is on screen kills the worker mid
-  // `finishExternalSelfMod`, closing the RPC transport under the in-flight
-  // desktop-update finish. The update handler's transport-closed recovery then
-  // replays a fresh begin/finish cycle over the same paths, which raises a
-  // SECOND morph cover on its own after the update already applied. Gating the
-  // deferred restart on this counter keeps the worker alive until the morph
-  // fully lifts, so the update's morph plays exactly once.
-  private morphTransitionsInFlight = 0;
   /**
    * Set when the connected worker is known to be running stale runtime code
-   * (build-stamp mismatch detected on reattach, or a runtime-relevant
-   * self-mod apply landed) but the restart was deferred because work is in
+   * (build-stamp mismatch detected on reattach) but the restart was deferred because work is in
    * flight. Mirrored to `pendingWorkerRestartFile` on disk so the flag
    * survives an Electron restart; cleared whenever a freshly spawned worker
    * connects (fresh worker == current code).
@@ -494,14 +440,6 @@ export class StellaRuntimeHost {
   // Serializes the single gated flush (`flushWorkerRestart`) so concurrent
   // triggers/hooks don't stack overlapping health probes or restarts.
   private workerRestartCheckInFlight = false;
-  // runId -> pausedAtMs. The timestamp drives the leak backstop: a pause is
-  // normally released by the worker's apply lifecycle within seconds, so one
-  // that outlives the TTL (or its run) is treated as leaked and force-cleared
-  // rather than deferring reloads/restarts forever.
-  private readonly pausedRuntimeReloadRuns = new Map<string, number>();
-  private pausedRuntimeReloadSweepTimer: ReturnType<
-    typeof setInterval
-  > | null = null;
   private reloadQueue = Promise.resolve();
   private configCache: RuntimeConfigureParams = {};
   private deviceIdentity: HostDeviceIdentity | null = null;
@@ -579,7 +517,6 @@ export class StellaRuntimeHost {
       },
       createConnectionAsync: udsFactory,
       initializeConnection: async (connection) => {
-        await this.resetRuntimeReloadPauses();
         this.registerHostHandlers(connection.peer);
         this.registerNotifications(connection.peer);
         const initializeResult =
@@ -663,201 +600,19 @@ export class StellaRuntimeHost {
    * persistent run-event log alive across an Electron restart. Host-owned
    * services below still pause during the gap: LocalSchedulerService,
    * remote-turn Convex subscriptions, device heartbeats, dev file watching,
-   * and the runtime-reload state-file writer. Those surfaces are expected
+   * and the runtime file watcher. Those surfaces are expected
    * to recover on host reconnect; they are not part of the sidecar's
    * survival guarantee.
    */
 
-  private getRuntimeReloadStateFilePath() {
-    return path.join(
-      this.options.initializeParams.stellaAppDir,
-      SELF_MOD_RUNTIME_RELOAD_STATE_FILE,
-    );
-  }
-
-  private async persistRuntimeReloadPauseState() {
-    if (!this.options.initializeParams.isDev) {
-      return;
-    }
-    const filePath = this.getRuntimeReloadStateFilePath();
-    await fs.writeFile(
-      filePath,
-      JSON.stringify(
-        {
-          paused: this.pausedRuntimeReloadRuns.size > 0,
-          pid: process.pid,
-          updatedAtMs: Date.now(),
-        },
-        null,
-        2,
-      ),
-      "utf-8",
-    );
-  }
-
-  private async pauseRuntimeReloads(runId: string) {
-    this.pausedRuntimeReloadRuns.set(runId, Date.now());
-    this.startPausedRuntimeReloadSweep();
-    await this.persistRuntimeReloadPauseState();
-  }
-
-  private async resumeRuntimeReloads(
-    runId: string,
-    options?: { allowDeferredReload?: boolean },
-  ) {
-    this.pausedRuntimeReloadRuns.delete(runId);
-    await this.persistRuntimeReloadPauseState();
-    if (this.pausedRuntimeReloadRuns.size > 0) {
-      return;
-    }
-    this.stopPausedRuntimeReloadSweep();
-    // The last self-mod pause released. A process-restart apply opts out of an
-    // immediate worker reload for this release (`allowDeferredReload: false`) —
-    // drop that intent, but still let a persisted stale restart proceed.
-    if (options?.allowDeferredReload === false) {
-      this.deferredRuntimeReload = false;
-    }
-    void this.flushWorkerRestart();
-  }
-
-  private async resetRuntimeReloadPauses() {
-    this.pausedRuntimeReloadRuns.clear();
-    this.stopPausedRuntimeReloadSweep();
-    await this.persistRuntimeReloadPauseState();
-    // Pauses were force-cleared (the worker reinitialized underneath held
-    // runs). Any deferred reload / pending stale restart intent survives and
-    // can now be re-evaluated through the unified gate.
-    void this.flushWorkerRestart();
-  }
-
-  /**
-   * Leak backstops for runtime-reload pauses. A pause is acquired by the
-   * worker around a self-mod apply and normally released within seconds by
-   * the same lifecycle. Two observed ways that release never happens:
-   *  - the apply's morph transition dies between dispatch and resume (e.g.
-   *    an Electron restart replays into `unknown-transition`), or
-   *  - the owning run is killed without its cleanup running.
-   * A leaked pause silently blocks every worker reload and restart — dev
-   * reloads stop landing and a pending desktop update defers forever. So:
-   * pauses older than the TTL are force-released by a slow sweep, and a
-   * pause whose run reports RUN_FINISHED is force-released after a short
-   * grace window.
-   */
-  private forceReleaseRuntimeReloadPause(runId: string, reason: string) {
-    if (!this.pausedRuntimeReloadRuns.delete(runId)) {
-      return;
-    }
-    getFileLogger()?.warn("host.runtime-reload-pause-force-released", {
-      runId,
-      reason,
-    });
-    console.warn(
-      `[runtime-host] Force-released a leaked self-mod reload pause (run ${runId}, ${reason}).`,
-    );
-    if (this.pausedRuntimeReloadRuns.size === 0) {
-      this.stopPausedRuntimeReloadSweep();
-    }
-    void this.persistRuntimeReloadPauseState().catch(() => undefined);
-    void this.flushWorkerRestart();
-  }
-
-  private getRuntimeReloadPauseTtlMs(): number {
-    const raw = process.env.STELLA_SELF_MOD_RELOAD_PAUSE_TTL_MS?.trim();
-    const parsed = raw ? Number(raw) : Number.NaN;
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 10 * 60 * 1000;
-  }
-
-  private startPausedRuntimeReloadSweep() {
-    if (this.pausedRuntimeReloadSweepTimer) return;
-    this.pausedRuntimeReloadSweepTimer = setInterval(() => {
-      const ttlMs = this.getRuntimeReloadPauseTtlMs();
-      const now = Date.now();
-      for (const [runId, pausedAtMs] of this.pausedRuntimeReloadRuns) {
-        if (now - pausedAtMs >= ttlMs) {
-          this.forceReleaseRuntimeReloadPause(
-            runId,
-            `held for ${Math.round((now - pausedAtMs) / 1000)}s, TTL ${Math.round(ttlMs / 1000)}s`,
-          );
-        }
-      }
-    }, 60_000);
-    this.pausedRuntimeReloadSweepTimer.unref?.();
-  }
-
-  private stopPausedRuntimeReloadSweep() {
-    if (!this.pausedRuntimeReloadSweepTimer) return;
-    clearInterval(this.pausedRuntimeReloadSweepTimer);
-    this.pausedRuntimeReloadSweepTimer = null;
-  }
-
-  /**
-   * RUN_FINISHED hook for the run-liveness backstop: a finished run can no
-   * longer legitimately hold a reload pause, but its release RPC may still
-   * be in flight — give it a short grace window before force-clearing.
-   */
-  private scheduleRuntimeReloadPauseReleaseForFinishedRun(runId: string) {
-    if (!this.pausedRuntimeReloadRuns.has(runId)) {
-      return;
-    }
-    const pausedAtMs = this.pausedRuntimeReloadRuns.get(runId);
-    const timer = setTimeout(() => {
-      // Only release the exact acquisition we observed at RUN_FINISHED; a
-      // newer timestamp means the pause was re-acquired since (by a replay
-      // for the same run) and gets its own TTL treatment.
-      if (this.pausedRuntimeReloadRuns.get(runId) === pausedAtMs) {
-        this.forceReleaseRuntimeReloadPause(runId, "run finished");
-      }
-    }, 30_000);
-    timer.unref?.();
-  }
-
-  /**
-   * Bracket a self-mod morph transition so runtime restarts can't fire while
-   * the cover is on screen. Runs the transition, then flushes any restart that
-   * was deferred to avoid killing the worker mid-morph.
-   */
-  private async withMorphTransitionInFlight(
-    run: () => void | Promise<void>,
-  ): Promise<void> {
-    this.morphTransitionsInFlight += 1;
-    try {
-      await run();
-    } finally {
-      this.onMorphTransitionSettled();
-    }
-  }
-
-  private onMorphTransitionSettled() {
-    this.morphTransitionsInFlight = Math.max(
-      0,
-      this.morphTransitionsInFlight - 1,
-    );
-    if (this.morphTransitionsInFlight > 0) return;
-    // The morph cover has fully lifted; re-evaluate any deferred worker
-    // restart through the unified gate.
-    void this.flushWorkerRestart();
-  }
-
   /**
    * Dev dist-electron watcher trigger: `runtime/` worker code changed on disk.
    * Records the reload intent and debounces a gated flush. The actual restart
-   * only proceeds when {@link canRestartWorkerNow} holds (no self-mod pause, no
-   * morph cover, worker not busy) — evaluated authoritatively in
+   * only proceeds when {@link canRestartWorkerNow} holds (worker not busy) — evaluated in
    * `flushWorkerRestart`.
    */
   private scheduleRuntimeReload() {
     this.deferredRuntimeReload = true;
-    // Only arm the debounce timer when no LOCAL blocker (self-mod pause / morph
-    // cover) is active: a blocked call leaves the intent for an unblock hook
-    // (pause release, morph settle, worker idle) to flush, and never leaves a
-    // stray timer that could fire mid-block. Worker-busy is evaluated with
-    // fresh health inside `flushWorkerRestart`.
-    if (
-      this.pausedRuntimeReloadRuns.size > 0 ||
-      this.morphTransitionsInFlight > 0
-    ) {
-      return;
-    }
     if (this.reloadTimer) {
       clearTimeout(this.reloadTimer);
     }
@@ -872,7 +627,7 @@ export class StellaRuntimeHost {
    *
    * The detached worker survives Electron restarts by design (grace window
    * that preserves in-flight runs). Without this machinery, runtime code
-   * changes (self-mod applies, desktop updates) never reach a surviving
+   * changes never reach a surviving
    * worker: the new host reconnects and keeps running old code forever.
    *
    * On every reattach we compare the worker's boot-time build stamp with the
@@ -1018,28 +773,8 @@ export class StellaRuntimeHost {
   }
 
   /**
-   * Runtime-relevant self-mod apply landed while no dev watcher is running
-   * (packaged/prod: the dev dist-electron watcher otherwise owns this).
-   * Same policy as the reconnect handshake: idle => restart now; busy =>
-   * pending restart, persisted so it survives the Electron relaunch that a
-   * process-restart-classified apply triggers.
-   */
-  private async noteRuntimeCodeChangedByApply(reason: string) {
-    // `markPendingWorkerRestart` persists the flag, starts the quiescence
-    // poll, and nudges the unified gate (which does its own fresh-health
-    // busy check before restarting).
-    await this.markPendingWorkerRestart(reason);
-  }
-
-  /**
    * Unified gate for restarting the runtime worker. A restart may only proceed
-   * when NONE of the blockers hold:
-   *   - a per-run self-mod reload PAUSE is active (a self-mod / desktop update
-   *     is mid-apply);
-   *   - a morph cover is on screen (restarting mid-morph closes the RPC
-   *     transport under an in-flight desktop-update finish and forces a
-   *     redundant second morph via the transport-closed reload-replay);
-   *   - the worker is busy (an agent run / voice request is in flight).
+   * when the worker is not busy (an agent run / voice request is in flight).
    * Both restart triggers (dev dist-electron watcher, stale-worker detection)
    * and every unblock hook route through this, so the dev-watcher path honors
    * the worker-busy deferral exactly like the stale-worker path.
@@ -1047,11 +782,7 @@ export class StellaRuntimeHost {
   private canRestartWorkerNow(
     health: WorkerHealthSnapshot | null = this.workerHealthCache,
   ): boolean {
-    return (
-      this.pausedRuntimeReloadRuns.size === 0 &&
-      this.morphTransitionsInFlight === 0 &&
-      !isWorkerBusyForRestart(health)
-    );
+    return !isWorkerBusyForRestart(health);
   }
 
   /**
@@ -1065,8 +796,8 @@ export class StellaRuntimeHost {
 
   /**
    * The single flush path for BOTH restart triggers and every unblock hook
-   * (self-mod pause release, morph settle, worker idle / RUN_FINISHED,
-   * quiescence poll). Re-evaluates {@link canRestartWorkerNow} against fresh
+   * (worker idle / RUN_FINISHED, quiescence poll). Re-evaluates
+   * {@link canRestartWorkerNow} against fresh
    * worker health and restarts once every blocker has cleared. A single
    * restart satisfies both intents: `restartWorker()` clears the
    * deferred-reload flag and a freshly spawned worker clears the pending flag
@@ -1077,14 +808,6 @@ export class StellaRuntimeHost {
     if (this.workerRestartCheckInFlight) return;
     this.workerRestartCheckInFlight = true;
     try {
-      // Cheap synchronous blockers first — never probe worker health while a
-      // self-mod pause is held or a morph cover is on screen.
-      if (
-        this.pausedRuntimeReloadRuns.size > 0 ||
-        this.morphTransitionsInFlight > 0
-      ) {
-        return;
-      }
       const health = await this.getWorkerHealth({ ensureWorker: false }).catch(
         () => null,
       );
@@ -1112,12 +835,6 @@ export class StellaRuntimeHost {
       .then(async () => {
         try {
           if (!this.started || !this.hasPendingWorkerRestartIntent()) return;
-          if (
-            this.pausedRuntimeReloadRuns.size > 0 ||
-            this.morphTransitionsInFlight > 0
-          ) {
-            return;
-          }
           const health = await this.getWorkerHealth({
             ensureWorker: false,
           }).catch(() => null);
@@ -2236,7 +1953,6 @@ export class StellaRuntimeHost {
   async start() {
     if (this.started) return;
     this.started = true;
-    await this.persistRuntimeReloadPauseState();
     await this.initializeHostServices();
     this.syncHostRemoteTurnBridge();
     this.events.emit("runtime-connected", undefined);
@@ -2254,8 +1970,6 @@ export class StellaRuntimeHost {
     this.clearAllConnectorStreamBuffers();
     if (this.runEventAckTimer) clearTimeout(this.runEventAckTimer);
     this.runEventAckTimer = null;
-    this.pausedRuntimeReloadRuns.clear();
-    this.stopPausedRuntimeReloadSweep();
     this.deferredRuntimeReload = false;
     this.restartInProgress = false;
     this.restartRequestedDuringRestart = false;
@@ -2267,7 +1981,6 @@ export class StellaRuntimeHost {
     this.reloadTimer = null;
     this.watcher?.close();
     this.watcher = null;
-    await this.persistRuntimeReloadPauseState().catch(() => undefined);
     await this.workerController.stop(
       options?.killWorker ? "restart" : "stopped",
     );
@@ -2298,19 +2011,6 @@ export class StellaRuntimeHost {
     const startedAt = Date.now();
     this.events.emit("runtime-reloading", { reason: "worker-restart" });
     await this.workerController.stop("restart");
-    // The restart killed the worker, and every self-mod run it was tracking
-    // died with it. Any runtime-reload pauses those runs held would never be
-    // resumed (the resume RPC comes from the worker-side run lifecycle), so
-    // clear them here instead of leaking a permanent reload deferral.
-    if (this.pausedRuntimeReloadRuns.size > 0) {
-      getFileLogger()?.warn("host.runtime-reload-pauses-cleared-on-restart", {
-        count: this.pausedRuntimeReloadRuns.size,
-      });
-      this.pausedRuntimeReloadRuns.clear();
-      this.stopPausedRuntimeReloadSweep();
-      this.deferredRuntimeReload = false;
-      await this.persistRuntimeReloadPauseState().catch(() => undefined);
-    }
     const stoppedAt = Date.now();
     await this.workerController.ensureStarted();
     const readyAt = Date.now();
@@ -2681,83 +2381,6 @@ export class StellaRuntimeHost {
     );
   }
 
-  async listInstalledMods() {
-    return await this.requestWorker<StoreInstallRecord[]>(
-      METHOD_NAMES.INTERNAL_WORKER_STORE_MODS_LIST_INSTALLED,
-      undefined,
-      { ensureWorker: true, recordActivity: false },
-    );
-  }
-
-  async readSelfModFeatureSnapshot() {
-    return await this.requestWorker<SelfModFeatureSnapshot | null>(
-      METHOD_NAMES.INTERNAL_WORKER_FEATURE_SNAPSHOT_READ,
-      undefined,
-      { ensureWorker: true, recordActivity: false },
-    );
-  }
-
-  async listSelfModFeatureRoster(payload?: {
-    limit?: number;
-    offset?: number;
-  }) {
-    return await this.requestWorker<SelfModFeatureRosterPage>(
-      METHOD_NAMES.INTERNAL_WORKER_FEATURE_ROSTER_LIST,
-      payload,
-      { ensureWorker: true, recordActivity: false },
-    );
-  }
-
-  async beginExternalSelfMod(payload: { runId: string; paths: string[] }) {
-    return await this.requestWorker<{ ok: true }>(
-      METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_EXTERNAL_BEGIN,
-      payload,
-      { ensureWorker: true, recordActivity: true },
-    );
-  }
-
-  async finishExternalSelfMod(payload: { runId: string; succeeded: boolean }) {
-    return await this.requestWorker<{ ok: true; transitioned: boolean }>(
-      METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_EXTERNAL_FINISH,
-      payload,
-      { ensureWorker: true, recordActivity: true },
-    );
-  }
-
-  async recordSourcePackHistory(payload: {
-    sourcePack: StoreReleaseSourcePack;
-    origin?:
-      | "self-mod"
-      | "store-install"
-      | "store-update"
-      | "store-uninstall"
-      | "desktop-update"
-      | "official";
-    packageId?: string;
-    releaseNumber?: number;
-    featureId?: string;
-    description?: string;
-    commitHash?: string | null;
-  }) {
-    return await this.requestWorker<{ ok: true }>(
-      METHOD_NAMES.INTERNAL_WORKER_SOURCE_PACK_HISTORY_RECORD,
-      payload,
-      { ensureWorker: true, recordActivity: true },
-    );
-  }
-
-  async hasSourceRevisionForCommit(commitHash: string) {
-    return await this.requestWorker<{
-      ok: true;
-      exists: boolean;
-      revisionId: string | null;
-    }>(
-      METHOD_NAMES.INTERNAL_WORKER_SOURCE_HISTORY_HAS_COMMIT,
-      { commitHash },
-      { ensureWorker: true, recordActivity: true },
-    );
-  }
-
   async listStorePackages() {
     return await this.requestWorker<StorePackageRecord[]>(
       METHOD_NAMES.INTERNAL_WORKER_LIST_STORE_PACKAGES,
@@ -2787,72 +2410,6 @@ export class StellaRuntimeHost {
       METHOD_NAMES.INTERNAL_WORKER_GET_STORE_RELEASE,
       { packageId, releaseNumber },
       { ensureWorker: true, recordActivity: true },
-    );
-  }
-
-  async createFirstStoreRelease(args: StorePublishArgs) {
-    return await this.requestWorker<StorePackageReleaseRecord>(
-      METHOD_NAMES.INTERNAL_WORKER_CREATE_FIRST_STORE_RELEASE,
-      args,
-      {
-        ensureWorker: true,
-        recordActivity: true,
-      },
-    );
-  }
-
-  async createStoreReleaseUpdate(args: StorePublishArgs) {
-    return await this.requestWorker<StorePackageReleaseRecord>(
-      METHOD_NAMES.INTERNAL_WORKER_CREATE_STORE_RELEASE_UPDATE,
-      args,
-      {
-        ensureWorker: true,
-        recordActivity: true,
-      },
-    );
-  }
-
-  async publishStoreSelectedFeatures(args: StorePublishSelectedFeaturesArgs) {
-    return await this.requestWorker<StorePackageReleaseRecord>(
-      METHOD_NAMES.INTERNAL_WORKER_PUBLISH_STORE_SELECTED_FEATURES,
-      args,
-      {
-        ensureWorker: true,
-        recordActivity: true,
-      },
-    );
-  }
-
-  async uninstallStoreMod(packageId: string) {
-    return await this.requestWorker<{
-      packageId: string;
-      revertedCommits: string[];
-    }>(
-      METHOD_NAMES.INTERNAL_WORKER_UNINSTALL_STORE_MOD,
-      { packageId },
-      {
-        ensureWorker: true,
-        recordActivity: true,
-      },
-    );
-  }
-
-  async installFromBlueprint(payload: {
-    packageId: string;
-    releaseNumber: number;
-    displayName: string;
-    blueprintMarkdown: string;
-    gitArtifact?: StoreReleaseGitArtifact;
-    diff?: string;
-    commits?: Array<{ hash: string; subject: string; diff: string }>;
-  }) {
-    return await this.requestWorker<StoreInstallRecord>(
-      METHOD_NAMES.INTERNAL_WORKER_INSTALL_FROM_BLUEPRINT,
-      payload,
-      {
-        ensureWorker: true,
-        recordActivity: true,
-      },
     );
   }
 
@@ -2960,60 +2517,6 @@ export class StellaRuntimeHost {
     return health?.socialSessions ?? createEmptySocialSessionServiceSnapshot();
   }
 
-  async revertSelfModCommit(payload: { commitHash?: string; steps?: number }) {
-    return await this.requestWorker<RuntimeSelfModRevertResult>(
-      METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_REVERT,
-      payload,
-      {
-        ensureWorker: true,
-        recordActivity: true,
-      },
-    );
-  }
-
-  async applySelfModCommit(payload: { commitHash?: string }) {
-    return await this.requestWorker<RuntimeSelfModApplyResult>(
-      METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_APPLY,
-      payload,
-      {
-        ensureWorker: true,
-        recordActivity: true,
-      },
-    );
-  }
-
-  async getCrashRecoveryStatus() {
-    return await this.requestWorker<RuntimeCrashRecoveryStatus>(
-      METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_CRASH_RECOVERY_STATUS,
-      undefined,
-      { ensureWorker: true, recordActivity: true },
-    );
-  }
-
-  async discardUnfinishedSelfModChanges(payload?: { conversationId?: string }) {
-    return await this.requestWorker<RuntimeDiscardUnfinishedResult>(
-      METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_DISCARD_UNFINISHED,
-      payload,
-      { ensureWorker: true, recordActivity: true },
-    );
-  }
-
-  async getLastSelfModCommit() {
-    return await this.requestWorker<string | null>(
-      METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_LAST_COMMIT,
-      undefined,
-      { ensureWorker: true, recordActivity: true },
-    );
-  }
-
-  async listRecentSelfModCommits(limit?: number) {
-    return await this.requestWorker<SelfModCommitSummary[]>(
-      METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_RECENT_COMMITS,
-      { limit },
-      { ensureWorker: true, recordActivity: true },
-    );
-  }
-
   async killAllShells() {
     return await this.requestWorker(
       METHOD_NAMES.INTERNAL_WORKER_KILL_ALL_SHELLS,
@@ -3055,13 +2558,14 @@ export class StellaRuntimeHost {
 
   async coreMemoryExists() {
     const { coreMemoryExists } = await import("../discovery/browser-data.js");
-    return await coreMemoryExists(this.options.initializeParams.stellaDataDirPath);
+    return await coreMemoryExists(
+      this.options.initializeParams.stellaDataDirPath,
+    );
   }
 
   async discoveryKnowledgeExists() {
-    const { discoveryKnowledgeExists } = await import(
-      "../discovery/life-knowledge.js"
-    );
+    const { discoveryKnowledgeExists } =
+      await import("../discovery/life-knowledge.js");
     return await discoveryKnowledgeExists(
       this.options.initializeParams.stellaDataDirPath,
     );
@@ -3080,9 +2584,8 @@ export class StellaRuntimeHost {
   }
 
   async writeDiscoveryKnowledge(payload: DiscoveryKnowledgeSeedPayload) {
-    const { writeDiscoveryKnowledge } = await import(
-      "../discovery/life-knowledge.js"
-    );
+    const { writeDiscoveryKnowledge } =
+      await import("../discovery/life-knowledge.js");
     await writeDiscoveryKnowledge(
       this.options.initializeParams.stellaDataDirPath,
       payload,
@@ -3090,16 +2593,14 @@ export class StellaRuntimeHost {
   }
 
   async detectPreferredBrowserProfile() {
-    const { detectPreferredBrowserProfile } = await import(
-      "../discovery/browser-data.js"
-    );
+    const { detectPreferredBrowserProfile } =
+      await import("../discovery/browser-data.js");
     return await detectPreferredBrowserProfile();
   }
 
   async listBrowserProfiles(browserType: string) {
-    const { listBrowserProfiles } = await import(
-      "../discovery/browser-data.js"
-    );
+    const { listBrowserProfiles } =
+      await import("../discovery/browser-data.js");
     return await listBrowserProfiles(
       browserType as import("../discovery/browser-data.js").BrowserType,
     );
@@ -3149,7 +2650,7 @@ export class StellaRuntimeHost {
               },
             ),
           getActiveOrchestratorRun: async () => await this.getActiveRun(),
-          }),
+        }),
       },
       // Pop a native banner whenever a scheduled fire delivers a message.
       // Routed through the same Electron handler the runtime uses for
@@ -3600,125 +3101,6 @@ export class StellaRuntimeHost {
       },
     );
     peer.registerRequestHandler(
-      METHOD_NAMES.HOST_RUNTIME_RELOAD_PAUSE,
-      async (params) => {
-        const payload = params as { runId?: string };
-        if (!payload.runId) {
-          throw new Error("HOST_RUNTIME_RELOAD_PAUSE requires a runId.");
-        }
-        await this.pauseRuntimeReloads(payload.runId);
-        return { ok: true };
-      },
-    );
-    peer.registerRequestHandler(
-      METHOD_NAMES.HOST_RUNTIME_RELOAD_RESUME,
-      async (params) => {
-        const payload = params as {
-          runId?: string;
-          allowDeferredReload?: boolean;
-        };
-        if (!payload.runId) {
-          throw new Error("HOST_RUNTIME_RELOAD_RESUME requires a runId.");
-        }
-        await this.resumeRuntimeReloads(payload.runId, {
-          allowDeferredReload: payload.allowDeferredReload !== false,
-        });
-        return { ok: true };
-      },
-    );
-    peer.registerRequestHandler(
-      METHOD_NAMES.HOST_HMR_RUN_TRANSITION,
-      async (params) => {
-        const payload = params as {
-          transitionId?: string;
-          runIds?: string[];
-          stateRunIds?: string[];
-          requiresFullReload?: boolean;
-          requiresRuntimeRestart?: boolean;
-          requiresProcessRestart?: boolean;
-        };
-        if (!payload.transitionId) {
-          throw new Error("HOST_HMR_RUN_TRANSITION requires a transitionId.");
-        }
-        const runIds = Array.isArray(payload.runIds) ? payload.runIds : [];
-        if (runIds.length === 0) {
-          throw new Error(
-            "HOST_HMR_RUN_TRANSITION requires a non-empty runIds array.",
-          );
-        }
-        const runHmrTransition = this.options.hostHandlers.runHmrTransition;
-        if (!runHmrTransition) {
-          throw new Error("HOST_HMR_RUN_TRANSITION handler is not registered.");
-        }
-        await this.withMorphTransitionInFlight(() =>
-          runHmrTransition({
-          runIds,
-          stateRunIds: Array.isArray(payload.stateRunIds)
-            ? payload.stateRunIds.filter((runId) => typeof runId === "string")
-            : runIds,
-          requiresFullReload: Boolean(payload.requiresFullReload),
-          requiresRuntimeRestart: Boolean(payload.requiresRuntimeRestart),
-          requiresProcessRestart: Boolean(payload.requiresProcessRestart),
-          applyBatch: async (options) => {
-            const result = await this.requestWorker<{
-              ok?: boolean;
-              reason?: string;
-              requiresClientFullReload?: boolean;
-            }>(
-              METHOD_NAMES.INTERNAL_WORKER_RESUME_HMR,
-              {
-                transitionId: payload.transitionId,
-                runIds,
-                ...(options ? { options } : {}),
-              },
-              { ensureWorker: false, recordActivity: true },
-            );
-            if (result?.ok === false) {
-              throw new Error(
-                `Self-mod HMR apply failed${result.reason ? `: ${result.reason}` : ""}`,
-              );
-            }
-            return {
-              requiresClientFullReload:
-                result?.requiresClientFullReload === true,
-            };
-          },
-          reportState: async (state) => {
-            const stateRunIds = Array.isArray(payload.stateRunIds)
-              ? payload.stateRunIds.filter((runId) => typeof runId === "string")
-              : runIds;
-            const emitRunIds = stateRunIds.length > 0 ? stateRunIds : runIds;
-            for (const runId of new Set(emitRunIds)) {
-              this.events.emit("run-self-mod-hmr-state", {
-                runId,
-                state,
-              });
-            }
-          },
-        }),
-        );
-        // Runtime-relevant apply with no dev watcher running (packaged /
-        // prod): nothing else will restart the worker for this change, so
-        // route it through the stale-worker policy — restart now when idle,
-        // defer (persisted across the Electron relaunch that a
-        // process-restart apply triggers) when busy. In dev the
-        // dist-electron watcher owns runtime reloads and this stays off.
-        if (
-          !this.watcher &&
-          (payload.requiresRuntimeRestart === true ||
-            payload.requiresProcessRestart === true)
-        ) {
-          await this.noteRuntimeCodeChangedByApply(
-            payload.requiresProcessRestart === true
-              ? "self-mod-apply-process-restart"
-              : "self-mod-apply-runtime-restart",
-          );
-        }
-        return { ok: true };
-      },
-    );
-
-    peer.registerRequestHandler(
       METHOD_NAMES.INTERNAL_SCHEDULE_LIST_CRON_JOBS,
       async () => await this.listCronJobs(),
     );
@@ -3813,11 +3195,6 @@ export class StellaRuntimeHost {
         this.scheduleRunEventAck(payload.runId, payload.seq);
       }
       if (payload.type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED) {
-        if (payload.runId) {
-          // Run-liveness backstop: a finished run must not keep holding a
-          // self-mod reload pause (see forceReleaseRuntimeReloadPause).
-          this.scheduleRuntimeReloadPauseReleaseForFinishedRun(payload.runId);
-        }
         if (this.hasPendingWorkerRestartIntent()) {
           // A deferred worker restart is waiting for the worker to go idle;
           // give immediate follow-up runs a moment to register before the
@@ -3830,29 +3207,11 @@ export class StellaRuntimeHost {
       }
     });
     peer.registerNotificationHandler(
-      NOTIFICATION_NAMES.RUN_SELF_MOD_HMR_STATE,
-      (params) => {
-        this.events.emit(
-          "run-self-mod-hmr-state",
-          params as { runId?: string; state: SelfModHmrState },
-        );
-      },
-    );
-    peer.registerNotificationHandler(
       NOTIFICATION_NAMES.VOICE_AGENT_EVENT,
       (params) => {
         this.events.emit(
           "voice-agent-event",
           params as RuntimeVoiceAgentEventPayload,
-        );
-      },
-    );
-    peer.registerNotificationHandler(
-      NOTIFICATION_NAMES.VOICE_SELF_MOD_HMR_STATE,
-      (params) => {
-        this.events.emit(
-          "voice-self-mod-hmr-state",
-          params as RuntimeVoiceHmrStatePayload,
         );
       },
     );

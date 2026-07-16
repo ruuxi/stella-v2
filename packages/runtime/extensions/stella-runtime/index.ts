@@ -9,18 +9,12 @@ import { createConnectorFormatReminderHook } from "./hooks/connector-format-remi
 import { createDreamSchedulerNotifyHook } from "./hooks/dream-scheduler-notify.hook.js";
 import { createDynamicMemoryReminderHook } from "./hooks/dynamic-memory-reminder.hook.js";
 import { createMemoryReviewHook } from "./hooks/memory-review.hook.js";
-import { createRevertNoticeHook } from "./hooks/revert-notice.hook.js";
-import { createSelfModHooks } from "./hooks/self-mod.hook.js";
 import { createStaleUserReminderHook } from "./hooks/stale-user-reminder.hook.js";
 import { createThreadSummariesRecordHook } from "./hooks/thread-summaries-record.hook.js";
 import { resolveRuntimeSourceAsset } from "../../kernel/shared/runtime-paths.js";
 
 const bundledAgentMetadataDir = () =>
-  resolveRuntimeSourceAsset(
-    "extensions",
-    "stella-runtime",
-    "agent-metadata",
-  );
+  resolveRuntimeSourceAsset("extensions", "stella-runtime", "agent-metadata");
 
 /**
  * Keep shipped capability metadata authoritative without overwriting a user's
@@ -62,7 +56,6 @@ export const loadStellaRuntimeAgents = (
  * hardcoded calls inside the kernel:
  *
  *   - Agent registration from backend-synchronized home markdown
- *   - Self-mod baseline + detect-applied
  *   - Stale-user reminder
  *   - Dynamic memory reminder
  *   - Memory review spawn (post-orchestrator finalize)
@@ -73,7 +66,7 @@ export const loadStellaRuntimeAgents = (
  * any of these behaviors in place. The kernel has no special "bundled"
  * tier anymore — this extension goes through the same loader path as
  * any third-party extension, with `services` (stellaDataDir, stellaAppDir,
- * selfModMonitor, store) supplied by the runtime at registration time.
+ * store) supplied by the runtime at registration time.
  */
 const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
   // Prompt bodies remain live and user-editable under `~/.stella/agents/`.
@@ -93,13 +86,6 @@ const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
     pi.on(hook.event, hook.handler, hook.filter);
   };
 
-  for (const hook of createSelfModHooks({
-    stellaAppDir: services.stellaAppDir,
-    selfModMonitor: services.selfModMonitor,
-  })) {
-    register(hook);
-  }
-
   register(createStaleUserReminderHook());
   register(createDynamicMemoryReminderHook());
   // Connector-format reminder: one hidden `<system_reminder>` on the
@@ -117,11 +103,6 @@ const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
       store: services.store,
     }),
   );
-  // Revert-notice: one hidden `<system_reminder>` per pending self-mod
-  // revert, drained on the next user turn for the affected conversation.
-  // Runs alongside the other before_user_message reminders since it
-  // costs nothing when no reverts are pending.
-  register(createRevertNoticeHook({ store: services.store }));
   register(
     createMemoryReviewHook({
       stellaDataDir: services.stellaDataDir,

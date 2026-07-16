@@ -24,8 +24,6 @@ import type {
 import { MAX_OUTPUT, truncate } from "./utils.js";
 import { resolveBundledRuntimeFile } from "../shared/runtime-paths.js";
 import { isDangerousCommand } from "./command-safety.js";
-import { getInstallUpdateCommandDenialReason } from "./install-update-allowlist.js";
-import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";
 import { inferShellMentionedPaths } from "./path-inference.js";
 import { isKnownSafeCommand } from "./safe-commands.js";
@@ -1568,12 +1566,6 @@ export const handleExecCommand = async (
       error: `Command blocked: this operation is potentially destructive and has been denied for safety. (${dangerReason})`,
     };
   }
-  if (context?.agentType === AGENT_IDS.INSTALL_UPDATE) {
-    const denial = getInstallUpdateCommandDenialReason(prepared.command);
-    if (denial) {
-      return { error: `Command blocked: ${denial}` };
-    }
-  }
   if (!prepared.command.trim()) {
     return { error: "cmd is required." };
   }
@@ -1663,12 +1655,6 @@ export const handleWriteStdin = async (
   }
 
   const chars = typeof args.chars === "string" ? args.chars : "";
-  if (context?.agentType === AGENT_IDS.INSTALL_UPDATE && chars.length > 0) {
-    return {
-      error:
-        "Command blocked: install_update may only poll running sessions with empty write_stdin input.",
-    };
-  }
   const observedVersion = record.outputVersion;
   try {
     await writeToShellStdin(record, chars);
@@ -1718,12 +1704,6 @@ export const handleBash = async (
     return {
       error: `Command blocked: this operation is potentially destructive and has been denied for safety. (${dangerReason})`,
     };
-  }
-  if (context?.agentType === AGENT_IDS.INSTALL_UPDATE) {
-    const denial = getInstallUpdateCommandDenialReason(command);
-    if (denial) {
-      return { error: `Command blocked: ${denial}` };
-    }
   }
 
   const timeout = Math.min(Number(args.timeout ?? 120_000), 600_000);

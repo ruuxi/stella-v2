@@ -111,7 +111,6 @@ export const createRuntimeInitialization = (
   const buildExtensionServices = (): ExtensionServices => ({
     stellaDataDir: context.stellaDataDir,
     stellaAppDir: context.stellaAppDir,
-    selfModMonitor: context.selfModMonitor ?? null,
     store: context.runtimeStore,
   });
 
@@ -160,7 +159,7 @@ export const createRuntimeInitialization = (
   };
 
   const initializeRuntime = () => {
-    // Stella's lifecycle hooks (self-mod, memory, …) live in the
+    // Stella's lifecycle hooks (memory, scheduling, and others) live in the
     // stella-runtime extension and register through the same loader path
     // as user extensions. There's no separate "bundled" registration
     // step — the loader is the one place hooks/tools/providers/agents
@@ -472,7 +471,6 @@ export const createRuntimeInitialization = (
     context.state.activeRunAbortControllers.clear();
     context.state.conversationCallbacks.clear();
     context.state.runCallbacksByRunId.clear();
-    void context.selfModHmrController?.forceResumeAll();
     await context.toolHost.shutdown();
     // Drain any in-flight background compactions so SQLite writes
     // complete before the worker tears down its store handle. Bounded

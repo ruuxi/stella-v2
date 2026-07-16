@@ -1,11 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { IpcRendererEvent } from "electron";
-import type {
-  ChatContext,
-  DesktopReleaseSourceHistoryRef,
-  SelfModHmrState,
-  StellaReleaseArtifactRef,
-} from "@stella/contracts";
+import type { ChatContext } from "@stella/contracts";
 import type {
   LocalChatUpdatedPayload,
   ThreadActivityUpdatedPayload,
@@ -122,12 +117,6 @@ import {
   IPC_SOCIAL_SESSIONS_GET_STATUS,
   IPC_SOCIAL_SESSIONS_QUEUE_TURN,
   IPC_SOCIAL_SESSIONS_UPDATE_STATUS,
-  IPC_UPDATES_GET_INSTALL_MANIFEST,
-  IPC_UPDATES_RECORD_APPLIED_COMMIT,
-  IPC_UPDATES_RECORD_SOURCE_HISTORY,
-  IPC_UPDATES_REFRESH_NATIVE_HELPERS,
-  IPC_UPDATES_ROLLBACK_CANCELED,
-  IPC_UPDATES_TRY_APPLY_CLEAN,
   IPC_VOICE_CREATE_OPENAI_SESSION,
   IPC_VOICE_EXECUTE_TOOL,
   IPC_VOICE_ORCHESTRATOR_CONFIG,
@@ -585,9 +574,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       timing?: MorphTimingSettings["hmr"] | null;
     }>("overlay:morphHandoff"),
     onMorphEnd: onIpc<{ transitionId: string }>("overlay:morphEnd"),
-    onMorphState: onIpc<{ transitionId: string; state: SelfModHmrState }>(
-      "overlay:morphState",
-    ),
     morphReady: (transitionId: string) =>
       ipcRenderer.send("overlay:morphReady", { transitionId }),
     morphDone: (transitionId: string) =>
@@ -828,9 +814,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       conversationId: string;
       userPrompt: string;
       selectedText?: string | null;
-      chatContext?:
-        | import("@stella/contracts").ChatContext
-        | null;
+      chatContext?: import("@stella/contracts").ChatContext | null;
       deviceId?: string;
       platform?: string;
       timezone?: string;
@@ -843,12 +827,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       agentType?: string;
       storageMode?: "cloud" | "local";
       clientRequestId?: string;
-      selfModMetadata?: {
-        packageId?: string;
-        releaseNumber?: number;
-        mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-        expectedChangedFiles?: string[];
-      };
     }) =>
       ipcRenderer.invoke("agent:startChat", payload) as Promise<{
         requestId: string;
@@ -914,12 +892,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
           outcome?: "completed" | "error" | "canceled";
           reason?: string;
           replacedByRunId?: string;
-          selfModApplied?: {
-            commitHash: string;
-            files: string[];
-            batchIndex: number;
-            status?: "pending" | "applied";
-          };
           agentId?: string;
           description?: string;
           parentAgentId?: string;
@@ -968,12 +940,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       outcome?: "completed" | "error" | "canceled";
       reason?: string;
       replacedByRunId?: string;
-      selfModApplied?: {
-        commitHash: string;
-        files: string[];
-        batchIndex: number;
-        status?: "pending" | "applied";
-      };
       agentId?: string;
       description?: string;
       parentAgentId?: string;
@@ -981,7 +947,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       statusText?: string;
       reasoningText?: string;
     }>("agent:event"),
-    onSelfModHmrState: onIpc<SelfModHmrState>("agent:selfModHmrState"),
     /**
      * Subscribe to runtime client availability transitions. The host
      * adapter fires this whenever the worker connection drops or
@@ -995,26 +960,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       reason?: string;
       pendingRuntimeRestart?: boolean;
     }>("runtime:availability"),
-    selfModApply: (commitHash?: string) =>
-      ipcRenderer.invoke("selfmod:apply", { commitHash }),
-    selfModRevert: (commitHash?: string, steps?: number) =>
-      ipcRenderer.invoke("selfmod:revert", { commitHash, steps }),
-    getCrashRecoveryStatus: () =>
-      ipcRenderer.invoke("selfmod:crashRecoveryStatus"),
-    discardUnfinishedSelfModChanges: (conversationId?: string) =>
-      ipcRenderer.invoke("selfmod:discardUnfinished", { conversationId }),
-    getLastSelfModCommit: () => ipcRenderer.invoke("selfmod:lastCommit"),
-    listSelfModCommits: (limit?: number) =>
-      ipcRenderer.invoke("selfmod:recentCommits", { limit }) as Promise<
-        Array<{
-          commitHash: string;
-          name: string;
-          description: string;
-          timestampMs: number;
-          tainted?: boolean;
-          taintedFiles?: string[];
-        }>
-      >,
     triggerViteError: () => ipcRenderer.invoke("devtest:triggerViteError"),
     fixViteError: () => ipcRenderer.invoke("devtest:fixViteError"),
   },
@@ -1571,234 +1516,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
   },
 
-  updates: {
-    getInstallManifest: () =>
-      ipcRenderer.invoke(IPC_UPDATES_GET_INSTALL_MANIFEST) as Promise<{
-        version: string;
-        platform: string;
-        installPath: string;
-        installedAt: string;
-        desktopReleaseTag: string | null;
-        desktopReleaseCommit: string | null;
-        desktopInstallBaseCommit: string | null;
-        installState: {
-          status: "complete";
-          desktopReleaseTag: string | null;
-          desktopReleaseCommit: string;
-          localHeadCommit: string | null;
-          nativeHelpersSha: string | null;
-          completedAt: string;
-        } | null;
-        lastUpdateAttempt: {
-          status: "updating" | "complete" | "failed";
-          targetTag: string | null;
-          targetCommit: string;
-          startedAt: string;
-          finishedAt: string | null;
-          reason: string | null;
-          operationId: string | null;
-          phase:
-            | "started"
-            | "source-pack-preflight"
-            | "source-pack-write"
-            | "source-pack-commit"
-            | "content-landing"
-            | "git-fetch"
-            | "git-merge"
-            | "dependency-install"
-            | "native-refresh"
-            | "record-complete"
-            | "agent-fallback"
-            | null;
-          mode: "source-pack" | "git" | "native-helpers" | "agent" | null;
-          recoveryAction: "resume" | "discard" | "needs-agent" | null;
-          startingHeadCommit: string | null;
-          updatedAt: string | null;
-          changedFiles: string[];
-          ownedTempPaths: string[];
-          nativeHelpersManifestUrl: string | null;
-        } | null;
-      } | null>,
-    tryApplyCleanUpdate: (payload: {
-      baseCommit: string;
-      targetCommit: string;
-      releaseTag: string;
-      sourcePackRef?: {
-        kind: "url";
-        url: string;
-        sha256: string;
-        sizeBytes: number;
-      };
-      artifactRefs?: StellaReleaseArtifactRef[];
-    }) =>
-      ipcRenderer.invoke(IPC_UPDATES_TRY_APPLY_CLEAN, payload) as Promise<
-        | {
-            status: "applied";
-            manifest: {
-              version: string;
-              platform: string;
-              installPath: string;
-              installedAt: string;
-              desktopReleaseTag: string | null;
-              desktopReleaseCommit: string | null;
-              desktopInstallBaseCommit: string | null;
-              installState: {
-                status: "complete";
-                desktopReleaseTag: string | null;
-                desktopReleaseCommit: string;
-                localHeadCommit: string | null;
-                nativeHelpersSha: string | null;
-                completedAt: string;
-              } | null;
-              lastUpdateAttempt: {
-                status: "updating" | "complete" | "failed";
-                targetTag: string | null;
-                targetCommit: string;
-                startedAt: string;
-                finishedAt: string | null;
-                reason: string | null;
-                operationId: string | null;
-                phase:
-                  | "started"
-                  | "source-pack-preflight"
-                  | "source-pack-write"
-                  | "source-pack-commit"
-                  | "content-landing"
-                  | "git-fetch"
-                  | "git-merge"
-                  | "dependency-install"
-                  | "native-refresh"
-                  | "record-complete"
-                  | "agent-fallback"
-                  | null;
-                mode: "source-pack" | "git" | "native-helpers" | "agent" | null;
-                recoveryAction: "resume" | "discard" | "needs-agent" | null;
-                startingHeadCommit: string | null;
-                updatedAt: string | null;
-                changedFiles: string[];
-                ownedTempPaths: string[];
-                nativeHelpersManifestUrl: string | null;
-              } | null;
-            } | null;
-            headCommit: string;
-            changedFiles: string[];
-            dependencyInstallRan: boolean;
-            nativeHelpersRefreshed: boolean;
-            reloaded: boolean;
-          }
-        | {
-            status: "needs-agent";
-            reason: string;
-            headCommit?: string;
-            changedFiles?: string[];
-            sourcePackFile?: string;
-            sourcePackConflictFile?: string;
-            sourcePackConflictJson?: string;
-          }
-      >,
-    recordSourceHistory: (payload: {
-      targetCommit: string;
-      releaseTag: string;
-      sourceHistoryRef?: DesktopReleaseSourceHistoryRef;
-    }) =>
-      ipcRenderer.invoke(IPC_UPDATES_RECORD_SOURCE_HISTORY, payload) as Promise<
-        { ok: true; revisionId: string } | { ok: false; reason: string }
-      >,
-    refreshNativeHelpers: (
-      releaseTag: string,
-      artifactRefs?: StellaReleaseArtifactRef[],
-    ) =>
-      ipcRenderer.invoke(IPC_UPDATES_REFRESH_NATIVE_HELPERS, {
-        releaseTag,
-        ...(artifactRefs ? { artifactRefs } : {}),
-      }) as Promise<{
-        ok: boolean;
-        manifestUrl: string;
-        stdout: string;
-        stderr: string;
-      }>,
-    recordAppliedCommit: (
-      commit: string,
-      tag?: string,
-      options?: {
-        mode?: "git-ancestry" | "release-pointer";
-        startingHeadCommit?: string;
-        agentRunId?: string;
-      },
-    ) =>
-      ipcRenderer.invoke(IPC_UPDATES_RECORD_APPLIED_COMMIT, {
-        commit,
-        tag,
-        ...(options?.mode ? { mode: options.mode } : {}),
-        ...(options?.startingHeadCommit
-          ? { startingHeadCommit: options.startingHeadCommit }
-          : {}),
-        ...(options?.agentRunId ? { agentRunId: options.agentRunId } : {}),
-      }) as Promise<{
-        version: string;
-        platform: string;
-        installPath: string;
-        installedAt: string;
-        desktopReleaseTag: string | null;
-        desktopReleaseCommit: string | null;
-        desktopInstallBaseCommit: string | null;
-        installState: {
-          status: "complete";
-          desktopReleaseTag: string | null;
-          desktopReleaseCommit: string;
-          localHeadCommit: string | null;
-          nativeHelpersSha: string | null;
-          completedAt: string;
-        } | null;
-        lastUpdateAttempt: {
-          status: "updating" | "complete" | "failed";
-          targetTag: string | null;
-          targetCommit: string;
-          startedAt: string;
-          finishedAt: string | null;
-          reason: string | null;
-          operationId: string | null;
-          phase:
-            | "started"
-            | "source-pack-preflight"
-            | "source-pack-write"
-            | "source-pack-commit"
-            | "content-landing"
-            | "git-fetch"
-            | "git-merge"
-            | "dependency-install"
-            | "native-refresh"
-            | "record-complete"
-            | "agent-fallback"
-            | null;
-          mode: "source-pack" | "git" | "native-helpers" | "agent" | null;
-          recoveryAction: "resume" | "discard" | "needs-agent" | null;
-          startingHeadCommit: string | null;
-          updatedAt: string | null;
-          changedFiles: string[];
-          ownedTempPaths: string[];
-          nativeHelpersManifestUrl: string | null;
-        } | null;
-      } | null>,
-    rollbackCanceledUpdate: (payload: {
-      startingHeadCommit: string;
-      releaseTag?: string;
-      changedFiles?: string[];
-    }) =>
-      ipcRenderer.invoke(IPC_UPDATES_ROLLBACK_CANCELED, payload) as Promise<
-        | {
-            status: "rolled-back";
-            headCommit: string;
-            restoredFiles: string[];
-          }
-        | {
-            status: "skipped";
-            reason: string;
-            headCommit?: string;
-          }
-      >,
-  },
-
   onboarding: {
     synthesizeCoreMemory: (payload: OnboardingSynthesisRequest) =>
       ipcRenderer.invoke(
@@ -2076,9 +1793,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   store: {
-    readFeatureSnapshot: () => ipcRenderer.invoke("store:readFeatureSnapshot"),
-    listFeatureRoster: (payload?: { limit?: number; offset?: number }) =>
-      ipcRenderer.invoke("store:listFeatureRoster", payload),
     listPackages: () => ipcRenderer.invoke("store:listPackages"),
     getPackage: (packageId: string) =>
       ipcRenderer.invoke("store:getPackage", { packageId }),
@@ -2088,24 +1802,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       packageId: string;
       releaseNumber: number;
     }) => ipcRenderer.invoke("store:getRelease", payload),
-    listInstalledMods: () => ipcRenderer.invoke("store:listInstalledMods"),
-    installFromBlueprint: (payload: {
-      packageId: string;
-      releaseNumber: number;
-    }) => ipcRenderer.invoke("store:installFromBlueprint", payload),
-    publishSelectedFeatures: (payload: {
-      attachedFeatureNames: string[];
-      attachedFeatureIds?: string[];
-      packageId: string;
-      asUpdate: boolean;
-      displayName?: string;
-      description?: string;
-      category?: string;
-      manifest: Record<string, unknown>;
-      releaseNotes?: string;
-    }) => ipcRenderer.invoke("store:publishSelectedFeatures", payload),
-    uninstallPackage: (packageId: string) =>
-      ipcRenderer.invoke("store:uninstallMod", { packageId }),
   },
 
   storeWeb: {

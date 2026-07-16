@@ -157,14 +157,13 @@ export type RuntimeThreadCompactionEntry = RuntimeThreadSessionEntryBase & {
   fromHook?: boolean;
 };
 
-export type RuntimeThreadBranchSummaryEntry =
-  RuntimeThreadSessionEntryBase & {
-    type: "branch_summary";
-    fromId: string;
-    summary: string;
-    details?: unknown;
-    fromHook?: boolean;
-  };
+export type RuntimeThreadBranchSummaryEntry = RuntimeThreadSessionEntryBase & {
+  type: "branch_summary";
+  fromId: string;
+  summary: string;
+  details?: unknown;
+  fromHook?: boolean;
+};
 
 export type RuntimeThreadCustomEntry = RuntimeThreadSessionEntryBase & {
   type: "custom";
@@ -172,15 +171,14 @@ export type RuntimeThreadCustomEntry = RuntimeThreadSessionEntryBase & {
   data?: unknown;
 };
 
-export type RuntimeThreadCustomMessageEntry =
-  RuntimeThreadSessionEntryBase & {
-    type: "custom_message";
-    customType: string;
-    content: string | (TextContent | ImageContent)[];
-    display: boolean;
-    /** Structured lifecycle dedup key; never inferred from message text. */
-    eventId?: string;
-  };
+export type RuntimeThreadCustomMessageEntry = RuntimeThreadSessionEntryBase & {
+  type: "custom_message";
+  customType: string;
+  content: string | (TextContent | ImageContent)[];
+  display: boolean;
+  /** Structured lifecycle dedup key; never inferred from message text. */
+  eventId?: string;
+};
 
 export type RuntimeThreadLabelEntry = RuntimeThreadSessionEntryBase & {
   type: "label";
@@ -242,15 +240,7 @@ export type RuntimeRunEvent = {
   error?: string;
   fatal?: boolean;
   finalText?: string;
-  selfModApplied?: {
-    commitHash: string;
-    files: string[];
-    batchIndex: number;
-    status?: "pending" | "applied";
-  };
 };
-
-export type RuntimeSelfModApplied = NonNullable<RuntimeRunEvent["selfModApplied"]>;
 
 export type SqliteStatement = {
   run(...params: unknown[]): unknown;
@@ -335,7 +325,9 @@ export const toJsonValueString = (value: unknown): string | null => {
   }
 };
 
-export const parseJsonRecord = (value: string | null): Record<string, unknown> | undefined => {
+export const parseJsonRecord = (
+  value: string | null,
+): Record<string, unknown> | undefined => {
   if (!value) return undefined;
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -348,55 +340,59 @@ export const parseJsonRecord = (value: string | null): Record<string, unknown> |
 const isTextContent = (value: unknown): value is TextContent =>
   Boolean(
     value &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      (value as { type?: unknown }).type === "text" &&
-      typeof (value as { text?: unknown }).text === "string",
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as { type?: unknown }).type === "text" &&
+    typeof (value as { text?: unknown }).text === "string",
   );
 
 const isImageContent = (value: unknown): value is ImageContent =>
   Boolean(
     value &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      (value as { type?: unknown }).type === "image" &&
-      typeof (value as { data?: unknown }).data === "string" &&
-      typeof (value as { mimeType?: unknown }).mimeType === "string",
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as { type?: unknown }).type === "image" &&
+    typeof (value as { data?: unknown }).data === "string" &&
+    typeof (value as { mimeType?: unknown }).mimeType === "string",
   );
 
 const isThinkingContent = (value: unknown): value is ThinkingContent =>
   Boolean(
     value &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      (value as { type?: unknown }).type === "thinking" &&
-      typeof (value as { thinking?: unknown }).thinking === "string",
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as { type?: unknown }).type === "thinking" &&
+    typeof (value as { thinking?: unknown }).thinking === "string",
   );
 
 const isToolCall = (value: unknown): value is ToolCall =>
   Boolean(
     value &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      (value as { type?: unknown }).type === "toolCall" &&
-      typeof (value as { id?: unknown }).id === "string" &&
-      typeof (value as { name?: unknown }).name === "string" &&
-      typeof (value as { arguments?: unknown }).arguments === "object" &&
-      (value as { arguments?: unknown }).arguments !== null &&
-      !Array.isArray((value as { arguments?: unknown }).arguments),
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as { type?: unknown }).type === "toolCall" &&
+    typeof (value as { id?: unknown }).id === "string" &&
+    typeof (value as { name?: unknown }).name === "string" &&
+    typeof (value as { arguments?: unknown }).arguments === "object" &&
+    (value as { arguments?: unknown }).arguments !== null &&
+    !Array.isArray((value as { arguments?: unknown }).arguments),
   );
 
 export const isUserContent = (
   value: unknown,
 ): value is string | (TextContent | ImageContent)[] =>
   typeof value === "string" ||
-  (Array.isArray(value) && value.every((entry) => isTextContent(entry) || isImageContent(entry)));
+  (Array.isArray(value) &&
+    value.every((entry) => isTextContent(entry) || isImageContent(entry)));
 
 const isAssistantContent = (
   value: unknown,
 ): value is (TextContent | ThinkingContent | ToolCall)[] =>
   Array.isArray(value) &&
-  value.every((entry) => isTextContent(entry) || isThinkingContent(entry) || isToolCall(entry));
+  value.every(
+    (entry) =>
+      isTextContent(entry) || isThinkingContent(entry) || isToolCall(entry),
+  );
 
 const isToolResultContent = (
   value: unknown,
@@ -409,17 +405,17 @@ const isUsage = (value: unknown): value is Usage => {
   const cost = asObject(record?.cost);
   return Boolean(
     record &&
-      typeof record.input === "number" &&
-      typeof record.output === "number" &&
-      typeof record.cacheRead === "number" &&
-      typeof record.cacheWrite === "number" &&
-      typeof record.totalTokens === "number" &&
-      cost &&
-      typeof cost.input === "number" &&
-      typeof cost.output === "number" &&
-      typeof cost.cacheRead === "number" &&
-      typeof cost.cacheWrite === "number" &&
-      typeof cost.total === "number",
+    typeof record.input === "number" &&
+    typeof record.output === "number" &&
+    typeof record.cacheRead === "number" &&
+    typeof record.cacheWrite === "number" &&
+    typeof record.totalTokens === "number" &&
+    cost &&
+    typeof cost.input === "number" &&
+    typeof cost.output === "number" &&
+    typeof cost.cacheRead === "number" &&
+    typeof cost.cacheWrite === "number" &&
+    typeof cost.total === "number",
   );
 };
 
@@ -559,7 +555,8 @@ export const parseRuntimeThreadPayload = (
         ...(typeof record.responseId === "string" && record.responseId.trim()
           ? { responseId: record.responseId }
           : {}),
-        ...(typeof record.errorMessage === "string" && record.errorMessage.trim()
+        ...(typeof record.errorMessage === "string" &&
+        record.errorMessage.trim()
           ? { errorMessage: record.errorMessage }
           : {}),
       } as unknown as PersistedRuntimeThreadPayload;
@@ -588,35 +585,9 @@ export const parseRuntimeThreadPayload = (
   }
 };
 
-export const parseRuntimeSelfModApplied = (
-  value: string | null,
-): RuntimeSelfModApplied | undefined => {
-  const record = parseJsonRecord(value);
-  if (!record) return undefined;
-  const commitHash =
-    typeof record.commitHash === "string" ? record.commitHash.trim() : "";
-  const batchIndex = typeof record.batchIndex === "number" && Number.isFinite(record.batchIndex)
-    ? Math.floor(record.batchIndex)
-    : null;
-  const files = Array.isArray(record.files)
-    ? record.files.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-    : [];
-  if (!commitHash || batchIndex == null || files.length === 0) {
-    return undefined;
-  }
-  const status =
-    record.status === "pending" || record.status === "applied"
-      ? record.status
-      : undefined;
-  return {
-    commitHash,
-    files,
-    batchIndex,
-    ...(status ? { status } : {}),
-  };
-};
-
-export const eventTextFromPayload = (payload?: Record<string, unknown>): string => {
+export const eventTextFromPayload = (
+  payload?: Record<string, unknown>,
+): string => {
   const text = payload?.contextText ?? payload?.text;
   return typeof text === "string" ? text.trim() : "";
 };

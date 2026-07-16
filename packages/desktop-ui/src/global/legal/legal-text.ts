@@ -91,11 +91,6 @@ Usage Limits — Each plan includes usage allowances measured in token consumpti
 Cancellation — You may cancel your subscription at any time. Cancellation takes effect at the end of the current billing period. No refunds are provided for partial billing periods.
 
 
-9. Self-Modifying Capabilities
-
-Stella's AI agents can modify the application's own user interface and functionality when instructed by you. These modifications are made locally via Vite hot-module replacement and are tracked in a local Git repository on your device. You may revert any self-modification at any time. You are responsible for reviewing and accepting changes made by the AI to your local Stella installation.
-
-
 10. Mod Store
 
 Publishing — You may publish modifications ("mods") to the Stella Mod Store. By publishing, you grant FromYou and other Stella users a non-exclusive, worldwide, royalty-free license to use, install, and distribute your mod through the Service.
@@ -231,7 +226,6 @@ The following data is created and stored entirely on your device and is never tr
 • Voice transcripts — records of voice interactions
 • LLM API keys (encrypted) — your own provider credentials for BYOK use
 • Local preferences and settings — theme, model preferences, configuration
-• Self-modification history (Git) — tracking of AI-made UI changes for undo/revert
 • Installed mods and skills — extensions you have installed
 • Device identity keypair — cryptographic identity for your device
 • Local SQLite database — persistent storage for all of the above

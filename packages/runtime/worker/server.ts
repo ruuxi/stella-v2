@@ -84,15 +84,8 @@ import {
   type RuntimeOneShotCompletionRequest,
   type RuntimeOneShotCompletionResult,
   type RuntimeVoiceToolCallPayload,
-  type StorePublishArgs,
-  type StorePublishSelectedFeaturesArgs,
   type RuntimeLocalAgentRequest,
 } from "@stella/contracts/protocol";
-import type {
-  StorePackageReleaseRecord,
-  StoreReleaseCommit,
-  StoreReleaseGitArtifact,
-} from "@stella/contracts";
 import {
   AGENT_IDS,
   AGENT_RUN_FINISH_OUTCOMES,
@@ -132,39 +125,10 @@ import {
   afterRequiredCliBridgeReady,
   connectorActionBrokerAvailability,
 } from "./required-cli-bridge.js";
-import {
-  detectSelfModAppliedSince,
-  getGitHead,
-  getLastSelfModCommitHash,
-  listFilesForCommit,
-  listGitDirtyFiles,
-  listRecentSelfModCommits,
-} from "../kernel/self-mod/git/log.js";
-import {
-  discardGitDirtyFiles,
-  rollbackGitChangesSince,
-} from "../kernel/self-mod/git/revert.js";
-import {
-  createSelfModHmrController,
-  type ApplyOptions,
-  type SelfModHmrController,
-} from "../kernel/self-mod/hmr.js";
-import {
-  createSelfModCoordinator,
-  recordSelfModRevertNotice,
-  type PendingSelfModApply,
-} from "./self-mod-coordinator.js";
-import type { StellaSourcePack } from "../kernel/self-mod/stella-source-control.js";
-import { StoreModService } from "../kernel/self-mod/store-mod-service.js";
 import { createDesktopDatabase } from "../kernel/storage/database.js";
 import { ChatStore } from "../kernel/storage/chat-store.js";
 import { RuntimeStore } from "../kernel/storage/runtime-store.js";
 import { RunEventLog } from "../kernel/storage/run-event-log.js";
-import { StoreModStore } from "../kernel/storage/store-mod-store.js";
-import {
-  StellaSourceHistoryStore,
-  type StellaSourceRevisionOrigin,
-} from "../kernel/storage/stella-source-history-store.js";
 import type {
   LocalChatEventRecord,
   SqliteDatabase,
@@ -208,69 +172,6 @@ const logger = createRuntimeLogger("worker.server");
 
 type RuntimeRunner = ReturnType<typeof createStellaHostRunner>;
 
-const normalizeStoreInstallRollbackPaths = (paths: string[]): string[] =>
-  Array.from(
-    new Set(
-      paths
-        .map((filePath) => filePath.trim().replace(/\\/g, "/"))
-        .filter(Boolean),
-    ),
-  ).sort();
-
-const storeInstallCommitSubjectPolicy = (args: {
-  packageId: string;
-  mode: "install" | "update";
-}) => {
-  const expectedPrefix =
-    args.mode === "update" ? "Store update" : "Store install";
-  const expected = `${expectedPrefix}: ${args.packageId}`;
-  return (subject: string) => subject === expected;
-};
-
-const rollbackFailedStoreInstall = async (args: {
-  repoRoot: string;
-  startingHeadCommit: string | null;
-  baselineDirtyFiles: Set<string>;
-  packageId: string;
-  mode: "install" | "update";
-}): Promise<void> => {
-  if (!args.startingHeadCommit) return;
-  const currentDirtyFiles = await listGitDirtyFiles(args.repoRoot).catch(
-    () => [],
-  );
-  const changedFiles = normalizeStoreInstallRollbackPaths(
-    currentDirtyFiles.filter(
-      (filePath) => !args.baselineDirtyFiles.has(filePath),
-    ),
-  );
-  const result = await rollbackGitChangesSince({
-    repoRoot: args.repoRoot,
-    startingHeadCommit: args.startingHeadCommit,
-    changedFiles,
-    isOwnedCommitSubject: storeInstallCommitSubjectPolicy({
-      packageId: args.packageId,
-      mode: args.mode,
-    }),
-    allowRevertWithLocalChanges: true,
-  });
-  if (result.status === "skipped") {
-    logger.warn("store-install.rollback.skipped", {
-      packageId: args.packageId,
-      mode: args.mode,
-      reason: result.reason,
-      headCommit: result.headCommit,
-      changedFileCount: changedFiles.length,
-    });
-    return;
-  }
-  logger.info("store-install.rollback.done", {
-    packageId: args.packageId,
-    mode: args.mode,
-    headCommit: result.headCommit,
-    restoredFileCount: result.restoredFiles.length,
-  });
-};
-
 const resolveDesktopCliEntrypoint = (
   stellaAppDir: string,
   packageName: string,
@@ -309,12 +210,6 @@ type AgentEventPayload = {
   fatal?: boolean;
   finalText?: string;
   persisted?: boolean;
-  selfModApplied?: {
-    commitHash: string;
-    files: string[];
-    batchIndex: number;
-    status?: "pending" | "applied";
-  };
   agentId?: string;
   agentType?: AgentIdLike;
   rootRunId?: string;
@@ -335,9 +230,6 @@ type WorkerState = {
   db: SqliteDatabase | null;
   chatStore: ChatStore | null;
   runtimeStore: RuntimeStore | null;
-  storeModStore: StoreModStore | null;
-  sourceHistoryStore: StellaSourceHistoryStore | null;
-  storeModService: StoreModService | null;
   socialSessionStore: SocialSessionStore | null;
   socialSessionService: SocialSessionService | null;
   voiceService: VoiceRuntimeService | null;
@@ -346,8 +238,6 @@ type WorkerState = {
   // when no build is in flight; resolves to the runner once constructed.
   runnerReadyPromise: Promise<RuntimeRunner> | null;
   deviceId: string | null;
-  selfModHmrController: SelfModHmrController | null;
-  pendingSelfModApplies: Map<string, PendingSelfModApply>;
   /**
    * Persistent ring buffer for streaming run events. Every event we emit
    * via NOTIFICATION_NAMES.RUN_EVENT also gets persisted here so that a
@@ -366,13 +256,6 @@ type WorkerState = {
   cliBridgeServer: CliBridgeServer | null;
 };
 
-type StoredSelfModApplied = {
-  commitHash?: string;
-  files?: string[];
-  batchIndex?: number;
-  status?: "pending" | "applied";
-};
-
 // Resolve a runtime CLI bundled into desktop/dist-electron/runtime/kernel/cli/.
 const resolveRuntimeCliPath = (fileName: string) =>
   resolveBundledRuntimeFile(`kernel/cli/${fileName}`);
@@ -380,25 +263,6 @@ const resolveRuntimeCliPath = (fileName: string) =>
 const asTrimmedString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
 
-import {
-  buildStorePublishFeatureSnapshot,
-  buildStoreReleaseRedactor,
-  collectStoreReleaseCommits,
-  collectStoreReleaseGitArtifact,
-  normalizeStoreThreadFeatureIds,
-  normalizeStoreThreadFeatureNames,
-} from "./store-thread-helpers.js";
-import {
-  buildStoreInstallPrompt,
-  buildStoreInstallReviewPrompt,
-  parseStoreInstallReviewDecision,
-} from "./store-install-prompt.js";
-import {
-  materializeStoreGitArtifactReference,
-  tryStoreGitArtifactFastPath,
-} from "./store-git-artifact-install.js";
-import { expandExternalSelfModPaths } from "./mechanical-apply.js";
-import { importExternalSource } from "./source-import-external.js";
 import {
   approximateDataUrlBytes,
   buildSpilledAttachmentNotice,
@@ -611,12 +475,7 @@ const stopWorkerServices = async (state: WorkerState) => {
   state.runner = null;
   state.chatStore = null;
   state.runtimeStore = null;
-  state.storeModStore = null;
-  state.sourceHistoryStore = null;
-  state.storeModService = null;
   state.socialSessionStore = null;
-  state.selfModHmrController = null;
-  state.pendingSelfModApplies.clear();
   state.runEventLog?.stop();
   state.runEventLog = null;
   await state.cliBridgeServer?.stop().catch(() => undefined);
@@ -633,17 +492,12 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     db: null,
     chatStore: null,
     runtimeStore: null,
-    storeModStore: null,
-    sourceHistoryStore: null,
-    storeModService: null,
     socialSessionStore: null,
     socialSessionService: null,
     voiceService: null,
     runner: null,
     runnerReadyPromise: null,
     deviceId: null,
-    selfModHmrController: null,
-    pendingSelfModApplies: new Map(),
     runEventLog: null,
     cliBridgeServer: null,
   };
@@ -654,16 +508,15 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   // Importing them on first use (and building the runner in the post-ready
   // background slot) keeps that parse off the worker-ready path. The dynamic
   // import()s are also what let esbuild split them into their own chunk.
-  let oneShotCompletionModule:
-    | Promise<typeof import("../kernel/agent-runtime/one-shot-completion.js")>
-    | null = null;
+  let oneShotCompletionModule: Promise<
+    typeof import("../kernel/agent-runtime/one-shot-completion.js")
+  > | null = null;
   const loadOneShotCompletion = () =>
-    (oneShotCompletionModule ??= import(
-      "../kernel/agent-runtime/one-shot-completion.js"
-    ));
-  let chatPromptContextModule:
-    | Promise<typeof import("../kernel/chat-prompt-context.js")>
-    | null = null;
+    (oneShotCompletionModule ??=
+      import("../kernel/agent-runtime/one-shot-completion.js"));
+  let chatPromptContextModule: Promise<
+    typeof import("../kernel/chat-prompt-context.js")
+  > | null = null;
   const loadChatPromptContext = () =>
     (chatPromptContextModule ??= import("../kernel/chat-prompt-context.js"));
 
@@ -681,10 +534,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     peer.notify(NOTIFICATION_NAMES.RUN_EVENT, event);
   };
 
-  const emitSelfModHmrState = (payload: { runId?: string; state: unknown }) => {
-    peer.notify(NOTIFICATION_NAMES.RUN_SELF_MOD_HMR_STATE, payload);
-  };
-
   const emitVoiceAgentEvent = (payload: {
     requestId: string;
     event: RuntimeAgentEventPayload;
@@ -692,18 +541,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     peer.notify(NOTIFICATION_NAMES.VOICE_AGENT_EVENT, payload);
   };
 
-  const emitVoiceSelfModHmrState = (payload: {
-    requestId: string;
-    runId?: string;
-    state: unknown;
-  }) => {
-    peer.notify(NOTIFICATION_NAMES.VOICE_SELF_MOD_HMR_STATE, payload);
-  };
-
   const hasActiveWork = (): boolean => {
     // Keep this in sync with host-side shouldKeepWorkerAlive plus
-    // worker-only work that the host cannot observe after disconnect
-    // (active request handlers and pending self-mod apply batches).
+    // worker-only work that the host cannot observe after disconnect.
     const socialSessions =
       state.socialSessionService?.getSnapshot() ??
       createEmptySocialSessionServiceSnapshot();
@@ -714,14 +554,12 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       (state.voiceService?.isBusy() ?? false) ||
       (state.voiceService?.getPendingRequestCount() ?? 0) > 0;
     const requestPinned = (peer.activeRequestHandlerCount?.() ?? 0) > 0;
-    const pendingApplyPinned = selfMod.hasPendingApplyBatches();
     return Boolean(
       state.runner?.getActiveOrchestratorRun() ||
-        (state.runner?.getActiveAgentCount() ?? 0) > 0 ||
-        requestPinned ||
-        pendingApplyPinned ||
-        socialPinned ||
-        voicePinned,
+      (state.runner?.getActiveAgentCount() ?? 0) > 0 ||
+      requestPinned ||
+      socialPinned ||
+      voicePinned,
     );
   };
 
@@ -733,9 +571,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
    * chronological order rather than collapsing into a single
    * `assistant-for-<userMessageId>` row that overwrites itself.
    *
-   * Returns the persisted eventId so callers can track the latest row
-   * per user turn (e.g. for the `selfModApplied` patch target on
-   * `agent_end`).
+   * Returns the persisted eventId so callers can track the latest row.
    */
   const appendAssistantMessageForTurn = (args: {
     conversationId: string;
@@ -754,17 +590,17 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
 
     const runtimeMetadata =
       args.responseTarget || Number.isFinite(args.streamStartedAtMs)
-      ? {
-          runtime: {
-            ...(args.responseTarget
-              ? { responseTarget: args.responseTarget }
-              : {}),
-            ...(Number.isFinite(args.streamStartedAtMs)
-              ? { streamStartedAtMs: args.streamStartedAtMs }
-              : {}),
-          },
-        }
-      : undefined;
+        ? {
+            runtime: {
+              ...(args.responseTarget
+                ? { responseTarget: args.responseTarget }
+                : {}),
+              ...(Number.isFinite(args.streamStartedAtMs)
+                ? { streamStartedAtMs: args.streamStartedAtMs }
+                : {}),
+            },
+          }
+        : undefined;
 
     const eventId = `assistant-msg-${args.runId}-${args.seq}`;
     const event = ensureChatStore().appendEvent({
@@ -786,86 +622,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     notifyLocalChatUpdated(peer, args.conversationId, event);
     return eventId;
   };
-
-  /**
-   * Patch the persisted assistant message identified by `eventId` with
-   * the self-mod commit metadata produced by the `agent_end` hook.
-   * Drives the inline "Undo changes" button under the assistant row.
-   *
-   * Targets the LAST assistant message of the run (tracked in the
-   * `startChat` closure as `lastAssistantMessageEventId`) so the undo
-   * affordance sits under the post-tool answer rather than under an
-   * earlier preamble. If no assistant row was ever written for this
-   * run (e.g. empty-text completion), the merge silently no-ops.
-   */
-  const attachSelfModToAssistantMessage = (args: {
-    conversationId: string;
-    eventId: string;
-    selfModApplied: {
-      commitHash: string;
-      files: string[];
-      batchIndex: number;
-      status?: "pending" | "applied";
-    };
-  }): void => {
-    const updated = ensureChatStore().mergeEventPayload({
-      conversationId: args.conversationId,
-      eventId: args.eventId,
-      patch: { selfModApplied: args.selfModApplied },
-    });
-    if (updated) {
-      notifyLocalChatUpdated(peer, args.conversationId, updated);
-    }
-  };
-
-  const patchSelfModApplyStatus = (args: {
-    conversationId: string;
-    eventId?: string;
-    commitHash: string;
-    status: "pending" | "applied";
-  }): void => {
-    const current = state.chatStore
-      ?.listEvents(args.conversationId, 500)
-      .find((event) => {
-        if (args.eventId) {
-          return event._id === args.eventId;
-        }
-        const payload = event.payload as
-          | { selfModApplied?: StoredSelfModApplied }
-          | undefined;
-        return payload?.selfModApplied?.commitHash === args.commitHash;
-      });
-    const currentPayload = current?.payload as
-      | { selfModApplied?: StoredSelfModApplied }
-      | undefined;
-    const currentSelfMod = currentPayload?.selfModApplied;
-    if (!current || currentSelfMod?.commitHash !== args.commitHash) {
-      return;
-    }
-    const updated = ensureChatStore().mergeEventPayload({
-      conversationId: args.conversationId,
-      eventId: current._id,
-      patch: {
-        selfModApplied: {
-          ...currentSelfMod,
-          status: args.status,
-        },
-      },
-    });
-    if (updated) {
-      notifyLocalChatUpdated(peer, args.conversationId, updated);
-    }
-  };
-
-  const selfMod = createSelfModCoordinator({
-    peer,
-    getController: () => state.selfModHmrController,
-    getStoreModService: () => state.storeModService,
-    getRuntimeStore: () => state.runtimeStore,
-    getRepoRoot: () => state.init?.stellaAppDir ?? null,
-    getPendingSelfModApplies: () => state.pendingSelfModApplies,
-    patchSelfModApplyStatus,
-  });
 
   const ensureRunner = () => {
     if (!state.runner) {
@@ -900,73 +656,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     return state.chatStore;
   };
 
-  const ensureStoreModService = () => {
-    if (!state.storeModService) {
-      throw new Error("Store mod service is not available.");
-    }
-    return state.storeModService;
-  };
-
-  const ensureStoreModStore = () => {
-    if (!state.storeModStore) {
-      throw new Error("Store data is not available.");
-    }
-    return state.storeModStore;
-  };
-
-  const ensureSourceHistoryStore = () => {
-    if (!state.sourceHistoryStore) {
-      throw new Error("Stella source history is not available.");
-    }
-    return state.sourceHistoryStore;
-  };
-
-  const recordSourcePackHistory = (args: {
-    sourcePack: StellaSourcePack;
-    packageId?: string;
-    releaseNumber?: number;
-    origin: StellaSourceRevisionOrigin;
-    featureId?: string;
-    description?: string;
-    commitHash?: string | null;
-  }) => {
-    const sourceHistory = ensureSourceHistoryStore();
-    if (
-      args.commitHash &&
-      sourceHistory.findRevisionByCommit(args.commitHash)
-    ) {
-      return;
-    }
-    const lastRevisionId =
-      args.sourcePack.changeSets[args.sourcePack.changeSets.length - 1]
-        ?.revisionId;
-    for (const changeSet of args.sourcePack.changeSets) {
-      sourceHistory.recordRevision({
-        changeSet,
-        origin: args.origin,
-        ...(args.packageId ? { packageId: args.packageId } : {}),
-        ...(args.releaseNumber != null
-          ? { releaseNumber: args.releaseNumber }
-          : {}),
-        ...(args.commitHash && changeSet.revisionId === lastRevisionId
-          ? { commitHash: args.commitHash }
-          : {}),
-        featureId:
-          changeSet.featureId ??
-          args.sourcePack.featureId ??
-          args.featureId ??
-          (args.packageId ? `store:${args.packageId}` : undefined),
-        description:
-          changeSet.description ??
-          args.sourcePack.description ??
-          args.description ??
-          (args.packageId && args.releaseNumber != null
-            ? `${args.packageId} release ${args.releaseNumber}`
-            : undefined),
-      });
-    }
-  };
-
   const ensureVoiceService = () => {
     if (!state.voiceService) {
       throw new Error("Voice runtime service is not available.");
@@ -996,47 +685,20 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       };
     }
     await stopWorkerServices(state);
-    // Pending self-mod apply batches conceptually belong to the apply
-    // pipeline, not the runner. Preserve them across same-root re-inits so
-    // a host reattach (e.g., a renderer reload that disrupts IPC briefly)
-    // doesn't strand an in-flight HOST_HMR_RUN_TRANSITION → its resume
-    // callback can still find the pending entry. Only drop them when the
-    // workspace itself changed -- a different root means a different
-    // workspace and the pending apply is no longer valid.
-    if (!sameRuntimeRoot) {
-      await selfMod.releasePendingApplyBatches("worker initialization");
-    }
     state.init = init;
 
     const db = createDesktopDatabase(init.stellaDataDirPath);
     const chatStore = new ChatStore(db);
     const runtimeStore = chatStore as RuntimeStore;
-    const storeModStore = new StoreModStore(db);
-    const sourceHistoryStore = new StellaSourceHistoryStore(db);
     const socialSessionStore = new SocialSessionStore(db);
-    const storeModService = new StoreModService(
-      init.stellaAppDir,
-      storeModStore,
-      sourceHistoryStore,
-    );
     const runEventLog = new RunEventLog(db);
     const deviceIdentity = await peer.request<HostDeviceIdentity>(
       METHOD_NAMES.HOST_DEVICE_IDENTITY_GET,
     );
     state.deviceId = deviceIdentity.deviceId;
-    const selfModHmrController = createSelfModHmrController({
-      getDevServerUrl,
-      enabled: process.env.NODE_ENV === "development",
-      repoRoot: init.stellaAppDir,
-    });
-    state.selfModHmrController = selfModHmrController;
-
     state.db = db;
     state.chatStore = chatStore;
     state.runtimeStore = runtimeStore;
-    state.storeModStore = storeModStore;
-    state.sourceHistoryStore = sourceHistoryStore;
-    state.storeModService = storeModService;
     state.socialSessionStore = socialSessionStore;
     state.runEventLog = runEventLog;
     const bridgePaths = resolveRuntimePaths(init.stellaAppDir);
@@ -1340,77 +1002,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
             { retryOnDisconnect: true },
           ),
       },
-      sourceImportApi: {
-        importSource: async (payload) => {
-          const currentInit = state.init;
-          if (!currentInit) {
-            throw new Error("Worker has not been initialized.");
-          }
-          return await importExternalSource({
-            repoRoot: currentInit.stellaAppDir,
-            stellaDataDir: currentInit.stellaDataDirPath,
-            source: payload.source,
-            scope: payload.scope,
-            trust: payload.trust,
-            conversationId: payload.conversationId,
-            requestId: payload.requestId,
-            service: storeModService,
-            lifecycle: selfMod.externalLifecycle,
-            runReview: async ({ prompt }) => {
-              const review = await (
-                await loadOneShotCompletion()
-              ).runOneShotCompletion({
-                request: {
-                  agentType: "source_import_review",
-                  fallbackAgentTypes: ["store_install_review", "general"],
-                  systemPrompt:
-                    "You are a no-tool safety reviewer for source imports. Return only the requested JSON decision.",
-                  userText: prompt,
-                  temperature: 0,
-                  maxOutputTokens: 700,
-                },
-                runtime: {
-                  stellaAppDir: currentInit.stellaAppDir,
-                  stellaDataDir: currentInit.stellaDataDirPath,
-                  siteBaseUrl: currentInit.convexSiteUrl,
-                  getAuthToken: () => currentInit.authToken,
-                  hasConnectedAccount: () =>
-                    state.init?.hasConnectedAccount ?? false,
-                  requestRuntimeAuthRefresh: async () => {
-                    try {
-                      return (await peer.request(
-                        METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH,
-                        { source: "source_import_review" },
-                        { retryOnDisconnect: true },
-                      )) as {
-                        authenticated: boolean;
-                        token: string | null;
-                        hasConnectedAccount: boolean;
-                      };
-                    } catch {
-                      return null;
-                    }
-                  },
-                },
-              });
-              return review.text;
-            },
-            runBlockingLocalAgent: async (request) =>
-              await (
-                await ensureRunnerInitialized()
-              ).runBlockingLocalAgent(request),
-            ...(payload.signal ? { signal: payload.signal } : {}),
-            log: (event, fields) => logger.info(event, fields),
-          });
-        },
-      },
-      // Store agent moved to backend — no local agent surface.
-      selfModMonitor: {
-        getBaselineHead: getGitHead,
-        detectAppliedSince: detectSelfModAppliedSince,
-      },
-      selfModHmrController,
-      selfModLifecycle: selfMod.lifecycle,
+      // Store source mutation and application lifecycle were removed.
       stellaBrowserBinPath: resolveDesktopCliEntrypoint(
         init.stellaAppDir,
         "stella-browser",
@@ -1505,9 +1097,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       emitAgentEvent: (payload) => {
         emitVoiceAgentEvent(payload);
       },
-      emitSelfModHmrState: (payload) => {
-        emitVoiceSelfModHmrState(payload);
-      },
     });
 
     const connectorSweep = await sweepStaleConnectorBridgeProcesses(
@@ -1535,13 +1124,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           // These post-ready warmups do not gate connector-capable child launch.
           await Promise.allSettled([
             (async () => runEventLogStartupBackfill())(),
-            selfModHmrController.forceResumeAll().catch((error) => {
-              console.warn(
-                "[self-mod-hmr] Failed to clear stale Vite state during worker initialization:",
-                (error as Error).message,
-              );
-              return false;
-            }),
             (async () => {
               const builtRunner = await runnerReadyPromise.catch(() => null);
               await builtRunner?.waitUntilInitialized().catch((error) => {
@@ -1709,9 +1291,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       let composerImageTarget: ImageCapTarget | undefined;
       try {
         composerImageTarget =
-          (await (await ensureRunnerInitialized()).resolveImageTarget(
-            payload.agentType,
-          )) ?? undefined;
+          (await (
+            await ensureRunnerInitialized()
+          ).resolveImageTarget(payload.agentType)) ?? undefined;
       } catch {
         composerImageTarget = undefined;
       }
@@ -1897,7 +1479,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       };
       /**
        * Tracks the eventId of the most-recently-persisted orchestrator
-       * assistant message for this run. The `agent_end` self-mod patch
+       * assistant message for this run. The post-run payload patch
        * targets this row so the inline "Undo changes" affordance lands
        * under the post-tool answer (or under the only assistant message
        * if the run did not preamble).
@@ -1948,9 +1530,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
             mergedAttachments.length > 0 ? mergedAttachments : undefined,
           agentType: payload.agentType,
           storageMode: payload.storageMode,
-          ...(payload.selfModMetadata
-            ? { selfModMetadata: payload.selfModMetadata }
-            : {}),
         },
         {
           onAssistantMessage: (ev) => {
@@ -1972,9 +1551,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
               seq: ev.seq,
               timezone: payload.timezone,
               responseTarget: ev.responseTarget,
-              ...(streamStartedAtMs !== undefined
-                ? { streamStartedAtMs }
-                : {}),
+              ...(streamStartedAtMs !== undefined ? { streamStartedAtMs } : {}),
             });
             if (assistantEventId) {
               lastAssistantMessageEventId = assistantEventId;
@@ -2023,9 +1600,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                 // ends with a tool call, the renderer keeps the working
                 // indicator up across the gap until the tool starts, instead
                 // of dismissing on the painted preamble text.
-                ...(ev.followedByToolCall
-                  ? { followedByToolCall: true }
-                  : {}),
+                ...(ev.followedByToolCall ? { followedByToolCall: true } : {}),
               });
             }
           },
@@ -2317,47 +1892,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
               // longer writes a new row from `finalText` (doing so would
               // append a duplicate of the last message).
               //
-              // When the agent produced a self-mod commit AND at least
-              // one chat reply, patch `selfModApplied` onto the LAST
-              // persisted assistant row so the inline "Undo changes"
-              // affordance sits under the post-tool answer.
-              // When the agent commits but says nothing,
-              // `lastAssistantMessageEventId` is null and we drop the
-              // inline button for that turn — accepted trade-off
-              // against the alternative of a floating-button-only
-              // empty bubble.
-              // Card attach is driven by the deferred-apply STASH, not by
-              // `ev.selfModApplied` (detectAppliedSince): with background
-              // spawn_agent the commit usually lands after the user turn ends
-              // and before the follow-up turn's baseline, so neither turn's
-              // baseline..HEAD window contains it and `ev.selfModApplied` is
-              // unreliably false. The stash (from finalizeRun) always carries
-              // the commit + files, so attach any not-yet-carded pending change
-              // for this conversation onto the latest assistant reply.
-              if (lastAssistantMessageEventId) {
-                for (const [
-                  commitHash,
-                  pending,
-                ] of state.pendingSelfModApplies) {
-                  if (
-                    pending.conversationId !== payload.conversationId ||
-                    pending.assistantMessageEventId
-                  ) {
-                    continue;
-                  }
-                  pending.assistantMessageEventId = lastAssistantMessageEventId;
-                  attachSelfModToAssistantMessage({
-                    conversationId: payload.conversationId,
-                    eventId: lastAssistantMessageEventId,
-                    selfModApplied: {
-                      commitHash,
-                      files: pending.files,
-                      batchIndex: 0,
-                      status: "pending",
-                    },
-                  });
-                }
-              }
             }
             if (isHiddenRun) {
               if (lastVisibleRunId) {
@@ -2419,11 +1953,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
               rootRunId: ev.runId,
             });
           },
-          onSelfModHmrState: (statePayload) =>
-            emitSelfModHmrState({
-              runId: activeRunId || undefined,
-              state: statePayload,
-            }),
         },
       );
       activeRunId = result.runId;
@@ -2647,9 +2176,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       let automationImageTarget: ImageCapTarget | undefined;
       try {
         automationImageTarget =
-          (await (await ensureRunnerInitialized()).resolveImageTarget(
-            payload.agentType,
-          )) ?? undefined;
+          (await (
+            await ensureRunnerInitialized()
+          ).resolveImageTarget(payload.agentType)) ?? undefined;
       } catch {
         automationImageTarget = undefined;
       }
@@ -2836,673 +2365,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         payload.packageId,
         payload.releaseNumber,
       );
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_CREATE_FIRST_STORE_RELEASE,
-    async (params) =>
-      await ensureRunner().createFirstStoreRelease(params as StorePublishArgs),
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_CREATE_STORE_RELEASE_UPDATE,
-    async (params) =>
-      await ensureRunner().createStoreReleaseUpdate(params as StorePublishArgs),
-  );
-
-  const buildSourceBackedReleaseSummary = (args: {
-    packageId: string;
-    displayName?: string;
-    description?: string;
-    category?: StorePublishArgs["manifest"]["category"];
-    releaseNotes?: string;
-    attachedFeatureNames: string[];
-  }): string => {
-    const oneLine = (value: string | undefined): string =>
-      asTrimmedString(value).replace(/\s+/g, " ");
-    const title = oneLine(args.displayName) || args.packageId;
-    const description = oneLine(args.description);
-    const category = args.category ?? "other";
-    const releaseNotes = asTrimmedString(args.releaseNotes);
-    const lines = [
-      `# ${title}`,
-      description
-        ? `> ${description}`
-        : "> Source-backed Stella Store release.",
-      "",
-      `Category: ${category}`,
-      "",
-      "This release is backed by selected Stella source changes. Stella imports the source material directly when it applies cleanly, and asks an agent to adapt it only when the local tree has diverged.",
-      "",
-      "## Selected changes",
-      ...args.attachedFeatureNames.map((name) => `- ${name}`),
-    ];
-    if (releaseNotes) {
-      lines.push("", "## Release notes", releaseNotes);
-    }
-    return lines.join("\n");
-  };
-
-  const publishSourceBackedStoreRelease = async (
-    payload: StorePublishSelectedFeaturesArgs,
-  ): Promise<StorePackageReleaseRecord> => {
-    if (!state.init) {
-      throw new Error("Worker has not been initialized.");
-    }
-    const attachedFeatureNames = normalizeStoreThreadFeatureNames(
-      payload.attachedFeatureNames,
-    );
-    // Parallel to the names (`""` for legacy entries without one). Names are
-    // not unique across roster features, so the ids are what actually pin
-    // the selection to the right commit sets.
-    const attachedFeatureIds = normalizeStoreThreadFeatureIds(
-      payload.attachedFeatureIds,
-    );
-    if (attachedFeatureNames.length === 0) {
-      throw new Error("Select at least one source-backed change to publish.");
-    }
-    if (
-      attachedFeatureIds.length > 0 &&
-      attachedFeatureIds.length !== attachedFeatureNames.length
-    ) {
-      // The ids are positional; a length mismatch means the pairing is
-      // unreliable and resolving by it could publish the wrong feature.
-      throw new Error(
-        "The selected changes no longer line up with their ids. Refresh Store and select the source changes again.",
-      );
-    }
-
-    const store = ensureStoreModStore();
-    const repoRoot = state.init.stellaAppDir;
-    const snapshot = buildStorePublishFeatureSnapshot(store);
-    const commits = await collectStoreReleaseCommits({
-      repoRoot,
-      attachedFeatureNames,
-      attachedFeatureIds,
-      snapshot,
-    });
-    if (commits.length === 0) {
-      throw new Error(
-        "The selected changes no longer resolve to source commits. Refresh Store and select the source changes again.",
-      );
-    }
-
-    const gitArtifactBuild = await collectStoreReleaseGitArtifact({
-      repoRoot,
-      attachedFeatureNames,
-      attachedFeatureIds,
-      snapshot,
-    });
-    if (!gitArtifactBuild || gitArtifactBuild.objectUploads.length === 0) {
-      throw new Error(
-        "Could not build a git artifact for the selected changes. Try publishing a smaller, committed feature.",
-      );
-    }
-
-    const baseManifest = payload.manifest ?? {};
-    const category = payload.category ?? baseManifest.category;
-    const redact = buildStoreReleaseRedactor();
-    const blueprintMarkdown = redact(
-      buildSourceBackedReleaseSummary({
-        packageId: payload.packageId,
-        ...(payload.displayName ? { displayName: payload.displayName } : {}),
-        ...(payload.description ? { description: payload.description } : {}),
-        ...(category ? { category } : {}),
-        ...(payload.releaseNotes ? { releaseNotes: payload.releaseNotes } : {}),
-        attachedFeatureNames,
-      }),
-    );
-
-    // The store-operations runner does not forward releaseNumber to Convex
-    // (the action assigns it). We carry a sentinel here just to satisfy the
-    // StorePublishArgs shape.
-    const releaseNumber = 0;
-    const artifact: StorePublishArgs["artifact"] = {
-      kind: "blueprint",
-      schemaVersion: 2,
-      manifest: { ...baseManifest },
-      blueprintMarkdown,
-      gitArtifact: gitArtifactBuild.gitArtifact,
-      diff: gitArtifactBuild.diff,
-      commits,
-    };
-    const publishArgs: StorePublishArgs = {
-      packageId: payload.packageId,
-      releaseNumber,
-      displayName: payload.displayName ?? "",
-      ...(payload.description ? { description: payload.description } : {}),
-      ...(payload.releaseNotes ? { releaseNotes: payload.releaseNotes } : {}),
-      ...(payload.audience ? { audience: payload.audience } : {}),
-      manifest: { ...baseManifest },
-      artifact,
-      gitObjectUploads: gitArtifactBuild.objectUploads,
-    };
-
-    const runner = ensureRunner();
-    return payload.asUpdate
-      ? await runner.createStoreReleaseUpdate(publishArgs)
-      : await runner.createFirstStoreRelease(publishArgs);
-  };
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_PUBLISH_STORE_SELECTED_FEATURES,
-    async (params) =>
-      await publishSourceBackedStoreRelease(
-        params as StorePublishSelectedFeaturesArgs,
-      ),
-  );
-
-  // Snapshot read for the side panel features list. The snapshot is
-  // regenerated by the namer LLM after every successful self-mod commit.
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_FEATURE_SNAPSHOT_READ,
-    async () => {
-      const service = ensureStoreModService();
-      return service.readFeatureSnapshot();
-    },
-  );
-
-  // Paginated roster read for the side panel's "Show older" affordance.
-  // Entries carry their commit hashes so features older than the snapshot
-  // window stay exactly as publishable as snapshot items.
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_FEATURE_ROSTER_LIST,
-    async (params) => {
-      const payload = (params ?? {}) as { limit?: number; offset?: number };
-      const service = ensureStoreModService();
-      return service.listFeatureRoster(payload);
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_UNINSTALL_STORE_MOD,
-    async (params) => {
-      if (!state.init) {
-        throw new Error("Worker has not been initialized.");
-      }
-      const payload = params as { packageId: string };
-      const runner = ensureRunner();
-      const service = ensureStoreModService();
-      // The direct revert mutates live code, so bracket it in the same
-      // external self-mod envelope as the store git-artifact fast path:
-      // pin the install commits' files before the revert, then finish to
-      // dispatch the morph apply. The agent fallback below carries its
-      // own lifecycle (mode "uninstall").
-      const installForRevert = service.getInstall(payload.packageId);
-      const revertCommitHashes = installForRevert
-        ? installForRevert.installCommitHashes.length > 0
-          ? installForRevert.installCommitHashes
-          : installForRevert.installCommitHash
-            ? [installForRevert.installCommitHash]
-            : []
-        : [];
-      const revertPaths = new Set<string>();
-      for (const commitHash of revertCommitHashes) {
-        const files = await listFilesForCommit(
-          state.init.stellaAppDir,
-          commitHash,
-        ).catch(() => [] as string[]);
-        for (const file of files) revertPaths.add(file);
-      }
-      let revertHmrRunId: string | null = null;
-      if (revertPaths.size > 0) {
-        revertHmrRunId = `store-uninstall-revert:${crypto.randomUUID()}`;
-        await selfMod.externalLifecycle.beginExternalSelfMod({
-          runId: revertHmrRunId,
-          paths: expandExternalSelfModPaths([...revertPaths]),
-        });
-      }
-      let result: Awaited<ReturnType<typeof service.uninstall>>;
-      try {
-        result = await service.uninstall(payload.packageId);
-      } catch (error) {
-        if (revertHmrRunId) {
-          await selfMod.externalLifecycle
-            .finishExternalSelfMod({ runId: revertHmrRunId, succeeded: false })
-            .catch(() => undefined);
-        }
-        throw error;
-      }
-      if (revertHmrRunId) {
-        // `succeeded: false` (fallback required / nothing reverted) cancels
-        // the run and releases the pauses without a morph.
-        await selfMod.externalLifecycle.finishExternalSelfMod({
-          runId: revertHmrRunId,
-          succeeded: result.revertedCommits.length > 0,
-        });
-      }
-      if (result.fallbackRequired) {
-        const install = service.getInstall(payload.packageId);
-        const prompt = [
-          `# Remove Stella Store add-on: ${payload.packageId}`,
-          "",
-          "The user wants this Store add-on removed from their Stella install.",
-          "",
-          "A direct git revert is not safe right now because the install commits are no longer the latest clean HEAD stack. Instead, inspect the current codebase and remove only the behavior, files, UI, prompts, settings, and wiring that belong to this add-on.",
-          "",
-          "Do not remove unrelated user changes or other Store add-ons. If a file contains both this add-on and unrelated edits, preserve the unrelated edits. If you cannot confidently identify the add-on's changes, stop and explain what blocks removal.",
-          "",
-          "When you finish, the runtime will commit the removal changes. There is nothing extra to do.",
-          "",
-          "## Add-on metadata",
-          `Package ID: ${payload.packageId}`,
-          install?.releaseNumber
-            ? `Installed release: ${install.releaseNumber}`
-            : "Installed release: unknown",
-          install?.installCommitHashes.length
-            ? `Recorded install commits: ${install.installCommitHashes.join(", ")}`
-            : install?.installCommitHash
-              ? `Recorded install commit: ${install.installCommitHash}`
-              : "Recorded install commits: none",
-          result.reason ? `Direct revert skipped: ${result.reason}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n");
-        const beforeRemovalHead = await getGitHead(state.init.stellaAppDir).catch(
-          () => null,
-        );
-        const blockingResult = await runner.runBlockingLocalAgent({
-          conversationId: `store-uninstall:${payload.packageId}`,
-          description: `Remove ${payload.packageId} store add-on`,
-          prompt,
-          agentType: "general",
-          selfModMetadata: {
-            packageId: payload.packageId,
-            ...(install?.releaseNumber
-              ? { releaseNumber: install.releaseNumber }
-              : {}),
-            mode: "uninstall",
-          },
-        });
-        if (blockingResult.status !== "ok") {
-          throw new Error(blockingResult.error);
-        }
-        const afterRemovalHead = await getGitHead(state.init.stellaAppDir).catch(
-          () => null,
-        );
-        if (!afterRemovalHead || afterRemovalHead === beforeRemovalHead) {
-          throw new Error(
-            "Store uninstall did not apply any changes, so the add-on remains installed.",
-          );
-        }
-        service.forgetInstall(payload.packageId);
-        return {
-          packageId: payload.packageId,
-          revertedCommits: [],
-        };
-      }
-      return {
-        packageId: payload.packageId,
-        revertedCommits: result.revertedCommits,
-      };
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_INSTALL_FROM_BLUEPRINT,
-    async (params) => {
-      if (!state.init) {
-        throw new Error("Worker has not been initialized.");
-      }
-      const init = state.init;
-      const payload = params as {
-        packageId: string;
-        releaseNumber: number;
-        displayName: string;
-        blueprintMarkdown: string;
-        gitArtifact?: StoreReleaseGitArtifact;
-        diff?: string;
-        commits?: StoreReleaseCommit[];
-      };
-      const runner = ensureRunner();
-      const service = ensureStoreModService();
-
-      const headBeforeRun = await getGitHead(init.stellaAppDir).catch(() => null);
-      const baselineDirtyFiles = new Set(
-        normalizeStoreInstallRollbackPaths(
-          await listGitDirtyFiles(init.stellaAppDir).catch(() => []),
-        ),
-      );
-      const existingInstall = service.getInstall(payload.packageId);
-      const installApplyMode = existingInstall ? "update" : "install";
-      try {
-        const alreadyInstalledRevisionId =
-          payload.gitArtifact &&
-          existingInstall?.sourceRevisionIds.includes(
-            `git:${payload.gitArtifact.featureCommit}`,
-          )
-            ? `git:${payload.gitArtifact.featureCommit}`
-            : null;
-
-        // Materialise the spec + reference diffs into a per-install
-        // working directory under `~/.stella/raw/`. The general agent reads
-        // these files directly during the install run; the directory is
-        // mutable user data and is wiped on next install of the same
-        // package so retries always start clean.
-        const safePackageSegment = payload.packageId.replace(
-          /[^a-z0-9_-]/gi,
-          "_",
-        );
-        const installRoot = path.join(
-          state.init.stellaDataDirPath,
-          "raw",
-          "store-installs",
-          `${safePackageSegment}-r${payload.releaseNumber}`,
-        );
-        await fsPromises
-          .rm(installRoot, { recursive: true, force: true })
-          .catch(() => undefined);
-        await fsPromises.mkdir(installRoot, { recursive: true });
-        const specPath = path.join(installRoot, "SPEC.md");
-        await fsPromises.writeFile(specPath, payload.blueprintMarkdown, "utf8");
-
-        const commits = payload.commits ?? [];
-        const referencePaths: string[] = [];
-        if (payload.diff) {
-          const filePath = path.join(
-            installRoot,
-            "squashed-store-feature.diff",
-          );
-          await fsPromises.writeFile(filePath, payload.diff, "utf8");
-          referencePaths.push(filePath);
-        }
-        for (let index = 0; index < commits.length; index += 1) {
-          const commit = commits[index];
-          const ordinal = String(index + 1).padStart(2, "0");
-          const safeHash = commit.hash.replace(/[^a-f0-9]/gi, "").slice(0, 12);
-          const fileName = `commit-${ordinal}-${safeHash || "noid"}.diff`;
-          const filePath = path.join(installRoot, fileName);
-          const header = [
-            `# Commit: ${commit.hash}`,
-            `# Subject: ${commit.subject}`,
-            "",
-          ].join("\n");
-          await fsPromises.writeFile(
-            filePath,
-            `${header}${commit.diff}`,
-            "utf8",
-          );
-          referencePaths.push(filePath);
-        }
-
-        if (alreadyInstalledRevisionId) {
-          return service.recordInstall({
-            packageId: payload.packageId,
-            releaseNumber: payload.releaseNumber,
-            installCommitHash: null,
-            sourceRevisionId: alreadyInstalledRevisionId,
-          });
-        }
-
-        const reviewResult = await (
-          await loadOneShotCompletion()
-        ).runOneShotCompletion({
-          request: {
-            agentType: "store_install_review",
-            fallbackAgentTypes: ["general"],
-            systemPrompt:
-              "You are a no-tool safety reviewer for Stella Store installs. Return only the requested JSON decision.",
-            userText: buildStoreInstallReviewPrompt({
-              displayName: payload.displayName,
-              packageId: payload.packageId,
-              releaseSummary: payload.blueprintMarkdown,
-              commits:
-                payload.diff && commits.length === 0
-                  ? [
-                      {
-                        hash:
-                          payload.gitArtifact?.featureCommit ??
-                          "squashed-store-feature",
-                        subject: "Squashed Store feature diff",
-                        diff: payload.diff,
-                      },
-                    ]
-                  : commits,
-            }),
-            temperature: 0,
-            maxOutputTokens: 700,
-          },
-          runtime: {
-            stellaAppDir: init.stellaAppDir,
-            stellaDataDir: init.stellaDataDirPath,
-            siteBaseUrl: init.convexSiteUrl,
-            getAuthToken: () => init.authToken,
-            hasConnectedAccount: () => state.init?.hasConnectedAccount ?? false,
-            requestRuntimeAuthRefresh: async () => {
-              try {
-                return (await peer.request(
-                  METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH,
-                  { source: "store_install_review" },
-                  { retryOnDisconnect: true },
-                )) as {
-                  authenticated: boolean;
-                  token: string | null;
-                  hasConnectedAccount: boolean;
-                };
-              } catch {
-                return null;
-              }
-            },
-          },
-        });
-        const reviewDecision = parseStoreInstallReviewDecision(
-          reviewResult.text,
-        );
-        if (!reviewDecision.allow) {
-          throw new Error(
-            `Store install review blocked this release: ${reviewDecision.reason}`,
-          );
-        }
-
-        if (payload.gitArtifact) {
-          const fastImportResult = await tryStoreGitArtifactFastPath({
-            repoRoot: init.stellaAppDir,
-            service,
-            packageId: payload.packageId,
-            releaseNumber: payload.releaseNumber,
-            displayName: payload.displayName,
-            gitArtifact: payload.gitArtifact,
-            getObjectUrls: async (shas) =>
-              await runner.getStoreGitObjectUrls(
-                payload.packageId,
-                payload.releaseNumber,
-                shas,
-              ),
-            applyMode: installApplyMode,
-            lifecycle: selfMod.externalLifecycle,
-            log: (event, fields) => logger.info(event, fields),
-          });
-          if (fastImportResult.status === "applied") {
-            return fastImportResult.installRecord;
-          }
-          const authorTreePath = await materializeStoreGitArtifactReference({
-            repoRoot: init.stellaAppDir,
-            gitArtifact: payload.gitArtifact,
-            outputRoot: installRoot,
-          }).catch(() => null);
-          if (authorTreePath) {
-            referencePaths.push(authorTreePath);
-          }
-        }
-
-        const installPrompt = buildStoreInstallPrompt({
-          displayName: payload.displayName,
-          packageId: payload.packageId,
-          installRootPath: installRoot,
-          specPath,
-          referencePaths,
-          blueprintMarkdown: payload.blueprintMarkdown,
-        });
-
-        const blockingResult = await runner.runBlockingLocalAgent({
-          conversationId: `store-install:${payload.packageId}`,
-          description: `Install ${payload.displayName} from store`,
-          prompt: installPrompt,
-          agentType: "general",
-          selfModMetadata: {
-            packageId: payload.packageId,
-            releaseNumber: payload.releaseNumber,
-            mode: installApplyMode,
-          },
-        });
-        if (blockingResult.status !== "ok") {
-          throw new Error(blockingResult.error);
-        }
-
-        // Capture HEAD after the run so we can record the install commit.
-        // A successful install must produce a self-mod commit; otherwise
-        // the UI would show the add-on as installed with nothing to undo.
-        const headAfterRun = await getGitHead(state.init.stellaAppDir).catch(
-          () => null,
-        );
-        const installCommitHash =
-          headAfterRun && headAfterRun !== headBeforeRun ? headAfterRun : null;
-        if (!installCommitHash) {
-          throw new Error(
-            "Store install did not apply any changes, so it was not recorded as installed.",
-          );
-        }
-
-        const installRecord = service.recordInstall({
-          packageId: payload.packageId,
-          releaseNumber: payload.releaseNumber,
-          installCommitHash,
-          sourceRevisionId:
-            ensureSourceHistoryStore().findRevisionByCommit(installCommitHash)
-              ?.revisionId ?? null,
-        });
-        return installRecord;
-      } catch (error) {
-        await rollbackFailedStoreInstall({
-          repoRoot: init.stellaAppDir,
-          startingHeadCommit: headBeforeRun,
-          baselineDirtyFiles,
-          packageId: payload.packageId,
-          mode: installApplyMode,
-        }).catch((rollbackError) => {
-          logger.warn("store-install.rollback.failed", {
-            packageId: payload.packageId,
-            mode: installApplyMode,
-            error: (rollbackError as Error).message,
-          });
-        });
-        throw error;
-      }
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_EXTERNAL_BEGIN,
-    async (params) => {
-      const payload = params as { runId?: unknown; paths?: unknown };
-      const runId =
-        typeof payload?.runId === "string" ? payload.runId.trim() : "";
-      if (!runId) {
-        throw new Error("External self-mod begin requires a runId.");
-      }
-      const paths = Array.isArray(payload?.paths)
-        ? payload.paths.filter(
-            (filePath): filePath is string =>
-              typeof filePath === "string" && filePath.length > 0,
-          )
-        : [];
-      return await selfMod.externalLifecycle.beginExternalSelfMod({
-        runId,
-        paths,
-      });
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_EXTERNAL_FINISH,
-    async (params) => {
-      const payload = params as { runId?: unknown; succeeded?: unknown };
-      const runId =
-        typeof payload?.runId === "string" ? payload.runId.trim() : "";
-      if (!runId) {
-        throw new Error("External self-mod finish requires a runId.");
-      }
-      return await selfMod.externalLifecycle.finishExternalSelfMod({
-        runId,
-        succeeded: payload?.succeeded === true,
-      });
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SOURCE_PACK_HISTORY_RECORD,
-    async (params) => {
-      if (!state.init) {
-        throw new Error("Worker has not been initialized.");
-      }
-      const payload = params as {
-        sourcePack?: StellaSourcePack;
-        origin?: StellaSourceRevisionOrigin;
-        packageId?: string;
-        releaseNumber?: number;
-        featureId?: string;
-        description?: string;
-        commitHash?: string | null;
-      };
-      if (
-        !payload.sourcePack ||
-        payload.sourcePack.kind !== "stella-source-pack" ||
-        payload.sourcePack.schemaVersion !== 1
-      ) {
-        throw new Error("A Stella source pack is required.");
-      }
-      const origin = payload.origin ?? "official";
-      recordSourcePackHistory({
-        sourcePack: payload.sourcePack,
-        origin,
-        ...(payload.packageId ? { packageId: payload.packageId } : {}),
-        ...(typeof payload.releaseNumber === "number"
-          ? { releaseNumber: payload.releaseNumber }
-          : {}),
-        ...(payload.featureId ? { featureId: payload.featureId } : {}),
-        ...(payload.description ? { description: payload.description } : {}),
-        ...(payload.commitHash ? { commitHash: payload.commitHash } : {}),
-      });
-      return { ok: true };
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SOURCE_HISTORY_HAS_COMMIT,
-    async (params) => {
-      if (!state.init) {
-        throw new Error("Worker has not been initialized.");
-      }
-      const payload = params as { commitHash?: unknown };
-      const commitHash =
-        typeof payload?.commitHash === "string"
-          ? payload.commitHash.trim()
-          : "";
-      if (!commitHash) {
-        throw new Error("Source history commit lookup requires a commitHash.");
-      }
-      const record =
-        ensureSourceHistoryStore().findRevisionByCommit(commitHash);
-      return {
-        ok: true,
-        exists: Boolean(record),
-        revisionId: record?.revisionId ?? null,
-      };
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_RESUME_HMR,
-    async (params) => {
-      // The host's signal that the morph cover for `transitionId` is on
-      // screen and the worker can safely run the actual overlay apply +
-      // release the runtime-reload pauses. The single-run `resume` API
-      // is gone.
-      const payload = params as
-        | { transitionId?: string; runIds?: string[]; options?: ApplyOptions }
-        | undefined;
-      return await selfMod.resumeTransition(payload ?? {});
     },
   );
 
@@ -3737,13 +2599,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   );
 
   peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_STORE_MODS_LIST_INSTALLED,
-    async () => {
-      return ensureStoreModService().listInstalls();
-    },
-  );
-
-  peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_CREATE,
     async (params) => {
       if (!state.socialSessionService) {
@@ -3826,131 +2681,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   );
 
   peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_APPLY,
-    async (params) => {
-      const payload = params as { commitHash?: string };
-      if (!state.init) {
-        await state.selfModHmrController?.forceResumeAll().catch((error) => {
-          console.warn(
-            "[self-mod-hmr] Failed to resume deferred self-mod state without apply handler:",
-            (error as Error).message,
-          );
-        });
-        return {
-          commitHash: payload.commitHash,
-          applied: false,
-          message: "Self-mod apply handler is not available.",
-        };
-      }
-      return await selfMod.applyPendingWithMorph({
-        commitHash: payload.commitHash,
-      });
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_REVERT,
-    async (params) => {
-      if (!state.init) {
-        throw new Error("Worker has not been initialized.");
-      }
-      const payload = params as { commitHash?: string; steps?: number };
-      return await selfMod.revertWithMorph({
-        commitHash: payload.commitHash,
-        steps: payload.steps,
-      });
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_CRASH_RECOVERY_STATUS,
-    async () => {
-      if (!state.init) {
-        throw new Error("Worker has not been initialized.");
-      }
-      const dirtyFiles = await listGitDirtyFiles(state.init.stellaAppDir);
-      if (dirtyFiles.length > 0) {
-        const mtimes = await Promise.all(
-          dirtyFiles.map(async (file) => {
-            try {
-              const stat = await fsPromises.stat(
-                path.join(state.init!.stellaAppDir, file),
-              );
-              return stat.mtimeMs;
-            } catch {
-              return null;
-            }
-          }),
-        );
-        const latestChangedAtMs = mtimes.reduce<number | null>(
-          (latest, value) =>
-            typeof value === "number"
-              ? Math.max(latest ?? value, value)
-              : latest,
-          null,
-        );
-        return {
-          kind: "dirty",
-          changedFileCount: dirtyFiles.length,
-          latestChangedAtMs,
-        };
-      }
-      const [latestSelfModCommit = null] = await listRecentSelfModCommits(
-        state.init.stellaAppDir,
-        1,
-      );
-      return {
-        kind: "clean",
-        latestSelfModCommit,
-      };
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_DISCARD_UNFINISHED,
-    async (params) => {
-      if (!state.init) {
-        throw new Error("Worker has not been initialized.");
-      }
-      const payload = params as { conversationId?: string } | undefined;
-      const result = await discardGitDirtyFiles(state.init.stellaAppDir);
-      if (result.discardedFileCount > 0) {
-        recordSelfModRevertNotice({
-          runtimeStore: state.runtimeStore,
-          conversationId: asTrimmedString(payload?.conversationId),
-          originThreadKey: null,
-          commitHash: `unfinished:${crypto.randomUUID()}`,
-          files: result.discardedFiles,
-          logScope: "self-mod-discard-unfinished",
-        });
-      }
-      return result;
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_LAST_COMMIT,
-    async () => {
-      if (!state.init) {
-        throw new Error("Worker has not been initialized.");
-      }
-      return await getLastSelfModCommitHash(state.init.stellaAppDir);
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SELF_MOD_RECENT_COMMITS,
-    async (params) => {
-      if (!state.init) {
-        throw new Error("Worker has not been initialized.");
-      }
-      const rawLimit = (params as { limit?: number } | undefined)?.limit;
-      const limit = Number.isFinite(rawLimit) ? Number(rawLimit) : 8;
-      return await listRecentSelfModCommits(state.init.stellaAppDir, limit);
-    },
-  );
-
-  peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_KILL_SHELL_BY_PORT,
     async (params) => {
       ensureRunner().killShellsByPort((params as { port: number }).port);
@@ -3987,7 +2717,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       }
       const init = state.init;
       const request = params as RuntimeOneShotCompletionRequest;
-      return await (await loadOneShotCompletion()).runOneShotCompletion({
+      return await (
+        await loadOneShotCompletion()
+      ).runOneShotCompletion({
         request,
         runtime: {
           stellaAppDir: init.stellaAppDir,

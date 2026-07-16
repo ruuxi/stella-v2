@@ -5,10 +5,7 @@ import type {
   StoreReleaseCommit,
   StoreReleaseDiffRef,
   StoreReleaseGitArtifact,
-  StoreReleaseGitObjectUpload,
-  StoreReleaseManifest,
 } from "@stella/contracts";
-import type { StorePublishArgs } from "@stella/contracts/protocol";
 import type { RunnerContext, StoreOperations } from "./types.js";
 
 export const createStoreOperations = (
@@ -17,8 +14,6 @@ export const createStoreOperations = (
     ensureStoreClient: () => any;
   },
 ): StoreOperations => {
-  const RELEASE_DIFF_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
-
   const toSharedStorePackage = (value: unknown): StorePackageRecord | null => {
     if (!value || typeof value !== "object") {
       return null;
@@ -171,176 +166,6 @@ export const createStoreOperations = (
     };
   };
 
-  const toBackendStoreManifest = (manifest: StoreReleaseManifest) => ({
-    category: manifest.category,
-    ...(manifest.releaseNotes ? { summary: manifest.releaseNotes } : {}),
-    ...(manifest.authoredAtCommit
-      ? { authoredAtCommit: manifest.authoredAtCommit }
-      : {}),
-    ...(manifest.iconUrl ? { iconUrl: manifest.iconUrl } : {}),
-  });
-
-  const hashBytes = (bytes: Uint8Array): string =>
-    `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-
-  const uploadGitObjects = async (args: {
-    client: any;
-    objects: StoreReleaseGitObjectUpload[];
-  }): Promise<void> => {
-    if (args.objects.length === 0) return;
-    const prepared = (await args.client.action(
-      (
-        context.convexApi as {
-          data: {
-            store_git_artifacts: { prepareGitObjectUploads: unknown };
-          };
-        }
-      ).data.store_git_artifacts.prepareGitObjectUploads,
-      {
-        objects: args.objects.map(({ sha, type, sizeBytes }) => ({
-          sha,
-          type,
-          sizeBytes,
-        })),
-      },
-    )) as { uploads?: unknown };
-    const uploads = Array.isArray(prepared.uploads)
-      ? prepared.uploads
-          .map((entry): { sha: string; uploadUrl: string } | null => {
-            if (!entry || typeof entry !== "object") return null;
-            const record = entry as Record<string, unknown>;
-            if (
-              typeof record.sha !== "string" ||
-              typeof record.uploadUrl !== "string"
-            ) {
-              return null;
-            }
-            return { sha: record.sha, uploadUrl: record.uploadUrl };
-          })
-          .filter(
-            (entry): entry is { sha: string; uploadUrl: string } =>
-              entry !== null,
-          )
-      : [];
-    const bySha = new Map(args.objects.map((object) => [object.sha, object]));
-    const uploadedObjects: StoreReleaseGitObjectUpload[] = [];
-    for (const upload of uploads) {
-      const object = bySha.get(upload.sha);
-      if (!object) continue;
-      const response = await fetch(upload.uploadUrl, {
-        method: "PUT",
-        headers: {
-          "content-type": "application/x-git-object",
-        },
-        body: object.compressedBytes,
-      });
-      if (!response.ok) {
-        const detail = await response.text().catch(() => "");
-        throw new Error(
-          `Store Git object upload failed (${response.status})${detail ? `: ${detail}` : ""}`,
-        );
-      }
-      uploadedObjects.push(object);
-    }
-    if (uploadedObjects.length > 0) {
-      await args.client.action(
-        (
-          context.convexApi as {
-            data: {
-              store_git_artifacts: { verifyGitObjectUploads: unknown };
-            };
-          }
-        ).data.store_git_artifacts.verifyGitObjectUploads,
-        {
-          objects: uploadedObjects.map(({ sha, type, sizeBytes }) => ({
-            sha,
-            type,
-            sizeBytes,
-          })),
-        },
-      );
-    }
-  };
-
-  // Squashed diffs and the per-commit diff bundle are always stored in R2 —
-  // never inline on the release document — so release docs stay small and
-  // list/detail subscriptions stay cheap. Both go through this single
-  // presigned-upload path.
-  const uploadDiffBytes = async (args: {
-    client: any;
-    packageId: string;
-    bytes: Uint8Array;
-  }): Promise<StoreReleaseDiffRef> => {
-    if (args.bytes.byteLength > RELEASE_DIFF_MAX_UPLOAD_BYTES) {
-      throw new Error(
-        "Store feature diff is too large to publish safely. Reduce the selected feature scope and try again.",
-      );
-    }
-    const prepared = (await args.client.action(
-      (
-        context.convexApi as {
-          data: {
-            store_git_artifacts: { prepareDiffUpload: unknown };
-          };
-        }
-      ).data.store_git_artifacts.prepareDiffUpload,
-      {
-        packageId: args.packageId,
-        sha256: hashBytes(args.bytes),
-        sizeBytes: args.bytes.byteLength,
-      },
-    )) as { ref?: unknown; uploadUrl?: unknown };
-    const ref =
-      prepared.ref &&
-      typeof prepared.ref === "object" &&
-      (prepared.ref as Record<string, unknown>).kind === "r2"
-        ? (prepared.ref as StoreReleaseDiffRef)
-        : null;
-    if (!ref || typeof prepared.uploadUrl !== "string") {
-      throw new Error("Store diff upload preparation failed.");
-    }
-    const response = await fetch(prepared.uploadUrl, {
-      method: "PUT",
-      headers: {
-        "content-type": "text/x-diff; charset=utf-8",
-      },
-      body: args.bytes,
-    });
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new Error(
-        `Store diff upload failed (${response.status})${detail ? `: ${detail}` : ""}`,
-      );
-    }
-    return ref;
-  };
-
-  const uploadDiff = async (args: {
-    client: any;
-    packageId: string;
-    diff: string;
-  }): Promise<StoreReleaseDiffRef> =>
-    await uploadDiffBytes({
-      client: args.client,
-      packageId: args.packageId,
-      bytes: new TextEncoder().encode(args.diff),
-    });
-
-  // Per-commit reference diffs are serialized into a single JSON bundle and
-  // uploaded as one R2 object. Hydrated back via `getReleaseCommits`.
-  const uploadCommitsBundle = async (args: {
-    client: any;
-    packageId: string;
-    commits: StoreReleaseCommit[];
-  }): Promise<StoreReleaseDiffRef> =>
-    await uploadDiffBytes({
-      client: args.client,
-      packageId: args.packageId,
-      bytes: new TextEncoder().encode(
-        JSON.stringify({ version: 1, commits: args.commits }),
-      ),
-    });
-
   const hydrateReleaseDiff = async (
     client: any,
     release: StorePackageReleaseRecord | null,
@@ -406,9 +231,7 @@ export const createStoreOperations = (
               diff: commitRecord.diff,
             };
           })
-          .filter(
-            (entry): entry is StoreReleaseCommit => entry !== null,
-          )
+          .filter((entry): entry is StoreReleaseCommit => entry !== null)
       : [];
     return commits.length > 0 ? { ...release, commits } : release;
   };
@@ -501,174 +324,10 @@ export const createStoreOperations = (
     );
   };
 
-  const createFirstStoreRelease = async (
-    args: StorePublishArgs,
-  ): Promise<StorePackageReleaseRecord> => {
-    const client = deps.ensureStoreClient();
-    const commits = args.artifact.commits ?? [];
-    await uploadGitObjects({
-      client,
-      objects: args.gitObjectUploads ?? [],
-    });
-    const diffRef = args.artifact.diff
-      ? await uploadDiff({
-          client,
-          packageId: args.packageId,
-          diff: args.artifact.diff,
-        })
-      : undefined;
-    const commitsDiffRef =
-      commits.length > 0
-        ? await uploadCommitsBundle({
-            client,
-            packageId: args.packageId,
-            commits,
-          })
-        : undefined;
-    const commitsMeta = commits.map(({ hash, subject }) => ({ hash, subject }));
-    const result = (await client.action(
-      (
-        context.convexApi as {
-          data: { store_packages: { createFirstRelease: unknown } };
-        }
-      ).data.store_packages.createFirstRelease,
-      {
-        packageId: args.packageId,
-        ...(args.audience ? { audience: args.audience } : {}),
-        category: args.manifest.category,
-        displayName: args.displayName,
-        ...(args.description ? { description: args.description } : {}),
-        releaseNotes: args.releaseNotes,
-        manifest: toBackendStoreManifest(args.manifest),
-        blueprintMarkdown: args.artifact.blueprintMarkdown,
-        ...(args.artifact.gitArtifact
-          ? { gitArtifact: args.artifact.gitArtifact }
-          : {}),
-        ...(diffRef ? { diffRef } : {}),
-        ...(commitsDiffRef ? { commitsDiffRef } : {}),
-        ...(commitsMeta.length > 0 ? { commits: commitsMeta } : {}),
-      },
-    )) as {
-      package?: unknown;
-      release?: unknown;
-    };
-    const packageRecord = toSharedStorePackage(result.package);
-    const releaseRecord = packageRecord
-      ? toSharedStoreRelease({ release: result.release, packageRecord })
-      : null;
-    if (!releaseRecord) {
-      throw new Error("Store publish returned an invalid release payload.");
-    }
-    return releaseRecord;
-  };
-
-  const createStoreReleaseUpdate = async (
-    args: StorePublishArgs,
-  ): Promise<StorePackageReleaseRecord> => {
-    const client = deps.ensureStoreClient();
-    const commits = args.artifact.commits ?? [];
-    await uploadGitObjects({
-      client,
-      objects: args.gitObjectUploads ?? [],
-    });
-    const diffRef = args.artifact.diff
-      ? await uploadDiff({
-          client,
-          packageId: args.packageId,
-          diff: args.artifact.diff,
-        })
-      : undefined;
-    const commitsDiffRef =
-      commits.length > 0
-        ? await uploadCommitsBundle({
-            client,
-            packageId: args.packageId,
-            commits,
-          })
-        : undefined;
-    const commitsMeta = commits.map(({ hash, subject }) => ({ hash, subject }));
-    const result = (await client.action(
-      (
-        context.convexApi as {
-          data: { store_packages: { createUpdateRelease: unknown } };
-        }
-      ).data.store_packages.createUpdateRelease,
-      {
-        packageId: args.packageId,
-        ...(args.audience ? { audience: args.audience } : {}),
-        releaseNotes: args.releaseNotes,
-        manifest: toBackendStoreManifest(args.manifest),
-        blueprintMarkdown: args.artifact.blueprintMarkdown,
-        ...(args.artifact.gitArtifact
-          ? { gitArtifact: args.artifact.gitArtifact }
-          : {}),
-        ...(diffRef ? { diffRef } : {}),
-        ...(commitsDiffRef ? { commitsDiffRef } : {}),
-        ...(commitsMeta.length > 0 ? { commits: commitsMeta } : {}),
-      },
-    )) as {
-      package?: unknown;
-      release?: unknown;
-    };
-    const packageRecord = toSharedStorePackage(result.package);
-    const releaseRecord = packageRecord
-      ? toSharedStoreRelease({ release: result.release, packageRecord })
-      : null;
-    if (!releaseRecord) {
-      throw new Error("Store publish returned an invalid release payload.");
-    }
-    return releaseRecord;
-  };
-
-  const getStoreGitObjectUrls = async (
-    packageId: string,
-    releaseNumber: number,
-    shas: string[],
-  ): Promise<Array<{ sha: string; r2Key: string; downloadUrl: string }>> => {
-    if (shas.length === 0) return [];
-    const client = deps.ensureStoreClient();
-    const records = (await client.action(
-      (
-        context.convexApi as {
-          data: {
-            store_git_artifacts: { getReleaseGitObjectUrls: unknown };
-          };
-        }
-      ).data.store_git_artifacts.getReleaseGitObjectUrls,
-      { packageId, releaseNumber, shas },
-    )) as unknown[];
-    return records
-      .map(
-        (entry): { sha: string; r2Key: string; downloadUrl: string } | null => {
-          if (!entry || typeof entry !== "object") return null;
-          const record = entry as Record<string, unknown>;
-          if (
-            typeof record.sha !== "string" ||
-            typeof record.r2Key !== "string" ||
-            typeof record.downloadUrl !== "string"
-          ) {
-            return null;
-          }
-          return {
-            sha: record.sha,
-            r2Key: record.r2Key,
-            downloadUrl: record.downloadUrl,
-          };
-        },
-      )
-      .filter(
-        (entry): entry is { sha: string; r2Key: string; downloadUrl: string } =>
-          entry !== null,
-      );
-  };
-
   return {
     listStorePackages,
     getStorePackage,
     listStorePackageReleases,
     getStorePackageRelease,
-    createFirstStoreRelease,
-    createStoreReleaseUpdate,
-    getStoreGitObjectUrls,
   };
 };

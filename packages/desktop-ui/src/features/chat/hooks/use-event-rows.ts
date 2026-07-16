@@ -138,7 +138,7 @@ const asNonEmptyString = (value: unknown): string | undefined =>
  * Only user-facing *delegated* work earns a card: `general`, the dedicated
  * `manager` spawned by `spawn_manager`, and any custom user-installed
  * subagent. Manager is the one intentional exception to the reserved-builtin
- * denylist: unlike schedule/fashion/explore/dream/chronicle/install_update,
+ * denylist: unlike schedule/fashion/explore/dream/chronicle,
  * it is a durable background thread created directly by the orchestrator and
  * resumed through `send_input`. A denylist (rather than an allowlist of only
  * known agent types) means legitimate custom subagents still surface while
@@ -342,7 +342,6 @@ export const assistantRowHasNonBackgroundContent = (
   (row.webSearchResults?.length ?? 0) > 0 ||
   (row.mapArtifacts?.length ?? 0) > 0 ||
   (row.sourceDiffPayloads?.length ?? 0) > 0 ||
-  Boolean(row.selfModApplied) ||
   Boolean(row.scheduleReceipt) ||
   Boolean(row.voiceSession) ||
   Boolean(row.toolActivity) ||
@@ -425,7 +424,6 @@ const isImageOnlyInlineRow = (row: AssistantRowViewModel): boolean =>
   !row.officePreviewRef &&
   !row.resourcePayload &&
   !row.sourceDiffPayloads?.length &&
-  !row.selfModApplied &&
   !row.scheduleReceipt &&
   !row.voiceSession &&
   !row.backgroundWork &&
@@ -450,7 +448,6 @@ const coalesceInlineImageRows = (
       !prev.officePreviewRef &&
       !prev.resourcePayload &&
       !prev.sourceDiffPayloads?.length &&
-      !prev.selfModApplied &&
       !prev.scheduleReceipt &&
       !prev.backgroundWork &&
       !prev.agentCompletion?.sections.length &&
@@ -477,7 +474,6 @@ const isVoiceOnlyRow = (row: AssistantRowViewModel): boolean =>
   !row.resourcePayload &&
   !row.inlineImagePayloads?.length &&
   !row.sourceDiffPayloads?.length &&
-  !row.selfModApplied &&
   !row.scheduleReceipt &&
   !row.backgroundWork &&
   !row.agentCompletion?.sections.length &&
@@ -795,7 +791,6 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         const sourceDiffPayloads = collectTurnSourceDiffPayloads(toolEvents, {
           developerResourcesEnabled: developerResourcePreviewsEnabled,
         });
-        const selfModApplied = payload?.selfModApplied;
         const scheduleReceipt = getScheduleReceipt(toolEvents);
         const officePreviewRef = getOfficePreviewRef(toolEvents);
         const voiceSession = payload?.metadata?.voiceSession;
@@ -817,7 +812,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         // tools. The same tool events resurface on the persisted (terminal)
         // row once the overlay locks or clears, so the cards appear there.
         // Non-artifact receipts (voice-session summary, schedule receipt,
-        // self-mod notice, background-work card) keep rendering live.
+        // background-work card) keep rendering live.
         const showInlineArtifacts = !isStreamingOverlay;
         const row: AssistantRowViewModel = {
           kind: "assistant",
@@ -848,7 +843,6 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           ...(showInlineArtifacts && sourceDiffPayloads.length > 0
             ? { sourceDiffPayloads }
             : {}),
-          ...(selfModApplied ? { selfModApplied } : {}),
           ...(scheduleReceipt ? { scheduleReceipt } : {}),
           ...(voiceSession ? { voiceSession } : {}),
           ...(backgroundWork ? { backgroundWork } : {}),

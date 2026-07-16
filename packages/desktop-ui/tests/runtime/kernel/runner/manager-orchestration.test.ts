@@ -144,9 +144,6 @@ const createHarness = (options?: {
       authToken: null,
       hasConnectedAccount: false,
     },
-    selfModHmrController: null,
-    selfModLifecycle: null,
-    selfModMonitor: null,
     toolHost: {
       getToolCatalog: () => [],
       executeTool: async () => ({ result: "unused" }),

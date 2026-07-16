@@ -40,7 +40,6 @@ import {
 import { registerExternalOpenerHandlers } from "../ipc/external-opener-handlers.js";
 import { registerUiHandlers } from "../ipc/ui-handlers.js";
 import { registerUiStateKvHandlers } from "../ipc/ui-state-handlers.js";
-import { registerUpdatesHandlers } from "../ipc/updates-handlers.js";
 import { registerVoiceHandlers } from "../ipc/voice-handlers.js";
 import { registerDictationHandlers } from "../ipc/dictation-handlers.js";
 import { startCapturingHandlers } from "../services/mobile-bridge/handler-registry.js";
@@ -430,10 +429,7 @@ export const registerBootstrapIpcHandlers = (
   });
 
   registerStoreHandlers({
-    getStellaAppDir: lifecycle.getStellaAppDir,
-    getStellaDataDir: lifecycle.getStellaDataDir,
     getStellaHostRunner: lifecycle.getRunner,
-    getFullWindow: () => state.windowManager?.getFullWindow() ?? null,
     onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
     assertPrivilegedSender: (event, channel) =>
       services.externalLinkService.assertPrivilegedSender(event, channel),
@@ -484,15 +480,6 @@ export const registerBootstrapIpcHandlers = (
       if (!runner) return { ok: false };
       return await runner.googleWorkspaceDisconnect();
     },
-    assertPrivilegedSender: (event, channel) =>
-      services.externalLinkService.assertPrivilegedSender(event, channel),
-  });
-
-  registerUpdatesHandlers({
-    getStellaAppDir: lifecycle.getStellaAppDir,
-    getStellaDataDir: lifecycle.getStellaDataDir,
-    getStellaHostRunner: lifecycle.getRunner,
-    onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
     assertPrivilegedSender: (event, channel) =>
       services.externalLinkService.assertPrivilegedSender(event, channel),
   });

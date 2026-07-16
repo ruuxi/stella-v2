@@ -8,7 +8,7 @@ import defaultTheme from "./default";
 //
 // This is where redesigns and personal look tweaks belong: because the user is
 // already on Custom, changes written here show up immediately (with the
-// self-mod morph reflecting a real diff) instead of being stranded in a theme
+// transition reflecting a real theme diff) instead of being stranded in a theme
 // nobody selected. Switching to any stock theme leaves Custom intact, and
 // selecting Custom again restores the personalized look.
 //

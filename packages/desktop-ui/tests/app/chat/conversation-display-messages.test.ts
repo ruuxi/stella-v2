@@ -42,7 +42,6 @@ describe("conversation display message merge", () => {
       payload: {
         text: "stored text",
         userMessageId: "u1",
-        selfModApplied: { featureId: "f1", files: ["a.ts"], batchIndex: 0 },
       },
       toolEvents: [
         message({
@@ -75,11 +74,6 @@ describe("conversation display message merge", () => {
       "stream-overlay:u1:1",
     ]);
     expect(merged[1]!.payload?.text).toBe("stored text");
-    expect(merged[1]!.payload?.selfModApplied).toEqual({
-      featureId: "f1",
-      files: ["a.ts"],
-      batchIndex: 0,
-    });
     expect(merged[1]!.toolEvents.map((event) => event._id)).toEqual(["tool-1"]);
   });
 
@@ -133,7 +127,9 @@ describe("conversation display message merge", () => {
       "u1",
       "stream-overlay:u1:2",
     ]);
-    expect(merged.filter((item) => item.payload?.text === "same reply")).toHaveLength(1);
+    expect(
+      merged.filter((item) => item.payload?.text === "same reply"),
+    ).toHaveLength(1);
   });
 
   it("keeps a queued user send after an assistant that was visible first on cold load", () => {
@@ -233,7 +229,7 @@ describe("conversation display message merge", () => {
       _id: "assistant-review",
       timestamp: 300,
       payload: {
-        text: "Self-mod round-3 review running.",
+        text: "Round-3 review running.",
         userMessageId: "u1",
       },
     });
@@ -298,10 +294,7 @@ describe("conversation display message merge", () => {
       persistedAssistantSlots: getPersistedAssistantSlots([response]),
     });
 
-    expect(merged.map((item) => item._id)).toEqual([
-      "z-user",
-      "a-assistant",
-    ]);
+    expect(merged.map((item) => item._id)).toEqual(["z-user", "a-assistant"]);
   });
 
   it("keeps a backward-clock assistant response after its owning user", () => {
@@ -367,10 +360,7 @@ describe("conversation display message merge", () => {
       persistedMessages: [user, preamble, postTool, nextUser],
       overlayMessages: [],
       streamingAssistants: [],
-      persistedAssistantSlots: getPersistedAssistantSlots([
-        preamble,
-        postTool,
-      ]),
+      persistedAssistantSlots: getPersistedAssistantSlots([preamble, postTool]),
     });
 
     expect(merged.map((item) => item._id)).toEqual([
@@ -437,9 +427,7 @@ describe("conversation display message merge", () => {
       persistedMessages,
       overlayMessages: [],
       streamingAssistants: [],
-      persistedAssistantSlots: getPersistedAssistantSlots(
-        persistedMessages,
-      ),
+      persistedAssistantSlots: getPersistedAssistantSlots(persistedMessages),
     });
 
     expect(merged.map((item) => item._id)).toEqual([
@@ -542,9 +530,7 @@ describe("conversation display message merge", () => {
       const size = 3 + Math.floor(random() * 6);
       const userIds: string[] = [];
       const rows = Array.from({ length: size }, (_, index) => {
-        const idPrefix = String.fromCharCode(
-          97 + Math.floor(random() * 26),
-        );
+        const idPrefix = String.fromCharCode(97 + Math.floor(random() * 26));
         const _id = `${idPrefix}-${round}-${index}`;
         const timestamp = 1_000 + Math.floor(random() * 3);
         if (userIds.length === 0 || random() < 0.3) {
@@ -570,9 +556,7 @@ describe("conversation display message merge", () => {
 
       for (const a of rows) {
         for (const b of rows) {
-          expect(
-            Math.sign(compare(a, b)) + Math.sign(compare(b, a)),
-          ).toBe(0);
+          expect(Math.sign(compare(a, b)) + Math.sign(compare(b, a))).toBe(0);
           for (const c of rows) {
             if (compare(a, b) <= 0 && compare(b, c) <= 0) {
               expect(compare(a, c)).toBeLessThanOrEqual(0);
@@ -622,9 +606,7 @@ describe("conversation display message merge", () => {
       persistedMessages: [canonicalUser, canonicalResponse],
       overlayMessages: [],
       streamingAssistants: [],
-      persistedAssistantSlots: getPersistedAssistantSlots([
-        canonicalResponse,
-      ]),
+      persistedAssistantSlots: getPersistedAssistantSlots([canonicalResponse]),
     });
 
     expect(optimisticUser).not.toBe(canonicalUser);
@@ -633,9 +615,7 @@ describe("conversation display message merge", () => {
       ["u-handoff", 900],
       ["stream-overlay:u-handoff:1", 900],
     ]);
-    expect(
-      canonicalMerged.map((item) => [item._id, item.timestamp]),
-    ).toEqual([
+    expect(canonicalMerged.map((item) => [item._id, item.timestamp])).toEqual([
       ["u-handoff", 900],
       ["assistant-handoff", 950],
     ]);
@@ -771,7 +751,10 @@ describe("conversation display merge — structural-sharing fast path", () => {
     // Different timestamp (would reorder the sort).
     expect(
       overlayMergeShapeUnchanged(base, [
-        overlayToMessageRecord(overlay({ text: "hi", timestamp: 99 }), undefined),
+        overlayToMessageRecord(
+          overlay({ text: "hi", timestamp: 99 }),
+          undefined,
+        ),
       ]),
     ).toBe(false);
   });
@@ -782,9 +765,7 @@ describe("conversation display merge — structural-sharing fast path", () => {
     const winners = findOverlayWinnerIndices(full, scene.overlayMessages);
     // Current overlay list no longer contains the winner id → caller must
     // recompute rather than reuse a stale order.
-    expect(
-      rebuildDisplayMessagesFromCachedOrder(full, winners, []),
-    ).toBeNull();
+    expect(rebuildDisplayMessagesFromCachedOrder(full, winners, [])).toBeNull();
   });
 
   it("merges an already-ordered union into the same order as a full sort (skip path)", () => {

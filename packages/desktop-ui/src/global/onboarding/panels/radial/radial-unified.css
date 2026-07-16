@@ -52,9 +52,15 @@
   background: var(--border);
 }
 
-.radial-desktop-mock__traffic span:nth-child(1) { background: var(--warning); }
-.radial-desktop-mock__traffic span:nth-child(2) { background: var(--primary); }
-.radial-desktop-mock__traffic span:nth-child(3) { background: var(--success); }
+.radial-desktop-mock__traffic span:nth-child(1) {
+  background: var(--warning);
+}
+.radial-desktop-mock__traffic span:nth-child(2) {
+  background: var(--primary);
+}
+.radial-desktop-mock__traffic span:nth-child(3) {
+  background: var(--success);
+}
 
 .radial-desktop-mock__chrome {
   display: flex;
@@ -276,8 +282,12 @@
 }
 
 @keyframes voiceBar {
-  0% { transform: scaleY(0.25); }
-  100% { transform: scaleY(1); }
+  0% {
+    transform: scaleY(0.25);
+  }
+  100% {
+    transform: scaleY(1);
+  }
 }
 
 .radial-result-minishell--voice {
@@ -295,7 +305,11 @@
   inset: 0;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, var(--surface-inset) 0%, var(--background) 100%);
+  background: linear-gradient(
+    180deg,
+    var(--surface-inset) 0%,
+    var(--background) 100%
+  );
 }
 
 .radial-scene__taskbar {
@@ -342,16 +356,23 @@
   font-size: 0.65rem;
 }
 
-.radial-scene__window-bar span:nth-child(-n+3) {
+.radial-scene__window-bar span:nth-child(-n + 3) {
   width: 7px;
   height: 7px;
   border-radius: 999px;
   background: var(--border);
 }
 
-.radial-scene__window-bar span:nth-child(1) { background: var(--warning); }
-.radial-scene__window-bar span:nth-child(2) { background: var(--primary); }
-.radial-scene__window-bar span:nth-child(3) { background: var(--success); margin-right: 0.3rem; }
+.radial-scene__window-bar span:nth-child(1) {
+  background: var(--warning);
+}
+.radial-scene__window-bar span:nth-child(2) {
+  background: var(--primary);
+}
+.radial-scene__window-bar span:nth-child(3) {
+  background: var(--success);
+  margin-right: 0.3rem;
+}
 
 .radial-scene__window-bar strong {
   color: var(--text-base);
@@ -404,7 +425,11 @@
 .radial-scene__recipe-hero {
   height: 5rem;
   border-radius: 0.4rem;
-  background: linear-gradient(135deg, color-mix(in oklch, var(--warning) 40%, var(--card)) 0%, color-mix(in oklch, var(--warning) 25%, var(--card)) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--warning) 40%, var(--card)) 0%,
+    color-mix(in oklch, var(--warning) 25%, var(--card)) 100%
+  );
   margin-bottom: 0.7rem;
 }
 
@@ -445,7 +470,11 @@
 .radial-scene__article-hero {
   height: 5rem;
   border-radius: 0.4rem;
-  background: linear-gradient(135deg, color-mix(in oklch, var(--primary) 22%, var(--card)) 0%, color-mix(in oklch, var(--primary) 32%, var(--card)) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--primary) 22%, var(--card)) 0%,
+    color-mix(in oklch, var(--primary) 32%, var(--card)) 100%
+  );
   margin-bottom: 0.7rem;
 }
 
@@ -496,7 +525,7 @@
 /* ──────────────────────────────────────────────────────────────────
    "Stella, on call." — full-bleed radial hero.
 
-   Mirrors the .self-mod-hero layout: an unframed section with the
+   Mirrors the shapeshift hero layout: an unframed section with the
    eyebrow + display-italic title sitting centred at the top, and a
    two-column stage below — large interactive dial on the left, the
    live desktop mock on the right with no card chrome around it.
@@ -725,8 +754,11 @@
   position: absolute;
   inset: -28px;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 50% 50%, color-mix(in oklch, var(--primary) 18%, transparent), transparent 62%);
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in oklch, var(--primary) 18%, transparent),
+    transparent 62%
+  );
   pointer-events: none;
   filter: blur(2px);
 }
@@ -750,17 +782,23 @@
     fill 280ms cubic-bezier(0.22, 1, 0.36, 1),
     stroke 280ms cubic-bezier(0.22, 1, 0.36, 1),
     filter 280ms cubic-bezier(0.22, 1, 0.36, 1);
-  filter: drop-shadow(0 1px 1px color-mix(in oklch, var(--text-strong) 6%, transparent));
+  filter: drop-shadow(
+    0 1px 1px color-mix(in oklch, var(--text-strong) 6%, transparent)
+  );
 }
 
-.radial-dial-interactive__wedge[data-selected] .radial-dial-interactive__wedge-fill {
+.radial-dial-interactive__wedge[data-selected]
+  .radial-dial-interactive__wedge-fill {
   /* SVG `fill` can't take a CSS gradient; the shadow + halo carry the depth. */
   fill: var(--primary);
   stroke: color-mix(in oklch, var(--primary) 55%, transparent);
-  filter: drop-shadow(0 8px 18px color-mix(in oklch, var(--primary) 32%, transparent));
+  filter: drop-shadow(
+    0 8px 18px color-mix(in oklch, var(--primary) 32%, transparent)
+  );
 }
 
-.radial-dial-interactive__wedge:focus-visible .radial-dial-interactive__wedge-fill {
+.radial-dial-interactive__wedge:focus-visible
+  .radial-dial-interactive__wedge-fill {
   stroke: color-mix(in oklch, var(--primary) 70%, transparent);
   stroke-width: 2;
 }
@@ -777,10 +815,13 @@
   font-size: 0.66rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-  transition: color 220ms ease, transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    color 220ms ease,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.radial-dial-interactive__wedge[data-selected] .radial-dial-interactive__wedge-content {
+.radial-dial-interactive__wedge[data-selected]
+  .radial-dial-interactive__wedge-content {
   color: var(--primary-foreground);
   transform: scale(1.06);
 }

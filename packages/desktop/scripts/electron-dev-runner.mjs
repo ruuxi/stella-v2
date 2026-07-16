@@ -69,7 +69,7 @@ const ensureCacheDir = (dir) => {
 };
 // Stable per-repo V8 bytecode cache for the electron-main bundle. Lives
 // OUTSIDE dist-electron so esbuild's clean + identical-byte rewrites do not
-// invalidate it; reused across launches and self-mod restarts so Node's V8
+// invalidate it; reused across launches and restarts so Node's V8
 // engine skips re-parsing/compiling the bundle every time.
 const v8CompileCacheDir = resolve(
   repoRootDir,
@@ -406,10 +406,6 @@ process.on("exit", () => {
   removeOwnPidFile();
 });
 
-// Self-mod HMR endpoints are gated by Vite's localhost binding plus an
-// `Origin == null` check on the request -- not by a shared token. See
-// `isAuthorizedSelfModRequest` in `desktop/vite/self-mod-hmr-plugin.ts` for the
-// gate and `runtime/kernel/self-mod/hmr.ts` for the worker-side caller.
 const startVite = async () => {
   const { createServer } = await import("vite");
   const server = await createServer({

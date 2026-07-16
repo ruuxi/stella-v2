@@ -8,14 +8,12 @@ import crypto from "node:crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import {
-  AGENT_IDS,
   AGENT_RUN_FINISH_OUTCOMES,
   AGENT_STREAM_EVENT_TYPES,
   type AgentIdLike,
   type AgentRunFinishOutcome,
   type AgentStreamEventType,
 } from "@stella/contracts/agent-runtime";
-import type { SelfModHmrState } from "@stella/contracts";
 import { IPC_AGENT_ONE_SHOT_COMPLETION } from "@stella/contracts/desktop/ipc-channels";
 import type {
   RuntimeOneShotCompletionRequest,
@@ -24,7 +22,6 @@ import type {
 import type { StellaHostRunner } from "../stella-host-runner.js";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
-import { getFileLogger } from "@stella/runtime/observability/file-logger";
 
 type AgentHandlersOptions = {
   getStellaHostRunner: () => StellaHostRunner | null;
@@ -60,12 +57,6 @@ type AgentEventPayload = {
   fatal?: boolean;
   finalText?: string;
   persisted?: boolean;
-  selfModApplied?: {
-    commitHash: string;
-    files: string[];
-    batchIndex: number;
-    status?: "pending" | "applied";
-  };
   agentId?: string;
   agentType?: AgentIdLike;
   rootRunId?: string;
@@ -89,8 +80,6 @@ type ActiveRunSnapshot = {
   userMessageId?: string;
   uiVisibility?: "visible" | "hidden";
 };
-
-type SelfModHmrStatePayload = SelfModHmrState;
 
 const redactSensitiveLogText = (value: string) =>
   value
@@ -345,8 +334,7 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
 
   const scheduleRunCleanup = (runId: string, requestId?: string) => {
     setTimeout(() => {
-      const hasRunningTasks =
-        (runningAgentsByRunId.get(runId)?.size ?? 0) > 0;
+      const hasRunningTasks = (runningAgentsByRunId.get(runId)?.size ?? 0) > 0;
       if (hasRunningTasks) {
         scheduleRunCleanup(runId, requestId);
         return;
@@ -369,21 +357,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
       }
       pruneConversationEventBuffers();
     }, 60_000);
-  };
-
-  const emitSelfModHmrState = (
-    payload: SelfModHmrStatePayload,
-    targetWebContentsId?: number,
-  ) => {
-    options.getBroadcastToMobile?.()?.("agent:selfModHmrState", payload);
-    const receiverId = targetWebContentsId;
-    if (receiverId == null) {
-      return;
-    }
-    const receiver = webContents.fromId(receiverId);
-    if (receiver && !receiver.isDestroyed()) {
-      receiver.send("agent:selfModHmrState", payload);
-    }
   };
 
   ipcMain.handle(
@@ -633,7 +606,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
                   userMessageId: ev.userMessageId,
                   finalText: ev.finalText,
                   persisted: ev.persisted,
-                  selfModApplied: ev.selfModApplied,
                   error: ev.error,
                   outcome: ev.outcome ?? AGENT_RUN_FINISH_OUTCOMES.ERROR,
                   reason: ev.reason ?? ev.error,
@@ -687,8 +659,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
                 senderWebContentsId,
               );
             },
-            onSelfModHmrState: (hmrState) =>
-              emitSelfModHmrState(hmrState, senderWebContentsId),
           },
         );
       }
@@ -708,9 +678,7 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
         conversationId: string;
         userPrompt: string;
         selectedText?: string | null;
-        chatContext?:
-          | import("@stella/contracts").ChatContext
-          | null;
+        chatContext?: import("@stella/contracts").ChatContext | null;
         deviceId?: string;
         platform?: string;
         timezone?: string;
@@ -727,17 +695,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
         agentType?: string;
         storageMode?: "cloud" | "local";
         clientRequestId?: string;
-        selfModMetadata?: {
-          packageId?: string;
-          releaseNumber?: number;
-          mode?:
-            | "author"
-            | "install"
-            | "update"
-            | "uninstall"
-            | "desktop-update";
-          expectedChangedFiles?: string[];
-        };
       },
     ) => {
       if (!options.assertPrivilegedSender(event, "agent:startChat")) {
@@ -831,15 +788,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
       console.log(
         `[stella:trace] IPC agent:startChat | convId=${payload.conversationId} | prompt=${redactSensitiveLogText(payload.userPrompt.slice(0, 200))}`,
       );
-      const isInstallUpdateAgent =
-        payload.agentType === AGENT_IDS.INSTALL_UPDATE;
-      if (isInstallUpdateAgent) {
-        getFileLogger()?.process("desktop-update.agent.start-request", {
-          requestId,
-          conversationId: payload.conversationId,
-        });
-      }
-
       const emitRunFinished = (args: {
         runId: string;
         outcome: AgentRunFinishOutcome;
@@ -847,12 +795,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
         userMessageId?: string;
         finalText?: string;
         persisted?: boolean;
-        selfModApplied?: {
-          commitHash: string;
-          files: string[];
-          batchIndex: number;
-          status?: "pending" | "applied";
-        };
         error?: string;
         reason?: string;
       }) => {
@@ -870,7 +812,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
             userMessageId: args.userMessageId,
             finalText: args.finalText,
             persisted: args.persisted,
-            selfModApplied: args.selfModApplied,
             error: args.error,
             outcome: args.outcome,
             reason: args.reason ?? args.error,
@@ -890,14 +831,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
             onRunStarted: (ev) => {
               if (ev.uiVisibility === "hidden") {
                 return;
-              }
-              if (isInstallUpdateAgent) {
-                getFileLogger()?.process("desktop-update.agent.run-started", {
-                  requestId,
-                  conversationId: payload.conversationId,
-                  runId: ev.runId,
-                  agentType: ev.agentType,
-                });
               }
               terminalRunIds.delete(ev.runId);
               runOwners.set(ev.runId, senderWebContentsId);
@@ -977,17 +910,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
                 senderWebContentsId,
               ),
             onRunFinished: (ev) => {
-              if (isInstallUpdateAgent) {
-                getFileLogger()?.process("desktop-update.agent.run-finished", {
-                  requestId,
-                  conversationId: payload.conversationId,
-                  runId: ev.runId,
-                  outcome: ev.outcome ?? AGENT_RUN_FINISH_OUTCOMES.ERROR,
-                  agentType: ev.agentType,
-                  reason: ev.reason,
-                  error: ev.error,
-                });
-              }
               emitRunFinished({
                 runId: ev.runId,
                 outcome: ev.outcome ?? AGENT_RUN_FINISH_OUTCOMES.ERROR,
@@ -995,7 +917,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
                 userMessageId: ev.userMessageId,
                 finalText: ev.finalText,
                 persisted: ev.persisted,
-                selfModApplied: ev.selfModApplied,
                 error: ev.error,
                 reason: ev.reason,
               });
@@ -1050,8 +971,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
                 senderWebContentsId,
               );
             },
-            onSelfModHmrState: (ev) =>
-              emitSelfModHmrState(ev, senderWebContentsId),
           },
         )
         .catch((error) => {
@@ -1068,13 +987,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
             return;
           }
 
-          if (isInstallUpdateAgent) {
-            getFileLogger()?.error("desktop-update.agent.start-failed", {
-              requestId,
-              conversationId: payload.conversationId,
-              error,
-            });
-          }
           console.error(
             "[chat] Local chat failed before runtime run start:",
             message,
@@ -1125,92 +1037,6 @@ export const registerAgentHandlers = (options: AgentHandlersOptions) => {
       stellaHostRunner.cancelLocalChat(runId);
     }
   });
-
-  ipcMain.handle(
-    "selfmod:apply",
-    async (event, payload: { commitHash?: string }) => {
-      if (!options.assertPrivilegedSender(event, "selfmod:apply")) {
-        throw new Error("Blocked untrusted request.");
-      }
-      const stellaHostRunner = options.getStellaHostRunner();
-      if (!stellaHostRunner) {
-        throw new Error("Stella runtime not available");
-      }
-      return await stellaHostRunner.applySelfModCommit({
-        commitHash: payload.commitHash,
-      });
-    },
-  );
-
-  ipcMain.handle(
-    "selfmod:revert",
-    async (event, payload: { commitHash?: string; steps?: number }) => {
-      if (!options.assertPrivilegedSender(event, "selfmod:revert")) {
-        throw new Error("Blocked untrusted request.");
-      }
-      const stellaHostRunner = options.getStellaHostRunner();
-      if (!stellaHostRunner) {
-        throw new Error("Stella runtime not available");
-      }
-      return await stellaHostRunner.revertSelfModCommit({
-        commitHash: payload.commitHash,
-        steps: payload.steps,
-      });
-    },
-  );
-
-  ipcMain.handle("selfmod:crashRecoveryStatus", async (event) => {
-    if (!options.assertPrivilegedSender(event, "selfmod:crashRecoveryStatus")) {
-      throw new Error("Blocked untrusted request.");
-    }
-    const stellaHostRunner = options.getStellaHostRunner();
-    if (!stellaHostRunner) {
-      throw new Error("Stella runtime not available");
-    }
-    return await stellaHostRunner.getCrashRecoveryStatus();
-  });
-
-  ipcMain.handle("selfmod:discardUnfinished", async (event, payload) => {
-    if (!options.assertPrivilegedSender(event, "selfmod:discardUnfinished")) {
-      throw new Error("Blocked untrusted request.");
-    }
-    const stellaHostRunner = options.getStellaHostRunner();
-    if (!stellaHostRunner) {
-      throw new Error("Stella runtime not available");
-    }
-    return await stellaHostRunner.discardUnfinishedSelfModChanges({
-      conversationId:
-        typeof payload?.conversationId === "string"
-          ? payload.conversationId
-          : undefined,
-    });
-  });
-
-  ipcMain.handle("selfmod:lastCommit", async (event) => {
-    if (!options.assertPrivilegedSender(event, "selfmod:lastCommit")) {
-      throw new Error("Blocked untrusted request.");
-    }
-    const stellaHostRunner = options.getStellaHostRunner();
-    if (!stellaHostRunner) {
-      throw new Error("Stella runtime not available");
-    }
-    return await stellaHostRunner.getLastSelfModCommit();
-  });
-
-  ipcMain.handle(
-    "selfmod:recentCommits",
-    async (event, payload: { limit?: number } | undefined) => {
-      if (!options.assertPrivilegedSender(event, "selfmod:recentCommits")) {
-        throw new Error("Blocked untrusted request.");
-      }
-      const limit = Number(payload?.limit ?? 8);
-      const stellaHostRunner = options.getStellaHostRunner();
-      if (!stellaHostRunner) {
-        throw new Error("Stella runtime not available");
-      }
-      return await stellaHostRunner.listRecentSelfModCommits(limit);
-    },
-  );
 
   // Dev-only: trigger/fix a Vite compile error for testing the error overlay
   const TEST_BROKEN_FILE = path.join(

@@ -8,7 +8,6 @@ import { OverlayWindowController } from "../windows/overlay-window.js";
 import { PetWindowController } from "../windows/pet-window.js";
 import { WindowManager } from "../windows/window-manager.js";
 import { TrayController } from "../windows/tray-controller.js";
-import { createHmrTransitionController } from "../self-mod/hmr-morph.js";
 import { configureNotificationActivationHandling } from "../services/notification-service.js";
 import { configureStellaSessionPermissions } from "./session-permissions.js";
 import {
@@ -137,7 +136,7 @@ const initializeWindowShell = (context: BootstrapContext) => {
       isAllowedStoreWebUrl: (url) =>
         Boolean(
           allowedStoreWebOrigin &&
-            storeWebOrigin(url) === allowedStoreWebOrigin,
+          storeWebOrigin(url) === allowedStoreWebOrigin,
         ),
       sessionPartition: config.sessionPartition,
       isDev: config.useDevServer,
@@ -172,11 +171,6 @@ const initializeWindowShell = (context: BootstrapContext) => {
       getAllWindows: () => getAllWindows(context),
     },
     getBroadcastToMobile: () => getMobileBroadcast(context),
-  });
-
-  state.hmrTransitionController = createHmrTransitionController({
-    getFullWindow: () => state.windowManager?.getFullWindow() ?? null,
-    getOverlayController: () => state.overlayController,
   });
 };
 

@@ -51,10 +51,7 @@ import {
   type LegendListRef,
   type LegendListRenderItemProps,
 } from "@legendapp/list/react";
-import {
-  AssistantMessageRow,
-  UserMessageRow,
-} from "@/app/chat/MessageRow";
+import { AssistantMessageRow, UserMessageRow } from "@/app/chat/MessageRow";
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import { ComposerQueuedMessages } from "./ComposerQueuedMessages";
 import {
@@ -189,13 +186,12 @@ const isCardRow = (row: EventRowViewModel): boolean =>
   row.text.trim().length === 0 &&
   Boolean(
     row.resourcePayload ||
-      row.sourceDiffPayloads?.length ||
-      row.inlineImagePayloads?.length ||
-      row.officePreviewRef ||
-      row.scheduleReceipt ||
-      row.selfModApplied ||
-      row.backgroundWork ||
-      row.customSlot,
+    row.sourceDiffPayloads?.length ||
+    row.inlineImagePayloads?.length ||
+    row.officePreviewRef ||
+    row.scheduleReceipt ||
+    row.backgroundWork ||
+    row.customSlot,
   );
 
 const gapAfterRow = (
@@ -224,10 +220,7 @@ const ItemSeparator = ({ leadingItem }: { leadingItem: TimelineListItem }) => (
   <div style={{ height: leadingItem.gapAfter }} aria-hidden="true" />
 );
 
-const renderRow = (
-  row: EventRowViewModel,
-  conversationId?: string | null,
-) => {
+const renderRow = (row: EventRowViewModel, conversationId?: string | null) => {
   if (row.kind === "user") {
     return <UserMessageRow key={row.id} row={row} />;
   }
@@ -244,10 +237,7 @@ const TimelineUserItem = ({
   item,
   onCancelQueued,
 }: {
-  item: Extract<
-    ChatTimelineItem,
-    { type: "message" | "queued-users" }
-  >;
+  item: Extract<ChatTimelineItem, { type: "message" | "queued-users" }>;
   onCancelQueued?: (message: QueuedUserMessage) => void;
 }) => {
   if (item.type === "queued-users") {
@@ -311,9 +301,7 @@ export const ChatTimeline = memo(function ChatTimeline({
         ) : null;
       }
       if (item.type === "queued-users" || item.row.kind === "user") {
-        return (
-          <TimelineUserItem item={item} onCancelQueued={onCancelQueued} />
-        );
+        return <TimelineUserItem item={item} onCancelQueued={onCancelQueued} />;
       }
       return renderRow(item.row, conversationId);
     },
@@ -361,9 +349,7 @@ export const ChatTimeline = memo(function ChatTimeline({
             : "")
         }
       >
-        {extraTail && (
-          <div className="event-list-extra-tail">{extraTail}</div>
-        )}
+        {extraTail && <div className="event-list-extra-tail">{extraTail}</div>}
       </div>
     ),
     [extraTail, hasQueuedTimelineItem],

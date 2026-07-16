@@ -17,13 +17,6 @@ type WebsiteEmbeddedTheme = {
 
 contextBridge.exposeInMainWorld("stellaDesktopStore", {
   getAuthToken: () => invoke<string | null>("storeWeb:getAuthToken"),
-  /**
-   * Subscribe to live theme updates from Stella's desktop app. Stella
-   * pushes a fresh `WebsiteEmbeddedTheme` every time the user changes
-   * theme/color-mode/gradient settings, so the embedded `/store` and
-   * `/billing` pages can adapt their text and surface tokens without
-   * reloading. Returns an unsubscribe function.
-   */
   onThemeChanged: (callback: (theme: WebsiteEmbeddedTheme) => void) => {
     const listener = (_event: unknown, theme: WebsiteEmbeddedTheme) => {
       callback(theme);
@@ -33,26 +26,6 @@ contextBridge.exposeInMainWorld("stellaDesktopStore", {
       ipcRenderer.removeListener(WEBSITE_VIEW_THEME_CHANNEL, listener);
     };
   },
-  readFeatureSnapshot: () => invoke("storeWeb:readFeatureSnapshot"),
-  listInstalledMods: () => invoke("storeWeb:listInstalledMods"),
-  requestPackageInstall: (payload: {
-    packageId: string;
-    releaseNumber: number;
-  }) => invoke("storeWeb:requestPackageInstall", payload),
-  uninstallPackage: (packageId: string) =>
-    invoke("storeWeb:uninstallMod", { packageId }),
-  publishSelectedFeatures: (payload: {
-    attachedFeatureNames: string[];
-    attachedFeatureIds?: string[];
-    packageId: string;
-    asUpdate: boolean;
-    displayName?: string;
-    description?: string;
-    category?: string;
-    manifest: Record<string, unknown>;
-    releaseNotes?: string;
-  }) => invoke("storeWeb:publishSelectedFeatures", payload),
-  openStorePanel: () => invoke("storeWeb:openStorePanel"),
   openSignIn: () => invoke("storeWeb:openSignIn"),
   showToast: (payload: {
     title?: string;
@@ -60,35 +33,4 @@ contextBridge.exposeInMainWorld("stellaDesktopStore", {
     variant?: "default" | "success" | "error" | "loading";
     duration?: number;
   }) => invoke("storeWeb:showToast", payload),
-  listNativeIntegrations: () => invoke("storeWeb:listNativeIntegrations"),
-  connectNativeIntegration: (payload: { id: string }) =>
-    invoke("storeWeb:connectNativeIntegration", payload),
-  disconnectNativeIntegration: (payload: { id: string }) =>
-    invoke("storeWeb:disconnectNativeIntegration", payload),
-  installPet: (payload: {
-    pet: {
-      id: string;
-      displayName: string;
-      description: string;
-      kind: string;
-      tags: string[];
-      ownerName: string | null;
-      spritesheetUrl: string;
-      previewUrl?: string;
-      sourceUrl?: string;
-      downloads?: number;
-    };
-  }) => invoke("storeWeb:installPet", payload),
-  selectPet: (payload: { petId: string }) =>
-    invoke("storeWeb:selectPet", payload),
-  removePet: (payload: { petId: string }) =>
-    invoke("storeWeb:removePet", payload),
-  getPetState: () => invoke("storeWeb:getPetState"),
-  setPetOpen: (payload: { open: boolean }) =>
-    invoke("storeWeb:setPetOpen", payload),
-  installEmojiPack: (payload: { packId: string; sheetUrls: string[] }) =>
-    invoke("storeWeb:installEmojiPack", payload),
-  clearEmojiPack: (payload?: { packId?: string }) =>
-    invoke("storeWeb:clearEmojiPack", payload),
-  getEmojiPackState: () => invoke("storeWeb:getEmojiPackState"),
 });

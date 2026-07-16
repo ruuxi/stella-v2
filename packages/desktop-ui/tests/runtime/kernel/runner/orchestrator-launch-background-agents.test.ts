@@ -12,39 +12,41 @@ vi.mock("@stella/runtime/kernel/runner/model-selection", () => ({
 }));
 
 vi.mock("@stella/runtime/kernel/agent-runtime", () => ({
-  runOrchestratorTurn: vi.fn(async (opts: {
-    runId: string;
-    agentType: string;
-    beforeRunEnd?: (args: {
+  runOrchestratorTurn: vi.fn(
+    async (opts: {
       runId: string;
-      threadKey: string;
-      finalText: string;
-      outcome: "success";
-    }) => Promise<void> | void;
-    callbacks: {
-      onEnd?: (event: {
+      agentType: string;
+      beforeRunEnd?: (args: {
         runId: string;
-        agentType: string;
-        seq: number;
+        threadKey: string;
         finalText: string;
-        timestamp: number;
-      }) => void;
-    };
-  }) => {
-    await opts.beforeRunEnd?.({
-      runId: opts.runId,
-      threadKey: "conversation-1",
-      finalText: "spawned",
-      outcome: "success",
-    });
-    opts.callbacks.onEnd?.({
-      runId: opts.runId,
-      agentType: opts.agentType,
-      seq: 1,
-      finalText: "spawned",
-      timestamp: Date.now(),
-    });
-  }),
+        outcome: "success";
+      }) => Promise<void> | void;
+      callbacks: {
+        onEnd?: (event: {
+          runId: string;
+          agentType: string;
+          seq: number;
+          finalText: string;
+          timestamp: number;
+        }) => void;
+      };
+    }) => {
+      await opts.beforeRunEnd?.({
+        runId: opts.runId,
+        threadKey: "conversation-1",
+        finalText: "spawned",
+        outcome: "success",
+      });
+      opts.callbacks.onEnd?.({
+        runId: opts.runId,
+        agentType: opts.agentType,
+        seq: 1,
+        finalText: "spawned",
+        timestamp: Date.now(),
+      });
+    },
+  ),
 }));
 
 const createContext = () =>
@@ -128,79 +130,6 @@ describe("startPreparedOrchestratorRun background agent handling", () => {
     ).resolves.toBeUndefined();
 
     expect(cleanupRun).toHaveBeenCalledWith("run-1");
-    expect(context.state.activeOrchestratorRunId).toBeNull();
-  });
-
-  it("ends a delegating-only turn promptly even with the self-mod lifecycle attached", async () => {
-    // Production configuration for the observed hang: the self-mod lifecycle
-    // is attached (it always is for the orchestrator), the run performed NO
-    // self-mod writes, and a background agent stamped with this run's
-    // rootRunId keeps running indefinitely. Run-end must not wait for it.
-    const context = createContext();
-    const finalizeRun = vi.fn(async () => undefined);
-    context.selfModLifecycle = { finalizeRun, cancelRun: vi.fn() };
-    // The background child never terminates within the test window.
-    context.state.localAgentManager = {
-      listActiveAgentRuns: () => [
-        { runId: "run-1", conversationId: "conversation-1" },
-      ],
-    };
-    const onEnd = vi.fn();
-    const cleanupRun = vi.fn((runId: string) => {
-      context.state.activeRunAbortControllers.delete(runId);
-      context.state.activeOrchestratorRunId = null;
-    });
-
-    await startPreparedOrchestratorRun({
-      context,
-      buildAgentContext: async () => ({
-        systemPrompt: "",
-        dynamicContext: "",
-        maxAgentDepth: 3,
-      }),
-      runId: "run-1",
-      conversationId: "conversation-1",
-      agentType: AGENT_IDS.ORCHESTRATOR,
-      userPrompt: "resume the benchmark",
-      attachments: [],
-      userMessageId: "user-message-2",
-      createRuntimeCallbacks: () => ({
-        onEnd: (event) => {
-          cleanupRun(event.runId);
-          onEnd(event);
-        },
-      }),
-      cleanupRun,
-      onFatalError: vi.fn(),
-    });
-
-    await expect(
-      new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(
-          () =>
-            reject(
-              new Error(
-                "orchestrator run stayed busy waiting for background agents",
-              ),
-            ),
-          250,
-        );
-        const check = () => {
-          if (onEnd.mock.calls.length > 0) {
-            clearTimeout(timeout);
-            resolve();
-            return;
-          }
-          setTimeout(check, 1);
-        };
-        check();
-      }),
-    ).resolves.toBeUndefined();
-
-    // The orchestrator's contract does not set controlsSelfModHmr, so the
-    // lifecycle never attaches for it — finalizeRun must not be engaged and,
-    // above all, the run must not have waited on the background agent.
-    expect(finalizeRun).not.toHaveBeenCalled();
     expect(context.state.activeOrchestratorRunId).toBeNull();
   });
 });

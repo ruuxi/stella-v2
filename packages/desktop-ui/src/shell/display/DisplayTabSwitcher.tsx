@@ -27,7 +27,6 @@ import {
   CHAT_DISPLAY_TAB_ID,
   HOME_DISPLAY_TAB_ID,
   MEDIA_DISPLAY_TAB_ID,
-  STORE_DISPLAY_TAB_ID,
   TRASH_DISPLAY_TAB_ID,
   openHomeDisplayTab,
 } from "@/features/workspace-display/default-tabs";
@@ -43,7 +42,6 @@ const PINNED_TAB_IDS: readonly string[] = [
   CHAT_DISPLAY_TAB_ID,
   CANVAS_DISPLAY_TAB_ID,
   MEDIA_DISPLAY_TAB_ID,
-  STORE_DISPLAY_TAB_ID,
   TRASH_DISPLAY_TAB_ID,
 ];
 

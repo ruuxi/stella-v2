@@ -123,14 +123,16 @@ const main = async () => {
     // Snapshot the runtime tree's identity as loaded by THIS process
     // (process.argv[1] is the entry file the host spawned). The host compares
     // this stamp against the on-disk tree when it reattaches to detect a
-    // worker running stale code after a self-mod apply or desktop update.
+    // worker running stale code after a desktop update.
     const runtimeBuildStamp = computeRuntimeBuildStamp(process.argv[1] ?? "");
     lifecycle = new WorkerLifecycleServer({
       stellaAppDir: cliArgs.stellaAppDir,
       ...(runtimeBuildStamp !== RUNTIME_BUILD_STAMP_UNAVAILABLE
         ? { runtimeBuildStamp }
         : {}),
-      ...(cliArgs.idleShutdownMs ? { idleShutdownMs: cliArgs.idleShutdownMs } : {}),
+      ...(cliArgs.idleShutdownMs
+        ? { idleShutdownMs: cliArgs.idleShutdownMs }
+        : {}),
       shouldKeepAlive: () => runtimeServer.hasActiveWork(),
       onShutdown: async (reason) => {
         await teardown();

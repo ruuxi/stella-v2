@@ -3,122 +3,121 @@ import {
   ipcMain,
   screen,
   type RenderProcessGoneDetails,
-} from 'electron'
-import { RADIAL_SIZE } from '../layout-constants.js'
-import type { SelfModHmrState } from '@stella/contracts'
-import type { MorphVisualTiming } from '@stella/contracts/desktop/morph-timing'
-import { loadWindow } from './window-load.js'
-import { createSharedWebPreferences } from './shared-window-preferences.js'
+} from "electron";
+import { RADIAL_SIZE } from "../layout-constants.js";
+import type { MorphVisualTiming } from "@stella/contracts/desktop/morph-timing";
+import { loadWindow } from "./window-load.js";
+import { createSharedWebPreferences } from "./shared-window-preferences.js";
 import {
   STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES,
   getWindowInfoAtPoint,
-} from '../window-capture.js'
+} from "../window-capture.js";
 
 const getAllDisplaysBounds = () => {
-  const displays = screen.getAllDisplays()
+  const displays = screen.getAllDisplays();
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
-    maxY = -Infinity
+    maxY = -Infinity;
   for (const d of displays) {
-    minX = Math.min(minX, d.bounds.x)
-    minY = Math.min(minY, d.bounds.y)
-    maxX = Math.max(maxX, d.bounds.x + d.bounds.width)
-    maxY = Math.max(maxY, d.bounds.y + d.bounds.height)
+    minX = Math.min(minX, d.bounds.x);
+    minY = Math.min(minY, d.bounds.y);
+    maxX = Math.max(maxX, d.bounds.x + d.bounds.width);
+    maxY = Math.max(maxY, d.bounds.y + d.bounds.height);
   }
-  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
-}
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+};
 
 type OverlayWindowControllerOptions = {
-  preloadPath: string
-  sessionPartition: string
-  electronDir: string
-  isDev: boolean
-  getDevServerUrl: () => string
-}
+  preloadPath: string;
+  sessionPartition: string;
+  electronDir: string;
+  isDev: boolean;
+  getDevServerUrl: () => string;
+};
 
 // ─── OverlayWindow: Electron window lifecycle ───────────────────────────
 
 /** Pure window lifecycle: create, destroy, respan, show/hide, interactivity. */
 class OverlayWindow {
-  private window: BrowserWindow | null = null
-  private displayListenersRegistered = false
-  private respanHandler: (() => void) | null = null
-  private ready = false
-  private destroyed = false
-  private overlayOrigin = { x: 0, y: 0 }
-  private reloadTimer: ReturnType<typeof setTimeout> | null = null
-  private concealOnWarmPresent = false
+  private window: BrowserWindow | null = null;
+  private displayListenersRegistered = false;
+  private respanHandler: (() => void) | null = null;
+  private ready = false;
+  private destroyed = false;
+  private overlayOrigin = { x: 0, y: 0 };
+  private reloadTimer: ReturnType<typeof setTimeout> | null = null;
+  private concealOnWarmPresent = false;
 
   constructor(private readonly options: OverlayWindowControllerOptions) {}
 
   getWindow() {
-    return this.window
+    return this.window;
   }
   getOverlayOrigin() {
-    return this.overlayOrigin
+    return this.overlayOrigin;
   }
   /** Keeps overlay-local coords aligned with `getContentBounds()` (macOS can nudge the panel). */
   refreshOverlayOriginFromContentBounds() {
-    if (!this.window || this.window.isDestroyed()) return
-    const cb = this.window.getContentBounds()
-    this.overlayOrigin = { x: cb.x, y: cb.y }
+    if (!this.window || this.window.isDestroyed()) return;
+    const cb = this.window.getContentBounds();
+    this.overlayOrigin = { x: cb.x, y: cb.y };
   }
   isReady() {
-    return this.ready
+    return this.ready;
   }
   isDestroyed() {
-    return this.destroyed
+    return this.destroyed;
   }
 
   async ensureReady(timeoutMs = 1_500) {
-    const win = this.create()
+    const win = this.create();
     if (!win || win.isDestroyed()) {
-      return false
+      return false;
     }
     if (this.ready) {
-      return true
+      return true;
     }
 
     return await new Promise<boolean>((resolve) => {
-      let settled = false
+      let settled = false;
       const finish = (value: boolean) => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        win.removeListener('ready-to-show', handleReady)
-        win.removeListener('closed', handleClosed)
-        win.webContents.removeListener('did-finish-load', handleReady)
-        resolve(value)
-      }
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        win.removeListener("ready-to-show", handleReady);
+        win.removeListener("closed", handleClosed);
+        win.webContents.removeListener("did-finish-load", handleReady);
+        resolve(value);
+      };
       const handleReady = () => {
-        this.ready = true
-        finish(true)
-      }
-      const handleClosed = () => finish(false)
-      const timer = setTimeout(() => finish(this.ready), timeoutMs)
+        this.ready = true;
+        finish(true);
+      };
+      const handleClosed = () => finish(false);
+      const timer = setTimeout(() => finish(this.ready), timeoutMs);
 
-      win.once('ready-to-show', handleReady)
-      win.once('closed', handleClosed)
-      win.webContents.once('did-finish-load', handleReady)
-    })
+      win.once("ready-to-show", handleReady);
+      win.once("closed", handleClosed);
+      win.webContents.once("did-finish-load", handleReady);
+    });
   }
 
   create() {
-    if (this.destroyed) return null
+    if (this.destroyed) return null;
     if (this.window && !this.window.isDestroyed()) {
-      return this.window
+      return this.window;
     }
 
-    const bounds = getAllDisplaysBounds()
-    this.overlayOrigin = { x: bounds.x, y: bounds.y }
+    const bounds = getAllDisplaysBounds();
+    this.overlayOrigin = { x: bounds.x, y: bounds.y };
 
     this.window = new BrowserWindow({
       x: bounds.x,
       y: bounds.y,
       width: bounds.width,
       height: bounds.height,
-      ...(process.platform === 'darwin' ? { type: 'panel' } : {}),
+      ...(process.platform === "darwin" ? { type: "panel" } : {}),
       frame: false,
       transparent: true,
       resizable: false,
@@ -134,23 +133,23 @@ class OverlayWindow {
       // Space (blank, because the full shell had just moved to its own
       // fullscreen Space) instead of drawing over the active fullscreen Space.
       fullscreenable: false,
-      ...(process.platform === 'darwin'
+      ...(process.platform === "darwin"
         ? { hiddenInMissionControl: true }
         : {}),
       hasShadow: false,
       title: STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES[0],
       focusable: false,
       show: false,
-      backgroundColor: '#00000000',
+      backgroundColor: "#00000000",
       webPreferences: createSharedWebPreferences({
         preloadPath: this.options.preloadPath,
         sessionPartition: this.options.sessionPartition,
         backgroundThrottling: false,
       }),
-    })
-    this.window.setTitle(STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES[0])
+    });
+    this.window.setTitle(STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES[0]);
 
-    this.window.setAlwaysOnTop(true, 'screen-saver')
+    this.window.setAlwaysOnTop(true, "screen-saver");
     // The overlay is a transparent, screen-spanning utility layer (radial dial,
     // region-capture chrome, morph "glim" transition, window highlights). It
     // must never show up in Stella's own screen captures — otherwise a capture
@@ -160,8 +159,8 @@ class OverlayWindow {
     // (WDA_EXCLUDEFROMCAPTURE on Windows 10 2004+, NSWindowSharingNone on
     // macOS) excludes it from every capture path regardless of timing, while
     // leaving it fully visible to the user.
-    this.window.setContentProtection(true)
-    if (process.platform === 'darwin') {
+    this.window.setContentProtection(true);
+    if (process.platform === "darwin") {
       // Keep the overlay attached to the active Space on macOS. Without this,
       // the hidden panel stays bound to whichever Space it first materialized
       // on — when the radial is summoned from another Space, macOS jumps the
@@ -172,124 +171,124 @@ class OverlayWindow {
       this.window.setVisibleOnAllWorkspaces(true, {
         visibleOnFullScreen: true,
         skipTransformProcessType: true,
-      })
-      this.window.excludedFromShownWindowsMenu = true
+      });
+      this.window.excludedFromShownWindowsMenu = true;
     } else {
       this.window.setVisibleOnAllWorkspaces(true, {
         visibleOnFullScreen: true,
-      })
+      });
     }
-    this.window.setIgnoreMouseEvents(true, { forward: true })
+    this.window.setIgnoreMouseEvents(true, { forward: true });
 
-    this.window.once('ready-to-show', () => {
-      this.ready = true
+    this.window.once("ready-to-show", () => {
+      this.ready = true;
       if (this.window && !this.window.isDestroyed()) {
-        this.respanDisplays()
-        this.window.setOpacity(0)
-        if (process.platform !== 'darwin') {
-          this.window.showInactive()
+        this.respanDisplays();
+        this.window.setOpacity(0);
+        if (process.platform !== "darwin") {
+          this.window.showInactive();
           // Warm-only create: the present above pre-pays first-show cost so
           // the first real show() is instant, but the window must not stay
           // resident in the compositor afterwards (see fadeOut).
           if (this.concealOnWarmPresent) {
-            this.concealOnWarmPresent = false
-            this.window.hide()
+            this.concealOnWarmPresent = false;
+            this.window.hide();
           }
         }
-        this.window.setIgnoreMouseEvents(true, { forward: true })
+        this.window.setIgnoreMouseEvents(true, { forward: true });
       }
-    })
-    this.window.webContents.once('did-finish-load', () => {
-      this.ready = true
-    })
-    this.window.webContents.on('render-process-gone', (_event, details) => {
-      this.handleRenderProcessGone(details)
-    })
+    });
+    this.window.webContents.once("did-finish-load", () => {
+      this.ready = true;
+    });
+    this.window.webContents.on("render-process-gone", (_event, details) => {
+      this.handleRenderProcessGone(details);
+    });
     this.window.webContents.on(
-      'did-fail-load',
+      "did-fail-load",
       (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
         if (!isMainFrame || errorCode === -3) {
-          return
+          return;
         }
         console.error(
-          'Overlay failed to load:',
+          "Overlay failed to load:",
           errorCode,
           errorDescription,
           validatedURL,
-        )
-        this.scheduleReload()
+        );
+        this.scheduleReload();
       },
-    )
+    );
 
     loadWindow(this.window, {
       electronDir: this.options.electronDir,
       isDev: this.options.isDev,
-      mode: 'overlay',
+      mode: "overlay",
       getDevServerUrl: this.options.getDevServerUrl,
-    })
+    });
 
-    this.window.on('closed', () => {
-      this.window = null
-      this.ready = false
-      this.concealOnWarmPresent = false
-      this.clearReloadTimer()
-    })
+    this.window.on("closed", () => {
+      this.window = null;
+      this.ready = false;
+      this.concealOnWarmPresent = false;
+      this.clearReloadTimer();
+    });
 
-    this.window.on('close', (e) => {
-      e.preventDefault()
-    })
+    this.window.on("close", (e) => {
+      e.preventDefault();
+    });
 
     if (!this.displayListenersRegistered) {
-      this.displayListenersRegistered = true
-      this.respanHandler = () => this.respanDisplays()
-      screen.on('display-added', this.respanHandler)
-      screen.on('display-removed', this.respanHandler)
-      screen.on('display-metrics-changed', this.respanHandler)
+      this.displayListenersRegistered = true;
+      this.respanHandler = () => this.respanDisplays();
+      screen.on("display-added", this.respanHandler);
+      screen.on("display-removed", this.respanHandler);
+      screen.on("display-metrics-changed", this.respanHandler);
     }
 
-    return this.window
+    return this.window;
   }
 
   private respanDisplays() {
-    if (!this.window) return
-    const bounds = getAllDisplaysBounds()
-    this.overlayOrigin = { x: bounds.x, y: bounds.y }
-    this.window.setBounds(bounds)
-    this.window.webContents.send('overlay:displayChange', {
+    if (!this.window) return;
+    const bounds = getAllDisplaysBounds();
+    this.overlayOrigin = { x: bounds.x, y: bounds.y };
+    this.window.setBounds(bounds);
+    this.window.webContents.send("overlay:displayChange", {
       origin: this.overlayOrigin,
       bounds,
-    })
+    });
   }
 
   show(options?: { focus?: boolean; inactive?: boolean }) {
-    if (!this.window || !this.ready) return
-    this.concealOnWarmPresent = false
+    if (!this.window || !this.ready) return;
+    this.concealOnWarmPresent = false;
     if (!this.window.isVisible()) {
-      this.respanDisplays()
+      this.respanDisplays();
       if (options?.inactive) {
-        this.window.showInactive()
+        this.window.showInactive();
       } else {
-        this.window.show()
+        this.window.show();
       }
     }
     // Re-read the actual content origin after showing so overlay-local
     // coordinates stay correct. macOS can silently reposition windows
     // (for example around the menu bar or notch), which otherwise leaves
     // first-open surfaces slightly offset from the cursor.
-    this.refreshOverlayOriginFromContentBounds()
+    this.refreshOverlayOriginFromContentBounds();
     // Use 0.99 instead of 1 so Chrome's occlusion tracker doesn't consider
     // this window as fully opaque (alpha < 255 = not occluding). Without this,
     // Chrome stops rendering video when the overlay becomes visible.
-    this.window.setOpacity(0.99)
+    this.window.setOpacity(0.99);
     // Showing a hidden BrowserWindow can reset mouse-event policy on some
     // Electron/macOS paths. Keep passive overlay surfaces (including the pet)
     // click-through unless their renderer explicitly claims interactivity.
     if (!options?.focus) {
-      this.window.setIgnoreMouseEvents(true, { forward: true })
-      this.window.setFocusable(false)
+      this.window.setIgnoreMouseEvents(true, { forward: true });
+      this.window.setFocusable(false);
     }
     if (options?.focus) {
-      this.window.focus()
+      this.window.focus();
     }
   }
 
@@ -306,11 +305,11 @@ class OverlayWindow {
    * is hidden, not destroyed, so the next summon is still instant.
    */
   fadeOut() {
-    if (!this.window || !this.ready) return
-    this.window.setIgnoreMouseEvents(true, { forward: true })
-    this.window.setFocusable(false)
-    this.window.setOpacity(0)
-    this.window.hide()
+    if (!this.window || !this.ready) return;
+    this.window.setIgnoreMouseEvents(true, { forward: true });
+    this.window.setFocusable(false);
+    this.window.setOpacity(0);
+    this.window.hide();
   }
 
   /**
@@ -321,63 +320,63 @@ class OverlayWindow {
    * yet, defer the hide to it instead.
    */
   concealAfterWarm() {
-    if (!this.window || this.window.isDestroyed()) return
+    if (!this.window || this.window.isDestroyed()) return;
     if (this.window.isVisible()) {
-      this.fadeOut()
-      return
+      this.fadeOut();
+      return;
     }
-    this.concealOnWarmPresent = true
+    this.concealOnWarmPresent = true;
   }
 
   setIgnoreMouseEvents(ignore: boolean) {
-    if (!this.window) return
+    if (!this.window) return;
     if (ignore) {
-      this.window.setIgnoreMouseEvents(true, { forward: true })
+      this.window.setIgnoreMouseEvents(true, { forward: true });
     } else {
-      this.window.setIgnoreMouseEvents(false)
+      this.window.setIgnoreMouseEvents(false);
     }
   }
 
   setFocusable(focusable: boolean) {
-    if (!this.window) return
-    this.window.setFocusable(focusable)
-    if (!focusable) this.window.blur()
+    if (!this.window) return;
+    this.window.setFocusable(focusable);
+    if (!focusable) this.window.blur();
   }
 
   send(channel: string, ...args: unknown[]) {
-    this.window?.webContents.send(channel, ...args)
+    this.window?.webContents.send(channel, ...args);
   }
 
   private handleRenderProcessGone(details: RenderProcessGoneDetails) {
-    console.error('Overlay renderer process gone:', details.reason)
-    this.scheduleReload()
+    console.error("Overlay renderer process gone:", details.reason);
+    this.scheduleReload();
   }
 
   private scheduleReload(delayMs = 250) {
     if (this.reloadTimer) {
-      return
+      return;
     }
-    this.ready = false
+    this.ready = false;
     this.reloadTimer = setTimeout(() => {
-      this.reloadTimer = null
+      this.reloadTimer = null;
       if (!this.window || this.window.isDestroyed()) {
-        return
+        return;
       }
       loadWindow(this.window, {
         electronDir: this.options.electronDir,
         isDev: this.options.isDev,
-        mode: 'overlay',
+        mode: "overlay",
         getDevServerUrl: this.options.getDevServerUrl,
-      })
-    }, delayMs)
+      });
+    }, delayMs);
   }
 
   private clearReloadTimer() {
     if (!this.reloadTimer) {
-      return
+      return;
     }
-    clearTimeout(this.reloadTimer)
-    this.reloadTimer = null
+    clearTimeout(this.reloadTimer);
+    this.reloadTimer = null;
   }
 
   /**
@@ -390,42 +389,42 @@ class OverlayWindow {
    * layered surface resident for the whole session; this actually frees it.
    */
   reclaimForIdle() {
-    if (this.destroyed) return
-    this.clearReloadTimer()
+    if (this.destroyed) return;
+    this.clearReloadTimer();
     if (this.window) {
-      this.window.removeAllListeners('close')
+      this.window.removeAllListeners("close");
       if (!this.window.isDestroyed()) {
-        this.window.destroy()
+        this.window.destroy();
       }
-      this.window = null
+      this.window = null;
     }
-    this.ready = false
+    this.ready = false;
   }
 
   /** Idempotent — calling more than once is a no-op after the first.
    *  After this returns, `create()` refuses to materialize the window
    *  again (the controller is treated as dead). */
   destroy() {
-    if (this.destroyed) return
-    this.destroyed = true
-    this.clearReloadTimer()
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.clearReloadTimer();
 
     if (this.respanHandler) {
-      screen.removeListener('display-added', this.respanHandler)
-      screen.removeListener('display-removed', this.respanHandler)
-      screen.removeListener('display-metrics-changed', this.respanHandler)
-      this.respanHandler = null
-      this.displayListenersRegistered = false
+      screen.removeListener("display-added", this.respanHandler);
+      screen.removeListener("display-removed", this.respanHandler);
+      screen.removeListener("display-metrics-changed", this.respanHandler);
+      this.respanHandler = null;
+      this.displayListenersRegistered = false;
     }
 
     if (this.window) {
-      this.window.removeAllListeners('close')
+      this.window.removeAllListeners("close");
       if (!this.window.isDestroyed()) {
-        this.window.destroy()
+        this.window.destroy();
       }
-      this.window = null
+      this.window = null;
     }
-    this.ready = false
+    this.ready = false;
   }
 }
 
@@ -436,182 +435,183 @@ class OverlayWindow {
  * Guide, Window Highlight, Morph Transition) within the overlay window.
  * Delegates window lifecycle to OverlayWindow.
  */
-export type MorphTransitionFlavor = 'hmr' | 'onboarding'
+export type MorphTransitionFlavor = "hmr" | "onboarding";
 
 export type SelectionChipPayload = {
-  text: string
-  rect: { x: number; y: number; width: number; height: number }
-  requestId: number
-}
+  text: string;
+  rect: { x: number; y: number; width: number; height: number };
+  requestId: number;
+};
 
 // Perf: after the overlay has been idle (no active feature) this long, drop
 // its renderer process. The next show entrypoint rebuilds it via
 // `ensureReady()`. Mirrors `MINI_IDLE_DESTROY_DELAY_MS` in
 // window-manager.ts so a chat-only session doesn't carry a resident second
 // renderer it never uses.
-const OVERLAY_IDLE_DESTROY_DELAY_MS = 5 * 60 * 1000
+const OVERLAY_IDLE_DESTROY_DELAY_MS = 5 * 60 * 1000;
 
 export class OverlayWindowController {
-  private readonly overlayWindow: OverlayWindow
-  private destroyed = false
-  private morphTrackedWindow: BrowserWindow | null = null
-  private activeMorphTransitionId: string | null = null
-  private morphFlavor: MorphTransitionFlavor = 'hmr'
-  private morphTiming: MorphVisualTiming | null = null
+  private readonly overlayWindow: OverlayWindow;
+  private destroyed = false;
+  private morphTrackedWindow: BrowserWindow | null = null;
+  private activeMorphTransitionId: string | null = null;
+  private morphFlavor: MorphTransitionFlavor = "hmr";
+  private morphTiming: MorphVisualTiming | null = null;
   private readonly handleMorphWindowBoundsChanged = () => {
-    this.syncMorphBounds()
-  }
+    this.syncMorphBounds();
+  };
 
   // Active component tracking — overlay stays visible when any component is active.
-  private activeRadial = false
-  private activeRegionCapture = false
-  private activeDictation = false
-  private activeScreenGuide = false
-  private activeWindowHighlight = false
-  private windowHighlightRequestId = 0
-  private activeSelectionChip = false
-  private currentSelectionChipRequestId: number | null = null
-  private selectionChipClickHandler: ((requestId: number) => void) | null = null
+  private activeRadial = false;
+  private activeRegionCapture = false;
+  private activeDictation = false;
+  private activeScreenGuide = false;
+  private activeWindowHighlight = false;
+  private windowHighlightRequestId = 0;
+  private activeSelectionChip = false;
+  private currentSelectionChipRequestId: number | null = null;
+  private selectionChipClickHandler: ((requestId: number) => void) | null =
+    null;
   // Perf: idle-reclaim timer for the overlay renderer (see
   // OVERLAY_IDLE_DESTROY_DELAY_MS). Armed when the overlay goes idle, cancelled
   // the moment any surface becomes active again.
-  private idleDestroyTimer: ReturnType<typeof setTimeout> | null = null
+  private idleDestroyTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly handleRadialAnimDone = () => {
     if (this.radialHideTimeout) {
-      clearTimeout(this.radialHideTimeout)
-      this.radialHideTimeout = null
+      clearTimeout(this.radialHideTimeout);
+      this.radialHideTimeout = null;
     }
-    this.activeRadial = false
-    this.hideOverlayIfIdle()
-  }
+    this.activeRadial = false;
+    this.hideOverlayIfIdle();
+  };
 
   private readonly handleOverlaySetInteractive = (
     _event: unknown,
     interactive: boolean,
   ) => {
     if (this.activeRegionCapture && !interactive) {
-      return
+      return;
     }
-    this.overlayWindow.setIgnoreMouseEvents(!interactive)
-  }
+    this.overlayWindow.setIgnoreMouseEvents(!interactive);
+  };
   private readonly handleOverlayShowWindowHighlight = (
     _event: unknown,
     payload:
       | {
-          bounds: { x: number; y: number; width: number; height: number }
-          tone?: 'default' | 'subtle'
+          bounds: { x: number; y: number; width: number; height: number };
+          tone?: "default" | "subtle";
         }
       | { x: number; y: number; width: number; height: number }
       | null,
   ) => {
-    this.windowHighlightRequestId += 1
+    this.windowHighlightRequestId += 1;
     if (!payload) {
-      void this.setWindowHighlight(null)
-      return
+      void this.setWindowHighlight(null);
+      return;
     }
-    if ('bounds' in payload) {
-      void this.setWindowHighlight(payload.bounds, payload.tone ?? 'default')
-      return
+    if ("bounds" in payload) {
+      void this.setWindowHighlight(payload.bounds, payload.tone ?? "default");
+      return;
     }
-    void this.setWindowHighlight(payload, 'default')
-  }
+    void this.setWindowHighlight(payload, "default");
+  };
   private readonly handleOverlayHideWindowHighlight = () => {
-    this.windowHighlightRequestId += 1
-    this.clearWindowHighlight()
-  }
+    this.windowHighlightRequestId += 1;
+    this.clearWindowHighlight();
+  };
   private readonly handleOverlayPreviewWindowHighlightAtPoint = (
     _event: unknown,
     point: { x: number; y: number },
   ) => {
-    const origin = this.overlayWindow.getOverlayOrigin()
+    const origin = this.overlayWindow.getOverlayOrigin();
     this.previewWindowHighlightAtScreenPoint({
       x: Math.round(point.x + origin.x),
       y: Math.round(point.y + origin.y),
-    })
-  }
+    });
+  };
 
   private previewWindowHighlightAtScreenPoint(screenPoint: {
-    x: number
-    y: number
+    x: number;
+    y: number;
   }) {
-    const requestId = ++this.windowHighlightRequestId
+    const requestId = ++this.windowHighlightRequestId;
     void getWindowInfoAtPoint(screenPoint.x, screenPoint.y, {
       excludePids: [process.pid],
       excludeTitlePrefixes: STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES,
     }).then((info) => {
-      if (requestId !== this.windowHighlightRequestId) return
-      void this.setWindowHighlight(info?.bounds ?? null, 'default')
-    })
+      if (requestId !== this.windowHighlightRequestId) return;
+      void this.setWindowHighlight(info?.bounds ?? null, "default");
+    });
   }
   private readonly handleOverlaySelectionChipClicked = (
     _event: unknown,
     payload: { requestId: number } | null,
   ) => {
-    const requestId = payload?.requestId
-    if (typeof requestId !== 'number') return
-    this.selectionChipClickHandler?.(requestId)
-  }
+    const requestId = payload?.requestId;
+    if (typeof requestId !== "number") return;
+    this.selectionChipClickHandler?.(requestId);
+  };
   constructor(options: OverlayWindowControllerOptions) {
-    this.overlayWindow = new OverlayWindow(options)
-    ipcMain.on('overlay:setInteractive', this.handleOverlaySetInteractive)
+    this.overlayWindow = new OverlayWindow(options);
+    ipcMain.on("overlay:setInteractive", this.handleOverlaySetInteractive);
     ipcMain.on(
-      'overlay:showWindowHighlight',
+      "overlay:showWindowHighlight",
       this.handleOverlayShowWindowHighlight,
-    )
+    );
     ipcMain.on(
-      'overlay:hideWindowHighlight',
+      "overlay:hideWindowHighlight",
       this.handleOverlayHideWindowHighlight,
-    )
+    );
     ipcMain.on(
-      'overlay:previewWindowHighlightAtPoint',
+      "overlay:previewWindowHighlightAtPoint",
       this.handleOverlayPreviewWindowHighlightAtPoint,
-    )
+    );
     ipcMain.on(
-      'overlay:selectionChipClicked',
+      "overlay:selectionChipClicked",
       this.handleOverlaySelectionChipClicked,
-    )
-    ipcMain.on('radial:animDone', this.handleRadialAnimDone)
+    );
+    ipcMain.on("radial:animDone", this.handleRadialAnimDone);
   }
 
   setSelectionChipClickHandler(handler: ((requestId: number) => void) | null) {
-    this.selectionChipClickHandler = handler
+    this.selectionChipClickHandler = handler;
   }
 
   getWindow() {
-    return this.overlayWindow.getWindow()
+    return this.overlayWindow.getWindow();
   }
   getOverlayOrigin() {
-    return this.overlayWindow.getOverlayOrigin()
+    return this.overlayWindow.getOverlayOrigin();
   }
 
   create() {
-    return this.overlayWindow.create()
+    return this.overlayWindow.create();
   }
   ensureReadyForMorph(timeoutMs?: number) {
     // A morph is an active surface; cancel any pending idle-reclaim so the
     // window we just (re)built doesn't get torn out from under the transition.
-    return this.ensureReady(timeoutMs)
+    return this.ensureReady(timeoutMs);
   }
 
   ensureReadyForDictation(timeoutMs?: number) {
     // Dictation can start recording before the pill is revealed (push-to-talk
     // delay), so callers need a ready renderer without forcing the overlay
     // visible yet.
-    return this.ensureReady(timeoutMs)
+    return this.ensureReady(timeoutMs);
   }
 
   async warmForStartup(timeoutMs?: number) {
-    const warmed = await this.ensureReady(timeoutMs)
+    const warmed = await this.ensureReady(timeoutMs);
     // The warm-only create presents the window on Windows/Linux (see the
     // ready-to-show handler) and nothing follows up to hide it, which would
     // leave a screen-spanning layered surface composited all session (see
     // OverlayWindow.fadeOut). Hide it once warm — the renderer stays alive,
     // so the next summon is still instant — unless a surface beat us here.
-    if (warmed && process.platform !== 'darwin' && !this.isAnyActive) {
-      this.overlayWindow.concealAfterWarm()
+    if (warmed && process.platform !== "darwin" && !this.isAnyActive) {
+      this.overlayWindow.concealAfterWarm();
     }
-    return warmed
+    return warmed;
   }
 
   /**
@@ -623,28 +623,28 @@ export class OverlayWindowController {
    * -ready window and the surface would silently fail to appear.
    */
   private async ensureReady(timeoutMs?: number) {
-    this.cancelIdleDestroy()
-    return this.overlayWindow.ensureReady(timeoutMs)
+    this.cancelIdleDestroy();
+    return this.overlayWindow.ensureReady(timeoutMs);
   }
 
   private cancelIdleDestroy() {
     if (!this.idleDestroyTimer) {
-      return
+      return;
     }
-    clearTimeout(this.idleDestroyTimer)
-    this.idleDestroyTimer = null
+    clearTimeout(this.idleDestroyTimer);
+    this.idleDestroyTimer = null;
   }
 
   private scheduleIdleDestroy() {
-    this.cancelIdleDestroy()
+    this.cancelIdleDestroy();
     this.idleDestroyTimer = setTimeout(() => {
-      this.idleDestroyTimer = null
+      this.idleDestroyTimer = null;
       // Re-check: a surface may have re-activated between scheduling and firing.
       if (this.isAnyActive) {
-        return
+        return;
       }
-      this.overlayWindow.reclaimForIdle()
-    }, OVERLAY_IDLE_DESTROY_DELAY_MS)
+      this.overlayWindow.reclaimForIdle();
+    }, OVERLAY_IDLE_DESTROY_DELAY_MS);
   }
 
   private get isAnyActive() {
@@ -656,142 +656,142 @@ export class OverlayWindowController {
       this.activeWindowHighlight ||
       this.activeSelectionChip ||
       this.activeMorph
-    )
+    );
   }
 
   private async setWindowHighlight(
     bounds: { x: number; y: number; width: number; height: number } | null,
-    tone: 'default' | 'subtle' = 'default',
+    tone: "default" | "subtle" = "default",
   ) {
     if (!bounds) {
-      this.clearWindowHighlight()
-      return
+      this.clearWindowHighlight();
+      return;
     }
 
-    this.activeWindowHighlight = true
-    const reqId = this.windowHighlightRequestId
+    this.activeWindowHighlight = true;
+    const reqId = this.windowHighlightRequestId;
     // Perf: self-create on demand so the window highlight still appears after an
     // idle reclaim (or before the overlay's first build).
-    if (!(await this.ensureReady())) return
+    if (!(await this.ensureReady())) return;
     // A hide/newer-preview/newer-show landed while the renderer was rebuilding;
     // don't resurrect a cleared or superseded highlight.
     if (reqId !== this.windowHighlightRequestId || !this.activeWindowHighlight)
-      return
-    this.overlayWindow.show({ inactive: true })
+      return;
+    this.overlayWindow.show({ inactive: true });
     if (this.activeRegionCapture) {
-      this.overlayWindow.setFocusable(true)
-      this.overlayWindow.setIgnoreMouseEvents(false)
+      this.overlayWindow.setFocusable(true);
+      this.overlayWindow.setIgnoreMouseEvents(false);
     } else {
-      this.overlayWindow.setIgnoreMouseEvents(true)
-      this.overlayWindow.setFocusable(false)
+      this.overlayWindow.setIgnoreMouseEvents(true);
+      this.overlayWindow.setFocusable(false);
     }
 
-    const origin = this.overlayWindow.getOverlayOrigin()
-    this.overlayWindow.send('overlay:windowHighlight', {
+    const origin = this.overlayWindow.getOverlayOrigin();
+    this.overlayWindow.send("overlay:windowHighlight", {
       x: bounds.x - origin.x,
       y: bounds.y - origin.y,
       width: bounds.width,
       height: bounds.height,
       tone,
-    })
+    });
   }
 
   private clearWindowHighlight() {
-    this.activeWindowHighlight = false
-    this.overlayWindow.send('overlay:windowHighlight', null)
-    this.hideOverlayIfIdle()
+    this.activeWindowHighlight = false;
+    this.overlayWindow.send("overlay:windowHighlight", null);
+    this.hideOverlayIfIdle();
   }
 
   private hideOverlayIfIdle() {
-    if (this.isAnyActive) return
-    this.overlayWindow.fadeOut()
+    if (this.isAnyActive) return;
+    this.overlayWindow.fadeOut();
     // Perf: hidden alone keeps the renderer resident; arm the idle-reclaim so
     // an unused overlay frees its process after a grace period. The next show
     // entrypoint rebuilds it via `ensureReady()`.
-    this.scheduleIdleDestroy()
+    this.scheduleIdleDestroy();
   }
 
   private async showSurface(options: {
-    setActive: () => void
-    channel: string
-    payload?: unknown
-    showOptions?: { focus?: boolean; inactive?: boolean }
-    interactive?: boolean
-    focusable?: boolean
-    sendBeforeShow?: boolean
+    setActive: () => void;
+    channel: string;
+    payload?: unknown;
+    showOptions?: { focus?: boolean; inactive?: boolean };
+    interactive?: boolean;
+    focusable?: boolean;
+    sendBeforeShow?: boolean;
   }) {
-    options.setActive()
+    options.setActive();
     // Perf: self-create the overlay on demand so the surface still appears
     // after an idle reclaim (or before the first build).
-    if (!(await this.ensureReady())) return
+    if (!(await this.ensureReady())) return;
     if (options.focusable !== undefined) {
-      this.overlayWindow.setFocusable(options.focusable)
+      this.overlayWindow.setFocusable(options.focusable);
     }
     if (options.sendBeforeShow) {
-      this.overlayWindow.send(options.channel, options.payload)
+      this.overlayWindow.send(options.channel, options.payload);
     }
-    this.overlayWindow.show(options.showOptions)
+    this.overlayWindow.show(options.showOptions);
     if (options.interactive !== undefined) {
-      this.overlayWindow.setIgnoreMouseEvents(!options.interactive)
+      this.overlayWindow.setIgnoreMouseEvents(!options.interactive);
     }
     if (!options.sendBeforeShow) {
-      this.overlayWindow.send(options.channel, options.payload)
+      this.overlayWindow.send(options.channel, options.payload);
     }
   }
 
   private hideSurface(options: {
-    setInactive: () => void
-    channel: string
-    payload?: unknown
-    restoreIgnoreMouseEvents?: boolean
-    focusable?: boolean
+    setInactive: () => void;
+    channel: string;
+    payload?: unknown;
+    restoreIgnoreMouseEvents?: boolean;
+    focusable?: boolean;
   }) {
-    options.setInactive()
+    options.setInactive();
     if (options.restoreIgnoreMouseEvents && !this.isAnyActive) {
-      this.overlayWindow.setIgnoreMouseEvents(true)
+      this.overlayWindow.setIgnoreMouseEvents(true);
     }
     if (options.focusable !== undefined) {
-      this.overlayWindow.setFocusable(options.focusable)
+      this.overlayWindow.setFocusable(options.focusable);
     }
-    this.overlayWindow.send(options.channel, options.payload)
-    this.hideOverlayIfIdle()
+    this.overlayWindow.send(options.channel, options.payload);
+    this.hideOverlayIfIdle();
   }
 
   // ─── Radial Dial ──────────────────────────────────────────────────────
 
-  private radialBounds: { x: number; y: number } | null = null
-  private radialHideTimeout: ReturnType<typeof setTimeout> | null = null
-  private static readonly CLOSE_ANIM_FALLBACK = 350
+  private radialBounds: { x: number; y: number } | null = null;
+  private radialHideTimeout: ReturnType<typeof setTimeout> | null = null;
+  private static readonly CLOSE_ANIM_FALLBACK = 350;
 
   async showRadial(options?: {
-    compactFocused?: boolean
-    miniAlwaysOnTop?: boolean
+    compactFocused?: boolean;
+    miniAlwaysOnTop?: boolean;
   }) {
     if (this.radialHideTimeout) {
-      clearTimeout(this.radialHideTimeout)
-      this.radialHideTimeout = null
+      clearTimeout(this.radialHideTimeout);
+      this.radialHideTimeout = null;
     }
 
-    this.activeRadial = true
+    this.activeRadial = true;
 
     // Perf: self-create the overlay on demand (it may have been idle-destroyed
     // or never built). Replaces the old `if (!getWindow()) return` no-op so the
     // radial still summons after an idle reclaim.
-    if (!(await this.ensureReady())) return
-    this.overlayWindow.show({ inactive: true })
+    if (!(await this.ensureReady())) return;
+    this.overlayWindow.show({ inactive: true });
 
-    const cursorDip = screen.getCursorScreenPoint()
-    const screenDipX = Math.round(cursorDip.x - RADIAL_SIZE / 2)
-    const screenDipY = Math.round(cursorDip.y - RADIAL_SIZE / 2)
-    this.radialBounds = { x: screenDipX, y: screenDipY }
+    const cursorDip = screen.getCursorScreenPoint();
+    const screenDipX = Math.round(cursorDip.x - RADIAL_SIZE / 2);
+    const screenDipY = Math.round(cursorDip.y - RADIAL_SIZE / 2);
+    this.radialBounds = { x: screenDipX, y: screenDipY };
 
-    const relativeX = cursorDip.x - screenDipX
-    const relativeY = cursorDip.y - screenDipY
-    const origin = this.overlayWindow.getOverlayOrigin()
-    const localX = screenDipX - origin.x
-    const localY = screenDipY - origin.y
+    const relativeX = cursorDip.x - screenDipX;
+    const relativeY = cursorDip.y - screenDipY;
+    const origin = this.overlayWindow.getOverlayOrigin();
+    const localX = screenDipX - origin.x;
+    const localY = screenDipY - origin.y;
 
-    this.overlayWindow.setIgnoreMouseEvents(false)
+    this.overlayWindow.setIgnoreMouseEvents(false);
     const payload = {
       x: relativeX,
       y: relativeY,
@@ -801,27 +801,27 @@ export class OverlayWindowController {
       screenY: localY,
       compactFocused: options?.compactFocused ?? false,
       miniAlwaysOnTop: options?.miniAlwaysOnTop ?? false,
-    }
+    };
 
-    this.overlayWindow.send('radial:show', payload)
+    this.overlayWindow.send("radial:show", payload);
   }
 
   hideRadial() {
-    if (!this.overlayWindow.getWindow()) return
+    if (!this.overlayWindow.getWindow()) return;
 
-    this.overlayWindow.send('radial:hide')
+    this.overlayWindow.send("radial:hide");
 
     if (!this.isAnyActive) {
-      this.overlayWindow.setIgnoreMouseEvents(true)
+      this.overlayWindow.setIgnoreMouseEvents(true);
     }
-    this.radialBounds = null
+    this.radialBounds = null;
 
-    if (this.radialHideTimeout) clearTimeout(this.radialHideTimeout)
+    if (this.radialHideTimeout) clearTimeout(this.radialHideTimeout);
     this.radialHideTimeout = setTimeout(() => {
-      this.radialHideTimeout = null
-      this.activeRadial = false
-      this.hideOverlayIfIdle()
-    }, OverlayWindowController.CLOSE_ANIM_FALLBACK)
+      this.radialHideTimeout = null;
+      this.activeRadial = false;
+      this.hideOverlayIfIdle();
+    }, OverlayWindowController.CLOSE_ANIM_FALLBACK);
   }
 
   /**
@@ -830,145 +830,145 @@ export class OverlayWindowController {
    * to the Plus glyph on every `radial:show`, so stale icons never linger.
    */
   notifyRadialAddIcon(iconDataUrl: string | null) {
-    if (!this.activeRadial || !this.overlayWindow.getWindow()) return
-    this.overlayWindow.send('radial:addIcon', { iconDataUrl })
+    if (!this.activeRadial || !this.overlayWindow.getWindow()) return;
+    this.overlayWindow.send("radial:addIcon", { iconDataUrl });
   }
 
   updateRadialCursor() {
-    if (!this.radialBounds) return
+    if (!this.radialBounds) return;
 
-    const cursorDip = screen.getCursorScreenPoint()
-    const bounds = this.radialBounds
+    const cursorDip = screen.getCursorScreenPoint();
+    const bounds = this.radialBounds;
     const payload = {
       x: cursorDip.x - bounds.x,
       y: cursorDip.y - bounds.y,
       centerX: RADIAL_SIZE / 2,
       centerY: RADIAL_SIZE / 2,
-    }
+    };
 
-    if (!this.overlayWindow.getWindow()) return
-    this.overlayWindow.send('radial:cursor', payload)
+    if (!this.overlayWindow.getWindow()) return;
+    this.overlayWindow.send("radial:cursor", payload);
   }
 
   getRadialBounds() {
-    return this.radialBounds
+    return this.radialBounds;
   }
 
   setRadialInteractive(interactive: boolean) {
-    this.overlayWindow.setIgnoreMouseEvents(!interactive)
+    this.overlayWindow.setIgnoreMouseEvents(!interactive);
   }
 
   // ─── Region Capture ───────────────────────────────────────────────────
 
-  async startRegionCapture(options?: { mode?: 'capture' | 'window-attach' }) {
+  async startRegionCapture(options?: { mode?: "capture" | "window-attach" }) {
     await this.showSurface({
       setActive: () => {
-        this.activeRegionCapture = true
+        this.activeRegionCapture = true;
       },
-      channel: 'overlay:startRegionCapture',
-      payload: { mode: options?.mode ?? 'capture' },
+      channel: "overlay:startRegionCapture",
+      payload: { mode: options?.mode ?? "capture" },
       showOptions: { focus: true },
       interactive: true,
       focusable: true,
-    })
+    });
     // Ring the window under the cursor right away — the renderer only probes
     // on mousemove, which leaves the overlay blank until the user moves.
-    this.previewWindowHighlightAtScreenPoint(screen.getCursorScreenPoint())
+    this.previewWindowHighlightAtScreenPoint(screen.getCursorScreenPoint());
   }
 
   suspendRegionCaptureForScreenshot() {
-    if (!this.activeRegionCapture) return
-    this.overlayWindow.fadeOut()
+    if (!this.activeRegionCapture) return;
+    this.overlayWindow.fadeOut();
   }
 
   restoreRegionCaptureAfterScreenshot() {
-    if (!this.activeRegionCapture) return
-    this.overlayWindow.setFocusable(true)
-    this.overlayWindow.show({ focus: true })
-    this.overlayWindow.setIgnoreMouseEvents(false)
+    if (!this.activeRegionCapture) return;
+    this.overlayWindow.setFocusable(true);
+    this.overlayWindow.show({ focus: true });
+    this.overlayWindow.setIgnoreMouseEvents(false);
   }
 
   endRegionCapture() {
     this.hideSurface({
       setInactive: () => {
-        this.activeRegionCapture = false
+        this.activeRegionCapture = false;
       },
-      channel: 'overlay:endRegionCapture',
+      channel: "overlay:endRegionCapture",
       restoreIgnoreMouseEvents: true,
       focusable: false,
-    })
+    });
   }
 
   send(channel: string, ...args: unknown[]) {
-    this.overlayWindow.send(channel, ...args)
+    this.overlayWindow.send(channel, ...args);
   }
 
   // ─── Dictation ─────────────────────────────────────────────────────────
 
   async showDictation(screenX: number, screenY: number) {
-    this.activeDictation = true
+    this.activeDictation = true;
     // Perf: self-create on demand so dictation still summons after an idle
     // reclaim (or before the overlay's first build).
-    if (!(await this.ensureReady())) return false
-    this.overlayWindow.show({ inactive: true })
-    this.overlayWindow.refreshOverlayOriginFromContentBounds()
-    const origin = this.overlayWindow.getOverlayOrigin()
-    this.overlayWindow.send('overlay:showDictation', {
+    if (!(await this.ensureReady())) return false;
+    this.overlayWindow.show({ inactive: true });
+    this.overlayWindow.refreshOverlayOriginFromContentBounds();
+    const origin = this.overlayWindow.getOverlayOrigin();
+    this.overlayWindow.send("overlay:showDictation", {
       x: screenX - origin.x,
       y: screenY - origin.y,
-    })
-    return true
+    });
+    return true;
   }
 
   hideDictation() {
-    this.activeDictation = false
-    this.overlayWindow.send('overlay:hideDictation')
-    this.hideOverlayIfIdle()
+    this.activeDictation = false;
+    this.overlayWindow.send("overlay:hideDictation");
+    this.hideOverlayIfIdle();
   }
 
   // ─── Screen Guide ────────────────────────────────────────────────────
 
   async showScreenGuide(
     annotations: Array<{
-      id: string
-      label: string
-      x: number
-      y: number
+      id: string;
+      label: string;
+      x: number;
+      y: number;
     }>,
   ) {
-    this.activeScreenGuide = true
+    this.activeScreenGuide = true;
     // Perf: self-create on demand so the screen guide still appears after an
     // idle reclaim (or before the overlay's first build).
-    if (!(await this.ensureReady())) return
-    this.overlayWindow.show({ inactive: true })
-    const origin = this.overlayWindow.getOverlayOrigin()
+    if (!(await this.ensureReady())) return;
+    this.overlayWindow.show({ inactive: true });
+    const origin = this.overlayWindow.getOverlayOrigin();
     const adjusted = annotations.map((a) => ({
       ...a,
       x: a.x - origin.x,
       y: a.y - origin.y,
-    }))
-    this.overlayWindow.send('overlay:showScreenGuide', {
+    }));
+    this.overlayWindow.send("overlay:showScreenGuide", {
       annotations: adjusted,
-    })
+    });
   }
 
   hideScreenGuide() {
-    this.activeScreenGuide = false
-    this.overlayWindow.send('overlay:hideScreenGuide')
-    this.hideOverlayIfIdle()
+    this.activeScreenGuide = false;
+    this.overlayWindow.send("overlay:hideScreenGuide");
+    this.hideOverlayIfIdle();
   }
 
   // ─── Selection Chip ("Ask Stella" pill above text selection) ──────────
 
   async showSelectionChip(payload: SelectionChipPayload) {
-    this.activeSelectionChip = true
-    this.currentSelectionChipRequestId = payload.requestId
+    this.activeSelectionChip = true;
+    this.currentSelectionChipRequestId = payload.requestId;
     // Perf: self-create on demand so the selection chip still appears after an
     // idle reclaim (or before the overlay's first build).
-    if (!(await this.ensureReady())) return
-    this.overlayWindow.show({ inactive: true })
-    const origin = this.overlayWindow.getOverlayOrigin()
-    this.overlayWindow.send('overlay:showSelectionChip', {
+    if (!(await this.ensureReady())) return;
+    this.overlayWindow.show({ inactive: true });
+    const origin = this.overlayWindow.getOverlayOrigin();
+    this.overlayWindow.send("overlay:showSelectionChip", {
       requestId: payload.requestId,
       text: payload.text,
       rect: {
@@ -977,70 +977,70 @@ export class OverlayWindowController {
         width: payload.rect.width,
         height: payload.rect.height,
       },
-    })
+    });
   }
 
   hideSelectionChip(requestId?: number) {
     if (
-      typeof requestId === 'number' &&
+      typeof requestId === "number" &&
       this.currentSelectionChipRequestId !== null &&
       this.currentSelectionChipRequestId !== requestId
     ) {
       // Stale hide for a chip we already replaced; ignore.
-      return
+      return;
     }
-    this.activeSelectionChip = false
-    this.currentSelectionChipRequestId = null
-    this.overlayWindow.send('overlay:hideSelectionChip', { requestId })
-    this.hideOverlayIfIdle()
+    this.activeSelectionChip = false;
+    this.currentSelectionChipRequestId = null;
+    this.overlayWindow.send("overlay:hideSelectionChip", { requestId });
+    this.hideOverlayIfIdle();
   }
 
   // ─── Morph Transition (HMR Resume) ───────────────────────────────────
 
-  private activeMorph = false
+  private activeMorph = false;
   private currentMorphBounds: {
-    x: number
-    y: number
-    width: number
-    height: number
-  } | null = null
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null = null;
 
   private stopTrackingMorphWindow() {
-    if (!this.morphTrackedWindow) return
+    if (!this.morphTrackedWindow) return;
     this.morphTrackedWindow.removeListener(
-      'move',
+      "move",
       this.handleMorphWindowBoundsChanged,
-    )
+    );
     this.morphTrackedWindow.removeListener(
-      'resize',
+      "resize",
       this.handleMorphWindowBoundsChanged,
-    )
-    this.morphTrackedWindow = null
+    );
+    this.morphTrackedWindow = null;
   }
 
   private syncMorphBounds() {
-    if (!this.activeMorph || !this.activeMorphTransitionId) return
+    if (!this.activeMorph || !this.activeMorphTransitionId) return;
 
     const trackedBounds =
       this.morphTrackedWindow && !this.morphTrackedWindow.isDestroyed()
         ? this.morphTrackedWindow.getBounds()
-        : this.currentMorphBounds
+        : this.currentMorphBounds;
 
-    if (!trackedBounds) return
+    if (!trackedBounds) return;
 
-    this.currentMorphBounds = trackedBounds
-    const origin = this.overlayWindow.getOverlayOrigin()
-    this.overlayWindow.send('overlay:morphBounds', {
+    this.currentMorphBounds = trackedBounds;
+    const origin = this.overlayWindow.getOverlayOrigin();
+    this.overlayWindow.send("overlay:morphBounds", {
       transitionId: this.activeMorphTransitionId,
       x: trackedBounds.x - origin.x,
       y: trackedBounds.y - origin.y,
       width: trackedBounds.width,
       height: trackedBounds.height,
-    })
+    });
   }
 
   getActiveMorphTransitionId() {
-    return this.activeMorphTransitionId
+    return this.activeMorphTransitionId;
   }
 
   async startMorphForward(
@@ -1048,29 +1048,29 @@ export class OverlayWindowController {
     screenshotDataUrl: string,
     bounds: { x: number; y: number; width: number; height: number },
     trackedWindow?: BrowserWindow | null,
-    flavor: MorphTransitionFlavor = 'hmr',
+    flavor: MorphTransitionFlavor = "hmr",
     timing?: MorphVisualTiming | null,
   ) {
-    this.activeMorph = true
-    this.activeMorphTransitionId = transitionId
-    this.morphFlavor = flavor
-    this.morphTiming = timing ?? null
-    this.currentMorphBounds = bounds
-    this.stopTrackingMorphWindow()
+    this.activeMorph = true;
+    this.activeMorphTransitionId = transitionId;
+    this.morphFlavor = flavor;
+    this.morphTiming = timing ?? null;
+    this.currentMorphBounds = bounds;
+    this.stopTrackingMorphWindow();
     if (trackedWindow && !trackedWindow.isDestroyed()) {
-      this.morphTrackedWindow = trackedWindow
-      trackedWindow.on('move', this.handleMorphWindowBoundsChanged)
-      trackedWindow.on('resize', this.handleMorphWindowBoundsChanged)
+      this.morphTrackedWindow = trackedWindow;
+      trackedWindow.on("move", this.handleMorphWindowBoundsChanged);
+      trackedWindow.on("resize", this.handleMorphWindowBoundsChanged);
     }
     // Perf: self-create on demand so a morph still works after an idle reclaim
     // even on the onboarding path, which (unlike the HMR path) does not call
     // `ensureReadyForMorph()` first. For an already-warm overlay this resolves
     // immediately. Morph state is set synchronously above so callers that read
     // `getActiveMorphTransitionId()` right after still observe this transition.
-    if (!(await this.ensureReady())) return
-    this.overlayWindow.show({ inactive: true })
-    const origin = this.overlayWindow.getOverlayOrigin()
-    this.overlayWindow.send('overlay:morphForward', {
+    if (!(await this.ensureReady())) return;
+    this.overlayWindow.show({ inactive: true });
+    const origin = this.overlayWindow.getOverlayOrigin();
+    this.overlayWindow.send("overlay:morphForward", {
       transitionId,
       screenshotDataUrl,
       x: bounds.x - origin.x,
@@ -1079,7 +1079,7 @@ export class OverlayWindowController {
       height: bounds.height,
       flavor,
       timing: this.morphTiming,
-    })
+    });
   }
 
   startMorphHandoff(
@@ -1088,47 +1088,39 @@ export class OverlayWindowController {
     requiresFullReload: boolean,
   ) {
     if (this.activeMorphTransitionId !== transitionId) {
-      return false
+      return false;
     }
-    this.overlayWindow.send('overlay:morphHandoff', {
+    this.overlayWindow.send("overlay:morphHandoff", {
       transitionId,
       screenshotDataUrl,
       requiresFullReload,
       flavor: this.morphFlavor,
       timing: this.morphTiming,
-    })
-    return true
-  }
-
-  setMorphState(transitionId: string, state: SelfModHmrState) {
-    if (this.activeMorphTransitionId !== transitionId) {
-      return false
-    }
-    this.overlayWindow.send('overlay:morphState', { transitionId, state })
-    return true
+    });
+    return true;
   }
 
   endMorph(transitionId: string) {
     if (this.activeMorphTransitionId !== transitionId) {
-      return false
+      return false;
     }
-    this.activeMorph = false
-    this.activeMorphTransitionId = null
-    this.morphFlavor = 'hmr'
-    this.morphTiming = null
-    this.currentMorphBounds = null
-    this.stopTrackingMorphWindow()
-    this.overlayWindow.send('overlay:morphState', {
+    this.activeMorph = false;
+    this.activeMorphTransitionId = null;
+    this.morphFlavor = "hmr";
+    this.morphTiming = null;
+    this.currentMorphBounds = null;
+    this.stopTrackingMorphWindow();
+    this.overlayWindow.send("overlay:morphState", {
       transitionId,
       state: {
-        phase: 'idle',
+        phase: "idle",
         paused: false,
         requiresFullReload: false,
       },
-    })
-    this.overlayWindow.send('overlay:morphEnd', { transitionId })
-    this.hideOverlayIfIdle()
-    return true
+    });
+    this.overlayWindow.send("overlay:morphEnd", { transitionId });
+    this.hideOverlayIfIdle();
+    return true;
   }
 
   // ─── Cleanup ──────────────────────────────────────────────────────────
@@ -1138,37 +1130,37 @@ export class OverlayWindowController {
    *  constructor so we don't leak listeners across a hot-restart, and
    *  destroys the underlying overlay window. */
   destroy() {
-    if (this.destroyed) return
-    this.destroyed = true
-    this.stopTrackingMorphWindow()
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.stopTrackingMorphWindow();
     ipcMain.removeListener(
-      'overlay:setInteractive',
+      "overlay:setInteractive",
       this.handleOverlaySetInteractive,
-    )
+    );
     ipcMain.removeListener(
-      'overlay:showWindowHighlight',
+      "overlay:showWindowHighlight",
       this.handleOverlayShowWindowHighlight,
-    )
+    );
     ipcMain.removeListener(
-      'overlay:hideWindowHighlight',
+      "overlay:hideWindowHighlight",
       this.handleOverlayHideWindowHighlight,
-    )
+    );
     ipcMain.removeListener(
-      'overlay:previewWindowHighlightAtPoint',
+      "overlay:previewWindowHighlightAtPoint",
       this.handleOverlayPreviewWindowHighlightAtPoint,
-    )
+    );
     ipcMain.removeListener(
-      'overlay:selectionChipClicked',
+      "overlay:selectionChipClicked",
       this.handleOverlaySelectionChipClicked,
-    )
-    ipcMain.removeListener('radial:animDone', this.handleRadialAnimDone)
-    this.selectionChipClickHandler = null
+    );
+    ipcMain.removeListener("radial:animDone", this.handleRadialAnimDone);
+    this.selectionChipClickHandler = null;
     if (this.radialHideTimeout) {
-      clearTimeout(this.radialHideTimeout)
-      this.radialHideTimeout = null
+      clearTimeout(this.radialHideTimeout);
+      this.radialHideTimeout = null;
     }
     // Clear the idle-reclaim timer so it can't fire after teardown.
-    this.cancelIdleDestroy()
-    this.overlayWindow.destroy()
+    this.cancelIdleDestroy();
+    this.overlayWindow.destroy();
   }
 }

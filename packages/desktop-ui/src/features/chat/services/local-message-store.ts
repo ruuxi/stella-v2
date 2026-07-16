@@ -116,7 +116,7 @@ type LocalMessageWindowOptions = {
  *
  *   - `"full"` — re-issue `listMessages` for the whole window. Used for
  *     the initial load, updates we can't attribute to a strictly-newer
- *     event (payload patches like `selfModApplied`, channel edits,
+ *     event (payload patches like channel edits,
  *     no-payload social notifications), and every fallback path.
  *
  *   - `"tail"` — `listMessagesAfter` from the window's newest row. The
@@ -227,7 +227,7 @@ const TAIL_REFRESH_MAX_VISIBLE = 200;
 /**
  * A tail refresh is only sound when the triggering event is strictly
  * newer than the window's newest row. Everything else — payload patches
- * onto existing rows (`selfModApplied`, channel edits/reactions, whose
+ * onto existing rows (channel edits/reactions, whose
  * `(timestamp, id)` stays at-or-before the cursor and is therefore
  * invisible to the after-cursor walk), no-payload notifications, unloaded
  * or empty windows — takes the full path.

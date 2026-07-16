@@ -42,7 +42,6 @@ import { createRequestCredentialTool } from "./request-credential.js";
 import { createScheduleTool } from "./schedule.js";
 import { createScheduleControlTools } from "./schedule-control.js";
 import { createScriptDraftTool } from "./script-draft.js";
-import { createSourceImportTool } from "./source-import.js";
 import { strReplaceTool } from "./str-replace.js";
 import { createAgentTools } from "./task.js";
 import { createConnectorStatusTool } from "./connector-status.js";
@@ -153,11 +152,6 @@ export const buildBuiltinTools = (
     createScheduleTool({
       agentApi: options.agentApi,
       scheduleApi: options.scheduleApi,
-    }),
-  );
-  tools.push(
-    createSourceImportTool({
-      sourceImportApi: options.sourceImportApi,
     }),
   );
   tools.push(...createAgentTools(options.stateContext));

@@ -76,10 +76,6 @@ Stella can import local data from [Hermes Agent](https://github.com/NousResearch
 
 Channel pairings are skipped because Stella channels are zero-setup. Re-enable them from Stella settings if you want them.
 
-## Self-modifying
-
-Stella's UI, behavior, prompts, and skills are all just code in this repo, and Stella can edit them. Ask for a new sidebar app, a new shortcut, a new look, a new workflow, and she builds it into herself.
-
 ## Platforms
 
 macOS and Windows. Windows support is currently untested and experimental.

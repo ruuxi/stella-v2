@@ -62,12 +62,6 @@ describe("Codex agent runtime", () => {
     ).toBe(true);
     expect(
       shouldUseCodexAgentRuntime({
-        agentType: "install_update",
-        agentEngine: "codex_cli",
-      }),
-    ).toBe(false);
-    expect(
-      shouldUseCodexAgentRuntime({
         agentType: "general",
         agentEngine: "claude_code_local",
       }),

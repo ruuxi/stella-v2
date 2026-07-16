@@ -112,7 +112,6 @@ export const createOrchestratorController = (
     attachments: StartPreparedRunArgs["attachments"];
     userMessageId: string;
     responseTarget?: StartPreparedRunArgs["responseTarget"];
-    selfModMetadata?: StartPreparedRunArgs["selfModMetadata"];
     callbacks: AgentCallbacks;
     createRunCallbacks: (
       args: Parameters<StartPreparedRunArgs["createRuntimeCallbacks"]>[0],
@@ -158,9 +157,6 @@ export const createOrchestratorController = (
         attachments: args.attachments,
         userMessageId: args.userMessageId,
         ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
-        ...(args.selfModMetadata
-          ? { selfModMetadata: args.selfModMetadata }
-          : {}),
         createRuntimeCallbacks: (runArgs) =>
           args.createRunCallbacks(runArgs, steerableCallbacks.callbackProxy),
         cleanupRun,
@@ -391,7 +387,11 @@ export const createOrchestratorController = (
         // mode: a message queued but not yet delivered when the run dies is
         // lost exactly like an undelivered follow-up. Pruned on delivery via
         // the queueUserMessageId onStart above.
-        recordPendingFollowUpReply(args.session.conversationId, promptInput.text, args.userMessageId);
+        recordPendingFollowUpReply(
+          args.session.conversationId,
+          promptInput.text,
+          args.userMessageId,
+        );
       }
       args.session.queueMessage(message, delivery);
     }
@@ -598,7 +598,11 @@ export const createOrchestratorController = (
       });
       const message = persistInjectedUserMessage(liveSession, text, timestamp);
       if (delivery === "followUp") {
-        recordPendingFollowUpReply(liveSession.conversationId, text, userMessageId);
+        recordPendingFollowUpReply(
+          liveSession.conversationId,
+          text,
+          userMessageId,
+        );
       }
       liveSession.queueMessage(message, delivery);
       return;
@@ -666,7 +670,6 @@ export const createOrchestratorController = (
       userPrompt,
       ...(promptMessages?.length ? { promptMessages } : {}),
       attachments,
-      selfModMetadata: payload.selfModMetadata,
       userMessageId: payload.userMessageId,
       callbacks,
       createRunCallbacks: ({ runId }, callbacks) =>

@@ -1,4 +1,3 @@
-import type { SelfModMonitor } from "../agent-runtime/types.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type { LocalContextEvent } from "../local-history.js";
@@ -8,9 +7,9 @@ import type { AgentMessage } from "../agent-core/types.js";
 /**
  * Runtime services exposed to extension factories.
  *
- * Stella-runtime hooks (self-mod, memory, …) need access to
+ * Stella-runtime hooks need access to
  * stable per-runtime values — `stellaDataDir`, `stellaAppDir`,
- * `selfModMonitor`, and the SQLite store — that can't be reconstructed
+ * the SQLite store — that can't be reconstructed
  * from per-emit hook payloads alone. The loader threads this object
  * into every `ExtensionFactory` invocation so factories can close over
  * the services they need at registration time. Hot-reload replays the
@@ -20,16 +19,14 @@ import type { AgentMessage } from "../agent-core/types.js";
  * Lives in its own module to avoid an import cycle: `extensions/types.ts`
  * cannot import from `agent-runtime/types.ts` (the agent runtime imports
  * extension types), but extension factories legitimately need
- * `SelfModMonitor`, `RuntimeStore`, and friends from the runtime side.
+ * `RuntimeStore` and friends from the runtime side.
  * Splitting the services type out keeps the import graph cycle-free.
  */
 export type ExtensionServices = {
   /** Mutable user-data home (`~/.stella`): personality, skills, memory, and the live agent prompts under `agents/`. */
   stellaDataDir: string;
-  /** Repo root for self-mod git operations. */
+  /** Stella application root. */
   stellaAppDir: string;
-  /** Self-mod monitor — null in headless test runtimes. */
-  selfModMonitor: SelfModMonitor | null;
   /** Runtime SQLite store. Hooks that need to read/write per-conversation counters or thread summaries reach in here. */
   store: RuntimeStore;
 };

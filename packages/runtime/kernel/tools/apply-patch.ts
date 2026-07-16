@@ -38,8 +38,8 @@ type HunkLine =
 /**
  * Paths in the envelope are home-expanded (~, $HOME, %USERPROFILE%) but must
  * be absolute — the file tools no longer resolve paths against any working
- * directory. Raw paths are kept during parse so self-mod path inference can
- * still read them; the absolute-path requirement is enforced in resolveOp.
+ * directory. Raw paths are kept during parse; the absolute-path requirement
+ * is enforced in resolveOp.
  * Empty paths are rejected.
  */
 const normalizeRawPath = (raw: string): string => {

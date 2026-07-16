@@ -1,184 +1,117 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stella — Recovery</title>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&family=Manrope:wght@400;500&display=swap');
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100vw;
-      height: 100vh;
-      background: #111;
-      color: #eee;
-      -webkit-app-region: drag;
-    }
-    .recovery {
-      text-align: center;
-      max-width: 480px;
-      padding: 48px 24px;
-      -webkit-app-region: no-drag;
-      animation: fadeIn 300ms ease both;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(6px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    h2 {
-      font-family: 'Cormorant Garamond', Georgia, serif;
-      font-size: clamp(1.9rem, 4vw, 2.8rem);
-      font-weight: 450;
-      letter-spacing: -0.03em;
-      line-height: 1.2;
-      margin-bottom: 12px;
-    }
-    p { font-size: 15px; color: #999; line-height: 1.5; margin-bottom: 32px; }
-    .actions {
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      gap: 10px;
-    }
-    button {
-      padding: 6px 24px;
-      font-family: 'Manrope', sans-serif;
-      font-size: 15px;
-      font-weight: 500;
-      border-radius: 10px;
-      border: 1px solid #333;
-      background: rgba(255, 255, 255, 0.04);
-      color: #eee;
-      cursor: default;
-      transition: background 150ms;
-    }
-    button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
-    .btn-primary {
-      background: #6366f1;
-      color: #fff;
-      border-color: #6366f1;
-    }
-    .btn-primary:hover:not(:disabled) { background: #5558e6; }
-    button:disabled { opacity: 0.5; cursor: default; }
-    .status { margin-top: 16px; font-size: 14px; color: #777; }
-  </style>
-</head>
-<body>
-  <div class="recovery">
-    <h2>Something went wrong</h2>
-    <p>An unexpected error occurred. You can try undoing recent changes or reloading.</p>
-    <div class="actions">
-      <button class="btn-primary" id="fix-btn">Ask Stella to fix</button>
-      <button id="revert-btn">Undo</button>
-      <button id="restart-btn">Reload</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stella — Recovery</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&family=Manrope:wght@400;500&display=swap");
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          "Manrope",
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100vw;
+        height: 100vh;
+        background: #111;
+        color: #eee;
+        -webkit-app-region: drag;
+      }
+      .recovery {
+        text-align: center;
+        max-width: 480px;
+        padding: 48px 24px;
+        -webkit-app-region: no-drag;
+        animation: fadeIn 300ms ease both;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      h2 {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: clamp(1.9rem, 4vw, 2.8rem);
+        font-weight: 450;
+        letter-spacing: -0.03em;
+        line-height: 1.2;
+        margin-bottom: 12px;
+      }
+      p {
+        font-size: 15px;
+        color: #999;
+        line-height: 1.5;
+        margin-bottom: 32px;
+      }
+      .actions {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+      }
+      button {
+        padding: 6px 24px;
+        font-family: "Manrope", sans-serif;
+        font-size: 15px;
+        font-weight: 500;
+        border-radius: 10px;
+        border: 1px solid #333;
+        background: rgba(255, 255, 255, 0.04);
+        color: #eee;
+        cursor: default;
+        transition: background 150ms;
+      }
+      button:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .btn-primary {
+        background: #6366f1;
+        color: #fff;
+        border-color: #6366f1;
+      }
+      .btn-primary:hover:not(:disabled) {
+        background: #5558e6;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .status {
+        margin-top: 16px;
+        font-size: 14px;
+        color: #777;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="recovery">
+      <h2>Something went wrong</h2>
+      <p>An unexpected error occurred. Reload Stella to try again.</p>
+      <div class="actions">
+        <button class="btn-primary" id="restart-btn">Reload</button>
+      </div>
+      <div class="status" id="status"></div>
     </div>
-    <div class="status" id="status"></div>
-  </div>
 
-  <script>
-    const fixBtn = document.getElementById('fix-btn');
-    const revertBtn = document.getElementById('revert-btn');
-    const restartBtn = document.getElementById('restart-btn');
-    const status = document.getElementById('status');
-
-    const setBusy = (busy) => {
-      fixBtn.disabled = busy;
-      revertBtn.disabled = busy;
-      restartBtn.disabled = busy;
-    };
-
-    fixBtn.addEventListener('click', async () => {
-      const api = window.electronAPI;
-      if (!api?.agent?.startChat || !api?.agent?.healthCheck || !api?.ui?.getState) {
-        status.textContent = 'Repair is unavailable right now.';
-        return;
-      }
-
-      try {
-        const health = await api.agent.healthCheck();
-        if (!health?.ready) {
-          status.textContent = 'Repair is unavailable right now.';
-          return;
-        }
-
-        setBusy(true);
-        status.textContent = 'Stella is fixing this...';
-
-        const uiState = await api.ui.getState();
-        const conversationId =
-          typeof uiState?.conversationId === 'string' && uiState.conversationId.trim()
-            ? uiState.conversationId
-            : null;
-        if (!conversationId) {
-          status.textContent = 'No active conversation. Try reloading first.';
-          setBusy(false);
-          return;
-        }
-
-        const prompt = `The Stella renderer process crashed and had to be recovered.
-
-Please perform an automatic self-repair now:
-1. Check recent self-mod changes for likely causes of a renderer crash.
-2. Find and fix the root cause in the frontend code.
-3. Keep behavior changes minimal and safe.
-4. If you make code changes, commit them with a stable [feature:auto-repair] tag.
-
-After fixing, return a concise summary of what you changed.`;
-
-        const { requestId } = await api.agent.startChat({
-          conversationId,
-          userPrompt: prompt,
-          agentType: 'orchestrator',
-          storageMode: 'local',
-        });
-
-        let startedRunId = null;
-        const unsubscribe = api.agent.onStream((event) => {
-          if (event.type === 'run-started' && event.requestId === requestId) {
-            startedRunId = event.runId;
-            return;
-          }
-          if (
-            event.type !== 'run-finished'
-            || (event.requestId !== requestId && event.runId !== startedRunId)
-          ) {
-            return;
-          }
-          if (event.outcome === 'completed') {
-            unsubscribe();
-            window.location.reload();
-            return;
-          }
-          unsubscribe();
-          status.textContent = 'Repair could not complete. Try undoing instead.';
-          setBusy(false);
-        });
-      } catch {
-        status.textContent = 'Repair could not start. Try undoing instead.';
-        setBusy(false);
-      }
-    });
-
-    revertBtn.addEventListener('click', async () => {
-      setBusy(true);
-      status.textContent = 'Reverting...';
-      try {
-        await window.electronAPI?.agent.selfModRevert(undefined, 1);
-        status.textContent = 'Reverted. Reloading...';
-        setTimeout(() => window.electronAPI?.ui.reload(), 500);
-      } catch {
-        status.textContent = 'Revert failed. Try reloading instead.';
-        setBusy(false);
-      }
-    });
-
-    restartBtn.addEventListener('click', () => {
-      window.electronAPI?.ui.reload();
-    });
-  </script>
-</body>
+    <script>
+      const restartBtn = document.getElementById("restart-btn");
+      restartBtn.addEventListener("click", () => {
+        window.electronAPI?.ui.reload();
+      });
+    </script>
+  </body>
 </html>

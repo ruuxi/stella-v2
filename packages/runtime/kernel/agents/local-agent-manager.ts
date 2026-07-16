@@ -177,7 +177,6 @@ type RuntimeAgentRecord = {
   managerTurnStartedFromTerminal?: boolean;
   /** Monotonic ownership token for mutable executeTask attempts. */
   attemptGeneration: number;
-  selfModMetadata?: AgentToolRequest["selfModMetadata"];
   recentActivity: string[];
   /**
    * Wall-clock timestamp of the last discrete liveness event: streamed
@@ -228,7 +227,6 @@ type RuntimeAgentRecord = {
    * the outer `executeTask` invocation re-enters.
    */
   interruptedForFollowUp: boolean;
-  activeSelfModRunId?: string;
   terminalEventEmitted: boolean;
   pendingStartStatusText?: string;
   /**
@@ -464,7 +462,6 @@ type LocalAgentManagerOpts = {
     spawnReasoningEffort?: SpawnReasoningEffort;
     modelConfigSnapshot?: AgentModelConfigSnapshot;
     toolWorkspaceRoot?: string;
-    selfModMetadata?: AgentToolRequest["selfModMetadata"];
   }) => Promise<LocalAgentContext>;
   runSubagent: (args: {
     conversationId: string;
@@ -479,18 +476,6 @@ type LocalAgentManagerOpts = {
     persistToConvex: boolean;
     enableRemoteTools: boolean;
     abortSignal: AbortSignal;
-    selfModMetadata?: AgentToolRequest["selfModMetadata"];
-    selfModRunId?: string;
-    /**
-     * Explicit feature identity for any self-mod commits this run makes.
-     * Workflow steps pass their workflow's identity so every step of one
-     * workflow commits to ONE feature instead of fragmenting into
-     * per-step features keyed by ephemeral agent ids.
-     */
-    selfModFeature?: { featureId: string; featureTitle: string };
-    onSelfModRunStarted?: (runId: string) => void;
-    onSelfModRunClosed?: (runId: string) => void;
-    shouldContinueSelfModLifecycleAfterInterrupt?: () => boolean;
     /**
      * Long-lived session bound to the durable subagent threadId. The
      * runner forwards this to `runSubagentTask` so the underlying Pi
@@ -836,9 +821,6 @@ export class LocalAgentManager implements AgentToolApi {
         ? { maxAgentDepth: task.maxAgentDepth }
         : {}),
       ...(task.parentAgentId ? { parentAgentId: task.parentAgentId } : {}),
-      ...(task.selfModMetadata
-        ? { selfModMetadata: task.selfModMetadata }
-        : {}),
       ...(task.modelConfigSnapshot
         ? { modelConfigSnapshot: task.modelConfigSnapshot }
         : {}),
@@ -1083,7 +1065,6 @@ export class LocalAgentManager implements AgentToolApi {
   private resetTaskForNextAttempt(
     task: RuntimeAgentRecord,
     prompt: string,
-    options?: { preserveSelfModRun?: boolean },
   ): void {
     // Invalidate any older executeTask still unwinding after an abort. It may
     // finish later, but it no longer owns this thread's mutable state.
@@ -1110,12 +1091,6 @@ export class LocalAgentManager implements AgentToolApi {
     task.waitingForManagedChildren = false;
     task.managerReportRequested = false;
     task.managerTurnStartedFromTerminal = false;
-    if (!options?.preserveSelfModRun) {
-      // A terminal pause/cancel closes the prior run in the runner's finally
-      // path. The resumed ownership epoch must begin a new run rather than
-      // inheriting an id whose cancel/finalize already consumed its state.
-      task.activeSelfModRunId = undefined;
-    }
   }
 
   private hydrateTaskFromRecord(
@@ -1137,9 +1112,7 @@ export class LocalAgentManager implements AgentToolApi {
       controller: new AbortController(),
       storageMode: "local",
       parentAgentId: record.parentAgentId,
-      selfModMetadata: record.selfModMetadata,
       modelConfigSnapshot: record.modelConfigSnapshot,
-      activeSelfModRunId: undefined,
       recentActivity: [`Continuing thread: ${truncate(prompt, 200)}`],
       lastActivityAt: Date.now(),
       activeToolCount: 0,
@@ -1192,7 +1165,7 @@ export class LocalAgentManager implements AgentToolApi {
     const managerReportRequested = task.managerReportRequested;
     const managerTurnStartedFromTerminal = task.managerTurnStartedFromTerminal;
     const prompt = this.buildTaskPrompt(task);
-    this.resetTaskForNextAttempt(task, prompt, { preserveSelfModRun: true });
+    this.resetTaskForNextAttempt(task, prompt);
     task.managerReportRequested = managerReportRequested;
     task.managerTurnStartedFromTerminal = managerTurnStartedFromTerminal;
     // The superseded turn's boundary emitted no completion event (the
@@ -1434,7 +1407,6 @@ export class LocalAgentManager implements AgentToolApi {
         ...(task.toolWorkspaceRoot
           ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
           : {}),
-        selfModMetadata: task.selfModMetadata,
       });
       if (!isCurrentAttempt()) return;
 
@@ -1465,22 +1437,6 @@ export class LocalAgentManager implements AgentToolApi {
         persistToConvex: task.storageMode === "cloud",
         enableRemoteTools: true,
         abortSignal: attempt.controller.signal,
-        selfModMetadata: task.selfModMetadata,
-        ...(task.activeSelfModRunId
-          ? { selfModRunId: task.activeSelfModRunId }
-          : {}),
-        onSelfModRunStarted: (runId) => {
-          if (!isCurrentAttempt()) return;
-          task.activeSelfModRunId = runId;
-        },
-        onSelfModRunClosed: (runId) => {
-          if (!isCurrentAttempt()) return;
-          if (task.activeSelfModRunId === runId) {
-            task.activeSelfModRunId = undefined;
-          }
-        },
-        shouldContinueSelfModLifecycleAfterInterrupt: () =>
-          isCurrentAttempt() && this.shouldDeliverFollowUp(task),
         onProgress: (chunk) => {
           if (
             !isCurrentAttempt() ||
@@ -1911,8 +1867,6 @@ export class LocalAgentManager implements AgentToolApi {
       controller,
       storageMode: request.storageMode,
       parentAgentId: request.parentAgentId,
-      selfModMetadata: request.selfModMetadata,
-      activeSelfModRunId: undefined,
       recentActivity: [],
       lastActivityAt: Date.now(),
       activeToolCount: 0,
@@ -1986,7 +1940,6 @@ export class LocalAgentManager implements AgentToolApi {
     description: string;
     prompt: string;
     rootRunId?: string;
-    selfModFeature?: { featureId: string; featureTitle: string };
     signal: AbortSignal;
   }): Promise<{ result: string; error?: string; interrupted?: boolean }> {
     const agentType = "general";
@@ -2009,7 +1962,6 @@ export class LocalAgentManager implements AgentToolApi {
         agentType,
         agentId: args.agentId,
         ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}),
-        ...(args.selfModFeature ? { selfModFeature: args.selfModFeature } : {}),
         taskDescription: args.description,
         taskPrompt: args.prompt,
         agentContext,

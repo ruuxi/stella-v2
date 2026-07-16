@@ -13,7 +13,6 @@ import {
   ensureStellaDataDirSeeded,
   syncStellaPromptSnapshot,
 } from "@stella/runtime/kernel/home/stella-home";
-import type { SelfModHmrState } from "@stella/contracts";
 import { stellaPromptEndpointFromSiteUrl } from "@stella/contracts/stella-api";
 import {
   createStellaHostRunner,
@@ -34,12 +33,6 @@ import { listRecentApps } from "../recent-apps.js";
 import { requestMacPermission } from "../utils/macos-permissions.js";
 import { getMainLogger } from "../observability/main-logger.js";
 
-const IDLE_HMR_STATE: SelfModHmrState = {
-  phase: "idle",
-  paused: false,
-  requiresFullReload: false,
-};
-
 // Module-level one-shot cache for the skills/agents home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
 // its ~100 awaited fs ops + sha256 over hundreds of KB contended with first
@@ -49,9 +42,7 @@ const IDLE_HMR_STATE: SelfModHmrState = {
 //
 // `initializeStellaHostRunner` also runs on host-runner reset flows; caching the
 // first call's promise means resets don't re-pay the reconciliation. This is
-// safe because a self-mod update that changes bundled skills/agents on disk
-// implies a process restart (which resets this module state and re-seeds),
-// so an in-process reset never needs to re-sync.
+// safe because resets do not change bundled skills or agents on disk.
 let stellaDataDirSeedingPromise: Promise<void> | null = null;
 let configuredPromptSyncPromise: Promise<void> | null = null;
 let lastConfiguredPromptEndpoint: string | null = null;
@@ -259,56 +250,6 @@ export const createHostRunnerHandlers = (
         ? context.state.windowManager?.getMiniWindow()
         : context.state.windowManager?.getFullWindow();
     window?.focus();
-  },
-  runHmrTransition: async ({
-    runIds,
-    stateRunIds,
-    requiresFullReload,
-    requiresRuntimeRestart,
-    requiresProcessRestart,
-    applyBatch,
-    reportState,
-  }) => {
-    if (context.state.hmrTransitionController) {
-      await context.state.hmrTransitionController.runTransition({
-        runIds,
-        stateRunIds,
-        applyBatch,
-        reportState,
-        requiresFullReload,
-        requiresRuntimeRestart,
-        requiresProcessRestart,
-      });
-      return;
-    }
-    reportState?.({
-      phase: requiresFullReload ? "reloading" : "applying",
-      paused: false,
-      requiresFullReload,
-    });
-    const fullWindow = context.state.windowManager?.getFullWindow() ?? null;
-    const canReload =
-      requiresFullReload && fullWindow != null && !fullWindow.isDestroyed();
-    const suppressClientFullReload =
-      requiresFullReload ||
-      requiresRuntimeRestart === true ||
-      requiresProcessRestart === true;
-    try {
-      const applyResult = await applyBatch({
-        suppressClientFullReload,
-      });
-      if (
-        (canReload ||
-          (!suppressClientFullReload &&
-            applyResult?.requiresClientFullReload === true)) &&
-        fullWindow != null &&
-        !fullWindow.isDestroyed()
-      ) {
-        fullWindow.webContents.reloadIgnoringCache();
-      }
-    } finally {
-      reportState?.(IDLE_HMR_STATE);
-    }
   },
 });
 

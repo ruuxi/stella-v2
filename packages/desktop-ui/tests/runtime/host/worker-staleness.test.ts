@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -42,7 +48,10 @@ const makeWorkerEntryTree = () => {
   return entryPath;
 };
 
-const createHost = (args: { stellaAppDir: string; workerEntryPath: string }) => {
+const createHost = (args: {
+  stellaAppDir: string;
+  workerEntryPath: string;
+}) => {
   const host = new StellaRuntimeHost({
     workerEntryPath: args.workerEntryPath,
     hostHandlers: {
@@ -264,7 +273,7 @@ describe("stale worker staleness handshake", () => {
     const workerEntryPath = makeWorkerEntryTree();
     const anyHostA = createHost({ stellaAppDir, workerEntryPath });
     anyHostA.getWorkerHealth = vi.fn().mockResolvedValue(BUSY_HEALTH);
-    await anyHostA.noteRuntimeCodeChangedByApply("self-mod-apply-runtime-restart");
+    await anyHostA.markPendingWorkerRestart("runtime-update");
     expect(existsSync(paths.pendingWorkerRestartFile)).toBe(true);
 
     // "Electron restarts": a brand-new host attaches to the same worker.
@@ -292,7 +301,7 @@ describe("stale worker staleness handshake", () => {
     const workerEntryPath = makeWorkerEntryTree();
     const anyHost = createHost({ stellaAppDir, workerEntryPath });
     anyHost.getWorkerHealth = vi.fn().mockResolvedValue(BUSY_HEALTH);
-    await anyHost.noteRuntimeCodeChangedByApply("self-mod-apply-runtime-restart");
+    await anyHost.markPendingWorkerRestart("runtime-update");
     expect(existsSync(paths.pendingWorkerRestartFile)).toBe(true);
 
     await anyHost.evaluateWorkerStalenessOnConnect({
@@ -304,15 +313,13 @@ describe("stale worker staleness handshake", () => {
     expect(existsSync(paths.pendingWorkerRestartFile)).toBe(false);
   });
 
-  it("marks pending and restarts immediately for an idle runtime-relevant apply", async () => {
+  it("marks pending and restarts immediately for an idle runtime update", async () => {
     const { stellaAppDir, paths } = setupRoot();
     const workerEntryPath = makeWorkerEntryTree();
     const anyHost = createHost({ stellaAppDir, workerEntryPath });
 
     vi.useFakeTimers();
-    await anyHost.noteRuntimeCodeChangedByApply(
-      "self-mod-apply-process-restart",
-    );
+    await anyHost.markPendingWorkerRestart("runtime-update");
     expect(existsSync(paths.pendingWorkerRestartFile)).toBe(true);
     await vi.advanceTimersByTimeAsync(1_100);
     vi.useRealTimers();
@@ -327,7 +334,7 @@ describe("stale worker staleness handshake", () => {
     anyHost.getWorkerHealth = vi.fn().mockResolvedValue(BUSY_HEALTH);
 
     expect((await anyHost.health()).pendingWorkerRestart).toBeUndefined();
-    await anyHost.noteRuntimeCodeChangedByApply("self-mod-apply-runtime-restart");
+    await anyHost.markPendingWorkerRestart("runtime-update");
     expect((await anyHost.health()).pendingWorkerRestart).toBe(true);
   });
 });

@@ -11,14 +11,6 @@ import {
 import { slugify } from "../shared/slug.js";
 import type { SqliteDatabase } from "./shared.js";
 import {
-  listPendingOrchestratorReverts as listPendingOrchestratorRevertsImpl,
-  listPendingOriginThreadReverts as listPendingOriginThreadRevertsImpl,
-  markSelfModRevertsOrchestratorConsumed as markOrchestratorConsumedImpl,
-  markSelfModRevertsOriginThreadConsumed as markOriginThreadConsumedImpl,
-  recordSelfModRevert as recordSelfModRevertImpl,
-  type SelfModRevertRecord,
-} from "./self-mod-reverts.js";
-import {
   DEFAULT_CONVERSATION_SETTING_KEY,
   MAX_EVENTS_PER_CONVERSATION,
   type LocalChatActivityWindow,
@@ -110,12 +102,6 @@ export type PersistedAgentRecord = {
   agentDepth: number;
   maxAgentDepth?: number;
   parentAgentId?: string;
-  selfModMetadata?: {
-    packageId?: string;
-    releaseNumber?: number;
-    mode?: "author" | "install" | "update" | "uninstall" | "desktop-update";
-    expectedChangedFiles?: string[];
-  };
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   status: TaskLifecycleStatus;
   /** Persisted ownership epoch so lifecycle ids remain unique after restart. */
@@ -1320,8 +1306,7 @@ export class SessionStore {
    * Shallow-merge a partial payload into an existing local-chat event's
    * stored payload. Returns the updated record (so callers can fire
    * `notifyLocalChatUpdated`), or null when the event/payload row is
-   * missing. Used by the worker to attach post-run fields like
-   * `selfModApplied` onto the assistant message after the run finalizes.
+   * missing. Used by the worker to attach post-run fields after the run finalizes.
    *
    * Atomicity: the SELECT, merge, and write all run inside a single
    * `withTransaction` block so a concurrent writer to the same eventId
@@ -4118,8 +4103,8 @@ export class SessionStore {
   }
 
   getThreadName(threadKey: string): string | undefined {
-    // Deliberately side-effect-free: callers (e.g. the self-mod finalize
-    // path) probe arbitrary agent ids, and creating implicit rows for
+    // Deliberately side-effect-free: callers probe arbitrary agent ids, and
+    // creating implicit rows for
     // them would leak phantom threads into search results.
     const row = this.db
       .prepare(
@@ -4149,7 +4134,6 @@ export class SessionStore {
         agent_depth,
         max_agent_depth,
         parent_agent_id,
-        self_mod_metadata_json,
         model_config_json,
         status,
         started_at,
@@ -4160,7 +4144,7 @@ export class SessionStore {
         root_run_id,
         attempt_generation
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET
         conversation_id = excluded.conversation_id,
         agent_type = excluded.agent_type,
@@ -4168,7 +4152,6 @@ export class SessionStore {
         agent_depth = excluded.agent_depth,
         max_agent_depth = excluded.max_agent_depth,
         parent_agent_id = excluded.parent_agent_id,
-        self_mod_metadata_json = excluded.self_mod_metadata_json,
         model_config_json = excluded.model_config_json,
         status = excluded.status,
         started_at = excluded.started_at,
@@ -4188,7 +4171,6 @@ export class SessionStore {
         record.agentDepth,
         record.maxAgentDepth ?? null,
         record.parentAgentId ?? null,
-        toJsonValueString(record.selfModMetadata) ?? null,
         toJsonValueString(record.modelConfigSnapshot) ?? null,
         record.status,
         record.startedAt,
@@ -4279,7 +4261,6 @@ export class SessionStore {
         agent_depth,
         max_agent_depth,
         parent_agent_id,
-        self_mod_metadata_json,
         model_config_json,
         status,
         started_at,
@@ -4303,7 +4284,6 @@ export class SessionStore {
           agent_depth: number;
           max_agent_depth: number | null;
           parent_agent_id: string | null;
-          self_mod_metadata_json: string | null;
           model_config_json: string | null;
           status: PersistedAgentRecord["status"];
           started_at: number;
@@ -4318,9 +4298,6 @@ export class SessionStore {
     if (!row) {
       return null;
     }
-    const selfModMetadata = parseJsonValue<
-      PersistedAgentRecord["selfModMetadata"]
-    >(row.self_mod_metadata_json);
     const modelConfigSnapshot = parseJsonValue<
       PersistedAgentRecord["modelConfigSnapshot"]
     >(row.model_config_json);
@@ -4334,7 +4311,6 @@ export class SessionStore {
         ? {}
         : { maxAgentDepth: row.max_agent_depth }),
       ...(row.parent_agent_id ? { parentAgentId: row.parent_agent_id } : {}),
-      ...(selfModMetadata ? { selfModMetadata } : {}),
       ...(modelConfigSnapshot ? { modelConfigSnapshot } : {}),
       status: row.status,
       attemptGeneration: row.attempt_generation,
@@ -4361,7 +4337,6 @@ export class SessionStore {
         agent_depth,
         max_agent_depth,
         parent_agent_id,
-        self_mod_metadata_json,
         model_config_json,
         status,
         started_at,
@@ -4384,7 +4359,6 @@ export class SessionStore {
       agent_depth: number;
       max_agent_depth: number | null;
       parent_agent_id: string | null;
-      self_mod_metadata_json: string | null;
       model_config_json: string | null;
       status: PersistedAgentRecord["status"];
       started_at: number;
@@ -4397,9 +4371,6 @@ export class SessionStore {
     }>;
 
     return rows.map((row) => {
-      const selfModMetadata = parseJsonValue<
-        PersistedAgentRecord["selfModMetadata"]
-      >(row.self_mod_metadata_json);
       const modelConfigSnapshot = parseJsonValue<
         PersistedAgentRecord["modelConfigSnapshot"]
       >(row.model_config_json);
@@ -4413,7 +4384,6 @@ export class SessionStore {
           ? {}
           : { maxAgentDepth: row.max_agent_depth }),
         ...(row.parent_agent_id ? { parentAgentId: row.parent_agent_id } : {}),
-        ...(selfModMetadata ? { selfModMetadata } : {}),
         ...(modelConfigSnapshot ? { modelConfigSnapshot } : {}),
         status: row.status,
         attemptGeneration: row.attempt_generation,
@@ -4760,52 +4730,5 @@ export class SessionStore {
     `,
       )
       .run(conversationId, reviewedTs);
-  }
-
-  /**
-   * Append a row to the self-mod revert ledger. Called from the worker's
-   * `INTERNAL_WORKER_SELF_MOD_REVERT` handler after a successful git
-   * revert; the revert-notice hook drains pending rows on the next
-   * `before_user_message` for the conversation (orchestrator slot) and
-   * for the originating subagent (origin-thread slot) when the
-   * orchestrator resumes it.
-   */
-  recordSelfModRevert(args: {
-    conversationId: string;
-    originThreadKey?: string | null;
-    commitHash: string;
-    files: string[];
-    revertedAt?: number;
-  }): SelfModRevertRecord {
-    return recordSelfModRevertImpl(this.db, args);
-  }
-
-  /** Pending reverts for the orchestrator's next user turn, oldest first. */
-  listPendingOrchestratorReverts(
-    conversationId: string,
-  ): SelfModRevertRecord[] {
-    return listPendingOrchestratorRevertsImpl(this.db, conversationId);
-  }
-
-  /**
-   * Pending reverts whose originating thread key matches the given
-   * `threadKey`. Used when a resumable subagent's `before_user_message`
-   * fires — if its threadKey matches, the same subagent that did the
-   * work sees the reminder on resume.
-   */
-  listPendingOriginThreadReverts(
-    originThreadKey: string,
-  ): SelfModRevertRecord[] {
-    return listPendingOriginThreadRevertsImpl(this.db, originThreadKey);
-  }
-
-  /** Mark the orchestrator slot consumed for these revert ids. */
-  markSelfModRevertsOrchestratorConsumed(revertIds: string[]): void {
-    markOrchestratorConsumedImpl(this.db, revertIds);
-  }
-
-  /** Mark the origin-thread slot consumed for these revert ids. */
-  markSelfModRevertsOriginThreadConsumed(revertIds: string[]): void {
-    markOriginThreadConsumedImpl(this.db, revertIds);
   }
 }

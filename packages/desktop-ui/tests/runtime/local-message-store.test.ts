@@ -37,7 +37,11 @@ type FakeElectronApi = {
   };
 };
 
-const makeMessage = (id: string, timestamp: number, text: string): MessageRecord => ({
+const makeMessage = (
+  id: string,
+  timestamp: number,
+  text: string,
+): MessageRecord => ({
   _id: id,
   timestamp,
   type: id.startsWith("u") ? "user_message" : "assistant_message",
@@ -141,10 +145,7 @@ describe("local-message-store", () => {
         }),
       );
       const latest = snapshots.at(-1);
-      expect(latest?.window.messages.map((m) => m._id)).toEqual([
-        "u-1",
-        "a-2",
-      ]);
+      expect(latest?.window.messages.map((m) => m._id)).toEqual(["u-1", "a-2"]);
       expect(latest?.window.visibleMessageCount).toBe(2);
 
       unsubscribe();
@@ -237,7 +238,7 @@ describe("local-message-store", () => {
       );
       await waitFor(() => expect(snapshots.at(-1)?.hasLoaded).toBe(true));
 
-      // A payload patch (e.g. `selfModApplied`) re-announces the existing
+      // A payload patch re-announces the existing
       // newest row — its `(timestamp, id)` is not strictly newer than the
       // window cursor, so the after-cursor walk would miss it.
       updateListener?.({
@@ -264,12 +265,14 @@ describe("local-message-store", () => {
     let updateListener:
       | ((payload: LocalChatUpdatedPayload | null) => void)
       | null = null;
-    const listMessages = vi.fn().mockResolvedValue(
-      window([
-        makeMessage("u-1", 1_000, "first"),
-        makeMessage("a-2", 1_010, "second"),
-      ]),
-    );
+    const listMessages = vi
+      .fn()
+      .mockResolvedValue(
+        window([
+          makeMessage("u-1", 1_000, "first"),
+          makeMessage("a-2", 1_010, "second"),
+        ]),
+      );
     const anchorWithArtifact: MessageRecord = {
       ...makeMessage("a-2", 1_010, "second"),
       toolEvents: [{ _id: "t-3", timestamp: 1_020, type: "tool_result" }],
@@ -307,10 +310,7 @@ describe("local-message-store", () => {
         ),
       );
       const latest = snapshots.at(-1);
-      expect(latest?.window.messages.map((m) => m._id)).toEqual([
-        "u-1",
-        "a-2",
-      ]);
+      expect(latest?.window.messages.map((m) => m._id)).toEqual(["u-1", "a-2"]);
       expect(latest?.window.visibleMessageCount).toBe(2);
       expect(listMessages).toHaveBeenCalledTimes(1);
 
@@ -324,12 +324,14 @@ describe("local-message-store", () => {
     let updateListener:
       | ((payload: LocalChatUpdatedPayload | null) => void)
       | null = null;
-    const listMessages = vi.fn().mockResolvedValue(
-      window([
-        makeMessage("u-1", 1_000, "first"),
-        makeMessage("a-2", 1_010, "second"),
-      ]),
-    );
+    const listMessages = vi
+      .fn()
+      .mockResolvedValue(
+        window([
+          makeMessage("u-1", 1_000, "first"),
+          makeMessage("a-2", 1_010, "second"),
+        ]),
+      );
     const listMessagesAfter = vi
       .fn()
       .mockResolvedValue(window([makeMessage("a-3", 1_020, "third")]));
@@ -554,14 +556,14 @@ describe("local-message-store", () => {
       makeMessage("u-0", 990, "older"),
       makeMessage("u-1", 1_000, "first"),
     ]);
-    const listMessages = vi.fn().mockImplementation(
-      async (payload: { maxVisibleMessages?: number }) => {
+    const listMessages = vi
+      .fn()
+      .mockImplementation(async (payload: { maxVisibleMessages?: number }) => {
         if (payload.maxVisibleMessages === 50) return firstWindow;
         return await new Promise<WindowPayload>((resolve) => {
           resolveSecond = resolve;
         });
-      },
-    );
+      });
     const onUpdated = vi.fn().mockImplementation(() => () => undefined);
     const restore = installFakeElectronApi({
       localChat: { listMessages, onUpdated },
@@ -576,9 +578,9 @@ describe("local-message-store", () => {
 
       await waitFor(() => {
         expect(firstSnapshots.at(-1)?.hasLoaded).toBe(true);
-        expect(firstSnapshots.at(-1)?.window.messages.map((m) => m._id)).toEqual([
-          "u-1",
-        ]);
+        expect(
+          firstSnapshots.at(-1)?.window.messages.map((m) => m._id),
+        ).toEqual(["u-1"]);
       });
 
       const largerSnapshots: LocalMessageWindowSnapshot[] = [];
@@ -595,10 +597,9 @@ describe("local-message-store", () => {
 
       resolveSecond?.(secondWindow);
       await waitFor(() =>
-        expect(largerSnapshots.at(-1)?.window.messages.map((m) => m._id)).toEqual([
-          "u-0",
-          "u-1",
-        ]),
+        expect(
+          largerSnapshots.at(-1)?.window.messages.map((m) => m._id),
+        ).toEqual(["u-0", "u-1"]),
       );
 
       unsubscribeLarger();
@@ -620,14 +621,14 @@ describe("local-message-store", () => {
       makeMessage("u-0", 990, "older"),
       makeMessage("u-1", 1_000, "first"),
     ]);
-    const listMessages = vi.fn().mockImplementation(
-      async (payload: { maxVisibleMessages?: number }) => {
+    const listMessages = vi
+      .fn()
+      .mockImplementation(async (payload: { maxVisibleMessages?: number }) => {
         if (payload.maxVisibleMessages === 50) return firstWindow;
         return await new Promise<WindowPayload>((resolve) => {
           resolveSecond = resolve;
         });
-      },
-    );
+      });
     const onUpdated = vi.fn().mockImplementation(() => () => undefined);
     const restore = installFakeElectronApi({
       localChat: { listMessages, onUpdated },
@@ -770,14 +771,14 @@ describe("local-message-store", () => {
       makeMessage("a-4", 1_030, "four"),
     ]);
     let resolveSecond: ((value: WindowPayload) => void) | null = null;
-    const listMessages = vi.fn().mockImplementation(
-      async (payload: { maxVisibleMessages?: number }) => {
+    const listMessages = vi
+      .fn()
+      .mockImplementation(async (payload: { maxVisibleMessages?: number }) => {
         if (payload.maxVisibleMessages === 50) return bigWindow;
         return await new Promise<WindowPayload>((resolve) => {
           resolveSecond = resolve;
         });
-      },
-    );
+      });
     const onUpdated = vi.fn().mockImplementation(() => () => undefined);
     const restore = installFakeElectronApi({
       localChat: { listMessages, onUpdated },

@@ -15,7 +15,7 @@ import type { AppMetadata } from "@/app/_shared/app-metadata";
  *
  * Production builds: `import.meta.hot` is undefined, so the accept block
  * is a no-op. The snapshot is computed once at module load and never
- * changes -- which is correct for a non-self-modifying production build.
+ * changes -- which is correct for a production build.
  */
 
 const APP_MODULES = import.meta.glob<{ default: AppMetadata }>(
@@ -55,7 +55,9 @@ if (import.meta.hot) {
     // the filesystem when its `hotUpdate` runs, so the new module's
     // exports reflect the updated set. Recomputing the snapshot from the
     // new module ensures stable reference semantics for the consumer.
-    const next = newModule.getSnapshot?.() as readonly AppMetadata[] | undefined;
+    const next = newModule.getSnapshot?.() as
+      | readonly AppMetadata[]
+      | undefined;
     if (!next) return;
     cachedSnapshot = next;
     for (const cb of subscribers) {

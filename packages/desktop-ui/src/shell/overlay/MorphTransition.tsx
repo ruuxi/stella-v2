@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import type { SelfModHmrState } from "@stella/contracts";
 import {
   DEFAULT_MORPH_TIMING_SETTINGS,
   MORPH_STEADY_STRENGTH,
@@ -57,12 +56,6 @@ const IDLE_STATE: MorphState = {
   y: 0,
   width: 0,
   height: 0,
-};
-
-const IDLE_HMR_STATE: SelfModHmrState = {
-  phase: "idle",
-  paused: false,
-  requiresFullReload: false,
 };
 
 const VERT = `
@@ -809,7 +802,6 @@ function tweenRef(
 export function MorphTransition() {
   const { colors } = useTheme();
   const [state, setState] = useState<MorphState>(IDLE_STATE);
-  const [hmrState, setHmrState] = useState<SelfModHmrState>(IDLE_HMR_STATE);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glCtxRef = useRef<GLContext | null>(null);
   // Persistent WebGL context + compiled program, reused across morphs so we
@@ -863,8 +855,7 @@ export function MorphTransition() {
       typeof api.onMorphForward !== "function" ||
       typeof api.onMorphBounds !== "function" ||
       typeof api.onMorphHandoff !== "function" ||
-      typeof api.onMorphEnd !== "function" ||
-      typeof api.onMorphState !== "function"
+      typeof api.onMorphEnd !== "function"
     ) {
       return;
     }
@@ -906,7 +897,6 @@ export function MorphTransition() {
           data.flavor === "onboarding" ? "onboarding" : "hmr";
         activeMorphFlavorRef.current = flavor;
         activeVisualTimingRef.current = normalizeVisualTiming(data.timing);
-        setHmrState(IDLE_HMR_STATE);
         setState({
           phase: "covering",
           x: data.x,
@@ -934,8 +924,7 @@ export function MorphTransition() {
           ) {
             return;
           }
-          // The "Stella is changing..." label rides the production self-mod
-          // cover; the onboarding demo morph stays unlabeled.
+          // The updating label is omitted from the onboarding demo morph.
           const label =
             flavor === "hmr"
               ? createUpdatingLabelCanvas(
@@ -1073,15 +1062,6 @@ export function MorphTransition() {
     );
 
     unsubs.push(
-      api.onMorphState((payload) => {
-        if (payload.transitionId !== activeTransitionIdRef.current) {
-          return;
-        }
-        setHmrState(payload.state);
-      }),
-    );
-
-    unsubs.push(
       api.onMorphEnd((payload) => {
         if (payload.transitionId !== activeTransitionIdRef.current) {
           return;
@@ -1089,7 +1069,6 @@ export function MorphTransition() {
         morphReadySentRef.current = false;
         disposeMorph();
         activeTransitionIdRef.current = null;
-        setHmrState(IDLE_HMR_STATE);
         setState(IDLE_STATE);
       }),
     );
@@ -1114,8 +1093,6 @@ export function MorphTransition() {
   return (
     <canvas
       ref={canvasRef}
-      data-selfmod-hmr-phase={hmrState.phase}
-      data-selfmod-full-reload={hmrState.requiresFullReload || undefined}
       style={{
         position: "fixed",
         left: state.x,

@@ -45,7 +45,6 @@ const makeService = () => {
     getDeviceId: () => "device-1",
     onLocalChatUpdated,
     emitAgentEvent: vi.fn(),
-    emitSelfModHmrState: vi.fn(),
   });
 
   return {
@@ -198,7 +197,8 @@ describe("VoiceRuntimeService direct tool execution", () => {
       ],
     });
     runner.executeTool.mockResolvedValueOnce({
-      result: "image_gen job job-1 submitted. The generated image will appear automatically when it finishes.",
+      result:
+        "image_gen job job-1 submitted. The generated image will appear automatically when it finishes.",
       details: {
         jobId: "job-1",
         capability: "text_to_image",

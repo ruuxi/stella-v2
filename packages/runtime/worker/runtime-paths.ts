@@ -75,7 +75,7 @@ export type RuntimePaths = {
    * Runtime build stamp of the code the currently-running worker loaded at
    * boot (see `runtime/worker/runtime-build-stamp.ts`). Written by the
    * worker's `WorkerLifecycleServer.start`; read by the host on attach to
-   * detect a stale worker after a self-mod apply or desktop update.
+   * detect a stale worker after a desktop update.
    */
   buildStampFile: string;
   /**

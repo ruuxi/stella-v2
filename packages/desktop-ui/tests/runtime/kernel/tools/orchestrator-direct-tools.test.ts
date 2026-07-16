@@ -22,7 +22,6 @@ type TestHostContext = {
   host: ReturnType<typeof createToolHost>;
   createdTasks: Array<Record<string, unknown>>;
   contextLookups: Array<Record<string, unknown>>;
-  sourceImports: Array<Record<string, unknown>>;
 };
 
 const activeContexts = new Set<TestHostContext>();
@@ -45,7 +44,6 @@ const createTestHost = async (
 
   const createdTasks: Array<Record<string, unknown>> = [];
   const contextLookups: Array<Record<string, unknown>> = [];
-  const sourceImports: Array<Record<string, unknown>> = [];
 
   const host = createToolHost({
     stellaAppDir: rootPath,
@@ -72,18 +70,6 @@ const createTestHost = async (
       contextLookups.push(payload);
       return "Relevant context for this turn.";
     },
-    sourceImportApi: {
-      importSource: async (payload) => {
-        sourceImports.push(payload);
-        return {
-          status: "no-changes",
-          message: "already imported",
-          importRoot: path.join(rootPath, "raw", "source-imports", "test"),
-          sourceRoot: rootPath,
-          commitHash: null,
-        };
-      },
-    },
   });
 
   const context = {
@@ -92,7 +78,6 @@ const createTestHost = async (
     host,
     createdTasks,
     contextLookups,
-    sourceImports,
   };
   activeContexts.add(context);
   return context;
@@ -127,7 +112,10 @@ const makeToolContext = (agentType: string): ToolContext => ({
 describe("orchestrator direct tool surface", () => {
   it("keeps orchestrator capabilities readable by the pre-metadata-only loader", () => {
     const agents = loadParsedAgentsFromDir(
-      path.join(repoRoot, "packages/runtime/extensions/stella-runtime/agent-metadata"),
+      path.join(
+        repoRoot,
+        "packages/runtime/extensions/stella-runtime/agent-metadata",
+      ),
     );
     const orchestrator = agents.find((agent) => agent.id === "orchestrator");
 
@@ -186,7 +174,10 @@ describe("orchestrator direct tool surface", () => {
 
     const agents = loadStellaRuntimeAgents(
       rootPath,
-      path.join(repoRoot, "packages/runtime/extensions/stella-runtime/agent-metadata"),
+      path.join(
+        repoRoot,
+        "packages/runtime/extensions/stella-runtime/agent-metadata",
+      ),
     );
     const advertisedToolNames = (agentType: string) => {
       const agent = agents.find((candidate) => candidate.id === agentType);
@@ -237,7 +228,6 @@ describe("orchestrator direct tool surface", () => {
     expect(orchestratorTools.has("spawn_manager")).toBe(true);
     expect(orchestratorTools.has("send_input")).toBe(true);
     expect(orchestratorTools.has("pause_agent")).toBe(true);
-    expect(orchestratorTools.has("import_source")).toBe(true);
     expect(orchestratorTools.has("Display")).toBe(false);
     expect(orchestratorTools.has("DisplayGuidelines")).toBe(false);
     expect(orchestratorTools.has("image_gen")).toBe(true);
@@ -421,51 +411,6 @@ describe("orchestrator direct tool surface", () => {
     expect(visibleTools.has("linq_send_message")).toBe(false);
     expect(runtimeTools.has("linq_send_message")).toBe(true);
     expect(runtimeTools.has("linq_react_to_message")).toBe(true);
-  });
-
-  it("executes import_source for the orchestrator and rejects other agents", async () => {
-    const { host, sourceImports } = await createTestHost();
-
-    const orchestratorResult = await host.executeTool(
-      "import_source",
-      {
-        source: {
-          kind: "git",
-          url: "https://github.com/example/project.git#main",
-        },
-        scope: { kind: "feature", label: "command palette" },
-        trust: "untrusted",
-      },
-      makeToolContext("orchestrator"),
-    );
-
-    expect(orchestratorResult.error).toBeUndefined();
-    expect(orchestratorResult.result).toMatchObject({
-      status: "no-changes",
-      message: "already imported",
-    });
-    expect(sourceImports).toHaveLength(1);
-    expect(sourceImports[0]).toMatchObject({
-      source: {
-        kind: "git",
-        url: "https://github.com/example/project.git#main",
-      },
-      scope: { kind: "feature", label: "command palette" },
-      trust: "untrusted",
-      conversationId: "conv-1",
-      requestId: "req-1",
-    });
-
-    const generalResult = await host.executeTool(
-      "import_source",
-      {
-        source: { kind: "local-path", path: "/tmp/source" },
-      },
-      makeToolContext("general"),
-    );
-    expect(generalResult.error).toContain(
-      "import_source is only available to the orchestrator",
-    );
   });
 
   it("executes Recall for the orchestrator and rejects other agents", async () => {

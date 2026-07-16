@@ -1,7 +1,7 @@
 /**
  * Native messaging connection to the Stella bridge (Chrome native host → localhost TCP).
  *
- * connectNative spawns a native host process (plus a cmd.exe launcher on
+ * connectNative spawns a native host process (plus a cmd.exe shim on
  * Windows), so we never blind-reconnect: while disconnected we poll the
  * daemon's bridge port with a plain fetch() — zero processes — and only spawn
  * the host once Stella's daemon is actually listening. The host exits when the
@@ -9,10 +9,10 @@
  * is closed. An alarm keeps polling alive across service-worker suspensions.
  */
 
-import { STELLA_NATIVE_HOST_NAME } from './native-host-name.js';
+import { STELLA_NATIVE_HOST_NAME } from "./native-host-name.js";
 
 /** Must match the daemon's bridge port (STELLA_BROWSER_BRIDGE_PORT / DEFAULT_EXT_PORT). */
-const BRIDGE_HEALTH_URL = 'http://127.0.0.1:39040/healthz';
+const BRIDGE_HEALTH_URL = "http://127.0.0.1:39040/healthz";
 const PROBE_INTERVAL = 4000;
 const PROBE_TIMEOUT = 1500;
 
@@ -45,7 +45,10 @@ export function onStatus(callback) {
  * messaging once it's up (no port/token setup).
  */
 export function connect() {
-  if (shouldConnect && (isConnected() || probesInFlight.has(connectionGeneration))) {
+  if (
+    shouldConnect &&
+    (isConnected() || probesInFlight.has(connectionGeneration))
+  ) {
     return;
   }
   shouldConnect = true;
@@ -105,10 +108,13 @@ async function isDaemonUp() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT);
   try {
-    await fetch(BRIDGE_HEALTH_URL, { signal: controller.signal, cache: 'no-store' });
+    await fetch(BRIDGE_HEALTH_URL, {
+      signal: controller.signal,
+      cache: "no-store",
+    });
     return true;
   } catch (err) {
-    return err?.name === 'AbortError';
+    return err?.name === "AbortError";
   } finally {
     clearTimeout(timer);
   }
@@ -138,7 +144,8 @@ async function probeThenConnect(generation = connectionGeneration) {
     probesInFlight.delete(generation);
   }
 
-  if (!shouldConnect || generation !== connectionGeneration || isConnected()) return;
+  if (!shouldConnect || generation !== connectionGeneration || isConnected())
+    return;
   if (up) {
     doConnect(generation);
     return;
@@ -156,13 +163,14 @@ function scheduleProbe(generation = connectionGeneration) {
 }
 
 function doConnect(generation) {
-  if (!shouldConnect || generation !== connectionGeneration || nativePort) return;
+  if (!shouldConnect || generation !== connectionGeneration || nativePort)
+    return;
 
   let port;
   try {
     port = chrome.runtime.connectNative(STELLA_NATIVE_HOST_NAME);
   } catch (err) {
-    console.error('[connection] connectNative failed:', err);
+    console.error("[connection] connectNative failed:", err);
     scheduleProbe(generation);
     return;
   }
@@ -180,23 +188,23 @@ function doConnect(generation) {
   port.onMessage.addListener(async (msg) => {
     if (generation !== connectionGeneration || nativePort !== port) return;
 
-    if (msg.type === 'welcome') {
-      console.log('[connection] Authenticated, session:', msg.session);
+    if (msg.type === "welcome") {
+      console.log("[connection] Authenticated, session:", msg.session);
       setStatus(true);
       return;
     }
 
-    if (msg.type === 'pong') {
+    if (msg.type === "pong") {
       return;
     }
 
-    if (msg.type === 'auth_error') {
-      console.error('[connection] Auth failed:', msg.error);
+    if (msg.type === "auth_error") {
+      console.error("[connection] Auth failed:", msg.error);
       setStatus(false);
       return;
     }
 
-    if (msg.type === 'command' && commandHandler) {
+    if (msg.type === "command" && commandHandler) {
       try {
         const response = await commandHandler(msg);
         if (generation === connectionGeneration && nativePort === port) {
@@ -205,7 +213,7 @@ function doConnect(generation) {
       } catch (err) {
         if (generation === connectionGeneration && nativePort === port) {
           port.postMessage({
-            type: 'response',
+            type: "response",
             id: msg.id,
             success: false,
             error: err.message || String(err),
@@ -218,9 +226,10 @@ function doConnect(generation) {
   port.onDisconnect.addListener(() => {
     const err = chrome.runtime.lastError;
     if (err?.message) {
-      console.error('[connection] Native port disconnected:', err.message);
+      console.error("[connection] Native port disconnected:", err.message);
     }
-    const wasActive = generation === connectionGeneration && nativePort === port;
+    const wasActive =
+      generation === connectionGeneration && nativePort === port;
     if (!wasActive) return;
 
     nativePort = null;
@@ -231,26 +240,26 @@ function doConnect(generation) {
   });
 
   port.postMessage({
-    type: 'hello',
-    version: '1.0.0',
-    token: '',
+    type: "hello",
+    version: "1.0.0",
+    token: "",
   });
 }
 
 function setStatus(connected) {
-  chrome.action.setBadgeText({ text: '' });
+  chrome.action.setBadgeText({ text: "" });
 
   if (statusCallback) {
     statusCallback(connected);
   }
 }
 
-chrome.alarms.create('keepalive', { periodInMinutes: 24 / 60 });
+chrome.alarms.create("keepalive", { periodInMinutes: 24 / 60 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'keepalive') {
+  if (alarm.name === "keepalive") {
     if (isConnected()) {
-      send({ type: 'ping' });
+      send({ type: "ping" });
     } else {
       // The alarm revives a suspended service worker (which loses its probe
       // timer); probeThenConnect dedupes against any pending timer/probe.

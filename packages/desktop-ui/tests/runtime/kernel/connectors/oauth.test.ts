@@ -16,6 +16,10 @@ import {
   saveConnectorAccessToken,
   setConnectorTokenStoreBroker,
 } from "@stella/runtime/kernel/connectors/oauth";
+import {
+  installTestSafeStorage,
+  resetTestSafeStorage,
+} from "../../../helpers/protected-storage.js";
 
 type TestServer = {
   baseUrl: string;
@@ -23,20 +27,15 @@ type TestServer = {
 };
 
 const roots: string[] = [];
-const originalDevStorage = process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE;
 const originalStellaProxyToken = process.env.STELLA_LLM_PROXY_TOKEN;
 
 beforeEach(() => {
-  process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE = "1";
+  installTestSafeStorage();
 });
 
 afterEach(async () => {
   setConnectorTokenStoreBroker(null);
-  if (originalDevStorage === undefined) {
-    delete process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE;
-  } else {
-    process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE = originalDevStorage;
-  }
+  resetTestSafeStorage();
   if (originalStellaProxyToken === undefined) {
     delete process.env.STELLA_LLM_PROXY_TOKEN;
   } else {

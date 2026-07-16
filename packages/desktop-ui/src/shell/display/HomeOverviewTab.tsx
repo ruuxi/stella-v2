@@ -3,11 +3,9 @@
  * (`/chat`) route.
  *
  * Home itself IS the chat, so this surface never hosts a duplicate
- * conversation. Instead it's a quiet launcher of the other display
- * surfaces the user might want (Canvas, Media, Trash) — click one and that
- * tab takes over. Activity / files / schedules already live in the left
- * sidebar, so this launcher doesn't repeat them, and Models lives in the
- * sidebar footer rather than here.
+ * conversation. Instead it offers the other display surfaces the user might
+ * want (Canvas, Media, Trash). Activity, files, and schedules already live in
+ * the left sidebar, and Models lives in the sidebar footer.
  */
 import type { ReactNode } from "react";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
@@ -19,7 +17,7 @@ import {
 } from "./default-tabs";
 import "./chat-home-overview.css";
 
-type LauncherEntry = {
+type OverviewEntry = {
   id: string;
   label: string;
   description: string;
@@ -27,7 +25,7 @@ type LauncherEntry = {
   onSelect: () => void;
 };
 
-const ENTRIES: ReadonlyArray<LauncherEntry> = [
+const ENTRIES: ReadonlyArray<OverviewEntry> = [
   {
     id: "canvas",
     label: "Canvas",
@@ -51,19 +49,19 @@ const ENTRIES: ReadonlyArray<LauncherEntry> = [
   },
 ];
 
-function LauncherButton({ entry }: { entry: LauncherEntry }): ReactNode {
+function OverviewButton({ entry }: { entry: OverviewEntry }): ReactNode {
   return (
     <button
       type="button"
-      className="chat-home-launcher__entry"
+      className="chat-home-overview__entry"
       onClick={entry.onSelect}
     >
-      <span className="chat-home-launcher__entry-icon" aria-hidden="true">
+      <span className="chat-home-overview__entry-icon" aria-hidden="true">
         <DisplayTabIcon kind={entry.kind} size={20} />
       </span>
-      <span className="chat-home-launcher__entry-text">
-        <span className="chat-home-launcher__entry-label">{entry.label}</span>
-        <span className="chat-home-launcher__entry-description">
+      <span className="chat-home-overview__entry-text">
+        <span className="chat-home-overview__entry-label">{entry.label}</span>
+        <span className="chat-home-overview__entry-description">
           {entry.description}
         </span>
       </span>
@@ -71,13 +69,13 @@ function LauncherButton({ entry }: { entry: LauncherEntry }): ReactNode {
   );
 }
 
-export function HomeLauncherTab() {
+export function HomeOverviewTab() {
   return (
-    <div className="chat-home-launcher">
-      <ul className="chat-home-launcher__list">
+    <div className="chat-home-overview">
+      <ul className="chat-home-overview__list">
         {ENTRIES.map((entry) => (
           <li key={entry.id}>
-            <LauncherButton entry={entry} />
+            <OverviewButton entry={entry} />
           </li>
         ))}
       </ul>

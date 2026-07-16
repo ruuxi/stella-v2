@@ -5,7 +5,7 @@ import { hashStellaAppDir, resolveLogDir } from "../worker/runtime-paths.js";
  *
  * Keyed on the same per-stellaAppDir hash the runtime worker uses so that
  * multiple Stella installs on one machine (dev tree at `~/projects/stella`
- * plus a launcher install at `~/Stella`) keep separate logs and never
+ * plus a packaged install) keep separate logs and never
  * interleave their diagnostics. Colocated with the worker's raw
  * `runtime.log` (see `resolveLogDir` in runtime-paths.ts).
  *

@@ -1,3 +1,15 @@
-import { bootstrapMainProcess } from './bootstrap.js'
+import { app } from "electron";
+import { runLifecycleVerificationFromArgs } from "./lifecycle-verification.js";
 
-bootstrapMainProcess()
+const main = async () => {
+  if (await runLifecycleVerificationFromArgs(process.argv)) {
+    return;
+  }
+  const { bootstrapMainProcess } = await import("./bootstrap.js");
+  bootstrapMainProcess();
+};
+
+void main().catch((error) => {
+  console.error(error);
+  app.exit(1);
+});

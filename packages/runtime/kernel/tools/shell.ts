@@ -1266,17 +1266,17 @@ export const startShell = (
   const launch = resolveShellLaunch(shellCommand);
 
   if ("error" in launch) {
-    const safeLaunchError = sanitizeToolVisibleText(launch.error);
+    const safeSpawnError = sanitizeToolVisibleText(launch.error);
     const record: ManagedShellRecord = {
       id,
       command,
       cwd,
-      output: safeLaunchError,
+      output: safeSpawnError,
       running: false,
       exitCode: 127,
       startedAt: Date.now(),
       completedAt: Date.now(),
-      unreadOutput: safeLaunchError,
+      unreadOutput: safeSpawnError,
       outputVersion: 1,
       waiters: new Set(),
       stdinOpen: false,

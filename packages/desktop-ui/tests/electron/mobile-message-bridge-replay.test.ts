@@ -88,6 +88,7 @@ describe("mobile bridge replay end to end", () => {
     const history = new LocalChatHistoryService({ stellaAppDir: root });
     let runtimeStarts = 0;
     const runner = {
+      waitUntilReady: vi.fn().mockResolvedValue(undefined),
       waitUntilConnected: vi.fn().mockResolvedValue(undefined),
       agentHealthCheck: vi.fn().mockResolvedValue({ ready: true }),
       handleLocalChat: vi.fn().mockImplementation(async (payload, callbacks) => {

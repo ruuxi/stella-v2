@@ -15,7 +15,7 @@ type UseWorkspacePanelEventsOptions = {
   openChatPanel: (detail?: StellaOpenPanelChatDetail) => void;
   /**
    * Route-aware default surface for a manual panel summon (right-click /
-   * keyboard). Opens the Home launcher on home and the chat viewer
+   * keyboard). Opens the Home overview on home and the chat viewer
    * elsewhere; reopens an already-active artifact viewer as-is.
    */
   openDefaultPanelSurface: () => void;
@@ -26,7 +26,7 @@ type UseWorkspacePanelEventsOptions = {
  * - `STELLA_OPEN_PANEL_CHAT_EVENT` — open the chat tab
  * - `STELLA_CLOSE_PANEL_EVENT` — close the panel
  * - `STELLA_OPEN_WORKSPACE_PANEL_EVENT` — manual summon; opens the
- *   route-aware default surface (Home launcher on home, chat elsewhere).
+ *   route-aware default surface (Home overview on home, chat elsewhere).
  * - `electronAPI.ui.onOpenChatSidebar` — IPC equivalent of "open chat tab".
  */
 export function useWorkspacePanelEvents({

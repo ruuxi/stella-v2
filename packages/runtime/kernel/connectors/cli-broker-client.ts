@@ -13,6 +13,16 @@
  */
 
 import { connect, type Socket } from "node:net";
+import type { ConnectorTokenPayload } from "./oauth.js";
+
+export type ConnectorTokenStoreRequest =
+  | { operation: "load"; tokenKey: string }
+  | { operation: "save"; tokenKey: string; payload: ConnectorTokenPayload }
+  | { operation: "delete"; tokenKeys: string[] };
+
+export type ConnectorTokenStoreResult =
+  | { ok: true; payload?: ConnectorTokenPayload | null }
+  | { ok: false; reason: string };
 
 export type ConnectorCredentialResult =
   | { ok: true }
@@ -116,6 +126,47 @@ const sendRequest = (
       fail(new Error("cli-bridge: connection closed without a response"));
     });
   });
+
+export const requestConnectorTokenStoreFromBridge = async ({
+  socketPath,
+  request,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: {
+  socketPath: string;
+  request: ConnectorTokenStoreRequest;
+  timeoutMs?: number;
+}): Promise<ConnectorTokenStoreResult> => {
+  const result = await sendRequest(
+    socketPath,
+    "connector.tokenStore",
+    request,
+    timeoutMs,
+  );
+  if (!result || typeof result !== "object") {
+    return { ok: false, reason: "invalid_response" };
+  }
+  const record = result as Record<string, unknown>;
+  if (record.ok !== true) {
+    return {
+      ok: false,
+      reason:
+        typeof record.reason === "string" && record.reason
+          ? record.reason
+          : "unknown",
+    };
+  }
+  return {
+    ok: true,
+    ...(request.operation === "load"
+      ? {
+          payload:
+            record.payload && typeof record.payload === "object"
+              ? (record.payload as ConnectorTokenPayload)
+              : null,
+        }
+      : {}),
+  };
+};
 
 export const requestConnectorCredentialFromBridge = async ({
   socketPath,

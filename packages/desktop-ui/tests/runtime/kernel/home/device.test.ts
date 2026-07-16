@@ -8,9 +8,12 @@ import {
   getOrCreateDeviceIdentity,
   resetDeviceIdentity,
 } from "@stella/runtime/kernel/home/device";
+import {
+  installTestSafeStorage,
+  resetTestSafeStorage,
+} from "../../../helpers/protected-storage.js";
 
 const roots = new Set<string>();
-const originalDevStorage = process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE;
 
 const createTempDir = async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "stella-device-"));
@@ -26,7 +29,7 @@ const readDeviceRecord = async (root: string) =>
   };
 
 beforeEach(() => {
-  process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE = "1";
+  installTestSafeStorage();
 });
 
 afterEach(async () => {
@@ -34,11 +37,7 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   }
   roots.clear();
-  if (originalDevStorage === undefined) {
-    delete process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE;
-  } else {
-    process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE = originalDevStorage;
-  }
+  resetTestSafeStorage();
 });
 
 describe("device identity", () => {

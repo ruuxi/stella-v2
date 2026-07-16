@@ -31,7 +31,7 @@ const stellaAppDirFromProjectRoot = () => {
  * Small auth adapter for the existing Google Workspace service classes.
  *
  * The old implementation had its own plaintext token file, cloud-function
- * exchange, and browser launcher. Store-native integrations now own OAuth:
+ * exchange, and browser opener. Store-native integrations now own OAuth:
  * tokens live in connector protected storage and browser launch is brokered
  * by the shared connector dialog before this class is ever asked for a client.
  */
@@ -59,7 +59,9 @@ export class AuthManager {
     }
 
     const savedScopes = new Set(payload.scopes ?? []);
-    const missingScopes = this.scopes.filter((scope) => !savedScopes.has(scope));
+    const missingScopes = this.scopes.filter(
+      (scope) => !savedScopes.has(scope),
+    );
     if (missingScopes.length > 0) {
       logToFile(
         `Connector token missing Google Workspace scopes: ${missingScopes.join(", ")}`,
@@ -78,17 +80,19 @@ export class AuthManager {
     client.on("tokens", async (tokens) => {
       const current = await loadConnectorTokenPayload(stellaAppDir, TOKEN_KEY);
       await saveConnectorTokenPayload(stellaAppDir, TOKEN_KEY, {
-        accessToken: tokens.access_token ?? current?.accessToken ?? payload.accessToken,
+        accessToken:
+          tokens.access_token ?? current?.accessToken ?? payload.accessToken,
         refreshToken:
-          tokens.refresh_token ?? current?.refreshToken ?? payload.refreshToken ?? undefined,
-        expiresAt:
-          tokens.expiry_date ??
-          current?.expiresAt,
+          tokens.refresh_token ??
+          current?.refreshToken ??
+          payload.refreshToken ??
+          undefined,
+        expiresAt: tokens.expiry_date ?? current?.expiresAt,
         clientId: this.clientId,
         tokenEndpoint: TOKEN_ENDPOINT,
         scopes: tokens.scope
           ? tokens.scope.split(/\s+/u).filter(Boolean)
-          : current?.scopes ?? payload.scopes,
+          : (current?.scopes ?? payload.scopes),
       });
     });
     this.client = client;
@@ -97,7 +101,9 @@ export class AuthManager {
 
   public async clearAuth(): Promise<void> {
     this.client = null;
-    await deleteConnectorAccessTokens(stellaAppDirFromProjectRoot(), [TOKEN_KEY]);
+    await deleteConnectorAccessTokens(stellaAppDirFromProjectRoot(), [
+      TOKEN_KEY,
+    ]);
   }
 
   public async refreshToken(): Promise<void> {
@@ -114,7 +120,8 @@ export class AuthManager {
       clientId: this.clientId,
       tokenEndpoint: TOKEN_ENDPOINT,
       scopes:
-        response.credentials.scope?.split(/\s+/u).filter(Boolean) ?? this.scopes,
+        response.credentials.scope?.split(/\s+/u).filter(Boolean) ??
+        this.scopes,
     });
   }
 }

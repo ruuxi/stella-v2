@@ -356,19 +356,19 @@ Output: "I need you to go and do the following for me:
 - Then summarize it for me.
 - Then summarize Stella project."
 
-Input: "can you check three things the audio settings the microphone permissions and the launcher download step"
+Input: "can you check three things the audio settings the microphone permissions and the model download step"
 Output: "Can you check three things:
 - The audio settings.
 - The microphone permissions.
-- The launcher download step."
+- The model download step."
 
 Do not format as a list when the user is speaking one normal sentence, even if it contains "and" or "then".
 Examples of when not to format:
 Input: "look at the audio settings and tell me why the toggle is not saving"
 Output: "Look at the audio settings and tell me why the toggle is not saving."
 
-Input: "go into the launcher and check whether the download runs on macOS"
-Output: "Go into the launcher and check whether the download runs on macOS."
+Input: "go into the app and check whether the download runs on macOS"
+Output: "Go into the app and check whether the download runs on macOS."
 
 Do not add facts, commands, filenames, or intent that the user did not say.
 `.trim();
@@ -577,10 +577,8 @@ export class InworldDictationSession {
         // Local runs in one pass over the whole recording, so scale the
         // timeout by how many managed segments it would have been.
         const localTimeoutMs =
-          Math.max(
-            1,
-            Math.ceil(totalSamples / MANAGED_MAX_SEGMENT_SAMPLES),
-          ) * TRANSCRIBE_SEGMENT_TIMEOUT_MS;
+          Math.max(1, Math.ceil(totalSamples / MANAGED_MAX_SEGMENT_SAMPLES)) *
+          TRANSCRIBE_SEGMENT_TIMEOUT_MS;
         const audioBase64 = bytesToBase64(
           encodeWav16(chunks, TARGET_SAMPLE_RATE),
         );
@@ -598,7 +596,10 @@ export class InworldDictationSession {
       }
     }
 
-    const segments = splitPcmBySampleBudget(chunks, MANAGED_MAX_SEGMENT_SAMPLES);
+    const segments = splitPcmBySampleBudget(
+      chunks,
+      MANAGED_MAX_SEGMENT_SAMPLES,
+    );
     const parts: string[] = [];
     let failures = 0;
     let firstError: string | undefined;

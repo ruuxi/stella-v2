@@ -16,19 +16,9 @@ Everything can change. UI, functionality, runtime, prompts, skills. No restricti
 
 ### Install
 
-macOS:
-
-```bash
-curl -fsSL https://stella.sh/install.sh | bash
-```
-
-Windows:
-
-```powershell
-irm https://stella.sh/install.ps1 | iex
-```
-
-Or [download from stella.sh](https://stella.sh).
+Download the installer from [stella.sh](https://stella.sh). On macOS, open the
+DMG and drag Stella into Applications. On Windows, run the NSIS installer. On
+Linux, mark the AppImage executable and open it.
 
 ## One ongoing conversation
 
@@ -83,7 +73,6 @@ macOS and Windows. Windows support is currently untested and experimental.
 ## Related repos
 
 - [stella-backend](https://github.com/ruuxi/stella-backend) — Convex backend
-- [stella-launcher](https://github.com/ruuxi/stella-launcher) — Tauri setup app
 - [stella-mobile](https://github.com/ruuxi/stella-mobile) — iOS / Android app
 - [stella-website](https://github.com/ruuxi/stella-website) — marketing site
 

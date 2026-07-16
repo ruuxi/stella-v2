@@ -28,7 +28,6 @@
     "stella-browser:download": "node packages/desktop/scripts/download-stella-browser.mjs",
     "workspace:create-app": "node packages/desktop/scripts/create-workspace-app.mjs",
     "electron:install": "bun ./node_modules/electron/install.js",
-    "deps:prewarm": "node packages/desktop/scripts/prewarm-vite-deps.mjs",
     "electron:dev": "node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback && node packages/desktop/scripts/dev-electron-build.mjs --once && concurrently -k \"bun run dev\" \"node packages/desktop/scripts/launch-electron-dev.mjs\"",
     "electron:typecheck": "node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.electron.json --pretty false --noEmit && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.preload.json --pretty false --noEmit",
     "electron:typecheck:watch": "concurrently -k --kill-others-on-fail \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.electron.json --preserveWatchOutput --noEmit\" \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.preload.json --preserveWatchOutput --noEmit\"",
@@ -240,7 +239,15 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "icon.ico"
+      "icon": "icon.ico",
+      "artifactName": "Stella-${version}-Windows-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "mac": {
       "target": "dmg",
@@ -253,9 +260,26 @@
         "NSAccessibilityUsageDescription": "Stella uses Accessibility when you enable global shortcuts and computer control."
       }
     },
+    "dmg": {
+      "artifactName": "Stella-${version}-macOS-${arch}.${ext}",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
     "linux": {
       "target": "AppImage",
-      "icon": "icon.png"
+      "icon": "icon.png",
+      "artifactName": "Stella-${version}-Linux-${arch}.${ext}",
+      "category": "Utility"
     }
   },
   "trustedDependencies": [

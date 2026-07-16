@@ -1,5 +1,5 @@
-import { app, crashReporter, Menu } from 'electron'
-import path from 'path'
+import { app, crashReporter, Menu } from "electron";
+import path from "path";
 import {
   AUTH_PROTOCOL,
   HARD_RESET_MUTABLE_HOME_PATHS,
@@ -9,71 +9,54 @@ import {
   STELLA_APP_NAME,
   STELLA_SESSION_PARTITION,
   STELLA_WINDOWS_APP_USER_MODEL_ID,
-} from './bootstrap/constants.js'
-import { createBootstrapContext } from './bootstrap/context.js'
-import { initMainProcessLogging } from './observability/main-logger.js'
+} from "./bootstrap/constants.js";
+import { createBootstrapContext } from "./bootstrap/context.js";
+import { initMainProcessLogging } from "./observability/main-logger.js";
 import {
   getTotalSystemMemoryMb,
   isLowMemoryWindowsDevice,
-} from './resource-profile.js'
-import { resolveRuntimeStatePath } from '@stella/runtime/kernel/home/stella-home'
+} from "./resource-profile.js";
+import { resolveRuntimeStatePath } from "@stella/runtime/kernel/home/stella-home";
 import {
   initializeBootstrapSingleInstance,
   registerBootstrapLifecycle,
-} from './bootstrap/lifecycle.js'
-import { activateStagedStellaBrowserBinaryForInstall } from './utils/stella-browser-paths.js'
-import { resolvePackagedPromptSiteUrl } from './prompt-site-config.js'
-const __dirname = import.meta.dirname
+} from "./bootstrap/lifecycle.js";
+import { activateStagedStellaBrowserBinaryForInstall } from "./utils/stella-browser-paths.js";
+import { resolvePackagedPromptSiteUrl } from "./prompt-site-config.js";
+const __dirname = import.meta.dirname;
+// app.isPackaged is the authority. Inherited environment variables must never
+// turn a signed build back into a Vite client.
+const isDev = !app.isPackaged;
+
+if (isDev) {
+  app.setPath(
+    "userData",
+    path.join(app.getPath("appData"), "Stella Development"),
+  );
+}
+
 const stellaAppDir = app.isPackaged
   ? app.getAppPath()
-  : path.resolve(__dirname, '..', '..', '..', '..')
-const stellaDataDirPath = resolveRuntimeStatePath(undefined, stellaAppDir)
-
-// app.isPackaged is the authority. Environment variables inherited from a
-// terminal or launcher must never turn a signed build back into a Vite client.
-const isDev = !app.isPackaged
-const useDevServer = isDev
+  : path.resolve(__dirname, "..", "..", "..", "..");
+const stellaDataDirPath = resolveRuntimeStatePath(
+  app,
+  stellaAppDir,
+  process.env.STELLA_DATA_DIR?.trim() || app.getPath("userData"),
+);
+const useDevServer = isDev;
 const installDevBrokenPipeGuards = () => {
   if (!isDev) {
-    return
+    return;
   }
 
   const swallowBrokenPipe = (_error: Error & { code?: string }) => {
     // Dev-mode Electron inherits stdio from the runner process. If that parent
     // pipe disappears, logging should not crash the app.
-  }
+  };
 
-  process.stdout.on('error', swallowBrokenPipe)
-  process.stderr.on('error', swallowBrokenPipe)
-}
-
-const configureDevUserDataPath = () => {
-  if (!isDev) {
-    return
-  }
-
-  const devUserDataPath = path.join(stellaDataDirPath, 'electron-user-data')
-  app.setPath('userData', devUserDataPath)
-  app.setPath('sessionData', path.join(devUserDataPath, 'session-data'))
-}
-
-const configureDevKeychainBehavior = () => {
-  if (!isDev || process.platform !== 'darwin') {
-    return
-  }
-
-  // Stella's protected secrets route exclusively through the launcher's
-  // signed Tauri binary (see `runtime/kernel/shared/protected-storage.ts`),
-  // so Stella itself does NOT call Electron's `safeStorage` API in this
-  // configuration. The macOS Keychain prompt for "Electron Safe Storage"
-  // would only appear if our code somehow reached `safeStorage`, which the
-  // launcher-mode guard inside `getSafeStorage` now prevents. The Chromium
-  // switches below are kept for cross-platform defense-in-depth: they stop
-  // the cookie-encryption store from initializing a Keychain entry on
-  // platforms where it would otherwise do so.
-  app.commandLine.appendSwitch('use-mock-keychain')
-  app.commandLine.appendSwitch('password-store', 'basic')
-}
+  process.stdout.on("error", swallowBrokenPipe);
+  process.stderr.on("error", swallowBrokenPipe);
+};
 
 const startLocalCrashReporter = () => {
   try {
@@ -81,17 +64,17 @@ const startLocalCrashReporter = () => {
       uploadToServer: false,
       compress: true,
       globalExtra: {
-        app: 'stella',
+        app: "stella",
       },
-    })
+    });
   } catch {
     // Crash reporting is best-effort diagnostics only.
   }
-}
+};
 
 export const bootstrapMainProcess = () => {
-  app.setName(STELLA_APP_NAME)
-  initMainProcessLogging(stellaAppDir)
+  app.setName(STELLA_APP_NAME);
+  initMainProcessLogging(stellaAppDir);
   // Update completion normally promotes this artifact before recording the
   // release. Reconcile it again at the earliest startup point so an
   // interrupted update cannot leave HEAD=new / working-tree=old until the
@@ -99,34 +82,32 @@ export const bootstrapMainProcess = () => {
   try {
     if (activateStagedStellaBrowserBinaryForInstall(stellaAppDir)) {
       console.log(
-        '[updates] Activated staged Stella Browser binary during startup.',
-      )
+        "[updates] Activated staged Stella Browser binary during startup.",
+      );
     }
   } catch (error) {
     console.error(
-      '[updates] Could not activate staged Stella Browser binary during startup:',
+      "[updates] Could not activate staged Stella Browser binary during startup:",
       error,
-    )
+    );
   }
-  installDevBrokenPipeGuards()
-  configureDevKeychainBehavior()
-  configureDevUserDataPath()
-  startLocalCrashReporter()
+  installDevBrokenPipeGuards();
+  startLocalCrashReporter();
   // Stella ships its own chrome (custom top bar, custom window controls on
   // Windows). Electron's default application menu otherwise renders an
   // in-window File/Edit/View/Window/Help bar on Windows/Linux directly below
   // the native title bar, doubling up with our top bar. Keep macOS' native
   // app menu so standard Edit roles continue to provide Cmd+C/Cmd+V/etc.
-  if (process.platform !== 'darwin') {
-    Menu.setApplicationMenu(null)
+  if (process.platform !== "darwin") {
+    Menu.setApplicationMenu(null);
   }
-  if (process.platform === 'win32') {
-    app.setAppUserModelId(STELLA_WINDOWS_APP_USER_MODEL_ID)
+  if (process.platform === "win32") {
+    app.setAppUserModelId(STELLA_WINDOWS_APP_USER_MODEL_ID);
   }
   if (isLowMemoryWindowsDevice()) {
     console.log(
       `[resource] Low-memory Windows profile enabled (${getTotalSystemMemoryMb()} MB total)`,
-    )
+    );
   }
 
   const context = createBootstrapContext({
@@ -134,7 +115,7 @@ export const bootstrapMainProcess = () => {
     electronDir: __dirname,
     stellaAppDir,
     stellaDataDirPath,
-    promptSiteUrl: resolvePackagedPromptSiteUrl(stellaAppDir),
+    promptSiteUrl: resolvePackagedPromptSiteUrl(),
     hardResetMutableHomePaths: HARD_RESET_MUTABLE_HOME_PATHS,
     isDev,
     useDevServer,
@@ -142,11 +123,11 @@ export const bootstrapMainProcess = () => {
     startupStageDelayMs: STARTUP_STAGE_DELAY_MS,
     startupFirstPaintFallbackMs: STARTUP_FIRST_PAINT_FALLBACK_MS,
     startupRuntimeWarmupDelayMs: STARTUP_RUNTIME_WARMUP_DELAY_MS,
-  })
+  });
 
   if (!initializeBootstrapSingleInstance(context)) {
-    return
+    return;
   }
 
-  registerBootstrapLifecycle(context)
-}
+  registerBootstrapLifecycle(context);
+};

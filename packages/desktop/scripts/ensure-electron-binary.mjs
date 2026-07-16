@@ -37,7 +37,9 @@ function getPlatformPath(platform) {
     case "win32":
       return "electron.exe";
     default:
-      throw new Error(`Electron builds are not available on platform: ${platform}`);
+      throw new Error(
+        `Electron builds are not available on platform: ${platform}`,
+      );
   }
 }
 
@@ -69,7 +71,7 @@ export function isElectronBinaryHealthy() {
 
     // `path.txt` is the source of truth `node_modules/electron/index.js` uses
     // to locate the binary. We deliberately do NOT compare it against the stock
-    // `Electron.app` path: the dev launcher renames the bundle to `Stella.app`
+    // `Electron.app` path used by the ordinary development command.
     // (see `patchDevAppName` in `dev-electron.mjs`) and rewrites `path.txt`
     // accordingly, so a healthy install can legitimately point elsewhere.
     const recordedPath = readFileSync(

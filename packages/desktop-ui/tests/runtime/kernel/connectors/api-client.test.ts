@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { callApiConnector } from "@stella/runtime/kernel/connectors/api-client";
 import { saveConnectorAccessToken } from "@stella/runtime/kernel/connectors/oauth";
+import {
+  installTestSafeStorage,
+  resetTestSafeStorage,
+} from "../../../helpers/protected-storage.js";
 
 type TestServer = {
   baseUrl: string;
@@ -14,18 +18,13 @@ type TestServer = {
 };
 
 const roots: string[] = [];
-const originalDevStorage = process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE;
 
 beforeEach(() => {
-  process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE = "1";
+  installTestSafeStorage();
 });
 
 afterEach(async () => {
-  if (originalDevStorage === undefined) {
-    delete process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE;
-  } else {
-    process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE = originalDevStorage;
-  }
+  resetTestSafeStorage();
   await Promise.all(
     roots.splice(0).map((root) =>
       rm(root, {
@@ -74,9 +73,9 @@ describe("connector API client", () => {
     const server = await startServer((req, res) => {
       expect(req.url).toBe("/v2/bookings?limit=10");
       expect(req.headers.authorization).toBe("Bearer cal-access");
-      res.writeHead(200, { "content-type": "application/json" }).end(
-        JSON.stringify({ ok: true }),
-      );
+      res
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ ok: true }));
     });
 
     try {
@@ -108,9 +107,9 @@ describe("connector API client", () => {
 
     const server = await startServer((req, res) => {
       expect(req.url).toBe("/api/v0/public/tasks");
-      res.writeHead(200, { "content-type": "application/json" }).end(
-        JSON.stringify({ ok: true }),
-      );
+      res
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ ok: true }));
     });
 
     try {

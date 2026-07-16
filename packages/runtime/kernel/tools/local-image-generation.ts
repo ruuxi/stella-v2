@@ -6,7 +6,7 @@ import {
   getImageGenerationPreferences,
   type ImageGenerationProvider,
 } from "../preferences/local-preferences.js";
-import { getLocalLlmCredential } from "../storage/llm-credentials.js";
+import { getAccessibleLocalLlmApiKey } from "../storage/local-llm-credential-access.js";
 import type { ToolContext, ToolHandlerExtras, ToolResult } from "./types.js";
 
 type LocalImageGenerationInput = {
@@ -418,7 +418,10 @@ export const runLocalImageGeneration = async (
   const preferences = getImageGenerationPreferences(stellaDataDir);
   if (preferences.provider === "stella") return null;
 
-  const apiKey = getLocalLlmCredential(stellaDataDir, preferences.provider);
+  const apiKey = await getAccessibleLocalLlmApiKey(
+    stellaDataDir,
+    preferences.provider,
+  );
   if (!apiKey) {
     return {
       error: `Connect ${preferences.provider} in Settings to use it for images.`,

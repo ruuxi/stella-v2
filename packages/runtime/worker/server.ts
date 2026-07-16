@@ -77,6 +77,8 @@ import {
   type AgentHealth,
   type HostDeviceIdentity,
   type HostAppBrowserContextSnapshot,
+  type HostLlmCredentialsRequest,
+  type HostLlmCredentialsResult,
   type RuntimeAttachmentRef,
   type RuntimeAgentEventPayload,
   type RuntimeChatPayload,
@@ -98,7 +100,12 @@ import { fileChange } from "@stella/contracts/file-changes";
 import { prepareStoredLocalChatPayload } from "../kernel/storage/local-chat-payload.js";
 import { collectAllSignals } from "../discovery/collect-all.js";
 import { sweepStaleConnectorBridgeProcesses } from "../kernel/connectors/process-registry.js";
-import { setConnectorTokenStoreBroker } from "../kernel/connectors/oauth.js";
+import {
+  setConnectorTokenStoreBroker,
+  type ConnectorTokenPayload,
+} from "../kernel/connectors/oauth.js";
+import type { ConnectorTokenStoreRequest } from "../kernel/connectors/cli-broker-client.js";
+import { setLocalLlmCredentialAccessBroker } from "../kernel/storage/local-llm-credential-access.js";
 import {
   collectBrowserData,
   formatBrowserDataForSynthesis,
@@ -149,6 +156,7 @@ type WorkerInitializationState = {
   hasConnectedAccount: boolean;
   cloudSyncEnabled: boolean;
   modelCatalogUpdatedAt: number | null;
+  localLlmCredentialsUpdatedAt: number | null;
 };
 
 const notifyLocalChatUpdated = (
@@ -178,12 +186,7 @@ const resolveDesktopCliEntrypoint = (
 ): string => {
   const resourcesPath = process.env.STELLA_APP_RESOURCES_PATH?.trim();
   if (resourcesPath) {
-    const packaged = path.join(
-      resourcesPath,
-      packageName,
-      "bin",
-      entrypoint,
-    );
+    const packaged = path.join(resourcesPath, packageName, "bin", entrypoint);
     if (existsSync(packaged)) {
       return packaged;
     }
@@ -492,6 +495,7 @@ const stopWorkerServices = async (state: WorkerState) => {
   await state.cliBridgeServer?.stop().catch(() => undefined);
   state.cliBridgeServer = null;
   setConnectorTokenStoreBroker(null);
+  setLocalLlmCredentialAccessBroker(null);
   state.db?.close();
   state.db = null;
 };
@@ -674,6 +678,52 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     return state.voiceService;
   };
 
+  const requestHostLlmCredentials = async (
+    request: HostLlmCredentialsRequest,
+  ): Promise<HostLlmCredentialsResult> =>
+    await peer.request(METHOD_NAMES.HOST_LLM_CREDENTIALS_REQUEST, request, {
+      retryOnDisconnect: true,
+    });
+
+  const refreshLocalLlmCredentialAccess = async (): Promise<void> => {
+    const result = await requestHostLlmCredentials({ operation: "list" });
+    if (
+      !result.ok ||
+      !("apiKeyProviders" in result) ||
+      !("oauthProviders" in result)
+    ) {
+      throw new Error(
+        `Desktop credential storage is unavailable: ${result.ok ? "invalid_response" : result.reason}`,
+      );
+    }
+    const apiKeyProviders = new Set(
+      result.apiKeyProviders.map((provider) => provider.trim().toLowerCase()),
+    );
+    const oauthProviders = new Set(
+      result.oauthProviders.map((provider) => provider.trim().toLowerCase()),
+    );
+    setLocalLlmCredentialAccessBroker({
+      hasApiKey: (provider) => apiKeyProviders.has(provider),
+      hasOAuth: (provider) => oauthProviders.has(provider),
+      getApiKey: async (provider) => {
+        const value = await requestHostLlmCredentials({
+          operation: "get",
+          kind: "api-key",
+          provider,
+        });
+        return value.ok && "value" in value ? value.value : null;
+      },
+      getOAuthApiKey: async (provider) => {
+        const value = await requestHostLlmCredentials({
+          operation: "get",
+          kind: "oauth-api-key",
+          provider,
+        });
+        return value.ok && "value" in value ? value.value : null;
+      },
+    });
+  };
+
   const initializeWorker = async (init: WorkerInitializationState) => {
     if (
       init.protocolVersion &&
@@ -712,6 +762,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     state.runtimeStore = runtimeStore;
     state.socialSessionStore = socialSessionStore;
     state.runEventLog = runEventLog;
+    await refreshLocalLlmCredentialAccess();
     const bridgePaths = resolveRuntimePaths(init.stellaAppDir);
     const brokerAvailability = connectorActionBrokerAvailability(
       process.platform,
@@ -788,17 +839,20 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           }
         },
       });
-      // Protected connector credentials stay on the trusted worker↔desktop
-      // channel. The agent-visible CLI socket never exposes these operations.
+      const requestHostConnectorTokenStore = async (
+        request: ConnectorTokenStoreRequest,
+      ) =>
+        await peer.request<{
+          ok: boolean;
+          payload?: ConnectorTokenPayload | null;
+          reason?: string;
+        }>(METHOD_NAMES.HOST_CONNECTOR_TOKEN_STORE_REQUEST, request);
+
+      // Protected connector credentials stay on owner-only local IPC. The
+      // worker and shipped CLI receive plaintext only in memory for a request.
       setConnectorTokenStoreBroker({
         load: async (tokenKey) => {
-          const result = await peer.request<{
-            ok: boolean;
-            payload?:
-              | import("../kernel/connectors/oauth.js").ConnectorTokenPayload
-              | null;
-            reason?: string;
-          }>(METHOD_NAMES.HOST_CONNECTOR_TOKEN_STORE_REQUEST, {
+          const result = await requestHostConnectorTokenStore({
             operation: "load",
             tokenKey,
           });
@@ -806,17 +860,18 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           return result.payload ?? null;
         },
         save: async (tokenKey, payload) => {
-          const result = await peer.request<{ ok: boolean; reason?: string }>(
-            METHOD_NAMES.HOST_CONNECTOR_TOKEN_STORE_REQUEST,
-            { operation: "save", tokenKey, payload },
-          );
+          const result = await requestHostConnectorTokenStore({
+            operation: "save",
+            tokenKey,
+            payload,
+          });
           if (!result.ok) throw new Error(result.reason ?? "token_save_failed");
         },
         delete: async (tokenKeys) => {
-          const result = await peer.request<{ ok: boolean; reason?: string }>(
-            METHOD_NAMES.HOST_CONNECTOR_TOKEN_STORE_REQUEST,
-            { operation: "delete", tokenKeys },
-          );
+          const result = await requestHostConnectorTokenStore({
+            operation: "delete",
+            tokenKeys,
+          });
           if (!result.ok)
             throw new Error(result.reason ?? "token_delete_failed");
         },
@@ -832,6 +887,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         },
         handlers: {
           runBackendConnectorAction,
+          requestConnectorTokenStore: requestHostConnectorTokenStore,
           requestConnectorCredential: async (params) => {
             try {
               return await peer.request<
@@ -1250,6 +1306,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         return { ok: true, queued: true };
       }
       applyConfigPatch(patch);
+      if (patch.localLlmCredentialsUpdatedAt !== undefined) {
+        await refreshLocalLlmCredentialAccess();
+      }
       return { ok: true };
     },
   );

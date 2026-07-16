@@ -52,8 +52,7 @@ export const inferShellMentionedPaths = (
       token.startsWith("../") ||
       token.startsWith("desktop/") ||
       token.startsWith("runtime/") ||
-      token.startsWith("backend/") ||
-      token.startsWith("launcher/")
+      token.startsWith("backend/")
     ) {
       consider(token);
       continue;

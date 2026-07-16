@@ -10,7 +10,7 @@ export const createOrchestratorCoordinator = (context: RunnerContext) => {
    * Fires a fresh reply turn for user chat messages that were injected into a
    * run as follow-ups but never answered (the run was interrupted or failed
    * before draining its follow-up queue). Set by `orchestrator.ts` once the
-   * turn launcher is defined. A no-op until then.
+   * turn callback is defined. A no-op until then.
    */
   let flushPendingFollowUpReplies: ((conversationId: string) => void) | null =
     null;
@@ -77,10 +77,7 @@ export const createOrchestratorCoordinator = (context: RunnerContext) => {
     }
   };
 
-  const cleanupRun = (
-    runId: string,
-    onCleanup?: () => void,
-  ) => {
+  const cleanupRun = (runId: string, onCleanup?: () => void) => {
     context.state.activeRunAbortControllers.delete(runId);
     clearActiveOrchestratorRun(runId);
     onCleanup?.();

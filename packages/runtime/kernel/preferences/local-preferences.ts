@@ -155,7 +155,7 @@ export type LocalPreferences = {
   wakeWordEnabled: boolean;
   /**
    * First-run onboarding completion. Stored in ~/.stella/preferences.json so
-   * launcher reinstall/repair flows preserve it even if Electron web storage
+   * installer repair flows preserve it even if Electron web storage
    * is rebuilt.
    */
   onboardingCompleted: boolean;

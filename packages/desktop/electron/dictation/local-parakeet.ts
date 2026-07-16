@@ -3,21 +3,14 @@ import {
   spawn,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
-import {
-  createReadStream,
-  createWriteStream,
-  existsSync,
-  statSync,
-} from "node:fs";
-import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { app } from "electron";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
-
-const __dirname = import.meta.dirname;
+import { downloadModelWithResume } from "./resumable-model-download.js";
 
 /**
  * Local on-device dictation. Two engines back this depending on platform:
@@ -147,44 +140,10 @@ const parseHelperResponse = (raw: string): HelperResponse | null => {
 // CoreML (Apple Silicon) model location — auto-downloaded by FluidAudio.
 // ---------------------------------------------------------------------------
 
-const coremlCacheRoot = (): string => {
-  const sourceCandidates =
-    process.env.NODE_ENV === "development" || !process.defaultApp
-      ? [
-          path.join(process.cwd(), "resources", "parakeet"),
-          path.join(process.cwd(), "desktop", "resources", "parakeet"),
-          path.join(__dirname, "..", "..", "..", "..", "resources", "parakeet"),
-          path.join(__dirname, "..", "..", "..", "resources", "parakeet"),
-          path.join(__dirname, "..", "..", "resources", "parakeet"),
-          path.join(__dirname, "..", "resources", "parakeet"),
-        ]
-      : [path.join(process.resourcesPath, "parakeet")];
-  for (const candidate of sourceCandidates) {
-    if (hasCoremlModel(candidate)) {
-      return candidate;
-    }
-  }
-  return sourceCandidates[0] ?? path.join(process.resourcesPath, "parakeet");
-};
+const modelDataRoot = (): string =>
+  path.join(app.getPath("userData"), "models");
 
-const hasCoremlModel = (candidate: string): boolean => {
-  try {
-    return (
-      path.isAbsolute(candidate) &&
-      existsSync(
-        path.join(
-          candidate,
-          "FluidAudio",
-          "Models",
-          "parakeet-tdt-0.6b-v3",
-          "config.json",
-        ),
-      )
-    );
-  } catch {
-    return false;
-  }
-};
+const coremlCacheRoot = (): string => path.join(modelDataRoot(), "parakeet");
 
 // ---------------------------------------------------------------------------
 // parakeet.cpp GGUF model — downloaded + cached under userData.
@@ -192,10 +151,6 @@ const hasCoremlModel = (candidate: string): boolean => {
 
 let cppModelDownload: Promise<string> | null = null;
 
-// The GGUF lives in the install tree under resources/parakeet-cpp/, mirroring
-// the CoreML cache at resources/parakeet/. The launcher pre-downloads it there
-// at install time (the "Preparing local dictation" step); the runtime download
-// below is the fallback for dev runs or a skipped/failed install step.
 const CPP_MODEL_DIR_NAME = "parakeet-cpp";
 
 const hasCppModel = (dir: string): boolean => {
@@ -209,38 +164,8 @@ const hasCppModel = (dir: string): boolean => {
   }
 };
 
-const cppModelDir = (): string => {
-  const candidates =
-    process.env.NODE_ENV === "development" || !process.defaultApp
-      ? [
-          path.join(process.cwd(), "resources", CPP_MODEL_DIR_NAME),
-          path.join(process.cwd(), "desktop", "resources", CPP_MODEL_DIR_NAME),
-          path.join(
-            __dirname,
-            "..",
-            "..",
-            "..",
-            "..",
-            "resources",
-            CPP_MODEL_DIR_NAME,
-          ),
-          path.join(
-            __dirname,
-            "..",
-            "..",
-            "..",
-            "resources",
-            CPP_MODEL_DIR_NAME,
-          ),
-          path.join(__dirname, "..", "..", "resources", CPP_MODEL_DIR_NAME),
-          path.join(__dirname, "..", "resources", CPP_MODEL_DIR_NAME),
-        ]
-      : [path.join(process.resourcesPath, CPP_MODEL_DIR_NAME)];
-  for (const candidate of candidates) {
-    if (hasCppModel(candidate)) return candidate;
-  }
-  return candidates[0] ?? path.join(process.resourcesPath, CPP_MODEL_DIR_NAME);
-};
+const cppModelDir = (): string =>
+  path.join(modelDataRoot(), CPP_MODEL_DIR_NAME);
 
 const cppModelPath = (): string => path.join(cppModelDir(), CPP_MODEL_FILE);
 
@@ -249,43 +174,14 @@ const cppModelIsReady = (): string | null => {
   return hasCppModel(dir) ? path.join(dir, CPP_MODEL_FILE) : null;
 };
 
-const verifyCppModel = async (target: string): Promise<boolean> => {
-  try {
-    const info = await stat(target);
-    if (info.size !== CPP_MODEL_SIZE) return false;
-  } catch {
-    return false;
-  }
-  try {
-    const hash = createHash("sha256");
-    await pipeline(createReadStream(target), hash);
-    return hash.digest("hex") === CPP_MODEL_SHA256;
-  } catch {
-    return false;
-  }
-};
-
 const downloadCppModel = async (): Promise<string> => {
   const target = cppModelPath();
-  await mkdir(path.dirname(target), { recursive: true });
-  const tmp = `${target}.${randomUUID()}.part`;
-  try {
-    const response = await fetch(CPP_MODEL_URL);
-    if (!response.ok || !response.body) {
-      throw new Error(`Model download failed: HTTP ${response.status}`);
-    }
-    await pipeline(
-      Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
-      createWriteStream(tmp),
-    );
-    if (!(await verifyCppModel(tmp))) {
-      throw new Error("Downloaded Parakeet model failed integrity check.");
-    }
-    await rename(tmp, target);
-    return target;
-  } finally {
-    await rm(tmp, { force: true }).catch(() => undefined);
-  }
+  return await downloadModelWithResume({
+    url: CPP_MODEL_URL,
+    targetPath: target,
+    expectedSize: CPP_MODEL_SIZE,
+    expectedSha256: CPP_MODEL_SHA256,
+  });
 };
 
 /**

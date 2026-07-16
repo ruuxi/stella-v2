@@ -32,6 +32,14 @@ import { getActiveBrowserTabForBundleId } from "../active-browser-tab.js";
 import { listRecentApps } from "../recent-apps.js";
 import { requestMacPermission } from "../utils/macos-permissions.js";
 import { getMainLogger } from "../observability/main-logger.js";
+import {
+  getLocalLlmCredential,
+  listLocalLlmCredentials,
+} from "@stella/runtime/kernel/storage/llm-credentials";
+import {
+  getLocalLlmOAuthApiKey,
+  listLocalLlmOAuthCredentials,
+} from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 
 // Module-level one-shot cache for the skills/agents home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
@@ -171,6 +179,28 @@ export const createHostRunnerHandlers = (
   },
   requestCredential: (payload) =>
     context.services.credentialService.requestCredential(payload),
+  requestLlmCredentials: async (request) => {
+    const stellaDataDir = context.state.stellaDataDirPath;
+    if (!stellaDataDir) {
+      return { ok: false, reason: "stella_data_dir_unavailable" };
+    }
+    if (request.operation === "list") {
+      return {
+        ok: true,
+        apiKeyProviders: listLocalLlmCredentials(stellaDataDir).map(
+          ({ provider }) => provider,
+        ),
+        oauthProviders: listLocalLlmOAuthCredentials(stellaDataDir).map(
+          ({ provider }) => provider,
+        ),
+      };
+    }
+    const value =
+      request.kind === "api-key"
+        ? getLocalLlmCredential(stellaDataDir, request.provider)
+        : await getLocalLlmOAuthApiKey(stellaDataDir, request.provider);
+    return { ok: true, value };
+  },
   requestConnectorTokenStore: async (request) => {
     const stellaDataDir = context.state.stellaDataDirPath;
     if (!stellaDataDir) {

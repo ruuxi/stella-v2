@@ -1,10 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadGoogleWorkspaceTools } from "@stella/runtime/kernel/google-workspace/load-google-workspace-tools";
 import { saveConnectorTokenPayload } from "@stella/runtime/kernel/connectors/oauth";
+import {
+  installTestSafeStorage,
+  resetTestSafeStorage,
+} from "../../../helpers/protected-storage.js";
+
+beforeEach(() => installTestSafeStorage());
+afterEach(() => resetTestSafeStorage());
 
 describe("loadGoogleWorkspaceTools", () => {
   it("registers provider-safe allowlisted tools and time helpers work without Google auth", async () => {
@@ -32,15 +39,8 @@ describe("loadGoogleWorkspaceTools", () => {
 
   it("disconnect tears down runtime state without deleting stored credentials", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "stella-gw-"));
-    const credentialsPath = path.join(
-      dir,
-      "connectors",
-      ".credentials.json",
-    );
-    const previousInsecureStorage =
-      process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE;
+    const credentialsPath = path.join(dir, "connectors", ".credentials.json");
     try {
-      process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE = "1";
       await loadGoogleWorkspaceTools({
         stellaAppDir: dir,
       }).then(async ({ disconnect }) => {
@@ -56,12 +56,6 @@ describe("loadGoogleWorkspaceTools", () => {
         expect(existsSync(credentialsPath)).toBe(true);
       });
     } finally {
-      if (previousInsecureStorage === undefined) {
-        delete process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE;
-      } else {
-        process.env.STELLA_DEV_INSECURE_PROTECTED_STORAGE =
-          previousInsecureStorage;
-      }
       await rm(dir, { recursive: true, force: true });
     }
   });

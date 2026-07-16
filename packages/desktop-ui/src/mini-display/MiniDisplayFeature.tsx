@@ -29,30 +29,29 @@ const openDisplayPayload = async (
   payload: DisplayTabPayload,
   opts?: MiniDisplayOpenOptions,
 ) => {
-  const { payloadToTabSpec } = await import(
-    "../shell/display/payload-to-tab-spec"
-  );
+  const { payloadToTabSpec } =
+    await import("../shell/display/payload-to-tab-spec");
   displayTabs.openTab(payloadToTabSpec(payload), opts);
 };
 
 function MiniDisplayHomeTab() {
   return (
-    <div className="chat-home-launcher">
-      <ul className="chat-home-launcher__list">
+    <div className="chat-home-overview">
+      <ul className="chat-home-overview__list">
         <li>
           <button
             type="button"
-            className="chat-home-launcher__entry"
+            className="chat-home-overview__entry"
             onClick={() => {
               void openMiniCanvasDisplayTab();
             }}
           >
-            <span className="chat-home-launcher__entry-icon" aria-hidden="true">
+            <span className="chat-home-overview__entry-icon" aria-hidden="true">
               <DisplayTabIcon kind="canvas" size={20} />
             </span>
-            <span className="chat-home-launcher__entry-text">
-              <span className="chat-home-launcher__entry-label">Canvas</span>
-              <span className="chat-home-launcher__entry-description">
+            <span className="chat-home-overview__entry-text">
+              <span className="chat-home-overview__entry-label">Canvas</span>
+              <span className="chat-home-overview__entry-description">
                 Pages Stella has put together
               </span>
             </span>
@@ -61,17 +60,17 @@ function MiniDisplayHomeTab() {
         <li>
           <button
             type="button"
-            className="chat-home-launcher__entry"
+            className="chat-home-overview__entry"
             onClick={() => {
               void openMiniMediaDisplayTab();
             }}
           >
-            <span className="chat-home-launcher__entry-icon" aria-hidden="true">
+            <span className="chat-home-overview__entry-icon" aria-hidden="true">
               <DisplayTabIcon kind="media" size={20} />
             </span>
-            <span className="chat-home-launcher__entry-text">
-              <span className="chat-home-launcher__entry-label">Media</span>
-              <span className="chat-home-launcher__entry-description">
+            <span className="chat-home-overview__entry-text">
+              <span className="chat-home-overview__entry-label">Media</span>
+              <span className="chat-home-overview__entry-description">
                 Generated images, video, and audio
               </span>
             </span>
@@ -80,17 +79,17 @@ function MiniDisplayHomeTab() {
         <li>
           <button
             type="button"
-            className="chat-home-launcher__entry"
+            className="chat-home-overview__entry"
             onClick={() => {
               void openMiniTrashDisplayTab();
             }}
           >
-            <span className="chat-home-launcher__entry-icon" aria-hidden="true">
+            <span className="chat-home-overview__entry-icon" aria-hidden="true">
               <DisplayTabIcon kind="trash" size={20} />
             </span>
-            <span className="chat-home-launcher__entry-text">
-              <span className="chat-home-launcher__entry-label">Trash</span>
-              <span className="chat-home-launcher__entry-description">
+            <span className="chat-home-overview__entry-text">
+              <span className="chat-home-overview__entry-label">Trash</span>
+              <span className="chat-home-overview__entry-description">
                 Things you've recently deleted
               </span>
             </span>

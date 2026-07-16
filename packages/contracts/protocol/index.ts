@@ -130,6 +130,7 @@ export const METHOD_NAMES = {
   HOST_DEVICE_IDENTITY_GET: "host.deviceIdentity.get",
   HOST_DEVICE_HEARTBEAT_SIGN: "host.deviceHeartbeat.sign",
   HOST_CREDENTIALS_REQUEST: "host.credentials.request",
+  HOST_LLM_CREDENTIALS_REQUEST: "host.llmCredentials.request",
   HOST_CONNECTOR_CREDENTIAL_REQUEST: "host.connectorCredential.request",
   HOST_CONNECTOR_TOKEN_STORE_REQUEST: "host.connectorTokenStore.request",
   HOST_CONNECTOR_CONNECT_REQUEST: "host.connectorConnect.request",
@@ -300,7 +301,25 @@ export type RuntimeConfigureParams = {
   hasConnectedAccount?: boolean;
   cloudSyncEnabled?: boolean;
   modelCatalogUpdatedAt?: number | null;
+  localLlmCredentialsUpdatedAt?: number | null;
 };
+
+export type HostLlmCredentialsRequest =
+  | { operation: "list" }
+  | {
+      operation: "get";
+      kind: "api-key" | "oauth-api-key";
+      provider: string;
+    };
+
+export type HostLlmCredentialsResult =
+  | {
+      ok: true;
+      apiKeyProviders: string[];
+      oauthProviders: string[];
+    }
+  | { ok: true; value: string | null }
+  | { ok: false; reason: string };
 
 export type RuntimeAuthRefreshSource =
   | "heartbeat"

@@ -4,13 +4,7 @@
  */
 
 import { execFile } from "node:child_process";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -64,13 +58,11 @@ function getStellaBrowserBinaryName(): string | null {
 
 const getSocketDir = getStellaBrowserSocketDir;
 
-function buildNativeHostManifest(
-  launcherPath: string,
-): Record<string, unknown> {
+function buildNativeHostManifest(hostPath: string): Record<string, unknown> {
   return {
     name: STELLA_NATIVE_MESSAGING_HOST_NAME,
     description: "Stella browser extension bridge",
-    path: launcherPath,
+    path: hostPath,
     type: "stdio",
     allowed_origins: [`chrome-extension://${STELLA_BROWSER_EXTENSION_ID}/`],
   };
@@ -80,7 +72,7 @@ function quoteForSh(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
-function writeLauncherAndManifest(
+function writeShimAndManifest(
   binaryPath: string,
   socketDir: string,
 ): {
@@ -97,14 +89,11 @@ function writeLauncherAndManifest(
     // env wrapper (which kept a visible cmd.exe alive for the host's whole
     // lifetime in Task Manager) is unnecessary.
     hostPath = binaryPath;
-    rmSync(path.join(socketDir, "stella-native-host-launcher.cmd"), {
-      force: true,
-    });
   } else {
-    // Bake the resolved socketDir into the launcher so the native host reads
+    // Bake the resolved socketDir into the shim so the native host reads
     // discovery files from the same directory the daemon wrote them to,
     // regardless of how the directory was resolved (env override, XDG, homedir).
-    const launcherPath = path.join(socketDir, "stella-native-host-launcher.sh");
+    const shimPath = path.join(socketDir, "stella-native-host.sh");
     const quotedBinaryPath = quoteForSh(binaryPath);
     const quotedSocketDir = quoteForSh(socketDir);
     const body = `#!/bin/sh
@@ -114,9 +103,9 @@ export STELLA_BROWSER_SOCKET_DIR=${quotedSocketDir}
 test -x ${quotedBinaryPath} || chmod +x ${quotedBinaryPath} 2>/dev/null
 exec ${quotedBinaryPath} native-host "$@"
 `;
-    writeFileSync(launcherPath, body, "utf8");
-    chmodSync(launcherPath, 0o755);
-    hostPath = launcherPath;
+    writeFileSync(shimPath, body, "utf8");
+    chmodSync(shimPath, 0o755);
+    hostPath = shimPath;
   }
 
   const manifest = buildNativeHostManifest(hostPath);
@@ -200,7 +189,7 @@ function installUnixSymlinks(manifest: Record<string, unknown>) {
 }
 
 /**
- * Idempotently writes the native host launcher, manifest, and browser registrations.
+ * Idempotently writes the native host shim, manifest, and browser registrations.
  */
 export async function registerStellaNativeMessagingHost(): Promise<{
   ok: boolean;
@@ -228,7 +217,7 @@ export async function registerStellaNativeMessagingHost(): Promise<{
     const socketDir = getSocketDir();
     mkdirSync(socketDir, { recursive: true });
 
-    const { manifestPath, manifest } = writeLauncherAndManifest(
+    const { manifestPath, manifest } = writeShimAndManifest(
       binaryPath,
       socketDir,
     );

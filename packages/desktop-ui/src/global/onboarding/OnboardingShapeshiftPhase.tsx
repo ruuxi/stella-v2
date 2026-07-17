@@ -229,7 +229,7 @@ export function OnboardingShapeshiftPhase({
     : justUndid
       ? "Reverted. Every change keeps a one-click undo, so nothing is ever permanent."
       : completedRuns >= 2
-        ? "The Store is where you can browse what other people have built."
+        ? "Start from Home, then use Chat to ask for anything and follow the work."
         : "That was real code changing while the app stayed running. Press Undo on the receipt to take it back.";
 
   return (

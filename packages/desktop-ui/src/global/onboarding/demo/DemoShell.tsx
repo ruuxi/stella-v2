@@ -1,7 +1,7 @@
 /**
  * Shared "realistic Stella window" used by the onboarding demos
  * (capabilities, shapeshift, summon). One faithful mock — traffic
- * lights, the real sidebar grouping (Home / Store / Social), Cormorant
+ * lights, the real client grouping (Home / Chat), Cormorant
  * wordmark, pill composer — instead of per-scene approximations, so
  * what users watch in onboarding is what they get in the app.
  *
@@ -10,8 +10,8 @@
  */
 
 import type { CSSProperties, ReactNode } from "react";
-import { ArrowUp, Check, Mic, Plus } from "@/ui/icons";
-import { CustomHouse, CustomStore, CustomUsers } from "@/ui/nav-icons";
+import { ArrowUp, Check, MessageSquare, Mic, Plus } from "@/ui/icons";
+import { CustomHouse } from "@/ui/nav-icons";
 import { StellaLogoIcon } from "@/ui/stella-logo-icon";
 import "./demo-shell.css";
 
@@ -26,8 +26,7 @@ export type DemoSidebarItem = {
 
 export const DEMO_DEFAULT_SIDEBAR: DemoSidebarItem[] = [
   { id: "home", label: "Home", icon: <CustomHouse size={12} />, active: true },
-  { id: "store", label: "Store", icon: <CustomStore size={12} /> },
-  { id: "social", label: "Social", icon: <CustomUsers size={12} /> },
+  { id: "chat", label: "Chat", icon: <MessageSquare size={12} /> },
 ];
 
 export function DemoShell({

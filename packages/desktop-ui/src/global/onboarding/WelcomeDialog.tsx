@@ -165,8 +165,8 @@ export function WelcomeDialog({
                 <div className="welcome-dialog-card-text">
                   <h3>Sign in to Stella</h3>
                   <p>
-                    Sign in to use the store, social features, AI features,
-                    and higher usage limits!
+                    Sign in for synced access, AI features, and higher usage
+                    limits!
                   </p>
                 </div>
                 <span className="welcome-dialog-card-arrow">&rsaquo;</span>

@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { MODELS } from "@stella/contracts/models.generated";
+import { Value } from "@sinclair/typebox/value";
 import {
   ModelConfig,
   isModelConfigValueConfigured,
+  remoteModelCatalogEntrySchema,
   resolveModelConfigHeaders,
   resolveModelConfigValue,
   type ModelsJsonModel,
@@ -82,6 +84,27 @@ const cloneModel = (model: Model<Api>): Model<Api> => structuredClone(model);
 
 const modelMap = (models: readonly Model<Api>[]): Map<string, Model<Api>> =>
   new Map(models.map((model) => [model.id, cloneModel(model)]));
+
+const validateRemoteCatalogEntries = (
+  providerId: string,
+  entries: readonly unknown[],
+): Model<Api>[] => {
+  const models: Model<Api>[] = [];
+  for (const [index, entry] of entries.entries()) {
+    if (!Value.Check(remoteModelCatalogEntrySchema, entry)) {
+      const details = [...Value.Errors(remoteModelCatalogEntrySchema, entry)]
+        .slice(0, 8)
+        .map((error) => `${error.path || "root"}: ${error.message}`)
+        .join("; ");
+      console.warn(
+        `[stella:model-runtime] Dropped invalid remote catalog entry for ${providerId} at index ${index}: ${details}`,
+      );
+      continue;
+    }
+    models.push({ ...(entry as Model<Api>), provider: providerId });
+  }
+  return models;
+};
 
 export const mergeModelHeaders = (
   base: Record<string, string> | undefined,
@@ -298,10 +321,7 @@ export class ModelRuntime {
       for (const [providerId, entry] of Object.entries(parsed)) {
         if (!entry || !Array.isArray(entry.models)) continue;
         this.dynamicCatalogs.set(providerId, {
-          models: entry.models.map((model) => ({
-            ...model,
-            provider: providerId,
-          })),
+          models: validateRemoteCatalogEntries(providerId, entry.models),
           checkedAt: entry.checkedAt,
         });
       }
@@ -531,12 +551,7 @@ export class ModelRuntime {
     if (!Array.isArray(entries)) {
       throw new Error(`Invalid model catalog for ${providerId}`);
     }
-    const models = entries
-      .filter(
-        (entry): entry is Model<Api> =>
-          Boolean(entry) && typeof entry === "object" && "id" in entry,
-      )
-      .map((model) => ({ ...model, provider: providerId }));
+    const models = validateRemoteCatalogEntries(providerId, entries);
     this.dynamicCatalogs.set(providerId, { models, checkedAt });
   }
 

@@ -204,6 +204,29 @@ const modelsJsonSchema = Type.Object({
   providers: Type.Record(Type.String(), providerSchema),
 });
 
+export const remoteModelCatalogEntrySchema = Type.Object({
+  id: nonEmptyString,
+  name: nonEmptyString,
+  api: nonEmptyString,
+  provider: Type.Optional(nonEmptyString),
+  baseUrl: nonEmptyString,
+  reasoning: Type.Boolean(),
+  thinkingLevelMap: Type.Optional(thinkingLevelMapSchema),
+  input: Type.Array(
+    Type.Union([Type.Literal("text"), Type.Literal("image")]),
+  ),
+  cost: Type.Object({
+    input: Type.Number({ minimum: 0 }),
+    output: Type.Number({ minimum: 0 }),
+    cacheRead: Type.Number({ minimum: 0 }),
+    cacheWrite: Type.Number({ minimum: 0 }),
+  }),
+  contextWindow: Type.Number({ exclusiveMinimum: 0 }),
+  maxTokens: Type.Number({ exclusiveMinimum: 0 }),
+  headers: Type.Optional(stringRecord),
+  compat: Type.Optional(compatSchema),
+});
+
 /** Strip JSONC line comments and trailing commas without touching strings. */
 const stripJsonComments = (value: string): string =>
   value

@@ -920,6 +920,171 @@ describe("ModelRuntime", () => {
     }
   });
 
+  it("drops and logs a remote catalog entry missing api", async () => {
+    const stellaDataDir = await makeTempDir();
+    const originalFetch = globalThis.fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/xai")) {
+        return Response.json({
+          models: [
+            {
+              id: "grok-missing-api",
+              name: "Grok Missing API",
+              provider: "xai",
+              baseUrl: "https://api.x.ai/v1",
+              reasoning: true,
+              input: ["text"],
+              cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: 128_000,
+              maxTokens: 16_000,
+            },
+          ],
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(runtime.getModel("xai", "grok-missing-api")).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /Dropped invalid remote catalog entry for xai.*\/api/u,
+        ),
+      );
+    } finally {
+      warn.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("drops and logs a remote catalog entry missing cost", async () => {
+    const stellaDataDir = await makeTempDir();
+    const originalFetch = globalThis.fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/xai")) {
+        return Response.json({
+          models: [
+            {
+              id: "grok-missing-cost",
+              name: "Grok Missing Cost",
+              provider: "xai",
+              api: "openai-responses",
+              baseUrl: "https://api.x.ai/v1",
+              reasoning: true,
+              input: ["text"],
+              contextWindow: 128_000,
+              maxTokens: 16_000,
+            },
+          ],
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(runtime.getModel("xai", "grok-missing-cost")).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /Dropped invalid remote catalog entry for xai.*\/cost/u,
+        ),
+      );
+    } finally {
+      warn.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does not let a malformed remote entry override a builtin model", async () => {
+    const stellaDataDir = await makeTempDir();
+    const runtime = new ModelRuntime();
+    const builtin = runtime.getModels("openai")[0];
+    if (!builtin) throw new Error("Expected an OpenAI builtin model");
+    const originalFetch = globalThis.fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/openai")) {
+        return Response.json({
+          models: [
+            {
+              ...builtin,
+              name: "Malformed remote override",
+              baseUrl: undefined,
+            },
+          ],
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(runtime.getModel("openai", builtin.id)).toEqual(builtin);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /Dropped invalid remote catalog entry for openai.*\/baseUrl/u,
+        ),
+      );
+    } finally {
+      warn.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("composes a fully valid remote catalog entry", async () => {
+    const stellaDataDir = await makeTempDir();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/xai")) {
+        return Response.json({
+          models: [
+            {
+              id: "grok-valid-remote",
+              name: "Grok Valid Remote",
+              provider: "remote-provider-value",
+              api: "openai-responses",
+              baseUrl: "https://api.x.ai/v1",
+              reasoning: true,
+              input: ["text", "image"],
+              cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: 256_000,
+              maxTokens: 32_000,
+            },
+          ],
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(runtime.getModel("xai", "grok-valid-remote")).toEqual({
+        id: "grok-valid-remote",
+        name: "Grok Valid Remote",
+        provider: "xai",
+        api: "openai-responses",
+        baseUrl: "https://api.x.ai/v1",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 256_000,
+        maxTokens: 32_000,
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("forces a fresh pi.dev request at explicit refresh boundaries", async () => {
     const stellaDataDir = await makeTempDir();
     const runtime = new ModelRuntime();
@@ -996,6 +1161,7 @@ describe("ModelRuntime", () => {
                 baseUrl: "https://api.x.ai/v1",
                 reasoning: true,
                 input: ["text"],
+                cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
                 contextWindow: 128_000,
                 maxTokens: 16_000,
               },

@@ -770,6 +770,8 @@ describe("remote prompt startup sync", () => {
     expect(result.manifest).toBeNull();
   });
 
+  // 100 sequential endpoint-directory writes take ~5s under full-suite load,
+  // which brushes the default 5s timeout; give this test explicit headroom.
   it("keeps high-water marks durable beyond the former aggregate capacity", async () => {
     const home = await tempDir();
     const longSitePath = "x".repeat(3_000);
@@ -805,7 +807,7 @@ describe("remote prompt startup sync", () => {
       manifest: null,
       endpoint: endpoints[81],
     });
-  });
+  }, 30_000);
 
   it("handles multi-process writes without stale or paused aggregate locks", async () => {
     const home = await tempDir();

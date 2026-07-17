@@ -9,12 +9,6 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { AppMetadata } from "@/app/_shared/app-metadata";
-import { useSocialBadges } from "@/app/social/hooks/use-social-badges";
-import {
-  markAllUserAppsSeen,
-  useNewUserAppsHint,
-} from "@/app/_user/new-user-apps-hint";
-import { preloadNavSurfaceRoute } from "@/shell/topbar/nav-surface-preloads";
 import {
   getSnapshot as getAppRegistrySnapshot,
   subscribe as subscribeToAppRegistry,
@@ -30,34 +24,18 @@ interface NavItemProps {
   app: AppMetadata;
   /** Route-matched (drives re-entry click + selected text/aria). */
   active: boolean;
-  badgeCount?: number;
-  showHintDot?: boolean;
-  onHintDismiss?: () => void;
   registerRef: (id: string, el: HTMLAnchorElement | null) => void;
 }
 
-const NavItem = ({
-  app,
-  active,
-  badgeCount = 0,
-  showHintDot = false,
-  onHintDismiss,
-  registerRef,
-}: NavItemProps) => {
-  const showBadge = badgeCount > 0;
-  const badgeLabel = badgeCount > 99 ? "99+" : String(badgeCount);
-  const showHint = showHintDot && !showBadge;
-
+const NavItem = ({ app, active, registerRef }: NavItemProps) => {
   const handleClick = useCallback(
     (event: React.MouseEvent<HTMLAnchorElement>) => {
-      preloadNavSurfaceRoute(app.id);
-      if (showHint) onHintDismiss?.();
       if (active && app.onActiveClick) {
         event.preventDefault();
         app.onActiveClick();
       }
     },
-    [active, app, showHint, onHintDismiss],
+    [active, app],
   );
 
   return (
@@ -68,20 +46,10 @@ const NavItem = ({
       data-active={active ? "true" : undefined}
       aria-current={active ? "page" : undefined}
       onClick={handleClick}
-      onFocus={() => preloadNavSurfaceRoute(app.id)}
-      onMouseEnter={() => preloadNavSurfaceRoute(app.id)}
-      title={showBadge ? `${app.label} (${badgeCount} unread)` : app.label}
-      aria-label={showBadge ? `${app.label}, ${badgeCount} unread` : app.label}
+      title={app.label}
+      aria-label={app.label}
     >
       <span className="shell-topbar-nav-label">{app.label}</span>
-      {showBadge && (
-        <span className="shell-topbar-nav-badge" aria-hidden="true">
-          {badgeLabel}
-        </span>
-      )}
-      {showHint && (
-        <span className="shell-topbar-nav-hint-dot" aria-hidden="true" />
-      )}
     </Link>
   );
 };
@@ -93,10 +61,7 @@ export const ShellTopBarPrimaryNav = () => {
     [allApps],
   );
 
-  const { totalBadge: socialBadge } = useSocialBadges();
-  const newAppsHint = useNewUserAppsHint();
   const matchRoute = useMatchRoute();
-  const onAppsRoute = Boolean(matchRoute({ to: "/apps", fuzzy: true }));
 
   // The route-matched app drives the re-entry click + selected text; the
   // sliding "thumb" only paints when that app also wants the selected state.
@@ -106,24 +71,6 @@ export const ShellTopBarPrimaryNav = () => {
   const matchedId = matchedApp?.id ?? null;
   const selectedId =
     matchedApp && !matchedApp.suppressActiveState ? matchedApp.id : null;
-
-  useEffect(() => {
-    if (newAppsHint.active && onAppsRoute) {
-      markAllUserAppsSeen();
-    }
-  }, [newAppsHint.active, onAppsRoute]);
-
-  const badgeFor = useCallback(
-    (app: AppMetadata) => (app.id === "social" ? socialBadge : 0),
-    [socialBadge],
-  );
-  const hintFor = useCallback(
-    (app: AppMetadata) => {
-      if (app.id === "apps") return newAppsHint.active;
-      return false;
-    },
-    [newAppsHint.active],
-  );
 
   // --- Sliding selection thumb -------------------------------------------
   const navRef = useRef<HTMLElement>(null);
@@ -145,7 +92,7 @@ export const ShellTopBarPrimaryNav = () => {
   );
 
   const measure = useCallback(() => {
-    const el = selectedId ? itemRefs.current.get(selectedId) ?? null : null;
+    const el = selectedId ? (itemRefs.current.get(selectedId) ?? null) : null;
     if (!el) {
       setThumbVisible(false);
       return;
@@ -184,7 +131,11 @@ export const ShellTopBarPrimaryNav = () => {
   }, [measure]);
 
   return (
-    <nav ref={navRef} className="shell-topbar-nav" aria-label="Apps">
+    <nav
+      ref={navRef}
+      className="shell-topbar-nav"
+      aria-label="Primary navigation"
+    >
       <span
         className="shell-topbar-nav-thumb"
         data-animate={animate ? "true" : undefined}
@@ -204,12 +155,7 @@ export const ShellTopBarPrimaryNav = () => {
           key={app.id}
           app={app}
           active={matchedId === app.id}
-          badgeCount={badgeFor(app)}
-          showHintDot={hintFor(app)}
           registerRef={registerRef}
-          onHintDismiss={() => {
-            if (app.id === "apps") markAllUserAppsSeen();
-          }}
         />
       ))}
     </nav>

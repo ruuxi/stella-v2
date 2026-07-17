@@ -13,6 +13,7 @@ import {
 } from "@/ui/dialog";
 import { Avatar } from "@/ui/avatar";
 import { showToast } from "@/ui/toast";
+import { dispatchShowHome } from "@/shared/lib/stella-orb-chat";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { parseSocialInviteLink } from "@/app/social/invite-links";
 import { getSocialActionErrorMessage } from "@/app/social/social-errors";
@@ -32,14 +33,6 @@ type CommunityPreview = {
 type FriendPreview = {
   username: string;
   avatarUrl?: string;
-} | null;
-
-type StorePackagePreview = {
-  packageId: string;
-  displayName: string;
-  description?: string;
-  iconUrl?: string;
-  authorUsername?: string;
 } | null;
 
 /**
@@ -83,17 +76,28 @@ export function SocialInviteLayer() {
   }, []);
 
   if (!invite) return null;
+  if (invite.kind === "view-store-package") {
+    return <RetiredStoreInviteFallback />;
+  }
   return (
     <SocialInviteDialog
       key={
         invite.kind === "join-community"
           ? `join:${invite.inviteCode}`
-          : invite.kind === "add-friend"
-            ? `friend:${invite.username}`
-            : `store:${invite.packageId}`
+          : `friend:${invite.username}`
       }
     />
   );
+}
+
+function RetiredStoreInviteFallback() {
+  useEffect(() => {
+    setPendingSocialInvite(null);
+    void router.navigate({ to: "/chat", replace: true }).then(() => {
+      dispatchShowHome();
+    });
+  }, []);
+  return null;
 }
 
 function SocialInviteDialog() {
@@ -121,16 +125,6 @@ function SocialInviteDialog() {
       : "skip",
   ) as FriendPreview | undefined;
 
-  // Same read the in-chat share cards use. Public/unlisted resolve;
-  // private returns null and the dialog shows "unavailable". No auth gate:
-  // the Store is browsable signed-out, and viewing is all confirm does.
-  const storePreview = useQuery(
-    api.data.store_packages.getPublicPackage,
-    invite?.kind === "view-store-package"
-      ? { packageId: invite.packageId }
-      : "skip",
-  ) as StorePackagePreview | undefined;
-
   const close = useCallback(() => {
     setPendingSocialInvite(null);
   }, []);
@@ -138,13 +132,7 @@ function SocialInviteDialog() {
   const handleConfirm = useCallback(async () => {
     if (!invite) return;
     if (invite.kind === "view-store-package") {
-      // Viewing is navigation, not a mutation — the confirm exists so an
-      // external link never force-drives the app without the user's nod.
       setPendingSocialInvite(null);
-      void router.navigate({
-        to: "/store",
-        search: { tab: "discover", package: invite.packageId },
-      });
       return;
     }
     setBusy(true);
@@ -158,7 +146,6 @@ function SocialInviteDialog() {
             : "You joined the community!",
         });
         setPendingSocialInvite(null);
-        void router.navigate({ to: "/social" });
       } else {
         await sendFriendRequestMutation({ username: invite.username });
         showToast({
@@ -180,48 +167,35 @@ function SocialInviteDialog() {
     }
   }, [invite, joinMutation, sendFriendRequestMutation, communityPreview]);
 
-  if (!invite) return null;
+  if (!invite || invite.kind === "view-store-package") return null;
 
   const isJoin = invite.kind === "join-community";
-  const isStore = invite.kind === "view-store-package";
-  // Store views don't need an account; the other two are mutations.
-  const needsAccount = !isStore && !hasConnectedAccount;
+  const needsAccount = !hasConnectedAccount;
 
   // One per-kind view selection — every kind-dependent label, message and
   // gate reads from here, so adding a kind can't leave the copy, the
   // preview gating and the confirm button disagreeing about what's shown.
-  const preview = isStore
-    ? storePreview
-    : isJoin
-      ? communityPreview
-      : friendPreview;
+  const preview = isJoin ? communityPreview : friendPreview;
   const previewLoading = preview === undefined;
   // A skipped query (signed-out join/friend) stays undefined and is
   // covered by `needsAccount`; only a resolved null means "not found".
   const previewMissing = !needsAccount && preview === null;
   const alreadyDone = isJoin && communityPreview?.alreadyMember === true;
 
-  const copy = isStore
+  const copy = isJoin
     ? {
-        title: "Open add-on",
-        confirmLabel: "View in Store",
-        sub: "A link you opened points at a Stella add-on. Nothing installs. This only opens its Store page.",
-        missing: "This add-on is private or no longer published.",
+        title: "Join community",
+        confirmLabel: "Join",
+        sub: "You were invited to a community: a trusted circle where members share add-ons with each other.",
+        missing:
+          "No community was found for this invite code. Ask for a fresh link.",
       }
-    : isJoin
-      ? {
-          title: "Join community",
-          confirmLabel: "Join",
-          sub: "You were invited to a community: a trusted circle where members share add-ons with each other.",
-          missing:
-            "No community was found for this invite code. Ask for a fresh link.",
-        }
-      : {
-          title: "Add friend",
-          confirmLabel: "Send friend request",
-          sub: "You were invited to connect on Stella.",
-          missing: "No user was found for this invite link.",
-        };
+    : {
+        title: "Add friend",
+        confirmLabel: "Send friend request",
+        sub: "You were invited to connect on Stella.",
+        missing: "No user was found for this invite link.",
+      };
 
   return (
     <Dialog open onOpenChange={(next) => (next ? null : close())}>
@@ -250,25 +224,6 @@ function SocialInviteDialog() {
               <div className="friends-empty">Looking up the invite…</div>
             ) : previewMissing ? (
               <div className="friends-empty">{copy.missing}</div>
-            ) : isStore && storePreview ? (
-              <div className="friends-item">
-                <Avatar
-                  fallback={storePreview.displayName}
-                  src={storePreview.iconUrl}
-                  size="normal"
-                />
-                <div className="friends-item-info">
-                  <div className="friends-item-name">
-                    {storePreview.displayName}
-                  </div>
-                  <div className="friends-item-tag">
-                    Stella add-on
-                    {storePreview.authorUsername
-                      ? ` \u00b7 by @${storePreview.authorUsername}`
-                      : ""}
-                  </div>
-                </div>
-              </div>
             ) : isJoin && communityPreview ? (
               <div className="friends-item">
                 <Avatar fallback={communityPreview.name} size="normal" />
@@ -323,15 +278,16 @@ function SocialInviteDialog() {
               disabled={
                 busy ||
                 needsAccount ||
-                // Store confirm is pure local navigation — never hold it
-                // hostage to the (possibly offline) preview lookup. The
-                // mutation kinds stay gated until their preview resolves.
-                (previewLoading && !isStore) ||
+                previewLoading ||
                 previewMissing ||
                 alreadyDone
               }
             >
-              {busy ? "Working…" : alreadyDone ? "Already joined" : copy.confirmLabel}
+              {busy
+                ? "Working…"
+                : alreadyDone
+                  ? "Already joined"
+                  : copy.confirmLabel}
             </button>
           </div>
         </DialogBody>

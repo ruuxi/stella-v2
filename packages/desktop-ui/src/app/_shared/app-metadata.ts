@@ -40,7 +40,7 @@ export type AppMetadata = {
   route: string;
   /**
    * Where the entry lives. `"top"` puts it in the primary top-bar nav
-   * (Home / Store / Social). `"bottom"` apps are reachable via the
+   * (currently Home). `"bottom"` apps are reachable via the
    * Settings menu in the top-bar nav rather than as a dedicated nav button.
    */
   slot: AppSlot;

@@ -1,4 +1,3 @@
-import { useNavigate } from "@tanstack/react-router";
 import { api } from "@/convex/api";
 import { usePersistentConvexOneShot } from "@/shared/lib/use-convex-one-shot";
 import type { StorePackageRecord } from "@/shared/types/electron";
@@ -27,14 +26,13 @@ const ADDON_SHARE_CACHE_TTL_MS = 30 * 60 * 1000;
  * card falls back to a "no longer available" placeholder so the link
  * never silently breaks).
  *
- * Click navigates to `/store?package=<id>` which the StoreApp reads as
- * `initialPackageId` and opens the detail view directly.
+ * The retired Store surface has no click destination; this remains a passive
+ * preview so historical social messages still render safely.
  */
 export function AddonShareCard({
   link,
   variant = "wide",
 }: AddonShareCardProps) {
-  const navigate = useNavigate();
   // One-shot, not a subscription: this card is embedded inside chat
   // bubbles (potentially many per conversation), and a published
   // package's name/description/icon doesn't shift while a user is
@@ -86,20 +84,8 @@ export function AddonShareCard({
     );
   }
 
-  const handleOpen = () => {
-    void navigate({
-      to: "/store",
-      search: { tab: "discover", package: pkg.packageId },
-    });
-  };
-
   return (
-    <button
-      type="button"
-      className="addon-share-card"
-      data-variant={variant}
-      onClick={handleOpen}
-    >
+    <div className="addon-share-card" data-variant={variant}>
       {pkg.iconUrl ? (
         <img
           src={pkg.iconUrl}
@@ -124,9 +110,8 @@ export function AddonShareCard({
           ) : (
             <span />
           )}
-          <span className="addon-share-card-cta">View →</span>
         </div>
       </div>
-    </button>
+    </div>
   );
 }

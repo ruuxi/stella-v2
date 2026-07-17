@@ -54,12 +54,13 @@ export type AppMetadata = {
    */
   hideFromSidebar?: boolean;
   /**
-   * Optional handler invoked when the user clicks the nav entry while it
-   * is *already* the active route. Use this to implement "scroll to top",
-   * "show home", or other re-entry behaviors. When provided, the click
-   * also `preventDefault()`s the underlying `<Link>` navigation.
+   * Optional handler invoked whenever the user selects the nav entry, before
+   * route navigation. Use this for activation behavior that must happen both
+   * when entering a route and when re-entering its already-active surface.
+   * An active-route selection also `preventDefault()`s the redundant Link
+   * navigation.
    */
-  onActiveClick?: () => void;
+  onSelect?: () => void;
   /** When true, the nav never paints the active/selected row styling. */
   suppressActiveState?: boolean;
 };

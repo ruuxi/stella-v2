@@ -9,7 +9,7 @@ const metadata: AppMetadata = {
   route: "/chat",
   slot: "top",
   order: 10,
-  onActiveClick: dispatchShowHome,
+  onSelect: dispatchShowHome,
 };
 
 export default metadata;

@@ -30,9 +30,9 @@ interface NavItemProps {
 const NavItem = ({ app, active, registerRef }: NavItemProps) => {
   const handleClick = useCallback(
     (event: React.MouseEvent<HTMLAnchorElement>) => {
-      if (active && app.onActiveClick) {
+      app.onSelect?.();
+      if (active && app.onSelect) {
         event.preventDefault();
-        app.onActiveClick();
       }
     },
     [active, app],

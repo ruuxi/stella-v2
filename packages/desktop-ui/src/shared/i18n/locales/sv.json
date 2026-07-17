@@ -472,6 +472,7 @@
       "secondary": "Stella är inte för alla. Stella är för dig."
     },
     "stepTitles": {
+      "shapeshift": "Den här appen kan skriva om sig själv.",
       "extension": "Lägg till Stella i webbläsaren.",
       "browser": "Låt Stella lära känna dig.",
       "theme": "Hur ska Stella se ut?",

@@ -1,6 +1,6 @@
 # Visual Principles
 
-These rules apply to both product UI and visual-first app surfaces.
+These rules apply to both Stella product UI and visual-first app surfaces.
 Use them as a design review lens before and after implementation.
 
 ## Color
@@ -20,7 +20,7 @@ Use them as a design review lens before and after implementation.
 ## Theme
 
 Dark and light are not default answers. Pick based on the usage scene:
-ambient light, urgency, task duration, and the user's focus. Product surfaces
+ambient light, urgency, task duration, and the user's focus. Stella surfaces
 must respect the active theme unless they are intentionally immersive.
 
 ## Typography
@@ -40,7 +40,7 @@ must respect the active theme unless they are intentionally immersive.
   a modal, or a genuinely bounded tool.
 - Never nest cards inside cards.
 - Do not wrap everything in a centered max-width container by reflex. Most
-  application surfaces are canvases with room for structure.
+  Stella surfaces are desktop canvases with room for structure.
 - Vary spacing for rhythm. Identical padding everywhere reads mechanical.
 - Use stable dimensions for toolbars, boards, grids, counters, buttons, and
   tiles so hover states and dynamic labels do not shift layout.

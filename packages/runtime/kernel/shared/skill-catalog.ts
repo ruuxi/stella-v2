@@ -3,7 +3,6 @@ import path from "node:path";
 
 import { extractFrontmatter } from "../frontmatter.js";
 import { statSignature } from "./fs-signature.js";
-import { RETIRED_BUNDLED_SKILL_IDS } from "./skill-policy.js";
 
 export const INLINE_SKILL_CATALOG_THRESHOLD = 50;
 
@@ -59,9 +58,7 @@ const parseLooseHeader = (
   return out;
 };
 
-const listSkillDirectoryIds = async (
-  stellaAppDir: string,
-): Promise<string[]> => {
+const listSkillDirectoryIds = async (stellaAppDir: string): Promise<string[]> => {
   const skillsRoot = path.join(stellaAppDir, SKILLS_DIR_NAME);
   let entries;
   try {
@@ -79,10 +76,8 @@ const filterSkillDirectoryIds = (
   skillIds: readonly string[],
   options: SkillCatalogRenderOptions = {},
 ): string[] => {
-  const omitted = new Set<string>([
-    ...RETIRED_BUNDLED_SKILL_IDS,
-    ...(options.omitSkillIds ?? []),
-  ]);
+  const omitted = new Set(options.omitSkillIds ?? []);
+  if (omitted.size === 0) return [...skillIds];
   return skillIds.filter((skillId) => !omitted.has(skillId));
 };
 
@@ -138,12 +133,7 @@ const readSkillCatalogEntry = async (
     id: skillId,
     name,
     description,
-    path: path.posix.join(
-      "~/.stella",
-      SKILLS_DIR_NAME,
-      skillId,
-      SKILL_FILENAME,
-    ),
+    path: path.posix.join("~/.stella", SKILLS_DIR_NAME, skillId, SKILL_FILENAME),
     hasProgram,
   };
   skillEntryCache.set(skillPath, { sig, entry });
@@ -167,24 +157,24 @@ export const listSkillCatalogEntries = async (
 export const shouldUseAutomaticSkillExplore = async (
   stellaAppDir: string,
 ): Promise<boolean> => {
-  const skillIds = filterSkillDirectoryIds(
-    await listSkillDirectoryIds(stellaAppDir),
-  );
+  const skillIds = await listSkillDirectoryIds(stellaAppDir);
   return skillIds.length > INLINE_SKILL_CATALOG_THRESHOLD;
 };
 
 const renderInlineSkillCatalogBlock = (
   entries: readonly SkillCatalogEntry[],
 ): string => {
-  const lines = ["<skills>", "## Skills", "## Available skills"];
+  const lines = [
+    "<skills>",
+    "## Skills",
+    "## Available skills",
+  ];
 
   if (entries.length === 0) {
     lines.push("- No saved skills yet.");
   } else {
     for (const entry of entries) {
-      const suffix = entry.hasProgram
-        ? " Includes optional `scripts/program.ts`."
-        : "";
+      const suffix = entry.hasProgram ? " Includes optional `scripts/program.ts`." : "";
       lines.push(
         `- \`${entry.id}\` — ${entry.description} (path: ${entry.path})${suffix}`,
       );
@@ -215,7 +205,7 @@ const renderPlaceholderSkillCatalogBlock = (totalSkills: number): string =>
     "- Automatic Explore fallback may surface the relevant skill paths before a General task starts.",
     "## How to use skills",
     "- If automatic findings point to a skill, open its `SKILL.md` first.",
-    "- If you already know a likely skill path, inspect it directly with `exec_command`, for example `exec_command({ cmd: \"sed -n '1,220p' ~/.stella/skills/<name>/SKILL.md\" })`.",
+    '- If you already know a likely skill path, inspect it directly with `exec_command`, for example `exec_command({ cmd: "sed -n \'1,220p\' ~/.stella/skills/<name>/SKILL.md" })`.',
     '- If a skill tells you to run `scripts/program.ts`, do it as a plain shell command with `exec_command`, e.g. `exec_command({ cmd: "bun ~/.stella/skills/<name>/scripts/program.ts" })`.',
     "</skills>",
   ].join("\n");

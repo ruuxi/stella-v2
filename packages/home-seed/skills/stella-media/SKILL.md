@@ -24,6 +24,8 @@ General does not call `image_gen` directly. For still images, read the image doc
 | Music    | `https://stella.sh/docs/media/music`  | `text_to_music`                                                                |
 | 3D       | `https://stella.sh/docs/media/3d`     | `text_to_3d`                                                                   |
 
+Examples/references: `desktop/src/app/media/MediaStudio.tsx` and `desktop/src/features/music/services/lyria-music.ts`.
+
 ## Don't call provider APIs directly
 
 Unless the task explicitly requires something the gateway doesn't support, route through the gateway. Direct provider calls bypass billing, auth, and persistence.
@@ -31,3 +33,7 @@ Unless the task explicitly requires something the gateway doesn't support, route
 ## 401 means the user is signed out
 
 The 401 body has `code: "auth_required"` and an `action` string. Stop the job, surface `action` to the user verbatim via the Orchestrator, and retry once they confirm sign-in. Don't loop.
+
+## Backlinks
+
+- General agent prompt: backend-owned `prompts/stella-runtime/agents/general.md`

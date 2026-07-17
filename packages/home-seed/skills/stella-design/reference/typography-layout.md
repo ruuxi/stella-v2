@@ -10,7 +10,7 @@ Before changing font sizes or families:
 1. Identify the register: product UI or brand/showcase.
 2. Identify the user's task and reading mode: scan, compare, edit, browse,
    decide, or linger.
-3. Find nearby type conventions in the project.
+3. Find nearby type conventions in Stella or the generated app.
 4. Choose hierarchy by role, not by what "looks nice" in isolation.
 
 Product UI usually wants a single sans family, restrained scale, strong label
@@ -74,7 +74,7 @@ Fix structure first. Color and shadows cannot rescue a bad layout.
 - Do not create page sections as floating cards. Use full-width bands,
   unframed layouts, or repeated item cards where appropriate.
 
-## Application Page Shapes
+## Stella Page Shapes
 
 Common useful shapes:
 
@@ -98,7 +98,7 @@ Before finishing, look for:
 - Icons optically centered in square buttons.
 - Form labels aligned consistently.
 - Card/list edges lining up across rows.
-- Sidebar and top-bar content respecting existing application chrome.
+- Sidebar and top-bar content respecting existing Stella chrome.
 - No text touching container edges.
 - No hover/focus state changing dimensions.
 

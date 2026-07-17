@@ -1,7 +1,7 @@
 # Brand And Showcase Surfaces
 
-Use this for apps or pages where the visual experience is part of the
-deliverable: landing pages, portfolios, product showcases, editorial
+Use this for Stella-created apps or pages where the visual experience is part
+of the deliverable: landing pages, portfolios, product showcases, editorial
 surfaces, venue pages, game openings, campaign-like pages, and visual-first
 experiments.
 

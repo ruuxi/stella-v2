@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createRunEventRecorder } from "@stella/runtime/kernel/agent-runtime/run-events";
 import {
   buildPreambleToolBoundaryMessage,
+  createExternalAssistantUpdateBuffer,
   persistExternalAssistantPreamble,
 } from "@stella/runtime/kernel/agent-runtime/external-engines";
 
@@ -52,6 +53,62 @@ describe("external-engine preamble→tool boundary", () => {
           }),
         }),
       );
+    },
+  );
+
+  it.each(["codex", "claude_code"] as const)(
+    "persists only completed %s interim boundaries across final and interrupted turns",
+    (engine) => {
+      const appendThreadMessage = vi.fn();
+      const createBuffer = () =>
+        createExternalAssistantUpdateBuffer({
+          store: { appendThreadMessage } as never,
+          threadKey: "agent-1",
+          engine,
+          runId: "run-9",
+          attemptGeneration: 9,
+        });
+
+      const completed = createBuffer();
+      completed.append("I inspected ");
+      completed.append("the route.");
+      expect(appendThreadMessage).not.toHaveBeenCalled();
+      expect(completed.flushBeforeTool()).toBe("I inspected the route.");
+
+      // The buffer left at normal turn completion is the final answer. The
+      // caller discards it because persistAssistantReply owns that write.
+      completed.append("This is the final answer.");
+      completed.discard();
+      expect(completed.flushBeforeTool()).toBe("");
+
+      // An interrupted partial stream is likewise never promoted to a
+      // completed transcript-backed update.
+      const interrupted = createBuffer();
+      interrupted.append("Partial text before interruption");
+      interrupted.discard();
+      expect(interrupted.flushBeforeTool()).toBe("");
+
+      const resumed = createBuffer();
+      resumed.append("I resumed and checked the build.");
+      expect(resumed.flushBeforeTool()).toBe(
+        "I resumed and checked the build.",
+      );
+
+      expect(appendThreadMessage).toHaveBeenCalledTimes(2);
+      expect(
+        appendThreadMessage.mock.calls.map(
+          ([message]) =>
+            (message as { payload: { content: Array<{ text?: string }> } })
+              .payload.content[0]?.text,
+        ),
+      ).toEqual(["I inspected the route.", "I resumed and checked the build."]);
+      expect(
+        appendThreadMessage.mock.calls.every(
+          ([message]) =>
+            (message as { payload: { stopReason: string } }).payload
+              .stopReason === "toolUse",
+        ),
+      ).toBe(true);
     },
   );
 

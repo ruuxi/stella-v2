@@ -44,6 +44,9 @@ export type ThreadActivityRecord = {
   /** Recent text authored by this agent, oldest to newest. This is projected
    * from the existing runtime thread transcript and never model-generated. */
   assistantMessages?: string[];
+  /** Timestamp of the newest assistant message included in the bounded
+   * projection. Lets clients reject stale in-flight list responses. */
+  assistantMessagesUpdatedAt?: number;
   updatedAt: number;
 };
 

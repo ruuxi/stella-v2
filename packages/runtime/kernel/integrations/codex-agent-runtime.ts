@@ -1601,20 +1601,25 @@ export const runCodexAgentTurn = async (request: {
             "Codex run failed.";
           reject(new Error(turnFailure ?? "Codex run failed."));
           return;
-        case "item/agentMessage/delta":
+        case "item/agentMessage/delta": {
           // Only final-answer deltas accumulate into finalText. Commentary
           // preambles are streamed live and flushed as their own bubble, so
           // accumulating them here would duplicate the commentary in the
           // persisted final answer when no final item overwrites finalText.
-          if (
-            agentMessageIsCommentary.get(notification.params.itemId) !== true
-          ) {
+          const isCommentary =
+            agentMessageIsCommentary.get(notification.params.itemId) === true;
+          if (!isCommentary) {
             finalText += notification.params.delta;
           }
-          if (request.streamFinalAnswer !== false) {
+          // Background Codex runs suppress final-answer streaming because the
+          // final reply is persisted once by external-engines. Commentary is
+          // different: it is the authored preamble that external-engines must
+          // receive and flush at the next command/tool boundary.
+          if (isCommentary || request.streamFinalAnswer !== false) {
             request.onStream?.(notification.params.delta);
           }
           return;
+        }
         case "item/reasoning/textDelta":
         case "item/reasoning/summaryTextDelta": {
           if (notification.params.delta) {

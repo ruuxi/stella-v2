@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildCodexThreadResumeParams,
@@ -24,6 +24,7 @@ import {
 import {
   buildClaudePromptFromMessages,
   buildExternalStellaHistoryPromptMessage,
+  createExternalAssistantUpdateBuffer,
   selectExternalOrchestratorEngine,
 } from "@stella/runtime/kernel/agent-runtime/external-engines";
 import {
@@ -845,7 +846,7 @@ describe("Codex agent runtime", () => {
     }
   });
 
-  it("can suppress final-answer streaming while still returning the Codex result", async () => {
+  it("streams and persists commentary for a background run while suppressing final-answer deltas", async () => {
     const dir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-fake-codex-suppressed-stream-"),
     );
@@ -867,9 +868,15 @@ describe("Codex agent runtime", () => {
         "    const completedTurn = { id: turn.id, status: 'completed' };",
         "    send({ id: message.id, result: { turn } });",
         "    send({ method: 'turn/started', params: { threadId, turn } });",
-        "    send({ method: 'item/agentMessage/delta', params: { threadId, turnId: turn.id, itemId: 'msg-suppressed-stream', delta: 'task ' } });",
-        "    send({ method: 'item/agentMessage/delta', params: { threadId, turnId: turn.id, itemId: 'msg-suppressed-stream', delta: 'done' } });",
-        "    send({ method: 'item/completed', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'msg-suppressed-stream', text: 'task done', phase: 'final_answer' } } });",
+        "    send({ method: 'item/started', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'msg-commentary', text: '', phase: 'commentary' } } });",
+        "    send({ method: 'item/agentMessage/delta', params: { threadId, turnId: turn.id, itemId: 'msg-commentary', delta: 'I will inspect ' } });",
+        "    send({ method: 'item/agentMessage/delta', params: { threadId, turnId: turn.id, itemId: 'msg-commentary', delta: 'the route.' } });",
+        "    send({ method: 'item/completed', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'msg-commentary', text: 'I will inspect the route.', phase: 'commentary' } } });",
+        "    send({ method: 'item/started', params: { threadId, turnId: turn.id, item: { type: 'commandExecution', id: 'cmd-inspect', command: 'pwd', status: 'inProgress' } } });",
+        "    send({ method: 'item/completed', params: { threadId, turnId: turn.id, item: { type: 'commandExecution', id: 'cmd-inspect', command: 'pwd', status: 'completed', exitCode: 0 } } });",
+        "    send({ method: 'item/started', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'msg-final', text: '', phase: 'final_answer' } } });",
+        "    send({ method: 'item/agentMessage/delta', params: { threadId, turnId: turn.id, itemId: 'msg-final', delta: 'Task done.' } });",
+        "    send({ method: 'item/completed', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'msg-final', text: 'Task done.', phase: 'final_answer' } } });",
         "    send({ method: 'turn/completed', params: { threadId, turn: completedTurn } });",
         "  }",
         "});",
@@ -879,17 +886,53 @@ describe("Codex agent runtime", () => {
     fs.chmodSync(fakeCodex, 0o755);
     const previousPath = process.env.STELLA_CODEX_CLI_PATH;
     const streamed: string[] = [];
+    const commandStates: string[] = [];
+    const appendThreadMessage = vi.fn();
+    const updateBuffer = createExternalAssistantUpdateBuffer({
+      store: { appendThreadMessage } as never,
+      threadKey: "agent-codex",
+      engine: "codex",
+      runId: "run-suppressed-stream",
+      attemptGeneration: 4,
+    });
     process.env.STELLA_CODEX_CLI_PATH = fakeCodex;
     try {
       const result = await runCodexAgentTurn({
         runId: "run-suppressed-stream",
         prompt: "hello",
         streamFinalAnswer: false,
-        onStream: (chunk) => streamed.push(chunk),
+        onStream: (chunk) => {
+          streamed.push(chunk);
+          updateBuffer.append(chunk);
+        },
+        onCommandExecution: (activity) => {
+          commandStates.push(activity.status);
+          if (activity.status === "inProgress") {
+            updateBuffer.flushBeforeTool();
+          }
+        },
       });
+      updateBuffer.discard();
 
-      expect(result.text).toBe("task done");
-      expect(streamed).toEqual([]);
+      expect(result.text).toBe("Task done.");
+      expect(streamed).toEqual(["I will inspect ", "the route."]);
+      expect(commandStates).toEqual(["inProgress", "completed"]);
+      expect(appendThreadMessage).toHaveBeenCalledOnce();
+      expect(appendThreadMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadKey: "agent-codex",
+          content: "I will inspect the route.",
+          payload: expect.objectContaining({
+            stopReason: "toolUse",
+            stellaRunId: "run-suppressed-stream",
+            stellaAttemptGeneration: 4,
+            usage: expect.objectContaining({
+              totalTokens: 0,
+              cost: expect.objectContaining({ total: 0 }),
+            }),
+          }),
+        }),
+      );
     } finally {
       if (previousPath === undefined) {
         delete process.env.STELLA_CODEX_CLI_PATH;

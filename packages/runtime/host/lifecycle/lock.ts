@@ -1,6 +1,7 @@
 import { closeSync, openSync, writeFileSync, promises as fsPromises } from "node:fs";
-import { Effect, Schedule, type Scope } from "effect";
+import { Effect, type Scope } from "effect";
 import { HostLockBusyError, HostLockTimeoutError } from "./errors.js";
+import { pollWithDeadline } from "./poll.js";
 
 /**
  * Host-side lockfile serialization (`runtime.lock.host`): concurrent host
@@ -10,11 +11,11 @@ import { HostLockBusyError, HostLockTimeoutError } from "./errors.js";
  * attach can never strand the lock.
  *
  * The acquire loop mirrors opencode's effect-flock: a single `wx`-create
- * attempt that fails with the retryable HostLockBusyError, driven by
- * `Schedule.spaced(50ms)` bounded by `Schedule.during(timeoutMs)` —
- * observably the same 50ms spacing and total budget as the old hand-rolled
- * while-loop, with the same atomic rename-based stale takeover inside the
- * attempt.
+ * attempt that fails with the retryable HostLockBusyError, paced by
+ * `Schedule.spaced(50ms)` and admitted against an absolute deadline
+ * anchored before attempt one (`pollWithDeadline`) — the same 50ms spacing
+ * and total budget as the old hand-rolled while-loop, with the same atomic
+ * rename-based stale takeover inside the attempt.
  */
 
 const ACQUIRE_POLL_INTERVAL_MS = 50;
@@ -106,19 +107,12 @@ export const acquireHostLock = (
   timeoutMs: number,
 ): Effect.Effect<HostLockHandle, HostLockTimeoutError | Error, Scope.Scope> =>
   Effect.acquireRelease(
-    tryAcquireLockFile(lockFile).pipe(
-      Effect.retry({
-        while: (error) => error instanceof HostLockBusyError,
-        schedule: Schedule.both(
-          Schedule.spaced(ACQUIRE_POLL_INTERVAL_MS),
-          Schedule.during(timeoutMs),
-        ),
-      }),
-      Effect.mapError((error) =>
-        error instanceof HostLockBusyError
-          ? new HostLockTimeoutError({ lockFile, timeoutMs })
-          : error,
-      ),
-    ),
+    pollWithDeadline({
+      timeoutMs,
+      intervalMs: ACQUIRE_POLL_INTERVAL_MS,
+      attempt: tryAcquireLockFile(lockFile),
+      retryWhile: (error) => error instanceof HostLockBusyError,
+      onDeadline: () => new HostLockTimeoutError({ lockFile, timeoutMs }),
+    }),
     (handle) => releaseLock(handle),
   );

@@ -17,10 +17,13 @@ import {
   type RuntimePaths,
 } from "../worker/runtime-paths.js";
 import {
+  pollForWorkerReady,
   startOrAttachWorkerEffect,
   stopRunningWorkerEffect,
 } from "../host/lifecycle/attach.js";
 import { acquireHostLock } from "../host/lifecycle/lock.js";
+import { spawnAdoptedWorker } from "../host/lifecycle/spawn.js";
+import { quiescencePollEffect } from "../host/staleness.js";
 import {
   HostLockTimeoutError,
   WorkerReadyTimeoutError,
@@ -119,13 +122,16 @@ const startFakeWorkerServer = (
 ): Promise<{
   server: Server;
   connections: Socket[];
+  connectionTimes: number[];
   closedCount: () => number;
 }> =>
   new Promise((resolve, reject) => {
     const connections: Socket[] = [];
+    const connectionTimes: number[] = [];
     let closed = 0;
     const server = createServer((socket) => {
       connections.push(socket);
+      connectionTimes.push(Date.now());
       socket.on("error", () => undefined);
       socket.on("close", () => {
         closed += 1;
@@ -157,7 +163,7 @@ const startFakeWorkerServer = (
     trackedConnections.push(connections);
     server.on("error", reject);
     server.listen(paths.socketPath, () =>
-      resolve({ server, connections, closedCount: () => closed }),
+      resolve({ server, connections, connectionTimes, closedCount: () => closed }),
     );
   });
 
@@ -357,9 +363,11 @@ describe("host lifecycle attach pipeline (Effect)", () => {
     const lockFile = hostLockFileFor(paths);
     writeFileSync(lockFile, String(process.pid), "utf-8");
 
+    const startedAt = Date.now();
     const exit = await Effect.runPromiseExit(
       Effect.scoped(acquireHostLock(lockFile, 250)),
     );
+    const elapsed = Date.now() - startedAt;
 
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
@@ -369,6 +377,10 @@ describe("host lifecycle attach pipeline (Effect)", () => {
         `Timed out acquiring runtime host lock at ${lockFile} after 250ms.`,
       );
     }
+    // Budget anchored before attempt one: the loop gives up at ~250ms, not
+    // 250ms-plus-boundary-recurrences.
+    expect(elapsed).toBeGreaterThanOrEqual(250);
+    expect(elapsed).toBeLessThan(450);
     // The holder's lock must not have been deleted by the loser.
     expect(readFileSync(lockFile, "utf-8")).toBe(String(process.pid));
     rmSync(lockFile, { force: true });
@@ -394,6 +406,125 @@ describe("host lifecycle attach pipeline (Effect)", () => {
     );
 
     expect(existsSync(lockFile)).toBe(false);
+  });
+
+  it("anchors the readiness budget before attempt one and never admits an attempt at/after the deadline", async () => {
+    const { stellaAppDir, paths } = makeRoot();
+    void stellaAppDir;
+    // Every attempt costs ~150ms (probe hang up to socketConnectTimeoutMs).
+    // Baseline loop semantics with a 400ms budget: attempts start at ~0,
+    // ~175, ~350 and the ~525 attempt is NOT admitted — total elapsed is
+    // budget + at most one attempt overrun (~525), never
+    // attempt-one-duration + budget + boundary attempts (~700, the
+    // Schedule.during drift this guards against).
+    const { connectionTimes } = await startFakeWorkerServer(paths, "hang");
+
+    const startedAt = Date.now();
+    const exit = await Effect.runPromiseExit(
+      Effect.scoped(
+        pollForWorkerReady(
+          paths,
+          400,
+          budgets({ socketConnectTimeoutMs: 150, startPollIntervalMs: 25 }),
+        ),
+      ),
+    );
+    const elapsed = Date.now() - startedAt;
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    const error = Exit.isFailure(exit)
+      ? (Cause.squash(exit.cause) as Error)
+      : null;
+    expect(error).toBeInstanceOf(WorkerReadyTimeoutError);
+    expect((error as Error).message).toBe(
+      `Timed out waiting for runtime worker to become ready (socket=${paths.socketPath}).`,
+    );
+    expect(connectionTimes.length).toBeGreaterThanOrEqual(2);
+    // Attempt one is admitted immediately: the budget clock starts BEFORE
+    // it, not after it.
+    expect(connectionTimes[0]! - startedAt).toBeLessThan(100);
+    // No attempt starts at/after the absolute deadline (small slack for the
+    // admission-check → server-accept latency).
+    for (const time of connectionTimes) {
+      expect(time - startedAt).toBeLessThan(400 + 75);
+    }
+    // Total elapsed ≈ budget + ≤1 attempt overrun. The drifting schedule
+    // shape produced ~700ms here.
+    expect(elapsed).toBeGreaterThanOrEqual(400);
+    expect(elapsed).toBeLessThan(650);
+  });
+
+  it("keeps the quiescence poll fixed-rate: a slow flush does not push later ticks", async () => {
+    const flushStarts: number[] = [];
+    const startedAt = Date.now();
+    const fiber = Effect.runFork(
+      quiescencePollEffect(async () => {
+        flushStarts.push(Date.now() - startedAt);
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      }, 100),
+    );
+    // Fixed-rate grid (setInterval parity): ticks at ~100, ~200, ~300 even
+    // though each flush takes 60ms. The fixed-delay shape this guards
+    // against would tick at ~100, ~260, ~420.
+    await waitFor(() => flushStarts.length >= 3, 2_000, "three flush ticks");
+    await Effect.runPromise(Fiber.interrupt(fiber));
+
+    // First tick only after the leading interval — never immediately.
+    expect(flushStarts[0]!).toBeGreaterThanOrEqual(90);
+    // Third tick sits on the fixed-rate grid: two intervals after the
+    // first (~200ms), not two intervals + two flush durations (~320ms).
+    expect(flushStarts[2]! - flushStarts[0]!).toBeLessThan(280);
+  });
+
+  it("reaps the spawned worker when the scope exits with a mixed failure-plus-interruption cause", async () => {
+    const { stellaAppDir, paths } = makeRoot();
+    const childPidFile = path.join(stellaAppDir, "child.pid");
+    const fakeBun = writeExecutable(
+      stellaAppDir,
+      "fake-bun-hang",
+      `echo $$ > "${childPidFile}"\nexec sleep 60`,
+    );
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        yield* Scope.provide(
+          spawnAdoptedWorker(
+            {
+              stellaAppDir,
+              workerEntryPath: path.join(stellaAppDir, "entry.js"),
+              bunBinaryPath: fakeBun,
+            },
+            paths,
+          ),
+          scope,
+        );
+        // Let the child come up and record its pid before closing the scope.
+        yield* Effect.promise(() =>
+          waitFor(() => existsSync(childPidFile), 3_000, "spawned child pid"),
+        );
+        // An interrupt racing a concurrent failure: hasInterruptsOnly is
+        // false for this cause, hasInterrupts is true — the release must
+        // still reap (the finding-3 regression).
+        yield* Scope.close(
+          scope,
+          Exit.failCause(
+            Cause.combine(Cause.fail(new Error("boom")), Cause.interrupt(1)),
+          ),
+        );
+      }),
+    );
+
+    const childPid = Number.parseInt(
+      readFileSync(childPidFile, "utf-8").trim(),
+      10,
+    );
+    spawnedPids.push(childPid);
+    await waitFor(
+      () => !pidIsAlive(childPid),
+      3_000,
+      "mixed-cause child reaped",
+    );
   });
 
   it("stopRunningWorkerEffect reports no-op when no worker is recorded", async () => {

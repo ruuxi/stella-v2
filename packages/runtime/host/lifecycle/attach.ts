@@ -1,6 +1,6 @@
 import type { Socket } from "node:net";
 import { promises as fsPromises } from "node:fs";
-import { Effect, Schedule, type Scope } from "effect";
+import { Effect, type Scope } from "effect";
 import {
   resolveRuntimePaths,
   type RuntimePaths,
@@ -16,6 +16,7 @@ import {
   WorkerReadyTimeoutError,
 } from "./errors.js";
 import { acquireHostLock } from "./lock.js";
+import { pollWithDeadline } from "./poll.js";
 import { connectReadySocket } from "./socket.js";
 import { spawnAdoptedWorker } from "./spawn.js";
 import { findSameRootWorkerPids, killWorkerProcess, stopPids } from "./kill.js";
@@ -62,11 +63,16 @@ const hostExecutableMatches = (
   });
 
 /**
- * Poll `connectReadySocket` on a spaced Schedule bounded by `timeoutMs`.
- * "version-mismatch" fails fast with the protocol parity error; budget
- * exhaustion maps to the readiness-timeout parity error.
+ * Poll `connectReadySocket` on a spaced Schedule, with attempt admission
+ * checked against an absolute deadline anchored before attempt one
+ * (`pollWithDeadline` — the old `while (Date.now() < deadline)` shape).
+ * "version-mismatch" fails fast with the protocol parity error; deadline
+ * lapse maps to the readiness-timeout parity error.
+ *
+ * Exported for the timing-parity regression tests only; the exports map
+ * does not expose this module outside packages/runtime.
  */
-const pollForWorkerReady = (
+export const pollForWorkerReady = (
   paths: RuntimePaths,
   timeoutMs: number,
   budgets: LifecycleBudgets,
@@ -76,37 +82,38 @@ const pollForWorkerReady = (
   WorkerProtocolMismatchError | WorkerReadyTimeoutError,
   Scope.Scope
 > =>
-  connectReadySocket(
-    paths.socketPath,
-    budgets.socketConnectTimeoutMs,
-    expectedProtocolVersion,
-  ).pipe(
-    Effect.flatMap(
-      (
-        result,
-      ): Effect.Effect<
-        Socket,
-        WorkerNotReadyError | WorkerProtocolMismatchError
-      > =>
-        result.status === "ready"
-          ? Effect.succeed(result.socket)
-          : result.status === "version-mismatch"
-            ? Effect.fail(
-                new WorkerProtocolMismatchError({
-                  socketPath: paths.socketPath,
-                }),
-              )
-            : Effect.fail(
-                new WorkerNotReadyError({ socketPath: paths.socketPath }),
-              ),
-    ),
-    Effect.retry({
-      while: (error) => error instanceof WorkerNotReadyError,
-      schedule: Schedule.both(
-        Schedule.spaced(budgets.startPollIntervalMs),
-        Schedule.during(timeoutMs),
+  pollWithDeadline({
+    timeoutMs,
+    intervalMs: budgets.startPollIntervalMs,
+    attempt: connectReadySocket(
+      paths.socketPath,
+      budgets.socketConnectTimeoutMs,
+      expectedProtocolVersion,
+    ).pipe(
+      Effect.flatMap(
+        (
+          result,
+        ): Effect.Effect<
+          Socket,
+          WorkerNotReadyError | WorkerProtocolMismatchError
+        > =>
+          result.status === "ready"
+            ? Effect.succeed(result.socket)
+            : result.status === "version-mismatch"
+              ? Effect.fail(
+                  new WorkerProtocolMismatchError({
+                    socketPath: paths.socketPath,
+                  }),
+                )
+              : Effect.fail(
+                  new WorkerNotReadyError({ socketPath: paths.socketPath }),
+                ),
       ),
-    }),
+    ),
+    retryWhile: (error) => error instanceof WorkerNotReadyError,
+    onDeadline: () =>
+      new WorkerReadyTimeoutError({ socketPath: paths.socketPath }),
+  }).pipe(
     Effect.mapError((error) =>
       error instanceof WorkerNotReadyError
         ? new WorkerReadyTimeoutError({ socketPath: paths.socketPath })

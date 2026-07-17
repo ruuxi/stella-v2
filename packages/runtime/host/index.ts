@@ -86,11 +86,12 @@ import {
   killDetachedWorker,
 } from "./uds-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
-import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime } from "effect";
+import { Cause, Exit, Fiber, Layer, ManagedRuntime } from "effect";
 import {
   clearPendingWorkerRestartFlag,
   evaluateWorkerStaleness,
   persistPendingWorkerRestartFlag,
+  quiescencePollEffect,
 } from "./staleness.js";
 
 /**
@@ -705,18 +706,11 @@ export class StellaRuntimeHost {
   private startStaleWorkerQuiescencePoll() {
     if (this.staleWorkerQuiescencePollFiber) return;
     // Safety net for busy signals that don't end in a RUN_FINISHED event
-    // (e.g. voice-only activity) or a missed event during churn. The
-    // interval-with-leading-delay shape of the old setInterval is preserved:
-    // the first flush fires 30s after the deferral is marked, never
-    // immediately (the 1s nudge in markPendingWorkerRestart owns "soon").
-    // A flush rejection must not kill the poll — ignore and keep ticking.
+    // (e.g. voice-only activity) or a missed event during churn. Fixed-rate
+    // 30s ticks with a leading delay, matching the old setInterval cadence
+    // (see quiescencePollEffect).
     this.staleWorkerQuiescencePollFiber = hostStalenessRuntime.runFork(
-      Effect.forever(
-        Effect.tryPromise(() => this.flushWorkerRestart()).pipe(
-          Effect.ignore,
-          Effect.delay("30 seconds"),
-        ),
-      ),
+      quiescencePollEffect(() => this.flushWorkerRestart()),
     );
   }
 

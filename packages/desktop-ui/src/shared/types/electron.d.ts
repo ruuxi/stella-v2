@@ -67,6 +67,7 @@ import type {
   RuntimeVoiceToolCallPayload,
   RuntimeVoiceToolCallResult,
 } from "@stella/contracts/protocol";
+import type { RuntimeModelCatalogSnapshot } from "@stella/contracts/model-catalog";
 import type {
   OfficePreviewRef as SharedOfficePreviewRef,
   OfficePreviewSnapshot as SharedOfficePreviewSnapshot,
@@ -983,6 +984,12 @@ export type ElectronSystemApi = {
       source: "alias" | "anthropic";
     }>;
   }>;
+  listLlmModels: (options?: {
+    forceRefresh?: boolean;
+  }) => Promise<RuntimeModelCatalogSnapshot>;
+  onLlmModelsUpdated: (
+    callback: (snapshot: RuntimeModelCatalogSnapshot) => void,
+  ) => () => void;
   listLlmCredentials: () => Promise<LocalLlmCredentialSummary[]>;
   listLlmOAuthProviders: () => Promise<LocalLlmOAuthProviderSummary[]>;
   listLlmOAuthCredentials: () => Promise<LocalLlmCredentialSummary[]>;

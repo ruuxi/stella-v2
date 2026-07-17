@@ -17,6 +17,11 @@ import type {
   FileChangeRecord,
   ProducedFileRecord,
 } from "@stella/contracts/file-changes";
+import type {
+  RuntimeListModelsRequest,
+  RuntimeModelCatalogModel,
+  RuntimeModelCatalogSnapshot,
+} from "@stella/contracts/model-catalog";
 
 export type {
   AgentHealth,
@@ -28,6 +33,9 @@ export type {
   StorePackageRecord,
   StorePackageReleaseRecord,
   StoreReleaseGitArtifact,
+  RuntimeListModelsRequest,
+  RuntimeModelCatalogModel,
+  RuntimeModelCatalogSnapshot,
 };
 
 export const STELLA_RUNTIME_PROTOCOL_VERSION = "v1";
@@ -81,6 +89,7 @@ export const METHOD_NAMES = {
   INITIALIZED: "initialized",
   RUNTIME_CONFIGURE: "runtime.configure",
   RUNTIME_HEALTH: "runtime.health",
+  RUNTIME_LIST_MODELS: "runtime.listModels",
   RUNTIME_RESTART_WORKER: "runtime.restartWorker",
   RUN_HEALTH_CHECK: "run.healthCheck",
   RUN_GET_ACTIVE: "run.getActive",
@@ -149,6 +158,7 @@ export const METHOD_NAMES = {
   INTERNAL_WORKER_INITIALIZE: "internal.worker.initialize",
   INTERNAL_WORKER_CONFIGURE: "internal.worker.configure",
   INTERNAL_WORKER_HEALTH: "internal.worker.health",
+  INTERNAL_WORKER_LIST_MODELS: "internal.worker.listModels",
   INTERNAL_WORKER_GET_ACTIVE: "internal.worker.getActive",
   INTERNAL_WORKER_START_CHAT: "internal.worker.startChat",
   INTERNAL_WORKER_CANCEL: "internal.worker.cancel",
@@ -275,6 +285,7 @@ export const NOTIFICATION_NAMES = {
   LOCAL_CHAT_UPDATED: "localChat.updated",
   THREAD_ACTIVITY_UPDATED: "localChat.threadActivityUpdated",
   SCHEDULE_UPDATED: "schedule.updated",
+  MODEL_CATALOG_UPDATED: "modelCatalog.updated",
   APPROVAL_REQUESTED: "approval.requested",
 } as const;
 

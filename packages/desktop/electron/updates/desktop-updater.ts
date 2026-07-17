@@ -45,7 +45,7 @@ export type DesktopUpdaterOptions = {
   client: DesktopUpdaterClient;
   currentVersion: string;
   enabled: boolean;
-  feedUrl?: string;
+  autoInstallOnAppQuit?: boolean;
   startupDelayMs?: number;
   checkIntervalMs?: number;
   onStateChanged?: (snapshot: DesktopUpdateSnapshot) => void;
@@ -73,22 +73,8 @@ const updateInfoFromArgs = (args: unknown[]): UpdateInfoLike | null => {
     : null;
 };
 
-export const assertIsolatedV2UpdateFeed = (
-  value: string,
-  options: { allowLoopback?: boolean } = {},
-): string => {
+export const assertIsolatedV2UpdateFeed = (value: string): string => {
   const url = new URL(value);
-  const loopback =
-    url.hostname === "127.0.0.1" ||
-    url.hostname === "localhost" ||
-    url.hostname === "[::1]";
-  if (
-    options.allowLoopback &&
-    loopback &&
-    url.pathname.includes("/desktop-v2/")
-  ) {
-    return url.toString().replace(/\/$/, "");
-  }
   if (url.protocol !== "https:" || !url.pathname.startsWith("/desktop-v2/")) {
     throw new Error(
       `Refusing non-v2 desktop update feed: ${url.origin}${url.pathname}`,
@@ -98,32 +84,23 @@ export const assertIsolatedV2UpdateFeed = (
 };
 
 export const resolveDesktopUpdateFeedUrl = (
-  args: readonly string[] = process.argv,
-  env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
   arch: NodeJS.Architecture = process.arch,
 ): string => {
-  const localVerification = args.includes("--stella-verify-local-update");
-  const override = env.STELLA_V2_LOCAL_UPDATE_FEED_URL?.trim();
-  if (!localVerification || !override) {
-    const os =
-      platform === "darwin"
-        ? "mac"
-        : platform === "win32"
-          ? "win"
-          : platform === "linux"
-            ? "linux"
-            : null;
-    if (!os || (arch !== "arm64" && arch !== "x64")) {
-      throw new Error(
-        `Unsupported desktop update platform: ${platform}-${arch}`,
-      );
-    }
-    return assertIsolatedV2UpdateFeed(
-      `${STELLA_V2_UPDATE_FEED_URL}/${os}-${arch}`,
-    );
+  const os =
+    platform === "darwin"
+      ? "mac"
+      : platform === "win32"
+        ? "win"
+        : platform === "linux"
+          ? "linux"
+          : null;
+  if (!os || (arch !== "arm64" && arch !== "x64")) {
+    throw new Error(`Unsupported desktop update platform: ${platform}-${arch}`);
   }
-  return assertIsolatedV2UpdateFeed(override, { allowLoopback: true });
+  return assertIsolatedV2UpdateFeed(
+    `${STELLA_V2_UPDATE_FEED_URL}/${os}-${arch}`,
+  );
 };
 
 export class DesktopUpdater {
@@ -131,6 +108,7 @@ export class DesktopUpdater {
   private readonly client: DesktopUpdaterClient;
   private readonly enabled: boolean;
   private readonly feedUrl: string;
+  private readonly autoInstallOnAppQuit: boolean;
   private readonly startupDelayMs: number;
   private readonly checkIntervalMs: number;
   private readonly onStateChanged?: (snapshot: DesktopUpdateSnapshot) => void;
@@ -146,12 +124,8 @@ export class DesktopUpdater {
   constructor(options: DesktopUpdaterOptions) {
     this.client = options.client;
     this.enabled = options.enabled;
-    this.feedUrl = assertIsolatedV2UpdateFeed(
-      options.feedUrl ?? STELLA_V2_UPDATE_FEED_URL,
-      {
-        allowLoopback: true,
-      },
-    );
+    this.feedUrl = resolveDesktopUpdateFeedUrl();
+    this.autoInstallOnAppQuit = options.autoInstallOnAppQuit ?? true;
     this.startupDelayMs = options.startupDelayMs ?? DEFAULT_STARTUP_DELAY_MS;
     this.checkIntervalMs = options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
     this.onStateChanged = options.onStateChanged;
@@ -194,7 +168,7 @@ export class DesktopUpdater {
     }
 
     this.client.autoDownload = false;
-    this.client.autoInstallOnAppQuit = true;
+    this.client.autoInstallOnAppQuit = this.autoInstallOnAppQuit;
     this.client.allowDowngrade = false;
     this.client.allowPrerelease = false;
     this.client.disableWebInstaller = true;

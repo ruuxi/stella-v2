@@ -3,8 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DesktopUpdater,
   assertIsolatedV2UpdateFeed,
+  resolveDesktopUpdateFeedUrl,
   type DesktopUpdaterClient,
 } from "../../../desktop/electron/updates/desktop-updater";
+import {
+  assertLocalUpdateVerificationRequest,
+  configureLocalUpdateVerificationUpdater,
+  LOCAL_UPDATE_VERIFICATION_APP_ID,
+  LOCAL_UPDATE_VERIFICATION_PRODUCT_NAME,
+} from "../../../desktop/electron/updates/local-update-verification-identity";
 
 class FakeUpdater implements DesktopUpdaterClient {
   autoDownload = true;
@@ -53,11 +60,58 @@ describe("DesktopUpdater", () => {
         "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop/current.json",
       ),
     ).toThrow(/Refusing non-v2 desktop update feed/);
+    expect(() =>
+      assertIsolatedV2UpdateFeed(
+        "http://127.0.0.1:8123/desktop-v2/stable/mac-arm64",
+      ),
+    ).toThrow(/Refusing non-v2 desktop update feed/);
+    expect(resolveDesktopUpdateFeedUrl("darwin", "arm64")).toMatch(
+      /^https:\/\/[^/]+\/desktop-v2\/stable\/mac-arm64$/,
+    );
+  });
+
+  it("refuses a loopback verifier request from the production app identity", () => {
+    expect(() =>
+      assertLocalUpdateVerificationRequest(
+        {
+          isPackaged: true,
+          appName: "Stella",
+          bundleId: "com.stella.app",
+          packageMarker: false,
+          packageBundleId: "",
+        },
+        "http://127.0.0.1:8123/desktop-v2/stable/mac-arm64",
+      ),
+    ).toThrow(/test-only application identity/);
+
     expect(
-      assertIsolatedV2UpdateFeed("http://127.0.0.1:8123/desktop-v2/stable", {
-        allowLoopback: true,
+      assertLocalUpdateVerificationRequest(
+        {
+          isPackaged: true,
+          appName: LOCAL_UPDATE_VERIFICATION_PRODUCT_NAME,
+          bundleId: LOCAL_UPDATE_VERIFICATION_APP_ID,
+          packageMarker: true,
+          packageBundleId: LOCAL_UPDATE_VERIFICATION_APP_ID,
+        },
+        "http://127.0.0.1:8123/desktop-v2/stable/mac-arm64",
+      ),
+    ).toBe("http://127.0.0.1:8123/desktop-v2/stable/mac-arm64");
+  });
+
+  it("keeps the verifier download-only even when the app quits", () => {
+    const client = new FakeUpdater();
+    configureLocalUpdateVerificationUpdater(
+      client,
+      "http://127.0.0.1:8123/desktop-v2/stable/mac-arm64",
+    );
+    expect(client.autoDownload).toBe(false);
+    expect(client.autoInstallOnAppQuit).toBe(false);
+    expect(client.allowDowngrade).toBe(false);
+    expect(client.setFeedURL).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8123/desktop-v2/stable/mac-arm64",
       }),
-    ).toBe("http://127.0.0.1:8123/desktop-v2/stable");
+    );
   });
 
   it("checks, downloads, reports progress, and delegates restart-and-install", async () => {
@@ -86,6 +140,7 @@ describe("DesktopUpdater", () => {
       }),
     );
     expect(client.autoDownload).toBe(false);
+    expect(client.autoInstallOnAppQuit).toBe(true);
     expect(client.allowDowngrade).toBe(false);
 
     await updater.download();
@@ -99,6 +154,21 @@ describe("DesktopUpdater", () => {
     expect(updater.restartAndInstall()).toEqual({ accepted: true });
     await new Promise((resolve) => setImmediate(resolve));
     expect(client.quitAndInstall).toHaveBeenCalledWith(false, true);
+    updater.dispose();
+  });
+
+  it("can disable install-on-quit for a download-only client", () => {
+    const client = new FakeUpdater();
+    const updater = new DesktopUpdater({
+      client,
+      currentVersion: "1.0.0",
+      enabled: true,
+      autoInstallOnAppQuit: false,
+      startupDelayMs: 60_000,
+      checkIntervalMs: 60_000,
+    });
+    updater.start();
+    expect(client.autoInstallOnAppQuit).toBe(false);
     updater.dispose();
   });
 

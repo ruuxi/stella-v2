@@ -71,7 +71,8 @@ Stella v1 and v2 intentionally retain the same `com.stella.app` app ID, so the
 feed—not the bundle ID—is the hard update boundary. V2 uses all three of these
 independent guards:
 
-- only `desktop-v2-v*` tags trigger the v2 desktop workflow;
+- only `desktop-v2-v*` tags trigger the v2 desktop workflow, and its first job
+  rejects anything except an exact stable `desktop-v2-vX.Y.Z` tag;
 - every R2 write is guarded under `desktop-v2/**`; the workflow never writes
   `desktop/**`, `desktop/current.json`, or any launcher path;
 - the packaged client pins the generic provider to
@@ -85,15 +86,18 @@ The updater's local payload cache is also explicitly named
 separate from v1 updater state.
 
 `package.json` contains the matching generic-provider URL template. The
-runtime pins the same base in code instead of accepting an arbitrary production
-environment override. A loopback override exists only behind the explicit
-`--stella-verify-local-update` verification flag and still requires a
-`/desktop-v2/` path.
+production runtime pins the same base in code and has no CLI or environment
+override. The loopback verifier is a separate, verifier-only Electron entry
+bundle that is excluded from normal production builds. It requires the exact
+test product name, bundle ID, signed package metadata marker, explicit verifier
+flag, and a `127.0.0.1/desktop-v2/` feed before it starts.
 
 ## Signing and notarization
 
-The macOS release configuration enables hardened runtime and shared Electron
-entitlements for the app and its nested binaries. CI imports the existing
+The macOS release configuration enables hardened runtime. The parent app uses
+its own audio-input entitlement, while nested Electron helpers use a separate
+inherit file for JIT, executable-memory, and library-validation exceptions. CI
+imports the existing
 Developer ID certificate using the launcher's secret names
 `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, and
 `APPLE_SIGNING_IDENTITY`. The `afterSign` hook submits the signed `.app` with
@@ -112,16 +116,19 @@ an Authenticode verification step that requires a valid trusted signature.
 
 ## Local updater verification
 
-`bun run updater:verify-local` prepares the packaged app, builds two ad-hoc
+`bun run updater:verify-local` prepares a verifier-only packaged app, builds two ad-hoc
 versioned macOS ZIP releases in a temporary directory, serves the newer
 `latest-v2-mac.yml` and payload from a loopback
 `desktop-v2/stable/<platform>` feed, and launches the older app with isolated
-Electron user/session/cache state, a test-only bundle ID, and Electron's mock
-macOS Keychain. The packaged `electron-updater` client must detect and download
-the new version and validate the generated metadata. The ad-hoc harness does
-not call `quitAndInstall`: Squirrel.Mac requires the replacement app to satisfy
-the installed app's real signing requirement, so restart/apply is the final
-Developer-ID-signed CI gate. No login Keychain item, R2 object, GitHub
+Electron user/session/cache state, a test-only bundle ID, signed package
+metadata marker, and Electron's mock macOS Keychain. Normal production bundles
+do not contain the verifier entry point, and the production updater refuses
+loopback URLs unconditionally. The verifier sets `autoInstallOnAppQuit=false`,
+detects and downloads the new version, validates the generated metadata, and
+then quits without applying it. The ad-hoc harness never calls `quitAndInstall`:
+Squirrel.Mac requires the replacement app to satisfy the installed app's real
+signing requirement, so restart/apply is the final Developer-ID-signed CI gate.
+No login Keychain item, R2 object, GitHub
 repository, installed Stella app, or live v1 feed is read or modified by this
 verification. Its dedicated updater and ShipIt caches are removed when the run
 ends.
@@ -145,16 +152,21 @@ M4 stops locally. To run the real release:
    `desktop-v2/stable/<platform>` feeds to this client.
 4. Run the retained native-helper and Stella Browser workflows first so their
    immutable manifests contain `darwin-arm64`, `darwin-x64`, and `win-x64`.
-5. Push a `desktop-v2-v<semver>` tag. Confirm Developer ID signing,
+5. Push an exact stable `desktop-v2-vX.Y.Z` tag. Confirm Developer ID signing,
    notarization, stapling, Gatekeeper assessment, unsigned-Windows assertion,
    R2 publication, and GitHub Release creation all pass.
 6. On an isolated test account or machine—not Rahul's live install—install an
    older signed v2 build, publish a newer signed v2 build, and prove the pill
    downloads, quits, installs, and relaunches the newer version. Verify the
    macOS Keychain prompt disappears on the first real Developer-ID-signed and
-   notarized build. Record that the v1 feed and `desktop/current.json` are
-   byte-for-byte unchanged before and after this test.
-7. Windows stays unsigned for M4. To add DigiCert later, configure the chosen
+   notarized build. Run a signed-build microphone smoke test covering voice and
+   dictation permission plus actual audio capture. Record that the v1 feed and
+   `desktop/current.json` are byte-for-byte unchanged before and after this
+   test.
+7. On the same isolated machine, run negative cross-channel checks: prove an
+   installed v1 client cannot discover or consume the v2 feed, and prove an
+   installed v2 client cannot discover or consume the v1 feed.
+8. Windows stays unsigned for M4. To add DigiCert later, configure the chosen
    PFX or KeyLocker credentials, remove `CSC_IDENTITY_AUTO_DISCOVERY=false`
    and the `NotSigned` assertion, wire electron-builder's signing inputs, and
    require a trusted Authenticode result before publication.

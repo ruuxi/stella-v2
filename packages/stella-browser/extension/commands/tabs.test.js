@@ -23,7 +23,6 @@ const event = (bucket) => ({
     bucket.push(listener);
   },
 });
-
 globalThis.chrome = {
   storage: {
     session: {
@@ -133,12 +132,14 @@ globalThis.chrome = {
 };
 
 const {
+  authorizeOwnerLease,
   finalizeOwnerTabs,
   getActiveTab,
   handleTabClose,
   handleTabList,
   handleTabNew,
   handleTabSwitch,
+  releaseOwnerLease,
 } = await import('./tabs.js');
 
 test('tab responses expose stable IDs and explicit targeting stays owner-scoped', async () => {
@@ -326,4 +327,147 @@ test('failed handoff operations retain ownership for retry', async () => {
   });
   assert.deepEqual(retried.releasedTabIds, [owned.data.tabId]);
   assert.equal(tabs.get(owned.data.tabId).groupId, -1);
+});
+
+test('window drift preserves valid owned tabs in the registry', async () => {
+  const owned = await handleTabNew({ id: 'drift-new', ownerId: 'owner-drift' });
+  tabs.get(owned.data.tabId).windowId = 2;
+  for (const listener of listeners.windowRemoved) listener(1);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const listed = await handleTabList({ id: 'drift-list', ownerId: 'owner-drift' });
+  assert.deepEqual(listed.data.tabs.map((tab) => tab.tabId), [owned.data.tabId]);
+  assert.equal(tabs.has(owned.data.tabId), true);
+});
+
+test('replacement lease fences stale cleanup from an older kernel', async () => {
+  const firstLease = {
+    id: 'lease-first',
+    action: 'tab_new',
+    ownerId: 'owner-lease',
+    ownerLeaseId: 'kernel-1',
+    ownerLeaseIssuedAt: 100,
+  };
+  const replacementLease = {
+    id: 'lease-replacement',
+    action: 'tab_list',
+    ownerId: 'owner-lease',
+    ownerLeaseId: 'kernel-2',
+    ownerLeaseIssuedAt: 200,
+  };
+  await authorizeOwnerLease(firstLease);
+  const owned = await handleTabNew(firstLease);
+  await authorizeOwnerLease(replacementLease);
+
+  await assert.rejects(
+    authorizeOwnerLease({ ...firstLease, id: 'stale-close', action: 'close_owner' }),
+    /Stale browser owner lease rejected/,
+  );
+  assert.equal(tabs.has(owned.data.tabId), true);
+  const listed = await handleTabList(replacementLease);
+  assert.deepEqual(listed.data.tabs.map((tab) => tab.tabId), [owned.data.tabId]);
+});
+
+test('protocol 2 owner commands always reject missing lease fields', async () => {
+  await assert.rejects(
+    authorizeOwnerLease({
+      id: 'legacy-owner-command',
+      action: 'close_owner',
+      ownerId: 'legacy-owner',
+    }),
+    /protocol mismatch.*no owner lease.*1\.2\.6/i,
+  );
+});
+
+test('in-flight tab close rechecks its lease after replacement', async () => {
+  const firstLease = {
+    id: 'in-flight-first',
+    action: 'tab_new',
+    ownerId: 'owner-in-flight',
+    ownerLeaseId: 'kernel-old',
+    ownerLeaseIssuedAt: 300,
+  };
+  const replacementLease = {
+    id: 'in-flight-replacement',
+    action: 'tab_list',
+    ownerId: 'owner-in-flight',
+    ownerLeaseId: 'kernel-new',
+    ownerLeaseIssuedAt: 400,
+  };
+  await authorizeOwnerLease(firstLease);
+  const owned = await handleTabNew(firstLease);
+
+  const originalGet = chrome.tabs.get;
+  let resumeGet;
+  let getStarted;
+  const getStartedPromise = new Promise((resolve) => { getStarted = resolve; });
+  const resumeGetPromise = new Promise((resolve) => { resumeGet = resolve; });
+  chrome.tabs.get = async (tabId) => {
+    getStarted();
+    await resumeGetPromise;
+    return originalGet(tabId);
+  };
+
+  try {
+    const staleClose = handleTabClose({
+      ...firstLease,
+      id: 'in-flight-close',
+      action: 'tab_close',
+      tabId: owned.data.tabId,
+    });
+    await getStartedPromise;
+    await authorizeOwnerLease(replacementLease);
+    resumeGet();
+
+    await assert.rejects(staleClose, /Stale browser owner lease rejected/);
+    assert.equal(tabs.has(owned.data.tabId), true);
+  } finally {
+    chrome.tabs.get = originalGet;
+    resumeGet?.();
+  }
+});
+
+test('lease release preserves the generation fence while tabs survive', async () => {
+  const lease = {
+    id: 'release-lease',
+    action: 'tab_new',
+    ownerId: 'owner-release-lease',
+    ownerLeaseId: 'short-lived-session',
+    ownerLeaseIssuedAt: 500,
+  };
+  await authorizeOwnerLease(lease);
+  const owned = await handleTabNew(lease);
+  await releaseOwnerLease(lease);
+
+  await assert.rejects(
+    authorizeOwnerLease({
+      ...lease,
+      id: 'stale-after-release',
+      ownerLeaseId: 'stale-session',
+      ownerLeaseIssuedAt: 1,
+    }),
+    /Stale browser owner lease rejected/,
+  );
+  await authorizeOwnerLease({
+    ...lease,
+    id: 'newer-after-release',
+    ownerLeaseId: 'later-session',
+    ownerLeaseIssuedAt: 600,
+  });
+  assert.equal(tabs.has(owned.data.tabId), true);
+});
+
+test('lease release leaves no tombstone for a stateless short-lived owner', async () => {
+  const lease = {
+    id: 'stateless-release',
+    action: 'cookies_get',
+    ownerId: 'stateless-owner',
+    ownerLeaseId: 'stateless-session',
+    ownerLeaseIssuedAt: 700,
+  };
+  await authorizeOwnerLease(lease);
+  await releaseOwnerLease(lease);
+
+  assert.equal(storage.ownerLeaseState?.['stateless-owner'], undefined);
+  assert.equal(storage.ownerLeaseHighWater?.['stateless-owner'], undefined);
 });

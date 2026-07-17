@@ -3,6 +3,12 @@ import test from 'node:test';
 
 const noopEvent = { addListener() {} };
 globalThis.chrome = {
+  storage: {
+    session: {
+      async get() { return {}; },
+      async set() {},
+    },
+  },
   debugger: { onEvent: noopEvent, onDetach: noopEvent },
   tabs: { onCreated: noopEvent, onRemoved: noopEvent },
   windows: { onRemoved: noopEvent },
@@ -14,6 +20,7 @@ const {
   MAX_CHAIN_STEPS,
   validateChainCommand,
 } = await import('./chain.js');
+const { authorizeOwnerLease } = await import('./tabs.js');
 
 test('chain defaults to no random delay and preserves abort-on-error behavior', async () => {
   const originalSetTimeout = globalThis.setTimeout;
@@ -49,6 +56,7 @@ test('chain defaults to no random delay and preserves abort-on-error behavior', 
 
     assert.equal(timeoutCalls, 0);
     assert.equal(response.success, false);
+    assert.equal(response.error, 'Chain step 1 (fill) failed: fill failed');
     assert.equal(response.data.results.length, 2);
     assert.equal(response.data.results[0].data.tabId, 17);
     assert.match(response.data.results[1].error, /fill failed/);
@@ -56,7 +64,6 @@ test('chain defaults to no random delay and preserves abort-on-error behavior', 
     globalThis.setTimeout = originalSetTimeout;
   }
 });
-
 test('chain only delays when an explicit delay object is supplied', async () => {
   const originalSetTimeout = globalThis.setTimeout;
   const delays = [];
@@ -84,6 +91,48 @@ test('chain only delays when an explicit delay object is supplied', async () => 
   } finally {
     globalThis.setTimeout = originalSetTimeout;
   }
+});
+
+test('chain rechecks the owner lease before each later step', async () => {
+  const oldLease = {
+    id: 'chain-old',
+    action: 'chain',
+    ownerId: 'chain-owner',
+    ownerLeaseId: 'chain-kernel-old',
+    ownerLeaseIssuedAt: 100,
+  };
+  const newLease = {
+    ...oldLease,
+    id: 'chain-new',
+    ownerLeaseId: 'chain-kernel-new',
+    ownerLeaseIssuedAt: 200,
+  };
+  await authorizeOwnerLease(oldLease);
+
+  let releaseFirst;
+  let firstStarted;
+  const firstStartedPromise = new Promise((resolve) => { firstStarted = resolve; });
+  const releaseFirstPromise = new Promise((resolve) => { releaseFirst = resolve; });
+  let calls = 0;
+  const chainPromise = handleChain(
+    { ...oldLease, steps: [{ action: 'click' }, { action: 'click' }] },
+    {
+      click: async () => {
+        calls += 1;
+        if (calls === 1) {
+          firstStarted();
+          await releaseFirstPromise;
+        }
+        return { success: true, data: {} };
+      },
+    },
+  );
+
+  await firstStartedPromise;
+  await authorizeOwnerLease(newLease);
+  releaseFirst();
+  await assert.rejects(chainPromise, /Stale browser owner lease rejected/);
+  assert.equal(calls, 1);
 });
 
 test('chain validation rejects nested, oversized, and unsafe shapes', () => {
@@ -167,6 +216,23 @@ test('requested screenshot failures fail the chain with format metadata', async 
     error: 'capture failed',
     format: 'jpeg',
   });
+});
+
+test('failed action responses propagate the action and concrete message', async () => {
+  const response = await handleChain(
+    {
+      id: 'chain-action-failure',
+      ownerId: 'owner-a',
+      steps: [{ action: 'click' }],
+    },
+    {
+      click: async () => ({ success: false, error: 'target was detached' }),
+    },
+  );
+
+  assert.equal(response.success, false);
+  assert.equal(response.error, 'Chain step 0 (click) failed: target was detached');
+  assert.equal(response.data.results[0].error, 'target was detached');
 });
 
 test('requested snapshot failures fail the chain', async () => {

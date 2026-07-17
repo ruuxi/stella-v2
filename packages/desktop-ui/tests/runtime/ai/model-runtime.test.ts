@@ -20,6 +20,20 @@ const makeTempDir = async (): Promise<string> => {
   return directory;
 };
 
+const validRemoteCatalogModel = (overrides: Record<string, unknown> = {}) => ({
+  id: "grok-remote-valid",
+  name: "Grok Remote Valid",
+  api: "openai-responses",
+  provider: "xai",
+  baseUrl: "https://api.x.ai/v1",
+  reasoning: true,
+  input: ["text", "image"],
+  cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 500_000,
+  maxTokens: 100_000,
+  ...overrides,
+});
+
 afterEach(async () => {
   delete process.env.STELLA_TEST_MODEL_KEY;
   delete process.env.STELLA_MISSING_MODEL_HEADER;
@@ -920,6 +934,60 @@ describe("ModelRuntime", () => {
     }
   });
 
+  it("repairs a recent malformed cached catalog during online initialization", async () => {
+    const stellaDataDir = await makeTempDir();
+    await writeFile(
+      path.join(stellaDataDir, "models-store.json"),
+      JSON.stringify({
+        xai: {
+          models: [
+            validRemoteCatalogModel({
+              id: "grok-malformed-cache",
+              cost: { input: "NaN", output: 2, cacheRead: 0, cacheWrite: 0 },
+            }),
+          ],
+          checkedAt: Date.now(),
+        },
+      }),
+    );
+    const originalFetch = globalThis.fetch;
+    let xaiRequests = 0;
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/xai")) {
+        xaiRequests += 1;
+        return Response.json({
+          models: [
+            validRemoteCatalogModel({
+              id: "grok-repaired-cache",
+              name: "Grok Repaired Cache",
+            }),
+          ],
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(xaiRequests).toBe(1);
+      expect(runtime.getModel("xai", "grok-malformed-cache")).toBeUndefined();
+      expect(runtime.getModel("xai", "grok-repaired-cache")?.name).toBe(
+        "Grok Repaired Cache",
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /Dropped invalid remote catalog entry for xai.*\/cost\/input/u,
+        ),
+      );
+    } finally {
+      warn.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("drops and logs a remote catalog entry missing api", async () => {
     const stellaDataDir = await makeTempDir();
     const originalFetch = globalThis.fetch;
@@ -1080,6 +1148,81 @@ describe("ModelRuntime", () => {
         contextWindow: 256_000,
         maxTokens: 32_000,
       });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("preserves the last-good catalog and cache when a non-empty refresh is all invalid", async () => {
+    const stellaDataDir = await makeTempDir();
+    const storePath = path.join(stellaDataDir, "models-store.json");
+    const runtime = new ModelRuntime();
+    const originalFetch = globalThis.fetch;
+    let serveInvalidCatalog = false;
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/xai")) {
+        return Response.json({
+          models: serveInvalidCatalog
+            ? [
+                validRemoteCatalogModel({
+                  id: "grok-invalid-refresh",
+                  cost: {
+                    input: "NaN",
+                    output: 2,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                  },
+                }),
+              ]
+            : [
+                validRemoteCatalogModel({
+                  id: "grok-last-good-invalid-refresh",
+                  name: "Grok Last Good Invalid Refresh",
+                }),
+              ],
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+      const storedBefore = JSON.parse(await readFile(storePath, "utf8")) as {
+        xai?: unknown;
+      };
+      expect(
+        runtime.getModel("xai", "grok-last-good-invalid-refresh"),
+      ).toBeDefined();
+
+      serveInvalidCatalog = true;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      try {
+        const snapshot = await runtime.getSnapshotForListing({
+          forceRefresh: true,
+        });
+
+        expect(snapshot.catalogError).toMatch(
+          /xai: Invalid model catalog for xai: non-empty payload contained 1 invalid entry and no valid entries/u,
+        );
+        expect(
+          runtime.getModel("xai", "grok-last-good-invalid-refresh"),
+        ).toBeDefined();
+        expect(
+          runtime.getModel("xai", "grok-invalid-refresh"),
+        ).toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringMatching(
+            /Dropped invalid remote catalog entry for xai.*\/cost\/input/u,
+          ),
+        );
+      } finally {
+        warn.mockRestore();
+      }
+
+      const storedAfter = JSON.parse(await readFile(storePath, "utf8")) as {
+        xai?: unknown;
+      };
+      expect(storedAfter.xai).toEqual(storedBefore.xai);
     } finally {
       globalThis.fetch = originalFetch;
     }

@@ -757,6 +757,22 @@ export class LocalAgentManager implements AgentToolApi {
     this.cancelOrphanedPersistedAgents();
   }
 
+  private assignModelConfigSnapshotIfMissing(
+    task: RuntimeAgentRecord,
+    modelConfigSnapshot: AgentModelConfigSnapshot | undefined,
+  ): void {
+    // model_config_json is a nullable migration-added column, so Manager
+    // tasks created before that migration can legitimately resume without a
+    // snapshot. Backfill those rows from the current Orchestrator options.
+    if (
+      task.agentType === AGENT_IDS.MANAGER &&
+      !task.modelConfigSnapshot &&
+      modelConfigSnapshot
+    ) {
+      task.modelConfigSnapshot = modelConfigSnapshot;
+    }
+  }
+
   private cancelOrphanedPersistedAgents(): void {
     const now = Date.now();
     const runningRecords =
@@ -2474,13 +2490,10 @@ export class LocalAgentManager implements AgentToolApi {
         text,
         updateStatusText,
       );
-      if (
-        resumedTask.agentType === AGENT_IDS.MANAGER &&
-        !resumedTask.modelConfigSnapshot &&
-        options?.modelConfigSnapshot
-      ) {
-        resumedTask.modelConfigSnapshot = options.modelConfigSnapshot;
-      }
+      this.assignModelConfigSnapshotIfMissing(
+        resumedTask,
+        options?.modelConfigSnapshot,
+      );
       if (rootRunId) {
         resumedTask.rootRunId = rootRunId;
       }
@@ -2521,13 +2534,10 @@ export class LocalAgentManager implements AgentToolApi {
     if (options?.parentAgentId) {
       task.parentAgentId = options.parentAgentId;
     }
-    if (
-      task.agentType === AGENT_IDS.MANAGER &&
-      !task.modelConfigSnapshot &&
-      options?.modelConfigSnapshot
-    ) {
-      task.modelConfigSnapshot = options.modelConfigSnapshot;
-    }
+    this.assignModelConfigSnapshotIfMissing(
+      task,
+      options?.modelConfigSnapshot,
+    );
     if (options?.deliveryKind === "external-input") {
       task.pendingManagerTurnOrigin = "external-input";
     } else if (

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { JsonRpcPeer } from "@stella/contracts/protocol/rpc-peer";
 import {
   METHOD_NAMES,
@@ -7,6 +7,15 @@ import {
 import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { WorkerPeerBroker } from "@stella/runtime/worker/peer-broker";
 import { createRuntimeWorkerServer } from "@stella/runtime/worker/server/index";
+
+// No test here initializes a session, so storage is never built — the stub
+// only keeps the module graph loadable under node-hosted vitest, where the
+// real module's `bun:sqlite` import cannot resolve.
+vi.mock("@stella/runtime/kernel/storage/database", () => ({
+  createDesktopDatabase: () => {
+    throw new Error("storage is not exercised by rpc-parity tests");
+  },
+}));
 
 /**
  * Dispatch parity for the Effect JSON-RPC adapter: every guard failure must

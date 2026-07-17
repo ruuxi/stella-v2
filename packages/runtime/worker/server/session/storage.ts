@@ -15,9 +15,10 @@ import * as SessionConfig from "./config.js";
 /**
  * The session's SQLite database and every store carved out of it, as one
  * scoped resource. This layer sits at the bottom of the session chain so its
- * finalizer runs LAST on teardown: nothing may touch the db after
- * `db.close()`, and the runner's own finalizer (which drains compaction
- * writes) is guaranteed to have completed first by finalizer ordering.
+ * `db.close()` finalizer runs LAST on teardown: nothing may touch the db
+ * after it, and the runner's finalizer (which drains compaction writes) and
+ * the RunEventBus finalizer (`runEventLog.stop()`) are guaranteed to have
+ * completed first by finalizer ordering — the old stopWorkerServices order.
  */
 export interface Interface {
   readonly db: SqliteDatabase;
@@ -56,7 +57,6 @@ export const layer = Layer.effect(
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
-        runEventLog.stop();
         db.close();
       }),
     );

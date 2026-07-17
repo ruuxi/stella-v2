@@ -1,4 +1,4 @@
-import { Context, Effect, Exit, Layer, Scope } from "effect";
+import { Context, Effect, Exit, Layer, Scope, Semaphore } from "effect";
 import {
   METHOD_NAMES,
   STELLA_RUNTIME_PROTOCOL_VERSION,
@@ -39,18 +39,18 @@ export type SessionServices =
  * The per-initialize session graph. Composition order is load-bearing:
  * `Layer.provideMerge` builds dependencies bottom-up (SessionConfig first,
  * SocialSessions last) and scope finalizers run LIFO, reproducing the old
- * `stopWorkerServices` teardown: social.stop → voice → runner (await
- * in-flight build, stop, drain compactions) → cli bridge stop → credential
- * brokers cleared → runEventLog stop + db.close.
+ * `stopWorkerServices` teardown order EXACTLY: social.stop → voice → runner
+ * (await in-flight build, stop, drain compactions) → runEventLog.stop →
+ * cli bridge stop → credential brokers cleared → db.close.
  */
 const sessionLayer = (init: WorkerInitializationState, deviceId: string) =>
   SocialSessions.layer.pipe(
     Layer.provideMerge(VoiceRuntime.layer),
     Layer.provideMerge(AgentRuns.layer),
     Layer.provideMerge(RunnerHandle.layer),
+    Layer.provideMerge(RunEventBus.layer),
     Layer.provideMerge(CliBridge.layer),
     Layer.provideMerge(CredentialBrokers.layer),
-    Layer.provideMerge(RunEventBus.layer),
     Layer.provideMerge(SessionStorage.layer),
     Layer.provideMerge(RunnerCell.layer),
     Layer.provideMerge(SessionConfig.layer(init, deviceId)),
@@ -119,6 +119,12 @@ export const layer = Layer.effect(
     const hostBus = yield* HostBus.Service;
     const catalog = yield* ModelCatalog.Service;
 
+    // JSON-RPC handlers run concurrently (one fiber per request), so
+    // initialize/shutdown mutate `currentSession` under this mutex. Without
+    // it, two overlapping INITIALIZE calls could both observe no session,
+    // build two scopes, and leak whichever one lost the final assignment.
+    const sessionLock = yield* Semaphore.make(1);
+
     let currentSession: OpenSession | null = null;
     let pendingConfigPatch: Partial<WorkerInitializationState> | null = null;
 
@@ -165,112 +171,133 @@ export const layer = Layer.effect(
       return Scope.close(session.scope, Exit.void);
     });
 
+    // The whole initialize path holds the session lock and runs under an
+    // uninterruptible mask: teardown of the previous session and publication
+    // of the new one are atomic, while the long awaits (host identity hop,
+    // layer build) stay interruptible via `restore`. An interruption or
+    // failure inside the build closes the partially-built scope via onExit,
+    // so a losing/interrupted initialize can never leak resources or publish
+    // a half-built session.
     const initialize: Interface["initialize"] = (init) =>
-      Effect.gen(function* () {
-        if (
-          init.protocolVersion &&
-          init.protocolVersion !== STELLA_RUNTIME_PROTOCOL_VERSION
-        ) {
-          return yield* Effect.fail(
-            new ProtocolMismatchError({ hostVersion: init.protocolVersion }),
-          );
-        }
-        const existing = currentSession;
-        const sameRuntimeRoot =
-          existing?.key.stellaAppDir === init.stellaAppDir &&
-          existing?.key.stellaDataDirPath === init.stellaDataDirPath &&
-          existing?.key.stellaWorkspacePath === init.stellaWorkspacePath;
-        if (existing && sameRuntimeRoot && existing.runnerCell.get()) {
-          applyConfigPatch(existing, init);
-          return {
-            protocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,
-            pid: process.pid,
-            deviceId: existing.config.deviceId,
-          };
-        }
-        yield* closeCurrent;
+      sessionLock.withPermit(
+        Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function* () {
+            if (
+              init.protocolVersion &&
+              init.protocolVersion !== STELLA_RUNTIME_PROTOCOL_VERSION
+            ) {
+              return yield* Effect.fail(
+                new ProtocolMismatchError({
+                  hostVersion: init.protocolVersion,
+                }),
+              );
+            }
+            const existing = currentSession;
+            const sameRuntimeRoot =
+              existing?.key.stellaAppDir === init.stellaAppDir &&
+              existing?.key.stellaDataDirPath === init.stellaDataDirPath &&
+              existing?.key.stellaWorkspacePath === init.stellaWorkspacePath;
+            if (existing && sameRuntimeRoot && existing.runnerCell.get()) {
+              applyConfigPatch(existing, init);
+              return {
+                protocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,
+                pid: process.pid,
+                deviceId: existing.config.deviceId,
+              };
+            }
+            yield* closeCurrent;
 
-        const deviceIdentity = yield* Effect.tryPromise({
-          try: () =>
-            hostBus.request<HostDeviceIdentity>(
-              METHOD_NAMES.HOST_DEVICE_IDENTITY_GET,
-            ),
-          catch: (error) => error as Error,
-        });
+            const deviceIdentity = yield* restore(
+              Effect.tryPromise({
+                try: () =>
+                  hostBus.request<HostDeviceIdentity>(
+                    METHOD_NAMES.HOST_DEVICE_IDENTITY_GET,
+                  ),
+                catch: (error) => error as Error,
+              }),
+            );
 
-        const scope = yield* Scope.make();
-        const context = yield* Layer.buildWithScope(
-          sessionLayer(init, deviceIdentity.deviceId),
-          scope,
-        ).pipe(
-          Effect.provideService(HostBus.Service, hostBus),
-          // A failed build must not leak the resources acquired so far.
-          Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
-        );
+            const scope = yield* Scope.make();
+            const context = yield* restore(
+              Layer.buildWithScope(
+                sessionLayer(init, deviceIdentity.deviceId),
+                scope,
+              ).pipe(Effect.provideService(HostBus.Service, hostBus)),
+            ).pipe(
+              // A failed OR interrupted build must not leak the resources
+              // acquired so far (onExit runs uninterruptibly on every
+              // non-success exit, unlike onError which misses interrupts).
+              Effect.onExit((exit) =>
+                Exit.isSuccess(exit) ? Effect.void : Scope.close(scope, exit),
+              ),
+            );
 
-        const session: OpenSession = {
-          key: {
-            stellaAppDir: init.stellaAppDir,
-            stellaDataDirPath: init.stellaDataDirPath,
-            stellaWorkspacePath: init.stellaWorkspacePath,
-          },
-          scope,
-          context,
-          config: Context.get(context, SessionConfig.Service),
-          storage: Context.get(context, SessionStorage.Service),
-          runEvents: Context.get(context, RunEventBus.Service),
-          brokers: Context.get(context, CredentialBrokers.Service),
-          runnerCell: Context.get(context, RunnerCell.Service),
-          runner: Context.get(context, RunnerHandle.Service),
-          agentRuns: Context.get(context, AgentRuns.Service),
-          social: Context.get(context, SocialSessions.Service).service,
-          voice: Context.get(context, VoiceRuntime.Service).service,
-        };
-        currentSession = session;
+            const session: OpenSession = {
+              key: {
+                stellaAppDir: init.stellaAppDir,
+                stellaDataDirPath: init.stellaDataDirPath,
+                stellaWorkspacePath: init.stellaWorkspacePath,
+              },
+              scope,
+              context,
+              config: Context.get(context, SessionConfig.Service),
+              storage: Context.get(context, SessionStorage.Service),
+              runEvents: Context.get(context, RunEventBus.Service),
+              brokers: Context.get(context, CredentialBrokers.Service),
+              runnerCell: Context.get(context, RunnerCell.Service),
+              runner: Context.get(context, RunnerHandle.Service),
+              agentRuns: Context.get(context, AgentRuns.Service),
+              social: Context.get(context, SocialSessions.Service).service,
+              voice: Context.get(context, VoiceRuntime.Service).service,
+            };
+            currentSession = session;
 
-        // Post-ready warmups — off the initialize response path, exactly like
-        // the old setTimeout(0) block: backfill orphaned run events, then wait
-        // out the background runner build for startup logging.
-        setTimeout(() => {
-          void (async () => {
-            const startupStartedAt = Date.now();
-            await Promise.allSettled([
-              (async () => {
-                if (currentSession?.scope === scope) {
-                  session.runEvents.startupBackfill();
-                }
-              })(),
-              (async () => {
-                const builtRunner = await session.runner.awaitBuildSettled();
-                await builtRunner?.waitUntilInitialized().catch((error) => {
-                  console.warn(
-                    "[runtime-worker] Runner initialization finished with an error:",
-                    (error as Error).message,
-                  );
+            // Post-ready warmups — off the initialize response path, exactly
+            // like the old setTimeout(0) block: backfill orphaned run events,
+            // then wait out the background runner build for startup logging.
+            setTimeout(() => {
+              void (async () => {
+                const startupStartedAt = Date.now();
+                await Promise.allSettled([
+                  (async () => {
+                    if (currentSession?.scope === scope) {
+                      session.runEvents.startupBackfill();
+                    }
+                  })(),
+                  (async () => {
+                    const builtRunner =
+                      await session.runner.awaitBuildSettled();
+                    await builtRunner?.waitUntilInitialized().catch((error) => {
+                      console.warn(
+                        "[runtime-worker] Runner initialization finished with an error:",
+                        (error as Error).message,
+                      );
+                    });
+                  })(),
+                ]);
+                getFileLogger()?.process("startup.post-ready-complete", {
+                  ms: Date.now() - startupStartedAt,
                 });
-              })(),
-            ]);
-            getFileLogger()?.process("startup.post-ready-complete", {
-              ms: Date.now() - startupStartedAt,
-            });
-          })();
-        }, 0);
+              })();
+            }, 0);
 
-        if (pendingConfigPatch) {
-          applyConfigPatch(session, pendingConfigPatch);
-          pendingConfigPatch = null;
-        }
-        // Warm the catalog against whatever config the worker initialized
-        // with so a restart/reattach doesn't make the next chat pay the cold
-        // fetch. Best-effort; no-ops while the runner is still building.
-        catalog.scheduleWarm(() => session.runnerCell.get());
+            if (pendingConfigPatch) {
+              applyConfigPatch(session, pendingConfigPatch);
+              pendingConfigPatch = null;
+            }
+            // Warm the catalog against whatever config the worker initialized
+            // with so a restart/reattach doesn't make the next chat pay the
+            // cold fetch. Best-effort; no-ops while the runner is building.
+            catalog.scheduleWarm(() => session.runnerCell.get());
 
-        return {
-          protocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,
-          pid: process.pid,
-          deviceId: deviceIdentity.deviceId,
-        };
-      });
+            return {
+              protocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,
+              pid: process.pid,
+              deviceId: deviceIdentity.deviceId,
+            };
+          }),
+        ),
+      );
 
     const configure: Interface["configure"] = (patch) =>
       Effect.gen(function* () {
@@ -317,7 +344,9 @@ export const layer = Layer.effect(
     return {
       initialize,
       configure,
-      shutdown: () => closeCurrent,
+      // Shares the session lock with initialize so a shutdown cannot
+      // interleave with an in-flight initialize and strand its session.
+      shutdown: () => sessionLock.withPermit(closeCurrent),
       current: () => currentSession,
       hasActiveWork,
     };

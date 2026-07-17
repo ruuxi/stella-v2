@@ -62,7 +62,7 @@ export const reconcileBundledSkills = async (
       includeBundledId: (id) =>
         !isRetiredBundledSkillId(id) &&
         isBundledSkillIncludedForPlatform(id, platform),
-      forceRemoveObsoleteId: isRetiredBundledSkillId,
+      isRetiredBundledId: isRetiredBundledSkillId,
       // Manifests seeded before the generic rename stored hashes under
       // `skills`; read them so already-installed users still get updates.
       legacyEntriesKey: "skills",

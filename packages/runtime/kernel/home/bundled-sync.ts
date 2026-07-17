@@ -42,6 +42,7 @@ export type BundledSyncAction =
   | { type: "adopt-identical"; id: string; bundledHash: Sha256Hex }
   | { type: "remove-obsolete"; id: string }
   | { type: "skip-obsolete-user-modified"; id: string }
+  | { type: "skip-obsolete-cleanup-failed"; id: string; error: string }
   | { type: "ignore-user-entry"; id: string };
 
 export type BundledSyncReport = { actions: BundledSyncAction[] };
@@ -77,8 +78,8 @@ export type BundledSyncOptions = {
   seedMissingOnly?: boolean;
   /** Whether untouched entries absent from the source should be removed. */
   removeObsolete?: boolean;
-  /** Remove a retired source-owned id even when its local copy diverged. */
-  forceRemoveObsoleteId?: (id: string) => boolean;
+  /** Identify source ids retired from the product and hidden from discovery. */
+  isRetiredBundledId?: (id: string) => boolean;
 };
 
 const DEFAULT_MANIFEST_FILENAME = ".bundled-manifest.json";
@@ -282,25 +283,53 @@ export const reconcileBundledEntries = async (
   const bundledIdSet = new Set(bundledIds);
   for (const id of options.removeObsolete === false ? [] : homeIds) {
     if (bundledIdSet.has(id)) continue;
-    if (options.forceRemoveObsoleteId?.(id)) {
-      await adapter.remove(homeDir, id);
-      delete nextEntries[id];
-      actions.push({ type: "remove-obsolete", id });
-      continue;
-    }
+    const isRetired = options.isRetiredBundledId?.(id) === true;
     const recorded = manifest.entries[id];
     const recordedHash = recorded?.lastSyncedHash;
     if (recordedHash === undefined) {
+      // No manifest means there is no proof Stella created this directory.
+      // Retired ids remain hidden by the catalog policy, but user content is
+      // preserved in place.
       actions.push({ type: "ignore-user-entry", id });
       continue;
     }
-    const homeHash = await adapter.hash(homeDir, id);
+    let homeHash: Sha256Hex | null;
+    try {
+      homeHash = await adapter.hash(homeDir, id);
+    } catch (error) {
+      if (!isRetired) throw error;
+      actions.push({
+        type: "skip-obsolete-cleanup-failed",
+        id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     if (homeHash !== null && homeHash === recordedHash) {
-      await adapter.remove(homeDir, id);
+      try {
+        await adapter.remove(homeDir, id);
+      } catch (error) {
+        if (!isRetired) throw error;
+        // Cleanup is maintenance, not a boot prerequisite. Retain the
+        // manifest entry so a later boot can safely retry the same
+        // provenance-checked removal.
+        actions.push({
+          type: "skip-obsolete-cleanup-failed",
+          id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
       delete nextEntries[id];
       actions.push({ type: "remove-obsolete", id });
     } else {
-      nextEntries[id] = { ...recorded, customized: true };
+      if (isRetired) {
+        // The directory began as bundled content but has since diverged.
+        // Preserve it as user content and drop Stella's ownership claim.
+        delete nextEntries[id];
+      } else {
+        nextEntries[id] = { ...recorded, customized: true };
+      }
       actions.push({ type: "skip-obsolete-user-modified", id });
     }
   }
@@ -308,9 +337,13 @@ export const reconcileBundledEntries = async (
   // A prior cleanup may have removed the directory without updating the
   // manifest. Retired ids must not survive there as latent source-owned
   // entries that a later stale package could appear to revive.
-  if (options.forceRemoveObsoleteId) {
+  if (options.isRetiredBundledId) {
     for (const id of Object.keys(nextEntries)) {
-      if (!bundledIdSet.has(id) && options.forceRemoveObsoleteId(id)) {
+      if (
+        !bundledIdSet.has(id) &&
+        !homeIds.includes(id) &&
+        options.isRetiredBundledId(id)
+      ) {
         delete nextEntries[id];
       }
     }
@@ -332,6 +365,7 @@ export const summarizeBundledSync = (report: BundledSyncReport): string => {
     preserved: 0,
     removed: 0,
     preservedObsolete: 0,
+    cleanupFailed: 0,
     ignored: 0,
   };
   for (const action of report.actions) {
@@ -354,6 +388,9 @@ export const summarizeBundledSync = (report: BundledSyncReport): string => {
       case "skip-obsolete-user-modified":
         tally.preservedObsolete += 1;
         break;
+      case "skip-obsolete-cleanup-failed":
+        tally.cleanupFailed += 1;
+        break;
       case "ignore-user-entry":
         tally.ignored += 1;
         break;
@@ -367,6 +404,7 @@ export const summarizeBundledSync = (report: BundledSyncReport): string => {
   if (tally.removed) parts.push(`removed=${tally.removed}`);
   if (tally.preservedObsolete)
     parts.push(`preservedObsolete=${tally.preservedObsolete}`);
+  if (tally.cleanupFailed) parts.push(`cleanupFailed=${tally.cleanupFailed}`);
   if (tally.ignored) parts.push(`ignored=${tally.ignored}`);
   return parts.length === 0 ? "no-op" : parts.join(" ");
 };

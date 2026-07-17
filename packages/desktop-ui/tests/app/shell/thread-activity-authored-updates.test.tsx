@@ -300,4 +300,26 @@ describe("mounted Activity authored-message refresh", () => {
     expect(updateListener).toBeUndefined();
     expect(oneShotCompletion).not.toHaveBeenCalled();
   });
+
+  it("uses a text-safe, collision-free signature for rendered activity fields", () => {
+    const embeddedSeparator = runningRecord([], {
+      description: "left\0right",
+      rootRunId: "tail",
+    });
+    const shiftedSeparator = runningRecord([], {
+      description: "left",
+      rootRunId: "right\0tail",
+    });
+
+    const embeddedSignature = __privateThreadActivityStore.recordsSignature([
+      embeddedSeparator,
+    ]);
+    const shiftedSignature = __privateThreadActivityStore.recordsSignature([
+      shiftedSeparator,
+    ]);
+
+    expect(embeddedSignature).not.toBe(shiftedSignature);
+    expect(embeddedSignature).not.toContain("\0");
+    expect(shiftedSignature).not.toContain("\0");
+  });
 });

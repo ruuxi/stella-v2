@@ -12,7 +12,7 @@
 
 ## The world's first personal software.
 
-Stella is a packaged personal assistant with local memory, tools, user-owned skills, browser and computer automation, and managed services. Extend your own workflows and skills without rewriting the installed application.
+Everything can change. UI, functionality, runtime, prompts, skills. No restrictions, no plugin sandbox, no extension store gatekeeping. If Stella is missing something you want, you just ask her to add it.
 
 ### Install
 
@@ -48,6 +48,7 @@ Stella keeps a long-term memory in plain markdown files on your computer, so the
 - Dictation, both inside the app and anywhere else on your computer
 - Realtime voice conversations
 - Schedule things for later, including reminders and recurring tasks
+- Store: share what you make, install what others have built
 - Social: message friends, share and build apps together
 - Text Stella from your phone, or from Discord, Telegram, and other apps. If you're signed in and your computer is on, your phone reaches your real Stella
 

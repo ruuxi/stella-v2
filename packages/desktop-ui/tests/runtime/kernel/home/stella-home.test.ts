@@ -26,7 +26,7 @@ describe("ensureStellaDataDirSeeded", () => {
     const stellaDataDir = await createTempDir("stella-home-");
     const seedRoot = path.join(stellaAppDir, "packages", "home-seed");
 
-    await mkdir(path.join(seedRoot, "skills", "humanizer"), {
+    await mkdir(path.join(seedRoot, "skills", "stella-desktop"), {
       recursive: true,
     });
     await mkdir(path.join(seedRoot, "outputs"), { recursive: true });
@@ -40,8 +40,8 @@ describe("ensureStellaDataDirSeeded", () => {
     );
     await writeFile(path.join(seedRoot, "DREAM.md"), "seed dream");
     await writeFile(
-      path.join(seedRoot, "skills", "humanizer", "SKILL.md"),
-      "humanizer skill",
+      path.join(seedRoot, "skills", "stella-desktop", "SKILL.md"),
+      "desktop skill",
     );
     await writeFile(path.join(seedRoot, "outputs", "README.md"), "outputs");
     await writeFile(path.join(seedRoot, "preferences.json"), "{}");
@@ -66,10 +66,10 @@ describe("ensureStellaDataDirSeeded", () => {
     ).rejects.toThrow();
     await expect(
       readFile(
-        path.join(stellaDataDir, "skills", "humanizer", "SKILL.md"),
+        path.join(stellaDataDir, "skills", "stella-desktop", "SKILL.md"),
         "utf-8",
       ),
-    ).resolves.toBe("humanizer skill");
+    ).resolves.toBe("desktop skill");
     await expect(
       readFile(path.join(stellaDataDir, "preferences.json"), "utf-8"),
     ).rejects.toThrow();

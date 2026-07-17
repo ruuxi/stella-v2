@@ -94,6 +94,7 @@ const CODEX_SKILL_CATALOG_OMITTED_IDS = [
   "stella-browser",
   "electron",
   "stella-office",
+  "stella-runtime-extension",
   "pdf",
 ] as const;
 

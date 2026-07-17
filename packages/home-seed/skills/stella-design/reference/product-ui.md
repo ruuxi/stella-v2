@@ -1,7 +1,7 @@
 # Product UI
 
-Use this for apps where users are trying to complete a task: tools, settings,
-dashboards, editors, forms,
+Use this for Stella desktop surfaces and any Stella-created app where users
+are trying to complete a task: tools, settings, dashboards, editors, forms,
 panels, sidebars, activity views, and operational screens.
 
 ## Standard
@@ -61,18 +61,18 @@ spinners in the middle of otherwise structured content.
   permissions should not break the layout.
 - Use single-line truncation when a list row must keep stable height.
 
-## Project Fit
+## Stella Fit
 
-When modifying an existing project:
+When modifying Stella itself:
 
-- Match the canonical dialog, menu, toast, and button language already in the
-  app.
+- Match the canonical dialog, menu, toast, and pill-button language already in
+  the app.
 - Keep app-level dialogs app-level, not trapped inside scroll containers.
 - Do not paint new route backgrounds when the global background should show.
-- Keep persistent navigation and safety controls pinned and stable.
-- Preserve compact-window constraints; never let a full-window assumption leak
-  into compact UI.
-- Use plain, user-friendly labels in visible UI.
+- Keep display/sidebar controls pinned and stable.
+- Preserve mini-window constraints; never let a full-window assumption leak
+  into mini-only UI.
+- Use normie-friendly labels in visible UI.
 
 ## Product Bans
 

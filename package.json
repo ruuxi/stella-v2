@@ -142,7 +142,6 @@
     "appId": "com.stella.app",
     "productName": "Stella",
     "electronUpdaterCompatibility": ">=2.16",
-    "beforePack": "packages/desktop/scripts/before-pack.mjs",
     "afterSign": "packages/desktop/scripts/notarize.mjs",
     "extraMetadata": {
       "name": "stella-v2",
@@ -219,10 +218,12 @@
         ]
       },
       {
-        "from": "packages/desktop/.packaging/home-seed",
+        "from": "packages/home-seed",
         "to": "home-seed",
         "filter": [
-          "**/*"
+          "DREAM.md",
+          "skills/**",
+          "outputs/README.md"
         ]
       },
       {

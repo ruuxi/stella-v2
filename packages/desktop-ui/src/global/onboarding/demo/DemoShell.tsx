@@ -1,6 +1,6 @@
 /**
  * Shared "realistic Stella window" used by the onboarding demos
- * (capabilities and summon). One faithful mock — traffic
+ * (capabilities, shapeshift, summon). One faithful mock — traffic
  * lights, the real sidebar grouping (Home / Store / Social), Cormorant
  * wordmark, pill composer — instead of per-scene approximations, so
  * what users watch in onboarding is what they get in the app.
@@ -20,6 +20,8 @@ export type DemoSidebarItem = {
   label: string;
   icon?: ReactNode;
   active?: boolean;
+  /** Grows in with a highlight — used when a demo "adds" a feature. */
+  fresh?: boolean;
 };
 
 export const DEMO_DEFAULT_SIDEBAR: DemoSidebarItem[] = [
@@ -30,12 +32,17 @@ export const DEMO_DEFAULT_SIDEBAR: DemoSidebarItem[] = [
 
 export function DemoShell({
   sidebarItems = DEMO_DEFAULT_SIDEBAR,
+  tabs,
+  activeTab,
   wordmark = true,
   className,
   style,
   children,
 }: {
   sidebarItems?: DemoSidebarItem[];
+  /** Optional tab strip in the top bar (the "Give me tabs" morph). */
+  tabs?: string[];
+  activeTab?: string;
   wordmark?: boolean;
   className?: string;
   style?: CSSProperties;
@@ -53,6 +60,19 @@ export function DemoShell({
           <span />
           <span />
         </span>
+        {tabs && tabs.length > 0 ? (
+          <span className="odemo-shell__tabs">
+            {tabs.map((tab) => (
+              <span
+                key={tab}
+                className="odemo-shell__tab"
+                data-active={tab === (activeTab ?? tabs[0]) || undefined}
+              >
+                {tab}
+              </span>
+            ))}
+          </span>
+        ) : null}
       </div>
       <div className="odemo-shell__body">
         <aside className="odemo-shell__sidebar">
@@ -62,6 +82,7 @@ export function DemoShell({
                 key={item.id}
                 className="odemo-shell__nav-item"
                 data-active={item.active || undefined}
+                data-fresh={item.fresh || undefined}
               >
                 {item.icon}
                 {item.label}

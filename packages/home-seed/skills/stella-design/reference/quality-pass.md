@@ -65,8 +65,8 @@ Also check:
 - The hierarchy is clear when squinting.
 - Important actions are visible but not shouting.
 - Secondary text is readable, not washed out.
-- The surface still feels coherent with the project unless it is intentionally
-  a separate experience.
+- The surface still feels like Stella unless it is intentionally a separate
+  app experience.
 
 ## Review Output
 
@@ -103,7 +103,14 @@ If time is limited, fix in this order:
 
 Use the strongest practical verification for the scope:
 
-- Run the project's focused typecheck, tests, lint, or build commands.
+- Renderer typecheck:
+
+```sh
+node node_modules/typescript-7/lib/tsc.js -p desktop/tsconfig.app.json --noEmit
+```
+
+- Broader desktop change: also use the checks in
+  [stella-desktop](../../stella-desktop/SKILL.md).
 - Visual work: inspect the running UI or screenshots at the main viewport and
   at least one narrow viewport.
 

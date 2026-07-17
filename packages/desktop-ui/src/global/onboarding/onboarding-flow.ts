@@ -3,6 +3,7 @@ import type { DiscoveryCategory } from "@stella/contracts/discovery";
 export type Phase =
   | "intro"
   | "capabilities"
+  | "shapeshift"
   | "theme"
   | "personality"
   | "import"
@@ -19,6 +20,7 @@ export type Phase =
 
 export const SPLIT_PHASES = new Set<Phase>([
   "capabilities",
+  "shapeshift",
   "theme",
   "personality",
   "import",
@@ -35,7 +37,7 @@ export const SPLIT_PHASES = new Set<Phase>([
 /**
  * The onboarding story, told in five acts:
  *
- *   Discover      — what Stella can do
+ *   Discover      — what Stella can do, and the shape-shifting app itself
  *   Make it yours — theme, personality, imported setup
  *   Connect       — permissions, browser discovery, extension, engine
  *   Your flow     — summoning, voice, memory
@@ -47,6 +49,7 @@ export const SPLIT_PHASES = new Set<Phase>([
  */
 export const SPLIT_STEP_ORDER: Phase[] = [
   "capabilities",
+  "shapeshift",
   "theme",
   "personality",
   "import",
@@ -69,6 +72,7 @@ export type OnboardingAct =
 
 export const PHASE_ACTS: Partial<Record<Phase, OnboardingAct>> = {
   capabilities: "discover",
+  shapeshift: "discover",
   theme: "personalize",
   personality: "personalize",
   import: "personalize",
@@ -88,6 +92,7 @@ export const PHASE_ACTS: Partial<Record<Phase, OnboardingAct>> = {
  * back in for the form-like phases between them.
  */
 export const CREATURE_HIDDEN_PHASES = new Set<Phase>([
+  "shapeshift",
   "summon",
   "voice",
   "memory",

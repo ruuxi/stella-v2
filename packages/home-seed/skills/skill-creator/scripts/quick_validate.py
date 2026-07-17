@@ -3,50 +3,13 @@
 Quick validation script for skills - minimal version
 """
 
-import json
 import re
 import sys
 from pathlib import Path
 
+import yaml
+
 MAX_SKILL_NAME_LENGTH = 64
-
-
-def parse_scalar(value):
-    """Parse the simple scalar values supported by Stella skill frontmatter."""
-    value = value.strip()
-    if value.startswith('"'):
-        try:
-            parsed = json.loads(value)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"invalid quoted value: {exc.msg}") from exc
-        if not isinstance(parsed, str):
-            raise ValueError("frontmatter values must be strings")
-        return parsed
-    if value.startswith("'"):
-        if len(value) < 2 or not value.endswith("'"):
-            raise ValueError("unterminated single-quoted value")
-        return value[1:-1].replace("''", "'")
-    if value in {"|", ">", "|-", ">-", "|+", ">+"}:
-        raise ValueError("multiline YAML values are not supported")
-    return value
-
-
-def parse_frontmatter(frontmatter_text):
-    """Parse Stella's flat name/description frontmatter without PyYAML."""
-    frontmatter = {}
-    for raw_line in frontmatter_text.splitlines():
-        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
-            continue
-        if raw_line[:1].isspace():
-            raise ValueError("nested YAML is not supported")
-        match = re.match(r"^([A-Za-z0-9_-]+):\s*(.*)$", raw_line)
-        if not match:
-            raise ValueError(f"invalid frontmatter line: {raw_line}")
-        key, raw_value = match.groups()
-        if key in frontmatter:
-            raise ValueError(f"duplicate frontmatter key: {key}")
-        frontmatter[key] = parse_scalar(raw_value)
-    return frontmatter
 
 
 def validate_skill(skill_path):
@@ -68,11 +31,13 @@ def validate_skill(skill_path):
     frontmatter_text = match.group(1)
 
     try:
-        frontmatter = parse_frontmatter(frontmatter_text)
-    except ValueError as e:
+        frontmatter = yaml.safe_load(frontmatter_text)
+        if not isinstance(frontmatter, dict):
+            return False, "Frontmatter must be a YAML dictionary"
+    except yaml.YAMLError as e:
         return False, f"Invalid YAML in frontmatter: {e}"
 
-    allowed_properties = {"name", "description"}
+    allowed_properties = {"name", "description", "license", "allowed-tools", "metadata"}
 
     unexpected_keys = set(frontmatter.keys()) - allowed_properties
     if unexpected_keys:
@@ -92,38 +57,36 @@ def validate_skill(skill_path):
     if not isinstance(name, str):
         return False, f"Name must be a string, got {type(name).__name__}"
     name = name.strip()
-    if not name:
-        return False, "Name cannot be empty"
-    if not re.match(r"^[a-z0-9-]+$", name):
-        return (
-            False,
-            f"Name '{name}' should be hyphen-case (lowercase letters, digits, and hyphens only)",
-        )
-    if name.startswith("-") or name.endswith("-") or "--" in name:
-        return (
-            False,
-            f"Name '{name}' cannot start/end with hyphen or contain consecutive hyphens",
-        )
-    if len(name) > MAX_SKILL_NAME_LENGTH:
-        return (
-            False,
-            f"Name is too long ({len(name)} characters). "
-            f"Maximum is {MAX_SKILL_NAME_LENGTH} characters.",
-        )
+    if name:
+        if not re.match(r"^[a-z0-9-]+$", name):
+            return (
+                False,
+                f"Name '{name}' should be hyphen-case (lowercase letters, digits, and hyphens only)",
+            )
+        if name.startswith("-") or name.endswith("-") or "--" in name:
+            return (
+                False,
+                f"Name '{name}' cannot start/end with hyphen or contain consecutive hyphens",
+            )
+        if len(name) > MAX_SKILL_NAME_LENGTH:
+            return (
+                False,
+                f"Name is too long ({len(name)} characters). "
+                f"Maximum is {MAX_SKILL_NAME_LENGTH} characters.",
+            )
 
     description = frontmatter.get("description", "")
     if not isinstance(description, str):
         return False, f"Description must be a string, got {type(description).__name__}"
     description = description.strip()
-    if not description:
-        return False, "Description cannot be empty"
-    if "<" in description or ">" in description:
-        return False, "Description cannot contain angle brackets (< or >)"
-    if len(description) > 1024:
-        return (
-            False,
-            f"Description is too long ({len(description)} characters). Maximum is 1024 characters.",
-        )
+    if description:
+        if "<" in description or ">" in description:
+            return False, "Description cannot contain angle brackets (< or >)"
+        if len(description) > 1024:
+            return (
+                False,
+                f"Description is too long ({len(description)} characters). Maximum is 1024 characters.",
+            )
 
     return True, "Skill is valid!"
 

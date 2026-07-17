@@ -76,7 +76,10 @@ describe("route smoke", () => {
         "utf-8",
       );
       const match = metaSource.match(/route:\s*["']([^"']+)["']/);
-      expect(match, `app/${dirName}/metadata.ts must declare route: "..."`).toBeTruthy();
+      expect(
+        match,
+        `app/${dirName}/metadata.ts must declare route: "..."`,
+      ).toBeTruthy();
       const route = match![1];
       expect(tree).toMatch(
         new RegExp(`['"\`]${route.replace(/\//g, "\\/")}['"\`]\\s*:\\s*typeof`),
@@ -98,4 +101,19 @@ describe("route smoke", () => {
     const source = readFileSync(join(ROUTES_DIR, "__root.tsx"), "utf-8");
     expect(source).toMatch(/dialog:\s*z[\s\S]*\.enum\(/);
   });
+
+  it.each(["social", "store", "apps", "apps.index", "apps.$slug", "c.$handle"])(
+    "retired route %s redirects to Chat without mounting a page",
+    (routeName) => {
+      const source = readFileSync(
+        join(ROUTES_DIR, `${routeName}.tsx`),
+        "utf-8",
+      );
+      expect(source).toMatch(/throw\s+redirect\(\{\s*to:\s*["']\/chat["']/);
+      expect(source).not.toMatch(/component\s*:/);
+      expect(() =>
+        statSync(join(ROUTES_DIR, `${routeName}.lazy.tsx`)),
+      ).toThrow();
+    },
+  );
 });

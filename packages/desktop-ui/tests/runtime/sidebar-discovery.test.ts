@@ -25,38 +25,42 @@ const listAppDirs = () =>
 describe("sidebar app discovery", () => {
   const appDirs = listAppDirs();
 
-  it("finds at least the four built-in apps", () => {
-    for (const id of ["chat", "social", "settings", "store"]) {
-      expect(appDirs).toContain(id);
-    }
+  it("registers only Home and non-primary Settings", () => {
+    expect([...appDirs].sort()).toEqual(["chat", "settings"]);
   });
 
-  it.each(appDirs)("`app/%s/` exposes a well-formed metadata.ts", async (dirName) => {
-    const mod = (await import(join(APPS_DIR, dirName, "metadata.ts"))) as {
-      default: unknown;
-    };
-    const metadata = mod.default as Record<string, unknown>;
+  it.each(appDirs)(
+    "`app/%s/` exposes a well-formed metadata.ts",
+    async (dirName) => {
+      const mod = (await import(join(APPS_DIR, dirName, "metadata.ts"))) as {
+        default: unknown;
+      };
+      const metadata = mod.default as Record<string, unknown>;
 
-    expect(metadata, `app/${dirName}/metadata.ts must export default`).toBeTruthy();
-    expect(typeof metadata.id).toBe("string");
-    expect(typeof metadata.label).toBe("string");
-    expect(typeof metadata.route).toBe("string");
-    expect(typeof metadata.icon).toBe("function");
-    expect(VALID_SLOTS.has(metadata.slot as string)).toBe(true);
-    if (metadata.order !== undefined) {
-      expect(typeof metadata.order).toBe("number");
-    }
-    expect((metadata.route as string).startsWith("/")).toBe(true);
+      expect(
+        metadata,
+        `app/${dirName}/metadata.ts must export default`,
+      ).toBeTruthy();
+      expect(typeof metadata.id).toBe("string");
+      expect(typeof metadata.label).toBe("string");
+      expect(typeof metadata.route).toBe("string");
+      expect(typeof metadata.icon).toBe("function");
+      expect(VALID_SLOTS.has(metadata.slot as string)).toBe(true);
+      if (metadata.order !== undefined) {
+        expect(typeof metadata.order).toBe("number");
+      }
+      expect((metadata.route as string).startsWith("/")).toBe(true);
 
-    // The directory name *is* the app id. Diverging makes discovery + the
-    // routes/<id>.tsx convention quietly inconsistent (e.g. an `app/chat`
-    // folder declaring `id: "home"` would still appear in the sidebar but
-    // would not match its directory or the route filename).
-    expect(
-      metadata.id,
-      `app/${dirName}/metadata.ts must declare id: "${dirName}" (matches the directory name)`,
-    ).toBe(dirName);
-  });
+      // The directory name *is* the app id. Diverging makes discovery + the
+      // routes/<id>.tsx convention quietly inconsistent (e.g. an `app/chat`
+      // folder declaring `id: "home"` would still appear in the sidebar but
+      // would not match its directory or the route filename).
+      expect(
+        metadata.id,
+        `app/${dirName}/metadata.ts must declare id: "${dirName}" (matches the directory name)`,
+      ).toBe(dirName);
+    },
+  );
 
   it.each(appDirs)(
     "`app/%s/`'s metadata.route has a matching `routes/<id>.tsx` shell",
@@ -84,5 +88,16 @@ describe("sidebar app discovery", () => {
       expect(ids.has(id), `duplicate metadata.id: ${id}`).toBe(false);
       ids.add(id);
     }
+  });
+
+  it("keeps Home as the only primary navigation entry", async () => {
+    const topSlotIds: string[] = [];
+    for (const dirName of appDirs) {
+      const mod = (await import(join(APPS_DIR, dirName, "metadata.ts"))) as {
+        default: { id: string; slot: string };
+      };
+      if (mod.default.slot === "top") topSlotIds.push(mod.default.id);
+    }
+    expect(topSlotIds).toEqual(["chat"]);
   });
 });

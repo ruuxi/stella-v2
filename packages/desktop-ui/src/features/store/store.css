@@ -940,25 +940,8 @@
   box-shadow: var(--shadow-sm);
   text-align: left;
   cursor: default;
-  transition:
-    border-color 0.18s ease,
-    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.18s ease;
   font-family: var(--font-family-sans);
   color: inherit;
-}
-.addon-share-card:hover {
-  border-color: var(--border-strong);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-}
-.addon-share-card:active {
-  transform: translateY(0);
-  box-shadow: var(--shadow-sm);
-}
-.addon-share-card:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 .addon-share-card[data-loading] {
   cursor: default;
@@ -1057,24 +1040,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.addon-share-card-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-semibold);
-  color: var(--text-strong, var(--foreground));
-  flex-shrink: 0;
-  opacity: 0.7;
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
-}
-.addon-share-card:hover .addon-share-card-cta {
-  opacity: 1;
-  transform: translateX(2px);
-}
-
 /* Loading skeleton — same height as the resolved card so the chat
  * doesn't reflow when the query lands. */
 .addon-share-card-line {

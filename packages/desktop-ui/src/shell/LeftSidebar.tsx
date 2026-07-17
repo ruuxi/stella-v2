@@ -1,9 +1,8 @@
 /**
  * Persistent floating left sidebar — the consolidated index.
  *
- * Top-to-bottom: primary nav (Home / Apps / Store / Social) and the
- * Activity sections (`LeftSidebarSections`). Nav rows navigate the center
- * content; activity rows expand in place to show each agent's reasoning and
+ * Top-to-bottom: the Home entry and the Activity sections
+ * (`LeftSidebarSections`). Activity rows expand in place to show each agent's messages and
  * files. Search lives entirely in the composer pill's activity tray — the
  * sidebar never filters by it, so an active tray search leaves this stable
  * activity index untouched.
@@ -46,7 +45,7 @@ export function LeftSidebar({
   const isMac = platform === "darwin";
   const isWin = platform === "win32";
 
-  // Primary nav: top-slot apps (Home / Apps / Store / Social).
+  // Primary nav: Home. Chat remains the persistent conversation surface.
   const navApps = useMemo(
     () => allApps.filter((app) => !app.hideFromSidebar && app.slot === "top"),
     [allApps],

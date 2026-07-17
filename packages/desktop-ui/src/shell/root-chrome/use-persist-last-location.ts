@@ -7,8 +7,8 @@ type Router = ReturnType<typeof useRouter>;
 
 /**
  * Persist every router resolution to the shared UI state store so a
- * fresh launch can restore which *route* the user was on (store / social /
- * settings / …). We deliberately don't round-trip this through IPC.
+ * fresh launch can restore which *route* the user was on (for example,
+ * Settings). We deliberately don't round-trip this through IPC.
  *
  * This intentionally does NOT carry the chat conversation id: the durable
  * active-conversation pointer (SQLite, written from `__root`) is the single
@@ -26,8 +26,7 @@ export function usePersistLastLocation(router: Router): void {
   useEffect(() => {
     if (isMiniWindow) return;
     return router.subscribe("onResolved", ({ toLocation }) => {
-      const href =
-        toLocation.pathname === "/chat" ? "/chat" : toLocation.href;
+      const href = toLocation.pathname === "/chat" ? "/chat" : toLocation.href;
       writePersistedLastLocation(href);
     });
   }, [router, isMiniWindow]);

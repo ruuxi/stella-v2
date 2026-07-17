@@ -8,6 +8,9 @@ const REPO_ROOT = path.resolve(
   "../../..",
 );
 
+const comparePaths = (left, right) =>
+  left < right ? -1 : left > right ? 1 : 0;
+
 export const COMMON_BUNDLED_SKILL_IDS = [
   "humanizer",
   "pdf",
@@ -30,13 +33,13 @@ export const PLATFORM_BUNDLED_SKILL_IDS = {
 export const ALL_BUNDLED_SKILL_IDS = [
   ...COMMON_BUNDLED_SKILL_IDS,
   ...Object.values(PLATFORM_BUNDLED_SKILL_IDS).flat(),
-].sort((a, b) => a.localeCompare(b));
+].sort(comparePaths);
 
 const listDirectories = async (root) =>
   (await fs.readdir(root, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .sort((a, b) => a.localeCompare(b));
+    .sort(comparePaths);
 
 const listFilesRecursive = async (root, prefix = "") => {
   const entries = await fs.readdir(path.join(root, prefix), {
@@ -55,21 +58,56 @@ const listFilesRecursive = async (root, prefix = "") => {
       throw new Error(`Unsupported bundled payload entry: ${relativePath}`);
     }
   }
-  return files.sort((a, b) => a.localeCompare(b));
+  return files.sort(comparePaths);
+};
+
+const COLLISION_SENSITIVE_PLATFORMS = new Set(["darwin", "win32"]);
+
+const targetCollisionKey = (relativePath) =>
+  relativePath.normalize("NFC").toLocaleLowerCase("en-US");
+
+export const assertNoTargetPathCollisions = (relativePaths, platform) => {
+  if (!COLLISION_SENSITIVE_PLATFORMS.has(platform)) return;
+  const seen = new Map();
+  for (const relativePath of relativePaths) {
+    const segments = relativePath.split("/");
+    for (let index = 0; index < segments.length; index += 1) {
+      const candidate = segments.slice(0, index + 1).join("/");
+      const kind = index === segments.length - 1 ? "file" : "directory";
+      const key = targetCollisionKey(candidate);
+      const prior = seen.get(key);
+      if (prior && (prior.path !== candidate || prior.kind !== kind)) {
+        throw new Error(
+          `Bundled ${platform} path collision after case folding and Unicode normalization: ${prior.path} (${prior.kind}) conflicts with ${candidate} (${kind}).`,
+        );
+      }
+      seen.set(key, { path: candidate, kind });
+    }
+  }
 };
 
 const describeFiles = async (root, relativePaths) =>
   Promise.all(
     relativePaths.map(async (relativePath) => {
+      const filePath = path.join(root, relativePath);
+      const fileStat = await fs.lstat(filePath);
+      if (!fileStat.isFile()) {
+        throw new Error(`Unsupported bundled payload entry: ${relativePath}`);
+      }
       const content = await fs.readFile(path.join(root, relativePath));
       return {
         relativePath,
         hash: createHash("sha256").update(content).digest("hex"),
+        mode: fileStat.mode & 0o777,
       };
     }),
   );
 
-const describeSelectedSourcePayload = async (sourceRoot, skillIds) => {
+const describeSelectedSourcePayload = async (
+  sourceRoot,
+  skillIds,
+  platform,
+) => {
   const relativePaths = ["DREAM.md", "outputs/README.md"];
   for (const id of skillIds) {
     const skillRoot = path.join(sourceRoot, "skills", id);
@@ -81,7 +119,8 @@ const describeSelectedSourcePayload = async (sourceRoot, skillIds) => {
       ),
     );
   }
-  relativePaths.sort((a, b) => a.localeCompare(b));
+  relativePaths.sort(comparePaths);
+  assertNoTargetPathCollisions(relativePaths, platform);
   return describeFiles(sourceRoot, relativePaths);
 };
 
@@ -91,6 +130,8 @@ const payloadHash = (files) => {
     hash.update(file.relativePath, "utf8");
     hash.update("\0");
     hash.update(file.hash, "utf8");
+    hash.update("\0");
+    hash.update(file.mode.toString(8), "utf8");
     hash.update("\0");
   }
   return hash.digest("hex");
@@ -112,9 +153,7 @@ export const packagedSkillIdsForPlatform = (platform) => {
   if (!platformIds) {
     throw new Error(`Unsupported Electron packaging platform: ${platform}`);
   }
-  return [...COMMON_BUNDLED_SKILL_IDS, ...platformIds].sort((a, b) =>
-    a.localeCompare(b),
-  );
+  return [...COMMON_BUNDLED_SKILL_IDS, ...platformIds].sort(comparePaths);
 };
 
 export const stageHomeSeed = async ({
@@ -138,6 +177,9 @@ export const stageHomeSeed = async ({
   );
 
   const packagedIds = packagedSkillIdsForPlatform(platform);
+  // Validate the target-platform namespace before copying. This is required
+  // when cross-building macOS/Windows payloads on a case-sensitive host.
+  await describeSelectedSourcePayload(sourceRoot, packagedIds, platform);
   await fs.rm(targetRoot, { recursive: true, force: true });
   await fs.mkdir(path.join(targetRoot, "skills"), { recursive: true });
   await fs.mkdir(path.join(targetRoot, "outputs"), { recursive: true });
@@ -191,10 +233,11 @@ export const verifyPackagedHomeSeed = async ({
     ),
   );
   const [expectedFiles, actualFiles] = await Promise.all([
-    describeSelectedSourcePayload(sourceRoot, expectedIds),
-    listFilesRecursive(packagedRoot).then((relativePaths) =>
-      describeFiles(packagedRoot, relativePaths),
-    ),
+    describeSelectedSourcePayload(sourceRoot, expectedIds, platform),
+    listFilesRecursive(packagedRoot).then((relativePaths) => {
+      assertNoTargetPathCollisions(relativePaths, platform);
+      return describeFiles(packagedRoot, relativePaths);
+    }),
   ]);
   const expectedPaths = expectedFiles.map((file) => file.relativePath);
   const actualPaths = actualFiles.map((file) => file.relativePath);
@@ -214,6 +257,11 @@ export const verifyPackagedHomeSeed = async ({
     if (expected.hash !== actual.hash) {
       throw new Error(
         `Packaged ${platform} file hash mismatch at ${expected.relativePath}. Expected ${expected.hash}, received ${actual.hash}.`,
+      );
+    }
+    if (expected.mode !== actual.mode) {
+      throw new Error(
+        `Packaged ${platform} file mode mismatch at ${expected.relativePath}. Expected ${expected.mode.toString(8)}, received ${actual.mode.toString(8)}.`,
       );
     }
   }

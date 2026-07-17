@@ -1,9 +1,19 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  assertNoTargetPathCollisions,
   stageHomeSeed,
   verifyPackagedHomeSeed,
 } from "../../../desktop/scripts/stage-home-seed.mjs";
@@ -151,6 +161,89 @@ describe("bundled skill packaging boundary", () => {
     ).rejects.toThrow(
       "Packaged darwin file hash mismatch at skills/skill-creator/scripts/quick_validate.py",
     );
+  });
+
+  it("rejects nested retained-skill mode drift", async () => {
+    const resourcesRoot = await tempDir();
+    const targetRoot = path.join(resourcesRoot, "home-seed");
+    await stageHomeSeed({ platform: "darwin", targetRoot });
+    const relativePath = path.join(
+      "skills",
+      "skill-creator",
+      "scripts",
+      "quick_validate.py",
+    );
+    const sourceMode =
+      (await stat(path.join(REPO_ROOT, "packages", "home-seed", relativePath)))
+        .mode & 0o777;
+    await chmod(path.join(targetRoot, relativePath), sourceMode ^ 0o100);
+
+    await expect(
+      verifyPackagedHomeSeed({ platform: "darwin", resourcesRoot }),
+    ).rejects.toThrow(
+      "Packaged darwin file mode mismatch at skills/skill-creator/scripts/quick_validate.py",
+    );
+  });
+
+  it("fails closed on symlinked packaged files", async () => {
+    const resourcesRoot = await tempDir();
+    const targetRoot = path.join(resourcesRoot, "home-seed");
+    await stageHomeSeed({ platform: "darwin", targetRoot });
+    const relativePath = path.join("skills", "humanizer", "SKILL.md");
+    const targetFile = path.join(targetRoot, relativePath);
+    await rm(targetFile);
+    await symlink(
+      path.join(REPO_ROOT, "packages", "home-seed", relativePath),
+      targetFile,
+    );
+
+    await expect(
+      verifyPackagedHomeSeed({ platform: "darwin", resourcesRoot }),
+    ).rejects.toThrow("Unsupported bundled payload entry");
+  });
+
+  it("fails closed on unreadable packaged files", async () => {
+    const resourcesRoot = await tempDir();
+    const targetRoot = path.join(resourcesRoot, "home-seed");
+    await stageHomeSeed({ platform: "darwin", targetRoot });
+    await chmod(path.join(targetRoot, "skills", "humanizer", "SKILL.md"), 0);
+
+    await expect(
+      verifyPackagedHomeSeed({ platform: "darwin", resourcesRoot }),
+    ).rejects.toThrow();
+  });
+
+  it.each([
+    ["win32 case", "win32", ["skills/pdf/Readme.txt", "skills/pdf/readme.txt"]],
+    ["darwin case", "darwin", ["skills/pdf/Asset", "skills/pdf/asset"]],
+    [
+      "win32 Unicode normalization",
+      "win32",
+      ["skills/pdf/caf\u00e9.txt", "skills/pdf/cafe\u0301.txt"],
+    ],
+    [
+      "darwin Unicode normalization",
+      "darwin",
+      ["skills/pdf/caf\u00e9.txt", "skills/pdf/cafe\u0301.txt"],
+    ],
+    [
+      "win32 file-directory",
+      "win32",
+      ["skills/pdf/Readme", "skills/pdf/readme/file.txt"],
+    ],
+  ] as const)("rejects %s collisions", (_label, platform, relativePaths) => {
+    expect(() =>
+      assertNoTargetPathCollisions([...relativePaths], platform),
+    ).toThrow(`Bundled ${platform} path collision`);
+  });
+
+  it("keeps Linux path semantics case-sensitive", () => {
+    expect(() =>
+      assertNoTargetPathCollisions(
+        ["skills/pdf/Readme.txt", "skills/pdf/readme.txt"],
+        "linux",
+      ),
+    ).not.toThrow();
   });
 
   it("pins Electron Builder to the validated staging boundary", async () => {

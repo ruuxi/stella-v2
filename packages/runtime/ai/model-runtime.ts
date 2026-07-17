@@ -88,10 +88,16 @@ const modelMap = (models: readonly Model<Api>[]): Map<string, Model<Api>> =>
 const validateRemoteCatalogEntries = (
   providerId: string,
   entries: readonly unknown[],
-): Model<Api>[] => {
+): {
+  models: Model<Api>[];
+  validCount: number;
+  invalidCount: number;
+} => {
   const models: Model<Api>[] = [];
+  let invalidCount = 0;
   for (const [index, entry] of entries.entries()) {
     if (!Value.Check(remoteModelCatalogEntrySchema, entry)) {
+      invalidCount += 1;
       const details = [...Value.Errors(remoteModelCatalogEntrySchema, entry)]
         .slice(0, 8)
         .map((error) => `${error.path || "root"}: ${error.message}`)
@@ -103,7 +109,7 @@ const validateRemoteCatalogEntries = (
     }
     models.push({ ...(entry as Model<Api>), provider: providerId });
   }
-  return models;
+  return { models, validCount: models.length, invalidCount };
 };
 
 export const mergeModelHeaders = (
@@ -320,9 +326,14 @@ export class ModelRuntime {
       ) as StoredCatalogs;
       for (const [providerId, entry] of Object.entries(parsed)) {
         if (!entry || !Array.isArray(entry.models)) continue;
+        const validation = validateRemoteCatalogEntries(
+          providerId,
+          entry.models,
+        );
         this.dynamicCatalogs.set(providerId, {
-          models: validateRemoteCatalogEntries(providerId, entry.models),
-          checkedAt: entry.checkedAt,
+          models: validation.models,
+          checkedAt:
+            validation.invalidCount > 0 ? undefined : entry.checkedAt,
         });
       }
     } catch {
@@ -551,8 +562,16 @@ export class ModelRuntime {
     if (!Array.isArray(entries)) {
       throw new Error(`Invalid model catalog for ${providerId}`);
     }
-    const models = validateRemoteCatalogEntries(providerId, entries);
-    this.dynamicCatalogs.set(providerId, { models, checkedAt });
+    const validation = validateRemoteCatalogEntries(providerId, entries);
+    if (entries.length > 0 && validation.validCount === 0) {
+      throw new Error(
+        `Invalid model catalog for ${providerId}: non-empty payload contained ${validation.invalidCount} invalid ${validation.invalidCount === 1 ? "entry" : "entries"} and no valid entries`,
+      );
+    }
+    this.dynamicCatalogs.set(providerId, {
+      models: validation.models,
+      checkedAt,
+    });
   }
 
   async refresh(

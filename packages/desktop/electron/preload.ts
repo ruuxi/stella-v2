@@ -4,6 +4,7 @@ import type { ChatContext } from "@stella/contracts";
 import type {
   LocalChatUpdatedPayload,
   ThreadActivityUpdatedPayload,
+  ThreadTranscriptUpdatedPayload,
 } from "@stella/contracts/local-chat";
 import type { RadialTriggerCode } from "@stella/contracts/radial-trigger";
 import type { MiniDoubleTapModifier } from "@stella/contracts/mini-double-tap";
@@ -28,6 +29,7 @@ import {
   IPC_MEDIA_COPY_IMAGE,
   IPC_MEDIA_GET_DIR,
   IPC_MEDIA_SAVE_OUTPUT,
+  IPC_LOCAL_CHAT_THREAD_TRANSCRIPT_UPDATED,
   IPC_MIGRATION_DETECT_SOURCES,
   IPC_MIGRATION_PREVIEW,
   IPC_MIGRATION_RUN,
@@ -1969,6 +1971,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onUpdated: onIpc<LocalChatUpdatedPayload | null>("localChat:updated"),
     onThreadActivityUpdated: onIpc<ThreadActivityUpdatedPayload>(
       "localChat:threadActivityUpdated",
+    ),
+    onThreadTranscriptUpdated: onIpc<ThreadTranscriptUpdatedPayload>(
+      IPC_LOCAL_CHAT_THREAD_TRANSCRIPT_UPDATED,
     ),
   },
 

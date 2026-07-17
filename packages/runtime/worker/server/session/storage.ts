@@ -54,6 +54,9 @@ export const layer = Layer.effect(
       onThreadAssistantUpdate: (payload) => {
         hostBus.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, payload);
       },
+      onThreadTranscriptUpdate: (payload) => {
+        hostBus.notify(NOTIFICATION_NAMES.THREAD_TRANSCRIPT_UPDATED, payload);
+      },
     });
     const runtimeStore = chatStore as RuntimeStore;
     const socialSessionStore = new SocialSessionStore(db);

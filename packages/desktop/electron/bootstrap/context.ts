@@ -28,6 +28,7 @@ import { BootstrapLifecycleBindings } from "./lifecycle-bindings.js";
 import { ProcessRuntime } from "../process-runtime.js";
 import { createBootstrapServices } from "./bootstrap-services.js";
 import { registerBootstrapProcessCleanups } from "./cleanup.js";
+import { IPC_LOCAL_CHAT_THREAD_TRANSCRIPT_UPDATED } from "@stella/contracts/desktop/ipc-channels";
 
 export type MobileBroadcastFn = (channel: string, data: unknown) => void;
 
@@ -59,6 +60,7 @@ export type BootstrapState = {
   isQuitting: boolean;
   localChatUpdateUnsubscribe: (() => void) | null;
   threadActivityUpdateUnsubscribe: (() => void) | null;
+  threadTranscriptUpdateUnsubscribe: (() => void) | null;
   overlayController: OverlayWindowController | null;
   petController: PetWindowController | null;
   /** Disposer returned by `registerPetHandlers`. Stored on the
@@ -192,6 +194,17 @@ export const broadcastThreadActivityUpdated = (
   );
 };
 
+export const broadcastThreadTranscriptUpdated = (
+  context: BootstrapContext,
+  payload: import("@stella/contracts/local-chat").ThreadTranscriptUpdatedPayload,
+) => {
+  broadcastToWindows(
+    context,
+    IPC_LOCAL_CHAT_THREAD_TRANSCRIPT_UPDATED,
+    payload,
+  );
+};
+
 export const broadcastScheduleUpdated = (context: BootstrapContext) => {
   broadcastToWindowsAndMobile(context, "schedule:updated");
 };
@@ -216,6 +229,7 @@ export const createBootstrapContext = (
     isQuitting: false,
     localChatUpdateUnsubscribe: null,
     threadActivityUpdateUnsubscribe: null,
+    threadTranscriptUpdateUnsubscribe: null,
     overlayController: null,
     petController: null,
     petHandlersDispose: null,

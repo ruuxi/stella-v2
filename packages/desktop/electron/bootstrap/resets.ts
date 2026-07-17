@@ -33,6 +33,8 @@ export const shutdownBootstrapRuntime = async (
   state.localChatUpdateUnsubscribe = null;
   state.threadActivityUpdateUnsubscribe?.();
   state.threadActivityUpdateUnsubscribe = null;
+  state.threadTranscriptUpdateUnsubscribe?.();
+  state.threadTranscriptUpdateUnsubscribe = null;
   state.scheduleUpdateUnsubscribe?.();
   state.scheduleUpdateUnsubscribe = null;
 

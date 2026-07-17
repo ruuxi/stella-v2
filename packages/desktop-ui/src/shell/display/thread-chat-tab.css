@@ -169,6 +169,22 @@
   color: var(--text-base);
 }
 
+.thread-chat-tab__state--error {
+  justify-content: flex-start;
+  min-height: 0;
+  margin: 12px 14px 0;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in oklch, var(--danger) 35%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--danger) 7%, transparent);
+  color: var(--text-base);
+  text-align: left;
+}
+
+.thread-chat-tab__state--error button {
+  margin-left: auto;
+}
+
 @media (max-width: 520px) {
   .thread-chat-tab__readonly {
     position: absolute;

@@ -12,7 +12,10 @@ import {
   SessionStore,
 } from "@stella/runtime/kernel/storage/session-store";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
-import type { ThreadActivityUpdatedPayload } from "@stella/contracts/local-chat";
+import type {
+  ThreadActivityUpdatedPayload,
+  ThreadTranscriptUpdatedPayload,
+} from "@stella/contracts/local-chat";
 
 type TestContext = {
   rootPath: string;
@@ -24,6 +27,7 @@ const activeContexts = new Set<TestContext>();
 
 const createTestContext = (
   onThreadAssistantUpdate?: (payload: ThreadActivityUpdatedPayload) => void,
+  onThreadTranscriptUpdate?: (payload: ThreadTranscriptUpdatedPayload) => void,
 ): TestContext => {
   const rootPath = path.join(
     os.tmpdir(),
@@ -37,7 +41,10 @@ const createTestContext = (
   const context = {
     rootPath,
     db,
-    store: new SessionStore(db, { onThreadAssistantUpdate }),
+    store: new SessionStore(db, {
+      onThreadAssistantUpdate,
+      onThreadTranscriptUpdate,
+    }),
   };
   activeContexts.add(context);
   return context;
@@ -330,6 +337,125 @@ describe("agent-authored assistant updates", () => {
     });
     expect(store.listThreadTranscript("root-thread")).toBeNull();
   });
+
+  it.each(["general", "manager"])(
+    "invalidates a %s transcript for tool-only durable entries without authored updates",
+    (agentType) => {
+      const onThreadAssistantUpdate = vi.fn();
+      const onThreadTranscriptUpdate = vi.fn();
+      const { store } = createTestContext(
+        onThreadAssistantUpdate,
+        onThreadTranscriptUpdate,
+      );
+      const threadId = `${agentType}-tool-only`;
+      store.resolveOrCreateActiveThread({
+        conversationId: "conv-tool-only",
+        agentType,
+        threadId,
+        nameHint: "Tool-only transcript",
+      });
+      saveRunningAgent(store, {
+        threadId,
+        conversationId: "conv-tool-only",
+        startedAt: 1_000,
+        attemptGeneration: 2,
+        agentType,
+      });
+      store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: 1_001,
+        role: "assistant",
+        content: "",
+        payload: {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: "tool-only-1",
+              name: "exec_command",
+              arguments: { cmd: "git status --short" },
+            },
+          ],
+          api: "openai-codex-responses",
+          provider: "openai-codex",
+          model: "codex",
+          usage: EMPTY_USAGE,
+          stopReason: "toolUse",
+          timestamp: 1_001,
+          stellaAttemptGeneration: 2,
+        } as never,
+      });
+      store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: 1_002,
+        role: "toolResult",
+        toolCallId: "tool-only-1",
+        content: "clean",
+        payload: {
+          role: "toolResult",
+          toolCallId: "tool-only-1",
+          toolName: "exec_command",
+          content: [{ type: "text", text: "clean" }],
+          isError: false,
+          timestamp: 1_002,
+        } as never,
+      });
+      store.appendThreadCustomMessage({
+        threadKey: threadId,
+        timestamp: 1_003,
+        customType: "runtime.task_lifecycle",
+        content: [{ type: "text", text: "Agent card updated" }],
+        display: true,
+        eventId: `${threadId}:2:agent-completed`,
+      });
+
+      expect(onThreadAssistantUpdate).not.toHaveBeenCalled();
+      expect(onThreadTranscriptUpdate).toHaveBeenCalledTimes(3);
+      expect(
+        onThreadTranscriptUpdate.mock.calls.map(([payload]) => payload),
+      ).toEqual([
+        expect.objectContaining({
+          threadId,
+          conversationId: "conv-tool-only",
+          entryType: "message",
+          atMs: 1_001,
+        }),
+        expect.objectContaining({
+          threadId,
+          conversationId: "conv-tool-only",
+          entryType: "message",
+          atMs: 1_002,
+        }),
+        expect.objectContaining({
+          threadId,
+          conversationId: "conv-tool-only",
+          entryType: "custom_message",
+          atMs: 1_003,
+        }),
+      ]);
+      const entryIds = onThreadTranscriptUpdate.mock.calls.map(
+        ([payload]) => payload.entryId,
+      );
+      expect(entryIds.every(Boolean)).toBe(true);
+      expect(new Set(entryIds).size).toBe(3);
+      expect(store.listThreadTranscript(threadId)?.entries).toMatchObject([
+        {
+          kind: "assistant",
+          tools: [{ toolCallId: "tool-only-1", name: "exec_command" }],
+        },
+        {
+          kind: "tool-result",
+          toolCallId: "tool-only-1",
+          text: "clean",
+        },
+        {
+          kind: "event",
+          eventType: "runtime.task_lifecycle",
+          text: "Agent card updated",
+        },
+      ]);
+    },
+  );
 
   it("projects only parent-visible Manager authored replies into Activity", () => {
     const { store } = createTestContext();

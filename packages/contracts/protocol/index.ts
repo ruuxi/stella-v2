@@ -284,6 +284,7 @@ export const NOTIFICATION_NAMES = {
   VOICE_AGENT_EVENT: "voice.agentEvent",
   LOCAL_CHAT_UPDATED: "localChat.updated",
   THREAD_ACTIVITY_UPDATED: "localChat.threadActivityUpdated",
+  THREAD_TRANSCRIPT_UPDATED: "localChat.threadTranscriptUpdated",
   SCHEDULE_UPDATED: "schedule.updated",
   MODEL_CATALOG_UPDATED: "modelCatalog.updated",
   APPROVAL_REQUESTED: "approval.requested",

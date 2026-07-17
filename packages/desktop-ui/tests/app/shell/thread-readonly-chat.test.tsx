@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ThreadActivityUpdatedPayload,
   ThreadTranscript,
+  ThreadTranscriptUpdatedPayload,
 } from "@stella/contracts/local-chat";
 import { displayTabs } from "@/features/workspace-display/tab-store";
 import type { TaskItem } from "@/features/chat/lib/event-transforms";
@@ -76,10 +77,14 @@ const transcript: ThreadTranscript = {
 describe("read-only exact-thread chat surfaces", () => {
   let container: HTMLDivElement;
   let root: Root;
-  let updateListener:
+  let activityUpdateListener:
     | ((payload: ThreadActivityUpdatedPayload) => void)
     | undefined;
-  const listThreadTranscript = vi.fn(async () => transcript);
+  let transcriptUpdateListener:
+    | ((payload: ThreadTranscriptUpdatedPayload) => void)
+    | undefined;
+  let currentTranscript = transcript;
+  const listThreadTranscript = vi.fn(async () => currentTranscript);
   let activityAttemptGeneration = 2;
   let activityAssistantMessages = ["Latest authored Manager update"];
   const listThreadActivity = vi.fn(async () => [
@@ -102,8 +107,11 @@ describe("read-only exact-thread chat surfaces", () => {
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
-    updateListener = undefined;
-    listThreadTranscript.mockClear();
+    activityUpdateListener = undefined;
+    transcriptUpdateListener = undefined;
+    currentTranscript = transcript;
+    listThreadTranscript.mockReset();
+    listThreadTranscript.mockImplementation(async () => currentTranscript);
     listThreadActivity.mockClear();
     activityAttemptGeneration = 2;
     activityAssistantMessages = ["Latest authored Manager update"];
@@ -116,9 +124,17 @@ describe("read-only exact-thread chat surfaces", () => {
           onThreadActivityUpdated: (
             listener: (payload: ThreadActivityUpdatedPayload) => void,
           ) => {
-            updateListener = listener;
+            activityUpdateListener = listener;
             return () => {
-              updateListener = undefined;
+              activityUpdateListener = undefined;
+            };
+          },
+          onThreadTranscriptUpdated: (
+            listener: (payload: ThreadTranscriptUpdatedPayload) => void,
+          ) => {
+            transcriptUpdateListener = listener;
+            return () => {
+              transcriptUpdateListener = undefined;
             };
           },
         },
@@ -204,7 +220,7 @@ describe("read-only exact-thread chat surfaces", () => {
     expect(container.querySelector("[contenteditable='true']")).toBeNull();
 
     await act(async () => {
-      updateListener?.({
+      activityUpdateListener?.({
         conversationId: "conv-readonly",
         assistantUpdate: {
           threadId: task.id,
@@ -216,9 +232,128 @@ describe("read-only exact-thread chat surfaces", () => {
           attemptGeneration: 2,
         },
       });
-      await Promise.resolve();
+      await new Promise((resolve) => window.setTimeout(resolve, 24));
     });
     expect(listThreadTranscript.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it.each(["general", "manager"] as const)(
+    "refreshes an open %s tool-only transcript only for its exact thread",
+    async (agentType) => {
+      currentTranscript = { ...transcript, agentType, entries: [] };
+      await act(async () => {
+        root.render(<ThreadChatTab threadId={task.id} />);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      const initialCalls = listThreadTranscript.mock.calls.length;
+
+      await act(async () => {
+        transcriptUpdateListener?.({
+          threadId: "some-other-thread",
+          conversationId: "conv-readonly",
+          entryId: "other-entry",
+          entryType: "message",
+          atMs: 2_000,
+        });
+        await new Promise((resolve) => window.setTimeout(resolve, 24));
+      });
+      expect(listThreadTranscript).toHaveBeenCalledTimes(initialCalls);
+
+      currentTranscript = {
+        ...currentTranscript,
+        entries: [
+          {
+            id: "tool-call-entry",
+            timestamp: 2_001,
+            kind: "assistant",
+            tools: [
+              {
+                toolCallId: "tool-only-1",
+                name: "exec_command",
+                argumentsPreview: '{"cmd":"git status --short"}',
+              },
+            ],
+          },
+          {
+            id: "tool-result-entry",
+            timestamp: 2_002,
+            kind: "tool-result",
+            toolCallId: "tool-only-1",
+            toolName: "exec_command",
+            text: "tool-only result landed",
+            isError: false,
+          },
+        ],
+      };
+      await act(async () => {
+        transcriptUpdateListener?.({
+          threadId: task.id,
+          conversationId: "conv-readonly",
+          entryId: "tool-call-entry",
+          entryType: "message",
+          atMs: 2_001,
+        });
+        transcriptUpdateListener?.({
+          threadId: task.id,
+          conversationId: "conv-readonly",
+          entryId: "tool-result-entry",
+          entryType: "message",
+          atMs: 2_002,
+        });
+        await new Promise((resolve) => window.setTimeout(resolve, 24));
+        await Promise.resolve();
+      });
+
+      expect(listThreadTranscript).toHaveBeenCalledTimes(initialCalls + 1);
+      expect(container.textContent).toContain("exec_command");
+      expect(container.textContent).toContain("tool-only result landed");
+    },
+  );
+
+  it("announces refresh errors while retaining stale transcript content and retry", async () => {
+    await act(async () => {
+      root.render(<ThreadChatTab threadId={task.id} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain(
+      "I checked the durable ancestry before continuing.",
+    );
+
+    listThreadTranscript.mockRejectedValueOnce(
+      new Error("Transcript refresh failed"),
+    );
+    await act(async () => {
+      transcriptUpdateListener?.({
+        threadId: task.id,
+        conversationId: "conv-readonly",
+        entryId: "failed-refresh-entry",
+        entryType: "message",
+        atMs: 3_000,
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 24));
+      await Promise.resolve();
+    });
+
+    const alert = container.querySelector<HTMLElement>('[role="alert"]');
+    expect(alert?.getAttribute("aria-live")).toBe("assertive");
+    expect(alert?.textContent).toContain("Transcript refresh failed");
+    expect(container.textContent).toContain(
+      "I checked the durable ancestry before continuing.",
+    );
+    const retry = alert?.querySelector<HTMLButtonElement>("button");
+    expect(retry?.textContent).toContain("Retry");
+
+    await act(async () => {
+      retry?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain(
+      "I checked the durable ancestry before continuing.",
+    );
   });
 
   it("uses the latest authored update as live card text and keeps chat as a separate trailing action", async () => {
@@ -317,7 +452,7 @@ describe("read-only exact-thread chat surfaces", () => {
     activityAttemptGeneration = 2;
     activityAssistantMessages = ["Attempt two authored update"];
     await act(async () => {
-      updateListener?.({ conversationId: "conv-readonly" });
+      activityUpdateListener?.({ conversationId: "conv-readonly" });
       await new Promise((resolve) => window.setTimeout(resolve, 160));
     });
 

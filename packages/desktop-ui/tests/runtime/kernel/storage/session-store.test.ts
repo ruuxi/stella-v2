@@ -2,7 +2,7 @@ import { mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
@@ -38,6 +38,7 @@ const createTestContext = (): TestContext => {
 };
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const context of activeContexts) {
     context.db.close();
     await rm(context.rootPath, { recursive: true, force: true });
@@ -46,6 +47,110 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
+  it("migrates legacy branched thread entries without dropping siblings", async () => {
+    const rootPath = path.join(
+      os.tmpdir(),
+      `stella-session-store-legacy-thread-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    await mkdir(rootPath, { recursive: true });
+    const db = new DatabaseSync(getDesktopDatabasePath(rootPath), {
+      timeout: 5000,
+    }) as unknown as SqliteDatabase;
+    db.exec(`
+      CREATE TABLE runtime_thread_entries (
+        entry_id TEXT PRIMARY KEY,
+        thread_key TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        parent_entry_id TEXT,
+        entry_type TEXT NOT NULL,
+        timestamp_iso TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        data_json TEXT
+      );
+    `);
+    const insertLegacy = db.prepare(`
+      INSERT INTO runtime_thread_entries (
+        entry_id, thread_key, session_id, parent_entry_id, entry_type,
+        timestamp_iso, created_at, data_json
+      ) VALUES (?, 'legacy-thread', 'legacy-session', ?, ?, ?, ?, ?)
+    `);
+    const timestamp = 1_700_000_000_000;
+    insertLegacy.run(
+      "legacy-random-z",
+      null,
+      "message",
+      new Date(timestamp).toISOString(),
+      timestamp,
+      JSON.stringify({
+        message: { role: "user", content: "Legacy first", timestamp },
+      }),
+    );
+    insertLegacy.run(
+      "legacy-random-a",
+      "legacy-random-z",
+      "custom_message",
+      new Date(timestamp).toISOString(),
+      timestamp,
+      JSON.stringify({
+        customType: "managed-child-terminal",
+        content: "Legacy sibling event",
+        display: false,
+        eventId: "legacy-child-event",
+      }),
+    );
+    // The former random-id leaf lookup could give this the same parent and
+    // leave one of these legitimate siblings unreachable during reload.
+    insertLegacy.run(
+      "legacy-random-m",
+      "legacy-random-z",
+      "message",
+      new Date(timestamp).toISOString(),
+      timestamp,
+      JSON.stringify({
+        message: { role: "user", content: "Legacy second", timestamp },
+      }),
+    );
+
+    initializeDesktopDatabase(db);
+    const context = { rootPath, db, store: new SessionStore(db) };
+    activeContexts.add(context);
+
+    expect(
+      context.store
+        .loadThreadMessages("legacy-thread")
+        .map((message) => message.content),
+    ).toEqual(["Legacy first", "Legacy sibling event", "Legacy second"]);
+    const migrated = db
+      .prepare(
+        `SELECT insertion_sequence AS insertionSequence
+         FROM runtime_thread_entries
+         WHERE thread_key = 'legacy-thread'
+         ORDER BY insertion_sequence`,
+      )
+      .all() as Array<{ insertionSequence: number }>;
+    expect(migrated.map((row) => row.insertionSequence)).toEqual([1, 2, 3]);
+
+    insertLegacy.run(
+      "legacy-random-new",
+      "legacy-random-m",
+      "message",
+      new Date(timestamp).toISOString(),
+      timestamp,
+      JSON.stringify({
+        message: { role: "user", content: "Imported later", timestamp },
+      }),
+    );
+    expect(
+      db
+        .prepare(
+          `SELECT insertion_sequence AS insertionSequence
+           FROM runtime_thread_entries
+           WHERE entry_id = 'legacy-random-new'`,
+        )
+        .get(),
+    ).toMatchObject({ insertionSequence: 4 });
+  });
+
   it("migrates legacy agent rows with a zero ownership generation", async () => {
     const rootPath = path.join(
       os.tmpdir(),
@@ -1172,6 +1277,148 @@ describe("session-store", () => {
       )
       .get(threadId) as { count: number };
     expect(threadRows.count).toBe(2);
+  });
+
+  it("keeps same-millisecond Manager history in one durable insertion chain", () => {
+    const frozenNow = 1_735_689_600_000;
+    const now = vi.spyOn(Date, "now").mockReturnValue(frozenNow);
+    const context = createTestContext();
+    const { rootPath, db, store } = context;
+    const conversationId = "conv-manager-same-ms";
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "manager",
+      name: "Same millisecond Manager",
+    });
+    store.saveAgentRecord({
+      threadId,
+      conversationId,
+      agentType: "manager",
+      description: "Coordinate same-millisecond descendants",
+      agentDepth: 1,
+      status: "running",
+      attemptGeneration: 7,
+      managerTurnOrigin: "managed-child",
+      managerTurnVisibility: "internal",
+      startedAt: frozenNow,
+      updatedAt: frozenNow,
+    });
+
+    const expectedContent: string[] = [];
+    for (let index = 0; index < 24; index += 1) {
+      const childInput = `Child ${index} terminal report`;
+      store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: frozenNow,
+        role: "user",
+        content: childInput,
+        payload: {
+          role: "user",
+          content: childInput,
+          timestamp: frozenNow,
+        },
+      });
+      expectedContent.push(childInput);
+
+      const lifecycle = `Descendant ${index} completed internally`;
+      store.appendThreadCustomMessage({
+        threadKey: threadId,
+        timestamp: frozenNow,
+        customType: "managed-child-terminal",
+        content: lifecycle,
+        display: false,
+        eventId: `child-terminal-${index}`,
+      });
+      expectedContent.push(lifecycle);
+
+      const authored = `Manager internal follow-up ${index}`;
+      store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: frozenNow,
+        role: "assistant",
+        content: authored,
+        payload: {
+          role: "assistant",
+          content: [{ type: "text", text: authored }],
+          api: "openai-responses",
+          provider: "openai",
+          model: "gpt-5.4",
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0,
+            },
+          },
+          stopReason: "toolUse",
+          timestamp: frozenNow,
+          stellaAttemptGeneration: 7,
+          stellaManagerTurnOrigin: "managed-child",
+          stellaManagerTurnVisibility: "internal",
+        } as Parameters<typeof store.appendThreadMessage>[0]["payload"],
+      });
+      expectedContent.push(authored);
+    }
+
+    const beforeReload = db
+      .prepare(
+        `SELECT
+           entry_id AS entryId,
+           parent_entry_id AS parentEntryId,
+           insertion_sequence AS insertionSequence
+         FROM runtime_thread_entries
+         WHERE thread_key = ?
+         ORDER BY insertion_sequence ASC`,
+      )
+      .all(threadId) as Array<{
+      entryId: string;
+      parentEntryId: string | null;
+      insertionSequence: number;
+    }>;
+    expect(beforeReload).toHaveLength(expectedContent.length);
+    expect(new Set(beforeReload.map((row) => row.insertionSequence)).size).toBe(
+      expectedContent.length,
+    );
+    for (let index = 0; index < beforeReload.length; index += 1) {
+      expect(beforeReload[index]?.parentEntryId).toBe(
+        index === 0 ? null : beforeReload[index - 1]?.entryId,
+      );
+    }
+
+    db.close();
+    activeContexts.delete(context);
+    const reloadedDb = new DatabaseSync(getDesktopDatabasePath(rootPath), {
+      timeout: 5000,
+    }) as unknown as SqliteDatabase;
+    initializeDesktopDatabase(reloadedDb);
+    const reloadedStore = new SessionStore(reloadedDb);
+    activeContexts.add({ rootPath, db: reloadedDb, store: reloadedStore });
+
+    const reloaded = reloadedStore.loadThreadMessages(threadId);
+    expect(reloaded.map((message) => message.content)).toEqual(expectedContent);
+    expect(reloaded.at(-1)?.payload).toMatchObject({
+      stellaAttemptGeneration: 7,
+      stellaManagerTurnOrigin: "managed-child",
+      stellaManagerTurnVisibility: "internal",
+    });
+    const transcript = reloadedStore.listThreadTranscript(threadId, 300);
+    expect(transcript?.entries).toHaveLength(expectedContent.length);
+    expect(transcript?.entries.map((entry) => entry.text)).toEqual(
+      expectedContent,
+    );
+    expect(
+      transcript?.entries.filter(
+        (entry) => entry.eventType === "managed-child-terminal",
+      ),
+    ).toHaveLength(24);
+    now.mockRestore();
   });
 
   it("preserves assistant thinking blocks in persisted thread payloads", () => {

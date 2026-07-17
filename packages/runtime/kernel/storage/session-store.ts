@@ -872,12 +872,19 @@ const buildThreadPathEntries = (
   }
 
   let leaf: RuntimeThreadSessionEntry | undefined = entries[entries.length - 1];
-  const path: RuntimeThreadSessionEntry[] = [];
+  const reversePath: RuntimeThreadSessionEntry[] = [];
+  const visited = new Set<string>();
   while (leaf) {
-    path.unshift(leaf);
+    // Malformed imported history must not hang reconstruction. Falling back
+    // to the durable insertion order also retains every legitimate legacy
+    // sibling created by the former same-millisecond parent race.
+    if (visited.has(leaf.id)) return entries;
+    visited.add(leaf.id);
+    reversePath.push(leaf);
     leaf = leaf.parentId ? byId.get(leaf.parentId) : undefined;
   }
-  return path;
+  if (reversePath.length !== entries.length) return entries;
+  return reversePath.reverse();
 };
 
 const buildRawThreadMessages = (
@@ -1004,8 +1011,13 @@ export class SessionStore {
     return this.dreamInboxStoreInstance;
   }
 
-  private withTransaction(work: () => void): void {
-    this.db.exec("BEGIN TRANSACTION;");
+  private withTransaction(
+    work: () => void,
+    mode: "deferred" | "immediate" = "deferred",
+  ): void {
+    this.db.exec(
+      mode === "immediate" ? "BEGIN IMMEDIATE;" : "BEGIN TRANSACTION;",
+    );
     try {
       work();
       this.db.exec("COMMIT;");
@@ -2650,7 +2662,7 @@ export class SessionStore {
       SELECT entry_id AS entryId
       FROM runtime_thread_entries
       WHERE thread_key = ?
-      ORDER BY created_at DESC, entry_id DESC
+      ORDER BY insertion_sequence DESC, rowid DESC
       LIMIT 1
     `,
       )
@@ -2716,13 +2728,13 @@ export class SessionStore {
         recent.created_at AS createdAt,
         recent.data_json AS dataJson
       FROM (
-        SELECT *
+        SELECT rowid AS entryRowId, *
         FROM runtime_thread_entries
         WHERE thread_key = ?
-        ORDER BY created_at DESC, entry_id DESC
+        ORDER BY insertion_sequence DESC, rowid DESC
         ${normalizedLimit ? "LIMIT ?" : ""}
       ) recent
-      ORDER BY recent.created_at ASC, recent.entry_id ASC
+      ORDER BY recent.insertion_sequence ASC, recent.entryRowId ASC
     `;
     const rows = (
       normalizedLimit
@@ -2760,7 +2772,7 @@ export class SessionStore {
         },
       });
       this.touchThread(threadKey);
-    });
+    }, "immediate");
     if (
       payload.role === "assistant" &&
       activityUpdateTextFromAssistantPayload(payload)
@@ -2814,7 +2826,7 @@ export class SessionStore {
         },
       });
       this.touchThread(threadKey);
-    });
+    }, "immediate");
   }
 
   loadThreadMessages(
@@ -2905,7 +2917,7 @@ export class SessionStore {
         },
       });
       this.touchThread(threadKey);
-    });
+    }, "immediate");
   }
 
   recordRunEvent(event: RuntimeRunEvent): void {

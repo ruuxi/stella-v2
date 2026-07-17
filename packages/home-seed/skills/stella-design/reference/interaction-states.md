@@ -13,8 +13,8 @@ is unfinished.
 
 Reuse the local vocabulary first:
 
-- Existing Stella buttons and pill button variants.
-- Existing Radix/menu/dialog styling where present.
+- Existing project buttons and button variants.
+- Existing menu and dialog styling where present.
 - Existing icon library and sizes.
 - Existing form controls and focus treatments.
 - Existing toast, confirmation, and app-level dialog patterns.
@@ -91,8 +91,8 @@ An empty state should answer:
 - Why is it empty?
 - What can I do next?
 
-Keep it short. Do not turn empty states into marketing panels. For Stella,
-prefer practical next actions and friendly labels.
+Keep it short. Do not turn empty states into marketing panels. Prefer practical
+next actions and friendly labels.
 
 ## Error States
 

@@ -21,8 +21,8 @@ disclosure.
 
 ## Breakpoint Strategy
 
-- Start from the real containers Stella uses, not generic device names.
-- Test the full window, mini window where relevant, and one narrow width.
+- Start from the real containers the project uses, not generic device names.
+- Test the full window, compact window where relevant, and one narrow width.
 - Collapse side-by-side layouts into stacked or tabbed layouts when needed.
 - Keep controls near the content they affect.
 - Avoid horizontal scroll except for deliberate tab strips, timelines, or data
@@ -89,13 +89,13 @@ Respect `prefers-reduced-motion`:
 - Avoid parallax, large zooms, or sweeping transitions for reduced-motion
   users.
 
-## Stella-Specific Responsive Notes
+## Application Responsive Notes
 
-- Mini-window UI has different constraints from the full window. Do not assume
+- Compact-window UI has different constraints from the full window. Do not assume
   full-window sidebars or panels fit there.
-- The display sidebar can cover meaningful content if opened in cramped
-  contexts; keep controls stable and respect existing open/close rules.
-- Native top-bar controls and Stella shell controls must not overlap route UI.
+- Sidebars can cover meaningful content in cramped contexts; keep controls
+  stable and respect existing open/close rules.
+- Native top-bar or shell controls must not overlap route UI.
 - Onboarding and overlay flows should avoid layout shift between phases.
 
 ## Motion Bans

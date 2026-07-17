@@ -2,7 +2,7 @@
  * Hash-history reconciliation of bundled skills into Stella home.
  *
  * Stella ships a default skill catalogue at
- * `${stellaAppDir}/runtime/home-seed/skills/`. Users carry their own copy at
+ * `${stellaAppDir}/packages/home-seed/skills/`. Users carry their own copy at
  * `${stellaDataDir}/skills/`. Each skill (`<id>/` directory) is reconciled as a
  * unit so shipped updates reach users who haven't edited that skill, while
  * local edits are preserved. The reconciliation algorithm itself lives in
@@ -16,6 +16,7 @@ import {
   summarizeBundledSync,
   type BundledSyncReport,
 } from "./bundled-sync.js";
+import { isRetiredBundledSkillId } from "../shared/skill-policy.js";
 
 const USER_PROFILE_SKILL_ID = "user-profile";
 const PLATFORM_SKILL_IDS: Partial<Record<NodeJS.Platform, readonly string[]>> =
@@ -59,7 +60,9 @@ export const reconcileBundledSkills = async (
     createDirectoryEntryAdapter((id) => id !== USER_PROFILE_SKILL_ID),
     {
       includeBundledId: (id) =>
+        !isRetiredBundledSkillId(id) &&
         isBundledSkillIncludedForPlatform(id, platform),
+      forceRemoveObsoleteId: isRetiredBundledSkillId,
       // Manifests seeded before the generic rename stored hashes under
       // `skills`; read them so already-installed users still get updates.
       legacyEntriesKey: "skills",

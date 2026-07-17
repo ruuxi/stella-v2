@@ -33,10 +33,11 @@ initial sync.
 > router uses `createMemoryHistory()`. The full-shell renderer persists its
 > last router location to `localStorage` (key `stella:lastLocation`) so it
 > can restore on the next launch — *not* through `UiState`/IPC, because no
-> other window cares. See `desktop/src/shared/lib/last-location.ts` and
-> the restore/persist effects in `desktop/src/routes/__root.tsx`. Adding a
-> new sidebar app is "drop a folder under `desktop/src/app/<id>/`" — see
-> `~/.stella/skills/stella-desktop/SKILL.md`.
+> other window cares. See
+> `packages/desktop-ui/src/shared/lib/last-location.ts` and the restore/persist
+> effects in `packages/desktop-ui/src/routes/__root.tsx`. New sidebar apps are
+> build-time product source under `packages/desktop-ui/src/app/<id>/`; the
+> packaged agent does not create or install them.
 
 
 ### conversationId — detailed flow

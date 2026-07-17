@@ -301,7 +301,8 @@
         "channel": "latest-v2",
         "useMultipleRangeRequest": false
       }
-    ]
+    ],
+    "afterPack": "packages/desktop/scripts/after-pack.mjs"
   },
   "trustedDependencies": [
     "better-sqlite3",

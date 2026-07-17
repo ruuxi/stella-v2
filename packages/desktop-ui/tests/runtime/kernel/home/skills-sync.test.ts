@@ -322,6 +322,80 @@ describe("reconcileBundledSkills", () => {
     );
   });
 
+  it("removes retired bundled skills even when their local copy diverged", async () => {
+    const bundled = await tempDir("stella-bundled-");
+    const home = await tempDir("stella-home-skills-");
+
+    await writeSkillFile(
+      bundled,
+      "stella-desktop",
+      "SKILL.md",
+      "stale package payload",
+    );
+    await writeSkillFile(
+      home,
+      "stella-desktop",
+      "SKILL.md",
+      "locally changed retired skill",
+    );
+
+    const report = await reconcileBundledSkills(bundled, home);
+
+    expect(report.actions).toEqual([
+      expect.objectContaining({
+        type: "remove-obsolete",
+        id: "stella-desktop",
+      }),
+    ]);
+    await expect(readdir(path.join(home, "stella-desktop"))).rejects.toThrow();
+    const manifest = await readManifest(home);
+    expect(manifest.entries["stella-desktop"]).toBeUndefined();
+  });
+
+  it("does not seed retired skill ids still present in a stale package", async () => {
+    const bundled = await tempDir("stella-bundled-");
+    const home = await tempDir("stella-home-skills-");
+
+    await writeSkillFile(bundled, "humanizer", "SKILL.md", "supported");
+    await writeSkillFile(
+      bundled,
+      "stella-runtime-extension",
+      "SKILL.md",
+      "stale package payload",
+    );
+
+    const report = await reconcileBundledSkills(bundled, home);
+
+    expect(report.actions).toEqual([
+      expect.objectContaining({ type: "seed", id: "humanizer" }),
+    ]);
+    await expect(
+      readdir(path.join(home, "stella-runtime-extension")),
+    ).rejects.toThrow();
+  });
+
+  it("prunes retired ids left behind in a generated manifest", async () => {
+    const bundled = await tempDir("stella-bundled-");
+    const home = await tempDir("stella-home-skills-");
+
+    await writeSkillFile(bundled, "humanizer", "SKILL.md", "supported");
+    await reconcileBundledSkills(bundled, home);
+
+    const manifest = await readManifest(home);
+    manifest.entries["stella-llm"] = manifest.entries.humanizer!;
+    await writeFile(
+      path.join(home, ".bundled-manifest.json"),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      "utf-8",
+    );
+
+    await reconcileBundledSkills(bundled, home);
+
+    const reconciled = await readManifest(home);
+    expect(reconciled.entries["stella-llm"]).toBeUndefined();
+    expect(reconciled.entries.humanizer).toBeDefined();
+  });
+
   it("ignores user-authored skills with no bundled counterpart and no manifest entry", async () => {
     const bundled = await tempDir("stella-bundled-");
     const home = await tempDir("stella-home-skills-");

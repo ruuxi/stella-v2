@@ -1,13 +1,13 @@
 ---
 name: stella-connect
-description: Use Store integrations and imported MCP/API connectors through the stella-connect CLI.
+description: Use connected native integrations and imported MCP/API connectors through the stella-connect CLI.
 ---
 
 # Stella Connect
 
-Stella Connect has two paths:
+Stella Connect has two supported paths:
 
-- Store integrations: the user enables them in Store, Stella writes a small skill under `~/.stella/skills/<id>/SKILL.md`, and future runs call them with `stella-connect`.
+- Native integrations: once the user connects one through Stella's connection flow, Stella writes a small skill under `~/.stella/skills/<id>/SKILL.md`, and future runs call it with `stella-connect`.
 - Imported MCP/API connectors: the user or agent adds them with `stella-connect import-mcp`; the CLI probes the server, persists it under `~/.stella/connectors/`, and writes the same kind of per-connector skill.
 
 Connector action schemas are never preloaded into the model context. Inspect them on demand with `stella-connect tools` and invoke them with `stella-connect call`.
@@ -19,21 +19,9 @@ Do NOT proactively offer to connect integrations from an agent. The orchestrator
 - If an integration is enabled, its skill appears in your `<skills>` block — use it via `stella-connect tools` / `stella-connect call`.
 - `stella-connect discover "<keywords>"` remains available as a read-only catalog lookup (ids, enabled/connected/declined state) when you need to check what exists.
 - If a service you'd want isn't connected, proceed by other means (the user's browser via stella-browser, or stella-computer) and note the limitation in your report. Don't dead-end and don't offer to connect it.
-- `stella-connect request-connection <id>` exists as plumbing for the card, but only run it when the user explicitly asked *this turn* to connect that service. On exit 2 with `error: "declined"`/`"previously_declined"`, never re-offer; the user can enable it in the Store.
+- `stella-connect request-connection <id>` exists as plumbing for the card, but only run it when the user explicitly asked *this turn* to connect that service. On exit 2 with `error: "declined"`/`"previously_declined"`, never re-offer; the user can reconnect it through Stella's normal connection flow.
 
-## Source layout
-
-- CLI entrypoint: `runtime/kernel/cli/stella-connect.ts`
-- MCP bridge (stdio/streamable_http): `runtime/kernel/connectors/connector-bridge.ts`
-- REST connector client: `runtime/kernel/connectors/api-client.ts`
-- Native Store integration catalog/state: `runtime/kernel/connectors/native-integrations.ts`
-- Catalog discovery (`discover`): `runtime/kernel/connectors/discovery.ts`
-- In-chat decline persistence: `runtime/kernel/connectors/connect-preferences.ts`
-- OAuth + token storage: `runtime/kernel/connectors/oauth.ts`
-- Configured-connector state: `runtime/kernel/connectors/state.ts`
-- Types: `runtime/kernel/connectors/types.ts`
-
-## Store integrations
+## Native integrations
 
 ```bash
 stella-connect apps
@@ -42,7 +30,7 @@ stella-connect tools gmail
 stella-connect call gmail gmail.search --json '{"query":"from:someone@example.com"}'
 ```
 
-The Store is the normal enable/disable surface. The CLI also has `enable-native <id>` and `disable-native <id>` for diagnostics and local repair. Disabled integrations cannot be called even if an old skill file remains.
+The CLI also has `enable-native <id>` and `disable-native <id>` for diagnostics and local repair. Disabled integrations cannot be called even if an old skill file remains.
 
 ## Adding an MCP
 

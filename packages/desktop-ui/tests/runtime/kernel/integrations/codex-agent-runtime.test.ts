@@ -160,7 +160,7 @@ describe("Codex agent runtime", () => {
           "Current working directory: /repo/desktop",
           "",
           "<skills>",
-          "- `create-stella-app` — App scaffold.",
+          "- `humanizer` — Rewrite text naturally.",
           "</skills>",
           "",
           "File edits: use apply_patch.",
@@ -173,7 +173,7 @@ describe("Codex agent runtime", () => {
         "Current working directory: /repo/desktop",
         "",
         "<skills>",
-        "- `create-stella-app` — App scaffold.",
+        "- `humanizer` — Rewrite text naturally.",
         "</skills>",
       ].join("\n"),
     );
@@ -191,7 +191,7 @@ describe("Codex agent runtime", () => {
           "Current working directory: /repo/desktop",
           "",
           "<skills>",
-          "- `create-stella-app` — App scaffold.",
+          "- `humanizer` — Rewrite text naturally.",
           "</skills>",
         ].join("\n"),
       ),
@@ -202,7 +202,7 @@ describe("Codex agent runtime", () => {
         "Current working directory: /repo/desktop",
         "",
         "<skills>",
-        "- `create-stella-app` — App scaffold.",
+        "- `humanizer` — Rewrite text naturally.",
         "</skills>",
       ].join("\n"),
     );
@@ -236,7 +236,7 @@ describe("Codex agent runtime", () => {
         model: DEFAULT_CODEX_MODEL,
         cwd: "/repo",
         systemPrompt:
-          "You are Stella.\n\n- `~/.stella/projects/<name>/` — scaffolded external projects go here.\n\nCurrent working directory: /repo\n\n<skills>\n- `create-stella-app` — App scaffold.\n</skills>",
+          "You are Stella.\n\n- `~/.stella/projects/<name>/` — scaffolded external projects go here.\n\nCurrent working directory: /repo\n\n<skills>\n- `humanizer` — Rewrite text naturally.\n</skills>",
       }),
     ).toEqual({
       threadId: "thread-1",
@@ -245,7 +245,7 @@ describe("Codex agent runtime", () => {
       approvalPolicy: "never",
       sandbox: "danger-full-access",
       developerInstructions:
-        "- `~/.stella/projects/<name>/` — scaffolded external projects go here.\nCurrent working directory: /repo\n\n<skills>\n- `create-stella-app` — App scaffold.\n</skills>",
+        "- `~/.stella/projects/<name>/` — scaffolded external projects go here.\nCurrent working directory: /repo\n\n<skills>\n- `humanizer` — Rewrite text naturally.\n</skills>",
       excludeTurns: true,
     });
   });

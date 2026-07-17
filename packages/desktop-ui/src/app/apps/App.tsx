@@ -1,13 +1,11 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import {
-  useCallback,
   useDeferredValue,
   useMemo,
   useState,
   useSyncExternalStore,
 } from "react";
 import { Search } from "@/ui/icons";
-import { dispatchComposeText } from "@/shared/lib/stella-orb-chat";
 import {
   getSnapshot,
   subscribe,
@@ -23,9 +21,10 @@ const SORT_LABELS: Record<SortOption, string> = {
   name: "Name",
 };
 
-const CREATE_APP_PROMPT = "Tell me what stella apps can you make for me?";
-
-const RELATIVE_UNITS: ReadonlyArray<{ ms: number; unit: Intl.RelativeTimeFormatUnit }> = [
+const RELATIVE_UNITS: ReadonlyArray<{
+  ms: number;
+  unit: Intl.RelativeTimeFormatUnit;
+}> = [
   { ms: 60 * 1000, unit: "second" },
   { ms: 60 * 60 * 1000, unit: "minute" },
   { ms: 24 * 60 * 60 * 1000, unit: "hour" },
@@ -47,7 +46,10 @@ function formatCreatedAt(iso: string): string {
     const current = RELATIVE_UNITS[i]!;
     const next = RELATIVE_UNITS[i + 1]!;
     if (abs < next.ms) {
-      return relativeTimeFormatter.format(Math.round(diff / current.ms), current.unit);
+      return relativeTimeFormatter.format(
+        Math.round(diff / current.ms),
+        current.unit,
+      );
     }
   }
   const last = RELATIVE_UNITS[RELATIVE_UNITS.length - 1]!;
@@ -60,18 +62,9 @@ function useUserApps(): readonly UserApp[] {
 
 export function AppsApp() {
   const apps = useUserApps();
-  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortOption>("recent");
   const deferredQuery = useDeferredValue(query);
-
-  const handleCreateApp = useCallback(() => {
-    void navigate({ to: "/chat" }).then(() => {
-      requestAnimationFrame(() => {
-        dispatchComposeText({ text: CREATE_APP_PROMPT });
-      });
-    });
-  }, [navigate]);
 
   const visible = useMemo(() => {
     const trimmed = deferredQuery.trim().toLowerCase();
@@ -142,18 +135,15 @@ export function AppsApp() {
                 ))}
               </select>
             </div>
-            <button
-              type="button"
-              className="pill-btn pill-btn--lg"
-              onClick={handleCreateApp}
-            >
-              Create an app
-            </button>
           </div>
 
           {visible.length === 0 ? (
             <div className="apps-screen__no-match">
-              No apps match <span className="apps-screen__no-match-query">"{deferredQuery}"</span>.
+              No apps match{" "}
+              <span className="apps-screen__no-match-query">
+                "{deferredQuery}"
+              </span>
+              .
             </div>
           ) : (
             <ul className="apps-screen__grid">
@@ -175,7 +165,10 @@ export function AppsApp() {
           )}
         </>
       ) : (
-        <section className="apps-screen__empty" aria-labelledby="apps-empty-title">
+        <section
+          className="apps-screen__empty"
+          aria-labelledby="apps-empty-title"
+        >
           <div className="apps-screen__empty-illustration">
             <AppCreationIllustration />
           </div>
@@ -183,15 +176,8 @@ export function AppsApp() {
             Nothing here yet.
           </h2>
           <p className="apps-screen__empty-body">
-            Ask Stella to build a small app. It will show up here.
+            No apps are included in this build.
           </p>
-          <button
-            type="button"
-            className="pill-btn pill-btn--primary pill-btn--lg"
-            onClick={handleCreateApp}
-          >
-            Ask Stella to create an app
-          </button>
         </section>
       )}
     </main>

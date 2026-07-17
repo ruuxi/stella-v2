@@ -77,6 +77,8 @@ export type BundledSyncOptions = {
   seedMissingOnly?: boolean;
   /** Whether untouched entries absent from the source should be removed. */
   removeObsolete?: boolean;
+  /** Remove a retired source-owned id even when its local copy diverged. */
+  forceRemoveObsoleteId?: (id: string) => boolean;
 };
 
 const DEFAULT_MANIFEST_FILENAME = ".bundled-manifest.json";
@@ -280,6 +282,12 @@ export const reconcileBundledEntries = async (
   const bundledIdSet = new Set(bundledIds);
   for (const id of options.removeObsolete === false ? [] : homeIds) {
     if (bundledIdSet.has(id)) continue;
+    if (options.forceRemoveObsoleteId?.(id)) {
+      await adapter.remove(homeDir, id);
+      delete nextEntries[id];
+      actions.push({ type: "remove-obsolete", id });
+      continue;
+    }
     const recorded = manifest.entries[id];
     const recordedHash = recorded?.lastSyncedHash;
     if (recordedHash === undefined) {
@@ -294,6 +302,17 @@ export const reconcileBundledEntries = async (
     } else {
       nextEntries[id] = { ...recorded, customized: true };
       actions.push({ type: "skip-obsolete-user-modified", id });
+    }
+  }
+
+  // A prior cleanup may have removed the directory without updating the
+  // manifest. Retired ids must not survive there as latent source-owned
+  // entries that a later stale package could appear to revive.
+  if (options.forceRemoveObsoleteId) {
+    for (const id of Object.keys(nextEntries)) {
+      if (!bundledIdSet.has(id) && options.forceRemoveObsoleteId(id)) {
+        delete nextEntries[id];
+      }
     }
   }
 

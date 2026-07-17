@@ -40,6 +40,7 @@ import {
 import { registerExternalOpenerHandlers } from "../ipc/external-opener-handlers.js";
 import { registerUiHandlers } from "../ipc/ui-handlers.js";
 import { registerUiStateKvHandlers } from "../ipc/ui-state-handlers.js";
+import { registerUpdatesHandlers } from "../ipc/updates-handlers.js";
 import { registerVoiceHandlers } from "../ipc/voice-handlers.js";
 import { registerDictationHandlers } from "../ipc/dictation-handlers.js";
 import { startCapturingHandlers } from "../services/mobile-bridge/handler-registry.js";
@@ -186,6 +187,17 @@ export const registerBootstrapIpcHandlers = (
     assertPrivilegedSender: (event, channel) =>
       services.externalLinkService.assertPrivilegedSender(event, channel),
   });
+
+  const disposeUpdatesHandlers = registerUpdatesHandlers({
+    getAllWindows: () => getAllWindows(context),
+    assertPrivilegedSender: (event, channel) =>
+      services.externalLinkService.assertPrivilegedSender(event, channel),
+  });
+  state.processRuntime.registerCleanup(
+    "will-quit",
+    "desktop-updater",
+    disposeUpdatesHandlers,
+  );
 
   state.uiStateKvStore = registerUiStateKvHandlers({
     stellaDataDirPath: state.stellaDataDirPath ?? config.stellaDataDirPath,

@@ -27,10 +27,24 @@ await waitForVite();
 
 const require = createRequire(import.meta.url);
 const electronBinary = require("electron");
+const devEnvironment = { ...process.env };
+for (const inheritedLiveKey of [
+  "STELLA_APP_DIR",
+  "STELLA_DATA_DIR",
+  "STELLA_DEV_RESTART_REQUEST_FILE",
+  "STELLA_DEV_USER_QUIT_REQUEST_FILE",
+  "STELLA_ELECTRON_DEV_RUNNER_PID",
+  "STELLA_ELECTRON_READY_FILE",
+  "STELLA_GIT_BIN",
+  "STELLA_HOST_EXECUTABLE_PATH",
+  "STELLA_LAUNCHER_PROTECTED_STORAGE_BIN",
+]) {
+  delete devEnvironment[inheritedLiveKey];
+}
 const child = spawn(electronBinary, [".", "--dev"], {
   cwd: path.resolve(import.meta.dirname, "..", "..", ".."),
   env: {
-    ...process.env,
+    ...devEnvironment,
     NODE_ENV: "development",
     STELLA_DEV_SERVER_URL: DEV_SERVER_URL,
   },

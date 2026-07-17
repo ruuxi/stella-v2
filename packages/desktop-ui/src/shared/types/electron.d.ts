@@ -72,6 +72,7 @@ import type {
   OfficePreviewSnapshot as SharedOfficePreviewSnapshot,
 } from "@stella/contracts/office-preview";
 import type { DisplayPayload } from "@stella/contracts/display-payload";
+import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 
 type MobileAgentWorkPayloadForSync = {
   kind: "agent-work";
@@ -1682,6 +1683,16 @@ export type ElectronMigrationApi = {
   }) => Promise<ThirdPartyMigrationReport>;
 };
 
+export type ElectronUpdatesApi = {
+  getState: () => Promise<DesktopUpdateSnapshot>;
+  check: () => Promise<DesktopUpdateSnapshot>;
+  download: () => Promise<DesktopUpdateSnapshot>;
+  restartAndInstall: () => Promise<{ accepted: true }>;
+  onStateChanged: (
+    callback: (snapshot: DesktopUpdateSnapshot) => void,
+  ) => () => void;
+};
+
 export type ElectronApi = {
   platform: string;
   arch: string;
@@ -1704,6 +1715,7 @@ export type ElectronApi = {
   dictation: ElectronDictationApi;
   agent: ElectronAgentApi;
   system: ElectronSystemApi;
+  updates: ElectronUpdatesApi;
   onboarding: ElectronOnboardingApi;
   discovery: ElectronDiscoveryApi;
   browser: ElectronBrowserApi;

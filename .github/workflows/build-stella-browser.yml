@@ -5,11 +5,11 @@ name: Build Stella Browser
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     paths:
-      - "desktop/stella-browser/cli/**"
-      - "desktop/stella-browser/package.json"
-      - "desktop/stella-browser/scripts/**"
+      - "packages/stella-browser/cli/**"
+      - "packages/stella-browser/package.json"
+      - "packages/stella-browser/scripts/**"
       - ".github/workflows/build-stella-browser.yml"
   workflow_dispatch:
 
@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: desktop/stella-browser
+          sparse-checkout: packages/stella-browser
           fetch-depth: 1
 
       - name: Install target toolchain
@@ -55,11 +55,11 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --release \
-            --manifest-path desktop/stella-browser/cli/Cargo.toml \
+            --manifest-path packages/stella-browser/cli/Cargo.toml \
             --target "${{ matrix.target }}"
           mkdir -p "browser-artifact/${{ matrix.platform }}"
           cp \
-            "desktop/stella-browser/cli/target/${{ matrix.target }}/release/${{ matrix.builtFile }}" \
+            "packages/stella-browser/cli/target/${{ matrix.target }}/release/${{ matrix.builtFile }}" \
             "browser-artifact/${{ matrix.platform }}/${{ matrix.installedFile }}"
           if [ "${{ runner.os }}" = "macOS" ]; then
             chmod +x "browser-artifact/${{ matrix.platform }}/${{ matrix.installedFile }}"
@@ -142,17 +142,17 @@ jobs:
             --content-type application/json \
             --cache-control "public, max-age=31536000, immutable" \
             --endpoint-url "$R2_ENDPOINT"
-          master_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/master | awk '{print $1}')"
-          if [ -z "$master_sha" ]; then
-            echo "Could not resolve origin/master; refusing to update current.json." >&2
+          main_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          if [ -z "$main_sha" ]; then
+            echo "Could not resolve origin/main; refusing to update current.json." >&2
             exit 1
           fi
-          if [ "$SOURCE_SHA" = "$master_sha" ]; then
+          if [ "$SOURCE_SHA" = "$main_sha" ]; then
             aws s3 cp "$manifest_path" \
               "s3://${R2_BUCKET}/stella-browser/current.json" \
               --content-type application/json \
               --cache-control no-cache \
               --endpoint-url "$R2_ENDPOINT"
           else
-            echo "Published immutable artifacts for $SOURCE_SHA; current master is $master_sha, so current.json was left unchanged."
+            echo "Published immutable artifacts for $SOURCE_SHA; current main is $main_sha, so current.json was left unchanged."
           fi

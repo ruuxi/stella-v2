@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,64 @@ const listDirectories = async (root) =>
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b));
+
+const listFilesRecursive = async (root, prefix = "") => {
+  const entries = await fs.readdir(path.join(root, prefix), {
+    withFileTypes: true,
+  });
+  const files = [];
+  for (const entry of entries) {
+    const relativePath = prefix
+      ? path.posix.join(prefix, entry.name)
+      : entry.name;
+    if (entry.isDirectory()) {
+      files.push(...(await listFilesRecursive(root, relativePath)));
+    } else if (entry.isFile()) {
+      files.push(relativePath);
+    } else {
+      throw new Error(`Unsupported bundled payload entry: ${relativePath}`);
+    }
+  }
+  return files.sort((a, b) => a.localeCompare(b));
+};
+
+const describeFiles = async (root, relativePaths) =>
+  Promise.all(
+    relativePaths.map(async (relativePath) => {
+      const content = await fs.readFile(path.join(root, relativePath));
+      return {
+        relativePath,
+        hash: createHash("sha256").update(content).digest("hex"),
+      };
+    }),
+  );
+
+const describeSelectedSourcePayload = async (sourceRoot, skillIds) => {
+  const relativePaths = ["DREAM.md", "outputs/README.md"];
+  for (const id of skillIds) {
+    const skillRoot = path.join(sourceRoot, "skills", id);
+    await fs.access(path.join(skillRoot, "SKILL.md"));
+    const skillFiles = await listFilesRecursive(skillRoot);
+    relativePaths.push(
+      ...skillFiles.map((relativePath) =>
+        path.posix.join("skills", id, relativePath),
+      ),
+    );
+  }
+  relativePaths.sort((a, b) => a.localeCompare(b));
+  return describeFiles(sourceRoot, relativePaths);
+};
+
+const payloadHash = (files) => {
+  const hash = createHash("sha256");
+  for (const file of files) {
+    hash.update(file.relativePath, "utf8");
+    hash.update("\0");
+    hash.update(file.hash, "utf8");
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+};
 
 const assertExactIds = (actual, expected, label) => {
   if (
@@ -103,17 +162,66 @@ export const stageHomeSeed = async ({
 
   const stagedIds = await listDirectories(path.join(targetRoot, "skills"));
   assertExactIds(stagedIds, packagedIds, `Staged ${platform} skill payload`);
-  return { packagedIds, targetRoot };
+  const verified = await verifyPackagedHomeSeed({
+    resourcesRoot: path.dirname(targetRoot),
+    platform,
+    sourceRoot,
+  });
+  return {
+    packagedIds,
+    targetRoot,
+    fileCount: verified.fileCount,
+    payloadHash: verified.payloadHash,
+  };
 };
 
-export const verifyPackagedHomeSeed = async ({ resourcesRoot, platform }) => {
+export const verifyPackagedHomeSeed = async ({
+  resourcesRoot,
+  platform,
+  sourceRoot = path.join(REPO_ROOT, "packages", "home-seed"),
+}) => {
   const expectedIds = packagedSkillIdsForPlatform(platform);
   const packagedRoot = path.join(resourcesRoot, "home-seed");
   const actualIds = await listDirectories(path.join(packagedRoot, "skills"));
   assertExactIds(actualIds, expectedIds, `Packaged ${platform} skill payload`);
-  await Promise.all([
-    fs.access(path.join(packagedRoot, "DREAM.md")),
-    fs.access(path.join(packagedRoot, "outputs", "README.md")),
+
+  await Promise.all(
+    expectedIds.map((id) =>
+      fs.access(path.join(packagedRoot, "skills", id, "SKILL.md")),
+    ),
+  );
+  const [expectedFiles, actualFiles] = await Promise.all([
+    describeSelectedSourcePayload(sourceRoot, expectedIds),
+    listFilesRecursive(packagedRoot).then((relativePaths) =>
+      describeFiles(packagedRoot, relativePaths),
+    ),
   ]);
-  return { actualIds, packagedRoot };
+  const expectedPaths = expectedFiles.map((file) => file.relativePath);
+  const actualPaths = actualFiles.map((file) => file.relativePath);
+  if (
+    expectedPaths.length !== actualPaths.length ||
+    expectedPaths.some(
+      (relativePath, index) => relativePath !== actualPaths[index],
+    )
+  ) {
+    throw new Error(
+      `Packaged ${platform} file list mismatch. Expected [${expectedPaths.join(", ")}], received [${actualPaths.join(", ")}].`,
+    );
+  }
+  for (let index = 0; index < expectedFiles.length; index += 1) {
+    const expected = expectedFiles[index];
+    const actual = actualFiles[index];
+    if (expected.hash !== actual.hash) {
+      throw new Error(
+        `Packaged ${platform} file hash mismatch at ${expected.relativePath}. Expected ${expected.hash}, received ${actual.hash}.`,
+      );
+    }
+  }
+
+  return {
+    actualIds,
+    packagedRoot,
+    fileCount: actualFiles.length,
+    payloadHash: payloadHash(actualFiles),
+  };
 };

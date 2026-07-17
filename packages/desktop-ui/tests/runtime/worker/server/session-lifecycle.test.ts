@@ -13,10 +13,13 @@ import { WorkerPeerBroker } from "@stella/runtime/worker/peer-broker";
 /**
  * Session lifecycle over the Effect layer graph: initialize builds the
  * scoped session, same-root re-init is a config patch, different-root
- * re-init closes the old scope in stopWorkerServices order (runner stop
- * BEFORE cli-bridge stop; a background-built runner is stopped even if
- * nothing ever accessed it — the supersede guarantee), and shutdown is
- * idempotent.
+ * re-init closes the old scope in the EXACT stopWorkerServices order
+ * (runner stop → runEventLog.stop → cli-bridge stop → brokers cleared →
+ * db.close; a background-built runner is stopped even if nothing ever
+ * accessed it — the supersede guarantee), and shutdown is idempotent.
+ *
+ * Storage runs on node:sqlite (the kernel storage tests' seam) so this
+ * suite is green under the repository's node-hosted `bun run test:run`.
  */
 
 const harness = vi.hoisted(() => {
@@ -101,6 +104,64 @@ vi.mock("@stella/runtime/ai/model-runtime", () => ({
     getSnapshotForListing: async () => ({ models: [] }),
   },
 }));
+
+// node:sqlite instead of bun:sqlite (the kernel storage tests' seam) so the
+// suite runs under node-hosted vitest; close() is recorded for the teardown
+// order assertions.
+vi.mock("@stella/runtime/kernel/storage/database", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { getDesktopDatabasePath, initializeDesktopDatabase } = await import(
+    "@stella/runtime/kernel/storage/database-init"
+  );
+  return {
+    createDesktopDatabase: (stellaDataDir: string) => {
+      const db = new DatabaseSync(getDesktopDatabasePath(stellaDataDir), {
+        timeout: 5000,
+      });
+      initializeDesktopDatabase(
+        db as unknown as Parameters<typeof initializeDesktopDatabase>[0],
+      );
+      const close = db.close.bind(db);
+      db.close = () => {
+        harness.state.order.push("db.close");
+        close();
+      };
+      return db;
+    },
+  };
+});
+
+vi.mock("@stella/runtime/kernel/storage/run-event-log", async (importOriginal) => {
+  const original =
+    await importOriginal<
+      typeof import("@stella/runtime/kernel/storage/run-event-log")
+    >();
+  class RecordedRunEventLog extends original.RunEventLog {
+    override stop() {
+      harness.state.order.push("runEventLog.stop");
+      super.stop();
+    }
+  }
+  return { ...original, RunEventLog: RecordedRunEventLog };
+});
+
+vi.mock("@stella/runtime/kernel/connectors/oauth", async (importOriginal) => {
+  const original =
+    await importOriginal<
+      typeof import("@stella/runtime/kernel/connectors/oauth")
+    >();
+  return {
+    ...original,
+    setConnectorTokenStoreBroker: (
+      broker: Parameters<typeof original.setConnectorTokenStoreBroker>[0],
+    ) => {
+      if (broker === null) {
+        harness.state.order.push("brokers.clear");
+      }
+      original.setConnectorTokenStoreBroker(broker);
+    },
+  };
+});
 
 const createHarness = async () => {
   const { createRuntimeWorkerServer } = await import(
@@ -234,14 +295,21 @@ describe("worker session lifecycle (Effect scope)", () => {
       expect(harness.state.runners).toHaveLength(1);
     });
 
-    // Different data dir ⇒ full re-init. The first session's scope closes:
-    // the background-built runner is stopped (supersede guarantee) BEFORE
-    // the cli bridge stops, then storage closes.
+    // Different data dir ⇒ full re-init. The first session's scope closes
+    // in the EXACT old stopWorkerServices order: runner stop (supersede
+    // guarantee for the background build) → runEventLog.stop → cli bridge
+    // stop → credential brokers cleared → db.close.
     await host.request(
       METHOD_NAMES.INTERNAL_WORKER_INITIALIZE,
       initParams(path.join(tempRoot, "data-b"), appDir),
     );
-    expect(harness.state.order).toEqual(["runner1.stop", "bridge.stop"]);
+    expect(harness.state.order).toEqual([
+      "runner1.stop",
+      "runEventLog.stop",
+      "bridge.stop",
+      "brokers.clear",
+      "db.close",
+    ]);
     expect(harness.state.runners[0]!.stopped).toBe(true);
 
     // The new session is fully functional.
@@ -257,12 +325,18 @@ describe("worker session lifecycle (Effect scope)", () => {
     await server.shutdown();
     expect(harness.state.order).toEqual([
       "runner1.stop",
+      "runEventLog.stop",
       "bridge.stop",
+      "brokers.clear",
+      "db.close",
       "runner2.stop",
+      "runEventLog.stop",
       "bridge.stop",
+      "brokers.clear",
+      "db.close",
     ]);
     await server.shutdown();
-    expect(harness.state.order).toHaveLength(4);
+    expect(harness.state.order).toHaveLength(10);
 
     // Post-shutdown, session-guarded methods fail with the parity error.
     await expect(

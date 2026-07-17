@@ -45,6 +45,16 @@ export const layer = Layer.effect(
     const hostBus = yield* HostBus.Service;
     const { runEventLog } = yield* SessionStorage.Service;
 
+    // This layer sits between RunnerHandle and CliBridge in the session
+    // chain, so on teardown the log stops right after the runner does —
+    // `runner stop → runEventLog.stop → bridge stop → brokers cleared →
+    // db.close`, the exact old stopWorkerServices order.
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        runEventLog.stop();
+      }),
+    );
+
     const emit = (event: AgentEventPayload) => {
       // INSERT OR IGNORE collapses (runId, seq) collisions for the rare
       // synthetic terminal markers (e.g. seq=MAX_SAFE_INTEGER) — both copies

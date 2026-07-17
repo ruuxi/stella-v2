@@ -20,6 +20,10 @@ export default defineConfig({
           include: [
             'tests/runtime/**/*.{test,spec}.{ts,tsx}',
             'tests/app/**/*.{test,spec}.{ts,tsx}',
+            // Effect-runtime tests live inside packages/runtime because
+            // `effect` is fenced there (check-boundary.mjs bans it from
+            // desktop-ui, tests included).
+            '../runtime/tests/**/*.{test,spec}.ts',
           ],
         },
         resolve: {

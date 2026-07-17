@@ -315,6 +315,9 @@ export type AgentLifecycleEvent = {
   error?: string;
   statusText?: string;
   toolActivity?: TaskToolActivity;
+  /** `agent-started` only. Durable identity of the execution attempt that
+   * owns this lifecycle occurrence and its authored Activity projection. */
+  attemptGeneration?: number;
   /**
    * `agent-started` only. `true` when this start re-activates an existing
    * thread (a `send_input` follow-up) rather than spawning fresh work — the
@@ -1386,6 +1389,7 @@ export class LocalAgentManager implements AgentToolApi {
         parentAgentId: task.parentAgentId,
         ...(startStatusText ? { statusText: startStatusText } : {}),
         ...(startIsFollowUp ? { isFollowUp: true } : {}),
+        attemptGeneration: generation,
         ...(startOrigin === "managed-child"
           ? { audience: "orchestrator-only" as const }
           : {}),

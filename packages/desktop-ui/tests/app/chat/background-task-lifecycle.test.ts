@@ -25,6 +25,7 @@ const started = (args: {
   agentType?: string;
   statusText?: string;
   isFollowUp?: boolean;
+  attemptGeneration?: number;
   groupKey?: string;
   groupLabel?: string;
 }): EventRecord =>
@@ -35,6 +36,9 @@ const started = (args: {
     agentType: args.agentType ?? "general",
     statusText: args.statusText ?? args.description,
     ...(args.isFollowUp ? { isFollowUp: true } : {}),
+    ...(args.attemptGeneration !== undefined
+      ? { attemptGeneration: args.attemptGeneration }
+      : {}),
     ...(args.groupKey ? { groupKey: args.groupKey } : {}),
     ...(args.groupLabel ? { groupLabel: args.groupLabel } : {}),
   });
@@ -147,6 +151,7 @@ describe("spawn-anchored background task lifecycle", () => {
       agentId: "researcher",
       rootRunId: "run-old",
       description: "Research visas",
+      attemptGeneration: 3,
     });
     const done = completed({
       id: "done-old",
@@ -170,6 +175,7 @@ describe("spawn-anchored background task lifecycle", () => {
       "start-old",
     );
     expect(descriptor.startEventIdsByThread.researcher).toBe("start-old");
+    expect(descriptor.attemptGenerationsByThread.researcher).toBe(3);
     expect(resolved.terminalEventIdsByThread.researcher).toBe("done-old");
     // Completion is payload on the one start card, never a second card state.
     expect(index.byStartEventId).toHaveLength(1);

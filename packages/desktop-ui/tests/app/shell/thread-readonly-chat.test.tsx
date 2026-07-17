@@ -80,6 +80,8 @@ describe("read-only exact-thread chat surfaces", () => {
     | ((payload: ThreadActivityUpdatedPayload) => void)
     | undefined;
   const listThreadTranscript = vi.fn(async () => transcript);
+  let activityAttemptGeneration = 2;
+  let activityAssistantMessages = ["Latest authored Manager update"];
   const listThreadActivity = vi.fn(async () => [
     {
       threadId: task.id,
@@ -87,10 +89,10 @@ describe("read-only exact-thread chat surfaces", () => {
       agentType: "manager",
       description: task.description,
       status: "running" as const,
-      attemptGeneration: 2,
+      attemptGeneration: activityAttemptGeneration,
       startedAt: 1_000,
       updatedAt: 1_100,
-      assistantMessages: ["Latest authored Manager update"],
+      assistantMessages: activityAssistantMessages,
       assistantMessagesUpdatedAt: 1_090,
       assistantMessagesEntrySequence: 9,
     },
@@ -103,6 +105,8 @@ describe("read-only exact-thread chat surfaces", () => {
     updateListener = undefined;
     listThreadTranscript.mockClear();
     listThreadActivity.mockClear();
+    activityAttemptGeneration = 2;
+    activityAssistantMessages = ["Latest authored Manager update"];
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
       value: {
@@ -234,6 +238,7 @@ describe("read-only exact-thread chat surfaces", () => {
           followUpThreadIds={[]}
           cardId="card-readonly"
           startEventIdsByThread={{ [task.id]: "start-1" }}
+          attemptGenerationsByThread={{ [task.id]: 2 }}
           conversationId="conv-readonly"
         />,
       );
@@ -255,5 +260,102 @@ describe("read-only exact-thread chat surfaces", () => {
     expect(displayTabs.getSnapshot().activeTabId).toBe(
       `thread-chat:${task.id}`,
     );
+  });
+
+  it("keeps a resumed thread's authored text on its owning attempt card", async () => {
+    activityAttemptGeneration = 1;
+    activityAssistantMessages = ["Attempt one authored update"];
+    const card = (args: {
+      key: string;
+      startEventId: string;
+      attemptGeneration: number;
+      superseded: boolean;
+      description: string;
+    }) => (
+      <BackgroundWorkCard
+        key={args.key}
+        threadIds={[task.id]}
+        completedThreadIds={[]}
+        pausedThreadIds={[]}
+        failedThreadIds={[]}
+        supersededThreadIds={args.superseded ? [task.id] : []}
+        spawnedAtMs={{ [task.id]: Date.now() }}
+        descriptions={{ [task.id]: args.description }}
+        statusTexts={{}}
+        progressTexts={{}}
+        toolActivities={{}}
+        followUpThreadIds={args.attemptGeneration > 1 ? [task.id] : []}
+        cardId={`card-${args.startEventId}`}
+        startEventIdsByThread={{ [task.id]: args.startEventId }}
+        attemptGenerationsByThread={{
+          [task.id]: args.attemptGeneration,
+        }}
+        conversationId="conv-readonly"
+      />
+    );
+
+    await act(async () => {
+      root.render(
+        <div>
+          {card({
+            key: "attempt-1",
+            startEventId: "start-attempt-1",
+            attemptGeneration: 1,
+            superseded: false,
+            description: "Attempt one task",
+          })}
+        </div>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector(".background-work-card__title")?.textContent,
+    ).toContain("Attempt one authored update");
+
+    activityAttemptGeneration = 2;
+    activityAssistantMessages = ["Attempt two authored update"];
+    await act(async () => {
+      updateListener?.({ conversationId: "conv-readonly" });
+      await new Promise((resolve) => window.setTimeout(resolve, 160));
+    });
+
+    await act(async () => {
+      root.render(
+        <div>
+          {card({
+            key: "attempt-1",
+            startEventId: "start-attempt-1",
+            attemptGeneration: 1,
+            superseded: true,
+            description: "Attempt one task",
+          })}
+          {card({
+            key: "attempt-2",
+            startEventId: "start-attempt-2",
+            attemptGeneration: 2,
+            superseded: false,
+            description: "Attempt two follow-up",
+          })}
+        </div>,
+      );
+      await Promise.resolve();
+    });
+
+    const oldCard = container.querySelector<HTMLElement>(
+      '[data-start-event-ids="start-attempt-1"]',
+    );
+    const currentCard = container.querySelector<HTMLElement>(
+      '[data-start-event-ids="start-attempt-2"]',
+    );
+    expect(
+      oldCard?.querySelector(".background-work-card__title")?.textContent,
+    ).toContain("Attempt one authored update");
+    expect(oldCard?.textContent).not.toContain("Attempt two authored update");
+    expect(oldCard?.getAttribute("data-working")).toBeNull();
+    expect(
+      currentCard?.querySelector(".background-work-card__title")?.textContent,
+    ).toContain("Attempt two authored update");
+    expect(currentCard?.getAttribute("data-working")).toBe("true");
   });
 });

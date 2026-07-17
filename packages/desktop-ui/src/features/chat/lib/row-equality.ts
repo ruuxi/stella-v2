@@ -225,6 +225,12 @@ const backgroundWorkEqual = (
       return false;
     }
     if (
+      (a.attemptGenerationsByThread?.[threadId] ?? null) !==
+      (b.attemptGenerationsByThread?.[threadId] ?? null)
+    ) {
+      return false;
+    }
+    if (
       (a.rootRunIdsByThread[threadId] ?? null) !==
       (b.rootRunIdsByThread[threadId] ?? null)
     ) {

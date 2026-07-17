@@ -39,6 +39,9 @@ export type ThreadActivityRecord = {
   completedAt?: number;
   result?: string;
   error?: string;
+  /** Recent text authored by this agent, oldest to newest. This is projected
+   * from the existing runtime thread transcript and never model-generated. */
+  assistantMessages?: string[];
   updatedAt: number;
 };
 
@@ -47,15 +50,13 @@ export type ThreadActivityUpdatedPayload = {
 };
 
 /**
- * Snapshot of the renderer's ephemeral per-thread decoration, mirrored to the
- * mobile bridge so the phone's activity pill gets the same mid-run statusText
- * ticks and reasoning phrases the desktop tray shows. Replaced wholesale on
- * every publish; only currently-running threads are present. Never persisted —
- * a reconnecting client gets the current snapshot attached to its sync page.
+ * Snapshot of the renderer's ephemeral per-thread status decoration, mirrored
+ * to the mobile bridge so the phone's activity pill gets the same mid-run
+ * statusText ticks the desktop tray shows. Replaced wholesale on every
+ * publish; only currently-running threads are present.
  */
 export type TaskDecorationUpdatedPayload = {
   statusTextByAgentId: Record<string, string>;
-  reasoningSummariesByAgentId: Record<string, string[]>;
 };
 
 export type ToolRequestPayload = {

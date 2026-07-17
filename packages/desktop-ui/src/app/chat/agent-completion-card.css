@@ -54,7 +54,7 @@
    file pills so the card still shows what the agent accomplished. */
 /* The excerpt renders through the chat markdown pipeline but must read as a
    subtle muted one-liner, clearly secondary to the task title above it —
-   the same quiet register as the sidebar's reasoning-summary lines
+   the same quiet register as the sidebar's agent-update lines
    (`chat-workspace-strip__task-progress-item`: --text-weak ink, a size step
    below the row label).
 
@@ -104,7 +104,9 @@
 /* Bold = a modest weight bump WITHIN the muted tone, not a jump back to
    full-contrast foreground. `[data-streamdown="strong"]` is what actually
    renders; `strong`/`b` kept for raw-HTML / future renderer output. */
-.agent-completion-card__summary .markdown :is(strong, b, [data-streamdown="strong"]) {
+.agent-completion-card__summary
+  .markdown
+  :is(strong, b, [data-streamdown="strong"]) {
   color: var(--text-weak);
   font-weight: var(--weight-medium);
 }
@@ -127,7 +129,9 @@
    `--surface-inset`, slightly smaller so mono glyphs don't shout. Explicit
    color/size (not `inherit`/em) so a host-level hijack of the markdown
    root can't re-brighten the chips. */
-.agent-completion-card__summary .markdown :is(:not(pre) > code, [data-streamdown="inline-code"]) {
+.agent-completion-card__summary
+  .markdown
+  :is(:not(pre) > code, [data-streamdown="inline-code"]) {
   color: var(--text-weak);
   font-weight: var(--weight-regular);
   font-size: var(--font-size-xs);

@@ -34,8 +34,7 @@ type LocalChatHistoryServiceOptions = {
   stellaAppDir: string;
   onUpdated?: (payload: LocalChatUpdatedPayload | null) => void;
   /**
-   * Fired when the mirrored task decoration (statusText / reasoning
-   * summaries) changes. Wired to a mobile-only broadcast — desktop windows
+   * Fired when the mirrored task status decoration changes. Wired to a mobile-only broadcast — desktop windows
    * maintain their own decoration stores from the live stream.
    */
   onTaskDecorationUpdated?: (payload: TaskDecorationUpdatedPayload) => void;
@@ -144,21 +143,9 @@ export class LocalChatHistoryService {
   ) => void;
   private resetInProgress = false;
   /**
-   * Latest per-agent reasoning summaries mirrored from the renderer's
-   * `agentProgressSummaryStore` via `publishReasoningSummaries`. The mobile
-   * sync serializer attaches these to each task's `reasoningSummaries` so the
-   * mobile activity tray shows the SAME phrases the desktop tray generated —
-   * the summaries are renderer-generated only and never persisted to SQLite,
-   * so they ride this in-memory snapshot instead. Replaced wholesale on each
-   * publish; only the currently-running agents are present.
-   */
-  private reasoningSummariesByAgent = new Map<string, string[]>();
-  /**
    * Latest per-agent mid-run statusText mirrored from the renderer's
-   * task-decoration store via `publishTaskDecoration`. Same lifecycle as the
-   * reasoning summaries above: in-memory only, replaced wholesale per publish,
-   * present only for running threads (the renderer clears a thread's
-   * decoration on its terminal stream event).
+   * task-decoration store via `publishTaskDecoration`. In-memory only,
+   * replaced wholesale per publish, and present only for running threads.
    */
   private statusTextByAgent = new Map<string, string>();
   /** Last decoration payload serialization, so repeat publishes don't re-broadcast. */
@@ -172,7 +159,9 @@ export class LocalChatHistoryService {
   }
 
   private open(): void {
-    const db = openNodeSqliteDatabase(getDesktopDatabasePath(this.stellaAppDir));
+    const db = openNodeSqliteDatabase(
+      getDesktopDatabasePath(this.stellaAppDir),
+    );
     initializeDesktopDatabase(db);
     this.db = db;
     this.store = new SessionStore(db);
@@ -189,6 +178,17 @@ export class LocalChatHistoryService {
       throw new Error("Local chat history store is unavailable.");
     }
     return this.store;
+  }
+
+  private getAssistantMessagesByAgent(
+    conversationId: string,
+  ): Map<string, string[]> {
+    return new Map(
+      this.getStore()
+        .listThreadActivity(conversationId)
+        .filter((record) => record.assistantMessages?.length)
+        .map((record) => [record.threadId, record.assistantMessages!]),
+    );
   }
 
   close(): void {
@@ -263,12 +263,14 @@ export class LocalChatHistoryService {
     afterId: string;
     maxVisibleMessages?: number;
   }): LocalChatMessageWindow {
-    const { messages, visibleMessageCount } =
-      this.getStore().listMessagesAfter(args.conversationId, {
+    const { messages, visibleMessageCount } = this.getStore().listMessagesAfter(
+      args.conversationId,
+      {
         afterTimestampMs: args.afterTimestampMs,
         afterId: args.afterId,
         maxVisibleMessages: args.maxVisibleMessages,
-      });
+      },
+    );
     return { messages, visibleMessageCount };
   }
 
@@ -285,9 +287,7 @@ export class LocalChatHistoryService {
     });
   }
 
-  listThreadActivity(args: {
-    conversationId: string;
-  }): ThreadActivityRecord[] {
+  listThreadActivity(args: { conversationId: string }): ThreadActivityRecord[] {
     return this.getStore().listThreadActivity(args.conversationId);
   }
 
@@ -322,7 +322,11 @@ export class LocalChatHistoryService {
     eventId: string;
     type?: string;
   }): boolean {
-    return this.getStore().hasEvent(args.conversationId, args.eventId, args.type);
+    return this.getStore().hasEvent(
+      args.conversationId,
+      args.eventId,
+      args.type,
+    );
   }
 
   hasEventId(args: { eventId: string; type?: string }): boolean {
@@ -413,60 +417,14 @@ export class LocalChatHistoryService {
   }
 
   /**
-   * Mirror the renderer's generated per-agent reasoning summaries into the
-   * in-memory snapshot the mobile sync serializer reads — the current phrases
-   * keyed by agent id, replacing the previous snapshot wholesale. When the
-   * renderer also sends timestamped `entriesByAgentId`, those are persisted
-   * (best-effort) to the shared SQLite store so the runtime worker's Recall
-   * agent can report what a running agent was doing as of a specific moment.
-   */
-  setReasoningSummaries(args: {
-    summariesByAgentId: Record<string, readonly string[]>;
-    entriesByAgentId?: Record<string, readonly { text: string; atMs: number }[]>;
-  }): { ok: true } {
-    const next = new Map<string, string[]>();
-    for (const [rawAgentId, rawList] of Object.entries(
-      args.summariesByAgentId ?? {},
-    )) {
-      const agentId = typeof rawAgentId === "string" ? rawAgentId.trim() : "";
-      if (!agentId || !Array.isArray(rawList)) continue;
-      const cleaned: string[] = [];
-      for (const entry of rawList) {
-        if (typeof entry !== "string") continue;
-        const text = entry.trim();
-        if (text) cleaned.push(text);
-      }
-      if (cleaned.length > 0) next.set(agentId, cleaned);
-    }
-    this.reasoningSummariesByAgent = next;
-    if (args.entriesByAgentId && Object.keys(args.entriesByAgentId).length > 0) {
-      try {
-        this.getStore().replaceAgentProgressSummaries(
-          args.entriesByAgentId as Record<
-            string,
-            readonly { text: string; atMs: number }[]
-          >,
-        );
-      } catch (error) {
-        console.warn(
-          "[local-chat] Failed to persist agent progress summaries:",
-          error,
-        );
-      }
-    }
-    this.emitTaskDecorationUpdated();
-    return { ok: true };
-  }
-
-  /**
    * Mirror the renderer's per-thread mid-run statusText (the task-decoration
    * store) into the in-memory snapshot the mobile sync serializer reads.
    * Progress ticks are no longer persisted as message rows, so this mirror is
    * the only bridge-side source of a running task's current statusText.
    */
-  setTaskDecoration(args: {
-    statusTextByAgentId: Record<string, string>;
-  }): { ok: true } {
+  setTaskDecoration(args: { statusTextByAgentId: Record<string, string> }): {
+    ok: true;
+  } {
     const next = new Map<string, string>();
     for (const [rawAgentId, rawText] of Object.entries(
       args.statusTextByAgentId ?? {},
@@ -481,18 +439,13 @@ export class LocalChatHistoryService {
   }
 
   /**
-   * Push the combined decoration snapshot (statusText + reasoning summaries)
-   * to the mobile bridge so the phone's activity pill updates mid-run without
-   * a persisted event to resync from. Deduped against the last broadcast —
-   * reasoning-chunk publishes that don't change either map stay silent.
+   * Push the status snapshot to the mobile bridge so the phone's activity pill
+   * updates mid-run without a persisted event to resync from.
    */
   private emitTaskDecorationUpdated(): void {
     if (!this.onTaskDecorationUpdated) return;
     const payload: TaskDecorationUpdatedPayload = {
       statusTextByAgentId: Object.fromEntries(this.statusTextByAgent),
-      reasoningSummariesByAgentId: Object.fromEntries(
-        this.reasoningSummariesByAgent,
-      ),
     };
     const serialized = JSON.stringify(payload);
     if (serialized === this.lastTaskDecorationSerialized) return;
@@ -509,13 +462,16 @@ export class LocalChatHistoryService {
     const { messages } = this.getStore().listMessages(args.conversationId, {
       maxVisibleMessages: maxMessages,
     });
+    const assistantMessagesByAgent = this.getAssistantMessagesByAgent(
+      args.conversationId,
+    );
     return buildMobileSyncMessages(
       messages,
       maxMessages,
       {
         includeDeveloperArtifacts: args.includeDeveloperArtifacts === true,
       },
-      this.reasoningSummariesByAgent,
+      assistantMessagesByAgent,
       messages,
       this.statusTextByAgent,
     );
@@ -565,12 +521,15 @@ export class LocalChatHistoryService {
         messages,
         targetedTaskContext,
       );
+      const assistantMessagesByAgent = this.getAssistantMessagesByAgent(
+        args.conversationId,
+      );
       return buildMobileSyncMessagesPage(
         messages,
         maxMessages,
         sourceEvents,
         artifactOptions,
-        this.reasoningSummariesByAgent,
+        assistantMessagesByAgent,
         taskContextMessages,
         this.statusTextByAgent,
       );
@@ -579,12 +538,15 @@ export class LocalChatHistoryService {
     const { messages } = this.getStore().listMessages(args.conversationId, {
       maxVisibleMessages: maxMessages,
     });
+    const assistantMessagesByAgent = this.getAssistantMessagesByAgent(
+      args.conversationId,
+    );
     return buildMobileSyncMessagesPage(
       messages,
       maxMessages,
       messages,
       artifactOptions,
-      this.reasoningSummariesByAgent,
+      assistantMessagesByAgent,
       messages,
       this.statusTextByAgent,
     );

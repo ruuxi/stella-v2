@@ -92,8 +92,6 @@ type ThreadSessionEntryRow = {
 };
 
 /** Renderer keeps ≤5 phrases per agent; persistence mirrors that cap. */
-export const MAX_PERSISTED_PROGRESS_SUMMARIES_PER_AGENT = 5;
-
 export type PersistedAgentRecord = {
   threadId: string;
   conversationId: string;
@@ -346,6 +344,16 @@ const previewFromAssistantPayload = (
       }
       return [];
     })
+    .join("\n\n")
+    .trim();
+
+const authoredTextFromAssistantPayload = (
+  payload: Extract<PersistedRuntimeThreadPayload, { role: "assistant" }>,
+): string =>
+  payload.content
+    .flatMap((block) =>
+      block.type === "text" && block.text.trim() ? [block.text] : [],
+    )
     .join("\n\n")
     .trim();
 
@@ -4183,70 +4191,86 @@ export class SessionStore {
       );
   }
 
-  /**
-   * Mirror the renderer's rolling per-agent progress-summary phrases into
-   * SQLite so runtime consumers (Recall) can report what a running agent is
-   * doing right now. Ring-buffer semantics: each publish replaces an agent's
-   * rows wholesale with its newest phrases (the renderer already caps the
-   * list). Agents absent from the publish keep their previous rows — Recall
-   * only surfaces summaries for threads that are live, so stale rows for
-   * finished agents are inert.
-   */
-  replaceAgentProgressSummaries(
-    summariesByAgentId: Record<
-      string,
-      readonly { text: string; atMs: number }[]
-    >,
-  ): void {
-    const deleteStmt = this.db.prepare(
-      `DELETE FROM agent_progress_summaries WHERE agent_id = ?`,
-    );
-    const insertStmt = this.db.prepare(
-      `INSERT INTO agent_progress_summaries (agent_id, text, created_at) VALUES (?, ?, ?)`,
-    );
-    for (const [rawAgentId, rawList] of Object.entries(
-      summariesByAgentId ?? {},
-    )) {
-      const agentId = rawAgentId.trim();
-      if (!agentId || !Array.isArray(rawList)) continue;
-      const entries = rawList
-        .filter(
-          (entry): entry is { text: string; atMs: number } =>
-            !!entry &&
-            typeof entry.text === "string" &&
-            entry.text.trim().length > 0 &&
-            typeof entry.atMs === "number" &&
-            Number.isFinite(entry.atMs),
-        )
-        .slice(-MAX_PERSISTED_PROGRESS_SUMMARIES_PER_AGENT);
-      deleteStmt.run(agentId);
-      for (const entry of entries) {
-        insertStmt.run(agentId, entry.text.trim(), Math.floor(entry.atMs));
-      }
-    }
-  }
-
-  /** Newest-last recent progress phrases for one agent (runtime thread id). */
-  listAgentProgressSummaries(
-    agentId: string,
+  private listAgentAssistantMessagesByThread(
+    threadIdsInput: readonly string[],
     limit = 3,
-  ): Array<{ text: string; atMs: number }> {
-    const cappedLimit = Math.max(
-      1,
-      Math.min(MAX_PERSISTED_PROGRESS_SUMMARIES_PER_AGENT, Math.floor(limit)),
-    );
+  ): Map<string, Array<{ text: string; atMs: number }>> {
+    const threadIds = [
+      ...new Set(threadIdsInput.map((id) => id.trim()).filter(Boolean)),
+    ];
+    if (threadIds.length === 0) return new Map();
+    const cappedLimit = Math.max(1, Math.min(20, Math.floor(limit)));
+    // Assistant entries that contain only tool calls are not human-authored
+    // updates. Scan past a short run of those, then cap after text extraction.
+    const scanLimit = Math.min(100, cappedLimit * 8);
+    const placeholders = threadIds.map(() => "?").join(", ");
     const rows = this.db
       .prepare(
         `
-      SELECT text, created_at AS atMs
-      FROM agent_progress_summaries
-      WHERE agent_id = ?
-      ORDER BY created_at DESC, id DESC
-      LIMIT ?
+      WITH ranked AS (
+        SELECT
+          thread_key AS threadId,
+          created_at AS atMs,
+          entry_id AS entryId,
+          data_json AS dataJson,
+          ROW_NUMBER() OVER (
+            PARTITION BY thread_key
+            ORDER BY created_at DESC, entry_id DESC
+          ) AS messageRank
+        FROM runtime_thread_entries
+        WHERE thread_key IN (${placeholders})
+          AND entry_type = 'message'
+          AND json_extract(data_json, '$.message.role') = 'assistant'
+      )
+      SELECT threadId, atMs, entryId, dataJson
+      FROM ranked
+      WHERE messageRank <= ?
+      ORDER BY threadId ASC, atMs ASC, entryId ASC
     `,
       )
-      .all(agentId, cappedLimit) as Array<{ text: string; atMs: number }>;
-    return rows.reverse();
+      .all(...threadIds, scanLimit) as Array<{
+      threadId: string;
+      atMs: number;
+      entryId: string;
+      dataJson: string | null;
+    }>;
+    const byThread = new Map<string, Array<{ text: string; atMs: number }>>();
+    for (const row of rows) {
+      let payload: PersistedRuntimeThreadPayload | undefined;
+      try {
+        const parsed = JSON.parse(row.dataJson ?? "null") as {
+          message?: PersistedRuntimeThreadPayload;
+        } | null;
+        payload = parsed?.message;
+      } catch {
+        continue;
+      }
+      if (payload?.role !== "assistant") continue;
+      const text = authoredTextFromAssistantPayload(payload);
+      if (!text) continue;
+      const bucket = byThread.get(row.threadId);
+      const entry = { text, atMs: row.atMs };
+      if (bucket) bucket.push(entry);
+      else byThread.set(row.threadId, [entry]);
+    }
+    for (const [threadId, entries] of byThread) {
+      if (entries.length > cappedLimit) {
+        byThread.set(threadId, entries.slice(-cappedLimit));
+      }
+    }
+    return byThread;
+  }
+
+  /** Recent agent-authored assistant text, oldest to newest. */
+  listAgentAssistantMessages(
+    agentId: string,
+    limit = 3,
+  ): Array<{ text: string; atMs: number }> {
+    return (
+      this.listAgentAssistantMessagesByThread([agentId], limit).get(
+        agentId.trim(),
+      ) ?? []
+    );
   }
 
   getAgentRecord(threadId: string): PersistedAgentRecord | null {
@@ -4446,6 +4470,10 @@ export class SessionStore {
       group_key: string | null;
       group_label: string | null;
     }>;
+    const assistantMessagesByThread = this.listAgentAssistantMessagesByThread(
+      rows.map((row) => row.thread_id),
+      3,
+    );
     return rows.map((row) => ({
       threadId: row.thread_id,
       conversationId: row.conversation_id,
@@ -4460,6 +4488,13 @@ export class SessionStore {
       ...(row.completed_at == null ? {} : { completedAt: row.completed_at }),
       ...(row.result ? { result: row.result } : {}),
       ...(row.error ? { error: row.error } : {}),
+      ...(assistantMessagesByThread.has(row.thread_id)
+        ? {
+            assistantMessages: assistantMessagesByThread
+              .get(row.thread_id)!
+              .map((entry) => entry.text),
+          }
+        : {}),
       updatedAt: row.updated_at,
     }));
   }

@@ -240,6 +240,11 @@ type RuntimeAgentRecord = {
    * reads as a spawn.
    */
   pendingStartIsFollowUp?: boolean;
+  /** Why the next attempt is starting. Internal managed-child wakeups keep
+   * running the Manager but do not create another root-chat lifecycle card;
+   * an explicit orchestrator input remains user-visible and wins if both are
+   * queued before the attempt starts. */
+  pendingStartOrigin?: "managed-child" | "external-input";
 };
 
 const formatTaskUpdateStatusText = (text: string): string =>
@@ -317,12 +322,11 @@ export type AgentLifecycleEvent = {
    * OS notification); `display-only` skips the hidden orchestrator
    * follow-up. Absent = both.
    *
-   * No current emit site sets this: completions follow the state-based
-   * rule (a real finish — the thread going idle with no pending follow-up
-   * — always emits the full event immediately; internal turn boundaries
-   * superseded by a pending follow-up emit nothing). The field is kept for
-   * protocol compatibility and for future internal-boundary events that
-   * should reach only the orchestrator.
+   * Internal managed-child wakeups set `orchestrator-only` on the Manager's
+   * re-entry start so the durable child report can resume Manager work without
+   * creating a root-chat follow-up card. Completion still follows the
+   * state-based rule: a real finish emits the full event immediately, while an
+   * internal turn boundary superseded by a pending follow-up emits nothing.
    */
   audience?: "orchestrator-only" | "display-only";
   /**
@@ -1105,6 +1109,7 @@ export class LocalAgentManager implements AgentToolApi {
     // Cleared here so a bare reset reads as a spawn; the follow-up callers
     // (`sendAgentMessage` / `deliverFollowUpAsNextTurn`) re-set it right after.
     task.pendingStartIsFollowUp = undefined;
+    task.pendingStartOrigin = undefined;
     task.waitingForManagedChildren = false;
     task.managerReportRequested = false;
     task.managerTurnStartedFromTerminal = false;
@@ -1179,6 +1184,7 @@ export class LocalAgentManager implements AgentToolApi {
    */
   private deliverFollowUpAsNextTurn(task: RuntimeAgentRecord): void {
     const pendingStartStatusText = task.pendingStartStatusText;
+    const pendingStartOrigin = task.pendingStartOrigin;
     const managerReportRequested = task.managerReportRequested;
     const managerTurnStartedFromTerminal = task.managerTurnStartedFromTerminal;
     const prompt = this.buildTaskPrompt(task);
@@ -1192,6 +1198,7 @@ export class LocalAgentManager implements AgentToolApi {
     task.pendingStartStatusText = pendingStartStatusText;
     // Interjected in-flight work is a `send_input` follow-up, not a spawn.
     task.pendingStartIsFollowUp = true;
+    task.pendingStartOrigin = pendingStartOrigin;
     task.recentActivity = [
       pendingStartStatusText ?? "Applying task update from orchestrator.",
     ];
@@ -1312,8 +1319,10 @@ export class LocalAgentManager implements AgentToolApi {
       const controller = task.controller;
       const startStatusText = task.pendingStartStatusText ?? task.description;
       const startIsFollowUp = task.pendingStartIsFollowUp ?? false;
+      const startOrigin = task.pendingStartOrigin;
       task.pendingStartStatusText = undefined;
       task.pendingStartIsFollowUp = undefined;
+      task.pendingStartOrigin = undefined;
       this.persistTask(task);
       this.opts.onAgentEvent?.({
         type: "agent-started",
@@ -1325,6 +1334,9 @@ export class LocalAgentManager implements AgentToolApi {
         parentAgentId: task.parentAgentId,
         ...(startStatusText ? { statusText: startStatusText } : {}),
         ...(startIsFollowUp ? { isFollowUp: true } : {}),
+        ...(startOrigin === "managed-child"
+          ? { audience: "orchestrator-only" as const }
+          : {}),
       });
       logWorkingIndicatorTrace("[stella:working-indicator:agent-started]", {
         threadId: task.threadId,
@@ -2210,6 +2222,7 @@ export class LocalAgentManager implements AgentToolApi {
       local.interruptedForFollowUp = false;
       local.pendingStartStatusText = undefined;
       local.pendingStartIsFollowUp = undefined;
+      local.pendingStartOrigin = undefined;
       this.opts.onAgentEvent?.({
         type: "agent-progress",
         conversationId: local.conversationId,
@@ -2301,9 +2314,12 @@ export class LocalAgentManager implements AgentToolApi {
   ): Promise<{ delivered: boolean; reason?: string }> {
     const text = message.trim();
     if (!text) return { delivered: false };
+    const isManagerEvent = options?.deliveryKind === "manager-event";
     const updateStatusSource = options?.description?.trim()
       ? options.description
-      : text;
+      : isManagerEvent
+        ? "Continuing managed work"
+        : text;
     const updateStatusText = formatTaskUpdateStatusText(updateStatusSource);
     const rootRunId = options?.rootRunId?.trim() || undefined;
     // An orchestrator follow-up re-tasks the thread, so the thread adopts
@@ -2315,7 +2331,6 @@ export class LocalAgentManager implements AgentToolApi {
       from === "orchestrator"
         ? options?.description?.trim() || undefined
         : undefined;
-    const isManagerEvent = options?.deliveryKind === "manager-event";
     const deliveredInput = isManagerEvent
       ? "Review the newly persisted managed-child event in this thread and continue the instructed process."
       : text;
@@ -2373,6 +2388,9 @@ export class LocalAgentManager implements AgentToolApi {
       if (rootRunId) {
         resumedTask.rootRunId = rootRunId;
       }
+      resumedTask.pendingStartOrigin = isManagerEvent
+        ? "managed-child"
+        : "external-input";
       if (options?.parentAgentId) {
         resumedTask.parentAgentId = options.parentAgentId;
       }
@@ -2428,6 +2446,11 @@ export class LocalAgentManager implements AgentToolApi {
       options?.deliveryKind === "external-input"
     ) {
       task.managerReportRequested = true;
+    }
+    if (options?.deliveryKind === "external-input") {
+      task.pendingStartOrigin = "external-input";
+    } else if (isManagerEvent && task.pendingStartOrigin !== "external-input") {
+      task.pendingStartOrigin = "managed-child";
     }
     if (task.waitingForManagedChildren && task.status === "pending") {
       task.toSubagentQueue.push(deliveredInput);

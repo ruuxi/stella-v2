@@ -316,10 +316,17 @@ describe("manager orchestration production routing", () => {
     const managerFirstGate = new Promise<void>((resolve) => {
       releaseManagerFirst = resolve;
     });
-    let releaseChild!: () => void;
-    const childGate = new Promise<void>((resolve) => {
-      releaseChild = resolve;
+    let releaseChildA!: () => void;
+    const childAGate = new Promise<void>((resolve) => {
+      releaseChildA = resolve;
     });
+    let releaseChildB!: () => void;
+    const childBGate = new Promise<void>((resolve) => {
+      releaseChildB = resolve;
+    });
+    const childAThreadId = "managed-child-a";
+    const childBThreadId = "managed-child-b";
+    let childBRuns = 0;
     const managerPrompts: string[] = [];
     const managerRuns: MockRunArgs[] = [];
     runMock.handler = async (args) => {
@@ -342,10 +349,32 @@ describe("manager orchestration production routing", () => {
             result: "Steering acknowledged; child still running.",
           };
         }
-        return { runId: "manager-4", result: "Final consolidated report." };
+        if (managerPrompts.length === 4) {
+          return {
+            runId: "manager-4",
+            result: "Child A is complete; Child B is still running.",
+          };
+        }
+        return { runId: "manager-5", result: "Final consolidated report." };
       }
-      await childGate;
-      return { runId: "child-1", result: "Child finished cleanly." };
+      if (args.agentId === childAThreadId) {
+        await childAGate;
+        return { runId: "child-a", result: "Child A finished cleanly." };
+      }
+      if (args.agentId === childBThreadId) {
+        childBRuns += 1;
+        if (childBRuns === 1) {
+          await waitForAbort(args.abortSignal);
+          return {
+            runId: "child-b-interrupted",
+            result: "",
+            interrupted: true,
+          };
+        }
+        await childBGate;
+        return { runId: "child-b", result: "Child B passed recheck." };
+      }
+      return { runId: "standalone", result: "Standalone agent finished." };
     };
 
     const managerTask = await manager.createAgent({
@@ -357,9 +386,21 @@ describe("manager orchestration production routing", () => {
       storageMode: "local",
     });
     const childTask = await manager.createAgent({
+      threadId: childAThreadId,
       conversationId: "conversation-status",
       description: "Run child verification",
       prompt: "Verify the claim.",
+      agentType: AGENT_IDS.GENERAL,
+      agentDepth: 2,
+      maxAgentDepth: 2,
+      parentAgentId: managerTask.threadId,
+      storageMode: "local",
+    });
+    const childTaskB = await manager.createAgent({
+      threadId: childBThreadId,
+      conversationId: "conversation-status",
+      description: "Run second child verification",
+      prompt: "Verify the second claim.",
       agentType: AGENT_IDS.GENERAL,
       agentDepth: 2,
       maxAgentDepth: 2,
@@ -415,7 +456,7 @@ describe("manager orchestration production routing", () => {
     ).toBe(false);
     expect(
       sentMessages.some((message) =>
-        message.text.includes("Child finished cleanly."),
+        message.text.includes("Child A finished cleanly."),
       ),
     ).toBe(false);
 
@@ -443,20 +484,45 @@ describe("manager orchestration production routing", () => {
       ),
     ).toBe(false);
 
-    releaseChild();
+    await waitUntil(() => childBRuns === 1);
+    await manager.sendAgentMessage(
+      childTaskB.threadId,
+      "Recheck the second result before reporting.",
+      "orchestrator",
+      {
+        description: "Recheck child B",
+        parentAgentId: managerTask.threadId,
+        deliveryKind: "external-input",
+      },
+    );
+    await waitUntil(() => childBRuns === 2);
+
+    releaseChildA();
+    await waitUntil(() => managerPrompts.length === 4);
+    releaseChildB();
     await waitUntil(async () =>
       ["completed", "error", "canceled"].includes(
         (await manager.getAgent(managerTask.threadId))?.status ?? "",
       ),
     );
     expect(managerPrompts[3]).toContain("newly persisted managed-child event");
-    expect(historyText(managerRuns[3]!)).toContain("Child finished cleanly.");
+    expect(historyText(managerRuns[3]!)).toContain("Child A finished cleanly.");
+    expect(managerPrompts[4]).toContain("newly persisted managed-child event");
+    expect(historyText(managerRuns[4]!)).toContain("Child B passed recheck.");
     expect(
       appendedEvents.some(
         (event) =>
           event.type === "agent-completed" &&
           (event.payload as { agentId?: string })?.agentId ===
             childTask.threadId,
+      ),
+    ).toBe(false);
+    expect(
+      appendedEvents.some(
+        (event) =>
+          event.type === "agent-completed" &&
+          (event.payload as { agentId?: string })?.agentId ===
+            childTaskB.threadId,
       ),
     ).toBe(false);
     expect(
@@ -467,7 +533,97 @@ describe("manager orchestration production routing", () => {
             managerTask.threadId,
       ),
     ).toHaveLength(1);
-    expect(managerRuns).toHaveLength(4);
+    expect(managerRuns).toHaveLength(5);
+
+    const rootLifecycleEvents = appendedEvents.filter((event) =>
+      [
+        "agent-started",
+        "agent-completed",
+        "agent-failed",
+        "agent-canceled",
+      ].includes(event.type),
+    );
+    expect(
+      rootLifecycleEvents.map((event) => ({
+        type: event.type,
+        agentId: (event.payload as { agentId?: string }).agentId,
+      })),
+    ).toEqual([
+      { type: "agent-started", agentId: managerTask.threadId },
+      { type: "agent-started", agentId: managerTask.threadId },
+      { type: "agent-started", agentId: managerTask.threadId },
+      { type: "agent-completed", agentId: managerTask.threadId },
+    ]);
+    expect(JSON.stringify(rootLifecycleEvents)).not.toContain(
+      "Continuing managed work",
+    );
+    expect(JSON.stringify(rootLifecycleEvents)).not.toContain(
+      "A managed child reached a terminal state",
+    );
+    expect(JSON.stringify(sentMessages)).not.toContain(
+      "A managed child reached a terminal state",
+    );
+    expect(
+      sentMessages.find((message) =>
+        message.text.includes("Final consolidated report."),
+      ),
+    ).toMatchObject({
+      responseTarget: {
+        type: "agent_terminal_notice",
+        agentId: managerTask.threadId,
+        terminalState: "completed",
+      },
+    });
+
+    const managerHistory = JSON.stringify(
+      store.loadThreadMessages(managerTask.threadId),
+    );
+    expect(managerHistory).toContain(
+      "A managed child reached a terminal state",
+    );
+    expect(managerHistory).toContain("Child A finished cleanly.");
+    expect(managerHistory).toContain("Child B passed recheck.");
+
+    const activity = store.listThreadActivity("conversation-status");
+    expect(activity.map((record) => record.threadId).sort()).toEqual(
+      [managerTask.threadId, childTask.threadId, childTaskB.threadId].sort(),
+    );
+    expect(
+      activity.find((record) => record.threadId === childTask.threadId),
+    ).toMatchObject({
+      parentAgentId: managerTask.threadId,
+      status: "completed",
+      result: "Child A finished cleanly.",
+    });
+    expect(
+      activity.find((record) => record.threadId === childTaskB.threadId),
+    ).toMatchObject({
+      parentAgentId: managerTask.threadId,
+      status: "completed",
+      result: "Child B passed recheck.",
+    });
+
+    const standalone = await manager.createAgent({
+      conversationId: "conversation-status",
+      description: "Run standalone check",
+      prompt: "Run standalone check.",
+      agentType: AGENT_IDS.GENERAL,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(standalone.threadId))?.status === "completed",
+    );
+    expect(
+      appendedEvents
+        .filter(
+          (event) =>
+            (event.payload as { agentId?: string }).agentId ===
+            standalone.threadId,
+        )
+        .map((event) => event.type),
+    ).toEqual(["agent-started", "agent-completed"]);
   });
 
   it.each([

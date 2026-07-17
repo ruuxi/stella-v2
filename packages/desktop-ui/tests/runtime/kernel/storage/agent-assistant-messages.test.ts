@@ -181,9 +181,12 @@ describe("agent-authored assistant updates", () => {
       text: "I found the stale navigation path.",
     });
 
-    expect(store.listThreadActivity("conv-1")[0]?.assistantMessages).toEqual([
-      "I found the stale navigation path.",
-    ]);
+    expect(store.listThreadActivity("conv-1")[0]).toEqual(
+      expect.objectContaining({
+        assistantMessages: ["I found the stale navigation path."],
+        assistantMessagesUpdatedAt: 1_001,
+      }),
+    );
   });
 
   it("scopes updates to the current attempt and excludes terminal answers", () => {
@@ -311,7 +314,7 @@ describe("agent-authored assistant updates", () => {
     const recordsWithUpdates = store
       .listThreadActivity("conv-1")
       .filter((record) => record.assistantMessages?.length);
-    expect(recordsWithUpdates.length).toBeLessThanOrEqual(
+    expect(recordsWithUpdates).toHaveLength(
       AGENT_ASSISTANT_UPDATE_LIMITS.activeThreads,
     );
     expect(
@@ -319,6 +322,19 @@ describe("agent-authored assistant updates", () => {
         (record) =>
           (record.assistantMessages?.length ?? 0) <=
           AGENT_ASSISTANT_UPDATE_LIMITS.messagesPerThread,
+      ),
+    ).toBe(true);
+    expect(
+      recordsWithUpdates.every(
+        (record) =>
+          (record.assistantMessages ?? []).reduce(
+            (sum, message) => sum + [...message].length,
+            0,
+          ) <= AGENT_ASSISTANT_UPDATE_LIMITS.threadChars &&
+          (record.assistantMessages ?? []).reduce(
+            (sum, message) => sum + Buffer.byteLength(message, "utf8"),
+            0,
+          ) <= AGENT_ASSISTANT_UPDATE_LIMITS.threadBytes,
       ),
     ).toBe(true);
     expect(
@@ -338,6 +354,16 @@ describe("agent-authored assistant updates", () => {
         0,
       ),
     ).toBeLessThanOrEqual(AGENT_ASSISTANT_UPDATE_LIMITS.totalBytes);
+    expect(
+      recordsWithUpdates.every((record) =>
+        record.assistantMessages?.at(-1)?.includes(":4:"),
+      ),
+    ).toBe(true);
+    expect(
+      recordsWithUpdates.every(
+        (record) => typeof record.assistantMessagesUpdatedAt === "number",
+      ),
+    ).toBe(true);
     expect(
       store
         .listThreadActivity("conv-1")

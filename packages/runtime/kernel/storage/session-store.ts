@@ -69,6 +69,8 @@ export const AGENT_ASSISTANT_UPDATE_LIMITS = {
   messagesPerThread: 3,
   messageChars: 1_200,
   messageBytes: 4_096,
+  threadChars: 3_600,
+  threadBytes: 12_288,
   totalChars: 7_200,
   totalBytes: 16_384,
   scanRowsPerMessage: 8,
@@ -4353,27 +4355,118 @@ export class SessionStore {
       else candidates.set(row.threadId, [entry]);
     }
 
-    const byThread = new Map<string, Array<{ text: string; atMs: number }>>();
+    const newestFirstByThread = new Map<
+      string,
+      Array<{ text: string; atMs: number }>
+    >();
+    for (const target of targets) {
+      const newestFirst = (candidates.get(target.threadId) ?? [])
+        .slice(-cappedLimit)
+        .reverse();
+      if (newestFirst.length > 0) {
+        newestFirstByThread.set(target.threadId, newestFirst);
+      }
+    }
+
+    const selectedNewestFirst = new Map<
+      string,
+      Array<{ text: string; atMs: number }>
+    >();
+    const consumedByThread = new Map<
+      string,
+      { chars: number; bytes: number }
+    >();
     let remainingChars = AGENT_ASSISTANT_UPDATE_LIMITS.totalChars;
     let remainingBytes = AGENT_ASSISTANT_UPDATE_LIMITS.totalBytes;
-    for (const target of targets) {
-      if (remainingChars <= 0 || remainingBytes <= 0) break;
-      const latest = (candidates.get(target.threadId) ?? []).slice(
-        -cappedLimit,
+    const eligibleTargets = targets.filter((target) =>
+      newestFirstByThread.has(target.threadId),
+    );
+
+    // Give every visible thread a fair slice for its newest message before
+    // any one thread can spend the aggregate budget on older updates.
+    for (let index = 0; index < eligibleTargets.length; index += 1) {
+      const target = eligibleTargets[index]!;
+      const entry = newestFirstByThread.get(target.threadId)?.[0];
+      if (!entry || remainingChars <= 0 || remainingBytes <= 0) continue;
+      const targetsRemaining = eligibleTargets.length - index;
+      const fairChars = Math.max(
+        1,
+        Math.floor(remainingChars / targetsRemaining),
       );
-      const bounded: Array<{ text: string; atMs: number }> = [];
-      for (const entry of latest) {
+      const fairBytes = Math.max(
+        1,
+        Math.floor(remainingBytes / targetsRemaining),
+      );
+      const text = truncateAuthoredUpdate(
+        entry.text,
+        Math.min(
+          AGENT_ASSISTANT_UPDATE_LIMITS.messageChars,
+          AGENT_ASSISTANT_UPDATE_LIMITS.threadChars,
+          fairChars,
+        ),
+        Math.min(
+          AGENT_ASSISTANT_UPDATE_LIMITS.messageBytes,
+          AGENT_ASSISTANT_UPDATE_LIMITS.threadBytes,
+          fairBytes,
+        ),
+      );
+      if (!text) continue;
+      selectedNewestFirst.set(target.threadId, [{ ...entry, text }]);
+      const chars = [...text].length;
+      const bytes = Buffer.byteLength(text, "utf8");
+      consumedByThread.set(target.threadId, { chars, bytes });
+      remainingChars -= chars;
+      remainingBytes -= bytes;
+    }
+
+    // Spend any remainder round-robin, still newest-first within each thread.
+    // Chronological order is restored only after selection is complete.
+    for (let messageIndex = 1; messageIndex < cappedLimit; messageIndex += 1) {
+      for (const target of eligibleTargets) {
+        if (remainingChars <= 0 || remainingBytes <= 0) break;
+        const entry = newestFirstByThread.get(target.threadId)?.[messageIndex];
+        if (!entry) continue;
+        const consumed = consumedByThread.get(target.threadId) ?? {
+          chars: 0,
+          bytes: 0,
+        };
+        const remainingThreadChars =
+          AGENT_ASSISTANT_UPDATE_LIMITS.threadChars - consumed.chars;
+        const remainingThreadBytes =
+          AGENT_ASSISTANT_UPDATE_LIMITS.threadBytes - consumed.bytes;
+        if (remainingThreadChars <= 0 || remainingThreadBytes <= 0) continue;
         const text = truncateAuthoredUpdate(
           entry.text,
-          remainingChars,
-          remainingBytes,
+          Math.min(
+            AGENT_ASSISTANT_UPDATE_LIMITS.messageChars,
+            remainingThreadChars,
+            remainingChars,
+          ),
+          Math.min(
+            AGENT_ASSISTANT_UPDATE_LIMITS.messageBytes,
+            remainingThreadBytes,
+            remainingBytes,
+          ),
         );
-        if (!text) break;
-        bounded.push({ ...entry, text });
-        remainingChars -= [...text].length;
-        remainingBytes -= Buffer.byteLength(text, "utf8");
+        if (!text) continue;
+        const selected = selectedNewestFirst.get(target.threadId) ?? [];
+        selected.push({ ...entry, text });
+        selectedNewestFirst.set(target.threadId, selected);
+        const chars = [...text].length;
+        const bytes = Buffer.byteLength(text, "utf8");
+        consumedByThread.set(target.threadId, {
+          chars: consumed.chars + chars,
+          bytes: consumed.bytes + bytes,
+        });
+        remainingChars -= chars;
+        remainingBytes -= bytes;
       }
-      if (bounded.length > 0) byThread.set(target.threadId, bounded);
+    }
+
+    const byThread = new Map<string, Array<{ text: string; atMs: number }>>();
+    for (const target of targets) {
+      const selected = selectedNewestFirst.get(target.threadId);
+      if (selected?.length) byThread.set(target.threadId, selected.reverse());
     }
     return byThread;
   }
@@ -4647,30 +4740,36 @@ export class SessionStore {
       assistantTargets,
       AGENT_ASSISTANT_UPDATE_LIMITS.messagesPerThread,
     );
-    return rows.map((row) => ({
-      threadId: row.thread_id,
-      conversationId: row.conversation_id,
-      agentType: row.agent_type,
-      description: row.description,
-      status: row.status,
-      attemptGeneration: row.attempt_generation,
-      ...(row.root_run_id ? { rootRunId: row.root_run_id } : {}),
-      ...(row.parent_agent_id ? { parentAgentId: row.parent_agent_id } : {}),
-      ...(row.group_key ? { groupKey: row.group_key } : {}),
-      ...(row.group_label ? { groupLabel: row.group_label } : {}),
-      startedAt: row.started_at,
-      ...(row.completed_at == null ? {} : { completedAt: row.completed_at }),
-      ...(row.result ? { result: row.result } : {}),
-      ...(row.error ? { error: row.error } : {}),
-      ...(assistantMessagesByThread.has(row.thread_id)
-        ? {
-            assistantMessages: assistantMessagesByThread
-              .get(row.thread_id)!
-              .map((entry) => entry.text),
-          }
-        : {}),
-      updatedAt: row.updated_at,
-    }));
+    return rows.map((row) => {
+      const assistantEntries = assistantMessagesByThread.get(row.thread_id);
+      const latestAssistantEntry =
+        assistantEntries?.[assistantEntries.length - 1];
+      return {
+        threadId: row.thread_id,
+        conversationId: row.conversation_id,
+        agentType: row.agent_type,
+        description: row.description,
+        status: row.status,
+        attemptGeneration: row.attempt_generation,
+        ...(row.root_run_id ? { rootRunId: row.root_run_id } : {}),
+        ...(row.parent_agent_id ? { parentAgentId: row.parent_agent_id } : {}),
+        ...(row.group_key ? { groupKey: row.group_key } : {}),
+        ...(row.group_label ? { groupLabel: row.group_label } : {}),
+        startedAt: row.started_at,
+        ...(row.completed_at == null ? {} : { completedAt: row.completed_at }),
+        ...(row.result ? { result: row.result } : {}),
+        ...(row.error ? { error: row.error } : {}),
+        ...(assistantEntries
+          ? {
+              assistantMessages: assistantEntries.map((entry) => entry.text),
+              ...(latestAssistantEntry
+                ? { assistantMessagesUpdatedAt: latestAssistantEntry.atMs }
+                : {}),
+            }
+          : {}),
+        updatedAt: row.updated_at,
+      };
+    });
   }
 
   getOrchestratorReminderState(conversationId: string): {

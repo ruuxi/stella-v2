@@ -79,13 +79,13 @@ export function LeftSidebar({
                     data-active={active ? "true" : undefined}
                     aria-current={active ? "page" : undefined}
                     onClick={(event) => {
-                      // Re-entry behavior: clicking the already-active nav
-                      // entry (e.g. Home while on /chat) runs its
-                      // `onActiveClick` (e.g. return to home content)
-                      // instead of a no-op navigation.
-                      if (active && app.onActiveClick) {
+                      // Selection behavior runs both while entering a route
+                      // and while re-entering its active surface. Home needs
+                      // this before /chat navigation so a nonempty chat that
+                      // was left for Settings deterministically opens Home.
+                      app.onSelect?.();
+                      if (active && app.onSelect) {
                         event.preventDefault();
-                        app.onActiveClick();
                       }
                     }}
                   >

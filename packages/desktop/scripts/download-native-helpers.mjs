@@ -36,19 +36,22 @@ const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
 const args = process.argv.slice(2);
 let manifestUrl = DEFAULT_MANIFEST_URL;
+let manifestFile = "";
 let platformOverride = "";
 let force = false;
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (arg === "--manifest-url" && i + 1 < args.length) {
     manifestUrl = args[++i];
+  } else if (arg === "--manifest-file" && i + 1 < args.length) {
+    manifestFile = args[++i];
   } else if (arg === "--platform" && i + 1 < args.length) {
     platformOverride = args[++i];
   } else if (arg === "--force") {
     force = true;
   } else if (arg === "--help" || arg === "-h") {
     process.stdout.write(
-      "Usage: bun run native:download [--manifest-url <url>] [--platform <key>] [--force]\n",
+      "Usage: bun run native:download [--manifest-url <url> | --manifest-file <path>] [--platform <key>] [--force]\n",
     );
     process.exit(0);
   } else {
@@ -162,7 +165,8 @@ const existingHelpersMatch = (manifest, asset) => {
   return Boolean(
     manifest.sha &&
       installed.sha &&
-      String(installed.sha).toLowerCase() === String(manifest.sha).toLowerCase(),
+      String(installed.sha).toLowerCase() ===
+        String(manifest.sha).toLowerCase(),
   );
 };
 
@@ -257,7 +261,8 @@ const chmodNativeHelperFiles = (dir) => {
 
 const installedManifestPayload = (manifest, asset, installMode, files) => ({
   schemaVersion: 1,
-  sourceManifestUrl: manifestUrl,
+  sourceManifestUrl: manifestFile ? null : manifestUrl,
+  sourceManifestFile: manifestFile ? path.resolve(manifestFile) : null,
   platform: platformKey,
   helperPlatformDir: platformDir,
   sha: manifest.sha ?? null,
@@ -349,38 +354,55 @@ const withDownloadRetries = async (label, url, operation) => {
   throw lastError;
 };
 
-process.stdout.write(`Resolving native helpers manifest: ${manifestUrl}\n`);
-let manifestResp;
-try {
-  manifestResp = await withDownloadRetries(
-    "Native helpers manifest request",
-    manifestUrl,
-    async () => {
-      const response = await fetch(manifestUrl, {
-        headers: { "User-Agent": "stella-native-download" },
-      });
-      if (!response.ok && isRetryableHttpStatus(response.status)) {
-        throw new RetryableDownloadError(
-          `HTTP ${response.status}`,
-          response.status,
-        );
-      }
-      return response;
-    },
+if (manifestFile) {
+  process.stdout.write(
+    `Resolving native helpers manifest from ${path.resolve(manifestFile)}\n`,
   );
-} catch (error) {
-  process.stderr.write(
-    `Manifest request failed: ${errorMessageWithCause(error)}\n`,
-  );
-  process.exit(1);
 }
-if (!manifestResp.ok) {
-  process.stderr.write(
-    `Manifest request failed: HTTP ${manifestResp.status}\n`,
-  );
-  process.exit(1);
+let manifest;
+if (manifestFile) {
+  try {
+    manifest = JSON.parse(readFileSync(path.resolve(manifestFile), "utf8"));
+  } catch (error) {
+    process.stderr.write(
+      `Manifest file read failed: ${errorMessageWithCause(error)}\n`,
+    );
+    process.exit(1);
+  }
+} else {
+  process.stdout.write(`Resolving native helpers manifest: ${manifestUrl}\n`);
+  let manifestResp;
+  try {
+    manifestResp = await withDownloadRetries(
+      "Native helpers manifest request",
+      manifestUrl,
+      async () => {
+        const response = await fetch(manifestUrl, {
+          headers: { "User-Agent": "stella-native-download" },
+        });
+        if (!response.ok && isRetryableHttpStatus(response.status)) {
+          throw new RetryableDownloadError(
+            `HTTP ${response.status}`,
+            response.status,
+          );
+        }
+        return response;
+      },
+    );
+  } catch (error) {
+    process.stderr.write(
+      `Manifest request failed: ${errorMessageWithCause(error)}\n`,
+    );
+    process.exit(1);
+  }
+  if (!manifestResp.ok) {
+    process.stderr.write(
+      `Manifest request failed: HTTP ${manifestResp.status}\n`,
+    );
+    process.exit(1);
+  }
+  manifest = await manifestResp.json();
 }
-const manifest = await manifestResp.json();
 if (manifest.schemaVersion !== 1) {
   process.stderr.write(
     `Unsupported native helpers manifest schema: ${manifest.schemaVersion}\n`,

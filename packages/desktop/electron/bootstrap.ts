@@ -7,6 +7,7 @@ import {
   STARTUP_RUNTIME_WARMUP_DELAY_MS,
   STARTUP_STAGE_DELAY_MS,
   STELLA_APP_NAME,
+  STELLA_DEV_APP_NAME,
   STELLA_SESSION_PARTITION,
   STELLA_WINDOWS_APP_USER_MODEL_ID,
 } from "./bootstrap/constants.js";
@@ -27,6 +28,10 @@ const __dirname = import.meta.dirname;
 // app.isPackaged is the authority. Inherited environment variables must never
 // turn a signed build back into a Vite client.
 const isDev = !app.isPackaged;
+// macOS derives safeStorage's Keychain service from app.name. Keep unpackaged
+// v2 development in its own namespace while v1 remains installed under
+// "Stella Safe Storage". Signed production builds retain the clean name.
+app.setName(isDev ? STELLA_DEV_APP_NAME : STELLA_APP_NAME);
 
 if (isDev) {
   app.setPath(
@@ -38,10 +43,13 @@ if (isDev) {
 const stellaAppDir = app.isPackaged
   ? app.getAppPath()
   : path.resolve(__dirname, "..", "..", "..", "..");
+const configuredStatePath = isDev
+  ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()
+  : process.env.STELLA_DATA_DIR?.trim();
 const stellaDataDirPath = resolveRuntimeStatePath(
   app,
   stellaAppDir,
-  process.env.STELLA_DATA_DIR?.trim() || app.getPath("userData"),
+  configuredStatePath || app.getPath("userData"),
 );
 const useDevServer = isDev;
 const installDevBrokenPipeGuards = () => {
@@ -73,7 +81,6 @@ const startLocalCrashReporter = () => {
 };
 
 export const bootstrapMainProcess = () => {
-  app.setName(STELLA_APP_NAME);
   initMainProcessLogging(stellaAppDir);
   // Update completion normally promotes this artifact before recording the
   // release. Reconcile it again at the earliest startup point so an

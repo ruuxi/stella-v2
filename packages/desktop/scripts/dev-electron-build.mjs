@@ -163,6 +163,7 @@ const createBuildOptions = () => [
     entryPoints: electronRuntimeEntryPoints,
     external: [
       "electron",
+      "electron-updater",
       "bun:*",
       "@silvia-odwyer/photon-node",
       "mac-screen-capture-permissions",

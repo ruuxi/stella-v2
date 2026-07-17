@@ -21,6 +21,7 @@ import {
 import { getPlatform } from "@/platform/electron/platform";
 import { LeftSidebarSections } from "@/shell/LeftSidebarSections";
 import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
+import { ShellTopBarUpdatePill } from "@/shell/ShellTopBarUpdatePill";
 import "./left-sidebar.css";
 import "./shell-junction.css";
 
@@ -60,6 +61,7 @@ export function LeftSidebar({
     >
       <div className="left-sidebar__frame">
         <div className="left-sidebar__chrome">
+          <ShellTopBarUpdatePill />
           <div className="left-sidebar__chrome-spacer" aria-hidden="true" />
         </div>
         <div className="left-sidebar__scroll">

@@ -33,6 +33,9 @@
     "electron:typecheck:watch": "concurrently -k --kill-others-on-fail \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.electron.json --preserveWatchOutput --noEmit\" \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.preload.json --preserveWatchOutput --noEmit\"",
     "electron:build": "bun run native:build && bun run packaging:prepare-bun && bun run build && bun run electron:typecheck && node packages/desktop/scripts/dev-electron-build.mjs --once && electron-builder",
     "electron:pack": "bun run native:build && bun run packaging:prepare-bun && bun run build && bun run electron:typecheck && node packages/desktop/scripts/dev-electron-build.mjs --once && electron-builder --mac dir",
+    "electron:release:mac": "electron-builder --mac --publish never",
+    "electron:release:win": "electron-builder --win --publish never",
+    "updater:verify-local": "node packages/desktop/scripts/verify-local-electron-update.mjs",
     "packaging:prepare-bun": "node packages/desktop/scripts/prepare-bundled-bun.mjs",
     "packaging:verify-social": "node packages/desktop/scripts/verify-packaged-social-session.mjs",
     "postinstall": "node packages/desktop/scripts/postinstall-dist-electron.mjs && node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback --best-effort",
@@ -138,6 +141,12 @@
   "build": {
     "appId": "com.stella.app",
     "productName": "Stella",
+    "electronUpdaterCompatibility": ">=2.16",
+    "afterSign": "packages/desktop/scripts/notarize.mjs",
+    "extraMetadata": {
+      "name": "stella-v2",
+      "productName": "Stella"
+    },
     "protocols": {
       "name": "Stella Auth",
       "schemes": [
@@ -250,10 +259,14 @@
       "createStartMenuShortcut": true
     },
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "icon.icns",
-      "identity": "-",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
+      "entitlements": "packages/desktop/build/entitlements.mac.plist",
+      "entitlementsInherit": "packages/desktop/build/entitlements.mac.plist",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Stella uses your microphone for voice conversations.",
         "NSScreenCaptureUsageDescription": "Stella uses screen recording when you ask it to see or capture your screen.",
@@ -280,7 +293,15 @@
       "icon": "icon.png",
       "artifactName": "Stella-${version}-Linux-${arch}.${ext}",
       "category": "Utility"
-    }
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/${os}-${arch}",
+        "channel": "latest-v2",
+        "useMultipleRangeRequest": false
+      }
+    ]
   },
   "trustedDependencies": [
     "better-sqlite3",

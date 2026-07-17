@@ -57,19 +57,16 @@
   }
 }
 
-/* Deferred runtime-worker restart: informational only, deliberately muted. */
-.shell-topbar-update-pill[data-state="pending-runtime"] {
-  background: color-mix(in oklch, var(--foreground) 4%, transparent);
-  border-color: color-mix(in oklch, var(--foreground) 8%, transparent);
-  color: color-mix(in oklch, var(--text-base) 70%, transparent);
+.shell-topbar-update-pill[data-state="downloaded"] {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 36%, transparent);
+  color: var(--text-strong);
 }
 
-.shell-topbar-update-pill__main--passive {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 9px;
-  cursor: default;
+.shell-topbar-update-pill[data-state="error"] {
+  background: color-mix(in oklch, var(--destructive) 8%, transparent);
+  border-color: color-mix(in oklch, var(--destructive) 28%, transparent);
+  color: var(--text-strong);
 }
 
 .shell-topbar-update-pill:hover {
@@ -115,38 +112,4 @@
 .shell-topbar-update-pill__icon {
   flex-shrink: 0;
   opacity: 0.88;
-}
-
-.shell-topbar-update-pill__cancel {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 100%;
-  padding: 0;
-  border: none;
-  border-left: 1px solid
-    color-mix(in oklch, var(--foreground) 10%, transparent);
-  background: transparent;
-  color: var(--text-weak);
-  cursor: default;
-  -webkit-app-region: no-drag;
-  transition:
-    background 0.12s ease,
-    color 0.12s ease;
-}
-
-.shell-topbar-update-pill__cancel:hover {
-  background: color-mix(in oklch, var(--foreground) 12%, transparent);
-  color: var(--text-strong);
-}
-
-.shell-topbar-update-pill__cancel:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.shell-topbar-update-pill__cancel:disabled {
-  opacity: 0.4;
-  pointer-events: none;
 }

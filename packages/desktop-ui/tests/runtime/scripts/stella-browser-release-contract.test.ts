@@ -16,14 +16,12 @@ describe("Stella Browser release contract", () => {
     expect(workflow.match(/stella-browser\/current\.json/g) ?? []).toHaveLength(
       1,
     );
-    expect(workflow).toContain("stella-browser/${source_sha}/manifest.json");
-    expect(workflow).toContain("name: release-pin-stella-browser");
-    expect(workflow).toContain(
-      '--expected-source-sha "${{ needs.resolve-stella-browser.outputs.source-sha }}"',
-    );
+    expect(workflow).toContain("stella-browser/${browser_sha}/manifest.json");
+    expect(workflow).toContain("name: stella-v2-release-pins");
+    expect(workflow).toContain('--expected-source-sha "$browser_sha"');
     expect(
       workflow.match(/stella-browser-manifest\.json/g)?.length,
-    ).toBeGreaterThan(5);
+    ).toBeGreaterThanOrEqual(3);
   });
 
   it("cannot label manually-dispatched browser bytes with an arbitrary SHA", async () => {
@@ -34,9 +32,9 @@ describe("Stella Browser release contract", () => {
     expect(workflow).toContain("SOURCE_SHA: ${{ github.sha }}");
     expect(workflow).toContain("group: stella-browser-current-publish");
     expect(workflow).toContain(
-      'git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/master',
+      'git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main',
     );
-    expect(workflow).toContain('if [ "$SOURCE_SHA" = "$master_sha" ]');
+    expect(workflow).toContain('if [ "$SOURCE_SHA" = "$main_sha" ]');
   });
 
   it("preserves the installed browser binary until its replacement is ready", async () => {
@@ -87,7 +85,10 @@ describe("Stella Browser release contract", () => {
       const result = spawnSync(
         process.execPath,
         [
-          path.join(repoRoot, "packages/desktop/scripts/download-stella-browser.mjs"),
+          path.join(
+            repoRoot,
+            "packages/desktop/scripts/download-stella-browser.mjs",
+          ),
           "--manifest-file",
           manifestPath,
           "--expected-source-sha",

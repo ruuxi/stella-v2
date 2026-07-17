@@ -1,0 +1,370 @@
+import type {
+  DesktopUpdateProgress,
+  DesktopUpdateSnapshot,
+} from "@stella/contracts/desktop/update";
+import {
+  STELLA_V2_UPDATE_CHANNEL,
+  STELLA_V2_UPDATE_FEED_URL,
+} from "@stella/contracts/desktop/update";
+
+type UpdateInfoLike = {
+  version: string;
+  releaseName?: string | null;
+  releaseDate?: string | null;
+};
+
+type ProgressInfoLike = {
+  percent: number;
+  bytesPerSecond: number;
+  transferred: number;
+  total: number;
+};
+
+type UpdaterListener = (...args: unknown[]) => void;
+
+export type DesktopUpdaterClient = {
+  autoDownload: boolean;
+  autoInstallOnAppQuit: boolean;
+  allowDowngrade: boolean;
+  allowPrerelease: boolean;
+  disableWebInstaller: boolean;
+  setFeedURL: (options: {
+    provider: "generic";
+    url: string;
+    channel: typeof STELLA_V2_UPDATE_CHANNEL;
+    useMultipleRangeRequest: boolean;
+  }) => void;
+  checkForUpdates: () => Promise<unknown>;
+  downloadUpdate: () => Promise<unknown>;
+  quitAndInstall: (isSilent?: boolean, isForceRunAfter?: boolean) => void;
+  on: (event: string, listener: UpdaterListener) => unknown;
+  removeListener: (event: string, listener: UpdaterListener) => unknown;
+};
+
+export type DesktopUpdaterOptions = {
+  client: DesktopUpdaterClient;
+  currentVersion: string;
+  enabled: boolean;
+  feedUrl?: string;
+  startupDelayMs?: number;
+  checkIntervalMs?: number;
+  onStateChanged?: (snapshot: DesktopUpdateSnapshot) => void;
+  log?: {
+    info: (message: string) => void;
+    warn: (message: string) => void;
+    error: (message: string) => void;
+  };
+};
+
+const DEFAULT_STARTUP_DELAY_MS = 15_000;
+const DEFAULT_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000;
+
+const asErrorMessage = (value: unknown): string => {
+  if (value instanceof Error) return value.message;
+  return String(value || "Unknown desktop update error.");
+};
+
+const updateInfoFromArgs = (args: unknown[]): UpdateInfoLike | null => {
+  const value = args[0];
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<UpdateInfoLike>;
+  return typeof candidate.version === "string"
+    ? (candidate as UpdateInfoLike)
+    : null;
+};
+
+export const assertIsolatedV2UpdateFeed = (
+  value: string,
+  options: { allowLoopback?: boolean } = {},
+): string => {
+  const url = new URL(value);
+  const loopback =
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "localhost" ||
+    url.hostname === "[::1]";
+  if (
+    options.allowLoopback &&
+    loopback &&
+    url.pathname.includes("/desktop-v2/")
+  ) {
+    return url.toString().replace(/\/$/, "");
+  }
+  if (url.protocol !== "https:" || !url.pathname.startsWith("/desktop-v2/")) {
+    throw new Error(
+      `Refusing non-v2 desktop update feed: ${url.origin}${url.pathname}`,
+    );
+  }
+  return url.toString().replace(/\/$/, "");
+};
+
+export const resolveDesktopUpdateFeedUrl = (
+  args: readonly string[] = process.argv,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  arch: NodeJS.Architecture = process.arch,
+): string => {
+  const localVerification = args.includes("--stella-verify-local-update");
+  const override = env.STELLA_V2_LOCAL_UPDATE_FEED_URL?.trim();
+  if (!localVerification || !override) {
+    const os =
+      platform === "darwin"
+        ? "mac"
+        : platform === "win32"
+          ? "win"
+          : platform === "linux"
+            ? "linux"
+            : null;
+    if (!os || (arch !== "arm64" && arch !== "x64")) {
+      throw new Error(
+        `Unsupported desktop update platform: ${platform}-${arch}`,
+      );
+    }
+    return assertIsolatedV2UpdateFeed(
+      `${STELLA_V2_UPDATE_FEED_URL}/${os}-${arch}`,
+    );
+  }
+  return assertIsolatedV2UpdateFeed(override, { allowLoopback: true });
+};
+
+export class DesktopUpdater {
+  private snapshot: DesktopUpdateSnapshot;
+  private readonly client: DesktopUpdaterClient;
+  private readonly enabled: boolean;
+  private readonly feedUrl: string;
+  private readonly startupDelayMs: number;
+  private readonly checkIntervalMs: number;
+  private readonly onStateChanged?: (snapshot: DesktopUpdateSnapshot) => void;
+  private readonly log: NonNullable<DesktopUpdaterOptions["log"]>;
+  private startupTimer: ReturnType<typeof setTimeout> | null = null;
+  private intervalTimer: ReturnType<typeof setInterval> | null = null;
+  private checkPromise: Promise<DesktopUpdateSnapshot> | null = null;
+  private downloadPromise: Promise<DesktopUpdateSnapshot> | null = null;
+  private started = false;
+
+  private readonly listeners: Array<[string, UpdaterListener]>;
+
+  constructor(options: DesktopUpdaterOptions) {
+    this.client = options.client;
+    this.enabled = options.enabled;
+    this.feedUrl = assertIsolatedV2UpdateFeed(
+      options.feedUrl ?? STELLA_V2_UPDATE_FEED_URL,
+      {
+        allowLoopback: true,
+      },
+    );
+    this.startupDelayMs = options.startupDelayMs ?? DEFAULT_STARTUP_DELAY_MS;
+    this.checkIntervalMs = options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
+    this.onStateChanged = options.onStateChanged;
+    this.log =
+      options.log ??
+      ({
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      } satisfies NonNullable<DesktopUpdaterOptions["log"]>);
+    this.snapshot = {
+      status: this.enabled ? "idle" : "disabled",
+      channel: STELLA_V2_UPDATE_CHANNEL,
+      currentVersion: options.currentVersion,
+      availableVersion: null,
+      downloadedVersion: null,
+      releaseName: null,
+      releaseDate: null,
+      progress: null,
+      checkedAt: null,
+      error: null,
+    };
+
+    this.listeners = [
+      ["checking-for-update", () => this.onChecking()],
+      ["update-available", (...args) => this.onAvailable(args)],
+      ["update-not-available", (...args) => this.onNotAvailable(args)],
+      ["download-progress", (...args) => this.onProgress(args)],
+      ["update-downloaded", (...args) => this.onDownloaded(args)],
+      ["error", (...args) => this.onError(args[0])],
+    ];
+  }
+
+  start(): void {
+    if (this.started) return;
+    this.started = true;
+    if (!this.enabled) {
+      this.emit();
+      return;
+    }
+
+    this.client.autoDownload = false;
+    this.client.autoInstallOnAppQuit = true;
+    this.client.allowDowngrade = false;
+    this.client.allowPrerelease = false;
+    this.client.disableWebInstaller = true;
+    this.client.setFeedURL({
+      provider: "generic",
+      url: this.feedUrl,
+      channel: STELLA_V2_UPDATE_CHANNEL,
+      useMultipleRangeRequest: false,
+    });
+    // Setting a channel can enable downgrades in electron-updater. The v2
+    // stable feed is forward-only, so pin the safety setting afterwards.
+    this.client.allowDowngrade = false;
+    for (const [event, listener] of this.listeners) {
+      this.client.on(event, listener);
+    }
+
+    this.log.info(
+      `Desktop updater enabled on isolated channel ${STELLA_V2_UPDATE_CHANNEL} (${this.feedUrl}).`,
+    );
+    this.startupTimer = setTimeout(() => {
+      void this.checkNow().catch(() => undefined);
+    }, this.startupDelayMs);
+    this.startupTimer.unref?.();
+    this.intervalTimer = setInterval(() => {
+      void this.checkNow().catch(() => undefined);
+    }, this.checkIntervalMs);
+    this.intervalTimer.unref?.();
+  }
+
+  dispose(): void {
+    if (this.startupTimer) clearTimeout(this.startupTimer);
+    if (this.intervalTimer) clearInterval(this.intervalTimer);
+    this.startupTimer = null;
+    this.intervalTimer = null;
+    for (const [event, listener] of this.listeners) {
+      this.client.removeListener(event, listener);
+    }
+    this.started = false;
+  }
+
+  getState(): DesktopUpdateSnapshot {
+    return structuredClone(this.snapshot);
+  }
+
+  checkNow(): Promise<DesktopUpdateSnapshot> {
+    if (!this.enabled) return Promise.resolve(this.getState());
+    if (this.checkPromise) return this.checkPromise;
+    this.patch({ status: "checking", error: null, progress: null });
+    this.checkPromise = this.client
+      .checkForUpdates()
+      .then(() => this.getState())
+      .catch((error) => {
+        this.onError(error);
+        throw error;
+      })
+      .finally(() => {
+        this.checkPromise = null;
+      });
+    return this.checkPromise;
+  }
+
+  download(): Promise<DesktopUpdateSnapshot> {
+    if (!this.enabled) return Promise.resolve(this.getState());
+    if (this.snapshot.status === "downloaded") {
+      return Promise.resolve(this.getState());
+    }
+    if (this.snapshot.status !== "available") {
+      return Promise.reject(
+        new Error("No Stella desktop update is ready to download."),
+      );
+    }
+    if (this.downloadPromise) return this.downloadPromise;
+    this.patch({ status: "downloading", error: null, progress: null });
+    this.downloadPromise = this.client
+      .downloadUpdate()
+      .then(() => this.getState())
+      .catch((error) => {
+        this.onError(error);
+        throw error;
+      })
+      .finally(() => {
+        this.downloadPromise = null;
+      });
+    return this.downloadPromise;
+  }
+
+  restartAndInstall(): { accepted: true } {
+    if (this.snapshot.status !== "downloaded") {
+      throw new Error("Download the Stella desktop update before restarting.");
+    }
+    setImmediate(() => this.client.quitAndInstall(false, true));
+    return { accepted: true };
+  }
+
+  private onChecking(): void {
+    this.patch({ status: "checking", error: null, progress: null });
+  }
+
+  private onAvailable(args: unknown[]): void {
+    const info = updateInfoFromArgs(args);
+    if (!info) return;
+    this.patch({
+      status: "available",
+      availableVersion: info.version,
+      downloadedVersion: null,
+      releaseName: info.releaseName ?? null,
+      releaseDate: info.releaseDate ?? null,
+      progress: null,
+      checkedAt: new Date().toISOString(),
+      error: null,
+    });
+  }
+
+  private onNotAvailable(args: unknown[]): void {
+    const info = updateInfoFromArgs(args);
+    this.patch({
+      status: "idle",
+      availableVersion: null,
+      downloadedVersion: null,
+      releaseName: info?.releaseName ?? null,
+      releaseDate: info?.releaseDate ?? null,
+      progress: null,
+      checkedAt: new Date().toISOString(),
+      error: null,
+    });
+  }
+
+  private onProgress(args: unknown[]): void {
+    const value = args[0];
+    if (!value || typeof value !== "object") return;
+    const info = value as ProgressInfoLike;
+    const progress: DesktopUpdateProgress = {
+      percent: Number.isFinite(info.percent)
+        ? Math.max(0, Math.min(100, info.percent))
+        : 0,
+      bytesPerSecond: Number(info.bytesPerSecond) || 0,
+      transferred: Number(info.transferred) || 0,
+      total: Number(info.total) || 0,
+    };
+    this.patch({ status: "downloading", progress, error: null });
+  }
+
+  private onDownloaded(args: unknown[]): void {
+    const info = updateInfoFromArgs(args);
+    const version = info?.version ?? this.snapshot.availableVersion;
+    this.patch({
+      status: "downloaded",
+      availableVersion: version,
+      downloadedVersion: version,
+      releaseName: info?.releaseName ?? this.snapshot.releaseName,
+      releaseDate: info?.releaseDate ?? this.snapshot.releaseDate,
+      progress: this.snapshot.progress
+        ? { ...this.snapshot.progress, percent: 100 }
+        : null,
+      error: null,
+    });
+  }
+
+  private onError(error: unknown): void {
+    const message = asErrorMessage(error);
+    this.log.error(`Desktop updater failed: ${message}`);
+    this.patch({ status: "error", progress: null, error: message });
+  }
+
+  private patch(patch: Partial<DesktopUpdateSnapshot>): void {
+    this.snapshot = { ...this.snapshot, ...patch };
+    this.emit();
+  }
+
+  private emit(): void {
+    this.onStateChanged?.(this.getState());
+  }
+}

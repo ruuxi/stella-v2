@@ -1,4 +1,5 @@
 export const STELLA_APP_NAME = "Stella";
+export const STELLA_DEV_APP_NAME = "Stella v2 Development";
 export const STELLA_WINDOWS_APP_USER_MODEL_ID = "com.stella.app";
 export const AUTH_PROTOCOL = "Stella";
 export const STELLA_SESSION_PARTITION = "persist:Stella";

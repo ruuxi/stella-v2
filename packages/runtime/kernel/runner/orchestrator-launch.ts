@@ -174,7 +174,12 @@ export const launchPreparedOrchestratorRun = (args: {
     prepared.conversationId,
   );
 
-  void runOrchestratorTurn({
+  // The turn promise still owns run cleanup exactly as before (the catch
+  // below is behavior-identical), but it is no longer fire-and-forget: the
+  // kernel supervisor forks a root fiber for it whose interruption aborts
+  // the run's controller and joins this promise, so user-cancel and worker
+  // shutdown deterministically finalize the turn and everything beneath it.
+  const settled = runOrchestratorTurn({
     runId: prepared.runId,
     conversationId: prepared.conversationId,
     userMessageId: args.userMessageId,
@@ -231,6 +236,11 @@ export const launchPreparedOrchestratorRun = (args: {
     }
     args.cleanupRun(prepared.runId);
     args.onFatalError(error);
+  });
+
+  context.state.supervisor.startRun(prepared.runId, {
+    abort: (reason) => prepared.abortController.abort(reason),
+    settled,
   });
 };
 

@@ -4,6 +4,7 @@ import type { ImageCapTarget } from "../../ai/utils/image-caps.js";
 import type { AgentMessage } from "../agent-core/types.js";
 import type { OrchestratorSession } from "../agent-runtime/orchestrator-session.js";
 import type { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
+import type { KernelRunSupervisor } from "./supervision/run-supervisor.js";
 import type {
   RuntimeAssistantMessageEvent,
   RuntimeEndEvent,
@@ -298,6 +299,16 @@ export type RunnerState = {
    */
   pendingFollowUpReplies: Map<string, PendingFollowUpReply[]>;
   activeRunAbortControllers: Map<string, AbortController>;
+  /**
+   * Fiber supervision tree for orchestrator turns and subagent attempts.
+   * Every launched turn registers a root fiber keyed by `runId`; subagent
+   * attempts spawned with a `rootRunId` join that run's cancellation scope.
+   * `cancelLocalChat` and worker shutdown interrupt through this tree so
+   * teardown of child processes, streams, and pending tool calls is joined
+   * rather than fire-and-forget. See
+   * `runtime/kernel/runner/supervision/run-supervisor.ts`.
+   */
+  supervisor: KernelRunSupervisor;
   conversationCallbacks: Map<string, AgentCallbacks>;
   runCallbacksByRunId: Map<string, AgentCallbacks>;
   loadedAgents: ParsedAgentLike[];

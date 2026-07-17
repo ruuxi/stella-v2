@@ -679,6 +679,7 @@ const generateThreadSummary = async (args: {
   resolvedLlm: ResolvedLlmRoute;
   durableMemoryReference?: string;
   stellaDataDir?: string;
+  abortSignal?: AbortSignal;
 }): Promise<string | null> => {
   const apiKey = (await args.resolvedLlm.getApiKey())?.trim();
   if (!apiKey) {
@@ -724,6 +725,7 @@ const generateThreadSummary = async (args: {
     },
     {
       apiKey,
+      ...(args.abortSignal ? { signal: args.abortSignal } : {}),
     },
   );
   const text = readAssistantText(message);
@@ -805,6 +807,8 @@ export const maybeCompactRuntimeThread = async (args: {
    * passed to the summarizer as an "already known — do not repeat" reference.
    */
   stellaDataDir?: string;
+  /** Aborts the summarization LLM call on scheduler shutdown. */
+  abortSignal?: AbortSignal;
 }): Promise<ThreadCompactionResult> => {
   const storedMessages = args.store.loadThreadMessages(args.threadKey);
   if (storedMessages.length === 0) {
@@ -837,6 +841,7 @@ export const maybeCompactRuntimeThread = async (args: {
       previousSummary: splitMessages.previousSummary,
       resolvedLlm: args.resolvedLlm,
       stellaDataDir: args.stellaDataDir,
+      ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
       // Only the orchestrator has the durable-memory docs injected on every
       // turn; other agents must keep such facts in the summary itself.
       durableMemoryReference:
@@ -845,6 +850,11 @@ export const maybeCompactRuntimeThread = async (args: {
           : undefined,
     }));
   if (!summary) {
+    return { compacted: false };
+  }
+  // Shutdown abort landed after the summary settled: skip the store write
+  // rather than racing SQLite teardown.
+  if (args.abortSignal?.aborted) {
     return { compacted: false };
   }
 

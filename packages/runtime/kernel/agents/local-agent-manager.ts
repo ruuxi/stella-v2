@@ -546,6 +546,21 @@ type LocalAgentManagerOpts = {
     status: TaskLifecycleStatus,
   ) => PersistedAgentRecord[];
   listActiveThreads?: (conversationId: string) => RuntimeThreadRecord[];
+  /**
+   * Kernel supervision hook for in-flight attempts. Called once per started
+   * attempt with the attempt's already-running promise and a cooperative
+   * cancel that routes through `cancelAgent` (full terminal semantics:
+   * lifecycle events, session dispose, managed-child cascade). The runner
+   * wires this to the kernel run supervisor so an attempt spawned with a
+   * `rootRunId` is interrupted and joined when that root run is canceled,
+   * and every attempt is interrupted and joined at runtime shutdown.
+   */
+  superviseAttempt?: (attempt: {
+    threadId: string;
+    rootRunId?: string;
+    abort: (reason?: unknown) => void;
+    settled: Promise<void>;
+  }) => void;
 };
 
 const normalizeString = (value: unknown): string | undefined => {
@@ -1321,6 +1336,21 @@ export class LocalAgentManager implements AgentToolApi {
         controller,
       }).catch(() => undefined);
       this.inFlightAttempts.set(threadId, { generation, promise: execution });
+      this.opts.superviseAttempt?.({
+        threadId,
+        ...(task.rootRunId ? { rootRunId: task.rootRunId } : {}),
+        abort: (reason) => {
+          void this.cancelAgent(
+            threadId,
+            typeof reason === "string"
+              ? reason
+              : reason instanceof Error
+                ? reason.message
+                : undefined,
+          );
+        },
+        settled: execution.then(() => undefined),
+      });
       void execution.finally(() => {
         const activeAttempt = this.inFlightAttempts.get(threadId);
         if (
@@ -2131,17 +2161,27 @@ export class LocalAgentManager implements AgentToolApi {
     return [...byRunId.values()];
   }
 
-  shutdown(reason = AGENT_SHUTDOWN_CANCEL_REASON): void {
+  /**
+   * Cancel every pending/running task and await the cancellation cascades
+   * (managed-child fan-out, cloud record updates, session disposal). Joining
+   * the in-flight attempt promises themselves is the kernel supervisor's job
+   * (`superviseAttempt`), which interrupts and joins them at shutdown.
+   */
+  async shutdown(reason = AGENT_SHUTDOWN_CANCEL_REASON): Promise<void> {
     for (const pending of this.attemptTakeoverTimers.values()) {
       clearTimeout(pending.timer);
     }
     this.attemptTakeoverTimers.clear();
+    const cancels: Array<Promise<unknown>> = [];
     for (const task of this.tasks.values()) {
       if (task.status !== "pending" && task.status !== "running") {
         continue;
       }
-      void this.cancelAgent(task.threadId, reason);
+      cancels.push(
+        this.cancelAgent(task.threadId, reason).catch(() => undefined),
+      );
     }
+    await Promise.allSettled(cancels);
   }
 
   async cancelAgent(

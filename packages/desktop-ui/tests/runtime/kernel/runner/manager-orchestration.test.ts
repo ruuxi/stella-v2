@@ -12,6 +12,7 @@ import {
   type LocalAgentManager,
 } from "@stella/runtime/kernel/agents/local-agent-manager";
 import { createAgentOrchestration } from "@stella/runtime/kernel/runner/agent-orchestration";
+import { createKernelRunSupervisor } from "@stella/runtime/kernel/runner/supervision/run-supervisor";
 import {
   handleSendInput,
   handleSpawnManager,
@@ -143,6 +144,7 @@ const createHarness = (options?: {
       convexSiteUrl: null,
       authToken: null,
       hasConnectedAccount: false,
+      supervisor: createKernelRunSupervisor(),
     },
     toolHost: {
       getToolCatalog: () => [],

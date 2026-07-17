@@ -866,6 +866,66 @@ describe("subscribeRuntimeAgentEvents", () => {
     );
   });
 
+  it("persists completed native preambles with durable run and attempt identity", () => {
+    let listener: ((event: AgentEvent) => void) | undefined;
+    const agent = {
+      state: { messages: [] },
+      subscribe: vi.fn((next: (event: AgentEvent) => void) => {
+        listener = next;
+        return () => undefined;
+      }),
+    };
+    const store = {
+      recordRunEvent: vi.fn(),
+      appendThreadMessage: vi.fn(),
+    };
+    const preambleWithTool: AssistantMessage = {
+      role: "assistant",
+      content: [
+        { type: "text", text: "I’ll inspect the current runtime state." },
+        { type: "toolCall", id: "call-read", name: "read", arguments: {} },
+      ],
+      api: "openai-completions",
+      provider: "openai",
+      model: "test-model",
+      usage,
+      stopReason: "toolUse",
+      timestamp: 7,
+    };
+
+    subscribeRuntimeAgentEvents({
+      agent,
+      runId: "run-current-attempt",
+      agentType: AGENT_IDS.GENERAL,
+      recorder: createRunEventRecorder({
+        store: store as never,
+        runId: "run-current-attempt",
+        conversationId: "conversation-1",
+        agentType: AGENT_IDS.GENERAL,
+        userMessageId: "user-1",
+      }),
+      threadStore: store as never,
+      threadKey: "general:thread-1",
+      conversationId: "conversation-1",
+      attemptGeneration: 3,
+    });
+
+    listener?.({ type: "message_end", message: preambleWithTool });
+
+    expect(store.appendThreadMessage).toHaveBeenCalledTimes(1);
+    expect(store.appendThreadMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadKey: "general:thread-1",
+        role: "assistant",
+        payload: expect.objectContaining({
+          stopReason: "toolUse",
+          stellaRunId: "run-current-attempt",
+          stellaAttemptGeneration: 3,
+        }),
+      }),
+    );
+  });
+
   it("routes provider thinking_delta to onReasoning (NOT onStream) and skips thinking_end", () => {
     // Reasoning deltas feed the per-agent reasoning UI, not the visible chat stream.
     let listener: ((event: AgentEvent) => void) | undefined;

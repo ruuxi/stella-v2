@@ -1409,7 +1409,8 @@ export type ElectronLocalChatApi = {
         statusText?: string;
         createdAt: number;
         completedAt?: number;
-        reasoningSummaries?: string[];
+        assistantMessages: string[];
+        reasoningSummaries: string[];
       }>;
     }>
   >;
@@ -1441,7 +1442,8 @@ export type ElectronLocalChatApi = {
         statusText?: string;
         createdAt: number;
         completedAt?: number;
-        reasoningSummaries?: string[];
+        assistantMessages: string[];
+        reasoningSummaries: string[];
       }>;
     }>;
   }>;

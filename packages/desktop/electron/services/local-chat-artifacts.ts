@@ -100,9 +100,11 @@ export type MobileTask = {
   statusText?: string;
   createdAt: number;
   completedAt?: number;
-  /** Recent agent-authored assistant messages, oldest→newest. The legacy wire
-   * name is retained for mobile compatibility. */
-  reasoningSummaries?: string[];
+  /** Recent bounded, current-attempt agent-authored messages. */
+  assistantMessages: string[];
+  /** Legacy mobile wire alias. Always present so an empty array clears any
+   * stale generated summaries cached by an older client. */
+  reasoningSummaries: string[];
 };
 
 export type LocalChatSyncMessageWithArtifacts = {
@@ -866,6 +868,7 @@ const buildMobileTasksById = (
         ? "completed"
         : build.status;
     const assistantMessages = assistantMessagesByAgentId?.get(build.id);
+    const authoredMessages = assistantMessages ? [...assistantMessages] : [];
     // Live decoration beats the folded spawn text: `agent-progress` ticks are
     // no longer persisted, so mid-run statusText only exists in the renderer's
     // decoration snapshot mirrored via `publishTaskDecoration`.
@@ -882,12 +885,11 @@ const buildMobileTasksById = (
       ...(build.completedAt !== undefined
         ? { completedAt: build.completedAt }
         : {}),
+      assistantMessages: authoredMessages,
       // Keep the established mobile wire field for compatibility, but its
       // contents are now the agent's own assistant messages, never generated
-      // progress summaries.
-      ...(assistantMessages && assistantMessages.length > 0
-        ? { reasoningSummaries: [...assistantMessages] }
-        : {}),
+      // progress summaries. Empty is meaningful: clear stale cached values.
+      reasoningSummaries: [...authoredMessages],
     });
   }
   return tasks;

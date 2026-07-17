@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createRunEventRecorder } from "@stella/runtime/kernel/agent-runtime/run-events";
-import { buildPreambleToolBoundaryMessage } from "@stella/runtime/kernel/agent-runtime/external-engines";
+import {
+  buildPreambleToolBoundaryMessage,
+  persistExternalAssistantPreamble,
+} from "@stella/runtime/kernel/agent-runtime/external-engines";
 
 const makeRecorder = () => {
   const store = { recordRunEvent: vi.fn() };
@@ -16,6 +19,42 @@ const makeRecorder = () => {
 };
 
 describe("external-engine preamble→tool boundary", () => {
+  it.each([
+    ["codex", "openai-codex", "codex"],
+    ["claude_code", "anthropic", "claude-code"],
+  ] as const)(
+    "persists one complete %s preamble without partial fragments",
+    (engine, provider, model) => {
+      const appendThreadMessage = vi.fn();
+      persistExternalAssistantPreamble({
+        store: { appendThreadMessage } as never,
+        threadKey: "agent-1",
+        preamble: "  I inspected the route.  ",
+        engine,
+        runId: "run-7",
+        attemptGeneration: 7,
+      });
+
+      expect(appendThreadMessage).toHaveBeenCalledOnce();
+      expect(appendThreadMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadKey: "agent-1",
+          role: "assistant",
+          content: "I inspected the route.",
+          payload: expect.objectContaining({
+            role: "assistant",
+            provider,
+            model,
+            stopReason: "toolUse",
+            stellaRunId: "run-7",
+            stellaAttemptGeneration: 7,
+            content: [{ type: "text", text: "I inspected the route." }],
+          }),
+        }),
+      );
+    },
+  );
+
   it("pairs streamed preamble text with the tool call it precedes", () => {
     const message = buildPreambleToolBoundaryMessage({
       preamble: "Let me look that up.",
@@ -59,7 +98,9 @@ describe("external-engine preamble→tool boundary", () => {
 
   it("does not flag a plain final answer as followedByToolCall", () => {
     const recorder = makeRecorder();
-    const finalEvent = recorder.recordAssistantTextEnd("Tokyo has ~14 million.");
+    const finalEvent = recorder.recordAssistantTextEnd(
+      "Tokyo has ~14 million.",
+    );
     expect(finalEvent?.text).toBe("Tokyo has ~14 million.");
     expect(finalEvent?.followedByToolCall).toBeUndefined();
   });

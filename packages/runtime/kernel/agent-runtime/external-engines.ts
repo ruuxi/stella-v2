@@ -141,6 +141,42 @@ export const buildPreambleToolBoundaryMessage = (args: {
   timestamp: now(),
 });
 
+type ExternalPreambleEngine = "claude_code" | "codex";
+
+/** Persist one completed external-engine preamble as an authored interim
+ * update. Stream fragments remain transient; the separate tool-call payload
+ * is persisted by the tool boundary, and the final answer is persisted by
+ * `persistAssistantReply`, so neither is duplicated here. */
+export const persistExternalAssistantPreamble = (args: {
+  store: BaseRunOptions["store"];
+  threadKey: string;
+  preamble: string;
+  engine: ExternalPreambleEngine;
+  runId?: string;
+  attemptGeneration?: number;
+}): void => {
+  const text = args.preamble.trim();
+  if (!text) return;
+  const claude = args.engine === "claude_code";
+  persistThreadPayloadMessage(args.store, {
+    threadKey: args.threadKey,
+    ...(args.runId ? { runId: args.runId } : {}),
+    ...(typeof args.attemptGeneration === "number"
+      ? { attemptGeneration: args.attemptGeneration }
+      : {}),
+    payload: {
+      role: "assistant",
+      content: [{ type: "text", text }],
+      api: claude ? "anthropic-messages" : "openai-codex-responses",
+      provider: claude ? "anthropic" : "openai-codex",
+      model: claude ? "claude-code" : "codex",
+      usage: EMPTY_USAGE,
+      stopReason: "toolUse",
+      timestamp: now(),
+    },
+  });
+};
+
 const buildToolResultText = (toolResult: {
   result?: unknown;
   error?: string;
@@ -589,6 +625,16 @@ const runClaudeHostedTurn = async (args: {
     if (!preamble) {
       return;
     }
+    persistExternalAssistantPreamble({
+      store: args.opts.store,
+      threadKey,
+      preamble,
+      engine: "claude_code",
+      runId,
+      ...(typeof args.opts.agentContext.attemptGeneration === "number"
+        ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
+        : {}),
+    });
     const preambleEvent = runEvents.recordAssistantMessageEnd(
       buildPreambleToolBoundaryMessage({
         preamble,
@@ -736,6 +782,9 @@ const runClaudeHostedTurn = async (args: {
     onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
     executeTool: executeClaudeTool,
   });
+  // The remaining buffer is this turn's final answer. It is persisted exactly
+  // once below, never carried into a queued turn's next tool preamble.
+  streamedAssistantText = "";
   collectTurnFileChanges(finalResult.fileChanges);
 
   for (;;) {
@@ -793,6 +842,7 @@ const runClaudeHostedTurn = async (args: {
       executeTool: executeClaudeTool,
       onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
     });
+    streamedAssistantText = "";
     collectTurnFileChanges(finalResult.fileChanges);
   }
 
@@ -899,6 +949,16 @@ const runCodexHostedTurn = async (args: {
     if (!preamble) {
       return;
     }
+    persistExternalAssistantPreamble({
+      store: args.opts.store,
+      threadKey,
+      preamble,
+      engine: "codex",
+      runId,
+      ...(typeof args.opts.agentContext.attemptGeneration === "number"
+        ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
+        : {}),
+    });
     const preambleEvent = runEvents.recordAssistantMessageEnd(
       buildPreambleToolBoundaryMessage({
         preamble,
@@ -1091,6 +1151,7 @@ const runCodexHostedTurn = async (args: {
     reuseAppServer: true,
     streamFinalAnswer: args.session.kind === "orchestrator",
   });
+  streamedAssistantText = "";
 
   for (;;) {
     const queued = args.liveAgent?.drain() ?? [];
@@ -1147,6 +1208,7 @@ const runCodexHostedTurn = async (args: {
       reuseAppServer: true,
       streamFinalAnswer: args.session.kind === "orchestrator",
     });
+    streamedAssistantText = "";
   }
 
   await persistAssistantReply({

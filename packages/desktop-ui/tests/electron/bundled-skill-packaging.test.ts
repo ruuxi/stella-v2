@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -82,6 +82,10 @@ describe("bundled skill packaging boundary", () => {
 
       expect(staged.packagedIds).toEqual(expectedIds);
       expect(verified.actualIds).toEqual(expectedIds);
+      expect(staged.fileCount).toBe(verified.fileCount);
+      expect(staged.payloadHash).toBe(verified.payloadHash);
+      expect(verified.fileCount).toBeGreaterThan(expectedIds.length);
+      expect(verified.payloadHash).toMatch(/^[0-9a-f]{64}$/u);
     },
   );
 
@@ -106,6 +110,47 @@ describe("bundled skill packaging boundary", () => {
     await expect(
       verifyPackagedHomeSeed({ platform: "darwin", resourcesRoot }),
     ).rejects.toThrow("Packaged darwin skill payload mismatch");
+  });
+
+  it("rejects a missing nested retained-skill file", async () => {
+    const resourcesRoot = await tempDir();
+    const targetRoot = path.join(resourcesRoot, "home-seed");
+    await stageHomeSeed({ platform: "darwin", targetRoot });
+
+    await rm(
+      path.join(
+        targetRoot,
+        "skills",
+        "skill-creator",
+        "scripts",
+        "quick_validate.py",
+      ),
+    );
+
+    await expect(
+      verifyPackagedHomeSeed({ platform: "darwin", resourcesRoot }),
+    ).rejects.toThrow("Packaged darwin file list mismatch");
+  });
+
+  it("rejects altered nested retained-skill bytes", async () => {
+    const resourcesRoot = await tempDir();
+    const targetRoot = path.join(resourcesRoot, "home-seed");
+    await stageHomeSeed({ platform: "darwin", targetRoot });
+    const nestedFile = path.join(
+      targetRoot,
+      "skills",
+      "skill-creator",
+      "scripts",
+      "quick_validate.py",
+    );
+
+    await writeFile(nestedFile, "tampered packaged bytes\n", "utf-8");
+
+    await expect(
+      verifyPackagedHomeSeed({ platform: "darwin", resourcesRoot }),
+    ).rejects.toThrow(
+      "Packaged darwin file hash mismatch at skills/skill-creator/scripts/quick_validate.py",
+    );
   });
 
   it("pins Electron Builder to the validated staging boundary", async () => {

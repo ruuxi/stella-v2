@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createDirectoryEntryAdapter,
   reconcileBundledEntries,
+  type BundledManifestPersistence,
 } from "@stella/runtime/kernel/home/bundled-sync";
 import { reconcileBundledSkills } from "@stella/runtime/kernel/home/skills-sync";
 import { isRetiredBundledSkillId } from "@stella/runtime/kernel/shared/skill-policy";
@@ -62,13 +63,42 @@ const seedFormerBundledSkill = async (
   home: string,
   id: string,
   content: string,
+  additionalFiles: Record<string, string> = {},
 ) => {
   await writeSkillFile(bundled, id, "SKILL.md", content);
+  for (const [relativePath, fileContent] of Object.entries(additionalFiles)) {
+    await writeSkillFile(bundled, id, relativePath, fileContent);
+  }
   await reconcileBundledEntries(bundled, home, createDirectoryEntryAdapter(), {
     legacyEntriesKey: "skills",
   });
   await rm(path.join(bundled, id), { recursive: true, force: true });
 };
+
+const manifestCommitFaults: Array<{
+  label: string;
+  error: string;
+  persistence: Partial<BundledManifestPersistence>;
+}> = [
+  {
+    label: "temporary manifest write",
+    error: "manifest temp write denied",
+    persistence: {
+      writeFile: async () => {
+        throw new Error("manifest temp write denied");
+      },
+    },
+  },
+  {
+    label: "manifest rename",
+    error: "manifest rename denied",
+    persistence: {
+      rename: async () => {
+        throw new Error("manifest rename denied");
+      },
+    },
+  },
+];
 
 const skillFiles = async (
   homeSkillsDir: string,
@@ -490,6 +520,83 @@ describe("reconcileBundledSkills", () => {
     const manifest = await readManifest(home);
     expect(manifest.entries["stella-desktop"]).toBeDefined();
   });
+
+  it.each(manifestCommitFaults)(
+    "restores pristine retired bytes after $label failure and converges on retry",
+    async ({ error, persistence }) => {
+      const bundled = await tempDir("stella-bundled-");
+      const home = await tempDir("stella-home-skills-");
+
+      await seedFormerBundledSkill(
+        bundled,
+        home,
+        "stella-desktop",
+        "bundled v1",
+        {
+          "scripts/nested.sh": "#!/bin/sh\necho preserved\n",
+          "templates/card.txt": "nested template bytes",
+        },
+      );
+
+      const report = await reconcileBundledEntries(
+        bundled,
+        home,
+        createDirectoryEntryAdapter(),
+        {
+          isRetiredBundledId: isRetiredBundledSkillId,
+          legacyEntriesKey: "skills",
+          manifestPersistence: persistence,
+        },
+      );
+
+      expect(report.actions).toEqual([
+        expect.objectContaining({
+          type: "skip-obsolete-cleanup-failed",
+          id: "stella-desktop",
+          error,
+        }),
+      ]);
+      await expect(
+        readFile(path.join(home, "stella-desktop", "SKILL.md"), "utf-8"),
+      ).resolves.toBe("bundled v1");
+      await expect(
+        readFile(
+          path.join(home, "stella-desktop", "scripts", "nested.sh"),
+          "utf-8",
+        ),
+      ).resolves.toBe("#!/bin/sh\necho preserved\n");
+      await expect(
+        readFile(
+          path.join(home, "stella-desktop", "templates", "card.txt"),
+          "utf-8",
+        ),
+      ).resolves.toBe("nested template bytes");
+      await expect(
+        readFile(path.join(home, ".bundled-manifest.json.tmp"), "utf-8"),
+      ).rejects.toThrow();
+      expect(
+        (await readdir(home)).filter((name) =>
+          name.startsWith(".retired-backup-"),
+        ),
+      ).toEqual([]);
+
+      const failedManifest = await readManifest(home);
+      expect(failedManifest.entries["stella-desktop"]).toBeDefined();
+
+      const retry = await reconcileBundledSkills(bundled, home);
+      expect(retry.actions).toEqual([
+        expect.objectContaining({
+          type: "remove-obsolete",
+          id: "stella-desktop",
+        }),
+      ]);
+      await expect(
+        readdir(path.join(home, "stella-desktop")),
+      ).rejects.toThrow();
+      const convergedManifest = await readManifest(home);
+      expect(convergedManifest.entries["stella-desktop"]).toBeUndefined();
+    },
+  );
 
   it("does not seed retired skill ids still present in a stale package", async () => {
     const bundled = await tempDir("stella-bundled-");

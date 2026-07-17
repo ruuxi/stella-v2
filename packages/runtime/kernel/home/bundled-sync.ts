@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -57,6 +57,31 @@ export type BundledEntryAdapter = {
   copy: (srcDir: string, destDir: string, id: string) => Promise<void>;
   /** Remove an entry from a directory. */
   remove: (dir: string, id: string) => Promise<void>;
+  /**
+   * Snapshot an entry before removing it so a later manifest-commit failure
+   * can restore the exact bytes. Retired cleanup requires this transaction
+   * seam; ordinary obsolete-entry cleanup keeps using `remove` directly.
+   */
+  prepareRemoval?: (
+    dir: string,
+    id: string,
+    remove: () => Promise<void>,
+  ) => Promise<PreparedBundledEntryRemoval>;
+};
+
+export type PreparedBundledEntryRemoval = {
+  rollback: () => Promise<void>;
+  commit: () => Promise<void>;
+};
+
+export type BundledManifestPersistence = {
+  writeFile: (
+    filePath: string,
+    content: string,
+    encoding: BufferEncoding,
+  ) => Promise<void>;
+  rename: (source: string, destination: string) => Promise<void>;
+  remove: (filePath: string) => Promise<void>;
 };
 
 export type BundledSyncOptions = {
@@ -80,6 +105,8 @@ export type BundledSyncOptions = {
   removeObsolete?: boolean;
   /** Identify source ids retired from the product and hidden from discovery. */
   isRetiredBundledId?: (id: string) => boolean;
+  /** Fault-injection seam for manifest durability tests. */
+  manifestPersistence?: Partial<BundledManifestPersistence>;
 };
 
 const DEFAULT_MANIFEST_FILENAME = ".bundled-manifest.json";
@@ -158,12 +185,25 @@ const readManifest = async (
 const writeManifest = async (
   manifestPath: string,
   manifest: BundledManifest,
+  persistenceOverrides: Partial<BundledManifestPersistence> = {},
 ): Promise<void> => {
   await ensurePrivateDir(path.dirname(manifestPath));
   const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
   const tempPath = `${manifestPath}.tmp`;
-  await fs.writeFile(tempPath, serialized, "utf-8");
-  await fs.rename(tempPath, manifestPath);
+  const persistence: BundledManifestPersistence = {
+    writeFile: (filePath, content, encoding) =>
+      fs.writeFile(filePath, content, encoding),
+    rename: (source, destination) => fs.rename(source, destination),
+    remove: (filePath) => fs.rm(filePath, { force: true }),
+    ...persistenceOverrides,
+  };
+  try {
+    await persistence.writeFile(tempPath, serialized, "utf-8");
+    await persistence.rename(tempPath, manifestPath);
+  } catch (error) {
+    await persistence.remove(tempPath).catch(() => {});
+    throw error;
+  }
 };
 
 /**
@@ -195,6 +235,10 @@ export const reconcileBundledEntries = async (
   const homeIds = await adapter.listIds(homeDir);
 
   const actions: BundledSyncAction[] = [];
+  const preparedRetiredRemovals: Array<{
+    id: string;
+    transaction: PreparedBundledEntryRemoval;
+  }> = [];
   const nextEntries: Record<string, BundledManifestEntry> = {
     ...manifest.entries,
   };
@@ -306,19 +350,34 @@ export const reconcileBundledEntries = async (
       continue;
     }
     if (homeHash !== null && homeHash === recordedHash) {
+      if (isRetired) {
+        if (!adapter.prepareRemoval) {
+          actions.push({
+            type: "skip-obsolete-cleanup-failed",
+            id,
+            error: "transactional removal is unavailable",
+          });
+          continue;
+        }
+        try {
+          const transaction = await adapter.prepareRemoval(homeDir, id, () =>
+            adapter.remove(homeDir, id),
+          );
+          preparedRetiredRemovals.push({ id, transaction });
+          delete nextEntries[id];
+        } catch (error) {
+          actions.push({
+            type: "skip-obsolete-cleanup-failed",
+            id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        continue;
+      }
       try {
         await adapter.remove(homeDir, id);
       } catch (error) {
-        if (!isRetired) throw error;
-        // Cleanup is maintenance, not a boot prerequisite. Retain the
-        // manifest entry so a later boot can safely retry the same
-        // provenance-checked removal.
-        actions.push({
-          type: "skip-obsolete-cleanup-failed",
-          id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        continue;
+        throw error;
       }
       delete nextEntries[id];
       actions.push({ type: "remove-obsolete", id });
@@ -349,10 +408,49 @@ export const reconcileBundledEntries = async (
     }
   }
 
-  await writeManifest(manifestPath, {
-    version: MANIFEST_VERSION,
-    entries: nextEntries,
-  });
+  try {
+    await writeManifest(
+      manifestPath,
+      {
+        version: MANIFEST_VERSION,
+        entries: nextEntries,
+      },
+      options.manifestPersistence,
+    );
+  } catch (error) {
+    if (preparedRetiredRemovals.length === 0) throw error;
+
+    const manifestError =
+      error instanceof Error ? error.message : String(error);
+    for (const prepared of [...preparedRetiredRemovals].reverse()) {
+      let cleanupError = manifestError;
+      try {
+        await prepared.transaction.rollback();
+      } catch (rollbackError) {
+        cleanupError += `; rollback failed: ${
+          rollbackError instanceof Error
+            ? rollbackError.message
+            : String(rollbackError)
+        }`;
+      }
+      actions.push({
+        type: "skip-obsolete-cleanup-failed",
+        id: prepared.id,
+        error: cleanupError,
+      });
+    }
+    return { actions };
+  }
+
+  for (const prepared of preparedRetiredRemovals) {
+    try {
+      await prepared.transaction.commit();
+    } catch {
+      // The visible entry and its ownership record committed atomically. A
+      // hidden byte backup is harmless and preferable to making startup fail.
+    }
+    actions.push({ type: "remove-obsolete", id: prepared.id });
+  }
 
   return { actions };
 };
@@ -479,10 +577,8 @@ const hashDirectoryUnit = async (
  */
 export const createDirectoryEntryAdapter = (
   isValidId: (id: string) => boolean = () => true,
-): BundledEntryAdapter => ({
-  listIds: async (dir) => (await listSubdirectoryIds(dir)).filter(isValidId),
-  hash: hashDirectoryUnit,
-  copy: async (srcDir, destDir, id) => {
+): BundledEntryAdapter => {
+  const copy = async (srcDir: string, destDir: string, id: string) => {
     await ensurePrivateDir(destDir);
     const source = path.join(srcDir, id);
     const target = path.join(destDir, id);
@@ -513,11 +609,44 @@ export const createDirectoryEntryAdapter = (
     if (movedExisting) {
       await fs.rm(backup, { recursive: true, force: true }).catch(() => {});
     }
-  },
-  remove: async (dir, id) => {
-    await fs.rm(path.join(dir, id), { recursive: true, force: true });
-  },
-});
+  };
+  return {
+    listIds: async (dir) => (await listSubdirectoryIds(dir)).filter(isValidId),
+    hash: hashDirectoryUnit,
+    copy,
+    remove: async (dir, id) => {
+      await fs.rm(path.join(dir, id), { recursive: true, force: true });
+    },
+    prepareRemoval: async (dir, id, remove) => {
+      const nonce = `${process.pid}-${Date.now()}-${randomUUID()}`;
+      const backupRoot = path.join(dir, `.retired-backup-${nonce}`);
+      await copy(dir, backupRoot, id);
+      try {
+        await remove();
+      } catch (error) {
+        await copy(backupRoot, dir, id).catch(() => {});
+        await fs
+          .rm(backupRoot, { recursive: true, force: true })
+          .catch(() => {});
+        throw error;
+      }
+      let settled = false;
+      return {
+        rollback: async () => {
+          if (settled) return;
+          await copy(backupRoot, dir, id);
+          await fs.rm(backupRoot, { recursive: true, force: true });
+          settled = true;
+        },
+        commit: async () => {
+          if (settled) return;
+          await fs.rm(backupRoot, { recursive: true, force: true });
+          settled = true;
+        },
+      };
+    },
+  };
+};
 
 /**
  * Adapter for entries that are single files with a fixed extension (e.g.

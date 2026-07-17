@@ -8,7 +8,7 @@ import {
   removeStaleRuntimeArtifacts,
 } from "./lifecycle-server.js";
 import { WorkerPeerBroker } from "./peer-broker.js";
-import { createRuntimeWorkerServer } from "./server.js";
+import { createRuntimeWorkerServer } from "./server/index.js";
 import {
   computeRuntimeBuildStamp,
   RUNTIME_BUILD_STAMP_UNAVAILABLE,

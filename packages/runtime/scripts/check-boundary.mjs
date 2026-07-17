@@ -5,6 +5,17 @@ const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 const runtimeRoot = path.join(repoRoot, "packages", "runtime");
 const rendererRoot = path.join(repoRoot, "packages", "desktop-ui", "src");
 const desktopRoot = path.join(repoRoot, "packages", "desktop", "electron");
+const contractsRoot = path.join(repoRoot, "packages", "contracts");
+
+// The Effect fence (M5): Effect lives ONLY in packages/runtime, and even
+// there it is banned from tool and prompt definitions so those stay plain
+// portable TS.
+const isEffectImport = (specifier) =>
+  specifier === "effect" || specifier.startsWith("effect/");
+const runtimeEffectFencedPrefixes = [
+  "packages/runtime/kernel/tools/",
+  "packages/runtime/kernel/prompts/",
+];
 const ignoredDirectories = new Set(["node_modules", "dist", "dist-electron"]);
 const sourceSuffixes = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs"]);
 
@@ -39,20 +50,17 @@ const offenders = [];
 const inspect = async (root, isForbidden) => {
   for (const file of await walk(root)) {
     const text = await readFile(file, "utf8");
+    const relativeFile = path.relative(repoRoot, file).replace(/\\/g, "/");
     for (const specifier of moduleSpecifiers(text)) {
-      const reason = isForbidden(specifier);
+      const reason = isForbidden(specifier, relativeFile);
       if (reason) {
-        offenders.push({
-          file: path.relative(repoRoot, file).replace(/\\/g, "/"),
-          specifier,
-          reason,
-        });
+        offenders.push({ file: relativeFile, specifier, reason });
       }
     }
   }
 };
 
-await inspect(runtimeRoot, (specifier) => {
+await inspect(runtimeRoot, (specifier, file) => {
   if (specifier === "@stella/desktop" || specifier.startsWith("@stella/desktop/")) {
     return "runtime must not depend on desktop";
   }
@@ -61,6 +69,12 @@ await inspect(runtimeRoot, (specifier) => {
   }
   if (/\.\.\/.*(?:desktop|desktop-ui)\//.test(specifier)) {
     return "runtime must not reach into desktop packages by relative path";
+  }
+  if (
+    isEffectImport(specifier) &&
+    runtimeEffectFencedPrefixes.some((prefix) => file.startsWith(prefix))
+  ) {
+    return "tool/prompt definitions must stay Effect-free";
   }
   return null;
 });
@@ -74,12 +88,25 @@ await inspect(rendererRoot, (specifier) => {
   if (/\.\.\/.*(?:runtime|desktop|contracts)\//.test(specifier)) {
     return "renderer must use the contracts workspace boundary";
   }
+  if (isEffectImport(specifier)) {
+    return "Effect is fenced inside packages/runtime";
+  }
   return null;
 });
 
 await inspect(desktopRoot, (specifier) => {
   if (/\.\.\/.*runtime\//.test(specifier)) {
     return "Electron must use @stella/runtime workspace exports";
+  }
+  if (isEffectImport(specifier)) {
+    return "Effect is fenced inside packages/runtime";
+  }
+  return null;
+});
+
+await inspect(contractsRoot, (specifier) => {
+  if (isEffectImport(specifier)) {
+    return "Effect is fenced inside packages/runtime";
   }
   return null;
 });

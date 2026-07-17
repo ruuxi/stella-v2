@@ -6,6 +6,9 @@
   "exports": {
     ".": "./index.ts",
     "./host": "./host/index.ts",
+    "./host/lifecycle/*": null,
+    "./host/staleness": null,
+    "./host/staleness.js": null,
     "./*.js": "./*.ts",
     "./*": "./*.ts"
   },

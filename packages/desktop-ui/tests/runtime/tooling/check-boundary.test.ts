@@ -132,6 +132,44 @@ describe("check-boundary fence rules", () => {
     ]);
   });
 
+  it("fences Effect-bearing runtime host internals while allowing the plain facades", async () => {
+    // Assembled at runtime like EFFECT above: the scanner reads THIS file's
+    // raw text too, so the banned specifiers must not appear literally.
+    const LIFECYCLE_INTERNAL = ["@stella/runtime/host/", "lifecycle/"].join("");
+    const STALENESS = ["@stella/runtime/host/", "staleness"].join("");
+    const LIFECYCLE_RELATIVE = ["../../runtime/host/", "lifecycle/"].join("");
+    // Blocked: modules whose exported signatures carry Effect/Scope types.
+    write(
+      "packages/desktop-ui/tests/runtime/host/bad-effect-internal.test.ts",
+      `import { startOrAttachWorkerEffect } from "${LIFECYCLE_INTERNAL}attach";\n`,
+    );
+    write(
+      "packages/desktop/electron/bad-staleness-import.ts",
+      `import { evaluateWorkerStaleness } from "${STALENESS}";\n`,
+    );
+    write(
+      "packages/desktop/scripts/bad-relative-lifecycle.mjs",
+      `import { acquireHostLock } from "${LIFECYCLE_RELATIVE}lock.js";\n`,
+    );
+    write(
+      "packages/contracts/bad-lifecycle-type.ts",
+      `import type { LifecycleBudgets } from "${LIFECYCLE_INTERNAL}options";\n`,
+    );
+    // Allowed: the plain-Promise facades and non-Effect host internals.
+    write(
+      "packages/desktop-ui/tests/runtime/host/good-facade.test.ts",
+      'import { startOrAttachWorker } from "@stella/runtime/host/lifecycle";\n' +
+        'import { RuntimeWorkerLifecycleController } from "@stella/runtime/host/worker-lifecycle";\n',
+    );
+    const offenders = await offendersFor();
+    expect(offenders.map((offender) => offender.file).sort()).toEqual([
+      "packages/contracts/bad-lifecycle-type.ts",
+      "packages/desktop-ui/tests/runtime/host/bad-effect-internal.test.ts",
+      "packages/desktop/electron/bad-staleness-import.ts",
+      "packages/desktop/scripts/bad-relative-lifecycle.mjs",
+    ]);
+  });
+
   it("catches dynamic and type-only effect imports", async () => {
     write(
       "packages/desktop-ui/src/lazy.ts",

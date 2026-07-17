@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, promises as fs } from "node:fs";
-import { Effect } from "effect";
+import { Effect, Schedule } from "effect";
 import type { RuntimePaths } from "../worker/runtime-paths.js";
 import {
   computeRuntimeBuildStamp,
@@ -115,3 +115,25 @@ export const clearPendingWorkerRestartFlag = (
   Effect.promise(() =>
     fs.unlink(paths.pendingWorkerRestartFile).catch(() => undefined),
   ).pipe(Effect.asVoid);
+
+/**
+ * The stale-worker quiescence safety poll, with the old `setInterval`
+ * cadence: the first tick fires `intervalMs` after the poll starts (never
+ * immediately — the 1s nudge owns "soon"), and subsequent ticks stay on the
+ * fixed-rate grid via `Schedule.fixed`, NOT fixed-delay-after-completion —
+ * a slow flush must not push later ticks. A flush rejection is ignored so
+ * the poll keeps ticking, matching the old `void this.flushWorkerRestart()`.
+ */
+export const quiescencePollEffect = (
+  flush: () => Promise<void>,
+  intervalMs = 30_000,
+): Effect.Effect<void> =>
+  Effect.sleep(intervalMs).pipe(
+    Effect.andThen(
+      Effect.repeat(
+        Effect.ignore(Effect.tryPromise(() => flush())),
+        Schedule.fixed(intervalMs),
+      ),
+    ),
+    Effect.asVoid,
+  );

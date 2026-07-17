@@ -117,7 +117,10 @@ const spawnDetachedWorkerProcess = (
  *   attaches to it instead of triggering a spawn-retry cascade.
  * - Interruption: nobody is coming back for this attach, so the release
  *   reaps the just-spawned child (SIGTERM→750ms→SIGKILL). This is the one
- *   new path — the old promise code could not be cancelled at all.
+ *   new path — the old promise code could not be cancelled at all. The
+ *   check is `Cause.hasInterrupts` (ANY interruption present), not
+ *   `hasInterruptsOnly`: a cancel that races a concurrent failure must
+ *   still reap — only pure non-interrupt failures adopt the worker.
  */
 export const spawnAdoptedWorker = (
   options: LifecycleStartOptions,
@@ -130,7 +133,7 @@ export const spawnAdoptedWorker = (
     }),
     (child, exit) => {
       const interrupted =
-        Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause);
+        Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause);
       if (!interrupted || !child.pid) return Effect.void;
       return Effect.asVoid(killWorkerProcess(child.pid, 750));
     },

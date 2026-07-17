@@ -8,6 +8,17 @@ import { pathToFileURL } from "node:url";
 // src, tests, scripts, configs — not just the app entry roots.
 const isEffectImport = (specifier) =>
   specifier === "effect" || specifier.startsWith("effect/");
+// Runtime modules whose EXPORTED SIGNATURES carry Effect/Scope types. The
+// runtime package.json blocks these subpaths outright (null export targets),
+// and the fence flags any attempted import from the Effect-free packages so
+// a violation reads as a boundary error, not a resolution failure. The
+// plain-Promise facades (@stella/runtime/host, @stella/runtime/host/lifecycle)
+// stay importable.
+const isEffectBearingRuntimeImport = (specifier) =>
+  specifier.startsWith("@stella/runtime/host/lifecycle/") ||
+  specifier === "@stella/runtime/host/staleness" ||
+  specifier === "@stella/runtime/host/staleness.js" ||
+  /(?:^|\/)runtime\/host\/(?:lifecycle\/|staleness(?:\.|$))/.test(specifier);
 const runtimeEffectFencedPrefixes = [
   "packages/runtime/kernel/tools/",
   "packages/runtime/kernel/prompts/",
@@ -99,6 +110,9 @@ export const checkBoundaries = async (repoRoot) => {
     if (isEffectImport(specifier)) {
       return "Effect is fenced inside packages/runtime";
     }
+    if (isEffectBearingRuntimeImport(specifier)) {
+      return "Effect-bearing runtime host internals are fenced inside packages/runtime";
+    }
     if (!file.startsWith("packages/desktop-ui/src/")) {
       return null;
     }
@@ -120,6 +134,9 @@ export const checkBoundaries = async (repoRoot) => {
     if (isEffectImport(specifier)) {
       return "Effect is fenced inside packages/runtime";
     }
+    if (isEffectBearingRuntimeImport(specifier)) {
+      return "Effect-bearing runtime host internals are fenced inside packages/runtime";
+    }
     if (
       file.startsWith("packages/desktop/electron/") &&
       /\.\.\/.*runtime\//.test(specifier)
@@ -133,6 +150,9 @@ export const checkBoundaries = async (repoRoot) => {
   await inspect(path.join(repoRoot, "packages", "contracts"), (specifier) => {
     if (isEffectImport(specifier)) {
       return "Effect is fenced inside packages/runtime";
+    }
+    if (isEffectBearingRuntimeImport(specifier)) {
+      return "Effect-bearing runtime host internals are fenced inside packages/runtime";
     }
     return null;
   });

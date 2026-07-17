@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { Effect, Schedule } from "effect";
+import { Effect } from "effect";
+import { pollWithDeadline } from "./poll.js";
 
 /**
  * SIGTERM→grace→SIGKILL kill ladder, expressed as one effect per pid with
@@ -18,6 +19,10 @@ class StillAliveError {
   readonly _tag = "StillAliveError";
 }
 
+class ExitConfirmDeadlineError {
+  readonly _tag = "ExitConfirmDeadlineError";
+}
+
 const pidIsAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
@@ -27,25 +32,25 @@ const pidIsAlive = (pid: number): boolean => {
   }
 };
 
-/** Poll until the pid is gone; fails StillAliveError when the budget ends. */
+/**
+ * Poll until the pid is gone (true) or the budget — anchored before the
+ * first aliveness check, like the old `graceDeadline` loops — ends (false).
+ */
 const waitForPidExit = (
   pid: number,
   budgetMs: number,
 ): Effect.Effect<boolean> =>
-  Effect.suspend(() =>
-    pidIsAlive(pid)
-      ? Effect.fail(new StillAliveError())
-      : Effect.succeed(true),
-  ).pipe(
-    Effect.retry({
-      while: (error) => error instanceof StillAliveError,
-      schedule: Schedule.both(
-        Schedule.spaced(ALIVE_POLL_INTERVAL_MS),
-        Schedule.during(budgetMs),
-      ),
-    }),
-    Effect.catch(() => Effect.succeed(false)),
-  );
+  pollWithDeadline({
+    timeoutMs: budgetMs,
+    intervalMs: ALIVE_POLL_INTERVAL_MS,
+    attempt: Effect.suspend(() =>
+      pidIsAlive(pid)
+        ? Effect.fail(new StillAliveError())
+        : Effect.succeed(true),
+    ),
+    retryWhile: (error) => error instanceof StillAliveError,
+    onDeadline: () => new ExitConfirmDeadlineError(),
+  }).pipe(Effect.catch(() => Effect.succeed(false)));
 
 /**
  * SIGTERM a worker pid, poll up to `graceMs` for a clean exit, then SIGKILL

@@ -266,7 +266,7 @@
       "icon": "icon.icns",
       "hardenedRuntime": true,
       "entitlements": "packages/desktop/build/entitlements.mac.plist",
-      "entitlementsInherit": "packages/desktop/build/entitlements.mac.plist",
+      "entitlementsInherit": "packages/desktop/build/entitlements.mac.inherit.plist",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Stella uses your microphone for voice conversations.",
         "NSScreenCaptureUsageDescription": "Stella uses screen recording when you ask it to see or capture your screen.",

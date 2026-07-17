@@ -45,11 +45,20 @@ const desktopDir = path.resolve(scriptDir, "..");
 const repoRootDir = path.resolve(desktopDir, "..", "..");
 const outdir = "dist-electron";
 const nodeTarget = `node${process.versions.node.split(".")[0]}`;
+const includeLocalUpdateVerification = process.argv.includes(
+  "--local-update-verification",
+);
 const runtimeStaticAssetRoots = [
   "packages/runtime/extensions/stella-runtime/agent-metadata",
 ];
 const electronRuntimeEntryPoints = {
   "electron/main": "packages/desktop/electron/main.ts",
+  ...(includeLocalUpdateVerification
+    ? {
+        "electron/update-verification-main":
+          "packages/desktop/electron/update-verification-main.ts",
+      }
+    : {}),
   "runtime/kernel/cli/stella-computer":
     "packages/runtime/kernel/cli/stella-computer.ts",
   "runtime/kernel/cli/stella-connect":

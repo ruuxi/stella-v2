@@ -1,17 +1,18 @@
 import { app } from "electron";
 import electronUpdater from "electron-updater";
-import { mkdir, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  DesktopUpdater,
-  type DesktopUpdaterClient,
-  resolveDesktopUpdateFeedUrl,
-} from "./desktop-updater.js";
+  assertLocalUpdateVerificationRequest,
+  configureLocalUpdateVerificationUpdater,
+  type LocalUpdateVerificationIdentity,
+} from "./local-update-verification-identity.js";
 
 const { autoUpdater } = electronUpdater;
 
 type VerificationResult = {
-  phase: "downloaded" | "install-requested" | "applied" | "failed";
+  phase: "downloaded" | "failed";
   currentVersion: string;
   expectedVersion: string;
   availableVersion?: string | null;
@@ -28,31 +29,90 @@ const writeResult = async (result: VerificationResult) => {
   await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`);
 };
 
+const readPackagedIdentity =
+  async (): Promise<LocalUpdateVerificationIdentity> => {
+    if (process.platform !== "darwin") {
+      throw new Error("Local updater verification currently requires macOS.");
+    }
+    const packageJson = JSON.parse(
+      await readFile(path.join(app.getAppPath(), "package.json"), "utf8"),
+    ) as {
+      stellaUpdateVerification?: boolean | string;
+      stellaUpdateVerificationBundleId?: string;
+    };
+    const infoPlistPath = path.resolve(
+      process.resourcesPath,
+      "..",
+      "Info.plist",
+    );
+    const bundleId = execFileSync(
+      "/usr/bin/plutil",
+      ["-extract", "CFBundleIdentifier", "raw", infoPlistPath],
+      { encoding: "utf8" },
+    ).trim();
+    return {
+      isPackaged: app.isPackaged,
+      appName: app.getName(),
+      bundleId,
+      packageMarker:
+        packageJson.stellaUpdateVerification === true ||
+        packageJson.stellaUpdateVerification === "true",
+      packageBundleId: String(
+        packageJson.stellaUpdateVerificationBundleId ?? "",
+      ),
+    };
+  };
+
+const updaterEvents = autoUpdater as unknown as {
+  once: (eventName: string, listener: (value: unknown) => void) => void;
+  removeListener: (
+    eventName: string,
+    listener: (value: unknown) => void,
+  ) => void;
+};
+
+const waitForUpdaterEvent = <T>(eventName: string): Promise<T> =>
+  new Promise((resolve, reject) => {
+    const onValue = (value: unknown) => {
+      updaterEvents.removeListener("error", onError);
+      resolve(value as T);
+    };
+    const onError = (error: unknown) => {
+      updaterEvents.removeListener(eventName, onValue);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    updaterEvents.once(eventName, onValue);
+    updaterEvents.once("error", onError);
+  });
+
 export const runLocalUpdateVerificationFromArgs = async (
   args: readonly string[],
 ): Promise<boolean> => {
-  const requested = args.includes("--stella-verify-local-update");
+  if (!args.includes("--stella-verify-local-update")) {
+    throw new Error(
+      "The verifier-only application requires its explicit flag.",
+    );
+  }
   const token = process.env.STELLA_V2_LOCAL_UPDATE_VERIFY_TOKEN?.trim();
   const expectedVersion = process.env.STELLA_V2_LOCAL_UPDATE_EXPECTED?.trim();
   const isolatedUserData = process.env.STELLA_V2_LOCAL_UPDATE_USER_DATA?.trim();
-  if (!requested && !(token && expectedVersion && isolatedUserData)) {
-    return false;
-  }
-  if (!token || !expectedVersion || !isolatedUserData) {
+  const feedValue = process.env.STELLA_V2_LOCAL_UPDATE_FEED_URL?.trim();
+  if (!token || !expectedVersion || !isolatedUserData || !feedValue) {
     throw new Error(
       "Incomplete local desktop update verification environment.",
     );
   }
-  if (!app.isPackaged) {
-    throw new Error("Local updater verification requires a packaged app.");
-  }
+
+  app.commandLine.appendSwitch("use-mock-keychain");
+  const feedUrl = assertLocalUpdateVerificationRequest(
+    await readPackagedIdentity(),
+    feedValue,
+  );
 
   // Chromium's macOS os_crypt initialization can otherwise ask the login
-  // Keychain for an ad-hoc build's Safe Storage item before the updater runs.
-  // This verifier never exercises credential storage, so use Electron's
-  // in-memory test keychain and a dedicated visible app name.
-  app.commandLine.appendSwitch("use-mock-keychain");
-  app.setName("Stella v2 Update Verification");
+  // Keychain for an ad-hoc build's Safe Storage item. This verifier never
+  // exercises credential storage, so it uses Electron's in-memory test keychain
+  // and dedicated state paths before Electron becomes ready.
   app.setPath("userData", isolatedUserData);
   app.setPath("sessionData", path.join(isolatedUserData, "session-data"));
   app.setPath("logs", path.join(isolatedUserData, "logs"));
@@ -60,76 +120,39 @@ export const runLocalUpdateVerificationFromArgs = async (
   await app.whenReady();
   const currentVersion = app.getVersion();
 
-  // A future signed verification can opt into the apply handoff. The default
-  // local build is ad-hoc signed, so it deliberately stops after download;
-  // Squirrel.Mac correctly refuses to install a payload that cannot satisfy a
-  // real Developer ID code requirement.
-  if (!requested) {
-    const phase = currentVersion === expectedVersion ? "applied" : "failed";
-    await writeResult({
-      phase,
-      currentVersion,
-      expectedVersion,
-      ...(phase === "failed"
-        ? {
-            error:
-              "Updater relaunched a version other than the expected build.",
-          }
-        : {}),
-    });
-    app.quit();
-    return true;
-  }
+  configureLocalUpdateVerificationUpdater(autoUpdater, feedUrl);
 
-  const updater = new DesktopUpdater({
-    client: autoUpdater as unknown as DesktopUpdaterClient,
-    currentVersion,
-    enabled: true,
-    feedUrl: resolveDesktopUpdateFeedUrl(args),
-    startupDelayMs: 60 * 60 * 1_000,
-    checkIntervalMs: 60 * 60 * 1_000,
-    log: console,
-  });
-  updater.start();
   try {
-    const available = await updater.checkNow();
-    if (
-      available.status !== "available" ||
-      available.availableVersion !== expectedVersion
-    ) {
+    const availableEvent = waitForUpdaterEvent<{ version: string }>(
+      "update-available",
+    );
+    await autoUpdater.checkForUpdates();
+    const available = await availableEvent;
+    if (available.version !== expectedVersion) {
       throw new Error(
-        `Expected update ${expectedVersion}; updater reported ${available.status} (${available.availableVersion ?? "none"}).`,
+        `Expected update ${expectedVersion}; updater reported ${available.version}.`,
       );
     }
-    const downloaded = await updater.download();
-    if (
-      downloaded.status !== "downloaded" ||
-      downloaded.downloadedVersion !== expectedVersion
-    ) {
+
+    const downloadedEvent = waitForUpdaterEvent<{ version: string }>(
+      "update-downloaded",
+    );
+    await autoUpdater.downloadUpdate();
+    const downloaded = await downloadedEvent;
+    if (downloaded.version !== expectedVersion) {
       throw new Error(
-        `Expected downloaded update ${expectedVersion}; got ${downloaded.status} (${downloaded.downloadedVersion ?? "none"}).`,
+        `Expected downloaded update ${expectedVersion}; got ${downloaded.version}.`,
       );
     }
+
     await writeResult({
       phase: "downloaded",
       currentVersion,
       expectedVersion,
-      availableVersion: downloaded.availableVersion,
-      downloadedVersion: downloaded.downloadedVersion,
+      availableVersion: available.version,
+      downloadedVersion: downloaded.version,
     });
-    if (process.env.STELLA_V2_LOCAL_UPDATE_APPLY !== "1") {
-      updater.dispose();
-      app.quit();
-      return true;
-    }
-    await writeResult({
-      phase: "install-requested",
-      currentVersion,
-      expectedVersion,
-      availableVersion: downloaded.availableVersion,
-      downloadedVersion: downloaded.downloadedVersion,
-    });
-    updater.restartAndInstall();
+    app.quit();
     return true;
   } catch (error) {
     await writeResult({
@@ -138,7 +161,6 @@ export const runLocalUpdateVerificationFromArgs = async (
       expectedVersion,
       error: error instanceof Error ? error.message : String(error),
     });
-    updater.dispose();
     app.quit();
     return true;
   }

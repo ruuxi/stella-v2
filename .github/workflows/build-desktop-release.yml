@@ -24,7 +24,26 @@ env:
   STELLA_V2_STABLE_PREFIX: desktop-v2/stable
 
 jobs:
+  validate_stable_tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Require an exact stable semantic version tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#desktop-v2-v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Stable desktop-v2 releases require desktop-v2-vX.Y.Z; refusing: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   resolve-binary-pins:
+    needs: validate_stable_tag
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -70,7 +89,9 @@ jobs:
           retention-days: 7
 
   build:
-    needs: resolve-binary-pins
+    needs:
+      - validate_stable_tag
+      - resolve-binary-pins
     strategy:
       fail-fast: false
       matrix:
@@ -97,18 +118,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      - name: Resolve and validate release version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#desktop-v2-v}"
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid desktop-v2 release tag: $GITHUB_REF_NAME" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -198,7 +207,7 @@ jobs:
             --publish never \
             --config.forceCodeSigning=true \
             --config.mac.identity="$APPLE_SIGNING_IDENTITY" \
-            --config.extraMetadata.version="${{ steps.version.outputs.version }}"
+            --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
 
       # Windows is deliberately unsigned for M4. Users will see SmartScreen
       # until the future DigiCert seam documented in PACKAGING.md is enabled.
@@ -211,7 +220,7 @@ jobs:
           set -euo pipefail
           bunx electron-builder ${{ matrix.builderArgs }} \
             --publish never \
-            --config.extraMetadata.version="${{ steps.version.outputs.version }}"
+            --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
 
       - name: Verify macOS signature and notarization ticket
         if: runner.os == 'macOS'

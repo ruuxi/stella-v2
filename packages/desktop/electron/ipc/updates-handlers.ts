@@ -12,7 +12,6 @@ import { getMainLogger } from "../observability/main-logger.js";
 import {
   DesktopUpdater,
   type DesktopUpdaterClient,
-  resolveDesktopUpdateFeedUrl,
 } from "../updates/desktop-updater.js";
 
 const { autoUpdater } = electronUpdater;
@@ -53,10 +52,6 @@ export const registerUpdatesHandlers = (
     client: autoUpdater as unknown as DesktopUpdaterClient,
     currentVersion: app.getVersion(),
     enabled: app.isPackaged,
-    feedUrl: resolveDesktopUpdateFeedUrl(),
-    startupDelayMs: process.argv.includes("--stella-verify-local-update")
-      ? 0
-      : undefined,
     onStateChanged: broadcast,
     log: {
       info: (message) => logger?.process("desktop-updater.info", { message }),

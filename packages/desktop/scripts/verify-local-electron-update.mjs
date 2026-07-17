@@ -40,6 +40,14 @@ const feedDir = path.join(
 );
 const resultPath = path.join(fixtureRoot, "update-result.json");
 const isolatedUserData = path.join(fixtureRoot, "user-data");
+const verificationMainBundle = path.join(
+  repoRoot,
+  "packages",
+  "desktop",
+  "dist-electron",
+  "electron",
+  "update-verification-main.js",
+);
 const verificationUpdaterCacheDir = path.join(
   os.homedir(),
   "Library",
@@ -86,6 +94,9 @@ const buildVersion = (version, outputDir) => {
       `--config.extraMetadata.version=${version}`,
       "--config.extraMetadata.name=stella-v2-update-verification",
       `--config.extraMetadata.productName=${verificationProductName}`,
+      "--config.extraMetadata.main=dist-electron/electron/update-verification-main.js",
+      "--config.extraMetadata.stellaUpdateVerification=true",
+      `--config.extraMetadata.stellaUpdateVerificationBundleId=${verificationAppId}`,
       `--config.appId=${verificationAppId}`,
       `--config.productName=${verificationProductName}`,
       "--config.mac.identity=-",
@@ -157,11 +168,7 @@ const waitForVerificationResult = async (timeoutMs) => {
   while (Date.now() < deadline) {
     try {
       last = JSON.parse(await readFile(resultPath, "utf8"));
-      if (
-        last.phase === "downloaded" ||
-        last.phase === "applied" ||
-        last.phase === "failed"
-      ) {
+      if (last.phase === "downloaded" || last.phase === "failed") {
         return last;
       }
     } catch {
@@ -182,7 +189,11 @@ try {
   run("bun", ["run", "packaging:prepare-bun"]);
   run("bun", ["run", "build"]);
   run("bun", ["run", "electron:typecheck"]);
-  run("node", ["packages/desktop/scripts/dev-electron-build.mjs", "--once"]);
+  run("node", [
+    "packages/desktop/scripts/dev-electron-build.mjs",
+    "--once",
+    "--local-update-verification",
+  ]);
 
   console.log(`[local-update] Building old packaged app ${oldVersion}.`);
   buildVersion(oldVersion, oldOutput);
@@ -236,7 +247,6 @@ try {
     cwd: fixtureRoot,
     env: {
       ...createVerificationEnvironment(),
-      STELLA_V2_LOCAL_UPDATE_APPLY: "0",
       STELLA_V2_LOCAL_UPDATE_EXPECTED: newVersion,
       STELLA_V2_LOCAL_UPDATE_FEED_URL: feedUrl,
       STELLA_V2_LOCAL_UPDATE_RESULT: resultPath,
@@ -294,6 +304,7 @@ try {
     ]);
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
+  await rm(verificationMainBundle, { force: true });
   if (succeeded && process.env.STELLA_KEEP_LOCAL_UPDATE_FIXTURE !== "1") {
     await rm(fixtureRoot, { recursive: true, force: true });
   } else {

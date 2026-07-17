@@ -22,7 +22,6 @@ import {
   initializeBootstrapSingleInstance,
   registerBootstrapLifecycle,
 } from "./bootstrap/lifecycle.js";
-import { activateStagedStellaBrowserBinaryForInstall } from "./utils/stella-browser-paths.js";
 import { resolvePackagedPromptSiteUrl } from "./prompt-site-config.js";
 const __dirname = import.meta.dirname;
 // app.isPackaged is the authority. Inherited environment variables must never
@@ -82,22 +81,6 @@ const startLocalCrashReporter = () => {
 
 export const bootstrapMainProcess = () => {
   initMainProcessLogging(stellaAppDir);
-  // Update completion normally promotes this artifact before recording the
-  // release. Reconcile it again at the earliest startup point so an
-  // interrupted update cannot leave HEAD=new / working-tree=old until the
-  // browser native-host service happens to register.
-  try {
-    if (activateStagedStellaBrowserBinaryForInstall(stellaAppDir)) {
-      console.log(
-        "[updates] Activated staged Stella Browser binary during startup.",
-      );
-    }
-  } catch (error) {
-    console.error(
-      "[updates] Could not activate staged Stella Browser binary during startup:",
-      error,
-    );
-  }
   installDevBrokenPipeGuards();
   startLocalCrashReporter();
   // Stella ships its own chrome (custom top bar, custom window controls on

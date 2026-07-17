@@ -7,33 +7,30 @@ const __dirname = import.meta.dirname;
 /**
  * Locate the Stella browser service and extension directory.
  *
- * In development the service lives at `desktop/stella-browser/`. Packaged
+ * In development the service lives at `packages/stella-browser/`. Packaged
  * builds copy its command shim, native binaries, and extension into Electron's
  * resources directory.
  *
- * Instead of re-threading yet another root through every caller, we resolve
- * the folder by walking up from this file's compiled location. Dev bundling
- * can collapse this helper into `main.js`, so try both the pre-bundle helper
- * depth and the bundled-main depth.
+ * The source helper and bundled Electron main both sit three levels below the
+ * `packages/` directory, so the workspace path is stable in both layouts.
  *
- *   desktop/dist-electron/desktop/electron/utils/stella-browser-paths.js
- *                                                 ^ __dirname
- *   ../../../..           = desktop/
- *   ../../../../stella-browser
+ *   packages/desktop/dist-electron/electron/stella-browser-paths.js
+ *                                           ^ __dirname
+ *   ../../../stella-browser = packages/stella-browser
  *
  * If the layout changes, fix it here once.
  */
-const compiledDesktopRootCandidates = [
-  path.resolve(__dirname, "..", "..", "..", ".."),
-  path.resolve(__dirname, "..", "..", ".."),
-];
+const workspaceStellaBrowserRoot = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "stella-browser",
+);
 
 export const resolveStellaBrowserRoot = (): string => {
-  for (const compiledDesktopRoot of compiledDesktopRootCandidates) {
-    const desktopLocal = path.join(compiledDesktopRoot, "stella-browser");
-    if (existsSync(desktopLocal)) {
-      return desktopLocal;
-    }
+  if (existsSync(workspaceStellaBrowserRoot)) {
+    return workspaceStellaBrowserRoot;
   }
 
   // Production: electron-builder copies stella-browser next to the asar at
@@ -47,7 +44,7 @@ export const resolveStellaBrowserRoot = (): string => {
     }
   }
 
-  return path.join(compiledDesktopRootCandidates[0], "stella-browser");
+  return workspaceStellaBrowserRoot;
 };
 
 export const currentStellaBrowserPlatformKey = (): string | null => {
@@ -139,30 +136,16 @@ const promoteStagedBinary = (binaryPath: string): boolean => {
   }
 };
 
-/** Promote a verified updater artifact before any service/native-host spawn. */
+/** Promote a verified browser artifact before any service/native-host spawn. */
 export const activateStagedStellaBrowserBinary = (
   stellaBrowserRoot = resolveStellaBrowserRoot(),
 ): boolean => {
   const hydrated = resolveHydratedStellaBrowserBinaryPath(stellaBrowserRoot);
   const legacy = resolveLegacyStellaBrowserBinaryPath(stellaBrowserRoot);
   if (!hydrated || !legacy) return false;
-  // New updates always stage into ignored out/<platform>. Also finish any
-  // legacy bin/<platform>.update left by an older updater during migration.
+  // Browser binary hydration stages into ignored out/<platform>. Also finish
+  // any legacy bin/<platform>.update left during the binary-layout migration.
   const hydratedActivated = promoteStagedBinary(hydrated);
   const legacyActivated = promoteStagedBinary(legacy);
   return hydratedActivated || legacyActivated;
 };
-
-/**
- * Reconcile an updater-staged browser binary in a source install.
- *
- * The desktop updater writes `<binary>.update` inside the install tree. Keep
- * this install-root adapter here so startup, update completion, and recovery
- * all use the exact same atomic promotion routine.
- */
-export const activateStagedStellaBrowserBinaryForInstall = (
-  stellaAppDir: string,
-): boolean =>
-  activateStagedStellaBrowserBinary(
-    path.join(stellaAppDir, "desktop", "stella-browser"),
-  );

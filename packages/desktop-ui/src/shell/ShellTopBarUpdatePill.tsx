@@ -15,8 +15,8 @@ export const ShellTopBarUpdatePill = () => {
       const result = await applyDesktopUpdate(snapshot);
       if (result.action === "download") {
         showToast({
-          title: "Downloading Stella update",
-          description: `Version ${snapshot.availableVersion ?? "available"} will be ready to install shortly.`,
+          title: "Update downloaded",
+          description: `Restart Stella to install version ${result.snapshot.downloadedVersion ?? snapshot.availableVersion ?? "available"}.`,
         });
       } else if (result.action === "retry") {
         showToast({

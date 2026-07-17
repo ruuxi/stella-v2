@@ -15,6 +15,7 @@ import type {
   ThreadActivityRecord,
   ThreadTranscript,
   ThreadActivityUpdatedPayload,
+  ThreadTranscriptUpdatedPayload,
   MessageRecord,
 } from "@stella/contracts/local-chat";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
@@ -1474,6 +1475,9 @@ export type ElectronLocalChatApi = {
   ) => () => void;
   onThreadActivityUpdated: (
     callback: (payload: ThreadActivityUpdatedPayload) => void,
+  ) => () => void;
+  onThreadTranscriptUpdated: (
+    callback: (payload: ThreadTranscriptUpdatedPayload) => void,
   ) => () => void;
 };
 

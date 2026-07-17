@@ -101,6 +101,18 @@ export type ThreadTranscript = {
   truncated: boolean;
 };
 
+/** Exact-thread invalidation emitted after a durable transcript entry commits.
+ * This is intentionally separate from authored Activity updates: tool-only
+ * assistant turns, tool results, and internal agent cards have no authored
+ * text but still need to refresh an open read-only transcript. */
+export type ThreadTranscriptUpdatedPayload = {
+  threadId: string;
+  conversationId: string;
+  entryId: string;
+  entryType: "message" | "custom_message" | "compaction";
+  atMs: number;
+};
+
 export type ThreadActivityUpdatedPayload = {
   conversationId: string;
   /** Present for incremental authored-message delivery; absent for ordinary

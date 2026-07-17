@@ -22,6 +22,7 @@ import {
   type BootstrapContext,
   broadcastLocalChatUpdated,
   broadcastThreadActivityUpdated,
+  broadcastThreadTranscriptUpdated,
   broadcastScheduleUpdated,
   broadcastToWindows,
 } from "./context.js";
@@ -290,6 +291,8 @@ const clearHostRunnerSubscriptions = (context: BootstrapContext) => {
   state.localChatUpdateUnsubscribe = null;
   state.threadActivityUpdateUnsubscribe?.();
   state.threadActivityUpdateUnsubscribe = null;
+  state.threadTranscriptUpdateUnsubscribe?.();
+  state.threadTranscriptUpdateUnsubscribe = null;
   state.scheduleUpdateUnsubscribe?.();
   state.scheduleUpdateUnsubscribe = null;
 };
@@ -318,6 +321,11 @@ const connectHostRunner = async (context: BootstrapContext) => {
   state.threadActivityUpdateUnsubscribe = runner.onThreadActivityUpdated(
     (payload) => {
       broadcastThreadActivityUpdated(context, payload);
+    },
+  );
+  state.threadTranscriptUpdateUnsubscribe = runner.onThreadTranscriptUpdated(
+    (payload) => {
+      broadcastThreadTranscriptUpdated(context, payload);
     },
   );
   state.scheduleUpdateUnsubscribe = runner.onScheduleUpdated(() => {

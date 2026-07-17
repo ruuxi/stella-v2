@@ -9,6 +9,7 @@ import type {
   ThreadActivityUpdatedPayload,
   ThreadTranscript,
   ThreadTranscriptEntry,
+  ThreadTranscriptUpdatedPayload,
 } from "@stella/contracts/local-chat";
 import {
   MAX_ACTIVE_RUNTIME_THREADS,
@@ -80,6 +81,7 @@ export const AGENT_ASSISTANT_UPDATE_LIMITS = {
 
 type SessionStoreOptions = {
   onThreadAssistantUpdate?: (payload: ThreadActivityUpdatedPayload) => void;
+  onThreadTranscriptUpdate?: (payload: ThreadTranscriptUpdatedPayload) => void;
 };
 
 type VisibleScanRow = {
@@ -2755,6 +2757,7 @@ export class SessionStore {
     const payload = enforceThreadPayloadRowSizeLimit(
       buildFallbackThreadPayload(message),
     );
+    let entryId = "";
     this.withTransaction(() => {
       this.upsertSession(conversationId, message.timestamp);
       const threadSession = this.ensureThreadSession(
@@ -2762,7 +2765,7 @@ export class SessionStore {
         conversationId,
         message.timestamp,
       );
-      this.appendThreadSessionEntry({
+      entryId = this.appendThreadSessionEntry({
         threadKey,
         sessionId: threadSession.sessionId,
         entryType: "message",
@@ -2773,6 +2776,13 @@ export class SessionStore {
       });
       this.touchThread(threadKey);
     }, "immediate");
+    this.options.onThreadTranscriptUpdate?.({
+      threadId: threadKey,
+      conversationId,
+      entryId,
+      entryType: "message",
+      atMs: message.timestamp,
+    });
     if (
       payload.role === "assistant" &&
       activityUpdateTextFromAssistantPayload(payload)
@@ -2804,6 +2814,7 @@ export class SessionStore {
       ...(message.eventId?.trim() ? { eventId: message.eventId.trim() } : {}),
     });
     const conversationId = this.getThreadConversationId(threadKey);
+    let entryId = "";
     this.withTransaction(() => {
       this.upsertSession(conversationId, message.timestamp);
       const threadSession = this.ensureThreadSession(
@@ -2811,7 +2822,7 @@ export class SessionStore {
         conversationId,
         message.timestamp,
       );
-      this.appendThreadSessionEntry({
+      entryId = this.appendThreadSessionEntry({
         threadKey,
         sessionId: threadSession.sessionId,
         entryType: "custom_message",
@@ -2827,6 +2838,13 @@ export class SessionStore {
       });
       this.touchThread(threadKey);
     }, "immediate");
+    this.options.onThreadTranscriptUpdate?.({
+      threadId: threadKey,
+      conversationId,
+      entryId,
+      entryType: "custom_message",
+      atMs: message.timestamp,
+    });
   }
 
   loadThreadMessages(
@@ -2884,6 +2902,7 @@ export class SessionStore {
     }
     const timestamp = asFiniteNumber(args.timestamp) ?? Date.now();
     const conversationId = this.getThreadConversationId(threadKey);
+    let entryId = "";
     this.withTransaction(() => {
       const path = buildThreadPathEntries(
         this.loadThreadSessionEntries(threadKey),
@@ -2897,7 +2916,7 @@ export class SessionStore {
         conversationId,
         timestamp,
       );
-      this.appendThreadSessionEntry({
+      entryId = this.appendThreadSessionEntry({
         threadKey,
         sessionId: threadSession.sessionId,
         entryType: "compaction",
@@ -2918,6 +2937,13 @@ export class SessionStore {
       });
       this.touchThread(threadKey);
     }, "immediate");
+    this.options.onThreadTranscriptUpdate?.({
+      threadId: threadKey,
+      conversationId,
+      entryId,
+      entryType: "compaction",
+      atMs: timestamp,
+    });
   }
 
   recordRunEvent(event: RuntimeRunEvent): void {

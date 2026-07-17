@@ -24,6 +24,7 @@ import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery"
 import type {
   LocalChatUpdatedPayload,
   ThreadActivityUpdatedPayload,
+  ThreadTranscriptUpdatedPayload,
 } from "@stella/contracts/local-chat";
 import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
@@ -113,6 +114,7 @@ type RuntimeHostEvents = {
   "voice-agent-event": RuntimeVoiceAgentEventPayload;
   "local-chat-updated": LocalChatUpdatedPayload | null;
   "thread-activity-updated": ThreadActivityUpdatedPayload;
+  "thread-transcript-updated": ThreadTranscriptUpdatedPayload;
   "schedule-updated": void;
   "model-catalog-updated": RuntimeModelCatalogSnapshot;
 };
@@ -3238,6 +3240,15 @@ export class StellaRuntimeHost {
         this.events.emit(
           "thread-activity-updated",
           params as ThreadActivityUpdatedPayload,
+        );
+      },
+    );
+    peer.registerNotificationHandler(
+      NOTIFICATION_NAMES.THREAD_TRANSCRIPT_UPDATED,
+      (params) => {
+        this.events.emit(
+          "thread-transcript-updated",
+          params as ThreadTranscriptUpdatedPayload,
         );
       },
     );

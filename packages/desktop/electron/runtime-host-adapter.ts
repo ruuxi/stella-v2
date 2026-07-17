@@ -1015,6 +1015,14 @@ export class RuntimeHostAdapter {
     return this.host.on("thread-activity-updated", listener);
   }
 
+  onThreadTranscriptUpdated(
+    listener: (
+      payload: import("@stella/contracts/local-chat").ThreadTranscriptUpdatedPayload,
+    ) => void,
+  ) {
+    return this.host.on("thread-transcript-updated", listener);
+  }
+
   createSocialSession(payload: { roomId: string; workspaceLabel?: string }) {
     return this.host.createSocialSession(payload);
   }

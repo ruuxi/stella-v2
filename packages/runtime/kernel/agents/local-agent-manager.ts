@@ -114,6 +114,9 @@ export type LocalAgentContext = {
   maxAgentConcurrency?: number;
   /** Durable attempt epoch for transcript writes on a reused agent thread. */
   attemptGeneration?: number;
+  /** Durable Manager-turn metadata copied onto each assistant transcript entry. */
+  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
+  managerTurnVisibility?: "internal" | "parent";
 };
 
 export type LocalAgentStatus = "pending" | TaskLifecycleStatus;
@@ -173,10 +176,10 @@ type RuntimeAgentRecord = {
   parentAgentId?: string;
   /** Parked manager whose next turn begins when a managed report or input arrives. */
   waitingForManagedChildren?: boolean;
-  /** A direct status/steering input should return an interim report upstream. */
-  managerReportRequested?: boolean;
-  /** Current turn was reactivated from a terminal Manager process. */
-  managerTurnStartedFromTerminal?: boolean;
+  /** Durable origin/visibility/lifecycle of the active Manager turn. */
+  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
+  managerTurnVisibility?: "internal" | "parent";
+  managerTurnLifecycle?: "continue" | "complete-when-idle" | "complete";
   /** Monotonic ownership token for mutable executeTask attempts. */
   attemptGeneration: number;
   recentActivity: string[];
@@ -244,8 +247,13 @@ type RuntimeAgentRecord = {
    * running the Manager but do not create another root-chat lifecycle card;
    * an explicit orchestrator input remains user-visible and wins if both are
    * queued before the attempt starts. */
-  pendingStartOrigin?: "managed-child" | "external-input";
+  pendingManagerTurnOrigin?: "managed-child" | "external-input";
 };
+
+export type ManagerAncestryResolution =
+  | { kind: "none" }
+  | { kind: "manager"; managerThreadId: string }
+  | { kind: "invalid"; reason: "cycle" | "missing"; threadId: string };
 
 const formatTaskUpdateStatusText = (text: string): string =>
   truncate(text.replace(/\s+/g, " ").trim(), 200);
@@ -848,6 +856,18 @@ export class LocalAgentManager implements AgentToolApi {
       status: task.status === "pending" ? "running" : task.status,
       attemptGeneration: task.attemptGeneration,
       ...(task.rootRunId ? { rootRunId: task.rootRunId } : {}),
+      ...(task.pendingManagerTurnOrigin
+        ? { pendingManagerTurnOrigin: task.pendingManagerTurnOrigin }
+        : {}),
+      ...(task.managerTurnOrigin
+        ? { managerTurnOrigin: task.managerTurnOrigin }
+        : {}),
+      ...(task.managerTurnVisibility
+        ? { managerTurnVisibility: task.managerTurnVisibility }
+        : {}),
+      ...(task.managerTurnLifecycle
+        ? { managerTurnLifecycle: task.managerTurnLifecycle }
+        : {}),
       startedAt: task.startedAt,
       completedAt: task.completedAt,
       ...(typeof task.result === "string" ? { result: task.result } : {}),
@@ -927,6 +947,28 @@ export class LocalAgentManager implements AgentToolApi {
       this.tasks.get(threadId)?.agentType === AGENT_IDS.MANAGER ||
       this.opts.getAgentRecord?.(threadId)?.agentType === AGENT_IDS.MANAGER
     );
+  }
+
+  /** Resolve the nearest owning Manager through live or persisted ancestry. */
+  resolveManagerAncestry(parentAgentId?: string): ManagerAncestryResolution {
+    if (!parentAgentId) return { kind: "none" };
+    const visited = new Set<string>();
+    let cursor: string | undefined = parentAgentId;
+    while (cursor) {
+      if (visited.has(cursor)) {
+        return { kind: "invalid", reason: "cycle", threadId: cursor };
+      }
+      visited.add(cursor);
+      const state = this.getAgentState(cursor);
+      if (!state) {
+        return { kind: "invalid", reason: "missing", threadId: cursor };
+      }
+      if (state.agentType === AGENT_IDS.MANAGER) {
+        return { kind: "manager", managerThreadId: cursor };
+      }
+      cursor = state.parentAgentId;
+    }
+    return { kind: "none" };
   }
 
   private getAgentState(
@@ -1109,10 +1151,11 @@ export class LocalAgentManager implements AgentToolApi {
     // Cleared here so a bare reset reads as a spawn; the follow-up callers
     // (`sendAgentMessage` / `deliverFollowUpAsNextTurn`) re-set it right after.
     task.pendingStartIsFollowUp = undefined;
-    task.pendingStartOrigin = undefined;
+    task.pendingManagerTurnOrigin = undefined;
     task.waitingForManagedChildren = false;
-    task.managerReportRequested = false;
-    task.managerTurnStartedFromTerminal = false;
+    task.managerTurnOrigin = undefined;
+    task.managerTurnVisibility = undefined;
+    task.managerTurnLifecycle = undefined;
   }
 
   private hydrateTaskFromRecord(
@@ -1150,8 +1193,10 @@ export class LocalAgentManager implements AgentToolApi {
       // follow-up (this helper is only reached from that path).
       pendingStartIsFollowUp: true,
       waitingForManagedChildren: false,
-      managerReportRequested: false,
-      managerTurnStartedFromTerminal: false,
+      pendingManagerTurnOrigin: record.pendingManagerTurnOrigin,
+      managerTurnOrigin: record.managerTurnOrigin,
+      managerTurnVisibility: record.managerTurnVisibility,
+      managerTurnLifecycle: record.managerTurnLifecycle,
       attemptGeneration: Number.isFinite(record.attemptGeneration)
         ? Math.max(0, Math.floor(record.attemptGeneration))
         : 0,
@@ -1184,13 +1229,9 @@ export class LocalAgentManager implements AgentToolApi {
    */
   private deliverFollowUpAsNextTurn(task: RuntimeAgentRecord): void {
     const pendingStartStatusText = task.pendingStartStatusText;
-    const pendingStartOrigin = task.pendingStartOrigin;
-    const managerReportRequested = task.managerReportRequested;
-    const managerTurnStartedFromTerminal = task.managerTurnStartedFromTerminal;
+    const pendingManagerTurnOrigin = task.pendingManagerTurnOrigin;
     const prompt = this.buildTaskPrompt(task);
     this.resetTaskForNextAttempt(task, prompt);
-    task.managerReportRequested = managerReportRequested;
-    task.managerTurnStartedFromTerminal = managerTurnStartedFromTerminal;
     // The superseded turn's boundary emitted no completion event (the
     // dispatch short-circuits into this delivery before the lifecycle
     // emit) — an interjection extends ongoing work, so only the continued
@@ -1198,7 +1239,7 @@ export class LocalAgentManager implements AgentToolApi {
     task.pendingStartStatusText = pendingStartStatusText;
     // Interjected in-flight work is a `send_input` follow-up, not a spawn.
     task.pendingStartIsFollowUp = true;
-    task.pendingStartOrigin = pendingStartOrigin;
+    task.pendingManagerTurnOrigin = pendingManagerTurnOrigin;
     task.recentActivity = [
       pendingStartStatusText ?? "Applying task update from orchestrator.",
     ];
@@ -1319,10 +1360,21 @@ export class LocalAgentManager implements AgentToolApi {
       const controller = task.controller;
       const startStatusText = task.pendingStartStatusText ?? task.description;
       const startIsFollowUp = task.pendingStartIsFollowUp ?? false;
-      const startOrigin = task.pendingStartOrigin;
+      const startOrigin =
+        task.agentType === AGENT_IDS.MANAGER
+          ? (task.pendingManagerTurnOrigin ??
+            (task.turnCount === 0 ? "initial" : "managed-child"))
+          : undefined;
       task.pendingStartStatusText = undefined;
       task.pendingStartIsFollowUp = undefined;
-      task.pendingStartOrigin = undefined;
+      task.pendingManagerTurnOrigin = undefined;
+      if (task.agentType === AGENT_IDS.MANAGER) {
+        task.managerTurnOrigin = startOrigin;
+        task.managerTurnVisibility =
+          startOrigin === "external-input" ? "parent" : "internal";
+        task.managerTurnLifecycle =
+          startOrigin === "external-input" ? "continue" : "complete-when-idle";
+      }
       this.persistTask(task);
       this.opts.onAgentEvent?.({
         type: "agent-started",
@@ -1460,6 +1512,10 @@ export class LocalAgentManager implements AgentToolApi {
           : context.maxAgentDepth;
       context.agentDepth = task.agentDepth;
       context.attemptGeneration = attempt.generation;
+      if (task.agentType === AGENT_IDS.MANAGER) {
+        context.managerTurnOrigin = task.managerTurnOrigin;
+        context.managerTurnVisibility = task.managerTurnVisibility;
+      }
 
       const taskPrompt = this.buildTaskPrompt(task);
       task.turnCount += 1;
@@ -1705,22 +1761,27 @@ export class LocalAgentManager implements AgentToolApi {
     }
 
     const managerStatusReported =
-      task.result?.trimStart().startsWith("[Status]") === true &&
-      task.managerTurnStartedFromTerminal !== true;
+      task.result?.trimStart().startsWith("[Status]") === true;
     const managerMilestoneReported =
       task.result?.trimStart().startsWith("[Milestone]") === true;
+    const managerParentVisibleReply = task.managerTurnVisibility === "parent";
+    const managerHasActiveWork =
+      task.agentType === AGENT_IDS.MANAGER &&
+      this.hasActiveManagedChildren(task.threadId);
     if (
       task.agentType === AGENT_IDS.MANAGER &&
       task.status === "completed" &&
       (managerStatusReported ||
         managerMilestoneReported ||
-        this.hasActiveManagedChildren(task.threadId))
+        managerParentVisibleReply ||
+        managerHasActiveWork)
     ) {
       const shouldReportInterim =
         managerStatusReported ||
-        task.managerReportRequested === true ||
-        managerMilestoneReported;
+        managerMilestoneReported ||
+        managerParentVisibleReply;
       if (shouldReportInterim) {
+        task.managerTurnVisibility = "parent";
         const interimResult = managerStatusReported
           ? task.result?.trimStart().slice("[Status]".length).trimStart()
           : task.result;
@@ -1745,11 +1806,14 @@ export class LocalAgentManager implements AgentToolApi {
       task.error = undefined;
       task.controller = new AbortController();
       task.waitingForManagedChildren = true;
-      task.managerReportRequested = false;
-      task.managerTurnStartedFromTerminal = false;
+      task.managerTurnLifecycle = "continue";
       task.terminalEventEmitted = false;
       this.persistTask(task);
       return;
+    }
+
+    if (task.agentType === AGENT_IDS.MANAGER && task.status === "completed") {
+      task.managerTurnLifecycle = "complete";
     }
 
     // Task has reached a terminal status (completed/error/canceled). Drop
@@ -1923,8 +1987,9 @@ export class LocalAgentManager implements AgentToolApi {
       interruptedForFollowUp: false,
       terminalEventEmitted: false,
       waitingForManagedChildren: false,
-      managerReportRequested: false,
-      managerTurnStartedFromTerminal: false,
+      ...(request.agentType === AGENT_IDS.MANAGER
+        ? { managerTurnLifecycle: "complete-when-idle" as const }
+        : {}),
       attemptGeneration: 0,
     };
     logWorkingIndicatorTrace("[stella:working-indicator:create-agent]", {
@@ -2222,7 +2287,7 @@ export class LocalAgentManager implements AgentToolApi {
       local.interruptedForFollowUp = false;
       local.pendingStartStatusText = undefined;
       local.pendingStartIsFollowUp = undefined;
-      local.pendingStartOrigin = undefined;
+      local.pendingManagerTurnOrigin = undefined;
       this.opts.onAgentEvent?.({
         type: "agent-progress",
         conversationId: local.conversationId,
@@ -2388,21 +2453,12 @@ export class LocalAgentManager implements AgentToolApi {
       if (rootRunId) {
         resumedTask.rootRunId = rootRunId;
       }
-      resumedTask.pendingStartOrigin = isManagerEvent
+      resumedTask.pendingManagerTurnOrigin = isManagerEvent
         ? "managed-child"
         : "external-input";
       if (options?.parentAgentId) {
         resumedTask.parentAgentId = options.parentAgentId;
       }
-      resumedTask.managerReportRequested =
-        resumedTask.agentType === AGENT_IDS.MANAGER &&
-        options?.deliveryKind === "external-input";
-      resumedTask.managerTurnStartedFromTerminal =
-        resumedTask.agentType === AGENT_IDS.MANAGER &&
-        options?.deliveryKind === "external-input" &&
-        (persisted.status === "completed" ||
-          persisted.status === "error" ||
-          persisted.status === "canceled");
       if (followUpDescription) {
         resumedTask.description = followUpDescription;
       }
@@ -2441,16 +2497,13 @@ export class LocalAgentManager implements AgentToolApi {
     ) {
       task.modelConfigSnapshot = options.modelConfigSnapshot;
     }
-    if (
-      task.agentType === AGENT_IDS.MANAGER &&
-      options?.deliveryKind === "external-input"
-    ) {
-      task.managerReportRequested = true;
-    }
     if (options?.deliveryKind === "external-input") {
-      task.pendingStartOrigin = "external-input";
-    } else if (isManagerEvent && task.pendingStartOrigin !== "external-input") {
-      task.pendingStartOrigin = "managed-child";
+      task.pendingManagerTurnOrigin = "external-input";
+    } else if (
+      isManagerEvent &&
+      task.pendingManagerTurnOrigin !== "external-input"
+    ) {
+      task.pendingManagerTurnOrigin = "managed-child";
     }
     if (task.waitingForManagedChildren && task.status === "pending") {
       task.toSubagentQueue.push(deliveredInput);
@@ -2499,10 +2552,10 @@ export class LocalAgentManager implements AgentToolApi {
         agentType: task.agentType,
         threadId: task.threadId,
       });
-      const managerTurnStartedFromTerminal =
-        task.agentType === AGENT_IDS.MANAGER;
       this.resetTaskForNextAttempt(task, text);
-      task.managerTurnStartedFromTerminal = managerTurnStartedFromTerminal;
+      if (task.agentType === AGENT_IDS.MANAGER) {
+        task.pendingManagerTurnOrigin = "external-input";
+      }
       task.pendingStartStatusText = updateStatusText;
       // Re-activating a terminal thread is a `send_input` follow-up.
       task.pendingStartIsFollowUp = true;

@@ -31,8 +31,7 @@ const logger = createRuntimeLogger("agent-runtime.thread-memory");
 const LIFE_REGISTRY_DISPLAY_PATH = "~/.stella/registry.md";
 const LIFE_CORE_MEMORY_DISPLAY_PATH = "~/.stella/core-memory.md";
 const LIFE_USER_PROFILE_DISPLAY_PATH = "~/.stella/memories/profile.md";
-const LIFE_MEMORY_SUMMARY_DISPLAY_PATH =
-  "~/.stella/memories/memory_summary.md";
+const LIFE_MEMORY_SUMMARY_DISPLAY_PATH = "~/.stella/memories/memory_summary.md";
 const LIFE_PERSONALITY_DISPLAY_PATH = "~/.stella/PERSONALITY.md";
 const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
 export const buildRunThreadKey = ({
@@ -287,8 +286,22 @@ export const persistThreadPayloadMessage = (
     payload: PersistedRuntimeThreadPayload;
     runId?: string;
     attemptGeneration?: number;
+    managerTurnOrigin?: "initial" | "managed-child" | "external-input";
+    managerTurnVisibility?: "internal" | "parent";
   },
 ): void => {
+  const assistantText =
+    args.payload.role === "assistant"
+      ? args.payload.content
+          .flatMap((block) =>
+            block.type === "text" && block.text.trim() ? [block.text] : [],
+          )
+          .join("\n\n")
+          .trim()
+      : "";
+  const structuredPublicManagerUpdate =
+    args.payload.role === "assistant" &&
+    /^\s*\[(?:Status|Milestone)\]\s*/.test(assistantText);
   const payload =
     args.payload.role === "assistant"
       ? ({
@@ -297,6 +310,14 @@ export const persistThreadPayloadMessage = (
           ...(typeof args.attemptGeneration === "number"
             ? { stellaAttemptGeneration: args.attemptGeneration }
             : {}),
+          ...(args.managerTurnOrigin
+            ? { stellaManagerTurnOrigin: args.managerTurnOrigin }
+            : {}),
+          ...(structuredPublicManagerUpdate
+            ? { stellaManagerTurnVisibility: "parent" }
+            : args.managerTurnVisibility
+              ? { stellaManagerTurnVisibility: args.managerTurnVisibility }
+              : {}),
         } as PersistedRuntimeThreadPayload)
       : args.payload;
   const preview = buildThreadMessagePreview(payload);
@@ -530,7 +551,10 @@ export const buildStartupPromptMessages = async (args: {
     ? redactMemoryText(args.context.coreMemory.trim())
     : "";
   if (coreMemory) {
-    const doc = buildStartupDocMessage(LIFE_CORE_MEMORY_DISPLAY_PATH, coreMemory);
+    const doc = buildStartupDocMessage(
+      LIFE_CORE_MEMORY_DISPLAY_PATH,
+      coreMemory,
+    );
     if (!hasPersistedStartupDoc(args.context, doc)) {
       messages.push(
         createInternalPromptMessage(
@@ -876,14 +900,49 @@ export const persistAssistantReply = async (args: {
   agentType: string;
   content: string;
   stellaDataDir?: string;
+  runId?: string;
+  attemptGeneration?: number;
+  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
+  managerTurnVisibility?: "internal" | "parent";
 }): Promise<void> => {
   if (!args.content.trim()) {
     return;
   }
-  appendThreadMessage(args.store, {
+  persistThreadPayloadMessage(args.store, {
     threadKey: args.threadKey,
-    role: "assistant",
-    content: args.content,
+    ...(args.runId ? { runId: args.runId } : {}),
+    ...(typeof args.attemptGeneration === "number"
+      ? { attemptGeneration: args.attemptGeneration }
+      : {}),
+    ...(args.managerTurnOrigin
+      ? { managerTurnOrigin: args.managerTurnOrigin }
+      : {}),
+    ...(args.managerTurnVisibility
+      ? { managerTurnVisibility: args.managerTurnVisibility }
+      : {}),
+    payload: {
+      role: "assistant",
+      content: [{ type: "text", text: args.content }],
+      api: args.resolvedLlm.model.api,
+      provider: args.resolvedLlm.model.provider,
+      model: args.resolvedLlm.model.id,
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+      },
+      stopReason: "stop",
+      timestamp: now(),
+    },
   });
   await compactRuntimeThreadHistory(args);
 };

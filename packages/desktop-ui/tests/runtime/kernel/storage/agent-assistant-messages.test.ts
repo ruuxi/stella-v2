@@ -74,6 +74,8 @@ const appendAssistant = (
     text: string;
     stopReason?: "toolUse" | "stop";
     attemptGeneration?: number;
+    managerTurnOrigin?: "initial" | "managed-child" | "external-input";
+    managerTurnVisibility?: "internal" | "parent";
   },
 ) => {
   const stopReason = args.stopReason ?? "toolUse";
@@ -92,6 +94,12 @@ const appendAssistant = (
       stopReason,
       timestamp: args.timestamp,
       stellaAttemptGeneration: args.attemptGeneration ?? 0,
+      ...(args.managerTurnOrigin
+        ? { stellaManagerTurnOrigin: args.managerTurnOrigin }
+        : {}),
+      ...(args.managerTurnVisibility
+        ? { stellaManagerTurnVisibility: args.managerTurnVisibility }
+        : {}),
     } as never,
   });
 };
@@ -187,6 +195,187 @@ describe("agent-authored assistant updates", () => {
         assistantMessagesUpdatedAt: 1_001,
       }),
     );
+  });
+
+  it("orders and fences authored messages written in the same millisecond", () => {
+    const onThreadAssistantUpdate = vi.fn();
+    const { store } = createTestContext(onThreadAssistantUpdate);
+    saveRunningAgent(store, {
+      threadId: "same-ms-agent",
+      startedAt: 1_000,
+      attemptGeneration: 3,
+    });
+    appendAssistant(store, {
+      threadId: "same-ms-agent",
+      timestamp: 1_001,
+      text: "First same-millisecond update",
+      attemptGeneration: 3,
+    });
+    appendAssistant(store, {
+      threadId: "same-ms-agent",
+      timestamp: 1_001,
+      text: "Second same-millisecond update",
+      attemptGeneration: 3,
+    });
+
+    const updates = onThreadAssistantUpdate.mock.calls.map(
+      ([payload]) => payload.assistantUpdate!,
+    );
+    expect(updates).toHaveLength(2);
+    expect(updates[1]!.atMs).toBe(updates[0]!.atMs);
+    expect(updates[1]!.entrySequence).toBeGreaterThan(
+      updates[0]!.entrySequence,
+    );
+    expect(updates[1]!.assistantMessages).toEqual([
+      "First same-millisecond update",
+      "Second same-millisecond update",
+    ]);
+    expect(store.listThreadActivity("conv-1")[0]).toMatchObject({
+      assistantMessages: [
+        "First same-millisecond update",
+        "Second same-millisecond update",
+      ],
+      assistantMessagesUpdatedAt: 1_001,
+      assistantMessagesEntrySequence: updates[1]!.entrySequence,
+    });
+  });
+
+  it("projects a bounded exact-agent transcript and rejects root threads", () => {
+    const { store } = createTestContext();
+    saveRunningAgent(store, {
+      threadId: "manager-thread",
+      startedAt: 1_000,
+      attemptGeneration: 1,
+      agentType: "manager",
+    });
+    store.appendThreadMessage({
+      threadKey: "manager-thread",
+      timestamp: 1_001,
+      role: "user",
+      content: "Coordinate the check.",
+    });
+    store.appendThreadMessage({
+      threadKey: "manager-thread",
+      timestamp: 1_002,
+      role: "assistant",
+      content: "I inspected the ancestry.",
+      payload: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I inspected the ancestry." },
+          {
+            type: "toolCall",
+            id: "tool-1",
+            name: "exec_command",
+            arguments: { cmd: "git status --short" },
+          },
+        ],
+        api: "openai-codex-responses",
+        provider: "openai-codex",
+        model: "codex",
+        usage: EMPTY_USAGE,
+        stopReason: "toolUse",
+        timestamp: 1_002,
+        stellaAttemptGeneration: 1,
+      } as never,
+    });
+    store.appendThreadMessage({
+      threadKey: "manager-thread",
+      timestamp: 1_003,
+      role: "toolResult",
+      toolCallId: "tool-1",
+      content: "clean",
+      payload: {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "exec_command",
+        content: [{ type: "text", text: "clean" }],
+        isError: false,
+        timestamp: 1_003,
+      } as never,
+    });
+
+    expect(store.listThreadTranscript("manager-thread")).toMatchObject({
+      threadId: "manager-thread",
+      agentType: "manager",
+      status: "running",
+      truncated: false,
+      entries: [
+        { kind: "user", text: "Coordinate the check." },
+        {
+          kind: "assistant",
+          text: "I inspected the ancestry.",
+          tools: [
+            {
+              toolCallId: "tool-1",
+              name: "exec_command",
+              argumentsPreview: '{"cmd":"git status --short"}',
+            },
+          ],
+        },
+        {
+          kind: "tool-result",
+          toolCallId: "tool-1",
+          toolName: "exec_command",
+          text: "clean",
+          isError: false,
+        },
+      ],
+    });
+
+    saveRunningAgent(store, {
+      threadId: "root-thread",
+      startedAt: 1_000,
+      agentType: "orchestrator",
+    });
+    expect(store.listThreadTranscript("root-thread")).toBeNull();
+  });
+
+  it("projects only parent-visible Manager authored replies into Activity", () => {
+    const { store } = createTestContext();
+    const saveManager = (visibility: "internal" | "parent") =>
+      store.saveAgentRecord({
+        threadId: "manager-activity",
+        conversationId: "conv-1",
+        agentType: "manager",
+        description: "Coordinate visible status",
+        agentDepth: 1,
+        status: "running",
+        attemptGeneration: 2,
+        startedAt: 1_000,
+        completedAt: null,
+        updatedAt: 1_100,
+        managerTurnOrigin: "managed-child",
+        managerTurnVisibility: visibility,
+        managerTurnLifecycle: "continue",
+      });
+    saveManager("internal");
+    appendAssistant(store, {
+      threadId: "manager-activity",
+      timestamp: 1_001,
+      text: "Internal child synthesis",
+      stopReason: "stop",
+      attemptGeneration: 2,
+      managerTurnOrigin: "managed-child",
+      managerTurnVisibility: "internal",
+    });
+    expect(
+      store.listThreadActivity("conv-1")[0]?.assistantMessages,
+    ).toBeUndefined();
+
+    saveManager("parent");
+    appendAssistant(store, {
+      threadId: "manager-activity",
+      timestamp: 1_002,
+      text: "[Status] Public Manager checkpoint",
+      stopReason: "stop",
+      attemptGeneration: 2,
+      managerTurnOrigin: "managed-child",
+      managerTurnVisibility: "parent",
+    });
+    expect(store.listThreadActivity("conv-1")[0]).toMatchObject({
+      assistantMessages: ["Public Manager checkpoint"],
+    });
   });
 
   it("scopes updates to the current attempt and excludes terminal answers", () => {

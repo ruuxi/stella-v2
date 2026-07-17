@@ -606,6 +606,7 @@ export const AssistantMessageRow = memo(
               terminalEventIdsByThread={
                 row.backgroundWork.terminalEventIdsByThread
               }
+              conversationId={conversationId}
             />
           ) : null}
           {hasAgentCompletion && row.agentCompletion && (

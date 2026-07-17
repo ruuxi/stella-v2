@@ -85,6 +85,7 @@ const recordsSignature = (records: ThreadActivityRecord[]): string =>
       record.description,
       record.rootRunId ?? "",
       record.assistantMessages ?? [],
+      record.assistantMessagesEntrySequence ?? 0,
     ]),
   );
 
@@ -119,7 +120,14 @@ const applyAssistantUpdateWatermarks = (
       entry.assistantUpdates.delete(record.threadId);
       return record;
     }
-    if ((record.assistantMessagesUpdatedAt ?? 0) >= update.atMs) {
+    const listAtMs = record.assistantMessagesUpdatedAt ?? 0;
+    const listEntrySequence = record.assistantMessagesEntrySequence;
+    if (
+      listAtMs > update.atMs ||
+      (listAtMs === update.atMs &&
+        listEntrySequence !== undefined &&
+        listEntrySequence >= update.entrySequence)
+    ) {
       entry.assistantUpdates.delete(record.threadId);
       return record;
     }
@@ -127,6 +135,7 @@ const applyAssistantUpdateWatermarks = (
       ...record,
       assistantMessages: update.assistantMessages,
       assistantMessagesUpdatedAt: update.atMs,
+      assistantMessagesEntrySequence: update.entrySequence,
     };
   });
 
@@ -202,7 +211,9 @@ const handleThreadActivityUpdated = (payload: ThreadActivityUpdatedPayload) => {
       !previous ||
       update.attemptGeneration > previous.attemptGeneration ||
       (update.attemptGeneration === previous.attemptGeneration &&
-        update.atMs >= previous.atMs)
+        (update.atMs > previous.atMs ||
+          (update.atMs === previous.atMs &&
+            update.entrySequence >= previous.entrySequence)))
     ) {
       entry.assistantUpdates.set(update.threadId, update);
       if (entry.snapshot.hasLoaded) {

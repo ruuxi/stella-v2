@@ -300,10 +300,12 @@ describe("manager orchestration production routing", () => {
         modelConfigSnapshot: snapshot,
       },
     );
-    await waitUntil(
-      async () =>
-        (await harness.manager.getAgent(threadId))?.status === "completed",
+    await waitUntil(() =>
+      harness.sentMessages.some((message) =>
+        message.text.includes("Resumed on the inherited route."),
+      ),
     );
+    expect((await harness.manager.getAgent(threadId))?.status).toBe("running");
     expect(harness.fetchedModelConfigs).toContainEqual(snapshot);
     expect(harness.store.getAgentRecord(threadId)?.modelConfigSnapshot).toEqual(
       snapshot,
@@ -626,6 +628,280 @@ describe("manager orchestration production routing", () => {
     ).toEqual(["agent-started", "agent-completed"]);
   });
 
+  it("routes transitive descendants through durable Manager turn visibility and completes root once at fleet idle", async () => {
+    const { manager, store, appendedEvents, sentMessages } = createHarness();
+    let releaseManagerFirst!: () => void;
+    const managerFirstGate = new Promise<void>((resolve) => {
+      releaseManagerFirst = resolve;
+    });
+    let releaseChild!: () => void;
+    const childGate = new Promise<void>((resolve) => {
+      releaseChild = resolve;
+    });
+    let releaseDescendant!: () => void;
+    const descendantGate = new Promise<void>((resolve) => {
+      releaseDescendant = resolve;
+    });
+    let releaseAudit!: () => void;
+    const auditGate = new Promise<void>((resolve) => {
+      releaseAudit = resolve;
+    });
+    const managerRuns: MockRunArgs[] = [];
+    let descendantRuns = 0;
+    runMock.handler = async (args) => {
+      if (args.agentType === AGENT_IDS.MANAGER) {
+        managerRuns.push(args);
+        if (managerRuns.length === 1) {
+          await managerFirstGate;
+          return { runId: "manager-initial", result: "Delegated the work." };
+        }
+        if (managerRuns.length === 2) {
+          return {
+            runId: "manager-descendant-internal",
+            result: "Internal descendant synthesis stays private.",
+          };
+        }
+        if (managerRuns.length === 3) {
+          return {
+            runId: "manager-parent-reply",
+            result: "Parent-visible steering reply.",
+          };
+        }
+        if (managerRuns.length === 4) {
+          return {
+            runId: "manager-public-status",
+            result: "[Status] Public status while child remains active.",
+          };
+        }
+        if (managerRuns.length === 5) {
+          return {
+            runId: "manager-milestone",
+            result: "[Milestone] Final child settled; audit still required.",
+          };
+        }
+        return {
+          runId: "manager-final",
+          result: "Fleet-idle consolidated final.",
+        };
+      }
+      if (args.agentId === "general-child") {
+        await childGate;
+        return { runId: "child-final", result: "General child complete." };
+      }
+      if (args.agentId === "nested-descendant") {
+        descendantRuns += 1;
+        if (descendantRuns === 1) {
+          await waitForAbort(args.abortSignal);
+          return { runId: "descendant-paused", result: "", interrupted: true };
+        }
+        await descendantGate;
+        return {
+          runId: "descendant-final",
+          result: "Nested descendant complete.",
+        };
+      }
+      if (args.agentId === "manager-audit") {
+        await auditGate;
+        return { runId: "audit-final", result: "Audit complete." };
+      }
+      throw new Error(`Unexpected agent ${args.agentId}`);
+    };
+
+    const managerTask = await manager.createAgent({
+      threadId: "transitive-manager",
+      conversationId: "conversation-transitive",
+      description: "Coordinate nested work",
+      prompt: "Coordinate the nested fleet.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      maxAgentDepth: 4,
+      storageMode: "local",
+    });
+    const child = await manager.createAgent({
+      threadId: "general-child",
+      conversationId: "conversation-transitive",
+      description: "Own nested verification",
+      prompt: "Verify and delegate one nested check.",
+      agentType: AGENT_IDS.GENERAL,
+      agentDepth: 2,
+      maxAgentDepth: 4,
+      parentAgentId: managerTask.threadId,
+      storageMode: "local",
+    });
+    const descendant = await manager.createAgent({
+      threadId: "nested-descendant",
+      conversationId: "conversation-transitive",
+      description: "Run nested check",
+      prompt: "Run the nested check.",
+      agentType: AGENT_IDS.GENERAL,
+      agentDepth: 3,
+      maxAgentDepth: 4,
+      parentAgentId: child.threadId,
+      storageMode: "local",
+    });
+    await waitUntil(() => descendantRuns === 1);
+    await manager.sendAgentMessage(
+      descendant.threadId,
+      "Recheck before reporting upward.",
+      "orchestrator",
+      { deliveryKind: "external-input", parentAgentId: child.threadId },
+    );
+    await waitUntil(() => descendantRuns === 2);
+    releaseManagerFirst();
+    await waitUntil(
+      () =>
+        store.getAgentRecord(managerTask.threadId)?.managerTurnLifecycle ===
+        "continue",
+    );
+
+    releaseDescendant();
+    await waitUntil(() => managerRuns.length === 2);
+    await waitUntil(
+      () =>
+        store.getAgentRecord(managerTask.threadId)?.managerTurnOrigin ===
+        "managed-child",
+    );
+    expect(store.getAgentRecord(managerTask.threadId)).toMatchObject({
+      managerTurnOrigin: "managed-child",
+      managerTurnVisibility: "internal",
+      managerTurnLifecycle: "continue",
+    });
+    expect(JSON.stringify(sentMessages)).not.toContain(
+      "Internal descendant synthesis stays private.",
+    );
+
+    await manager.sendAgentMessage(
+      managerTask.threadId,
+      "Reply now, but keep coordinating the active child.",
+      "orchestrator",
+      { deliveryKind: "external-input" },
+    );
+    await waitUntil(() =>
+      sentMessages.some((message) =>
+        message.text.includes("Parent-visible steering reply."),
+      ),
+    );
+    expect(store.getAgentRecord(managerTask.threadId)).toMatchObject({
+      managerTurnOrigin: "external-input",
+      managerTurnVisibility: "parent",
+      managerTurnLifecycle: "continue",
+      status: "running",
+    });
+
+    await manager.sendAgentMessage(
+      managerTask.threadId,
+      "Publish a status, then continue.",
+      "orchestrator",
+      { deliveryKind: "external-input" },
+    );
+    await waitUntil(() =>
+      sentMessages.some((message) =>
+        message.text.includes("Public status while child remains active."),
+      ),
+    );
+
+    releaseChild();
+    await waitUntil(() =>
+      sentMessages.some((message) =>
+        message.text.includes("Final child settled; audit still required."),
+      ),
+    );
+    expect(store.getAgentRecord(managerTask.threadId)?.status).toBe("running");
+    expect(
+      appendedEvents.filter(
+        (event) =>
+          event.type === "agent-completed" &&
+          (event.payload as { agentId?: string }).agentId ===
+            managerTask.threadId,
+      ),
+    ).toHaveLength(0);
+
+    const audit = await manager.createAgent({
+      threadId: "manager-audit",
+      conversationId: "conversation-transitive",
+      description: "Run final audit",
+      prompt: "Complete the final audit.",
+      agentType: AGENT_IDS.GENERAL,
+      agentDepth: 2,
+      maxAgentDepth: 4,
+      parentAgentId: managerTask.threadId,
+      storageMode: "local",
+    });
+    releaseAudit();
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(managerTask.threadId))?.status === "completed",
+    );
+    expect(managerRuns).toHaveLength(6);
+    expect(historyText(managerRuns[1]!)).toContain(
+      "Nested descendant complete.",
+    );
+    expect(managerRuns[1]?.userPrompt).toContain(
+      "newly persisted managed-child event",
+    );
+    expect(store.getAgentRecord(managerTask.threadId)).toMatchObject({
+      managerTurnOrigin: "managed-child",
+      managerTurnVisibility: "internal",
+      managerTurnLifecycle: "complete",
+    });
+
+    const rootEvents = appendedEvents.filter((event) =>
+      [
+        "agent-started",
+        "agent-completed",
+        "agent-failed",
+        "agent-canceled",
+      ].includes(event.type),
+    );
+    expect(
+      rootEvents.map((event) => ({
+        type: event.type,
+        agentId: (event.payload as { agentId?: string }).agentId,
+      })),
+    ).toEqual([
+      { type: "agent-started", agentId: managerTask.threadId },
+      { type: "agent-started", agentId: managerTask.threadId },
+      { type: "agent-started", agentId: managerTask.threadId },
+      { type: "agent-completed", agentId: managerTask.threadId },
+    ]);
+    const rootJson = JSON.stringify({ rootEvents, sentMessages });
+    expect(rootJson).not.toContain("Nested descendant complete.");
+    expect(rootJson).not.toContain("A managed child reached a terminal state");
+    expect(rootJson).not.toContain("Recheck before reporting upward.");
+    expect(
+      sentMessages.filter((message) =>
+        message.text.includes("Fleet-idle consolidated final."),
+      ),
+    ).toHaveLength(1);
+    expect(
+      sentMessages.find((message) =>
+        message.text.includes("Fleet-idle consolidated final."),
+      ),
+    ).toMatchObject({
+      responseTarget: {
+        type: "agent_terminal_notice",
+        agentId: managerTask.threadId,
+        terminalState: "completed",
+      },
+    });
+    const activity = store.listThreadActivity("conversation-transitive");
+    expect(activity.map((record) => record.threadId).sort()).toEqual(
+      [
+        managerTask.threadId,
+        child.threadId,
+        descendant.threadId,
+        audit.threadId,
+      ].sort(),
+    );
+    expect(
+      activity.find((record) => record.threadId === descendant.threadId),
+    ).toMatchObject({
+      parentAgentId: child.threadId,
+      status: "completed",
+      result: "Nested descendant complete.",
+    });
+  });
+
   it.each([
     "Status?",
     "Any update?",
@@ -702,9 +978,11 @@ describe("manager orchestration production routing", () => {
         "orchestrator",
         { deliveryKind: "external-input" },
       );
-      await waitUntil(
-        async () =>
-          (await manager.getAgent(task.threadId))?.status === "completed",
+      await waitUntil(() => managerRuns.length === 3);
+      await waitUntil(() =>
+        sentMessages.some((message) =>
+          message.text.includes("Planning resumed and the process finished."),
+        ),
       );
       expect(managerRuns).toHaveLength(3);
       expect(managerRuns[2]?.userPrompt).toContain(
@@ -719,7 +997,8 @@ describe("manager orchestration production routing", () => {
             event.type === "agent-completed" &&
             (event.payload as { agentId?: string })?.agentId === task.threadId,
         ),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
+      expect((await manager.getAgent(task.threadId))?.status).toBe("running");
     },
   );
 
@@ -797,9 +1076,11 @@ describe("manager orchestration production routing", () => {
       "orchestrator",
       { deliveryKind: "external-input" },
     );
-    await waitUntil(
-      async () =>
-        (await manager.getAgent(task.threadId))?.status === "completed",
+    await waitUntil(() => managerRuns.length === 4);
+    await waitUntil(() =>
+      sentMessages.some((message) =>
+        message.text.includes("Planning finished after the status checks."),
+      ),
     );
     expect(managerRuns).toHaveLength(4);
     expect(
@@ -808,7 +1089,8 @@ describe("manager orchestration production routing", () => {
           event.type === "agent-completed" &&
           (event.payload as { agentId?: string })?.agentId === task.threadId,
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
+    expect((await manager.getAgent(task.threadId))?.status).toBe("running");
   });
 
   it("keeps a between-stage status poke non-terminal with no active child", async () => {
@@ -913,9 +1195,11 @@ describe("manager orchestration production routing", () => {
       "orchestrator",
       { deliveryKind: "external-input" },
     );
-    await waitUntil(
-      async () =>
-        (await manager.getAgent(managerTask.threadId))?.status === "completed",
+    await waitUntil(() => managerRuns.length === 4);
+    await waitUntil(() =>
+      sentMessages.some((message) =>
+        message.text.includes("Stage two completed and the process settled."),
+      ),
     );
     expect(managerRuns).toHaveLength(4);
     expect(managerRuns[3]?.userPrompt).toContain(
@@ -928,7 +1212,10 @@ describe("manager orchestration production routing", () => {
           (event.payload as { agentId?: string })?.agentId ===
             managerTask.threadId,
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
+    expect((await manager.getAgent(managerTask.threadId))?.status).toBe(
+      "running",
+    );
   });
 
   it("keeps post-completion status input on the existing terminal follow-up path", async () => {
@@ -963,10 +1250,10 @@ describe("manager orchestration production routing", () => {
       { deliveryKind: "external-input" },
     );
     await waitUntil(() => managerRuns.length === 2);
-    await waitUntil(
-      async () =>
-        (await manager.getAgent(task.threadId))?.status === "completed",
+    await waitUntil(() =>
+      sentMessages.some((message) => message.text.includes("already complete")),
     );
+    expect((await manager.getAgent(task.threadId))?.status).toBe("running");
 
     expect(managerRuns[1]?.userPrompt).toContain("Give me a status update.");
     expect(managerRuns[1]?.userPrompt).not.toContain(
@@ -978,14 +1265,14 @@ describe("manager orchestration production routing", () => {
           message.customType === "runtime.task_update" &&
           message.text.includes("already complete"),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       appendedEvents.filter(
         (event) =>
           event.type === "agent-completed" &&
           (event.payload as { agentId?: string })?.agentId === task.threadId,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   it("publishes an instructed sentinel-prefixed milestone without completing the manager", async () => {
@@ -1288,9 +1575,11 @@ describe("manager orchestration production routing", () => {
     expect(
       historyText(managerRuns[2]!).match(/Late child completion\./g),
     ).toHaveLength(1);
-    await waitUntil(
-      async () =>
-        (await manager.getAgent(managerTask.threadId))?.status === "completed",
+    await waitUntil(() =>
+      sentMessages.some((message) => message.text.includes("Resumed safely.")),
+    );
+    expect((await manager.getAgent(managerTask.threadId))?.status).toBe(
+      "running",
     );
     expect((await manager.getAgent(childTask.threadId))?.status).toBe(
       "canceled",
@@ -1357,7 +1646,7 @@ describe("manager orchestration production routing", () => {
   });
 
   it("does not start a resumed attempt until the paused attempt tears down or let it overwrite final state", async () => {
-    const { manager, appendedEvents } = createHarness();
+    const { manager, appendedEvents, sentMessages } = createHarness();
     let releaseOldAttempt!: () => void;
     const oldAttemptGate = new Promise<void>((resolve) => {
       releaseOldAttempt = resolve;
@@ -1398,14 +1687,14 @@ describe("manager orchestration production routing", () => {
     releaseOldAttempt();
     await waitUntil(() => managerRuns.length === 2);
     expect(managerRuns[1]?.userPrompt).toContain("Resume now and finish.");
-    await waitUntil(
-      async () =>
-        (await manager.getAgent(managerTask.threadId))?.status === "completed",
+    await waitUntil(() =>
+      sentMessages.some((message) =>
+        message.text.includes("Resumed final result."),
+      ),
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(await manager.getAgent(managerTask.threadId)).toMatchObject({
-      status: "completed",
-      result: "Resumed final result.",
+      status: "running",
     });
     expect(
       appendedEvents.filter(
@@ -1414,7 +1703,7 @@ describe("manager orchestration production routing", () => {
           (event.payload as { agentId?: string }).agentId ===
             managerTask.threadId,
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
     expect(
       appendedEvents.filter(
         (event) =>
@@ -1426,7 +1715,7 @@ describe("manager orchestration production routing", () => {
   });
 
   it("takes over a paused attempt after bounded teardown when the old promise never settles", async () => {
-    const { manager, appendedEvents } = createHarness({
+    const { manager, appendedEvents, sentMessages } = createHarness({
       attemptTeardownTimeoutMs: 25,
     });
     (
@@ -1464,13 +1753,13 @@ describe("manager orchestration production routing", () => {
     expect(managerRuns[1]?.userPrompt).toContain(
       "Resume after bounded teardown.",
     );
-    await waitUntil(
-      async () =>
-        (await manager.getAgent(task.threadId))?.status === "completed",
+    await waitUntil(() =>
+      sentMessages.some((message) =>
+        message.text.includes("Takeover completed."),
+      ),
     );
     expect(await manager.getAgent(task.threadId)).toMatchObject({
-      status: "completed",
-      result: "Takeover completed.",
+      status: "running",
     });
     expect(
       appendedEvents.filter(
@@ -1478,7 +1767,7 @@ describe("manager orchestration production routing", () => {
           event.type === "agent-completed" &&
           (event.payload as { agentId?: string }).agentId === task.threadId,
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("persists lifecycle ownership across restart and ignores event_id text injection", async () => {

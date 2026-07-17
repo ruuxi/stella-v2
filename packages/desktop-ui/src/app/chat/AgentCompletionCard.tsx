@@ -19,7 +19,7 @@
  */
 import { useLayoutEffect, useState } from "react";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
-import { Check, ChevronDown } from "@/ui/icons";
+import { Check, ChevronDown, MessageSquare } from "@/ui/icons";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { displayTabKindForPayload } from "@/features/workspace-display/payload-kind";
@@ -31,6 +31,7 @@ import type { ConversationFileEntry } from "@/features/workspace-display/derive-
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import { Markdown } from "./Markdown";
 import { OpenWithMenu } from "./OpenWithMenu";
+import { openThreadChatDisplayTab } from "@/shell/display/default-tabs";
 import "./agent-completion-card.css";
 
 /** Pills shown before the "+N more" control kicks in. */
@@ -89,6 +90,20 @@ const CompletionSection = ({
           <span className="agent-completion-card__section-title">
             {section.title}
           </span>
+          <button
+            type="button"
+            className="agent-completion-card__chat"
+            onClick={() =>
+              openThreadChatDisplayTab({
+                threadId: section.agentId,
+                title: section.title,
+              })
+            }
+            aria-label={`Open read-only chat for ${section.title}`}
+            title="Open read-only chat"
+          >
+            <MessageSquare size={14} strokeWidth={1.9} aria-hidden="true" />
+          </button>
         </div>
       ) : null}
       {total > 0 ? (
@@ -201,6 +216,20 @@ export function AgentCompletionCard({
           <span className="agent-completion-card__title">
             {visible[0]!.title}
           </span>
+          <button
+            type="button"
+            className="agent-completion-card__chat"
+            onClick={() =>
+              openThreadChatDisplayTab({
+                threadId: visible[0]!.agentId,
+                title: visible[0]!.title,
+              })
+            }
+            aria-label={`Open read-only chat for ${visible[0]!.title}`}
+            title="Open read-only chat"
+          >
+            <MessageSquare size={14} strokeWidth={1.9} aria-hidden="true" />
+          </button>
         </div>
       ) : null}
       {visible.map((section) => (

@@ -462,6 +462,8 @@ export const subscribeRuntimeAgentEvents = ({
   conversationId,
   uiVisibility,
   attemptGeneration,
+  managerTurnOrigin,
+  managerTurnVisibility,
 }: {
   agent: RuntimeAgentLike;
   runId: string;
@@ -476,6 +478,8 @@ export const subscribeRuntimeAgentEvents = ({
   conversationId?: string;
   uiVisibility?: "visible" | "hidden";
   attemptGeneration?: number;
+  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
+  managerTurnVisibility?: "internal" | "parent";
 }) => {
   // Stable run-level fields shared by every hook payload from this subscription.
   const hookContext = buildHookRuntimeContext({
@@ -525,6 +529,8 @@ export const subscribeRuntimeAgentEvents = ({
             ...(typeof attemptGeneration === "number"
               ? { attemptGeneration }
               : {}),
+            ...(managerTurnOrigin ? { managerTurnOrigin } : {}),
+            ...(managerTurnVisibility ? { managerTurnVisibility } : {}),
           });
         }
       }

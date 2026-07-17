@@ -154,6 +154,8 @@ export const persistExternalAssistantPreamble = (args: {
   engine: ExternalPreambleEngine;
   runId?: string;
   attemptGeneration?: number;
+  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
+  managerTurnVisibility?: "internal" | "parent";
 }): void => {
   const text = args.preamble.trim();
   if (!text) return;
@@ -163,6 +165,12 @@ export const persistExternalAssistantPreamble = (args: {
     ...(args.runId ? { runId: args.runId } : {}),
     ...(typeof args.attemptGeneration === "number"
       ? { attemptGeneration: args.attemptGeneration }
+      : {}),
+    ...(args.managerTurnOrigin
+      ? { managerTurnOrigin: args.managerTurnOrigin }
+      : {}),
+    ...(args.managerTurnVisibility
+      ? { managerTurnVisibility: args.managerTurnVisibility }
       : {}),
     payload: {
       role: "assistant",
@@ -186,6 +194,8 @@ export const createExternalAssistantUpdateBuffer = (args: {
   engine: ExternalPreambleEngine;
   runId?: string;
   attemptGeneration?: number;
+  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
+  managerTurnVisibility?: "internal" | "parent";
 }) => {
   let text = "";
   return {
@@ -646,6 +656,12 @@ const runClaudeHostedTurn = async (args: {
     ...(typeof args.opts.agentContext.attemptGeneration === "number"
       ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
       : {}),
+    ...(args.opts.agentContext.managerTurnOrigin
+      ? { managerTurnOrigin: args.opts.agentContext.managerTurnOrigin }
+      : {}),
+    ...(args.opts.agentContext.managerTurnVisibility
+      ? { managerTurnVisibility: args.opts.agentContext.managerTurnVisibility }
+      : {}),
   });
   const acceptClaudeStreamChunk = (chunk: string) => {
     assistantUpdateBuffer.append(chunk);
@@ -880,6 +896,16 @@ const runClaudeHostedTurn = async (args: {
     agentType: args.opts.agentType,
     content: finalResult.text,
     stellaDataDir: args.opts.stellaDataDir,
+    runId,
+    ...(typeof args.opts.agentContext.attemptGeneration === "number"
+      ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
+      : {}),
+    ...(args.opts.agentContext.managerTurnOrigin
+      ? { managerTurnOrigin: args.opts.agentContext.managerTurnOrigin }
+      : {}),
+    ...(args.opts.agentContext.managerTurnVisibility
+      ? { managerTurnVisibility: args.opts.agentContext.managerTurnVisibility }
+      : {}),
   });
   const assistantMessageEvent = runEvents.recordAssistantTextEnd(
     finalResult.text,
@@ -972,6 +998,12 @@ const runCodexHostedTurn = async (args: {
     runId,
     ...(typeof args.opts.agentContext.attemptGeneration === "number"
       ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
+      : {}),
+    ...(args.opts.agentContext.managerTurnOrigin
+      ? { managerTurnOrigin: args.opts.agentContext.managerTurnOrigin }
+      : {}),
+    ...(args.opts.agentContext.managerTurnVisibility
+      ? { managerTurnVisibility: args.opts.agentContext.managerTurnVisibility }
       : {}),
   });
   const flushPreambleBeforeTool = (args2: {
@@ -1242,6 +1274,16 @@ const runCodexHostedTurn = async (args: {
     agentType: args.opts.agentType,
     content: finalResult.text,
     stellaDataDir: args.opts.stellaDataDir,
+    runId,
+    ...(typeof args.opts.agentContext.attemptGeneration === "number"
+      ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
+      : {}),
+    ...(args.opts.agentContext.managerTurnOrigin
+      ? { managerTurnOrigin: args.opts.agentContext.managerTurnOrigin }
+      : {}),
+    ...(args.opts.agentContext.managerTurnVisibility
+      ? { managerTurnVisibility: args.opts.agentContext.managerTurnVisibility }
+      : {}),
   });
   const assistantMessageEvent = runEvents.recordAssistantTextEnd(
     finalResult.text,

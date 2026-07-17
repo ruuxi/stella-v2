@@ -34,6 +34,8 @@ describe("external-engine preamble→tool boundary", () => {
         engine,
         runId: "run-7",
         attemptGeneration: 7,
+        managerTurnOrigin: "external-input",
+        managerTurnVisibility: "parent",
       });
 
       expect(appendThreadMessage).toHaveBeenCalledOnce();
@@ -49,6 +51,8 @@ describe("external-engine preamble→tool boundary", () => {
             stopReason: "toolUse",
             stellaRunId: "run-7",
             stellaAttemptGeneration: 7,
+            stellaManagerTurnOrigin: "external-input",
+            stellaManagerTurnVisibility: "parent",
             content: [{ type: "text", text: "I inspected the route." }],
           }),
         }),
@@ -111,6 +115,27 @@ describe("external-engine preamble→tool boundary", () => {
       ).toBe(true);
     },
   );
+
+  it("promotes only the explicit structured Manager status marker", () => {
+    const appendThreadMessage = vi.fn();
+    persistExternalAssistantPreamble({
+      store: { appendThreadMessage } as never,
+      threadKey: "manager-1",
+      preamble: "[Status] Public checkpoint",
+      engine: "codex",
+      managerTurnOrigin: "managed-child",
+      managerTurnVisibility: "internal",
+    });
+
+    expect(appendThreadMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          stellaManagerTurnOrigin: "managed-child",
+          stellaManagerTurnVisibility: "parent",
+        }),
+      }),
+    );
+  });
 
   it("pairs streamed preamble text with the tool call it precedes", () => {
     const message = buildPreambleToolBoundaryMessage({

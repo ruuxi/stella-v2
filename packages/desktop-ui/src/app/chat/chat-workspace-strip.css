@@ -112,6 +112,7 @@
 }
 
 .chat-workspace-strip__task-row-head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -125,23 +126,26 @@
   margin-right: 0;
 }
 
-/* Hover-revealed "reference in chat" action on the right of a task row.
-   Space is always reserved (it's a flex sibling of the row button) so the
-   label doesn't reflow when the icon fades in; the -6px margin lets it sit
-   in the same gutter the row button's hover background bleeds into. */
-.chat-workspace-strip__task-attach {
+/* Exact-thread chat is a true trailing overlay: resting rows reserve no
+   width. Hover/focus yields only the button's width from the truncating text. */
+.chat-workspace-strip__task-chat {
   appearance: none;
-  flex: 0 0 auto;
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 4px;
-  margin-right: -6px;
+  width: 26px;
+  height: 26px;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--text-weak);
-  cursor: default;
+  cursor: pointer;
   opacity: 0;
   pointer-events: none;
   transition:
@@ -150,17 +154,35 @@
     color 120ms ease;
 }
 
-.chat-workspace-strip__task-row-head:hover .chat-workspace-strip__task-attach,
-.chat-workspace-strip__task-attach:focus-visible {
+.chat-workspace-strip__task-row-head:hover .chat-workspace-strip__task-button,
+.chat-workspace-strip__task-row-head:focus-within
+  .chat-workspace-strip__task-button {
+  padding-right: 30px;
+}
+
+.chat-workspace-strip__task-row-head:hover .chat-workspace-strip__task-chat,
+.chat-workspace-strip__task-row-head:focus-within
+  .chat-workspace-strip__task-chat {
   opacity: 1;
   pointer-events: auto;
 }
 
-.chat-workspace-strip__task-attach:hover,
-.chat-workspace-strip__task-attach:focus-visible {
+.chat-workspace-strip__task-chat:hover,
+.chat-workspace-strip__task-chat:focus-visible {
   outline: none;
   background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--text-base);
+}
+
+@media (hover: none) {
+  .chat-workspace-strip__task-row-head .chat-workspace-strip__task-button {
+    padding-right: 30px;
+  }
+
+  .chat-workspace-strip__task-chat {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .chat-workspace-strip__task-summary-toggle {

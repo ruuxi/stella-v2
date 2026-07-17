@@ -354,7 +354,10 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(spawnManager.rawToolStartStatusText).toBe("Running Spawn Manager");
     expect(spawnManager.rawToolEndName).toBe("spawn_manager");
     expect(spawnManager.persistedToolEvent).toEqual(
-      expect.objectContaining({ type: "tool_start", toolName: "spawn_manager" }),
+      expect.objectContaining({
+        type: "tool_start",
+        toolName: "spawn_manager",
+      }),
     );
     expect(spawnManager.activeBeforeTool).toBe(true);
     expect(spawnManager.activeDuringTool).toBe(true);
@@ -866,7 +869,7 @@ describe("subscribeRuntimeAgentEvents", () => {
     );
   });
 
-  it("persists completed native preambles with durable run and attempt identity", () => {
+  it("persists native Manager preambles with durable attempt and turn visibility", () => {
     let listener: ((event: AgentEvent) => void) | undefined;
     const agent = {
       state: { messages: [] },
@@ -896,18 +899,20 @@ describe("subscribeRuntimeAgentEvents", () => {
     subscribeRuntimeAgentEvents({
       agent,
       runId: "run-current-attempt",
-      agentType: AGENT_IDS.GENERAL,
+      agentType: AGENT_IDS.MANAGER,
       recorder: createRunEventRecorder({
         store: store as never,
         runId: "run-current-attempt",
         conversationId: "conversation-1",
-        agentType: AGENT_IDS.GENERAL,
+        agentType: AGENT_IDS.MANAGER,
         userMessageId: "user-1",
       }),
       threadStore: store as never,
-      threadKey: "general:thread-1",
+      threadKey: "manager:thread-1",
       conversationId: "conversation-1",
       attemptGeneration: 3,
+      managerTurnOrigin: "managed-child",
+      managerTurnVisibility: "internal",
     });
 
     listener?.({ type: "message_end", message: preambleWithTool });
@@ -915,12 +920,14 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(store.appendThreadMessage).toHaveBeenCalledTimes(1);
     expect(store.appendThreadMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        threadKey: "general:thread-1",
+        threadKey: "manager:thread-1",
         role: "assistant",
         payload: expect.objectContaining({
           stopReason: "toolUse",
           stellaRunId: "run-current-attempt",
           stellaAttemptGeneration: 3,
+          stellaManagerTurnOrigin: "managed-child",
+          stellaManagerTurnVisibility: "internal",
         }),
       }),
     );

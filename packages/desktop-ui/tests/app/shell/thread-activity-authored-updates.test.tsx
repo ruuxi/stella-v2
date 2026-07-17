@@ -26,6 +26,7 @@ const runningRecord = (
   startedAt: 2_000,
   assistantMessages,
   assistantMessagesUpdatedAt: 2_000 + (assistantMessages.length - 1) * 100,
+  assistantMessagesEntrySequence: assistantMessages.length,
   updatedAt: 2_000,
   ...overrides,
 });
@@ -43,6 +44,7 @@ const assistantUpdate = (
     reasoningSummaries: assistantMessages,
     latestMessage: assistantMessages.at(-1) ?? "",
     atMs: 2_000 + (assistantMessages.length - 1) * 100,
+    entrySequence: assistantMessages.length,
     attemptGeneration: 2,
     rootRunId: "run-2",
     ...overrides,
@@ -220,6 +222,59 @@ describe("mounted Activity authored-message refresh", () => {
     );
     expect(listThreadActivity).toHaveBeenCalledTimes(3);
     expect(oneShotCompletion).not.toHaveBeenCalled();
+  });
+
+  it("uses entry sequence to reject a stale same-millisecond list response", async () => {
+    const staleFetch = deferred<ThreadActivityRecord[]>();
+    listThreadActivity
+      .mockReset()
+      .mockResolvedValueOnce([
+        runningRecord(["First update"], {
+          assistantMessagesUpdatedAt: 2_100,
+          assistantMessagesEntrySequence: 10,
+        }),
+      ])
+      .mockReturnValueOnce(staleFetch.promise)
+      .mockResolvedValueOnce([
+        runningRecord(["First update", "Second update"], {
+          assistantMessagesUpdatedAt: 2_100,
+          assistantMessagesEntrySequence: 11,
+        }),
+      ]);
+
+    await act(async () => {
+      root.render(<MountedActivity />);
+      await Promise.resolve();
+      await Promise.resolve();
+      updateListener?.({ conversationId: "conv-1" });
+      await vi.advanceTimersByTimeAsync(120);
+    });
+    await act(async () => {
+      updateListener?.(
+        assistantUpdate(["First update", "Second update"], {
+          atMs: 2_100,
+          entrySequence: 11,
+        }),
+      );
+    });
+    expect(container.querySelector("output")?.textContent).toBe(
+      "First update|Second update",
+    );
+
+    await act(async () => {
+      staleFetch.resolve([
+        runningRecord(["First update"], {
+          assistantMessagesUpdatedAt: 2_100,
+          assistantMessagesEntrySequence: 10,
+        }),
+      ]);
+      await staleFetch.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.querySelector("output")?.textContent).toBe(
+      "First update|Second update",
+    );
   });
 
   it("keeps a live snapshot through a failed request and ignores torn-down work", async () => {

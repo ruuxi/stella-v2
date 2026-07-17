@@ -11,6 +11,10 @@ import {
 import { getOAuthProvider } from "@stella/runtime/ai/utils/oauth/index";
 
 const tempDirs: string[] = [];
+const azureCatalogFixtureUrl = new URL(
+  "../../fixtures/azure-openai-responses-catalog.json",
+  import.meta.url,
+);
 
 const makeTempDir = async (): Promise<string> => {
   const directory = await mkdtemp(
@@ -934,6 +938,67 @@ describe("ModelRuntime", () => {
     }
   });
 
+  it("refreshes and composes the 46-entry Azure catalog fixture", async () => {
+    const stellaDataDir = await makeTempDir();
+    const azureCatalog = JSON.parse(
+      await readFile(azureCatalogFixtureUrl, "utf8"),
+    ) as Record<string, unknown>;
+    expect(Object.keys(azureCatalog)).toHaveLength(46);
+    await writeFile(
+      path.join(stellaDataDir, "models.json"),
+      JSON.stringify({
+        providers: {
+          "azure-openai-responses": {
+            baseUrl: "https://stella.openai.azure.com/openai/v1",
+          },
+        },
+      }),
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/azure-openai-responses")) {
+        return Response.json(azureCatalog);
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(runtime.getSnapshot().catalogError).toBeUndefined();
+      const composedAzureModels = runtime.getModels("azure-openai-responses");
+      expect(composedAzureModels).toHaveLength(47);
+      expect(
+        Object.keys(azureCatalog).every((id) =>
+          composedAzureModels.some((model) => model.id === id),
+        ),
+      ).toBe(true);
+      expect(
+        runtime.getModel("azure-openai-responses", "codex-mini-latest"),
+      ).toBeDefined();
+      expect(
+        runtime.getModel("azure-openai-responses", "gpt-5.6-sol"),
+      ).toMatchObject({
+        api: "azure-openai-responses",
+        provider: "azure-openai-responses",
+        baseUrl: "https://stella.openai.azure.com/openai/v1",
+        cost: {
+          input: 5,
+          output: 30,
+          cacheRead: 0.5,
+          cacheWrite: 6.25,
+        },
+      });
+      const stored = JSON.parse(
+        await readFile(path.join(stellaDataDir, "models-store.json"), "utf8"),
+      ) as { "azure-openai-responses"?: { models?: unknown[] } };
+      expect(stored["azure-openai-responses"]?.models).toHaveLength(46);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("repairs a recent malformed cached catalog during online initialization", async () => {
     const stellaDataDir = await makeTempDir();
     await writeFile(
@@ -1063,6 +1128,65 @@ describe("ModelRuntime", () => {
         expect.stringMatching(
           /Dropped invalid remote catalog entry for xai.*\/cost/u,
         ),
+      );
+    } finally {
+      warn.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("drops remote catalog entries with non-finite or negative costs", async () => {
+    const stellaDataDir = await makeTempDir();
+    const originalFetch = globalThis.fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/xai")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            models: [
+              validRemoteCatalogModel({
+                id: "grok-nan-cost",
+                cost: {
+                  input: Number.NaN,
+                  output: 2,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                },
+              }),
+              validRemoteCatalogModel({
+                id: "grok-infinite-cost",
+                cost: {
+                  input: 1,
+                  output: Number.POSITIVE_INFINITY,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                },
+              }),
+              validRemoteCatalogModel({
+                id: "grok-negative-cost",
+                cost: { input: 1, output: 2, cacheRead: -1, cacheWrite: 0 },
+              }),
+            ],
+          }),
+        } as Response;
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(runtime.getModel("xai", "grok-nan-cost")).toBeUndefined();
+      expect(runtime.getModel("xai", "grok-infinite-cost")).toBeUndefined();
+      expect(runtime.getModel("xai", "grok-negative-cost")).toBeUndefined();
+      expect(runtime.getSnapshot().catalogError).toMatch(
+        /xai: Invalid model catalog for xai: non-empty payload contained 3 invalid entries and no valid entries/u,
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(/xai.*\/cost\/(?:input|output|cacheRead)/u),
       );
     } finally {
       warn.mockRestore();

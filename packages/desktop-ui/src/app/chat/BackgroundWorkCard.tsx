@@ -30,6 +30,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -146,6 +147,7 @@ export function BackgroundWorkCard({
   followUpThreadIds,
   cardId,
   startEventIdsByThread,
+  attemptGenerationsByThread,
   rootRunIdsByThread,
   terminalEventIdsByThread,
   label,
@@ -174,11 +176,22 @@ export function BackgroundWorkCard({
   followUpThreadIds?: string[];
   cardId: string;
   startEventIdsByThread: Record<string, string>;
+  attemptGenerationsByThread?: Record<string, number>;
   rootRunIdsByThread?: Record<string, string>;
   terminalEventIdsByThread?: Record<string, string>;
   label?: string;
   conversationId?: string | null;
 }) {
+  const singleThreadId = threadIds.length === 1 ? threadIds[0] : undefined;
+  const singleThreadSuperseded = Boolean(
+    singleThreadId && supersededThreadIds?.includes(singleThreadId),
+  );
+  // A historical card may stay mounted when send_input starts a new attempt
+  // on the same durable thread. Retain the last authored text observed while
+  // this card owned the attempt, then fence it off from all current-attempt
+  // Activity updates once the lifecycle projection marks it superseded.
+  const authoredTitleSnapshotRef = useRef<string | undefined>(undefined);
+
   // Bumped by the stale-deadline timer so the working check re-evaluates its
   // time-based branch on its own rather than waiting for an unrelated render.
   const [tick, setTick] = useState(0);
@@ -209,7 +222,8 @@ export function BackgroundWorkCard({
   // subscribes straight to this thread's decoration in the module store —
   // one tick re-renders this card only, and it works on every surface
   // (full chat, sidebar, mini) without threading props through the rows.
-  const liveThreadId = threadIds.length === 1 ? threadIds[0] : undefined;
+  const liveThreadId =
+    singleThreadId && !singleThreadSuperseded ? singleThreadId : undefined;
   const liveDecoration = useSyncExternalStore(
     useCallback(
       (listener: () => void) =>
@@ -265,12 +279,25 @@ export function BackgroundWorkCard({
     : multi
       ? label?.trim() || resolved[0] || `${threadIds.length} tasks`
       : resolved[0] || label?.trim() || "Background work";
-  const authoredTitle = !multi
-    ? activityRecords
-        .find((record) => record.threadId === threadIds[0])
-        ?.assistantMessages?.at(-1)
-        ?.trim()
+  const activityRecord = !multi
+    ? activityRecords.find((record) => record.threadId === threadIds[0])
     : undefined;
+  const expectedAttemptGeneration = singleThreadId
+    ? attemptGenerationsByThread?.[singleThreadId]
+    : undefined;
+  const activityAttemptMatches =
+    expectedAttemptGeneration === undefined ||
+    activityRecord?.attemptGeneration === expectedAttemptGeneration;
+  const currentAuthoredTitle =
+    !singleThreadSuperseded && activityAttemptMatches
+      ? activityRecord?.assistantMessages?.at(-1)?.trim()
+      : undefined;
+  if (currentAuthoredTitle) {
+    authoredTitleSnapshotRef.current = currentAuthoredTitle;
+  }
+  const authoredTitle = singleThreadSuperseded
+    ? authoredTitleSnapshotRef.current
+    : currentAuthoredTitle;
   const title = authoredTitle || lifecycleTitle;
 
   // "Paused" only replaces the ACTIVE presentation: while any covered thread

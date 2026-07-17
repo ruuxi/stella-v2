@@ -164,6 +164,7 @@ export const getBackgroundWork = (
       /** Canonical identity/anchor for each task occurrence. Unlike agentId
        *  and rootRunId, this changes for every `send_input` activation. */
       startEventIdsByThread: Record<string, string>;
+      attemptGenerationsByThread: Record<string, number>;
       rootRunIdsByThread: Record<string, string>;
       cardId: string;
       groupKey?: string;
@@ -175,6 +176,7 @@ export const getBackgroundWork = (
   const statusTexts: Record<string, string> = {};
   const followUpThreadIds: string[] = [];
   const startEventIdsByThread: Record<string, string> = {};
+  const attemptGenerationsByThread: Record<string, number> = {};
   const rootRunIdsByThread: Record<string, string> = {};
   // When this thread was kicked off / last advanced on this turn (ms). Lets
   // the card distinguish a fresh spawn (read as working) from one whose
@@ -210,6 +212,18 @@ export const getBackgroundWork = (
     if (isLatestOccurrence) {
       spawnedAtMs[agentId] = event.timestamp;
       startEventIdsByThread[agentId] = event._id;
+      const attemptGeneration = event.payload.attemptGeneration;
+      if (
+        typeof attemptGeneration === "number" &&
+        Number.isFinite(attemptGeneration)
+      ) {
+        attemptGenerationsByThread[agentId] = Math.max(
+          0,
+          Math.floor(attemptGeneration),
+        );
+      } else {
+        delete attemptGenerationsByThread[agentId];
+      }
       if (description) descriptions[agentId] = description;
       const rootRunId = asNonEmptyString(event.payload.rootRunId);
       if (rootRunId) rootRunIdsByThread[agentId] = rootRunId;
@@ -241,6 +255,7 @@ export const getBackgroundWork = (
     statusTexts,
     followUpThreadIds,
     startEventIdsByThread,
+    attemptGenerationsByThread,
     rootRunIdsByThread,
     cardId: `agent-activity:${startEventIds.join("+")}`,
     ...(groupKey ? { groupKey } : {}),
@@ -965,6 +980,9 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
       const startEventIdsByThread = {
         ...row.backgroundWork.startEventIdsByThread,
       };
+      const attemptGenerationsByThread = {
+        ...(row.backgroundWork.attemptGenerationsByThread ?? {}),
+      };
       const rootRunIdsByThread = { ...row.backgroundWork.rootRunIdsByThread };
       const terminalEventIdsByThread = {
         ...(row.backgroundWork.terminalEventIdsByThread ?? {}),
@@ -976,6 +994,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         delete progressTexts[id];
         delete toolActivities[id];
         delete startEventIdsByThread[id];
+        delete attemptGenerationsByThread[id];
         delete rootRunIdsByThread[id];
         delete terminalEventIdsByThread[id];
       }
@@ -1011,6 +1030,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         progressTexts,
         toolActivities,
         startEventIdsByThread,
+        attemptGenerationsByThread,
         rootRunIdsByThread,
         terminalEventIdsByThread,
         completionSections: (

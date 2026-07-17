@@ -153,6 +153,8 @@ export type AssistantRowViewModel = {
      * durable thread and `rootRunId` can cover several send_input cycles, so
      * neither is sufficient by itself. */
     startEventIdsByThread: Record<string, string>;
+    /** Execution attempt durably stamped on each `agent-started`. */
+    attemptGenerationsByThread?: Record<string, number>;
     rootRunIdsByThread: Record<string, string>;
     terminalEventIdsByThread?: Record<string, string>;
     cardId: string;

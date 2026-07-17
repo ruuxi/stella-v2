@@ -556,6 +556,20 @@ describe("manager orchestration production routing", () => {
       { type: "agent-started", agentId: managerTask.threadId },
       { type: "agent-completed", agentId: managerTask.threadId },
     ]);
+    const visibleStartGenerations = rootLifecycleEvents
+      .filter((event) => event.type === "agent-started")
+      .map(
+        (event) =>
+          (event.payload as { attemptGeneration?: number }).attemptGeneration,
+      );
+    expect(
+      visibleStartGenerations.every(
+        (generation) => typeof generation === "number",
+      ),
+    ).toBe(true);
+    expect(visibleStartGenerations).toEqual(
+      [...visibleStartGenerations].sort((a, b) => (a ?? 0) - (b ?? 0)),
+    );
     expect(JSON.stringify(rootLifecycleEvents)).not.toContain(
       "Continuing managed work",
     );

@@ -55,8 +55,7 @@ for `/Applications/Stella.app`.
 - macOS: Developer-ID signing and hardened runtime are expected. Confirm with
   `codesign --verify --deep --strict --verbose=2 "$HOME/Applications/Stella V2 Test/Stella.app"`.
 - macOS notarization: check `spctl -a -vv "$HOME/Applications/Stella V2 Test/Stella.app"`.
-  Gatekeeper must report `accepted`; a local build without Apple notarization
-  credentials is signed but not notarized.
+  Gatekeeper must report `accepted`; July 17 build notarized successfully (submission f55e00c9-bbc1-4b4f-a7f8-f76df8f17a63, Accepted, staple validate ok, spctl: accepted Notarized Developer ID, keychain profile `stella-notary`).
 - Public production Convex configuration is baked at renderer build time:
   `https://benevolent-minnow-586.convex.cloud` and `https://cloud.stella.sh`.
   The first-run/auth flow should therefore be online, not the offline-only

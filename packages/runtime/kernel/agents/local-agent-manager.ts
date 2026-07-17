@@ -112,6 +112,8 @@ export type LocalAgentContext = {
   /** Per-spawn reasoning override; never persisted to user preferences. */
   spawnReasoningEffort?: SpawnReasoningEffort;
   maxAgentConcurrency?: number;
+  /** Durable attempt epoch for transcript writes on a reused agent thread. */
+  attemptGeneration?: number;
 };
 
 export type LocalAgentStatus = "pending" | TaskLifecycleStatus;
@@ -1445,6 +1447,7 @@ export class LocalAgentManager implements AgentToolApi {
           ? Math.min(context.maxAgentDepth, task.maxAgentDepth)
           : context.maxAgentDepth;
       context.agentDepth = task.agentDepth;
+      context.attemptGeneration = attempt.generation;
 
       const taskPrompt = this.buildTaskPrompt(task);
       task.turnCount += 1;

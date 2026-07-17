@@ -2,13 +2,17 @@ import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
 } from "@stella/runtime/kernel/storage/database-init";
-import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
+import {
+  AGENT_ASSISTANT_UPDATE_LIMITS,
+  SessionStore,
+} from "@stella/runtime/kernel/storage/session-store";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import type { ThreadActivityUpdatedPayload } from "@stella/contracts/local-chat";
 
 type TestContext = {
   rootPath: string;
@@ -18,7 +22,9 @@ type TestContext = {
 
 const activeContexts = new Set<TestContext>();
 
-const createTestContext = (): TestContext => {
+const createTestContext = (
+  onThreadAssistantUpdate?: (payload: ThreadActivityUpdatedPayload) => void,
+): TestContext => {
   const rootPath = path.join(
     os.tmpdir(),
     `stella-agent-messages-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -28,7 +34,11 @@ const createTestContext = (): TestContext => {
     timeout: 5000,
   }) as unknown as SqliteDatabase;
   initializeDesktopDatabase(db);
-  const context = { rootPath, db, store: new SessionStore(db) };
+  const context = {
+    rootPath,
+    db,
+    store: new SessionStore(db, { onThreadAssistantUpdate }),
+  };
   activeContexts.add(context);
   return context;
 };
@@ -41,6 +51,76 @@ afterEach(async () => {
   activeContexts.clear();
 });
 
+const EMPTY_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  },
+};
+
+const appendAssistant = (
+  store: SessionStore,
+  args: {
+    threadId: string;
+    timestamp: number;
+    text: string;
+    stopReason?: "toolUse" | "stop";
+    attemptGeneration?: number;
+  },
+) => {
+  const stopReason = args.stopReason ?? "toolUse";
+  store.appendThreadMessage({
+    threadKey: args.threadId,
+    timestamp: args.timestamp,
+    role: "assistant",
+    content: args.text,
+    payload: {
+      role: "assistant",
+      content: args.text ? [{ type: "text", text: args.text }] : [],
+      api: "openai-codex-responses",
+      provider: "openai-codex",
+      model: "codex",
+      usage: EMPTY_USAGE,
+      stopReason,
+      timestamp: args.timestamp,
+      stellaAttemptGeneration: args.attemptGeneration ?? 0,
+    } as never,
+  });
+};
+
+const saveRunningAgent = (
+  store: SessionStore,
+  args: {
+    threadId: string;
+    conversationId?: string;
+    startedAt: number;
+    attemptGeneration?: number;
+    agentType?: string;
+    updatedAt?: number;
+  },
+) => {
+  store.saveAgentRecord({
+    threadId: args.threadId,
+    conversationId: args.conversationId ?? "conv-1",
+    agentType: args.agentType ?? "general",
+    description: `Work for ${args.threadId}`,
+    agentDepth: 0,
+    status: "running",
+    attemptGeneration: args.attemptGeneration ?? 0,
+    startedAt: args.startedAt,
+    completedAt: null,
+    updatedAt: args.updatedAt ?? args.startedAt,
+  });
+};
+
 describe("agent-authored assistant updates", () => {
   it("reads recent assistant messages verbatim and ignores legacy generated rows", () => {
     const { db, store } = createTestContext();
@@ -50,6 +130,7 @@ describe("agent-authored assistant updates", () => {
       threadId: "agent-1",
       nameHint: "Inspect the routes",
     });
+    saveRunningAgent(store, { threadId, startedAt: 1_000 });
 
     for (const [index, content] of [
       "Oldest update",
@@ -57,11 +138,10 @@ describe("agent-authored assistant updates", () => {
       "I removed the stale action.",
       "The focused tests pass.",
     ].entries()) {
-      store.appendThreadMessage({
-        threadKey: threadId,
+      appendAssistant(store, {
+        threadId,
         timestamp: 1_000 + index,
-        role: "assistant",
-        content,
+        text: content,
       });
     }
     store.appendThreadMessage({
@@ -94,26 +174,175 @@ describe("agent-authored assistant updates", () => {
       threadId: "agent-1",
       nameHint: "Inspect the routes",
     });
-    store.saveAgentRecord({
+    saveRunningAgent(store, { threadId, startedAt: 1_000 });
+    appendAssistant(store, {
       threadId,
-      conversationId: "conv-1",
-      agentType: "general",
-      description: "Inspect the routes",
-      agentDepth: 0,
-      status: "running",
-      startedAt: 1_000,
-      completedAt: null,
-      updatedAt: 1_000,
-    });
-    store.appendThreadMessage({
-      threadKey: threadId,
       timestamp: 1_001,
-      role: "assistant",
-      content: "I found the stale navigation path.",
+      text: "I found the stale navigation path.",
     });
 
     expect(store.listThreadActivity("conv-1")[0]?.assistantMessages).toEqual([
       "I found the stale navigation path.",
     ]);
+  });
+
+  it("scopes updates to the current attempt and excludes terminal answers", () => {
+    const { store } = createTestContext();
+    const threadId = "agent-reused";
+    saveRunningAgent(store, { threadId, startedAt: 1_000 });
+    appendAssistant(store, {
+      threadId,
+      timestamp: 1_100,
+      text: "Old attempt preamble",
+    });
+    appendAssistant(store, {
+      threadId,
+      timestamp: 1_200,
+      text: "Old final answer",
+      stopReason: "stop",
+    });
+
+    saveRunningAgent(store, {
+      threadId,
+      startedAt: 2_000,
+      attemptGeneration: 1,
+    });
+    appendAssistant(store, {
+      threadId,
+      timestamp: 2_001,
+      text: "Current attempt preamble",
+      attemptGeneration: 1,
+    });
+    // A superseded attempt can finish unwinding after the new start time. Its
+    // durable attempt tag, not text or timestamp guessing, keeps it out.
+    appendAssistant(store, {
+      threadId,
+      timestamp: 2_002,
+      text: "Late write from old attempt",
+      attemptGeneration: 0,
+    });
+    appendAssistant(store, {
+      threadId,
+      timestamp: 2_003,
+      text: "Current final answer",
+      stopReason: "stop",
+      attemptGeneration: 1,
+    });
+
+    expect(store.listAgentAssistantMessages(threadId)).toEqual([
+      { text: "Current attempt preamble", atMs: 2_001 },
+    ]);
+  });
+
+  it("emits a bounded incremental mobile-compatible update only after persistence", () => {
+    const onThreadAssistantUpdate = vi.fn();
+    const { store } = createTestContext(onThreadAssistantUpdate);
+    saveRunningAgent(store, {
+      threadId: "agent-1",
+      startedAt: 1_000,
+      attemptGeneration: 4,
+    });
+
+    appendAssistant(store, {
+      threadId: "agent-1",
+      timestamp: 1_001,
+      text: "I am checking the live route.",
+      attemptGeneration: 4,
+    });
+    expect(onThreadAssistantUpdate).toHaveBeenCalledOnce();
+    expect(onThreadAssistantUpdate).toHaveBeenLastCalledWith({
+      conversationId: "conv-1",
+      assistantUpdate: expect.objectContaining({
+        threadId: "agent-1",
+        assistantMessages: ["I am checking the live route."],
+        reasoningSummaries: ["I am checking the live route."],
+        latestMessage: "I am checking the live route.",
+        atMs: 1_001,
+        attemptGeneration: 4,
+      }),
+    });
+
+    appendAssistant(store, {
+      threadId: "agent-1",
+      timestamp: 1_002,
+      text: "The final answer",
+      stopReason: "stop",
+      attemptGeneration: 4,
+    });
+    expect(onThreadAssistantUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("bounds active visible task queries per thread and overall", () => {
+    const { store } = createTestContext();
+    const oversized = "🧭".repeat(
+      AGENT_ASSISTANT_UPDATE_LIMITS.messageChars * 2,
+    );
+    const totalAgents = AGENT_ASSISTANT_UPDATE_LIMITS.activeThreads + 3;
+    for (let agentIndex = 0; agentIndex < totalAgents; agentIndex += 1) {
+      const threadId = `agent-${agentIndex}`;
+      saveRunningAgent(store, {
+        threadId,
+        startedAt: 1_000,
+        updatedAt: 10_000 - agentIndex,
+      });
+      for (let messageIndex = 0; messageIndex < 5; messageIndex += 1) {
+        appendAssistant(store, {
+          threadId,
+          timestamp: 1_100 + messageIndex,
+          text: `${agentIndex}:${messageIndex}:${oversized}`,
+        });
+      }
+    }
+    saveRunningAgent(store, {
+      threadId: "internal-agent",
+      startedAt: 1_000,
+      agentType: "recall",
+      updatedAt: 20_000,
+    });
+    appendAssistant(store, {
+      threadId: "internal-agent",
+      timestamp: 1_100,
+      text: "Internal update",
+    });
+
+    const projected = store
+      .listThreadActivity("conv-1")
+      .flatMap((record) => record.assistantMessages ?? []);
+    const recordsWithUpdates = store
+      .listThreadActivity("conv-1")
+      .filter((record) => record.assistantMessages?.length);
+    expect(recordsWithUpdates.length).toBeLessThanOrEqual(
+      AGENT_ASSISTANT_UPDATE_LIMITS.activeThreads,
+    );
+    expect(
+      recordsWithUpdates.every(
+        (record) =>
+          (record.assistantMessages?.length ?? 0) <=
+          AGENT_ASSISTANT_UPDATE_LIMITS.messagesPerThread,
+      ),
+    ).toBe(true);
+    expect(
+      projected.every(
+        (message) =>
+          [...message].length <= AGENT_ASSISTANT_UPDATE_LIMITS.messageChars &&
+          Buffer.byteLength(message, "utf8") <=
+            AGENT_ASSISTANT_UPDATE_LIMITS.messageBytes,
+      ),
+    ).toBe(true);
+    expect(
+      projected.reduce((sum, message) => sum + [...message].length, 0),
+    ).toBeLessThanOrEqual(AGENT_ASSISTANT_UPDATE_LIMITS.totalChars);
+    expect(
+      projected.reduce(
+        (sum, message) => sum + Buffer.byteLength(message, "utf8"),
+        0,
+      ),
+    ).toBeLessThanOrEqual(AGENT_ASSISTANT_UPDATE_LIMITS.totalBytes);
+    expect(
+      store
+        .listThreadActivity("conv-1")
+        .find((record) => record.threadId === "internal-agent")
+        ?.assistantMessages,
+    ).toBeUndefined();
   });
 });

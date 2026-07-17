@@ -50,7 +50,11 @@ export const layer = Layer.effect(
     const hostBus = yield* HostBus.Service;
     const config = yield* SessionConfig.Service;
     const db = createDesktopDatabase(config.get().stellaDataDirPath);
-    const chatStore = new ChatStore(db);
+    const chatStore = new ChatStore(db, {
+      onThreadAssistantUpdate: (payload) => {
+        hostBus.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, payload);
+      },
+    });
     const runtimeStore = chatStore as RuntimeStore;
     const socialSessionStore = new SocialSessionStore(db);
     const runEventLog = new RunEventLog(db);

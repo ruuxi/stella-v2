@@ -30,6 +30,8 @@ export type ThreadActivityRecord = {
   agentType: string;
   description: string;
   status: "running" | "completed" | "error" | "canceled";
+  /** Durable attempt epoch for reused threads. */
+  attemptGeneration?: number;
   /** Root run that owns the thread's latest lifecycle. */
   rootRunId?: string;
   parentAgentId?: string;
@@ -45,8 +47,29 @@ export type ThreadActivityRecord = {
   updatedAt: number;
 };
 
+/**
+ * Bounded replacement for the retired generated-summary stream. Emitted only
+ * after a complete, persisted interim assistant message lands for the current
+ * attempt of a visible running task. `reasoningSummaries` deliberately mirrors
+ * the authored messages for older mobile clients; current clients use the
+ * accurately named `assistantMessages` field.
+ */
+export type ThreadActivityAssistantUpdate = {
+  threadId: string;
+  assistantMessages: string[];
+  /** Legacy mobile wire alias. Contains authored messages, never summaries. */
+  reasoningSummaries: string[];
+  latestMessage: string;
+  atMs: number;
+  attemptGeneration: number;
+  rootRunId?: string;
+};
+
 export type ThreadActivityUpdatedPayload = {
   conversationId: string;
+  /** Present for incremental authored-message delivery; absent for ordinary
+   * lifecycle-only invalidations. */
+  assistantUpdate?: ThreadActivityAssistantUpdate;
 };
 
 /**

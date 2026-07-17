@@ -1,11 +1,5 @@
 import { EventEmitter } from "node:events";
-import {
-  existsSync,
-  promises as fs,
-  readFileSync,
-  watch,
-  type FSWatcher,
-} from "node:fs";
+import { promises as fs, watch, type FSWatcher } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ConvexClient } from "convex/browser";
@@ -92,10 +86,21 @@ import {
   killDetachedWorker,
 } from "./uds-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
+import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime } from "effect";
 import {
-  computeRuntimeBuildStamp,
-  RUNTIME_BUILD_STAMP_UNAVAILABLE,
-} from "../worker/runtime-build-stamp.js";
+  clearPendingWorkerRestartFlag,
+  evaluateWorkerStaleness,
+  persistPendingWorkerRestartFlag,
+} from "./staleness.js";
+
+/**
+ * Host-side Effect boundary for the staleness/build-stamp handshake and the
+ * quiescence poll. Effects run on this module-level runtime; the
+ * StellaRuntimeHost API below stays plain Promise/data — no Effect type
+ * escapes this file (check-boundary.mjs enforces the package fence, this
+ * comment enforces the signature fence).
+ */
+const hostStalenessRuntime = ManagedRuntime.make(Layer.empty);
 
 type RuntimeHostEvents = {
   "runtime-connected": void;
@@ -443,9 +448,7 @@ export class StellaRuntimeHost {
     reason: string;
     detectedAtMs: number;
   } | null = null;
-  private staleWorkerQuiescencePollTimer: ReturnType<
-    typeof setInterval
-  > | null = null;
+  private staleWorkerQuiescencePollFiber: Fiber.Fiber<void> | null = null;
   // Serializes the single gated flush (`flushWorkerRestart`) so concurrent
   // triggers/hooks don't stack overlapping health probes or restarts.
   private workerRestartCheckInFlight = false;
@@ -655,22 +658,6 @@ export class StellaRuntimeHost {
     return resolveRuntimePaths(this.options.initializeParams.stellaAppDir);
   }
 
-  private readWorkerReportedBuildStamp(): string | null {
-    try {
-      const raw = readFileSync(
-        this.getRuntimeControlPaths().buildStampFile,
-        "utf-8",
-      ).trim();
-      return raw || null;
-    } catch {
-      return null;
-    }
-  }
-
-  private hasPersistedPendingWorkerRestart(): boolean {
-    return existsSync(this.getRuntimeControlPaths().pendingWorkerRestartFile);
-  }
-
   getPendingWorkerRestart() {
     return this.pendingStaleWorkerRestart;
   }
@@ -679,22 +666,18 @@ export class StellaRuntimeHost {
     if (!this.pendingStaleWorkerRestart) {
       this.pendingStaleWorkerRestart = { reason, detectedAtMs: Date.now() };
     }
+    const record = this.pendingStaleWorkerRestart;
     getFileLogger()?.process("host.worker-restart-pending", { reason });
     console.warn(
       `[runtime-host] Runtime update pending (${reason}); the worker restarts when current work finishes.`,
     );
-    try {
-      const paths = this.getRuntimeControlPaths();
-      await fs.mkdir(paths.rootDir, { recursive: true });
-      await fs.writeFile(
-        paths.pendingWorkerRestartFile,
-        JSON.stringify(this.pendingStaleWorkerRestart, null, 2),
-        "utf-8",
-      );
-    } catch (error) {
+    const persistExit = await hostStalenessRuntime.runPromiseExit(
+      persistPendingWorkerRestartFlag(this.getRuntimeControlPaths(), record),
+    );
+    if (Exit.isFailure(persistExit)) {
       console.warn(
         "[runtime-host] Failed to persist pending worker restart flag:",
-        (error as Error).message,
+        (Cause.squash(persistExit.cause) as Error).message,
       );
     }
     this.startStaleWorkerQuiescencePoll();
@@ -714,25 +697,34 @@ export class StellaRuntimeHost {
   private async clearPendingWorkerRestart() {
     this.stopStaleWorkerQuiescencePoll();
     this.pendingStaleWorkerRestart = null;
-    await fs
-      .unlink(this.getRuntimeControlPaths().pendingWorkerRestartFile)
-      .catch(() => undefined);
+    await hostStalenessRuntime.runPromise(
+      clearPendingWorkerRestartFlag(this.getRuntimeControlPaths()),
+    );
   }
 
   private startStaleWorkerQuiescencePoll() {
-    if (this.staleWorkerQuiescencePollTimer) return;
+    if (this.staleWorkerQuiescencePollFiber) return;
     // Safety net for busy signals that don't end in a RUN_FINISHED event
-    // (e.g. voice-only activity) or a missed event during churn.
-    this.staleWorkerQuiescencePollTimer = setInterval(() => {
-      void this.flushWorkerRestart();
-    }, 30_000);
-    this.staleWorkerQuiescencePollTimer.unref?.();
+    // (e.g. voice-only activity) or a missed event during churn. The
+    // interval-with-leading-delay shape of the old setInterval is preserved:
+    // the first flush fires 30s after the deferral is marked, never
+    // immediately (the 1s nudge in markPendingWorkerRestart owns "soon").
+    // A flush rejection must not kill the poll — ignore and keep ticking.
+    this.staleWorkerQuiescencePollFiber = hostStalenessRuntime.runFork(
+      Effect.forever(
+        Effect.tryPromise(() => this.flushWorkerRestart()).pipe(
+          Effect.ignore,
+          Effect.delay("30 seconds"),
+        ),
+      ),
+    );
   }
 
   private stopStaleWorkerQuiescencePoll() {
-    if (!this.staleWorkerQuiescencePollTimer) return;
-    clearInterval(this.staleWorkerQuiescencePollTimer);
-    this.staleWorkerQuiescencePollTimer = null;
+    const fiber = this.staleWorkerQuiescencePollFiber;
+    if (!fiber) return;
+    this.staleWorkerQuiescencePollFiber = null;
+    hostStalenessRuntime.runFork(Fiber.interrupt(fiber));
   }
 
   /**
@@ -747,30 +739,18 @@ export class StellaRuntimeHost {
       await this.clearPendingWorkerRestart();
       return;
     }
-    let reason: string | null = null;
-    if (this.hasPersistedPendingWorkerRestart()) {
-      reason = "pending-restart-flag";
-    } else {
-      const workerStamp = this.readWorkerReportedBuildStamp();
-      if (!workerStamp) {
-        // Pre-stamp worker (older build) — by definition running old code.
-        reason = "worker-stamp-missing";
-      } else {
-        const onDiskStamp = computeRuntimeBuildStamp(
-          resolveDefaultWorkerEntryPath(this.options),
-        );
-        if (
-          onDiskStamp !== RUNTIME_BUILD_STAMP_UNAVAILABLE &&
-          workerStamp !== onDiskStamp
-        ) {
-          reason = "build-stamp-mismatch";
-        }
-      }
-    }
-    if (!reason) {
+    const verdict = await hostStalenessRuntime.runPromise(
+      evaluateWorkerStaleness({
+        attachedToExistingWorker: true,
+        paths: this.getRuntimeControlPaths(),
+        workerEntryPath: resolveDefaultWorkerEntryPath(this.options),
+      }),
+    );
+    if (!verdict.stale) {
       await this.clearPendingWorkerRestart();
       return;
     }
+    const reason = verdict.reason;
     getFileLogger()?.process("host.worker-stale-detected", {
       reason,
       pid: connection.pid,

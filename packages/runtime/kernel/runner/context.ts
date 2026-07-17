@@ -61,6 +61,7 @@ import type {
 } from "../storage/shared.js";
 import { getBundledCoreAgentFallback } from "../agents/agents.js";
 import { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
+import { createKernelRunSupervisor } from "./supervision/run-supervisor.js";
 import { runRecall } from "../agent-runtime/context-lookup.js";
 import {
   defaultPromptForAgentType,
@@ -711,6 +712,7 @@ export const createRunnerContext = ({
       queuedOrchestratorTurns: [],
       pendingFollowUpReplies: new Map(),
       activeRunAbortControllers: new Map(),
+      supervisor: createKernelRunSupervisor(),
       conversationCallbacks: new Map(),
       runCallbacksByRunId: new Map(),
       loadedAgents: [],

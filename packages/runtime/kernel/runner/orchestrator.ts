@@ -837,6 +837,11 @@ export const createOrchestratorController = (
     const uiVisibility = context.state.activeOrchestratorUiVisibility;
     const callbacks = context.state.runCallbacksByRunId.get(runId);
     controller.abort();
+    // Interrupt the run's fiber tree: the root turn fiber plus every
+    // subagent attempt adopted under this rootRunId. Interruption cancels
+    // each unit cooperatively (idempotent with the abort above) and joins
+    // its teardown; the synchronous cancel surface below stays unchanged.
+    void context.state.supervisor.cancelRun(runId, "Canceled");
     if (wasPreExecution) {
       preExecutionCanceledRunIds.add(runId);
       cleanupRun(runId);

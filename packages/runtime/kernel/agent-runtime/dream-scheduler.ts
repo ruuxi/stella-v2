@@ -25,7 +25,12 @@
  * Single-flight: only one Dream run may execute at a time, via a mkdir lock
  * under `.stella/locks/dream/`.
  *
- * Fire-and-forget: callers `void maybeSpawnDreamRun(...)` and never await it.
+ * Callers `void maybeSpawnDreamRun(...)` and never await it, but the spawned
+ * run is not an orphan: it executes under a supervising fiber
+ * (`SupervisedScope`) keyed by data dir. `shutdownDreamRuns` interrupts the
+ * in-flight run (aborting its LLM calls) and joins its teardown — the
+ * `finally` below releases the filesystem lock and clears `inFlight` before
+ * shutdown proceeds.
  */
 
 import fs from "node:fs";
@@ -58,11 +63,46 @@ import {
 } from "../integrations/claude-code-agent-runtime.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { readHomePrompt } from "../prompts/home-prompts.js";
+import {
+  createSupervisedScope,
+  type SupervisedScope,
+} from "../shared/supervised-scope.js";
 
 const logger = createRuntimeLogger("agent-runtime.dream-scheduler");
 
 const DEFAULT_TOKEN_INTERVAL = 20_000;
 const MAX_ITERATIONS = 12;
+
+/**
+ * Supervising fiber scope per data dir. Recreated lazily after a shutdown so
+ * a restarted runner can schedule Dream again.
+ */
+const DREAM_SCOPES = new Map<string, SupervisedScope>();
+
+const dreamScopeFor = (stellaDataDir: string): SupervisedScope => {
+  const existing = DREAM_SCOPES.get(stellaDataDir);
+  if (existing && !existing.closed()) return existing;
+  const scope = createSupervisedScope(`dream:${stellaDataDir}`);
+  DREAM_SCOPES.set(stellaDataDir, scope);
+  return scope;
+};
+
+/**
+ * Interrupt any in-flight Dream run for `stellaDataDir` (all dirs when
+ * omitted) and resolve once its teardown — lock release, `inFlight` clear —
+ * has completed. Called from runner shutdown.
+ */
+export const shutdownDreamRuns = async (
+  stellaDataDir?: string,
+): Promise<void> => {
+  const closing: Array<Promise<void>> = [];
+  for (const [dir, scope] of DREAM_SCOPES) {
+    if (stellaDataDir !== undefined && dir !== stellaDataDir) continue;
+    DREAM_SCOPES.delete(dir);
+    closing.push(scope.close("runtime-shutdown"));
+  }
+  await Promise.all(closing);
+};
 
 type DreamConfig = {
   enabled: boolean;
@@ -183,6 +223,8 @@ const runDream = async (args: {
   stellaDataDir: string;
   store: RuntimeStore;
   resolvedLlm: ResolvedLlmRoute;
+  /** Aborts in-flight LLM calls and stops the loop on runner shutdown. */
+  abortSignal?: AbortSignal;
 }): Promise<void> => {
   const useClaudeCode = shouldUseClaudeCodeAgentRuntime({
     stellaAppDir: args.stellaDataDir,
@@ -223,6 +265,7 @@ const runDream = async (args: {
         stellaAppDir: args.stellaDataDir,
         agentType: AGENT_IDS.DREAM,
         stellaModel: args.resolvedLlm.model.id,
+        ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
         context: {
           systemPrompt: buildDreamSystemPrompt(args.stellaDataDir),
           messages,
@@ -262,6 +305,10 @@ const runDream = async (args: {
   }
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration += 1) {
+    if (args.abortSignal?.aborted) {
+      logger.debug("dream.aborted", { iterations: iteration });
+      return;
+    }
     const context: Context = {
       systemPrompt: buildDreamSystemPrompt(args.stellaDataDir),
       messages,
@@ -270,11 +317,10 @@ const runDream = async (args: {
 
     let response: AssistantMessage;
     try {
-      response = await completeSimple(
-        args.resolvedLlm.model,
-        context,
-        apiKey ? { apiKey } : undefined,
-      );
+      response = await completeSimple(args.resolvedLlm.model, context, {
+        ...(apiKey ? { apiKey } : {}),
+        ...(args.abortSignal ? { signal: args.abortSignal } : {}),
+      });
     } catch (error) {
       logger.debug("dream.completeSimple.failed", {
         error: error instanceof Error ? error.message : String(error),
@@ -298,6 +344,10 @@ const runDream = async (args: {
     }
 
     for (const toolCall of toolCalls) {
+      if (args.abortSignal?.aborted) {
+        logger.debug("dream.aborted", { iterations: iteration + 1 });
+        return;
+      }
       totalToolCalls += 1;
       try {
         const dispatch = await dispatchLocalTool(
@@ -473,10 +523,12 @@ export const maybeSpawnDreamRun = async (
   }
   state.inFlight = true;
 
-  void runDream({
+  const controller = new AbortController();
+  const settled = runDream({
     stellaDataDir: args.stellaDataDir,
     store: args.store,
     resolvedLlm: args.resolvedLlm,
+    abortSignal: controller.signal,
   })
     .catch((error) => {
       logger.debug("dream.run-failed", {
@@ -491,6 +543,14 @@ export const maybeSpawnDreamRun = async (
       }
       release();
     });
+  // The caller still never awaits the run, but it is supervised: shutdown
+  // interrupts it (aborting the LLM calls) and joins the `finally` above so
+  // the lock and in-flight flag are released before teardown continues.
+  dreamScopeFor(args.stellaDataDir).supervise({
+    label: `dream-run:${args.trigger}`,
+    abort: (reason) => controller.abort(reason),
+    settled,
+  });
 
   return {
     scheduled: true,

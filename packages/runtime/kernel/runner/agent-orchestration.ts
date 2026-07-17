@@ -422,6 +422,11 @@ export const createAgentOrchestration = (
       context.runtimeStore.listGroupMemberThreadIds(groupKey),
     onAgentEvent: handleAgentLifecycleEvent,
     fetchAgentContext: deps.buildAgentContext,
+    superviseAttempt: (attempt) =>
+      context.state.supervisor.adoptChild(attempt.rootRunId, attempt.threadId, {
+        abort: attempt.abort,
+        settled: attempt.settled,
+      }),
     runSubagent: async ({
       conversationId,
       userMessageId,
@@ -777,8 +782,8 @@ export const createAgentOrchestration = (
     return await context.state.localAgentManager.cancelAgent(agentId, reason);
   };
 
-  const shutdown = () => {
-    context.state.localAgentManager?.shutdown();
+  const shutdown = async (): Promise<void> => {
+    await context.state.localAgentManager?.shutdown();
     shutdownSubagentRuntimes();
   };
 

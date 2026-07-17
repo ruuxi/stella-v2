@@ -829,6 +829,8 @@ export const compactRuntimeThreadHistory = async (args: {
   overrideSummary?: string;
   preserveLastN?: number;
   stellaDataDir?: string;
+  /** Aborts the summarization LLM call on scheduler shutdown. */
+  abortSignal?: AbortSignal;
 }): Promise<{ compacted: boolean }> => {
   try {
     return await maybeCompactRuntimeThread({
@@ -843,6 +845,7 @@ export const compactRuntimeThreadHistory = async (args: {
         ? { preserveLastN: args.preserveLastN }
         : {}),
       ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+      ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
     });
   } catch (error) {
     logger.warn("thread.compaction.failed", {

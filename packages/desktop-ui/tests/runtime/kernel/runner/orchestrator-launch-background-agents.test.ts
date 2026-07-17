@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { startPreparedOrchestratorRun } from "@stella/runtime/kernel/runner/orchestrator-launch";
+import { createKernelRunSupervisor } from "@stella/runtime/kernel/runner/supervision/run-supervisor";
 
 vi.mock("@stella/runtime/kernel/runner/model-selection", () => ({
   resolveRunnerLlmRouteWithMetadata: vi.fn(async () => ({
@@ -58,6 +59,7 @@ const createContext = () =>
       activeOrchestratorSession: null,
       orchestratorSessions: new Map(),
       activeRunAbortControllers: new Map(),
+      supervisor: createKernelRunSupervisor(),
       loadedAgents: [],
       localAgentManager: {
         listActiveAgentRuns: () => [

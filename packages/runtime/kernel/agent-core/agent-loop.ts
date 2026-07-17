@@ -615,29 +615,59 @@ async function prepareToolCall(
  */
 export const DEFAULT_TOOL_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 
+/**
+ * How long a cancelled tool may keep running before it is abandoned. Once
+ * the outer signal aborts, a cooperative tool settles almost immediately;
+ * one that ignores its abort signal previously held the pending tool call
+ * (and the turn) hostage until the full inactivity bound. Cancellation is
+ * an explicit teardown request, so the grace errs short: after it expires
+ * the call is settled with an error result and the tool's external work is
+ * left to the tool host's own reaping (shell kill-all on shutdown).
+ */
+export const DEFAULT_TOOL_ABORT_GRACE_MS = 5_000;
+
 export async function executePreparedToolCall(
 	prepared: PreparedToolCall,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
 	inactivityTimeoutMs?: number,
+	abortGraceMs?: number,
 ): Promise<ExecutedToolCallOutcome> {
 	const updateEvents: Promise<void>[] = [];
 	const timeoutMs = inactivityTimeoutMs ?? DEFAULT_TOOL_INACTIVITY_TIMEOUT_MS;
+	const graceMs = abortGraceMs ?? DEFAULT_TOOL_ABORT_GRACE_MS;
 
 	// Bound the tool, not the agent. The tool gets a composed abort signal so
 	// a cooperative implementation can clean up; a tool that ignores it is
 	// abandoned via the race below so the loop still gets its error result.
 	const toolAbort = new AbortController();
-	const onOuterAbort = () => toolAbort.abort(signal?.reason);
-	if (signal?.aborted) onOuterAbort();
-	signal?.addEventListener("abort", onOuterAbort);
 	let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
+	let abortGraceTimer: ReturnType<typeof setTimeout> | undefined;
 	let timedOut = false;
 	let rejectOnInactivity: (error: Error) => void = () => {};
 	const inactivityFailure = new Promise<never>((_, reject) => {
 		rejectOnInactivity = reject;
 	});
 	inactivityFailure.catch(() => undefined);
+	const onOuterAbort = () => {
+		toolAbort.abort(signal?.reason);
+		// Abandonment after cancellation is bounded: don't let an
+		// abort-ignoring tool hold the pending call for the full
+		// inactivity window.
+		if (abortGraceTimer) return;
+		if (!Number.isFinite(graceMs) || graceMs <= 0) return;
+		abortGraceTimer = setTimeout(() => {
+			timedOut = true;
+			rejectOnInactivity(
+				new Error(
+					`Tool ${prepared.toolCall.name} ignored cancellation for ${Math.round(graceMs / 1000)}s and was abandoned.`,
+				),
+			);
+		}, graceMs);
+		abortGraceTimer.unref?.();
+	};
+	if (signal?.aborted) onOuterAbort();
+	signal?.addEventListener("abort", onOuterAbort);
 	const armInactivityTimer = () => {
 		if (inactivityTimer) clearTimeout(inactivityTimer);
 		if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return;
@@ -687,6 +717,7 @@ export async function executePreparedToolCall(
 		};
 	} finally {
 		if (inactivityTimer) clearTimeout(inactivityTimer);
+		if (abortGraceTimer) clearTimeout(abortGraceTimer);
 		signal?.removeEventListener("abort", onOuterAbort);
 	}
 }

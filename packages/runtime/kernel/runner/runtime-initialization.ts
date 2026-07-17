@@ -9,6 +9,8 @@ import type { ExtensionServices } from "../extensions/services.js";
 import { modelRuntime } from "../../ai/model-runtime.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { RunnerContext } from "./types.js";
+import { joinWithTimeout } from "../shared/supervised-scope.js";
+import { shutdownDreamRuns } from "../agent-runtime/dream-scheduler.js";
 
 const logger = createRuntimeLogger("runtime-init");
 
@@ -16,7 +18,7 @@ export const createRuntimeInitialization = (
   context: RunnerContext,
   deps: {
     disposeConvexClient: () => void;
-    shutdownTasks: () => void;
+    shutdownTasks: () => void | Promise<void>;
   },
 ) => {
   /**
@@ -421,6 +423,16 @@ export const createRuntimeInitialization = (
     }
   };
 
+  /**
+   * Hard cap on joining the supervised run-fiber tree after interruption
+   * has been delivered. Interruption aborts every unit cooperatively; this
+   * only bounds a wedged native promise (which no JavaScript runtime can
+   * force-kill) so worker exit cannot pin indefinitely. The external
+   * resources such a promise might hold are still reaped: the tool host
+   * shutdown below kills tool/shell child processes unconditionally.
+   */
+  const SUPERVISOR_JOIN_TIMEOUT_MS = 15_000;
+
   const stop = async (): Promise<void> => {
     logger.warn("runner.stop", {
       activeOrchestratorRunId: context.state.activeOrchestratorRunId,
@@ -433,7 +445,36 @@ export const createRuntimeInitialization = (
     context.state.isInitialized = false;
     context.state.initializationPromise = null;
     deps.disposeConvexClient();
-    deps.shutdownTasks();
+    // Cancel every live orchestrator turn cooperatively first, then cancel
+    // agent tasks (awaited: lifecycle events + managed-child cascades), then
+    // interrupt the whole supervised fiber tree — root turn fibers and
+    // subagent attempt fibers — and join their teardown before any shared
+    // resource (tool host, store) is torn down beneath them.
+    for (const controller of context.state.activeRunAbortControllers.values()) {
+      controller.abort();
+    }
+    const tasksShutdown = Promise.resolve(deps.shutdownTasks()).catch(
+      (error) => {
+        logger.warn("runner.stop.task-shutdown-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+    // Kill tool-owned child processes (shells, CLIs) now: every turn is
+    // already aborted, and reaping accelerates their unwind so the join
+    // below is short.
+    await context.toolHost.shutdown();
+    await tasksShutdown;
+    await joinWithTimeout(
+      context.state.supervisor.shutdown(),
+      SUPERVISOR_JOIN_TIMEOUT_MS,
+      () => {
+        logger.warn("runner.stop.supervisor-join-timeout", {
+          timeoutMs: SUPERVISOR_JOIN_TIMEOUT_MS,
+          liveFibers: context.state.supervisor.liveFiberCount(),
+        });
+      },
+    );
     context.state.activeOrchestratorRunId = null;
     context.state.activeOrchestratorConversationId = null;
     context.state.activeOrchestratorUiVisibility = "visible";
@@ -453,17 +494,18 @@ export const createRuntimeInitialization = (
     }
     context.state.orchestratorSessions.clear();
     context.state.queuedOrchestratorTurns.length = 0;
-    for (const controller of context.state.activeRunAbortControllers.values()) {
-      controller.abort();
-    }
     context.state.activeRunAbortControllers.clear();
     context.state.conversationCallbacks.clear();
     context.state.runCallbacksByRunId.clear();
-    await context.toolHost.shutdown();
-    // Drain any in-flight background compactions so SQLite writes
-    // complete before the worker tears down its store handle. Bounded
-    // timeout ensures shutdown doesn't pin on a stalled LLM call.
+    // Give in-flight background compactions their historical 5s grace to
+    // finish SQLite writes, then interrupt whatever remains and join it —
+    // an interrupted compaction aborts its LLM call and skips its store
+    // write, so nothing races the store handle teardown.
     await drainCompactionsWithTimeout();
+    await context.state.compactionScheduler.shutdown();
+    // Interrupt and join any in-flight Dream run: its lock directory and
+    // in-flight flag are released before the worker exits.
+    await shutdownDreamRuns(context.stellaDataDir);
   };
 
   return {

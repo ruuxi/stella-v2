@@ -318,6 +318,8 @@ const runCompactionWithHooks = async (args: {
   threadKey: string;
   runId: string;
   messageCount: number;
+  /** Aborts the summarization LLM call on compaction-scheduler shutdown. */
+  abortSignal?: AbortSignal;
 }): Promise<{ compacted: boolean }> => {
   let shouldCompact = true;
   let hookCompaction: { summary: string; preserveLastN?: number } | undefined;
@@ -363,6 +365,7 @@ const runCompactionWithHooks = async (args: {
     resolvedLlm: args.opts.resolvedLlm,
     agentType: args.opts.agentType,
     stellaDataDir: args.opts.stellaDataDir,
+    ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
     ...(hookCompaction
       ? {
           overrideSummary: hookCompaction.summary,
@@ -477,12 +480,13 @@ export const finalizeOrchestratorSuccess = async (args: {
   if (args.finalText.trim()) {
     void args.opts.compactionScheduler.schedule({
       threadKey: args.threadKey,
-      run: async () => {
+      run: async (signal) => {
         const { compacted } = await runCompactionWithHooks({
           opts: args.opts,
           threadKey: args.threadKey,
           runId: args.runId,
           messageCount: args.agent.state.messages.length,
+          ...(signal ? { abortSignal: signal } : {}),
         });
         if (compacted) {
           args.opts.orchestratorSession?.notifyCompacted();
@@ -593,12 +597,13 @@ export const finalizeSubagentSuccess = async (args: {
     const messageCount = args.agentMessageCount ?? 0;
     void args.opts.compactionScheduler.schedule({
       threadKey: args.threadKey,
-      run: async () => {
+      run: async (signal) => {
         const { compacted } = await runCompactionWithHooks({
           opts: args.opts,
           threadKey: args.threadKey,
           runId: args.runId,
           messageCount,
+          ...(signal ? { abortSignal: signal } : {}),
         });
         if (compacted) {
           args.opts.subagentSession?.notifyCompacted();

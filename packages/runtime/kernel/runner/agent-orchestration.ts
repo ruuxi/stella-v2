@@ -181,6 +181,10 @@ const buildLifecycleEventPayload = (
   event: AgentLifecycleEvent,
 ): Record<string, unknown> => {
   const runFields = event.rootRunId ? { rootRunId: event.rootRunId } : {};
+  const attemptFields =
+    typeof event.attemptGeneration === "number"
+      ? { attemptGeneration: event.attemptGeneration }
+      : {};
   const groupFields = event.groupKey
     ? {
         groupKey: event.groupKey,
@@ -192,13 +196,11 @@ const buildLifecycleEventPayload = (
       return {
         agentId: event.agentId,
         ...runFields,
+        ...attemptFields,
         description: event.description,
         agentType: event.agentType,
         ...(event.parentAgentId ? { parentAgentId: event.parentAgentId } : {}),
         ...(event.statusText ? { statusText: event.statusText } : {}),
-        ...(typeof event.attemptGeneration === "number"
-          ? { attemptGeneration: event.attemptGeneration }
-          : {}),
         // Persist the spawn-vs-follow-up discriminator so the inline
         // background-work card can pick its follow-up variant on reload.
         ...(event.isFollowUp ? { isFollowUp: true } : {}),
@@ -213,6 +215,7 @@ const buildLifecycleEventPayload = (
       return {
         agentId: event.agentId,
         ...runFields,
+        ...attemptFields,
         result: event.result ?? "",
         ...(event.fileChanges?.length
           ? { fileChanges: event.fileChanges }
@@ -226,6 +229,7 @@ const buildLifecycleEventPayload = (
       return {
         agentId: event.agentId,
         ...runFields,
+        ...attemptFields,
         result: event.result ?? "",
         ...(event.description ? { description: event.description } : {}),
       };
@@ -234,6 +238,7 @@ const buildLifecycleEventPayload = (
       return {
         agentId: event.agentId,
         ...runFields,
+        ...attemptFields,
         ...(event.error ? { error: event.error } : {}),
         ...groupFields,
       };
@@ -241,6 +246,7 @@ const buildLifecycleEventPayload = (
       return {
         agentId: event.agentId,
         ...runFields,
+        ...attemptFields,
         statusText: event.statusText,
         ...(event.toolActivity ? { toolActivity: event.toolActivity } : {}),
         ...(event.description ? { description: event.description } : {}),
@@ -261,6 +267,7 @@ const appendAgentLifecycleChatEvent = (
     conversationId: event.conversationId,
     type: event.type,
     payload: buildLifecycleEventPayload(event),
+    ...(event.eventId ? { eventId: event.eventId } : {}),
   });
 };
 

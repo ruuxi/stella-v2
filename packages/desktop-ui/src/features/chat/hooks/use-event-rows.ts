@@ -22,6 +22,9 @@ import {
 } from "@/features/chat/lib/derive-turn-resource";
 import {
   buildBackgroundTaskLifecycleIndex,
+  compareLifecycleEvents,
+  lifecycleAttemptGeneration,
+  orderLifecycleEventsByAttempt,
   resolveBackgroundTaskCardLifecycle,
   type BackgroundTaskLifecycleIndex,
 } from "@/features/chat/lib/background-task-lifecycle";
@@ -183,6 +186,7 @@ export const getBackgroundWork = (
   // lifecycle aged out of the loaded windows (presume settled, not pinned
   // as forever-working).
   const spawnedAtMs: Record<string, number> = {};
+  const latestStartByAgent = new Map<string, EventRecord>();
   let groupKey: string | undefined;
   let label: string | undefined;
   for (const event of events) {
@@ -202,25 +206,16 @@ export const getBackgroundWork = (
     if (!agentId) continue;
     if (!threadIds.includes(agentId)) threadIds.push(agentId);
     const description = asNonEmptyString(event.payload.description);
-    const priorTimestamp = spawnedAtMs[agentId];
-    const priorEventId = startEventIdsByThread[agentId];
+    const priorStart = latestStartByAgent.get(agentId);
     const isLatestOccurrence =
-      priorTimestamp === undefined ||
-      event.timestamp > priorTimestamp ||
-      (event.timestamp === priorTimestamp &&
-        (!priorEventId || event._id.localeCompare(priorEventId) > 0));
+      !priorStart || compareLifecycleEvents(priorStart, event) < 0;
     if (isLatestOccurrence) {
+      latestStartByAgent.set(agentId, event);
       spawnedAtMs[agentId] = event.timestamp;
       startEventIdsByThread[agentId] = event._id;
-      const attemptGeneration = event.payload.attemptGeneration;
-      if (
-        typeof attemptGeneration === "number" &&
-        Number.isFinite(attemptGeneration)
-      ) {
-        attemptGenerationsByThread[agentId] = Math.max(
-          0,
-          Math.floor(attemptGeneration),
-        );
+      const attemptGeneration = lifecycleAttemptGeneration(event);
+      if (attemptGeneration !== undefined) {
+        attemptGenerationsByThread[agentId] = attemptGeneration;
       } else {
         delete attemptGenerationsByThread[agentId];
       }
@@ -272,8 +267,9 @@ export const getBackgroundWorks = (
   events: readonly EventRecord[],
 ): NonNullable<ReturnType<typeof getBackgroundWork>>[] => {
   const cards: NonNullable<ReturnType<typeof getBackgroundWork>>[] = [];
-  for (const event of events) {
-    if (!isAgentStartedEvent(event)) continue;
+  const starts = events.filter(isAgentStartedEvent);
+  const orderedStarts = orderLifecycleEventsByAttempt(starts);
+  for (const event of orderedStarts) {
     const card = getBackgroundWork([event]);
     if (card) cards.push(card);
   }
@@ -916,15 +912,48 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
     //    assistant row during the SQLite/stream handoff. Rendering both draws
     //    two identical "Started in background" receipts, so the redundant
     //    (non-canonical) copy drops the thread entirely. One spawn = one card.
-    const latestOwnerByThread = new Map<string, number>();
+    const latestOwnerByThread = new Map<
+      string,
+      {
+        index: number;
+        attemptGeneration?: number;
+        startedAtMs: number;
+        startEventId: string;
+      }
+    >();
     computed.forEach((row, index) => {
       if (row.kind !== "assistant" || !row.backgroundWork) return;
       for (const id of row.backgroundWork.threadIds) {
-        latestOwnerByThread.set(id, index);
+        const candidateAttempt =
+          row.backgroundWork.attemptGenerationsByThread?.[id];
+        const candidateStartedAt = row.backgroundWork.spawnedAtMs?.[id] ?? 0;
+        const candidateStartEventId =
+          row.backgroundWork.startEventIdsByThread[id] ?? "";
+        const current = latestOwnerByThread.get(id);
+        const ownershipOrder = !current
+          ? 1
+          : candidateAttempt !== undefined &&
+              current.attemptGeneration !== undefined
+            ? candidateAttempt - current.attemptGeneration
+            : candidateStartedAt - current.startedAtMs ||
+              candidateStartEventId.localeCompare(current.startEventId);
+        if (
+          ownershipOrder > 0 ||
+          (ownershipOrder === 0 && index > current!.index)
+        ) {
+          latestOwnerByThread.set(id, {
+            index,
+            startedAtMs: candidateStartedAt,
+            startEventId: candidateStartEventId,
+            ...(candidateAttempt !== undefined
+              ? { attemptGeneration: candidateAttempt }
+              : {}),
+          });
+        }
       }
     });
     const ownerStartEventIdForThread = (id: string): string | undefined => {
-      const ownerIndex = latestOwnerByThread.get(id);
+      const ownerIndex = latestOwnerByThread.get(id)?.index;
       if (ownerIndex === undefined) return undefined;
       const owner = computed[ownerIndex];
       if (owner?.kind !== "assistant" || !owner.backgroundWork)
@@ -937,7 +966,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
       const superseded: string[] = [];
       const duplicated = new Set<string>();
       for (const id of row.backgroundWork.threadIds) {
-        if (latestOwnerByThread.get(id) === index) continue;
+        if (latestOwnerByThread.get(id)?.index === index) continue;
         const ownerStartEventId = ownerStartEventIdForThread(id);
         const selfStartEventId = row.backgroundWork.startEventIdsByThread[id];
         if (

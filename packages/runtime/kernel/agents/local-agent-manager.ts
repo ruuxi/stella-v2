@@ -315,8 +315,9 @@ export type AgentLifecycleEvent = {
   error?: string;
   statusText?: string;
   toolActivity?: TaskToolActivity;
-  /** `agent-started` only. Durable identity of the execution attempt that
-   * owns this lifecycle occurrence and its authored Activity projection. */
+  /** Durable identity of the execution attempt that owns this lifecycle
+   * occurrence and its authored Activity projection. Present on every new
+   * start/progress/update/terminal event; absent only on legacy events. */
   attemptGeneration?: number;
   /**
    * `agent-started` only. `true` when this start re-activates an existing
@@ -778,11 +779,13 @@ export class LocalAgentManager implements AgentToolApi {
       this.opts.onAgentEvent?.({
         type: "agent-canceled",
         conversationId: record.conversationId,
+        eventId: `${record.threadId}:${record.attemptGeneration}:agent-canceled`,
         agentId: record.threadId,
         agentType: record.agentType,
         description: record.description,
         parentAgentId: record.parentAgentId,
         error,
+        attemptGeneration: record.attemptGeneration,
         audience: "display-only",
       });
     }
@@ -1000,6 +1003,7 @@ export class LocalAgentManager implements AgentToolApi {
     task: RuntimeAgentRecord,
     type:
       | "agent-message"
+      | "agent-started"
       | "agent-completed"
       | "agent-failed"
       | "agent-canceled",
@@ -1382,6 +1386,7 @@ export class LocalAgentManager implements AgentToolApi {
       this.opts.onAgentEvent?.({
         type: "agent-started",
         conversationId: task.conversationId,
+        eventId: this.lifecycleEventId(task, "agent-started"),
         rootRunId: task.rootRunId,
         agentId: task.threadId,
         agentType: task.agentType,
@@ -1595,6 +1600,7 @@ export class LocalAgentManager implements AgentToolApi {
             parentAgentId: task.parentAgentId,
             statusText,
             toolActivity,
+            attemptGeneration: attempt.generation,
           });
           logWorkingIndicatorTrace(
             "[stella:working-indicator:agent-progress]",
@@ -1629,6 +1635,7 @@ export class LocalAgentManager implements AgentToolApi {
             parentAgentId: task.parentAgentId,
             statusText: toolActivity.label,
             toolActivity,
+            attemptGeneration: attempt.generation,
           });
         },
         toolExecutor: async (toolName, toolArgs, toolContext, signal) => {
@@ -1799,6 +1806,7 @@ export class LocalAgentManager implements AgentToolApi {
           description: task.description,
           parentAgentId: task.parentAgentId,
           result: interimResult,
+          attemptGeneration: attempt.generation,
         });
       }
       // An explicitly interim Manager turn, or a turn ending while children
@@ -1851,6 +1859,7 @@ export class LocalAgentManager implements AgentToolApi {
           description: task.description,
           parentAgentId: task.parentAgentId,
           result: task.result,
+          attemptGeneration: attempt.generation,
           ...(task.fileChanges?.length
             ? { fileChanges: task.fileChanges }
             : {}),
@@ -1890,6 +1899,7 @@ export class LocalAgentManager implements AgentToolApi {
           description: task.description,
           parentAgentId: task.parentAgentId,
           error: task.error,
+          attemptGeneration: attempt.generation,
         });
       } else if (task.status === "canceled") {
         this.opts.onAgentEvent?.({
@@ -1902,6 +1912,7 @@ export class LocalAgentManager implements AgentToolApi {
           description: task.description,
           parentAgentId: task.parentAgentId,
           error: task.error,
+          attemptGeneration: attempt.generation,
         });
       }
       task.terminalEventEmitted = true;
@@ -2301,6 +2312,7 @@ export class LocalAgentManager implements AgentToolApi {
         description: local.description,
         parentAgentId: local.parentAgentId,
         statusText: "Pausing",
+        attemptGeneration: local.attemptGeneration,
       });
       local.controller.abort(new Error(local.error));
       // Dispose the long-lived `SubagentSession` eagerly here too.
@@ -2338,6 +2350,7 @@ export class LocalAgentManager implements AgentToolApi {
           description: local.description,
           parentAgentId: local.parentAgentId,
           error: local.error,
+          attemptGeneration: local.attemptGeneration,
         });
         local.terminalEventEmitted = true;
       }
@@ -2352,13 +2365,27 @@ export class LocalAgentManager implements AgentToolApi {
     }
     const persisted = this.opts.getAgentRecord?.(agentId);
     if (persisted) {
-      if (persisted.status === "running") {
+      const wasActive = persisted.status === "running";
+      if (wasActive) {
+        const error = reason ?? "Canceled";
         this.opts.saveAgentRecord?.({
           ...persisted,
           status: "canceled",
           completedAt: Date.now(),
-          error: reason ?? "Canceled",
+          error,
           updatedAt: Date.now(),
+        });
+        this.opts.onAgentEvent?.({
+          type: "agent-canceled",
+          conversationId: persisted.conversationId,
+          eventId: `${persisted.threadId}:${persisted.attemptGeneration}:agent-canceled`,
+          rootRunId: persisted.rootRunId,
+          agentId: persisted.threadId,
+          agentType: persisted.agentType,
+          description: persisted.description,
+          parentAgentId: persisted.parentAgentId,
+          error,
+          attemptGeneration: persisted.attemptGeneration,
         });
       }
       if (persisted.agentType === AGENT_IDS.MANAGER) {
@@ -2573,6 +2600,7 @@ export class LocalAgentManager implements AgentToolApi {
         description: task.description,
         parentAgentId: task.parentAgentId,
         statusText: updateStatusText,
+        attemptGeneration: task.attemptGeneration,
       });
       this.enqueueTask(task);
       return { delivered: true };
@@ -2618,6 +2646,7 @@ export class LocalAgentManager implements AgentToolApi {
         description: task.description,
         parentAgentId: task.parentAgentId,
         statusText: updateStatusText,
+        attemptGeneration: task.attemptGeneration,
       });
 
       if (task.status === "running" && !task.controller.signal.aborted) {

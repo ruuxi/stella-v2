@@ -727,8 +727,20 @@ describe("LocalAgentManager Exec fs locking", () => {
     const resumedStart = resumedEvents.find(
       (event) => event.type === "agent-started" && event.isFollowUp,
     );
+    const resumedCompletion = resumedEvents.find(
+      (event) => event.type === "agent-completed",
+    );
     expect(resumedStart?.attemptGeneration).toBeGreaterThan(
       spawnStarted?.attemptGeneration ?? 0,
+    );
+    expect(resumedCompletion?.attemptGeneration).toBe(
+      resumedStart?.attemptGeneration,
+    );
+    expect(resumedStart?.eventId).toBe(
+      `${task.threadId}:${resumedStart?.attemptGeneration}:agent-started`,
+    );
+    expect(resumedCompletion?.eventId).toBe(
+      `${task.threadId}:${resumedStart?.attemptGeneration}:agent-completed`,
     );
 
     // Renderer side: the follow-up's stream events maintain only the
@@ -991,6 +1003,12 @@ describe("LocalAgentManager Exec fs locking", () => {
         agentType: "general",
         error: "engine transport failed",
       }),
+    );
+    const started = events.find((event) => event.type === "agent-started");
+    const failed = events.find((event) => event.type === "agent-failed");
+    expect(failed?.attemptGeneration).toBe(started?.attemptGeneration);
+    expect(failed?.eventId).toBe(
+      `${task.threadId}:${started?.attemptGeneration}:agent-failed`,
     );
   });
 

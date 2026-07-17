@@ -209,7 +209,10 @@ export const remoteModelCatalogEntrySchema = Type.Object({
   name: nonEmptyString,
   api: nonEmptyString,
   provider: Type.Optional(nonEmptyString),
-  baseUrl: nonEmptyString,
+  // Some provider catalogs intentionally leave the endpoint unresolved until
+  // models.json supplies the account-specific base URL (Azure is one such
+  // provider). Keep the field required, but accept that empty sentinel.
+  baseUrl: Type.String(),
   reasoning: Type.Boolean(),
   thinkingLevelMap: Type.Optional(thinkingLevelMapSchema),
   input: Type.Array(

@@ -42,7 +42,8 @@ export type BundledSyncAction =
   | { type: "adopt-identical"; id: string; bundledHash: Sha256Hex }
   | { type: "remove-obsolete"; id: string }
   | { type: "skip-obsolete-user-modified"; id: string }
-  | { type: "skip-obsolete-cleanup-failed"; id: string; error: string }
+  | { type: "preserve-retired-entry"; id: string }
+  | { type: "skip-retired-manifest-cleanup-failed"; error: string }
   | { type: "ignore-user-entry"; id: string };
 
 export type BundledSyncReport = { actions: BundledSyncAction[] };
@@ -57,24 +58,10 @@ export type BundledEntryAdapter = {
   copy: (srcDir: string, destDir: string, id: string) => Promise<void>;
   /** Remove an entry from a directory. */
   remove: (dir: string, id: string) => Promise<void>;
-  /**
-   * Snapshot an entry before removing it so a later manifest-commit failure
-   * can restore the exact bytes. Retired cleanup requires this transaction
-   * seam; ordinary obsolete-entry cleanup keeps using `remove` directly.
-   */
-  prepareRemoval?: (
-    dir: string,
-    id: string,
-    remove: () => Promise<void>,
-  ) => Promise<PreparedBundledEntryRemoval>;
-};
-
-export type PreparedBundledEntryRemoval = {
-  rollback: () => Promise<void>;
-  commit: () => Promise<void>;
 };
 
 export type BundledManifestPersistence = {
+  readFile: (filePath: string, encoding: BufferEncoding) => Promise<string>;
   writeFile: (
     filePath: string,
     content: string,
@@ -105,6 +92,8 @@ export type BundledSyncOptions = {
   removeObsolete?: boolean;
   /** Identify source ids retired from the product and hidden from discovery. */
   isRetiredBundledId?: (id: string) => boolean;
+  /** Enumerate retired ids so manifest-only ownership can be pruned safely. */
+  retiredBundledIds?: readonly string[];
   /** Fault-injection seam for manifest durability tests. */
   manifestPersistence?: Partial<BundledManifestPersistence>;
 };
@@ -125,10 +114,15 @@ type BundledManifest = {
 const readManifest = async (
   manifestPath: string,
   legacyEntriesKey?: string,
+  persistenceOverrides: Partial<BundledManifestPersistence> = {},
 ): Promise<BundledManifest | null> => {
   let raw: string;
+  const readFile =
+    persistenceOverrides.readFile ??
+    ((filePath: string, encoding: BufferEncoding) =>
+      fs.readFile(filePath, encoding));
   try {
-    raw = await fs.readFile(manifestPath, "utf-8");
+    raw = await readFile(manifestPath, "utf-8");
   } catch {
     return null;
   }
@@ -189,8 +183,9 @@ const writeManifest = async (
 ): Promise<void> => {
   await ensurePrivateDir(path.dirname(manifestPath));
   const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
-  const tempPath = `${manifestPath}.tmp`;
+  const tempPath = `${manifestPath}.tmp-${process.pid}-${randomUUID()}`;
   const persistence: BundledManifestPersistence = {
+    readFile: (filePath, encoding) => fs.readFile(filePath, encoding),
     writeFile: (filePath, content, encoding) =>
       fs.writeFile(filePath, content, encoding),
     rename: (source, destination) => fs.rename(source, destination),
@@ -223,8 +218,11 @@ export const reconcileBundledEntries = async (
     options.manifestFilename ?? DEFAULT_MANIFEST_FILENAME,
   );
   const manifest =
-    (await readManifest(manifestPath, options.legacyEntriesKey)) ??
-    ({ version: MANIFEST_VERSION, entries: {} } as BundledManifest);
+    (await readManifest(
+      manifestPath,
+      options.legacyEntriesKey,
+      options.manifestPersistence,
+    )) ?? ({ version: MANIFEST_VERSION, entries: {} } as BundledManifest);
   const sourceRevision = options.sourceRevision?.trim() || "bundled";
   const seedMissingOnly = options.seedMissingOnly === true;
 
@@ -235,13 +233,12 @@ export const reconcileBundledEntries = async (
   const homeIds = await adapter.listIds(homeDir);
 
   const actions: BundledSyncAction[] = [];
-  const preparedRetiredRemovals: Array<{
-    id: string;
-    transaction: PreparedBundledEntryRemoval;
-  }> = [];
   const nextEntries: Record<string, BundledManifestEntry> = {
     ...manifest.entries,
   };
+  const retiredIds = new Set(options.retiredBundledIds ?? []);
+  const isRetiredId = (id: string) =>
+    retiredIds.has(id) || options.isRetiredBundledId?.(id) === true;
 
   // 1. Reconcile every bundled entry against home + manifest.
   for (const id of bundledIds) {
@@ -327,7 +324,15 @@ export const reconcileBundledEntries = async (
   const bundledIdSet = new Set(bundledIds);
   for (const id of options.removeObsolete === false ? [] : homeIds) {
     if (bundledIdSet.has(id)) continue;
-    const isRetired = options.isRetiredBundledId?.(id) === true;
+    if (isRetiredId(id)) {
+      // Retirement is a discovery/packaging policy, never authority to touch
+      // an existing home directory. Do not hash it: hashes would miss modes,
+      // symlinks, empty directories, xattrs, and other user-owned metadata.
+      delete nextEntries[id];
+      retiredIds.add(id);
+      actions.push({ type: "preserve-retired-entry", id });
+      continue;
+    }
     const recorded = manifest.entries[id];
     const recordedHash = recorded?.lastSyncedHash;
     if (recordedHash === undefined) {
@@ -337,74 +342,24 @@ export const reconcileBundledEntries = async (
       actions.push({ type: "ignore-user-entry", id });
       continue;
     }
-    let homeHash: Sha256Hex | null;
-    try {
-      homeHash = await adapter.hash(homeDir, id);
-    } catch (error) {
-      if (!isRetired) throw error;
-      actions.push({
-        type: "skip-obsolete-cleanup-failed",
-        id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      continue;
-    }
+    const homeHash = await adapter.hash(homeDir, id);
     if (homeHash !== null && homeHash === recordedHash) {
-      if (isRetired) {
-        if (!adapter.prepareRemoval) {
-          actions.push({
-            type: "skip-obsolete-cleanup-failed",
-            id,
-            error: "transactional removal is unavailable",
-          });
-          continue;
-        }
-        try {
-          const transaction = await adapter.prepareRemoval(homeDir, id, () =>
-            adapter.remove(homeDir, id),
-          );
-          preparedRetiredRemovals.push({ id, transaction });
-          delete nextEntries[id];
-        } catch (error) {
-          actions.push({
-            type: "skip-obsolete-cleanup-failed",
-            id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-        continue;
-      }
-      try {
-        await adapter.remove(homeDir, id);
-      } catch (error) {
-        throw error;
-      }
+      await adapter.remove(homeDir, id);
       delete nextEntries[id];
       actions.push({ type: "remove-obsolete", id });
     } else {
-      if (isRetired) {
-        // The directory began as bundled content but has since diverged.
-        // Preserve it as user content and drop Stella's ownership claim.
-        delete nextEntries[id];
-      } else {
-        nextEntries[id] = { ...recorded, customized: true };
-      }
+      nextEntries[id] = { ...recorded, customized: true };
       actions.push({ type: "skip-obsolete-user-modified", id });
     }
   }
 
-  // A prior cleanup may have removed the directory without updating the
-  // manifest. Retired ids must not survive there as latent source-owned
-  // entries that a later stale package could appear to revive.
-  if (options.isRetiredBundledId) {
-    for (const id of Object.keys(nextEntries)) {
-      if (
-        !bundledIdSet.has(id) &&
-        !homeIds.includes(id) &&
-        options.isRetiredBundledId(id)
-      ) {
-        delete nextEntries[id];
-      }
+  // Manifest ownership for retired ids is inert and pruned best-effort. This
+  // list-based pass also covers symlinks and absent entries, which directory
+  // adapters intentionally omit from `listIds`.
+  for (const id of Object.keys(nextEntries)) {
+    if (!bundledIdSet.has(id) && isRetiredId(id)) {
+      retiredIds.add(id);
+      delete nextEntries[id];
     }
   }
 
@@ -418,38 +373,12 @@ export const reconcileBundledEntries = async (
       options.manifestPersistence,
     );
   } catch (error) {
-    if (preparedRetiredRemovals.length === 0) throw error;
-
-    const manifestError =
-      error instanceof Error ? error.message : String(error);
-    for (const prepared of [...preparedRetiredRemovals].reverse()) {
-      let cleanupError = manifestError;
-      try {
-        await prepared.transaction.rollback();
-      } catch (rollbackError) {
-        cleanupError += `; rollback failed: ${
-          rollbackError instanceof Error
-            ? rollbackError.message
-            : String(rollbackError)
-        }`;
-      }
-      actions.push({
-        type: "skip-obsolete-cleanup-failed",
-        id: prepared.id,
-        error: cleanupError,
-      });
-    }
+    if (retiredIds.size === 0 && !options.isRetiredBundledId) throw error;
+    actions.push({
+      type: "skip-retired-manifest-cleanup-failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
     return { actions };
-  }
-
-  for (const prepared of preparedRetiredRemovals) {
-    try {
-      await prepared.transaction.commit();
-    } catch {
-      // The visible entry and its ownership record committed atomically. A
-      // hidden byte backup is harmless and preferable to making startup fail.
-    }
-    actions.push({ type: "remove-obsolete", id: prepared.id });
   }
 
   return { actions };
@@ -463,7 +392,8 @@ export const summarizeBundledSync = (report: BundledSyncReport): string => {
     preserved: 0,
     removed: 0,
     preservedObsolete: 0,
-    cleanupFailed: 0,
+    retiredPreserved: 0,
+    retiredManifestCleanupFailed: 0,
     ignored: 0,
   };
   for (const action of report.actions) {
@@ -486,8 +416,11 @@ export const summarizeBundledSync = (report: BundledSyncReport): string => {
       case "skip-obsolete-user-modified":
         tally.preservedObsolete += 1;
         break;
-      case "skip-obsolete-cleanup-failed":
-        tally.cleanupFailed += 1;
+      case "preserve-retired-entry":
+        tally.retiredPreserved += 1;
+        break;
+      case "skip-retired-manifest-cleanup-failed":
+        tally.retiredManifestCleanupFailed += 1;
         break;
       case "ignore-user-entry":
         tally.ignored += 1;
@@ -502,7 +435,12 @@ export const summarizeBundledSync = (report: BundledSyncReport): string => {
   if (tally.removed) parts.push(`removed=${tally.removed}`);
   if (tally.preservedObsolete)
     parts.push(`preservedObsolete=${tally.preservedObsolete}`);
-  if (tally.cleanupFailed) parts.push(`cleanupFailed=${tally.cleanupFailed}`);
+  if (tally.retiredPreserved)
+    parts.push(`retiredPreserved=${tally.retiredPreserved}`);
+  if (tally.retiredManifestCleanupFailed)
+    parts.push(
+      `retiredManifestCleanupFailed=${tally.retiredManifestCleanupFailed}`,
+    );
   if (tally.ignored) parts.push(`ignored=${tally.ignored}`);
   return parts.length === 0 ? "no-op" : parts.join(" ");
 };
@@ -616,34 +554,6 @@ export const createDirectoryEntryAdapter = (
     copy,
     remove: async (dir, id) => {
       await fs.rm(path.join(dir, id), { recursive: true, force: true });
-    },
-    prepareRemoval: async (dir, id, remove) => {
-      const nonce = `${process.pid}-${Date.now()}-${randomUUID()}`;
-      const backupRoot = path.join(dir, `.retired-backup-${nonce}`);
-      await copy(dir, backupRoot, id);
-      try {
-        await remove();
-      } catch (error) {
-        await copy(backupRoot, dir, id).catch(() => {});
-        await fs
-          .rm(backupRoot, { recursive: true, force: true })
-          .catch(() => {});
-        throw error;
-      }
-      let settled = false;
-      return {
-        rollback: async () => {
-          if (settled) return;
-          await copy(backupRoot, dir, id);
-          await fs.rm(backupRoot, { recursive: true, force: true });
-          settled = true;
-        },
-        commit: async () => {
-          if (settled) return;
-          await fs.rm(backupRoot, { recursive: true, force: true });
-          settled = true;
-        },
-      };
     },
   };
 };

@@ -16,7 +16,10 @@ import {
   summarizeBundledSync,
   type BundledSyncReport,
 } from "./bundled-sync.js";
-import { isRetiredBundledSkillId } from "../shared/skill-policy.js";
+import {
+  isRetiredBundledSkillId,
+  RETIRED_BUNDLED_SKILL_IDS,
+} from "../shared/skill-policy.js";
 
 const USER_PROFILE_SKILL_ID = "user-profile";
 const PLATFORM_SKILL_IDS: Partial<Record<NodeJS.Platform, readonly string[]>> =
@@ -63,6 +66,7 @@ export const reconcileBundledSkills = async (
         !isRetiredBundledSkillId(id) &&
         isBundledSkillIncludedForPlatform(id, platform),
       isRetiredBundledId: isRetiredBundledSkillId,
+      retiredBundledIds: RETIRED_BUNDLED_SKILL_IDS,
       // Manifests seeded before the generic rename stored hashes under
       // `skills`; read them so already-installed users still get updates.
       legacyEntriesKey: "skills",

@@ -629,13 +629,54 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       entry_type TEXT NOT NULL,
       timestamp_iso TEXT NOT NULL,
       created_at INTEGER NOT NULL,
+      insertion_sequence INTEGER,
       data_json TEXT,
       FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
     );
   `);
+  try {
+    db.exec(
+      "ALTER TABLE runtime_thread_entries ADD COLUMN insertion_sequence INTEGER;",
+    );
+  } catch {
+    // Column already exists.
+  }
+  // Timestamp-prefixed entry ids have a random suffix, so neither
+  // `(created_at, entry_id)` nor the timestamp alone records append order.
+  // Preserve the current SQLite insertion order for legacy rows once, then
+  // assign a durable ordinal to every future row. The stored ordinal survives
+  // VACUUM (raw rowid does not), and SQLite's single-writer transaction model
+  // serializes the MAX + 1 assignment across connections.
+  db.exec(`
+    UPDATE runtime_thread_entries
+    SET insertion_sequence = rowid
+    WHERE insertion_sequence IS NULL;
+  `);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_thread_entries_sequence
+    ON runtime_thread_entries(insertion_sequence)
+    WHERE insertion_sequence IS NOT NULL;
+  `);
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_runtime_thread_entries_sequence
+    AFTER INSERT ON runtime_thread_entries
+    WHEN NEW.insertion_sequence IS NULL
+    BEGIN
+      UPDATE runtime_thread_entries
+      SET insertion_sequence = (
+        SELECT COALESCE(MAX(insertion_sequence), 0) + 1
+        FROM runtime_thread_entries
+      )
+      WHERE rowid = NEW.rowid;
+    END;
+  `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_created
     ON runtime_thread_entries(thread_key, created_at, entry_id);
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_sequence
+    ON runtime_thread_entries(thread_key, insertion_sequence);
   `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_parent

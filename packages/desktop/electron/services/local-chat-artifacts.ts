@@ -100,13 +100,8 @@ export type MobileTask = {
   statusText?: string;
   createdAt: number;
   completedAt?: number;
-  /**
-   * Rolling LLM-generated progress phrases mirrored from the desktop activity
-   * tray, ordered oldest→newest. Bridged straight from the renderer's
-   * `agentProgressSummaryStore` (never regenerated on the bridge side) so the
-   * mobile activity tray shows the SAME short reasoning summaries the desktop
-   * tray renders. Only present while summaries exist for the agent.
-   */
+  /** Recent agent-authored assistant messages, oldest→newest. The legacy wire
+   * name is retained for mobile compatibility. */
   reasoningSummaries?: string[];
 };
 
@@ -657,9 +652,7 @@ const buildAgentFilesById = (
     if (ranked.length > 0) {
       files.set(
         agentId,
-        ranked
-          .slice(0, AGENT_SECTION_FILE_LIMIT)
-          .map((entry) => entry.payload),
+        ranked.slice(0, AGENT_SECTION_FILE_LIMIT).map((entry) => entry.payload),
       );
     }
   }
@@ -794,7 +787,7 @@ type TaskBuild = {
 const buildMobileTasksById = (
   messages: readonly ArtifactMessageRecord[],
   nowMs: number,
-  reasoningSummariesByAgentId?: ReadonlyMap<string, readonly string[]>,
+  assistantMessagesByAgentId?: ReadonlyMap<string, readonly string[]>,
   statusTextByAgentId?: ReadonlyMap<string, string>,
 ): Map<string, MobileTask> => {
   const builds = new Map<string, TaskBuild>();
@@ -872,7 +865,7 @@ const buildMobileTasksById = (
       nowMs - build.spawnedAt > AGENT_WORK_STALE_MS
         ? "completed"
         : build.status;
-    const reasoningSummaries = reasoningSummariesByAgentId?.get(build.id);
+    const assistantMessages = assistantMessagesByAgentId?.get(build.id);
     // Live decoration beats the folded spawn text: `agent-progress` ticks are
     // no longer persisted, so mid-run statusText only exists in the renderer's
     // decoration snapshot mirrored via `publishTaskDecoration`.
@@ -889,8 +882,11 @@ const buildMobileTasksById = (
       ...(build.completedAt !== undefined
         ? { completedAt: build.completedAt }
         : {}),
-      ...(reasoningSummaries && reasoningSummaries.length > 0
-        ? { reasoningSummaries: [...reasoningSummaries] }
+      // Keep the established mobile wire field for compatibility, but its
+      // contents are now the agent's own assistant messages, never generated
+      // progress summaries.
+      ...(assistantMessages && assistantMessages.length > 0
+        ? { reasoningSummaries: [...assistantMessages] }
         : {}),
     });
   }
@@ -1157,7 +1153,7 @@ export const buildMobileSyncMessages = (
   messages: readonly ArtifactMessageRecord[],
   maxMessages: number,
   options?: MobileArtifactOptions,
-  reasoningSummariesByAgentId?: ReadonlyMap<string, readonly string[]>,
+  assistantMessagesByAgentId?: ReadonlyMap<string, readonly string[]>,
   taskContextMessages: readonly ArtifactMessageRecord[] = messages,
   statusTextByAgentId?: ReadonlyMap<string, string>,
 ): LocalChatSyncMessageWithArtifacts[] => {
@@ -1169,7 +1165,7 @@ export const buildMobileSyncMessages = (
   const tasksById = buildMobileTasksById(
     taskContextMessages,
     nowMs,
-    reasoningSummariesByAgentId,
+    assistantMessagesByAgentId,
     statusTextByAgentId,
   );
   // Completion files resolve across the whole context so a fire-and-forget
@@ -1251,7 +1247,7 @@ export const buildMobileSyncMessagesPage = (
   maxMessages: number,
   cursorSource: readonly ArtifactSourceRecord[] = messages,
   options?: MobileArtifactOptions,
-  reasoningSummariesByAgentId?: ReadonlyMap<string, readonly string[]>,
+  assistantMessagesByAgentId?: ReadonlyMap<string, readonly string[]>,
   taskContextMessages: readonly ArtifactMessageRecord[] = messages,
   statusTextByAgentId?: ReadonlyMap<string, string>,
 ): LocalChatMobileSyncResult => {
@@ -1268,7 +1264,7 @@ export const buildMobileSyncMessagesPage = (
       messagesWithTaskAnchors,
       maxMessages + extraAnchorBudget,
       options,
-      reasoningSummariesByAgentId,
+      assistantMessagesByAgentId,
       taskContextMessages,
       statusTextByAgentId,
     ),

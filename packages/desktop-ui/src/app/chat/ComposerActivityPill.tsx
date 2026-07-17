@@ -18,7 +18,7 @@
  *
  * Clicking it (in any state) opens the tray: the searchable activity
  * overview (`LeftSidebarSections`, the same component the sidebar hosts —
- * expand/collapse, reasoning summaries, live per-agent files).
+ * expand/collapse, agent-authored updates, live per-agent files).
  */
 import {
   memo,
@@ -84,8 +84,7 @@ export const getDisplayedActivityPillState = (
 export const shouldTrayHoldSearchLayout = (
   inputValue: string,
   deferredQuery: string,
-): boolean =>
-  inputValue.trim().length > 0 || deferredQuery.trim().length > 0;
+): boolean => inputValue.trim().length > 0 || deferredQuery.trim().length > 0;
 
 /** Live status of the whole conversation's background work, distilled into
  *  a single pill state (+ running count) with a minimum dwell on terminal
@@ -220,7 +219,10 @@ function ActivityTray({ onNavigate }: { onNavigate: () => void }) {
   const searching = shouldTrayHoldSearchLayout(inputValue, deferredQuery);
 
   return (
-    <div className="composer-activity-tray" data-searching={searching || undefined}>
+    <div
+      className="composer-activity-tray"
+      data-searching={searching || undefined}
+    >
       <div className="composer-activity-tray__search">
         <Search size={15} strokeWidth={1.75} aria-hidden="true" />
         <input

@@ -18,20 +18,17 @@ vi.mock(
     shouldUseClaudeCodeAgentRuntime: () => claudeCodeEngineActive,
     runClaudeCodeAgentTextCompletion: async (args: Record<string, unknown>) => {
       claudeCodeCalls.push(args);
-      return "summarizing agent progress now";
+      return "utility completion result";
     },
   }),
 );
 
-vi.mock(
-  "@stella/runtime/kernel/integrations/codex-agent-runtime",
-  () => ({
-    runCodexAgentTurn: async (args: Record<string, unknown>) => {
-      codexCalls.push(args);
-      return { text: "codex utility summary" };
-    },
-  }),
-);
+vi.mock("@stella/runtime/kernel/integrations/codex-agent-runtime", () => ({
+  runCodexAgentTurn: async (args: Record<string, unknown>) => {
+    codexCalls.push(args);
+    return { text: "codex utility result" };
+  },
+}));
 
 vi.mock(
   "@stella/runtime/kernel/integrations/claude-code-session-runtime",
@@ -50,7 +47,11 @@ vi.mock(
 
 const completeSimpleCalls: Array<Record<string, unknown>> = [];
 vi.mock("@stella/runtime/ai/stream", () => ({
-  completeSimple: async (model: unknown, context: unknown, options: unknown) => {
+  completeSimple: async (
+    model: unknown,
+    context: unknown,
+    options: unknown,
+  ) => {
     completeSimpleCalls.push({ model, context, options });
     return { content: [{ type: "text", text: "relay summary" }] };
   },
@@ -68,7 +69,7 @@ const makeRuntime = (args: { authToken: string | null; dataDir: string }) => ({
 });
 
 const request = {
-  agentType: "progress_summary",
+  agentType: "recall",
   model: "stella/light",
   fallbackAgentTypes: ["general"],
   systemPrompt: "narrate",
@@ -101,7 +102,7 @@ describe("runOneShotCompletion", () => {
       request,
       runtime: makeRuntime({ authToken: "token", dataDir }),
     });
-    expect(result.text).toBe("codex utility summary");
+    expect(result.text).toBe("codex utility result");
     expect(codexCalls).toHaveLength(1);
     expect(codexCalls[0]?.utility).toBe(true);
   });
@@ -112,7 +113,7 @@ describe("runOneShotCompletion", () => {
       request,
       runtime: makeRuntime({ authToken: null, dataDir }),
     });
-    expect(result.text).toBe("summarizing agent progress now");
+    expect(result.text).toBe("utility completion result");
     expect(claudeCodeCalls).toHaveLength(1);
     // The explicit stella/light pin must flow through so CC maps it to Haiku.
     expect(claudeCodeCalls[0]?.stellaModel).toBe("stella/light");
@@ -137,28 +138,28 @@ describe("runOneShotCompletion", () => {
     claudeCodeEngineActive = true;
     const persistentRequest = {
       ...request,
-      sessionKey: "progress-summary:agent-1",
+      sessionKey: "utility-session:agent-1",
       sessionIdleTtlMs: 60_000,
     };
     await runOneShotCompletion({
       request: persistentRequest,
       runtime: makeRuntime({ authToken: null, dataDir }),
     });
-    expect(claudeCodeCalls[0]?.sessionKey).toBe("progress-summary:agent-1");
+    expect(claudeCodeCalls[0]?.sessionKey).toBe("utility-session:agent-1");
     expect(scheduledSessionCloses).toEqual([
-      { sessionKey: "progress-summary:agent-1", timeoutMs: 60_000 },
+      { sessionKey: "utility-session:agent-1", timeoutMs: 60_000 },
     ]);
 
     await runOneShotCompletion({
       request: {
-        agentType: "progress_summary",
+        agentType: "recall",
         userText: "",
-        sessionKey: "progress-summary:agent-1",
+        sessionKey: "utility-session:agent-1",
         closeSession: true,
       },
       runtime: makeRuntime({ authToken: null, dataDir }),
     });
-    expect(closedSessionKeys).toEqual(["progress-summary:agent-1"]);
+    expect(closedSessionKeys).toEqual(["utility-session:agent-1"]);
     expect(claudeCodeCalls).toHaveLength(1);
   });
 

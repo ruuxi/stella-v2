@@ -342,7 +342,7 @@ describe("local chat mobile artifacts", () => {
     });
   });
 
-  it("bridges generated reasoning summaries onto the running task", () => {
+  it("bridges agent-authored assistant messages onto the running task", () => {
     const now = Date.now();
     const rows = buildMobileSyncMessages(
       [
@@ -367,7 +367,7 @@ describe("local chat mobile artifacts", () => {
 
     const task = rows.find((row) => row.localMessageId === "a1")?.tasks?.[0];
     expect(task).toMatchObject({ id: "t1", status: "running" });
-    // Ordered oldest -> newest, exactly the phrases the desktop tray shows.
+    // Ordered oldest -> newest, exactly the agent-authored text supplied.
     expect(task?.reasoningSummaries).toEqual([
       "reading flight options",
       "comparing fares",

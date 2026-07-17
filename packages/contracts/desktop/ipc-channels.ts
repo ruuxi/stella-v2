@@ -176,6 +176,8 @@ export const IPC_AGENT_EVENT = "agent:event" as const;
  * and back.
  */
 export const IPC_RUNTIME_AVAILABILITY = "runtime:availability" as const;
+export const IPC_PREFERENCES_MODELS_UPDATED =
+  "preferences:modelsUpdated" as const;
 export const IPC_DEVTEST_TRIGGER_VITE_ERROR =
   "devtest:triggerViteError" as const;
 export const IPC_DEVTEST_FIX_VITE_ERROR = "devtest:fixViteError" as const;
@@ -232,6 +234,7 @@ export const IPC_PREFERENCES_GET_MODELS =
   "preferences:getLocalModelPreferences" as const;
 export const IPC_PREFERENCES_SET_MODELS =
   "preferences:setLocalModelPreferences" as const;
+export const IPC_PREFERENCES_LIST_MODELS = "preferences:listModels" as const;
 export const IPC_PREFERENCES_LIST_CODEX_MODELS =
   "preferences:listCodexModels" as const;
 export const IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS =

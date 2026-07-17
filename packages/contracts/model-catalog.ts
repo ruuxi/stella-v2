@@ -28,6 +28,35 @@ export type CatalogModel<TApi extends CatalogApi = CatalogApi> = {
 
 export type Model<TApi extends Api = Api> = CatalogModel<TApi>;
 
+export type RuntimeModelCatalogModel = {
+  id: string;
+  name: string;
+  provider: string;
+  api: string;
+  baseUrl: string;
+  reasoning: boolean;
+  input: Array<"text" | "image">;
+  contextWindow: number;
+  maxTokens: number;
+};
+
+export type RuntimeModelCatalogSnapshot = {
+  revision: number;
+  models: RuntimeModelCatalogModel[];
+  runtimeManagedProviders: Array<{
+    id: string;
+    authManaged: boolean;
+    credentialless: boolean;
+  }>;
+  refreshedAt: number | null;
+  configError?: string;
+  catalogError?: string;
+};
+
+export type RuntimeListModelsRequest = {
+  forceRefresh?: boolean;
+};
+
 export function getAllModels(): CatalogModel[] {
   return Object.keys(MODELS)
     .sort()

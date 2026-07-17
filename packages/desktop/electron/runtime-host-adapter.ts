@@ -9,6 +9,8 @@ import type {
   RuntimeAgentEventPayload,
   RuntimeAutomationTurnRequest,
   RuntimeHealthSnapshot,
+  RuntimeListModelsRequest,
+  RuntimeModelCatalogSnapshot,
   RuntimeSocialSessionStatus,
   RuntimeVoiceChatPayload,
   RuntimeVoiceOrchestratorConfigRequest,
@@ -627,6 +629,10 @@ export class RuntimeHostAdapter {
     return await this.host.listActiveRuns();
   }
 
+  async listModels(request: RuntimeListModelsRequest = {}) {
+    return await this.host.listModels(request);
+  }
+
   async resumeRunEvents(payload: { runId: string; lastSeq: number }) {
     return await this.host.resumeRunEvents(payload);
   }
@@ -983,6 +989,12 @@ export class RuntimeHostAdapter {
 
   onScheduleUpdated(listener: () => void) {
     return this.host.on("schedule-updated", listener);
+  }
+
+  onModelCatalogUpdated(
+    listener: (snapshot: RuntimeModelCatalogSnapshot) => void,
+  ) {
+    return this.host.on("model-catalog-updated", listener);
   }
 
   onLocalChatUpdated(

@@ -47,6 +47,7 @@ export type AgentCompletionSection = {
   startEventId?: string;
   completionEventId?: string;
   rootRunId?: string;
+  attemptGeneration?: number;
   /** Latest `agent-completed` timestamp backing this section. Also supports
    *  deduplication for legacy loose completion attachments. */
   completedAtMs: number;

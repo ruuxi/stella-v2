@@ -110,6 +110,17 @@ describe("LocalAgentManager pause_agent cancellation", () => {
       (entry) => entry.type === "agent-canceled",
     );
     expect(canceled?.error).toBe(AGENT_PAUSE_CANCEL_REASON);
+    const started = lifecycleEvents.find(
+      (entry) => entry.type === "agent-started",
+    );
+    expect(
+      lifecycleEvents.every(
+        (entry) => entry.attemptGeneration === started?.attemptGeneration,
+      ),
+    ).toBe(true);
+    expect(canceled?.eventId).toBe(
+      `${created.threadId}:${started?.attemptGeneration}:agent-canceled`,
+    );
 
     // Anything fired by the agent loop after `cancelAgent` must NOT have
     // produced another `agent-progress` event.
@@ -237,7 +248,11 @@ describe("LocalAgentManager pause_agent cancellation", () => {
     });
 
     await startedFirstPromise;
-    await manager.sendAgentMessage(created.threadId, "follow-up", "orchestrator");
+    await manager.sendAgentMessage(
+      created.threadId,
+      "follow-up",
+      "orchestrator",
+    );
 
     await waitFor(
       () => prompts.length === 2,

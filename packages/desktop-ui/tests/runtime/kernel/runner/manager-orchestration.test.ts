@@ -211,6 +211,59 @@ afterEach(async () => {
 });
 
 describe("manager orchestration production routing", () => {
+  it("persists stable attempt identity on failed and canceled terminals", async () => {
+    const { manager, appendedEvents } = createHarness();
+    runMock.handler = async (args) => {
+      if (args.agentId === "failing-agent") {
+        throw new Error("terminal identity failure");
+      }
+      await waitForAbort(args.abortSignal);
+      return { runId: "canceled-run", result: "", interrupted: true };
+    };
+
+    const failedTask = await manager.createAgent({
+      threadId: "failing-agent",
+      conversationId: "conversation-terminal-identity",
+      description: "Fail with identity",
+      prompt: "Fail",
+      agentType: AGENT_IDS.GENERAL,
+      storageMode: "local",
+    });
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(failedTask.threadId))?.status === "error",
+    );
+
+    const canceledTask = await manager.createAgent({
+      threadId: "canceled-agent",
+      conversationId: "conversation-terminal-identity",
+      description: "Cancel with identity",
+      prompt: "Wait",
+      agentType: AGENT_IDS.GENERAL,
+      storageMode: "local",
+    });
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(canceledTask.threadId))?.status === "running",
+    );
+    await manager.cancelAgent(canceledTask.threadId, AGENT_PAUSE_CANCEL_REASON);
+
+    const terminal = (type: string, agentId: string) =>
+      appendedEvents.find(
+        (event) =>
+          event.type === type &&
+          (event.payload as { agentId?: string }).agentId === agentId,
+      );
+    expect(terminal("agent-failed", failedTask.threadId)).toMatchObject({
+      eventId: `${failedTask.threadId}:1:agent-failed`,
+      payload: { attemptGeneration: 1 },
+    });
+    expect(terminal("agent-canceled", canceledTask.threadId)).toMatchObject({
+      eventId: `${canceledTask.threadId}:1:agent-canceled`,
+      payload: { attemptGeneration: 1 },
+    });
+  });
+
   it("starts spawn_manager with the spawning Orchestrator model snapshot in a customized existing home", async () => {
     let harness = createHarness();
     await mkdir(path.join(harness.rootPath, "agents"), { recursive: true });
@@ -569,6 +622,18 @@ describe("manager orchestration production routing", () => {
     ).toBe(true);
     expect(visibleStartGenerations).toEqual(
       [...visibleStartGenerations].sort((a, b) => (a ?? 0) - (b ?? 0)),
+    );
+    const managerTerminal = rootLifecycleEvents.find(
+      (event) => event.type === "agent-completed",
+    );
+    const terminalGeneration = (
+      managerTerminal?.payload as { attemptGeneration?: number } | undefined
+    )?.attemptGeneration;
+    expect(terminalGeneration).toBe(
+      store.getAgentRecord(managerTask.threadId)?.attemptGeneration,
+    );
+    expect(managerTerminal?.eventId).toBe(
+      `${managerTask.threadId}:${terminalGeneration}:agent-completed`,
     );
     expect(JSON.stringify(rootLifecycleEvents)).not.toContain(
       "Continuing managed work",

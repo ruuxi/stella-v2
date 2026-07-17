@@ -270,12 +270,13 @@ describe("read-only exact-thread chat surfaces", () => {
       startEventId: string;
       attemptGeneration: number;
       superseded: boolean;
+      completed?: boolean;
       description: string;
     }) => (
       <BackgroundWorkCard
         key={args.key}
         threadIds={[task.id]}
-        completedThreadIds={[]}
+        completedThreadIds={args.completed ? [task.id] : []}
         pausedThreadIds={[]}
         failedThreadIds={[]}
         supersededThreadIds={args.superseded ? [task.id] : []}
@@ -335,6 +336,7 @@ describe("read-only exact-thread chat surfaces", () => {
             startEventId: "start-attempt-2",
             attemptGeneration: 2,
             superseded: false,
+            completed: true,
             description: "Attempt two follow-up",
           })}
         </div>,
@@ -356,6 +358,6 @@ describe("read-only exact-thread chat surfaces", () => {
     expect(
       currentCard?.querySelector(".background-work-card__title")?.textContent,
     ).toContain("Attempt two authored update");
-    expect(currentCard?.getAttribute("data-working")).toBe("true");
+    expect(currentCard?.getAttribute("data-working")).toBeNull();
   });
 });

@@ -49,11 +49,15 @@ const completed = (args: {
   agentId: string;
   rootRunId: string;
   file?: string;
+  attemptGeneration?: number;
 }): EventRecord =>
   event(args.id, args.at, "agent-completed", {
     agentId: args.agentId,
     rootRunId: args.rootRunId,
     result: "Done",
+    ...(args.attemptGeneration !== undefined
+      ? { attemptGeneration: args.attemptGeneration }
+      : {}),
     ...(args.file
       ? { producedFiles: [{ path: args.file, kind: { type: "add" } }] }
       : {}),
@@ -401,5 +405,134 @@ describe("spawn-anchored background task lifecycle", () => {
       latestEventId: "failed-1",
       errorText: "disk full",
     });
+  });
+
+  it("binds equal-millisecond terminals to generation instead of random ids", () => {
+    const oldStart = started({
+      id: "zz-old-start",
+      at: 100,
+      agentId: "same-thread",
+      rootRunId: "same-root",
+      description: "Attempt one",
+      attemptGeneration: 1,
+    });
+    const currentStart = started({
+      id: "aa-current-start",
+      at: 100,
+      agentId: "same-thread",
+      rootRunId: "same-root",
+      description: "Attempt two",
+      statusText: "Resume attempt two",
+      isFollowUp: true,
+      attemptGeneration: 2,
+    });
+    const currentDone = completed({
+      id: "00-current-terminal",
+      at: 100,
+      agentId: "same-thread",
+      rootRunId: "same-root",
+      attemptGeneration: 2,
+    });
+
+    const index = buildBackgroundTaskLifecycleIndex([
+      currentDone,
+      currentStart,
+      oldStart,
+    ]);
+    expect(index.byStartEventId.get("zz-old-start")).toMatchObject({
+      attemptGeneration: 1,
+      status: "running",
+    });
+    expect(index.byStartEventId.get("aa-current-start")).toMatchObject({
+      attemptGeneration: 2,
+      status: "completed",
+      terminalEventId: "00-current-terminal",
+    });
+    expect(
+      index.startEventIdByLifecycleEventId.get("00-current-terminal"),
+    ).toBe("aa-current-start");
+  });
+
+  it.each([
+    ["agent-failed", "failed"],
+    ["agent-canceled", "canceled"],
+  ] as const)(
+    "correlates equal-millisecond %s to the current attempt",
+    (type, expectedStatus) => {
+      const oldStart = started({
+        id: "zz-old-start",
+        at: 500,
+        agentId: "terminal-thread",
+        rootRunId: "same-root",
+        description: "Old attempt",
+        attemptGeneration: 4,
+      });
+      const currentStart = started({
+        id: "aa-current-start",
+        at: 500,
+        agentId: "terminal-thread",
+        rootRunId: "same-root",
+        description: "Current attempt",
+        attemptGeneration: 5,
+      });
+      const terminal = event("00-terminal", 500, type, {
+        agentId: "terminal-thread",
+        rootRunId: "same-root",
+        attemptGeneration: 5,
+        error: "stopped",
+      });
+      const index = buildBackgroundTaskLifecycleIndex([
+        terminal,
+        currentStart,
+        oldStart,
+      ]);
+      expect(index.byStartEventId.get("zz-old-start")?.status).toBe("running");
+      expect(index.byStartEventId.get("aa-current-start")?.status).toBe(
+        expectedStatus,
+      );
+    },
+  );
+
+  it("keeps a legacy prefix deterministic beside generation-aware attempts", () => {
+    const legacyStart = started({
+      id: "legacy-start-a",
+      at: 700,
+      agentId: "mixed-thread",
+      rootRunId: "same-root",
+      description: "Legacy attempt",
+    });
+    const legacyDone = completed({
+      id: "legacy-terminal-z",
+      at: 700,
+      agentId: "mixed-thread",
+      rootRunId: "same-root",
+    });
+    const currentStart = started({
+      id: "generated-start-a",
+      at: 700,
+      agentId: "mixed-thread",
+      rootRunId: "same-root",
+      description: "Generated attempt",
+      attemptGeneration: 8,
+    });
+    const currentDone = completed({
+      id: "generated-terminal-z",
+      at: 700,
+      agentId: "mixed-thread",
+      rootRunId: "same-root",
+      attemptGeneration: 8,
+    });
+    const index = buildBackgroundTaskLifecycleIndex([
+      currentDone,
+      legacyDone,
+      currentStart,
+      legacyStart,
+    ]);
+    expect(index.byStartEventId.get("legacy-start-a")?.status).toBe(
+      "completed",
+    );
+    expect(index.byStartEventId.get("generated-start-a")?.status).toBe(
+      "completed",
+    );
   });
 });

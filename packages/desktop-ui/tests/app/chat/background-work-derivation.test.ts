@@ -23,16 +23,21 @@ const started = (
     isFollowUp?: boolean;
     agentType?: string;
     timestamp?: number;
+    eventId?: string;
+    attemptGeneration?: number;
   } = {},
 ): EventRecord =>
   ({
-    _id: `started:${agentId}:${opts.timestamp ?? 1}`,
+    _id: opts.eventId ?? `started:${agentId}:${opts.timestamp ?? 1}`,
     timestamp: opts.timestamp ?? 1,
     type: "agent-started",
     payload: {
       agentId,
       description,
       agentType: opts.agentType ?? "general",
+      ...(opts.attemptGeneration !== undefined
+        ? { attemptGeneration: opts.attemptGeneration }
+        : {}),
       ...(opts.statusText !== undefined ? { statusText: opts.statusText } : {}),
       ...(opts.isFollowUp ? { isFollowUp: true } : {}),
     },
@@ -154,6 +159,30 @@ describe("getBackgroundWork spawn vs send_input follow-up", () => {
     expect(works[1]?.threadIds).toEqual(["thread-b"]);
     expect(works[1]?.followUpThreadIds).toEqual(["thread-b"]);
     expect(works[1]?.statusTexts["thread-b"]).toBe("Follow-up update for B");
+  });
+
+  it("orders same-thread same-millisecond cards by attempt generation", () => {
+    const works = getBackgroundWorks([
+      started("thread-resumed", "Current attempt", {
+        eventId: "aa-current-start",
+        timestamp: 100,
+        attemptGeneration: 9,
+        isFollowUp: true,
+        statusText: "Current follow-up",
+      }),
+      started("thread-resumed", "Old attempt", {
+        eventId: "zz-old-start",
+        timestamp: 100,
+        attemptGeneration: 8,
+      }),
+    ]);
+    expect(
+      works.map((work) => work.attemptGenerationsByThread["thread-resumed"]),
+    ).toEqual([8, 9]);
+    expect(works.map((work) => work.cardId)).toEqual([
+      "agent-activity:zz-old-start",
+      "agent-activity:aa-current-start",
+    ]);
   });
 });
 

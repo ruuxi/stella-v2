@@ -29,6 +29,7 @@ export type BackgroundTaskCardState = {
   startEventId: string;
   agentId: string;
   rootRunId?: string;
+  attemptGeneration?: number;
   startedAtMs: number;
   title: string;
   agentType?: string;
@@ -68,8 +69,100 @@ const asNonEmptyString = (value: unknown): string | undefined =>
 const correlationKey = (agentId: string, rootRunId?: string): string =>
   `${agentId}\u001f${rootRunId ?? "legacy"}`;
 
-const eventOrder = (a: EventRecord, b: EventRecord): number =>
-  a.timestamp - b.timestamp || a._id.localeCompare(b._id);
+const attemptKey = (agentId: string, attemptGeneration: number): string =>
+  `${agentId}\u001e${attemptGeneration}`;
+
+/** Numeric attempt identity carried by new runtime lifecycle rows. */
+export const lifecycleAttemptGeneration = (
+  event: EventRecord,
+): number | undefined => {
+  const value = (event.payload as { attemptGeneration?: unknown } | undefined)
+    ?.attemptGeneration;
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : undefined;
+};
+
+const lifecyclePhase = (event: EventRecord): number => {
+  if (isAgentStartedEvent(event)) return 0;
+  if (isAgentProgressEvent(event)) return 1;
+  if (
+    isAgentCompletedEvent(event) ||
+    isAgentFailedEvent(event) ||
+    isAgentCanceledEvent(event)
+  ) {
+    return 2;
+  }
+  return 1;
+};
+
+/** Attempt generation is authoritative when both rows carry it. Timestamp and
+ * event id are the explicit compatibility fallback when either row is legacy. */
+export const compareLifecycleEvents = (
+  a: EventRecord,
+  b: EventRecord,
+): number => {
+  const aAgentId = asNonEmptyString(
+    (a.payload as { agentId?: unknown } | undefined)?.agentId,
+  );
+  const bAgentId = asNonEmptyString(
+    (b.payload as { agentId?: unknown } | undefined)?.agentId,
+  );
+  if (aAgentId && aAgentId === bAgentId) {
+    const aAttempt = lifecycleAttemptGeneration(a);
+    const bAttempt = lifecycleAttemptGeneration(b);
+    if (
+      aAttempt !== undefined &&
+      bAttempt !== undefined &&
+      aAttempt !== bAttempt
+    ) {
+      return aAttempt - bAttempt;
+    }
+    if (aAttempt !== undefined && aAttempt === bAttempt) {
+      const phase = lifecyclePhase(a) - lifecyclePhase(b);
+      if (phase !== 0) return phase;
+    }
+  }
+  return a.timestamp - b.timestamp || a._id.localeCompare(b._id);
+};
+
+/** Preserve cross-agent and legacy timeline slots while ordering each durable
+ * thread's generation-aware packets by attempt. A previously persisted start
+ * may have generation while its old terminal does not, so legacy packets must
+ * remain on their timestamp/id fallback path instead of being moved wholesale
+ * before or after generated packets. */
+export const orderLifecycleEventsByAttempt = (
+  events: readonly EventRecord[],
+): EventRecord[] => {
+  const legacyOrdered = [...events].sort(
+    (a, b) => a.timestamp - b.timestamp || a._id.localeCompare(b._id),
+  );
+  const generatedByAgent = new Map<string, EventRecord[]>();
+  for (const event of legacyOrdered) {
+    const agentId = asNonEmptyString(
+      (event.payload as { agentId?: unknown } | undefined)?.agentId,
+    );
+    if (!agentId || lifecycleAttemptGeneration(event) === undefined) continue;
+    const group = generatedByAgent.get(agentId) ?? [];
+    group.push(event);
+    generatedByAgent.set(agentId, group);
+  }
+  for (const group of generatedByAgent.values()) {
+    group.sort(compareLifecycleEvents);
+  }
+  const cursorByAgent = new Map<string, number>();
+  return legacyOrdered.map((event) => {
+    const agentId = asNonEmptyString(
+      (event.payload as { agentId?: unknown } | undefined)?.agentId,
+    );
+    if (!agentId || lifecycleAttemptGeneration(event) === undefined) {
+      return event;
+    }
+    const cursor = cursorByAgent.get(agentId) ?? 0;
+    cursorByAgent.set(agentId, cursor + 1);
+    return generatedByAgent.get(agentId)?.[cursor] ?? event;
+  });
+};
 
 const cardTitle = (
   event: EventRecord & {
@@ -118,6 +211,9 @@ const completionFor = (
     startEventId: state.startEventId,
     completionEventId: event._id,
     ...(state.rootRunId ? { rootRunId: state.rootRunId } : {}),
+    ...(state.attemptGeneration !== undefined
+      ? { attemptGeneration: state.attemptGeneration }
+      : {}),
   };
 };
 
@@ -135,34 +231,55 @@ export const buildBackgroundTaskLifecycleIndex = (
 ): BackgroundTaskLifecycleIndex => {
   const unique = new Map<string, EventRecord>();
   for (const event of events) unique.set(event._id, event);
-  const ordered = [...unique.values()].sort(eventOrder);
+  const ordered = orderLifecycleEventsByAttempt([...unique.values()]);
 
   const mutableByStart = new Map<string, BackgroundTaskCardState>();
+  const startByAttempt = new Map<string, string>();
   const latestStartByCorrelation = new Map<string, string>();
+  const latestStartByAgent = new Map<string, string>();
+  const latestLegacyStartByCorrelation = new Map<string, string>();
   const latestLegacyStartByAgent = new Map<string, string>();
+  const pendingProgressByAttempt = new Map<string, string>();
   const pendingProgressByCorrelation = new Map<string, string>();
   const startByLifecycleEvent = new Map<string, string>();
 
   const resolveStart = (
     agentId: string,
     rootRunId?: string,
-  ): string | undefined =>
-    rootRunId
+    attemptGeneration?: number,
+  ): string | undefined => {
+    if (attemptGeneration !== undefined) {
+      return (
+        startByAttempt.get(attemptKey(agentId, attemptGeneration)) ??
+        (rootRunId
+          ? latestLegacyStartByCorrelation.get(
+              correlationKey(agentId, rootRunId),
+            )
+          : latestLegacyStartByAgent.get(agentId))
+      );
+    }
+    return rootRunId
       ? latestStartByCorrelation.get(correlationKey(agentId, rootRunId))
-      : latestLegacyStartByAgent.get(agentId);
+      : latestStartByAgent.get(agentId);
+  };
 
   for (const event of ordered) {
     if (isAgentStartedEvent(event)) {
       const agentId = asNonEmptyString(event.payload.agentId);
       if (!agentId) continue;
       const rootRunId = asNonEmptyString(event.payload.rootRunId);
+      const attemptGeneration = lifecycleAttemptGeneration(event);
       const key = correlationKey(agentId, rootRunId);
-      const pending = pendingProgressByCorrelation.get(key);
+      const pending =
+        (attemptGeneration !== undefined
+          ? pendingProgressByAttempt.get(attemptKey(agentId, attemptGeneration))
+          : undefined) ?? pendingProgressByCorrelation.get(key);
       const state: BackgroundTaskCardState = {
         cardId: `agent-start:${event._id}`,
         startEventId: event._id,
         agentId,
         ...(rootRunId ? { rootRunId } : {}),
+        ...(attemptGeneration !== undefined ? { attemptGeneration } : {}),
         startedAtMs: event.timestamp,
         title: cardTitle(event),
         ...(asNonEmptyString(event.payload.agentType)
@@ -181,8 +298,15 @@ export const buildBackgroundTaskLifecycleIndex = (
         ...(pending ? { progressText: pending } : {}),
       };
       mutableByStart.set(event._id, state);
+      if (attemptGeneration !== undefined) {
+        startByAttempt.set(attemptKey(agentId, attemptGeneration), event._id);
+        pendingProgressByAttempt.delete(attemptKey(agentId, attemptGeneration));
+      } else {
+        latestLegacyStartByCorrelation.set(key, event._id);
+        latestLegacyStartByAgent.set(agentId, event._id);
+      }
       latestStartByCorrelation.set(key, event._id);
-      if (!rootRunId) latestLegacyStartByAgent.set(agentId, event._id);
+      latestStartByAgent.set(agentId, event._id);
       startByLifecycleEvent.set(event._id, event._id);
       pendingProgressByCorrelation.delete(key);
       continue;
@@ -199,15 +323,23 @@ export const buildBackgroundTaskLifecycleIndex = (
     const agentId = asNonEmptyString(payload?.agentId);
     if (!agentId) continue;
     const rootRunId = asNonEmptyString(payload?.rootRunId);
+    const attemptGeneration = lifecycleAttemptGeneration(event);
     const key = correlationKey(agentId, rootRunId);
 
     if (isAgentProgressEvent(event)) {
       const text = asNonEmptyString(event.payload.statusText);
-      const startEventId = resolveStart(agentId, rootRunId);
+      const startEventId = resolveStart(agentId, rootRunId, attemptGeneration);
       const state = startEventId ? mutableByStart.get(startEventId) : undefined;
       if (!state) {
         if (text) {
-          pendingProgressByCorrelation.set(key, text);
+          if (attemptGeneration !== undefined) {
+            pendingProgressByAttempt.set(
+              attemptKey(agentId, attemptGeneration),
+              text,
+            );
+          } else {
+            pendingProgressByCorrelation.set(key, text);
+          }
         }
         continue;
       }
@@ -233,9 +365,14 @@ export const buildBackgroundTaskLifecycleIndex = (
           ? "canceled"
           : null;
     if (!terminalKind) continue;
-    const startEventId = resolveStart(agentId, rootRunId);
+    const startEventId = resolveStart(agentId, rootRunId, attemptGeneration);
     const state = startEventId ? mutableByStart.get(startEventId) : undefined;
-    if (!state || event.timestamp < state.startedAtMs) continue;
+    if (
+      !state ||
+      (attemptGeneration === undefined && event.timestamp < state.startedAtMs)
+    ) {
+      continue;
+    }
     startByLifecycleEvent.set(event._id, state.startEventId);
     state.latestEventId = event._id;
     state.latestEventAtMs = event.timestamp;

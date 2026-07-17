@@ -24,9 +24,25 @@
 import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
 
+import { verifyPackagedHomeSeed } from "./stage-home-seed.mjs";
+
 export default async function afterPack(context) {
   const appOutDir = context.appOutDir;
-  const productFilename = context.packager?.appInfo?.productFilename ?? "Stella";
+  const productFilename =
+    context.packager?.appInfo?.productFilename ?? "Stella";
+  const platform = context.electronPlatformName;
+  const resourcesRoot =
+    platform === "darwin"
+      ? path.join(appOutDir, `${productFilename}.app`, "Contents", "Resources")
+      : path.join(appOutDir, "resources");
+
+  const packagedHomeSeed = await verifyPackagedHomeSeed({
+    resourcesRoot,
+    platform,
+  });
+  console.log(
+    `[afterPack] Verified ${packagedHomeSeed.actualIds.length} bundled skills for ${platform}.`,
+  );
 
   // Possible locations electron-builder uses for unpacked node_modules:
   const candidateRoots = [
@@ -39,7 +55,7 @@ export default async function afterPack(context) {
       "app.asar.unpacked",
       "node_modules",
       "mac-screen-capture-permissions",
-      "prebuilds"
+      "prebuilds",
     ),
     // Fallback: some intermediate packing paths keep app.asar.unpacked at appOutDir level
     path.join(
@@ -47,13 +63,15 @@ export default async function afterPack(context) {
       "app.asar.unpacked",
       "node_modules",
       "mac-screen-capture-permissions",
-      "prebuilds"
+      "prebuilds",
     ),
   ];
 
   for (const prebuildsPath of candidateRoots) {
     if (!existsSync(prebuildsPath)) continue;
-    console.log(`[afterPack] Removing unused notarization-breaking payload: ${prebuildsPath}`);
+    console.log(
+      `[afterPack] Removing unused notarization-breaking payload: ${prebuildsPath}`,
+    );
     await fs.rm(prebuildsPath, { recursive: true, force: true });
   }
 
@@ -68,7 +86,7 @@ export default async function afterPack(context) {
       "Resources",
       "app.asar.unpacked",
       "node_modules",
-      "mac-screen-capture-permissions"
+      "mac-screen-capture-permissions",
     ),
   ];
 

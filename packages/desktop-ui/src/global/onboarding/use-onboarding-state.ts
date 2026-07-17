@@ -30,10 +30,18 @@ const writeLocalOnboardingCompleted = (completed: boolean) => {
 };
 
 const SPLIT_PHASE_SET = new Set<Phase>(SPLIT_STEP_ORDER);
+const RETIRED_PHASE_SUCCESSORS: Readonly<Record<string, Phase>> = {
+  shapeshift: "theme",
+};
 
 export const readOnboardingPhase = (): Phase | null => {
   const raw = uiState.getItem(ONBOARDING_PHASE_KEY);
   if (!raw) return null;
+  const migrated = RETIRED_PHASE_SUCCESSORS[raw];
+  if (migrated) {
+    uiState.setItem(ONBOARDING_PHASE_KEY, migrated);
+    return migrated;
+  }
   if (!SPLIT_PHASE_SET.has(raw as Phase)) {
     uiState.removeItem(ONBOARDING_PHASE_KEY);
     return null;

@@ -10,7 +10,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  createDirectoryEntryAdapter,
+  reconcileBundledEntries,
+} from "@stella/runtime/kernel/home/bundled-sync";
 import { reconcileBundledSkills } from "@stella/runtime/kernel/home/skills-sync";
+import { isRetiredBundledSkillId } from "@stella/runtime/kernel/shared/skill-policy";
 
 const roots = new Set<string>();
 
@@ -50,6 +55,19 @@ const readManifest = async (homeSkillsDir: string) => {
       { lastSyncedHash: string; sourceRevision: string; customized: boolean }
     >;
   };
+};
+
+const seedFormerBundledSkill = async (
+  bundled: string,
+  home: string,
+  id: string,
+  content: string,
+) => {
+  await writeSkillFile(bundled, id, "SKILL.md", content);
+  await reconcileBundledEntries(bundled, home, createDirectoryEntryAdapter(), {
+    legacyEntriesKey: "skills",
+  });
+  await rm(path.join(bundled, id), { recursive: true, force: true });
 };
 
 const skillFiles = async (
@@ -322,7 +340,7 @@ describe("reconcileBundledSkills", () => {
     );
   });
 
-  it("removes retired bundled skills even when their local copy diverged", async () => {
+  it("preserves unmanifested custom content under a retired id", async () => {
     const bundled = await tempDir("stella-bundled-");
     const home = await tempDir("stella-home-skills-");
 
@@ -343,6 +361,53 @@ describe("reconcileBundledSkills", () => {
 
     expect(report.actions).toEqual([
       expect.objectContaining({
+        type: "ignore-user-entry",
+        id: "stella-desktop",
+      }),
+    ]);
+    await expect(
+      readFile(path.join(home, "stella-desktop", "SKILL.md"), "utf-8"),
+    ).resolves.toBe("locally changed retired skill");
+    const manifest = await readManifest(home);
+    expect(manifest.entries["stella-desktop"]).toBeUndefined();
+  });
+
+  it("preserves divergent former bundled content and relinquishes ownership", async () => {
+    const bundled = await tempDir("stella-bundled-");
+    const home = await tempDir("stella-home-skills-");
+
+    await seedFormerBundledSkill(bundled, home, "stella-desktop", "bundled v1");
+    await writeFile(
+      path.join(home, "stella-desktop", "SKILL.md"),
+      "user customization",
+      "utf-8",
+    );
+
+    const report = await reconcileBundledSkills(bundled, home);
+
+    expect(report.actions).toEqual([
+      expect.objectContaining({
+        type: "skip-obsolete-user-modified",
+        id: "stella-desktop",
+      }),
+    ]);
+    await expect(
+      readFile(path.join(home, "stella-desktop", "SKILL.md"), "utf-8"),
+    ).resolves.toBe("user customization");
+    const manifest = await readManifest(home);
+    expect(manifest.entries["stella-desktop"]).toBeUndefined();
+  });
+
+  it("removes only pristine manifest-owned retired copies", async () => {
+    const bundled = await tempDir("stella-bundled-");
+    const home = await tempDir("stella-home-skills-");
+
+    await seedFormerBundledSkill(bundled, home, "stella-desktop", "bundled v1");
+
+    const report = await reconcileBundledSkills(bundled, home);
+
+    expect(report.actions).toEqual([
+      expect.objectContaining({
         type: "remove-obsolete",
         id: "stella-desktop",
       }),
@@ -350,6 +415,80 @@ describe("reconcileBundledSkills", () => {
     await expect(readdir(path.join(home, "stella-desktop"))).rejects.toThrow();
     const manifest = await readManifest(home);
     expect(manifest.entries["stella-desktop"]).toBeUndefined();
+  });
+
+  it("does not block startup when pristine retired cleanup fails", async () => {
+    const bundled = await tempDir("stella-bundled-");
+    const home = await tempDir("stella-home-skills-");
+
+    await seedFormerBundledSkill(bundled, home, "stella-desktop", "bundled v1");
+    const adapter = createDirectoryEntryAdapter();
+
+    const report = await reconcileBundledEntries(
+      bundled,
+      home,
+      {
+        ...adapter,
+        remove: async () => {
+          throw new Error("permission denied");
+        },
+      },
+      {
+        isRetiredBundledId: isRetiredBundledSkillId,
+        legacyEntriesKey: "skills",
+      },
+    );
+
+    expect(report.actions).toEqual([
+      expect.objectContaining({
+        type: "skip-obsolete-cleanup-failed",
+        id: "stella-desktop",
+        error: "permission denied",
+      }),
+    ]);
+    await expect(
+      readFile(path.join(home, "stella-desktop", "SKILL.md"), "utf-8"),
+    ).resolves.toBe("bundled v1");
+    const manifest = await readManifest(home);
+    expect(manifest.entries["stella-desktop"]).toBeDefined();
+  });
+
+  it("does not block startup when retired provenance cannot be read", async () => {
+    const bundled = await tempDir("stella-bundled-");
+    const home = await tempDir("stella-home-skills-");
+
+    await seedFormerBundledSkill(bundled, home, "stella-desktop", "bundled v1");
+    const adapter = createDirectoryEntryAdapter();
+
+    const report = await reconcileBundledEntries(
+      bundled,
+      home,
+      {
+        ...adapter,
+        hash: async (_root, id) => {
+          if (id === "stella-desktop")
+            throw new Error("read permission denied");
+          return adapter.hash(_root, id);
+        },
+      },
+      {
+        isRetiredBundledId: isRetiredBundledSkillId,
+        legacyEntriesKey: "skills",
+      },
+    );
+
+    expect(report.actions).toEqual([
+      expect.objectContaining({
+        type: "skip-obsolete-cleanup-failed",
+        id: "stella-desktop",
+        error: "read permission denied",
+      }),
+    ]);
+    await expect(
+      readFile(path.join(home, "stella-desktop", "SKILL.md"), "utf-8"),
+    ).resolves.toBe("bundled v1");
+    const manifest = await readManifest(home);
+    expect(manifest.entries["stella-desktop"]).toBeDefined();
   });
 
   it("does not seed retired skill ids still present in a stale package", async () => {

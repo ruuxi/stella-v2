@@ -1,6 +1,6 @@
 /* ──────────────────────────────────────────────────────────────────────
  * Onboarding demo shell — the one faithful Stella-window mock shared by
- * the capabilities, shapeshift, and summon demos. Visibility is driven
+ * the capabilities and summon demos. Visibility is driven
  * by `use-choreography` cues through data attributes; this file only
  * describes how each state looks and how states transition.
  * ────────────────────────────────────────────────────────────────────── */
@@ -27,23 +27,6 @@
   transition: border-color 0.6s ease;
 }
 
-/* Accent tint wash — a theme-morph (e.g. shapeshift's "dusk") fades
- * this in by raising `--odemo-tint-opacity`; opacity transitions where
- * gradient/custom-property changes can't. */
-.odemo-shell::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    130% 100% at 85% 0%,
-    color-mix(in oklch, var(--odemo-accent) 20%, transparent),
-    transparent 62%
-  );
-  opacity: var(--odemo-tint-opacity, 0);
-  transition: opacity 0.7s ease;
-}
-
 .odemo-shell__topbar,
 .odemo-shell__body {
   position: relative;
@@ -56,8 +39,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  /* Fixed height so morphs that add chrome (the shapeshift tab strip)
-   * never change the bar's size and shift the body below. */
+  /* Fixed height keeps the body below stable across demo scenes. */
   height: 34px;
   box-sizing: border-box;
   padding: 0 12px;
@@ -75,57 +57,6 @@
   height: 9px;
   border-radius: 999px;
   background: color-mix(in oklch, var(--foreground) 14%, transparent);
-}
-
-/* Tab strip (the "Give me tabs" morph) grows in from zero width. */
-.odemo-shell__tabs {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.odemo-shell__tab {
-  padding: 3px 12px;
-  border-radius: 6px;
-  font-size: var(--font-size-2xs);
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.02em;
-  color: var(--foreground);
-  opacity: 0;
-  transform: translateY(-6px);
-  animation: odemoTabIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-.odemo-shell__tab:nth-child(2) {
-  animation-delay: 70ms;
-}
-
-.odemo-shell__tab:nth-child(3) {
-  animation-delay: 140ms;
-}
-
-@keyframes odemoTabIn {
-  to {
-    opacity: 0.55;
-    transform: translateY(0);
-  }
-}
-
-.odemo-shell__tab[data-active] {
-  background: color-mix(in oklch, var(--foreground) 7%, transparent);
-}
-
-.odemo-shell__tab[data-active] {
-  animation-name: odemoTabInActive;
-}
-
-@keyframes odemoTabInActive {
-  to {
-    opacity: 0.95;
-    transform: translateY(0);
-  }
 }
 
 /* ── Body: sidebar + main ─────────────────────────────────────────── */
@@ -174,21 +105,6 @@
 .odemo-shell__nav-item[data-active] {
   background: color-mix(in oklch, var(--foreground) 6%, transparent);
   opacity: 0.92;
-}
-
-/* A feature the demo just "built" — grows in and glows briefly. */
-.odemo-shell__nav-item[data-fresh] {
-  opacity: 0;
-  transform: translateX(-6px);
-  animation: odemoNavItemIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  color: color-mix(in oklch, var(--odemo-accent) 70%, var(--foreground));
-}
-
-@keyframes odemoNavItemIn {
-  to {
-    opacity: 0.95;
-    transform: translateX(0);
-  }
 }
 
 .odemo-shell__account {
@@ -485,12 +401,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .odemo-shell__tab,
-  .odemo-shell__nav-item[data-fresh] {
-    animation-duration: 1ms;
-    animation-delay: 0ms;
-  }
-
   .odemo-working__label,
   .odemo-workcard:not([data-done]) .odemo-workcard__label {
     animation: none;

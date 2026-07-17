@@ -13,6 +13,7 @@ import type {
   EventRecord,
   LocalChatUpdatedPayload,
   ThreadActivityRecord,
+  ThreadTranscript,
   ThreadActivityUpdatedPayload,
   MessageRecord,
 } from "@stella/contracts/local-chat";
@@ -1372,6 +1373,10 @@ export type ElectronLocalChatApi = {
   listThreadActivity: (payload: {
     conversationId: string;
   }) => Promise<ThreadActivityRecord[]>;
+  listThreadTranscript: (payload: {
+    threadId: string;
+    limit?: number;
+  }) => Promise<ThreadTranscript | null>;
   listFiles: (payload: {
     conversationId: string;
     limit?: number;

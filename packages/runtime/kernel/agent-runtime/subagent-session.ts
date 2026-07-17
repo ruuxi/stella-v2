@@ -81,8 +81,7 @@ export class SubagentSession extends PiSessionCore {
     // `OrchestratorSession.runTurn`. Without the runId in the payload,
     // any hook that keys on it (e.g. a baseline cache) silently fails
     // to set up its run-scoped state.
-    const runId =
-      opts.runId ?? `local:sub:${crypto.randomUUID()}`;
+    const runId = opts.runId ?? `local:sub:${crypto.randomUUID()}`;
     const effectiveSystemPrompt = await buildSubagentSystemPrompt({
       ...opts,
       runId,
@@ -175,9 +174,7 @@ export class SubagentSession extends PiSessionCore {
         ],
       });
     }
-    let swapAttempted:
-      | { fromModelId: string; toModelId: string }
-      | undefined;
+    let swapAttempted: { fromModelId: string; toModelId: string } | undefined;
 
     runEvents.recordRunStart();
 
@@ -235,6 +232,12 @@ export class SubagentSession extends PiSessionCore {
         conversationId: opts.conversationId,
         ...(typeof opts.agentContext.attemptGeneration === "number"
           ? { attemptGeneration: opts.agentContext.attemptGeneration }
+          : {}),
+        ...(opts.agentContext.managerTurnOrigin
+          ? { managerTurnOrigin: opts.agentContext.managerTurnOrigin }
+          : {}),
+        ...(opts.agentContext.managerTurnVisibility
+          ? { managerTurnVisibility: opts.agentContext.managerTurnVisibility }
           : {}),
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
       };

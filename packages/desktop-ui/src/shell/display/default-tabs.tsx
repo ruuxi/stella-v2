@@ -4,6 +4,7 @@ import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useChatMessages } from "@/context/use-chat-messages";
 import { TrashTabContent } from "./TrashTabContent";
 import { HomeOverviewTab } from "./HomeOverviewTab";
+import { ThreadChatTab } from "./ThreadChatTab";
 import { MediaTabContent } from "./tab-content";
 import { CanvasTabContent } from "./canvas-tab/CanvasTabContent";
 import { getCanvasHtmlItems } from "./canvas-tab/canvas-items";
@@ -88,6 +89,23 @@ export function openChatDisplayTab(
     },
     opts,
   );
+}
+
+export function openThreadChatDisplayTab(args: {
+  threadId: string;
+  title?: string;
+}): void {
+  const threadId = args.threadId.trim();
+  if (!threadId) return;
+  const title = args.title?.trim() || "Agent chat";
+  displayTabs.openTab({
+    id: `thread-chat:${threadId}`,
+    kind: "chat",
+    title,
+    tooltip: `Read-only chat · ${title}`,
+    metadata: { kind: "agent-thread", threadId, readOnly: true },
+    render: () => createElement(ThreadChatTab, { threadId }),
+  });
 }
 
 /**

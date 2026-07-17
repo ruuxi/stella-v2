@@ -34,7 +34,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
-import { MessageSquarePlus, Send, X } from "@/ui/icons";
+import { MessageSquare, Send, X } from "@/ui/icons";
 import { TextShimmer } from "@/app/chat/TextShimmer";
 import type { TaskToolActivity } from "@stella/contracts/agent-runtime";
 import { friendlyInlineToolStatus } from "@/app/chat/friendly-tool-status";
@@ -42,6 +42,8 @@ import {
   getTaskDecoration,
   subscribeTaskDecoration,
 } from "@/features/chat/streaming/task-decoration-store";
+import { useThreadActivity } from "@/features/chat/hooks/use-thread-activity";
+import { openThreadChatDisplayTab } from "@/shell/display/default-tabs";
 import "./background-work-card.css";
 
 /** A thread with no completion signal that was spawned longer ago than this
@@ -147,6 +149,7 @@ export function BackgroundWorkCard({
   rootRunIdsByThread,
   terminalEventIdsByThread,
   label,
+  conversationId,
 }: {
   threadIds: string[];
   /** Reload-safe subset whose `agent-completed` event has landed — used to
@@ -174,6 +177,7 @@ export function BackgroundWorkCard({
   rootRunIdsByThread?: Record<string, string>;
   terminalEventIdsByThread?: Record<string, string>;
   label?: string;
+  conversationId?: string | null;
 }) {
   // Bumped by the stale-deadline timer so the working check re-evaluates its
   // time-based branch on its own rather than waiting for an unrelated render.
@@ -235,6 +239,10 @@ export function BackgroundWorkCard({
     return () => window.clearTimeout(timer);
   }, [nextStaleDeadlineMs]);
 
+  const { records: activityRecords } = useThreadActivity(
+    conversationId ?? undefined,
+  );
+
   if (threadIds.length === 0) return null;
 
   const resolved = resolveDescriptions(threadIds, descriptions ?? {});
@@ -252,11 +260,18 @@ export function BackgroundWorkCard({
 
   // Several threads in one turn collapse to a plain count instead of cycling
   // through descriptions — a single task shows its own description.
-  const title = isFollowUp
+  const lifecycleTitle = isFollowUp
     ? statusTexts?.[followUpId] || resolved[0] || label?.trim() || "Follow-up"
     : multi
       ? label?.trim() || resolved[0] || `${threadIds.length} tasks`
       : resolved[0] || label?.trim() || "Background work";
+  const authoredTitle = !multi
+    ? activityRecords
+        .find((record) => record.threadId === threadIds[0])
+        ?.assistantMessages?.at(-1)
+        ?.trim()
+    : undefined;
+  const title = authoredTitle || lifecycleTitle;
 
   // "Paused" only replaces the ACTIVE presentation: while any covered thread
   // is still genuinely working the card keeps its shimmer + normal subtitle,
@@ -275,13 +290,15 @@ export function BackgroundWorkCard({
     ? "Failed"
     : showPaused
       ? "Paused"
-      : working && toolActivity
-        ? friendlyInlineToolStatus(toolActivity)
-      : working && progressText && progressText !== title
-        ? progressText
-        : isFollowUp
-          ? "Follow-up sent"
-          : "Started in background";
+      : authoredTitle
+        ? lifecycleTitle
+        : working && toolActivity
+          ? friendlyInlineToolStatus(toolActivity)
+          : working && progressText && progressText !== title
+            ? progressText
+            : isFollowUp
+              ? "Follow-up sent"
+              : "Started in background";
   const startEventIds = threadIds
     .map((id) => startEventIdsByThread[id])
     .filter(Boolean);
@@ -307,8 +324,6 @@ export function BackgroundWorkCard({
       <span className="background-work-card__glyph" aria-hidden="true">
         {failed ? (
           <X size={16} strokeWidth={1.75} />
-        ) : isFollowUp ? (
-          <MessageSquarePlus size={16} strokeWidth={1.75} />
         ) : (
           <Send size={16} strokeWidth={1.75} />
         )}
@@ -322,6 +337,25 @@ export function BackgroundWorkCard({
           )}
         </span>
         <span className="background-work-card__subtitle">{subtitle}</span>
+      </span>
+      <span className="background-work-card__chat-actions">
+        {threadIds.map((threadId, index) => (
+          <button
+            key={threadId}
+            type="button"
+            className="background-work-card__chat"
+            onClick={() =>
+              openThreadChatDisplayTab({
+                threadId,
+                title: descriptions?.[threadId] || resolved[index],
+              })
+            }
+            aria-label={`Open read-only chat for ${descriptions?.[threadId] || `agent ${index + 1}`}`}
+            title="Open read-only chat"
+          >
+            <MessageSquare size={14} strokeWidth={1.9} aria-hidden="true" />
+          </button>
+        ))}
       </span>
     </div>
   );

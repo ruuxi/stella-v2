@@ -23,6 +23,7 @@ import {
 } from "@/features/chat/streaming/task-decoration-store";
 import { waitForAgentSettled } from "../../../helpers/agent.js";
 import { buildAgentEventPrompt } from "@stella/runtime/kernel/runner/shared";
+import type { PersistedAgentRecord } from "@stella/runtime/kernel/storage/session-store";
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -43,6 +44,69 @@ describe("task tool activity sanitization", () => {
     expect(hint).not.toContain("url-secret");
     expect(hint).not.toContain("debug");
     expect(hint).not.toContain("hidden");
+  });
+});
+
+describe("manager ancestry resolution", () => {
+  it("walks persisted ancestry and fails closed for cycles or missing links", () => {
+    const record = (
+      threadId: string,
+      agentType: string,
+      parentAgentId?: string,
+    ): PersistedAgentRecord => ({
+      threadId,
+      conversationId: "conv-ancestry",
+      agentType,
+      description: threadId,
+      agentDepth: 1,
+      ...(parentAgentId ? { parentAgentId } : {}),
+      status: "running",
+      attemptGeneration: 1,
+      startedAt: 1,
+      completedAt: null,
+      updatedAt: 1,
+    });
+    const records = new Map<string, PersistedAgentRecord>([
+      ["manager", record("manager", AGENT_IDS.MANAGER)],
+      ["child", record("child", AGENT_IDS.GENERAL, "manager")],
+      ["descendant", record("descendant", AGENT_IDS.GENERAL, "child")],
+      ["standalone", record("standalone", AGENT_IDS.GENERAL)],
+      ["cycle-a", record("cycle-a", AGENT_IDS.GENERAL, "cycle-b")],
+      ["cycle-b", record("cycle-b", AGENT_IDS.GENERAL, "cycle-a")],
+      ["broken", record("broken", AGENT_IDS.GENERAL, "missing-parent")],
+    ]);
+    const manager = new LocalAgentManager({
+      maxConcurrent: 1,
+      fetchAgentContext: async () => ({
+        systemPrompt: "",
+        dynamicContext: "",
+        maxAgentDepth: 4,
+      }),
+      runSubagent: async (args) => ({ runId: args.runId, result: "unused" }),
+      toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
+      getAgentRecord: (threadId) => records.get(threadId) ?? null,
+      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
+      completeCloudAgentRecord: async () => undefined,
+      getCloudAgentRecord: async () => null,
+      cancelCloudAgentRecord: async () => ({ canceled: false }),
+    });
+
+    expect(manager.resolveManagerAncestry("descendant")).toEqual({
+      kind: "manager",
+      managerThreadId: "manager",
+    });
+    expect(manager.resolveManagerAncestry("standalone")).toEqual({
+      kind: "none",
+    });
+    expect(manager.resolveManagerAncestry("cycle-a")).toMatchObject({
+      kind: "invalid",
+      reason: "cycle",
+    });
+    expect(manager.resolveManagerAncestry("broken")).toEqual({
+      kind: "invalid",
+      reason: "missing",
+      threadId: "missing-parent",
+    });
   });
 });
 

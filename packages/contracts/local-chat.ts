@@ -1,5 +1,6 @@
 import type { OfficePreviewRef } from "./office-preview.js";
 import type { FileChangeRecord, ProducedFileRecord } from "./file-changes.js";
+import type { TaskLifecycleStatus } from "./agent-runtime.js";
 
 export type EventRecord = {
   _id: string;
@@ -47,6 +48,8 @@ export type ThreadActivityRecord = {
   /** Timestamp of the newest assistant message included in the bounded
    * projection. Lets clients reject stale in-flight list responses. */
   assistantMessagesUpdatedAt?: number;
+  /** SQLite insertion sequence of the newest projected assistant message. */
+  assistantMessagesEntrySequence?: number;
   updatedAt: number;
 };
 
@@ -64,8 +67,38 @@ export type ThreadActivityAssistantUpdate = {
   reasoningSummaries: string[];
   latestMessage: string;
   atMs: number;
+  /** Strict tie-breaker when multiple authored messages share `atMs`. */
+  entrySequence: number;
   attemptGeneration: number;
   rootRunId?: string;
+};
+
+export type ThreadTranscriptTool = {
+  toolCallId: string;
+  name: string;
+  argumentsPreview?: string;
+};
+
+export type ThreadTranscriptEntry = {
+  id: string;
+  timestamp: number;
+  kind: "user" | "assistant" | "tool-result" | "event";
+  text?: string;
+  tools?: ThreadTranscriptTool[];
+  toolCallId?: string;
+  toolName?: string;
+  isError?: boolean;
+  eventType?: string;
+};
+
+export type ThreadTranscript = {
+  threadId: string;
+  conversationId: string;
+  agentType: string;
+  description: string;
+  status: TaskLifecycleStatus;
+  entries: ThreadTranscriptEntry[];
+  truncated: boolean;
 };
 
 export type ThreadActivityUpdatedPayload = {

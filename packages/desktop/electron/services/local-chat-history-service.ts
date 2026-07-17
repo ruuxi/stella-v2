@@ -21,6 +21,7 @@ import type {
   LocalChatUpdatedPayload,
   TaskDecorationUpdatedPayload,
   ThreadActivityRecord,
+  ThreadTranscript,
 } from "@stella/contracts/local-chat";
 import {
   buildMobileSyncMessagesPage,
@@ -289,6 +290,13 @@ export class LocalChatHistoryService {
 
   listThreadActivity(args: { conversationId: string }): ThreadActivityRecord[] {
     return this.getStore().listThreadActivity(args.conversationId);
+  }
+
+  listThreadTranscript(args: {
+    threadId: string;
+    limit?: number;
+  }): ThreadTranscript | null {
+    return this.getStore().listThreadTranscript(args.threadId, args.limit);
   }
 
   listFiles(args: {

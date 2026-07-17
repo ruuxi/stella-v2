@@ -1933,6 +1933,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }) => ipcRenderer.invoke("localChat:listActivity", payload),
     listThreadActivity: (payload: { conversationId: string }) =>
       ipcRenderer.invoke("localChat:listThreadActivity", payload),
+    listThreadTranscript: (payload: { threadId: string; limit?: number }) =>
+      ipcRenderer.invoke("localChat:listThreadTranscript", payload),
     listFiles: (payload: {
       conversationId: string;
       limit?: number;

@@ -20,9 +20,8 @@ import {
   CircleDot,
   AlertCircle,
   ChevronDown,
-  MessageSquarePlus,
+  MessageSquare,
 } from "@/ui/icons";
-import type { ChatContext } from "@/shared/types/electron";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
 import {
@@ -70,6 +69,7 @@ import {
 } from "@/features/workspace-display/agent-files";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
+import { openThreadChatDisplayTab } from "@/shell/display/default-tabs";
 import { displayTabKindForPayload } from "@/features/workspace-display/payload-kind";
 import { basenameOf } from "@/features/workspace-display/path-to-viewer";
 import {
@@ -101,6 +101,17 @@ const AGENT_FILE_CAP = 5;
 
 const activityRowText = (row: ActivityRow): string =>
   getActivityRowSearchText(row);
+
+export const openActivityTaskChat = (
+  task: TaskItem,
+  onNavigate?: () => void,
+): void => {
+  openThreadChatDisplayTab({
+    threadId: task.id,
+    title: task.description,
+  });
+  onNavigate?.();
+};
 
 // ── Row enter / exit / reorder motion ───────────────────────────────
 //
@@ -257,24 +268,7 @@ function TaskStatusIcon({ status }: { status: TaskItem["status"] }) {
   }
 }
 
-/** Chip payload for referencing an activity thread from the composer. */
-const taskToActivityContext = (
-  task: TaskItem,
-): NonNullable<ChatContext["activity"]> => ({
-  id: task.id,
-  label: task.description.trim() || "Activity",
-  agentType: task.agentType,
-  status: task.status,
-  ...(task.runId ? { runId: task.runId } : {}),
-  ...(task.anchorTurnId ? { anchorTurnId: task.anchorTurnId } : {}),
-  startedAtMs: task.startedAtMs,
-  ...(typeof task.completedAtMs === "number"
-    ? { completedAtMs: task.completedAtMs }
-    : {}),
-  lastUpdatedAtMs: task.lastUpdatedAtMs,
-});
-
-const TaskRow = memo(function TaskRow({
+export const ActivityTaskRow = memo(function ActivityTaskRow({
   task,
   expanded,
   onToggle,
@@ -288,7 +282,7 @@ const TaskRow = memo(function TaskRow({
   task: TaskItem;
   expanded: boolean;
   onToggle: (taskId: string, nextExpanded: boolean) => void;
-  /** Attach this activity as a composer context chip. */
+  /** Open this exact agent thread in the read-only sidebar chat. */
   onSelect: (task: TaskItem) => void;
   files: ReadonlyArray<ConversationFileEntry>;
   onOpenFile: (entry: ConversationFileEntry) => void;
@@ -367,12 +361,12 @@ const TaskRow = memo(function TaskRow({
         </button>
         <button
           type="button"
-          className="chat-workspace-strip__task-attach"
+          className="chat-workspace-strip__task-chat"
           onClick={() => onSelect(task)}
-          aria-label={`Reference ${label || "activity"} in chat`}
-          title="Reference in chat"
+          aria-label={`Open read-only chat for ${label || "activity"}`}
+          title="Open read-only chat"
         >
-          <MessageSquarePlus size={14} strokeWidth={2} aria-hidden="true" />
+          <MessageSquare size={14} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
       {/* Always mounted so both the user toggle and the first summary/file
@@ -521,7 +515,7 @@ const GroupRow = memo(function GroupRow({
           <ul className="chat-workspace-strip__list chat-workspace-strip__list--tasks chat-workspace-strip__group-members">
             <AnimatePresence initial={false}>
               {group.members.map((task, index) => (
-                <TaskRow
+                <ActivityTaskRow
                   key={task.id}
                   task={task}
                   expanded={isTaskExpanded(task)}
@@ -572,7 +566,7 @@ const TasksList = memo(function TasksList({
       <AnimatePresence initial={false}>
         {rows.map((row, index) =>
           row.kind === "task" ? (
-            <TaskRow
+            <ActivityTaskRow
               key={activityRowKey(row)}
               task={row.task}
               expanded={isTaskExpanded(row.task)}
@@ -596,7 +590,7 @@ const TasksList = memo(function TasksList({
               orderIndex={index}
             />
           ) : (
-            <TaskRow
+            <ActivityTaskRow
               key={activityRowKey(row)}
               task={row.hierarchy.owner}
               expanded={isTaskExpanded(row.hierarchy.owner)}
@@ -1007,24 +1001,11 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
     [onNavigate],
   );
 
-  // Attach the activity as a composer context chip (one at a time — the
-  // `activity` slot on ChatContext) so the thread can be referenced in the
-  // next message, then hand focus to the composer.
   const handleSelectTask = useCallback(
     (task: TaskItem) => {
-      chat.composer.setChatContext((prev) => ({
-        ...(prev ?? {
-          window: null,
-          browserUrl: null,
-          selectedText: null,
-          regionScreenshots: [],
-        }),
-        activity: taskToActivityContext(task),
-      }));
-      chat.composer.requestFocus?.();
-      onNavigate?.();
+      openActivityTaskChat(task, onNavigate);
     },
-    [chat.composer, onNavigate],
+    [onNavigate],
   );
 
   if (!hasActivity && !hasFiles && !hasSchedule) {

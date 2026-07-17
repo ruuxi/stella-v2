@@ -309,14 +309,35 @@ export const createAgentOrchestration = (
         };
       }
     }
+    const resolvePersistedManagerAncestry = () => {
+      if (!event.parentAgentId) return { kind: "none" as const };
+      const visited = new Set<string>();
+      let cursor: string | undefined = event.parentAgentId;
+      while (cursor) {
+        if (visited.has(cursor)) {
+          return { kind: "invalid" as const };
+        }
+        visited.add(cursor);
+        const record = context.runtimeStore.getAgentRecord?.(cursor);
+        if (!record) return { kind: "invalid" as const };
+        if (record.agentType === AGENT_IDS.MANAGER) {
+          return { kind: "manager" as const, managerThreadId: cursor };
+        }
+        cursor = record.parentAgentId;
+      }
+      return { kind: "none" as const };
+    };
+    const managerOwnership =
+      context.state.localAgentManager?.resolveManagerAncestry(
+        event.parentAgentId,
+      ) ?? resolvePersistedManagerAncestry();
     const managerParentId =
-      event.parentAgentId &&
-      (context.state.localAgentManager?.isManagerThread(event.parentAgentId) ||
-        context.runtimeStore.getAgentRecord?.(event.parentAgentId)
-          ?.agentType === AGENT_IDS.MANAGER)
-        ? event.parentAgentId
+      managerOwnership.kind === "manager"
+        ? managerOwnership.managerThreadId
         : undefined;
-    const isManagerOwned = Boolean(managerParentId);
+    // Broken or cyclic ownership must fail closed: never expose a potentially
+    // managed descendant to root merely because its persisted chain is bad.
+    const isManagerOwned = managerOwnership.kind !== "none";
     // Interjection-turn completions arrive twice (see
     // `AgentLifecycleEvent.audience`): `orchestrator-only` skips every
     // display surface (persisted activity row, renderer/run callbacks,
@@ -338,6 +359,9 @@ export const createAgentOrchestration = (
       }
     }
     if (event.audience === "display-only") {
+      return;
+    }
+    if (managerOwnership.kind === "invalid") {
       return;
     }
     const userPrompt = buildAgentEventPrompt(event, {

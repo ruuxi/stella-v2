@@ -43,18 +43,39 @@
   color: var(--text-weak);
 }
 
-/* Follow-up variant (`send_input` advancing an already-spawned thread):
-   same surface as the spawn receipt, just a tinted glyph so an update reads
-   as distinct from the initial "started here" breadcrumb at a glance. */
-.background-work-card[data-state="follow-up"] .background-work-card__glyph {
-  color: var(--primary);
-}
-
 .background-work-card__text {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1 1 auto;
   gap: 1px;
+}
+
+.background-work-card__chat-actions {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.background-work-card__chat {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-weak);
+  cursor: pointer;
+}
+
+.background-work-card__chat:hover,
+.background-work-card__chat:focus-visible {
+  outline: none;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+  color: var(--text-base);
 }
 
 .background-work-card__title {

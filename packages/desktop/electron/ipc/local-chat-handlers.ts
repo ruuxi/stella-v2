@@ -202,6 +202,27 @@ export const registerLocalChatHandlers = (
   );
 
   ipcMain.handle(
+    "localChat:listThreadTranscript",
+    async (
+      event,
+      payload: {
+        threadId?: string;
+        limit?: number;
+      },
+    ) =>
+      await withLocalChatClient(
+        options,
+        event,
+        "localChat:listThreadTranscript",
+        (client) =>
+          client.listThreadTranscript({
+            threadId: payload?.threadId ?? "",
+            limit: payload?.limit,
+          }),
+      ),
+  );
+
+  ipcMain.handle(
     "localChat:listFiles",
     async (
       event,

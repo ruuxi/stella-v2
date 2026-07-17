@@ -28,6 +28,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { AgentCompletionCard } from "@/app/chat/AgentCompletionCard";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
+import { displayTabs } from "@/features/workspace-display/tab-store";
 
 const CARD_CSS_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -51,8 +52,9 @@ describe("AgentCompletionCard fileless summary rendering", () => {
   let root: Root;
 
   beforeEach(() => {
-    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-      true;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -65,7 +67,9 @@ describe("AgentCompletionCard fileless summary rendering", () => {
 
   const renderCard = async (summary: string) => {
     await act(async () => {
-      root.render(<AgentCompletionCard sections={[filelessSection(summary)]} />);
+      root.render(
+        <AgentCompletionCard sections={[filelessSection(summary)]} />,
+      );
     });
   };
 
@@ -82,7 +86,9 @@ describe("AgentCompletionCard fileless summary rendering", () => {
   it("emits bold/code/link as data-streamdown nodes — the shape the scoped CSS must target", async () => {
     await renderCard(SUMMARY);
     const scope = ".agent-completion-card__summary .markdown";
-    const strong = container.querySelector(`${scope} [data-streamdown="strong"]`);
+    const strong = container.querySelector(
+      `${scope} [data-streamdown="strong"]`,
+    );
     const code = container.querySelector(
       `${scope} [data-streamdown="inline-code"]`,
     );
@@ -156,5 +162,19 @@ describe("AgentCompletionCard fileless summary rendering", () => {
       terminalEventIds: "done-1",
       artifactIds: "/tmp/report.md",
     });
+  });
+
+  it("opens the exact completed agent thread from the trailing chat action", async () => {
+    await renderCard(SUMMARY);
+    const action = container.querySelector<HTMLButtonElement>(
+      ".agent-completion-card__chat",
+    );
+    expect(action?.getAttribute("aria-label")).toContain("Open read-only chat");
+    action!.click();
+    expect(displayTabs.getSnapshot().activeTabId).toBe("thread-chat:a1");
+    expect(
+      displayTabs.getSnapshot().tabs.find((tab) => tab.id === "thread-chat:a1")
+        ?.metadata,
+    ).toMatchObject({ threadId: "a1", readOnly: true });
   });
 });

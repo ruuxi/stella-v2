@@ -10,10 +10,7 @@ import {
   type RuntimeRunEventRecorder,
 } from "./run-events.js";
 import { createRuntimePromptAgentMessage } from "./run-preparation.js";
-import {
-  getAgentCompletion,
-  now,
-} from "./shared.js";
+import { getAgentCompletion, now } from "./shared.js";
 import type { RuntimeRunCallbacks } from "./types.js";
 import {
   persistThreadCustomMessage,
@@ -40,10 +37,7 @@ const DEFAULT_AGENT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 // leaked (e.g. a lost tool_execution_end).
 const DEFAULT_AGENT_TOOL_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 
-const configuredTimeoutMs = (
-  envName: string,
-  fallbackMs: number,
-): number => {
+const configuredTimeoutMs = (envName: string, fallbackMs: number): number => {
   const raw = process.env[envName]?.trim();
   if (!raw) return fallbackMs;
   const parsed = Number(raw);
@@ -71,7 +65,11 @@ const materializeRemoteImageAttachment = async (
     if (bytes.byteLength > MAX_REMOTE_IMAGE_BYTES) return attachment;
     const mimeType =
       attachmentMimeType(attachment) ||
-      response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ||
+      response.headers
+        .get("content-type")
+        ?.split(";")[0]
+        ?.trim()
+        .toLowerCase() ||
       "";
     if (!mimeType.startsWith("image/")) return attachment;
     return {
@@ -114,6 +112,8 @@ export const executeRuntimeAgentPrompt = async (args: {
   conversationId?: string;
   uiVisibility?: "visible" | "hidden";
   attemptGeneration?: number;
+  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
+  managerTurnVisibility?: "internal" | "parent";
   /**
    * Resume the agent loop from its existing in-memory context instead of
    * appending a new prompt. Used by the safety model-swap retry: the failed
@@ -210,6 +210,12 @@ export const executeRuntimeAgentPrompt = async (args: {
     ...(typeof args.attemptGeneration === "number"
       ? { attemptGeneration: args.attemptGeneration }
       : {}),
+    ...(args.managerTurnOrigin
+      ? { managerTurnOrigin: args.managerTurnOrigin }
+      : {}),
+    ...(args.managerTurnVisibility
+      ? { managerTurnVisibility: args.managerTurnVisibility }
+      : {}),
   });
 
   try {
@@ -234,10 +240,12 @@ export const executeRuntimeAgentPrompt = async (args: {
               ),
             })),
           )
-        : [{
-            text: args.promptText ?? "",
-            attachments: await materializePromptAttachments(args.attachments),
-          }];
+        : [
+            {
+              text: args.promptText ?? "",
+              attachments: await materializePromptAttachments(args.attachments),
+            },
+          ];
     const promptTimestamp = now();
     const promptMessages = promptInputs.map((message, index) => ({
       message: createRuntimePromptAgentMessage(

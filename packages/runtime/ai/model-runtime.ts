@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { MODELS } from "@stella/contracts/models.generated";
-import { Value } from "@sinclair/typebox/value";
 import {
   ModelConfig,
+  getRemoteCatalogModelValidationErrors,
+  isRemoteCatalogModel,
   isModelConfigValueConfigured,
-  remoteModelCatalogEntrySchema,
   resolveModelConfigHeaders,
   resolveModelConfigValue,
   type ModelsJsonModel,
@@ -96,18 +96,15 @@ const validateRemoteCatalogEntries = (
   const models: Model<Api>[] = [];
   let invalidCount = 0;
   for (const [index, entry] of entries.entries()) {
-    if (!Value.Check(remoteModelCatalogEntrySchema, entry)) {
+    if (!isRemoteCatalogModel(entry)) {
       invalidCount += 1;
-      const details = [...Value.Errors(remoteModelCatalogEntrySchema, entry)]
-        .slice(0, 8)
-        .map((error) => `${error.path || "root"}: ${error.message}`)
-        .join("; ");
+      const details = getRemoteCatalogModelValidationErrors(entry).join("; ");
       console.warn(
         `[stella:model-runtime] Dropped invalid remote catalog entry for ${providerId} at index ${index}: ${details}`,
       );
       continue;
     }
-    models.push({ ...(entry as Model<Api>), provider: providerId });
+    models.push({ ...entry, provider: providerId });
   }
   return { models, validCount: models.length, invalidCount };
 };

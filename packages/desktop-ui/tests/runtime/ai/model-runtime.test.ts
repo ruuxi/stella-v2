@@ -1231,6 +1231,41 @@ describe("ModelRuntime", () => {
     }
   });
 
+  it("does not let a non-Azure empty base URL override a builtin model", async () => {
+    const stellaDataDir = await makeTempDir();
+    const runtime = new ModelRuntime();
+    const builtin = runtime.getModels("xai")[0];
+    if (!builtin) throw new Error("Expected an xAI builtin model");
+    const originalFetch = globalThis.fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/xai")) {
+        return Response.json({
+          models: [
+            {
+              ...builtin,
+              name: "Malformed Empty URL Override",
+              baseUrl: "",
+            },
+          ],
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(runtime.getModel("xai", builtin.id)).toEqual(builtin);
+      expect(warn).toHaveBeenCalledWith(
+        `[stella:model-runtime] Dropped invalid remote catalog entry for xai at index 0: /baseUrl: Expected string length greater or equal to 1`,
+      );
+    } finally {
+      warn.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("composes a fully valid remote catalog entry", async () => {
     const stellaDataDir = await makeTempDir();
     const originalFetch = globalThis.fetch;

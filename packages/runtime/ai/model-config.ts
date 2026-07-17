@@ -44,6 +44,10 @@ export type ModelsJsonProvider = {
   modelOverrides?: Record<string, ModelsJsonModelOverride>;
 };
 
+export type RemoteCatalogModel = Omit<Model<Api>, "provider"> & {
+  provider?: string;
+};
+
 type ModelsJson = {
   providers: Record<string, ModelsJsonProvider>;
 };
@@ -167,6 +171,12 @@ const costSchema = Type.Object({
   cacheRead: Type.Optional(Type.Number()),
   cacheWrite: Type.Optional(Type.Number()),
 });
+const remoteCatalogCostSchema = Type.Object({
+  input: Type.Number({ minimum: 0 }),
+  output: Type.Number({ minimum: 0 }),
+  cacheRead: Type.Number({ minimum: 0 }),
+  cacheWrite: Type.Number({ minimum: 0 }),
+});
 const modelFields = {
   name: Type.Optional(nonEmptyString),
   reasoning: Type.Optional(Type.Boolean()),
@@ -204,31 +214,55 @@ const modelsJsonSchema = Type.Object({
   providers: Type.Record(Type.String(), providerSchema),
 });
 
-export const remoteModelCatalogEntrySchema = Type.Object({
+const remoteCatalogModelFields = {
   id: nonEmptyString,
   name: nonEmptyString,
-  api: nonEmptyString,
   provider: Type.Optional(nonEmptyString),
-  // Some provider catalogs intentionally leave the endpoint unresolved until
-  // models.json supplies the account-specific base URL (Azure is one such
-  // provider). Keep the field required, but accept that empty sentinel.
-  baseUrl: Type.String(),
   reasoning: Type.Boolean(),
   thinkingLevelMap: Type.Optional(thinkingLevelMapSchema),
   input: Type.Array(
     Type.Union([Type.Literal("text"), Type.Literal("image")]),
   ),
-  cost: Type.Object({
-    input: Type.Number({ minimum: 0 }),
-    output: Type.Number({ minimum: 0 }),
-    cacheRead: Type.Number({ minimum: 0 }),
-    cacheWrite: Type.Number({ minimum: 0 }),
-  }),
+  cost: remoteCatalogCostSchema,
   contextWindow: Type.Number({ exclusiveMinimum: 0 }),
   maxTokens: Type.Number({ exclusiveMinimum: 0 }),
   headers: Type.Optional(stringRecord),
   compat: Type.Optional(compatSchema),
+};
+const remoteCatalogModelSchema = Type.Object({
+  ...remoteCatalogModelFields,
+  api: nonEmptyString,
+  baseUrl: nonEmptyString,
 });
+// Azure deployments resolve their endpoint from request options or the user's
+// resource configuration, so their catalog models intentionally use an empty
+// baseUrl. Key this exception to the transport contract rather than the
+// provider name; every other remote transport still requires a URL.
+const azureRemoteCatalogModelSchema = Type.Object({
+  ...remoteCatalogModelFields,
+  api: Type.Literal("azure-openai-responses"),
+  baseUrl: Type.String(),
+});
+
+const remoteCatalogSchemaFor = (value: unknown) =>
+  value &&
+  typeof value === "object" &&
+  "api" in value &&
+  value.api === "azure-openai-responses"
+    ? azureRemoteCatalogModelSchema
+    : remoteCatalogModelSchema;
+
+export const isRemoteCatalogModel = (
+  value: unknown,
+): value is RemoteCatalogModel =>
+  Value.Check(remoteCatalogSchemaFor(value), value);
+
+export const getRemoteCatalogModelValidationErrors = (
+  value: unknown,
+): string[] =>
+  [...Value.Errors(remoteCatalogSchemaFor(value), value)]
+    .slice(0, 8)
+    .map((error) => `${error.path || "root"}: ${error.message}`);
 
 /** Strip JSONC line comments and trailing commas without touching strings. */
 const stripJsonComments = (value: string): string =>

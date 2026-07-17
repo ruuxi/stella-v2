@@ -4,7 +4,7 @@
  *
  * This eliminates per-step round trips through the native bridge.
  */
-import { getActiveTab } from './tabs.js';
+import { assertCurrentOwnerLease, getActiveTab } from './tabs.js';
 import { resolveSelector, buildRoleMatcherScript } from '../lib/selector.js';
 import { evaluateRuntime } from '../lib/debugger.js';
 
@@ -35,6 +35,8 @@ const ALLOWED_CHAIN_KEYS = new Set([
   'id',
   'action',
   'ownerId',
+  'ownerLeaseId',
+  'ownerLeaseIssuedAt',
   'tabId',
   'steps',
   'delay',
@@ -52,7 +54,6 @@ function isPlainObject(value) {
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
-
 function validateSafeValue(value, path, depth = 0) {
   if (depth > MAX_JSON_DEPTH) {
     throw new Error(`${path} exceeds the maximum object depth`);
@@ -237,6 +238,8 @@ export async function handleChain(command, handlers) {
       tabId: step.tabId ?? command.tabId,
       id: `${command.id}_s${i}`,
       ownerId: command.ownerId,
+      ownerLeaseId: command.ownerLeaseId,
+      ownerLeaseIssuedAt: command.ownerLeaseIssuedAt,
     };
     const remainingBeforeWait = deadline - Date.now();
     if (remainingBeforeWait <= 0) {
@@ -289,6 +292,11 @@ export async function handleChain(command, handlers) {
     }
     stepCommand.timeout = Math.min(stepCommand.timeout, remainingBeforeAction);
 
+    // A replacement kernel can claim this owner while a prior chain step or
+    // implicit wait is still running. Revalidate at the execution boundary so
+    // the admitted chain cannot continue acting under its superseded lease.
+    await assertCurrentOwnerLease(stepCommand);
+
     // 2. Look up and execute the handler
     const handler = handlers[step.action];
     if (!handler) {
@@ -311,6 +319,9 @@ export async function handleChain(command, handlers) {
         action: step.action,
         success: response.success !== false,
         data: response.data,
+        ...(response.success === false
+          ? { error: response.error || 'extension action failed without an error message' }
+          : {}),
         durationMs: Date.now() - stepStart,
       });
 
@@ -345,6 +356,10 @@ export async function handleChain(command, handlers) {
     totalDurationMs: Date.now() - chainStart,
   };
   let requestedOutputError = null;
+  const failedStep = results.find((result) => result.success === false);
+  const failedStepError = failedStep
+    ? `Chain step ${failedStep.step} (${steps[failedStep.step]?.action || 'unknown'}) failed: ${failedStep.error || 'extension action failed without an error message'}`
+    : null;
 
   // 5. Optional final snapshot
   if (command.returnSnapshot) {
@@ -358,6 +373,8 @@ export async function handleChain(command, handlers) {
         interactive: true,
         compact: true,
         ownerId: command.ownerId,
+        ownerLeaseId: command.ownerLeaseId,
+        ownerLeaseIssuedAt: command.ownerLeaseIssuedAt,
         tabId: command.tabId,
       });
       if (snap?.success === false) {
@@ -384,6 +401,8 @@ export async function handleChain(command, handlers) {
         id: `${command.id}_shot`,
         action: 'screenshot',
         ownerId: command.ownerId,
+        ownerLeaseId: command.ownerLeaseId,
+        ownerLeaseIssuedAt: command.ownerLeaseIssuedAt,
         tabId: command.tabId,
       });
       if (shot?.success === false) {
@@ -410,7 +429,9 @@ export async function handleChain(command, handlers) {
   return {
     id: command.id,
     success: results.every(r => r.success) && requestedOutputError == null,
-    ...(requestedOutputError ? { error: requestedOutputError } : {}),
+    ...(requestedOutputError || failedStepError
+      ? { error: requestedOutputError || failedStepError }
+      : {}),
     data: responseData,
   };
 }

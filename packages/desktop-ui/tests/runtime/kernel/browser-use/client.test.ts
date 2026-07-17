@@ -173,6 +173,11 @@ describe("BrowserSession direct daemon client", () => {
         "title",
       ]);
       expect(daemon.requests[0]?.ownerId).toBe("node-repl-session-1");
+      expect(daemon.requests[0]?.ownerLeaseId).toEqual(expect.any(String));
+      expect(daemon.requests[0]?.ownerLeaseIssuedAt).toEqual(expect.any(Number));
+      expect(daemon.requests[1]?.ownerLeaseId).toBe(
+        daemon.requests[0]?.ownerLeaseId,
+      );
       expect(daemon.requests[0]?.id).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       );
@@ -537,7 +542,10 @@ describe("BrowserSession direct daemon client", () => {
       await client.dispose();
       await socketClosed.promise;
 
-      expect(daemon.requests.map((request) => request.action)).toEqual(["url"]);
+      expect(daemon.requests.map((request) => request.action)).toEqual([
+        "url",
+        "release_owner_lease",
+      ]);
       expect(client.isDisposed).toBe(true);
       await expect(client.command("title")).rejects.toBeInstanceOf(
         BrowserSessionDisposedError,
@@ -548,7 +556,7 @@ describe("BrowserSession direct daemon client", () => {
     }
   });
 
-  it("performs configured owner cleanup before closing the client socket", async () => {
+  it("stamps commands with the configured kernel lease and never cleans tabs on dispose", async () => {
     const socketClosed = deferred();
     const daemon = createTestDaemon((request, { socket }) => {
       socket.once("close", () => socketClosed.resolve());
@@ -556,7 +564,8 @@ describe("BrowserSession direct daemon client", () => {
     });
     await daemon.start();
     const client = createClient(daemon, {
-      disposeCleanup: { action: "close_owner" },
+      ownerLeaseId: "kernel-lease-2",
+      ownerLeaseIssuedAt: 2_000,
     });
 
     try {
@@ -564,45 +573,23 @@ describe("BrowserSession direct daemon client", () => {
       await client.dispose();
       await socketClosed.promise;
 
-      expect(daemon.requests.map((request) => request.action)).toEqual([
-        "url",
-        "close_owner",
+      expect(daemon.requests).toEqual([
+        expect.objectContaining({
+          action: "url",
+          ownerId: "node-repl-session-1",
+          ownerLeaseId: "kernel-lease-2",
+          ownerLeaseIssuedAt: 2_000,
+        }),
+        expect.objectContaining({
+          action: "release_owner_lease",
+          ownerId: "node-repl-session-1",
+          ownerLeaseId: "kernel-lease-2",
+          ownerLeaseIssuedAt: 2_000,
+        }),
       ]);
-      expect(daemon.requests).not.toContainEqual(
-        expect.objectContaining({ action: "close" }),
-      );
-    } finally {
-      await client.dispose();
-      await daemon.close();
-    }
-  });
-
-  it("reconnects once to perform configured cleanup when its socket is absent", async () => {
-    const daemon = createTestDaemon((request) => ({
-      id: request.id,
-      success: true,
-      data: {},
-    }));
-    await daemon.start();
-    const client = createClient(daemon, {
-      commandTimeoutMs: 200,
-      disposeCleanup: { action: "close_owner" },
-    });
-
-    try {
-      await client.command("url");
-      daemon.disconnect();
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      await client.dispose();
-
-      expect(daemon.connections).toBe(2);
-      expect(daemon.requests.map((request) => request.action)).toEqual([
-        "url",
-        "close_owner",
-      ]);
-      expect(daemon.requests).not.toContainEqual(
-        expect.objectContaining({ action: "close" }),
-      );
+      expect(
+        daemon.requests.some((request) => request.action === "close_owner"),
+      ).toBe(false);
     } finally {
       await client.dispose();
       await daemon.close();

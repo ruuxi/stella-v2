@@ -404,7 +404,16 @@ describe("stella-browser shared tab group", () => {
       ),
     ).toBe(true);
 
-    await module.closeOwnerTabs("owner-a");
+    const ownerLease = {
+      id: "close-owner-a",
+      action: "close_owner",
+      ownerId: "owner-a",
+      ownerLeaseId: "test-owner-a",
+      ownerLeaseIssuedAt: 1,
+    };
+    await module.authorizeOwnerLease(ownerLease);
+    await module.finalizeOwnerTabs(ownerLease, []);
+    await module.releaseOwnerLease(ownerLease);
 
     expect(state.stats.windowsCreated).toBe(0);
     expect(state.windows.size).toBe(1);

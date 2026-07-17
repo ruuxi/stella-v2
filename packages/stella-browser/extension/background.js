@@ -6,7 +6,7 @@
  */
 
 import { connect, disconnect, isConnected, onCommand, onStatus } from './lib/connection.js';
-import { handleTabNew, handleTabList, handleTabSwitch, handleTabClose, closeAgentWindow, closeOwnerTabs, finalizeOwnerTabs, cleanupStaleGroups, cleanupStaleTabs } from './commands/tabs.js';
+import { authorizeOwnerLease, releaseOwnerLease, handleTabNew, handleTabList, handleTabSwitch, handleTabClose, closeAgentWindow, finalizeOwnerTabs, cleanupStaleGroups, cleanupStaleTabs } from './commands/tabs.js';
 import { handleNavigate, handleBack, handleForward, handleReload, handleUrl, handleTitle } from './commands/navigation.js';
 import {
   handleClick, handleFill, handleType, handleHover, handleSelect,
@@ -117,16 +117,20 @@ const HANDLERS = {
   tab_list: handleTabList,
   tab_switch: handleTabSwitch,
   tab_close: handleTabClose,
-  finalize_tabs: async (cmd) => ({
-    id: cmd.id,
-    success: true,
-    data: await finalizeOwnerTabs(cmd),
-  }),
-  close_owner: async (cmd) => ({
-    id: cmd.id,
-    success: true,
-    data: await finalizeOwnerTabs(cmd, []),
-  }),
+  finalize_tabs: async (cmd) => {
+    const data = await finalizeOwnerTabs(cmd);
+    await releaseOwnerLease(cmd);
+    return { id: cmd.id, success: true, data };
+  },
+  close_owner: async (cmd) => {
+    const data = await finalizeOwnerTabs(cmd, []);
+    await releaseOwnerLease(cmd);
+    return { id: cmd.id, success: true, data };
+  },
+  release_owner_lease: async (cmd) => {
+    await releaseOwnerLease(cmd);
+    return { id: cmd.id, success: true, data: { released: true } };
+  },
 
   // Cookies
   cookies_get: handleCookiesGet,
@@ -172,7 +176,9 @@ async function handleCommand(message) {
   // Handle 'close' command - close agent window, then acknowledge
   if (action === 'close') {
     if (typeof message.ownerId === 'string' && message.ownerId.trim()) {
-      const result = await closeOwnerTabs(message.ownerId);
+      await authorizeOwnerLease(message);
+      const result = await finalizeOwnerTabs(message, []);
+      await releaseOwnerLease(message);
       return { type: 'response', id, success: true, data: result };
     }
 
@@ -189,6 +195,9 @@ async function handleCommand(message) {
   const handler = HANDLERS[action];
   if (handler) {
     try {
+      if (action !== 'healthcheck' && (message.ownerId || message.ownerLeaseId)) {
+        await authorizeOwnerLease(message);
+      }
       const result = await handler(message);
       return { type: 'response', ...result };
     } catch (err) {
@@ -233,7 +242,6 @@ onCommand(handleCommand);
 onStatus((connected) => {
   console.log('[background] Connection status:', connected ? 'connected' : 'disconnected');
 });
-
 // Keep service worker alive via offscreen document port
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === 'keepalive') {

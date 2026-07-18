@@ -25,6 +25,7 @@ export type AgentRunFailureClassification = {
 };
 
 export type AgentRunRetryState = {
+  attemptsUsed: number;
   retriesUsed: number;
 };
 
@@ -210,6 +211,9 @@ const retryDelayMs = (retryIndex: number, random: () => number): number => {
 const exhaustedMessage = (reason: string): string =>
   `Agent run failed after ${AGENT_RUN_MAX_ATTEMPTS} attempts (${AGENT_RUN_MAX_RETRIES} automatic retries): ${reason}`;
 
+export const hasAgentRunAttemptBudget = (state: AgentRunRetryState): boolean =>
+  state.attemptsUsed < AGENT_RUN_MAX_ATTEMPTS;
+
 /**
  * Retry a native agent execution by resuming its existing state. The caller's
  * `prepareResume` must remove only the errored assistant tail; prior user,
@@ -235,6 +239,13 @@ export const executeAgentRunWithRetry = async <
   const sleep = args.sleep ?? sleepWithAbort;
 
   for (;;) {
+    if (!hasAgentRunAttemptBudget(args.state)) {
+      throw new Error(
+        `Agent run attempt budget exhausted after ${args.state.attemptsUsed} attempts`,
+      );
+    }
+    args.state.attemptsUsed += 1;
+
     let result: T;
     try {
       result = await args.execute(resume);
@@ -243,11 +254,13 @@ export const executeAgentRunWithRetry = async <
       const classification = classifyAgentRunFailure(error, args.abortSignal);
       if (
         !classification.retryable ||
+        !hasAgentRunAttemptBudget(args.state) ||
         args.state.retriesUsed >= AGENT_RUN_MAX_RETRIES
       ) {
         if (
           classification.retryable &&
-          args.state.retriesUsed >= AGENT_RUN_MAX_RETRIES
+          (!hasAgentRunAttemptBudget(args.state) ||
+            args.state.retriesUsed >= AGENT_RUN_MAX_RETRIES)
         ) {
           throw new Error(exhaustedMessage(reason), { cause: error });
         }
@@ -260,7 +273,7 @@ export const executeAgentRunWithRetry = async <
       try {
         args.onRetry?.({
           retryNumber,
-          nextAttempt: retryNumber + 1,
+          nextAttempt: args.state.attemptsUsed + 1,
           maxAttempts: AGENT_RUN_MAX_ATTEMPTS,
           delayMs,
           category: classification.category,
@@ -280,7 +293,10 @@ export const executeAgentRunWithRetry = async <
     if (!reason) return result;
     const classification = classifyAgentRunFailure(reason, args.abortSignal);
     if (!classification.retryable) return result;
-    if (args.state.retriesUsed >= AGENT_RUN_MAX_RETRIES) {
+    if (
+      !hasAgentRunAttemptBudget(args.state) ||
+      args.state.retriesUsed >= AGENT_RUN_MAX_RETRIES
+    ) {
       return { ...result, errorMessage: exhaustedMessage(reason) };
     }
     if (!args.prepareResume(reason, classification)) return result;
@@ -291,7 +307,7 @@ export const executeAgentRunWithRetry = async <
     try {
       args.onRetry?.({
         retryNumber,
-        nextAttempt: retryNumber + 1,
+        nextAttempt: args.state.attemptsUsed + 1,
         maxAttempts: AGENT_RUN_MAX_ATTEMPTS,
         delayMs,
         category: classification.category,

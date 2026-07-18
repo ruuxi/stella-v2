@@ -37,7 +37,7 @@ describe("agent run transient retry", () => {
     const onRetry = vi.fn();
 
     const result = await executeAgentRunWithRetry({
-      state: { retriesUsed: 0 },
+      state: { attemptsUsed: 0, retriesUsed: 0 },
       execute,
       prepareResume,
       sleep,
@@ -77,7 +77,7 @@ describe("agent run transient retry", () => {
 
     await expect(
       executeAgentRunWithRetry({
-        state: { retriesUsed: 0 },
+        state: { attemptsUsed: 0, retriesUsed: 0 },
         execute,
         prepareResume: () => true,
         sleep: async () => undefined,
@@ -100,7 +100,7 @@ describe("agent run transient retry", () => {
 
     await expect(
       executeAgentRunWithRetry({
-        state: { retriesUsed: 0 },
+        state: { attemptsUsed: 0, retriesUsed: 0 },
         execute,
         prepareResume,
         sleep: async () => undefined,
@@ -122,7 +122,7 @@ describe("agent run transient retry", () => {
     const sleep = vi.fn(async () => undefined);
 
     const result = await executeAgentRunWithRetry({
-      state: { retriesUsed: 0 },
+      state: { attemptsUsed: 0, retriesUsed: 0 },
       execute,
       prepareResume: () => true,
       sleep,
@@ -161,7 +161,7 @@ describe("agent run transient retry", () => {
     const sleep = vi.fn(async () => undefined);
 
     const result = await executeAgentRunWithRetry({
-      state: { retriesUsed: 0 },
+      state: { attemptsUsed: 0, retriesUsed: 0 },
       execute,
       prepareResume: () => true,
       sleep,
@@ -174,7 +174,7 @@ describe("agent run transient retry", () => {
 
   it("fails clearly instead of accepting a partial model error as success", async () => {
     const result = await executeAgentRunWithRetry({
-      state: { retriesUsed: 3 },
+      state: { attemptsUsed: 3, retriesUsed: 3 },
       execute: async () => ({
         finalText: "truncated result",
         errorMessage: "relay_stream_lost",
@@ -193,7 +193,7 @@ describe("agent run transient retry", () => {
   it("fails persistent empty completions after exactly four execution attempts", async () => {
     const execute = vi.fn(async () => ({ finalText: "" }));
     const result = await executeAgentRunWithRetry({
-      state: { retriesUsed: 0 },
+      state: { attemptsUsed: 0, retriesUsed: 0 },
       execute,
       prepareResume: () => true,
       sleep: async () => undefined,

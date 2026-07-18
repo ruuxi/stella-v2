@@ -33,8 +33,12 @@ import {
 import { buildBackgroundTaskLifecycleIndex } from "@/features/chat/lib/background-task-lifecycle";
 import { buildHistorySource } from "@stella/runtime/kernel/agent-runtime/thread-memory";
 import { SubagentSession } from "@stella/runtime/kernel/agent-runtime/subagent-session";
+import { SAFETY_SWAP_STELLA_MODEL_ID } from "@stella/runtime/kernel/agent-runtime/provider-abort-containment";
 import type { SubagentRunOptions } from "@stella/runtime/kernel/agent-runtime/types";
+import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
 import { resolveOrchestratorThreadKey } from "@stella/runtime/kernel/thread-runtime";
+import { providerAbortedStopMessage } from "@stella/runtime/ai/utils/provider-stop";
+import type { Api, Model } from "@stella/runtime/ai/types";
 
 const sessionExecutionMock = vi.hoisted(() => vi.fn());
 
@@ -132,6 +136,24 @@ const historyText = (args: MockRunArgs): string =>
     .map((message) => message.content)
     .join("\n");
 
+const fableStellaRoute = (): ResolvedLlmRoute => {
+  const model = {
+    id: "stella/max",
+    name: "max",
+    api: "anthropic-messages",
+    provider: "anthropic",
+    baseUrl: "https://relay.example/api/llm",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 0,
+  } as Model<Api>;
+  (model as Model<Api> & { upstreamModelId?: string }).upstreamModelId =
+    "claude-fable-5";
+  return { route: "stella", model, getApiKey: () => "token" };
+};
+
 const hasInFlightAttempt = (
   manager: LocalAgentManager,
   threadId: string,
@@ -170,6 +192,7 @@ const reportFromMockManager = async (
 const createHarness = (options?: {
   rootPath?: string;
   attemptTeardownTimeoutMs?: number;
+  resolvedLlm?: ResolvedLlmRoute;
 }): Harness => {
   const rootPath =
     options?.rootPath ??
@@ -238,9 +261,9 @@ const createHarness = (options?: {
         // Mirrors buildAgentContext's real non-orchestrator history hydration.
         // Keeping this wired to SessionStore is what exposes replay duplicates.
         threadHistory: store.loadThreadMessages(threadId),
-        resolvedLlm: {
-          model: { id: "test-model", provider: "openai" },
-        },
+        resolvedLlm:
+          options?.resolvedLlm ??
+          ({ model: { id: "test-model", provider: "openai" } } as never),
       };
     },
     sendMessage: async (message) => {
@@ -288,6 +311,111 @@ afterEach(async () => {
 });
 
 describe("manager orchestration production routing", () => {
+  it("caps safety retries, model swap, and transient recovery at four provider calls", async () => {
+    const safetyError = providerAbortedStopMessage("refusal");
+    const harness = createHarness({ resolvedLlm: fableStellaRoute() });
+    const { manager, store, sentMessages } = harness;
+    const observedModels: string[] = [];
+    const failures = [
+      safetyError,
+      safetyError,
+      safetyError,
+      "429 Transient relay buffer quota exceeded",
+    ];
+    sessionExecutionMock.mockImplementation(async ({ agent, resume }) => {
+      const attempt = sessionExecutionMock.mock.calls.length;
+      const errorMessage = failures[attempt - 1]!;
+      observedModels.push(agent.state.model.id);
+      expect(Boolean(resume)).toBe(attempt > 1);
+      agent.state.messages.push({
+        role: "assistant",
+        content: [],
+        api: "anthropic-messages",
+        provider: "anthropic",
+        model: agent.state.model.id,
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+          },
+        },
+        stopReason: "error",
+        errorMessage,
+        timestamp: attempt,
+      });
+      return { finalText: "", errorMessage };
+    });
+    runMock.handler = async (args) => {
+      if (args.agentType === AGENT_IDS.MANAGER) {
+        await waitForAbort(args.abortSignal);
+        return { runId: "budget-owner-manager", result: "", interrupted: true };
+      }
+      const session =
+        args.subagentSession ??
+        new SubagentSession(
+          args.agentId ?? "missing-agent",
+          "conversation-shared-budget",
+          args.agentType,
+        );
+      return await session.runTurn(args as unknown as SubagentRunOptions);
+    };
+
+    const managerTask = await manager.createAgent({
+      threadId: "budget-owner-manager",
+      conversationId: "conversation-shared-budget",
+      description: "Own safety-budget child failure",
+      prompt: "Handle the child failure.",
+      agentType: AGENT_IDS.MANAGER,
+      storageMode: "local",
+    });
+    const childTask = await manager.createAgent({
+      threadId: "safety-budget-child",
+      conversationId: "conversation-shared-budget",
+      description: "Exercise the shared attempt budget",
+      prompt: "Stay within the provider-call budget.",
+      agentType: AGENT_IDS.GENERAL,
+      parentAgentId: managerTask.threadId,
+      storageMode: "local",
+    });
+
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(childTask.threadId))?.status === "error",
+    );
+
+    expect(sessionExecutionMock).toHaveBeenCalledTimes(4);
+    expect(observedModels).toEqual([
+      "stella/max",
+      "stella/max",
+      "stella/max",
+      SAFETY_SWAP_STELLA_MODEL_ID,
+    ]);
+    const managerFailures = store
+      .loadThreadMessages(managerTask.threadId)
+      .filter(
+        (message) =>
+          message.customMessage?.lifecycleEvent?.type === "agent-failed",
+      );
+    expect(managerFailures).toHaveLength(1);
+    expect(JSON.stringify(managerFailures)).toContain(
+      "failed after 4 attempts",
+    );
+    expect(JSON.stringify(managerFailures)).toContain("relay buffer quota");
+    expect(
+      sentMessages.filter((message) =>
+        message.text.includes("relay buffer quota"),
+      ),
+    ).toHaveLength(0);
+  });
+
   it("routes native persistent-empty exhaustion to the owning Manager only", async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0.5);

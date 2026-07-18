@@ -104,20 +104,17 @@ describe("Stella prompt defaults", () => {
     expect(agentPrompts).toContain("Vite + React");
   });
 
-  it("teaches the Manager to understand natural-language status requests", () => {
+  it("teaches the Manager to use report as its only upward channel", () => {
     const manager = STELLA_PROMPT_DEFAULTS.prompts.find(
       (prompt) => prompt.id === "agents/manager.md",
     )?.content;
     expect(manager).toBeDefined();
-    expect(manager).toContain("[Status]");
-    expect(manager).toMatch(
-      /incoming message asks for status or an update while the process is unfinished/,
-    );
-    expect(manager).toMatch(/briefly give current progress and blockers/s);
-    expect(manager).toMatch(/yield without abandoning or completing/s);
-    expect(manager).toMatch(/change instructions as steering.*apply/s);
-    expect(manager).toContain("[Milestone]");
-    expect(manager).toMatch(/sentinels are conditional.*do not emit either/s);
+    expect(manager).toMatch(/`report` is your only upward channel/);
+    expect(manager).toMatch(/final: false.*sparingly/s);
+    expect(manager).toMatch(/blockers, questions.*progress updates/s);
+    expect(manager).toMatch(/assistant responses.*private.*never reach/s);
+    expect(manager).toMatch(/final: true.*exactly once/s);
+    expect(manager).toMatch(/complete terminal deliverable.*message/s);
   });
 
   it("validates the publish set all-or-nothing and derives its revision", async () => {

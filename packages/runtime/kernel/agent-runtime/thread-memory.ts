@@ -294,21 +294,8 @@ export const persistThreadPayloadMessage = (
     runId?: string;
     attemptGeneration?: number;
     managerTurnOrigin?: "initial" | "managed-child" | "external-input";
-    managerTurnVisibility?: "internal" | "parent";
   },
 ): void => {
-  const assistantText =
-    args.payload.role === "assistant"
-      ? args.payload.content
-          .flatMap((block) =>
-            block.type === "text" && block.text.trim() ? [block.text] : [],
-          )
-          .join("\n\n")
-          .trim()
-      : "";
-  const structuredPublicManagerUpdate =
-    args.payload.role === "assistant" &&
-    /^\s*\[(?:Status|Milestone)\]\s*/.test(assistantText);
   const payload =
     args.payload.role === "assistant"
       ? ({
@@ -320,11 +307,6 @@ export const persistThreadPayloadMessage = (
           ...(args.managerTurnOrigin
             ? { stellaManagerTurnOrigin: args.managerTurnOrigin }
             : {}),
-          ...(structuredPublicManagerUpdate
-            ? { stellaManagerTurnVisibility: "parent" }
-            : args.managerTurnVisibility
-              ? { stellaManagerTurnVisibility: args.managerTurnVisibility }
-              : {}),
         } as PersistedRuntimeThreadPayload)
       : args.payload;
   const preview = buildThreadMessagePreview(payload);
@@ -912,7 +894,6 @@ export const persistAssistantReply = async (args: {
   runId?: string;
   attemptGeneration?: number;
   managerTurnOrigin?: "initial" | "managed-child" | "external-input";
-  managerTurnVisibility?: "internal" | "parent";
 }): Promise<void> => {
   if (!args.content.trim()) {
     return;
@@ -925,9 +906,6 @@ export const persistAssistantReply = async (args: {
       : {}),
     ...(args.managerTurnOrigin
       ? { managerTurnOrigin: args.managerTurnOrigin }
-      : {}),
-    ...(args.managerTurnVisibility
-      ? { managerTurnVisibility: args.managerTurnVisibility }
       : {}),
     payload: {
       role: "assistant",

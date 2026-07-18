@@ -1299,7 +1299,6 @@ describe("session-store", () => {
       status: "running",
       attemptGeneration: 7,
       managerTurnOrigin: "managed-child",
-      managerTurnVisibility: "internal",
       startedAt: frozenNow,
       updatedAt: frozenNow,
     });
@@ -1361,7 +1360,6 @@ describe("session-store", () => {
           timestamp: frozenNow,
           stellaAttemptGeneration: 7,
           stellaManagerTurnOrigin: "managed-child",
-          stellaManagerTurnVisibility: "internal",
         } as Parameters<typeof store.appendThreadMessage>[0]["payload"],
       });
       expectedContent.push(authored);
@@ -1406,7 +1404,6 @@ describe("session-store", () => {
     expect(reloaded.at(-1)?.payload).toMatchObject({
       stellaAttemptGeneration: 7,
       stellaManagerTurnOrigin: "managed-child",
-      stellaManagerTurnVisibility: "internal",
     });
     const transcript = reloadedStore.listThreadTranscript(threadId, 300);
     const visibleContent = expectedContent.filter(

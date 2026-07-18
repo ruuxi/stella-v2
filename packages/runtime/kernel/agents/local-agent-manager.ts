@@ -116,7 +116,6 @@ export type LocalAgentContext = {
   attemptGeneration?: number;
   /** Durable Manager-turn metadata copied onto each assistant transcript entry. */
   managerTurnOrigin?: "initial" | "managed-child" | "external-input";
-  managerTurnVisibility?: "internal" | "parent";
 };
 
 export type LocalAgentStatus = "pending" | TaskLifecycleStatus;
@@ -176,10 +175,15 @@ type RuntimeAgentRecord = {
   parentAgentId?: string;
   /** Parked manager whose next turn begins when a managed report or input arrives. */
   waitingForManagedChildren?: boolean;
-  /** Durable origin/visibility/lifecycle of the active Manager turn. */
+  /** Durable origin/lifecycle of the active Manager turn. */
   managerTurnOrigin?: "initial" | "managed-child" | "external-input";
-  managerTurnVisibility?: "internal" | "parent";
   managerTurnLifecycle?: "continue" | "complete-when-idle" | "complete";
+  /** Accepted terminal report, retained across fenced/retried attempts. */
+  managerFinalReport?: string;
+  /** Tool call ids already accepted as reports in this Manager run. */
+  managerReportIds: Set<string>;
+  /** Monotonic event suffix for multiple intermediate reports in one attempt. */
+  managerReportSequence: number;
   /** Monotonic ownership token for mutable executeTask attempts. */
   attemptGeneration: number;
   recentActivity: string[];
@@ -711,6 +715,9 @@ export const AGENT_ORPHANED_RESTART_CANCEL_REASON =
 // otherwise replace the user-facing reply with an empty silence.
 export const AGENT_PAUSE_CANCEL_REASON = "Paused by orchestrator.";
 export const DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS = 5_000;
+/** Explicit completion result used when a Manager never submits report(final=true). */
+export const MANAGER_MISSING_FINAL_REPORT_FALLBACK =
+  "Manager ended without a final report.";
 
 const logWorkingIndicatorTrace = (
   label: string,
@@ -832,7 +839,7 @@ export class LocalAgentManager implements AgentToolApi {
       .join("\n");
     const isManager = task.agentType === AGENT_IDS.MANAGER;
     const updateInstruction = isManager
-      ? "Interpret the orchestrator's message by its natural-language intent. If it asks for status or an update while the process is unfinished, follow the Manager status-response protocol and yield without abandoning the process. If it changes instructions, apply the steering and continue. Newer updates override conflicting earlier instructions."
+      ? "Interpret the orchestrator's message by its natural-language intent. Use report(final=false) only for a genuine blocker, question, or explicitly requested progress update; finalized assistant text is private and never reaches the orchestrator. If it changes instructions, apply the steering and continue. Newer updates override conflicting earlier instructions."
       : "Apply the orchestrator's message according to its intent. If it asks a question, requests status, or asks for a report, answer that request and then stop; do not continue the underlying task. If it gives new or changed work instructions, apply them and continue the task. Newer updates override conflicting earlier instructions.";
     if (task.turnCount === 0) {
       return [
@@ -883,9 +890,6 @@ export class LocalAgentManager implements AgentToolApi {
         : {}),
       ...(task.managerTurnOrigin
         ? { managerTurnOrigin: task.managerTurnOrigin }
-        : {}),
-      ...(task.managerTurnVisibility
-        ? { managerTurnVisibility: task.managerTurnVisibility }
         : {}),
       ...(task.managerTurnLifecycle
         ? { managerTurnLifecycle: task.managerTurnLifecycle }
@@ -1152,6 +1156,10 @@ export class LocalAgentManager implements AgentToolApi {
     task: RuntimeAgentRecord,
     prompt: string,
   ): void {
+    const wasTerminal =
+      task.status === "completed" ||
+      task.status === "error" ||
+      task.status === "canceled";
     // Invalidate any older executeTask still unwinding after an abort. It may
     // finish later, but it no longer owns this thread's mutable state.
     task.attemptGeneration += 1;
@@ -1177,8 +1185,12 @@ export class LocalAgentManager implements AgentToolApi {
     task.pendingManagerTurnOrigin = undefined;
     task.waitingForManagedChildren = false;
     task.managerTurnOrigin = undefined;
-    task.managerTurnVisibility = undefined;
     task.managerTurnLifecycle = undefined;
+    if (wasTerminal) {
+      task.managerFinalReport = undefined;
+      task.managerReportIds.clear();
+      task.managerReportSequence = 0;
+    }
   }
 
   private hydrateTaskFromRecord(
@@ -1218,8 +1230,9 @@ export class LocalAgentManager implements AgentToolApi {
       waitingForManagedChildren: false,
       pendingManagerTurnOrigin: record.pendingManagerTurnOrigin,
       managerTurnOrigin: record.managerTurnOrigin,
-      managerTurnVisibility: record.managerTurnVisibility,
       managerTurnLifecycle: record.managerTurnLifecycle,
+      managerReportIds: new Set(),
+      managerReportSequence: 0,
       attemptGeneration: Number.isFinite(record.attemptGeneration)
         ? Math.max(0, Math.floor(record.attemptGeneration))
         : 0,
@@ -1393,8 +1406,6 @@ export class LocalAgentManager implements AgentToolApi {
       task.pendingManagerTurnOrigin = undefined;
       if (task.agentType === AGENT_IDS.MANAGER) {
         task.managerTurnOrigin = startOrigin;
-        task.managerTurnVisibility =
-          startOrigin === "external-input" ? "parent" : "internal";
         task.managerTurnLifecycle =
           startOrigin === "external-input" ? "continue" : "complete-when-idle";
       }
@@ -1539,7 +1550,6 @@ export class LocalAgentManager implements AgentToolApi {
       context.attemptGeneration = attempt.generation;
       if (task.agentType === AGENT_IDS.MANAGER) {
         context.managerTurnOrigin = task.managerTurnOrigin;
-        context.managerTurnVisibility = task.managerTurnVisibility;
       }
 
       const taskPrompt = this.buildTaskPrompt(task);
@@ -1673,6 +1683,7 @@ export class LocalAgentManager implements AgentToolApi {
           const scopedContext: ToolContext = {
             ...toolContext,
             agentId: task.threadId,
+            attemptGeneration: attempt.generation,
             ...(task.cloudAgentId ? { cloudAgentId: task.cloudAgentId } : {}),
             agentDepth: task.agentDepth,
             maxAgentDepth: context.maxAgentDepth,
@@ -1753,7 +1764,10 @@ export class LocalAgentManager implements AgentToolApi {
         task.error = result.error;
       } else {
         task.status = "completed";
-        task.result = result.result;
+        // Manager assistant-final text is private working conversation. Only
+        // report() may populate the upward completion result below.
+        task.result =
+          task.agentType === AGENT_IDS.MANAGER ? undefined : result.result;
         // Completion rollup = banked records from send_input-interrupted
         // runs + this run's (already merged into the bank above). Drained
         // when the `agent-completed` event is actually emitted, so files
@@ -1787,54 +1801,26 @@ export class LocalAgentManager implements AgentToolApi {
       return;
     }
 
-    const managerStatusReported =
-      task.result?.trimStart().startsWith("[Status]") === true;
-    const managerMilestoneReported =
-      task.result?.trimStart().startsWith("[Milestone]") === true;
-    const managerParentVisibleReply = task.managerTurnVisibility === "parent";
     const managerHasActiveWork =
       task.agentType === AGENT_IDS.MANAGER &&
       this.hasActiveManagedChildren(task.threadId);
     if (
       task.agentType === AGENT_IDS.MANAGER &&
       task.status === "completed" &&
-      (managerStatusReported ||
-        managerMilestoneReported ||
-        managerParentVisibleReply ||
-        managerHasActiveWork)
+      (managerHasActiveWork ||
+        (!task.managerFinalReport && task.managerTurnLifecycle === "continue"))
     ) {
-      const shouldReportInterim =
-        managerStatusReported ||
-        managerMilestoneReported ||
-        managerParentVisibleReply;
-      if (shouldReportInterim) {
-        task.managerTurnVisibility = "parent";
-        const interimResult = managerStatusReported
-          ? task.result?.trimStart().slice("[Status]".length).trimStart()
-          : task.result;
-        this.opts.onAgentEvent?.({
-          type: "agent-message",
-          conversationId: task.conversationId,
-          eventId: this.lifecycleEventId(task, "agent-message"),
-          rootRunId: task.rootRunId,
-          agentId: task.threadId,
-          agentType: task.agentType,
-          description: task.description,
-          parentAgentId: task.parentAgentId,
-          result: interimResult,
-          attemptGeneration: attempt.generation,
-        });
-      }
-      // An explicitly interim Manager turn, or a turn ending while children
-      // remain, is a wait boundary rather than completion. Keep its long-lived
-      // session and wake it on the next child report or direct send_input.
+      // A non-terminal report or a turn ending while children remain is a wait
+      // boundary. The assistant-final text is intentionally discarded.
       task.status = "pending";
       task.completedAt = null;
       task.result = undefined;
       task.error = undefined;
       task.controller = new AbortController();
       task.waitingForManagedChildren = true;
-      task.managerTurnLifecycle = "continue";
+      task.managerTurnLifecycle = task.managerFinalReport
+        ? "complete-when-idle"
+        : "continue";
       task.terminalEventEmitted = false;
       this.persistTask(task);
       return;
@@ -1842,6 +1828,8 @@ export class LocalAgentManager implements AgentToolApi {
 
     if (task.agentType === AGENT_IDS.MANAGER && task.status === "completed") {
       task.managerTurnLifecycle = "complete";
+      task.result =
+        task.managerFinalReport ?? MANAGER_MISSING_FINAL_REPORT_FALLBACK;
     }
 
     // Task has reached a terminal status (completed/error/canceled). Drop
@@ -2018,6 +2006,8 @@ export class LocalAgentManager implements AgentToolApi {
       interruptedForFollowUp: false,
       terminalEventEmitted: false,
       waitingForManagedChildren: false,
+      managerReportIds: new Set(),
+      managerReportSequence: 0,
       ...(request.agentType === AGENT_IDS.MANAGER
         ? { managerTurnLifecycle: "complete-when-idle" as const }
         : {}),
@@ -2534,10 +2524,7 @@ export class LocalAgentManager implements AgentToolApi {
     if (options?.parentAgentId) {
       task.parentAgentId = options.parentAgentId;
     }
-    this.assignModelConfigSnapshotIfMissing(
-      task,
-      options?.modelConfigSnapshot,
-    );
+    this.assignModelConfigSnapshotIfMissing(task, options?.modelConfigSnapshot);
     if (options?.deliveryKind === "external-input") {
       task.pendingManagerTurnOrigin = "external-input";
     } else if (
@@ -2685,6 +2672,89 @@ export class LocalAgentManager implements AgentToolApi {
     const task = this.tasks.get(agentId);
     if (!task) return [];
     return this.consumeTaskMessages(task, recipient);
+  }
+
+  async reportManager(request: {
+    threadId: string;
+    message: string;
+    final: boolean;
+    attemptGeneration: number;
+    reportId: string;
+  }): Promise<{ accepted: boolean; final: boolean; reason?: string }> {
+    const task = this.tasks.get(request.threadId);
+    if (!task || task.agentType !== AGENT_IDS.MANAGER) {
+      return {
+        accepted: false,
+        final: request.final,
+        reason: `Manager thread not found: ${request.threadId}`,
+      };
+    }
+    if (task.status !== "running" && task.status !== "pending") {
+      return {
+        accepted: false,
+        final: request.final,
+        reason: "A paused or finished Manager cannot report.",
+      };
+    }
+    if (task.attemptGeneration !== request.attemptGeneration) {
+      return {
+        accepted: false,
+        final: request.final,
+        reason: "Manager report came from a superseded attempt.",
+      };
+    }
+    const message = request.message.trim();
+    if (!message) {
+      return {
+        accepted: false,
+        final: request.final,
+        reason: "Manager report requires a non-empty message.",
+      };
+    }
+    if (task.managerReportIds.has(request.reportId)) {
+      if (!request.final || task.managerFinalReport === message) {
+        return { accepted: true, final: request.final };
+      }
+      return {
+        accepted: false,
+        final: true,
+        reason: "This report id was already used for an intermediate update.",
+      };
+    }
+    if (task.managerFinalReport) {
+      return {
+        accepted: false,
+        final: request.final,
+        reason: "The Manager's final report was already accepted.",
+      };
+    }
+
+    task.managerReportIds.add(request.reportId);
+    if (request.final) {
+      // Store first, emit later. The fenced terminal branch is the sole writer
+      // of agent-completed, so retries cannot duplicate or lose this report.
+      task.managerFinalReport = message;
+      task.managerTurnLifecycle = "complete";
+      this.persistTask(task);
+      return { accepted: true, final: true };
+    }
+
+    task.managerTurnLifecycle = "continue";
+    task.managerReportSequence += 1;
+    this.persistTask(task);
+    this.opts.onAgentEvent?.({
+      type: "agent-message",
+      conversationId: task.conversationId,
+      eventId: `${task.threadId}:${request.attemptGeneration}:manager-report:${task.managerReportSequence}`,
+      rootRunId: task.rootRunId,
+      agentId: task.threadId,
+      agentType: task.agentType,
+      description: task.description,
+      parentAgentId: task.parentAgentId,
+      result: message,
+      attemptGeneration: request.attemptGeneration,
+    });
+    return { accepted: true, final: false };
   }
 }
 

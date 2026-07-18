@@ -136,9 +136,16 @@ describe("manager agent orchestration", () => {
             await managerFirstGate;
             return { runId: args.runId, result: "Waiting for child." };
           }
+          await manager.reportManager({
+            threadId: args.agentId!,
+            message: "Consolidated: child passed verification.",
+            final: true,
+            attemptGeneration: args.agentContext.attemptGeneration!,
+            reportId: "manager-final-report",
+          });
           return {
             runId: args.runId,
-            result: "Consolidated: child passed verification.",
+            result: "Private Manager final turn.",
           };
         }
         await childGate;
@@ -246,12 +253,26 @@ describe("manager agent orchestration", () => {
             return { runId: args.runId, result: "Waiting." };
           }
           if (managerPrompts.length === 2) {
+            await manager.reportManager({
+              threadId: args.agentId!,
+              message: "Status: adopted verification is still running.",
+              final: false,
+              attemptGeneration: args.agentContext.attemptGeneration!,
+              reportId: "manager-intermediate-report",
+            });
             return {
               runId: args.runId,
-              result: "[Status] Status: adopted verification is still running.",
+              result: "Private status turn.",
             };
           }
-          return { runId: args.runId, result: "Final adopted-thread report." };
+          await manager.reportManager({
+            threadId: args.agentId!,
+            message: "Final adopted-thread report.",
+            final: true,
+            attemptGeneration: args.agentContext.attemptGeneration!,
+            reportId: "manager-final-report",
+          });
+          return { runId: args.runId, result: "Private Manager final turn." };
         }
         await childGate;
         return { runId: args.runId, result: "Adopted thread finished clean." };

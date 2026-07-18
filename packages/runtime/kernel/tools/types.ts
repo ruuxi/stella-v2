@@ -27,6 +27,8 @@ export type ToolContext = {
   requestId: string;
   runId?: string;
   rootRunId?: string;
+  /** Fences tool side effects to the active execution attempt for an agent. */
+  attemptGeneration?: number;
   agentType?: string;
   stellaAppDir?: string;
   stellaDataDir?: string;
@@ -220,6 +222,18 @@ export type AgentToolApi = {
     threadId: string,
     recipient: "orchestrator" | "subagent",
   ) => Promise<string[]>;
+  /** Manager-only upward reporting channel. */
+  reportManager?: (request: {
+    threadId: string;
+    message: string;
+    final: boolean;
+    attemptGeneration: number;
+    reportId: string;
+  }) => Promise<{
+    accepted: boolean;
+    final: boolean;
+    reason?: string;
+  }>;
 };
 
 export type ToolHostOptions = {

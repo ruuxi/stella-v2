@@ -83,7 +83,6 @@ const appendAssistant = (
     stopReason?: "toolUse" | "stop";
     attemptGeneration?: number;
     managerTurnOrigin?: "initial" | "managed-child" | "external-input";
-    managerTurnVisibility?: "internal" | "parent";
   },
 ) => {
   const stopReason = args.stopReason ?? "toolUse";
@@ -104,9 +103,6 @@ const appendAssistant = (
       stellaAttemptGeneration: args.attemptGeneration ?? 0,
       ...(args.managerTurnOrigin
         ? { stellaManagerTurnOrigin: args.managerTurnOrigin }
-        : {}),
-      ...(args.managerTurnVisibility
-        ? { stellaManagerTurnVisibility: args.managerTurnVisibility }
         : {}),
     } as never,
   });
@@ -963,25 +959,22 @@ describe("agent-authored assistant updates", () => {
     expect(reloaded).toEqual(beforeReload);
   });
 
-  it("projects only parent-visible Manager authored replies into Activity", () => {
+  it("never projects finalized Manager replies into Activity", () => {
     const { store } = createTestContext();
-    const saveManager = (visibility: "internal" | "parent") =>
-      store.saveAgentRecord({
-        threadId: "manager-activity",
-        conversationId: "conv-1",
-        agentType: "manager",
-        description: "Coordinate visible status",
-        agentDepth: 1,
-        status: "running",
-        attemptGeneration: 2,
-        startedAt: 1_000,
-        completedAt: null,
-        updatedAt: 1_100,
-        managerTurnOrigin: "managed-child",
-        managerTurnVisibility: visibility,
-        managerTurnLifecycle: "continue",
-      });
-    saveManager("internal");
+    store.saveAgentRecord({
+      threadId: "manager-activity",
+      conversationId: "conv-1",
+      agentType: "manager",
+      description: "Coordinate private work",
+      agentDepth: 1,
+      status: "running",
+      attemptGeneration: 2,
+      startedAt: 1_000,
+      completedAt: null,
+      updatedAt: 1_100,
+      managerTurnOrigin: "managed-child",
+      managerTurnLifecycle: "continue",
+    });
     appendAssistant(store, {
       threadId: "manager-activity",
       timestamp: 1_001,
@@ -989,25 +982,22 @@ describe("agent-authored assistant updates", () => {
       stopReason: "stop",
       attemptGeneration: 2,
       managerTurnOrigin: "managed-child",
-      managerTurnVisibility: "internal",
     });
     expect(
       store.listThreadActivity("conv-1")[0]?.assistantMessages,
     ).toBeUndefined();
 
-    saveManager("parent");
     appendAssistant(store, {
       threadId: "manager-activity",
       timestamp: 1_002,
-      text: "[Status] Public Manager checkpoint",
+      text: "Another private Manager final response",
       stopReason: "stop",
       attemptGeneration: 2,
       managerTurnOrigin: "managed-child",
-      managerTurnVisibility: "parent",
     });
-    expect(store.listThreadActivity("conv-1")[0]).toMatchObject({
-      assistantMessages: ["Public Manager checkpoint"],
-    });
+    expect(
+      store.listThreadActivity("conv-1")[0]?.assistantMessages,
+    ).toBeUndefined();
   });
 
   it("scopes updates to the current attempt and excludes terminal answers", () => {

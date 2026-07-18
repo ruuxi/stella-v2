@@ -703,7 +703,6 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       attempt_generation INTEGER NOT NULL DEFAULT 0,
       pending_manager_turn_origin TEXT,
       manager_turn_origin TEXT,
-      manager_turn_visibility TEXT,
       manager_turn_lifecycle TEXT
     );
   `);
@@ -715,7 +714,6 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   for (const column of [
     "pending_manager_turn_origin TEXT",
     "manager_turn_origin TEXT",
-    "manager_turn_visibility TEXT",
     "manager_turn_lifecycle TEXT",
   ]) {
     try {

@@ -9,6 +9,7 @@
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   handleSendInput,
+  handleManagerReport,
   handleSpawnAgent,
   handleSpawnManager,
   type StateContext,
@@ -20,6 +21,7 @@ const AGENT_MANAGERS: readonly string[] = [
   AGENT_IDS.ORCHESTRATOR,
   AGENT_IDS.MANAGER,
 ];
+const MANAGER_ONLY: readonly string[] = [AGENT_IDS.MANAGER];
 
 export const createAgentTools = (
   stateContext: StateContext,
@@ -52,6 +54,30 @@ export const createAgentTools = (
     },
     execute: async (args, context) =>
       handleSpawnAgent(stateContext, args, context),
+  },
+  {
+    name: "report",
+    agentTypes: MANAGER_ONLY,
+    description:
+      "Send an update upward to the orchestrator. Use final=false sparingly for a genuine blocker, question, or explicitly requested progress update. Call exactly once with final=true for the consolidated terminal report.",
+    parameters: {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          description: "The update or consolidated final report to deliver.",
+        },
+        final: {
+          type: "boolean",
+          default: false,
+          description:
+            "False for a non-terminal update; true for the one terminal consolidated report.",
+        },
+      },
+      required: ["message"],
+    },
+    execute: async (args, context) =>
+      handleManagerReport(stateContext, args, context),
   },
   {
     name: "spawn_manager",

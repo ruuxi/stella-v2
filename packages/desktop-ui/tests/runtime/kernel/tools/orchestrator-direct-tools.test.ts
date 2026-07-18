@@ -21,6 +21,7 @@ type TestHostContext = {
   db: SqliteDatabase;
   host: ReturnType<typeof createToolHost>;
   createdTasks: Array<Record<string, unknown>>;
+  managerReports: Array<Record<string, unknown>>;
   contextLookups: Array<Record<string, unknown>>;
 };
 
@@ -43,6 +44,7 @@ const createTestHost = async (
   initializeDesktopDatabase(db);
 
   const createdTasks: Array<Record<string, unknown>> = [];
+  const managerReports: Array<Record<string, unknown>> = [];
   const contextLookups: Array<Record<string, unknown>> = [];
 
   const host = createToolHost({
@@ -63,6 +65,10 @@ const createTestHost = async (
       },
       getAgent: async () => null,
       cancelAgent: async () => ({ canceled: false }),
+      reportManager: async (request) => {
+        managerReports.push(request);
+        return { accepted: true, final: request.final };
+      },
     },
     validateSpawnModel,
     webSearch: async (query) => ({ text: `results for ${query}` }),
@@ -77,6 +83,7 @@ const createTestHost = async (
     db,
     host,
     createdTasks,
+    managerReports,
     contextLookups,
   };
   activeContexts.add(context);
@@ -98,6 +105,9 @@ const makeToolContext = (agentType: string): ToolContext => ({
   requestId: "req-1",
   agentType,
   storageMode: "local",
+  ...(agentType === AGENT_IDS.MANAGER
+    ? { agentId: "manager-1", attemptGeneration: 3 }
+    : {}),
   ...(agentType === AGENT_IDS.ORCHESTRATOR
     ? {
         modelConfigSnapshot: {
@@ -152,7 +162,7 @@ describe("orchestrator direct tool surface", () => {
           "---",
           "name: Customized Manager",
           "description: overly broad manager metadata",
-          "tools: spawn_agent, spawn_manager, send_input, pause_agent",
+          "tools: spawn_agent, spawn_manager, send_input, pause_agent, report",
           "maxAgentDepth: 9",
           "---",
           "My customized manager prompt.",
@@ -203,6 +213,7 @@ describe("orchestrator direct tool surface", () => {
       "spawn_agent",
       "send_input",
       "pause_agent",
+      "report",
     ]);
     const generalToolNames = advertisedToolNames("general");
     for (const coordinationTool of [
@@ -210,6 +221,7 @@ describe("orchestrator direct tool surface", () => {
       "spawn_manager",
       "send_input",
       "pause_agent",
+      "report",
     ]) {
       expect(generalToolNames).not.toContain(coordinationTool);
     }
@@ -228,6 +240,7 @@ describe("orchestrator direct tool surface", () => {
     expect(orchestratorTools.has("spawn_manager")).toBe(true);
     expect(orchestratorTools.has("send_input")).toBe(true);
     expect(orchestratorTools.has("pause_agent")).toBe(true);
+    expect(orchestratorTools.has("report")).toBe(false);
     expect(orchestratorTools.has("Display")).toBe(false);
     expect(orchestratorTools.has("DisplayGuidelines")).toBe(false);
     expect(orchestratorTools.has("image_gen")).toBe(true);
@@ -294,6 +307,11 @@ describe("orchestrator direct tool surface", () => {
     );
     expect(generalTools.has("spawn_agent")).toBe(false);
     expect(generalTools.has("spawn_manager")).toBe(false);
+    expect(generalTools.has("report")).toBe(false);
+    const managerTools = new Set(
+      host.getToolCatalog("manager").map((tool) => tool.name),
+    );
+    expect(managerTools.has("report")).toBe(true);
     expect(generalTools.has("linq_send_message")).toBe(false);
     expect(generalTools.has("Display")).toBe(false);
     expect(generalTools.has("DisplayGuidelines")).toBe(false);
@@ -369,6 +387,38 @@ describe("orchestrator direct tool surface", () => {
     expect(fashionTools.has("FashionMarkOutfitReady")).toBe(true);
     expect(fashionTools.has("Fashion")).toBe(false);
     expect(fashionTools.has("image_gen")).toBe(true);
+  });
+
+  it("executes report only for a fenced Manager context", async () => {
+    const { host, managerReports } = await createTestHost();
+    await expect(
+      host.executeTool(
+        "report",
+        { message: "Halfway" },
+        makeToolContext(AGENT_IDS.MANAGER),
+      ),
+    ).resolves.toMatchObject({ details: { accepted: true, final: false } });
+    expect(managerReports).toEqual([
+      expect.objectContaining({
+        threadId: "manager-1",
+        message: "Halfway",
+        final: false,
+        attemptGeneration: 3,
+      }),
+    ]);
+
+    for (const agentType of [AGENT_IDS.GENERAL, AGENT_IDS.ORCHESTRATOR]) {
+      await expect(
+        host.executeTool(
+          "report",
+          { message: "Not allowed", final: true },
+          makeToolContext(agentType),
+        ),
+      ).resolves.toMatchObject({
+        error: expect.stringMatching(/only available to the Manager/i),
+      });
+    }
+    expect(managerReports).toHaveLength(1);
   });
 
   it("gives managers only agent-management tools and prevents deeper nesting", async () => {

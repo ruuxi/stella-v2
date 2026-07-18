@@ -308,9 +308,10 @@ export class OrchestratorSession extends PiSessionCore {
               ...executionArgs,
               ...(resume ? { resume: true } : {}),
             }),
-          prepareResume: (errorMessage) =>
+          prepareResume: (errorMessage, classification) =>
             this.prepareTransientFailureRetry(agent, {
               errorMessage,
+              classification,
               logContext: { conversationId: this.conversationId, runId },
             }),
           ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),

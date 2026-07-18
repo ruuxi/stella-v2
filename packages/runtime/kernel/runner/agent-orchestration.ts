@@ -734,7 +734,9 @@ export const createAgentOrchestration = (
           },
           onStatus: (event) => {
             onStatus?.(event.statusText);
-            runnerCallbacks?.onStatus?.(event);
+            if (event.statusState !== "provider-retry") {
+              runnerCallbacks?.onStatus?.(event);
+            }
           },
           onToolEnd: (event) => {
             onToolEnd?.(event);

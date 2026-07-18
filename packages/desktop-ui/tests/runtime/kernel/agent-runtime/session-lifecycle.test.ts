@@ -48,6 +48,24 @@ const textFromMessages = (messages: AgentMessage[]): string[] =>
       .join("\n");
   });
 
+const emptyAssistantMessage = (timestamp: number): AgentMessage => ({
+  role: "assistant",
+  content: [{ type: "text", text: "" }],
+  api: "openai-completions",
+  provider: "test",
+  model: "test-model",
+  usage: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
+  stopReason: "stop",
+  timestamp,
+});
+
 const createOptions = (
   overrides: Partial<OrchestratorRunOptions> = {},
 ): OrchestratorRunOptions => ({
@@ -105,7 +123,7 @@ describe("OrchestratorSession", () => {
 
     executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
       seenAgents.push(agent);
-      return { finalText: "" };
+      return { finalText: "done" };
     });
 
     await session.runTurn(createOptions({ runId: "run-1" }));
@@ -115,6 +133,54 @@ describe("OrchestratorSession", () => {
 
     expect(seenAgents).toHaveLength(2);
     expect(seenAgents[1]).toBe(seenAgents[0]);
+  });
+
+  it("fails persistent empty completions instead of finalizing an empty orchestrator turn", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const session = new OrchestratorSession("empty-orchestrator-conversation");
+    const onEnd = vi.fn();
+    const onError = vi.fn();
+    const agentEndEvents: Array<{ outcome: string }> = [];
+    const hookEmitter = {
+      emitAll: vi.fn(async () => []),
+      emit: vi.fn(async (event: string, payload: { outcome: string }) => {
+        if (event === "agent_end") agentEndEvents.push(payload);
+      }),
+    };
+    let providerAttempt = 0;
+    executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
+      providerAttempt += 1;
+      agent.state.messages.push(emptyAssistantMessage(providerAttempt));
+      return { finalText: "" };
+    });
+
+    try {
+      const turn = session.runTurn(
+        createOptions({
+          runId: "empty-orchestrator-run",
+          conversationId: "empty-orchestrator-conversation",
+          hookEmitter: hookEmitter as never,
+          callbacks: { onEnd, onError },
+        }),
+      );
+      const failedTurn = expect(turn).rejects.toThrow("failed after 4 attempts");
+      await vi.advanceTimersByTimeAsync(9_500);
+      await failedTurn;
+
+      expect(executeRuntimeAgentPrompt).toHaveBeenCalledTimes(4);
+      expect(onEnd).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledOnce();
+      expect(onError.mock.calls[0]?.[0]?.error).toContain(
+        "failed after 4 attempts",
+      );
+      await vi.waitFor(() => expect(agentEndEvents).toHaveLength(1));
+      expect(agentEndEvents[0]).toMatchObject({ outcome: "error" });
+    } finally {
+      session.dispose();
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
   });
 
   it("refreshes the advertised tool schema on the next turn of an open session", async () => {
@@ -183,7 +249,7 @@ describe("OrchestratorSession", () => {
 
     executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
       advertisedTools.push(agent.state.tools.map((tool) => tool.name));
-      return { finalText: "" };
+      return { finalText: "done" };
     });
 
     await session.runTurn(
@@ -224,7 +290,7 @@ describe("OrchestratorSession", () => {
 
     executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
       startMessages.push(textFromMessages(agent.state.messages));
-      return { finalText: "" };
+      return { finalText: "done" };
     });
 
     await session.runTurn(createOptions({ runId: "run-1" }));
@@ -301,7 +367,7 @@ describe("SubagentSession", () => {
     let executionHistory: string[] = [];
     executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
       executionHistory = textFromMessages(agent.state.messages);
-      return { finalText: "" };
+      return { finalText: "manager updated" };
     });
 
     const turn = session.runTurn({
@@ -359,11 +425,16 @@ describe("SubagentSession", () => {
     const onStatus = vi.fn();
     const onEnd = vi.fn();
     const onError = vi.fn();
-    const acceptedReport = vi.fn();
+    const agentEndEvents: Array<{ outcome: string }> = [];
+    const hookEmitter = {
+      emitAll: vi.fn(async () => []),
+      emit: vi.fn(async (event: string, payload: { outcome: string }) => {
+        if (event === "agent_end") agentEndEvents.push(payload);
+      }),
+    };
     let messagesSeenOnResume: AgentMessage[] = [];
     executeRuntimeAgentPrompt
       .mockImplementationOnce(async ({ agent }) => {
-        acceptedReport("stable-report-id");
         agent.state.messages.push({
           role: "assistant",
           content: [{ type: "text", text: "partial response" }],
@@ -396,7 +467,7 @@ describe("SubagentSession", () => {
       .mockImplementationOnce(async ({ agent, resume }) => {
         expect(resume).toBe(true);
         messagesSeenOnResume = [...agent.state.messages];
-        return { finalText: "" };
+        return { finalText: "complete after retry" };
       });
 
     try {
@@ -430,6 +501,7 @@ describe("SubagentSession", () => {
           getApiKey: () => undefined,
         },
         store: { recordRunEvent: vi.fn() } as never,
+        hookEmitter: hookEmitter as never,
         callbacks: { onStatus, onEnd, onError },
         compactionScheduler: new BackgroundCompactionScheduler(),
       } satisfies SubagentRunOptions);
@@ -439,9 +511,12 @@ describe("SubagentSession", () => {
 
       expect(result.error).toBeUndefined();
       expect(executeRuntimeAgentPrompt).toHaveBeenCalledTimes(2);
-      expect(acceptedReport).toHaveBeenCalledOnce();
       expect(onEnd).toHaveBeenCalledOnce();
       expect(onError).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(agentEndEvents).toHaveLength(1));
+      expect(agentEndEvents).toEqual([
+        expect.objectContaining({ outcome: "success" }),
+      ]);
       expect(messagesSeenOnResume).toHaveLength(1);
       expect(textFromMessages(messagesSeenOnResume)).toContain(
         "Retained prompt state",
@@ -454,6 +529,148 @@ describe("SubagentSession", () => {
       );
     } finally {
       session.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a clean empty completion and succeeds on the next provider attempt", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const session = new SubagentSession(
+      "empty-recovery-thread",
+      "conversation-1",
+      "general",
+    );
+    const onEnd = vi.fn();
+    const onError = vi.fn();
+    const agentEndEvents: Array<{ outcome: string }> = [];
+    const hookEmitter = {
+      emitAll: vi.fn(async () => []),
+      emit: vi.fn(async (event: string, payload: { outcome: string }) => {
+        if (event === "agent_end") agentEndEvents.push(payload);
+      }),
+    };
+    executeRuntimeAgentPrompt
+      .mockImplementationOnce(async ({ agent }) => {
+        agent.state.messages.push(emptyAssistantMessage(2));
+        return { finalText: "" };
+      })
+      .mockImplementationOnce(async ({ resume }) => {
+        expect(resume).toBe(true);
+        return { finalText: "recovered result" };
+      });
+
+    try {
+      const turn = session.runTurn({
+        runId: "empty-recovery-run",
+        conversationId: "conversation-1",
+        userMessageId: "empty-recovery-user",
+        agentId: "empty-recovery-thread",
+        agentType: "general",
+        userPrompt: "Recover from an empty completion.",
+        agentContext: {
+          systemPrompt: "General prompt",
+          dynamicContext: "",
+          maxAgentDepth: 1,
+          threadHistory: [],
+        },
+        toolCatalog: [],
+        toolExecutor: vi.fn(async () => ({ result: "ok" })),
+        deviceId: "device-1",
+        stellaDataDir: "/tmp/stella",
+        stellaAppDir: "/tmp/stella",
+        resolvedLlm: {
+          model,
+          route: "direct-provider",
+          getApiKey: () => undefined,
+        },
+        store: { recordRunEvent: vi.fn() } as never,
+        hookEmitter: hookEmitter as never,
+        callbacks: { onEnd, onError },
+        compactionScheduler: new BackgroundCompactionScheduler(),
+      } satisfies SubagentRunOptions);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await turn;
+      expect(result).toMatchObject({ result: "recovered result" });
+      expect(executeRuntimeAgentPrompt).toHaveBeenCalledTimes(2);
+      expect(onEnd).toHaveBeenCalledOnce();
+      expect(onError).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(agentEndEvents).toHaveLength(1));
+      expect(agentEndEvents[0]).toMatchObject({ outcome: "success" });
+    } finally {
+      session.dispose();
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+  });
+
+  it("exhausts persistent empty completions as one structured error with four provider attempts", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const session = new SubagentSession(
+      "empty-exhaustion-thread",
+      "conversation-1",
+      "general",
+    );
+    const onEnd = vi.fn();
+    const onError = vi.fn();
+    const agentEndEvents: Array<{ outcome: string }> = [];
+    const hookEmitter = {
+      emitAll: vi.fn(async () => []),
+      emit: vi.fn(async (event: string, payload: { outcome: string }) => {
+        if (event === "agent_end") agentEndEvents.push(payload);
+      }),
+    };
+    let providerAttempt = 0;
+    executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
+      providerAttempt += 1;
+      agent.state.messages.push(emptyAssistantMessage(providerAttempt + 1));
+      return { finalText: "" };
+    });
+
+    try {
+      const turn = session.runTurn({
+        runId: "empty-exhaustion-run",
+        conversationId: "conversation-1",
+        userMessageId: "empty-exhaustion-user",
+        agentId: "empty-exhaustion-thread",
+        agentType: "general",
+        userPrompt: "Do not accept an empty completion.",
+        agentContext: {
+          systemPrompt: "General prompt",
+          dynamicContext: "",
+          maxAgentDepth: 1,
+          threadHistory: [],
+        },
+        toolCatalog: [],
+        toolExecutor: vi.fn(async () => ({ result: "ok" })),
+        deviceId: "device-1",
+        stellaDataDir: "/tmp/stella",
+        stellaAppDir: "/tmp/stella",
+        resolvedLlm: {
+          model,
+          route: "direct-provider",
+          getApiKey: () => undefined,
+        },
+        store: { recordRunEvent: vi.fn() } as never,
+        hookEmitter: hookEmitter as never,
+        callbacks: { onEnd, onError },
+        compactionScheduler: new BackgroundCompactionScheduler(),
+      } satisfies SubagentRunOptions);
+
+      await vi.advanceTimersByTimeAsync(9_500);
+      const result = await turn;
+      expect(executeRuntimeAgentPrompt).toHaveBeenCalledTimes(4);
+      expect(result.error).toContain("failed after 4 attempts");
+      expect(result.error).toContain("empty completion");
+      expect(onEnd).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledOnce();
+      await vi.waitFor(() => expect(agentEndEvents).toHaveLength(1));
+      expect(agentEndEvents[0]).toMatchObject({ outcome: "error" });
+    } finally {
+      session.dispose();
+      vi.restoreAllMocks();
       vi.useRealTimers();
     }
   });

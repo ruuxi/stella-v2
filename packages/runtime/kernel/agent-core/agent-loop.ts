@@ -387,14 +387,15 @@ async function streamAssistantResponse(
 
 	let finalMessage = await runOnce();
 
-	// Defensive degenerate-response retry: when the upstream returns
-	// a clean `stop` with neither text nor tool calls (e.g. Kimi K2
-	// burning its reasoning budget without producing output), pop the
-	// dud from history and try once more with the same context. Cap
-	// at one retry — if the model is genuinely stuck, the sentinel
-	// downstream (finalizeSubagentSuccess) will surface a clear
-	// message to the orchestrator instead of an empty result.
-	if (isDegenerateAssistantMessage(finalMessage)) {
+	// Standalone Agent users retain the defensive one-shot retry. Runtime
+	// sessions disable it so one visible run-level policy owns the provider
+	// attempt budget instead of multiplying inner and outer retries.
+	const maxDegenerateRetries = Math.max(0, Math.floor(config.degenerateResponseRetries ?? 1));
+	for (
+		let retry = 0;
+		retry < maxDegenerateRetries && isDegenerateAssistantMessage(finalMessage);
+		retry += 1
+	) {
 		if (context.messages[context.messages.length - 1] === finalMessage) {
 			context.messages.pop();
 		}

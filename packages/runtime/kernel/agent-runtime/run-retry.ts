@@ -4,12 +4,15 @@ export const AGENT_RUN_MAX_RETRIES = 3;
 export const AGENT_RUN_MAX_ATTEMPTS = AGENT_RUN_MAX_RETRIES + 1;
 export const AGENT_RUN_RETRY_DELAYS_MS = [1_000, 2_500, 6_000] as const;
 export const AGENT_RUN_RETRY_JITTER_RATIO = 0.1;
+export const AGENT_RUN_EMPTY_COMPLETION_ERROR =
+  "Model returned an empty completion with no text or tool calls.";
 
 export type AgentRunFailureCategory =
   | "server-error"
   | "quota"
   | "relay-stream-lost"
   | "relay-response-missing"
+  | "empty-completion"
   | "transport"
   | "auth"
   | "invalid-model-route"
@@ -121,6 +124,13 @@ export const classifyAgentRunFailure = (
   }
 
   if (
+    combined.includes(AGENT_RUN_EMPTY_COMPLETION_ERROR) ||
+    /run truncated:[^\n]*no visible reply was produced/i.test(combined)
+  ) {
+    return { retryable: true, category: "empty-completion" };
+  }
+
+  if (
     codes.includes("relay_stream_lost") ||
     /\brelay_stream_lost\b|relay stream (?:was )?lost|upstream response (?:was )?lost before a terminal event/i.test(
       combined,
@@ -211,7 +221,10 @@ export const executeAgentRunWithRetry = async <
   state: AgentRunRetryState;
   execute: (resume: boolean) => Promise<T>;
   initialResume?: boolean;
-  prepareResume: (reason: string) => boolean;
+  prepareResume: (
+    reason: string,
+    classification: AgentRunFailureClassification,
+  ) => boolean;
   abortSignal?: AbortSignal;
   onRetry?: (info: AgentRunRetryInfo) => void;
   random?: () => number;
@@ -240,7 +253,7 @@ export const executeAgentRunWithRetry = async <
         }
         throw error;
       }
-      if (!args.prepareResume(reason)) throw error;
+      if (!args.prepareResume(reason, classification)) throw error;
       const retryNumber = args.state.retriesUsed + 1;
       const delayMs = retryDelayMs(args.state.retriesUsed, random);
       args.state.retriesUsed = retryNumber;
@@ -261,14 +274,16 @@ export const executeAgentRunWithRetry = async <
       continue;
     }
 
-    const reason = result.errorMessage?.trim();
+    const reason =
+      result.errorMessage?.trim() ||
+      (result.finalText.trim() ? undefined : AGENT_RUN_EMPTY_COMPLETION_ERROR);
     if (!reason) return result;
     const classification = classifyAgentRunFailure(reason, args.abortSignal);
     if (!classification.retryable) return result;
     if (args.state.retriesUsed >= AGENT_RUN_MAX_RETRIES) {
       return { ...result, errorMessage: exhaustedMessage(reason) };
     }
-    if (!args.prepareResume(reason)) return result;
+    if (!args.prepareResume(reason, classification)) return result;
 
     const retryNumber = args.state.retriesUsed + 1;
     const delayMs = retryDelayMs(args.state.retriesUsed, random);

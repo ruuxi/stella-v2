@@ -116,6 +116,10 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  /* The row clips vertically during enter/exit animation. Keep the 26px
+     trailing action plus a 2px top/bottom inset inside that clip, including
+     when this is the last visible row in the scroll viewport. */
+  min-height: 30px;
   min-width: 0;
 }
 

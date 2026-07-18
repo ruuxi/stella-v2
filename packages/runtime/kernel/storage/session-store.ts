@@ -994,6 +994,34 @@ const buildThreadMessagesFromEntries = (
   return applyCompactionOverlays(rawMessages, overlays);
 };
 
+const isClaudeCodeAssistantPayload = (
+  payload: PersistedRuntimeThreadPayload | undefined,
+): payload is Extract<PersistedRuntimeThreadPayload, { role: "assistant" }> =>
+  payload?.role === "assistant" &&
+  payload.api === "anthropic-messages" &&
+  payload.provider === "anthropic" &&
+  payload.model === "claude-code";
+
+const structuredToolResultObject = (
+  payload: PersistedRuntimeThreadPayload | undefined,
+): Record<string, unknown> | null => {
+  if (payload?.role !== "toolResult" || payload.isError) return null;
+  const text =
+    typeof payload.content === "string"
+      ? payload.content
+      : payload.content
+          .flatMap((block) => (block.type === "text" ? [block.text] : []))
+          .join("\n")
+          .trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return asObject(parsed);
+  } catch {
+    return null;
+  }
+};
+
 export class SessionStore {
   private dreamInboxStoreInstance: DreamInboxStore | null = null;
 
@@ -2919,6 +2947,97 @@ export class SessionStore {
         ? { customMessage: message.customMessage }
         : {}),
     }));
+  }
+
+  /** Exact-thread UI reads the original typed entries, not the compaction
+   * overlay used to rebuild model context. The latter deliberately flattens
+   * tool transport into a text checkpoint, which loses the block semantics
+   * the read-only transcript needs to distinguish authored prose from tools. */
+  private loadRawThreadMessages(
+    threadKey: string,
+    limit?: number,
+  ): Array<RuntimeThreadMessage & { entryId: string }> {
+    return buildRawThreadMessages(
+      buildThreadPathEntries(this.loadThreadSessionEntries(threadKey, limit)),
+    );
+  }
+
+  /** Claude Code persists agent-management calls as typed Anthropic tool
+   * blocks plus a typed JSON tool result. Project only the successful
+   * spawn/follow-up pairs into lifecycle starts; every other generic tool
+   * remains transport and is omitted from the read-only transcript. */
+  private projectClaudeTaskStarts(
+    messages: ReadonlyArray<RuntimeThreadMessage & { entryId: string }>,
+  ): Map<string, EventRecord[]> {
+    const calls = new Map<
+      string,
+      {
+        entryId: string;
+        timestamp: number;
+        name: "spawn_agent" | "spawn_manager" | "send_input";
+        arguments: Record<string, unknown>;
+      }
+    >();
+    const startsByEntryId = new Map<string, EventRecord[]>();
+    for (const message of messages) {
+      const payload = message.payload;
+      if (payload?.role === "assistant") {
+        for (const block of payload.content) {
+          if (
+            block.type !== "toolCall" ||
+            (block.name !== "spawn_agent" &&
+              block.name !== "spawn_manager" &&
+              block.name !== "send_input")
+          ) {
+            continue;
+          }
+          calls.set(block.id, {
+            entryId: message.entryId,
+            timestamp: message.timestamp,
+            name: block.name,
+            arguments: block.arguments ?? {},
+          });
+        }
+        continue;
+      }
+      if (payload?.role !== "toolResult") continue;
+      const call = calls.get(payload.toolCallId);
+      const result = structuredToolResultObject(payload);
+      if (!call || !result) continue;
+      const agentId =
+        asTrimmedString(result.thread_id) ||
+        asTrimmedString(call.arguments.thread_id);
+      if (!agentId) continue;
+      const record = this.getAgentRecord(agentId);
+      const description =
+        asTrimmedString(call.arguments.description) ||
+        record?.description ||
+        agentId;
+      const group = this.getThreadGroup(agentId);
+      const event: EventRecord = {
+        _id: `thread-tool:${call.entryId}:${payload.toolCallId}:agent-started`,
+        timestamp: call.timestamp,
+        type: "agent-started",
+        payload: {
+          agentId,
+          description,
+          agentType:
+            record?.agentType ??
+            (call.name === "spawn_manager"
+              ? AGENT_IDS.MANAGER
+              : AGENT_IDS.GENERAL),
+          ...(call.name === "send_input"
+            ? { isFollowUp: true, statusText: description }
+            : {}),
+          ...(group?.groupKey ? { groupKey: group.groupKey } : {}),
+          ...(group?.groupLabel ? { groupLabel: group.groupLabel } : {}),
+        },
+      };
+      const bucket = startsByEntryId.get(call.entryId);
+      if (bucket) bucket.push(event);
+      else startsByEntryId.set(call.entryId, [event]);
+    }
+    return startsByEntryId;
   }
 
   compactThread(args: {
@@ -4990,9 +5109,24 @@ export class SessionStore {
       return null;
     }
     const cappedLimit = Math.max(1, Math.min(500, Math.floor(limit)));
-    const messages = this.loadThreadMessages(threadId, cappedLimit + 1);
+    const rawMessages = this.loadRawThreadMessages(threadId, cappedLimit + 1);
+    const hasClaudeCodeTransport =
+      record.modelConfigSnapshot?.engine === "claude_code_local" ||
+      rawMessages.some((message) =>
+        isClaudeCodeAssistantPayload(message.payload),
+      );
+    const messages = hasClaudeCodeTransport
+      ? rawMessages
+      : this.loadThreadMessages(threadId, cappedLimit + 1);
     const truncated = messages.length > cappedLimit;
     const selected = truncated ? messages.slice(-cappedLimit) : messages;
+    const selectedRaw =
+      rawMessages.length > cappedLimit
+        ? rawMessages.slice(-cappedLimit)
+        : rawMessages;
+    const claudeTaskStarts = hasClaudeCodeTransport
+      ? this.projectClaudeTaskStarts(selectedRaw)
+      : new Map<string, EventRecord[]>();
     const lifecycleById = new Map(
       this.listLifecycleEventsByIds(
         selected.flatMap((message) => {
@@ -5016,14 +5150,24 @@ export class SessionStore {
             )
             .join("\n\n")
             .trim();
-          if (!text) return [];
+          const taskStarts = claudeTaskStarts.get(id) ?? [];
           return [
-            {
-              id,
+            ...(text
+              ? [
+                  {
+                    id,
+                    timestamp: message.timestamp,
+                    kind: "assistant" as const,
+                    text: clip(text),
+                  },
+                ]
+              : []),
+            ...taskStarts.map((lifecycleEvent, taskIndex) => ({
+              id: `${id}:task:${taskIndex}`,
               timestamp: message.timestamp,
-              kind: "assistant",
-              text: clip(text),
-            },
+              kind: "lifecycle" as const,
+              lifecycleEvent,
+            })),
           ];
         }
         if (message.payload?.role === "toolResult") {
@@ -5044,20 +5188,13 @@ export class SessionStore {
             },
           ];
         }
-        // Assistant rows without a structured payload are reconstruction
-        // artifacts (for example a legacy/compaction preview). Claude Code
-        // native tool history can reach this shape after reconstruction, and
-        // its preview deliberately contains `[Tool call]` / result transport.
-        // Only a typed assistant payload can prove which blocks are authored
-        // text; the unstructured fallback is therefore user-only.
-        if (message.role !== "user") return [];
         const text = message.content.trim();
         if (!text) return [];
         return [
           {
             id,
             timestamp: message.timestamp,
-            kind: "user",
+            kind: message.role === "assistant" ? "assistant" : "user",
             text: clip(text),
           },
         ];

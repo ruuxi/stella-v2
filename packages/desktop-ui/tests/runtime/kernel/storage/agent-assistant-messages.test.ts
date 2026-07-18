@@ -10,6 +10,7 @@ import {
 import {
   AGENT_ASSISTANT_UPDATE_LIMITS,
   SessionStore,
+  type PersistedAgentRecord,
 } from "@stella/runtime/kernel/storage/session-store";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 import type {
@@ -120,6 +121,7 @@ const saveRunningAgent = (
     attemptGeneration?: number;
     agentType?: string;
     updatedAt?: number;
+    modelConfigSnapshot?: PersistedAgentRecord["modelConfigSnapshot"];
   },
 ) => {
   store.saveAgentRecord({
@@ -130,6 +132,9 @@ const saveRunningAgent = (
     agentDepth: 0,
     status: "running",
     attemptGeneration: args.attemptGeneration ?? 0,
+    ...(args.modelConfigSnapshot
+      ? { modelConfigSnapshot: args.modelConfigSnapshot }
+      : {}),
     startedAt: args.startedAt,
     completedAt: null,
     updatedAt: args.updatedAt ?? args.startedAt,
@@ -545,19 +550,48 @@ describe("agent-authored assistant updates", () => {
     },
   );
 
-  it("suppresses a reconstructed Claude Code checkpoint containing native tool transport after reload", () => {
+  it("projects the captured Claude Code spawn, prose, follow-up, and completion shapes after compaction and reload", () => {
     const context = createTestContext();
-    const threadId = "claude-native-checkpoint";
+    const threadId = "coordinate-milestone-m5-of-stella-v2-phase-1";
+    const childId = "m5-surface-1-rearchitect-worker-server-ts-into";
+    const conversationId = "conv-claude-native";
     context.store.resolveOrCreateActiveThread({
-      conversationId: "conv-claude-native",
-      agentType: "general",
+      conversationId,
+      agentType: "manager",
       threadId,
     });
     saveRunningAgent(context.store, {
       threadId,
-      conversationId: "conv-claude-native",
+      conversationId,
       startedAt: 3_000,
       attemptGeneration: 1,
+      agentType: "manager",
+      modelConfigSnapshot: {
+        engine: "claude_code_local",
+        routeModel: "stella/anthropic/claude-fable-5",
+        engineModel: "fable",
+        reasoningEffort: "high",
+      },
+    });
+    context.store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "general",
+      threadId: childId,
+    });
+    context.store.saveAgentRecord({
+      threadId: childId,
+      conversationId,
+      agentType: "general",
+      description:
+        "M5 Surface 1: rearchitect worker/server.ts into Effect services/Layers (Fable 5)",
+      agentDepth: 2,
+      parentAgentId: threadId,
+      status: "completed",
+      attemptGeneration: 3,
+      startedAt: 3_001,
+      completedAt: 3_007,
+      result: "Surface 1 follow-up confirmed clean.",
+      updatedAt: 3_007,
     });
     context.store.appendThreadMessage({
       threadKey: threadId,
@@ -569,9 +603,13 @@ describe("agent-authored assistant updates", () => {
         content: [
           {
             type: "toolCall",
-            id: "claude-native-spawn",
+            id: "mcp:7f64f4df-aba5-40c6-a131-92f5e00451eb:2",
             name: "spawn_agent",
-            arguments: { description: "Native child", prompt: "Raw prompt" },
+            arguments: {
+              description:
+                "M5 Surface 1: rearchitect worker/server.ts into Effect services/Layers (Fable 5)",
+              prompt: "Raw implementation brief must remain hidden.",
+            },
           },
         ],
         api: "anthropic-messages",
@@ -587,56 +625,214 @@ describe("agent-authored assistant updates", () => {
       threadKey: threadId,
       timestamp: 3_002,
       role: "toolResult",
-      toolCallId: "claude-native-spawn",
-      content: '{"thread_id":"native-child","running_in_background":true}',
+      toolCallId: "mcp:7f64f4df-aba5-40c6-a131-92f5e00451eb:2",
+      content: JSON.stringify({
+        thread_id: childId,
+        created: true,
+        running_in_background: true,
+        follow_up_on_completion: true,
+      }),
       payload: {
         role: "toolResult",
-        toolCallId: "claude-native-spawn",
+        toolCallId: "mcp:7f64f4df-aba5-40c6-a131-92f5e00451eb:2",
         toolName: "spawn_agent",
         content: [
           {
             type: "text",
-            text: '{"thread_id":"native-child","running_in_background":true}',
+            text: JSON.stringify({
+              thread_id: childId,
+              created: true,
+              running_in_background: true,
+              follow_up_on_completion: true,
+            }),
           },
         ],
         isError: false,
         timestamp: 3_002,
       } as never,
     });
-    const toolEntries = context.store.loadThreadMessages(threadId);
+    context.store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 3_003,
+      role: "assistant",
+      content:
+        "Surface 1 is underway. I passed the implementation agent the scoped brief.",
+      payload: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Surface 1 is underway. I passed the implementation agent the scoped brief.",
+          },
+        ],
+        api: "openai-completions",
+        provider: "stella",
+        model: "history",
+        usage: EMPTY_USAGE,
+        stopReason: "stop",
+        timestamp: 3_003,
+      } as never,
+    });
+    const compactedEntries = context.store.loadThreadMessages(threadId);
     context.store.compactThread({
       threadKey: threadId,
       summary:
-        '[Tool call] spawn_agent\nargs: {"description":"Native child"}\n\n[Tool result] spawn_agent\n{"thread_id":"native-child"}',
-      fromEntryId: toolEntries[0]!.entryId!,
-      toEntryId: toolEntries[1]!.entryId!,
+        '[Tool call] spawn_agent\nargs: {"prompt":"Raw implementation brief"}\n\n[Tool result] spawn_agent\n{"running_in_background":true}',
+      fromEntryId: compactedEntries[0]!.entryId!,
+      toEntryId: compactedEntries[2]!.entryId!,
       tokensBefore: 500,
-      timestamp: 3_003,
+      timestamp: 3_004,
+    });
+    const firstCompletionId = `${childId}:1:agent-completed`;
+    context.store.appendEvent({
+      conversationId,
+      eventId: firstCompletionId,
+      timestamp: 3_005,
+      type: "agent-completed",
+      payload: {
+        agentId: childId,
+        attemptGeneration: 1,
+        result: "Surface 1 implementation completed cleanly.",
+      },
+    });
+    context.store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 3_005,
+      customType: "runtime.task_lifecycle",
+      content: [
+        {
+          type: "text",
+          text: "[Agent completed]\nraw routing reminder must stay hidden",
+        },
+      ],
+      display: false,
+      eventId: firstCompletionId,
     });
     context.store.appendThreadMessage({
       threadKey: threadId,
-      timestamp: 3_004,
+      timestamp: 3_006,
       role: "assistant",
-      content: "Claude authored conclusion.",
+      content: "",
       payload: {
         role: "assistant",
-        content: [{ type: "text", text: "Claude authored conclusion." }],
+        content: [
+          {
+            type: "toolCall",
+            id: "mcp:7f64f4df-aba5-40c6-a131-92f5e00451eb:3",
+            name: "send_input",
+            arguments: {
+              thread_id: childId,
+              description: "Confirm Surface 1 completion state",
+              message: "Raw follow-up message must remain hidden.",
+            },
+          },
+        ],
         api: "anthropic-messages",
         provider: "anthropic",
         model: "claude-code",
         usage: EMPTY_USAGE,
-        stopReason: "stop",
-        timestamp: 3_004,
+        stopReason: "toolUse",
+        timestamp: 3_006,
         stellaAttemptGeneration: 1,
       } as never,
     });
-
-    expect(context.store.listThreadTranscript(threadId)?.entries).toEqual([
-      expect.objectContaining({
-        kind: "assistant",
-        text: "Claude authored conclusion.",
+    context.store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 3_007,
+      role: "toolResult",
+      toolCallId: "mcp:7f64f4df-aba5-40c6-a131-92f5e00451eb:3",
+      content: JSON.stringify({
+        thread_id: childId,
+        status: "updated",
+        delivered: true,
       }),
+      payload: {
+        role: "toolResult",
+        toolCallId: "mcp:7f64f4df-aba5-40c6-a131-92f5e00451eb:3",
+        toolName: "send_input",
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              thread_id: childId,
+              status: "updated",
+              delivered: true,
+            }),
+          },
+        ],
+        isError: false,
+        timestamp: 3_007,
+      } as never,
+    });
+    const followUpCompletionId = `${childId}:3:agent-completed`;
+    context.store.appendEvent({
+      conversationId,
+      eventId: followUpCompletionId,
+      timestamp: 3_008,
+      type: "agent-completed",
+      payload: {
+        agentId: childId,
+        attemptGeneration: 3,
+        result: "Surface 1 follow-up confirmed clean.",
+      },
+    });
+    context.store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 3_008,
+      customType: "runtime.task_lifecycle",
+      content: "[Agent completed] raw follow-up routing reminder",
+      display: false,
+      eventId: followUpCompletionId,
+    });
+
+    const beforeReload = context.store.listThreadTranscript(threadId);
+    expect(beforeReload?.entries).toMatchObject([
+      {
+        kind: "lifecycle",
+        lifecycleEvent: {
+          type: "agent-started",
+          payload: {
+            agentId: childId,
+            description:
+              "M5 Surface 1: rearchitect worker/server.ts into Effect services/Layers (Fable 5)",
+          },
+        },
+      },
+      {
+        kind: "assistant",
+        text: "Surface 1 is underway. I passed the implementation agent the scoped brief.",
+      },
+      {
+        kind: "lifecycle",
+        lifecycleEvent: {
+          _id: firstCompletionId,
+          type: "agent-completed",
+          payload: { agentId: childId },
+        },
+      },
+      {
+        kind: "lifecycle",
+        lifecycleEvent: {
+          type: "agent-started",
+          payload: {
+            agentId: childId,
+            description: "Confirm Surface 1 completion state",
+            isFollowUp: true,
+          },
+        },
+      },
+      {
+        kind: "lifecycle",
+        lifecycleEvent: {
+          _id: followUpCompletionId,
+          type: "agent-completed",
+          payload: { agentId: childId },
+        },
+      },
     ]);
+    expect(JSON.stringify(beforeReload)).not.toMatch(
+      /spawn_agent|send_input|running_in_background|Raw implementation brief|Raw follow-up|raw routing reminder|\[Tool call\]|\[Tool result\]/,
+    );
 
     context.db.close();
     const reopenedDb = new DatabaseSync(
@@ -648,15 +844,7 @@ describe("agent-authored assistant updates", () => {
     context.db = reopenedDb;
     context.store = new SessionStore(reopenedDb);
     const reloaded = context.store.listThreadTranscript(threadId);
-    expect(reloaded?.entries).toEqual([
-      expect.objectContaining({
-        kind: "assistant",
-        text: "Claude authored conclusion.",
-      }),
-    ]);
-    expect(JSON.stringify(reloaded)).not.toMatch(
-      /spawn_agent|Native child|native-child|\[Tool call\]|\[Tool result\]/,
-    );
+    expect(reloaded).toEqual(beforeReload);
   });
 
   it("projects only parent-visible Manager authored replies into Activity", () => {

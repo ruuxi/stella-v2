@@ -527,7 +527,6 @@ export const registerBootstrapIpcHandlers = (
     onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
     getBroadcastToMobile: lazyMobileBroadcast,
     getOverlayController: () => state.overlayController ?? null,
-    stellaAppDir: state.stellaAppDir!,
     stellaDataDirPath: state.stellaDataDirPath!,
   });
 

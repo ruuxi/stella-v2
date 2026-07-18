@@ -192,7 +192,11 @@ export class FileLogger {
     let total = remaining.reduce((sum, entry) => sum + entry.size, 0);
     if (total <= this.maxTotalBytes) return;
     remaining.sort((a, b) => a.mtimeMs - b.mtimeMs);
-    for (let i = 0; i < remaining.length - 1 && total > this.maxTotalBytes; i++) {
+    for (
+      let i = 0;
+      i < remaining.length - 1 && total > this.maxTotalBytes;
+      i++
+    ) {
       const entry = remaining[i];
       if (!entry) continue;
       try {
@@ -266,7 +270,9 @@ export class FileLogger {
           continue;
         }
         const rendered = scrubFieldValue(value);
-        parts.push(`${key}=${rendered.includes(" ") ? `"${rendered}"` : rendered}`);
+        parts.push(
+          `${key}=${rendered.includes(" ") ? `"${rendered}"` : rendered}`,
+        );
       }
     }
     let line = `${parts.join(" ")}\n`;
@@ -293,10 +299,14 @@ let sharedLogger: FileLogger | null = null;
 export const initFileLogger = (
   stellaAppDir: string,
   component: string,
-  options?: { retentionDays?: number },
+  options?: { retentionDays?: number; runtimeStateDir?: string },
 ): FileLogger => {
   if (sharedLogger) return sharedLogger;
-  const { logDir } = resolveLogPaths(stellaAppDir);
+  const { logDir } = resolveLogPaths(stellaAppDir, {
+    ...(options?.runtimeStateDir
+      ? { runtimeStateDir: options.runtimeStateDir }
+      : {}),
+  });
   sharedLogger = new FileLogger({
     logDir,
     component,

@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { getFileLogger } from "../observability/file-logger.js";
 import {
+  ensureRuntimeIpcDir,
   resolveRuntimePaths,
   runtimeIpcPathUsesFilesystem,
   type RuntimePaths,
@@ -98,6 +99,7 @@ export class WorkerLifecycleServer {
    */
   async start(): Promise<void> {
     await fsPromises.mkdir(this.paths.rootDir, { recursive: true });
+    await ensureRuntimeIpcDir(this.paths);
     // Human-readable logs (runtime.log + diagnostic channels) live in a
     // separate dir from the sock/pid/lock control files.
     await fsPromises.mkdir(this.paths.logDir, { recursive: true });
@@ -332,6 +334,9 @@ export const ensureRuntimeRootDir = async (
   stellaAppDir: string,
 ): Promise<RuntimePaths> => {
   const paths = resolveRuntimePaths(stellaAppDir);
-  await fsPromises.mkdir(paths.rootDir, { recursive: true });
+  await Promise.all([
+    fsPromises.mkdir(paths.rootDir, { recursive: true }),
+    ensureRuntimeIpcDir(paths),
+  ]);
   return paths;
 };

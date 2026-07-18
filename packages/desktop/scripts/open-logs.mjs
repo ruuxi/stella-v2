@@ -2,15 +2,15 @@
 // Resolve, print, and (by default) open the local Stella diagnostics log
 // directory for this checkout. Pass --print to only print the path.
 //
-// Logs live at ~/.stella/logs/<rootHash>/ where rootHash mirrors
+// Logs live under Electron's isolated dev userData root where rootHash mirrors
 // runtime/worker/runtime-paths.ts (sha256 of the resolved stellaAppDir,
 // first 16 hex chars). Keep this in sync with that file.
 
 import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
+import { resolveDevElectronUserDataDir } from './lib/dev-home-paths.mjs'
 
 const stellaAppDir = path.resolve(process.cwd())
 const rootHash = crypto
@@ -18,7 +18,7 @@ const rootHash = crypto
   .update(stellaAppDir)
   .digest('hex')
   .slice(0, 16)
-const logDir = path.join(os.homedir(), '.stella', 'logs', rootHash)
+const logDir = path.join(resolveDevElectronUserDataDir(), 'logs', rootHash)
 
 console.log(logDir)
 

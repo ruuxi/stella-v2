@@ -2,6 +2,7 @@ import type { Socket } from "node:net";
 import { promises as fsPromises } from "node:fs";
 import { Effect, type Scope } from "effect";
 import {
+  ensureRuntimeIpcDir,
   resolveRuntimePaths,
   type RuntimePaths,
 } from "../../worker/runtime-paths.js";
@@ -31,8 +32,8 @@ import {
  * Host-side discover-or-spawn as one scoped Effect pipeline.
  *
  * Discovery flow (unchanged from the pre-Effect implementation):
- *   1. Resolve ~/.stella/runtime/<rootHash>/runtime.{pid,sock}
- *      or the equivalent Windows named pipe path.
+ *   1. Resolve Electron userData runtime control files plus the short POSIX
+ *      socket path, or the equivalent Windows named pipe path.
  *   2. If pidfile points to a live process AND we can connect to the
  *      socket, reuse it. This is the "Electron just restarted, reattach"
  *      path. Protocol or host-executable mismatch is a hard worker restart;
@@ -236,7 +237,10 @@ export const startOrAttachWorkerEffect = (
   Effect.gen(function* () {
     const paths = resolveRuntimePaths(options.stellaAppDir);
     yield* Effect.promise(() =>
-      fsPromises.mkdir(paths.rootDir, { recursive: true }),
+      Promise.all([
+        fsPromises.mkdir(paths.rootDir, { recursive: true }),
+        ensureRuntimeIpcDir(paths),
+      ]),
     );
     const hostLockFile = `${paths.lockFile}.host`;
     yield* acquireHostLock(hostLockFile, budgets.hostLockTimeoutMs);
@@ -254,9 +258,8 @@ export const startOrAttachWorkerEffect = (
       options.expectedProtocolVersion,
     );
     const newPid =
-      (yield* Effect.promise(() =>
-        probeRunningWorker(options.stellaAppDir),
-      )) ?? 0;
+      (yield* Effect.promise(() => probeRunningWorker(options.stellaAppDir))) ??
+      0;
     return { socket, pid: newPid, paths, spawned: true };
   });
 

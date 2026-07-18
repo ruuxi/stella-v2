@@ -32,7 +32,7 @@ import {
  *   bun run runtime/worker/entry.js --listen unix:///path/to/runtime.sock
  *   bun run runtime/worker/entry.js --listen pipe://\\.\pipe\stella-runtime-...
  *     -> detached mode. The worker binds the IPC endpoint, writes pid+lock
- *        to ~/.stella/runtime/<rootHash>/, and self-shuts-down 10s after
+ *        beneath Electron userData/runtime/<rootHash>/, and self-shuts-down 10s after
  *        the last client disconnect. The host attaches over IPC instead of
  *        stdio, so Electron restart drops the connection without killing
  *        the worker.

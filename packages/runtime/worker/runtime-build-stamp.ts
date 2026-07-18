@@ -12,7 +12,7 @@ import path from "node:path";
  * runtime code. This stamp makes that detectable:
  *
  *   - The worker computes the stamp of the runtime tree it loaded at boot
- *     and writes it to `~/.stella/runtime/<rootHash>/build-stamp.txt`
+ *     and writes it to Electron `userData/runtime/<rootHash>/build-stamp.txt`
  *     (see `WorkerLifecycleServer.start`).
  *   - The host, when it attaches to an existing worker, recomputes the stamp
  *     from the on-disk tree and compares. Mismatch (or a missing worker

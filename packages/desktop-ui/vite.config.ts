@@ -6,6 +6,7 @@ import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite";
 import { uiStateSharedStore } from "./vite/ui-state-plugin";
+import { resolveViteDevStellaHome } from "./vite/dev-home";
 
 const __dirname = import.meta.dirname;
 
@@ -251,7 +252,7 @@ export default defineConfig({
     tailwindcss(),
     devCspRelax(),
     bunHttpServerCloseFix(),
-    uiStateSharedStore(),
+    uiStateSharedStore(resolveViteDevStellaHome()),
     pdfWorkerAsset(),
   ],
   base: "./",

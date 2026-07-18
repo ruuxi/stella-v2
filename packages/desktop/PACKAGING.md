@@ -23,9 +23,20 @@ before Electron becomes ready. On macOS that gives safeStorage its own
 `Stella v2 Development Safe Storage` Keychain service instead of reading or
 overwriting the installed v1 app's `Stella Safe Storage` item. Signed packaged
 releases use the clean production `Stella` identity. The dev launcher strips
-inherited live-install paths, ignores generic `STELLA_DATA_DIR`, and uses its
-isolated Electron user-data directory; a deliberate dev override must use
-`STELLA_V2_DEV_DATA_DIR`.
+inherited live-install paths and ignores generic `STELLA_DATA_DIR`.
+
+Durable user data is separate from Electron runtime state. Packaged builds use
+`~/.stella` for `stella.sqlite`, memories, skills, prompts, connectors, agent
+configuration, and other user-owned files, matching the v1 home layout.
+Unpackaged builds use the isolated `~/.stella-v2-dev` home; a deliberate dev
+override must use `STELLA_V2_DEV_DATA_DIR`. Electron `userData` stays under the
+platform app-data directory (`Stella` for packaged builds, `Stella Development`
+for dev) and is reserved for caches, Chromium/session state, window state,
+updater state, detached-worker control files, diagnostics, and similar
+replaceable runtime files. POSIX sockets use a short, owner-only per-user
+namespace under `/tmp` to stay within platform socket-path limits. The dev
+Safe Storage service remains isolated by the `Stella v2 Development`
+application name.
 
 ## Runtime sidecar and packaged binaries
 

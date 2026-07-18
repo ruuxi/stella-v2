@@ -39,7 +39,7 @@ describe("CLI bridge transport security", () => {
     const first = createSecureCliBridgeEndpoint(paths);
     const second = createSecureCliBridgeEndpoint(paths);
     expect(first).not.toBe(second);
-    expect(path.basename(path.dirname(first))).toMatch(/^cli-[a-f0-9]{32}$/u);
+    expect(path.basename(first)).toMatch(/^b-[a-f0-9]{32}\.sock$/u);
   });
 
   it("advertises only after establishing 0700 directory and 0600 socket permissions", async () => {

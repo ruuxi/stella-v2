@@ -75,19 +75,20 @@ const collectProducedFiles = (
   }
 };
 
-const hasPersistedManagerEvent = (
+const hasPersistedThreadEvent = (
   context: RunnerContext,
-  managerThreadId: string,
+  threadId: string,
   eventId: string | undefined,
 ): boolean => {
   if (!eventId) return false;
   const loadThreadMessages = context.runtimeStore.loadThreadMessages;
   if (typeof loadThreadMessages !== "function") return false;
   return loadThreadMessages
-    .call(context.runtimeStore, managerThreadId)
+    .call(context.runtimeStore, threadId)
     .some((message) => {
       if (
         message.customMessage?.customType !== "runtime.task_lifecycle" &&
+        message.customMessage?.customType !== "runtime.task_update" &&
         message.customMessage?.customType !==
           RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE
       ) {
@@ -386,7 +387,7 @@ export const createAgentOrchestration = (
       // Starts/progress are exact-thread UI state, not instructions for the
       // Manager model. Persist a structured private row without waking the
       // Manager or exposing the descendant in root Activity/history.
-      if (hasPersistedManagerEvent(context, managerParentId, event.eventId)) {
+      if (hasPersistedThreadEvent(context, managerParentId, event.eventId)) {
         return;
       }
       persistThreadCustomMessage(context.runtimeStore, {
@@ -413,7 +414,7 @@ export const createAgentOrchestration = (
       // Managed child reports live in the manager's durable thread and wake
       // that manager directly. They never enter the top-level orchestrator's
       // history, callbacks, or hidden follow-up stream.
-      if (hasPersistedManagerEvent(context, managerParentId, event.eventId)) {
+      if (hasPersistedThreadEvent(context, managerParentId, event.eventId)) {
         return;
       }
       persistThreadCustomMessage(context.runtimeStore, {
@@ -451,6 +452,7 @@ export const createAgentOrchestration = (
       content: [{ type: "text", text: userPrompt }],
       display: false,
       timestamp: Date.now(),
+      ...(isInterimMessage && event.eventId ? { eventId: event.eventId } : {}),
     });
     void deps.sendMessage({
       conversationId: event.conversationId,
@@ -783,7 +785,13 @@ export const createAgentOrchestration = (
     listAgentRecordsByStatus: (status) =>
       context.runtimeStore.listAgentRecordsByStatus?.(status) ?? [],
     hasAgentLifecycleEvent: (conversationId, eventId, type) =>
-      context.runtimeStore.hasEvent(conversationId, eventId, type),
+      context.runtimeStore.hasEvent(conversationId, eventId, type) ||
+      (type === "agent-message" &&
+        hasPersistedThreadEvent(
+          context,
+          resolveOrchestratorThreadKey(conversationId),
+          eventId,
+        )),
   });
 
   const runBlockingLocalAgent = async (

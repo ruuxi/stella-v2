@@ -1124,6 +1124,306 @@ describe("manager orchestration production routing", () => {
     );
   });
 
+  it("completes a restarted Manager with the fallback when no final report was accepted", async () => {
+    const first = createHarness();
+    runMock.handler = async () => await new Promise<never>(() => {});
+
+    const task = await first.manager.createAgent({
+      conversationId: "conversation-manager-restart-no-final",
+      description: "Restart before a final report",
+      prompt: "Keep working until the process stops.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    await waitUntil(
+      () => first.store.getAgentRecord(task.threadId)?.status === "running",
+    );
+    expect(
+      first.store.getAgentRecord(task.threadId)?.managerFinalReport,
+    ).toBeUndefined();
+
+    const rootPath = first.rootPath;
+    harnesses.delete(first);
+    first.db.close();
+
+    const recovered = createHarness({ rootPath });
+    await waitUntil(() =>
+      recovered.sentMessages.some((message) =>
+        message.text.includes(MANAGER_MISSING_FINAL_REPORT_FALLBACK),
+      ),
+    );
+    expect(recovered.store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "completed",
+      result: MANAGER_MISSING_FINAL_REPORT_FALLBACK,
+    });
+    expect(
+      recovered.appendedEvents.filter(
+        (event) =>
+          event.type === "agent-completed" &&
+          (event.payload as { agentId?: string }).agentId === task.threadId,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("seals spawn and adoption after accepting the final report", async () => {
+    const { manager, appendedEvents } = createHarness();
+    let releaseManager!: () => void;
+    const managerGate = new Promise<void>((resolve) => {
+      releaseManager = resolve;
+    });
+    let releaseStandalone!: () => void;
+    const standaloneGate = new Promise<void>((resolve) => {
+      releaseStandalone = resolve;
+    });
+    let finalAccepted!: () => void;
+    const finalAcceptedGate = new Promise<void>((resolve) => {
+      finalAccepted = resolve;
+    });
+    runMock.handler = async (args) => {
+      if (args.agentType === AGENT_IDS.MANAGER) {
+        expect(
+          await reportFromMockManager(
+            args,
+            "Fleet-sealed final report.",
+            true,
+            "sealed-final",
+          ),
+        ).toMatchObject({ accepted: true, final: true });
+        finalAccepted();
+        await managerGate;
+        return { runId: "sealed-manager", result: "Private sealed text." };
+      }
+      await standaloneGate;
+      return { runId: "standalone-adoption-target", result: "Settled." };
+    };
+
+    const standalone = await manager.createAgent({
+      conversationId: "conversation-manager-sealed-fleet",
+      description: "Remain available for adoption",
+      prompt: "Wait.",
+      agentType: AGENT_IDS.GENERAL,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    const task = await manager.createAgent({
+      conversationId: "conversation-manager-sealed-fleet",
+      description: "Seal the fleet",
+      prompt: "Report final at fleet idle.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    await finalAcceptedGate;
+
+    await expect(
+      manager.createAgent({
+        conversationId: "conversation-manager-sealed-fleet",
+        description: "Late child",
+        prompt: "This must not start.",
+        agentType: AGENT_IDS.GENERAL,
+        agentDepth: 2,
+        parentAgentId: task.threadId,
+        storageMode: "local",
+      }),
+    ).rejects.toThrow(/sealed its fleet/i);
+    await expect(
+      manager.adoptAgent(standalone.threadId, task.threadId),
+    ).resolves.toMatchObject({
+      adopted: false,
+      reason: expect.stringMatching(/sealed the fleet/i),
+    });
+
+    releaseManager();
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(task.threadId))?.status === "completed",
+    );
+    expect(
+      appendedEvents.filter(
+        (event) =>
+          event.type === "agent-completed" &&
+          (event.payload as { agentId?: string }).agentId === task.threadId,
+      ),
+    ).toHaveLength(1);
+    expect((await manager.getAgent(task.threadId))?.result).toBe(
+      "Fleet-sealed final report.",
+    );
+    releaseStandalone();
+  });
+
+  it("recovers exactly once when Manager completion crashes after the event append", async () => {
+    const first = createHarness();
+    let releaseManager!: () => void;
+    const managerGate = new Promise<void>((resolve) => {
+      releaseManager = resolve;
+    });
+    let finalAccepted!: () => void;
+    const finalAcceptedGate = new Promise<void>((resolve) => {
+      finalAccepted = resolve;
+    });
+    runMock.handler = async (args) => {
+      await reportFromMockManager(
+        args,
+        "Crash-safe final report.",
+        true,
+        "crash-safe-final",
+      );
+      finalAccepted();
+      await managerGate;
+      return { runId: "crash-gap-manager", result: "Private crash text." };
+    };
+
+    const task = await first.manager.createAgent({
+      conversationId: "conversation-manager-completion-crash-gap",
+      description: "Crash between event and terminal row",
+      prompt: "Submit the final report, then stop.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    await finalAcceptedGate;
+
+    const originalSaveAgentRecord = first.store.saveAgentRecord.bind(
+      first.store,
+    );
+    let crashInjected = false;
+    vi.spyOn(first.store, "saveAgentRecord").mockImplementation((record) => {
+      if (
+        !crashInjected &&
+        record.threadId === task.threadId &&
+        record.status === "completed"
+      ) {
+        crashInjected = true;
+        throw new Error("Injected crash after Manager completion event append");
+      }
+      originalSaveAgentRecord(record);
+    });
+    releaseManager();
+    await waitUntil(
+      () =>
+        crashInjected &&
+        first.appendedEvents.some(
+          (event) =>
+            event.type === "agent-completed" &&
+            (event.payload as { agentId?: string }).agentId === task.threadId,
+        ),
+    );
+    expect(first.store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "running",
+      managerFinalReport: "Crash-safe final report.",
+    });
+    expect(
+      first.appendedEvents.filter(
+        (event) =>
+          event.type === "agent-completed" &&
+          (event.payload as { agentId?: string }).agentId === task.threadId,
+      ),
+    ).toHaveLength(1);
+
+    const rootPath = first.rootPath;
+    harnesses.delete(first);
+    first.db.close();
+
+    const recovered = createHarness({ rootPath });
+    expect(recovered.appendedEvents).toHaveLength(0);
+    expect(recovered.sentMessages).toHaveLength(0);
+    expect(recovered.store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "completed",
+      result: "Crash-safe final report.",
+    });
+    expect(
+      recovered.store.hasEvent(
+        "conversation-manager-completion-crash-gap",
+        `${task.threadId}:1:agent-completed`,
+        "agent-completed",
+      ),
+    ).toBe(true);
+  });
+
+  it("repairs an intermediate report acknowledgement without re-emitting the durable update", async () => {
+    const harness = createHarness();
+    let releaseReport!: () => void;
+    const reportGate = new Promise<void>((resolve) => {
+      releaseReport = resolve;
+    });
+    let retryCompleted = false;
+    runMock.handler = async (args) => {
+      await reportGate;
+      const taskState = (
+        harness.manager as unknown as {
+          tasks: Map<
+            string,
+            {
+              managerReportIds: Set<string>;
+              managerReportSequence: number;
+            }
+          >;
+        }
+      ).tasks.get(args.agentId!);
+      await expect(
+        reportFromMockManager(
+          args,
+          "Durable intermediate update.",
+          false,
+          "intermediate-crash-gap",
+        ),
+      ).rejects.toThrow(/Injected intermediate acknowledgement crash/);
+      taskState?.managerReportIds.delete("intermediate-crash-gap");
+      if (taskState) taskState.managerReportSequence = 0;
+      expect(
+        await reportFromMockManager(
+          args,
+          "Durable intermediate update.",
+          false,
+          "intermediate-crash-gap",
+        ),
+      ).toMatchObject({ accepted: true, final: false });
+      retryCompleted = true;
+      return { runId: "intermediate-retry", result: "Private update text." };
+    };
+
+    const task = await harness.manager.createAgent({
+      conversationId: "conversation-manager-intermediate-crash-gap",
+      description: "Repair intermediate acknowledgement",
+      prompt: "Send one intermediate update.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    await waitUntil(
+      () => harness.store.getAgentRecord(task.threadId)?.status === "running",
+    );
+    const originalSaveAgentRecord = harness.store.saveAgentRecord.bind(
+      harness.store,
+    );
+    let crashInjected = false;
+    vi.spyOn(harness.store, "saveAgentRecord").mockImplementation((record) => {
+      if (
+        !crashInjected &&
+        record.threadId === task.threadId &&
+        record.managerReportIds?.includes("intermediate-crash-gap")
+      ) {
+        crashInjected = true;
+        throw new Error("Injected intermediate acknowledgement crash");
+      }
+      originalSaveAgentRecord(record);
+    });
+    releaseReport();
+    await waitUntil(() => retryCompleted);
+
+    expect(
+      harness.sentMessages.filter((message) =>
+        message.text.includes("Durable intermediate update."),
+      ),
+    ).toHaveLength(1);
+    expect(harness.store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "running",
+      managerReportIds: ["intermediate-crash-gap"],
+      managerReportSequence: 1,
+    });
+  });
+
   it("routes child completion exclusively to the manager and keeps a status answer non-terminal", async () => {
     const { manager, store, appendedEvents, sentMessages } = createHarness();
     let releaseManagerFirst!: () => void;

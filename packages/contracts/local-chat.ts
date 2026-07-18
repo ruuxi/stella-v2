@@ -73,22 +73,12 @@ export type ThreadActivityAssistantUpdate = {
   rootRunId?: string;
 };
 
-export type ThreadTranscriptTool = {
-  toolCallId: string;
-  name: string;
-  argumentsPreview?: string;
-};
-
 export type ThreadTranscriptEntry = {
   id: string;
   timestamp: number;
-  kind: "user" | "assistant" | "tool-result" | "event";
+  kind: "user" | "assistant" | "lifecycle";
   text?: string;
-  tools?: ThreadTranscriptTool[];
-  toolCallId?: string;
-  toolName?: string;
-  isError?: boolean;
-  eventType?: string;
+  lifecycleEvent?: EventRecord;
 };
 
 export type ThreadTranscript = {

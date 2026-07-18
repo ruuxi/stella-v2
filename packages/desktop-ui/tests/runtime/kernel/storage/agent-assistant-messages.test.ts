@@ -312,20 +312,6 @@ describe("agent-authored assistant updates", () => {
         {
           kind: "assistant",
           text: "I inspected the ancestry.",
-          tools: [
-            {
-              toolCallId: "tool-1",
-              name: "exec_command",
-              argumentsPreview: '{"cmd":"git status --short"}',
-            },
-          ],
-        },
-        {
-          kind: "tool-result",
-          toolCallId: "tool-1",
-          toolName: "exec_command",
-          text: "clean",
-          isError: false,
         },
       ],
     });
@@ -400,13 +386,30 @@ describe("agent-authored assistant updates", () => {
           timestamp: 1_002,
         } as never,
       });
+      store.appendEvent({
+        conversationId: "conv-tool-only",
+        eventId: `${threadId}:2:agent-started`,
+        timestamp: 1_003,
+        type: "agent-started",
+        payload: {
+          agentId: `${threadId}-child`,
+          agentType: "general",
+          description: "Inspect child ownership",
+          attemptGeneration: 1,
+        },
+      });
       store.appendThreadCustomMessage({
         threadKey: threadId,
         timestamp: 1_003,
         customType: "runtime.task_lifecycle",
-        content: [{ type: "text", text: "Agent card updated" }],
+        content: [
+          {
+            type: "text",
+            text: "<system_reminder> managed child started with raw details",
+          },
+        ],
         display: true,
-        eventId: `${threadId}:2:agent-completed`,
+        eventId: `${threadId}:2:agent-started`,
       });
 
       expect(onThreadAssistantUpdate).not.toHaveBeenCalled();
@@ -440,20 +443,105 @@ describe("agent-authored assistant updates", () => {
       expect(new Set(entryIds).size).toBe(3);
       expect(store.listThreadTranscript(threadId)?.entries).toMatchObject([
         {
-          kind: "assistant",
-          tools: [{ toolCallId: "tool-only-1", name: "exec_command" }],
-        },
-        {
-          kind: "tool-result",
-          toolCallId: "tool-only-1",
-          text: "clean",
-        },
-        {
-          kind: "event",
-          eventType: "runtime.task_lifecycle",
-          text: "Agent card updated",
+          kind: "lifecycle",
+          lifecycleEvent: {
+            _id: `${threadId}:2:agent-started`,
+            type: "agent-started",
+            payload: {
+              agentId: `${threadId}-child`,
+              description: "Inspect child ownership",
+            },
+          },
         },
       ]);
+      expect(JSON.stringify(store.listThreadTranscript(threadId))).not.toMatch(
+        /exec_command|git status|\[Tool call\]|\[Tool result\]|managed child started/,
+      );
+    },
+  );
+
+  it.each([
+    {
+      engine: "Stella-native",
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.4",
+    },
+    {
+      engine: "Codex",
+      api: "openai-codex-responses",
+      provider: "openai-codex",
+      model: "codex",
+    },
+    {
+      engine: "Claude Code",
+      api: "anthropic-messages",
+      provider: "anthropic",
+      model: "claude-code",
+    },
+  ])(
+    "projects $engine assistant prose while suppressing structured tool noise",
+    ({ engine, api, provider, model }) => {
+      const { store } = createTestContext();
+      const threadId = `engine-${engine.toLowerCase().replaceAll(" ", "-")}`;
+      store.resolveOrCreateActiveThread({
+        conversationId: "conv-engine-projection",
+        agentType: "general",
+        threadId,
+      });
+      saveRunningAgent(store, {
+        threadId,
+        conversationId: "conv-engine-projection",
+        startedAt: 2_000,
+        attemptGeneration: 1,
+      });
+      store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: 2_001,
+        role: "assistant",
+        content: "",
+        payload: {
+          role: "assistant",
+          content: [
+            { type: "text", text: `${engine} preamble` },
+            {
+              type: "toolCall",
+              id: `${threadId}-spawn`,
+              name: "spawn_agent",
+              arguments: {
+                description: "Raw child task must stay hidden",
+                prompt: "Sensitive transport payload",
+              },
+            },
+            { type: "text", text: `${engine} authored continuation` },
+          ],
+          api,
+          provider,
+          model,
+          usage: EMPTY_USAGE,
+          stopReason: "toolUse",
+          timestamp: 2_001,
+          stellaAttemptGeneration: 1,
+        } as never,
+      });
+      store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: 2_002,
+        role: "toolResult",
+        toolCallId: `${threadId}-spawn`,
+        content: '{"childThreadId":"internal-child"}',
+      });
+
+      const projected = store.listThreadTranscript(threadId);
+      expect(projected?.entries).toEqual([
+        expect.objectContaining({
+          kind: "assistant",
+          text: `${engine} preamble\n\n${engine} authored continuation`,
+        }),
+      ]);
+      expect(JSON.stringify(projected)).not.toMatch(
+        /spawn_agent|Raw child task|Sensitive transport|childThreadId|\[Tool call\]|\[Tool result\]/,
+      );
     },
   );
 

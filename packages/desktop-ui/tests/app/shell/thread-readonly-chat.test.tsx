@@ -54,22 +54,37 @@ const transcript: ThreadTranscript = {
       timestamp: 1_010,
       kind: "assistant",
       text: "I checked the durable ancestry before continuing.",
-      tools: [
-        {
-          toolCallId: "tool-1",
-          name: "exec_command",
-          argumentsPreview: '{"cmd":"git status --short"}',
-        },
-      ],
     },
     {
-      id: "tool-result-1",
+      id: "child-start-entry",
       timestamp: 1_020,
-      kind: "tool-result",
-      toolCallId: "tool-1",
-      toolName: "exec_command",
-      text: "worktree clean",
-      isError: false,
+      kind: "lifecycle",
+      lifecycleEvent: {
+        _id: "child-thread:1:agent-started",
+        timestamp: 1_020,
+        type: "agent-started",
+        payload: {
+          agentId: "child-thread",
+          agentType: "general",
+          description: "Inspect durable child ownership",
+          attemptGeneration: 1,
+        },
+      },
+    },
+    {
+      id: "child-complete-entry",
+      timestamp: 1_030,
+      kind: "lifecycle",
+      lifecycleEvent: {
+        _id: "child-thread:1:agent-completed",
+        timestamp: 1_030,
+        type: "agent-completed",
+        payload: {
+          agentId: "child-thread",
+          result: "Child consolidated result",
+          attemptGeneration: 1,
+        },
+      },
     },
   ],
 };
@@ -199,7 +214,7 @@ describe("read-only exact-thread chat surfaces", () => {
     expect(actionRule).not.toContain("flex: 0 0 auto");
   });
 
-  it("renders transcript messages and tool cards with no send surface", async () => {
+  it("renders authored prose and structured lifecycle cards with no raw tools or send surface", async () => {
     await act(async () => {
       root.render(<ThreadChatTab threadId={task.id} />);
       await Promise.resolve();
@@ -213,8 +228,11 @@ describe("read-only exact-thread chat surfaces", () => {
     expect(container.textContent).toContain(
       "I checked the durable ancestry before continuing.",
     );
-    expect(container.textContent).toContain("exec_command");
-    expect(container.textContent).toContain("worktree clean");
+    expect(container.textContent).toContain("Child consolidated result");
+    expect(container.querySelector(".agent-completion-card")).not.toBeNull();
+    expect(container.textContent).not.toMatch(
+      /\[Tool call\]|\[Tool result\]|exec_command|worktree clean/,
+    );
     expect(container.querySelector("textarea")).toBeNull();
     expect(container.querySelector("form")).toBeNull();
     expect(container.querySelector("[contenteditable='true']")).toBeNull();
@@ -262,29 +280,7 @@ describe("read-only exact-thread chat surfaces", () => {
 
       currentTranscript = {
         ...currentTranscript,
-        entries: [
-          {
-            id: "tool-call-entry",
-            timestamp: 2_001,
-            kind: "assistant",
-            tools: [
-              {
-                toolCallId: "tool-only-1",
-                name: "exec_command",
-                argumentsPreview: '{"cmd":"git status --short"}',
-              },
-            ],
-          },
-          {
-            id: "tool-result-entry",
-            timestamp: 2_002,
-            kind: "tool-result",
-            toolCallId: "tool-only-1",
-            toolName: "exec_command",
-            text: "tool-only result landed",
-            isError: false,
-          },
-        ],
+        entries: [],
       };
       await act(async () => {
         transcriptUpdateListener?.({
@@ -306,8 +302,12 @@ describe("read-only exact-thread chat surfaces", () => {
       });
 
       expect(listThreadTranscript).toHaveBeenCalledTimes(initialCalls + 1);
-      expect(container.textContent).toContain("exec_command");
-      expect(container.textContent).toContain("tool-only result landed");
+      expect(container.textContent).toContain(
+        "No messages in this thread yet.",
+      );
+      expect(container.textContent).not.toMatch(
+        /exec_command|tool-only result landed|\[Tool call\]|\[Tool result\]/,
+      );
     },
   );
 

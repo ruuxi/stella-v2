@@ -96,15 +96,6 @@
   background: color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 
-.thread-chat-tab__entry[data-kind="tool-result"],
-.thread-chat-tab__entry[data-kind="event"] {
-  padding: 9px 11px;
-  border: 1px solid var(--panel-surface-border);
-  border-radius: var(--radius-lg);
-  background: var(--panel-surface-bg-gradient);
-  box-shadow: var(--panel-surface-highlight);
-}
-
 .thread-chat-tab__entry-meta {
   display: flex;
   align-items: center;
@@ -121,33 +112,6 @@
   margin: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-}
-
-.thread-chat-tab__tool {
-  margin-top: 8px;
-  border: 1px solid var(--panel-surface-border);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--foreground) 3%, transparent);
-}
-
-.thread-chat-tab__tool summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 9px;
-  cursor: pointer;
-  color: var(--text-weak);
-  font-size: var(--font-size-xs);
-}
-
-.thread-chat-tab__tool pre {
-  margin: 0;
-  padding: 8px 9px;
-  border-top: 1px solid var(--panel-surface-border);
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: var(--font-size-xs);
 }
 
 .thread-chat-tab__state {

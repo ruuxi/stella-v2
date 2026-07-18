@@ -4,6 +4,7 @@ import {
   type TaskLifecycleStatus,
 } from "@stella/contracts/agent-runtime";
 import type {
+  EventRecord,
   ThreadActivityAssistantUpdate,
   ThreadActivityRecord,
   ThreadActivityUpdatedPayload,
@@ -1556,6 +1557,48 @@ export class SessionStore {
       )
       .all(conversationId, normalizedLimit) as LocalChatEventRow[];
 
+    return rows.map((row) => this.deserializeEventRow(row));
+  }
+
+  /** Resolve canonical lifecycle rows referenced by exact-thread custom
+   * messages. The ids originate from that thread's durable entries, so this
+   * point lookup preserves thread ownership without scanning or flattening
+   * the root transcript. */
+  listLifecycleEventsByIds(
+    eventIdsInput: readonly string[],
+  ): LocalChatEventRecord[] {
+    const eventIds = [
+      ...new Set(eventIdsInput.map(asTrimmedString).filter(Boolean)),
+    ].slice(0, 500) as string[];
+    if (eventIds.length === 0) return [];
+    const rows = this.db
+      .prepare(
+        `
+      SELECT
+        message.id AS _id,
+        message.created_at AS timestamp,
+        message.type AS type,
+        message.device_id AS deviceId,
+        message.request_id AS requestId,
+        message.target_device_id AS targetDeviceId,
+        part.data_json AS payloadJson,
+        message.data_json AS channelEnvelopeJson
+      FROM message
+      LEFT JOIN part
+        ON part.message_id = message.id
+       AND part.ord = 0
+      WHERE message.id IN (${eventIds.map(() => "?").join(", ")})
+        AND message.type IN (
+          'agent-started',
+          'agent-progress',
+          'agent-completed',
+          'agent-failed',
+          'agent-canceled'
+        )
+      ORDER BY message.created_at ASC, message.id ASC
+    `,
+      )
+      .all(...eventIds) as LocalChatEventRow[];
     return rows.map((row) => this.deserializeEventRow(row));
   }
 
@@ -4950,6 +4993,17 @@ export class SessionStore {
     const messages = this.loadThreadMessages(threadId, cappedLimit + 1);
     const truncated = messages.length > cappedLimit;
     const selected = truncated ? messages.slice(-cappedLimit) : messages;
+    const lifecycleById = new Map(
+      this.listLifecycleEventsByIds(
+        selected.flatMap((message) => {
+          const eventId = message.customMessage?.eventId;
+          return message.customMessage?.customType ===
+            "runtime.task_lifecycle" && eventId
+            ? [eventId]
+            : [];
+        }),
+      ).map((event) => [event._id, event]),
+    );
     const clip = (value: string, max = 4_000) =>
       value.length <= max ? value : `${value.slice(0, max)}…`;
     const entries = selected.flatMap<ThreadTranscriptEntry>(
@@ -4962,53 +5016,31 @@ export class SessionStore {
             )
             .join("\n\n")
             .trim();
-          const tools = message.payload.content.flatMap((block) => {
-            if (block.type !== "toolCall") return [];
-            const args = JSON.stringify(block.arguments ?? {});
-            return [
-              {
-                toolCallId: block.id,
-                name: block.name,
-                ...(args && args !== "{}"
-                  ? { argumentsPreview: clip(args, 1_200) }
-                  : {}),
-              },
-            ];
-          });
-          if (!text && tools.length === 0) return [];
+          if (!text) return [];
           return [
             {
               id,
               timestamp: message.timestamp,
               kind: "assistant",
-              ...(text ? { text: clip(text) } : {}),
-              ...(tools.length ? { tools } : {}),
+              text: clip(text),
             },
           ];
         }
         if (message.payload?.role === "toolResult") {
-          return [
-            {
-              id,
-              timestamp: message.timestamp,
-              kind: "tool-result",
-              text: clip(previewFromTextAndImages(message.payload.content)),
-              toolCallId: message.payload.toolCallId,
-              toolName: message.payload.toolName,
-              isError: message.payload.isError,
-            },
-          ];
+          return [];
         }
         if (message.customMessage) {
+          const eventId = message.customMessage.eventId;
+          const lifecycleEvent = eventId
+            ? lifecycleById.get(eventId)
+            : undefined;
+          if (!lifecycleEvent) return [];
           return [
             {
               id,
               timestamp: message.timestamp,
-              kind: "event",
-              text: clip(
-                previewFromTextAndImages(message.customMessage.content),
-              ),
-              eventType: message.customMessage.customType,
+              kind: "lifecycle",
+              lifecycleEvent: lifecycleEvent as EventRecord,
             },
           ];
         }

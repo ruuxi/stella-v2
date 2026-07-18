@@ -1409,15 +1409,14 @@ describe("session-store", () => {
       stellaManagerTurnVisibility: "internal",
     });
     const transcript = reloadedStore.listThreadTranscript(threadId, 300);
-    expect(transcript?.entries).toHaveLength(expectedContent.length);
-    expect(transcript?.entries.map((entry) => entry.text)).toEqual(
-      expectedContent,
+    const visibleContent = expectedContent.filter(
+      (_, index) => index % 3 !== 1,
     );
-    expect(
-      transcript?.entries.filter(
-        (entry) => entry.eventType === "managed-child-terminal",
-      ),
-    ).toHaveLength(24);
+    expect(transcript?.entries).toHaveLength(visibleContent.length);
+    expect(transcript?.entries.map((entry) => entry.text)).toEqual(
+      visibleContent,
+    );
+    expect(JSON.stringify(transcript)).not.toContain("completed internally");
     now.mockRestore();
   });
 

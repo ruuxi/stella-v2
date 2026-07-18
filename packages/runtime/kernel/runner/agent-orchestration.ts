@@ -782,6 +782,8 @@ export const createAgentOrchestration = (
       context.runtimeStore.getAgentRecord?.(threadId) ?? null,
     listAgentRecordsByStatus: (status) =>
       context.runtimeStore.listAgentRecordsByStatus?.(status) ?? [],
+    hasAgentLifecycleEvent: (conversationId, eventId, type) =>
+      context.runtimeStore.hasEvent(conversationId, eventId, type),
   });
 
   const runBlockingLocalAgent = async (

@@ -154,7 +154,6 @@ export const persistExternalAssistantPreamble = (args: {
   engine: ExternalPreambleEngine;
   runId?: string;
   attemptGeneration?: number;
-  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
 }): void => {
   const text = args.preamble.trim();
   if (!text) return;
@@ -164,9 +163,6 @@ export const persistExternalAssistantPreamble = (args: {
     ...(args.runId ? { runId: args.runId } : {}),
     ...(typeof args.attemptGeneration === "number"
       ? { attemptGeneration: args.attemptGeneration }
-      : {}),
-    ...(args.managerTurnOrigin
-      ? { managerTurnOrigin: args.managerTurnOrigin }
       : {}),
     payload: {
       role: "assistant",
@@ -190,7 +186,6 @@ export const createExternalAssistantUpdateBuffer = (args: {
   engine: ExternalPreambleEngine;
   runId?: string;
   attemptGeneration?: number;
-  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
 }) => {
   let text = "";
   return {
@@ -651,9 +646,6 @@ const runClaudeHostedTurn = async (args: {
     ...(typeof args.opts.agentContext.attemptGeneration === "number"
       ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
       : {}),
-    ...(args.opts.agentContext.managerTurnOrigin
-      ? { managerTurnOrigin: args.opts.agentContext.managerTurnOrigin }
-      : {}),
   });
   const acceptClaudeStreamChunk = (chunk: string) => {
     assistantUpdateBuffer.append(chunk);
@@ -892,9 +884,6 @@ const runClaudeHostedTurn = async (args: {
     ...(typeof args.opts.agentContext.attemptGeneration === "number"
       ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
       : {}),
-    ...(args.opts.agentContext.managerTurnOrigin
-      ? { managerTurnOrigin: args.opts.agentContext.managerTurnOrigin }
-      : {}),
   });
   const assistantMessageEvent = runEvents.recordAssistantTextEnd(
     finalResult.text,
@@ -987,9 +976,6 @@ const runCodexHostedTurn = async (args: {
     runId,
     ...(typeof args.opts.agentContext.attemptGeneration === "number"
       ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
-      : {}),
-    ...(args.opts.agentContext.managerTurnOrigin
-      ? { managerTurnOrigin: args.opts.agentContext.managerTurnOrigin }
       : {}),
   });
   const flushPreambleBeforeTool = (args2: {
@@ -1263,9 +1249,6 @@ const runCodexHostedTurn = async (args: {
     runId,
     ...(typeof args.opts.agentContext.attemptGeneration === "number"
       ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
-      : {}),
-    ...(args.opts.agentContext.managerTurnOrigin
-      ? { managerTurnOrigin: args.opts.agentContext.managerTurnOrigin }
       : {}),
   });
   const assistantMessageEvent = runEvents.recordAssistantTextEnd(

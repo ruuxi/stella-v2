@@ -1298,7 +1298,6 @@ describe("session-store", () => {
       agentDepth: 1,
       status: "running",
       attemptGeneration: 7,
-      managerTurnOrigin: "managed-child",
       startedAt: frozenNow,
       updatedAt: frozenNow,
     });
@@ -1359,7 +1358,6 @@ describe("session-store", () => {
           stopReason: "toolUse",
           timestamp: frozenNow,
           stellaAttemptGeneration: 7,
-          stellaManagerTurnOrigin: "managed-child",
         } as Parameters<typeof store.appendThreadMessage>[0]["payload"],
       });
       expectedContent.push(authored);
@@ -1403,7 +1401,6 @@ describe("session-store", () => {
     expect(reloaded.map((message) => message.content)).toEqual(expectedContent);
     expect(reloaded.at(-1)?.payload).toMatchObject({
       stellaAttemptGeneration: 7,
-      stellaManagerTurnOrigin: "managed-child",
     });
     const transcript = reloadedStore.listThreadTranscript(threadId, 300);
     const visibleContent = expectedContent.filter(

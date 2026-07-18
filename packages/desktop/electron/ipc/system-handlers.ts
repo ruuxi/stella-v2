@@ -145,6 +145,7 @@ import {
   type ResettableMacPermissionKind,
 } from "../utils/macos-permissions.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
+import { listRuntimeModelsForPicker } from "./model-catalog-listing.js";
 import {
   getGlobalShortcutsSuspended,
   setGlobalShortcutsSuspended,
@@ -2196,19 +2197,7 @@ export const registerSystemHandlers = (options: SystemHandlersOptions) => {
       throw new Error("Blocked untrusted preferences:listModels request.");
     }
     const runner = options.getStellaHostRunner();
-    if (!runner) {
-      return {
-        revision: 0,
-        models: [],
-        runtimeManagedProviders: [],
-        refreshedAt: null,
-      };
-    }
-    const forceRefresh =
-      Boolean(payload) &&
-      typeof payload === "object" &&
-      (payload as { forceRefresh?: unknown }).forceRefresh === true;
-    return await runner.listModels({ forceRefresh });
+    return await listRuntimeModelsForPicker(runner, payload);
   });
 
   ipcMain.handle(

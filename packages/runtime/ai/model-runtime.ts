@@ -23,11 +23,16 @@ const REMOTE_CATALOG_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1_000;
 const REMOTE_CATALOG_TIMEOUT_MS = 15_000;
 
 type StoredCatalogEntry = {
-  models: Model<Api>[];
+  models: unknown[];
   checkedAt?: number;
 };
 
 type StoredCatalogs = Record<string, StoredCatalogEntry>;
+
+type RuntimeCatalogEntry = {
+  models: Model<Api>[];
+  checkedAt?: number;
+};
 
 export type RuntimeProviderDefinition = {
   name: string;
@@ -258,7 +263,12 @@ const extensionModels = (provider: RuntimeProviderDefinition): Model<Api>[] =>
 
 export class ModelRuntime {
   private readonly builtins = new Map<string, Model<Api>[]>();
-  private readonly dynamicCatalogs = new Map<string, StoredCatalogEntry>();
+  private readonly dynamicCatalogs = new Map<string, RuntimeCatalogEntry>();
+  // Preserve the raw per-provider last-good payload separately from the
+  // validated composition view. If one cached provider needs online repair
+  // and that repair fails, a different provider's successful refresh must not
+  // serialize the filtered view over the unrepaired raw recovery payload.
+  private readonly storedCatalogs = new Map<string, StoredCatalogEntry>();
   private readonly extensionProviders = new Map<
     string,
     RuntimeProviderDefinition
@@ -323,6 +333,7 @@ export class ModelRuntime {
       ) as StoredCatalogs;
       for (const [providerId, entry] of Object.entries(parsed)) {
         if (!entry || !Array.isArray(entry.models)) continue;
+        this.storedCatalogs.set(providerId, structuredClone(entry));
         const validation = validateRemoteCatalogEntries(
           providerId,
           entry.models,
@@ -340,9 +351,17 @@ export class ModelRuntime {
 
   private writeStoredCatalogs(): void {
     if (!this.storePath) return;
-    const stored = Object.fromEntries(this.dynamicCatalogs) as StoredCatalogs;
+    const stored = Object.fromEntries(this.storedCatalogs) as StoredCatalogs;
     ensurePrivateDirSync(path.dirname(this.storePath));
     writePrivateFileSync(this.storePath, JSON.stringify(stored, null, 2));
+  }
+
+  private setRefreshedCatalog(
+    providerId: string,
+    entry: RuntimeCatalogEntry,
+  ): void {
+    this.dynamicCatalogs.set(providerId, entry);
+    this.storedCatalogs.set(providerId, structuredClone(entry));
   }
 
   private recompose(): void {
@@ -537,7 +556,7 @@ export class ModelRuntime {
     );
     const checkedAt = Date.now();
     if (response.status === 404 || response.status === 501) {
-      this.dynamicCatalogs.set(providerId, {
+      this.setRefreshedCatalog(providerId, {
         models: stored?.models ?? [],
         checkedAt,
       });
@@ -565,7 +584,7 @@ export class ModelRuntime {
         `Invalid model catalog for ${providerId}: non-empty payload contained ${validation.invalidCount} invalid ${validation.invalidCount === 1 ? "entry" : "entries"} and no valid entries`,
       );
     }
-    this.dynamicCatalogs.set(providerId, {
+    this.setRefreshedCatalog(providerId, {
       models: validation.models,
       checkedAt,
     });

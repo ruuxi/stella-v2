@@ -550,6 +550,128 @@ describe("agent-authored assistant updates", () => {
     },
   );
 
+  it.each([
+    {
+      engine: "Stella",
+      runtimeEngine: "default" as const,
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.4",
+    },
+    {
+      engine: "Codex",
+      runtimeEngine: "codex_cli" as const,
+      api: "openai-codex-responses",
+      provider: "openai-codex",
+      model: "codex",
+    },
+  ])(
+    "keeps $engine authored prose and suppresses generic tool transport after compaction and reload",
+    ({ engine, runtimeEngine, api, provider, model }) => {
+      const context = createTestContext();
+      const threadId = `compacted-${engine.toLowerCase()}-thread`;
+      const conversationId = `conv-compacted-${engine.toLowerCase()}`;
+      context.store.resolveOrCreateActiveThread({
+        conversationId,
+        agentType: "general",
+        threadId,
+      });
+      saveRunningAgent(context.store, {
+        threadId,
+        conversationId,
+        startedAt: 2_100,
+        attemptGeneration: 1,
+        modelConfigSnapshot: {
+          engine: runtimeEngine,
+          routeModel:
+            runtimeEngine === "codex_cli"
+              ? "stella/openai/gpt-5.6-sol"
+              : "stella/openai/gpt-5.4",
+          ...(runtimeEngine === "codex_cli"
+            ? { engineModel: "gpt-5.6-codex" }
+            : {}),
+        },
+      });
+      const toolCallId = `${threadId}-exec`;
+      const secretCommand = `printf ${engine.toLowerCase()}-transport-secret`;
+      const secretResult = `${engine.toLowerCase()}-transport-result`;
+      context.store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: 2_101,
+        role: "assistant",
+        content: "",
+        payload: {
+          role: "assistant",
+          content: [
+            { type: "text", text: `${engine} authored preamble.` },
+            {
+              type: "toolCall",
+              id: toolCallId,
+              name: "exec_command",
+              arguments: { cmd: secretCommand },
+            },
+            { type: "text", text: `${engine} authored conclusion.` },
+          ],
+          api,
+          provider,
+          model,
+          usage: EMPTY_USAGE,
+          stopReason: "toolUse",
+          timestamp: 2_101,
+          stellaAttemptGeneration: 1,
+        } as never,
+      });
+      context.store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: 2_102,
+        role: "toolResult",
+        toolCallId,
+        content: secretResult,
+        payload: {
+          role: "toolResult",
+          toolCallId,
+          toolName: "exec_command",
+          content: [{ type: "text", text: secretResult }],
+          isError: false,
+          timestamp: 2_102,
+        } as never,
+      });
+      const compactedEntries = context.store.loadThreadMessages(threadId);
+      context.store.compactThread({
+        threadKey: threadId,
+        summary: `[Tool call] exec_command\nargs: ${JSON.stringify({ cmd: secretCommand })}\n\n[Tool result] exec_command\n${secretResult}`,
+        fromEntryId: compactedEntries[0]!.entryId!,
+        toEntryId: compactedEntries[1]!.entryId!,
+        tokensBefore: 300,
+        timestamp: 2_103,
+      });
+
+      const beforeReload = context.store.listThreadTranscript(threadId);
+      expect(beforeReload?.entries).toEqual([
+        expect.objectContaining({
+          kind: "assistant",
+          text: `${engine} authored preamble.\n\n${engine} authored conclusion.`,
+        }),
+      ]);
+      expect(JSON.stringify(beforeReload)).not.toMatch(
+        new RegExp(
+          `exec_command|${engine.toLowerCase()}-transport-secret|${engine.toLowerCase()}-transport-result|\\[Tool call\\]|\\[Tool result\\]`,
+        ),
+      );
+
+      context.db.close();
+      const reopenedDb = new DatabaseSync(
+        getDesktopDatabasePath(context.rootPath),
+        { timeout: 5000 },
+      ) as unknown as SqliteDatabase;
+      context.db = reopenedDb;
+      context.store = new SessionStore(reopenedDb);
+      expect(context.store.listThreadTranscript(threadId)).toEqual(
+        beforeReload,
+      );
+    },
+  );
+
   it("projects the captured Claude Code spawn, prose, follow-up, and completion shapes after compaction and reload", () => {
     const context = createTestContext();
     const threadId = "coordinate-milestone-m5-of-stella-v2-phase-1";

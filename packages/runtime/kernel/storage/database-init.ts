@@ -641,6 +641,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   } catch {
     // Column already exists.
   }
+  db.exec("DROP INDEX IF EXISTS idx_runtime_thread_entries_thread_append;");
   // Timestamp-prefixed entry ids have a random suffix, so neither
   // `(created_at, entry_id)` nor the timestamp alone records append order.
   // Preserve the current SQLite insertion order for legacy rows once, then

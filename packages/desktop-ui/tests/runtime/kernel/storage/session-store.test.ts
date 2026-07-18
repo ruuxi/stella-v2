@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
-  it("migrates legacy branched thread entries without dropping siblings", async () => {
+  it("migrates v1 branched thread entries without dropping siblings", async () => {
     const rootPath = path.join(
       os.tmpdir(),
       `stella-session-store-legacy-thread-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -65,8 +65,11 @@ describe("session-store", () => {
         entry_type TEXT NOT NULL,
         timestamp_iso TEXT NOT NULL,
         created_at INTEGER NOT NULL,
+        append_seq INTEGER,
         data_json TEXT
       );
+      CREATE INDEX idx_runtime_thread_entries_thread_append
+      ON runtime_thread_entries(thread_key, append_seq);
     `);
     const insertLegacy = db.prepare(`
       INSERT INTO runtime_thread_entries (
@@ -129,6 +132,15 @@ describe("session-store", () => {
       )
       .all() as Array<{ insertionSequence: number }>;
     expect(migrated.map((row) => row.insertionSequence)).toEqual([1, 2, 3]);
+    expect(
+      db
+        .prepare(
+          `SELECT 1 FROM sqlite_schema
+           WHERE type = 'index'
+             AND name = 'idx_runtime_thread_entries_thread_append'`,
+        )
+        .get(),
+    ).toBeUndefined();
 
     insertLegacy.run(
       "legacy-random-new",

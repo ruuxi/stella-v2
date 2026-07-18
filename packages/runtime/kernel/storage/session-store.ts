@@ -500,9 +500,21 @@ const payloadByteLength = (payload: PersistedRuntimeThreadPayload): number =>
 const customMessageByteLength = (
   message: Pick<
     RuntimeThreadCustomMessageEntry,
-    "customType" | "content" | "display" | "eventId"
+    "customType" | "content" | "display" | "eventId" | "lifecycleEvent"
   >,
 ): number => rowSizeTextEncoder.encode(JSON.stringify(message)).byteLength;
+
+type ThreadLifecycleEventType = NonNullable<
+  RuntimeThreadCustomMessageEntry["lifecycleEvent"]
+>["type"];
+
+const isThreadLifecycleEventType = (
+  value: string,
+): value is ThreadLifecycleEventType =>
+  value === "agent-started" ||
+  value === "agent-completed" ||
+  value === "agent-failed" ||
+  value === "agent-canceled";
 
 const truncatePreview = (
   value: string,
@@ -665,11 +677,11 @@ const enforceThreadPayloadRowSizeLimit = (
 const enforceCustomMessageRowSizeLimit = (
   message: Pick<
     RuntimeThreadCustomMessageEntry,
-    "customType" | "content" | "display" | "eventId"
+    "customType" | "content" | "display" | "eventId" | "lifecycleEvent"
   >,
 ): Pick<
   RuntimeThreadCustomMessageEntry,
-  "customType" | "content" | "display" | "eventId"
+  "customType" | "content" | "display" | "eventId" | "lifecycleEvent"
 > => {
   if (customMessageByteLength(message) <= THREAD_ROW_MAX_BYTES) {
     return message;
@@ -801,6 +813,17 @@ const parseThreadSessionEntry = (
         typeof data?.eventId === "string" && data.eventId.trim()
           ? data.eventId.trim()
           : undefined;
+      const rawLifecycleEvent = asObject(data?.lifecycleEvent);
+      const lifecycleType = asTrimmedString(rawLifecycleEvent?.type);
+      const lifecyclePayload = asObject(rawLifecycleEvent?.payload);
+      const lifecycleEvent =
+        isThreadLifecycleEventType(lifecycleType) &&
+        asTrimmedString(lifecyclePayload?.agentId)
+          ? {
+              type: lifecycleType,
+              payload: lifecyclePayload as Record<string, unknown>,
+            }
+          : undefined;
       if (!customType || !isUserContent(content)) {
         return null;
       }
@@ -813,6 +836,7 @@ const parseThreadSessionEntry = (
         content,
         display,
         ...(eventId ? { eventId } : {}),
+        ...(lifecycleEvent ? { lifecycleEvent } : {}),
       } satisfies RuntimeThreadCustomMessageEntry;
     }
     default:
@@ -849,6 +873,9 @@ const toThreadMessageRecord = (
         content: entry.content,
         display: entry.display,
         ...(entry.eventId ? { eventId: entry.eventId } : {}),
+        ...(entry.lifecycleEvent
+          ? { lifecycleEvent: entry.lifecycleEvent }
+          : {}),
       },
     };
   }
@@ -2869,6 +2896,7 @@ export class SessionStore {
     content: RuntimeThreadCustomMessageEntry["content"];
     display: boolean;
     eventId?: string;
+    lifecycleEvent?: RuntimeThreadCustomMessageEntry["lifecycleEvent"];
   }): void {
     const threadKey = normalizeRuntimeThreadId(message.threadKey);
     if (!threadKey) {
@@ -2883,6 +2911,9 @@ export class SessionStore {
       content: message.content,
       display: message.display,
       ...(message.eventId?.trim() ? { eventId: message.eventId.trim() } : {}),
+      ...(message.lifecycleEvent
+        ? { lifecycleEvent: message.lifecycleEvent }
+        : {}),
     });
     const conversationId = this.getThreadConversationId(threadKey);
     let entryId = "";
@@ -2904,6 +2935,9 @@ export class SessionStore {
           display: boundedMessage.display,
           ...(boundedMessage.eventId
             ? { eventId: boundedMessage.eventId }
+            : {}),
+          ...(boundedMessage.lifecycleEvent
+            ? { lifecycleEvent: boundedMessage.lifecycleEvent }
             : {}),
         },
       });
@@ -5132,7 +5166,9 @@ export class SessionStore {
         selected.flatMap((message) => {
           const eventId = message.customMessage?.eventId;
           return message.customMessage?.customType ===
-            "runtime.task_lifecycle" && eventId
+            "runtime.task_lifecycle" &&
+            eventId &&
+            !message.customMessage.lifecycleEvent
             ? [eventId]
             : [];
         }),
@@ -5174,10 +5210,21 @@ export class SessionStore {
           return [];
         }
         if (message.customMessage) {
+          if (message.customMessage.customType !== "runtime.task_lifecycle") {
+            return [];
+          }
           const eventId = message.customMessage.eventId;
-          const lifecycleEvent = eventId
-            ? lifecycleById.get(eventId)
-            : undefined;
+          const lifecycleEvent =
+            eventId && message.customMessage.lifecycleEvent
+              ? {
+                  _id: eventId,
+                  timestamp: message.timestamp,
+                  type: message.customMessage.lifecycleEvent.type,
+                  payload: message.customMessage.lifecycleEvent.payload,
+                }
+              : eventId
+                ? lifecycleById.get(eventId)
+                : undefined;
           if (!lifecycleEvent) return [];
           return [
             {

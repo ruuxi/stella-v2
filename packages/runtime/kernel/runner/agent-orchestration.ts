@@ -394,6 +394,14 @@ export const createAgentOrchestration = (
         display: false,
         timestamp: Date.now(),
         ...(event.eventId ? { eventId: event.eventId } : {}),
+        ...(event.type !== "agent-progress" && event.type !== "agent-message"
+          ? {
+              lifecycleEvent: {
+                type: event.type,
+                payload: buildLifecycleEventPayload(event),
+              },
+            }
+          : {}),
       });
       void context.state.localAgentManager?.sendAgentMessage(
         managerParentId,

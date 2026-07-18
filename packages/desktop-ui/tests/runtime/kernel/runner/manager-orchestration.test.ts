@@ -32,6 +32,7 @@ import {
 } from "@stella/runtime/kernel/storage/shared";
 import { buildBackgroundTaskLifecycleIndex } from "@/features/chat/lib/background-task-lifecycle";
 import { buildHistorySource } from "@stella/runtime/kernel/agent-runtime/thread-memory";
+import { resolveOrchestratorThreadKey } from "@stella/runtime/kernel/thread-runtime";
 
 type MockRunArgs = {
   agentId?: string;
@@ -1339,6 +1340,141 @@ describe("manager orchestration production routing", () => {
         "agent-completed",
       ),
     ).toBe(true);
+  });
+
+  it("repairs the orchestrator reminder when completion crashes after the Activity event", async () => {
+    const first = createHarness();
+    const conversationId = "conversation-manager-reminder-crash-gap";
+    let releaseManager!: () => void;
+    const managerGate = new Promise<void>((resolve) => {
+      releaseManager = resolve;
+    });
+    let finalAccepted!: () => void;
+    const finalAcceptedGate = new Promise<void>((resolve) => {
+      finalAccepted = resolve;
+    });
+    runMock.handler = async (args) => {
+      await reportFromMockManager(
+        args,
+        "Reminder crash-safe final report.",
+        true,
+        "reminder-crash-safe-final",
+      );
+      finalAccepted();
+      await managerGate;
+      return {
+        runId: "reminder-crash-gap-manager",
+        result: "Private reminder crash text.",
+      };
+    };
+
+    const task = await first.manager.createAgent({
+      conversationId,
+      description: "Crash between Activity and reminder",
+      prompt: "Submit the final report, then stop.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    await finalAcceptedGate;
+    const attemptGeneration = first.store.getAgentRecord(
+      task.threadId,
+    )?.attemptGeneration;
+    expect(attemptGeneration).toBeTypeOf("number");
+    const completionEventId = `${task.threadId}:${attemptGeneration}:agent-completed`;
+    const orchestratorThreadId = resolveOrchestratorThreadKey(conversationId);
+
+    const originalAppendThreadCustomMessage =
+      first.store.appendThreadCustomMessage.bind(first.store);
+    let crashInjected = false;
+    vi.spyOn(first.store, "appendThreadCustomMessage").mockImplementation(
+      (message) => {
+        if (
+          !crashInjected &&
+          message.threadKey === orchestratorThreadId &&
+          message.eventId === completionEventId &&
+          message.customType === "runtime.task_lifecycle"
+        ) {
+          crashInjected = true;
+          throw new Error(
+            "Injected crash between Activity event and orchestrator reminder",
+          );
+        }
+        originalAppendThreadCustomMessage(message);
+      },
+    );
+    releaseManager();
+    await waitUntil(() => crashInjected);
+
+    expect(
+      first.store.hasEvent(
+        conversationId,
+        completionEventId,
+        "agent-completed",
+      ),
+    ).toBe(true);
+    expect(
+      first.store
+        .loadThreadMessages(orchestratorThreadId)
+        .filter(
+          (message) => message.customMessage?.eventId === completionEventId,
+        ),
+    ).toHaveLength(0);
+    expect(first.store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "running",
+      managerFinalReport: "Reminder crash-safe final report.",
+    });
+    expect(
+      first.sentMessages.filter((message) =>
+        message.text.includes("Reminder crash-safe final report."),
+      ),
+    ).toHaveLength(0);
+
+    const rootPath = first.rootPath;
+    harnesses.delete(first);
+    first.db.close();
+
+    const recovered = createHarness({ rootPath });
+    await waitUntil(() =>
+      recovered.sentMessages.some((message) =>
+        message.text.includes("Reminder crash-safe final report."),
+      ),
+    );
+    expect(recovered.appendedEvents).toHaveLength(0);
+    expect(recovered.store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "completed",
+      result: "Reminder crash-safe final report.",
+    });
+    const recoveredReminders = recovered.store
+      .loadThreadMessages(orchestratorThreadId)
+      .filter(
+        (message) => message.customMessage?.eventId === completionEventId,
+      );
+    expect(recoveredReminders).toHaveLength(1);
+    expect(JSON.stringify(recoveredReminders[0])).toContain(
+      "Reminder crash-safe final report.",
+    );
+    expect(
+      recovered.sentMessages.filter((message) =>
+        message.text.includes("Reminder crash-safe final report."),
+      ),
+    ).toHaveLength(1);
+
+    await closeHarness(recovered, { removeRoot: false });
+    const repeatedRestart = createHarness({ rootPath });
+    expect(repeatedRestart.appendedEvents).toHaveLength(0);
+    expect(repeatedRestart.sentMessages).toHaveLength(0);
+    expect(
+      repeatedRestart.store
+        .loadThreadMessages(orchestratorThreadId)
+        .filter(
+          (message) => message.customMessage?.eventId === completionEventId,
+        ),
+    ).toHaveLength(1);
+    expect(repeatedRestart.store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "completed",
+      result: "Reminder crash-safe final report.",
+    });
   });
 
   it("repairs an intermediate report acknowledgement without re-emitting the durable update", async () => {

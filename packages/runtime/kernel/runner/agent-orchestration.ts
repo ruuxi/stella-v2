@@ -354,6 +354,18 @@ export const createAgentOrchestration = (
     // Broken or cyclic ownership must fail closed: never expose a potentially
     // managed descendant to root merely because its persisted chain is bad.
     const isManagerOwned = managerOwnership.kind !== "none";
+    const isRootManagerCompletion =
+      !isManagerOwned &&
+      event.agentType === AGENT_IDS.MANAGER &&
+      event.type === "agent-completed";
+    const rootManagerActivityPersisted =
+      isRootManagerCompletion && event.eventId
+        ? context.runtimeStore.hasEvent(
+            event.conversationId,
+            event.eventId,
+            event.type,
+          )
+        : false;
     // Interjection-turn completions arrive twice (see
     // `AgentLifecycleEvent.audience`): `orchestrator-only` skips every
     // display surface (persisted activity row, renderer/run callbacks,
@@ -365,10 +377,14 @@ export const createAgentOrchestration = (
       // below but are never persisted — thread state lives in
       // `runtime_agents` (see `listThreadActivity`), and persisting every
       // tick grew the message table without bound.
-      if (event.type !== "agent-progress" && event.type !== "agent-message") {
+      if (
+        event.type !== "agent-progress" &&
+        event.type !== "agent-message" &&
+        !rootManagerActivityPersisted
+      ) {
         appendAgentLifecycleChatEvent(context, event);
       }
-      if (event.rootRunId) {
+      if (event.rootRunId && !rootManagerActivityPersisted) {
         context.state.runCallbacksByRunId
           .get(event.rootRunId)
           ?.onAgentEvent?.(event);
@@ -444,15 +460,27 @@ export const createAgentOrchestration = (
     // The follow-up below is in-memory delivery for the active orchestrator
     // session; this row is the durable record read by the next history rebuild.
     const isInterimMessage = event.type === "agent-message";
+    const orchestratorThreadId = resolveOrchestratorThreadKey(
+      event.conversationId,
+    );
+    const requiresStableReminder = isInterimMessage || isRootManagerCompletion;
+    if (
+      requiresStableReminder &&
+      hasPersistedThreadEvent(context, orchestratorThreadId, event.eventId)
+    ) {
+      return;
+    }
     persistThreadCustomMessage(context.runtimeStore, {
-      threadKey: resolveOrchestratorThreadKey(event.conversationId),
+      threadKey: orchestratorThreadId,
       customType: isInterimMessage
         ? "runtime.task_update"
         : "runtime.task_lifecycle",
       content: [{ type: "text", text: userPrompt }],
       display: false,
       timestamp: Date.now(),
-      ...(isInterimMessage && event.eventId ? { eventId: event.eventId } : {}),
+      ...(requiresStableReminder && event.eventId
+        ? { eventId: event.eventId }
+        : {}),
     });
     void deps.sendMessage({
       conversationId: event.conversationId,
@@ -784,14 +812,28 @@ export const createAgentOrchestration = (
       context.runtimeStore.getAgentRecord?.(threadId) ?? null,
     listAgentRecordsByStatus: (status) =>
       context.runtimeStore.listAgentRecordsByStatus?.(status) ?? [],
-    hasAgentLifecycleEvent: (conversationId, eventId, type) =>
-      context.runtimeStore.hasEvent(conversationId, eventId, type) ||
-      (type === "agent-message" &&
-        hasPersistedThreadEvent(
-          context,
-          resolveOrchestratorThreadKey(conversationId),
-          eventId,
-        )),
+    hasAgentLifecycleEvent: (conversationId, eventId, type) => {
+      const hasActivityEvent = context.runtimeStore.hasEvent(
+        conversationId,
+        eventId,
+        type,
+      );
+      const hasOrchestratorReminder = hasPersistedThreadEvent(
+        context,
+        resolveOrchestratorThreadKey(conversationId),
+        eventId,
+      );
+      if (type === "agent-completed") {
+        // A Manager completion is delivered only when both durable artifacts
+        // exist. Recovery re-enters the idempotent lifecycle handler to repair
+        // either half of an interrupted two-write completion.
+        return hasActivityEvent && hasOrchestratorReminder;
+      }
+      return (
+        hasActivityEvent ||
+        (type === "agent-message" && hasOrchestratorReminder)
+      );
+    },
   });
 
   const runBlockingLocalAgent = async (

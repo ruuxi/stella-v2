@@ -8,6 +8,7 @@ import {
 import { executeRuntimeAgentPrompt } from "./run-execution.js";
 import {
   executeAgentRunWithRetry,
+  hasAgentRunAttemptBudget,
   type AgentRunRetryInfo,
 } from "./run-retry.js";
 import { buildSubagentSystemPrompt } from "./run-preparation.js";
@@ -238,7 +239,7 @@ export class SubagentSession extends PiSessionCore {
           : {}),
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
       };
-      const retryState = { retriesUsed: 0 };
+      const retryState = { attemptsUsed: 0, retriesUsed: 0 };
       const executeWithTransientRetry = (initialResume = false) =>
         executeAgentRunWithRetry({
           state: retryState,
@@ -275,6 +276,7 @@ export class SubagentSession extends PiSessionCore {
       while (
         execution.errorMessage &&
         !opts.abortSignal?.aborted &&
+        hasAgentRunAttemptBudget(retryState) &&
         fableAttempts < SAFETY_ABORT_FABLE_ATTEMPTS
       ) {
         const retry = this.prepareSafetySameModelRetry(agent, {
@@ -302,7 +304,11 @@ export class SubagentSession extends PiSessionCore {
       // on opus-4.8 (same auth path, per-run only). `prepareSafetyModelSwap`
       // returns null for anything else, and this block runs at most once per
       // turn, so there is no swap ping-pong.
-      if (execution.errorMessage && !opts.abortSignal?.aborted) {
+      if (
+        execution.errorMessage &&
+        !opts.abortSignal?.aborted &&
+        hasAgentRunAttemptBudget(retryState)
+      ) {
         const swap = this.prepareSafetyModelSwap(agent, {
           errorMessage: execution.errorMessage,
           logContext: { threadId: this.threadId, runId },

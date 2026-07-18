@@ -205,7 +205,7 @@ describe("executeRuntimeAgentPrompt", () => {
 
     try {
       const result = await executeAgentRunWithRetry({
-        state: { retriesUsed: 0 },
+        state: { attemptsUsed: 0, retriesUsed: 0 },
         execute: (resume) =>
           executeRuntimeAgentPrompt({
             agent,

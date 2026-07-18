@@ -545,6 +545,120 @@ describe("agent-authored assistant updates", () => {
     },
   );
 
+  it("suppresses a reconstructed Claude Code checkpoint containing native tool transport after reload", () => {
+    const context = createTestContext();
+    const threadId = "claude-native-checkpoint";
+    context.store.resolveOrCreateActiveThread({
+      conversationId: "conv-claude-native",
+      agentType: "general",
+      threadId,
+    });
+    saveRunningAgent(context.store, {
+      threadId,
+      conversationId: "conv-claude-native",
+      startedAt: 3_000,
+      attemptGeneration: 1,
+    });
+    context.store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 3_001,
+      role: "assistant",
+      content: "",
+      payload: {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "claude-native-spawn",
+            name: "spawn_agent",
+            arguments: { description: "Native child", prompt: "Raw prompt" },
+          },
+        ],
+        api: "anthropic-messages",
+        provider: "anthropic",
+        model: "claude-code",
+        usage: EMPTY_USAGE,
+        stopReason: "toolUse",
+        timestamp: 3_001,
+        stellaAttemptGeneration: 1,
+      } as never,
+    });
+    context.store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 3_002,
+      role: "toolResult",
+      toolCallId: "claude-native-spawn",
+      content: '{"thread_id":"native-child","running_in_background":true}',
+      payload: {
+        role: "toolResult",
+        toolCallId: "claude-native-spawn",
+        toolName: "spawn_agent",
+        content: [
+          {
+            type: "text",
+            text: '{"thread_id":"native-child","running_in_background":true}',
+          },
+        ],
+        isError: false,
+        timestamp: 3_002,
+      } as never,
+    });
+    const toolEntries = context.store.loadThreadMessages(threadId);
+    context.store.compactThread({
+      threadKey: threadId,
+      summary:
+        '[Tool call] spawn_agent\nargs: {"description":"Native child"}\n\n[Tool result] spawn_agent\n{"thread_id":"native-child"}',
+      fromEntryId: toolEntries[0]!.entryId!,
+      toEntryId: toolEntries[1]!.entryId!,
+      tokensBefore: 500,
+      timestamp: 3_003,
+    });
+    context.store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 3_004,
+      role: "assistant",
+      content: "Claude authored conclusion.",
+      payload: {
+        role: "assistant",
+        content: [{ type: "text", text: "Claude authored conclusion." }],
+        api: "anthropic-messages",
+        provider: "anthropic",
+        model: "claude-code",
+        usage: EMPTY_USAGE,
+        stopReason: "stop",
+        timestamp: 3_004,
+        stellaAttemptGeneration: 1,
+      } as never,
+    });
+
+    expect(context.store.listThreadTranscript(threadId)?.entries).toEqual([
+      expect.objectContaining({
+        kind: "assistant",
+        text: "Claude authored conclusion.",
+      }),
+    ]);
+
+    context.db.close();
+    const reopenedDb = new DatabaseSync(
+      getDesktopDatabasePath(context.rootPath),
+      {
+        timeout: 5000,
+      },
+    ) as unknown as SqliteDatabase;
+    context.db = reopenedDb;
+    context.store = new SessionStore(reopenedDb);
+    const reloaded = context.store.listThreadTranscript(threadId);
+    expect(reloaded?.entries).toEqual([
+      expect.objectContaining({
+        kind: "assistant",
+        text: "Claude authored conclusion.",
+      }),
+    ]);
+    expect(JSON.stringify(reloaded)).not.toMatch(
+      /spawn_agent|Native child|native-child|\[Tool call\]|\[Tool result\]/,
+    );
+  });
+
   it("projects only parent-visible Manager authored replies into Activity", () => {
     const { store } = createTestContext();
     const saveManager = (visibility: "internal" | "parent") =>

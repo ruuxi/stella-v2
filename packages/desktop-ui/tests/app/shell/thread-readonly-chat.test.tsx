@@ -211,7 +211,10 @@ describe("read-only exact-thread chat surfaces", () => {
       css.indexOf("}", css.indexOf(".chat-workspace-strip__task-chat {")),
     );
     expect(actionRule).toContain("position: absolute");
+    expect(actionRule).toContain("right: 2px");
+    expect(actionRule).toContain("width: 26px");
     expect(actionRule).not.toContain("flex: 0 0 auto");
+    expect(actionRule).not.toContain("margin-right: -");
   });
 
   it("renders authored prose and structured lifecycle cards with no raw tools or send surface", async () => {
@@ -302,6 +305,22 @@ describe("read-only exact-thread chat surfaces", () => {
       });
 
       expect(listThreadTranscript).toHaveBeenCalledTimes(initialCalls + 1);
+      expect(container.textContent).toContain(
+        "No messages in this thread yet.",
+      );
+      expect(container.textContent).not.toMatch(
+        /exec_command|tool-only result landed|\[Tool call\]|\[Tool result\]/,
+      );
+
+      await act(async () => {
+        root.render(null);
+        await Promise.resolve();
+      });
+      await act(async () => {
+        root.render(<ThreadChatTab threadId={task.id} />);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
       expect(container.textContent).toContain(
         "No messages in this thread yet.",
       );

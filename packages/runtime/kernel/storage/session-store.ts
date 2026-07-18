@@ -5044,13 +5044,20 @@ export class SessionStore {
             },
           ];
         }
+        // Assistant rows without a structured payload are reconstruction
+        // artifacts (for example a legacy/compaction preview). Claude Code
+        // native tool history can reach this shape after reconstruction, and
+        // its preview deliberately contains `[Tool call]` / result transport.
+        // Only a typed assistant payload can prove which blocks are authored
+        // text; the unstructured fallback is therefore user-only.
+        if (message.role !== "user") return [];
         const text = message.content.trim();
         if (!text) return [];
         return [
           {
             id,
             timestamp: message.timestamp,
-            kind: message.role === "assistant" ? "assistant" : "user",
+            kind: "user",
             text: clip(text),
           },
         ];

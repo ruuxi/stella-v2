@@ -24,17 +24,28 @@ import {
   initializeDesktopDatabase,
 } from "@stella/runtime/kernel/storage/database-init";
 import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
-import type {
-  LocalChatAppendEventArgs,
-  SqliteDatabase,
+import {
+  RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE,
+  type LocalChatAppendEventArgs,
+  type SqliteDatabase,
 } from "@stella/runtime/kernel/storage/shared";
 import { buildBackgroundTaskLifecycleIndex } from "@/features/chat/lib/background-task-lifecycle";
+import { buildHistorySource } from "@stella/runtime/kernel/agent-runtime/thread-memory";
 
 type MockRunArgs = {
   agentId?: string;
   agentType: string;
   userPrompt: string;
   abortSignal?: AbortSignal;
+  callbacks?: {
+    onToolStart?: (event: {
+      runId: string;
+      seq: number;
+      toolCallId: string;
+      toolName: string;
+      statusText?: string;
+    }) => void;
+  };
   agentContext?: {
     threadHistory?: Array<{ content: string }>;
   };
@@ -212,8 +223,8 @@ afterEach(async () => {
 });
 
 describe("manager orchestration production routing", () => {
-  it("projects production manager-owned Claude terminals into private canonical cards", async () => {
-    const { manager, store, appendedEvents } = createHarness();
+  it("projects production manager-private progress and transitive lifecycle into canonical cards", async () => {
+    const { manager, store, db, appendedEvents } = createHarness();
     let releaseFirstCompletion!: () => void;
     const firstCompletionGate = new Promise<void>((resolve) => {
       releaseFirstCompletion = resolve;
@@ -226,6 +237,10 @@ describe("manager orchestration production routing", () => {
     const failureGate = new Promise<void>((resolve) => {
       releaseFailure = resolve;
     });
+    let releaseDescendant!: () => void;
+    const descendantGate = new Promise<void>((resolve) => {
+      releaseDescendant = resolve;
+    });
     let completedAttempts = 0;
     runMock.handler = async (args) => {
       if (args.agentType === AGENT_IDS.MANAGER) {
@@ -234,6 +249,16 @@ describe("manager orchestration production routing", () => {
       }
       if (args.agentId === "private-completed-child") {
         completedAttempts += 1;
+        args.callbacks?.onToolStart?.({
+          runId: `private-completed-${completedAttempts}`,
+          seq: 1,
+          toolCallId: `private-completed-tool-${completedAttempts}`,
+          toolName: "Read",
+          statusText:
+            completedAttempts === 1
+              ? "Inspecting private completion source"
+              : "Inspecting private follow-up source",
+        });
         await (completedAttempts === 1
           ? firstCompletionGate
           : followUpCompletionGate);
@@ -253,6 +278,20 @@ describe("manager orchestration production routing", () => {
         await waitForAbort(args.abortSignal);
         return { runId: "private-canceled", result: "", interrupted: true };
       }
+      if (args.agentId === "private-transitive-descendant") {
+        args.callbacks?.onToolStart?.({
+          runId: "private-descendant-run",
+          seq: 1,
+          toolCallId: "private-descendant-tool",
+          toolName: "Grep",
+          statusText: "Auditing transitive descendant",
+        });
+        await descendantGate;
+        return {
+          runId: "private-descendant-run",
+          result: "Transitive descendant completed privately.",
+        };
+      }
       throw new Error(`Unexpected agent ${args.agentId}`);
     };
 
@@ -264,7 +303,7 @@ describe("manager orchestration production routing", () => {
       prompt: "Coordinate the private children.",
       agentType: AGENT_IDS.MANAGER,
       agentDepth: 1,
-      maxAgentDepth: 2,
+      maxAgentDepth: 3,
       storageMode: "local",
       modelConfigSnapshot: {
         engine: "claude_code_local",
@@ -364,7 +403,7 @@ describe("manager orchestration production routing", () => {
         prompt: `Run ${args.description}.`,
         agentType: AGENT_IDS.GENERAL,
         agentDepth: 2,
-        maxAgentDepth: 2,
+        maxAgentDepth: 3,
         parentAgentId: managerTask.threadId,
         storageMode: "local",
       });
@@ -440,6 +479,27 @@ describe("manager orchestration production routing", () => {
       async () =>
         (await manager.getAgent(canceledTask.threadId))?.status === "running",
     );
+    const descendantTask = await manager.createAgent({
+      threadId: "private-transitive-descendant",
+      conversationId,
+      description: "Audit transitive descendant",
+      prompt: "Run the transitive descendant audit.",
+      agentType: AGENT_IDS.GENERAL,
+      agentDepth: 3,
+      maxAgentDepth: 3,
+      parentAgentId: canceledTask.threadId,
+      storageMode: "local",
+    });
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(descendantTask.threadId))?.status === "running",
+    );
+    releaseDescendant();
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(descendantTask.threadId))?.status ===
+        "completed",
+    );
     await new Promise((resolve) => setTimeout(resolve, 2));
     await manager.cancelAgent(canceledTask.threadId, AGENT_PAUSE_CANCEL_REASON);
     await waitUntil(
@@ -465,7 +525,7 @@ describe("manager orchestration production routing", () => {
           .filter(
             (message) =>
               message.customMessage?.customType === "runtime.task_lifecycle",
-          ).length === 4,
+          ).length === 5,
     );
     const reminders = store
       .loadThreadMessages(managerTask.threadId)
@@ -479,13 +539,46 @@ describe("manager orchestration production routing", () => {
       "agent-completed",
       "agent-completed",
       "agent-failed",
+      "agent-completed",
       "agent-canceled",
     ]);
+
+    const privateLifecycleRows = store
+      .loadThreadMessages(managerTask.threadId)
+      .filter(
+        (message) =>
+          message.customMessage?.customType ===
+          RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE,
+      );
+    expect(
+      privateLifecycleRows.filter(
+        (message) =>
+          message.customMessage?.lifecycleEvent?.type === "agent-started",
+      ),
+    ).toHaveLength(5);
+    expect(
+      privateLifecycleRows
+        .filter(
+          (message) =>
+            message.customMessage?.lifecycleEvent?.type === "agent-progress",
+        )
+        .map(
+          (message) =>
+            message.customMessage?.lifecycleEvent?.payload.statusText,
+        ),
+    ).toEqual(
+      expect.arrayContaining([
+        "Inspecting private completion source",
+        "Inspecting private follow-up source",
+        "Auditing transitive descendant",
+      ]),
+    );
 
     const privateChildIds = new Set([
       completedTask.threadId,
       failedTask.threadId,
       canceledTask.threadId,
+      descendantTask.threadId,
     ]);
     expect(
       appendedEvents.filter((event) =>
@@ -515,14 +608,51 @@ describe("manager orchestration production routing", () => {
     expect(
       cards
         .filter((card) => card.agentId === completedTask.threadId)
-        .map((card) => card.status),
-    ).toEqual(["completed", "completed"]);
+        .map((card) => ({
+          status: card.status,
+          progressText: card.progressText,
+        })),
+    ).toEqual([
+      {
+        status: "completed",
+        progressText: "Inspecting private completion source",
+      },
+      {
+        status: "completed",
+        progressText: "Inspecting private follow-up source",
+      },
+    ]);
     expect(
       cards.find((card) => card.agentId === failedTask.threadId)?.status,
     ).toBe("failed");
     expect(
       cards.find((card) => card.agentId === canceledTask.threadId)?.status,
     ).toBe("canceled");
+    expect(
+      cards.find((card) => card.agentId === descendantTask.threadId),
+    ).toMatchObject({
+      status: "completed",
+      progressText: "Auditing transitive descendant",
+    });
+    expect(
+      cards.filter((card) => privateChildIds.has(card.agentId)),
+    ).toHaveLength(5);
+    const modelHistory = buildHistorySource({
+      systemPrompt: "",
+      dynamicContext: "",
+      maxAgentDepth: 3,
+      threadHistory: store.loadThreadMessages(managerTask.threadId),
+    });
+    expect(
+      modelHistory.some(
+        (message) =>
+          message.role === "runtimeInternal" &&
+          message.customType === RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE,
+      ),
+    ).toBe(false);
+    expect(
+      new SessionStore(db).listThreadTranscript(managerTask.threadId),
+    ).toEqual(transcript);
     expect(JSON.stringify(transcript)).not.toMatch(
       /spawn_agent|send_input|generic-read|generic-tool-input|generic tool result|Private prompt|Private follow-up prompt/,
     );

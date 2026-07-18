@@ -42,6 +42,7 @@ import {
   type RuntimeThreadMessageEntry,
   type RuntimeThreadSessionEntry,
   type RuntimeThreadMessage,
+  RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE,
   asFiniteNumber,
   asObject,
   asTrimmedString,
@@ -512,6 +513,7 @@ const isThreadLifecycleEventType = (
   value: string,
 ): value is ThreadLifecycleEventType =>
   value === "agent-started" ||
+  value === "agent-progress" ||
   value === "agent-completed" ||
   value === "agent-failed" ||
   value === "agent-canceled";
@@ -3003,6 +3005,8 @@ export class SessionStore {
   private projectClaudeTaskStarts(
     messages: ReadonlyArray<RuntimeThreadMessage & { entryId: string }>,
   ): Map<string, EventRecord[]> {
+    const startKey = (agentId: string, isFollowUp: boolean) =>
+      `${agentId}\u001f${isFollowUp ? "follow-up" : "spawn"}`;
     const calls = new Map<
       string,
       {
@@ -3012,8 +3016,25 @@ export class SessionStore {
         arguments: Record<string, unknown>;
       }
     >();
+    const privateStartBudget = new Map<string, number>();
     const startsByEntryId = new Map<string, EventRecord[]>();
     for (const message of messages) {
+      const privateLifecycle = message.customMessage?.lifecycleEvent;
+      if (
+        message.customMessage?.customType ===
+          RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE &&
+        privateLifecycle?.type === "agent-started"
+      ) {
+        const agentId = asTrimmedString(privateLifecycle.payload.agentId);
+        if (agentId) {
+          const key = startKey(
+            agentId,
+            privateLifecycle.payload.isFollowUp === true,
+          );
+          privateStartBudget.set(key, (privateStartBudget.get(key) ?? 0) + 1);
+        }
+        continue;
+      }
       const payload = message.payload;
       if (payload?.role === "assistant") {
         for (const block of payload.content) {
@@ -3042,6 +3063,12 @@ export class SessionStore {
         asTrimmedString(result.thread_id) ||
         asTrimmedString(call.arguments.thread_id);
       if (!agentId) continue;
+      const key = startKey(agentId, call.name === "send_input");
+      const privateStarts = privateStartBudget.get(key) ?? 0;
+      if (privateStarts > 0) {
+        privateStartBudget.set(key, privateStarts - 1);
+        continue;
+      }
       const record = this.getAgentRecord(agentId);
       const description =
         asTrimmedString(call.arguments.description) ||
@@ -5210,21 +5237,24 @@ export class SessionStore {
           return [];
         }
         if (message.customMessage) {
-          if (message.customMessage.customType !== "runtime.task_lifecycle") {
+          if (
+            message.customMessage.customType !== "runtime.task_lifecycle" &&
+            message.customMessage.customType !==
+              RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE
+          ) {
             return [];
           }
           const eventId = message.customMessage.eventId;
-          const lifecycleEvent =
-            eventId && message.customMessage.lifecycleEvent
-              ? {
-                  _id: eventId,
-                  timestamp: message.timestamp,
-                  type: message.customMessage.lifecycleEvent.type,
-                  payload: message.customMessage.lifecycleEvent.payload,
-                }
-              : eventId
-                ? lifecycleById.get(eventId)
-                : undefined;
+          const lifecycleEvent = message.customMessage.lifecycleEvent
+            ? {
+                _id: eventId ?? `thread-private:${id}`,
+                timestamp: message.timestamp,
+                type: message.customMessage.lifecycleEvent.type,
+                payload: message.customMessage.lifecycleEvent.payload,
+              }
+            : eventId
+              ? lifecycleById.get(eventId)
+              : undefined;
           if (!lifecycleEvent) return [];
           return [
             {

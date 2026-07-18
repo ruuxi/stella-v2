@@ -166,7 +166,7 @@ describe("read-only exact-thread chat surfaces", () => {
     container.remove();
   });
 
-  it("opens Activity on the exact thread without a composer-context path", async () => {
+  it("keeps the narrow last-row chat target fully inset without exposing panel overflow", async () => {
     const onNavigate = vi.fn();
     openActivityTaskChat(task, onNavigate);
     const snapshot = displayTabs.getSnapshot();
@@ -186,23 +186,44 @@ describe("read-only exact-thread chat surfaces", () => {
     const onSelect = vi.fn();
     await act(async () => {
       root.render(
-        <ul>
-          <ActivityTaskRow
-            task={task}
-            expanded={false}
-            onToggle={vi.fn()}
-            onSelect={onSelect}
-            files={[]}
-            onOpenFile={vi.fn()}
-            orderIndex={0}
-          />
-        </ul>,
+        <div
+          className="chat-workspace-strip__panel"
+          data-testid="narrow-activity-panel"
+          style={{ width: 96, height: 60 }}
+        >
+          <ul className="chat-workspace-strip__list chat-workspace-strip__list--tasks">
+            <ActivityTaskRow
+              task={{ ...task, id: "preceding-row" }}
+              expanded={false}
+              onToggle={vi.fn()}
+              onSelect={onSelect}
+              files={[]}
+              onOpenFile={vi.fn()}
+              orderIndex={0}
+            />
+            <ActivityTaskRow
+              task={task}
+              expanded={false}
+              onToggle={vi.fn()}
+              onSelect={onSelect}
+              files={[]}
+              onOpenFile={vi.fn()}
+              orderIndex={1}
+            />
+          </ul>
+        </div>,
       );
     });
-    const action = container.querySelector<HTMLButtonElement>(
+    const rows = container.querySelectorAll(".chat-workspace-strip__task-row");
+    expect(rows).toHaveLength(2);
+    const lastRow = rows.item(1);
+    expect(lastRow).toBe(lastRow.parentElement?.lastElementChild);
+    const action = lastRow.querySelector<HTMLButtonElement>(
       '.chat-workspace-strip__task-chat[aria-label^="Open read-only chat"]',
     );
     expect(action).not.toBeNull();
+    action!.focus();
+    expect(document.activeElement).toBe(action);
     action!.click();
     expect(onSelect).toHaveBeenCalledWith(task);
     const css = fs.readFileSync(ACTIVITY_CSS_PATH, "utf8");
@@ -213,8 +234,34 @@ describe("read-only exact-thread chat surfaces", () => {
     expect(actionRule).toContain("position: absolute");
     expect(actionRule).toContain("right: 2px");
     expect(actionRule).toContain("width: 26px");
+    expect(actionRule).toContain("height: 26px");
     expect(actionRule).not.toContain("flex: 0 0 auto");
     expect(actionRule).not.toContain("margin-right: -");
+    const headRuleStart = css.indexOf(".chat-workspace-strip__task-row-head {");
+    const headRule = css.slice(headRuleStart, css.indexOf("}", headRuleStart));
+    expect(headRule).toContain("min-height: 30px");
+    const panelRuleStart = css.indexOf(".chat-workspace-strip__panel {");
+    const panelRule = css.slice(
+      panelRuleStart,
+      css.indexOf("}", panelRuleStart),
+    );
+    expect(panelRule).toContain("overflow-y: auto");
+    expect(panelRule).toContain("overflow-x: hidden");
+    const animatedRowRuleStart = css.indexOf(
+      ".chat-workspace-strip__list--tasks > .chat-workspace-strip__task-row {",
+    );
+    const animatedRowRule = css.slice(
+      animatedRowRuleStart,
+      css.indexOf("}", animatedRowRuleStart),
+    );
+    expect(animatedRowRule).toContain("overflow: visible clip");
+    const px = (rule: string, property: string) =>
+      Number(rule.match(new RegExp(`${property}:\\s*(\\d+)px`))?.[1]);
+    const actionSize = px(actionRule, "width");
+    const actionInset = px(actionRule, "right");
+    const rowHeadHeight = px(headRule, "min-height");
+    expect(actionSize + actionInset * 2).toBeLessThanOrEqual(rowHeadHeight);
+    expect(actionSize + actionInset).toBeLessThan(96);
   });
 
   it("renders authored prose and structured lifecycle cards with no raw tools or send surface", async () => {
@@ -256,6 +303,104 @@ describe("read-only exact-thread chat surfaces", () => {
       await new Promise((resolve) => window.setTimeout(resolve, 24));
     });
     expect(listThreadTranscript.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders captured Claude spawn and follow-up lifecycles as canonical completion cards", async () => {
+    const childId = "m5-surface-1-rearchitect-worker-server-ts-into";
+    currentTranscript = {
+      ...transcript,
+      entries: [
+        {
+          id: "claude-authored-status",
+          timestamp: 4_000,
+          kind: "assistant",
+          text: "Surface 1 is underway.",
+        },
+        {
+          id: "claude-spawn-start",
+          timestamp: 4_001,
+          kind: "lifecycle",
+          lifecycleEvent: {
+            _id: "thread-tool:claude-spawn:agent-started",
+            timestamp: 4_001,
+            type: "agent-started",
+            payload: {
+              agentId: childId,
+              agentType: "general",
+              description: "M5 Surface 1 implementation",
+              attemptGeneration: 1,
+            },
+          },
+        },
+        {
+          id: "claude-spawn-complete",
+          timestamp: 4_002,
+          kind: "lifecycle",
+          lifecycleEvent: {
+            _id: `${childId}:1:agent-completed`,
+            timestamp: 4_002,
+            type: "agent-completed",
+            payload: {
+              agentId: childId,
+              attemptGeneration: 1,
+              result: "Surface 1 implementation completed cleanly.",
+            },
+          },
+        },
+        {
+          id: "claude-follow-up-start",
+          timestamp: 4_003,
+          kind: "lifecycle",
+          lifecycleEvent: {
+            _id: "thread-tool:claude-follow-up:agent-started",
+            timestamp: 4_003,
+            type: "agent-started",
+            payload: {
+              agentId: childId,
+              agentType: "general",
+              description: "Confirm Surface 1 completion state",
+              statusText: "Confirm Surface 1 completion state",
+              isFollowUp: true,
+              attemptGeneration: 3,
+            },
+          },
+        },
+        {
+          id: "claude-follow-up-complete",
+          timestamp: 4_004,
+          kind: "lifecycle",
+          lifecycleEvent: {
+            _id: `${childId}:3:agent-completed`,
+            timestamp: 4_004,
+            type: "agent-completed",
+            payload: {
+              agentId: childId,
+              attemptGeneration: 3,
+              result: "Surface 1 follow-up confirmed clean.",
+            },
+          },
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(<ThreadChatTab threadId={task.id} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Surface 1 is underway.");
+    expect(container.textContent).toContain(
+      "Surface 1 implementation completed cleanly.",
+    );
+    expect(container.textContent).toContain(
+      "Surface 1 follow-up confirmed clean.",
+    );
+    expect(container.querySelectorAll(".agent-completion-card")).toHaveLength(
+      2,
+    );
+    expect(container.textContent).not.toMatch(
+      /spawn_agent|send_input|toolResult|running_in_background/,
+    );
   });
 
   it.each(["general", "manager"] as const)(

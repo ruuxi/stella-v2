@@ -58,7 +58,6 @@ type VoiceHandlersOptions = {
     | ((channel: string, data: unknown) => void)
     | null;
   getOverlayController?: () => OverlayWindowController | null;
-  stellaAppDir: string;
   stellaDataDirPath: string;
 };
 
@@ -273,13 +272,13 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
   };
 
   const loadConfiguredShortcut = () => {
-    return loadLocalPreferences(options.stellaAppDir).voiceRtcShortcut;
+    return loadLocalPreferences(options.stellaDataDirPath).voiceRtcShortcut;
   };
 
   const saveConfiguredShortcut = (shortcut: string) => {
-    const prefs = loadLocalPreferences(options.stellaAppDir);
+    const prefs = loadLocalPreferences(options.stellaDataDirPath);
     prefs.voiceRtcShortcut = shortcut;
-    saveLocalPreferences(options.stellaAppDir, prefs);
+    saveLocalPreferences(options.stellaDataDirPath, prefs);
   };
 
   const initialVoiceRtcShortcut = applyShortcutRegistration({
@@ -337,13 +336,17 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
         }>;
       },
     ) => {
-      const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
+      const preferences = getRealtimeVoicePreferences(
+        options.stellaDataDirPath,
+      );
       if (preferences.provider !== "openai") {
         throw new Error("OpenAI is not selected for voice.");
       }
       const apiKey =
-        getLocalLlmCredential(options.stellaAppDir, "openai")?.trim() ||
-        (await getLocalLlmOAuthApiKey(options.stellaAppDir, "openai"))?.trim();
+        getLocalLlmCredential(options.stellaDataDirPath, "openai")?.trim() ||
+        (
+          await getLocalLlmOAuthApiKey(options.stellaDataDirPath, "openai")
+        )?.trim();
       if (!apiKey) {
         throw new Error("Connect OpenAI in Settings to use it for voice.");
       }
@@ -437,13 +440,17 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
         }>;
       },
     ) => {
-      const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
+      const preferences = getRealtimeVoicePreferences(
+        options.stellaDataDirPath,
+      );
       if (preferences.provider !== "xai") {
         throw new Error("xAI is not selected for voice.");
       }
       const apiKey =
-        getLocalLlmCredential(options.stellaAppDir, "xai")?.trim() ||
-        (await getLocalLlmOAuthApiKey(options.stellaAppDir, "xai"))?.trim();
+        getLocalLlmCredential(options.stellaDataDirPath, "xai")?.trim() ||
+        (
+          await getLocalLlmOAuthApiKey(options.stellaDataDirPath, "xai")
+        )?.trim();
       if (!apiKey) {
         throw new Error("Connect xAI in Settings to use it for voice.");
       }
@@ -547,13 +554,17 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
         instructions?: string;
       },
     ) => {
-      const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
+      const preferences = getRealtimeVoicePreferences(
+        options.stellaDataDirPath,
+      );
       if (preferences.provider !== "inworld") {
         throw new Error("Inworld is not selected for voice.");
       }
       const apiKey =
-        getLocalLlmCredential(options.stellaAppDir, "inworld")?.trim() ||
-        (await getLocalLlmOAuthApiKey(options.stellaAppDir, "inworld"))?.trim();
+        getLocalLlmCredential(options.stellaDataDirPath, "inworld")?.trim() ||
+        (
+          await getLocalLlmOAuthApiKey(options.stellaDataDirPath, "inworld")
+        )?.trim();
       if (!apiKey) {
         throw new Error("Connect Inworld in Settings to use it for voice.");
       }

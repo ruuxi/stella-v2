@@ -10,9 +10,9 @@ import {
  * Electron main-process diagnostics wiring.
  *
  * Routes uncaught errors / crashes and process lifecycle (app + child
- * process crashes) into the shared local log files under
- * `~/.stella/logs/<rootHash>/`. Metadata only — no window content, URLs
- * with query strings, or message data ever reaches here.
+ * process crashes) into the shared local log files under Electron's
+ * ephemeral userData root. Metadata only — no window content, URLs with
+ * query strings, or message data ever reaches here.
  */
 
 let registered = false
@@ -25,8 +25,11 @@ const safe = (fn: () => string): string => {
   }
 }
 
-export const initMainProcessLogging = (stellaAppDir: string): FileLogger => {
-  const logger = initFileLogger(stellaAppDir, 'main')
+export const initMainProcessLogging = (
+  stellaAppDir: string,
+  runtimeStateDir: string,
+): FileLogger => {
+  const logger = initFileLogger(stellaAppDir, 'main', { runtimeStateDir })
   if (registered) return logger
   registered = true
 

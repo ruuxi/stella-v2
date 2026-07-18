@@ -3,7 +3,7 @@
  *
  * Forwards uncaught renderer errors, unhandled promise rejections, and
  * React error-boundary catches to the main process, which scrubs and
- * writes them to `~/.stella/logs/<rootHash>/error-*.txt` alongside main +
+ * writes them to Electron `userData/logs/<rootHash>/error-*.txt` alongside main +
  * worker crashes. Metadata only (message + stack + source) — never UI
  * content or app state.
  *

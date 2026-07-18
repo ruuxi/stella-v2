@@ -1,14 +1,12 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
-import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import { resolveDevStellaHome } from './dev-home-paths.mjs';
 
 const scriptDir = import.meta.dirname;
 const desktopDir = resolve(scriptDir, '..', '..');
 const repoRootDir = resolve(desktopDir, '..', '..');
-export const stellaStatePath = resolve(
-  process.env.STELLA_DATA_DIR?.trim() || resolve(homedir(), '.stella'),
-);
+export const stellaStatePath = resolveDevStellaHome();
 
 const devElectronBinaryPathFragments = [
   resolve(repoRootDir, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron'),

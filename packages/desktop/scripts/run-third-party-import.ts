@@ -1,6 +1,3 @@
-import os from "node:os";
-import path from "node:path";
-
 import {
   detectThirdPartyMigrationSources,
   previewThirdPartyMigration,
@@ -8,6 +5,7 @@ import {
   type ThirdPartyMigrationSelection,
   type ThirdPartyMigrationSource,
 } from "@stella/runtime/kernel/migration/third-party-importers";
+import { resolveStellaHomeDir } from "../electron/data-paths.js";
 
 type RequestPayload = {
   action?: "detect" | "preview" | "run";
@@ -21,8 +19,10 @@ const payload = JSON.parse(process.argv[2] ?? "{}") as RequestPayload;
 
 const stellaDataDir =
   payload.stellaDataDir ??
-  process.env.STELLA_DATA_DIR ??
-  path.join(os.homedir(), ".stella");
+  resolveStellaHomeDir({
+    isPackaged: false,
+    devHomeOverride: process.env.STELLA_V2_DEV_DATA_DIR,
+  });
 
 const main = async () => {
   if (payload.action === "detect") {

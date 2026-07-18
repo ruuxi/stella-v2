@@ -3,7 +3,7 @@
  * the same durable renderer state as the Electron app.
  *
  * The dev server runs its own `UiStateStore` instance against
- * `~/.stella/ui-state.json` (the Electron main process runs another; the two
+ * the isolated v2 dev home (the Electron main process runs another; the two
  * converge through per-key read-merge-write flushes plus file watching):
  *
  *   - Every served HTML page gets an inline `window.__stellaUiState` snapshot
@@ -19,7 +19,6 @@
 
 import type { Plugin, ViteDevServer } from "vite";
 import { UiStateStore } from "@stella/runtime/kernel/ui-state/store";
-import { resolveRuntimeStatePath } from "@stella/runtime/kernel/home/stella-paths";
 import {
   UI_STATE_DEV_ENDPOINT,
   UI_STATE_DEV_EVENT,
@@ -55,10 +54,10 @@ const readJsonBody = async (
   }
 };
 
-export function uiStateSharedStore(): Plugin {
+export function uiStateSharedStore(stellaDataDir: string): Plugin {
   let store: UiStateStore | null = null;
   const getStore = () => {
-    store ??= new UiStateStore(resolveRuntimeStatePath());
+    store ??= new UiStateStore(stellaDataDir);
     return store;
   };
 
@@ -92,9 +91,7 @@ export function uiStateSharedStore(): Plugin {
     apply: "serve",
 
     transformIndexHtml() {
-      const snapshot = escapeInlineJson(
-        JSON.stringify(getStore().snapshot()),
-      );
+      const snapshot = escapeInlineJson(JSON.stringify(getStore().snapshot()));
       return [
         {
           tag: "script",

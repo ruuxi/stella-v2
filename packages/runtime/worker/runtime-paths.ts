@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -10,14 +11,14 @@ import path from "node:path";
  * a source checkout plus a packaged install) don't share
  * a pidfile/socket and accidentally talk to each other's worker.
  *
- * Layout:
- *   ~/.stella/runtime/<rootHash>/   <- machine control files
+ * Layout under Electron's userData runtime-state root:
+ *   runtime/<rootHash>/   <- machine control files
  *     ├── runtime.lock     <- flock for serializing start/stop
  *     ├── runtime.pid      <- pid of the currently-running worker
  *     ├── runtime.sock     <- Unix domain socket the host connects to on POSIX
  *     ├── host-executable.txt <- Electron executable path that spawned it
  *     └── root.txt         <- the literal stellaAppDir, for debugging
- *   ~/.stella/logs/<rootHash>/      <- human-readable logs (colocated)
+ *   logs/<rootHash>/      <- human-readable logs (colocated)
  *     ├── runtime.log      <- worker stdout/stderr (rotating)
  *     ├── error-YYYY-MM-DD.txt   <- crashes / uncaught errors
  *     └── process-YYYY-MM-DD.txt <- lifecycle events
@@ -31,9 +32,29 @@ import path from "node:path";
  *   \\.\pipe\stella-cli-bridge-<rootHash>
  */
 
-const RUNTIME_DIR_NAME = ".stella";
 const RUNTIME_SUBDIR = "runtime";
 const LOGS_SUBDIR = "logs";
+
+type RuntimePathOptions = {
+  platform?: NodeJS.Platform;
+  /** Electron userData root for ephemeral runtime state. */
+  runtimeStateDir?: string;
+  /** Legacy/test-only home injection preserving the old ~/.stella layout. */
+  homeDir?: string;
+  /** Short POSIX socket root; defaults to a per-user directory under /tmp. */
+  runtimeIpcDir?: string;
+};
+
+const resolveRuntimeStateDir = (options?: RuntimePathOptions): string => {
+  if (options?.runtimeStateDir) return path.resolve(options.runtimeStateDir);
+  if (options?.homeDir) {
+    return path.join(path.resolve(options.homeDir), ".stella");
+  }
+  const configured = process.env.STELLA_RUNTIME_STATE_DIR?.trim();
+  return configured
+    ? path.resolve(configured)
+    : path.join(os.homedir(), ".stella");
+};
 
 /**
  * Per-stellaAppDir directory for human-readable logs (worker stdout/stderr
@@ -42,11 +63,10 @@ const LOGS_SUBDIR = "logs";
  */
 export const resolveLogDir = (
   stellaAppDir: string,
-  options?: { homeDir?: string },
+  options?: RuntimePathOptions,
 ): string =>
   path.join(
-    options?.homeDir ?? os.homedir(),
-    RUNTIME_DIR_NAME,
+    resolveRuntimeStateDir(options),
     LOGS_SUBDIR,
     hashStellaAppDir(stellaAppDir),
   );
@@ -54,6 +74,8 @@ export const resolveLogDir = (
 export type RuntimePaths = {
   rootHash: string;
   rootDir: string;
+  /** Short ephemeral directory for POSIX sockets (outside long userData paths). */
+  ipcDir: string;
   pidFile: string;
   lockFile: string;
   socketPath: string;
@@ -102,7 +124,8 @@ const windowsNamedPipePath = (name: string, rootHash: string): string =>
   `\\\\.\\pipe\\stella-${name}-${rootHash}`;
 
 export const createSecureCliBridgeEndpoint = (
-  paths: Pick<RuntimePaths, "rootDir" | "rootHash">,
+  paths: Pick<RuntimePaths, "rootDir" | "rootHash"> &
+    Partial<Pick<RuntimePaths, "ipcDir">>,
   options?: { platform?: NodeJS.Platform; nonce?: string },
 ): string => {
   const platform = options?.platform ?? process.platform;
@@ -117,7 +140,7 @@ export const createSecureCliBridgeEndpoint = (
   if (platform === "win32") {
     return `\\\\.\\pipe\\stella-cli-bridge-${paths.rootHash}-${nonce}`;
   }
-  return path.join(paths.rootDir, `cli-${nonce}`, "bridge.sock");
+  return path.join(paths.ipcDir ?? paths.rootDir, `b-${nonce}.sock`);
 };
 
 export const isWindowsNamedPipePath = (socketPath: string): boolean =>
@@ -131,34 +154,74 @@ export const runtimeIpcListenUrl = (socketPath: string): string =>
     ? `pipe://${socketPath}`
     : `unix://${socketPath}`;
 
+const ensureOwnedPrivateDirectory = async (
+  directory: string,
+): Promise<void> => {
+  try {
+    await fs.mkdir(directory, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  const stat = await fs.lstat(directory);
+  const expectedUid =
+    typeof process.getuid === "function" ? process.getuid() : null;
+  if (
+    stat.isSymbolicLink() ||
+    !stat.isDirectory() ||
+    (expectedUid != null && stat.uid !== expectedUid) ||
+    (stat.mode & 0o777) !== 0o700
+  ) {
+    throw new Error(
+      `Runtime IPC directory is not a private owner-only directory: ${directory}`,
+    );
+  }
+};
+
+export const ensurePrivateRuntimeIpcDir = async (
+  ipcDir: string,
+): Promise<void> => {
+  await ensureOwnedPrivateDirectory(path.dirname(ipcDir));
+  await ensureOwnedPrivateDirectory(ipcDir);
+};
+
+export const ensureRuntimeIpcDir = async (
+  paths: Pick<RuntimePaths, "ipcDir" | "socketPath">,
+): Promise<void> => {
+  if (!runtimeIpcPathUsesFilesystem(paths.socketPath)) return;
+  await ensurePrivateRuntimeIpcDir(paths.ipcDir);
+};
+
 export const resolveRuntimePaths = (
   stellaAppDir: string,
-  options?: { platform?: NodeJS.Platform; homeDir?: string },
+  options?: RuntimePathOptions,
 ): RuntimePaths => {
   const rootHash = hashStellaAppDir(stellaAppDir);
-  const baseDir = path.join(
-    options?.homeDir ?? os.homedir(),
-    RUNTIME_DIR_NAME,
-    RUNTIME_SUBDIR,
-  );
+  const baseDir = path.join(resolveRuntimeStateDir(options), RUNTIME_SUBDIR);
   const rootDir = path.join(baseDir, rootHash);
   const logDir = resolveLogDir(stellaAppDir, options);
   const platform = options?.platform ?? process.platform;
+  const ipcBaseDir = path.resolve(
+    options?.runtimeIpcDir?.trim() || "/tmp",
+    `stella-${typeof process.getuid === "function" ? process.getuid() : "user"}`,
+  );
+  const ipcDir = path.join(ipcBaseDir, rootHash);
   const socketPath =
     platform === "win32"
       ? windowsNamedPipePath("runtime", rootHash)
-      : path.join(rootDir, "runtime.sock");
+      : path.join(ipcDir, "r.sock");
   const cliBridgeSocketPath =
     platform === "win32"
       ? windowsNamedPipePath("cli-bridge", rootHash)
-      : path.join(rootDir, "cli-bridge.sock");
+      : path.join(ipcDir, "c.sock");
   return {
     rootHash,
     rootDir,
+    ipcDir,
     pidFile: path.join(rootDir, "runtime.pid"),
     lockFile: path.join(rootDir, "runtime.lock"),
-    // macOS caps Unix domain socket paths at 104 chars (BSD), Linux at 108.
-    // The hash + base dir keep POSIX socket files well under that.
+    // macOS caps Unix domain socket paths at 104 bytes (BSD), Linux at 108.
+    // Keep sockets in a short per-user /tmp namespace; durable control files
+    // and logs remain under Electron userData.
     socketPath,
     cliBridgeSocketPath,
     logDir,

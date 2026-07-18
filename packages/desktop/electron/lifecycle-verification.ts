@@ -11,6 +11,7 @@ import {
   stopLocalParakeet,
   warmLocalParakeet,
 } from "./dictation/local-parakeet.js";
+import { resolveLifecycleVerificationHome } from "./data-paths.js";
 
 const OUTPUT_ARG = "--verify-lifecycle=";
 const PARAKEET_ARG = "--verify-parakeet";
@@ -49,8 +50,9 @@ export const runLifecycleVerificationFromArgs = async (
   // normally installed app. Production uses the ordinary application name.
   app.setName("Stella Lifecycle Verification");
   await app.whenReady();
-  const stellaDataDir =
-    process.env.STELLA_DATA_DIR?.trim() || app.getPath("userData");
+  const stellaDataDir = resolveLifecycleVerificationHome({
+    explicitPath: process.env.STELLA_V2_LIFECYCLE_VERIFY_DATA_DIR,
+  });
   const modelRoot = path.join(app.getPath("userData"), "models", "parakeet");
   const secret = randomBytes(32).toString("base64url");
   const verificationProvider = `${VERIFICATION_PROVIDER_PREFIX}-${randomBytes(8).toString("hex")}`;

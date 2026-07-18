@@ -23,6 +23,7 @@ import {
   registerBootstrapLifecycle,
 } from "./bootstrap/lifecycle.js";
 import { resolvePackagedPromptSiteUrl } from "./prompt-site-config.js";
+import { resolveDesktopDataPaths } from "./data-paths.js";
 const __dirname = import.meta.dirname;
 // app.isPackaged is the authority. Inherited environment variables must never
 // turn a signed build back into a Vite client.
@@ -32,23 +33,27 @@ const isDev = !app.isPackaged;
 // "Stella Safe Storage". Signed production builds retain the clean name.
 app.setName(isDev ? STELLA_DEV_APP_NAME : STELLA_APP_NAME);
 
-if (isDev) {
-  app.setPath(
-    "userData",
-    path.join(app.getPath("appData"), "Stella Development"),
-  );
-}
+const desktopDataPaths = resolveDesktopDataPaths({
+  isPackaged: app.isPackaged,
+  appDataDir: app.getPath("appData"),
+  devHomeOverride: isDev
+    ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()
+    : undefined,
+});
+// Electron's Library/AppData root is runtime state only. Durable, user-facing
+// Stella data lives in desktopDataPaths.stellaHomeDir.
+app.setPath("userData", desktopDataPaths.electronUserDataDir);
+// The detached worker inherits this explicit ephemeral root. Host and worker
+// lifecycle files/logs must never fall back to the durable Stella home.
+process.env.STELLA_RUNTIME_STATE_DIR = desktopDataPaths.electronUserDataDir;
 
 const stellaAppDir = app.isPackaged
   ? app.getAppPath()
   : path.resolve(__dirname, "..", "..", "..", "..");
-const configuredStatePath = isDev
-  ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()
-  : process.env.STELLA_DATA_DIR?.trim();
 const stellaDataDirPath = resolveRuntimeStatePath(
   app,
   stellaAppDir,
-  configuredStatePath || app.getPath("userData"),
+  desktopDataPaths.stellaHomeDir,
 );
 const useDevServer = isDev;
 const installDevBrokenPipeGuards = () => {
@@ -80,7 +85,7 @@ const startLocalCrashReporter = () => {
 };
 
 export const bootstrapMainProcess = () => {
-  initMainProcessLogging(stellaAppDir);
+  initMainProcessLogging(stellaAppDir, desktopDataPaths.electronUserDataDir);
   installDevBrokenPipeGuards();
   startLocalCrashReporter();
   // Stella ships its own chrome (custom top bar, custom window controls on

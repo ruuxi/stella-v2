@@ -10,6 +10,11 @@ import type {
   UserMessage,
 } from "../../ai/types.js";
 
+/** Structured Manager-descendant lifecycle rows used only by exact-thread UI.
+ * They are never part of model history or the conversation-wide event table. */
+export const RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE =
+  "runtime.task_lifecycle_private";
+
 export type LocalChatEventRecord = {
   _id: string;
   timestamp: number;
@@ -183,6 +188,7 @@ export type RuntimeThreadCustomMessageEntry = RuntimeThreadSessionEntryBase & {
   lifecycleEvent?: {
     type:
       | "agent-started"
+      | "agent-progress"
       | "agent-completed"
       | "agent-failed"
       | "agent-canceled";

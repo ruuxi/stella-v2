@@ -9,9 +9,10 @@ import type {
   UserMessage,
 } from "../../ai/types.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
-import type {
-  PersistedRuntimeThreadPayload,
-  RuntimeThreadCustomMessageEntry,
+import {
+  RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE,
+  type PersistedRuntimeThreadPayload,
+  type RuntimeThreadCustomMessageEntry,
 } from "../storage/shared.js";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import { createRuntimeLogger } from "../debug.js";
@@ -132,6 +133,12 @@ export const buildHistorySource = (
   const messages =
     context.threadHistory
       ?.map((entry): AgentMessage | null => {
+        if (
+          entry.customMessage?.customType ===
+          RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE
+        ) {
+          return null;
+        }
         if (entry.payload) {
           return toRuntimeMessage(entry.payload);
         }

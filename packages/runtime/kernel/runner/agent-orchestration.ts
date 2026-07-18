@@ -33,6 +33,7 @@ import {
 } from "@stella/contracts/file-changes";
 import type { RunnerContext } from "./types.js";
 import { buildAgentEventPrompt } from "./shared.js";
+import { RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE } from "../storage/shared.js";
 
 const collectFileChanges = (
   target: FileChangeRecord[],
@@ -85,7 +86,11 @@ const hasPersistedManagerEvent = (
   return loadThreadMessages
     .call(context.runtimeStore, managerThreadId)
     .some((message) => {
-      if (message.customMessage?.customType !== "runtime.task_lifecycle") {
+      if (
+        message.customMessage?.customType !== "runtime.task_lifecycle" &&
+        message.customMessage?.customType !==
+          RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE
+      ) {
         return false;
       }
       return message.customMessage.eventId === eventId;
@@ -372,6 +377,30 @@ export const createAgentOrchestration = (
       return;
     }
     if (managerOwnership.kind === "invalid") {
+      return;
+    }
+    if (
+      managerParentId &&
+      (event.type === "agent-started" || event.type === "agent-progress")
+    ) {
+      // Starts/progress are exact-thread UI state, not instructions for the
+      // Manager model. Persist a structured private row without waking the
+      // Manager or exposing the descendant in root Activity/history.
+      if (hasPersistedManagerEvent(context, managerParentId, event.eventId)) {
+        return;
+      }
+      persistThreadCustomMessage(context.runtimeStore, {
+        threadKey: managerParentId,
+        customType: RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE,
+        content: [],
+        display: false,
+        timestamp: Date.now(),
+        ...(event.eventId ? { eventId: event.eventId } : {}),
+        lifecycleEvent: {
+          type: event.type,
+          payload: buildLifecycleEventPayload(event),
+        },
+      });
       return;
     }
     const userPrompt = buildAgentEventPrompt(event, {

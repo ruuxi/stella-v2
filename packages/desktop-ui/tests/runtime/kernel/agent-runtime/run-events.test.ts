@@ -869,7 +869,7 @@ describe("subscribeRuntimeAgentEvents", () => {
     );
   });
 
-  it("persists native Manager preambles with durable attempt and turn visibility", () => {
+  it("persists native Manager preambles with durable attempt identity only", () => {
     let listener: ((event: AgentEvent) => void) | undefined;
     const agent = {
       state: { messages: [] },
@@ -912,7 +912,6 @@ describe("subscribeRuntimeAgentEvents", () => {
       conversationId: "conversation-1",
       attemptGeneration: 3,
       managerTurnOrigin: "managed-child",
-      managerTurnVisibility: "internal",
     });
 
     listener?.({ type: "message_end", message: preambleWithTool });
@@ -927,7 +926,6 @@ describe("subscribeRuntimeAgentEvents", () => {
           stellaRunId: "run-current-attempt",
           stellaAttemptGeneration: 3,
           stellaManagerTurnOrigin: "managed-child",
-          stellaManagerTurnVisibility: "internal",
         }),
       }),
     );

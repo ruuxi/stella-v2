@@ -236,9 +236,6 @@ export class SubagentSession extends PiSessionCore {
         ...(opts.agentContext.managerTurnOrigin
           ? { managerTurnOrigin: opts.agentContext.managerTurnOrigin }
           : {}),
-        ...(opts.agentContext.managerTurnVisibility
-          ? { managerTurnVisibility: opts.agentContext.managerTurnVisibility }
-          : {}),
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
       };
       let execution = await executeRuntimeAgentPrompt(executionArgs);

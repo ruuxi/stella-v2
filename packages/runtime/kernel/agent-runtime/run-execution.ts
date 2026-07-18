@@ -113,7 +113,6 @@ export const executeRuntimeAgentPrompt = async (args: {
   uiVisibility?: "visible" | "hidden";
   attemptGeneration?: number;
   managerTurnOrigin?: "initial" | "managed-child" | "external-input";
-  managerTurnVisibility?: "internal" | "parent";
   /**
    * Resume the agent loop from its existing in-memory context instead of
    * appending a new prompt. Used by the safety model-swap retry: the failed
@@ -212,9 +211,6 @@ export const executeRuntimeAgentPrompt = async (args: {
       : {}),
     ...(args.managerTurnOrigin
       ? { managerTurnOrigin: args.managerTurnOrigin }
-      : {}),
-    ...(args.managerTurnVisibility
-      ? { managerTurnVisibility: args.managerTurnVisibility }
       : {}),
   });
 

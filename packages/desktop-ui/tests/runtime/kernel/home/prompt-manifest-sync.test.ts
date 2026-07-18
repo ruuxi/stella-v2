@@ -62,7 +62,10 @@ const buildPromptSyncBundle = async (home: string): Promise<string> => {
   const outfile = path.join(home, "prompt-manifest-sync.bundle.mjs");
   const bundle = build({
     entryPoints: [
-      path.join(repoRoot, "packages/runtime/kernel/home/prompt-manifest-sync.ts"),
+      path.join(
+        repoRoot,
+        "packages/runtime/kernel/home/prompt-manifest-sync.ts",
+      ),
     ],
     outfile,
     bundle: true,
@@ -421,24 +424,16 @@ describe("remote prompt startup sync", () => {
       "spawn_agent",
       "send_input",
       "pause_agent",
+      "report",
     ]);
     expect(fallbackPrompt).toMatch(/\bopen-ended\b/i);
     expect(fallbackPrompt).toMatch(/\bcontinuity\b/i);
     expect(fallbackPrompt).toMatch(/\bfresh independent context\b/i);
     expect(fallbackPrompt).toMatch(/orchestrator(?:'s)? instructions/i);
-    const statusRule = fallbackPrompt
-      .split("\n")
-      .find((line) => line.includes("[Status]"));
-    expect(statusRule).toMatch(/status|update/i);
-    expect(statusRule).toMatch(/incoming|request|asks/i);
-    expect(statusRule).toMatch(/unfinished|active/i);
-    const milestoneRule = fallbackPrompt
-      .split("\n")
-      .find((line) => line.includes("[Milestone]"));
-    expect(milestoneRule).toMatch(/milestone|interim/i);
-    expect(milestoneRule).toMatch(/explicit|request/i);
-    expect(milestoneRule).toMatch(/conditional|only when/i);
-    expect(milestoneRule).toMatch(/otherwise|unsolicited|by default/i);
+    expect(fallbackPrompt).toMatch(/report.*only upward channel/i);
+    expect(fallbackPrompt).toMatch(/exactly once with `final: true`/i);
+    expect(fallbackPrompt).toMatch(/`final: false` sparingly/i);
+    expect(fallbackPrompt).not.toMatch(/\[(?:Status|Milestone)\]/);
     await expect(
       readFile(path.join(home, "agents/general.md"), "utf-8"),
     ).resolves.toBe(`${agentFrontmatter("general")}legacy general\n`);
@@ -466,6 +461,7 @@ describe("remote prompt startup sync", () => {
       "spawn_agent",
       "send_input",
       "pause_agent",
+      "report",
     ]);
   });
 

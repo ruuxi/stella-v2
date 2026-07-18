@@ -64,6 +64,7 @@ describe("loadParsedAgentsFromDir", () => {
       "spawn_agent",
       "send_input",
       "pause_agent",
+      "report",
     ]);
     expect(manager?.maxAgentDepth).toBe(2);
     expect(
@@ -76,16 +77,11 @@ describe("loadParsedAgentsFromDir", () => {
     expect(prompt).toMatch(/\bfresh independent context\b/i);
     expect(prompt).toMatch(/orchestrator(?:'s)? instructions/i);
     expect(prompt).not.toMatch(/brand-new[\s-]+(?:fresh-context )?reviewer/i);
-    expect(prompt).toMatch(/explicitly requests[\s\S]*milestone or interim/i);
-    expect(prompt).toContain("[Milestone]");
-    expect(prompt).toContain("[Status]");
-    expect(prompt).toMatch(/asks for status or an update[\s\S]*unfinished/i);
-    expect(prompt).toMatch(/yield without abandoning or completing/i);
-    expect(prompt).toMatch(/change instructions as steering/i);
-    expect(prompt).toMatch(/sentinels are conditional/i);
-    expect(prompt).toMatch(
-      /otherwise keep intermediate child reports internal/i,
-    );
+    expect(prompt).toMatch(/report.*only upward channel/i);
+    expect(prompt).toMatch(/exactly once with `final: true`/i);
+    expect(prompt).toMatch(/`final: false` sparingly/i);
+    expect(prompt).toMatch(/assistant responses are private/i);
+    expect(prompt).not.toMatch(/\[(?:Status|Milestone)\]/);
   });
 
   it("loads agents when given a directory string path", () => {

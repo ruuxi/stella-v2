@@ -296,6 +296,47 @@ export const handleSendInput = async (
   };
 };
 
+export const handleManagerReport = async (
+  stateContext: StateContext,
+  args: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolResult> => {
+  if (context.agentType !== AGENT_IDS.MANAGER) {
+    return { error: "report is available only to Manager agents." };
+  }
+  const message = toOptionalString(args.message);
+  if (!message) {
+    return { error: "report requires a non-empty message." };
+  }
+  if (!context.agentId) {
+    return { error: "report requires an active Manager thread." };
+  }
+  if (typeof context.attemptGeneration !== "number") {
+    return { error: "report requires an active fenced Manager attempt." };
+  }
+  if (!stateContext.agentApi?.reportManager) {
+    return { error: "Manager reporting is unavailable in this runtime." };
+  }
+
+  const final = args.final === true;
+  const outcome = await stateContext.agentApi.reportManager({
+    threadId: context.agentId,
+    message,
+    final,
+    attemptGeneration: context.attemptGeneration,
+    reportId: context.requestId,
+  });
+  if (!outcome.accepted) {
+    return { error: outcome.reason ?? "Manager report was not accepted." };
+  }
+  return {
+    result: final
+      ? "Final report accepted. End this Manager turn now."
+      : "Intermediate report delivered. Continue managing unless you are blocked waiting for new input.",
+    details: { accepted: true, final },
+  };
+};
+
 export const handleSpawnAgent = async (
   ctx: StateContext,
   args: Record<string, unknown>,

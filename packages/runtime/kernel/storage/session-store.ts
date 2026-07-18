@@ -136,10 +136,9 @@ export type PersistedAgentRecord = {
   attemptGeneration: number;
   /** Root run that owns the thread's latest lifecycle (send_input rebinds it). */
   rootRunId?: string;
-  /** Durable origin/visibility contract for the Manager's queued and active turn. */
+  /** Durable origin/lifecycle contract for the Manager's queued and active turn. */
   pendingManagerTurnOrigin?: "managed-child" | "external-input";
   managerTurnOrigin?: "initial" | "managed-child" | "external-input";
-  managerTurnVisibility?: "internal" | "parent";
   managerTurnLifecycle?: "continue" | "complete-when-idle" | "complete";
   startedAt: number;
   completedAt: number | null;
@@ -4478,10 +4477,9 @@ export class SessionStore {
         attempt_generation,
         pending_manager_turn_origin,
         manager_turn_origin,
-        manager_turn_visibility,
         manager_turn_lifecycle
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET
         conversation_id = excluded.conversation_id,
         agent_type = excluded.agent_type,
@@ -4500,7 +4498,6 @@ export class SessionStore {
         attempt_generation = excluded.attempt_generation,
         pending_manager_turn_origin = excluded.pending_manager_turn_origin,
         manager_turn_origin = excluded.manager_turn_origin,
-        manager_turn_visibility = excluded.manager_turn_visibility,
         manager_turn_lifecycle = excluded.manager_turn_lifecycle
     `,
       )
@@ -4523,7 +4520,6 @@ export class SessionStore {
         record.attemptGeneration ?? 0,
         record.pendingManagerTurnOrigin ?? null,
         record.managerTurnOrigin ?? null,
-        record.managerTurnVisibility ?? null,
         record.managerTurnLifecycle ?? null,
       );
   }
@@ -4533,7 +4529,6 @@ export class SessionStore {
       threadId: string;
       startedAt: number;
       attemptGeneration: number;
-      includeFinalAssistant?: boolean;
     }[],
     limit = AGENT_ASSISTANT_UPDATE_LIMITS.messagesPerThread,
   ): Map<string, Array<{ text: string; atMs: number; entrySequence: number }>> {
@@ -4551,7 +4546,6 @@ export class SessionStore {
               0,
               Math.floor(target.attemptGeneration),
             ),
-            includeFinalAssistant: target.includeFinalAssistant === true,
           },
         ];
       })
@@ -4569,18 +4563,17 @@ export class SessionStore {
     // current attempt qualify; final answers stay on the terminal result.
     const scanLimit =
       cappedLimit * AGENT_ASSISTANT_UPDATE_LIMITS.scanRowsPerMessage;
-    const targetValues = targets.map(() => "(?, ?, ?, ?, ?)").join(", ");
+    const targetValues = targets.map(() => "(?, ?, ?, ?)").join(", ");
     const targetParams = targets.flatMap((target, index) => [
       target.threadId,
       target.startedAt,
       target.attemptGeneration,
-      target.includeFinalAssistant ? 1 : 0,
       index,
     ]);
     const rows = this.db
       .prepare(
         `
-      WITH targets(threadId, startedAt, attemptGeneration, includeFinalAssistant, targetOrder) AS (
+      WITH targets(threadId, startedAt, attemptGeneration, targetOrder) AS (
         VALUES ${targetValues}
       ), ranked AS (
         SELECT
@@ -4590,7 +4583,6 @@ export class SessionStore {
           entries.rowid AS entrySequence,
           entries.data_json AS dataJson,
           targets.targetOrder AS targetOrder,
-          targets.includeFinalAssistant AS includeFinalAssistant,
           ROW_NUMBER() OVER (
             PARTITION BY entries.thread_key
             ORDER BY entries.created_at DESC, entries.rowid DESC
@@ -4600,19 +4592,10 @@ export class SessionStore {
         WHERE entries.created_at >= targets.startedAt
           AND entries.entry_type = 'message'
           AND json_extract(entries.data_json, '$.message.role') = 'assistant'
-          AND (
-            (
-              targets.includeFinalAssistant = 0
-              AND json_extract(entries.data_json, '$.message.stopReason') = 'toolUse'
-            )
-            OR (
-              targets.includeFinalAssistant = 1
-              AND json_extract(entries.data_json, '$.message.stellaManagerTurnVisibility') = 'parent'
-            )
-          )
+          AND json_extract(entries.data_json, '$.message.stopReason') = 'toolUse'
           AND json_extract(entries.data_json, '$.message.stellaAttemptGeneration') = targets.attemptGeneration
       )
-      SELECT threadId, atMs, entryId, entrySequence, dataJson, targetOrder, includeFinalAssistant
+      SELECT threadId, atMs, entryId, entrySequence, dataJson, targetOrder
       FROM ranked
       WHERE messageRank <= ?
       ORDER BY targetOrder ASC, atMs ASC, entrySequence ASC
@@ -4625,7 +4608,6 @@ export class SessionStore {
       entrySequence: number;
       dataJson: string | null;
       targetOrder: number;
-      includeFinalAssistant: number;
     }>;
     const candidates = new Map<
       string,
@@ -4642,12 +4624,7 @@ export class SessionStore {
         continue;
       }
       if (payload?.role !== "assistant") continue;
-      const authoredText = row.includeFinalAssistant
-        ? authoredTextFromAssistantPayload(payload).replace(
-            /^\s*\[(?:Status|Milestone)\]\s*/,
-            "",
-          )
-        : activityUpdateTextFromAssistantPayload(payload);
+      const authoredText = activityUpdateTextFromAssistantPayload(payload);
       const text = truncateAuthoredUpdate(
         authoredText,
         AGENT_ASSISTANT_UPDATE_LIMITS.messageChars,
@@ -4797,7 +4774,6 @@ export class SessionStore {
             threadId: record.threadId,
             startedAt: record.startedAt,
             attemptGeneration: record.attemptGeneration,
-            includeFinalAssistant: record.agentType === AGENT_IDS.MANAGER,
           },
         ],
         limit,
@@ -4823,7 +4799,6 @@ export class SessionStore {
           threadId: record.threadId,
           startedAt: record.startedAt,
           attemptGeneration: record.attemptGeneration,
-          includeFinalAssistant: record.agentType === AGENT_IDS.MANAGER,
         },
       ]).get(record.threadId) ?? [];
     const latest = entries[entries.length - 1];
@@ -4868,7 +4843,6 @@ export class SessionStore {
         attempt_generation,
         pending_manager_turn_origin,
         manager_turn_origin,
-        manager_turn_visibility,
         manager_turn_lifecycle
       FROM runtime_agents
       WHERE thread_id = ?
@@ -4897,9 +4871,6 @@ export class SessionStore {
             | PersistedAgentRecord["pendingManagerTurnOrigin"]
             | null;
           manager_turn_origin: PersistedAgentRecord["managerTurnOrigin"] | null;
-          manager_turn_visibility:
-            | PersistedAgentRecord["managerTurnVisibility"]
-            | null;
           manager_turn_lifecycle:
             | PersistedAgentRecord["managerTurnLifecycle"]
             | null;
@@ -4930,9 +4901,6 @@ export class SessionStore {
         : {}),
       ...(row.manager_turn_origin
         ? { managerTurnOrigin: row.manager_turn_origin }
-        : {}),
-      ...(row.manager_turn_visibility
-        ? { managerTurnVisibility: row.manager_turn_visibility }
         : {}),
       ...(row.manager_turn_lifecycle
         ? { managerTurnLifecycle: row.manager_turn_lifecycle }
@@ -4970,7 +4938,6 @@ export class SessionStore {
         attempt_generation,
         pending_manager_turn_origin,
         manager_turn_origin,
-        manager_turn_visibility,
         manager_turn_lifecycle
       FROM runtime_agents
       WHERE status = ?
@@ -4998,9 +4965,6 @@ export class SessionStore {
         | PersistedAgentRecord["pendingManagerTurnOrigin"]
         | null;
       manager_turn_origin: PersistedAgentRecord["managerTurnOrigin"] | null;
-      manager_turn_visibility:
-        | PersistedAgentRecord["managerTurnVisibility"]
-        | null;
       manager_turn_lifecycle:
         | PersistedAgentRecord["managerTurnLifecycle"]
         | null;
@@ -5029,9 +4993,6 @@ export class SessionStore {
           : {}),
         ...(row.manager_turn_origin
           ? { managerTurnOrigin: row.manager_turn_origin }
-          : {}),
-        ...(row.manager_turn_visibility
-          ? { managerTurnVisibility: row.manager_turn_visibility }
           : {}),
         ...(row.manager_turn_lifecycle
           ? { managerTurnLifecycle: row.manager_turn_lifecycle }
@@ -5112,7 +5073,6 @@ export class SessionStore {
         threadId: row.thread_id,
         startedAt: row.started_at,
         attemptGeneration: row.attempt_generation,
-        includeFinalAssistant: row.agent_type === AGENT_IDS.MANAGER,
       }));
     const assistantMessagesByThread = this.listAgentAssistantMessagesByThread(
       assistantTargets,

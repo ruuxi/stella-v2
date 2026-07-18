@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AGENT_RUN_EMPTY_COMPLETION_ERROR,
   AGENT_RUN_MAX_ATTEMPTS,
   classifyAgentRunFailure,
   executeAgentRunWithRetry,
@@ -46,7 +47,10 @@ describe("agent run transient retry", () => {
 
     expect(result).toEqual({ finalText: "complete output" });
     expect(execute.mock.calls.map(([resume]) => resume)).toEqual([false, true]);
-    expect(prepareResume).toHaveBeenCalledWith(message);
+    expect(prepareResume).toHaveBeenCalledWith(message, {
+      retryable: true,
+      category,
+    });
     expect(sleep).toHaveBeenCalledWith(1_000, undefined);
     expect(onRetry).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -81,6 +85,33 @@ describe("agent run transient retry", () => {
       }),
     ).resolves.toEqual({ finalText: "recovered" });
     expect(execute.mock.calls.map(([resume]) => resume)).toEqual([false, true]);
+  });
+
+  it("classifies a clean empty completion as retryable and recovers", async () => {
+    const execute = vi
+      .fn<
+        (
+          resume: boolean,
+        ) => Promise<{ finalText: string; errorMessage?: string }>
+      >()
+      .mockResolvedValueOnce({ finalText: "" })
+      .mockResolvedValueOnce({ finalText: "recovered" });
+    const prepareResume = vi.fn(() => true);
+
+    await expect(
+      executeAgentRunWithRetry({
+        state: { retriesUsed: 0 },
+        execute,
+        prepareResume,
+        sleep: async () => undefined,
+        random: () => 0.5,
+      }),
+    ).resolves.toEqual({ finalText: "recovered" });
+    expect(execute.mock.calls.map(([resume]) => resume)).toEqual([false, true]);
+    expect(prepareResume).toHaveBeenCalledWith(
+      AGENT_RUN_EMPTY_COMPLETION_ERROR,
+      { retryable: true, category: "empty-completion" },
+    );
   });
 
   it("exhausts after four total attempts with 1s, 2.5s, and 6s backoff", async () => {
@@ -141,31 +172,6 @@ describe("agent run transient retry", () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
-  it("resumes after prior side effects instead of replaying the prompt", async () => {
-    const reportSideEffect = vi.fn();
-    const retainedState = ["user prompt", "report accepted"];
-    const execute = vi.fn(async (resume: boolean) => {
-      if (!resume) {
-        reportSideEffect("stable-report-id");
-        return { finalText: "", errorMessage: "relay_stream_lost" };
-      }
-      expect(retainedState).toEqual(["user prompt", "report accepted"]);
-      return { finalText: "done" };
-    });
-
-    const result = await executeAgentRunWithRetry({
-      state: { retriesUsed: 0 },
-      execute,
-      prepareResume: () => true,
-      sleep: async () => undefined,
-      random: () => 0.5,
-    });
-
-    expect(result.finalText).toBe("done");
-    expect(reportSideEffect).toHaveBeenCalledOnce();
-    expect(execute.mock.calls.map(([resume]) => resume)).toEqual([false, true]);
-  });
-
   it("fails clearly instead of accepting a partial model error as success", async () => {
     const result = await executeAgentRunWithRetry({
       state: { retriesUsed: 3 },
@@ -181,6 +187,24 @@ describe("agent run transient retry", () => {
       finalText: "truncated result",
       errorMessage:
         "Agent run failed after 4 attempts (3 automatic retries): relay_stream_lost",
+    });
+  });
+
+  it("fails persistent empty completions after exactly four execution attempts", async () => {
+    const execute = vi.fn(async () => ({ finalText: "" }));
+    const result = await executeAgentRunWithRetry({
+      state: { retriesUsed: 0 },
+      execute,
+      prepareResume: () => true,
+      sleep: async () => undefined,
+      random: () => 0.5,
+    });
+
+    expect(execute).toHaveBeenCalledTimes(4);
+    expect(result).toEqual({
+      finalText: "",
+      errorMessage:
+        "Agent run failed after 4 attempts (3 automatic retries): Model returned an empty completion with no text or tool calls.",
     });
   });
 });

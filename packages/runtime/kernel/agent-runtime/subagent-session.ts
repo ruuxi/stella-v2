@@ -248,9 +248,10 @@ export class SubagentSession extends PiSessionCore {
               ...executionArgs,
               ...(resume ? { resume: true } : {}),
             }),
-          prepareResume: (errorMessage) =>
+          prepareResume: (errorMessage, classification) =>
             this.prepareTransientFailureRetry(agent, {
               errorMessage,
+              classification,
               logContext: { threadId: this.threadId, runId },
             }),
           ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),

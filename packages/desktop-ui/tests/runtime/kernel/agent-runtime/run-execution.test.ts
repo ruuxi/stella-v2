@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { executeRuntimeAgentPrompt } from "@stella/runtime/kernel/agent-runtime/run-execution";
+import { executeAgentRunWithRetry } from "@stella/runtime/kernel/agent-runtime/run-retry";
 
 const createAssistantMessage = (text: string) => ({
   role: "assistant" as const,
@@ -46,11 +47,13 @@ describe("executeRuntimeAgentPrompt", () => {
 
     const result = await executeRuntimeAgentPrompt({
       agent,
-      promptMessages: [{
-        text: "Hidden reminder",
-        uiVisibility: "hidden",
-        messageType: "message",
-      }],
+      promptMessages: [
+        {
+          text: "Hidden reminder",
+          uiVisibility: "hidden",
+          messageType: "message",
+        },
+      ],
       runId: "run-1",
       agentType: "orchestrator",
       userMessageId: "msg-1",
@@ -93,10 +96,12 @@ describe("executeRuntimeAgentPrompt", () => {
 
     await executeRuntimeAgentPrompt({
       agent,
-      promptMessages: [{
-        text: "Visible user message",
-        uiVisibility: "visible",
-      }],
+      promptMessages: [
+        {
+          text: "Visible user message",
+          uiVisibility: "visible",
+        },
+      ],
       runId: "run-2",
       agentType: "orchestrator",
       userMessageId: "msg-2",
@@ -158,6 +163,81 @@ describe("executeRuntimeAgentPrompt", () => {
     }
   });
 
+  it("waits for an aborted Agent loop to settle before a retry resumes", async () => {
+    const previousTimeout = process.env.STELLA_AGENT_STARTUP_IDLE_TIMEOUT_MS;
+    process.env.STELLA_AGENT_STARTUP_IDLE_TIMEOUT_MS = "20";
+    let activeAttempt = false;
+    let settleAttempt: (() => void) | undefined;
+    let settledAt = 0;
+    let resumedAt = 0;
+    const agent = {
+      state: {
+        messages: [] as Array<ReturnType<typeof createAssistantMessage>>,
+      },
+      subscribe: vi.fn(() => () => {}),
+      prompt: vi.fn(() => {
+        activeAttempt = true;
+        return new Promise<void>((resolve) => {
+          settleAttempt = resolve;
+        });
+      }),
+      followUp: vi.fn(),
+      continue: vi.fn(async () => {
+        expect(activeAttempt).toBe(false);
+        resumedAt = Date.now();
+        agent.state.messages = [createAssistantMessage("done")];
+      }),
+      abort: vi.fn(() => {
+        setTimeout(() => {
+          agent.state.messages = [
+            {
+              ...createAssistantMessage(""),
+              stopReason: "error",
+              errorMessage: "Agent did not produce activity",
+            } as never,
+          ];
+          activeAttempt = false;
+          settledAt = Date.now();
+          settleAttempt?.();
+        }, 50);
+      }),
+    };
+
+    try {
+      const result = await executeAgentRunWithRetry({
+        state: { retriesUsed: 0 },
+        execute: (resume) =>
+          executeRuntimeAgentPrompt({
+            agent,
+            ...(resume ? { resume: true } : { promptText: "wait then retry" }),
+            runId: "settlement-run",
+            agentType: "general",
+            userMessageId: "settlement-user",
+            recorder: {} as never,
+          }),
+        prepareResume: () => {
+          expect(activeAttempt).toBe(false);
+          agent.state.messages.pop();
+          return true;
+        },
+        sleep: async () => undefined,
+        random: () => 0.5,
+      });
+
+      expect(result.finalText).toBe("done");
+      expect(agent.abort).toHaveBeenCalledOnce();
+      expect(agent.continue).toHaveBeenCalledOnce();
+      expect(settledAt).toBeGreaterThan(0);
+      expect(resumedAt).toBeGreaterThanOrEqual(settledAt);
+    } finally {
+      if (previousTimeout === undefined) {
+        delete process.env.STELLA_AGENT_STARTUP_IDLE_TIMEOUT_MS;
+      } else {
+        process.env.STELLA_AGENT_STARTUP_IDLE_TIMEOUT_MS = previousTimeout;
+      }
+    }
+  });
+
   it("does not treat a silent in-flight tool as an idle agent", async () => {
     const previousTimeout = process.env.STELLA_AGENT_IDLE_TIMEOUT_MS;
     process.env.STELLA_AGENT_IDLE_TIMEOUT_MS = "25";
@@ -174,9 +254,10 @@ describe("executeRuntimeAgentPrompt", () => {
         return () => listeners.delete(listener);
       }),
       prompt: vi.fn(
-        () => new Promise<void>((resolve) => {
-          finishPrompt = resolve;
-        }),
+        () =>
+          new Promise<void>((resolve) => {
+            finishPrompt = resolve;
+          }),
       ),
       followUp: vi.fn(),
       continue: vi.fn(),

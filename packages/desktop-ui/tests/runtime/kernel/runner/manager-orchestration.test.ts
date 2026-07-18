@@ -32,7 +32,16 @@ import {
 } from "@stella/runtime/kernel/storage/shared";
 import { buildBackgroundTaskLifecycleIndex } from "@/features/chat/lib/background-task-lifecycle";
 import { buildHistorySource } from "@stella/runtime/kernel/agent-runtime/thread-memory";
+import { SubagentSession } from "@stella/runtime/kernel/agent-runtime/subagent-session";
+import type { SubagentRunOptions } from "@stella/runtime/kernel/agent-runtime/types";
 import { resolveOrchestratorThreadKey } from "@stella/runtime/kernel/thread-runtime";
+
+const sessionExecutionMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@stella/runtime/kernel/agent-runtime/run-execution", () => ({
+  executeRuntimeAgentPrompt: (...args: unknown[]) =>
+    sessionExecutionMock(...args),
+}));
 
 type MockRunArgs = {
   agentId?: string;
@@ -44,6 +53,7 @@ type MockRunArgs = {
       runId: string;
       seq: number;
       statusText: string;
+      statusState?: string;
     }) => void;
     onToolStart?: (event: {
       runId: string;
@@ -57,6 +67,7 @@ type MockRunArgs = {
     threadHistory?: Array<{ content: string }>;
     attemptGeneration?: number;
   };
+  subagentSession?: SubagentSession;
 };
 
 const runMock = vi.hoisted(() => ({
@@ -66,6 +77,7 @@ const runMock = vi.hoisted(() => ({
         runId: string;
         result: string;
         interrupted?: boolean;
+        error?: string;
       }>),
 }));
 
@@ -94,6 +106,7 @@ type Harness = {
   manager: LocalAgentManager;
   appendedEvents: LocalChatAppendEventArgs[];
   sentMessages: SentMessage[];
+  rootStatusEvents: Array<{ statusText: string; statusState?: string }>;
   fetchedModelConfigs: Array<AgentModelConfigSnapshot | undefined>;
 };
 
@@ -171,6 +184,10 @@ const createHarness = (options?: {
   const store = new SessionStore(db);
   const appendedEvents: LocalChatAppendEventArgs[] = [];
   const sentMessages: SentMessage[] = [];
+  const rootStatusEvents: Array<{
+    statusText: string;
+    statusState?: string;
+  }> = [];
   const fetchedModelConfigs: Array<AgentModelConfigSnapshot | undefined> = [];
   const context = {
     stellaAppDir: rootPath,
@@ -184,7 +201,20 @@ const createHarness = (options?: {
     notifyThreadActivityUpdated: vi.fn(),
     state: {
       localAgentManager: null,
-      runCallbacksByRunId: new Map(),
+      runCallbacksByRunId: new Map([
+        [
+          "root-run-status",
+          {
+            onStream: vi.fn(),
+            onToolStart: vi.fn(),
+            onToolEnd: vi.fn(),
+            onError: vi.fn(),
+            onEnd: vi.fn(),
+            onStatus: (event: { statusText: string; statusState?: string }) =>
+              rootStatusEvents.push(event),
+          },
+        ],
+      ]),
       conversationCallbacks: new Map(),
       convexSiteUrl: null,
       authToken: null,
@@ -227,6 +257,7 @@ const createHarness = (options?: {
     manager: context.state.localAgentManager!,
     appendedEvents,
     sentMessages,
+    rootStatusEvents,
     fetchedModelConfigs,
   };
   harnesses.add(harness);
@@ -248,6 +279,7 @@ const closeHarness = async (
 
 afterEach(async () => {
   runMock.handler = null;
+  sessionExecutionMock.mockReset();
   for (const harness of harnesses) {
     await closeHarness(harness);
   }
@@ -256,9 +288,117 @@ afterEach(async () => {
 });
 
 describe("manager orchestration production routing", () => {
+  it("routes native persistent-empty exhaustion to the owning Manager only", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const harness = createHarness();
+    const { manager, store, sentMessages } = harness;
+    let providerAttempt = 0;
+    sessionExecutionMock.mockImplementation(async ({ agent }) => {
+      providerAttempt += 1;
+      agent.state.messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: "" }],
+        api: "openai-completions",
+        provider: "test",
+        model: "test-model",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+          },
+        },
+        stopReason: "stop",
+        timestamp: providerAttempt,
+      });
+      return { finalText: "" };
+    });
+    runMock.handler = async (args) => {
+      if (args.agentType === AGENT_IDS.MANAGER) {
+        await waitForAbort(args.abortSignal);
+        return { runId: "empty-owner-manager", result: "", interrupted: true };
+      }
+      const session =
+        args.subagentSession ??
+        new SubagentSession(
+          args.agentId ?? "missing-agent",
+          "conversation-empty-owner",
+          args.agentType,
+        );
+      return await session.runTurn(args as unknown as SubagentRunOptions);
+    };
+
+    try {
+      const managerTask = await manager.createAgent({
+        threadId: "empty-owner-manager",
+        conversationId: "conversation-empty-owner",
+        description: "Own empty child failure",
+        prompt: "Handle the child failure.",
+        agentType: AGENT_IDS.MANAGER,
+        storageMode: "local",
+      });
+      const childTask = await manager.createAgent({
+        threadId: "persistent-empty-child",
+        conversationId: "conversation-empty-owner",
+        description: "Return a real result",
+        prompt: "Do not return empty output.",
+        agentType: AGENT_IDS.GENERAL,
+        parentAgentId: managerTask.threadId,
+        storageMode: "local",
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(2_500);
+      await vi.advanceTimersByTimeAsync(6_000);
+      await vi.waitFor(
+        async () =>
+          expect((await manager.getAgent(childTask.threadId))?.status).toBe(
+            "error",
+          ),
+        { timeout: 1_000 },
+      );
+      expect(sessionExecutionMock).toHaveBeenCalledTimes(4);
+      const managerFailures = store
+        .loadThreadMessages(managerTask.threadId)
+        .filter(
+          (message) =>
+            message.customMessage?.lifecycleEvent?.type === "agent-failed",
+        );
+      expect(managerFailures).toHaveLength(1);
+      expect(JSON.stringify(managerFailures)).toContain(
+        "failed after 4 attempts",
+      );
+      expect(JSON.stringify(managerFailures)).toContain("empty completion");
+      expect(
+        sentMessages.filter((message) =>
+          message.text.includes("empty completion"),
+        ),
+      ).toHaveLength(0);
+    } finally {
+      manager.shutdown();
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+  });
+
   it("projects production manager-private progress and transitive lifecycle into canonical cards", async () => {
-    const { manager, store, db, appendedEvents, sentMessages } =
-      createHarness();
+    const {
+      manager,
+      store,
+      db,
+      appendedEvents,
+      sentMessages,
+      rootStatusEvents,
+    } = createHarness();
     let releaseFirstCompletion!: () => void;
     const firstCompletionGate = new Promise<void>((resolve) => {
       releaseFirstCompletion = resolve;
@@ -310,6 +450,7 @@ describe("manager orchestration production routing", () => {
           seq: 1,
           statusText:
             "Task hit a transient server error — retrying attempt 2/4 in 1s",
+          statusState: "provider-retry",
         });
         await failureGate;
         throw new Error("Production managed-child failure.");
@@ -351,6 +492,7 @@ describe("manager orchestration production routing", () => {
         engineModel: "fable",
         reasoningEffort: "high",
       },
+      rootRunId: "root-run-status",
     });
     await waitUntil(
       async () =>
@@ -445,6 +587,7 @@ describe("manager orchestration production routing", () => {
         agentDepth: 2,
         maxAgentDepth: 3,
         parentAgentId: managerTask.threadId,
+        rootRunId: "root-run-status",
         storageMode: "local",
       });
       appendClaudeResult(callId, "spawn_agent", {
@@ -588,6 +731,11 @@ describe("manager orchestration production routing", () => {
     expect(
       sentMessages.filter((message) =>
         message.text.includes("Production managed-child failure."),
+      ),
+    ).toHaveLength(0);
+    expect(
+      rootStatusEvents.filter(
+        (event) => event.statusState === "provider-retry",
       ),
     ).toHaveLength(0);
 

@@ -16,6 +16,7 @@ import {
 } from "./provider-abort-containment.js";
 import { createRuntimeAgent, resolveAgentThinkingLevel } from "./shared.js";
 import { buildHistorySource } from "./thread-memory.js";
+import type { AgentRunFailureClassification } from "./run-retry.js";
 
 type CreateRuntimeAgentArgs = Parameters<typeof createRuntimeAgent>[0];
 
@@ -226,14 +227,41 @@ export class PiSessionCore {
    */
   protected prepareTransientFailureRetry(
     agent: Agent,
-    args: { errorMessage: string; logContext: SessionLogContext },
+    args: {
+      errorMessage: string;
+      classification: AgentRunFailureClassification;
+      logContext: SessionLogContext;
+    },
   ): boolean {
-    if (!this.popErroredTailForResume(agent)) return false;
+    const prepared =
+      args.classification.category === "empty-completion"
+        ? this.popEmptyCompletionTailForResume(agent)
+        : this.popErroredTailForResume(agent);
+    if (!prepared) return false;
     this.logger.warn("transient-run-retry", {
       threadKey: this.threadKey,
       providerError: args.errorMessage,
       ...args.logContext,
     });
+    return true;
+  }
+
+  private popEmptyCompletionTailForResume(agent: Agent): boolean {
+    const messages = agent.state.messages;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant") return false;
+    if (last.stopReason !== "stop" && last.stopReason !== "length") {
+      return false;
+    }
+    const hasUsableOutput = last.content.some(
+      (block) =>
+        block.type === "toolCall" ||
+        (block.type === "text" && block.text.trim().length > 0),
+    );
+    if (hasUsableOutput) return false;
+    const tailAfterPop = messages[messages.length - 2];
+    if (tailAfterPop?.role === "assistant") return false;
+    messages.pop();
     return true;
   }
 

@@ -178,6 +178,16 @@ export type RuntimeThreadCustomMessageEntry = RuntimeThreadSessionEntryBase & {
   display: boolean;
   /** Structured lifecycle dedup key; never inferred from message text. */
   eventId?: string;
+  /** Thread-private lifecycle data for manager-owned descendants. These
+   * events intentionally do not enter the conversation-wide event table. */
+  lifecycleEvent?: {
+    type:
+      | "agent-started"
+      | "agent-completed"
+      | "agent-failed"
+      | "agent-canceled";
+    payload: Record<string, unknown>;
+  };
 };
 
 export type RuntimeThreadLabelEntry = RuntimeThreadSessionEntryBase & {
@@ -215,7 +225,7 @@ export type RuntimeThreadMessage = {
   payload?: PersistedRuntimeThreadPayload;
   customMessage?: Pick<
     RuntimeThreadCustomMessageEntry,
-    "customType" | "content" | "display" | "eventId"
+    "customType" | "content" | "display" | "eventId" | "lifecycleEvent"
   >;
 };
 

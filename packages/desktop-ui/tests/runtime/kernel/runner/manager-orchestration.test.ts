@@ -28,6 +28,7 @@ import type {
   LocalChatAppendEventArgs,
   SqliteDatabase,
 } from "@stella/runtime/kernel/storage/shared";
+import { buildBackgroundTaskLifecycleIndex } from "@/features/chat/lib/background-task-lifecycle";
 
 type MockRunArgs = {
   agentId?: string;
@@ -211,6 +212,322 @@ afterEach(async () => {
 });
 
 describe("manager orchestration production routing", () => {
+  it("projects production manager-owned Claude terminals into private canonical cards", async () => {
+    const { manager, store, appendedEvents } = createHarness();
+    let releaseFirstCompletion!: () => void;
+    const firstCompletionGate = new Promise<void>((resolve) => {
+      releaseFirstCompletion = resolve;
+    });
+    let releaseFollowUpCompletion!: () => void;
+    const followUpCompletionGate = new Promise<void>((resolve) => {
+      releaseFollowUpCompletion = resolve;
+    });
+    let releaseFailure!: () => void;
+    const failureGate = new Promise<void>((resolve) => {
+      releaseFailure = resolve;
+    });
+    let completedAttempts = 0;
+    runMock.handler = async (args) => {
+      if (args.agentType === AGENT_IDS.MANAGER) {
+        await waitForAbort(args.abortSignal);
+        return { runId: "manager-interrupted", result: "", interrupted: true };
+      }
+      if (args.agentId === "private-completed-child") {
+        completedAttempts += 1;
+        await (completedAttempts === 1
+          ? firstCompletionGate
+          : followUpCompletionGate);
+        return {
+          runId: `private-completed-${completedAttempts}`,
+          result:
+            completedAttempts === 1
+              ? "First production completion."
+              : "Production follow-up completion.",
+        };
+      }
+      if (args.agentId === "private-failed-child") {
+        await failureGate;
+        throw new Error("Production managed-child failure.");
+      }
+      if (args.agentId === "private-canceled-child") {
+        await waitForAbort(args.abortSignal);
+        return { runId: "private-canceled", result: "", interrupted: true };
+      }
+      throw new Error(`Unexpected agent ${args.agentId}`);
+    };
+
+    const conversationId = "conversation-private-claude-lifecycle";
+    const managerTask = await manager.createAgent({
+      threadId: "private-claude-manager",
+      conversationId,
+      description: "Coordinate private Claude lifecycle",
+      prompt: "Coordinate the private children.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      maxAgentDepth: 2,
+      storageMode: "local",
+      modelConfigSnapshot: {
+        engine: "claude_code_local",
+        routeModel: "stella/anthropic/claude-fable-5",
+        engineModel: "fable",
+        reasoningEffort: "high",
+      },
+    });
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(managerTask.threadId))?.status === "running",
+    );
+
+    const appendClaudeCall = (args: {
+      id: string;
+      name: string;
+      arguments: Record<string, unknown>;
+    }) => {
+      const transportTimestamp = Date.now();
+      store.appendThreadMessage({
+        threadKey: managerTask.threadId,
+        timestamp: transportTimestamp,
+        role: "assistant",
+        content: "",
+        payload: {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: args.id,
+              name: args.name,
+              arguments: args.arguments,
+            },
+          ],
+          api: "anthropic-messages",
+          provider: "anthropic",
+          model: "claude-code",
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0,
+            },
+          },
+          stopReason: "toolUse",
+          timestamp: transportTimestamp,
+        } as never,
+      });
+    };
+    const appendClaudeResult = (
+      id: string,
+      toolName: string,
+      result: Record<string, unknown> | string,
+    ) => {
+      const transportTimestamp = Date.now();
+      const text = typeof result === "string" ? result : JSON.stringify(result);
+      store.appendThreadMessage({
+        threadKey: managerTask.threadId,
+        timestamp: transportTimestamp,
+        role: "toolResult",
+        toolCallId: id,
+        content: text,
+        payload: {
+          role: "toolResult",
+          toolCallId: id,
+          toolName,
+          content: [{ type: "text", text }],
+          isError: false,
+          timestamp: transportTimestamp,
+        } as never,
+      });
+    };
+    const spawnPrivateChild = async (args: {
+      threadId: string;
+      description: string;
+    }) => {
+      const callId = `mcp:private:${args.threadId}:spawn`;
+      appendClaudeCall({
+        id: callId,
+        name: "spawn_agent",
+        arguments: {
+          description: args.description,
+          prompt: `Private prompt for ${args.threadId}`,
+        },
+      });
+      const task = await manager.createAgent({
+        threadId: args.threadId,
+        conversationId,
+        description: args.description,
+        prompt: `Run ${args.description}.`,
+        agentType: AGENT_IDS.GENERAL,
+        agentDepth: 2,
+        maxAgentDepth: 2,
+        parentAgentId: managerTask.threadId,
+        storageMode: "local",
+      });
+      appendClaudeResult(callId, "spawn_agent", {
+        thread_id: task.threadId,
+        created: true,
+        running_in_background: true,
+      });
+      return task;
+    };
+
+    const completedTask = await spawnPrivateChild({
+      threadId: "private-completed-child",
+      description: "Complete private verification",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    releaseFirstCompletion();
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(completedTask.threadId))?.status ===
+        "completed",
+    );
+
+    const followUpCallId = "mcp:private:completed:follow-up";
+    appendClaudeCall({
+      id: followUpCallId,
+      name: "send_input",
+      arguments: {
+        thread_id: completedTask.threadId,
+        description: "Recheck private verification",
+        message: "Private follow-up prompt",
+      },
+    });
+    await manager.sendAgentMessage(
+      completedTask.threadId,
+      "Run the private follow-up.",
+      "orchestrator",
+      {
+        deliveryKind: "external-input",
+        parentAgentId: managerTask.threadId,
+      },
+    );
+    appendClaudeResult(followUpCallId, "send_input", {
+      thread_id: completedTask.threadId,
+      status: "updated",
+      delivered: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    releaseFollowUpCompletion();
+    await waitUntil(
+      () =>
+        (store.getAgentRecord(completedTask.threadId)?.attemptGeneration ?? 0) >
+          1 &&
+        store.getAgentRecord(completedTask.threadId)?.status === "completed",
+    );
+
+    const failedTask = await spawnPrivateChild({
+      threadId: "private-failed-child",
+      description: "Fail private verification",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    releaseFailure();
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(failedTask.threadId))?.status === "error",
+    );
+
+    const canceledTask = await spawnPrivateChild({
+      threadId: "private-canceled-child",
+      description: "Cancel private verification",
+    });
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(canceledTask.threadId))?.status === "running",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await manager.cancelAgent(canceledTask.threadId, AGENT_PAUSE_CANCEL_REASON);
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(canceledTask.threadId))?.status === "canceled",
+    );
+
+    appendClaudeCall({
+      id: "mcp:private:generic-read",
+      name: "Read",
+      arguments: { file_path: "/private/generic-tool-input" },
+    });
+    appendClaudeResult(
+      "mcp:private:generic-read",
+      "Read",
+      "private generic tool result",
+    );
+
+    await waitUntil(
+      () =>
+        store
+          .loadThreadMessages(managerTask.threadId)
+          .filter(
+            (message) =>
+              message.customMessage?.customType === "runtime.task_lifecycle",
+          ).length === 4,
+    );
+    const reminders = store
+      .loadThreadMessages(managerTask.threadId)
+      .filter(
+        (message) =>
+          message.customMessage?.customType === "runtime.task_lifecycle",
+      );
+    expect(
+      reminders.map((message) => message.customMessage?.lifecycleEvent?.type),
+    ).toEqual([
+      "agent-completed",
+      "agent-completed",
+      "agent-failed",
+      "agent-canceled",
+    ]);
+
+    const privateChildIds = new Set([
+      completedTask.threadId,
+      failedTask.threadId,
+      canceledTask.threadId,
+    ]);
+    expect(
+      appendedEvents.filter((event) =>
+        privateChildIds.has(
+          String((event.payload as { agentId?: unknown })?.agentId ?? ""),
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      store
+        .listActivity(conversationId)
+        .activities.filter((event) =>
+          privateChildIds.has(String(event.payload?.agentId ?? "")),
+        ),
+    ).toEqual([]);
+
+    const transcript = store.listThreadTranscript(managerTask.threadId);
+    const lifecycleEvents =
+      transcript?.entries.flatMap((entry) =>
+        entry.kind === "lifecycle" ? [entry.lifecycleEvent] : [],
+      ) ?? [];
+    const cards = [
+      ...buildBackgroundTaskLifecycleIndex(
+        lifecycleEvents,
+      ).byStartEventId.values(),
+    ];
+    expect(
+      cards
+        .filter((card) => card.agentId === completedTask.threadId)
+        .map((card) => card.status),
+    ).toEqual(["completed", "completed"]);
+    expect(
+      cards.find((card) => card.agentId === failedTask.threadId)?.status,
+    ).toBe("failed");
+    expect(
+      cards.find((card) => card.agentId === canceledTask.threadId)?.status,
+    ).toBe("canceled");
+    expect(JSON.stringify(transcript)).not.toMatch(
+      /spawn_agent|send_input|generic-read|generic-tool-input|generic tool result|Private prompt|Private follow-up prompt/,
+    );
+  });
+
   it("persists stable attempt identity on failed and canceled terminals", async () => {
     const { manager, appendedEvents } = createHarness();
     runMock.handler = async (args) => {

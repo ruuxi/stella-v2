@@ -684,17 +684,6 @@ describe("agent-authored assistant updates", () => {
       timestamp: 3_004,
     });
     const firstCompletionId = `${childId}:1:agent-completed`;
-    context.store.appendEvent({
-      conversationId,
-      eventId: firstCompletionId,
-      timestamp: 3_005,
-      type: "agent-completed",
-      payload: {
-        agentId: childId,
-        attemptGeneration: 1,
-        result: "Surface 1 implementation completed cleanly.",
-      },
-    });
     context.store.appendThreadCustomMessage({
       threadKey: threadId,
       timestamp: 3_005,
@@ -707,6 +696,14 @@ describe("agent-authored assistant updates", () => {
       ],
       display: false,
       eventId: firstCompletionId,
+      lifecycleEvent: {
+        type: "agent-completed",
+        payload: {
+          agentId: childId,
+          attemptGeneration: 1,
+          result: "Surface 1 implementation completed cleanly.",
+        },
+      },
     });
     context.store.appendThreadMessage({
       threadKey: threadId,
@@ -765,17 +762,6 @@ describe("agent-authored assistant updates", () => {
       } as never,
     });
     const followUpCompletionId = `${childId}:3:agent-completed`;
-    context.store.appendEvent({
-      conversationId,
-      eventId: followUpCompletionId,
-      timestamp: 3_008,
-      type: "agent-completed",
-      payload: {
-        agentId: childId,
-        attemptGeneration: 3,
-        result: "Surface 1 follow-up confirmed clean.",
-      },
-    });
     context.store.appendThreadCustomMessage({
       threadKey: threadId,
       timestamp: 3_008,
@@ -783,6 +769,14 @@ describe("agent-authored assistant updates", () => {
       content: "[Agent completed] raw follow-up routing reminder",
       display: false,
       eventId: followUpCompletionId,
+      lifecycleEvent: {
+        type: "agent-completed",
+        payload: {
+          agentId: childId,
+          attemptGeneration: 3,
+          result: "Surface 1 follow-up confirmed clean.",
+        },
+      },
     });
 
     const beforeReload = context.store.listThreadTranscript(threadId);

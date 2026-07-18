@@ -179,7 +179,7 @@ type RuntimeAgentRecord = {
   managerFinalReportId?: string;
   /** Tool call ids already accepted as reports in this Manager run. */
   managerReportIds: Set<string>;
-  /** Monotonic event suffix for multiple intermediate reports in one attempt. */
+  /** Monotonic count of durably acknowledged intermediate reports. */
   managerReportSequence: number;
   /** This turn explicitly opened a non-terminal upward boundary. */
   managerIntermediateReportInTurn: boolean;
@@ -786,11 +786,11 @@ export class LocalAgentManager implements AgentToolApi {
     const runningRecords =
       this.opts.listAgentRecordsByStatus?.("running") ?? [];
     for (const record of runningRecords) {
-      if (
-        record.agentType === AGENT_IDS.MANAGER &&
-        record.managerFinalReport &&
-        record.managerFinalReportId
-      ) {
+      if (record.agentType === AGENT_IDS.MANAGER) {
+        const result =
+          record.managerFinalReport && record.managerFinalReportId
+            ? record.managerFinalReport
+            : MANAGER_MISSING_FINAL_REPORT_FALLBACK;
         const eventId = `${record.threadId}:${record.attemptGeneration}:agent-completed`;
         if (
           !this.opts.hasAgentLifecycleEvent?.(
@@ -808,7 +808,7 @@ export class LocalAgentManager implements AgentToolApi {
             agentType: record.agentType,
             description: record.description,
             parentAgentId: record.parentAgentId,
-            result: record.managerFinalReport,
+            result,
             attemptGeneration: record.attemptGeneration,
           });
         }
@@ -816,7 +816,7 @@ export class LocalAgentManager implements AgentToolApi {
           ...record,
           status: "completed",
           completedAt: now,
-          result: record.managerFinalReport,
+          result,
           error: undefined,
           updatedAt: now,
         });
@@ -1069,6 +1069,13 @@ export class LocalAgentManager implements AgentToolApi {
     return `${task.threadId}:${task.attemptGeneration}:${type}`;
   }
 
+  private managerReportEventId(
+    task: RuntimeAgentRecord,
+    reportId: string,
+  ): string {
+    return `${task.threadId}:${task.attemptGeneration}:manager-report:${encodeURIComponent(reportId)}`;
+  }
+
   private assertActiveParentChain(request: AgentToolRequest): void {
     if (!request.parentAgentId) return;
     const visited = new Set<string>();
@@ -1088,6 +1095,15 @@ export class LocalAgentManager implements AgentToolApi {
       if (!this.isActiveAgentState(parent)) {
         throw new Error(
           `Cannot create a child because parent thread ${cursor} is paused or finished.`,
+        );
+      }
+      if (
+        parent.agentType === AGENT_IDS.MANAGER &&
+        parent.managerFinalReport &&
+        parent.managerFinalReportId
+      ) {
+        throw new Error(
+          `Cannot create a child because Manager thread ${cursor} sealed its fleet after accepting a final report.`,
         );
       }
       cursor = parent.parentAgentId;
@@ -1124,6 +1140,13 @@ export class LocalAgentManager implements AgentToolApi {
       return {
         adopted: false,
         reason: "A paused or finished manager cannot adopt threads.",
+      };
+    }
+    if (manager.managerFinalReport && manager.managerFinalReportId) {
+      return {
+        adopted: false,
+        reason:
+          "A Manager cannot adopt threads after its final report has sealed the fleet.",
       };
     }
     const target = this.getAgentState(threadId);
@@ -1878,7 +1901,16 @@ export class LocalAgentManager implements AgentToolApi {
       }
     }
 
-    this.persistTask(task);
+    // Manager completion is event-first. If the process dies after the
+    // durable lifecycle append but before this row becomes completed,
+    // restart recovery sees the still-running row, detects the stable event
+    // id, and only closes the row instead of emitting a duplicate. Other
+    // agent types retain their existing row-first terminal ordering.
+    const persistAfterTerminalEvent =
+      task.agentType === AGENT_IDS.MANAGER && task.status === "completed";
+    if (!persistAfterTerminalEvent) {
+      this.persistTask(task);
+    }
 
     // Emit task lifecycle event
     if (!task.terminalEventEmitted) {
@@ -1950,6 +1982,9 @@ export class LocalAgentManager implements AgentToolApi {
         });
       }
       task.terminalEventEmitted = true;
+    }
+    if (persistAfterTerminalEvent) {
+      this.persistTask(task);
     }
 
     // Sync task completion to Convex in background (non-blocking)
@@ -2736,6 +2771,27 @@ export class LocalAgentManager implements AgentToolApi {
         reason: "Manager report requires a non-empty message.",
       };
     }
+    const intermediateEventId = request.final
+      ? undefined
+      : this.managerReportEventId(task, request.reportId);
+    if (
+      intermediateEventId &&
+      !task.managerReportIds.has(request.reportId) &&
+      this.opts.hasAgentLifecycleEvent?.(
+        task.conversationId,
+        intermediateEventId,
+        "agent-message",
+      )
+    ) {
+      // The hidden orchestrator update is already durable, but the process
+      // failed before its acknowledgement fields were stored. Rebuild the
+      // durable acknowledgement without emitting the update again.
+      task.managerIntermediateReportInTurn = true;
+      task.managerReportIds.add(request.reportId);
+      task.managerReportSequence += 1;
+      this.persistTask(task);
+      return { accepted: true, final: false };
+    }
     if (task.managerReportIds.has(request.reportId)) {
       if (
         (!request.final && task.managerFinalReportId !== request.reportId) ||
@@ -2767,24 +2823,23 @@ export class LocalAgentManager implements AgentToolApi {
       };
     }
 
-    task.managerReportIds.add(request.reportId);
     if (request.final) {
       // Persist before the turn can finish. A restarted worker recovers this
       // accepted payload and stable call identity into one completion event.
       task.managerFinalReport = message;
       task.managerFinalReportId = request.reportId;
+      task.managerReportIds.add(request.reportId);
       task.managerIntermediateReportInTurn = false;
       this.persistTask(task);
       return { accepted: true, final: true };
     }
 
     task.managerIntermediateReportInTurn = true;
-    task.managerReportSequence += 1;
-    this.persistTask(task);
+    const nextSequence = task.managerReportSequence + 1;
     this.opts.onAgentEvent?.({
       type: "agent-message",
       conversationId: task.conversationId,
-      eventId: `${task.threadId}:${request.attemptGeneration}:manager-report:${task.managerReportSequence}`,
+      eventId: intermediateEventId,
       rootRunId: task.rootRunId,
       agentId: task.threadId,
       agentType: task.agentType,
@@ -2793,6 +2848,12 @@ export class LocalAgentManager implements AgentToolApi {
       result: message,
       attemptGeneration: request.attemptGeneration,
     });
+    // The durable hidden message is the delivery acknowledgement. Store the
+    // report identity only after that append so a failed persist can be
+    // repaired on retry via the stable event id above.
+    task.managerReportIds.add(request.reportId);
+    task.managerReportSequence = nextSequence;
+    this.persistTask(task);
     return { accepted: true, final: false };
   }
 }

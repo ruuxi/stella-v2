@@ -1446,7 +1446,7 @@ export function AgentModelPicker({
               void loadClaudeCodeModels();
             } else if (showChatGptPanel) {
               migrationAttemptedRef.current = null;
-              void codexCatalog.refresh();
+              void Promise.all([refresh(), codexCatalog.refresh()]);
             } else {
               void refresh();
             }
@@ -1460,18 +1460,27 @@ export function AgentModelPicker({
           title={
             showClaudeCodePanel
               ? "Refresh Claude Code models"
-              : "Refresh model catalog"
+              : showChatGptPanel
+                ? "Refresh ChatGPT availability"
+                : "Refresh model catalog"
           }
           aria-label={
             showClaudeCodePanel
               ? "Refresh Claude Code models"
-              : "Refresh model catalog"
+              : showChatGptPanel
+                ? "Refresh ChatGPT availability"
+                : "Refresh model catalog"
           }
         >
           <RefreshCw
             size={13}
             strokeWidth={1.75}
-            data-spinning={refreshing || claudeCodeModelsLoading || undefined}
+            data-spinning={
+              refreshing ||
+              claudeCodeModelsLoading ||
+              codexCatalog.loading ||
+              undefined
+            }
           />
         </button>
       </div>

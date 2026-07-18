@@ -718,6 +718,7 @@ function ModelsSection({
     refresh,
     refreshing,
     audience,
+    error: catalogError,
   } = useModelCatalog();
   const modelDefaults = useMemo(
     () =>
@@ -1085,22 +1086,23 @@ function ModelsSection({
     runtimeModelEngine === "codex_cli" ? "engine:codex" : "engine:claude-code";
   const runtimePanelLoading =
     runtimeModelEngine === "codex_cli"
-      ? codexCatalog.loading
+      ? codexCatalog.loading || refreshing
       : claudeCodeModelsLoading;
   const runtimePanelRefresh =
     runtimeModelEngine === "codex_cli"
       ? () => {
           onExplicitCodexAction();
-          void codexCatalog.refresh();
+          void Promise.all([refresh(), codexCatalog.refresh()]);
         }
       : onRefreshClaudeCodeModels;
+  const runtimePanelError = codexCatalog.error ?? catalogError;
   const runtimePanelState =
     runtimeModelEngine !== "codex_cli"
       ? null
-      : codexCatalog.error
+      : runtimePanelError
         ? {
             kind: "error" as const,
-            message: `ChatGPT models could not be verified: ${codexCatalog.error}`,
+            message: `ChatGPT availability could not be refreshed: ${runtimePanelError}`,
           }
         : codexCatalog.loading
           ? {

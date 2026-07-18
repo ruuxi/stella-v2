@@ -177,6 +177,12 @@ const remoteCatalogCostSchema = Type.Object({
   cacheRead: Type.Number({ minimum: 0 }),
   cacheWrite: Type.Number({ minimum: 0 }),
 });
+const openRouterAutoSentinelCostSchema = Type.Object({
+  input: Type.Literal(-1_000_000),
+  output: Type.Literal(-1_000_000),
+  cacheRead: Type.Literal(0),
+  cacheWrite: Type.Literal(0),
+});
 const modelFields = {
   name: Type.Optional(nonEmptyString),
   reasoning: Type.Optional(Type.Boolean()),
@@ -243,14 +249,29 @@ const azureRemoteCatalogModelSchema = Type.Object({
   api: Type.Literal("azure-openai-responses"),
   baseUrl: Type.String(),
 });
+// OpenRouter's automatic router cannot know the selected upstream model's
+// price until request routing. Its catalog uses this exact sentinel contract;
+// keep the exception pinned to that transport/model shape so no other
+// negative or non-finite cost can enter the runtime catalog.
+const openRouterAutoRemoteCatalogModelSchema = Type.Object({
+  ...remoteCatalogModelFields,
+  id: Type.Literal("openrouter/auto"),
+  provider: Type.Literal("openrouter"),
+  api: Type.Literal("openai-completions"),
+  baseUrl: Type.Literal("https://openrouter.ai/api/v1"),
+  cost: openRouterAutoSentinelCostSchema,
+});
 
-const remoteCatalogSchemaFor = (value: unknown) =>
-  value &&
-  typeof value === "object" &&
-  "api" in value &&
-  value.api === "azure-openai-responses"
+const remoteCatalogSchemaFor = (value: unknown) => {
+  if (!value || typeof value !== "object") return remoteCatalogModelSchema;
+  const entry = value as Record<string, unknown>;
+  if (entry.id === "openrouter/auto") {
+    return openRouterAutoRemoteCatalogModelSchema;
+  }
+  return entry.api === "azure-openai-responses"
     ? azureRemoteCatalogModelSchema
     : remoteCatalogModelSchema;
+};
 
 export const isRemoteCatalogModel = (
   value: unknown,

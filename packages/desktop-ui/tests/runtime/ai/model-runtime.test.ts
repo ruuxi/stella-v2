@@ -15,6 +15,10 @@ const azureCatalogFixtureUrl = new URL(
   "../../fixtures/azure-openai-responses-catalog.json",
   import.meta.url,
 );
+const openRouterAutoCatalogFixtureUrl = new URL(
+  "../../fixtures/openrouter-auto-catalog.json",
+  import.meta.url,
+);
 
 const makeTempDir = async (): Promise<string> => {
   const directory = await mkdtemp(
@@ -307,9 +311,7 @@ describe("ModelRuntime", () => {
       credentialless: true,
     });
     expect(runtime.allowsCredentiallessRouting("xai")).toBe(false);
-    expect(runtime.allowsCredentiallessRouting("unknown-provider")).toBe(
-      false,
-    );
+    expect(runtime.allowsCredentiallessRouting("unknown-provider")).toBe(false);
   });
 
   it("does not treat authHeader providers without a key as credentialless", async () => {
@@ -999,6 +1001,76 @@ describe("ModelRuntime", () => {
     }
   });
 
+  it("accepts only OpenRouter's exact unknown-until-routed cost sentinel", async () => {
+    const stellaDataDir = await makeTempDir();
+    const fixture = JSON.parse(
+      await readFile(openRouterAutoCatalogFixtureUrl, "utf8"),
+    ) as Record<string, unknown>;
+    const exact = fixture["openrouter/auto"] as Record<string, unknown>;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/openrouter")) {
+        return Response.json({
+          ...fixture,
+          "openrouter/auto-wrong-id": {
+            ...exact,
+            id: "openrouter/auto-wrong-id",
+          },
+          "openrouter/auto-wrong-base": {
+            ...exact,
+            id: "openrouter/auto",
+            baseUrl: "https://example.test/v1",
+          },
+          "openrouter/auto-wrong-cost": {
+            ...exact,
+            id: "openrouter/auto",
+            cost: {
+              input: -1_000_000,
+              output: -999_999,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+          },
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(runtime.getModel("openrouter", "openrouter/auto")).toMatchObject({
+        id: "openrouter/auto",
+        provider: "openrouter",
+        api: "openai-completions",
+        baseUrl: "https://openrouter.ai/api/v1",
+        cost: {
+          input: -1_000_000,
+          output: -1_000_000,
+          cacheRead: 0,
+          cacheWrite: 0,
+        },
+      });
+      expect(
+        runtime.getModel("openrouter", "openrouter/auto-wrong-id"),
+      ).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /Dropped invalid remote catalog entry for openrouter/u,
+        ),
+      );
+
+      const restored = new ModelRuntime();
+      await restored.initialize({ stellaDataDir, allowNetwork: false });
+      expect(restored.getModel("openrouter", "openrouter/auto")).toBeDefined();
+    } finally {
+      warn.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("repairs a recent malformed cached catalog during online initialization", async () => {
     const stellaDataDir = await makeTempDir();
     await writeFile(
@@ -1047,6 +1119,74 @@ describe("ModelRuntime", () => {
           /Dropped invalid remote catalog entry for xai.*\/cost\/input/u,
         ),
       );
+    } finally {
+      warn.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("preserves an unrepaired raw provider payload when another provider refresh succeeds", async () => {
+    const stellaDataDir = await makeTempDir();
+    const storePath = path.join(stellaDataDir, "models-store.json");
+    const rawXai = {
+      models: [
+        validRemoteCatalogModel({
+          id: "grok-raw-last-good",
+          cost: { input: "NaN", output: 2, cacheRead: 0, cacheWrite: 0 },
+        }),
+      ],
+      checkedAt: Date.now(),
+    };
+    await writeFile(storePath, JSON.stringify({ xai: rawXai }, null, 2));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/xai")) {
+        throw new Error("xai repair unavailable");
+      }
+      if (String(input).endsWith("/anthropic")) {
+        return Response.json({
+          models: [
+            validRemoteCatalogModel({
+              id: "claude-unrelated-success",
+              provider: "anthropic",
+              api: "anthropic-messages",
+              baseUrl: "https://api.anthropic.com",
+            }),
+          ],
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(runtime.getModel("xai", "grok-raw-last-good")).toBeUndefined();
+      const storedAfterPartialRefresh = JSON.parse(
+        await readFile(storePath, "utf8"),
+      ) as Record<string, unknown>;
+      expect(storedAfterPartialRefresh.xai).toEqual(rawXai);
+      expect(
+        (
+          storedAfterPartialRefresh.anthropic as
+            | { models?: Array<{ id?: string }> }
+            | undefined
+        )?.models?.[0]?.id,
+      ).toBe("claude-unrelated-success");
+
+      const restarted = new ModelRuntime();
+      await restarted.initialize({ stellaDataDir, allowNetwork: false });
+      expect(restarted.getModel("xai", "grok-raw-last-good")).toBeUndefined();
+      expect(
+        (
+          JSON.parse(await readFile(storePath, "utf8")) as Record<
+            string,
+            unknown
+          >
+        ).xai,
+      ).toEqual(rawXai);
     } finally {
       warn.mockRestore();
       globalThis.fetch = originalFetch;
@@ -1354,7 +1494,9 @@ describe("ModelRuntime", () => {
       ).toBeDefined();
 
       serveInvalidCatalog = true;
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const warn = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
       try {
         const snapshot = await runtime.getSnapshotForListing({
           forceRefresh: true,
@@ -1366,9 +1508,7 @@ describe("ModelRuntime", () => {
         expect(
           runtime.getModel("xai", "grok-last-good-invalid-refresh"),
         ).toBeDefined();
-        expect(
-          runtime.getModel("xai", "grok-invalid-refresh"),
-        ).toBeUndefined();
+        expect(runtime.getModel("xai", "grok-invalid-refresh")).toBeUndefined();
         expect(warn).toHaveBeenCalledWith(
           expect.stringMatching(
             /Dropped invalid remote catalog entry for xai.*\/cost\/input/u,
@@ -1513,9 +1653,7 @@ describe("ModelRuntime", () => {
         forceRefresh: true,
       });
       expect(snapshot.refreshedAt).not.toBeNull();
-      expect(snapshot.catalogError).toMatch(
-        /xai: xAI catalog unavailable/u,
-      );
+      expect(snapshot.catalogError).toMatch(/xai: xAI catalog unavailable/u);
     } finally {
       globalThis.fetch = originalFetch;
     }

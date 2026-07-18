@@ -1,33 +1,36 @@
-import { useCallback, useEffect, useState } from "react";
 import type { LiveCodexModel } from "@/global/settings/lib/engine-model-routing";
+import {
+  createResourceStore,
+  useResourceStore,
+} from "@/shared/lib/resource-cache";
 
-export function useCodexModelCatalog() {
-  const [models, setModels] = useState<LiveCodexModel[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+const codexModelCatalogStore = createResourceStore<"default", LiveCodexModel[]>(
+  {
+    // Preserve the old mount behavior while deduplicating simultaneous picker
+    // mounts: a later mount may revalidate, but concurrent consumers share one
+    // in-flight model/list request and one accepted snapshot.
+    staleMs: 0,
+    fetcher: async () => {
       const result = await window.electronAPI?.system?.listCodexModels?.();
       if (!result) throw new Error("Codex model discovery is unavailable.");
-      setModels(result.models.filter((model) => !model.hidden));
-    } catch (caught) {
-      setModels(null);
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "ChatGPT models could not be verified.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return result.models.filter((model) => !model.hidden);
+    },
+  },
+);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+export function useCodexModelCatalog() {
+  const query = useResourceStore(codexModelCatalogStore, "default");
 
-  return { models, loading, error, refresh };
+  return {
+    models: query.data ?? null,
+    loading: query.isLoading || query.isFetching,
+    // A forced refresh supersedes the previous attempt. Hide its stale error
+    // while the replacement request is active, matching the prior hook.
+    error: query.isFetching ? null : (query.error?.message ?? null),
+    refresh: query.refresh,
+  };
 }
+
+export const resetCodexModelCatalogStoreForTests = (): void => {
+  codexModelCatalogStore.invalidate("*");
+};

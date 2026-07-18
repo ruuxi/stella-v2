@@ -113,8 +113,24 @@ const stopManagedCatalogUpdates =
         );
       })
     : undefined;
-if (import.meta.hot && stopManagedCatalogUpdates) {
-  import.meta.hot.dispose(stopManagedCatalogUpdates);
+const stopRuntimeAvailabilityUpdates =
+  typeof window !== "undefined"
+    ? window.electronAPI?.agent?.onAvailability?.((snapshot) => {
+        if (!snapshot.ready) return;
+        // The worker may have published its initial catalog before this
+        // renderer subscribed. A ready transition is the durable fence: read
+        // the current revision, and let the store's revision acceptor reject
+        // any older response that races a pushed catalog update.
+        void managedGatewayStore
+          .ensure("default", { force: true })
+          .catch(() => undefined);
+      })
+    : undefined;
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    stopManagedCatalogUpdates?.();
+    stopRuntimeAvailabilityUpdates?.();
+  });
 }
 
 function getBillingAudienceKey(
@@ -236,7 +252,7 @@ export function useModelCatalog() {
 
   const errorMessage =
     managedPayload.configError ??
-    managedQuery.error?.message ??
+    (managedQuery.isFetching ? null : managedQuery.error?.message) ??
     managedPayload.catalogError ??
     stellaQuery.error?.message ??
     null;
@@ -287,3 +303,8 @@ export function preloadModelCatalogCache(): void {
     buildAnonymousStellaCatalogKey(sessionData, modelCatalogUpdatedAt),
   );
 }
+
+export const resetModelCatalogStoresForTests = (): void => {
+  stellaCatalogStore.invalidate("*");
+  managedGatewayStore.invalidate("*");
+};

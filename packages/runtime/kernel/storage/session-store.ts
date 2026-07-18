@@ -5176,9 +5176,7 @@ export class SessionStore {
       rawMessages.some((message) =>
         isClaudeCodeAssistantPayload(message.payload),
       );
-    const messages = hasClaudeCodeTransport
-      ? rawMessages
-      : this.loadThreadMessages(threadId, cappedLimit + 1);
+    const messages = rawMessages;
     const truncated = messages.length > cappedLimit;
     const selected = truncated ? messages.slice(-cappedLimit) : messages;
     const selectedRaw =

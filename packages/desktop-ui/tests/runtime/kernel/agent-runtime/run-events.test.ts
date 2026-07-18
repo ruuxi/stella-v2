@@ -911,7 +911,6 @@ describe("subscribeRuntimeAgentEvents", () => {
       threadKey: "manager:thread-1",
       conversationId: "conversation-1",
       attemptGeneration: 3,
-      managerTurnOrigin: "managed-child",
     });
 
     listener?.({ type: "message_end", message: preambleWithTool });
@@ -925,7 +924,6 @@ describe("subscribeRuntimeAgentEvents", () => {
           stopReason: "toolUse",
           stellaRunId: "run-current-attempt",
           stellaAttemptGeneration: 3,
-          stellaManagerTurnOrigin: "managed-child",
         }),
       }),
     );

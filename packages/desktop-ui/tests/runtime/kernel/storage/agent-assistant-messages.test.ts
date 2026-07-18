@@ -82,7 +82,6 @@ const appendAssistant = (
     text: string;
     stopReason?: "toolUse" | "stop";
     attemptGeneration?: number;
-    managerTurnOrigin?: "initial" | "managed-child" | "external-input";
   },
 ) => {
   const stopReason = args.stopReason ?? "toolUse";
@@ -101,9 +100,6 @@ const appendAssistant = (
       stopReason,
       timestamp: args.timestamp,
       stellaAttemptGeneration: args.attemptGeneration ?? 0,
-      ...(args.managerTurnOrigin
-        ? { stellaManagerTurnOrigin: args.managerTurnOrigin }
-        : {}),
     } as never,
   });
 };
@@ -972,8 +968,6 @@ describe("agent-authored assistant updates", () => {
       startedAt: 1_000,
       completedAt: null,
       updatedAt: 1_100,
-      managerTurnOrigin: "managed-child",
-      managerTurnLifecycle: "continue",
     });
     appendAssistant(store, {
       threadId: "manager-activity",
@@ -981,7 +975,6 @@ describe("agent-authored assistant updates", () => {
       text: "Internal child synthesis",
       stopReason: "stop",
       attemptGeneration: 2,
-      managerTurnOrigin: "managed-child",
     });
     expect(
       store.listThreadActivity("conv-1")[0]?.assistantMessages,
@@ -993,7 +986,6 @@ describe("agent-authored assistant updates", () => {
       text: "Another private Manager final response",
       stopReason: "stop",
       attemptGeneration: 2,
-      managerTurnOrigin: "managed-child",
     });
     expect(
       store.listThreadActivity("conv-1")[0]?.assistantMessages,

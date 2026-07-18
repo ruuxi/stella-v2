@@ -891,6 +891,239 @@ describe("manager orchestration production routing", () => {
     );
   });
 
+  it("uses the fallback when an external-input turn ends without any report", async () => {
+    const { manager, store, appendedEvents, sentMessages } = createHarness();
+    const managerRuns: MockRunArgs[] = [];
+    runMock.handler = async (args) => {
+      managerRuns.push(args);
+      if (managerRuns.length === 1) {
+        await reportFromMockManager(
+          args,
+          "Waiting for the orchestrator's answer.",
+          false,
+          "external-fallback-question",
+        );
+        return { runId: "question", result: "Private question response." };
+      }
+      return {
+        runId: "external-no-report",
+        result: "SECRET EXTERNAL INPUT FINALIZED TEXT",
+      };
+    };
+
+    const task = await manager.createAgent({
+      conversationId: "conversation-manager-external-no-report",
+      description: "Wait for an external answer",
+      prompt: "Ask for required input, then wait.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    await waitUntil(
+      () =>
+        sentMessages.some((message) =>
+          message.text.includes("Waiting for the orchestrator's answer."),
+        ) && !hasInFlightAttempt(manager, task.threadId),
+    );
+    expect(store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "running",
+      managerReportIds: ["external-fallback-question"],
+      managerReportSequence: 1,
+    });
+
+    await manager.sendAgentMessage(
+      task.threadId,
+      "Here is the requested answer.",
+      "orchestrator",
+      { deliveryKind: "external-input" },
+    );
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(task.threadId))?.status === "completed",
+    );
+
+    const completions = appendedEvents.filter(
+      (event) =>
+        event.type === "agent-completed" &&
+        (event.payload as { agentId?: string }).agentId === task.threadId,
+    );
+    expect(completions).toHaveLength(1);
+    expect(completions[0]?.payload).toMatchObject({
+      result: MANAGER_MISSING_FINAL_REPORT_FALLBACK,
+    });
+    expect(JSON.stringify({ appendedEvents, sentMessages })).not.toContain(
+      "SECRET EXTERNAL INPUT FINALIZED TEXT",
+    );
+  });
+
+  it("rejects a final report while managed children are active and accepts it at fleet idle", async () => {
+    const { manager, store, appendedEvents } = createHarness();
+    let releaseFirstManager!: () => void;
+    const firstManagerGate = new Promise<void>((resolve) => {
+      releaseFirstManager = resolve;
+    });
+    let releaseChild!: () => void;
+    const childGate = new Promise<void>((resolve) => {
+      releaseChild = resolve;
+    });
+    const managerRuns: MockRunArgs[] = [];
+    let premature:
+      | { accepted: boolean; final: boolean; reason?: string }
+      | undefined;
+    let accepted:
+      | { accepted: boolean; final: boolean; reason?: string }
+      | undefined;
+    runMock.handler = async (args) => {
+      if (args.agentType !== AGENT_IDS.MANAGER) {
+        await childGate;
+        return { runId: "active-child", result: "Child settled." };
+      }
+      managerRuns.push(args);
+      if (managerRuns.length === 1) {
+        await firstManagerGate;
+        premature = await reportFromMockManager(
+          args,
+          "Premature final report.",
+          true,
+          "fleet-final",
+        );
+        return { runId: "premature-final", result: "Private premature text." };
+      }
+      accepted = await reportFromMockManager(
+        args,
+        "Correct fleet-idle final report.",
+        true,
+        "fleet-final",
+      );
+      return { runId: "fleet-idle-final", result: "Private corrected text." };
+    };
+
+    const task = await manager.createAgent({
+      conversationId: "conversation-manager-active-final",
+      description: "Coordinate one active child",
+      prompt: "Wait for the child before reporting final.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    await manager.createAgent({
+      conversationId: "conversation-manager-active-final",
+      description: "Finish managed work",
+      prompt: "Settle the managed work.",
+      agentType: AGENT_IDS.GENERAL,
+      agentDepth: 2,
+      maxAgentDepth: 2,
+      parentAgentId: task.threadId,
+      storageMode: "local",
+    });
+    releaseFirstManager();
+    await waitUntil(() => premature !== undefined);
+    expect(premature).toMatchObject({
+      accepted: false,
+      final: true,
+      reason: expect.stringMatching(/after all managed children have settled/i),
+    });
+    expect(
+      store.getAgentRecord(task.threadId)?.managerFinalReport,
+    ).toBeUndefined();
+    expect(
+      store.getAgentRecord(task.threadId)?.managerReportIds,
+    ).toBeUndefined();
+
+    releaseChild();
+    await waitUntil(
+      async () =>
+        (await manager.getAgent(task.threadId))?.status === "completed",
+    );
+    expect(accepted).toMatchObject({ accepted: true, final: true });
+    expect(store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "completed",
+      result: "Correct fleet-idle final report.",
+      managerFinalReport: "Correct fleet-idle final report.",
+      managerFinalReportId: "fleet-final",
+      managerReportIds: ["fleet-final"],
+    });
+    expect(
+      appendedEvents.filter(
+        (event) =>
+          event.type === "agent-completed" &&
+          (event.payload as { agentId?: string }).agentId === task.threadId,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("recovers an accepted final report exactly once after a worker restart", async () => {
+    const first = createHarness();
+    let accepted!: () => void;
+    const acceptedReport = new Promise<void>((resolve) => {
+      accepted = resolve;
+    });
+    runMock.handler = async (args) => {
+      const outcome = await reportFromMockManager(
+        args,
+        "Durable restart final report.",
+        true,
+        "restart-final",
+      );
+      expect(outcome).toMatchObject({ accepted: true, final: true });
+      accepted();
+      await new Promise<never>(() => {});
+    };
+
+    const task = await first.manager.createAgent({
+      conversationId: "conversation-manager-restart-final",
+      description: "Persist a final before restart",
+      prompt: "Submit the final report, then stop.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    await acceptedReport;
+    expect(first.store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "running",
+      managerFinalReport: "Durable restart final report.",
+      managerFinalReportId: "restart-final",
+      managerReportIds: ["restart-final"],
+      managerReportSequence: 0,
+    });
+
+    const rootPath = first.rootPath;
+    harnesses.delete(first);
+    first.db.close();
+
+    const recovered = createHarness({ rootPath });
+    await waitUntil(() =>
+      recovered.sentMessages.some((message) =>
+        message.text.includes("Durable restart final report."),
+      ),
+    );
+    expect(recovered.store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "completed",
+      result: "Durable restart final report.",
+      managerFinalReportId: "restart-final",
+    });
+    expect(
+      recovered.appendedEvents.filter(
+        (event) =>
+          event.type === "agent-completed" &&
+          (event.payload as { agentId?: string }).agentId === task.threadId,
+      ),
+    ).toHaveLength(1);
+    expect(
+      recovered.sentMessages.filter((message) =>
+        message.text.includes("Durable restart final report."),
+      ),
+    ).toHaveLength(1);
+
+    await closeHarness(recovered, { removeRoot: false });
+    const repeatedRestart = createHarness({ rootPath });
+    expect(repeatedRestart.appendedEvents).toHaveLength(0);
+    expect(repeatedRestart.sentMessages).toHaveLength(0);
+    expect(repeatedRestart.store.getAgentRecord(task.threadId)?.status).toBe(
+      "completed",
+    );
+  });
+
   it("routes child completion exclusively to the manager and keeps a status answer non-terminal", async () => {
     const { manager, store, appendedEvents, sentMessages } = createHarness();
     let releaseManagerFirst!: () => void;
@@ -1381,20 +1614,14 @@ describe("manager orchestration production routing", () => {
     releaseManagerFirst();
     await waitUntil(
       () =>
-        store.getAgentRecord(managerTask.threadId)?.managerTurnLifecycle ===
-        "continue",
+        store.getAgentRecord(managerTask.threadId)?.status === "running" &&
+        !hasInFlightAttempt(manager, managerTask.threadId),
     );
 
     releaseDescendant();
     await waitUntil(() => managerRuns.length === 2);
-    await waitUntil(
-      () =>
-        store.getAgentRecord(managerTask.threadId)?.managerTurnOrigin ===
-        "managed-child",
-    );
     expect(store.getAgentRecord(managerTask.threadId)).toMatchObject({
-      managerTurnOrigin: "managed-child",
-      managerTurnLifecycle: "continue",
+      status: "running",
     });
     expect(JSON.stringify(sentMessages)).not.toContain(
       "Internal descendant synthesis stays private.",
@@ -1411,8 +1638,6 @@ describe("manager orchestration production routing", () => {
       "Parent-visible steering reply.",
     );
     expect(store.getAgentRecord(managerTask.threadId)).toMatchObject({
-      managerTurnOrigin: "external-input",
-      managerTurnLifecycle: "continue",
       status: "running",
     });
 
@@ -1468,8 +1693,8 @@ describe("manager orchestration production routing", () => {
       "newly persisted managed-child event",
     );
     expect(store.getAgentRecord(managerTask.threadId)).toMatchObject({
-      managerTurnOrigin: "managed-child",
-      managerTurnLifecycle: "complete",
+      status: "completed",
+      result: "Fleet-idle consolidated final.",
     });
 
     const rootEvents = appendedEvents.filter((event) =>

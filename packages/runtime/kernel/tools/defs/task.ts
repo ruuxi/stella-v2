@@ -59,7 +59,7 @@ export const createAgentTools = (
     name: "report",
     agentTypes: MANAGER_ONLY,
     description:
-      "Send an update upward to the orchestrator. Use final=false sparingly for a genuine blocker, question, or explicitly requested progress update. Call exactly once with final=true for the consolidated terminal report.",
+      "Send an update upward to the orchestrator. Use final=false sparingly for a genuine blocker, question, or explicitly requested progress update. After every managed child settles, call exactly once with final=true for the consolidated terminal report.",
     parameters: {
       type: "object",
       properties: {

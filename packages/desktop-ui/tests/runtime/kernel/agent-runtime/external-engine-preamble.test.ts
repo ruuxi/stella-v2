@@ -34,7 +34,6 @@ describe("external-engine preamble→tool boundary", () => {
         engine,
         runId: "run-7",
         attemptGeneration: 7,
-        managerTurnOrigin: "external-input",
       });
 
       expect(appendThreadMessage).toHaveBeenCalledOnce();
@@ -50,7 +49,6 @@ describe("external-engine preamble→tool boundary", () => {
             stopReason: "toolUse",
             stellaRunId: "run-7",
             stellaAttemptGeneration: 7,
-            stellaManagerTurnOrigin: "external-input",
             content: [{ type: "text", text: "I inspected the route." }],
           }),
         }),
@@ -121,14 +119,11 @@ describe("external-engine preamble→tool boundary", () => {
       threadKey: "manager-1",
       preamble: "Private Manager checkpoint",
       engine: "codex",
-      managerTurnOrigin: "managed-child",
     });
 
     expect(appendThreadMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.objectContaining({
-          stellaManagerTurnOrigin: "managed-child",
-        }),
+        content: "Private Manager checkpoint",
       }),
     );
   });

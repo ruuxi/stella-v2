@@ -701,9 +701,10 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       updated_at INTEGER NOT NULL,
       root_run_id TEXT,
       attempt_generation INTEGER NOT NULL DEFAULT 0,
-      pending_manager_turn_origin TEXT,
-      manager_turn_origin TEXT,
-      manager_turn_lifecycle TEXT
+      manager_final_report TEXT,
+      manager_final_report_id TEXT,
+      manager_report_ids_json TEXT,
+      manager_report_sequence INTEGER NOT NULL DEFAULT 0
     );
   `);
   try {
@@ -712,9 +713,10 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     // Column already exists.
   }
   for (const column of [
-    "pending_manager_turn_origin TEXT",
-    "manager_turn_origin TEXT",
-    "manager_turn_lifecycle TEXT",
+    "manager_final_report TEXT",
+    "manager_final_report_id TEXT",
+    "manager_report_ids_json TEXT",
+    "manager_report_sequence INTEGER NOT NULL DEFAULT 0",
   ]) {
     try {
       db.exec(`ALTER TABLE runtime_agents ADD COLUMN ${column};`);

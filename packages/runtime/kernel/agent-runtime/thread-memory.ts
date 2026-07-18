@@ -293,7 +293,6 @@ export const persistThreadPayloadMessage = (
     payload: PersistedRuntimeThreadPayload;
     runId?: string;
     attemptGeneration?: number;
-    managerTurnOrigin?: "initial" | "managed-child" | "external-input";
   },
 ): void => {
   const payload =
@@ -303,9 +302,6 @@ export const persistThreadPayloadMessage = (
           ...(args.runId ? { stellaRunId: args.runId } : {}),
           ...(typeof args.attemptGeneration === "number"
             ? { stellaAttemptGeneration: args.attemptGeneration }
-            : {}),
-          ...(args.managerTurnOrigin
-            ? { stellaManagerTurnOrigin: args.managerTurnOrigin }
             : {}),
         } as PersistedRuntimeThreadPayload)
       : args.payload;
@@ -893,7 +889,6 @@ export const persistAssistantReply = async (args: {
   stellaDataDir?: string;
   runId?: string;
   attemptGeneration?: number;
-  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
 }): Promise<void> => {
   if (!args.content.trim()) {
     return;
@@ -903,9 +898,6 @@ export const persistAssistantReply = async (args: {
     ...(args.runId ? { runId: args.runId } : {}),
     ...(typeof args.attemptGeneration === "number"
       ? { attemptGeneration: args.attemptGeneration }
-      : {}),
-    ...(args.managerTurnOrigin
-      ? { managerTurnOrigin: args.managerTurnOrigin }
       : {}),
     payload: {
       role: "assistant",

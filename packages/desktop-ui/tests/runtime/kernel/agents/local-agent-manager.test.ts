@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_ORPHANED_RESTART_CANCEL_REASON,
   LocalAgentManager,
+  MANAGER_MISSING_FINAL_REPORT_FALLBACK,
   sanitizeTaskToolArgsHint,
 } from "@stella/runtime/kernel/agents/local-agent-manager";
 import type { AgentLifecycleEvent } from "@stella/runtime/kernel/agents/local-agent-manager";
@@ -1567,18 +1568,20 @@ describe("send_input follow-up description and run rebind", () => {
 
       finish();
       if (agentType === AGENT_IDS.MANAGER) {
-        await sleep(25);
+        await waitForAgentSettled(manager, threadId);
         expect(saved.at(-1)).toMatchObject({
           threadId,
-          status: "running",
+          status: "completed",
           attemptGeneration: 4,
+          result: MANAGER_MISSING_FINAL_REPORT_FALLBACK,
         });
-        await manager.cancelAgent(threadId, "Test cleanup after parent reply");
-        expect(saved.at(-1)).toMatchObject({
-          threadId,
-          status: "canceled",
-          attemptGeneration: 4,
-        });
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "agent-completed",
+            agentId: threadId,
+            result: MANAGER_MISSING_FINAL_REPORT_FALLBACK,
+          }),
+        );
         return;
       }
       await waitForAgentSettled(manager, threadId);

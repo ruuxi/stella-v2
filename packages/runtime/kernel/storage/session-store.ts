@@ -136,10 +136,14 @@ export type PersistedAgentRecord = {
   attemptGeneration: number;
   /** Root run that owns the thread's latest lifecycle (send_input rebinds it). */
   rootRunId?: string;
-  /** Durable origin/lifecycle contract for the Manager's queued and active turn. */
-  pendingManagerTurnOrigin?: "managed-child" | "external-input";
-  managerTurnOrigin?: "initial" | "managed-child" | "external-input";
-  managerTurnLifecycle?: "continue" | "complete-when-idle" | "complete";
+  /** Accepted Manager terminal report, persisted before turn completion. */
+  managerFinalReport?: string;
+  /** Stable tool-call identity for the accepted terminal report. */
+  managerFinalReportId?: string;
+  /** Accepted report call identities used for replay deduplication. */
+  managerReportIds?: string[];
+  /** Durable suffix for unique intermediate report event ids. */
+  managerReportSequence?: number;
   startedAt: number;
   completedAt: number | null;
   result?: string;
@@ -154,6 +158,15 @@ const parseJsonValue = <T>(value: string | null): T | undefined => {
   } catch {
     return undefined;
   }
+};
+
+const parseManagerReportIds = (value: string | null): string[] | undefined => {
+  const parsed = parseJsonValue<unknown>(value);
+  if (!Array.isArray(parsed)) return undefined;
+  const ids = parsed.filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0,
+  );
+  return ids.length > 0 ? [...new Set(ids)] : undefined;
 };
 
 const eventRoleForType = (type: string): string => {
@@ -4475,11 +4488,12 @@ export class SessionStore {
         updated_at,
         root_run_id,
         attempt_generation,
-        pending_manager_turn_origin,
-        manager_turn_origin,
-        manager_turn_lifecycle
+        manager_final_report,
+        manager_final_report_id,
+        manager_report_ids_json,
+        manager_report_sequence
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET
         conversation_id = excluded.conversation_id,
         agent_type = excluded.agent_type,
@@ -4496,9 +4510,10 @@ export class SessionStore {
         updated_at = excluded.updated_at,
         root_run_id = excluded.root_run_id,
         attempt_generation = excluded.attempt_generation,
-        pending_manager_turn_origin = excluded.pending_manager_turn_origin,
-        manager_turn_origin = excluded.manager_turn_origin,
-        manager_turn_lifecycle = excluded.manager_turn_lifecycle
+        manager_final_report = excluded.manager_final_report,
+        manager_final_report_id = excluded.manager_final_report_id,
+        manager_report_ids_json = excluded.manager_report_ids_json,
+        manager_report_sequence = excluded.manager_report_sequence
     `,
       )
       .run(
@@ -4518,9 +4533,10 @@ export class SessionStore {
         record.updatedAt,
         record.rootRunId ?? null,
         record.attemptGeneration ?? 0,
-        record.pendingManagerTurnOrigin ?? null,
-        record.managerTurnOrigin ?? null,
-        record.managerTurnLifecycle ?? null,
+        record.managerFinalReport ?? null,
+        record.managerFinalReportId ?? null,
+        toJsonValueString(record.managerReportIds) ?? null,
+        record.managerReportSequence ?? 0,
       );
   }
 
@@ -4841,9 +4857,10 @@ export class SessionStore {
         updated_at,
         root_run_id,
         attempt_generation,
-        pending_manager_turn_origin,
-        manager_turn_origin,
-        manager_turn_lifecycle
+        manager_final_report,
+        manager_final_report_id,
+        manager_report_ids_json,
+        manager_report_sequence
       FROM runtime_agents
       WHERE thread_id = ?
       LIMIT 1
@@ -4867,13 +4884,10 @@ export class SessionStore {
           updated_at: number;
           root_run_id: string | null;
           attempt_generation: number;
-          pending_manager_turn_origin:
-            | PersistedAgentRecord["pendingManagerTurnOrigin"]
-            | null;
-          manager_turn_origin: PersistedAgentRecord["managerTurnOrigin"] | null;
-          manager_turn_lifecycle:
-            | PersistedAgentRecord["managerTurnLifecycle"]
-            | null;
+          manager_final_report: string | null;
+          manager_final_report_id: string | null;
+          manager_report_ids_json: string | null;
+          manager_report_sequence: number;
         }
       | undefined;
     if (!row) {
@@ -4882,6 +4896,7 @@ export class SessionStore {
     const modelConfigSnapshot = parseJsonValue<
       PersistedAgentRecord["modelConfigSnapshot"]
     >(row.model_config_json);
+    const managerReportIds = parseManagerReportIds(row.manager_report_ids_json);
     return {
       threadId: row.thread_id,
       conversationId: row.conversation_id,
@@ -4896,15 +4911,14 @@ export class SessionStore {
       status: row.status,
       attemptGeneration: row.attempt_generation,
       ...(row.root_run_id ? { rootRunId: row.root_run_id } : {}),
-      ...(row.pending_manager_turn_origin
-        ? { pendingManagerTurnOrigin: row.pending_manager_turn_origin }
+      ...(row.manager_final_report
+        ? { managerFinalReport: row.manager_final_report }
         : {}),
-      ...(row.manager_turn_origin
-        ? { managerTurnOrigin: row.manager_turn_origin }
+      ...(row.manager_final_report_id
+        ? { managerFinalReportId: row.manager_final_report_id }
         : {}),
-      ...(row.manager_turn_lifecycle
-        ? { managerTurnLifecycle: row.manager_turn_lifecycle }
-        : {}),
+      ...(managerReportIds ? { managerReportIds } : {}),
+      managerReportSequence: row.manager_report_sequence,
       startedAt: row.started_at,
       completedAt: row.completed_at,
       ...(row.result ? { result: row.result } : {}),
@@ -4936,9 +4950,10 @@ export class SessionStore {
         updated_at,
         root_run_id,
         attempt_generation,
-        pending_manager_turn_origin,
-        manager_turn_origin,
-        manager_turn_lifecycle
+        manager_final_report,
+        manager_final_report_id,
+        manager_report_ids_json,
+        manager_report_sequence
       FROM runtime_agents
       WHERE status = ?
       ORDER BY updated_at DESC, thread_id ASC
@@ -4961,19 +4976,19 @@ export class SessionStore {
       updated_at: number;
       root_run_id: string | null;
       attempt_generation: number;
-      pending_manager_turn_origin:
-        | PersistedAgentRecord["pendingManagerTurnOrigin"]
-        | null;
-      manager_turn_origin: PersistedAgentRecord["managerTurnOrigin"] | null;
-      manager_turn_lifecycle:
-        | PersistedAgentRecord["managerTurnLifecycle"]
-        | null;
+      manager_final_report: string | null;
+      manager_final_report_id: string | null;
+      manager_report_ids_json: string | null;
+      manager_report_sequence: number;
     }>;
 
     return rows.map((row) => {
       const modelConfigSnapshot = parseJsonValue<
         PersistedAgentRecord["modelConfigSnapshot"]
       >(row.model_config_json);
+      const managerReportIds = parseManagerReportIds(
+        row.manager_report_ids_json,
+      );
       return {
         threadId: row.thread_id,
         conversationId: row.conversation_id,
@@ -4988,15 +5003,14 @@ export class SessionStore {
         status: row.status,
         attemptGeneration: row.attempt_generation,
         ...(row.root_run_id ? { rootRunId: row.root_run_id } : {}),
-        ...(row.pending_manager_turn_origin
-          ? { pendingManagerTurnOrigin: row.pending_manager_turn_origin }
+        ...(row.manager_final_report
+          ? { managerFinalReport: row.manager_final_report }
           : {}),
-        ...(row.manager_turn_origin
-          ? { managerTurnOrigin: row.manager_turn_origin }
+        ...(row.manager_final_report_id
+          ? { managerFinalReportId: row.manager_final_report_id }
           : {}),
-        ...(row.manager_turn_lifecycle
-          ? { managerTurnLifecycle: row.manager_turn_lifecycle }
-          : {}),
+        ...(managerReportIds ? { managerReportIds } : {}),
+        managerReportSequence: row.manager_report_sequence,
         startedAt: row.started_at,
         completedAt: row.completed_at,
         ...(row.result ? { result: row.result } : {}),

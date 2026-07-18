@@ -101,9 +101,12 @@ const validateRemoteCatalogEntries = (
   const models: Model<Api>[] = [];
   let invalidCount = 0;
   for (const [index, entry] of entries.entries()) {
-    if (!isRemoteCatalogModel(entry)) {
+    if (!isRemoteCatalogModel(providerId, entry)) {
       invalidCount += 1;
-      const details = getRemoteCatalogModelValidationErrors(entry).join("; ");
+      const details = getRemoteCatalogModelValidationErrors(
+        providerId,
+        entry,
+      ).join("; ");
       console.warn(
         `[stella:model-runtime] Dropped invalid remote catalog entry for ${providerId} at index ${index}: ${details}`,
       );

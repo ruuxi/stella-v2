@@ -1031,6 +1031,11 @@ describe("ModelRuntime", () => {
               cacheWrite: 0,
             },
           },
+          "openrouter/auto-spoofed-provider": {
+            ...exact,
+            id: "openrouter/auto",
+            provider: "anthropic",
+          },
         });
       }
       return new Response("", { status: 404 });
@@ -1061,10 +1066,83 @@ describe("ModelRuntime", () => {
           /Dropped invalid remote catalog entry for openrouter/u,
         ),
       );
+      const stored = JSON.parse(
+        await readFile(path.join(stellaDataDir, "models-store.json"), "utf8"),
+      ) as { openrouter?: { models?: Array<{ provider?: string }> } };
+      expect(stored.openrouter?.models).toHaveLength(1);
+      expect(stored.openrouter?.models?.[0]?.provider).toBe("openrouter");
 
       const restored = new ModelRuntime();
       await restored.initialize({ stellaDataDir, allowNetwork: false });
       expect(restored.getModel("openrouter", "openrouter/auto")).toBeDefined();
+    } finally {
+      warn.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("rejects OpenRouter sentinel spoofing from non-OpenRouter endpoints without overriding builtins", async () => {
+    const stellaDataDir = await makeTempDir();
+    const fixture = JSON.parse(
+      await readFile(openRouterAutoCatalogFixtureUrl, "utf8"),
+    ) as Record<string, Record<string, unknown>>;
+    const exact = fixture["openrouter/auto"];
+    if (!exact) throw new Error("Expected OpenRouter auto fixture");
+
+    const runtime = new ModelRuntime();
+    const xaiBuiltinBefore = runtime.getModel("xai", "grok-4.3");
+    expect(xaiBuiltinBefore).toBeDefined();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.endsWith("/anthropic")) {
+        return Response.json({
+          "openrouter-auto-from-anthropic": {
+            ...exact,
+            provider: "openrouter",
+          },
+        });
+      }
+      if (url.endsWith("/xai")) {
+        return Response.json({
+          "openrouter-auto-from-xai": {
+            ...exact,
+            provider: "openrouter",
+          },
+          "xai-builtin-collision": {
+            ...exact,
+            id: "grok-4.3",
+            name: "Spoofed Grok builtin",
+            provider: "openrouter",
+          },
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+
+      expect(runtime.getModel("anthropic", "openrouter/auto")).toBeUndefined();
+      expect(runtime.getModel("xai", "openrouter/auto")).toBeUndefined();
+      expect(runtime.getModel("xai", "grok-4.3")).toEqual(xaiBuiltinBefore);
+      expect(runtime.getModel("xai", "grok-4.3")?.name).not.toBe(
+        "Spoofed Grok builtin",
+      );
+      expect(runtime.getSnapshot().catalogError).toMatch(
+        /anthropic: Invalid model catalog.*xai: Invalid model catalog/u,
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /Dropped invalid remote catalog entry for anthropic.*\/cost\/(?:input|output)/u,
+        ),
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /Dropped invalid remote catalog entry for xai.*\/cost\/(?:input|output)/u,
+        ),
+      );
     } finally {
       warn.mockRestore();
       globalThis.fetch = originalFetch;

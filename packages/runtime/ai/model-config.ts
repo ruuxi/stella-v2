@@ -262,10 +262,14 @@ const openRouterAutoRemoteCatalogModelSchema = Type.Object({
   cost: openRouterAutoSentinelCostSchema,
 });
 
-const remoteCatalogSchemaFor = (value: unknown) => {
+// `providerId` is the authoritative identity derived from the fetched
+// endpoint/cache key. Entry-controlled `provider` metadata is not trusted to
+// select provider-specific validation exceptions before the runtime overwrites
+// it during composition.
+const remoteCatalogSchemaFor = (providerId: string, value: unknown) => {
   if (!value || typeof value !== "object") return remoteCatalogModelSchema;
   const entry = value as Record<string, unknown>;
-  if (entry.id === "openrouter/auto") {
+  if (providerId === "openrouter" && entry.id === "openrouter/auto") {
     return openRouterAutoRemoteCatalogModelSchema;
   }
   return entry.api === "azure-openai-responses"
@@ -274,14 +278,16 @@ const remoteCatalogSchemaFor = (value: unknown) => {
 };
 
 export const isRemoteCatalogModel = (
+  providerId: string,
   value: unknown,
 ): value is RemoteCatalogModel =>
-  Value.Check(remoteCatalogSchemaFor(value), value);
+  Value.Check(remoteCatalogSchemaFor(providerId, value), value);
 
 export const getRemoteCatalogModelValidationErrors = (
+  providerId: string,
   value: unknown,
 ): string[] =>
-  [...Value.Errors(remoteCatalogSchemaFor(value), value)]
+  [...Value.Errors(remoteCatalogSchemaFor(providerId, value), value)]
     .slice(0, 8)
     .map((error) => `${error.path || "root"}: ${error.message}`);
 

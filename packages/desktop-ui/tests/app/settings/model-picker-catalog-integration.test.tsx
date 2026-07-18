@@ -7,7 +7,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { ModelRuntime } from "@stella/runtime/ai/model-runtime";
+import { listRuntimeModelsForPicker } from "../../../../desktop/electron/ipc/model-catalog-listing";
 
 vi.mock("@/global/auth/services/auth-session", () => ({
   useDesktopAuthSession: () => ({ data: null, isPending: false, error: null }),
@@ -220,7 +222,6 @@ describe("real model picker catalog integration", () => {
     expect(protectedBuiltin).toBeDefined();
     expect(protectedBuiltin?.name).not.toBe("Malformed collision");
 
-    let runnerUnavailable = true;
     let successfulListings = 0;
     let forcedRuntimeListings = 0;
     let codexListings = 0;
@@ -235,15 +236,24 @@ describe("real model picker catalog integration", () => {
       });
     attachRuntimePublication(activeRuntime);
 
-    const listLlmModels = vi.fn(
-      async (options?: { forceRefresh?: boolean }) => {
-        if (runnerUnavailable) {
-          throw new Error("Stella runtime is not ready to list models.");
-        }
-        if (options?.forceRefresh) forcedRuntimeListings += 1;
-        const snapshot = await activeRuntime.getSnapshotForListing(options);
+    const runtimeRunner = {
+      listModels: vi.fn(async (request: { forceRefresh?: boolean }) => {
+        if (request.forceRefresh) forcedRuntimeListings += 1;
+        const snapshot = await activeRuntime.getSnapshotForListing(request);
         successfulListings += 1;
         return snapshot;
+      }),
+    };
+    let pickerRunner: typeof runtimeRunner | null = null;
+    const listingErrors: unknown[] = [];
+    const listLlmModels = vi.fn(
+      async (payload?: { forceRefresh?: boolean }) => {
+        try {
+          return await listRuntimeModelsForPicker(pickerRunner, payload);
+        } catch (error) {
+          listingErrors.push(error);
+          throw error;
+        }
       },
     );
     const listCodexModels = vi.fn(async () => {
@@ -320,9 +330,11 @@ describe("real model picker catalog integration", () => {
       ),
     );
     expect(successfulListings).toBe(0);
+    expect(listingErrors).toHaveLength(1);
+    expect(isRuntimeUnavailableError(listingErrors[0])).toBe(true);
     expect(codexListings).toBe(1);
 
-    runnerUnavailable = false;
+    pickerRunner = runtimeRunner;
     await act(async () => {
       for (const listener of availabilityListeners) {
         listener({ connected: true, ready: true });
@@ -334,6 +346,9 @@ describe("real model picker catalog integration", () => {
         2,
       ),
     );
+    expect(runtimeRunner.listModels).toHaveBeenCalledWith({
+      forceRefresh: true,
+    });
     expect(forcedRuntimeListings).toBe(1);
     expect(container.textContent).toContain("Stella Standard");
     expect(container.textContent).toContain("llama3.2");

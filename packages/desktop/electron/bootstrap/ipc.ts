@@ -33,6 +33,7 @@ import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js
 import { registerFashionHandlers } from "../ipc/fashion-handlers.js";
 import { registerScheduleHandlers } from "../ipc/schedule-handlers.js";
 import { registerStoreHandlers } from "../ipc/store-handlers.js";
+import { registerThemeHandlers } from "../ipc/theme-handlers.js";
 import {
   registerSystemHandlers,
   setPreventComputerSleep,
@@ -466,6 +467,12 @@ export const registerBootstrapIpcHandlers = (
     getStoreWebEmbedConfig: () =>
       state.windowManager?.getStoreWebEmbedConfig() ?? null,
     dispatchStoreWebLocalAction,
+  });
+
+  registerThemeHandlers({
+    stellaDataDirPath: config.stellaDataDirPath,
+    assertPrivilegedSender: (event, channel) =>
+      services.externalLinkService.assertPrivilegedSender(event, channel),
   });
 
   registerFashionHandlers({

@@ -79,6 +79,8 @@
     "gaxios": "^7.1.4",
     "googleapis": "^172.0.0",
     "googleapis-common": "^8.0.1",
+    "katex": "0.16.45",
+    "mermaid": "11.14.0",
     "motion": "^12.40.0",
     "openai": "6.39.0",
     "partial-json": "^0.1.7",

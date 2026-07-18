@@ -40,6 +40,11 @@ type MockRunArgs = {
   userPrompt: string;
   abortSignal?: AbortSignal;
   callbacks?: {
+    onStatus?: (event: {
+      runId: string;
+      seq: number;
+      statusText: string;
+    }) => void;
     onToolStart?: (event: {
       runId: string;
       seq: number;
@@ -252,7 +257,8 @@ afterEach(async () => {
 
 describe("manager orchestration production routing", () => {
   it("projects production manager-private progress and transitive lifecycle into canonical cards", async () => {
-    const { manager, store, db, appendedEvents } = createHarness();
+    const { manager, store, db, appendedEvents, sentMessages } =
+      createHarness();
     let releaseFirstCompletion!: () => void;
     const firstCompletionGate = new Promise<void>((resolve) => {
       releaseFirstCompletion = resolve;
@@ -299,6 +305,12 @@ describe("manager orchestration production routing", () => {
         };
       }
       if (args.agentId === "private-failed-child") {
+        args.callbacks?.onStatus?.({
+          runId: "private-failed-retry",
+          seq: 1,
+          statusText:
+            "Task hit a transient server error — retrying attempt 2/4 in 1s",
+        });
         await failureGate;
         throw new Error("Production managed-child failure.");
       }
@@ -570,6 +582,14 @@ describe("manager orchestration production routing", () => {
       "agent-completed",
       "agent-canceled",
     ]);
+    expect(JSON.stringify(reminders)).toContain(
+      "Production managed-child failure.",
+    );
+    expect(
+      sentMessages.filter((message) =>
+        message.text.includes("Production managed-child failure."),
+      ),
+    ).toHaveLength(0);
 
     const privateLifecycleRows = store
       .loadThreadMessages(managerTask.threadId)
@@ -598,6 +618,7 @@ describe("manager orchestration production routing", () => {
       expect.arrayContaining([
         "Inspecting private completion source",
         "Inspecting private follow-up source",
+        "Task hit a transient server error — retrying attempt 2/4 in 1s",
         "Auditing transitive descendant",
       ]),
     );
@@ -687,7 +708,7 @@ describe("manager orchestration production routing", () => {
   });
 
   it("persists stable attempt identity on failed and canceled terminals", async () => {
-    const { manager, appendedEvents } = createHarness();
+    const { manager, appendedEvents, sentMessages } = createHarness();
     runMock.handler = async (args) => {
       if (args.agentId === "failing-agent") {
         throw new Error("terminal identity failure");
@@ -708,6 +729,22 @@ describe("manager orchestration production routing", () => {
       async () =>
         (await manager.getAgent(failedTask.threadId))?.status === "error",
     );
+    await waitUntil(() =>
+      sentMessages.some((message) =>
+        message.text.includes("terminal identity failure"),
+      ),
+    );
+    expect(
+      sentMessages.find((message) =>
+        message.text.includes("terminal identity failure"),
+      ),
+    ).toMatchObject({
+      customType: "runtime.task_lifecycle",
+      responseTarget: {
+        type: "agent_turn",
+        agentId: failedTask.threadId,
+      },
+    });
 
     const canceledTask = await manager.createAgent({
       threadId: "canceled-agent",

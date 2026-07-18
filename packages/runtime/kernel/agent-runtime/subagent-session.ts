@@ -6,6 +6,10 @@ import {
   resolveInterruptionReason,
 } from "./run-completion.js";
 import { executeRuntimeAgentPrompt } from "./run-execution.js";
+import {
+  executeAgentRunWithRetry,
+  type AgentRunRetryInfo,
+} from "./run-retry.js";
 import { buildSubagentSystemPrompt } from "./run-preparation.js";
 import {
   createRunEventRecorder,
@@ -42,7 +46,6 @@ export class SubagentSession extends PiSessionCore {
     delayMs: number;
     reason?: string;
   }): void => {
-    if (info.attempt < 2) return;
     const context = this.currentRetryStatusContext;
     if (!context) return;
     const seconds = Math.max(1, Math.round(info.delayMs / 1_000));
@@ -235,7 +238,33 @@ export class SubagentSession extends PiSessionCore {
           : {}),
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
       };
-      let execution = await executeRuntimeAgentPrompt(executionArgs);
+      const retryState = { retriesUsed: 0 };
+      const executeWithTransientRetry = (initialResume = false) =>
+        executeAgentRunWithRetry({
+          state: retryState,
+          initialResume,
+          execute: (resume) =>
+            executeRuntimeAgentPrompt({
+              ...executionArgs,
+              ...(resume ? { resume: true } : {}),
+            }),
+          prepareResume: (errorMessage) =>
+            this.prepareTransientFailureRetry(agent, {
+              errorMessage,
+              logContext: { threadId: this.threadId, runId },
+            }),
+          ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
+          onRetry: (info: AgentRunRetryInfo) => {
+            const seconds = Math.max(1, Math.round(info.delayMs / 1_000));
+            opts.callbacks?.onStatus?.(
+              runEvents.recordStatus(
+                `Task hit a transient ${info.category.replaceAll("-", " ")} — retrying attempt ${info.nextAttempt}/${info.maxAttempts} in ${seconds}s`,
+                "provider-retry",
+              ),
+            );
+          },
+        });
+      let execution = await executeWithTransientRetry();
 
       // Safety containment: a fable-5 refusal/safety abort first gets
       // retried on the configured model — refusals are often transient — up
@@ -266,10 +295,7 @@ export class SubagentSession extends PiSessionCore {
             "running",
           ),
         );
-        execution = await executeRuntimeAgentPrompt({
-          ...executionArgs,
-          resume: true,
-        });
+        execution = await executeWithTransientRetry(true);
       }
       // Safety model swap: after the fable attempts are exhausted, one retry
       // on opus-4.8 (same auth path, per-run only). `prepareSafetyModelSwap`
@@ -294,10 +320,7 @@ export class SubagentSession extends PiSessionCore {
             customType: "containment.safety-model-swap",
             content: [{ type: "text", text: statusText }],
           });
-          execution = await executeRuntimeAgentPrompt({
-            ...executionArgs,
-            resume: true,
-          });
+          execution = await executeWithTransientRetry(true);
         }
       }
       const { finalText: result, errorMessage } = execution;

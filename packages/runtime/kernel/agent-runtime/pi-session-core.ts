@@ -220,6 +220,24 @@ export class PiSessionCore {
   }
 
   /**
+   * Prepare a retryable provider/transport failure for `Agent.continue()`.
+   * Only the failed assistant tail is removed; the prompt, completed tool
+   * calls/results, and fenced report acknowledgements stay in the live state.
+   */
+  protected prepareTransientFailureRetry(
+    agent: Agent,
+    args: { errorMessage: string; logContext: SessionLogContext },
+  ): boolean {
+    if (!this.popErroredTailForResume(agent)) return false;
+    this.logger.warn("transient-run-retry", {
+      threadKey: this.threadKey,
+      providerError: args.errorMessage,
+      ...args.logContext,
+    });
+    return true;
+  }
+
+  /**
    * Pop the errored assistant tail so `continue()` resumes from the prompt
    * instead of refusing on a trailing assistant message. Inspects the tail
    * WITHOUT mutating it first: only commits to the pop once the retry is
@@ -235,9 +253,7 @@ export class PiSessionCore {
     const popErroredTail =
       last?.role === "assistant" &&
       (last.stopReason === "error" || last.stopReason === "aborted");
-    const tailAfterPop = popErroredTail
-      ? messages[messages.length - 2]
-      : last;
+    const tailAfterPop = popErroredTail ? messages[messages.length - 2] : last;
     if (tailAfterPop?.role === "assistant") {
       return false;
     }

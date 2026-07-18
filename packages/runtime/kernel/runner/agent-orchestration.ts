@@ -541,6 +541,7 @@ export const createAgentOrchestration = (
       abortSignal,
       subagentSession,
       onProgress,
+      onStatus,
       onToolStart,
       onToolEnd,
       toolExecutor,
@@ -730,6 +731,10 @@ export const createAgentOrchestration = (
           onToolStart: (event) => {
             onToolStart?.(event);
             runnerCallbacks?.onToolStart(event);
+          },
+          onStatus: (event) => {
+            onStatus?.(event.statusText);
+            runnerCallbacks?.onStatus?.(event);
           },
           onToolEnd: (event) => {
             onToolEnd?.(event);

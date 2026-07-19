@@ -62,6 +62,7 @@ import {
   routeRecallIntent,
   runRecall,
 } from "../agent-runtime/context-lookup.js";
+import type { RecallTelemetrySeed } from "../agent-runtime/recall-telemetry.js";
 import {
   RecallRunCache,
   type RecallLookupResult,
@@ -579,15 +580,21 @@ export const createRunnerContext = ({
         payload.memorySearchTerms,
         async (): Promise<RecallLookupResult> => {
           try {
+            const recallStartedAtMs = performance.now();
+            const routeStartedAt = performance.now();
             const recallRoute = await resolveRunnerRecallLlmRoute(
               context,
               AGENT_IDS.ORCHESTRATOR,
               payload.modelConfigSnapshot,
             );
-            // Host context is expensive to gather and only the live-context
-            // intent consumes it; every other route reads indexed evidence.
-            const needsHostContext =
-              routeRecallIntent(payload.prompt) === "live_context";
+            const routeMs = performance.now() - routeStartedAt;
+            const sourceTimings: NonNullable<
+              RecallTelemetrySeed["sourceTimings"]
+            > = {};
+            const intent = routeRecallIntent(payload.prompt);
+            const needsHostContext = intent === "live_context";
+            const hostContextStartedAt = performance.now();
+            const localEventsStartedAt = performance.now();
             const localEvents =
               needsHostContext && context.listLocalChatEvents
                 ? context
@@ -596,10 +603,26 @@ export const createRunnerContext = ({
                       LOCAL_CONTEXT_EVENT_TYPES.has(event.type),
                     )
                 : [];
+            sourceTimings["host.localEvents"] = {
+              kind: "sql",
+              calls: needsHostContext && context.listLocalChatEvents ? 1 : 0,
+              ms: performance.now() - localEventsStartedAt,
+              chars: 0,
+            };
+            const appBrowserStartedAt = performance.now();
             const appBrowserContext =
               needsHostContext && getAppBrowserContext
                 ? await getAppBrowserContext()
                 : undefined;
+            sourceTimings["host.appBrowserContext"] = {
+              kind: "host",
+              calls: needsHostContext && getAppBrowserContext ? 1 : 0,
+              ms: performance.now() - appBrowserStartedAt,
+              chars: appBrowserContext
+                ? JSON.stringify(appBrowserContext).length
+                : 0,
+            };
+            const hostContextMs = performance.now() - hostContextStartedAt;
             let resultMetadata:
               | Pick<RecallLookupResult, "intent" | "fastPath" | "sources">
               | undefined;
@@ -618,6 +641,12 @@ export const createRunnerContext = ({
               ...(context.recallReadQueries
                 ? { recallReadQueries: context.recallReadQueries }
                 : {}),
+              telemetry: {
+                startedAtMs: recallStartedAtMs,
+                routeMs,
+                hostContextMs,
+                sourceTimings,
+              },
               onResultMetadata: (metadata) => {
                 resultMetadata = metadata;
               },

@@ -519,9 +519,11 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   try {
     ensureTranscriptSearchIndex(db);
   } catch (error) {
-    // The transcript index is an optimization — a failed backfill (e.g. a
-    // malformed legacy row) must not brick startup. The index was dropped,
-    // so search degrades to the LIKE scan.
+    // A failed backfill (e.g. a malformed legacy row) must not brick
+    // startup: the index is dropped and keyword search then fails loudly
+    // with FtsSearchUnavailableError ([stella:recall:fts-degraded]) until
+    // the index rebuilds. LIKE scans run only when a caller explicitly opts
+    // in via degradedMode: "like" — never as a silent fallback.
     if (!(error instanceof TranscriptFtsBackfillError)) throw error;
   }
 

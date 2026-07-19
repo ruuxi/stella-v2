@@ -20,7 +20,7 @@ export const createRecallTool = (
   name: "Recall",
   agentTypes: [AGENT_IDS.ORCHESTRATOR],
   description:
-    "Look up deeper memory, past work, or live machine context that isn't currently loaded. Recall routes by intent before reading: common repo/path/decision/exact-phrase lookups return indexed evidence directly with no model call; only genuine multi-source episodic questions use one light-tier synthesis call. Past work results include resumable thread_ids and source inbox/run ids. " +
+    "Look up deeper memory, past work, or live machine context that isn't currently loaded. Recall routes by intent before reading: common repo/path/decision/exact-phrase lookups return indexed evidence directly with no model call; only genuine multi-source episodic questions use one light-tier synthesis call. Past work results include resumable thread_ids. " +
     'Use it when the user references something from before ("yesterday", "that", "the thing I was doing"), asks about prior work, names a repo/module/feature with possible history, points at past agent threads to resume, or the request is ambiguous and earlier context could change the answer. ' +
     "You do NOT need it for the user's name, location, stable preferences, or current focus — those are already in your context. Skip it for self-contained requests (current time, simple rewrite, trivial formatting). When in doubt on anything historical or on-screen, do a quick Recall.",
   parameters: {

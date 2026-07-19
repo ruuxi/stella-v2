@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  EAGER_RECALL_SEED_MAX_CHARS,
   MAX_THREAD_SEARCH_RESULTS,
   RECALL_BUDGET_EXHAUSTED_TEXT,
   RECALL_EMPTY_BRIEF_TEXT,
@@ -15,6 +16,7 @@ import {
   formatThreadSearchResults,
   formatTranscriptSearchResults,
   resolveRecallSearchAction,
+  renderCappedRecallSeed,
   runRecall,
 } from "@stella/runtime/kernel/agent-runtime/context-lookup";
 import type {
@@ -24,23 +26,30 @@ import type {
   ToolResultMessage,
 } from "@stella/runtime/ai/types";
 import { completeSimple } from "@stella/runtime/ai/stream";
-import { runClaudeCodeAgentTextCompletion } from "@stella/runtime/kernel/integrations/claude-code-agent-runtime";
+import {
+  runClaudeCodeAgentTextCompletion,
+  shouldUseClaudeCodeAgentRuntime,
+} from "@stella/runtime/kernel/integrations/claude-code-agent-runtime";
 
 // runRecall drives its steps through completeSimple; the tests script its
 // responses. readAssistantText stays real (it reads the fake message text).
 vi.mock("@stella/runtime/ai/stream", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@stella/runtime/ai/stream")>()),
+  ...(await importOriginal<
+    typeof import("@stella/runtime/ai/stream")
+  >()),
   completeSimple: vi.fn(),
 }));
 
-// The external-engine path is selected by the authoritative Recall route;
-// Claude Code tests script the CLI turn.
+// The external-engine path: engine detection defaults to false (matching a
+// data dir with no preferences file); the Claude Code tests flip it on and
+// script the CLI turn.
 vi.mock(
   "@stella/runtime/kernel/integrations/claude-code-agent-runtime",
   async (importOriginal) => ({
     ...(await importOriginal<
       typeof import("@stella/runtime/kernel/integrations/claude-code-agent-runtime")
     >()),
+    shouldUseClaudeCodeAgentRuntime: vi.fn(() => false),
     runClaudeCodeAgentTextCompletion: vi.fn(),
   }),
 );
@@ -223,6 +232,29 @@ describe("buildContextLookupUserPrompt", () => {
     expect(prompt.indexOf("# Chronicle Context")).toBeLessThan(
       prompt.indexOf("# Lookup Request"),
     );
+    expect(prompt.length).toBeLessThanOrEqual(EAGER_RECALL_SEED_MAX_CHARS);
+  });
+
+  it("caps oversized sections deterministically while preserving the lookup tail", () => {
+    const sections = [
+      {
+        heading: "# Memory Search Results",
+        body: "m".repeat(20_000),
+        maxBodyChars: 10_000,
+      },
+      {
+        heading: "# Lookup Request",
+        body: "find the exact prior decision",
+        maxBodyChars: 1_000,
+      },
+    ];
+    const first = renderCappedRecallSeed(sections, [1, 0]);
+    const second = renderCappedRecallSeed(sections, [1, 0]);
+
+    expect(first).toBe(second);
+    expect(first.length).toBeLessThanOrEqual(EAGER_RECALL_SEED_MAX_CHARS);
+    expect(first).toContain("# Memory Search Results");
+    expect(first).toContain("# Lookup Request\nfind the exact prior decision");
   });
 
   it("includes matched memory lines and omits the full ledger when terms are provided", async () => {
@@ -241,7 +273,7 @@ describe("buildContextLookupUserPrompt", () => {
         "Recall hooks: mini window, pinned, macOS spaces",
         "",
         "## 2026-05-27 — Unrelated release",
-        "Outcome: Built legacy release assets.",
+        "Outcome: Built launcher release assets.",
       ].join("\n"),
     );
 
@@ -264,7 +296,7 @@ describe("buildContextLookupUserPrompt", () => {
     expect(prompt).toContain(
       "4: Outcome: Mini window follows spaces only when pinned.",
     );
-    expect(prompt).not.toContain("Built legacy release assets.");
+    expect(prompt).not.toContain("Built launcher release assets.");
     expect(prompt).toContain("Full ~/.stella/memories/MEMORY.md omitted");
   });
 
@@ -681,10 +713,26 @@ describe("runRecall", () => {
       .mockResolvedValueOnce(
         assistantText("The lake house wifi password is PINETREE42."),
       );
+    const telemetryRecords: Array<
+      Parameters<NonNullable<Parameters<typeof runRecall>[0]["onTelemetry"]>>[0]
+    > = [];
 
-    const out = await runRecall(
-      await makeRunArgs(rootPath, { searchTranscripts }),
-    );
+    const out = await runRecall({
+      ...(await makeRunArgs(rootPath, { searchTranscripts })),
+      telemetry: {
+        routeMs: 12.5,
+        hostContextMs: 3.25,
+        sourceTimings: {
+          "host.localEvents": {
+            kind: "sql",
+            calls: 1,
+            ms: 0.5,
+            chars: 0,
+          },
+        },
+      },
+      onTelemetry: (record) => telemetryRecords.push(record),
+    });
 
     expect(out).toBe("The lake house wifi password is PINETREE42.");
     expect(completions).toHaveBeenCalledTimes(2);
@@ -722,6 +770,33 @@ describe("runRecall", () => {
     expect((toolResult.content[0] as { text: string }).text).toContain(
       "PINETREE42",
     );
+    expect(telemetryRecords).toHaveLength(1);
+    expect(telemetryRecords[0]).toMatchObject({
+      version: 1,
+      conversationId: "conv-1",
+      outcome: "answer",
+      engine: "native",
+      modelId: "test-provider/test-model",
+      routeMs: 12.5,
+      hostContextMs: 3.25,
+      modelCalls: 2,
+      toolRounds: 1,
+    });
+    expect(telemetryRecords[0]?.seedChars).toBeGreaterThan(0);
+    expect(telemetryRecords[0]?.seedSearchMs).toBeGreaterThanOrEqual(0);
+    expect(telemetryRecords[0]?.assemblyMs).toBeGreaterThanOrEqual(0);
+    expect(telemetryRecords[0]?.modelMs).toBeGreaterThanOrEqual(0);
+    expect(telemetryRecords[0]?.totalMs).toBeGreaterThanOrEqual(0);
+    expect(telemetryRecords[0]?.sourceTimings).toMatchObject({
+      "host.localEvents": { kind: "sql", calls: 1, ms: 0.5 },
+      "seed.memoryFiles": { kind: "file", calls: 1 },
+      "seed.memorySearch": { kind: "file", calls: 1 },
+      "seed.chronicleFiles": { kind: "file", calls: 1 },
+      "seed.threadSearch": { kind: "sql", calls: 1 },
+      "seed.transcriptSearch": { kind: "sql", calls: 1 },
+      "seed.liveThreadStatus": { kind: "sql", calls: 1 },
+      "tool.transcriptSearch": { kind: "sql", calls: 1 },
+    });
   });
 
   it("executes parallel tool calls from one turn and answers unknown tools with an error result", async () => {
@@ -936,9 +1011,16 @@ describe("runRecall", () => {
     }
     completions.mockResolvedValueOnce(assistantText(""));
 
-    const out = await runRecall(await makeRunArgs(rootPath));
+    const telemetryRecords: Array<
+      Parameters<NonNullable<Parameters<typeof runRecall>[0]["onTelemetry"]>>[0]
+    > = [];
+    const out = await runRecall({
+      ...(await makeRunArgs(rootPath)),
+      onTelemetry: (record) => telemetryRecords.push(record),
+    });
     expect(out).toBe(RECALL_BUDGET_EXHAUSTED_TEXT);
     expect(completions).toHaveBeenCalledTimes(6);
+    expect(telemetryRecords[0]?.toolRounds).toBe(5);
     const messages = lastContext().messages;
     const budgetResult = messages.find(
       (message): message is ToolResultMessage =>
@@ -960,17 +1042,29 @@ describe("runRecall", () => {
     type EngineTurn = Parameters<typeof runClaudeCodeAgentTextCompletion>[0];
 
     const makeClaudeCodeArgs = async (rootPath: string) => {
-      const searchTranscripts = vi.fn(() => [
-        {
-          conversationId: "conv-2",
-          role: "user" as const,
-          atMs: Date.parse("2026-07-01T10:00:00Z"),
-          text: "the wifi password at the lake house is PINETREE42",
-        },
-      ]);
+      const searchTranscripts = vi.fn(() => {
+        // The first call is eager seed retrieval. Later calls happen inside
+        // Claude's runtime-owned tool loop and must not inflate modelMs.
+        if (searchTranscripts.mock.calls.length > 1) {
+          const deadline = performance.now() + 20;
+          while (performance.now() < deadline) {
+            // Deterministic synchronous retrieval stand-in.
+          }
+        }
+        return [
+          {
+            conversationId: "conv-2",
+            role: "user" as const,
+            atMs: Date.parse("2026-07-01T10:00:00Z"),
+            text: "the wifi password at the lake house is PINETREE42",
+          },
+        ];
+      });
+      const repoCheckout = path.join(rootPath, "repo-checkout");
       return {
         args: {
           ...(await makeRunArgs(rootPath, { searchTranscripts })),
+          stellaAppDir: repoCheckout,
           recallRoute: {
             activeEngine: "claude_code_local" as const,
             executionEngine: "claude-code" as const,
@@ -985,22 +1079,25 @@ describe("runRecall", () => {
     it("exposes the three search tools to the engine and routes them to the real backends", async () => {
       const { rootPath, db } = await createRoot();
       db.close();
+      vi.mocked(shouldUseClaudeCodeAgentRuntime).mockReturnValue(true);
       const engine = vi.mocked(runClaudeCodeAgentTextCompletion);
       engine.mockReset();
       engine.mockImplementationOnce(async (turn: EngineTurn) => {
         expect(turn.context.systemPrompt).toBe(
           RECALL_TOOL_RUNTIME_SYSTEM_PROMPT,
         );
-        expect(turn.stellaAppDir).toBe(rootPath);
-        expect(turn.cwd).toBe(rootPath);
-        expect(turn.modelOverride).toBe("haiku");
         expect(turn.effortLevel).toBe("low");
+        expect(turn.modelOverride).toBe("haiku");
+        expect(turn.stellaAppDir).toBe(rootPath);
+        expect(turn.cwd).toBe(path.join(rootPath, "repo-checkout"));
         expect(turn.context.tools?.map((tool) => tool.name)).toEqual([
           "search_memory",
           "search_transcripts",
           "search_threads",
         ]);
         expect(turn.executeTool).toBeDefined();
+        turn.onModelRound?.({ messageId: "round-1", toolCallCount: 0 });
+        turn.onModelRound?.({ messageId: "round-1", toolCallCount: 3 });
         const hit = await turn.executeTool!("call-1", "search_transcripts", {
           query: "lake house wifi password",
         });
@@ -1014,22 +1111,45 @@ describe("runRecall", () => {
         expect(unknown.error).toContain(
           "search_memory, search_transcripts, or search_threads",
         );
+        turn.onModelRound?.({ messageId: "round-2", toolCallCount: 0 });
         return "The lake house wifi password is PINETREE42.";
       });
 
       const { args, searchTranscripts } = await makeClaudeCodeArgs(rootPath);
-      const out = await runRecall(args);
+      const telemetryRecords: Array<
+        Parameters<
+          NonNullable<Parameters<typeof runRecall>[0]["onTelemetry"]>
+        >[0]
+      > = [];
+      const out = await runRecall({
+        ...args,
+        onTelemetry: (record) => telemetryRecords.push(record),
+      });
 
       expect(out).toBe("The lake house wifi password is PINETREE42.");
       expect(searchTranscripts).toHaveBeenCalledWith({
         query: "lake house wifi password",
         limit: 12,
       });
+      expect(telemetryRecords).toHaveLength(1);
+      expect(telemetryRecords[0]).toMatchObject({
+        modelCalls: 2,
+        toolRounds: 1,
+      });
+      const toolMs =
+        telemetryRecords[0]?.sourceTimings["tool.transcriptSearch"]?.ms ?? 0;
+      expect(toolMs).toBeGreaterThan(30);
+      expect(
+        (telemetryRecords[0]?.totalMs ?? 0) -
+          (telemetryRecords[0]?.modelMs ?? 0),
+      ).toBeGreaterThanOrEqual(toolMs - 5);
+      vi.mocked(shouldUseClaudeCodeAgentRuntime).mockReturnValue(false);
     });
 
     it("rejects a prose nothing-found given without any search, then accepts the searched answer", async () => {
       const { rootPath, db } = await createRoot();
       db.close();
+      vi.mocked(shouldUseClaudeCodeAgentRuntime).mockReturnValue(true);
       const engine = vi.mocked(runClaudeCodeAgentTextCompletion);
       engine.mockReset();
       engine
@@ -1056,6 +1176,33 @@ describe("runRecall", () => {
 
       expect(out).toBe("Found it: PINETREE42.");
       expect(engine).toHaveBeenCalledTimes(2);
+      vi.mocked(shouldUseClaudeCodeAgentRuntime).mockReturnValue(false);
+    });
+
+    it("counts a failed Claude turn after already observed model rounds", async () => {
+      const { rootPath, db } = await createRoot();
+      db.close();
+      const engine = vi.mocked(runClaudeCodeAgentTextCompletion);
+      engine.mockReset();
+      engine.mockImplementationOnce(async (turn: EngineTurn) => {
+        turn.onModelRound?.({ messageId: "round-1", toolCallCount: 0 });
+        throw new Error("transport failed after an observed round");
+      });
+      const { args } = await makeClaudeCodeArgs(rootPath);
+      const telemetryRecords: Array<
+        Parameters<
+          NonNullable<Parameters<typeof runRecall>[0]["onTelemetry"]>
+        >[0]
+      > = [];
+
+      await expect(
+        runRecall({
+          ...args,
+          onTelemetry: (record) => telemetryRecords.push(record),
+        }),
+      ).rejects.toThrow("transport failed after an observed round");
+      expect(telemetryRecords).toHaveLength(1);
+      expect(telemetryRecords[0]?.modelCalls).toBe(2);
     });
   });
 });

@@ -55,7 +55,10 @@ import type {
 import { getBundledCoreAgentFallback } from "../agents/agents.js";
 import { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
 import { createKernelRunSupervisor } from "./supervision/run-supervisor.js";
-import { runRecall } from "../agent-runtime/context-lookup.js";
+import {
+  routeRecallIntent,
+  runRecall,
+} from "../agent-runtime/context-lookup.js";
 import {
   defaultPromptForAgentType,
   DEFAULT_MAX_AGENT_DEPTH,
@@ -419,6 +422,7 @@ export const createRunnerContext = ({
   runtimeStore,
   getAppBrowserContext,
   listLocalChatEvents,
+  recallReadQueries,
   appendLocalChatEvent,
   notifyThreadActivityUpdated,
   getDefaultConversationId,
@@ -565,14 +569,20 @@ export const createRunnerContext = ({
         AGENT_IDS.ORCHESTRATOR,
         payload.modelConfigSnapshot,
       );
-      const localEvents = context.listLocalChatEvents
-        ? context
-            .listLocalChatEvents(payload.conversationId, 800)
-            .filter((event) => LOCAL_CONTEXT_EVENT_TYPES.has(event.type))
-        : [];
-      const appBrowserContext = getAppBrowserContext
-        ? await getAppBrowserContext()
-        : undefined;
+      // Host context is expensive to gather and only the live-context intent
+      // consumes it; every other route reads indexed evidence instead.
+      const needsHostContext =
+        routeRecallIntent(payload.prompt) === "live_context";
+      const localEvents =
+        needsHostContext && context.listLocalChatEvents
+          ? context
+              .listLocalChatEvents(payload.conversationId, 5)
+              .filter((event) => LOCAL_CONTEXT_EVENT_TYPES.has(event.type))
+          : [];
+      const appBrowserContext =
+        needsHostContext && getAppBrowserContext
+          ? await getAppBrowserContext()
+          : undefined;
       return await runRecall({
         conversationId: payload.conversationId,
         lookupPrompt: payload.prompt,
@@ -585,6 +595,9 @@ export const createRunnerContext = ({
         localEvents,
         ...(appBrowserContext ? { appBrowserContext } : {}),
         recallRoute,
+        ...(context.recallReadQueries
+          ? { recallReadQueries: context.recallReadQueries }
+          : {}),
         ...(payload.signal ? { signal: payload.signal } : {}),
       });
     },
@@ -676,6 +689,7 @@ export const createRunnerContext = ({
     fashionApi: resolvedFashionApi,
     runtimeStore,
     listLocalChatEvents,
+    recallReadQueries,
     appendLocalChatEvent,
     notifyThreadActivityUpdated,
     getDefaultConversationId,

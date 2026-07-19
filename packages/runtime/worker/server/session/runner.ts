@@ -7,6 +7,10 @@ import {
   type HostAppBrowserContextSnapshot,
 } from "@stella/contracts/protocol";
 import { resolveBundledRuntimeFile } from "../../../kernel/shared/runtime-paths.js";
+import {
+  listTranscriptNeighborsBatch,
+  readRecallFtsHealth,
+} from "../../../kernel/storage/recall-read-queries.js";
 // Runner subgraph imported as types only — the values are loaded lazily (see
 // the dynamic import in the build promise below) so this ~68%-of-bundle
 // subgraph isn't parsed on the worker-ready path.
@@ -111,6 +115,11 @@ export const layer = Layer.effect(
         )) as HostAppBrowserContextSnapshot,
       listLocalChatEvents: (conversationId, maxItems) =>
         storage.chatStore.listEvents(conversationId, maxItems),
+      recallReadQueries: {
+        getFtsHealth: () => readRecallFtsHealth(storage.db),
+        listTranscriptNeighborsBatch: (targets, options) =>
+          listTranscriptNeighborsBatch(storage.db, targets, options),
+      },
       appendLocalChatEvent: (args) => {
         storage.appendChatEventAndNotify(args);
       },

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -12,6 +12,13 @@ import {
 } from "@stella/runtime/kernel/agent-runtime/thread-memory";
 import { buildDefaultTransformContext } from "@stella/runtime/kernel/agent-runtime/shared";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types";
+import { readMemorySummaryDoc } from "@stella/runtime/kernel/runner/shared";
+
+const readStartupDocBody = (text: string): string => {
+  const match = text.match(/<startup_doc[^>]*>\n([\s\S]*)\n<\/startup_doc>/);
+  if (!match?.[1]) throw new Error("startup doc body not found");
+  return match[1];
+};
 
 describe("buildSystemPrompt", () => {
   it("adds structured file-editing guidance when apply_patch is available", () => {
@@ -44,7 +51,9 @@ describe("buildSystemPrompt", () => {
 
 describe("buildStartupPromptMessages", () => {
   it("can include the registry startup doc when explicitly enabled", async () => {
-    const stellaDataDir = await mkdtemp(path.join(tmpdir(), "stella-registry-"));
+    const stellaDataDir = await mkdtemp(
+      path.join(tmpdir(), "stella-registry-"),
+    );
     try {
       await writeFile(
         path.join(stellaDataDir, "registry.md"),
@@ -72,7 +81,9 @@ describe("buildStartupPromptMessages", () => {
   });
 
   it("omits the registry startup doc by default", async () => {
-    const stellaDataDir = await mkdtemp(path.join(tmpdir(), "stella-registry-"));
+    const stellaDataDir = await mkdtemp(
+      path.join(tmpdir(), "stella-registry-"),
+    );
     try {
       await writeFile(
         path.join(stellaDataDir, "registry.md"),
@@ -120,7 +131,8 @@ describe("buildStartupPromptMessages", () => {
         maxAgentDepth: 1,
         threadHistory: [],
         userProfile: "# User Profile\n\n- The user goes by Bob",
-        memorySummary: "# Memory summary\n\n- Shipping the resident-memory rewire",
+        memorySummary:
+          "# Memory summary\n\n- Shipping the resident-memory rewire",
       },
     });
 
@@ -129,9 +141,67 @@ describe("buildStartupPromptMessages", () => {
     expect(promptText).toContain("The user goes by Bob");
     expect(promptText).toContain('path="~/.stella/memories/memory_summary.md"');
     expect(promptText).toContain("resident-memory rewire");
-    expect(messages.every((m) => m.customType === "bootstrap.startup_doc")).toBe(
-      true,
-    );
+    expect(
+      messages.every((m) => m.customType === "bootstrap.startup_doc"),
+    ).toBe(true);
+  });
+
+  it.each([
+    { chars: 12_000, truncated: false },
+    { chars: 12_001, truncated: true },
+  ])(
+    "caps a $chars-character combined resident memory block at 12,000 characters",
+    async ({ chars, truncated }) => {
+      const messages = await buildStartupPromptMessages({
+        context: {
+          systemPrompt: "system",
+          dynamicContext: "",
+          maxAgentDepth: 1,
+          threadHistory: [],
+          memorySummary: "x".repeat(chars),
+        },
+      });
+
+      const body = readStartupDocBody(messages[0]?.text ?? "");
+      expect(body).toHaveLength(12_000);
+      expect(body.includes("resident memory summary truncated")).toBe(
+        truncated,
+      );
+    },
+  );
+
+  it("defense-in-depth caps the combined summary and routing index", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "stella-resident-memory-"));
+    try {
+      const memoriesDir = path.join(root, "memories");
+      await mkdir(memoriesDir, { recursive: true });
+      await writeFile(
+        path.join(memoriesDir, "memory_summary.md"),
+        "s".repeat(7_000),
+      );
+      await writeFile(
+        path.join(memoriesDir, "memory_index.md"),
+        `${"i".repeat(6_000 - "TAIL_SENTINEL".length)}TAIL_SENTINEL`,
+      );
+      const combined = readMemorySummaryDoc(root);
+      expect(combined?.length).toBeGreaterThan(12_000);
+
+      const messages = await buildStartupPromptMessages({
+        context: {
+          systemPrompt: "system",
+          dynamicContext: "",
+          maxAgentDepth: 1,
+          threadHistory: [],
+          memorySummary: combined,
+        },
+      });
+      const body = readStartupDocBody(messages[0]?.text ?? "");
+      expect(body).toHaveLength(12_000);
+      expect(body).toContain("resident memory summary truncated");
+      expect(body).not.toContain("TAIL_SENTINEL");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("does not re-inject resident docs already persisted in thread history", async () => {

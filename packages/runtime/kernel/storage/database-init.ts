@@ -34,9 +34,9 @@ export const getDesktopDatabasePath = (stellaDataDir: string) =>
  * - `porter unicode61` stems index and query terms alike, replacing the one
  *   thing the LIKE scan did better (substring matches: "drive" ~ "drives").
  * - Backfill is one-time, guarded by a settings flag, and transactional; a
- *   failed backfill drops the whole index so search degrades to the LIKE
- *   scan instead of silently missing older history. An SQLite build without
- *   FTS5 takes the same degradation path.
+ *   failed backfill drops the whole index so search surfaces a typed degraded
+ *   state instead of silently missing older history. An SQLite build without
+ *   FTS5 takes the same degradation path; LIKE requires an explicit opt-in.
  */
 const TRANSCRIPT_FTS_BACKFILL_FLAG = "transcript_fts_backfilled_v1";
 
@@ -64,8 +64,8 @@ const ensureTranscriptSearchIndex = (db: SqliteDatabase) => {
       );
     `);
   } catch {
-    // This SQLite build lacks FTS5 — searchTranscripts falls back to the
-    // LIKE scan. Nothing else to set up.
+    // This SQLite build lacks FTS5 — searchTranscripts will surface a typed
+    // degraded state. Nothing else to set up.
     return;
   }
 
@@ -150,7 +150,7 @@ const ensureTranscriptSearchIndex = (db: SqliteDatabase) => {
       // Not in a transaction — BEGIN itself failed.
     }
     // A half-built index silently loses older history; no index degrades
-    // loudly to the LIKE scan and retries the backfill on the next init.
+    // loudly and retries the backfill on the next init.
     dropTranscriptSearchIndex(db);
     throw error instanceof Error
       ? new TranscriptFtsBackfillError(error)
@@ -161,7 +161,8 @@ const ensureTranscriptSearchIndex = (db: SqliteDatabase) => {
 /**
  * Wraps a backfill failure so callers can tell it apart from init failures
  * that must abort startup: the transcript index is an optimization, so
- * `initializeDesktopDatabase` catches this and continues without it.
+ * `initializeDesktopDatabase` catches this and continues without it; Recall's
+ * FTS preflight and SessionStore then expose the degraded state.
  */
 class TranscriptFtsBackfillError extends Error {
   constructor(cause: Error) {
@@ -194,8 +195,8 @@ class TranscriptFtsBackfillError extends Error {
  *   write time, so orchestrator threads and implicit `::subagent::`
  *   transcript rows never enter the index at all.
  * - Backfill, degradation, and drop-on-failure follow the transcript index
- *   above: no FTS5 → skip; failed backfill → drop the whole index and fall
- *   back to the LIKE scan.
+ *   above: no FTS5 → skip; failed backfill → drop the whole index and expose
+ *   typed degradation unless a caller explicitly requests LIKE mode.
  */
 const THREAD_FTS_BACKFILL_FLAG = "thread_search_fts_backfilled_v1";
 
@@ -230,8 +231,8 @@ const ensureThreadSearchIndex = (db: SqliteDatabase) => {
       );
     `);
   } catch {
-    // This SQLite build lacks FTS5 — searchThreads falls back to the LIKE
-    // scan. Nothing else to set up.
+    // This SQLite build lacks FTS5 — searchThreads will surface a typed
+    // degraded state. Nothing else to set up.
     return;
   }
 
@@ -413,7 +414,7 @@ const ensureThreadSearchIndex = (db: SqliteDatabase) => {
       // Not in a transaction — BEGIN itself failed.
     }
     // A half-built index silently loses older threads; no index degrades
-    // loudly to the LIKE scan and retries the backfill on the next init.
+    // loudly and retries the backfill on the next init.
     dropThreadSearchIndex(db);
     throw error instanceof Error ? new ThreadFtsBackfillError(error) : error;
   }
@@ -422,7 +423,7 @@ const ensureThreadSearchIndex = (db: SqliteDatabase) => {
 /**
  * Same contract as `TranscriptFtsBackfillError`: the thread index is an
  * optimization, so `initializeDesktopDatabase` catches this and continues
- * without it.
+ * without it; callers then see the typed degraded state.
  */
 class ThreadFtsBackfillError extends Error {
   constructor(cause: Error) {
@@ -755,8 +756,8 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     ensureThreadSearchIndex(db);
   } catch (error) {
     // Same degradation contract as the transcript index above: the thread
-    // index is an optimization, and searchThreads falls back to its LIKE
-    // scan once the failed index is dropped.
+    // index is an optimization, and its absence is surfaced to Recall once
+    // the failed index is dropped.
     if (!(error instanceof ThreadFtsBackfillError)) throw error;
   }
   // Legacy generated progress-summary rows. Keep the table so existing

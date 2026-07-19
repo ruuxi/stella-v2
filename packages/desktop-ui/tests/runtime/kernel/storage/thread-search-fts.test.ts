@@ -12,7 +12,10 @@ import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
 } from "@stella/runtime/kernel/storage/database-init";
-import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
+import {
+  FtsSearchUnavailableError,
+  SessionStore,
+} from "@stella/runtime/kernel/storage/session-store";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 type TestContext = {
@@ -317,7 +320,7 @@ describe("thread FTS index", () => {
     ).toEqual([job.threadId]);
   });
 
-  it("falls back to the LIKE scan when the index is unavailable", () => {
+  it("fails loudly when the index is unavailable unless degraded mode is explicit", () => {
     const { db, store } = createTestContext();
     const flight = spawnThread(store, "conv-a", "Compare flight prices");
     saveAgent(store, flight.threadId, "conv-a", {
@@ -333,9 +336,19 @@ describe("thread FTS index", () => {
     // A fresh store re-detects availability (the flag is cached per store).
     const fallbackStore = new SessionStore(db);
 
+    expect(() =>
+      fallbackStore.searchThreads({
+        conversationId: "conv-a",
+        query: "flight",
+      }),
+    ).toThrow(FtsSearchUnavailableError);
     expect(
       fallbackStore
-        .searchThreads({ conversationId: "conv-a", query: "flight" })
+        .searchThreads({
+          conversationId: "conv-a",
+          query: "flight",
+          degradedMode: "like",
+        })
         .map((t) => t.threadId),
     ).toEqual([flight.threadId]);
     // Result-text matching is deliberately exclusive to the FTS path: the
@@ -344,6 +357,7 @@ describe("thread FTS index", () => {
       fallbackStore.searchThreads({
         conversationId: "conv-a",
         query: "zanzibar",
+        degradedMode: "like",
       }),
     ).toEqual([]);
   });

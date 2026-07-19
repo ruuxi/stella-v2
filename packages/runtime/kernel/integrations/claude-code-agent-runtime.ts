@@ -87,8 +87,10 @@ export const getClaudeCodeAgentModelId = (
       ? preferredModel
       : undefined;
   const model =
-    userSelectedModel ??
+    // A caller explicitly selecting Stella Light is authoritative. The old
+    // order let a saved `claudeCodeModel: fable` silently replace Haiku.
     lightDefault ??
+    userSelectedModel ??
     preferredModel ??
     DEFAULT_CLAUDE_CODE_MODEL;
   return `claude-code/${model || DEFAULT_CLAUDE_CODE_MODEL}`;
@@ -185,6 +187,8 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
   sessionKey?: string;
   abortSignal?: AbortSignal;
   stellaModel?: string;
+  /** Engine-native model pin that wins over saved Claude Code preferences. */
+  modelOverride?: string;
   /** Internal utility passes may pin effort independently of user agent prefs. */
   effortLevel?: string;
   /**
@@ -206,6 +210,7 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
     args.stellaAppDir,
     args.stellaModel,
     args.agentType,
+    args.modelOverride,
   );
   const effortLevel =
     args.effortLevel ?? getClaudeCodeRuntimeEffortLevel(args.stellaAppDir);

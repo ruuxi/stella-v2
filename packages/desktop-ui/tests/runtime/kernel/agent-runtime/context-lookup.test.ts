@@ -24,10 +24,7 @@ import type {
   ToolResultMessage,
 } from "@stella/runtime/ai/types";
 import { completeSimple } from "@stella/runtime/ai/stream";
-import {
-  runClaudeCodeAgentTextCompletion,
-  shouldUseClaudeCodeAgentRuntime,
-} from "@stella/runtime/kernel/integrations/claude-code-agent-runtime";
+import { runClaudeCodeAgentTextCompletion } from "@stella/runtime/kernel/integrations/claude-code-agent-runtime";
 
 // runRecall drives its steps through completeSimple; the tests script its
 // responses. readAssistantText stays real (it reads the fake message text).
@@ -36,16 +33,14 @@ vi.mock("@stella/runtime/ai/stream", async (importOriginal) => ({
   completeSimple: vi.fn(),
 }));
 
-// The external-engine path: engine detection defaults to false (matching a
-// data dir with no preferences file); the Claude Code tests flip it on and
-// script the CLI turn.
+// The external-engine path is selected by the authoritative Recall route;
+// Claude Code tests script the CLI turn.
 vi.mock(
   "@stella/runtime/kernel/integrations/claude-code-agent-runtime",
   async (importOriginal) => ({
     ...(await importOriginal<
       typeof import("@stella/runtime/kernel/integrations/claude-code-agent-runtime")
     >()),
-    shouldUseClaudeCodeAgentRuntime: vi.fn(() => false),
     runClaudeCodeAgentTextCompletion: vi.fn(),
   }),
 );
@@ -649,10 +644,15 @@ describe("runRecall", () => {
       ...storeOverrides,
     } as unknown as Parameters<typeof runRecall>[0]["store"],
     localEvents: [],
-    resolvedLlm: {
-      model: { id: "test-model" },
-      getApiKey: async () => "test-key",
-    } as unknown as Parameters<typeof runRecall>[0]["resolvedLlm"],
+    recallRoute: {
+      activeEngine: "default",
+      executionEngine: "native",
+      modelId: "test-provider/test-model",
+      resolvedLlm: {
+        model: { id: "test-model" },
+        getApiKey: async () => "test-key",
+      },
+    } as unknown as Parameters<typeof runRecall>[0]["recallRoute"],
   });
 
   it("advertises the native tools, executes a tool round, and returns the final text brief", async () => {
@@ -969,7 +969,15 @@ describe("runRecall", () => {
         },
       ]);
       return {
-        args: await makeRunArgs(rootPath, { searchTranscripts }),
+        args: {
+          ...(await makeRunArgs(rootPath, { searchTranscripts })),
+          recallRoute: {
+            activeEngine: "claude_code_local" as const,
+            executionEngine: "claude-code" as const,
+            modelId: "claude-code/haiku",
+            claudeCodeModel: "haiku",
+          },
+        },
         searchTranscripts,
       };
     };
@@ -977,13 +985,15 @@ describe("runRecall", () => {
     it("exposes the three search tools to the engine and routes them to the real backends", async () => {
       const { rootPath, db } = await createRoot();
       db.close();
-      vi.mocked(shouldUseClaudeCodeAgentRuntime).mockReturnValue(true);
       const engine = vi.mocked(runClaudeCodeAgentTextCompletion);
       engine.mockReset();
       engine.mockImplementationOnce(async (turn: EngineTurn) => {
         expect(turn.context.systemPrompt).toBe(
           RECALL_TOOL_RUNTIME_SYSTEM_PROMPT,
         );
+        expect(turn.stellaAppDir).toBe(rootPath);
+        expect(turn.cwd).toBe(rootPath);
+        expect(turn.modelOverride).toBe("haiku");
         expect(turn.effortLevel).toBe("low");
         expect(turn.context.tools?.map((tool) => tool.name)).toEqual([
           "search_memory",
@@ -1015,13 +1025,11 @@ describe("runRecall", () => {
         query: "lake house wifi password",
         limit: 12,
       });
-      vi.mocked(shouldUseClaudeCodeAgentRuntime).mockReturnValue(false);
     });
 
     it("rejects a prose nothing-found given without any search, then accepts the searched answer", async () => {
       const { rootPath, db } = await createRoot();
       db.close();
-      vi.mocked(shouldUseClaudeCodeAgentRuntime).mockReturnValue(true);
       const engine = vi.mocked(runClaudeCodeAgentTextCompletion);
       engine.mockReset();
       engine
@@ -1048,7 +1056,6 @@ describe("runRecall", () => {
 
       expect(out).toBe("Found it: PINETREE42.");
       expect(engine).toHaveBeenCalledTimes(2);
-      vi.mocked(shouldUseClaudeCodeAgentRuntime).mockReturnValue(false);
     });
   });
 });

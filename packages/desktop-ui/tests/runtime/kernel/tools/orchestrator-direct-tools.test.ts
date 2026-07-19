@@ -484,6 +484,11 @@ describe("orchestrator direct tool surface", () => {
       prompt: "Find context for what the user means by yesterday's tab.",
       memorySearchTerms: ["yesterday", "tab"],
       agentType: "orchestrator",
+      modelConfigSnapshot: {
+        engine: "default",
+        routeModel: "stella/openai/gpt-5.6-sol",
+        reasoningEffort: "high",
+      },
     });
 
     const generalResult = await host.executeTool(

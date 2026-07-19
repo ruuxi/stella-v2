@@ -1,4 +1,5 @@
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import type { ToolDefinition } from "../types.js";
 
 export type RecallToolOptions = {
@@ -8,6 +9,7 @@ export type RecallToolOptions = {
     prompt: string;
     memorySearchTerms?: string[];
     agentType?: string;
+    modelConfigSnapshot?: AgentModelConfigSnapshot;
     signal?: AbortSignal;
   }) => Promise<string>;
 };
@@ -65,6 +67,9 @@ export const createRecallTool = (
       prompt,
       ...(memorySearchTerms?.length ? { memorySearchTerms } : {}),
       ...(context.agentType ? { agentType: context.agentType } : {}),
+      ...(context.modelConfigSnapshot
+        ? { modelConfigSnapshot: context.modelConfigSnapshot }
+        : {}),
       ...(extras?.signal ? { signal: extras.signal } : {}),
     });
     return { result };

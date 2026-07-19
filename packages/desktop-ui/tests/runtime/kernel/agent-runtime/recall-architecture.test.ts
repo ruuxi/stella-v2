@@ -23,6 +23,7 @@ import {
 } from "@stella/runtime/kernel/storage/recall-read-queries";
 import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import { redactBenchmarkBrief } from "@stella/runtime/scripts/recall-benchmark-redaction";
 
 const roots = new Set<string>();
 
@@ -194,8 +195,22 @@ describe("architectural Recall pipeline", () => {
     ).resolves.toContain("stella repo path");
   });
 
-  // The redaction regression case ("redacts street addresses and user-home
-  // path prefixes") arrives in Phase 7 with recall-benchmark-redaction.ts.
+  it("redacts street addresses and user-home path prefixes", () => {
+    expect(
+      redactBenchmarkBrief(
+        "Rahul drove to the south entrance at 10919 S Central Avenue before dusk.",
+      ),
+    ).toBe(
+      "Rahul drove to the south entrance at [REDACTED POSTAL ADDRESS] before dusk.",
+    );
+    expect(
+      redactBenchmarkBrief(
+        "Inspect /Users/reviewer/projects/stella/runtime/kernel/file.ts:20 next.",
+      ),
+    ).toBe(
+      "Inspect [REDACTED HOME]/projects/stella/runtime/kernel/file.ts:20 next.",
+    );
+  });
 
   it("fails loudly before thread search when FTS is degraded", async () => {
     const root = await createRoot();

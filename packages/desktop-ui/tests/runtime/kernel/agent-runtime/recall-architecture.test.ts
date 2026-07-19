@@ -11,6 +11,8 @@ import {
   routeRecallIntent,
   runRecall,
 } from "@stella/runtime/kernel/agent-runtime/context-lookup";
+import { MEMORY_INDEX_MAX_CHARS } from "@stella/runtime/kernel/memory/dream-storage";
+import { readMemorySummaryDoc } from "@stella/runtime/kernel/runner/shared";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
@@ -57,9 +59,25 @@ const makeStore = () =>
   }) as never;
 
 describe("architectural Recall pipeline", () => {
-  // The resident routing-index injection-cap case ("deterministically caps
-  // the resident routing index at injection") arrives in Phase 5 with the
-  // memory_index.md storage/injection port in readMemorySummaryDoc.
+  it.each([
+    { chars: 6_000, truncated: false },
+    { chars: 6_001, truncated: true },
+  ])(
+    "deterministically caps a $chars-character resident routing index at injection",
+    async ({ chars, truncated }) => {
+      const root = await createRoot();
+      const sentinel = "TAIL_SENTINEL";
+      await writeFile(
+        path.join(root, "memories", "memory_index.md"),
+        `${"x".repeat(chars - sentinel.length)}${sentinel}`,
+      );
+
+      const resident = readMemorySummaryDoc(root) ?? "";
+      expect(resident).toHaveLength(MEMORY_INDEX_MAX_CHARS);
+      expect(resident.includes("resident memory truncated")).toBe(truncated);
+      expect(resident.includes(sentinel)).toBe(!truncated);
+    },
+  );
 
   it("routes common facts to memory and returns matched lines with zero model calls", async () => {
     const root = await createRoot();

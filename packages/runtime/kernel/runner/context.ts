@@ -54,6 +54,7 @@ import type {
 } from "../storage/shared.js";
 import { getBundledCoreAgentFallback } from "../agents/agents.js";
 import { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
+import { ensureDreamMemoryLayout } from "../memory/dream-storage.js";
 import { createKernelRunSupervisor } from "./supervision/run-supervisor.js";
 import {
   isRecallNoMatchBrief,
@@ -1070,6 +1071,9 @@ export const buildAgentContext = async (
     args.agentType,
     "injectsPersonality",
   );
+  if (injectsResidentMemory) {
+    await ensureDreamMemoryLayout(context.stellaDataDir);
+  }
 
   return {
     systemPrompt:

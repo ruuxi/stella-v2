@@ -1,6 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -10,6 +11,16 @@ import {
   routeRecallIntent,
   runRecall,
 } from "@stella/runtime/kernel/agent-runtime/context-lookup";
+import {
+  getDesktopDatabasePath,
+  initializeDesktopDatabase,
+} from "@stella/runtime/kernel/storage/database-init";
+import {
+  listTranscriptNeighborsBatch,
+  readRecallFtsHealth,
+} from "@stella/runtime/kernel/storage/recall-read-queries";
+import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 const roots = new Set<string>();
 
@@ -429,5 +440,79 @@ describe("architectural Recall pipeline", () => {
     expect(
       isRecallNoMatchBrief("  NOTHING RELEVANT FOUND: after two passes"),
     ).toBe(true);
+  });
+
+  it("records usage feedback through the REAL store when thread evidence is surfaced", async () => {
+    // Regression for the phases-1-3 gate finding: the mocked stores masked
+    // that v2's DreamInboxStore lacked findThreadSummariesByThreadIds, so
+    // delegated-thread Recall crashed on the real SessionStore. This test
+    // runs the whole delegated-work fast path with NO mocks.
+    const root = await createRoot();
+    const db = new DatabaseSync(getDesktopDatabasePath(root), {
+      timeout: 5000,
+    }) as unknown as SqliteDatabase;
+    try {
+      initializeDesktopDatabase(db);
+      const store = new SessionStore(db);
+      const thread = store.resolveOrCreateActiveThread({
+        conversationId: "conv-real",
+        agentType: "general",
+        nameHint: "Zanzibar dashboard rebuild",
+      });
+      store.saveAgentRecord({
+        threadId: thread.threadId,
+        conversationId: "conv-real",
+        agentType: "general",
+        description: "Rebuild the zanzibar dashboard",
+        agentDepth: 0,
+        status: "completed",
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+        result: "Zanzibar dashboard rebuilt and deployed.",
+        updatedAt: Date.now(),
+      });
+      store.dreamInboxStore.recordThreadSummary({
+        threadId: thread.threadId,
+        runId: "run-real",
+        agentType: "general",
+        rolloutSummary: "Rebuilt the zanzibar dashboard end to end.",
+      });
+
+      const brief = await runRecall({
+        conversationId: "conv-real",
+        lookupPrompt: "resume the zanzibar dashboard thread",
+        memorySearchTerms: ["zanzibar"],
+        stellaAppDir: root,
+        stellaDataDir: root,
+        store,
+        localEvents: [],
+        recallRoute: {
+          activeEngine: "default",
+          executionEngine: "native",
+          modelId: "test/light",
+        } as never,
+        recallReadQueries: {
+          getFtsHealth: () => readRecallFtsHealth(db),
+          listTranscriptNeighborsBatch: (targets, options) =>
+            listTranscriptNeighborsBatch(db, targets, options),
+        },
+      });
+
+      // The delegated-work fast path answers directly from indexed evidence.
+      expect(brief).toContain(thread.threadId);
+      expect(brief).toContain("Zanzibar dashboard rebuild");
+      // Usage feedback landed on the real dream inbox row.
+      const [summary] = store.dreamInboxStore.findThreadSummariesByThreadIds([
+        thread.threadId,
+      ]);
+      expect(summary).toMatchObject({
+        threadId: thread.threadId,
+        runId: "run-real",
+        usageCount: 1,
+      });
+      expect(summary?.lastUsage).toBeGreaterThan(0);
+    } finally {
+      db.close();
+    }
   });
 });

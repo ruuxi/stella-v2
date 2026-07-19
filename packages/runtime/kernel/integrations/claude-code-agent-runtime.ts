@@ -203,6 +203,8 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
     toolArgs: Record<string, unknown>,
     signal?: AbortSignal,
   ) => Promise<ToolResult>;
+  /** Diagnostic boundary forwarded from finalized Claude assistant events. */
+  onModelRound?: (args: { messageId?: string; toolCallCount: number }) => void;
 }): Promise<string> => {
   const runId =
     args.runId ?? `claude-code:${args.agentType}:${crypto.randomUUID()}`;
@@ -231,6 +233,7 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
         }),
       tools: toolsToMetadata(args.context.tools),
       abortSignal: args.abortSignal,
+      ...(args.onModelRound ? { onModelRound: args.onModelRound } : {}),
       executeTool: async (toolCallId, toolName, toolArgs, signal) => {
         if (!args.executeTool) {
           return { error: `Tool ${toolName} is not available in this run.` };

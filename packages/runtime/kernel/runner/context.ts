@@ -71,7 +71,7 @@ import {
 import {
   resolveRunnerLlmRoute,
   resolveRunnerLlmRouteWithMetadata,
-  resolveRunnerUtilityLlmRoute,
+  resolveRunnerRecallLlmRoute,
 } from "./model-selection.js";
 import {
   captureEffectiveModelConfig,
@@ -560,15 +560,10 @@ export const createRunnerContext = ({
       }
     },
     contextProvider: async (payload) => {
-      const agent = resolveAgent(context, AGENT_IDS.ORCHESTRATOR);
-      const model = getConfiguredModel(context, AGENT_IDS.ORCHESTRATOR, agent);
-      // Recall is a cheap internal utility pass — pin it to the light model
-      // instead of riding the orchestrator's (expensive) configured model.
-      // Falls back to the orchestrator pick for signed-out / pure-BYOK users.
-      const resolvedLlm = await resolveRunnerUtilityLlmRoute(
+      const recallRoute = await resolveRunnerRecallLlmRoute(
         context,
         AGENT_IDS.ORCHESTRATOR,
-        model,
+        payload.modelConfigSnapshot,
       );
       const localEvents = context.listLocalChatEvents
         ? context
@@ -589,7 +584,7 @@ export const createRunnerContext = ({
         store: context.runtimeStore,
         localEvents,
         ...(appBrowserContext ? { appBrowserContext } : {}),
-        resolvedLlm,
+        recallRoute,
         ...(payload.signal ? { signal: payload.signal } : {}),
       });
     },

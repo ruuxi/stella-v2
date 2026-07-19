@@ -11,7 +11,6 @@ import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { HostAppBrowserContextSnapshot } from "@stella/contracts/protocol";
 import type { LocalContextEvent } from "../local-history.js";
-import type { ResolvedLlmRoute } from "../model-routing.js";
 import { readOptionalTextFile } from "../shared/read-optional-text-file.js";
 import {
   sanitizePromptContext,
@@ -28,10 +27,8 @@ import {
   formatRuntimeThreadStatusSuffix,
   runtimeThreadLastActiveAt,
 } from "../runtime-threads.js";
-import {
-  runClaudeCodeAgentTextCompletion,
-  shouldUseClaudeCodeAgentRuntime,
-} from "../integrations/claude-code-agent-runtime.js";
+import { runClaudeCodeAgentTextCompletion } from "../integrations/claude-code-agent-runtime.js";
+import type { RecallModelRoute } from "./recall-route.js";
 
 const MAX_CONTEXT_OUTPUT_TOKENS = 1_500;
 const EAGER_MEMORY_FILE_CHAR_BUDGET = 4_000;
@@ -1007,7 +1004,7 @@ export const runRecall = async (args: {
   store: RuntimeStore;
   localEvents: LocalContextEvent[];
   appBrowserContext?: HostAppBrowserContextSnapshot;
-  resolvedLlm: ResolvedLlmRoute;
+  recallRoute: RecallModelRoute;
   signal?: AbortSignal;
 }): Promise<string> => {
   // The Recall tool requires search terms; for callers that still omit
@@ -1029,17 +1026,17 @@ export const runRecall = async (args: {
       : {}),
   });
 
-  // Engine preferences live in the data dir (`~/.stella/preferences.json`) —
-  // same detection the one-shot completion path uses. When the Claude Code
-  // engine is active, the run needs no route credential and the engine maps a
-  // pinned `stella/light` model id to its own light model (haiku).
-  const useClaudeCode = shouldUseClaudeCodeAgentRuntime({
-    stellaAppDir: args.stellaDataDir,
-    modelId: args.resolvedLlm.model.id,
-  });
+  // The runner resolves this authoritative route from the active run's model
+  // snapshot. Claude needs no provider credential here; its explicit Haiku
+  // override is carried separately from saved user model preferences.
+  const useClaudeCode = args.recallRoute.executionEngine === "claude-code";
+  const resolvedLlm = args.recallRoute.resolvedLlm;
+  if (!useClaudeCode && !resolvedLlm) {
+    return "Recall failed: the active engine's light-tier route is unavailable.";
+  }
   const apiKey = useClaudeCode
     ? undefined
-    : (await args.resolvedLlm.getApiKey())?.trim();
+    : (await resolvedLlm?.getApiKey())?.trim();
   if (!useClaudeCode && !apiKey) {
     return "Recall is unavailable because no model credential is configured.";
   }
@@ -1155,9 +1152,12 @@ export const runRecall = async (args: {
       };
       const text = (
         await runClaudeCodeAgentTextCompletion({
-          stellaAppDir: args.stellaAppDir,
+          // Preferences resolve from the data dir; cwd stays on the app/repo.
+          // The explicit model pin makes Recall immune to saved fable picks.
+          stellaAppDir: args.stellaDataDir,
+          cwd: args.stellaAppDir,
           agentType: AGENT_IDS.ORCHESTRATOR,
-          stellaModel: args.resolvedLlm.model.id,
+          modelOverride: args.recallRoute.claudeCodeModel,
           effortLevel: "low",
           context,
           abortSignal: args.signal,
@@ -1195,7 +1195,7 @@ export const runRecall = async (args: {
   const messages: Message[] = [userMessage(seed)];
   const complete = async (): Promise<AssistantMessage> =>
     completeSimple(
-      args.resolvedLlm.model,
+      resolvedLlm!.model,
       {
         systemPrompt: RECALL_SYSTEM_PROMPT,
         tools: RECALL_RUNTIME_TOOLS,
@@ -1204,8 +1204,8 @@ export const runRecall = async (args: {
       {
         apiKey: apiKey as string,
         reasoning: "low",
-        ...(args.resolvedLlm.refreshApiKey
-          ? { refreshApiKey: args.resolvedLlm.refreshApiKey }
+        ...(resolvedLlm!.refreshApiKey
+          ? { refreshApiKey: resolvedLlm!.refreshApiKey }
           : {}),
         maxTokens: MAX_CONTEXT_OUTPUT_TOKENS,
         temperature: 0,

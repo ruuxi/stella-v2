@@ -1,10 +1,17 @@
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { shouldUseClaudeCodeAgentRuntime } from "../integrations/claude-code-agent-runtime.js";
+import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
+import { getAgentRuntimeEngine } from "../preferences/local-preferences.js";
+import {
+  RECALL_CLAUDE_CODE_MODEL,
+  RECALL_CLAUDE_PROVIDER_MODEL,
+  RECALL_CODEX_PROVIDER_MODEL,
+  RECALL_STELLA_MODEL,
+  type RecallModelRoute,
+} from "../agent-runtime/recall-route.js";
 import {
   canResolveLlmRoute,
   resolveLlmRoute,
   resolveLlmRouteForCatalogEnrichment,
-  resolvedLlmSupportsCredentiallessCalls,
   type ResolvedLlmRoute,
 } from "../model-routing.js";
 import { withStellaModelCatalogMetadata } from "../stella-model-catalog.js";
@@ -61,74 +68,63 @@ export const resolveRunnerLlmRouteWithMetadata = async (
   });
 };
 
-/**
- * Cheap pinned model for internal utility passes such as Recall.
- */
-export const RUNNER_UTILITY_PINNED_MODEL = "stella/light";
-
-/**
- * Resolve the route for an internal utility pass, pinned to
- * `RUNNER_UTILITY_PINNED_MODEL`. Candidate order mirrors
- * `runOneShotCompletion` (one-shot-completion.ts): the explicit cheap pin
- * first, then the caller's fallback model (the agent's own configured pick)
- * for signed-out / pure-BYOK users who can't resolve a `stella/*` route.
- *
- * A candidate is usable when it resolves AND either the Claude Code engine
- * handles it (no route credential needed), a credential is available, or the
- * route supports credentialless calls (local/direct provider with a baseUrl).
- * When no candidate is usable we resolve the fallback model verbatim so the
- * caller keeps the exact pre-pin behavior, including its failure modes.
- */
-export const resolveRunnerUtilityLlmRoute = async (
+/** Resolve Recall's authoritative light tier from the active orchestrator engine. */
+export const resolveRunnerRecallLlmRoute = async (
   context: RunnerContext,
   agentType: string,
-  fallbackModelName: string | undefined,
-): Promise<ResolvedLlmRoute> => {
-  const candidates = [RUNNER_UTILITY_PINNED_MODEL, fallbackModelName].filter(
-    (candidate, index, all) => all.indexOf(candidate) === index,
-  );
-  for (const candidate of candidates) {
-    let route: ResolvedLlmRoute;
+  modelConfigSnapshot?: AgentModelConfigSnapshot,
+): Promise<RecallModelRoute> => {
+  const activeEngine =
+    modelConfigSnapshot?.engine ?? getAgentRuntimeEngine(context.stellaDataDir);
+  if (activeEngine === "claude_code_local") {
     try {
-      route = resolveRunnerLlmRoute(context, agentType, candidate);
-    } catch {
-      continue;
-    }
-    // Engine check FIRST, on the synchronous credential-free route: the
-    // Claude Code engine maps the pinned utility model to its own light
-    // model downstream and needs neither a route credential nor catalog
-    // metadata. Resolving metadata before this check put a network fetch
-    // (the stella model catalog) on every utility pass even when the
-    // engine never talks to the stella provider at all.
-    if (
-      shouldUseClaudeCodeAgentRuntime({
-        stellaAppDir: context.stellaDataDir,
-        modelId: route.model.id,
-      })
-    ) {
-      return route;
-    }
-    let enriched: ResolvedLlmRoute;
-    try {
-      enriched = await resolveRunnerLlmRouteWithMetadata(
+      const resolvedLlm = resolveRunnerLlmRoute(
         context,
         agentType,
-        candidate,
+        RECALL_CLAUDE_PROVIDER_MODEL,
       );
+      return {
+        activeEngine,
+        executionEngine: "native",
+        modelId: `${resolvedLlm.model.provider}/${resolvedLlm.model.id}`,
+        resolvedLlm,
+      };
     } catch {
-      continue;
+      // Claude Code subscription auth belongs to the CLI and is not exposed
+      // as an Anthropic provider credential. Fall back to the authoritative
+      // Haiku CLI route when no independent provider credential is present.
     }
-    if (resolvedLlmSupportsCredentiallessCalls(enriched)) {
-      return enriched;
-    }
-    const apiKey = (await enriched.getApiKey())?.trim();
-    if (apiKey) return enriched;
+    return {
+      activeEngine,
+      executionEngine: "claude-code",
+      modelId: `claude-code/${RECALL_CLAUDE_CODE_MODEL}`,
+      claudeCodeModel: RECALL_CLAUDE_CODE_MODEL,
+    };
   }
-  return await resolveRunnerLlmRouteWithMetadata(
+  if (activeEngine === "codex_cli") {
+    const resolvedLlm = resolveRunnerLlmRoute(
+      context,
+      agentType,
+      RECALL_CODEX_PROVIDER_MODEL,
+    );
+    return {
+      activeEngine,
+      executionEngine: "native",
+      modelId: `${resolvedLlm.model.provider}/${resolvedLlm.model.id}`,
+      resolvedLlm,
+    };
+  }
+  const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
     context,
     agentType,
-    fallbackModelName,
+    RECALL_STELLA_MODEL,
   );
+  return {
+    activeEngine,
+    executionEngine: "native",
+    modelId: RECALL_STELLA_MODEL,
+    resolvedLlm,
+  };
 };
 
 export const canResolveRunnerLlmRoute = (

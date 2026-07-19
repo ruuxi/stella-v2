@@ -1,17 +1,19 @@
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
+import type { RecallLookupResult } from "../../agent-runtime/recall-run-cache.js";
 import type { ToolDefinition } from "../types.js";
 
 export type RecallToolOptions = {
   contextProvider?: (payload: {
     conversationId: string;
     requestId: string;
+    runId?: string;
     prompt: string;
     memorySearchTerms?: string[];
     agentType?: string;
     modelConfigSnapshot?: AgentModelConfigSnapshot;
     signal?: AbortSignal;
-  }) => Promise<string>;
+  }) => Promise<RecallLookupResult>;
 };
 
 export const createRecallTool = (
@@ -20,9 +22,9 @@ export const createRecallTool = (
   name: "Recall",
   agentTypes: [AGENT_IDS.ORCHESTRATOR],
   description:
-    "Look up deeper memory, past work, or live machine context that isn't currently loaded. Recall routes by intent before reading: common repo/path/decision/exact-phrase lookups return indexed evidence directly with no model call; only genuine multi-source episodic questions use one light-tier synthesis call. Past work results include resumable thread_ids. " +
+    "Look up deeper memory, past work, or live machine context that isn't currently loaded. Recall routes by intent before reading: common repo/path/decision/exact-phrase lookups return indexed evidence directly with no model call; only genuine multi-source episodic questions use one light-tier synthesis call. Past work results include resumable thread_ids and source inbox/run ids. " +
     'Use it when the user references something from before ("yesterday", "that", "the thing I was doing"), asks about prior work, names a repo/module/feature with possible history, points at past agent threads to resume, or the request is ambiguous and earlier context could change the answer. ' +
-    "You do NOT need it for the user's name, location, stable preferences, or current focus — those are already in your context. Skip it for self-contained requests (current time, simple rewrite, trivial formatting). When in doubt on anything historical or on-screen, do a quick Recall.",
+    "You do NOT need it for the user's name, location, stable preferences, or current focus — those are already in your context. Skip it for self-contained requests (current time, simple rewrite, trivial formatting). When in doubt on anything historical or on-screen, do a quick Recall. The result has a structured status: found, no_match, retrieval_error, or synthesis_error. Do not blindly retry the same lookup after no_match or an error; identical same-run lookups are cached.",
   parameters: {
     type: "object",
     properties: {
@@ -64,6 +66,7 @@ export const createRecallTool = (
     const result = await options.contextProvider({
       conversationId: context.conversationId,
       requestId: context.requestId,
+      ...(context.runId ? { runId: context.runId } : {}),
       prompt,
       ...(memorySearchTerms?.length ? { memorySearchTerms } : {}),
       ...(context.agentType ? { agentType: context.agentType } : {}),

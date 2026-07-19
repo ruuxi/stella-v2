@@ -973,23 +973,7 @@ export const getClaudeCodeStatusChangeFromStreamEvent = (
   return null;
 };
 
-export type ClaudeCodeModelFallback = {
-  /** Configured model the CLI was running before the fallback (pretty name). */
-  fromModel: string;
-  /** Model the CLI stickily downgraded the session to (pretty name). */
-  toModel: string;
-  /** Ready-to-toast description naming what happened plus the from/to models. */
-  text: string;
-};
-
-/**
- * The CLI has no structured event for a model fallback — it announces it as
- * a `system`/`informational` message with exactly this content (verified
- * against the CLI bundle: `Model fallback triggered: switching from ${X} to
- * ${Y}`). Text match is brittle across CLI versions by nature; if the
- * wording drops the model ids we still detect the switch and fall back to
- * generic labels.
- */
+/** Diagnostic boundary: one finalized Claude assistant message is one model round. */
 export const getClaudeCodeModelRoundFromStreamEvent = (
   event: Record<string, unknown>,
 ): { messageId?: string; toolCallCount: number } | null => {
@@ -1011,6 +995,23 @@ export const getClaudeCodeModelRoundFromStreamEvent = (
   };
 };
 
+export type ClaudeCodeModelFallback = {
+  /** Configured model the CLI was running before the fallback (pretty name). */
+  fromModel: string;
+  /** Model the CLI stickily downgraded the session to (pretty name). */
+  toModel: string;
+  /** Ready-to-toast description naming what happened plus the from/to models. */
+  text: string;
+};
+
+/**
+ * The CLI has no structured event for a model fallback — it announces it as
+ * a `system`/`informational` message with exactly this content (verified
+ * against the CLI bundle: `Model fallback triggered: switching from ${X} to
+ * ${Y}`). Text match is brittle across CLI versions by nature; if the
+ * wording drops the model ids we still detect the switch and fall back to
+ * generic labels.
+ */
 const CLAUDE_CODE_MODEL_FALLBACK_RE =
   /^Model fallback triggered(?::? switching from (\S+) to (\S+))?/;
 

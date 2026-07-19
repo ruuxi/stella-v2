@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DreamInboxStore } from "@stella/runtime/kernel/memory/dream-inbox-store";
 import { createSqliteTestContextFactory } from "../../../helpers/sqlite-test-context.js";
 
@@ -72,29 +72,52 @@ describe("DreamInboxStore", () => {
 
   it("requeues surfaced evidence and prioritizes it by usage", () => {
     const { store } = createTestContext();
-    store.recordThreadSummary({
-      threadId: "thread-used",
-      runId: "run-used",
-      agentType: "general",
-      rolloutSummary: "Frequently recalled work",
-    });
-    store.recordThreadSummary({
-      threadId: "thread-other",
-      runId: "run-other",
-      agentType: "general",
-      rolloutSummary: "Other work",
-    });
-    const rows = store.listUnprocessed();
-    store.markProcessed({ ids: rows.map((row) => row.id) });
+    vi.useFakeTimers();
+    try {
+      // Older row that was never recalled: the competing unprocessed entry.
+      vi.setSystemTime(1_000);
+      store.recordThreadSummary({
+        threadId: "thread-other",
+        runId: "run-other",
+        agentType: "general",
+        rolloutSummary: "Other work",
+      });
+      // Newer row that Recall will surface.
+      vi.setSystemTime(2_000);
+      store.recordThreadSummary({
+        threadId: "thread-used",
+        runId: "run-used",
+        agentType: "general",
+        rolloutSummary: "Frequently recalled work",
+      });
+      const recalled = store
+        .listUnprocessed()
+        .find((row) => row.threadId === "thread-used");
+      store.markProcessed({ ids: [recalled!.id] });
 
-    store.recordUsage("thread-used", "run-used");
+      store.recordUsage("thread-used", "run-used");
 
-    expect(store.countUnprocessed()).toBe(1);
-    expect(store.listUnprocessed()[0]).toMatchObject({
-      threadId: "thread-used",
-      runId: "run-used",
-      usageCount: 1,
-    });
+      // Both rows now compete in the unprocessed queue. Oldest-first alone
+      // would claim thread-other (source_updated_at 1000, usage 0) before
+      // the recalled row (2000, usage 1); the certified ordering puts the
+      // recalled row first so a bounded claim can't delay or exclude it.
+      const queue = store.listUnprocessed();
+      expect(queue.map((row) => row.threadId)).toEqual([
+        "thread-used",
+        "thread-other",
+      ]);
+      expect(queue[0]).toMatchObject({
+        threadId: "thread-used",
+        runId: "run-used",
+        usageCount: 1,
+      });
+      expect(queue[1]).toMatchObject({
+        threadId: "thread-other",
+        usageCount: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resolves surfaced thread ids directly even when they are older than 200 rows", () => {

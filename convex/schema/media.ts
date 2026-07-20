@@ -108,6 +108,24 @@ export const mediaSchema = {
     /** Hash of the exact request body. Reusing a key with another payload is
      * rejected instead of silently attaching to the wrong generation. */
     clientRequestHash: v.optional(v.string()),
+    /**
+     * Durable image_gen submission outbox. The encrypted payload itself lives
+     * in Convex file storage so reference-image bodies do not hit the document
+     * size limit. Legacy rows omit these fields and keep their old lifecycle.
+     */
+    submissionState: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("dispatching"),
+        v.literal("submitted"),
+        v.literal("unknown"),
+        v.literal("failed"),
+        v.literal("canceled"),
+      ),
+    ),
+    submissionPayloadStorageId: v.optional(v.id("_storage")),
+    submissionAttemptId: v.optional(v.string()),
+    submissionClaimedAt: v.optional(v.number()),
     connectorRequestId: v.optional(v.string()),
     billing: v.optional(mediaJobBillingValidator),
     providerRequestId: v.optional(v.string()),
@@ -159,6 +177,10 @@ export const mediaSchema = {
     .index("by_status_and_capability_and_updatedAt", [
       "status",
       "capability",
+      "updatedAt",
+    ])
+    .index("by_submissionState_and_updatedAt", [
+      "submissionState",
       "updatedAt",
     ])
     .index("by_provider_and_providerRequestId", [

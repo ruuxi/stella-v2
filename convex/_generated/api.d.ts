@@ -147,6 +147,7 @@ import type * as media_billing from "../media_billing.js";
 import type * as media_catalog from "../media_catalog.js";
 import type * as media_contract from "../media_contract.js";
 import type * as media_fal_webhooks from "../media_fal_webhooks.js";
+import type * as media_image_submission from "../media_image_submission.js";
 import type * as media_jobs from "../media_jobs.js";
 import type * as media_lyria from "../media_lyria.js";
 import type * as mobile_access from "../mobile_access.js";
@@ -380,6 +381,7 @@ declare const fullApi: ApiFromModules<{
   media_catalog: typeof media_catalog;
   media_contract: typeof media_contract;
   media_fal_webhooks: typeof media_fal_webhooks;
+  media_image_submission: typeof media_image_submission;
   media_jobs: typeof media_jobs;
   media_lyria: typeof media_lyria;
   mobile_access: typeof mobile_access;

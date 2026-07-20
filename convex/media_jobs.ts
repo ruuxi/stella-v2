@@ -147,6 +147,14 @@ const STALE_IMAGE_JOB_CAPABILITIES = [
   "image_edit",
   "icon",
 ] as const;
+const TERMINAL_MEDIA_JOB_STATUSES = new Set<MediaJobStatus>([
+  "succeeded",
+  "failed",
+  "canceled",
+]);
+
+const isTerminalMediaJobStatus = (status: MediaJobStatus): boolean =>
+  TERMINAL_MEDIA_JOB_STATUSES.has(status);
 
 const idempotentJobLookupValidator = v.object({
   jobId: v.string(),
@@ -377,6 +385,24 @@ export const getByOwnerClientRequestKey = internalQuery({
   },
 });
 
+export const getImageSubmissionPayload = internalQuery({
+  args: { jobId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ storageId: v.id("_storage") }),
+  ),
+  handler: async (ctx, args) => {
+    const job = await getJobByJobId(ctx, args.jobId);
+    if (
+      !job ||
+      job.submissionState !== "pending" ||
+      !job.submissionPayloadStorageId ||
+      isTerminalMediaJobStatus(job.status)
+    ) return null;
+    return { storageId: job.submissionPayloadStorageId };
+  },
+});
+
 /**
  * Reactive feed of every succeeded media job for the current viewer that
  * completed at-or-after `since`. The desktop renderer subscribes to this on
@@ -583,6 +609,8 @@ export const reserveIdempotentJob = internalMutation({
     request: mediaRequestSummaryValidator,
     connectorRequestId: v.optional(v.string()),
     billing: v.optional(mediaJobBillingValidator),
+    submissionPayloadStorageId: v.optional(v.id("_storage")),
+    encryptedSubmissionPayload: v.optional(v.string()),
   },
   returns: reserveIdempotentJobResultValidator,
   handler: async (ctx, args) => {
@@ -637,12 +665,30 @@ export const reserveIdempotentJob = internalMutation({
         ? { connectorRequestId: args.connectorRequestId }
         : {}),
       ...(args.billing ? { billing: args.billing } : {}),
+      ...(args.submissionPayloadStorageId
+        ? {
+            submissionState: "pending" as const,
+            submissionPayloadStorageId: args.submissionPayloadStorageId,
+          }
+        : {}),
       status: "queued",
       upstreamStatus: "IN_QUEUE",
       queuePosition: null,
       createdAt: now,
       updatedAt: now,
     });
+    if (args.submissionPayloadStorageId) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.submitReservedImageJob,
+        {
+          jobId: args.jobId,
+          ...(args.encryptedSubmissionPayload
+            ? { encryptedPayload: args.encryptedSubmissionPayload }
+            : {}),
+        },
+      );
+    }
     return {
       state: "created" as const,
       jobId: args.jobId,
@@ -664,6 +710,172 @@ export const beginSubmission = internalMutation({
   },
 });
 
+const submissionClaimResultValidator = v.union(
+  v.object({
+    state: v.literal("claimed"),
+    storageId: v.id("_storage"),
+    endpointId: v.string(),
+  }),
+  v.object({ state: v.literal("skip") }),
+);
+
+/**
+ * The only durable Stella-controlled gate before a Fal POST. Convex
+ * serializes concurrent claims; only the transaction that moves pending to
+ * dispatching may touch the provider. We intentionally do not reclaim a
+ * dispatching row because Fal has no supported client idempotency key.
+ */
+export const claimImageSubmission = internalMutation({
+  args: { jobId: v.string(), attemptId: v.string(), claimedAt: v.number() },
+  returns: submissionClaimResultValidator,
+  handler: async (ctx, args) => {
+    const job = await getJobByJobId(ctx, args.jobId);
+    if (
+      !job ||
+      job.submissionState !== "pending" ||
+      !job.submissionPayloadStorageId ||
+      isTerminalMediaJobStatus(job.status)
+    ) {
+      return { state: "skip" as const };
+    }
+    await ctx.db.patch(job._id, {
+      submissionState: "dispatching",
+      submissionAttemptId: args.attemptId,
+      submissionClaimedAt: args.claimedAt,
+      updatedAt: args.claimedAt,
+    });
+    return {
+      state: "claimed" as const,
+      storageId: job.submissionPayloadStorageId,
+      endpointId: job.endpointId,
+    };
+  },
+});
+
+export const markImageSubmissionUnknown = internalMutation({
+  args: {
+    jobId: v.string(),
+    attemptId: v.string(),
+    error: mediaJobErrorValidator,
+    observedAt: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const job = await getJobByJobId(ctx, args.jobId);
+    if (
+      !job ||
+      job.submissionState !== "dispatching" ||
+      job.submissionAttemptId !== args.attemptId ||
+      isTerminalMediaJobStatus(job.status)
+    ) {
+      return false;
+    }
+    await ctx.db.patch(job._id, {
+      submissionState: "unknown",
+      upstreamStatus: "SUBMISSION_OUTCOME_UNKNOWN",
+      error: args.error,
+      updatedAt: args.observedAt,
+    });
+    return true;
+  },
+});
+
+/** Reschedule only rows that provably never crossed the provider boundary. */
+export const reconcilePendingImageSubmissions = internalMutation({
+  args: {
+    pendingBefore: v.optional(v.number()),
+    dispatchBefore: v.optional(v.number()),
+    unknownBefore: v.optional(v.number()),
+    pendingStaleMs: v.optional(v.number()),
+    dispatchStaleMs: v.optional(v.number()),
+    unknownStaleMs: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({ rescheduled: v.number(), failedUnknown: v.number() }),
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const startedAt = Date.now();
+    const pendingBefore =
+      args.pendingBefore ?? startedAt - (args.pendingStaleMs ?? 2 * 60_000);
+    const dispatchBefore =
+      args.dispatchBefore ?? startedAt - (args.dispatchStaleMs ?? 2 * 60_000);
+    const unknownBefore =
+      args.unknownBefore ?? startedAt - (args.unknownStaleMs ?? 15 * 60_000);
+    const pending = await ctx.db
+      .query("media_jobs")
+      .withIndex("by_submissionState_and_updatedAt", (q) =>
+        q.eq("submissionState", "pending").lt("updatedAt", pendingBefore),
+      )
+      .take(limit);
+    let rescheduled = 0;
+    for (const job of pending) {
+      if (isTerminalMediaJobStatus(job.status)) continue;
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.submitReservedImageJob,
+        { jobId: job.jobId },
+      );
+      await ctx.db.patch(job._id, { updatedAt: Date.now() });
+      rescheduled += 1;
+    }
+
+    let remaining = Math.max(0, limit - rescheduled);
+    const abandonedClaims = remaining > 0
+      ? await ctx.db
+          .query("media_jobs")
+          .withIndex("by_submissionState_and_updatedAt", (q) =>
+            q
+              .eq("submissionState", "dispatching")
+              .lt("updatedAt", dispatchBefore),
+          )
+          .take(remaining)
+      : [];
+    const now = Date.now();
+    for (const job of abandonedClaims) {
+      if (isTerminalMediaJobStatus(job.status)) continue;
+      await ctx.db.patch(job._id, {
+        submissionState: "unknown",
+        upstreamStatus: "SUBMISSION_OUTCOME_UNKNOWN",
+        error: {
+          code: "SUBMISSION_OUTCOME_UNKNOWN",
+          message:
+            "Stella lost the provider submission outcome and will not retry an ambiguous Fal POST.",
+        },
+        updatedAt: now,
+      });
+      remaining -= 1;
+    }
+
+    const ambiguous = remaining > 0
+      ? await ctx.db
+          .query("media_jobs")
+          .withIndex("by_submissionState_and_updatedAt", (q) =>
+            q.eq("submissionState", "unknown").lt("updatedAt", unknownBefore),
+          )
+          .take(remaining)
+      : [];
+    let failedUnknown = 0;
+    for (const job of ambiguous) {
+      if (isTerminalMediaJobStatus(job.status)) continue;
+      await ctx.db.patch(job._id, {
+        status: "failed",
+        submissionState: "failed",
+        upstreamStatus: "SUBMISSION_OUTCOME_UNKNOWN",
+        queuePosition: null,
+        error: {
+          code: "SUBMISSION_OUTCOME_UNKNOWN",
+          message:
+            "Fal may have accepted this image, but Stella could not reconcile the submission response.",
+        },
+        updatedAt: now,
+        completedAt: now,
+      });
+      failedUnknown += 1;
+    }
+    return { rescheduled, failedUnknown };
+  },
+});
+
 const cancelIdempotentRequestResultValidator = v.object({
   state: v.union(
     v.literal("canceled"),
@@ -673,6 +885,7 @@ const cancelIdempotentRequestResultValidator = v.object({
   jobId: v.optional(v.string()),
   endpointId: v.optional(v.string()),
   providerRequestId: v.optional(v.string()),
+  submissionPayloadStorageId: v.optional(v.id("_storage")),
 });
 
 /** Persist cancellation before attempting provider cancellation. */
@@ -719,6 +932,12 @@ export const cancelIdempotentRequest = internalMutation({
     if (job.status !== "canceled") {
       await ctx.db.patch(job._id, {
         status: "canceled",
+        ...(job.submissionState
+          ? { submissionState: "canceled" as const }
+          : {}),
+        ...(job.submissionPayloadStorageId
+          ? { submissionPayloadStorageId: undefined }
+          : {}),
         upstreamStatus: "CANCELED",
         queuePosition: null,
         error: { message: "Image generation was canceled.", code: "CANCELED" },
@@ -733,13 +952,29 @@ export const cancelIdempotentRequest = internalMutation({
       ...(job.providerRequestId
         ? { providerRequestId: job.providerRequestId }
         : {}),
+      ...(job.submissionPayloadStorageId
+        ? { submissionPayloadStorageId: job.submissionPayloadStorageId }
+        : {}),
     };
+  },
+});
+
+export const releaseImageSubmissionPayload = internalMutation({
+  args: { jobId: v.string(), storageId: v.id("_storage") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const job = await getJobByJobId(ctx, args.jobId);
+    if (!job || job.submissionPayloadStorageId !== args.storageId) return false;
+    if (job.submissionState === "pending") return false;
+    await ctx.db.patch(job._id, { submissionPayloadStorageId: undefined });
+    return true;
   },
 });
 
 export const markSubmitted = internalMutation({
   args: {
     jobId: v.string(),
+    submissionAttemptId: v.optional(v.string()),
     providerRequestId: v.string(),
     providerGatewayRequestId: v.optional(v.string()),
     providerResponseUrl: v.optional(v.string()),
@@ -747,7 +982,7 @@ export const markSubmitted = internalMutation({
     upstreamStatus: v.string(),
     queuePosition: v.optional(v.number()),
   },
-  returns: v.object({ cancelRequested: v.boolean() }),
+  returns: v.object({ cancelRequested: v.boolean(), applied: v.boolean() }),
   handler: async (ctx, args) => {
     const job = await getJobByJobId(ctx, args.jobId);
     if (!job) {
@@ -757,6 +992,17 @@ export const markSubmitted = internalMutation({
       });
     }
 
+    if (
+      args.submissionAttemptId &&
+      (job.submissionState !== "dispatching" ||
+        job.submissionAttemptId !== args.submissionAttemptId)
+    ) {
+      return { cancelRequested: job.status === "canceled", applied: false };
+    }
+    if (job.status === "succeeded" || job.status === "failed") {
+      return { cancelRequested: false, applied: false };
+    }
+
     const now = Date.now();
     const cancelRequested = job.status === "canceled";
     const status = cancelRequested
@@ -764,6 +1010,9 @@ export const markSubmitted = internalMutation({
       : toInitialMediaJobStatus(args.upstreamStatus);
     await ctx.db.patch(job._id, {
       providerRequestId: args.providerRequestId,
+      ...(args.submissionAttemptId
+        ? { submissionState: "submitted" as const }
+        : {}),
       ...(args.providerGatewayRequestId
         ? { providerGatewayRequestId: args.providerGatewayRequestId }
         : {}),
@@ -788,7 +1037,7 @@ export const markSubmitted = internalMutation({
         ? { completedAt: now }
         : {}),
     });
-    return { cancelRequested };
+    return { cancelRequested, applied: true };
   },
 });
 
@@ -803,10 +1052,11 @@ export const markSubmissionFailed = internalMutation({
     if (!job) {
       return null;
     }
-    if (job.status === "canceled") return null;
+    if (isTerminalMediaJobStatus(job.status)) return null;
     const now = Date.now();
     await ctx.db.patch(job._id, {
       status: "failed",
+      ...(job.submissionState ? { submissionState: "failed" as const } : {}),
       upstreamStatus: args.upstreamStatus,
       error: args.error,
       updatedAt: now,
@@ -849,14 +1099,31 @@ export const markStaleJobsFailed = internalMutation({
 
         const now = Date.now();
         for (const job of jobs) {
+          if (isTerminalMediaJobStatus(job.status)) continue;
+          if (job.submissionState && job.submissionState !== "submitted") {
+            continue;
+          }
           await ctx.db.patch(job._id, {
             status: "failed",
+            ...(job.submissionState
+              ? { submissionState: "failed" as const }
+              : {}),
+            ...(job.submissionPayloadStorageId
+              ? { submissionPayloadStorageId: undefined }
+              : {}),
             upstreamStatus: "TIMEOUT",
             queuePosition: null,
             error: terminalError,
             updatedAt: now,
             completedAt: now,
           });
+          if (job.submissionPayloadStorageId) {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.media_image_submission.deleteSubmissionPayload,
+              { storageId: job.submissionPayloadStorageId },
+            );
+          }
           updated += 1;
         }
 
@@ -883,7 +1150,7 @@ export const markGenerated = internalMutation({
     if (!job) {
       return null;
     }
-    if (job.status === "canceled") return null;
+    if (isTerminalMediaJobStatus(job.status)) return null;
     const now = Date.now();
     const output = sanitizeJsonValue(args.output);
     // `connectorMediaDeliveryScheduledAt` is the dedup gate: we set it in
@@ -970,9 +1237,20 @@ export const applyFalWebhook = internalMutation({
       return { updated: false };
     }
 
-    // Cancellation is terminal. A late provider webhook must not resurrect a
-    // canceled generation or surface an artifact after the tool was aborted.
-    if (job.status === "canceled") {
+    // All terminal states are immutable. Duplicate/opposite/late provider
+    // events are retained as audit logs but can never reverse the result.
+    if (isTerminalMediaJobStatus(job.status)) {
+      await ctx.db.insert("media_job_logs", {
+        ownerId: job.ownerId,
+        jobId: job.jobId,
+        ordinal: Number.MAX_SAFE_INTEGER - args.receivedAt,
+        receivedAt: args.receivedAt,
+        entry: sanitizeJsonValue({
+          kind: "late_terminal_event_ignored",
+          existingStatus: job.status,
+          incomingStatus: args.upstreamStatus,
+        }),
+      });
       return { updated: false, jobId: job.jobId };
     }
 
@@ -1011,6 +1289,9 @@ export const applyFalWebhook = internalMutation({
       extractDeliveryMediaFromOutput(output).length > 0;
     await ctx.db.patch(job._id, {
       status,
+      ...(job.submissionState
+        ? { submissionState: "submitted" as const }
+        : {}),
       upstreamStatus: args.upstreamStatus,
       queuePosition: null,
       ...(args.providerRequestId

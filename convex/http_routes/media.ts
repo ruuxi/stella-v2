@@ -49,6 +49,7 @@ import {
 import { checkManagedUsageLimit } from "../lib/managed_billing";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import { requireSignedInAccountAction } from "../http_shared/auth";
+import { encryptSecret } from "../data/secrets_crypto";
 
 const MEDIA_API_BASE_PATH = "/api/media/v1";
 const MEDIA_CAPABILITIES_PATH = `${MEDIA_API_BASE_PATH}/capabilities`;
@@ -582,6 +583,14 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           },
         );
         if (
+          "submissionPayloadStorageId" in canceled &&
+          canceled.submissionPayloadStorageId
+        ) {
+          await ctx.storage
+            .delete(canceled.submissionPayloadStorageId)
+            .catch(() => undefined);
+        }
+        if (
           canceled.state === "canceled" &&
           "endpointId" in canceled &&
           canceled.endpointId &&
@@ -759,6 +768,29 @@ export const registerMediaRoutes = (http: HttpRouter) => {
 
           const jobId = crypto.randomUUID();
           if (clientRequestKey && clientRequestHash) {
+            const isDurableFalImage =
+              resolved.profile.provider === "fal" &&
+              ["text_to_image", "image_edit", "icon"].includes(
+                resolved.capability.id,
+              );
+            let submissionPayloadStorageId:
+              | Awaited<ReturnType<typeof ctx.storage.store>>
+              | undefined;
+            let encryptedSubmissionPayload: string | undefined;
+            if (isDurableFalImage) {
+              const encrypted = await encryptSecret(
+                JSON.stringify({
+                  input: submissionInput,
+                  webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}`,
+                }),
+              );
+              encryptedSubmissionPayload = JSON.stringify(encrypted);
+              submissionPayloadStorageId = await ctx.storage.store(
+                new Blob([encryptedSubmissionPayload], {
+                  type: "application/vnd.stella.encrypted+json",
+                }),
+              );
+            }
             const reservation = await ctx.runMutation(
               internal.media_jobs.reserveIdempotentJob,
               {
@@ -774,8 +806,22 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 ...(body.connectorRequestId
                   ? { connectorRequestId: body.connectorRequestId }
                   : {}),
+                ...(submissionPayloadStorageId
+                  ? { submissionPayloadStorageId }
+                  : {}),
+                ...(encryptedSubmissionPayload
+                  ? { encryptedSubmissionPayload }
+                  : {}),
               },
             );
+            if (
+              reservation.state !== "created" &&
+              submissionPayloadStorageId
+            ) {
+              await ctx.storage
+                .delete(submissionPayloadStorageId)
+                .catch(() => undefined);
+            }
             if (reservation.state === "canceled") {
               return errorResponse(
                 409,
@@ -802,6 +848,23 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                   subscription: {
                     query: MEDIA_SUBSCRIPTION_QUERY,
                     args: { jobId: reservation.jobId },
+                  },
+                }),
+                202,
+                origin,
+              );
+            }
+            if (isDurableFalImage) {
+              return jsonResponse(
+                createMediaGenerateAcceptedResponse({
+                  jobId,
+                  capability: resolved.capability.id,
+                  profile: resolved.profile.id,
+                  status: "queued",
+                  upstreamStatus: "IN_QUEUE",
+                  subscription: {
+                    query: MEDIA_SUBSCRIPTION_QUERY,
+                    args: { jobId },
                   },
                 }),
                 202,

@@ -57,6 +57,18 @@ crons.interval(
 );
 
 crons.interval(
+  "reconcile image submissions",
+  { minutes: 1 },
+  internal.media_jobs.reconcilePendingImageSubmissions,
+  {
+    pendingStaleMs: 2 * 60_000,
+    dispatchStaleMs: 2 * 60_000,
+    unknownStaleMs: 15 * 60_000,
+    limit: 200,
+  },
+);
+
+crons.interval(
   "secret encryption key rotation sweep",
   { hours: 6 },
   internal.data.secrets_rotation.rotateEncryptedMaterial,

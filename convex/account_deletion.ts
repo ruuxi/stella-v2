@@ -169,6 +169,7 @@ const EXTRA_TABLES = [
   "agents",
   "media_jobs",
   "media_job_logs",
+  "media_request_cancellations",
   "transient_channel_events",
   "transient_cleanup_failures",
   "channel_connections",
@@ -252,6 +253,16 @@ async function deleteOneExtraTableBatch(
       const rows = await ctx.db
         .query("media_job_logs")
         .withIndex("by_ownerId_and_jobId", (q) => q.eq("ownerId", ownerId))
+        .take(batch);
+      ids = rows.map((r) => r._id);
+      break;
+    }
+    case "media_request_cancellations": {
+      const rows = await ctx.db
+        .query("media_request_cancellations")
+        .withIndex("by_ownerId_and_clientRequestKey", (q) =>
+          q.eq("ownerId", ownerId),
+        )
         .take(batch);
       ids = rows.map((r) => r._id);
       break;

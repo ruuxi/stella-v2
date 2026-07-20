@@ -24,6 +24,22 @@ type FalSubmitResponse = {
   queue_position?: unknown;
 };
 
+const markDefinitiveFalSubmissionRejection = (error: Error): Error => {
+  (error as Error & { falSubmissionRejected?: boolean }).falSubmissionRejected =
+    true;
+  return error;
+};
+
+export const isDefinitiveFalSubmissionRejection = (
+  error: unknown,
+): boolean =>
+  Boolean(
+    error &&
+      typeof error === "object" &&
+      (error as { falSubmissionRejected?: unknown }).falSubmissionRejected ===
+        true,
+  );
+
 type FalWebhookJwkSet = {
   keys?: Array<{
     x?: unknown;
@@ -107,6 +123,32 @@ export const buildFalResponseUrl = (
   requestId: string,
 ): string => `${FAL_QUEUE_BASE_URL}/${endpointId}/requests/${requestId}`;
 
+export const buildFalCancelUrl = (
+  endpointId: string,
+  requestId: string,
+): string => `${buildFalResponseUrl(endpointId, requestId)}/cancel`;
+
+export const cancelFalRequest = async (args: {
+  apiKey: string;
+  endpointId: string;
+  requestId: string;
+}): Promise<void> => {
+  const upstream = await fetchFalJson(
+    buildFalCancelUrl(args.endpointId, args.requestId),
+    {
+      method: "PUT",
+      headers: falHeaders(args.apiKey),
+    },
+  );
+  // Fal cancellation is idempotent. A completed/missing request may report
+  // 404/409; the Stella job is already terminal and must stay canceled.
+  if (!upstream.ok && upstream.status !== 404 && upstream.status !== 409) {
+    throw new Error(
+      upstream.text || `Fal cancellation failed with status ${upstream.status}`,
+    );
+  }
+};
+
 export const submitFalRequest = async (args: {
   apiKey: string;
   endpointId: string;
@@ -143,13 +185,13 @@ export const submitFalRequest = async (args: {
       if (bodyErrorType || errorType) {
         (error as Error & { code?: string }).code = bodyErrorType ?? errorType;
       }
-      throw error;
+      throw markDefinitiveFalSubmissionRejection(error);
     }
     const error = new Error(message);
     if (errorType) {
       (error as Error & { code?: string }).code = errorType;
     }
-    throw error;
+    throw markDefinitiveFalSubmissionRejection(error);
   }
 
   const data = isRecord(upstream.data)

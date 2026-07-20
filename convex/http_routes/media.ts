@@ -27,8 +27,10 @@ import {
 import { summarizeMediaRequestForStorage } from "../media_jobs";
 import {
   buildFalResponseUrl,
+  cancelFalRequest,
   fetchFalResultPayload,
   getFalApiKey,
+  isDefinitiveFalSubmissionRejection,
   submitFalRequest,
   verifyFalWebhookSignature,
 } from "../media_fal_webhooks";
@@ -67,6 +69,7 @@ const MEDIA_DOCS_URL = "https://stella.sh/docs/media";
 const MEDIA_RATE_LIMIT = 20;
 const MEDIA_RATE_WINDOW_MS = 5 * 60_000;
 const MEDIA_DENY_BUFFER_MICRO_CENTS = dollarsToMicroCents(0.8);
+const MEDIA_IDEMPOTENCY_MAX_LENGTH = 200;
 
 const MEDIA_AUTH_REQUIRED_MESSAGE =
   "Sign in to Stella to use media generation.";
@@ -542,6 +545,69 @@ export const registerMediaRoutes = (http: HttpRouter) => {
   });
 
   http.route({
+    path: MEDIA_JOB_PATH,
+    method: "DELETE",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: MEDIA_AUTH_REQUIRED_MESSAGE,
+          action: MEDIA_AUTH_REQUIRED_ACTION,
+          docsUrl: MEDIA_DOCS_URL,
+          realm: "stella-media",
+        });
+        if (!auth.ok) return auth.response;
+
+        const clientRequestKey = request.headers.get("idempotency-key")?.trim();
+        if (!clientRequestKey) {
+          return errorResponse(
+            400,
+            "Idempotency-Key is required to cancel a media request.",
+            origin,
+          );
+        }
+        if (clientRequestKey.length > MEDIA_IDEMPOTENCY_MAX_LENGTH) {
+          return errorResponse(
+            400,
+            `Idempotency-Key must be at most ${MEDIA_IDEMPOTENCY_MAX_LENGTH} characters.`,
+            origin,
+          );
+        }
+
+        const canceled = await ctx.runMutation(
+          internal.media_jobs.cancelIdempotentRequest,
+          {
+            ownerId: auth.ownerId,
+            clientRequestKey,
+            canceledAt: Date.now(),
+          },
+        );
+        if (
+          canceled.state === "canceled" &&
+          "endpointId" in canceled &&
+          canceled.endpointId &&
+          "providerRequestId" in canceled &&
+          canceled.providerRequestId
+        ) {
+          const apiKey = getFalApiKey();
+          if (apiKey) {
+            await cancelFalRequest({
+              apiKey,
+              endpointId: canceled.endpointId,
+              requestId: canceled.providerRequestId,
+            }).catch((error) => {
+              console.error(
+                `[media/cancel] Fal cancellation failed for ${"jobId" in canceled ? canceled.jobId : clientRequestKey}:`,
+                error,
+              );
+            });
+          }
+        }
+        return jsonResponse(canceled, 200, origin);
+      }),
+    ),
+  });
+
+  http.route({
     path: MEDIA_GENERATE_PATH,
     method: "POST",
     handler: httpAction(async (ctx, request) =>
@@ -554,27 +620,23 @@ export const registerMediaRoutes = (http: HttpRouter) => {
         });
         if (!auth.ok) return auth.response;
         const ownerId = auth.ownerId;
-        const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId, {
-          minimumRemainingMicroCents: MEDIA_DENY_BUFFER_MICRO_CENTS,
-        });
-        if (!subscriptionCheck.allowed)
-          return errorResponse(429, subscriptionCheck.message, origin);
-        const rateLimit = await ctx.runMutation(
-          internal.rate_limits.consumeWebhookRateLimit,
-          {
-            scope: "media_generate",
-            key: ownerId,
-            limit: MEDIA_RATE_LIMIT,
-            windowMs: MEDIA_RATE_WINDOW_MS,
-            blockMs: MEDIA_RATE_WINDOW_MS,
-          },
-        );
-        if (!rateLimit.allowed)
-          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        const clientRequestKey = request.headers.get("idempotency-key")?.trim();
+        if (
+          clientRequestKey &&
+          clientRequestKey.length > MEDIA_IDEMPOTENCY_MAX_LENGTH
+        ) {
+          return errorResponse(
+            400,
+            `Idempotency-Key must be at most ${MEDIA_IDEMPOTENCY_MAX_LENGTH} characters.`,
+            origin,
+          );
+        }
 
-        let requestBody: unknown;
+        let rawRequestBody = "";
+        let requestBody: unknown = null;
         try {
-          requestBody = await request.json();
+          rawRequestBody = await request.text();
+          requestBody = rawRequestBody ? JSON.parse(rawRequestBody) : null;
         } catch {
           requestBody = null;
         }
@@ -619,6 +681,63 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             ...body,
             input: submissionInput,
           });
+          const clientRequestHash = clientRequestKey
+            ? await hashSha256Hex(rawRequestBody)
+            : undefined;
+
+          if (clientRequestKey && clientRequestHash) {
+            const existing = await ctx.runQuery(
+              internal.media_jobs.getByOwnerClientRequestKey,
+              { ownerId, clientRequestKey },
+            );
+            if (existing) {
+              if (existing.clientRequestHash !== clientRequestHash) {
+                return errorResponse(
+                  409,
+                  "Idempotency-Key was already used with a different media request.",
+                  origin,
+                );
+              }
+              return jsonResponse(
+                createMediaGenerateAcceptedResponse({
+                  jobId: existing.jobId,
+                  capability: existing.capability,
+                  profile: existing.profile,
+                  status: existing.status,
+                  upstreamStatus: existing.upstreamStatus,
+                  reattached: true,
+                  subscription: {
+                    query: MEDIA_SUBSCRIPTION_QUERY,
+                    args: { jobId: existing.jobId },
+                  },
+                }),
+                202,
+                origin,
+              );
+            }
+          }
+
+          // Reattachments above bypass admission and rate limiting: they do
+          // not allocate new provider work or usage. Only a fresh reservation
+          // consumes the media-generation rate budget.
+          const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId, {
+            minimumRemainingMicroCents: MEDIA_DENY_BUFFER_MICRO_CENTS,
+          });
+          if (!subscriptionCheck.allowed)
+            return errorResponse(429, subscriptionCheck.message, origin);
+          const rateLimit = await ctx.runMutation(
+            internal.rate_limits.consumeWebhookRateLimit,
+            {
+              scope: "media_generate",
+              key: ownerId,
+              limit: MEDIA_RATE_LIMIT,
+              windowMs: MEDIA_RATE_WINDOW_MS,
+              blockMs: MEDIA_RATE_WINDOW_MS,
+            },
+          );
+          if (!rateLimit.allowed)
+            return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+
           const billingAdmissionIssue = getMediaBillingAdmissionIssue({
             endpointId: resolved.profile.endpointId,
             request: storedRequest,
@@ -639,18 +758,82 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             );
 
           const jobId = crypto.randomUUID();
-          await ctx.runMutation(internal.media_jobs.createJob, {
-            ownerId,
-            jobId,
-            capability: resolved.capability.id,
-            profile: resolved.profile.id,
-            provider: resolved.profile.provider,
-            endpointId: resolved.profile.endpointId,
-            request: storedRequest,
-            ...(body.connectorRequestId
-              ? { connectorRequestId: body.connectorRequestId }
-              : {}),
-          });
+          if (clientRequestKey && clientRequestHash) {
+            const reservation = await ctx.runMutation(
+              internal.media_jobs.reserveIdempotentJob,
+              {
+                ownerId,
+                jobId,
+                clientRequestKey,
+                clientRequestHash,
+                capability: resolved.capability.id,
+                profile: resolved.profile.id,
+                provider: resolved.profile.provider,
+                endpointId: resolved.profile.endpointId,
+                request: storedRequest,
+                ...(body.connectorRequestId
+                  ? { connectorRequestId: body.connectorRequestId }
+                  : {}),
+              },
+            );
+            if (reservation.state === "canceled") {
+              return errorResponse(
+                409,
+                "This media request was canceled before submission.",
+                origin,
+              );
+            }
+            if (reservation.state === "conflict") {
+              return errorResponse(
+                409,
+                "Idempotency-Key was already used with a different media request.",
+                origin,
+              );
+            }
+            if (reservation.state === "existing") {
+              return jsonResponse(
+                createMediaGenerateAcceptedResponse({
+                  jobId: reservation.jobId,
+                  capability: reservation.capability,
+                  profile: reservation.profile,
+                  status: reservation.status,
+                  upstreamStatus: reservation.upstreamStatus,
+                  reattached: true,
+                  subscription: {
+                    query: MEDIA_SUBSCRIPTION_QUERY,
+                    args: { jobId: reservation.jobId },
+                  },
+                }),
+                202,
+                origin,
+              );
+            }
+          } else {
+            await ctx.runMutation(internal.media_jobs.createJob, {
+              ownerId,
+              jobId,
+              capability: resolved.capability.id,
+              profile: resolved.profile.id,
+              provider: resolved.profile.provider,
+              endpointId: resolved.profile.endpointId,
+              request: storedRequest,
+              ...(body.connectorRequestId
+                ? { connectorRequestId: body.connectorRequestId }
+                : {}),
+            });
+          }
+
+          const maySubmit = await ctx.runMutation(
+            internal.media_jobs.beginSubmission,
+            { ownerId, jobId },
+          );
+          if (!maySubmit) {
+            return errorResponse(
+              409,
+              "This media request was canceled before submission.",
+              origin,
+            );
+          }
 
           if (resolved.profile.provider === "google_lyria") {
             const parsedMusic = parseMusicStreamRequest(submissionInput);
@@ -770,23 +953,43 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               input: submissionInput,
               webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}`,
             });
-            await ctx.runMutation(internal.media_jobs.markSubmitted, {
-              jobId,
-              providerRequestId: submitted.requestId,
-              ...(submitted.gatewayRequestId
-                ? { providerGatewayRequestId: submitted.gatewayRequestId }
-                : {}),
-              ...(submitted.responseUrl
-                ? { providerResponseUrl: submitted.responseUrl }
-                : {}),
-              ...(submitted.statusUrl
-                ? { providerStatusUrl: submitted.statusUrl }
-                : {}),
-              upstreamStatus: submitted.upstreamStatus,
-              ...(submitted.queuePosition !== undefined
-                ? { queuePosition: submitted.queuePosition }
-                : {}),
-            });
+            const submissionState = await ctx.runMutation(
+              internal.media_jobs.markSubmitted,
+              {
+                jobId,
+                providerRequestId: submitted.requestId,
+                ...(submitted.gatewayRequestId
+                  ? { providerGatewayRequestId: submitted.gatewayRequestId }
+                  : {}),
+                ...(submitted.responseUrl
+                  ? { providerResponseUrl: submitted.responseUrl }
+                  : {}),
+                ...(submitted.statusUrl
+                  ? { providerStatusUrl: submitted.statusUrl }
+                  : {}),
+                upstreamStatus: submitted.upstreamStatus,
+                ...(submitted.queuePosition !== undefined
+                  ? { queuePosition: submitted.queuePosition }
+                  : {}),
+              },
+            );
+            if (submissionState.cancelRequested) {
+              await cancelFalRequest({
+                apiKey,
+                endpointId: resolved.profile.endpointId,
+                requestId: submitted.requestId,
+              }).catch((cancelError) => {
+                console.error(
+                  `[media/generate] Fal cancellation failed for ${jobId}:`,
+                  cancelError,
+                );
+              });
+              return errorResponse(
+                409,
+                "This media request was canceled during submission.",
+                origin,
+              );
+            }
             return jsonResponse(
               createMediaGenerateAcceptedResponse({
                 jobId,
@@ -804,19 +1007,52 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             );
           } catch (error) {
             const errorCode = (error as Error & { code?: unknown }).code;
-            await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
-              jobId,
-              upstreamStatus: "ERROR",
-              error: (createMediaJobError({
-                value: {
-                  message: (error as Error).message,
-                  ...(typeof errorCode === "string" && errorCode.trim()
-                    ? { code: errorCode.trim() }
-                    : {}),
+            const definitiveRejection =
+              isDefinitiveFalSubmissionRejection(error);
+            if (!clientRequestKey || definitiveRejection) {
+              await ctx.runMutation(
+                internal.media_jobs.markSubmissionFailed,
+                {
+                  jobId,
+                  upstreamStatus: "ERROR",
+                  error: (createMediaJobError({
+                    value: {
+                      message: (error as Error).message,
+                      ...(typeof errorCode === "string" && errorCode.trim()
+                        ? { code: errorCode.trim() }
+                        : {}),
+                    },
+                    fallbackMessage: "Media generation failed upstream.",
+                  }) ?? {
+                    message: "Media generation failed upstream.",
+                  }) as never,
                 },
-                fallbackMessage: "Media generation failed upstream.",
-              }) ?? { message: "Media generation failed upstream." }) as never,
-            });
+              );
+            } else {
+              // A timeout/network failure after POST send is ambiguous: Fal
+              // may have accepted work and will still call our jobId webhook.
+              // Keep the durable reservation queued instead of resubmitting;
+              // the webhook completes it, or the stale-job policy fails it.
+              console.warn(
+                `[media/generate] Ambiguous Fal submission for ${jobId}; awaiting webhook/stale timeout:`,
+                error,
+              );
+              return jsonResponse(
+                createMediaGenerateAcceptedResponse({
+                  jobId,
+                  capability: resolved.capability.id,
+                  profile: resolved.profile.id,
+                  status: "queued",
+                  upstreamStatus: "IN_QUEUE",
+                  subscription: {
+                    query: MEDIA_SUBSCRIPTION_QUERY,
+                    args: { jobId },
+                  },
+                }),
+                202,
+                origin,
+              );
+            }
             return errorResponse(
               502,
               `Fal request failed: ${(error as Error).message || "Unknown error"}`,

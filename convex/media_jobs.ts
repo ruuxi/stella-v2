@@ -148,6 +148,21 @@ const STALE_IMAGE_JOB_CAPABILITIES = [
   "icon",
 ] as const;
 
+const idempotentJobLookupValidator = v.object({
+  jobId: v.string(),
+  capability: v.string(),
+  profile: v.string(),
+  status: v.union(
+    v.literal("queued"),
+    v.literal("running"),
+    v.literal("succeeded"),
+    v.literal("failed"),
+    v.literal("canceled"),
+  ),
+  upstreamStatus: v.string(),
+  clientRequestHash: v.optional(v.string()),
+});
+
 const toStoredMediaJobResponse = (
   job: {
     jobId: string;
@@ -279,6 +294,18 @@ const getJobByProviderRequestId = async (
     )
     .unique();
 
+const getJobByClientRequestKey = async (
+  ctx: Pick<QueryCtx, "db">,
+  ownerId: string,
+  clientRequestKey: string,
+) =>
+  await ctx.db
+    .query("media_jobs")
+    .withIndex("by_ownerId_and_clientRequestKey", (q) =>
+      q.eq("ownerId", ownerId).eq("clientRequestKey", clientRequestKey),
+    )
+    .unique();
+
 export const getByJobId = query({
   args: {
     jobId: v.string(),
@@ -320,6 +347,33 @@ export const getByOwnerJobId = internalQuery({
       .unique();
 
     return job ? toStoredMediaJobResponse(job) : null;
+  },
+});
+
+export const getByOwnerClientRequestKey = internalQuery({
+  args: {
+    ownerId: v.string(),
+    clientRequestKey: v.string(),
+  },
+  returns: v.union(v.null(), idempotentJobLookupValidator),
+  handler: async (ctx, args) => {
+    const job = await getJobByClientRequestKey(
+      ctx,
+      args.ownerId,
+      args.clientRequestKey,
+    );
+    return job
+      ? {
+          jobId: job.jobId,
+          capability: job.capability,
+          profile: job.profile,
+          status: job.status,
+          upstreamStatus: job.upstreamStatus,
+          ...(job.clientRequestHash
+            ? { clientRequestHash: job.clientRequestHash }
+            : {}),
+        }
+      : null;
   },
 });
 
@@ -483,6 +537,206 @@ export const createJob = internalMutation({
   },
 });
 
+const reserveIdempotentJobResultValidator = v.union(
+  v.object({
+    state: v.literal("created"),
+    jobId: v.string(),
+    status: v.literal("queued"),
+    upstreamStatus: v.string(),
+  }),
+  v.object({
+    state: v.literal("existing"),
+    jobId: v.string(),
+    capability: v.string(),
+    profile: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("succeeded"),
+      v.literal("failed"),
+      v.literal("canceled"),
+    ),
+    upstreamStatus: v.string(),
+  }),
+  v.object({
+    state: v.literal("conflict"),
+    jobId: v.string(),
+  }),
+  v.object({ state: v.literal("canceled") }),
+);
+
+/**
+ * Atomically reserve an owner-scoped media request identity. Retried POSTs
+ * attach to the existing row and never repeat provider submission. A
+ * cancellation tombstone wins even when DELETE arrives before this mutation.
+ */
+export const reserveIdempotentJob = internalMutation({
+  args: {
+    ownerId: v.string(),
+    jobId: v.string(),
+    clientRequestKey: v.string(),
+    clientRequestHash: v.string(),
+    capability: v.string(),
+    profile: v.string(),
+    provider: v.union(v.literal("fal"), v.literal("google_lyria")),
+    endpointId: v.string(),
+    request: mediaRequestSummaryValidator,
+    connectorRequestId: v.optional(v.string()),
+    billing: v.optional(mediaJobBillingValidator),
+  },
+  returns: reserveIdempotentJobResultValidator,
+  handler: async (ctx, args) => {
+    const canceled = await ctx.db
+      .query("media_request_cancellations")
+      .withIndex("by_ownerId_and_clientRequestKey", (q) =>
+        q
+          .eq("ownerId", args.ownerId)
+          .eq("clientRequestKey", args.clientRequestKey),
+      )
+      .unique();
+    if (canceled) return { state: "canceled" as const };
+
+    const existing = await getJobByClientRequestKey(
+      ctx,
+      args.ownerId,
+      args.clientRequestKey,
+    );
+    if (existing) {
+      if (existing.clientRequestHash !== args.clientRequestHash) {
+        return { state: "conflict" as const, jobId: existing.jobId };
+      }
+      return {
+        state: "existing" as const,
+        jobId: existing.jobId,
+        capability: existing.capability,
+        profile: existing.profile,
+        status: existing.status,
+        upstreamStatus: existing.upstreamStatus,
+      };
+    }
+
+    if (await getJobByJobId(ctx, args.jobId)) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Media job already exists.",
+      });
+    }
+
+    const now = Date.now();
+    await ctx.db.insert("media_jobs", {
+      ownerId: args.ownerId,
+      jobId: args.jobId,
+      clientRequestKey: args.clientRequestKey,
+      clientRequestHash: args.clientRequestHash,
+      capability: args.capability,
+      profile: args.profile,
+      provider: args.provider,
+      endpointId: args.endpointId,
+      request: args.request,
+      ...(args.connectorRequestId
+        ? { connectorRequestId: args.connectorRequestId }
+        : {}),
+      ...(args.billing ? { billing: args.billing } : {}),
+      status: "queued",
+      upstreamStatus: "IN_QUEUE",
+      queuePosition: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return {
+      state: "created" as const,
+      jobId: args.jobId,
+      status: "queued" as const,
+      upstreamStatus: "IN_QUEUE",
+    };
+  },
+});
+
+export const beginSubmission = internalMutation({
+  args: { ownerId: v.string(), jobId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const job = await getJobByJobId(ctx, args.jobId);
+    if (!job || job.ownerId !== args.ownerId || job.status === "canceled") {
+      return false;
+    }
+    return !job.providerRequestId;
+  },
+});
+
+const cancelIdempotentRequestResultValidator = v.object({
+  state: v.union(
+    v.literal("canceled"),
+    v.literal("succeeded"),
+    v.literal("failed"),
+  ),
+  jobId: v.optional(v.string()),
+  endpointId: v.optional(v.string()),
+  providerRequestId: v.optional(v.string()),
+});
+
+/** Persist cancellation before attempting provider cancellation. */
+export const cancelIdempotentRequest = internalMutation({
+  args: {
+    ownerId: v.string(),
+    clientRequestKey: v.string(),
+    canceledAt: v.number(),
+  },
+  returns: cancelIdempotentRequestResultValidator,
+  handler: async (ctx, args) => {
+    const existingTombstone = await ctx.db
+      .query("media_request_cancellations")
+      .withIndex("by_ownerId_and_clientRequestKey", (q) =>
+        q
+          .eq("ownerId", args.ownerId)
+          .eq("clientRequestKey", args.clientRequestKey),
+      )
+      .unique();
+    if (!existingTombstone) {
+      await ctx.db.insert("media_request_cancellations", {
+        ownerId: args.ownerId,
+        clientRequestKey: args.clientRequestKey,
+        createdAt: args.canceledAt,
+      });
+    }
+
+    const job = await getJobByClientRequestKey(
+      ctx,
+      args.ownerId,
+      args.clientRequestKey,
+    );
+    if (!job) return { state: "canceled" as const };
+    if (job.status === "succeeded" || job.status === "failed") {
+      return {
+        state: job.status,
+        jobId: job.jobId,
+        endpointId: job.endpointId,
+        ...(job.providerRequestId
+          ? { providerRequestId: job.providerRequestId }
+          : {}),
+      };
+    }
+    if (job.status !== "canceled") {
+      await ctx.db.patch(job._id, {
+        status: "canceled",
+        upstreamStatus: "CANCELED",
+        queuePosition: null,
+        error: { message: "Image generation was canceled.", code: "CANCELED" },
+        updatedAt: args.canceledAt,
+        completedAt: args.canceledAt,
+      });
+    }
+    return {
+      state: "canceled" as const,
+      jobId: job.jobId,
+      endpointId: job.endpointId,
+      ...(job.providerRequestId
+        ? { providerRequestId: job.providerRequestId }
+        : {}),
+    };
+  },
+});
+
 export const markSubmitted = internalMutation({
   args: {
     jobId: v.string(),
@@ -493,6 +747,7 @@ export const markSubmitted = internalMutation({
     upstreamStatus: v.string(),
     queuePosition: v.optional(v.number()),
   },
+  returns: v.object({ cancelRequested: v.boolean() }),
   handler: async (ctx, args) => {
     const job = await getJobByJobId(ctx, args.jobId);
     if (!job) {
@@ -503,7 +758,10 @@ export const markSubmitted = internalMutation({
     }
 
     const now = Date.now();
-    const status = toInitialMediaJobStatus(args.upstreamStatus);
+    const cancelRequested = job.status === "canceled";
+    const status = cancelRequested
+      ? "canceled"
+      : toInitialMediaJobStatus(args.upstreamStatus);
     await ctx.db.patch(job._id, {
       providerRequestId: args.providerRequestId,
       ...(args.providerGatewayRequestId
@@ -515,10 +773,11 @@ export const markSubmitted = internalMutation({
       ...(args.providerStatusUrl
         ? { providerStatusUrl: args.providerStatusUrl }
         : {}),
-      upstreamStatus: args.upstreamStatus,
+      upstreamStatus: cancelRequested ? "CANCELED" : args.upstreamStatus,
       status,
-      queuePosition:
-        args.queuePosition !== undefined
+      queuePosition: cancelRequested
+        ? null
+        : args.queuePosition !== undefined
           ? args.queuePosition
           : job.queuePosition,
       updatedAt: now,
@@ -529,7 +788,7 @@ export const markSubmitted = internalMutation({
         ? { completedAt: now }
         : {}),
     });
-    return null;
+    return { cancelRequested };
   },
 });
 
@@ -544,6 +803,7 @@ export const markSubmissionFailed = internalMutation({
     if (!job) {
       return null;
     }
+    if (job.status === "canceled") return null;
     const now = Date.now();
     await ctx.db.patch(job._id, {
       status: "failed",
@@ -567,10 +827,10 @@ export const markStaleJobsFailed = internalMutation({
       1,
       Math.min(args.limit ?? DEFAULT_STALE_MEDIA_JOB_LIMIT, 500),
     );
-    const cutoffMs = args.cutoffMs ?? Date.now() - (args.staleMs ?? 4 * 60_000);
+    const cutoffMs =
+      args.cutoffMs ?? Date.now() - (args.staleMs ?? 15 * 60_000);
     const terminalError = {
-      message:
-        "Image generation timed out after 4 minutes. Please retry with the same prompt.",
+      message: "Image generation timed out after 15 minutes.",
       code: "TIMEOUT",
     };
     let updated = 0;
@@ -623,6 +883,7 @@ export const markGenerated = internalMutation({
     if (!job) {
       return null;
     }
+    if (job.status === "canceled") return null;
     const now = Date.now();
     const output = sanitizeJsonValue(args.output);
     // `connectorMediaDeliveryScheduledAt` is the dedup gate: we set it in
@@ -707,6 +968,12 @@ export const applyFalWebhook = internalMutation({
 
     if (!job) {
       return { updated: false };
+    }
+
+    // Cancellation is terminal. A late provider webhook must not resurrect a
+    // canceled generation or surface an artifact after the tool was aborted.
+    if (job.status === "canceled") {
+      return { updated: false, jobId: job.jobId };
     }
 
     // Append log entries to the child `media_job_logs` table instead of

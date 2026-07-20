@@ -53,7 +53,7 @@ crons.interval(
   "fail stale media jobs",
   { minutes: 3 },
   internal.media_jobs.markStaleJobsFailed,
-  { staleMs: 4 * 60_000, limit: 200 },
+  { staleMs: 15 * 60_000, limit: 200 },
 );
 
 crons.interval(

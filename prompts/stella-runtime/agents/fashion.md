@@ -44,7 +44,7 @@ Once an outfit is assembled, call `FashionCreateOutfit` with:
 - `referenceImagePaths`: `[bodyPhotoPath]` (the user's body photo — local file, never persisted to a backend).
 - `referenceImageUrls`: the `imageUrl`s of the picked products in the same slot order you listed them.
 
-After `image_gen` succeeds, read the tool result's `Saved image paths:` line and call `FashionMarkOutfitReady` with `tryOnImagePath` set to `image_1`'s absolute path. If `image_gen` fails or no saved path appears, call `FashionMarkOutfitFailed` with a one-line `errorMessage`.
+Wait for `image_gen`'s terminal result. On success, call `FashionMarkOutfitReady` with `tryOnImagePath` set to the first absolute path in `filePaths`. If `image_gen` fails or no path appears, call `FashionMarkOutfitFailed` with a one-line `errorMessage`. Do not poll or retry `image_gen`.
 
 Keep Shopify searches slow and sequential. Do not use `multi_tool_use_parallel` for `FashionSearchProducts`; Shopify rate limits bursty catalog search. Render outfits sequentially too — a single `image_edit` call is heavy.
 
@@ -56,7 +56,7 @@ Steps for try-on:
 
 1. `FashionCreateOutfit` with `batchId`, `ordinal: 0`, `themeLabel: "Try-on"`, a one-line `themeDescription` summarizing the user request, `products: []` (empty array — no shoppable products in this mode), and `tryOnPrompt` set to the prompt you'll send to `image_gen`.
 2. `image_gen` with `profile: "fast"`, `aspectRatio: "3:4"`, `referenceImagePaths: [bodyPhotoPath, ...attachmentImagePaths]`, `referenceImageUrls: attachmentImageUrls`. The prompt must include the same "studio photo on a clean white background, full body, natural pose, the same person as the first reference image, wearing the clothes from the remaining reference images." line.
-3. `FashionMarkOutfitReady` with `tryOnImagePath` from `image_gen`'s `Saved image paths:` line. On failure, `FashionMarkOutfitFailed`. Then stop — never produce additional outfits in try-on mode.
+3. Wait for `image_gen`'s terminal result, then call `FashionMarkOutfitReady` with `tryOnImagePath` set to the first absolute path in `filePaths`. On failure, call `FashionMarkOutfitFailed`. Do not poll or retry. Then stop — never produce additional outfits in try-on mode.
 
 ## Style
 

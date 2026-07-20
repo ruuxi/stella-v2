@@ -273,9 +273,55 @@ export const migrateMediaJobsBatch = internalMutation({
         q.eq("ownerId", args.fromOwnerId),
       )
       .take(BATCH_SIZE);
-    await Promise.all(
-      rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
-    );
+    for (const row of rows) {
+      const existing = row.clientRequestKey
+        ? await ctx.db
+            .query("media_jobs")
+            .withIndex("by_ownerId_and_clientRequestKey", (q) =>
+              q
+                .eq("ownerId", args.toOwnerId)
+                .eq("clientRequestKey", row.clientRequestKey),
+            )
+            .unique()
+        : null;
+      // Preserve both historical jobs, but keep only the destination row as
+      // the canonical reattachment target when owner linking collides.
+      await ctx.db.patch(row._id, {
+        ownerId: args.toOwnerId,
+        ...(existing
+          ? { clientRequestKey: undefined, clientRequestHash: undefined }
+          : {}),
+      });
+    }
+    return { hasMore: isFullPage(rows) };
+  },
+});
+
+export const migrateMediaRequestCancellationsBatch = internalMutation({
+  args: ownerArgs,
+  returns: hasMoreReturn,
+  handler: async (ctx: MutationCtx, args) => {
+    const rows = await ctx.db
+      .query("media_request_cancellations")
+      .withIndex("by_ownerId_and_clientRequestKey", (q) =>
+        q.eq("ownerId", args.fromOwnerId),
+      )
+      .take(BATCH_SIZE);
+    for (const row of rows) {
+      const existing = await ctx.db
+        .query("media_request_cancellations")
+        .withIndex("by_ownerId_and_clientRequestKey", (q) =>
+          q
+            .eq("ownerId", args.toOwnerId)
+            .eq("clientRequestKey", row.clientRequestKey),
+        )
+        .unique();
+      if (existing) {
+        await ctx.db.delete(row._id);
+      } else {
+        await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
+      }
+    }
     return { hasMore: isFullPage(rows) };
   },
 });
@@ -399,6 +445,7 @@ const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateConnectorTurnPayloadsBatch,
   internal.auth_migration.migrateAgentsBatch,
   internal.auth_migration.migrateMediaJobsBatch,
+  internal.auth_migration.migrateMediaRequestCancellationsBatch,
   internal.auth_migration.migrateMediaJobLogsBatch,
   internal.auth_migration.migrateUserCountersBatch,
 ] as const;

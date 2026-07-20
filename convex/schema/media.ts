@@ -99,6 +99,15 @@ export const mediaSchema = {
     provider: v.union(v.literal("fal"), v.literal("google_lyria")),
     endpointId: v.string(),
     request: mediaRequestSummaryValidator,
+    /**
+     * Opt-in owner-scoped identity supplied through Idempotency-Key. Only
+     * clients that need durable retry/reattachment (currently image_gen) set
+     * this; existing Media Studio/video/audio/3D behavior is unchanged.
+     */
+    clientRequestKey: v.optional(v.string()),
+    /** Hash of the exact request body. Reusing a key with another payload is
+     * rejected instead of silently attaching to the wrong generation. */
+    clientRequestHash: v.optional(v.string()),
     connectorRequestId: v.optional(v.string()),
     billing: v.optional(mediaJobBillingValidator),
     providerRequestId: v.optional(v.string()),
@@ -135,6 +144,7 @@ export const mediaSchema = {
   })
     .index("by_jobId", ["jobId"])
     .index("by_ownerId_and_jobId", ["ownerId", "jobId"])
+    .index("by_ownerId_and_clientRequestKey", ["ownerId", "clientRequestKey"])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
     // The desktop materializer subscribes via `listSucceededSince`, which
     // wants succeeded jobs in completion order. Adding `(status, completedAt)`
@@ -171,4 +181,15 @@ export const mediaSchema = {
   })
     .index("by_jobId_and_ordinal", ["jobId", "ordinal"])
     .index("by_ownerId_and_jobId", ["ownerId", "jobId"]),
+
+  /**
+   * A user abort may reach the gateway before its matching POST reserves a
+   * media_jobs row. This tombstone makes cancellation win that race durably,
+   * so an automatic retry cannot allocate upstream work after cancellation.
+   */
+  media_request_cancellations: defineTable({
+    ownerId: v.string(),
+    clientRequestKey: v.string(),
+    createdAt: v.number(),
+  }).index("by_ownerId_and_clientRequestKey", ["ownerId", "clientRequestKey"]),
 };

@@ -62,18 +62,13 @@ export const loadNewerActivityWindow = (
   };
 };
 
-const taskActivityAt = (task: MobileTask): number =>
-  typeof task.completedAt === "number" && Number.isFinite(task.completedAt)
-    ? task.completedAt
-    : task.createdAt;
-
-/** Strict recency ordering for the hub. Unlike the activity pill, status does
- *  not affect rank, so an old running task cannot displace newer history. */
+/** Strict spawn-recency ordering for the hub. Status and completion time do
+ *  not affect rank, so finishing a task cannot move its existing row. */
 export const sortHubTasksByRecency = (
   tasks: readonly MobileTask[],
 ): MobileTask[] =>
   [...tasks].sort(
-    (a, b) => taskActivityAt(b) - taskActivityAt(a) || a.id.localeCompare(b.id),
+    (a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id),
   );
 
 /** Stable virtualized-row identity used by LegendList's data-change anchor. */

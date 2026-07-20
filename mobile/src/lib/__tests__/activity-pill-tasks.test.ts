@@ -97,7 +97,11 @@ describe("activity pill task derivation under push-connected sync", () => {
   });
 
   test("tasks survive the storage round-trip (pill persists across app relaunch)", async () => {
-    const fresh = task({ createdAt: Date.now() });
+    const fresh = task({
+      agentType: "general",
+      parentAgentId: "orchestrator",
+      createdAt: Date.now(),
+    });
     await saveChatMessages("computer", [
       {
         id: "a1",
@@ -111,6 +115,8 @@ describe("activity pill task derivation under push-connected sync", () => {
     expect(loaded).toHaveLength(1);
     expect(loaded[0]?.tasks).toHaveLength(1);
     expect(loaded[0]?.tasks?.[0]?.status).toBe("running");
+    expect(loaded[0]?.tasks?.[0]?.agentType).toBe("general");
+    expect(loaded[0]?.tasks?.[0]?.parentAgentId).toBe("orchestrator");
     expect(runningCount(loaded)).toBe(1);
   });
 

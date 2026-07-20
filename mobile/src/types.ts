@@ -239,6 +239,10 @@ export type ChatMessage = {
 export type MobileTask = {
   id: string;
   title: string;
+  /** Runtime agent kind used to resolve Manager ownership in Activity. */
+  agentType?: string;
+  /** Durable owning-agent edge. An unresolved first parent is the Orchestrator. */
+  parentAgentId?: string;
   status: "running" | "completed" | "error" | "canceled";
   /** Live narration while running ("Reading file…"). */
   statusText?: string;

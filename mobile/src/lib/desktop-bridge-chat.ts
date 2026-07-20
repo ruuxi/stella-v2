@@ -53,6 +53,7 @@ import {
   runWithSingleBridgeRecovery,
 } from "./bridge-recovery";
 import { canReuseDesktopSendBatch } from "./desktop-send-batch-policy";
+import { parseThreadActivityTasks } from "./desktop-thread-activity";
 
 const DESKTOP_WAKE_ATTEMPTS = 5;
 const DESKTOP_WAKE_RETRY_MS = 3_000;
@@ -1031,6 +1032,8 @@ function parseTasks(value: unknown): MobileTask[] {
       continue;
     }
     const statusText = asString(record.statusText).trim();
+    const agentType = asString(record.agentType).trim();
+    const parentAgentId = asString(record.parentAgentId).trim();
     const reasoningSummaries = Array.isArray(record.reasoningSummaries)
       ? record.reasoningSummaries
           .map((summary) => asString(summary).trim())
@@ -1048,60 +1051,13 @@ function parseTasks(value: unknown): MobileTask[] {
     tasks.push({
       id,
       title,
+      ...(agentType ? { agentType } : {}),
+      ...(parentAgentId ? { parentAgentId } : {}),
       status: status as MobileTask["status"],
       ...(statusText ? { statusText } : {}),
       ...(reasoningSummaries.length > 0 ? { reasoningSummaries } : {}),
       createdAt,
       ...(completedAt !== undefined ? { completedAt } : {}),
-    });
-  }
-  return tasks;
-}
-
-/**
- * The desktop's user-facing Activity feed only shows GENERAL agents spawned
- * via `spawn_agent`; orchestrator-internal helpers never surface as rows.
- * Mirrors `isActivityFeedTask` in the desktop renderer.
- */
-const ACTIVITY_FEED_AGENT_TYPE = "general";
-
-/**
- * One authoritative thread-activity row (the runtime's `runtime_agents`
- * projection) converted to a `MobileTask`. Unlike the per-message task fold,
- * these rows are the desktop's single source of truth for thread state — a
- * running row here is running, no staleness heuristics needed.
- */
-function parseThreadActivityTasks(value: unknown): MobileTask[] {
-  if (!Array.isArray(value)) return [];
-  const tasks: MobileTask[] = [];
-  for (const entry of value) {
-    const record = asRecord(entry);
-    if (!record) continue;
-    const agentType = asString(record.agentType).trim();
-    if (agentType && agentType !== ACTIVITY_FEED_AGENT_TYPE) continue;
-    const id = asString(record.threadId).trim();
-    const status = record.status;
-    if (!id || typeof status !== "string" || !TASK_STATUSES.has(status)) {
-      continue;
-    }
-    const title = asString(record.description).trim() || "Background work";
-    const startedAt =
-      typeof record.startedAt === "number" && Number.isFinite(record.startedAt)
-        ? record.startedAt
-        : 0;
-    const completedAt =
-      typeof record.completedAt === "number" &&
-      Number.isFinite(record.completedAt)
-        ? record.completedAt
-        : undefined;
-    tasks.push({
-      id,
-      title,
-      status: status as MobileTask["status"],
-      createdAt: startedAt,
-      ...(status !== "running" && completedAt !== undefined
-        ? { completedAt }
-        : {}),
     });
   }
   return tasks;
@@ -1929,9 +1885,7 @@ export async function sendDesktopBridgeChat({
       const agentId = asString(event.agentId).trim();
       if (agentId) {
         const title =
-          asString(event.description).trim() ||
-          asString(event.groupLabel).trim() ||
-          "Background work";
+          asString(event.description).trim() || "Background work";
         mergeArtifacts([
           {
             id: agentWorkArtifactId([agentId]),

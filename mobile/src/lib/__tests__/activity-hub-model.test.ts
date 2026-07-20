@@ -144,6 +144,25 @@ describe("activity hub source data", () => {
     expect(firstPage.some((entry) => entry.id === "old-running")).toBe(false);
     expect(firstPage[0]?.id).toBe("recent-15");
   });
+
+  test("completion preserves spawn ordering and deterministic ties", () => {
+    const running = [
+      { ...task("alpha"), status: "running" as const, createdAt: 2_000 },
+      { ...task("beta"), status: "running" as const, createdAt: 2_000 },
+      { ...task("older"), status: "running" as const, createdAt: 1_000 },
+    ];
+    const before = sortHubTasksByRecency(running).map((entry) => entry.id);
+    const terminal = running.map((entry, index) => ({
+      ...entry,
+      status: "completed" as const,
+      completedAt: 10_000 + index,
+    }));
+
+    expect(before).toEqual(["alpha", "beta", "older"]);
+    expect(sortHubTasksByRecency(terminal).map((entry) => entry.id)).toEqual(
+      before,
+    );
+  });
 });
 
 describe("activity hub paging window", () => {

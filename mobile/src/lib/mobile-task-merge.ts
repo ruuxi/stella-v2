@@ -8,17 +8,87 @@ const taskTerminalAt = (task: MobileTask) =>
     ? task.completedAt
     : task.createdAt;
 
+const isWellFormedTaskId = (value: string): boolean =>
+  value.length > 0 && value.trim() === value;
+
+/**
+ * Project the merged task graph onto the root mobile Activity surface.
+ *
+ * A General task whose first unresolved parent is absent from Activity is a
+ * normal standalone task owned by the Orchestrator. Once an Activity parent
+ * resolves, Manager ancestry, malformed ownership, duplicate ids, cycles, or
+ * a later missing ancestor suppress the descendant rather than presenting
+ * Manager-internal work as an independent task. Root Manager rows remain
+ * visible and also provide the ownership evidence for that suppression.
+ */
+export const selectRootMobileActivityTasks = (
+  tasks: readonly MobileTask[],
+): MobileTask[] => {
+  const taskById = new Map<string, MobileTask>();
+  const duplicateIds = new Set<string>();
+  for (const task of tasks) {
+    if (taskById.has(task.id)) duplicateIds.add(task.id);
+    else taskById.set(task.id, task);
+  }
+
+  return tasks.filter((task) => {
+    if (!isWellFormedTaskId(task.id) || duplicateIds.has(task.id)) return false;
+    if (task.agentType === "manager") {
+      return task.parentAgentId === undefined;
+    }
+    if (task.agentType && task.agentType !== "general") return false;
+
+    let parentId = task.parentAgentId;
+    if (parentId === undefined) return true;
+    if (!isWellFormedTaskId(parentId)) return false;
+
+    const visited = new Set([task.id]);
+    let resolvedActivityParent = false;
+    while (parentId) {
+      if (visited.has(parentId) || duplicateIds.has(parentId)) return false;
+      visited.add(parentId);
+
+      const parent = taskById.get(parentId);
+      if (!parent) return !resolvedActivityParent;
+      resolvedActivityParent = true;
+      if (parent.agentType === "manager") return false;
+      if (parent.agentType && parent.agentType !== "general") return false;
+
+      parentId = parent.parentAgentId;
+      if (parentId === undefined) return true;
+      if (!isWellFormedTaskId(parentId)) return false;
+    }
+
+    return false;
+  });
+};
+
+const withOwnershipFallbacks = (
+  existing: MobileTask,
+  next: MobileTask,
+): MobileTask => ({
+  ...next,
+  ...(!next.agentType && existing.agentType
+    ? { agentType: existing.agentType }
+    : {}),
+  ...(next.parentAgentId === undefined && existing.parentAgentId !== undefined
+    ? { parentAgentId: existing.parentAgentId }
+    : {}),
+});
+
 const withRunningFallbacks = (
   existing: MobileTask,
   next: MobileTask,
 ): MobileTask => {
-  if (!isRunningTask(next)) return next;
+  const ownedNext = withOwnershipFallbacks(existing, next);
+  if (!isRunningTask(ownedNext)) return ownedNext;
   return {
-    ...next,
-    ...(next.statusText || !existing.statusText
+    ...ownedNext,
+    ...(ownedNext.statusText || !existing.statusText
       ? {}
       : { statusText: existing.statusText }),
-    ...(next.reasoningSummaries?.length || !existing.reasoningSummaries?.length
+    ...(ownedNext.reasoningSummaries?.length ||
+    !existing.reasoningSummaries?.length
       ? {}
       : { reasoningSummaries: existing.reasoningSummaries }),
   };
@@ -33,7 +103,9 @@ export const mergeMobileTaskSnapshot = (
   const existingRunning = isRunningTask(existing);
   const nextRunning = isRunningTask(next);
   if (existingRunning && !nextRunning) {
-    return taskTerminalAt(next) >= existing.createdAt ? next : existing;
+    return taskTerminalAt(next) >= existing.createdAt
+      ? withOwnershipFallbacks(existing, next)
+      : existing;
   }
   if (!existingRunning && nextRunning) {
     return next.createdAt > taskTerminalAt(existing)
@@ -41,7 +113,9 @@ export const mergeMobileTaskSnapshot = (
       : existing;
   }
   if (!existingRunning && !nextRunning) {
-    return taskTerminalAt(next) >= taskTerminalAt(existing) ? next : existing;
+    return taskTerminalAt(next) >= taskTerminalAt(existing)
+      ? withOwnershipFallbacks(existing, next)
+      : existing;
   }
   return next.createdAt >= existing.createdAt
     ? withRunningFallbacks(existing, next)
@@ -58,9 +132,11 @@ export const collectConversationTasks = (
     }
   }
   const rank = (task: MobileTask) => (task.status === "running" ? 0 : 1);
-  return [...byId.values()].sort(
+  return selectRootMobileActivityTasks([...byId.values()]).sort(
     (a, b) =>
-      rank(a) - rank(b) || b.createdAt - a.createdAt || a.id.localeCompare(b.id),
+      rank(a) - rank(b) ||
+      b.createdAt - a.createdAt ||
+      a.id.localeCompare(b.id),
   );
 };
 
@@ -85,12 +161,18 @@ export const overlayDesktopThreadTasks = (
   authoritative: MobileTask[] | null,
   decoration: DesktopTaskDecoration | null,
 ): MobileTask[] => {
-  if (!authoritative?.length && !decoration) return folded;
+  if (!authoritative?.length && !decoration) {
+    return selectRootMobileActivityTasks(folded);
+  }
   const byId = new Map<string, MobileTask>();
   for (const task of folded) byId.set(task.id, task);
   for (const row of authoritative ?? []) {
     const existing = byId.get(row.id);
-    if (!existing && row.status !== "running") continue;
+    // Terminal Manager rows remain visible and are also essential ownership
+    // evidence when a child transitions in the same authoritative snapshot.
+    if (!existing && row.status !== "running" && row.agentType !== "manager") {
+      continue;
+    }
     byId.set(row.id, {
       ...row,
       ...(row.status === "running" && existing?.statusText
@@ -115,8 +197,10 @@ export const overlayDesktopThreadTasks = (
     }
   }
   const rank = (task: MobileTask) => (task.status === "running" ? 0 : 1);
-  return [...byId.values()].sort(
+  return selectRootMobileActivityTasks([...byId.values()]).sort(
     (a, b) =>
-      rank(a) - rank(b) || b.createdAt - a.createdAt || a.id.localeCompare(b.id),
+      rank(a) - rank(b) ||
+      b.createdAt - a.createdAt ||
+      a.id.localeCompare(b.id),
   );
 };

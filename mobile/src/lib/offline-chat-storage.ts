@@ -65,11 +65,22 @@ function parseStoredTasks(value: unknown): MobileTask[] {
     const id = typeof record.id === "string" ? record.id.trim() : "";
     const title = typeof record.title === "string" ? record.title.trim() : "";
     const status = record.status;
-    if (!id || !title || typeof status !== "string" || !TASK_STATUSES.has(status)) {
+    if (
+      !id ||
+      !title ||
+      typeof status !== "string" ||
+      !TASK_STATUSES.has(status)
+    ) {
       continue;
     }
     const statusText =
       typeof record.statusText === "string" ? record.statusText.trim() : "";
+    const agentType =
+      typeof record.agentType === "string" ? record.agentType.trim() : "";
+    const parentAgentId =
+      typeof record.parentAgentId === "string"
+        ? record.parentAgentId.trim()
+        : "";
     const reasoningSummaries = Array.isArray(record.reasoningSummaries)
       ? record.reasoningSummaries.filter(
           (summary): summary is string =>
@@ -91,6 +102,8 @@ function parseStoredTasks(value: unknown): MobileTask[] {
     tasks.push({
       id,
       title,
+      ...(agentType ? { agentType } : {}),
+      ...(parentAgentId ? { parentAgentId } : {}),
       status: settledStale ? "completed" : (status as MobileTask["status"]),
       ...(statusText && !settledStale ? { statusText } : {}),
       ...(reasoningSummaries.length > 0 ? { reasoningSummaries } : {}),

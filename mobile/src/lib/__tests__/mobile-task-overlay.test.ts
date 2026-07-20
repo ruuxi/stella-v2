@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import type { MobileTask } from "../../types";
-import { overlayDesktopThreadTasks } from "../mobile-task-merge";
+import {
+  mergeMobileTaskSnapshot,
+  overlayDesktopThreadTasks,
+  selectRootMobileActivityTasks,
+} from "../mobile-task-merge";
 import type { DesktopTaskDecoration } from "../desktop-bridge-chat";
+import { parseThreadActivityTasks } from "../desktop-thread-activity";
 
 /**
  * The authoritative thread-activity overlay: desktop `runtime_agents` rows
@@ -130,5 +135,164 @@ describe("overlayDesktopThreadTasks", () => {
       "older",
       "old-done",
     ]);
+  });
+
+  test("only the Manager remains when its owned work finishes", () => {
+    const folded = [
+      task({
+        id: "managed-child",
+        agentType: "general",
+        parentAgentId: "manager",
+      }),
+    ];
+    const merged = overlayDesktopThreadTasks(
+      folded,
+      [
+        task({
+          id: "manager",
+          agentType: "manager",
+          status: "completed",
+          completedAt: 5_000,
+        }),
+        task({
+          id: "managed-child",
+          agentType: "general",
+          parentAgentId: "manager",
+          status: "completed",
+          completedAt: 5_000,
+        }),
+      ],
+      null,
+    );
+
+    expect(merged).toEqual([
+      task({
+        id: "manager",
+        agentType: "manager",
+        status: "completed",
+        completedAt: 5_000,
+      }),
+    ]);
+  });
+
+  test("terminal snapshots retain ownership learned while running", () => {
+    expect(
+      mergeMobileTaskSnapshot(
+        task({
+          id: "managed-child",
+          agentType: "general",
+          parentAgentId: "manager",
+        }),
+        task({
+          id: "managed-child",
+          status: "completed",
+          completedAt: 5_000,
+        }),
+      ),
+    ).toMatchObject({
+      id: "managed-child",
+      agentType: "general",
+      parentAgentId: "manager",
+      status: "completed",
+    });
+  });
+});
+
+describe("root mobile Activity ownership", () => {
+  test("parses Manager and General ownership rows for ancestry resolution", () => {
+    expect(
+      parseThreadActivityTasks([
+        {
+          threadId: "manager",
+          agentType: "manager",
+          description: "Coordinate",
+          status: "running",
+          startedAt: 100,
+        },
+        {
+          threadId: "child",
+          agentType: "general",
+          parentAgentId: "manager",
+          description: "Research",
+          status: "completed",
+          startedAt: 110,
+          completedAt: 200,
+        },
+      ]),
+    ).toEqual([
+      task({
+        id: "manager",
+        agentType: "manager",
+        title: "Coordinate",
+        createdAt: 100,
+      }),
+      task({
+        id: "child",
+        agentType: "general",
+        parentAgentId: "manager",
+        title: "Research",
+        status: "completed",
+        createdAt: 110,
+        completedAt: 200,
+      }),
+    ]);
+  });
+
+  test("shows standalone General work and Managers but omits descendants", () => {
+    const tasks = [
+      task({
+        id: "standalone",
+        agentType: "general",
+        parentAgentId: "orchestrator-not-in-activity",
+      }),
+      task({ id: "manager", agentType: "manager" }),
+      task({
+        id: "child",
+        agentType: "general",
+        parentAgentId: "manager",
+      }),
+      task({
+        id: "grandchild",
+        agentType: "general",
+        parentAgentId: "child",
+      }),
+    ];
+
+    expect(
+      selectRootMobileActivityTasks(tasks).map((entry) => entry.id),
+    ).toEqual(["standalone", "manager"]);
+  });
+
+  test("shows only root Managers and fails closed for parented Managers", () => {
+    const tasks = [
+      task({ id: "root-manager", agentType: "manager" }),
+      task({
+        id: "nested-manager",
+        agentType: "manager",
+        parentAgentId: "root-manager",
+      }),
+      task({
+        id: "malformed-manager",
+        agentType: "manager",
+        parentAgentId: " ",
+      }),
+    ];
+
+    expect(
+      selectRootMobileActivityTasks(tasks).map((entry) => entry.id),
+    ).toEqual(["root-manager"]);
+  });
+
+  test("fails closed for cycles and broken ancestry after a resolved parent", () => {
+    const tasks = [
+      task({ id: "cycle-a", agentType: "general", parentAgentId: "cycle-b" }),
+      task({ id: "cycle-b", agentType: "general", parentAgentId: "cycle-a" }),
+      task({ id: "known", agentType: "general", parentAgentId: "missing" }),
+      task({ id: "broken", agentType: "general", parentAgentId: "known" }),
+    ];
+
+    expect(
+      selectRootMobileActivityTasks(tasks).map((entry) => entry.id),
+    ).toEqual(["known"]);
   });
 });

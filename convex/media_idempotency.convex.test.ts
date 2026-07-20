@@ -57,6 +57,79 @@ afterEach(() => {
 });
 
 describe("managed media idempotency and cancellation", () => {
+  it("transactionally cleans pending and dispatching payload blobs during account deletion", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = createTest();
+      const [pendingStorageId, dispatchingStorageId] = await t.run(
+        async (ctx) =>
+          await Promise.all([
+            ctx.storage.store(new Blob(["pending-encrypted-reference"])),
+            ctx.storage.store(new Blob(["dispatching-encrypted-reference"])),
+          ]),
+      );
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        for (const [index, submission] of [
+          [0, { state: "pending" as const, storageId: pendingStorageId }],
+          [
+            1,
+            { state: "dispatching" as const, storageId: dispatchingStorageId },
+          ],
+        ] as const) {
+          await ctx.db.insert("media_jobs", {
+            ownerId: "account-delete-media-owner",
+            jobId: `account-delete-media-${index}`,
+            capability: "text_to_image",
+            profile: "best",
+            provider: "fal",
+            endpointId: "fal-ai/flux/dev",
+            request: { prompt: "private Fashion reference" },
+            submissionState: submission.state,
+            submissionPayloadStorageId: submission.storageId,
+            ...(submission.state === "dispatching"
+              ? {
+                  submissionAttemptId: "in-flight-at-delete",
+                  submissionClaimedAt: now,
+                }
+              : {}),
+            status: "queued",
+            upstreamStatus: "IN_QUEUE",
+            queuePosition: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      });
+
+      await t.mutation(internal.account_deletion._deleteExtraTableBatch, {
+        ownerId: "account-delete-media-owner",
+        table: "media_jobs",
+      });
+      expect(
+        await t.mutation(internal.media_jobs.releaseImageSubmissionPayload, {
+          jobId: "account-delete-media-1",
+          storageId: dispatchingStorageId,
+        }),
+      ).toBe(false);
+      expect(
+        await t.run(async (ctx) => await ctx.db.query("media_jobs").collect()),
+      ).toEqual([]);
+
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const urls = await t.run(
+        async (ctx) =>
+          await Promise.all([
+            ctx.storage.getUrl(pendingStorageId),
+            ctx.storage.getUrl(dispatchingStorageId),
+          ]),
+      );
+      expect(urls).toEqual([null, null]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reattaches a repeated POST without a second upstream submission", async () => {
     ensureMediaEnv();
     const t = createTest();

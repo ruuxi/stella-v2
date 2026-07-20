@@ -246,8 +246,22 @@ async function deleteOneExtraTableBatch(
         .query("media_jobs")
         .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
         .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
+      // Scheduler writes commit atomically with this mutation. If a durable
+      // image dispatcher already holds the encrypted blob, deleting the row
+      // makes its later release CAS fail, while this cleanup action still
+      // owns deletion of the storage object. A transaction retry cannot
+      // orphan the blob or schedule a cleanup for a row that survived.
+      for (const row of rows) {
+        if (row.submissionPayloadStorageId) {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.media_image_submission.deleteSubmissionPayload,
+            { storageId: row.submissionPayloadStorageId },
+          );
+        }
+        await ctx.db.delete(row._id);
+      }
+      return rows.length === batch;
     }
     case "media_job_logs": {
       const rows = await ctx.db

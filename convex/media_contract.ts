@@ -6,6 +6,7 @@ export const MEDIA_JOB_STATUS_VALUES = [
   "succeeded",
   "failed",
   "canceled",
+  "unknown",
 ] as const;
 
 export type MediaJobStatus = (typeof MEDIA_JOB_STATUS_VALUES)[number];
@@ -162,14 +163,20 @@ export const parseMediaGenerateRequest = (
 
   const sourceRecord = isRecord(value.source) ? value.source : null;
   const sourceString = asTrimmedString(value.source);
-  const sourceBase64 = sourceRecord ? asTrimmedString(sourceRecord.base64) : null;
-  const sourceMimeType = sourceRecord ? asTrimmedString(sourceRecord.mimeType) : null;
+  const sourceBase64 = sourceRecord
+    ? asTrimmedString(sourceRecord.base64)
+    : null;
+  const sourceMimeType = sourceRecord
+    ? asTrimmedString(sourceRecord.mimeType)
+    : null;
   const sourceFileName = sourceRecord
-    ? asTrimmedString(sourceRecord.fileName) ?? undefined
+    ? (asTrimmedString(sourceRecord.fileName) ?? undefined)
     : undefined;
   const sourceFromObject =
     sourceRecord &&
-    (sourceBase64 !== null || sourceMimeType !== null || sourceFileName !== undefined)
+    (sourceBase64 !== null ||
+      sourceMimeType !== null ||
+      sourceFileName !== undefined)
       ? {
           base64: sourceBase64 ?? "",
           mimeType: sourceMimeType ?? "",
@@ -185,14 +192,20 @@ export const parseMediaGenerateRequest = (
             const normalizedKey = asTrimmedString(key);
             const entryString = asTrimmedString(entryValue);
             const entryRecord = isRecord(entryValue) ? entryValue : null;
-            const entryBase64 = entryRecord ? asTrimmedString(entryRecord.base64) : null;
-            const entryMimeType = entryRecord ? asTrimmedString(entryRecord.mimeType) : null;
+            const entryBase64 = entryRecord
+              ? asTrimmedString(entryRecord.base64)
+              : null;
+            const entryMimeType = entryRecord
+              ? asTrimmedString(entryRecord.mimeType)
+              : null;
             const entryFileName = entryRecord
-              ? asTrimmedString(entryRecord.fileName) ?? undefined
+              ? (asTrimmedString(entryRecord.fileName) ?? undefined)
               : undefined;
             const entryObject =
               entryRecord &&
-              (entryBase64 !== null || entryMimeType !== null || entryFileName !== undefined)
+              (entryBase64 !== null ||
+                entryMimeType !== null ||
+                entryFileName !== undefined)
                 ? {
                     base64: entryBase64 ?? "",
                     mimeType: entryMimeType ?? "",
@@ -204,7 +217,9 @@ export const parseMediaGenerateRequest = (
               ? [normalizedKey, normalizedEntry]
               : null;
           })
-          .filter((entry): entry is [string, MediaSourceReference] => Boolean(entry)),
+          .filter((entry): entry is [string, MediaSourceReference] =>
+            Boolean(entry),
+          ),
       )
     : undefined;
 
@@ -214,7 +229,9 @@ export const parseMediaGenerateRequest = (
     ...(prompt ? { prompt } : {}),
     ...(aspectRatio ? { aspectRatio } : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
-    ...(sourceString ?? sourceFromObject ? { source: sourceString ?? sourceFromObject } : {}),
+    ...((sourceString ?? sourceFromObject)
+      ? { source: sourceString ?? sourceFromObject }
+      : {}),
     ...(sources && Object.keys(sources).length > 0 ? { sources } : {}),
     input,
     ...(connectorRequestId ? { connectorRequestId } : {}),
@@ -260,12 +277,17 @@ export const createMediaJobResponse = (
   profile: args.profile,
   request: {
     ...(args.request.prompt ? { prompt: args.request.prompt } : {}),
-    ...(args.request.aspectRatio ? { aspectRatio: args.request.aspectRatio } : {}),
+    ...(args.request.aspectRatio
+      ? { aspectRatio: args.request.aspectRatio }
+      : {}),
     ...(args.request.source ? { source: { ...args.request.source } } : {}),
     ...(args.request.sources
       ? {
           sources: Object.fromEntries(
-            Object.entries(args.request.sources).map(([key, value]) => [key, { ...value }]),
+            Object.entries(args.request.sources).map(([key, value]) => [
+              key,
+              { ...value },
+            ]),
           ),
         }
       : {}),

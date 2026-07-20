@@ -151,6 +151,7 @@ const TERMINAL_MEDIA_JOB_STATUSES = new Set<MediaJobStatus>([
   "succeeded",
   "failed",
   "canceled",
+  "unknown",
 ]);
 
 const isTerminalMediaJobStatus = (status: MediaJobStatus): boolean =>
@@ -166,6 +167,7 @@ const idempotentJobLookupValidator = v.object({
     v.literal("succeeded"),
     v.literal("failed"),
     v.literal("canceled"),
+    v.literal("unknown"),
   ),
   upstreamStatus: v.string(),
   clientRequestHash: v.optional(v.string()),
@@ -387,10 +389,7 @@ export const getByOwnerClientRequestKey = internalQuery({
 
 export const getImageSubmissionPayload = internalQuery({
   args: { jobId: v.string() },
-  returns: v.union(
-    v.null(),
-    v.object({ storageId: v.id("_storage") }),
-  ),
+  returns: v.union(v.null(), v.object({ storageId: v.id("_storage") })),
   handler: async (ctx, args) => {
     const job = await getJobByJobId(ctx, args.jobId);
     if (
@@ -398,7 +397,8 @@ export const getImageSubmissionPayload = internalQuery({
       job.submissionState !== "pending" ||
       !job.submissionPayloadStorageId ||
       isTerminalMediaJobStatus(job.status)
-    ) return null;
+    )
+      return null;
     return { storageId: job.submissionPayloadStorageId };
   },
 });
@@ -469,22 +469,33 @@ export const listFailedSince = query({
       return [];
     }
     const limit = Math.max(1, Math.min(args.limit ?? 50, 200));
-    const failed = await ctx.db
-      .query("media_jobs")
-      .withIndex("by_ownerId_and_status_and_completedAt", (q) =>
-        q
-          .eq("ownerId", ownerId)
-          .eq("status", "failed")
-          .gte("completedAt", args.since),
+    const terminalProblems = (
+      await Promise.all(
+        (["failed", "unknown"] as const).map((status) =>
+          ctx.db
+            .query("media_jobs")
+            .withIndex("by_ownerId_and_status_and_completedAt", (q) =>
+              q
+                .eq("ownerId", ownerId)
+                .eq("status", status)
+                .gte("completedAt", args.since),
+            )
+            .order("desc")
+            .take(limit),
+        ),
       )
-      .order("desc")
-      .take(limit);
+    )
+      .flat()
+      .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+      .slice(0, limit);
 
     const wantsLogs = args.includeLogs === true;
     const logs = wantsLogs
-      ? await Promise.all(failed.map((row) => loadJobLogs(ctx, row.jobId)))
-      : failed.map(() => undefined);
-    return failed.map((row, index) =>
+      ? await Promise.all(
+          terminalProblems.map((row) => loadJobLogs(ctx, row.jobId)),
+        )
+      : terminalProblems.map(() => undefined);
+    return terminalProblems.map((row, index) =>
       toStoredMediaJobResponse(row, logs[index]),
     );
   },
@@ -581,6 +592,7 @@ const reserveIdempotentJobResultValidator = v.union(
       v.literal("succeeded"),
       v.literal("failed"),
       v.literal("canceled"),
+      v.literal("unknown"),
     ),
     upstreamStatus: v.string(),
   }),
@@ -789,9 +801,14 @@ export const reconcilePendingImageSubmissions = internalMutation({
     pendingStaleMs: v.optional(v.number()),
     dispatchStaleMs: v.optional(v.number()),
     unknownStaleMs: v.optional(v.number()),
+    pendingRetentionMs: v.optional(v.number()),
     limit: v.optional(v.number()),
   },
-  returns: v.object({ rescheduled: v.number(), failedUnknown: v.number() }),
+  returns: v.object({
+    rescheduled: v.number(),
+    terminalUnknown: v.number(),
+    abandoned: v.number(),
+  }),
   handler: async (ctx, args) => {
     const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
     const startedAt = Date.now();
@@ -800,7 +817,8 @@ export const reconcilePendingImageSubmissions = internalMutation({
     const dispatchBefore =
       args.dispatchBefore ?? startedAt - (args.dispatchStaleMs ?? 2 * 60_000);
     const unknownBefore =
-      args.unknownBefore ?? startedAt - (args.unknownStaleMs ?? 15 * 60_000);
+      args.unknownBefore ??
+      startedAt - (args.unknownStaleMs ?? 3 * 60 * 60_000 + 15 * 60_000);
     const pending = await ctx.db
       .query("media_jobs")
       .withIndex("by_submissionState_and_updatedAt", (q) =>
@@ -808,8 +826,37 @@ export const reconcilePendingImageSubmissions = internalMutation({
       )
       .take(limit);
     let rescheduled = 0;
+    let abandoned = 0;
     for (const job of pending) {
       if (isTerminalMediaJobStatus(job.status)) continue;
+      if (
+        startedAt - job.createdAt >
+        (args.pendingRetentionMs ?? 24 * 60 * 60_000)
+      ) {
+        await ctx.db.patch(job._id, {
+          status: "failed",
+          submissionState: "failed",
+          submissionPayloadStorageId: undefined,
+          upstreamStatus: "SUBMISSION_ABANDONED",
+          queuePosition: null,
+          error: {
+            code: "SUBMISSION_ABANDONED",
+            message:
+              "The durable image submission could not be dispatched within the retention window.",
+          },
+          updatedAt: startedAt,
+          completedAt: startedAt,
+        });
+        if (job.submissionPayloadStorageId) {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.media_image_submission.deleteSubmissionPayload,
+            { storageId: job.submissionPayloadStorageId },
+          );
+        }
+        abandoned += 1;
+        continue;
+      }
       await ctx.scheduler.runAfter(
         0,
         internal.media_image_submission.submitReservedImageJob,
@@ -820,21 +867,23 @@ export const reconcilePendingImageSubmissions = internalMutation({
     }
 
     let remaining = Math.max(0, limit - rescheduled);
-    const abandonedClaims = remaining > 0
-      ? await ctx.db
-          .query("media_jobs")
-          .withIndex("by_submissionState_and_updatedAt", (q) =>
-            q
-              .eq("submissionState", "dispatching")
-              .lt("updatedAt", dispatchBefore),
-          )
-          .take(remaining)
-      : [];
+    const abandonedClaims =
+      remaining > 0
+        ? await ctx.db
+            .query("media_jobs")
+            .withIndex("by_submissionState_and_updatedAt", (q) =>
+              q
+                .eq("submissionState", "dispatching")
+                .lt("updatedAt", dispatchBefore),
+            )
+            .take(remaining)
+        : [];
     const now = Date.now();
     for (const job of abandonedClaims) {
       if (isTerminalMediaJobStatus(job.status)) continue;
       await ctx.db.patch(job._id, {
         submissionState: "unknown",
+        submissionPayloadStorageId: undefined,
         upstreamStatus: "SUBMISSION_OUTCOME_UNKNOWN",
         error: {
           code: "SUBMISSION_OUTCOME_UNKNOWN",
@@ -843,23 +892,31 @@ export const reconcilePendingImageSubmissions = internalMutation({
         },
         updatedAt: now,
       });
+      if (job.submissionPayloadStorageId) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.media_image_submission.deleteSubmissionPayload,
+          { storageId: job.submissionPayloadStorageId },
+        );
+      }
       remaining -= 1;
     }
 
-    const ambiguous = remaining > 0
-      ? await ctx.db
-          .query("media_jobs")
-          .withIndex("by_submissionState_and_updatedAt", (q) =>
-            q.eq("submissionState", "unknown").lt("updatedAt", unknownBefore),
-          )
-          .take(remaining)
-      : [];
-    let failedUnknown = 0;
+    const ambiguous =
+      remaining > 0
+        ? await ctx.db
+            .query("media_jobs")
+            .withIndex("by_submissionState_and_updatedAt", (q) =>
+              q.eq("submissionState", "unknown").lt("updatedAt", unknownBefore),
+            )
+            .take(remaining)
+        : [];
+    let terminalUnknown = 0;
     for (const job of ambiguous) {
       if (isTerminalMediaJobStatus(job.status)) continue;
       await ctx.db.patch(job._id, {
-        status: "failed",
-        submissionState: "failed",
+        status: "unknown",
+        submissionState: "unknown",
         upstreamStatus: "SUBMISSION_OUTCOME_UNKNOWN",
         queuePosition: null,
         error: {
@@ -870,9 +927,9 @@ export const reconcilePendingImageSubmissions = internalMutation({
         updatedAt: now,
         completedAt: now,
       });
-      failedUnknown += 1;
+      terminalUnknown += 1;
     }
-    return { rescheduled, failedUnknown };
+    return { rescheduled, terminalUnknown, abandoned };
   },
 });
 
@@ -881,6 +938,7 @@ const cancelIdempotentRequestResultValidator = v.object({
     v.literal("canceled"),
     v.literal("succeeded"),
     v.literal("failed"),
+    v.literal("unknown"),
   ),
   jobId: v.optional(v.string()),
   endpointId: v.optional(v.string()),
@@ -919,7 +977,11 @@ export const cancelIdempotentRequest = internalMutation({
       args.clientRequestKey,
     );
     if (!job) return { state: "canceled" as const };
-    if (job.status === "succeeded" || job.status === "failed") {
+    if (
+      job.status === "succeeded" ||
+      job.status === "failed" ||
+      job.status === "unknown"
+    ) {
       return {
         state: job.status,
         jobId: job.jobId,
@@ -999,7 +1061,7 @@ export const markSubmitted = internalMutation({
     ) {
       return { cancelRequested: job.status === "canceled", applied: false };
     }
-    if (job.status === "succeeded" || job.status === "failed") {
+    if (isTerminalMediaJobStatus(job.status)) {
       return { cancelRequested: false, applied: false };
     }
 
@@ -1057,11 +1119,21 @@ export const markSubmissionFailed = internalMutation({
     await ctx.db.patch(job._id, {
       status: "failed",
       ...(job.submissionState ? { submissionState: "failed" as const } : {}),
+      ...(job.submissionPayloadStorageId
+        ? { submissionPayloadStorageId: undefined }
+        : {}),
       upstreamStatus: args.upstreamStatus,
       error: args.error,
       updatedAt: now,
       completedAt: now,
     });
+    if (job.submissionPayloadStorageId) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.deleteSubmissionPayload,
+        { storageId: job.submissionPayloadStorageId },
+      );
+    }
     return null;
   },
 });
@@ -1078,10 +1150,12 @@ export const markStaleJobsFailed = internalMutation({
       Math.min(args.limit ?? DEFAULT_STALE_MEDIA_JOB_LIMIT, 500),
     );
     const cutoffMs =
-      args.cutoffMs ?? Date.now() - (args.staleMs ?? 15 * 60_000);
+      args.cutoffMs ??
+      Date.now() - (args.staleMs ?? 3 * 60 * 60_000 + 15 * 60_000);
     const terminalError = {
-      message: "Image generation timed out after 15 minutes.",
-      code: "TIMEOUT",
+      message:
+        "Image generation exceeded the provider and webhook reconciliation envelope; its final outcome is unknown.",
+      code: "TERMINAL_OUTCOME_UNKNOWN",
     };
     let updated = 0;
 
@@ -1104,14 +1178,14 @@ export const markStaleJobsFailed = internalMutation({
             continue;
           }
           await ctx.db.patch(job._id, {
-            status: "failed",
+            status: "unknown",
             ...(job.submissionState
-              ? { submissionState: "failed" as const }
+              ? { submissionState: "unknown" as const }
               : {}),
             ...(job.submissionPayloadStorageId
               ? { submissionPayloadStorageId: undefined }
               : {}),
-            upstreamStatus: "TIMEOUT",
+            upstreamStatus: "TERMINAL_OUTCOME_UNKNOWN",
             queuePosition: null,
             error: terminalError,
             updatedAt: now,
@@ -1175,7 +1249,10 @@ export const markGenerated = internalMutation({
       startedAt: job.startedAt ?? now,
       completedAt: now,
       ...(shouldScheduleConnectorDelivery
-        ? { connectorMediaDeliveryScheduledAt: now }
+        ? {
+            connectorMediaDeliveryScheduledAt: now,
+            connectorMediaDeliveryAttempts: 1,
+          }
         : {}),
     });
     if (shouldScheduleConnectorDelivery) {
@@ -1216,6 +1293,7 @@ export const markGenerated = internalMutation({
 
 export const applyFalWebhook = internalMutation({
   args: {
+    dedupKey: v.optional(v.string()),
     jobId: v.optional(v.string()),
     providerRequestId: v.optional(v.string()),
     providerGatewayRequestId: v.optional(v.string()),
@@ -1225,6 +1303,7 @@ export const applyFalWebhook = internalMutation({
     error: v.optional(mediaJobErrorValidator),
     logs: v.optional(v.array(jsonValueValidator)),
     receivedAt: v.number(),
+    testCrashAfterDedup: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const job =
@@ -1234,7 +1313,29 @@ export const applyFalWebhook = internalMutation({
         : null);
 
     if (!job) {
-      return { updated: false };
+      return { updated: false, notFound: true };
+    }
+
+    if (args.dedupKey) {
+      const duplicate = await ctx.db
+        .query("media_webhook_events")
+        .withIndex("by_scope_and_dedupKey", (q) =>
+          q.eq("scope", "media_fal_webhook").eq("dedupKey", args.dedupKey!),
+        )
+        .unique();
+      if (duplicate) {
+        return { updated: false, duplicate: true, jobId: job.jobId };
+      }
+      await ctx.db.insert("media_webhook_events", {
+        scope: "media_fal_webhook",
+        dedupKey: args.dedupKey,
+        jobId: job.jobId,
+        receivedAt: args.receivedAt,
+        applied: !isTerminalMediaJobStatus(job.status),
+      });
+      if (args.testCrashAfterDedup) {
+        throw new Error("Injected crash after webhook dedup reservation");
+      }
     }
 
     // All terminal states are immutable. Duplicate/opposite/late provider
@@ -1289,8 +1390,9 @@ export const applyFalWebhook = internalMutation({
       extractDeliveryMediaFromOutput(output).length > 0;
     await ctx.db.patch(job._id, {
       status,
-      ...(job.submissionState
-        ? { submissionState: "submitted" as const }
+      ...(job.submissionState ? { submissionState: "submitted" as const } : {}),
+      ...(job.submissionPayloadStorageId
+        ? { submissionPayloadStorageId: undefined }
         : {}),
       upstreamStatus: args.upstreamStatus,
       queuePosition: null,
@@ -1319,9 +1421,20 @@ export const applyFalWebhook = internalMutation({
       completedAt: args.receivedAt,
       lastWebhookAt: args.receivedAt,
       ...(shouldDeliverConnectorMedia
-        ? { connectorMediaDeliveryScheduledAt: args.receivedAt }
+        ? {
+            connectorMediaDeliveryScheduledAt: args.receivedAt,
+            connectorMediaDeliveryAttempts: 1,
+          }
         : {}),
     });
+
+    if (job.submissionPayloadStorageId) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.deleteSubmissionPayload,
+        { storageId: job.submissionPayloadStorageId },
+      );
+    }
 
     if (shouldDeliverConnectorMedia) {
       await ctx.scheduler.runAfter(
@@ -1331,6 +1444,27 @@ export const applyFalWebhook = internalMutation({
           requestId: job.connectorRequestId!,
           jobId: job.jobId,
           output: output!,
+        },
+      );
+    }
+
+    // Scheduling is transactional in Convex. This billing receipt work is
+    // committed only with the allowed success transition and is absent for
+    // duplicate, canceled, unknown, timed-out, or otherwise late events.
+    if (status === "succeeded" && args.billing) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.billing.recordMediaCompletedUsage,
+        {
+          ownerId: job.ownerId,
+          jobId: job.jobId,
+          ...(args.providerRequestId
+            ? { providerRequestId: args.providerRequestId }
+            : {}),
+          endpointId: args.billing.endpointId,
+          billingUnit: String(args.billing.billingUnit),
+          quantity: args.billing.quantity,
+          costMicroCents: args.billing.costMicroCents,
         },
       );
     }
@@ -1380,5 +1514,79 @@ export const markConnectorMediaDeliveryFailed = internalMutation({
       connectorMediaDeliveryError: args.error.slice(0, 1000),
     });
     return null;
+  },
+});
+
+/** Restart-durable watchdog for terminal image connector delivery. */
+export const retryStuckImageConnectorDeliveries = internalMutation({
+  args: {
+    staleMs: v.optional(v.number()),
+    limit: v.optional(v.number()),
+    maxAttempts: v.optional(v.number()),
+  },
+  returns: v.object({ retried: v.number(), abandoned: v.number() }),
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const maxAttempts = Math.max(1, Math.min(args.maxAttempts ?? 5, 20));
+    const cutoff = Date.now() - (args.staleMs ?? 5 * 60_000);
+    let retried = 0;
+    let abandoned = 0;
+    const rows = await ctx.db
+      .query("media_jobs")
+      .withIndex("by_status_and_connectorMediaDeliveryScheduledAt", (q) =>
+        q
+          .eq("status", "succeeded")
+          .gt("connectorMediaDeliveryScheduledAt", 0)
+          .lt("connectorMediaDeliveryScheduledAt", cutoff),
+      )
+      .order("asc")
+      .take(limit);
+    for (const job of rows) {
+      if (
+        !(STALE_IMAGE_JOB_CAPABILITIES as readonly string[]).includes(
+          job.capability,
+        )
+      ) {
+        continue;
+      }
+      if (
+        !job.connectorRequestId ||
+        !job.connectorMediaDeliveryScheduledAt ||
+        job.connectorMediaDeliveredAt ||
+        job.connectorMediaDeliveryAbandonedAt ||
+        job.connectorMediaDeliveryScheduledAt > cutoff ||
+        job.output === undefined
+      ) {
+        continue;
+      }
+      const attempts = job.connectorMediaDeliveryAttempts ?? 1;
+      if (attempts >= maxAttempts) {
+        await ctx.db.patch(job._id, {
+          connectorMediaDeliveryAbandonedAt: Date.now(),
+          connectorMediaDeliveryError:
+            job.connectorMediaDeliveryError ??
+            "Connector image delivery exhausted its retry budget.",
+        });
+        abandoned += 1;
+        continue;
+      }
+      const scheduledAt = Date.now();
+      await ctx.db.patch(job._id, {
+        connectorMediaDeliveryScheduledAt: scheduledAt,
+        connectorMediaDeliveryAttempts: attempts + 1,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.channels.connector_delivery.deliverMediaJobToConnector,
+        {
+          requestId: job.connectorRequestId,
+          jobId: job.jobId,
+          output: job.output,
+        },
+      );
+      retried += 1;
+      if (retried + abandoned >= limit) break;
+    }
+    return { retried, abandoned };
   },
 });

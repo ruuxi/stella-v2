@@ -16,6 +16,7 @@ export const mediaJobStatusValidator = v.union(
   v.literal("succeeded"),
   v.literal("failed"),
   v.literal("canceled"),
+  v.literal("unknown"),
 );
 
 export const mediaJobErrorValidator = v.object({
@@ -159,6 +160,8 @@ export const mediaSchema = {
     connectorMediaDeliveredAt: v.optional(v.number()),
     /** Last delivery error message, if the most recent attempt failed. */
     connectorMediaDeliveryError: v.optional(v.string()),
+    connectorMediaDeliveryAttempts: v.optional(v.number()),
+    connectorMediaDeliveryAbandonedAt: v.optional(v.number()),
   })
     .index("by_jobId", ["jobId"])
     .index("by_ownerId_and_jobId", ["ownerId", "jobId"])
@@ -179,10 +182,11 @@ export const mediaSchema = {
       "capability",
       "updatedAt",
     ])
-    .index("by_submissionState_and_updatedAt", [
-      "submissionState",
-      "updatedAt",
+    .index("by_status_and_connectorMediaDeliveryScheduledAt", [
+      "status",
+      "connectorMediaDeliveryScheduledAt",
     ])
+    .index("by_submissionState_and_updatedAt", ["submissionState", "updatedAt"])
     .index("by_provider_and_providerRequestId", [
       "provider",
       "providerRequestId",
@@ -214,4 +218,13 @@ export const mediaSchema = {
     clientRequestKey: v.string(),
     createdAt: v.number(),
   }).index("by_ownerId_and_clientRequestKey", ["ownerId", "clientRequestKey"]),
+
+  /** Fal webhook receipt and transition are written in one transaction. */
+  media_webhook_events: defineTable({
+    scope: v.string(),
+    dedupKey: v.string(),
+    jobId: v.string(),
+    receivedAt: v.number(),
+    applied: v.boolean(),
+  }).index("by_scope_and_dedupKey", ["scope", "dedupKey"]),
 };

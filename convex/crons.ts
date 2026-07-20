@@ -53,7 +53,7 @@ crons.interval(
   "fail stale media jobs",
   { minutes: 3 },
   internal.media_jobs.markStaleJobsFailed,
-  { staleMs: 15 * 60_000, limit: 200 },
+  { staleMs: 3 * 60 * 60_000 + 15 * 60_000, limit: 200 },
 );
 
 crons.interval(
@@ -63,9 +63,17 @@ crons.interval(
   {
     pendingStaleMs: 2 * 60_000,
     dispatchStaleMs: 2 * 60_000,
-    unknownStaleMs: 15 * 60_000,
+    unknownStaleMs: 3 * 60 * 60_000 + 15 * 60_000,
+    pendingRetentionMs: 24 * 60 * 60_000,
     limit: 200,
   },
+);
+
+crons.interval(
+  "retry terminal image connector delivery",
+  { minutes: 5 },
+  internal.media_jobs.retryStuckImageConnectorDeliveries,
+  { staleMs: 5 * 60_000, limit: 100, maxAttempts: 5 },
 );
 
 crons.interval(

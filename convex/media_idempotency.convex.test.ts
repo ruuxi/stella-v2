@@ -3,6 +3,7 @@
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
@@ -119,16 +120,22 @@ describe("managed media idempotency and cancellation", () => {
     expect(repeatedBody.jobId).toBe(firstBody.jobId);
     expect(repeatedBody.reattached).toBe(true);
     await vi.waitFor(() => expect(upstreamSubmissions).toBe(1));
-    expect(await t.mutation(internal.media_jobs.applyFalWebhook, {
-      jobId: firstBody.jobId,
-      providerRequestId: "fal-accepted-response-lost",
-      upstreamStatus: "OK",
-      output: { images: [{ url: "https://example.test/reconciled.png" }] },
-      receivedAt: Date.now(),
-    })).toMatchObject({ updated: true });
-    expect((await owner.query(api.media_jobs.getByJobId, {
-      jobId: firstBody.jobId,
-    }))?.status).toBe("succeeded");
+    expect(
+      await t.mutation(internal.media_jobs.applyFalWebhook, {
+        jobId: firstBody.jobId,
+        providerRequestId: "fal-accepted-response-lost",
+        upstreamStatus: "OK",
+        output: { images: [{ url: "https://example.test/reconciled.png" }] },
+        receivedAt: Date.now(),
+      }),
+    ).toMatchObject({ updated: true });
+    expect(
+      (
+        await owner.query(api.media_jobs.getByJobId, {
+          jobId: firstBody.jobId,
+        })
+      )?.status,
+    ).toBe("succeeded");
   });
 
   it("rejects key reuse with a different request body", async () => {
@@ -254,8 +261,8 @@ describe("managed media idempotency and cancellation", () => {
   it("keeps a pre-dispatch crash recoverable but never reclaims a durable claim", async () => {
     ensureMediaEnv();
     const t = createTest();
-    const storageId = await t.run(async (ctx) =>
-      await ctx.storage.store(new Blob(["encrypted"])),
+    const storageId = await t.run(
+      async (ctx) => await ctx.storage.store(new Blob(["encrypted"])),
     );
     await t.mutation(internal.media_jobs.reserveIdempotentJob, {
       ownerId: "owner-crash",
@@ -297,16 +304,68 @@ describe("managed media idempotency and cancellation", () => {
       pendingBefore: 0,
       unknownBefore: Date.now() + 1,
     });
-    const ambiguousJob = await t.run(async (ctx) =>
-      await ctx.db.query("media_jobs").withIndex("by_jobId", (q) =>
-        q.eq("jobId", "job-crash-before-post"),
-      ).unique(),
+    const ambiguousJob = await t.run(
+      async (ctx) =>
+        await ctx.db
+          .query("media_jobs")
+          .withIndex("by_jobId", (q) => q.eq("jobId", "job-crash-before-post"))
+          .unique(),
     );
     expect(ambiguousJob).toMatchObject({
-      status: "failed",
+      status: "unknown",
       upstreamStatus: "SUBMISSION_OUTCOME_UNKNOWN",
       error: { code: "SUBMISSION_OUTCOME_UNKNOWN" },
     });
+    expect(ambiguousJob?.submissionPayloadStorageId).toBeUndefined();
+  });
+
+  it("abandons and cleans an encrypted payload only after the pending retention window", async () => {
+    ensureMediaEnv();
+    const t = createTest();
+    const storageId = await t.run(
+      async (ctx) =>
+        await ctx.storage.store(new Blob(["encrypted-private-reference"])),
+    );
+    await t.mutation(internal.media_jobs.reserveIdempotentJob, {
+      ownerId: "retention-owner",
+      jobId: "retention-job",
+      clientRequestKey: "retention-key",
+      clientRequestHash: "retention-hash",
+      capability: "text_to_image",
+      profile: "best",
+      provider: "fal",
+      endpointId: "fal-ai/flux/dev",
+      request: { prompt: "retention" },
+      submissionPayloadStorageId: storageId,
+    });
+    const retained = await t.mutation(
+      internal.media_jobs.reconcilePendingImageSubmissions,
+      {
+        pendingBefore: Date.now() + 1,
+        pendingRetentionMs: Number.MAX_SAFE_INTEGER,
+      },
+    );
+    expect(retained.rescheduled).toBe(1);
+    const abandoned = await t.mutation(
+      internal.media_jobs.reconcilePendingImageSubmissions,
+      {
+        pendingBefore: Date.now() + 1,
+        pendingRetentionMs: -1,
+      },
+    );
+    expect(abandoned.abandoned).toBe(1);
+    const row = await t.run(
+      async (ctx) =>
+        await ctx.db
+          .query("media_jobs")
+          .withIndex("by_jobId", (q) => q.eq("jobId", "retention-job"))
+          .unique(),
+    );
+    expect(row).toMatchObject({
+      status: "failed",
+      upstreamStatus: "SUBMISSION_ABANDONED",
+    });
+    expect(row?.submissionPayloadStorageId).toBeUndefined();
   });
 
   it("makes success immutable against a later failure webhook", async () => {
@@ -326,17 +385,25 @@ describe("managed media idempotency and cancellation", () => {
       upstreamStatus: "OK",
       output: { images: [{ url: "https://example.test/success.png" }] },
     });
-    expect(await t.mutation(internal.media_jobs.applyFalWebhook, {
-      jobId: "terminal-success",
-      upstreamStatus: "ERROR",
-      error: { message: "late opposite webhook" },
-      receivedAt: Date.now(),
-    })).toMatchObject({ updated: false });
-    expect((await t.run(async (ctx) =>
-      await ctx.db.query("media_jobs").withIndex("by_jobId", (q) =>
-        q.eq("jobId", "terminal-success"),
-      ).unique(),
-    ))?.status).toBe("succeeded");
+    expect(
+      await t.mutation(internal.media_jobs.applyFalWebhook, {
+        jobId: "terminal-success",
+        upstreamStatus: "ERROR",
+        error: { message: "late opposite webhook" },
+        receivedAt: Date.now(),
+      }),
+    ).toMatchObject({ updated: false });
+    expect(
+      (
+        await t.run(
+          async (ctx) =>
+            await ctx.db
+              .query("media_jobs")
+              .withIndex("by_jobId", (q) => q.eq("jobId", "terminal-success"))
+              .unique(),
+        )
+      )?.status,
+    ).toBe("succeeded");
   });
 
   it("makes failure and stale timeout immutable against late success", async () => {
@@ -362,12 +429,14 @@ describe("managed media idempotency and cancellation", () => {
       cutoffMs: Date.now() + 1,
     });
     for (const jobId of ["terminal-failure", "terminal-timeout"]) {
-      expect(await t.mutation(internal.media_jobs.applyFalWebhook, {
-        jobId,
-        upstreamStatus: "OK",
-        output: { images: [{ url: "https://example.test/late.png" }] },
-        receivedAt: Date.now(),
-      })).toMatchObject({ updated: false });
+      expect(
+        await t.mutation(internal.media_jobs.applyFalWebhook, {
+          jobId,
+          upstreamStatus: "OK",
+          output: { images: [{ url: "https://example.test/late.png" }] },
+          receivedAt: Date.now(),
+        }),
+      ).toMatchObject({ updated: false });
     }
     const statuses = await t.run(async (ctx) =>
       (await ctx.db.query("media_jobs").collect())
@@ -376,7 +445,190 @@ describe("managed media idempotency and cancellation", () => {
     );
     expect(Object.fromEntries(statuses)).toMatchObject({
       "terminal-failure": "failed",
-      "terminal-timeout": "failed",
+      "terminal-timeout": "unknown",
     });
+  });
+
+  it("reconciles an accepted request by owner key and exact request hash", async () => {
+    ensureMediaEnv();
+    const t = createTest();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({ request_id: "fal-reconcile", status: "IN_QUEUE" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const owner = asOwner(t);
+    const request = imageRequest("lookup accepted");
+    const body = String(request.body);
+    const acceptedResponse = await owner.fetch(
+      "/api/media/v1/generate",
+      request,
+    );
+    const accepted = (await acceptedResponse.json()) as { jobId: string };
+    const requestHash = createHash("sha256").update(body).digest("hex");
+
+    const lookup = await owner.fetch(
+      `/api/media/v1/job?clientRequestKey=stella-image-gen-v1-test-key&requestHash=${requestHash}`,
+    );
+    expect(lookup.status).toBe(200);
+    expect((await lookup.json()) as { jobId: string }).toMatchObject({
+      jobId: accepted.jobId,
+    });
+    const wrongHash = await owner.fetch(
+      "/api/media/v1/job?clientRequestKey=stella-image-gen-v1-test-key&requestHash=wrong",
+    );
+    expect(wrongHash.status).toBe(409);
+  });
+
+  it("rolls webhook dedup back on a crash and bills only the retried allowed transition", async () => {
+    ensureMediaEnv();
+    const t = createTest();
+    await t.mutation(internal.media_jobs.createJob, {
+      ownerId: "billing-owner",
+      jobId: "webhook-atomic-job",
+      capability: "text_to_image",
+      profile: "best",
+      provider: "fal",
+      endpointId: "fal-ai/flux/dev",
+      request: { prompt: "atomic" },
+    });
+    const webhook = {
+      dedupKey: "fal-request:payload-hash",
+      jobId: "webhook-atomic-job",
+      providerRequestId: "fal-request",
+      upstreamStatus: "OK",
+      output: { images: [{ url: "https://example.test/atomic.png" }] },
+      billing: {
+        endpointId: "fal-ai/flux/dev",
+        billingUnit: "image" as const,
+        unitPriceUsd: 0.01,
+        quantity: 1,
+        costMicroCents: 1_000_000,
+        meteredFrom: "output" as const,
+      },
+      receivedAt: Date.now(),
+    };
+    await expect(
+      t.mutation(internal.media_jobs.applyFalWebhook, {
+        ...webhook,
+        testCrashAfterDedup: true,
+      }),
+    ).rejects.toThrow("Injected crash");
+    expect(
+      await t.run(
+        async (ctx) => await ctx.db.query("media_webhook_events").collect(),
+      ),
+    ).toHaveLength(0);
+    expect(
+      await t.mutation(internal.media_jobs.applyFalWebhook, webhook),
+    ).toMatchObject({ updated: true });
+    expect(
+      await t.mutation(internal.media_jobs.applyFalWebhook, webhook),
+    ).toMatchObject({ updated: false, duplicate: true });
+    await vi.waitFor(async () => {
+      const receipts = await t.run(
+        async (ctx) =>
+          await ctx.db.query("billing_media_usage_receipts").collect(),
+      );
+      expect(receipts).toHaveLength(1);
+    });
+  });
+
+  it("never bills late success after cancel or terminal unknown", async () => {
+    ensureMediaEnv();
+    const t = createTest();
+    for (const jobId of ["late-canceled", "late-unknown"]) {
+      await t.mutation(internal.media_jobs.createJob, {
+        ownerId: "late-billing-owner",
+        jobId,
+        capability: "text_to_image",
+        profile: "best",
+        provider: "fal",
+        endpointId: "fal-ai/flux/dev",
+        request: { prompt: jobId },
+      });
+    }
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("media_jobs")
+        .withIndex("by_jobId", (q) => q.eq("jobId", "late-canceled"))
+        .unique();
+      if (!row) throw new Error("missing cancellation fixture");
+      await ctx.db.patch(row._id, {
+        status: "canceled",
+        upstreamStatus: "CANCELED",
+        completedAt: Date.now(),
+      });
+    });
+    await t.mutation(internal.media_jobs.markStaleJobsFailed, {
+      cutoffMs: Date.now() + 1,
+    });
+    for (const jobId of ["late-canceled", "late-unknown"]) {
+      expect(
+        await t.mutation(internal.media_jobs.applyFalWebhook, {
+          dedupKey: `${jobId}:late-success`,
+          jobId,
+          upstreamStatus: "OK",
+          output: { images: [{ url: "https://example.test/late.png" }] },
+          billing: {
+            endpointId: "fal-ai/flux/dev",
+            billingUnit: "image",
+            unitPriceUsd: 0.01,
+            quantity: 1,
+            costMicroCents: 1_000_000,
+            meteredFrom: "output",
+          },
+          receivedAt: Date.now(),
+        }),
+      ).toMatchObject({ updated: false });
+    }
+    const receipts = await t.run(
+      async (ctx) =>
+        await ctx.db.query("billing_media_usage_receipts").collect(),
+    );
+    expect(receipts).toHaveLength(0);
+  });
+
+  it("retries and terminally accounts for restart-stuck image connector delivery", async () => {
+    ensureMediaEnv();
+    const t = createTest();
+    await t.mutation(internal.media_jobs.createJob, {
+      ownerId: "connector-owner",
+      jobId: "connector-image-job",
+      capability: "text_to_image",
+      profile: "best",
+      provider: "fal",
+      endpointId: "fal-ai/flux/dev",
+      request: { prompt: "connector image" },
+      connectorRequestId: "missing-connector-turn",
+    });
+    await t.mutation(internal.media_jobs.markGenerated, {
+      jobId: "connector-image-job",
+      upstreamStatus: "OK",
+      output: { images: [{ url: "https://example.test/connector.png" }] },
+    });
+    expect(
+      await t.mutation(internal.media_jobs.retryStuckImageConnectorDeliveries, {
+        staleMs: -1,
+        maxAttempts: 2,
+      }),
+    ).toMatchObject({ retried: 1 });
+    expect(
+      await t.mutation(internal.media_jobs.retryStuckImageConnectorDeliveries, {
+        staleMs: -1,
+        maxAttempts: 2,
+      }),
+    ).toMatchObject({ abandoned: 1 });
+    const row = await t.run(
+      async (ctx) =>
+        await ctx.db
+          .query("media_jobs")
+          .withIndex("by_jobId", (q) => q.eq("jobId", "connector-image-job"))
+          .unique(),
+    );
+    expect(row?.connectorMediaDeliveryAttempts).toBe(2);
+    expect(row?.connectorMediaDeliveryAbandonedAt).toEqual(expect.any(Number));
   });
 });

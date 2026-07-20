@@ -8,10 +8,7 @@ import {
   registerCorsOptions,
   withCors,
 } from "../http_shared/cors";
-import {
-  consumeWebhookDedup,
-  rateLimitResponse,
-} from "../http_shared/webhook_controls";
+import { rateLimitResponse } from "../http_shared/webhook_controls";
 import {
   listMediaCapabilities,
   resolveMediaProfile,
@@ -525,11 +522,37 @@ export const registerMediaRoutes = (http: HttpRouter) => {
         });
         if (!auth.ok) return auth.response;
 
-        const jobId = asTrimmedString(
-          new URL(request.url).searchParams.get("jobId"),
+        const url = new URL(request.url);
+        let jobId = asTrimmedString(url.searchParams.get("jobId"));
+        const clientRequestKey = asTrimmedString(
+          url.searchParams.get("clientRequestKey"),
         );
+        const requestHash = asTrimmedString(
+          url.searchParams.get("requestHash"),
+        );
+        if (!jobId && clientRequestKey && requestHash) {
+          const existing = await ctx.runQuery(
+            internal.media_jobs.getByOwnerClientRequestKey,
+            { ownerId: auth.ownerId, clientRequestKey },
+          );
+          if (!existing) {
+            return errorResponse(404, "Media request not found.", origin);
+          }
+          if (existing.clientRequestHash !== requestHash) {
+            return errorResponse(
+              409,
+              "Idempotency-Key was used with a different media request hash.",
+              origin,
+            );
+          }
+          jobId = existing.jobId;
+        }
         if (!jobId) {
-          return errorResponse(400, "Missing jobId.", origin);
+          return errorResponse(
+            400,
+            "Missing jobId or clientRequestKey/requestHash.",
+            origin,
+          );
         }
 
         const job = await ctx.runQuery(internal.media_jobs.getByOwnerJobId, {
@@ -814,10 +837,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                   : {}),
               },
             );
-            if (
-              reservation.state !== "created" &&
-              submissionPayloadStorageId
-            ) {
+            if (reservation.state !== "created" && submissionPayloadStorageId) {
               await ctx.storage
                 .delete(submissionPayloadStorageId)
                 .catch(() => undefined);
@@ -1073,24 +1093,21 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             const definitiveRejection =
               isDefinitiveFalSubmissionRejection(error);
             if (!clientRequestKey || definitiveRejection) {
-              await ctx.runMutation(
-                internal.media_jobs.markSubmissionFailed,
-                {
-                  jobId,
-                  upstreamStatus: "ERROR",
-                  error: (createMediaJobError({
-                    value: {
-                      message: (error as Error).message,
-                      ...(typeof errorCode === "string" && errorCode.trim()
-                        ? { code: errorCode.trim() }
-                        : {}),
-                    },
-                    fallbackMessage: "Media generation failed upstream.",
-                  }) ?? {
-                    message: "Media generation failed upstream.",
-                  }) as never,
-                },
-              );
+              await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
+                jobId,
+                upstreamStatus: "ERROR",
+                error: (createMediaJobError({
+                  value: {
+                    message: (error as Error).message,
+                    ...(typeof errorCode === "string" && errorCode.trim()
+                      ? { code: errorCode.trim() }
+                      : {}),
+                  },
+                  fallbackMessage: "Media generation failed upstream.",
+                }) ?? {
+                  message: "Media generation failed upstream.",
+                }) as never,
+              });
             } else {
               // A timeout/network failure after POST send is ambiguous: Fal
               // may have accepted work and will still call our jobId webhook.
@@ -1155,13 +1172,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
         const jobId =
           new URL(request.url).searchParams.get("jobId")?.trim() || undefined;
         const dedupKey = `${requestId ?? jobId ?? "unknown"}:${await hashSha256Hex(rawBody)}`;
-        const accepted = await consumeWebhookDedup(
-          ctx,
-          "media_fal_webhook",
-          dedupKey,
-        );
-        if (!accepted)
-          return jsonResponse({ received: true, duplicate: true }, 200, origin);
 
         const webhookJob =
           jobId || requestId
@@ -1239,36 +1249,38 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           );
         }
 
-        await ctx.scheduler.runAfter(0, internal.media_jobs.applyFalWebhook, {
-          ...(jobId ? { jobId } : {}),
-          ...(requestId ? { providerRequestId: requestId } : {}),
-          ...(gatewayRequestId
-            ? { providerGatewayRequestId: gatewayRequestId }
-            : {}),
-          upstreamStatus: normalizedUpstreamStatus,
-          ...(upstreamStatus === "OK" && output !== undefined
-            ? { output: output as never }
-            : {}),
-          ...(meteredBilling ? { billing: meteredBilling as never } : {}),
-          ...(error ? { error: error as never } : {}),
-          receivedAt: Date.now(),
-        });
-        if (meteredBilling && webhookJob) {
-          await ctx.scheduler.runAfter(
-            0,
-            internal.billing.recordMediaCompletedUsage,
-            {
-              ownerId: webhookJob.ownerId,
-              jobId: webhookJob.jobId,
-              ...(requestId ? { providerRequestId: requestId } : {}),
-              endpointId: meteredBilling.endpointId,
-              costMicroCents: meteredBilling.costMicroCents,
-              billingUnit: meteredBilling.billingUnit,
-              quantity: meteredBilling.quantity,
-            },
+        const applied = await ctx.runMutation(
+          internal.media_jobs.applyFalWebhook,
+          {
+            dedupKey,
+            ...(jobId ? { jobId } : {}),
+            ...(requestId ? { providerRequestId: requestId } : {}),
+            ...(gatewayRequestId
+              ? { providerGatewayRequestId: gatewayRequestId }
+              : {}),
+            upstreamStatus: normalizedUpstreamStatus,
+            ...(upstreamStatus === "OK" && output !== undefined
+              ? { output: output as never }
+              : {}),
+            ...(meteredBilling ? { billing: meteredBilling as never } : {}),
+            ...(error ? { error: error as never } : {}),
+            receivedAt: Date.now(),
+          },
+        );
+        if (applied.notFound) {
+          // Do not consume the webhook identity before its durable job is
+          // visible. Fal will retry this non-2xx response.
+          return errorResponse(
+            503,
+            "Media job is not ready for webhook reconciliation.",
+            origin,
           );
         }
-        return jsonResponse({ received: true }, 200, origin);
+        return jsonResponse(
+          { received: true, ...(applied.duplicate ? { duplicate: true } : {}) },
+          200,
+          origin,
+        );
       }),
     ),
   });

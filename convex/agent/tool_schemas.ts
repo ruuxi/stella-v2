@@ -20,11 +20,28 @@ export const DEVICE_TOOL_NAMES = [
 
 export type DeviceToolName = (typeof DEVICE_TOOL_NAMES)[number];
 
-export const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  { pattern: /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+\/(?:\s|$|;|\|)/i, reason: "rm -rf /" },
-  { pattern: /\brm\s+-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*\s+\/(?:\s|$|;|\|)/i, reason: "rm -rf /" },
-  { pattern: /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+~\s*(?:\/\s*)?(?:\s|$|;|\|)/i, reason: "rm -rf ~" },
-  { pattern: /\brm\s+-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*\s+~\s*(?:\/\s*)?(?:\s|$|;|\|)/i, reason: "rm -rf ~" },
+export const DANGEROUS_COMMAND_PATTERNS: Array<{
+  pattern: RegExp;
+  reason: string;
+}> = [
+  {
+    pattern: /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+\/(?:\s|$|;|\|)/i,
+    reason: "rm -rf /",
+  },
+  {
+    pattern: /\brm\s+-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*\s+\/(?:\s|$|;|\|)/i,
+    reason: "rm -rf /",
+  },
+  {
+    pattern:
+      /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+~\s*(?:\/\s*)?(?:\s|$|;|\|)/i,
+    reason: "rm -rf ~",
+  },
+  {
+    pattern:
+      /\brm\s+-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*\s+~\s*(?:\/\s*)?(?:\s|$|;|\|)/i,
+    reason: "rm -rf ~",
+  },
   { pattern: /\bformat\s+[a-zA-Z]:\s*/i, reason: "format drive" },
   { pattern: /\bdd\s+if=/i, reason: "dd if= (raw disk write)" },
   { pattern: /\bmkfs\b/i, reason: "mkfs (format filesystem)" },
@@ -69,7 +86,9 @@ export const WriteStdinSchema = z.object({
 export const ApplyPatchSchema = z.object({
   patch: z
     .string()
-    .describe("Patch envelope starting with `*** Begin Patch` and ending with `*** End Patch`."),
+    .describe(
+      "Patch envelope starting with `*** Begin Patch` and ending with `*** End Patch`.",
+    ),
 });
 
 export const WebSchema = z.object({
@@ -90,14 +109,20 @@ export const MultiToolUseParallelSchema = z.object({
     z.object({
       recipient_name: z
         .string()
-        .describe("Nested tool name, like `exec_command` or `functions.exec_command`."),
-      parameters: JsonObjectSchema.describe("Arguments for the nested tool call."),
+        .describe(
+          "Nested tool name, like `exec_command` or `functions.exec_command`.",
+        ),
+      parameters: JsonObjectSchema.describe(
+        "Arguments for the nested tool call.",
+      ),
     }),
   ),
 });
 
 export const ViewImageSchema = z.object({
-  path: z.string().describe("Absolute or repo-relative path to a local image file."),
+  path: z
+    .string()
+    .describe("Absolute or repo-relative path to a local image file."),
   detail: z.literal("original").optional(),
 });
 
@@ -109,6 +134,9 @@ export const ImageGenSchema = z.object({
   output_format: z.enum(["png", "jpeg", "webp"]).optional(),
   num_images: z.number().optional(),
   timeout_ms: z.number().optional(),
+  referenceImagePaths: z.array(z.string()).optional(),
+  referenceImageUrls: z.array(z.string()).optional(),
+  allowManagedReferenceUpload: z.boolean().optional(),
 });
 
 export const ReadSchema = z.object({
@@ -126,7 +154,9 @@ export const EditSchema = z.object({
   file_path: z.string().describe("Absolute or repo-relative file path."),
   old_string: z
     .string()
-    .describe("Exact text to replace. Must be unique unless replace_all is true."),
+    .describe(
+      "Exact text to replace. Must be unique unless replace_all is true.",
+    ),
   new_string: z.string().describe("Replacement text."),
   replace_all: z.boolean().optional(),
 });
@@ -160,9 +190,7 @@ export const KillShellSchema = z.object({
 
 export const WebSearchSchema = z.object({
   query: z.string().describe("Natural-language web search query."),
-  category: z
-    .enum(["company", "people", "research paper"])
-    .optional(),
+  category: z.enum(["company", "people", "research paper"]).optional(),
 });
 
 export const WebFetchSchema = z.object({
@@ -174,11 +202,15 @@ export const AskUserQuestionSchema = z.object({
   questions: z.array(
     z.object({
       question: z.string().describe("The question to ask (end with ?)."),
-      header: z.string().describe("Short label displayed as a tag (max 12 chars)."),
+      header: z
+        .string()
+        .describe("Short label displayed as a tag (max 12 chars)."),
       options: z.array(
         z.object({
           label: z.string().describe("Option text (1-5 words)."),
-          description: z.string().describe("What this option means or what happens if chosen."),
+          description: z
+            .string()
+            .describe("What this option means or what happens if chosen."),
         }),
       ),
       multiSelect: z.boolean().describe("Allow selecting multiple options."),
@@ -187,8 +219,14 @@ export const AskUserQuestionSchema = z.object({
 });
 
 export const RequestCredentialSchema = z.object({
-  provider: z.string().min(1).describe("Unique key for this secret (e.g. \"github_token\")."),
-  label: z.string().optional().describe("Display name shown to the user (e.g. \"GitHub Token\")."),
+  provider: z
+    .string()
+    .min(1)
+    .describe('Unique key for this secret (e.g. "github_token").'),
+  label: z
+    .string()
+    .optional()
+    .describe('Display name shown to the user (e.g. "GitHub Token").'),
   description: z.string().optional().describe("Why this credential is needed."),
   placeholder: z.string().optional().describe("Input placeholder text."),
 });
@@ -200,32 +238,23 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "Write characters to a live exec_command session and return fresh output. Pass empty chars to poll.",
   apply_patch:
     "Apply a Codex-style patch envelope (`*** Begin Patch` ... `*** End Patch`) to one or more files.",
-  web:
-    "Unified web tool. Search the web with `query`, or fetch a specific page with `url`.",
-  "multi_tool_use_parallel":
+  web: "Unified web tool. Search the web with `query`, or fetch a specific page with `url`.",
+  multi_tool_use_parallel:
     "Execute multiple independent tool calls concurrently. Use only when the calls do not depend on each other.",
   view_image:
     "Attach a local image file from disk so the model can inspect it visually.",
   image_gen:
-    "Generate one or more images through Stella's managed media backend and attach the finished files.",
-  Read:
-    "Read a file from the filesystem. Supports optional offset/limit for large files.",
+    "Generate images through the provider selected in Settings and wait for terminal success, failure, cancellation, or unknown outcome. Success includes durable local artifact paths. Never poll or resubmit. Managed local references require explicit per-call upload consent; BYOK references go directly to that provider.",
+  Read: "Read a file from the filesystem. Supports optional offset/limit for large files.",
   Write:
     "Write a full file to disk. Prefer Edit for surgical changes to existing files.",
-  Edit:
-    "Replace exact text inside an existing file.",
-  Bash:
-    "Run a shell command on the user's machine. Supports background jobs.",
-  Grep:
-    "Search file contents using ripgrep-style arguments.",
-  ShellStatus:
-    "Inspect a background Bash process.",
-  KillShell:
-    "Terminate a background Bash process.",
-  WebSearch:
-    "Search the web for current information.",
-  WebFetch:
-    "Fetch a URL and return readable text content.",
+  Edit: "Replace exact text inside an existing file.",
+  Bash: "Run a shell command on the user's machine. Supports background jobs.",
+  Grep: "Search file contents using ripgrep-style arguments.",
+  ShellStatus: "Inspect a background Bash process.",
+  KillShell: "Terminate a background Bash process.",
+  WebSearch: "Search the web for current information.",
+  WebFetch: "Fetch a URL and return readable text content.",
   AskUserQuestion:
     "Ask the user to choose between options via a UI prompt. Use for clarifications, decisions, or preferences.",
   RequestCredential:
@@ -238,7 +267,7 @@ export const TOOL_SCHEMAS = {
   apply_patch: ApplyPatchSchema,
   web: WebSchema,
   RequestCredential: RequestCredentialSchema,
-  "multi_tool_use_parallel": MultiToolUseParallelSchema,
+  multi_tool_use_parallel: MultiToolUseParallelSchema,
   view_image: ViewImageSchema,
   image_gen: ImageGenSchema,
   Read: ReadSchema,

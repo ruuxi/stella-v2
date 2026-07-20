@@ -18,6 +18,26 @@ unknown rows must never be submitted again. Legacy jobs that already reference
 Convex file storage remain readable and cleanable during migration; new
 idempotency-keyed image submissions never create those blobs.
 
+Idempotency-keyed managed image ingress is capped before JSON parsing.
+`Content-Length` above 3 MiB is rejected without opening the body stream;
+chunked/no-length uploads are read incrementally, canceled at the same hard cap,
+and fail closed if interrupted. The pre-parse branch is selected from image_gen's
+required idempotency header, not untrusted body fields; unkeyed legacy
+video/audio/3D requests retain their prior shared-route ingress behavior.
+Image edits accept at most four references. Inline references are at most 1 MiB
+each and 2 MiB decoded in aggregate, with a 2,796,460-character combined data-URL
+ceiling; remote URLs are at most 8 KiB. The desktop mirrors these checks and
+normalizes larger trusted local/data-URL inputs before managed upload, but the
+gateway never trusts the client to enforce them.
+
+Encrypted manifests are capped at 4.5 MiB serialized. At the hard limits, the
+dispatcher budget reserves two UTF-16 encrypted representations (18 MiB), three
+UTF-16 plaintext/provider-body representations (18 MiB), ciphertext and
+plaintext byte buffers (just over 6 MiB), and 8 MiB fixed runtime headroom:
+50.125 MiB total, below Convex's 64 MiB action limit. Reconstruction drops
+chunk-array references before decrypt/parse, revalidates the decrypted reference
+envelope, and streams legacy file-storage payloads through the same encrypted cap.
+
 Fal assigns `request_id` in the POST response and has no documented client
 submission idempotency key or lookup by client key. Response loss after POST is
 therefore irreducibly ambiguous: Stella waits for the job-ID webhook and

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
-import { decryptSecret } from "./data/secrets_crypto";
+import { decryptSecretPayload } from "./data/secrets_crypto";
 import {
   cancelFalRequest,
   getFalApiKey,
@@ -10,13 +10,26 @@ import {
   submitFalRequest,
 } from "./media_fal_webhooks";
 import { isRecord } from "./shared_validators";
+import {
+  assertDurableImageSubmissionShape,
+  MAX_DURABLE_IMAGE_SUBMISSION_PLAINTEXT_BYTES,
+  MAX_PRIVATE_MEDIA_PAYLOAD_CHARS,
+} from "./media_image_limits";
 
 type DurableImageSubmission = {
   input: Record<string, unknown>;
   webhookUrl: string;
 };
 
+class ImageSubmissionEnvelopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageSubmissionEnvelopeError";
+  }
+}
+
 const parseSubmission = (value: unknown): DurableImageSubmission => {
+  assertDurableImageSubmissionShape(value);
   if (!isRecord(value) || !isRecord(value.input)) {
     throw new Error("Durable image submission payload is invalid.");
   }
@@ -26,6 +39,71 @@ const parseSubmission = (value: unknown): DurableImageSubmission => {
     throw new Error("Durable image submission webhook URL is missing.");
   }
   return { input: value.input, webhookUrl };
+};
+
+const readLegacyEncryptedPayloadBounded = async (
+  response: Response,
+): Promise<string> => {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_PRIVATE_MEDIA_PAYLOAD_CHARS) {
+    throw new ImageSubmissionEnvelopeError(
+      "Durable image submission payload exceeds safe limits.",
+    );
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_PRIVATE_MEDIA_PAYLOAD_CHARS) {
+        await reader.cancel("payload limit exceeded").catch(() => undefined);
+        throw new ImageSubmissionEnvelopeError(
+          "Durable image submission payload exceeds safe limits.",
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+};
+
+export const decryptAndParseImageSubmission = async (
+  encryptedSerialized: string,
+): Promise<DurableImageSubmission> => {
+  if (
+    encryptedSerialized.length < 1 ||
+    encryptedSerialized.length > MAX_PRIVATE_MEDIA_PAYLOAD_CHARS
+  ) {
+    throw new ImageSubmissionEnvelopeError(
+      "Durable image submission payload exceeds safe limits.",
+    );
+  }
+  const encryptedEnvelope = JSON.parse(encryptedSerialized) as unknown;
+  let plaintext = await decryptSecretPayload(encryptedEnvelope);
+  if (
+    new TextEncoder().encode(plaintext).byteLength >
+    MAX_DURABLE_IMAGE_SUBMISSION_PLAINTEXT_BYTES
+  ) {
+    plaintext = "";
+    throw new ImageSubmissionEnvelopeError(
+      "Durable image submission plaintext exceeds safe limits.",
+    );
+  }
+  const parsed = JSON.parse(plaintext) as unknown;
+  plaintext = "";
+  return parseSubmission(parsed);
 };
 
 /**
@@ -91,6 +169,7 @@ export const submitReservedImageJob = internalAction({
         throw new Error("Durable image submission payload is incomplete.");
       }
       encrypted = parts.join("");
+      parts.length = 0;
     }
     if (!encrypted && preview?.storageId) {
       const payloadUrl = await ctx.storage.getUrl(preview.storageId);
@@ -103,12 +182,40 @@ export const submitReservedImageJob = internalAction({
           `Durable image submission payload download failed (${payloadResponse.status}).`,
         );
       }
-      encrypted = await payloadResponse.text();
+      try {
+        encrypted = await readLegacyEncryptedPayloadBounded(payloadResponse);
+      } catch (error) {
+        if (!(error instanceof ImageSubmissionEnvelopeError)) throw error;
+        await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
+          jobId: args.jobId,
+          upstreamStatus: "SUBMISSION_PAYLOAD_REJECTED",
+          error: {
+            code: "SUBMISSION_PAYLOAD_REJECTED",
+            message:
+              "A legacy image submission payload exceeded the safe dispatcher envelope and was not sent.",
+          },
+        });
+        return null;
+      }
     }
     if (!encrypted) return null;
-    const submission = parseSubmission(
-      JSON.parse(await decryptSecret(encrypted)),
-    );
+    let submission: DurableImageSubmission;
+    try {
+      submission = await decryptAndParseImageSubmission(encrypted);
+    } catch (error) {
+      if (!(error instanceof ImageSubmissionEnvelopeError)) throw error;
+      await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
+        jobId: args.jobId,
+        upstreamStatus: "SUBMISSION_PAYLOAD_REJECTED",
+        error: {
+          code: "SUBMISSION_PAYLOAD_REJECTED",
+          message:
+            "The image submission payload exceeded the safe dispatcher envelope and was not sent.",
+        },
+      });
+      return null;
+    }
+    encrypted = undefined;
     const apiKey = getFalApiKey();
     if (!apiKey) throw new Error("Media generation is not configured yet.");
 

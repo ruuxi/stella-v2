@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import { MAX_PRIVATE_MEDIA_PAYLOAD_CHARS } from "./media_image_limits";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -58,6 +59,35 @@ afterEach(() => {
 });
 
 describe("managed media idempotency and cancellation", () => {
+  it("rejects an over-count managed image request before reservation or provider POST", async () => {
+    ensureMediaEnv();
+    const t = createTest();
+    const providerFetch = vi.spyOn(globalThis, "fetch");
+    const response = await asOwner(t).fetch("/api/media/v1/generate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": "over-count-reference-key",
+      },
+      body: JSON.stringify({
+        capability: "image_edit",
+        prompt: "too many references",
+        input: {
+          image_urls: Array.from(
+            { length: 5 },
+            (_, index) => `https://example.test/${index}.png`,
+          ),
+        },
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("at most 4");
+    expect(providerFetch).not.toHaveBeenCalled();
+    expect(
+      await t.run(async (ctx) => await ctx.db.query("media_jobs").collect()),
+    ).toEqual([]);
+  });
+
   it("retains and retries the private-blob outbox across repeated deletion failures", async () => {
     const t = createTest();
     const storageId = await t.run(async (ctx) =>
@@ -181,6 +211,55 @@ describe("managed media idempotency and cancellation", () => {
     ).toEqual({ manifests: [], chunks: [] });
   });
 
+  it("leaves no private chunks when account purge races manifest creation", async () => {
+    const t = createTest();
+    const ownerId = "concurrent-manifest-purge-owner";
+    const manifestId = "concurrent-manifest-purge";
+    const [created] = await Promise.all([
+      t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
+        ownerId,
+        manifestId,
+        jobId: "concurrent-manifest-job",
+        clientRequestKey: "concurrent-manifest-key",
+        expectedChunks: 1,
+        totalChars: 2,
+        createdAt: Date.now(),
+      }),
+      t.mutation(internal.media_jobs.beginOwnerMediaPurge, {
+        ownerId,
+        startedAt: Date.now(),
+      }),
+    ]);
+    expect(["created", "owner_purged"]).toContain(created);
+    if (created === "created") {
+      const append = await t.mutation(
+        internal.media_jobs.appendPrivatePayloadChunk,
+        {
+          ownerId,
+          manifestId,
+          index: 0,
+          data: "xx",
+          writtenAt: Date.now(),
+        },
+      );
+      expect(append).toBe("owner_purged");
+    }
+    await expect(
+      t.action(
+        internal.media_image_submission.drainOwnerPrivatePayloadManifests,
+        { ownerId },
+      ),
+    ).resolves.toEqual({ remaining: 0 });
+    expect(
+      await t.run(async (ctx) => ({
+        manifests: await ctx.db
+          .query("media_private_payload_manifests")
+          .collect(),
+        chunks: await ctx.db.query("media_private_payload_chunks").collect(),
+      })),
+    ).toEqual({ manifests: [], chunks: [] });
+  });
+
   it("rejects unregistered or incomplete chunks without creating an unowned payload", async () => {
     const t = createTest();
     await expect(
@@ -238,6 +317,54 @@ describe("managed media idempotency and cancellation", () => {
     expect(
       await t.run(async (ctx) => ctx.db.query("media_jobs").collect()),
     ).toEqual([]);
+  });
+
+  it("terminalizes and cleans an oversized legacy file-storage payload without dispatch", async () => {
+    ensureMediaEnv();
+    const t = createTest();
+    const storageId = await t.run(async (ctx) =>
+      ctx.storage.store(new Blob(["legacy-encrypted-payload"])),
+    );
+    await t.mutation(internal.media_jobs.reserveIdempotentJob, {
+      ownerId: "legacy-envelope-owner",
+      jobId: "legacy-envelope-job",
+      clientRequestKey: "legacy-envelope-key",
+      clientRequestHash: "legacy-envelope-hash",
+      capability: "image_edit",
+      profile: "best",
+      provider: "fal",
+      endpointId: "openai/gpt-image-2/edit",
+      request: { prompt: "legacy oversized reference" },
+      submissionPayloadStorageId: storageId,
+    });
+    const providerFetch = vi.spyOn(globalThis, "fetch");
+    await t.action(internal.media_image_submission.submitReservedImageJob, {
+      jobId: "legacy-envelope-job",
+      encryptedPayload: "x".repeat(MAX_PRIVATE_MEDIA_PAYLOAD_CHARS + 1),
+    });
+    expect(
+      providerFetch.mock.calls.some(([input]) =>
+        String(input).includes("queue.fal.run"),
+      ),
+    ).toBe(false);
+    const terminal = await t.run(async (ctx) =>
+      ctx.db
+        .query("media_jobs")
+        .withIndex("by_jobId", (q) => q.eq("jobId", "legacy-envelope-job"))
+        .unique(),
+    );
+    expect(terminal).toMatchObject({
+      status: "failed",
+      upstreamStatus: "SUBMISSION_PAYLOAD_REJECTED",
+      error: { code: "SUBMISSION_PAYLOAD_REJECTED" },
+    });
+    expect(terminal?.submissionPayloadStorageId).toBeUndefined();
+    await t.action(internal.media_image_submission.deleteSubmissionPayload, {
+      storageId,
+    });
+    expect(
+      await t.run(async (ctx) => ctx.storage.getUrl(storageId)),
+    ).toBeNull();
   });
 
   it("retries manifest cleanup after a crash between chunk deletion and manifest deletion", async () => {

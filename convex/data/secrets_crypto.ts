@@ -216,9 +216,12 @@ export const encryptSecret = async (plaintext: string): Promise<EncryptedSecretP
   };
 };
 
-export const decryptSecret = async (serialized: string): Promise<string> => {
+export const decryptSecretPayload = async (value: unknown): Promise<string> => {
   const keyRing = getMasterKeyRing();
-  const payload = parseEncryptedSecretPayload(serialized);
+  if (!isEncryptedSecretPayload(value)) {
+    throw new Error("Invalid encrypted secret payload");
+  }
+  const payload = value;
   const dataKeyBytes = await decryptDataKey(payload, keyRing);
   const dataKey = await importAesKey(dataKeyBytes);
 
@@ -229,6 +232,9 @@ export const decryptSecret = async (serialized: string): Promise<string> => {
 
   return decoder.decode(plaintextBytes);
 };
+
+export const decryptSecret = async (serialized: string): Promise<string> =>
+  await decryptSecretPayload(parseEncryptedSecretPayload(serialized));
 
 export const isEncryptedSecretSerialized = (serialized: string): boolean => {
   if (serialized.trim().length === 0) {

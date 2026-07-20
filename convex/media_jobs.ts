@@ -26,10 +26,16 @@ import {
   optionalJsonValueValidator,
 } from "./shared_validators";
 import { extractDeliveryMediaFromOutput } from "./channels/connector_media_types";
+import {
+  MAX_PRIVATE_MEDIA_PAYLOAD_CHARS,
+  PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+} from "./media_image_limits";
 
 export const PUBLIC_MEDIA_TEST_OWNER_ID = "__public_media_test__";
-export const PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS = 96 * 1024;
-export const MAX_PRIVATE_MEDIA_PAYLOAD_CHARS = 64 * 1024 * 1024;
+export {
+  MAX_PRIVATE_MEDIA_PAYLOAD_CHARS,
+  PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+} from "./media_image_limits";
 const INCOMPLETE_PRIVATE_PAYLOAD_RETENTION_MS = 60 * 60_000;
 const UNATTACHED_PRIVATE_PAYLOAD_RETENTION_MS = 24 * 60 * 60_000;
 

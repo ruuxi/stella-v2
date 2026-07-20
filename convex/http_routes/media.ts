@@ -51,6 +51,14 @@ import { checkManagedUsageLimit } from "../lib/managed_billing";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import { requireSignedInAccountAction } from "../http_shared/auth";
 import { encryptSecret } from "../data/secrets_crypto";
+import {
+  MAX_MANAGED_IMAGE_REQUEST_BYTES,
+  validateManagedImageReferenceEnvelope,
+} from "../media_image_limits";
+import {
+  readRequestTextBounded,
+  RequestBodyLimitError,
+} from "../http_shared/bounded_request_body";
 
 const MEDIA_API_BASE_PATH = "/api/media/v1";
 const MEDIA_CAPABILITIES_PATH = `${MEDIA_API_BASE_PATH}/capabilities`;
@@ -401,6 +409,7 @@ const requireCapabilityInputs = (args: {
       }
   >;
   input: Record<string, unknown>;
+  managedImageEnvelope?: boolean;
 }): string | null => {
   const normalized = applyConvenienceInput(args);
   const validateSource = (
@@ -442,6 +451,13 @@ const requireCapabilityInputs = (args: {
     !isNonEmptyString(normalized[args.capability.promptKey])
   ) {
     return "prompt is required for this capability";
+  }
+  if (args.managedImageEnvelope) {
+    const managedReferenceError = validateManagedImageReferenceEnvelope(
+      args.capability.id,
+      normalized,
+    );
+    if (managedReferenceError) return managedReferenceError;
   }
   const sourceSlotValue = args.capability.sourceUrlKey
     ? normalized[args.capability.sourceUrlKey]
@@ -676,9 +692,21 @@ export const registerMediaRoutes = (http: HttpRouter) => {
         let rawRequestBody = "";
         let requestBody: unknown = null;
         try {
-          rawRequestBody = await request.text();
+          // Durable image_gen requests are identifiable before body access by
+          // their required idempotency key, so their strict ingress cap does
+          // not silently alter legacy video/audio/3D request semantics on this
+          // shared endpoint.
+          rawRequestBody = clientRequestKey
+            ? await readRequestTextBounded(
+                request,
+                MAX_MANAGED_IMAGE_REQUEST_BYTES,
+              )
+            : await request.text();
           requestBody = rawRequestBody ? JSON.parse(rawRequestBody) : null;
-        } catch {
+        } catch (error) {
+          if (error instanceof RequestBodyLimitError) {
+            return errorResponse(error.status, error.message, origin);
+          }
           requestBody = null;
         }
         try {
@@ -705,6 +733,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             source: body.source,
             sources: body.sources,
             input: body.input,
+            managedImageEnvelope: Boolean(clientRequestKey),
           });
           if (validationError)
             return errorResponse(400, validationError, origin);
@@ -1439,6 +1468,7 @@ export const validateCapabilityRequest = (args: {
     source: args.source,
     sources: args.sources,
     input: args.input ?? {},
+    managedImageEnvelope: true,
   });
 };
 

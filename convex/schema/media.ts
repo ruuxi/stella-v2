@@ -110,9 +110,9 @@ export const mediaSchema = {
      * rejected instead of silently attaching to the wrong generation. */
     clientRequestHash: v.optional(v.string()),
     /**
-     * Durable image_gen submission outbox. The encrypted payload itself lives
-     * in Convex file storage so reference-image bodies do not hit the document
-     * size limit. Legacy rows omit these fields and keep their old lifecycle.
+     * Durable image_gen submission outbox. New encrypted payloads live in the
+     * owner-scoped manifest/chunk tables below; submissionPayloadStorageId is
+     * retained only to read and clean legacy Convex file-storage rows.
      */
     submissionState: v.optional(
       v.union(

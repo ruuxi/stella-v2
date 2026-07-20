@@ -10,7 +10,7 @@ scheme would add protocol registration, routing, and CSP surface without an M2
 capability benefit.
 
 Development is intentionally different and honest: `bun run electron:dev`
-starts the ordinary Vite server at `http://127.0.0.1:57314`, waits for that
+starts the ordinary Vite server at `http://127.0.0.1:57315`, waits for that
 URL, and launches the stock Electron binary with `--dev`. Isolated checkouts
 can override the loopback URL with `STELLA_DEV_SERVER_URL`. There is no
 bundle rename, Info.plist rewrite, icon swap, re-sign, responsibility-disclaim

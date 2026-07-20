@@ -219,12 +219,58 @@ export const mediaSchema = {
     createdAt: v.number(),
   }).index("by_ownerId_and_clientRequestKey", ["ownerId", "clientRequestKey"]),
 
+  /** Durable account-deletion gate. Media reservation and dispatch both fail closed. */
+  media_owner_purges: defineTable({
+    ownerId: v.string(),
+    startedAt: v.number(),
+  }).index("by_ownerId", ["ownerId"]),
+
+  /**
+   * Durable deletion outbox for encrypted submission payloads. A row is
+   * inserted immediately after storage.store and is retained until
+   * storage.delete succeeds, including scheduler/action failures.
+   */
+  media_private_blob_cleanup: defineTable({
+    ownerId: v.string(),
+    storageId: v.id("_storage"),
+    jobId: v.optional(v.string()),
+    state: v.union(v.literal("held"), v.literal("pending")),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_storageId", ["storageId"])
+    .index("by_ownerId_and_state", ["ownerId", "state"])
+    .index("by_state_and_nextAttemptAt", ["state", "nextAttemptAt"]),
+
+  /** Durable Fal cancellation outbox used by account deletion races. */
+  media_provider_cancellations: defineTable({
+    ownerId: v.string(),
+    jobId: v.string(),
+    endpointId: v.string(),
+    providerRequestId: v.string(),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_jobId", ["jobId"])
+    .index("by_ownerId", ["ownerId"])
+    .index("by_nextAttemptAt", ["nextAttemptAt"]),
+
   /** Fal webhook receipt and transition are written in one transaction. */
   media_webhook_events: defineTable({
+    ownerId: v.optional(v.string()),
     scope: v.string(),
     dedupKey: v.string(),
     jobId: v.string(),
     receivedAt: v.number(),
     applied: v.boolean(),
-  }).index("by_scope_and_dedupKey", ["scope", "dedupKey"]),
+  })
+    .index("by_scope_and_dedupKey", ["scope", "dedupKey"])
+    .index("by_ownerId_and_receivedAt", ["ownerId", "receivedAt"])
+    .index("by_jobId_and_receivedAt", ["jobId", "receivedAt"]),
 };

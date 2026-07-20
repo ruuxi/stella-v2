@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
 import { decryptSecret } from "./data/secrets_crypto";
 import {
@@ -133,23 +134,164 @@ export const submitReservedImageJob = internalAction({
         });
       }
     } finally {
-      const released = await ctx.runMutation(
-        internal.media_jobs.releaseImageSubmissionPayload,
-        { jobId: args.jobId, storageId: claim.storageId },
-      );
-      if (released) {
-        await ctx.storage.delete(claim.storageId).catch(() => undefined);
-      }
+      await ctx.runMutation(internal.media_jobs.releaseImageSubmissionPayload, {
+        jobId: args.jobId,
+        storageId: claim.storageId,
+      });
     }
     return null;
   },
 });
 
 export const deleteSubmissionPayload = internalAction({
-  args: { storageId: v.id("_storage") },
+  args: {
+    storageId: v.id("_storage"),
+    testFailDelete: v.optional(v.boolean()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.storage.delete(args.storageId).catch(() => undefined);
+    const cleanup = await ctx.runQuery(
+      internal.media_jobs.getPrivateBlobCleanup,
+      { storageId: args.storageId },
+    );
+    if (!cleanup) return null;
+    try {
+      if (args.testFailDelete) {
+        throw new Error("Injected private blob deletion failure");
+      }
+      await ctx.runMutation(internal.media_jobs.deletePrivateBlobCleanup, {
+        storageId: args.storageId,
+      });
+    } catch (error) {
+      await ctx.runMutation(internal.media_jobs.failPrivateBlobCleanup, {
+        storageId: args.storageId,
+        failedAt: Date.now(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+    return null;
+  },
+});
+
+export const drainPrivateBlobCleanup = internalAction({
+  args: { limit: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const due = await ctx.runQuery(
+      internal.media_jobs.listDuePrivateBlobCleanup,
+      {
+        now: Date.now(),
+        limit: args.limit ?? 50,
+      },
+    );
+    for (const row of due) {
+      await ctx
+        .runAction(internal.media_image_submission.deleteSubmissionPayload, {
+          storageId: row.storageId,
+        })
+        .catch(() => undefined);
+    }
+    return null;
+  },
+});
+
+export const drainOwnerPrivateBlobCleanup = internalAction({
+  args: { ownerId: v.string(), limit: v.optional(v.number()) },
+  returns: v.object({ remaining: v.number() }),
+  handler: async (ctx, args): Promise<{ remaining: number }> => {
+    const rows: Array<{ storageId: Id<"_storage"> }> = await ctx.runQuery(
+      internal.media_jobs.listOwnerPrivateBlobCleanup,
+      { ownerId: args.ownerId, limit: args.limit ?? 100 },
+    );
+    for (const row of rows) {
+      await ctx
+        .runAction(internal.media_image_submission.deleteSubmissionPayload, {
+          storageId: row.storageId,
+        })
+        .catch(() => undefined);
+    }
+    const remaining: Array<{ storageId: Id<"_storage"> }> = await ctx.runQuery(
+      internal.media_jobs.listOwnerPrivateBlobCleanup,
+      { ownerId: args.ownerId, limit: 1 },
+    );
+    return { remaining: remaining.length };
+  },
+});
+
+export const cancelPurgedProviderRequest = internalAction({
+  args: { jobId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.runQuery(
+      internal.media_jobs.getProviderCancellationByJob,
+      { jobId: args.jobId },
+    );
+    if (!row) return null;
+    const apiKey = getFalApiKey();
+    if (!apiKey)
+      throw new Error("Media provider cancellation is not configured.");
+    try {
+      await cancelFalRequest({
+        apiKey,
+        endpointId: row.endpointId,
+        requestId: row.providerRequestId,
+      });
+      await ctx.runMutation(internal.media_jobs.completeProviderCancellation, {
+        jobId: row.jobId,
+      });
+    } catch (error) {
+      await ctx.runMutation(internal.media_jobs.failProviderCancellation, {
+        jobId: row.jobId,
+        failedAt: Date.now(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+    return null;
+  },
+});
+
+export const drainOwnerProviderCancellations = internalAction({
+  args: { ownerId: v.string(), limit: v.optional(v.number()) },
+  returns: v.object({ remaining: v.number() }),
+  handler: async (ctx, args): Promise<{ remaining: number }> => {
+    const rows: Array<{ jobId: string }> = await ctx.runQuery(
+      internal.media_jobs.listOwnerProviderCancellations,
+      { ownerId: args.ownerId, limit: args.limit ?? 100 },
+    );
+    for (const row of rows) {
+      await ctx
+        .runAction(
+          internal.media_image_submission.cancelPurgedProviderRequest,
+          { jobId: row.jobId },
+        )
+        .catch(() => undefined);
+    }
+    const remaining: Array<{ jobId: string }> = await ctx.runQuery(
+      internal.media_jobs.listOwnerProviderCancellations,
+      { ownerId: args.ownerId, limit: 1 },
+    );
+    return { remaining: remaining.length };
+  },
+});
+
+export const drainProviderCancellations = internalAction({
+  args: { limit: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const rows: Array<{ jobId: string }> = await ctx.runQuery(
+      internal.media_jobs.listDueProviderCancellations,
+      { now: Date.now(), limit: args.limit ?? 50 },
+    );
+    for (const row of rows) {
+      await ctx
+        .runAction(
+          internal.media_image_submission.cancelPurgedProviderRequest,
+          { jobId: row.jobId },
+        )
+        .catch(() => undefined);
+    }
     return null;
   },
 });

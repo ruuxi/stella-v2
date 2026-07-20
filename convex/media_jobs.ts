@@ -3,9 +3,11 @@ import {
   internalMutation,
   internalQuery,
   query,
+  type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import type {
   MediaGenerateRequest,
   MediaRequestSummary,
@@ -81,6 +83,313 @@ const sanitizeJsonValue = (value: unknown, depth = 0): Value => {
   }
   return String(value);
 };
+
+const ownerMediaPurgeActive = async (ctx: QueryCtx, ownerId: string) =>
+  (await ctx.db
+    .query("media_owner_purges")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique()) !== null;
+
+const markPrivateBlobPending = async (
+  ctx: MutationCtx,
+  args: {
+    ownerId: string;
+    storageId: Id<"_storage">;
+    jobId?: string;
+    now: number;
+  },
+) => {
+  const existing = await ctx.db
+    .query("media_private_blob_cleanup")
+    .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+    .unique();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      state: "pending",
+      nextAttemptAt: args.now,
+      updatedAt: args.now,
+      ...(args.jobId ? { jobId: args.jobId } : {}),
+    });
+    return;
+  }
+  await ctx.db.insert("media_private_blob_cleanup", {
+    ownerId: args.ownerId,
+    storageId: args.storageId,
+    ...(args.jobId ? { jobId: args.jobId } : {}),
+    state: "pending",
+    attempts: 0,
+    nextAttemptAt: args.now,
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+};
+
+const enqueueProviderCancellation = async (
+  ctx: MutationCtx,
+  args: {
+    ownerId: string;
+    jobId: string;
+    endpointId: string;
+    providerRequestId: string;
+    now: number;
+  },
+) => {
+  const existing = await ctx.db
+    .query("media_provider_cancellations")
+    .withIndex("by_jobId", (q) => q.eq("jobId", args.jobId))
+    .unique();
+  if (!existing) {
+    await ctx.db.insert("media_provider_cancellations", {
+      ownerId: args.ownerId,
+      jobId: args.jobId,
+      endpointId: args.endpointId,
+      providerRequestId: args.providerRequestId,
+      attempts: 0,
+      nextAttemptAt: args.now,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+  }
+};
+
+export const beginOwnerMediaPurge = internalMutation({
+  args: { ownerId: v.string(), startedAt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("media_owner_purges")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .unique();
+    if (!existing) await ctx.db.insert("media_owner_purges", args);
+    const held = await ctx.db
+      .query("media_private_blob_cleanup")
+      .withIndex("by_ownerId_and_state", (q) =>
+        q.eq("ownerId", args.ownerId).eq("state", "held"),
+      )
+      .take(500);
+    for (const row of held) {
+      await ctx.db.patch(row._id, {
+        state: "pending",
+        nextAttemptAt: args.startedAt,
+        updatedAt: args.startedAt,
+      });
+    }
+    return null;
+  },
+});
+
+export const registerPrivateSubmissionBlob = internalMutation({
+  args: {
+    ownerId: v.string(),
+    storageId: v.id("_storage"),
+    createdAt: v.number(),
+  },
+  returns: v.union(v.literal("registered"), v.literal("owner_purged")),
+  handler: async (ctx, args) => {
+    const state = (await ownerMediaPurgeActive(ctx, args.ownerId))
+      ? "pending"
+      : "held";
+    const existing = await ctx.db
+      .query("media_private_blob_cleanup")
+      .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+      .unique();
+    if (!existing) {
+      await ctx.db.insert("media_private_blob_cleanup", {
+        ownerId: args.ownerId,
+        storageId: args.storageId,
+        state,
+        attempts: 0,
+        nextAttemptAt: args.createdAt,
+        createdAt: args.createdAt,
+        updatedAt: args.createdAt,
+      });
+    }
+    return state === "pending" ? "owner_purged" : "registered";
+  },
+});
+
+export const makePrivateSubmissionBlobDeletable = internalMutation({
+  args: {
+    ownerId: v.string(),
+    storageId: v.id("_storage"),
+    jobId: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await markPrivateBlobPending(ctx, { ...args, now: Date.now() });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.media_image_submission.deleteSubmissionPayload,
+      {
+        storageId: args.storageId,
+      },
+    );
+    return null;
+  },
+});
+
+export const getPrivateBlobCleanup = internalQuery({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("media_private_blob_cleanup")
+      .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+      .unique(),
+});
+
+export const deletePrivateBlobCleanup = internalMutation({
+  args: { storageId: v.id("_storage") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("media_private_blob_cleanup")
+      .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+      .unique();
+    if (row) {
+      // Storage deletion and outbox acknowledgement share one Convex
+      // transaction. A thrown storage error retains both the object pointer
+      // and retry record.
+      await ctx.storage.delete(args.storageId);
+      await ctx.db.delete(row._id);
+    }
+    return null;
+  },
+});
+
+export const failPrivateBlobCleanup = internalMutation({
+  args: {
+    storageId: v.id("_storage"),
+    error: v.string(),
+    failedAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("media_private_blob_cleanup")
+      .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+      .unique();
+    if (row) {
+      const attempts = row.attempts + 1;
+      await ctx.db.patch(row._id, {
+        state: "pending",
+        attempts,
+        lastError: args.error.slice(0, 1_000),
+        nextAttemptAt:
+          args.failedAt +
+          Math.min(60 * 60_000, 2 ** Math.min(attempts, 10) * 1_000),
+        updatedAt: args.failedAt,
+      });
+    }
+    return null;
+  },
+});
+
+export const listDuePrivateBlobCleanup = internalQuery({
+  args: { now: v.number(), limit: v.number() },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("media_private_blob_cleanup")
+      .withIndex("by_state_and_nextAttemptAt", (q) =>
+        q.eq("state", "pending").lte("nextAttemptAt", args.now),
+      )
+      .take(Math.max(1, Math.min(args.limit, 100))),
+});
+
+export const listOwnerPrivateBlobCleanup = internalQuery({
+  args: { ownerId: v.string(), limit: v.number() },
+  handler: async (ctx, args) => {
+    const pending = await ctx.db
+      .query("media_private_blob_cleanup")
+      .withIndex("by_ownerId_and_state", (q) =>
+        q.eq("ownerId", args.ownerId).eq("state", "pending"),
+      )
+      .take(Math.max(1, Math.min(args.limit, 100)));
+    const held = await ctx.db
+      .query("media_private_blob_cleanup")
+      .withIndex("by_ownerId_and_state", (q) =>
+        q.eq("ownerId", args.ownerId).eq("state", "held"),
+      )
+      .take(Math.max(1, Math.min(args.limit - pending.length, 100)));
+    return [...pending, ...held];
+  },
+});
+
+export const listOwnerProviderCancellations = internalQuery({
+  args: { ownerId: v.string(), limit: v.number() },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("media_provider_cancellations")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .take(Math.max(1, Math.min(args.limit, 100))),
+});
+
+export const hasOwnerMediaJobs = internalQuery({
+  args: { ownerId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) =>
+    Boolean(
+      await ctx.db
+        .query("media_jobs")
+        .withIndex("by_ownerId_and_createdAt", (q) =>
+          q.eq("ownerId", args.ownerId),
+        )
+        .first(),
+    ),
+});
+
+export const getProviderCancellationByJob = internalQuery({
+  args: { jobId: v.string() },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("media_provider_cancellations")
+      .withIndex("by_jobId", (q) => q.eq("jobId", args.jobId))
+      .unique(),
+});
+
+export const listDueProviderCancellations = internalQuery({
+  args: { now: v.number(), limit: v.number() },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("media_provider_cancellations")
+      .withIndex("by_nextAttemptAt", (q) => q.lte("nextAttemptAt", args.now))
+      .take(Math.max(1, Math.min(args.limit, 100))),
+});
+
+export const completeProviderCancellation = internalMutation({
+  args: { jobId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("media_provider_cancellations")
+      .withIndex("by_jobId", (q) => q.eq("jobId", args.jobId))
+      .unique();
+    if (row) await ctx.db.delete(row._id);
+    return null;
+  },
+});
+
+export const failProviderCancellation = internalMutation({
+  args: { jobId: v.string(), error: v.string(), failedAt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("media_provider_cancellations")
+      .withIndex("by_jobId", (q) => q.eq("jobId", args.jobId))
+      .unique();
+    if (row) {
+      const attempts = row.attempts + 1;
+      await ctx.db.patch(row._id, {
+        attempts,
+        lastError: args.error.slice(0, 1_000),
+        nextAttemptAt:
+          args.failedAt +
+          Math.min(60 * 60_000, 2 ** Math.min(attempts, 10) * 1_000),
+        updatedAt: args.failedAt,
+      });
+    }
+    return null;
+  },
+});
 
 const toSourceSummary = (
   source: MediaSourceReference | undefined,
@@ -601,6 +910,7 @@ const reserveIdempotentJobResultValidator = v.union(
     jobId: v.string(),
   }),
   v.object({ state: v.literal("canceled") }),
+  v.object({ state: v.literal("owner_purged") }),
 );
 
 /**
@@ -626,6 +936,16 @@ export const reserveIdempotentJob = internalMutation({
   },
   returns: reserveIdempotentJobResultValidator,
   handler: async (ctx, args) => {
+    if (await ownerMediaPurgeActive(ctx, args.ownerId)) {
+      if (args.submissionPayloadStorageId) {
+        await markPrivateBlobPending(ctx, {
+          ownerId: args.ownerId,
+          storageId: args.submissionPayloadStorageId,
+          now: Date.now(),
+        });
+      }
+      return { state: "owner_purged" as const };
+    }
     const canceled = await ctx.db
       .query("media_request_cancellations")
       .withIndex("by_ownerId_and_clientRequestKey", (q) =>
@@ -690,6 +1010,36 @@ export const reserveIdempotentJob = internalMutation({
       updatedAt: now,
     });
     if (args.submissionPayloadStorageId) {
+      const cleanup = await ctx.db
+        .query("media_private_blob_cleanup")
+        .withIndex("by_storageId", (q) =>
+          q.eq("storageId", args.submissionPayloadStorageId!),
+        )
+        .unique();
+      if (cleanup && cleanup.ownerId !== args.ownerId) {
+        throw new Error("Encrypted media payload belongs to another owner.");
+      }
+      if (cleanup) {
+        await ctx.db.patch(cleanup._id, {
+          jobId: args.jobId,
+          state: "held",
+          updatedAt: now,
+        });
+      } else {
+        // Backward-compatible callers/tests that already hold a storage id
+        // still gain the outbox transactionally with reservation. The HTTP
+        // path registers before this mutation to close store->reserve errors.
+        await ctx.db.insert("media_private_blob_cleanup", {
+          ownerId: args.ownerId,
+          storageId: args.submissionPayloadStorageId,
+          jobId: args.jobId,
+          state: "held",
+          attempts: 0,
+          nextAttemptAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
       await ctx.scheduler.runAfter(
         0,
         internal.media_image_submission.submitReservedImageJob,
@@ -748,6 +1098,27 @@ export const claimImageSubmission = internalMutation({
       !job.submissionPayloadStorageId ||
       isTerminalMediaJobStatus(job.status)
     ) {
+      return { state: "skip" as const };
+    }
+    if (await ownerMediaPurgeActive(ctx, job.ownerId)) {
+      await ctx.db.patch(job._id, {
+        status: "canceled",
+        submissionState: "canceled",
+        upstreamStatus: "OWNER_PURGED",
+        queuePosition: null,
+        error: {
+          code: "OWNER_PURGED",
+          message: "Media submission canceled during account deletion.",
+        },
+        updatedAt: args.claimedAt,
+        completedAt: args.claimedAt,
+      });
+      await markPrivateBlobPending(ctx, {
+        ownerId: job.ownerId,
+        storageId: job.submissionPayloadStorageId,
+        jobId: job.jobId,
+        now: args.claimedAt,
+      });
       return { state: "skip" as const };
     }
     await ctx.db.patch(job._id, {
@@ -1028,7 +1399,18 @@ export const releaseImageSubmissionPayload = internalMutation({
     const job = await getJobByJobId(ctx, args.jobId);
     if (!job || job.submissionPayloadStorageId !== args.storageId) return false;
     if (job.submissionState === "pending") return false;
+    await markPrivateBlobPending(ctx, {
+      ownerId: job.ownerId,
+      storageId: args.storageId,
+      jobId: job.jobId,
+      now: Date.now(),
+    });
     await ctx.db.patch(job._id, { submissionPayloadStorageId: undefined });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.media_image_submission.deleteSubmissionPayload,
+      { storageId: args.storageId },
+    );
     return true;
   },
 });
@@ -1062,7 +1444,44 @@ export const markSubmitted = internalMutation({
       return { cancelRequested: job.status === "canceled", applied: false };
     }
     if (isTerminalMediaJobStatus(job.status)) {
-      return { cancelRequested: false, applied: false };
+      if (
+        job.status === "canceled" &&
+        job.submissionState === "dispatching" &&
+        (!args.submissionAttemptId ||
+          job.submissionAttemptId === args.submissionAttemptId)
+      ) {
+        // Account deletion can win immediately after the durable dispatch
+        // claim. Retain the accepted provider identity without reversing the
+        // canceled terminal state so the action can issue Fal cancellation.
+        await ctx.db.patch(job._id, {
+          providerRequestId: args.providerRequestId,
+          ...(args.providerGatewayRequestId
+            ? { providerGatewayRequestId: args.providerGatewayRequestId }
+            : {}),
+          ...(args.providerResponseUrl
+            ? { providerResponseUrl: args.providerResponseUrl }
+            : {}),
+          ...(args.providerStatusUrl
+            ? { providerStatusUrl: args.providerStatusUrl }
+            : {}),
+          submissionState: "canceled",
+          updatedAt: Date.now(),
+        });
+        await enqueueProviderCancellation(ctx, {
+          ownerId: job.ownerId,
+          jobId: job.jobId,
+          endpointId: job.endpointId,
+          providerRequestId: args.providerRequestId,
+          now: Date.now(),
+        });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.media_image_submission.cancelPurgedProviderRequest,
+          { jobId: job.jobId },
+        );
+        return { cancelRequested: true, applied: true };
+      }
+      return { cancelRequested: job.status === "canceled", applied: false };
     }
 
     const now = Date.now();
@@ -1327,6 +1746,7 @@ export const applyFalWebhook = internalMutation({
         return { updated: false, duplicate: true, jobId: job.jobId };
       }
       await ctx.db.insert("media_webhook_events", {
+        ownerId: job.ownerId,
         scope: "media_fal_webhook",
         dedupKey: args.dedupKey,
         jobId: job.jobId,
@@ -1341,6 +1761,33 @@ export const applyFalWebhook = internalMutation({
     // All terminal states are immutable. Duplicate/opposite/late provider
     // events are retained as audit logs but can never reverse the result.
     if (isTerminalMediaJobStatus(job.status)) {
+      if (
+        job.status === "canceled" &&
+        job.error?.code === "OWNER_PURGED" &&
+        args.providerRequestId &&
+        !job.providerRequestId
+      ) {
+        // A response-lost POST can first reveal its provider identity in the
+        // webhook. Persist only reconciliation metadata and a cancellation
+        // outbox entry; the terminal cancellation and billing state remain
+        // immutable.
+        await ctx.db.patch(job._id, {
+          providerRequestId: args.providerRequestId,
+          updatedAt: args.receivedAt,
+        });
+        await enqueueProviderCancellation(ctx, {
+          ownerId: job.ownerId,
+          jobId: job.jobId,
+          endpointId: job.endpointId,
+          providerRequestId: args.providerRequestId,
+          now: args.receivedAt,
+        });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.media_image_submission.cancelPurgedProviderRequest,
+          { jobId: job.jobId },
+        );
+      }
       await ctx.db.insert("media_job_logs", {
         ownerId: job.ownerId,
         jobId: job.jobId,

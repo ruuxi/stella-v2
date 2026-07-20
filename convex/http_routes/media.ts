@@ -609,9 +609,14 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           "submissionPayloadStorageId" in canceled &&
           canceled.submissionPayloadStorageId
         ) {
-          await ctx.storage
-            .delete(canceled.submissionPayloadStorageId)
-            .catch(() => undefined);
+          await ctx.runMutation(
+            internal.media_jobs.makePrivateSubmissionBlobDeletable,
+            {
+              ownerId: auth.ownerId,
+              storageId: canceled.submissionPayloadStorageId,
+              ...(canceled.jobId ? { jobId: canceled.jobId } : {}),
+            },
+          );
         }
         if (
           canceled.state === "canceled" &&
@@ -813,10 +818,46 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                   type: "application/vnd.stella.encrypted+json",
                 }),
               );
+              let registered: "registered" | "owner_purged" | undefined;
+              let registrationError: unknown;
+              for (let attempt = 0; attempt < 5 && !registered; attempt += 1) {
+                try {
+                  registered = await ctx.runMutation(
+                    internal.media_jobs.registerPrivateSubmissionBlob,
+                    {
+                      ownerId,
+                      storageId: submissionPayloadStorageId,
+                      createdAt: Date.now(),
+                    },
+                  );
+                } catch (error) {
+                  registrationError = error;
+                }
+              }
+              if (!registered) {
+                // No reservation or dispatch exists yet. Best-effort immediate
+                // rollback is safe; successful registration is the only path
+                // allowed to proceed to durable reservation.
+                await ctx.storage.delete(submissionPayloadStorageId);
+                throw (
+                  registrationError ??
+                  new Error("Encrypted media payload registration failed.")
+                );
+              }
+              if (registered === "owner_purged") {
+                await ctx.runMutation(
+                  internal.media_jobs.makePrivateSubmissionBlobDeletable,
+                  { ownerId, storageId: submissionPayloadStorageId },
+                );
+                return errorResponse(
+                  409,
+                  "Media generation is unavailable while account deletion is in progress.",
+                  origin,
+                );
+              }
             }
-            const reservation = await ctx.runMutation(
-              internal.media_jobs.reserveIdempotentJob,
-              {
+            const reservation = await ctx
+              .runMutation(internal.media_jobs.reserveIdempotentJob, {
                 ownerId,
                 jobId,
                 clientRequestKey,
@@ -835,12 +876,28 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 ...(encryptedSubmissionPayload
                   ? { encryptedSubmissionPayload }
                   : {}),
-              },
-            );
+              })
+              .catch(async (error) => {
+                if (submissionPayloadStorageId) {
+                  await ctx.runMutation(
+                    internal.media_jobs.makePrivateSubmissionBlobDeletable,
+                    { ownerId, storageId: submissionPayloadStorageId },
+                  );
+                }
+                throw error;
+              });
             if (reservation.state !== "created" && submissionPayloadStorageId) {
-              await ctx.storage
-                .delete(submissionPayloadStorageId)
-                .catch(() => undefined);
+              await ctx.runMutation(
+                internal.media_jobs.makePrivateSubmissionBlobDeletable,
+                { ownerId, storageId: submissionPayloadStorageId },
+              );
+            }
+            if (reservation.state === "owner_purged") {
+              return errorResponse(
+                409,
+                "Media generation is unavailable while account deletion is in progress.",
+                origin,
+              );
             }
             if (reservation.state === "canceled") {
               return errorResponse(

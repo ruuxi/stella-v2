@@ -70,6 +70,20 @@ crons.interval(
 );
 
 crons.interval(
+  "retry encrypted media payload deletion",
+  { minutes: 1 },
+  internal.media_image_submission.drainPrivateBlobCleanup,
+  { limit: 100 },
+);
+
+crons.interval(
+  "retry purged media provider cancellation",
+  { minutes: 1 },
+  internal.media_image_submission.drainProviderCancellations,
+  { limit: 100 },
+);
+
+crons.interval(
   "retry terminal image connector delivery",
   { minutes: 5 },
   internal.media_jobs.retryStuckImageConnectorDeliveries,

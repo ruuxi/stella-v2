@@ -170,6 +170,7 @@ const EXTRA_TABLES = [
   "media_jobs",
   "media_job_logs",
   "media_request_cancellations",
+  "media_webhook_events",
   "transient_channel_events",
   "transient_cleanup_failures",
   "channel_connections",
@@ -246,13 +247,112 @@ async function deleteOneExtraTableBatch(
         .query("media_jobs")
         .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
         .take(batch);
-      // Scheduler writes commit atomically with this mutation. If a durable
-      // image dispatcher already holds the encrypted blob, deleting the row
-      // makes its later release CAS fail, while this cleanup action still
-      // owns deletion of the storage object. A transaction retry cannot
-      // orphan the blob or schedule a cleanup for a row that survived.
+      // Scheduler writes commit atomically with this mutation. A transaction
+      // retry cannot orphan an encrypted blob or schedule cleanup for a row
+      // whose state change did not commit.
+      let deleted = 0;
       for (const row of rows) {
+        if (row.submissionState === "dispatching" && !row.providerRequestId) {
+          const canceledAt = Date.now();
+          if (row.submissionPayloadStorageId) {
+            const cleanup = await ctx.db
+              .query("media_private_blob_cleanup")
+              .withIndex("by_storageId", (q) =>
+                q.eq("storageId", row.submissionPayloadStorageId!),
+              )
+              .unique();
+            const cleanupPatch = {
+              jobId: row.jobId,
+              state: "pending" as const,
+              nextAttemptAt: canceledAt,
+              updatedAt: canceledAt,
+            };
+            if (cleanup) {
+              await ctx.db.patch(cleanup._id, cleanupPatch);
+            } else {
+              await ctx.db.insert("media_private_blob_cleanup", {
+                ownerId,
+                storageId: row.submissionPayloadStorageId,
+                ...cleanupPatch,
+                attempts: 0,
+                createdAt: canceledAt,
+              });
+            }
+            await ctx.scheduler.runAfter(
+              0,
+              internal.media_image_submission.deleteSubmissionPayload,
+              { storageId: row.submissionPayloadStorageId },
+            );
+          }
+          await ctx.db.patch(row._id, {
+            status: "canceled",
+            request: {},
+            submissionPayloadStorageId: undefined,
+            upstreamStatus: "OWNER_PURGED",
+            queuePosition: null,
+            error: {
+              code: "OWNER_PURGED",
+              message: "Media generation canceled during account deletion.",
+            },
+            updatedAt: canceledAt,
+            completedAt: canceledAt,
+          });
+          continue;
+        }
+        if (row.providerRequestId) {
+          const existingCancellation = await ctx.db
+            .query("media_provider_cancellations")
+            .withIndex("by_jobId", (q) => q.eq("jobId", row.jobId))
+            .unique();
+          if (!existingCancellation) {
+            const cancellationAt = Date.now();
+            await ctx.db.insert("media_provider_cancellations", {
+              ownerId,
+              jobId: row.jobId,
+              endpointId: row.endpointId,
+              providerRequestId: row.providerRequestId,
+              attempts: 0,
+              nextAttemptAt: cancellationAt,
+              createdAt: cancellationAt,
+              updatedAt: cancellationAt,
+            });
+          }
+          await ctx.scheduler.runAfter(
+            0,
+            internal.media_image_submission.cancelPurgedProviderRequest,
+            { jobId: row.jobId },
+          );
+        }
+        const webhookEvents = await ctx.db
+          .query("media_webhook_events")
+          .withIndex("by_jobId_and_receivedAt", (q) => q.eq("jobId", row.jobId))
+          .take(200);
+        for (const event of webhookEvents) await ctx.db.delete(event._id);
+        if (webhookEvents.length === 200) continue;
         if (row.submissionPayloadStorageId) {
+          const cleanup = await ctx.db
+            .query("media_private_blob_cleanup")
+            .withIndex("by_storageId", (q) =>
+              q.eq("storageId", row.submissionPayloadStorageId!),
+            )
+            .unique();
+          const cleanupPatch = {
+            jobId: row.jobId,
+            state: "pending" as const,
+            nextAttemptAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          if (cleanup) {
+            await ctx.db.patch(cleanup._id, cleanupPatch);
+          } else {
+            await ctx.db.insert("media_private_blob_cleanup", {
+              ownerId,
+              storageId: row.submissionPayloadStorageId,
+              ...cleanupPatch,
+              attempts: 0,
+              createdAt: Date.now(),
+            });
+          }
           await ctx.scheduler.runAfter(
             0,
             internal.media_image_submission.deleteSubmissionPayload,
@@ -260,8 +360,21 @@ async function deleteOneExtraTableBatch(
           );
         }
         await ctx.db.delete(row._id);
+        deleted += 1;
       }
-      return rows.length === batch;
+      // A claimed POST with no provider response is irreducibly ambiguous.
+      // Leave its canceled tombstone for markSubmitted/a webhook to attach a
+      // provider id, but stop this drain instead of hot-looping until the
+      // action timeout. The outer purge fails closed and is safe to retry.
+      return deleted > 0;
+    }
+    case "media_webhook_events": {
+      const rows = await ctx.db
+        .query("media_webhook_events")
+        .withIndex("by_ownerId_and_receivedAt", (q) => q.eq("ownerId", ownerId))
+        .take(batch);
+      ids = rows.map((row) => row._id);
+      break;
     }
     case "media_job_logs": {
       const rows = await ctx.db
@@ -550,9 +663,7 @@ const BACKUP_BATCH = 100;
 
 export const _listBackupObjectBatch = internalQuery({
   args: { ownerId: v.string() },
-  returns: v.array(
-    v.object({ id: v.id("backup_objects"), r2Key: v.string() }),
-  ),
+  returns: v.array(v.object({ id: v.id("backup_objects"), r2Key: v.string() })),
   handler: async (ctx, { ownerId }) => {
     const rows = await ctx.db
       .query("backup_objects")
@@ -785,6 +896,13 @@ export const purgeOwnerCloudData = internalAction({
   args: { ownerId: v.string() },
   returns: v.null(),
   handler: async (ctx, { ownerId }) => {
+    // Open the media gate before any other deletion work or parallel drain.
+    // Reservations and dispatch claims observe this same durable row
+    // transactionally, so no new provider work can cross the purge boundary.
+    await ctx.runMutation(internal.media_jobs.beginOwnerMediaPurge, {
+      ownerId,
+      startedAt: Date.now(),
+    });
     let cursor: string | null = null;
     while (true) {
       const page: { ids: Id<"conversations">[]; nextCursor: string | null } =
@@ -857,6 +975,34 @@ export const purgeOwnerCloudData = internalAction({
         ownerUserId: ownerId,
       }),
     ]);
+
+    const privateBlobDrain = await ctx.runAction(
+      internal.media_image_submission.drainOwnerPrivateBlobCleanup,
+      { ownerId, limit: 100 },
+    );
+    if (privateBlobDrain.remaining > 0) {
+      throw new Error(
+        "Account deletion is waiting for encrypted media payload cleanup; the durable purge gate remains active.",
+      );
+    }
+    const providerCancellationDrain = await ctx.runAction(
+      internal.media_image_submission.drainOwnerProviderCancellations,
+      { ownerId, limit: 100 },
+    );
+    if (providerCancellationDrain.remaining > 0) {
+      throw new Error(
+        "Account deletion is waiting for provider media cancellation; the durable purge gate remains active.",
+      );
+    }
+    const unresolvedMediaJobs = await ctx.runQuery(
+      internal.media_jobs.hasOwnerMediaJobs,
+      { ownerId },
+    );
+    if (unresolvedMediaJobs) {
+      throw new Error(
+        "Account deletion is waiting for an ambiguous in-flight media submission to reconcile; the durable purge gate remains active.",
+      );
+    }
 
     return null;
   },

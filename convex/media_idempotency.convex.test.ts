@@ -54,10 +54,98 @@ const imageRequest = (prompt = "a durable image"): RequestInit => ({
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("managed media idempotency and cancellation", () => {
+  it("retains and retries the private-blob outbox across repeated deletion failures", async () => {
+    const t = createTest();
+    const storageId = await t.run(async (ctx) =>
+      ctx.storage.store(new Blob(["encrypted-private-reference"])),
+    );
+    await t.mutation(internal.media_jobs.registerPrivateSubmissionBlob, {
+      ownerId: "blob-retry-owner",
+      storageId,
+      createdAt: Date.now(),
+    });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(
+        t.action(internal.media_image_submission.deleteSubmissionPayload, {
+          storageId,
+          testFailDelete: true,
+        }),
+      ).rejects.toThrow("Injected private blob deletion failure");
+    }
+    expect(
+      await t.run(
+        async (ctx) =>
+          await ctx.db
+            .query("media_private_blob_cleanup")
+            .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
+            .unique(),
+      ),
+    ).toMatchObject({ attempts: 2, state: "pending" });
+    expect(
+      await t.run(async (ctx) => ctx.storage.getUrl(storageId)),
+    ).not.toBeNull();
+
+    await t.action(internal.media_image_submission.deleteSubmissionPayload, {
+      storageId,
+    });
+    expect(
+      await t.run(async (ctx) => ctx.storage.getUrl(storageId)),
+    ).toBeNull();
+    expect(
+      await t.run(
+        async (ctx) =>
+          await ctx.db.query("media_private_blob_cleanup").collect(),
+      ),
+    ).toEqual([]);
+  });
+
+  it("atomically gates reservation and pending dispatch once media purge begins", async () => {
+    const t = createTest();
+    await t.mutation(internal.media_jobs.beginOwnerMediaPurge, {
+      ownerId: "purged-media-owner",
+      startedAt: Date.now(),
+    });
+    const storageId = await t.run(async (ctx) =>
+      ctx.storage.store(new Blob(["encrypted-after-purge"])),
+    );
+    expect(
+      await t.mutation(internal.media_jobs.registerPrivateSubmissionBlob, {
+        ownerId: "purged-media-owner",
+        storageId,
+        createdAt: Date.now(),
+      }),
+    ).toBe("owner_purged");
+    expect(
+      await t.mutation(internal.media_jobs.reserveIdempotentJob, {
+        ownerId: "purged-media-owner",
+        jobId: "must-not-exist",
+        clientRequestKey: "purged-request",
+        clientRequestHash: "purged-hash",
+        capability: "text_to_image",
+        profile: "best",
+        provider: "fal",
+        endpointId: "fal-ai/flux/dev",
+        request: { prompt: "blocked" },
+        submissionPayloadStorageId: storageId,
+      }),
+    ).toEqual({ state: "owner_purged" });
+    expect(
+      await t.run(async (ctx) => await ctx.db.query("media_jobs").collect()),
+    ).toEqual([]);
+    expect(
+      await t.run(
+        async (ctx) =>
+          await ctx.db.query("media_private_blob_cleanup").collect(),
+      ),
+    ).toEqual([expect.objectContaining({ state: "pending", storageId })]);
+  });
+
   it("transactionally cleans pending and dispatching payload blobs during account deletion", async () => {
+    ensureMediaEnv();
     vi.useFakeTimers();
     try {
       const t = createTest();
@@ -99,13 +187,30 @@ describe("managed media idempotency and cancellation", () => {
             createdAt: now,
             updatedAt: now,
           });
+          await ctx.db.insert("media_webhook_events", {
+            scope: "legacy-media-webhook",
+            dedupKey: `legacy-${index}`,
+            jobId: `account-delete-media-${index}`,
+            receivedAt: now,
+            applied: false,
+          });
         }
       });
 
-      await t.mutation(internal.account_deletion._deleteExtraTableBatch, {
-        ownerId: "account-delete-media-owner",
-        table: "media_jobs",
-      });
+      const firstDrain = await t.mutation(
+        internal.account_deletion._deleteExtraTableBatch,
+        {
+          ownerId: "account-delete-media-owner",
+          table: "media_jobs",
+        },
+      );
+      expect(firstDrain.hasMore).toBe(true);
+      expect(
+        await t.mutation(internal.account_deletion._deleteExtraTableBatch, {
+          ownerId: "account-delete-media-owner",
+          table: "media_jobs",
+        }),
+      ).toEqual({ hasMore: false });
       expect(
         await t.mutation(internal.media_jobs.releaseImageSubmissionPayload, {
           jobId: "account-delete-media-1",
@@ -113,10 +218,61 @@ describe("managed media idempotency and cancellation", () => {
         }),
       ).toBe(false);
       expect(
+        await t.run(async (ctx) => {
+          const row = await ctx.db
+            .query("media_jobs")
+            .withIndex("by_jobId", (q) =>
+              q.eq("jobId", "account-delete-media-1"),
+            )
+            .unique();
+          return {
+            request: row?.request,
+            submissionPayloadStorageId: row?.submissionPayloadStorageId,
+          };
+        }),
+      ).toEqual({ request: {}, submissionPayloadStorageId: undefined });
+      await t.mutation(internal.media_jobs.markSubmitted, {
+        jobId: "account-delete-media-1",
+        submissionAttemptId: "in-flight-at-delete",
+        providerRequestId: "provider-accepted-during-delete",
+        upstreamStatus: "IN_QUEUE",
+      });
+      await t.mutation(internal.account_deletion._deleteExtraTableBatch, {
+        ownerId: "account-delete-media-owner",
+        table: "media_jobs",
+      });
+      expect(
         await t.run(async (ctx) => await ctx.db.query("media_jobs").collect()),
       ).toEqual([]);
 
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(null, { status: 200 })),
+      );
+      expect(
+        await t.run(
+          async (ctx) =>
+            await ctx.db.query("media_private_blob_cleanup").collect(),
+        ),
+      ).toHaveLength(2);
       await t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect(
+        await t.run(
+          async (ctx) =>
+            await ctx.db.query("media_private_blob_cleanup").collect(),
+        ),
+      ).toEqual([]);
+      expect(
+        await t.run(
+          async (ctx) => await ctx.db.query("media_webhook_events").collect(),
+        ),
+      ).toEqual([]);
+      expect(
+        await t.run(
+          async (ctx) =>
+            await ctx.db.query("media_provider_cancellations").collect(),
+        ),
+      ).toEqual([]);
       const urls = await t.run(
         async (ctx) =>
           await Promise.all([
@@ -128,6 +284,73 @@ describe("managed media idempotency and cancellation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("uses a late purge webhook only to reconcile provider cancellation", async () => {
+    ensureMediaEnv();
+    const t = createTest();
+    await t.mutation(internal.media_jobs.createJob, {
+      ownerId: "purge-webhook-owner",
+      jobId: "purge-webhook-job",
+      capability: "text_to_image",
+      profile: "best",
+      provider: "fal",
+      endpointId: "fal-ai/flux/dev",
+      request: { prompt: "must never bill" },
+    });
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("media_jobs")
+        .withIndex("by_jobId", (q) => q.eq("jobId", "purge-webhook-job"))
+        .unique();
+      if (!row) throw new Error("missing purge webhook fixture");
+      await ctx.db.patch(row._id, {
+        status: "canceled",
+        submissionState: "dispatching",
+        submissionAttemptId: "lost-response-attempt",
+        upstreamStatus: "OWNER_PURGED",
+        error: { code: "OWNER_PURGED", message: "owner deletion" },
+        completedAt: Date.now(),
+      });
+    });
+
+    await t.mutation(internal.media_jobs.applyFalWebhook, {
+      dedupKey: "purge-late-provider-id",
+      jobId: "purge-webhook-job",
+      providerRequestId: "fal-purge-late-request",
+      upstreamStatus: "OK",
+      output: { images: [{ url: "https://example.test/ignored.png" }] },
+      billing: {
+        endpointId: "fal-ai/flux/dev",
+        billingUnit: "image",
+        unitPriceUsd: 0.01,
+        quantity: 1,
+        costMicroCents: 1_000_000,
+        meteredFrom: "output",
+      },
+      receivedAt: Date.now(),
+    });
+
+    const [job, cancellations, receipts] = await t.run(async (ctx) => [
+      await ctx.db
+        .query("media_jobs")
+        .withIndex("by_jobId", (q) => q.eq("jobId", "purge-webhook-job"))
+        .unique(),
+      await ctx.db.query("media_provider_cancellations").collect(),
+      await ctx.db.query("billing_media_usage_receipts").collect(),
+    ]);
+    expect(job).toMatchObject({
+      status: "canceled",
+      upstreamStatus: "OWNER_PURGED",
+      providerRequestId: "fal-purge-late-request",
+    });
+    expect(cancellations).toEqual([
+      expect.objectContaining({
+        jobId: "purge-webhook-job",
+        providerRequestId: "fal-purge-late-request",
+      }),
+    ]);
+    expect(receipts).toEqual([]);
   });
 
   it("reattaches a repeated POST without a second upstream submission", async () => {
@@ -597,6 +820,11 @@ describe("managed media idempotency and cancellation", () => {
     expect(
       await t.mutation(internal.media_jobs.applyFalWebhook, webhook),
     ).toMatchObject({ updated: true });
+    expect(
+      await t.run(
+        async (ctx) => await ctx.db.query("media_webhook_events").unique(),
+      ),
+    ).toMatchObject({ ownerId: "billing-owner", jobId: "webhook-atomic-job" });
     expect(
       await t.mutation(internal.media_jobs.applyFalWebhook, webhook),
     ).toMatchObject({ updated: false, duplicate: true });

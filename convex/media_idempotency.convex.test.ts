@@ -103,6 +103,262 @@ describe("managed media idempotency and cancellation", () => {
     ).toEqual([]);
   });
 
+  it("tracks and purges a crash after every private payload persistence step", async () => {
+    const t = createTest();
+    for (
+      let crashAfterChunks = 0;
+      crashAfterChunks <= 3;
+      crashAfterChunks += 1
+    ) {
+      const ownerId = `chunk-crash-owner-${crashAfterChunks}`;
+      const manifestId = `chunk-crash-manifest-${crashAfterChunks}`;
+      expect(
+        await t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
+          ownerId,
+          manifestId,
+          jobId: `chunk-crash-job-${crashAfterChunks}`,
+          clientRequestKey: `chunk-crash-key-${crashAfterChunks}`,
+          expectedChunks: 3,
+          totalChars: 6,
+          createdAt: Date.now(),
+        }),
+      ).toBe("created");
+      for (let index = 0; index < crashAfterChunks; index += 1) {
+        expect(
+          await t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
+            ownerId,
+            manifestId,
+            index,
+            data: "xx",
+            writtenAt: Date.now(),
+          }),
+        ).toBe("appended");
+      }
+      const tracked = await t.run(async (ctx) => ({
+        manifest: await ctx.db
+          .query("media_private_payload_manifests")
+          .withIndex("by_manifestId", (q) => q.eq("manifestId", manifestId))
+          .unique(),
+        chunks: await ctx.db
+          .query("media_private_payload_chunks")
+          .withIndex("by_manifestId_and_index", (q) =>
+            q.eq("manifestId", manifestId),
+          )
+          .collect(),
+      }));
+      expect(tracked.manifest).toMatchObject({
+        ownerId,
+        jobId: `chunk-crash-job-${crashAfterChunks}`,
+        writtenChunks: crashAfterChunks,
+      });
+      expect(tracked.chunks).toHaveLength(crashAfterChunks);
+      expect(
+        tracked.chunks.every(
+          (chunk) =>
+            chunk.ownerId === ownerId &&
+            chunk.jobId === `chunk-crash-job-${crashAfterChunks}`,
+        ),
+      ).toBe(true);
+
+      await t.mutation(internal.media_jobs.beginOwnerMediaPurge, {
+        ownerId,
+        startedAt: Date.now(),
+      });
+      expect(
+        await t.action(
+          internal.media_image_submission.drainOwnerPrivatePayloadManifests,
+          { ownerId },
+        ),
+      ).toEqual({ remaining: 0 });
+    }
+    expect(
+      await t.run(async (ctx) => ({
+        manifests: await ctx.db
+          .query("media_private_payload_manifests")
+          .collect(),
+        chunks: await ctx.db.query("media_private_payload_chunks").collect(),
+      })),
+    ).toEqual({ manifests: [], chunks: [] });
+  });
+
+  it("rejects unregistered or incomplete chunks without creating an unowned payload", async () => {
+    const t = createTest();
+    await expect(
+      t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
+        ownerId: "missing-manifest-owner",
+        manifestId: "missing-manifest",
+        index: 0,
+        data: "secret",
+        writtenAt: Date.now(),
+      }),
+    ).rejects.toThrow("manifest is unavailable");
+    expect(
+      await t.run(async (ctx) =>
+        ctx.db.query("media_private_payload_chunks").collect(),
+      ),
+    ).toEqual([]);
+
+    await t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
+      ownerId: "incomplete-owner",
+      manifestId: "incomplete-manifest",
+      jobId: "incomplete-job",
+      clientRequestKey: "incomplete-key",
+      expectedChunks: 2,
+      totalChars: 4,
+      createdAt: Date.now(),
+    });
+    await t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
+      ownerId: "incomplete-owner",
+      manifestId: "incomplete-manifest",
+      index: 0,
+      data: "xx",
+      writtenAt: Date.now(),
+    });
+    await expect(
+      t.mutation(internal.media_jobs.finalizePrivatePayloadManifest, {
+        ownerId: "incomplete-owner",
+        manifestId: "incomplete-manifest",
+        finalizedAt: Date.now(),
+      }),
+    ).rejects.toThrow("upload is incomplete");
+    await expect(
+      t.mutation(internal.media_jobs.reserveIdempotentJob, {
+        ownerId: "incomplete-owner",
+        jobId: "incomplete-job",
+        clientRequestKey: "incomplete-key",
+        clientRequestHash: "incomplete-hash",
+        capability: "text_to_image",
+        profile: "best",
+        provider: "fal",
+        endpointId: "fal-ai/flux/dev",
+        request: { prompt: "redacted" },
+        submissionPayloadManifestId: "incomplete-manifest",
+      }),
+    ).rejects.toThrow("manifest is not complete");
+    expect(
+      await t.run(async (ctx) => ctx.db.query("media_jobs").collect()),
+    ).toEqual([]);
+  });
+
+  it("retries manifest cleanup after a crash between chunk deletion and manifest deletion", async () => {
+    const t = createTest();
+    await t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
+      ownerId: "cleanup-crash-owner",
+      manifestId: "cleanup-crash-manifest",
+      jobId: "cleanup-crash-job",
+      clientRequestKey: "cleanup-crash-key",
+      expectedChunks: 2,
+      totalChars: 4,
+      createdAt: Date.now(),
+    });
+    for (let index = 0; index < 2; index += 1) {
+      await t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
+        ownerId: "cleanup-crash-owner",
+        manifestId: "cleanup-crash-manifest",
+        index,
+        data: "xx",
+        writtenAt: Date.now(),
+      });
+    }
+    await t.mutation(internal.media_jobs.finalizePrivatePayloadManifest, {
+      ownerId: "cleanup-crash-owner",
+      manifestId: "cleanup-crash-manifest",
+      finalizedAt: Date.now(),
+    });
+    await expect(
+      t.action(internal.media_image_submission.deletePrivatePayloadManifest, {
+        manifestId: "cleanup-crash-manifest",
+        testCrashAfterBatches: 1,
+      }),
+    ).rejects.toThrow("Injected private payload cleanup crash");
+    expect(
+      await t.run(async (ctx) =>
+        ctx.db.query("media_private_payload_manifests").unique(),
+      ),
+    ).not.toBeNull();
+    await t.action(
+      internal.media_image_submission.deletePrivatePayloadManifest,
+      { manifestId: "cleanup-crash-manifest" },
+    );
+    expect(
+      await t.run(async (ctx) => ({
+        manifests: await ctx.db
+          .query("media_private_payload_manifests")
+          .collect(),
+        chunks: await ctx.db.query("media_private_payload_chunks").collect(),
+      })),
+    ).toEqual({ manifests: [], chunks: [] });
+  });
+
+  it("purges a complete manifest atomically attached to an account job", async () => {
+    const t = createTest();
+    const ownerId = "attached-manifest-owner";
+    const manifestId = "attached-manifest";
+    const jobId = "attached-manifest-job";
+    const clientRequestKey = "attached-manifest-key";
+    await t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
+      ownerId,
+      manifestId,
+      jobId,
+      clientRequestKey,
+      expectedChunks: 1,
+      totalChars: 7,
+      createdAt: Date.now(),
+    });
+    await t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
+      ownerId,
+      manifestId,
+      index: 0,
+      data: "private",
+      writtenAt: Date.now(),
+    });
+    await t.mutation(internal.media_jobs.finalizePrivatePayloadManifest, {
+      ownerId,
+      manifestId,
+      finalizedAt: Date.now(),
+    });
+    await expect(
+      t.mutation(internal.media_jobs.reserveIdempotentJob, {
+        ownerId,
+        jobId,
+        clientRequestKey,
+        clientRequestHash: "attached-manifest-hash",
+        capability: "text_to_image",
+        profile: "best",
+        provider: "fal",
+        endpointId: "fal-ai/flux/dev",
+        request: { prompt: "private Fashion reference" },
+        submissionPayloadManifestId: manifestId,
+      }),
+    ).resolves.toMatchObject({ state: "created", jobId });
+
+    await t.mutation(internal.media_jobs.beginOwnerMediaPurge, {
+      ownerId,
+      startedAt: Date.now(),
+    });
+    await expect(
+      t.mutation(internal.account_deletion._deleteExtraTableBatch, {
+        ownerId,
+        table: "media_jobs",
+      }),
+    ).resolves.toEqual({ hasMore: true });
+    await expect(
+      t.action(
+        internal.media_image_submission.drainOwnerPrivatePayloadManifests,
+        { ownerId },
+      ),
+    ).resolves.toEqual({ remaining: 0 });
+    expect(
+      await t.run(async (ctx) => ({
+        jobs: await ctx.db.query("media_jobs").collect(),
+        manifests: await ctx.db
+          .query("media_private_payload_manifests")
+          .collect(),
+        chunks: await ctx.db.query("media_private_payload_chunks").collect(),
+      })),
+    ).toEqual({ jobs: [], manifests: [], chunks: [] });
+  });
+
   it("atomically gates reservation and pending dispatch once media purge begins", async () => {
     const t = createTest();
     await t.mutation(internal.media_jobs.beginOwnerMediaPurge, {

@@ -125,6 +125,8 @@ export const mediaSchema = {
       ),
     ),
     submissionPayloadStorageId: v.optional(v.id("_storage")),
+    /** Transactionally tracked replacement for new managed image payloads. */
+    submissionPayloadManifestId: v.optional(v.string()),
     submissionAttemptId: v.optional(v.string()),
     submissionClaimedAt: v.optional(v.number()),
     connectorRequestId: v.optional(v.string()),
@@ -244,6 +246,46 @@ export const mediaSchema = {
     .index("by_storageId", ["storageId"])
     .index("by_ownerId_and_state", ["ownerId", "state"])
     .index("by_state_and_nextAttemptAt", ["state", "nextAttemptAt"]),
+
+  /**
+   * Owner/operation manifest created before the first encrypted payload chunk.
+   * Every new managed image payload is discoverable from this table even if
+   * its HTTP action crashes between any two chunk writes.
+   */
+  media_private_payload_manifests: defineTable({
+    ownerId: v.string(),
+    manifestId: v.string(),
+    jobId: v.string(),
+    clientRequestKey: v.string(),
+    state: v.union(
+      v.literal("uploading"),
+      v.literal("held"),
+      v.literal("pending"),
+    ),
+    expectedChunks: v.number(),
+    writtenChunks: v.number(),
+    totalChars: v.number(),
+    writtenChars: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    nextAttemptAt: v.number(),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_manifestId", ["manifestId"])
+    .index("by_ownerId_and_state", ["ownerId", "state"])
+    .index("by_state_and_nextAttemptAt", ["state", "nextAttemptAt"]),
+
+  /** Encrypted bounded chunks; owner and operation identity live on every row. */
+  media_private_payload_chunks: defineTable({
+    ownerId: v.string(),
+    manifestId: v.string(),
+    jobId: v.string(),
+    index: v.number(),
+    data: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_manifestId_and_index", ["manifestId", "index"])
+    .index("by_ownerId_and_manifestId", ["ownerId", "manifestId"]),
 
   /** Durable Fal cancellation outbox used by account deletion races. */
   media_provider_cancellations: defineTable({

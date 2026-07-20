@@ -48,7 +48,51 @@ export const submitReservedImageJob = internalAction({
         });
     if (!args.encryptedPayload && !preview) return null;
     let encrypted = args.encryptedPayload;
-    if (!encrypted && preview) {
+    if (!encrypted && preview?.manifestId) {
+      const manifest = await ctx.runQuery(
+        internal.media_jobs.getPrivatePayloadManifest,
+        { manifestId: preview.manifestId },
+      );
+      if (
+        !manifest ||
+        manifest.state !== "held" ||
+        manifest.jobId !== args.jobId ||
+        manifest.writtenChunks !== manifest.expectedChunks ||
+        manifest.writtenChars !== manifest.totalChars
+      ) {
+        throw new Error("Durable image submission payload is incomplete.");
+      }
+      const parts: string[] = [];
+      let afterIndex = -1;
+      let count = 0;
+      let totalChars = 0;
+      while (count < manifest.expectedChunks) {
+        const chunks: Array<{ index: number; data: string }> =
+          await ctx.runQuery(internal.media_jobs.listPrivatePayloadChunks, {
+            manifestId: preview.manifestId,
+            afterIndex,
+            limit: 32,
+          });
+        if (chunks.length === 0) break;
+        for (const chunk of chunks) {
+          if (chunk.index !== count) {
+            throw new Error("Durable image submission chunks are unordered.");
+          }
+          parts.push(chunk.data);
+          totalChars += chunk.data.length;
+          count += 1;
+          afterIndex = chunk.index;
+        }
+      }
+      if (
+        count !== manifest.expectedChunks ||
+        totalChars !== manifest.totalChars
+      ) {
+        throw new Error("Durable image submission payload is incomplete.");
+      }
+      encrypted = parts.join("");
+    }
+    if (!encrypted && preview?.storageId) {
       const payloadUrl = await ctx.storage.getUrl(preview.storageId);
       if (!payloadUrl) {
         throw new Error("Durable image submission payload is unavailable.");
@@ -134,10 +178,17 @@ export const submitReservedImageJob = internalAction({
         });
       }
     } finally {
-      await ctx.runMutation(internal.media_jobs.releaseImageSubmissionPayload, {
-        jobId: args.jobId,
-        storageId: claim.storageId,
-      });
+      if (claim.manifestId) {
+        await ctx.runMutation(
+          internal.media_jobs.releaseImageSubmissionManifest,
+          { jobId: args.jobId, manifestId: claim.manifestId },
+        );
+      } else if (claim.storageId) {
+        await ctx.runMutation(
+          internal.media_jobs.releaseImageSubmissionPayload,
+          { jobId: args.jobId, storageId: claim.storageId },
+        );
+      }
     }
     return null;
   },
@@ -213,6 +264,81 @@ export const drainOwnerPrivateBlobCleanup = internalAction({
     }
     const remaining: Array<{ storageId: Id<"_storage"> }> = await ctx.runQuery(
       internal.media_jobs.listOwnerPrivateBlobCleanup,
+      { ownerId: args.ownerId, limit: 1 },
+    );
+    return { remaining: remaining.length };
+  },
+});
+
+export const deletePrivatePayloadManifest = internalAction({
+  args: {
+    manifestId: v.string(),
+    testCrashAfterBatches: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    let batches = 0;
+    for (;;) {
+      const result = await ctx.runMutation(
+        internal.media_jobs.deletePrivatePayloadChunkBatch,
+        { manifestId: args.manifestId, limit: 100 },
+      );
+      if (result.deleted === 0) break;
+      batches += 1;
+      if (
+        args.testCrashAfterBatches !== undefined &&
+        batches >= args.testCrashAfterBatches
+      ) {
+        throw new Error("Injected private payload cleanup crash");
+      }
+    }
+    const deleted = await ctx.runMutation(
+      internal.media_jobs.deletePrivatePayloadManifestIfEmpty,
+      { manifestId: args.manifestId },
+    );
+    if (!deleted) throw new Error("Private payload cleanup did not converge.");
+    return null;
+  },
+});
+
+export const drainPrivatePayloadManifests = internalAction({
+  args: { limit: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const rows: Array<{ manifestId: string }> = await ctx.runQuery(
+      internal.media_jobs.listDuePrivatePayloadManifests,
+      { now: Date.now(), limit: args.limit ?? 50 },
+    );
+    for (const row of rows) {
+      await ctx
+        .runAction(
+          internal.media_image_submission.deletePrivatePayloadManifest,
+          { manifestId: row.manifestId },
+        )
+        .catch(() => undefined);
+    }
+    return null;
+  },
+});
+
+export const drainOwnerPrivatePayloadManifests = internalAction({
+  args: { ownerId: v.string(), limit: v.optional(v.number()) },
+  returns: v.object({ remaining: v.number() }),
+  handler: async (ctx, args): Promise<{ remaining: number }> => {
+    const rows: Array<{ manifestId: string }> = await ctx.runQuery(
+      internal.media_jobs.listOwnerPrivatePayloadManifests,
+      { ownerId: args.ownerId, limit: args.limit ?? 100 },
+    );
+    for (const row of rows) {
+      await ctx
+        .runAction(
+          internal.media_image_submission.deletePrivatePayloadManifest,
+          { manifestId: row.manifestId },
+        )
+        .catch(() => undefined);
+    }
+    const remaining: Array<{ manifestId: string }> = await ctx.runQuery(
+      internal.media_jobs.listOwnerPrivatePayloadManifests,
       { ownerId: args.ownerId, limit: 1 },
     );
     return { remaining: remaining.length };

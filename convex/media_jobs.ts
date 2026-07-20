@@ -28,6 +28,10 @@ import {
 import { extractDeliveryMediaFromOutput } from "./channels/connector_media_types";
 
 export const PUBLIC_MEDIA_TEST_OWNER_ID = "__public_media_test__";
+export const PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS = 96 * 1024;
+export const MAX_PRIVATE_MEDIA_PAYLOAD_CHARS = 64 * 1024 * 1024;
+const INCOMPLETE_PRIVATE_PAYLOAD_RETENTION_MS = 60 * 60_000;
+const UNATTACHED_PRIVATE_PAYLOAD_RETENTION_MS = 24 * 60 * 60_000;
 
 export const isMediaPublicTestModeEnabled = (): boolean =>
   process.env.MEDIA_PUBLIC_TEST_MODE?.trim() === "1";
@@ -124,6 +128,22 @@ const markPrivateBlobPending = async (
   });
 };
 
+const markPrivatePayloadManifestPending = async (
+  ctx: MutationCtx,
+  args: { manifestId: string; now: number },
+) => {
+  const manifest = await ctx.db
+    .query("media_private_payload_manifests")
+    .withIndex("by_manifestId", (q) => q.eq("manifestId", args.manifestId))
+    .unique();
+  if (!manifest) return;
+  await ctx.db.patch(manifest._id, {
+    state: "pending",
+    nextAttemptAt: args.now,
+    updatedAt: args.now,
+  });
+};
+
 const enqueueProviderCancellation = async (
   ctx: MutationCtx,
   args: {
@@ -174,7 +194,321 @@ export const beginOwnerMediaPurge = internalMutation({
         updatedAt: args.startedAt,
       });
     }
+    for (const state of ["uploading", "held"] as const) {
+      const manifests = await ctx.db
+        .query("media_private_payload_manifests")
+        .withIndex("by_ownerId_and_state", (q) =>
+          q.eq("ownerId", args.ownerId).eq("state", state),
+        )
+        .take(500);
+      for (const manifest of manifests) {
+        await ctx.db.patch(manifest._id, {
+          state: "pending",
+          nextAttemptAt: args.startedAt,
+          updatedAt: args.startedAt,
+        });
+      }
+    }
     return null;
+  },
+});
+
+export const createPrivatePayloadManifest = internalMutation({
+  args: {
+    ownerId: v.string(),
+    manifestId: v.string(),
+    jobId: v.string(),
+    clientRequestKey: v.string(),
+    expectedChunks: v.number(),
+    totalChars: v.number(),
+    createdAt: v.number(),
+  },
+  returns: v.union(
+    v.literal("created"),
+    v.literal("uploading"),
+    v.literal("held"),
+    v.literal("pending"),
+    v.literal("owner_purged"),
+  ),
+  handler: async (ctx, args) => {
+    if (
+      !Number.isInteger(args.expectedChunks) ||
+      args.expectedChunks < 1 ||
+      args.expectedChunks >
+        Math.ceil(
+          MAX_PRIVATE_MEDIA_PAYLOAD_CHARS / PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+        ) ||
+      !Number.isInteger(args.totalChars) ||
+      args.totalChars < 1 ||
+      args.totalChars > MAX_PRIVATE_MEDIA_PAYLOAD_CHARS
+    ) {
+      throw new Error("Encrypted media payload manifest exceeds safe limits.");
+    }
+    const existing = await ctx.db
+      .query("media_private_payload_manifests")
+      .withIndex("by_manifestId", (q) => q.eq("manifestId", args.manifestId))
+      .unique();
+    if (existing) {
+      if (
+        existing.ownerId !== args.ownerId ||
+        existing.jobId !== args.jobId ||
+        existing.clientRequestKey !== args.clientRequestKey ||
+        existing.expectedChunks !== args.expectedChunks ||
+        existing.totalChars !== args.totalChars
+      ) {
+        throw new Error("Encrypted media payload manifest identity conflict.");
+      }
+      return existing.state;
+    }
+    const purged = await ownerMediaPurgeActive(ctx, args.ownerId);
+    await ctx.db.insert("media_private_payload_manifests", {
+      ownerId: args.ownerId,
+      manifestId: args.manifestId,
+      jobId: args.jobId,
+      clientRequestKey: args.clientRequestKey,
+      state: purged ? "pending" : "uploading",
+      expectedChunks: args.expectedChunks,
+      writtenChunks: 0,
+      totalChars: args.totalChars,
+      writtenChars: 0,
+      createdAt: args.createdAt,
+      updatedAt: args.createdAt,
+      nextAttemptAt: purged
+        ? args.createdAt
+        : args.createdAt + INCOMPLETE_PRIVATE_PAYLOAD_RETENTION_MS,
+    });
+    return purged ? ("owner_purged" as const) : ("created" as const);
+  },
+});
+
+export const appendPrivatePayloadChunk = internalMutation({
+  args: {
+    ownerId: v.string(),
+    manifestId: v.string(),
+    index: v.number(),
+    data: v.string(),
+    writtenAt: v.number(),
+  },
+  returns: v.union(v.literal("appended"), v.literal("owner_purged")),
+  handler: async (ctx, args) => {
+    if (
+      !Number.isInteger(args.index) ||
+      args.index < 0 ||
+      args.data.length < 1 ||
+      args.data.length > PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS
+    ) {
+      throw new Error("Encrypted media payload chunk exceeds safe limits.");
+    }
+    const manifest = await ctx.db
+      .query("media_private_payload_manifests")
+      .withIndex("by_manifestId", (q) => q.eq("manifestId", args.manifestId))
+      .unique();
+    if (!manifest || manifest.ownerId !== args.ownerId) {
+      throw new Error("Encrypted media payload manifest is unavailable.");
+    }
+    if (
+      manifest.state === "pending" ||
+      (await ownerMediaPurgeActive(ctx, args.ownerId))
+    ) {
+      await ctx.db.patch(manifest._id, {
+        state: "pending",
+        nextAttemptAt: args.writtenAt,
+        updatedAt: args.writtenAt,
+      });
+      return "owner_purged" as const;
+    }
+    if (manifest.state !== "uploading") {
+      throw new Error("Encrypted media payload upload is already finalized.");
+    }
+    const existing = await ctx.db
+      .query("media_private_payload_chunks")
+      .withIndex("by_manifestId_and_index", (q) =>
+        q.eq("manifestId", args.manifestId).eq("index", args.index),
+      )
+      .unique();
+    if (existing) {
+      if (existing.ownerId !== args.ownerId || existing.data !== args.data) {
+        throw new Error("Encrypted media payload chunk identity conflict.");
+      }
+      return "appended" as const;
+    }
+    if (
+      args.index !== manifest.writtenChunks ||
+      args.index >= manifest.expectedChunks ||
+      manifest.writtenChars + args.data.length > manifest.totalChars
+    ) {
+      throw new Error(
+        "Encrypted media payload chunks are incomplete or unordered.",
+      );
+    }
+    await ctx.db.insert("media_private_payload_chunks", {
+      ownerId: args.ownerId,
+      manifestId: args.manifestId,
+      jobId: manifest.jobId,
+      index: args.index,
+      data: args.data,
+      createdAt: args.writtenAt,
+    });
+    await ctx.db.patch(manifest._id, {
+      writtenChunks: manifest.writtenChunks + 1,
+      writtenChars: manifest.writtenChars + args.data.length,
+      updatedAt: args.writtenAt,
+      nextAttemptAt: args.writtenAt + INCOMPLETE_PRIVATE_PAYLOAD_RETENTION_MS,
+    });
+    return "appended" as const;
+  },
+});
+
+export const finalizePrivatePayloadManifest = internalMutation({
+  args: {
+    ownerId: v.string(),
+    manifestId: v.string(),
+    finalizedAt: v.number(),
+  },
+  returns: v.union(v.literal("held"), v.literal("owner_purged")),
+  handler: async (ctx, args) => {
+    const manifest = await ctx.db
+      .query("media_private_payload_manifests")
+      .withIndex("by_manifestId", (q) => q.eq("manifestId", args.manifestId))
+      .unique();
+    if (!manifest || manifest.ownerId !== args.ownerId) {
+      throw new Error("Encrypted media payload manifest is unavailable.");
+    }
+    if (
+      manifest.state === "pending" ||
+      (await ownerMediaPurgeActive(ctx, args.ownerId))
+    ) {
+      await ctx.db.patch(manifest._id, {
+        state: "pending",
+        nextAttemptAt: args.finalizedAt,
+        updatedAt: args.finalizedAt,
+      });
+      return "owner_purged" as const;
+    }
+    if (
+      manifest.writtenChunks !== manifest.expectedChunks ||
+      manifest.writtenChars !== manifest.totalChars
+    ) {
+      throw new Error("Encrypted media payload upload is incomplete.");
+    }
+    await ctx.db.patch(manifest._id, {
+      state: "held",
+      updatedAt: args.finalizedAt,
+      nextAttemptAt: args.finalizedAt + UNATTACHED_PRIVATE_PAYLOAD_RETENTION_MS,
+    });
+    return "held" as const;
+  },
+});
+
+export const makePrivatePayloadManifestDeletable = internalMutation({
+  args: { manifestId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await markPrivatePayloadManifestPending(ctx, {
+      manifestId: args.manifestId,
+      now: Date.now(),
+    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.media_image_submission.deletePrivatePayloadManifest,
+      { manifestId: args.manifestId },
+    );
+    return null;
+  },
+});
+
+export const getPrivatePayloadManifest = internalQuery({
+  args: { manifestId: v.string() },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("media_private_payload_manifests")
+      .withIndex("by_manifestId", (q) => q.eq("manifestId", args.manifestId))
+      .unique(),
+});
+
+export const listPrivatePayloadChunks = internalQuery({
+  args: { manifestId: v.string(), afterIndex: v.number(), limit: v.number() },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("media_private_payload_chunks")
+      .withIndex("by_manifestId_and_index", (q) =>
+        q.eq("manifestId", args.manifestId).gt("index", args.afterIndex),
+      )
+      .take(Math.max(1, Math.min(args.limit, 32))),
+});
+
+export const deletePrivatePayloadChunkBatch = internalMutation({
+  args: { manifestId: v.string(), limit: v.number() },
+  returns: v.object({ deleted: v.number(), hasMore: v.boolean() }),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("media_private_payload_chunks")
+      .withIndex("by_manifestId_and_index", (q) =>
+        q.eq("manifestId", args.manifestId),
+      )
+      .take(Math.max(1, Math.min(args.limit, 100)));
+    for (const row of rows) await ctx.db.delete(row._id);
+    return { deleted: rows.length, hasMore: rows.length > 0 };
+  },
+});
+
+export const deletePrivatePayloadManifestIfEmpty = internalMutation({
+  args: { manifestId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const remaining = await ctx.db
+      .query("media_private_payload_chunks")
+      .withIndex("by_manifestId_and_index", (q) =>
+        q.eq("manifestId", args.manifestId),
+      )
+      .first();
+    if (remaining) return false;
+    const manifest = await ctx.db
+      .query("media_private_payload_manifests")
+      .withIndex("by_manifestId", (q) => q.eq("manifestId", args.manifestId))
+      .unique();
+    if (manifest) await ctx.db.delete(manifest._id);
+    return true;
+  },
+});
+
+export const listDuePrivatePayloadManifests = internalQuery({
+  args: { now: v.number(), limit: v.number() },
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit, 100));
+    const rows = [];
+    for (const state of ["pending", "uploading", "held"] as const) {
+      if (rows.length >= limit) break;
+      rows.push(
+        ...(await ctx.db
+          .query("media_private_payload_manifests")
+          .withIndex("by_state_and_nextAttemptAt", (q) =>
+            q.eq("state", state).lte("nextAttemptAt", args.now),
+          )
+          .take(limit - rows.length)),
+      );
+    }
+    return rows;
+  },
+});
+
+export const listOwnerPrivatePayloadManifests = internalQuery({
+  args: { ownerId: v.string(), limit: v.number() },
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit, 100));
+    const rows = [];
+    for (const state of ["pending", "uploading", "held"] as const) {
+      if (rows.length >= limit) break;
+      rows.push(
+        ...(await ctx.db
+          .query("media_private_payload_manifests")
+          .withIndex("by_ownerId_and_state", (q) =>
+            q.eq("ownerId", args.ownerId).eq("state", state),
+          )
+          .take(limit - rows.length)),
+      );
+    }
+    return rows;
   },
 });
 
@@ -698,17 +1032,30 @@ export const getByOwnerClientRequestKey = internalQuery({
 
 export const getImageSubmissionPayload = internalQuery({
   args: { jobId: v.string() },
-  returns: v.union(v.null(), v.object({ storageId: v.id("_storage") })),
+  returns: v.union(
+    v.null(),
+    v.object({
+      storageId: v.optional(v.id("_storage")),
+      manifestId: v.optional(v.string()),
+    }),
+  ),
   handler: async (ctx, args) => {
     const job = await getJobByJobId(ctx, args.jobId);
     if (
       !job ||
       job.submissionState !== "pending" ||
-      !job.submissionPayloadStorageId ||
+      (!job.submissionPayloadStorageId && !job.submissionPayloadManifestId) ||
       isTerminalMediaJobStatus(job.status)
     )
       return null;
-    return { storageId: job.submissionPayloadStorageId };
+    return {
+      ...(job.submissionPayloadStorageId
+        ? { storageId: job.submissionPayloadStorageId }
+        : {}),
+      ...(job.submissionPayloadManifestId
+        ? { manifestId: job.submissionPayloadManifestId }
+        : {}),
+    };
   },
 });
 
@@ -932,18 +1279,52 @@ export const reserveIdempotentJob = internalMutation({
     connectorRequestId: v.optional(v.string()),
     billing: v.optional(mediaJobBillingValidator),
     submissionPayloadStorageId: v.optional(v.id("_storage")),
+    submissionPayloadManifestId: v.optional(v.string()),
     encryptedSubmissionPayload: v.optional(v.string()),
   },
   returns: reserveIdempotentJobResultValidator,
   handler: async (ctx, args) => {
-    if (await ownerMediaPurgeActive(ctx, args.ownerId)) {
-      if (args.submissionPayloadStorageId) {
+    if (args.submissionPayloadStorageId && args.submissionPayloadManifestId) {
+      throw new Error(
+        "Media reservation accepts only one durable payload source.",
+      );
+    }
+    const releaseIncomingPayload = async (preserve?: {
+      storageId?: Id<"_storage">;
+      manifestId?: string;
+    }) => {
+      if (
+        args.submissionPayloadStorageId &&
+        args.submissionPayloadStorageId !== preserve?.storageId
+      ) {
         await markPrivateBlobPending(ctx, {
           ownerId: args.ownerId,
           storageId: args.submissionPayloadStorageId,
           now: Date.now(),
         });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.media_image_submission.deleteSubmissionPayload,
+          { storageId: args.submissionPayloadStorageId },
+        );
       }
+      if (
+        args.submissionPayloadManifestId &&
+        args.submissionPayloadManifestId !== preserve?.manifestId
+      ) {
+        await markPrivatePayloadManifestPending(ctx, {
+          manifestId: args.submissionPayloadManifestId,
+          now: Date.now(),
+        });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.media_image_submission.deletePrivatePayloadManifest,
+          { manifestId: args.submissionPayloadManifestId },
+        );
+      }
+    };
+    if (await ownerMediaPurgeActive(ctx, args.ownerId)) {
+      await releaseIncomingPayload();
       return { state: "owner_purged" as const };
     }
     const canceled = await ctx.db
@@ -954,7 +1335,10 @@ export const reserveIdempotentJob = internalMutation({
           .eq("clientRequestKey", args.clientRequestKey),
       )
       .unique();
-    if (canceled) return { state: "canceled" as const };
+    if (canceled) {
+      await releaseIncomingPayload();
+      return { state: "canceled" as const };
+    }
 
     const existing = await getJobByClientRequestKey(
       ctx,
@@ -963,8 +1347,17 @@ export const reserveIdempotentJob = internalMutation({
     );
     if (existing) {
       if (existing.clientRequestHash !== args.clientRequestHash) {
+        await releaseIncomingPayload();
         return { state: "conflict" as const, jobId: existing.jobId };
       }
+      await releaseIncomingPayload({
+        ...(existing.submissionPayloadStorageId
+          ? { storageId: existing.submissionPayloadStorageId }
+          : {}),
+        ...(existing.submissionPayloadManifestId
+          ? { manifestId: existing.submissionPayloadManifestId }
+          : {}),
+      });
       return {
         state: "existing" as const,
         jobId: existing.jobId,
@@ -980,6 +1373,26 @@ export const reserveIdempotentJob = internalMutation({
         code: "CONFLICT",
         message: "Media job already exists.",
       });
+    }
+
+    if (args.submissionPayloadManifestId) {
+      const manifest = await ctx.db
+        .query("media_private_payload_manifests")
+        .withIndex("by_manifestId", (q) =>
+          q.eq("manifestId", args.submissionPayloadManifestId!),
+        )
+        .unique();
+      if (
+        !manifest ||
+        manifest.ownerId !== args.ownerId ||
+        manifest.jobId !== args.jobId ||
+        manifest.clientRequestKey !== args.clientRequestKey ||
+        manifest.state !== "held" ||
+        manifest.writtenChunks !== manifest.expectedChunks ||
+        manifest.writtenChars !== manifest.totalChars
+      ) {
+        throw new Error("Encrypted media payload manifest is not complete.");
+      }
     }
 
     const now = Date.now();
@@ -1001,6 +1414,12 @@ export const reserveIdempotentJob = internalMutation({
         ? {
             submissionState: "pending" as const,
             submissionPayloadStorageId: args.submissionPayloadStorageId,
+          }
+        : {}),
+      ...(args.submissionPayloadManifestId
+        ? {
+            submissionState: "pending" as const,
+            submissionPayloadManifestId: args.submissionPayloadManifestId,
           }
         : {}),
       status: "queued",
@@ -1051,6 +1470,26 @@ export const reserveIdempotentJob = internalMutation({
         },
       );
     }
+    if (args.submissionPayloadManifestId) {
+      const manifest = await ctx.db
+        .query("media_private_payload_manifests")
+        .withIndex("by_manifestId", (q) =>
+          q.eq("manifestId", args.submissionPayloadManifestId!),
+        )
+        .unique();
+      if (!manifest)
+        throw new Error("Encrypted media payload manifest vanished.");
+      await ctx.db.patch(manifest._id, {
+        state: "held",
+        updatedAt: now,
+        nextAttemptAt: now + UNATTACHED_PRIVATE_PAYLOAD_RETENTION_MS,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.submitReservedImageJob,
+        { jobId: args.jobId },
+      );
+    }
     return {
       state: "created" as const,
       jobId: args.jobId,
@@ -1075,7 +1514,8 @@ export const beginSubmission = internalMutation({
 const submissionClaimResultValidator = v.union(
   v.object({
     state: v.literal("claimed"),
-    storageId: v.id("_storage"),
+    storageId: v.optional(v.id("_storage")),
+    manifestId: v.optional(v.string()),
     endpointId: v.string(),
   }),
   v.object({ state: v.literal("skip") }),
@@ -1095,7 +1535,7 @@ export const claimImageSubmission = internalMutation({
     if (
       !job ||
       job.submissionState !== "pending" ||
-      !job.submissionPayloadStorageId ||
+      (!job.submissionPayloadStorageId && !job.submissionPayloadManifestId) ||
       isTerminalMediaJobStatus(job.status)
     ) {
       return { state: "skip" as const };
@@ -1113,12 +1553,20 @@ export const claimImageSubmission = internalMutation({
         updatedAt: args.claimedAt,
         completedAt: args.claimedAt,
       });
-      await markPrivateBlobPending(ctx, {
-        ownerId: job.ownerId,
-        storageId: job.submissionPayloadStorageId,
-        jobId: job.jobId,
-        now: args.claimedAt,
-      });
+      if (job.submissionPayloadStorageId) {
+        await markPrivateBlobPending(ctx, {
+          ownerId: job.ownerId,
+          storageId: job.submissionPayloadStorageId,
+          jobId: job.jobId,
+          now: args.claimedAt,
+        });
+      }
+      if (job.submissionPayloadManifestId) {
+        await markPrivatePayloadManifestPending(ctx, {
+          manifestId: job.submissionPayloadManifestId,
+          now: args.claimedAt,
+        });
+      }
       return { state: "skip" as const };
     }
     await ctx.db.patch(job._id, {
@@ -1129,7 +1577,12 @@ export const claimImageSubmission = internalMutation({
     });
     return {
       state: "claimed" as const,
-      storageId: job.submissionPayloadStorageId,
+      ...(job.submissionPayloadStorageId
+        ? { storageId: job.submissionPayloadStorageId }
+        : {}),
+      ...(job.submissionPayloadManifestId
+        ? { manifestId: job.submissionPayloadManifestId }
+        : {}),
       endpointId: job.endpointId,
     };
   },
@@ -1208,6 +1661,7 @@ export const reconcilePendingImageSubmissions = internalMutation({
           status: "failed",
           submissionState: "failed",
           submissionPayloadStorageId: undefined,
+          submissionPayloadManifestId: undefined,
           upstreamStatus: "SUBMISSION_ABANDONED",
           queuePosition: null,
           error: {
@@ -1223,6 +1677,17 @@ export const reconcilePendingImageSubmissions = internalMutation({
             0,
             internal.media_image_submission.deleteSubmissionPayload,
             { storageId: job.submissionPayloadStorageId },
+          );
+        }
+        if (job.submissionPayloadManifestId) {
+          await markPrivatePayloadManifestPending(ctx, {
+            manifestId: job.submissionPayloadManifestId,
+            now: startedAt,
+          });
+          await ctx.scheduler.runAfter(
+            0,
+            internal.media_image_submission.deletePrivatePayloadManifest,
+            { manifestId: job.submissionPayloadManifestId },
           );
         }
         abandoned += 1;
@@ -1255,6 +1720,7 @@ export const reconcilePendingImageSubmissions = internalMutation({
       await ctx.db.patch(job._id, {
         submissionState: "unknown",
         submissionPayloadStorageId: undefined,
+        submissionPayloadManifestId: undefined,
         upstreamStatus: "SUBMISSION_OUTCOME_UNKNOWN",
         error: {
           code: "SUBMISSION_OUTCOME_UNKNOWN",
@@ -1268,6 +1734,17 @@ export const reconcilePendingImageSubmissions = internalMutation({
           0,
           internal.media_image_submission.deleteSubmissionPayload,
           { storageId: job.submissionPayloadStorageId },
+        );
+      }
+      if (job.submissionPayloadManifestId) {
+        await markPrivatePayloadManifestPending(ctx, {
+          manifestId: job.submissionPayloadManifestId,
+          now,
+        });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.media_image_submission.deletePrivatePayloadManifest,
+          { manifestId: job.submissionPayloadManifestId },
         );
       }
       remaining -= 1;
@@ -1315,6 +1792,7 @@ const cancelIdempotentRequestResultValidator = v.object({
   endpointId: v.optional(v.string()),
   providerRequestId: v.optional(v.string()),
   submissionPayloadStorageId: v.optional(v.id("_storage")),
+  submissionPayloadManifestId: v.optional(v.string()),
 });
 
 /** Persist cancellation before attempting provider cancellation. */
@@ -1371,12 +1849,26 @@ export const cancelIdempotentRequest = internalMutation({
         ...(job.submissionPayloadStorageId
           ? { submissionPayloadStorageId: undefined }
           : {}),
+        ...(job.submissionPayloadManifestId
+          ? { submissionPayloadManifestId: undefined }
+          : {}),
         upstreamStatus: "CANCELED",
         queuePosition: null,
         error: { message: "Image generation was canceled.", code: "CANCELED" },
         updatedAt: args.canceledAt,
         completedAt: args.canceledAt,
       });
+    }
+    if (job.submissionPayloadManifestId) {
+      await markPrivatePayloadManifestPending(ctx, {
+        manifestId: job.submissionPayloadManifestId,
+        now: args.canceledAt,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.deletePrivatePayloadManifest,
+        { manifestId: job.submissionPayloadManifestId },
+      );
     }
     return {
       state: "canceled" as const,
@@ -1387,6 +1879,9 @@ export const cancelIdempotentRequest = internalMutation({
         : {}),
       ...(job.submissionPayloadStorageId
         ? { submissionPayloadStorageId: job.submissionPayloadStorageId }
+        : {}),
+      ...(job.submissionPayloadManifestId
+        ? { submissionPayloadManifestId: job.submissionPayloadManifestId }
         : {}),
     };
   },
@@ -1410,6 +1905,28 @@ export const releaseImageSubmissionPayload = internalMutation({
       0,
       internal.media_image_submission.deleteSubmissionPayload,
       { storageId: args.storageId },
+    );
+    return true;
+  },
+});
+
+export const releaseImageSubmissionManifest = internalMutation({
+  args: { jobId: v.string(), manifestId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const job = await getJobByJobId(ctx, args.jobId);
+    if (!job || job.submissionPayloadManifestId !== args.manifestId)
+      return false;
+    if (job.submissionState === "pending") return false;
+    await markPrivatePayloadManifestPending(ctx, {
+      manifestId: args.manifestId,
+      now: Date.now(),
+    });
+    await ctx.db.patch(job._id, { submissionPayloadManifestId: undefined });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.media_image_submission.deletePrivatePayloadManifest,
+      { manifestId: args.manifestId },
     );
     return true;
   },
@@ -1541,6 +2058,9 @@ export const markSubmissionFailed = internalMutation({
       ...(job.submissionPayloadStorageId
         ? { submissionPayloadStorageId: undefined }
         : {}),
+      ...(job.submissionPayloadManifestId
+        ? { submissionPayloadManifestId: undefined }
+        : {}),
       upstreamStatus: args.upstreamStatus,
       error: args.error,
       updatedAt: now,
@@ -1551,6 +2071,17 @@ export const markSubmissionFailed = internalMutation({
         0,
         internal.media_image_submission.deleteSubmissionPayload,
         { storageId: job.submissionPayloadStorageId },
+      );
+    }
+    if (job.submissionPayloadManifestId) {
+      await markPrivatePayloadManifestPending(ctx, {
+        manifestId: job.submissionPayloadManifestId,
+        now,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.deletePrivatePayloadManifest,
+        { manifestId: job.submissionPayloadManifestId },
       );
     }
     return null;
@@ -1604,6 +2135,9 @@ export const markStaleJobsFailed = internalMutation({
             ...(job.submissionPayloadStorageId
               ? { submissionPayloadStorageId: undefined }
               : {}),
+            ...(job.submissionPayloadManifestId
+              ? { submissionPayloadManifestId: undefined }
+              : {}),
             upstreamStatus: "TERMINAL_OUTCOME_UNKNOWN",
             queuePosition: null,
             error: terminalError,
@@ -1615,6 +2149,17 @@ export const markStaleJobsFailed = internalMutation({
               0,
               internal.media_image_submission.deleteSubmissionPayload,
               { storageId: job.submissionPayloadStorageId },
+            );
+          }
+          if (job.submissionPayloadManifestId) {
+            await markPrivatePayloadManifestPending(ctx, {
+              manifestId: job.submissionPayloadManifestId,
+              now,
+            });
+            await ctx.scheduler.runAfter(
+              0,
+              internal.media_image_submission.deletePrivatePayloadManifest,
+              { manifestId: job.submissionPayloadManifestId },
             );
           }
           updated += 1;
@@ -1841,6 +2386,9 @@ export const applyFalWebhook = internalMutation({
       ...(job.submissionPayloadStorageId
         ? { submissionPayloadStorageId: undefined }
         : {}),
+      ...(job.submissionPayloadManifestId
+        ? { submissionPayloadManifestId: undefined }
+        : {}),
       upstreamStatus: args.upstreamStatus,
       queuePosition: null,
       ...(args.providerRequestId
@@ -1880,6 +2428,17 @@ export const applyFalWebhook = internalMutation({
         0,
         internal.media_image_submission.deleteSubmissionPayload,
         { storageId: job.submissionPayloadStorageId },
+      );
+    }
+    if (job.submissionPayloadManifestId) {
+      await markPrivatePayloadManifestPending(ctx, {
+        manifestId: job.submissionPayloadManifestId,
+        now: args.receivedAt,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.deletePrivatePayloadManifest,
+        { manifestId: job.submissionPayloadManifestId },
       );
     }
 

@@ -70,9 +70,16 @@ crons.interval(
 );
 
 crons.interval(
-  "retry encrypted media payload deletion",
+  "retry legacy encrypted media blob deletion",
   { minutes: 1 },
   internal.media_image_submission.drainPrivateBlobCleanup,
+  { limit: 100 },
+);
+
+crons.interval(
+  "retry encrypted media manifest deletion",
+  { minutes: 1 },
+  internal.media_image_submission.drainPrivatePayloadManifests,
   { limit: 100 },
 );
 

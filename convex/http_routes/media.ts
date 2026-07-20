@@ -21,7 +21,11 @@ import {
   type MediaJobStatus,
   parseMediaGenerateRequest,
 } from "../media_contract";
-import { summarizeMediaRequestForStorage } from "../media_jobs";
+import {
+  MAX_PRIVATE_MEDIA_PAYLOAD_CHARS,
+  PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+  summarizeMediaRequestForStorage,
+} from "../media_jobs";
 import {
   buildFalResponseUrl,
   cancelFalRequest,
@@ -794,17 +798,20 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               origin,
             );
 
-          const jobId = crypto.randomUUID();
+          const jobId = clientRequestKey
+            ? `img_${(
+                await hashSha256Hex(
+                  `media-job:v1:${ownerId}:${clientRequestKey}`,
+                )
+              ).slice(0, 40)}`
+            : crypto.randomUUID();
           if (clientRequestKey && clientRequestHash) {
             const isDurableFalImage =
               resolved.profile.provider === "fal" &&
               ["text_to_image", "image_edit", "icon"].includes(
                 resolved.capability.id,
               );
-            let submissionPayloadStorageId:
-              | Awaited<ReturnType<typeof ctx.storage.store>>
-              | undefined;
-            let encryptedSubmissionPayload: string | undefined;
+            let submissionPayloadManifestId: string | undefined;
             if (isDurableFalImage) {
               const encrypted = await encryptSecret(
                 JSON.stringify({
@@ -812,48 +819,113 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                   webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}`,
                 }),
               );
-              encryptedSubmissionPayload = JSON.stringify(encrypted);
-              submissionPayloadStorageId = await ctx.storage.store(
-                new Blob([encryptedSubmissionPayload], {
-                  type: "application/vnd.stella.encrypted+json",
-                }),
-              );
-              let registered: "registered" | "owner_purged" | undefined;
-              let registrationError: unknown;
-              for (let attempt = 0; attempt < 5 && !registered; attempt += 1) {
-                try {
-                  registered = await ctx.runMutation(
-                    internal.media_jobs.registerPrivateSubmissionBlob,
-                    {
-                      ownerId,
-                      storageId: submissionPayloadStorageId,
-                      createdAt: Date.now(),
-                    },
-                  );
-                } catch (error) {
-                  registrationError = error;
-                }
-              }
-              if (!registered) {
-                // No reservation or dispatch exists yet. Best-effort immediate
-                // rollback is safe; successful registration is the only path
-                // allowed to proceed to durable reservation.
-                await ctx.storage.delete(submissionPayloadStorageId);
-                throw (
-                  registrationError ??
-                  new Error("Encrypted media payload registration failed.")
+              const encryptedSubmissionPayload = JSON.stringify(encrypted);
+              if (
+                encryptedSubmissionPayload.length < 1 ||
+                encryptedSubmissionPayload.length >
+                  MAX_PRIVATE_MEDIA_PAYLOAD_CHARS
+              ) {
+                return errorResponse(
+                  413,
+                  "Encrypted image submission exceeds the managed payload limit.",
+                  origin,
                 );
               }
-              if (registered === "owner_purged") {
+              submissionPayloadManifestId = `payload_${(
+                await hashSha256Hex(
+                  `media-payload:v1:${ownerId}:${clientRequestKey}:${clientRequestHash}`,
+                )
+              ).slice(0, 48)}`;
+              const chunks = Array.from(
+                {
+                  length: Math.ceil(
+                    encryptedSubmissionPayload.length /
+                      PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+                  ),
+                },
+                (_, index) =>
+                  encryptedSubmissionPayload.slice(
+                    index * PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+                    (index + 1) * PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+                  ),
+              );
+              const manifestState = await ctx.runMutation(
+                internal.media_jobs.createPrivatePayloadManifest,
+                {
+                  ownerId,
+                  manifestId: submissionPayloadManifestId,
+                  jobId,
+                  clientRequestKey,
+                  expectedChunks: chunks.length,
+                  totalChars: encryptedSubmissionPayload.length,
+                  createdAt: Date.now(),
+                },
+              );
+              if (manifestState === "owner_purged") {
                 await ctx.runMutation(
-                  internal.media_jobs.makePrivateSubmissionBlobDeletable,
-                  { ownerId, storageId: submissionPayloadStorageId },
+                  internal.media_jobs.makePrivatePayloadManifestDeletable,
+                  { manifestId: submissionPayloadManifestId },
                 );
                 return errorResponse(
                   409,
                   "Media generation is unavailable while account deletion is in progress.",
                   origin,
                 );
+              }
+              if (manifestState === "pending") {
+                await ctx.runMutation(
+                  internal.media_jobs.makePrivatePayloadManifestDeletable,
+                  { manifestId: submissionPayloadManifestId },
+                );
+                return errorResponse(
+                  503,
+                  "A prior encrypted media upload is being cleaned up; retry this request.",
+                  origin,
+                );
+              }
+              if (manifestState !== "held") {
+                for (let index = 0; index < chunks.length; index += 1) {
+                  const appendState = await ctx.runMutation(
+                    internal.media_jobs.appendPrivatePayloadChunk,
+                    {
+                      ownerId,
+                      manifestId: submissionPayloadManifestId,
+                      index,
+                      data: chunks[index]!,
+                      writtenAt: Date.now(),
+                    },
+                  );
+                  if (appendState === "owner_purged") {
+                    await ctx.runMutation(
+                      internal.media_jobs.makePrivatePayloadManifestDeletable,
+                      { manifestId: submissionPayloadManifestId },
+                    );
+                    return errorResponse(
+                      409,
+                      "Media generation is unavailable while account deletion is in progress.",
+                      origin,
+                    );
+                  }
+                }
+                const finalized = await ctx.runMutation(
+                  internal.media_jobs.finalizePrivatePayloadManifest,
+                  {
+                    ownerId,
+                    manifestId: submissionPayloadManifestId,
+                    finalizedAt: Date.now(),
+                  },
+                );
+                if (finalized === "owner_purged") {
+                  await ctx.runMutation(
+                    internal.media_jobs.makePrivatePayloadManifestDeletable,
+                    { manifestId: submissionPayloadManifestId },
+                  );
+                  return errorResponse(
+                    409,
+                    "Media generation is unavailable while account deletion is in progress.",
+                    origin,
+                  );
+                }
               }
             }
             const reservation = await ctx
@@ -870,28 +942,19 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 ...(body.connectorRequestId
                   ? { connectorRequestId: body.connectorRequestId }
                   : {}),
-                ...(submissionPayloadStorageId
-                  ? { submissionPayloadStorageId }
-                  : {}),
-                ...(encryptedSubmissionPayload
-                  ? { encryptedSubmissionPayload }
+                ...(submissionPayloadManifestId
+                  ? { submissionPayloadManifestId }
                   : {}),
               })
               .catch(async (error) => {
-                if (submissionPayloadStorageId) {
+                if (submissionPayloadManifestId) {
                   await ctx.runMutation(
-                    internal.media_jobs.makePrivateSubmissionBlobDeletable,
-                    { ownerId, storageId: submissionPayloadStorageId },
+                    internal.media_jobs.makePrivatePayloadManifestDeletable,
+                    { manifestId: submissionPayloadManifestId },
                   );
                 }
                 throw error;
               });
-            if (reservation.state !== "created" && submissionPayloadStorageId) {
-              await ctx.runMutation(
-                internal.media_jobs.makePrivateSubmissionBlobDeletable,
-                { ownerId, storageId: submissionPayloadStorageId },
-              );
-            }
             if (reservation.state === "owner_purged") {
               return errorResponse(
                 409,

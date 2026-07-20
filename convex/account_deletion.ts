@@ -201,6 +201,29 @@ type ExtraTable = (typeof EXTRA_TABLES)[number];
 const EXTRA_BATCH = 200;
 const AMBIGUOUS_MEDIA_PURGE_RETENTION_MS = 3 * 60 * 60_000 + 15 * 60_000;
 
+const queuePrivatePayloadManifestDeletion = async (
+  ctx: MutationCtx,
+  manifestId: string,
+  now: number,
+) => {
+  const manifest = await ctx.db
+    .query("media_private_payload_manifests")
+    .withIndex("by_manifestId", (q) => q.eq("manifestId", manifestId))
+    .unique();
+  if (manifest) {
+    await ctx.db.patch(manifest._id, {
+      state: "pending",
+      nextAttemptAt: now,
+      updatedAt: now,
+    });
+  }
+  await ctx.scheduler.runAfter(
+    0,
+    internal.media_image_submission.deletePrivatePayloadManifest,
+    { manifestId },
+  );
+};
+
 async function deleteOneExtraTableBatch(
   ctx: MutationCtx,
   ownerId: string,
@@ -294,10 +317,18 @@ async function deleteOneExtraTableBatch(
               { storageId: row.submissionPayloadStorageId },
             );
           }
+          if (row.submissionPayloadManifestId) {
+            await queuePrivatePayloadManifestDeletion(
+              ctx,
+              row.submissionPayloadManifestId,
+              canceledAt,
+            );
+          }
           await ctx.db.patch(row._id, {
             status: "canceled",
             request: {},
             submissionPayloadStorageId: undefined,
+            submissionPayloadManifestId: undefined,
             upstreamStatus: "OWNER_PURGED",
             queuePosition: null,
             error: {
@@ -367,6 +398,13 @@ async function deleteOneExtraTableBatch(
             0,
             internal.media_image_submission.deleteSubmissionPayload,
             { storageId: row.submissionPayloadStorageId },
+          );
+        }
+        if (row.submissionPayloadManifestId) {
+          await queuePrivatePayloadManifestDeletion(
+            ctx,
+            row.submissionPayloadManifestId,
+            Date.now(),
           );
         }
         await ctx.db.delete(row._id);
@@ -993,6 +1031,15 @@ export const purgeOwnerCloudData = internalAction({
     if (privateBlobDrain.remaining > 0) {
       throw new Error(
         "Account deletion is waiting for encrypted media payload cleanup; the durable purge gate remains active.",
+      );
+    }
+    const privateManifestDrain = await ctx.runAction(
+      internal.media_image_submission.drainOwnerPrivatePayloadManifests,
+      { ownerId, limit: 100 },
+    );
+    if (privateManifestDrain.remaining > 0) {
+      throw new Error(
+        "Account deletion is waiting for encrypted media manifest cleanup; the durable purge gate remains active.",
       );
     }
     const providerCancellationDrain = await ctx.runAction(

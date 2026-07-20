@@ -126,18 +126,45 @@ export const ViewImageSchema = z.object({
   detail: z.literal("original").optional(),
 });
 
-export const ImageGenSchema = z.object({
-  prompt: z.string().describe("Natural-language image prompt."),
-  aspect_ratio: z.string().optional(),
-  profile: z.enum(["best", "fast"]).optional(),
-  quality: z.enum(["low", "medium", "high"]).optional(),
-  output_format: z.enum(["png", "jpeg", "webp"]).optional(),
-  num_images: z.number().optional(),
-  timeout_ms: z.number().optional(),
-  referenceImagePaths: z.array(z.string()).optional(),
-  referenceImageUrls: z.array(z.string()).optional(),
-  allowManagedReferenceUpload: z.boolean().optional(),
-});
+export const MAX_IMAGE_GEN_REFERENCE_ITEMS = 4;
+
+export const ImageGenSchema = z
+  .object({
+    prompt: z.string().describe("Natural-language image prompt."),
+    aspect_ratio: z.string().optional(),
+    profile: z.enum(["best", "fast"]).optional(),
+    quality: z.enum(["low", "medium", "high"]).optional(),
+    output_format: z.enum(["png", "jpeg", "webp"]).optional(),
+    num_images: z.number().optional(),
+    timeout_ms: z.number().optional(),
+    referenceImagePaths: z
+      .array(z.string())
+      .max(
+        MAX_IMAGE_GEN_REFERENCE_ITEMS,
+        `image_gen accepts at most ${MAX_IMAGE_GEN_REFERENCE_ITEMS} referenceImagePaths`,
+      )
+      .optional(),
+    referenceImageUrls: z
+      .array(z.string())
+      .max(
+        MAX_IMAGE_GEN_REFERENCE_ITEMS,
+        `image_gen accepts at most ${MAX_IMAGE_GEN_REFERENCE_ITEMS} referenceImageUrls`,
+      )
+      .optional(),
+    allowManagedReferenceUpload: z.boolean().optional(),
+  })
+  .superRefine((value, context) => {
+    const referenceCount =
+      (value.referenceImagePaths?.length ?? 0) +
+      (value.referenceImageUrls?.length ?? 0);
+    if (referenceCount > MAX_IMAGE_GEN_REFERENCE_ITEMS) {
+      context.addIssue({
+        code: "custom",
+        path: ["referenceImageUrls"],
+        message: `image_gen accepts at most ${MAX_IMAGE_GEN_REFERENCE_ITEMS} combined referenceImagePaths + referenceImageUrls`,
+      });
+    }
+  });
 
 export const ReadSchema = z.object({
   file_path: z.string().describe("Absolute or repo-relative file path."),

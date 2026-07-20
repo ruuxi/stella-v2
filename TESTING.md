@@ -12,7 +12,7 @@ different loopback port and an explicit v2-only runtime directory:
 ```sh
 cd /Users/rahulnanda/projects/stella-v2
 mkdir -p "$HOME/.stella-v2-dev-test"
-STELLA_DEV_SERVER_URL=http://127.0.0.1:57315 \
+STELLA_DEV_SERVER_URL=http://127.0.0.1:57316 \
 STELLA_V2_DEV_DATA_DIR="$HOME/.stella-v2-dev-test" \
 bun run electron:dev
 ```

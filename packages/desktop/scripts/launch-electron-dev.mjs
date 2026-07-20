@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 const DEV_SERVER_URL =
-  process.env.STELLA_DEV_SERVER_URL?.trim() || "http://127.0.0.1:57314";
+  process.env.STELLA_DEV_SERVER_URL?.trim() || "http://127.0.0.1:57315";
 const START_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 100;
 

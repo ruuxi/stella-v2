@@ -44,7 +44,7 @@ const NATIVE_DIR = path.resolve(__dirname, "..", "native");
 const RELEASE_DIR = path.resolve(__dirname, "..", "desktop", "release");
 const VITE_WORKSPACE_ROOT = searchForWorkspaceRoot(__dirname);
 const DEV_SERVER_URL = new URL(
-  process.env.STELLA_DEV_SERVER_URL?.trim() || "http://127.0.0.1:57314",
+  process.env.STELLA_DEV_SERVER_URL?.trim() || "http://127.0.0.1:57315",
 );
 
 const normalizeWatchedFilePath = (filePath: string) =>

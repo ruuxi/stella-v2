@@ -5,15 +5,15 @@ import { ExternalLinkService } from "@stella/desktop/electron/services/external-
 describe("ExternalLinkService renderer trust", () => {
   it("trusts only the configured Stella dev origin for shell renderer URLs", () => {
     const service = new ExternalLinkService();
-    service.trustDevServerBaseUrl("http://localhost:57314/");
+    service.trustDevServerBaseUrl("http://localhost:57315/");
 
-    expect(service.isAppUrl("http://localhost:57314/index.html")).toBe(true);
-    expect(service.isTrustedRendererUrl("http://localhost:57314/index.html")).toBe(true);
+    expect(service.isAppUrl("http://localhost:57315/index.html")).toBe(true);
+    expect(service.isTrustedRendererUrl("http://localhost:57315/index.html")).toBe(true);
 
     expect(service.isAppUrl("http://localhost:3000")).toBe(false);
     expect(service.isTrustedRendererUrl("http://localhost:3000")).toBe(false);
-    expect(service.isAppUrl("http://127.0.0.1:57314/index.html")).toBe(false);
-    expect(service.isTrustedRendererUrl("http://127.0.0.1:57314/index.html")).toBe(false);
+    expect(service.isAppUrl("http://127.0.0.1:57315/index.html")).toBe(false);
+    expect(service.isTrustedRendererUrl("http://127.0.0.1:57315/index.html")).toBe(false);
     expect(service.isAppUrl("file:///tmp/stella.html")).toBe(false);
     expect(service.isTrustedRendererUrl("file:///tmp/stella.html")).toBe(false);
   });

@@ -199,6 +199,7 @@ const EXTRA_TABLES = [
 type ExtraTable = (typeof EXTRA_TABLES)[number];
 
 const EXTRA_BATCH = 200;
+const AMBIGUOUS_MEDIA_PURGE_RETENTION_MS = 3 * 60 * 60_000 + 15 * 60_000;
 
 async function deleteOneExtraTableBatch(
   ctx: MutationCtx,
@@ -252,8 +253,17 @@ async function deleteOneExtraTableBatch(
       // whose state change did not commit.
       let deleted = 0;
       for (const row of rows) {
-        if (row.submissionState === "dispatching" && !row.providerRequestId) {
-          const canceledAt = Date.now();
+        const canceledAt = Date.now();
+        const ambiguousPurgeExpired =
+          row.status === "canceled" &&
+          row.error?.code === "OWNER_PURGED" &&
+          canceledAt - (row.submissionClaimedAt ?? row.updatedAt) >=
+            AMBIGUOUS_MEDIA_PURGE_RETENTION_MS;
+        if (
+          row.submissionState === "dispatching" &&
+          !row.providerRequestId &&
+          !ambiguousPurgeExpired
+        ) {
           if (row.submissionPayloadStorageId) {
             const cleanup = await ctx.db
               .query("media_private_blob_cleanup")

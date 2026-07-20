@@ -353,6 +353,54 @@ describe("managed media idempotency and cancellation", () => {
     expect(receipts).toEqual([]);
   });
 
+  it("purges an ambiguous canceled claim after the provider reconciliation envelope", async () => {
+    ensureMediaEnv();
+    const t = createTest();
+    const claimedAt = Date.now() - (3 * 60 * 60_000 + 16 * 60_000);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("media_jobs", {
+        ownerId: "expired-purge-owner",
+        jobId: "expired-purge-job",
+        capability: "text_to_image",
+        profile: "best",
+        provider: "fal",
+        endpointId: "fal-ai/flux/dev",
+        request: {},
+        submissionState: "dispatching",
+        submissionAttemptId: "expired-ambiguous-attempt",
+        submissionClaimedAt: claimedAt,
+        status: "canceled",
+        upstreamStatus: "OWNER_PURGED",
+        queuePosition: null,
+        error: { code: "OWNER_PURGED", message: "owner deletion" },
+        createdAt: claimedAt,
+        updatedAt: claimedAt,
+        completedAt: claimedAt,
+      });
+      await ctx.db.insert("media_webhook_events", {
+        ownerId: "expired-purge-owner",
+        scope: "media_fal_webhook",
+        dedupKey: "expired-purge-event",
+        jobId: "expired-purge-job",
+        receivedAt: claimedAt,
+        applied: false,
+      });
+    });
+
+    await expect(
+      t.mutation(internal.account_deletion._deleteExtraTableBatch, {
+        ownerId: "expired-purge-owner",
+        table: "media_jobs",
+      }),
+    ).resolves.toEqual({ hasMore: true });
+    expect(
+      await t.run(async (ctx) => ({
+        jobs: await ctx.db.query("media_jobs").collect(),
+        events: await ctx.db.query("media_webhook_events").collect(),
+      })),
+    ).toEqual({ jobs: [], events: [] });
+  });
+
   it("reattaches a repeated POST without a second upstream submission", async () => {
     ensureMediaEnv();
     const t = createTest();

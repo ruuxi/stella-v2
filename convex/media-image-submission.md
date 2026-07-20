@@ -3,6 +3,27 @@
 Only idempotency-keyed Fal image capabilities use this outbox. Video, audio,
 music, and 3D retain their existing submission behavior.
 
+## Acceptance boundary
+
+This design provides durable reattachment for ordinary `image_gen` retries and
+restarts; it does not promise mathematical exactly-once behavior across the
+desktop, gateway, and Fal. The gateway persists the owner-scoped job before its
+accepted response, and repeated requests with the same operation key and exact
+request hash reattach to that row.
+
+The accepted residual risk is the narrow interval after the gateway accepts a
+desktop POST but before the desktop persists its local `jobId` attachment. If a
+later run cannot recover the original durable operation identity or gateway
+lookup, it may create one duplicate submission. The current lookup, reservation
+CAS, and submission claim reduce that risk but are defense in depth rather than
+an end-to-end exactly-once guarantee.
+
+Adversarial exact-once certification, billing/webhook atomicity refactors,
+BYOK/privacy redesign, connector watchdog guarantees, encrypted-payload
+deletion/account-purge guarantees, and additional reference-path TOCTOU
+hardening are outside this UX acceptance contract. Current mitigations remain
+in place, but this document does not elevate them into broader certification.
+
 The encrypted request is split into bounded, owner- and operation-scoped
 database chunks. A manifest row exists before the first chunk, every chunk is
 written transactionally with that ownership metadata, and only a complete

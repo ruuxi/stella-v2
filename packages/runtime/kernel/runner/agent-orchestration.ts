@@ -15,6 +15,7 @@ import { runExplore } from "../agent-runtime/explore.js";
 import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
 import { shouldUseAutomaticSkillExplore } from "../shared/skill-catalog.js";
 import { LocalAgentManager } from "../agents/local-agent-manager.js";
+import { writeRestartInterruptedSnapshot } from "../restart-continuation.js";
 import type {
   AgentToolRequest,
   ToolContext,
@@ -835,6 +836,8 @@ export const createAgentOrchestration = (
       context.runtimeStore.getAgentRecord?.(threadId) ?? null,
     listAgentRecordsByStatus: (status) =>
       context.runtimeStore.listAgentRecordsByStatus?.(status) ?? [],
+    persistBootInterruptionSnapshot: (threads) =>
+      writeRestartInterruptedSnapshot(context.stellaDataDir, threads),
     hasAgentLifecycleEvent: (conversationId, eventId, type) => {
       const hasActivityEvent = context.runtimeStore.hasEvent(
         conversationId,

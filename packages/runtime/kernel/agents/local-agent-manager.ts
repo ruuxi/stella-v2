@@ -564,6 +564,16 @@ type LocalAgentManagerOpts = {
   listAgentRecordsByStatus?: (
     status: TaskLifecycleStatus,
   ) => PersistedAgentRecord[];
+  /**
+   * Persist active thread identities before a restart-related sweep changes
+   * their durable status. The returned episode id binds the capture to the
+   * shutdown record that authorized it; boot conversion rejects every other
+   * episode. This is also called during v2's graceful Effect teardown because
+   * that teardown cancels rows before the replacement worker can inspect them.
+   */
+  persistBootInterruptionSnapshot?: (
+    threads: Array<{ threadId: string; conversationId: string }>,
+  ) => string | null | undefined;
   hasAgentLifecycleEvent?: (
     conversationId: string,
     eventId: string,
@@ -759,11 +769,41 @@ export class LocalAgentManager implements AgentToolApi {
   private static readonly MAX_QUEUE_MESSAGES = 32;
   private static readonly MAX_LOG_MESSAGES = 80;
   private nextId = 0;
+  private readonly bootInterruptedThreads: Array<{
+    threadId: string;
+    conversationId: string;
+  }> = [];
+  private bootInterruptionEpisodeId: string | null = null;
 
   constructor(opts: LocalAgentManagerOpts) {
     this.opts = opts;
     this.defaultMaxConcurrent = Math.max(1, opts.maxConcurrent ?? 3);
     this.recoverOrCancelOrphanedPersistedAgents();
+  }
+
+  getBootInterruptedThreads(): Array<{
+    threadId: string;
+    conversationId: string;
+  }> {
+    return [...this.bootInterruptedThreads];
+  }
+
+  getBootInterruptionEpisodeId(): string | null {
+    return this.bootInterruptionEpisodeId;
+  }
+
+  private persistInterruptionSnapshot(
+    threads: Array<{ threadId: string; conversationId: string }>,
+  ): string | null {
+    if (threads.length === 0) return null;
+    try {
+      return this.opts.persistBootInterruptionSnapshot?.(threads) ?? null;
+    } catch {
+      // Continuation bookkeeping must never prevent boot or shutdown. The
+      // live capture can still convert on this boot; otherwise recovery fails
+      // closed instead of attributing rows to the wrong restart.
+      return null;
+    }
   }
 
   private assignModelConfigSnapshotIfMissing(
@@ -786,6 +826,15 @@ export class LocalAgentManager implements AgentToolApi {
     const now = Date.now();
     const runningRecords =
       this.opts.listAgentRecordsByStatus?.("running") ?? [];
+    for (const record of runningRecords) {
+      this.bootInterruptedThreads.push({
+        threadId: record.threadId,
+        conversationId: record.conversationId,
+      });
+    }
+    this.bootInterruptionEpisodeId = this.persistInterruptionSnapshot(
+      this.bootInterruptedThreads,
+    );
     for (const record of runningRecords) {
       if (record.agentType === AGENT_IDS.MANAGER) {
         const result =
@@ -2361,9 +2410,73 @@ export class LocalAgentManager implements AgentToolApi {
       clearTimeout(pending.timer);
     }
     this.attemptTakeoverTimers.clear();
+    // v1 could snapshot still-running rows on the replacement worker's boot.
+    // v2 performs a graceful Effect shutdown first, which durably cancels
+    // those rows. Capture every resumable task before that cancellation so the
+    // episode-stamped sidecar remains the authoritative recovery evidence.
+    // A Manager that already accepted its final report is intentionally
+    // excluded: its two durable delivery artifacts are repaired below and it
+    // must never be restarted as unfinished work.
+    this.persistInterruptionSnapshot(
+      [...this.tasks.values()]
+        .filter(
+          (task) =>
+            (task.status === "pending" || task.status === "running") &&
+            !(
+              task.agentType === AGENT_IDS.MANAGER &&
+              task.managerFinalReport &&
+              task.managerFinalReportId
+            ),
+        )
+        .map(({ threadId, conversationId }) => ({
+          threadId,
+          conversationId,
+        })),
+    );
     const cancels: Array<Promise<unknown>> = [];
     for (const task of this.tasks.values()) {
       if (task.status !== "pending" && task.status !== "running") {
+        continue;
+      }
+      if (
+        task.agentType === AGENT_IDS.MANAGER &&
+        task.managerFinalReport &&
+        task.managerFinalReportId
+      ) {
+        // Preserve Manager's existing event-first two-artifact delivery even
+        // when shutdown lands between report(final=true) and turn return.
+        // Replacing the controller fences the old promise without changing
+        // the persisted generation used by the stable completion event id.
+        const eventId = this.lifecycleEventId(task, "agent-completed");
+        if (
+          !this.opts.hasAgentLifecycleEvent?.(
+            task.conversationId,
+            eventId,
+            "agent-completed",
+          )
+        ) {
+          this.opts.onAgentEvent?.({
+            type: "agent-completed",
+            conversationId: task.conversationId,
+            eventId,
+            rootRunId: task.rootRunId,
+            agentId: task.threadId,
+            agentType: task.agentType,
+            description: task.description,
+            parentAgentId: task.parentAgentId,
+            result: task.managerFinalReport,
+            attemptGeneration: task.attemptGeneration,
+          });
+        }
+        const activeController = task.controller;
+        task.status = "completed";
+        task.completedAt = Date.now();
+        task.result = task.managerFinalReport;
+        task.error = undefined;
+        task.terminalEventEmitted = true;
+        task.controller = new AbortController();
+        this.persistTask(task);
+        activeController.abort(new Error(reason));
         continue;
       }
       cancels.push(

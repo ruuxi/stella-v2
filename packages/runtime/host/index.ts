@@ -8,6 +8,10 @@ import { readConfiguredConvexUrl } from "@stella/contracts/convex-urls";
 import type { ConnectorTokenPayload } from "../kernel/connectors/oauth.js";
 import { resolveBundledRuntimeFile } from "../kernel/shared/runtime-paths.js";
 import { getFileLogger } from "../observability/file-logger.js";
+import {
+  isRestartContinuationEnabled,
+  recordRestartShutdown,
+} from "../kernel/restart-continuation.js";
 import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
 import { createRemoteTurnBridge } from "../kernel/remote-turn-bridge.js";
 import {
@@ -661,6 +665,30 @@ export class StellaRuntimeHost {
     return resolveRuntimePaths(this.options.initializeParams.stellaAppDir);
   }
 
+  /**
+   * Authorize one graceful worker-replacement episode before sending the
+   * signal that starts Effect teardown. The worker snapshots its active rows
+   * against this episode before cancellation, and the replacement worker only
+   * accepts exact episode matches. Synchronous/best-effort by design: failure
+   * must never hold the process open or turn a crash into false continuation.
+   */
+  private writeRestartContinuationRecord(reason: string): void {
+    if (!isRestartContinuationEnabled(process.env)) return;
+    try {
+      if (
+        recordRestartShutdown(this.options.initializeParams.stellaDataDirPath, {
+          reason,
+        })
+      ) {
+        getFileLogger()?.process("host.restart-continuation-record", {
+          reason,
+        });
+      }
+    } catch {
+      // Best-effort shutdown bookkeeping.
+    }
+  }
+
   getPendingWorkerRestart() {
     return this.pendingStaleWorkerRestart;
   }
@@ -838,7 +866,7 @@ export class StellaRuntimeHost {
           getFileLogger()?.process("host.worker-restart", { reason });
           console.warn(`[runtime-host] Restarting runtime worker (${reason}).`);
           try {
-            await this.restartWorker();
+            await this.restartWorker(reason);
           } catch (error) {
             // A failed restart did not satisfy the watcher request. Preserve it
             // for the next explicit readiness/recovery attempt.
@@ -1949,6 +1977,11 @@ export class StellaRuntimeHost {
   }
 
   async stop(options?: { killWorker?: boolean }) {
+    if (options?.killWorker) {
+      this.writeRestartContinuationRecord(
+        this.pendingStaleWorkerRestart?.reason ?? "app-shutdown",
+      );
+    }
     this.started = false;
     this.hostReady = false;
     this.workerHealthCache = null;
@@ -1995,9 +2028,10 @@ export class StellaRuntimeHost {
     return await this.buildHealthSnapshot();
   }
 
-  async restartWorker() {
+  async restartWorker(reason = "runtime-reload") {
     const startedAt = Date.now();
     this.events.emit("runtime-reloading", { reason: "worker-restart" });
+    this.writeRestartContinuationRecord(reason);
     await this.workerController.stop("restart");
     const stoppedAt = Date.now();
     await this.workerController.ensureStarted();

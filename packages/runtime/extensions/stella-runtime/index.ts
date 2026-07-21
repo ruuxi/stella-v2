@@ -9,6 +9,7 @@ import { createConnectorFormatReminderHook } from "./hooks/connector-format-remi
 import { createDreamSchedulerNotifyHook } from "./hooks/dream-scheduler-notify.hook.js";
 import { createDynamicMemoryReminderHook } from "./hooks/dynamic-memory-reminder.hook.js";
 import { createMemoryReviewHook } from "./hooks/memory-review.hook.js";
+import { createRestartContinuationReminderHooks } from "./hooks/restart-continuation-reminder.hook.js";
 import { createStaleUserReminderHook } from "./hooks/stale-user-reminder.hook.js";
 import { createThreadSummariesRecordHook } from "./hooks/thread-summaries-record.hook.js";
 import { resolveRuntimeSourceAsset } from "../../kernel/shared/runtime-paths.js";
@@ -88,6 +89,12 @@ const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
 
   register(createStaleUserReminderHook());
   register(createDynamicMemoryReminderHook());
+  for (const hook of createRestartContinuationReminderHooks({
+    stellaDataDir: services.stellaDataDir,
+    store: services.store,
+  })) {
+    register(hook);
+  }
   // Connector-format reminder: one hidden `<system_reminder>` on the
   // single turn where the user's routing surface changes (desktop ⇄
   // connector / connector ⇄ different connector). Cheap — the

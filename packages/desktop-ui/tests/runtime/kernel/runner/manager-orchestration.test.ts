@@ -2064,7 +2064,12 @@ describe("manager orchestration production routing", () => {
       },
     });
     expect(interim?.text).toContain("Child still running.");
-    expect(managerPrompts[1]).toContain("Use report(final=false)");
+    expect(managerPrompts[1]).toContain(
+      "Never report status, milestones, child completions, or recoverable failures.",
+    );
+    expect(managerPrompts[1]).toContain(
+      "requires outside action after reasonable recovery is exhausted",
+    );
     expect((await manager.getAgent(managerTask.threadId))?.status).toBe(
       "running",
     );
@@ -2098,7 +2103,7 @@ describe("manager orchestration production routing", () => {
       { deliveryKind: "external-input" },
     );
     await waitUntil(() => managerPrompts.length === 3);
-    expect(managerPrompts[2]).toContain("If it changes instructions");
+    expect(managerPrompts[2]).toContain("If the message changes instructions");
     expect(JSON.stringify(sentMessages)).not.toContain(
       "Steering acknowledged; child still running.",
     );
@@ -2631,7 +2636,12 @@ describe("manager orchestration production routing", () => {
       );
 
       expect(managerRuns[1]?.userPrompt).toContain(statusRequest);
-      expect(managerRuns[1]?.userPrompt).toContain("Use report(final=false)");
+      expect(managerRuns[1]?.userPrompt).toContain(
+        "Never report status, milestones, child completions, or recoverable failures.",
+      );
+      expect(managerRuns[1]?.userPrompt).toContain(
+        "requires outside action after reasonable recovery is exhausted",
+      );
       expect((await manager.getAgent(task.threadId))?.status).toBe("running");
       expect(store.getAgentRecord(task.threadId)?.status).toBe("running");
       expect(
@@ -2659,7 +2669,7 @@ describe("manager orchestration production routing", () => {
         "Continue the planned process and finish it.",
       );
       expect(managerRuns[2]?.userPrompt).toContain(
-        "If it changes instructions",
+        "If the message changes instructions",
       );
       expect(
         appendedEvents.filter(

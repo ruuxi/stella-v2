@@ -312,10 +312,26 @@ describe("orchestrator direct tool surface", () => {
     expect(generalTools.has("spawn_agent")).toBe(false);
     expect(generalTools.has("spawn_manager")).toBe(false);
     expect(generalTools.has("report")).toBe(false);
-    const managerTools = new Set(
-      host.getToolCatalog("manager").map((tool) => tool.name),
-    );
+    const managerToolCatalog = host.getToolCatalog("manager");
+    const managerTools = new Set(managerToolCatalog.map((tool) => tool.name));
     expect(managerTools.has("report")).toBe(true);
+    const reportTool = managerToolCatalog.find(
+      (tool) => tool.name === "report",
+    );
+    expect(reportTool?.description).toMatch(
+      /final false only for a genuine blocker[\s\S]*never for status, milestones, or child completions/i,
+    );
+    expect(reportTool?.description).toMatch(
+      /final true exactly once after all work and review\/fix rounds are settled/i,
+    );
+    expect(reportTool?.description).not.toMatch(/requested progress/i);
+    expect(
+      (
+        reportTool?.parameters.properties as
+          | Record<string, { description?: string }>
+          | undefined
+      )?.final?.description,
+    ).toMatch(/genuine outside-action blocker[\s\S]*exactly-once terminal/i);
     expect(generalTools.has("linq_send_message")).toBe(false);
     expect(generalTools.has("Display")).toBe(false);
     expect(generalTools.has("DisplayGuidelines")).toBe(false);
@@ -398,14 +414,14 @@ describe("orchestrator direct tool surface", () => {
     await expect(
       host.executeTool(
         "report",
-        { message: "Halfway" },
+        { message: "Blocked: production credentials are required." },
         makeToolContext(AGENT_IDS.MANAGER),
       ),
     ).resolves.toMatchObject({ details: { accepted: true, final: false } });
     expect(managerReports).toEqual([
       expect.objectContaining({
         threadId: "manager-1",
-        message: "Halfway",
+        message: "Blocked: production credentials are required.",
         final: false,
         attemptGeneration: 3,
       }),
@@ -561,7 +577,13 @@ describe("orchestrator direct tool surface", () => {
       makeToolContext("orchestrator"),
     );
     expect(result).toMatchObject({
-      result: { thread_id: "thread-1", created: true },
+      result: {
+        thread_id: "thread-1",
+        created: true,
+        note: expect.stringMatching(
+          /only to steer it or provide needed outside input[\s\S]*genuine blocker[\s\S]*consolidated final report/i,
+        ),
+      },
     });
     expect(createdTasks).toEqual([
       {

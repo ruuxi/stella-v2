@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { streamGoogle } from "@stella/runtime/ai/providers/google";
-import { streamGoogleGeminiCli } from "@stella/runtime/ai/providers/google-gemini-cli";
 import type { Context, Model } from "@stella/runtime/ai/types";
 import { classifyAgentRunFailure } from "@stella/runtime/kernel/agent-runtime/run-retry";
 import { isProviderContentAbortMessage } from "@stella/runtime/kernel/agent-runtime/provider-abort-containment";
@@ -63,38 +62,5 @@ describe("Google prompt-block classification", () => {
       retryable: false,
       category: "unknown",
     });
-  });
-
-  it("does not replay a Cloud Code prompt block as an empty stream", async () => {
-    const encoder = new TextEncoder();
-    const sse = [
-      `data: ${JSON.stringify({
-        response: { promptFeedback: { blockReason: "SAFETY" } },
-      })}`,
-      "",
-      "",
-    ].join("\n");
-    const fetchMock = vi.fn(async () =>
-      new Response(encoder.encode(sse), {
-        status: 200,
-        headers: { "content-type": "text/event-stream" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const model: Model<"google-gemini-cli"> = {
-      ...baseModel,
-      api: "google-gemini-cli",
-      provider: "google-gemini-cli",
-      baseUrl: "https://cloudcode.example",
-    };
-    const result = await streamGoogleGeminiCli(model, context, {
-      apiKey: JSON.stringify({ token: "test-token", projectId: "proj" }),
-    }).result();
-
-    expect(result.stopReason).toBe("error");
-    expect(result.errorMessage).toContain('block reason: "SAFETY"');
-    expect(isProviderContentAbortMessage(result.errorMessage)).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

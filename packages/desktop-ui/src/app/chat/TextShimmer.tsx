@@ -2,7 +2,9 @@
  * TextShimmer: animated gradient shimmer across the entire string.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useContinuousAnimationGate } from "@/shared/hooks/use-continuous-animation-gate";
+import { useExclusiveAnimation } from "@/shared/hooks/use-exclusive-animation";
 import "./text-shimmer.css";
 
 interface TextShimmerProps {
@@ -14,7 +16,16 @@ interface TextShimmerProps {
   durationMs?: number;
   /** Anchor the sweep phase to a shared wall clock across separate mounts. */
   syncPhase?: boolean;
+  /** At most one visible candidate in this group receives the sweep. */
+  exclusiveGroup?: string;
+  /** Higher-priority visible candidates own their group's single sweep. */
+  exclusivePriority?: number;
+  /** Parent already owns the complete visibility/motion/election gate. */
+  externallyGated?: boolean;
 }
+
+export const CHAT_ACTIVITY_SHIMMER_GROUP = "chat-activity";
+export const SHIMMER_WINDOW_FRACTION = 0.44;
 
 export function TextShimmer({
   text,
@@ -22,16 +33,84 @@ export function TextShimmer({
   className,
   durationMs,
   syncPhase = false,
+  exclusiveGroup,
+  exclusivePriority = 0,
+  externallyGated = false,
 }: TextShimmerProps) {
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const sweepRef = useRef<HTMLSpanElement>(null);
+  const sweepTextRef = useRef<HTMLSpanElement>(null);
   const duration = useMemo(() => {
     if (durationMs !== undefined) return durationMs;
     const perCharMs = 95;
-    return Math.max(1400, Math.min(4000, text.length * perCharMs));
-  }, [durationMs, text.length]);
-  const phaseDelayMs = useMemo(
-    () => (syncPhase ? -(Date.now() % duration) : 0),
-    [duration, syncPhase],
+    return Math.max(1400, Math.min(4000, [...text].length * perCharMs));
+  }, [durationMs, text]);
+  const animationGateOpen = useContinuousAnimationGate({
+    active: active && !externallyGated,
+    elementRef: rootRef,
+  });
+  const shouldAnimate = useExclusiveAnimation(
+    exclusiveGroup,
+    externallyGated ? active : animationGateOpen,
+    exclusivePriority,
   );
+
+  useEffect(() => {
+    if (!shouldAnimate || !sweepRef.current || !sweepTextRef.current) return;
+    const sweep = sweepRef.current;
+    const sweepText = sweepTextRef.current;
+    // Fail closed: without Web Animations there is no CSS infinite-loop
+    // fallback that can silently restart paint-heavy background animation.
+    if (
+      typeof sweep.animate !== "function" ||
+      typeof sweepText.animate !== "function"
+    ) {
+      return;
+    }
+    const sweepDuration = Math.min(2200, Math.max(1400, duration * 0.85));
+    const restDuration = Math.max(3000, duration * 1.5);
+    let stopped = false;
+    let timerId: number | undefined;
+    let animations: Animation[] = [];
+
+    const runSweep = () => {
+      if (stopped) return;
+      animations = [
+        sweep.animate(
+          [
+            { transform: "translate3d(-100%, 0, 0)" },
+            {
+              transform: `translate3d(calc(100% / ${SHIMMER_WINDOW_FRACTION}), 0, 0)`,
+            },
+          ],
+          { duration: sweepDuration, easing: "ease-in-out" },
+        ),
+        sweepText.animate(
+          [
+            {
+              transform: `translate3d(${SHIMMER_WINDOW_FRACTION * 100}%, 0, 0)`,
+            },
+            { transform: "translate3d(-100%, 0, 0)" },
+          ],
+          { duration: sweepDuration, easing: "ease-in-out" },
+        ),
+      ];
+      void Promise.all(animations.map((animation) => animation.finished))
+        .catch(() => undefined)
+        .then(() => {
+          if (!stopped) timerId = window.setTimeout(runSweep, restDuration);
+        });
+    };
+
+    const initialDelay = syncPhase ? duration - (Date.now() % duration) : 0;
+    if (initialDelay > 0) timerId = window.setTimeout(runSweep, initialDelay);
+    else runSweep();
+    return () => {
+      stopped = true;
+      if (timerId !== undefined) window.clearTimeout(timerId);
+      for (const animation of animations) animation.cancel();
+    };
+  }, [duration, shouldAnimate, syncPhase]);
 
   if (!active) {
     return <span className={className}>{text}</span>;
@@ -39,15 +118,17 @@ export function TextShimmer({
 
   return (
     <span
-      className={`text-shimmer ${className ?? ""}`}
-      style={
-        {
-          "--text-shimmer-duration": `${duration}ms`,
-          "--text-shimmer-delay": `${phaseDelayMs}ms`,
-        } as React.CSSProperties
-      }
+      ref={rootRef}
+      className={`text-shimmer${shouldAnimate ? " text-shimmer--active" : ""}${className ? ` ${className}` : ""}`}
     >
-      {text}
+      <span className="text-shimmer__base">{text}</span>
+      {shouldAnimate ? (
+        <span ref={sweepRef} className="text-shimmer__sweep" aria-hidden="true">
+          <span ref={sweepTextRef} className="text-shimmer__sweep-text">
+            {text}
+          </span>
+        </span>
+      ) : null}
     </span>
   );
 }

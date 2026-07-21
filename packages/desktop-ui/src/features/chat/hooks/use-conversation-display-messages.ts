@@ -42,6 +42,10 @@ import {
   type LifecycleRoutingState,
 } from "@/features/chat/lib/route-lifecycle-events";
 import type { MessageRecord } from "@stella/contracts/local-chat";
+import {
+  AGENT_IDS,
+  isOrchestratorReservedBuiltinAgentId,
+} from "@stella/contracts/agent-runtime";
 
 const SCHEDULED_EVENTS_OVERLAY_MAX = 200;
 
@@ -81,6 +85,50 @@ export const getMessageChronologicalTimestamp: SortTimestampResolver = (
 
 const defaultSortTimestamp: SortTimestampResolver =
   getMessageChronologicalTimestamp;
+
+type BackgroundWorkOccurrenceKey = {
+  timestamp: number;
+  eventId: string;
+};
+
+/**
+ * Durable first-visible ordering for inline background-work receipts.
+ *
+ * A lifecycle start can hydrate onto an older assistant anchor after that
+ * anchor was first persisted. Sorting the receipt by the anchor's message
+ * timestamp (or by running/completed state) can therefore insert a later
+ * follow-up above its settled predecessor. The persisted `agent-started`
+ * cursor is the occurrence itself, so it wins for rows that surface a
+ * user-visible General/Manager/custom-agent card. Terminal packets never
+ * change this key, keeping status transitions position-stable.
+ */
+export const getBackgroundWorkOccurrenceKey = (
+  message: MessageRecord,
+): BackgroundWorkOccurrenceKey | undefined => {
+  let selected: BackgroundWorkOccurrenceKey | undefined;
+  for (const event of message.toolEvents) {
+    if (event.type !== "agent-started") continue;
+    const payload = event.payload as { agentType?: unknown } | undefined;
+    const agentType = payload?.agentType;
+    if (
+      typeof agentType === "string" &&
+      agentType !== AGENT_IDS.MANAGER &&
+      isOrchestratorReservedBuiltinAgentId(agentType)
+    ) {
+      continue;
+    }
+    const candidate = { timestamp: event.timestamp, eventId: event._id };
+    if (
+      !selected ||
+      candidate.timestamp < selected.timestamp ||
+      (candidate.timestamp === selected.timestamp &&
+        candidate.eventId.localeCompare(selected.eventId) < 0)
+    ) {
+      selected = candidate;
+    }
+  }
+  return selected;
+};
 
 /**
  * Floors every assistant chronological anchor one logical tick after the user
@@ -141,9 +189,17 @@ export const createDisplayOrderComparator = (
   }
 
   return (a: MessageRecord, b: MessageRecord): number => {
-    const ta = getSortTimestamp(a);
-    const tb = getSortTimestamp(b);
+    const occurrenceA = getBackgroundWorkOccurrenceKey(a);
+    const occurrenceB = getBackgroundWorkOccurrenceKey(b);
+    const ta = occurrenceA?.timestamp ?? getSortTimestamp(a);
+    const tb = occurrenceB?.timestamp ?? getSortTimestamp(b);
     if (ta !== tb) return ta - tb;
+    if (occurrenceA && occurrenceB) {
+      const occurrenceOrder = occurrenceA.eventId.localeCompare(
+        occurrenceB.eventId,
+      );
+      if (occurrenceOrder !== 0) return occurrenceOrder;
+    }
     const inputOrder =
       (inputOrderById.get(a._id) ?? Number.MAX_SAFE_INTEGER) -
       (inputOrderById.get(b._id) ?? Number.MAX_SAFE_INTEGER);
@@ -356,13 +412,12 @@ export const mergeConversationDisplayMessageSources = (args: {
     persistedAssistantSlots,
     getSortTimestamp = defaultSortTimestamp,
   } = args;
-  const effectiveSortTimestamp =
-    createOwningUserClampedSortTimestampResolver(
-      overlayMessages.length > 0
-        ? [...persistedMessages, ...overlayMessages]
-        : persistedMessages,
-      getSortTimestamp,
-    );
+  const effectiveSortTimestamp = createOwningUserClampedSortTimestampResolver(
+    overlayMessages.length > 0
+      ? [...persistedMessages, ...overlayMessages]
+      : persistedMessages,
+    getSortTimestamp,
+  );
   const resolverActive = effectiveSortTimestamp !== defaultSortTimestamp;
   const persistedById = new Map(
     persistedMessages.map((message) => [message._id, message]),
@@ -385,9 +440,7 @@ export const mergeConversationDisplayMessageSources = (args: {
   for (const slot of streamingAssistants) {
     const persisted = slot.canonicalMessageId
       ? persistedById.get(slot.canonicalMessageId)
-      : persistedAssistantSlots.get(slot.userMessageId)?.[
-          slot.indexInTurn - 1
-        ];
+      : persistedAssistantSlots.get(slot.userMessageId)?.[slot.indexInTurn - 1];
     if (persisted) {
       maskedPersistedIds.add(persisted._id);
     }

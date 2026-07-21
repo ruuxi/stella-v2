@@ -202,6 +202,7 @@ describe("read-only exact-thread chat surfaces", () => {
               files={[]}
               onOpenFile={vi.fn()}
               orderIndex={0}
+              isTopLevel
             />
             <ActivityTaskRow
               task={task}
@@ -211,6 +212,7 @@ describe("read-only exact-thread chat surfaces", () => {
               files={[]}
               onOpenFile={vi.fn()}
               orderIndex={1}
+              isTopLevel
             />
           </ul>
         </div>,
@@ -286,7 +288,11 @@ describe("read-only exact-thread chat surfaces", () => {
       root.render(
         <ul>
           <ActivityTaskRow
-            task={task}
+            task={{
+              ...task,
+              statusText: "Finished send_input",
+              assistantMessages: ["Reconciled the latest active batch"],
+            }}
             expanded={false}
             onToggle={vi.fn()}
             onSelect={vi.fn()}
@@ -294,7 +300,7 @@ describe("read-only exact-thread chat surfaces", () => {
             onOpenFile={vi.fn()}
             orderIndex={0}
             compactChildren={children}
-            compactFailurePriority
+            isTopLevel
           />
         </ul>,
       );
@@ -313,12 +319,59 @@ describe("read-only exact-thread chat surfaces", () => {
     expect(
       container.querySelector(".chat-workspace-strip__compact-status")
         ?.textContent,
-    ).toContain("1 failed — Child 2");
+    ).toContain("1 failed");
+    expect(
+      container.querySelector(".chat-workspace-strip__compact-status")
+        ?.textContent,
+    ).toContain("latest: Reconciled the latest active batch");
+    expect(container.textContent).not.toContain("Finished send_input");
+    expect(container.textContent).not.toContain("1 failed — Child 2");
+    expect(
+      container
+        .querySelector(".chat-workspace-strip__compact-status")
+        ?.hasAttribute("data-failure"),
+    ).toBe(false);
     expect(
       container
         .querySelector(".chat-workspace-strip__task-chat")
         ?.getAttribute("aria-label"),
     ).toBe("View activity");
+  });
+
+  it("uses neutral Manager working prose when no assistant message exists", async () => {
+    await act(async () => {
+      root.render(
+        <ul>
+          <ActivityTaskRow
+            task={{
+              ...task,
+              statusText: "Finished send_input",
+              assistantMessages: [],
+            }}
+            expanded
+            onToggle={vi.fn()}
+            onSelect={vi.fn()}
+            files={[]}
+            onOpenFile={vi.fn()}
+            orderIndex={0}
+            compactChildren={[
+              {
+                kind: "task",
+                task: {
+                  ...task,
+                  id: "active-child",
+                  agentType: "general",
+                  parentAgentId: task.id,
+                },
+              },
+            ]}
+            isTopLevel
+          />
+        </ul>,
+      );
+    });
+    expect(container.textContent).toContain("Working…");
+    expect(container.textContent).not.toContain("Finished send_input");
   });
 
   it("renders authored prose and structured lifecycle cards with no raw tools or send surface", async () => {

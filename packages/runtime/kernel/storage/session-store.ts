@@ -5066,7 +5066,8 @@ export class SessionStore {
     if (
       !record ||
       record.status !== "running" ||
-      record.agentType !== AGENT_IDS.GENERAL
+      (record.agentType !== AGENT_IDS.GENERAL &&
+        record.agentType !== AGENT_IDS.MANAGER)
     )
       return [];
     return (
@@ -5089,7 +5090,8 @@ export class SessionStore {
     if (
       !record ||
       record.status !== "running" ||
-      record.agentType !== AGENT_IDS.GENERAL ||
+      (record.agentType !== AGENT_IDS.GENERAL &&
+        record.agentType !== AGENT_IDS.MANAGER) ||
       atMs < record.startedAt
     ) {
       return;
@@ -5357,10 +5359,19 @@ export class SessionStore {
       group_label: string | null;
     }>;
     const assistantTargets = rows
-      .filter((row) => row.agent_type === AGENT_IDS.GENERAL)
+      // Activity prose is sourced only from assistant text blocks in the
+      // exact current attempt. Tool calls/results and generated lifecycle
+      // labels (for example `Finished send_input`) never enter this query.
+      .filter(
+        (row) =>
+          row.agent_type === AGENT_IDS.GENERAL ||
+          row.agent_type === AGENT_IDS.MANAGER,
+      )
       .sort(
         (a, b) =>
           Number(b.status === "running") - Number(a.status === "running") ||
+          Number(b.agent_type === AGENT_IDS.MANAGER) -
+            Number(a.agent_type === AGENT_IDS.MANAGER) ||
           b.updated_at - a.updated_at ||
           a.thread_id.localeCompare(b.thread_id),
       )

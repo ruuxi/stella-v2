@@ -17,6 +17,25 @@
   animation: none;
 }
 
+/* WebGL failure/context loss degrades to one static, theme-colored mark.
+   There is no retry loop; a browser context-restored event remounts once. */
+.stella-animation-container[data-renderer-state="fallback"] {
+  animation: none;
+}
+
+.stella-animation-container[data-renderer-state="fallback"] .ascii-canvas {
+  display: none;
+}
+
+.stella-animation-container[data-renderer-state="fallback"]::after {
+  content: "";
+  width: clamp(3px, 24%, 8px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--foreground);
+  opacity: 0.55;
+}
+
 .ascii-canvas {
   position: absolute;
   top: 50%;
@@ -59,7 +78,13 @@
 
 /* Subtle breathing — scale only, no opacity flicker */
 @keyframes breathing {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.008); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.008);
+  }
+  100% {
+    transform: scale(1);
+  }
 }

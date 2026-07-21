@@ -387,6 +387,10 @@
 
 .chat-workspace-strip__compact-cell--running::before {
   background: var(--foreground);
+}
+
+.chat-workspace-strip__task-row[data-continuous-animation="true"]
+  .chat-workspace-strip__compact-cell--running::before {
   animation: chat-workspace-strip__compact-pulse 1.8s ease-in-out infinite;
 }
 
@@ -441,6 +445,10 @@
 
 .chat-workspace-strip__compact-bar-segment--running {
   background: var(--foreground);
+}
+
+.chat-workspace-strip__task-row[data-continuous-animation="true"]
+  .chat-workspace-strip__compact-bar-segment--running {
   animation: chat-workspace-strip__compact-pulse 1.8s ease-in-out infinite;
 }
 
@@ -470,10 +478,6 @@
   font-size: var(--font-size-xs);
   letter-spacing: 0.01em;
   line-height: 1.4;
-}
-
-.chat-workspace-strip__compact-status[data-failure="true"] {
-  color: var(--text-error);
 }
 
 @keyframes chat-workspace-strip__compact-pulse {

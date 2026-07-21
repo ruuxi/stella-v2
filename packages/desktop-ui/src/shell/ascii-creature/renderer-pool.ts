@@ -54,6 +54,12 @@ function disposeEntry(entry: PooledCreatureRenderer): void {
     ?.loseContext();
 }
 
+/** Permanently discard an active entry after context loss/render failure. */
+export function discardCreatureRenderer(entry: PooledCreatureRenderer): void {
+  entry.canvas.parentNode?.removeChild(entry.canvas);
+  entry.renderer.destroy();
+}
+
 function createEntry(
   spec: CreatureSpec,
   colors: Float32Array,

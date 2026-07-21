@@ -83,9 +83,7 @@ export function InlineWorkingIndicator({
   const wasActiveRef = useRef(active);
   // Per-activation seed so the reasoning label ("Thinking" / "Mulling it
   // over" / …) varies across turns but stays stable within one.
-  const [reasoningSeed, setReasoningSeed] = useState(() =>
-    String(Date.now()),
-  );
+  const [reasoningSeed, setReasoningSeed] = useState(() => String(Date.now()));
 
   useEffect(() => {
     const clearTimer = () => {
@@ -159,6 +157,7 @@ export function InlineWorkingIndicator({
           toolCallId={displayProps.runningToolId}
           isReasoning={!displayProps.runningTool}
           reasoningSeed={reasoningSeed}
+          animationActive={active && !leaving}
         />
       )}
     </div>

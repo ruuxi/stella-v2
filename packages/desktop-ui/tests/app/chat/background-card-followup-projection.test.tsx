@@ -6,6 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { EventRecord, MessageRecord } from "@stella/contracts/local-chat";
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import { useEventRows } from "@/features/chat/hooks/use-event-rows";
+import {
+  getPersistedAssistantSlots,
+  mergeConversationDisplayMessageSources,
+} from "@/features/chat/hooks/use-conversation-display-messages";
 
 const lifecycle = (
   id: string,
@@ -63,7 +67,13 @@ describe("inline follow-up card projection", () => {
   let renderedRows: EventRowViewModel[] = [];
 
   function Probe({ messages }: { messages: MessageRecord[] }) {
-    renderedRows = useEventRows({ messages }).rows;
+    const orderedMessages = mergeConversationDisplayMessageSources({
+      persistedMessages: messages,
+      overlayMessages: [],
+      streamingAssistants: [],
+      persistedAssistantSlots: getPersistedAssistantSlots(messages),
+    });
+    renderedRows = useEventRows({ messages: orderedMessages }).rows;
     return null;
   }
 
@@ -141,4 +151,96 @@ describe("inline follow-up card projection", () => {
       expect(cards[1]?.completedThreadIds).toEqual([]);
     },
   );
+
+  it.each(["general", "manager"] as const)(
+    "keeps a later working %s follow-up below its settled predecessor when anchor timestamps disagree",
+    async (agentType) => {
+      const original = start("original-start", 100, agentType, 1);
+      const originalDone = complete("original-done", 150, agentType, 1);
+      const followUp = start("follow-up-start", 200, agentType, 2, true);
+      const originalRow = assistant("original-row", 500, [
+        original,
+        originalDone,
+      ]);
+      const followUpRow = assistant("follow-up-row", 50, [followUp]);
+
+      await act(async () => {
+        root.render(<Probe messages={[followUpRow, originalRow]} />);
+      });
+
+      const cardStarts = renderedRows.flatMap((row) =>
+        row.kind === "assistant" && row.backgroundWork
+          ? [row.backgroundWork.startEventIdsByThread[`${agentType}-thread`]]
+          : [],
+      );
+      expect(cardStarts).toEqual(["original-start", "follow-up-start"]);
+    },
+  );
+
+  it("does not reorder inline cards when lifecycle status changes", async () => {
+    const original = start("original-start", 100, "general", 1);
+    const originalDone = complete("original-done", 150, "general", 1);
+    const followUp = start("follow-up-start", 200, "general", 2, true);
+    const originalRow = assistant("original-row", 500, [
+      original,
+      originalDone,
+    ]);
+    const followUpRow = assistant("follow-up-row", 50, [followUp]);
+    const cardStarts = () =>
+      renderedRows.flatMap((row) =>
+        row.kind === "assistant" && row.backgroundWork
+          ? [row.backgroundWork.startEventIdsByThread["general-thread"]]
+          : [],
+      );
+
+    await act(async () => {
+      root.render(<Probe messages={[followUpRow, originalRow]} />);
+    });
+    expect(cardStarts()).toEqual(["original-start", "follow-up-start"]);
+
+    await act(async () => {
+      root.render(
+        <Probe
+          messages={[
+            assistant("follow-up-row", 50, [
+              followUp,
+              complete("follow-up-done", 250, "general", 2),
+            ]),
+            originalRow,
+          ]}
+        />,
+      );
+    });
+    expect(cardStarts()).toEqual(["original-start", "follow-up-start"]);
+  });
+
+  it("reconstructs the same occurrence order on a fresh reload projection", async () => {
+    const makeReloadedMessages = () => [
+      assistant("follow-up-row", 50, [
+        start("follow-up-start", 200, "manager", 2, true),
+      ]),
+      assistant("original-row", 500, [
+        start("original-start", 100, "manager", 1),
+        complete("original-done", 150, "manager", 1),
+      ]),
+    ];
+    const cardStarts = () =>
+      renderedRows.flatMap((row) =>
+        row.kind === "assistant" && row.backgroundWork
+          ? [row.backgroundWork.startEventIdsByThread["manager-thread"]]
+          : [],
+      );
+
+    await act(async () => {
+      root.render(<Probe messages={makeReloadedMessages()} />);
+    });
+    expect(cardStarts()).toEqual(["original-start", "follow-up-start"]);
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<Probe messages={makeReloadedMessages()} />);
+    });
+    expect(cardStarts()).toEqual(["original-start", "follow-up-start"]);
+  });
 });

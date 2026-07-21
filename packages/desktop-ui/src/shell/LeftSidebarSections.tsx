@@ -41,6 +41,7 @@ import {
   getActivityRowSearchText,
   getActivityRowStatus,
   groupActivityTasks,
+  orderActiveActivityRowsForDisplay,
   orderByFirstSeen,
   pruneGroupExpandOverrides,
   getTaskAgentUpdates,
@@ -73,7 +74,10 @@ import {
 } from "@/shell/display/ActivityHistoryDialog";
 import { ScheduleDetailsDialog } from "@/global/schedule/ScheduleDetailsDialog";
 import type { ScheduleToolAffectedRef } from "@stella/contracts/scheduling";
-import { TextShimmer } from "@/app/chat/TextShimmer";
+import {
+  ActivityTaskShimmer,
+  useActivityTaskAnimationOwner,
+} from "@/shell/ActivityTaskShimmer";
 import { AgentAssistantUpdates } from "@/shell/AgentAssistantUpdates";
 import { selectLatestAgentAssistantMessage } from "@/features/chat/lib/agent-assistant-summary";
 import "@/app/chat/chat-workspace-strip.css";
@@ -243,12 +247,13 @@ const compactTaskTooltip = (task: TaskItem): string => {
 
 const CompactChildState = memo(function CompactChildState({
   summary,
-  prioritizeFailure,
+  latestProse,
 }: {
   summary: ReturnType<typeof summarizeCompactActivity>;
-  prioritizeFailure: boolean;
+  /** Manager-authored prose overrides descendant prose; null suppresses it. */
+  latestProse?: string | null;
 }) {
-  const statusText = getCompactActivityStatusText(summary, prioritizeFailure);
+  const statusText = getCompactActivityStatusText(summary, latestProse);
   return (
     <>
       {summary.usesProgressBar ? (
@@ -301,14 +306,7 @@ const CompactChildState = memo(function CompactChildState({
           ))}
         </span>
       )}
-      <span
-        className="chat-workspace-strip__compact-status"
-        data-failure={
-          prioritizeFailure && summary.errorCount > 0 ? "true" : undefined
-        }
-      >
-        {statusText}
-      </span>
+      <span className="chat-workspace-strip__compact-status">{statusText}</span>
     </>
   );
 });
@@ -338,7 +336,7 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   metaText,
   childContent,
   compactChildren,
-  compactFailurePriority = false,
+  isTopLevel,
 }: {
   task: TaskItem;
   expanded: boolean;
@@ -355,10 +353,12 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   childContent?: ReactNode;
   /** Owned agents collapsed into the Manager's cell-grid summary. */
   compactChildren?: readonly ActivityRow[];
-  /** Keep a child failure at the front while its Manager is still active. */
-  compactFailurePriority?: boolean;
+  /** Nested owned rows stay static; one visible top-level row owns motion. */
+  isTopLevel: boolean;
 }) {
   const motionProps = useActivityRowMotionProps(orderIndex);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const ownsAnimation = useActivityTaskAnimationOwner(task, isTopLevel, rowRef);
   // Sidebar and tray rows identify the delegated thread. Live tool state is
   // intentionally reserved for the inline chat card, so it cannot replace
   // the stable description here or leak into activity search.
@@ -369,14 +369,14 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   // Agent-authored assistant messages replace generated/tool-status summary
   // text and remain available after completion without extra inference.
   const hasAgentUpdates = agentUpdates.length > 0;
+  const managerAssistantProse =
+    task.agentType === AGENT_IDS.MANAGER
+      ? selectLatestAgentAssistantMessage(task.assistantMessages)
+      : undefined;
   const managerDetail =
     task.agentType === AGENT_IDS.MANAGER
-      ? task.status === "running"
-        ? task.statusText?.trim() &&
-          task.statusText.trim() !== task.description.trim()
-          ? task.statusText.trim()
-          : undefined
-        : task.outputPreview?.trim() || undefined
+      ? (managerAssistantProse ??
+        (task.status === "running" ? "Working…" : undefined))
       : undefined;
   const hasFiles = files.length > 0;
   const filesCapped = files.length > AGENT_FILE_CAP;
@@ -397,9 +397,11 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   return (
     <motion.li
       {...motionProps}
+      ref={rowRef}
       className="chat-workspace-strip__task-row"
       data-status={task.status}
       data-expanded={expanded ? "true" : undefined}
+      data-continuous-animation={ownsAnimation ? "true" : undefined}
       title={label}
     >
       <div className="chat-workspace-strip__task-row-head">
@@ -423,16 +425,19 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
                   <TaskStatusIcon status={task.status} />
                 </span>
                 <span className="chat-workspace-strip__task-label">
-                  {task.status === "running" ? (
-                    <TextShimmer text={label} durationMs={2000} syncPhase />
-                  ) : (
-                    label
-                  )}
+                  <ActivityTaskShimmer
+                    text={label}
+                    ownsAnimation={ownsAnimation}
+                  />
                 </span>
               </span>
               <CompactChildState
                 summary={compactSummary}
-                prioritizeFailure={compactFailurePriority && !expanded}
+                latestProse={
+                  task.agentType === AGENT_IDS.MANAGER
+                    ? (managerDetail ?? null)
+                    : undefined
+                }
               />
             </>
           ) : (
@@ -444,11 +449,10 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
                 <TaskStatusIcon status={task.status} />
               </span>
               <span className="chat-workspace-strip__task-label">
-                {task.status === "running" ? (
-                  <TextShimmer text={label} durationMs={2000} syncPhase />
-                ) : (
-                  label
-                )}
+                <ActivityTaskShimmer
+                  text={label}
+                  ownsAnimation={ownsAnimation}
+                />
               </span>
               {metaText ? (
                 <span className="chat-workspace-strip__row-meta chat-workspace-strip__group-status">
@@ -558,6 +562,7 @@ const GroupRow = memo(function GroupRow({
   agentFiles,
   onOpenFile,
   orderIndex,
+  isTopLevel,
 }: {
   group: TaskGroup;
   expanded: boolean;
@@ -569,22 +574,28 @@ const GroupRow = memo(function GroupRow({
   onOpenFile: (entry: ConversationFileEntry) => void;
   /** Position in the host list; drives reorder FLIP measurement. */
   orderIndex: number;
+  isTopLevel: boolean;
 }) {
   const motionProps = useActivityRowMotionProps(orderIndex);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const ownsAnimation = useActivityTaskAnimationOwner(
+    { agentType: AGENT_IDS.GENERAL, status: group.status },
+    isTopLevel,
+    rowRef,
+  );
   const label = group.label.trim();
   const compactSummary = useMemo(
     () => summarizeCompactActivity(group.members),
     [group.members],
   );
-  const statusText = getCompactActivityStatusText(
-    compactSummary,
-    group.status === "running" && !expanded,
-  );
+  const statusText = getCompactActivityStatusText(compactSummary);
   return (
     <motion.li
       {...motionProps}
+      ref={rowRef}
       className="chat-workspace-strip__task-row chat-workspace-strip__group-row"
       data-status={group.status}
+      data-continuous-animation={ownsAnimation ? "true" : undefined}
       title={`${label} — ${statusText}`}
     >
       <button
@@ -603,17 +614,10 @@ const GroupRow = memo(function GroupRow({
             <TaskStatusIcon status={group.status} />
           </span>
           <span className="chat-workspace-strip__task-label">
-            {group.status === "running" ? (
-              <TextShimmer text={label} durationMs={2000} syncPhase />
-            ) : (
-              label
-            )}
+            <ActivityTaskShimmer text={label} ownsAnimation={ownsAnimation} />
           </span>
         </span>
-        <CompactChildState
-          summary={compactSummary}
-          prioritizeFailure={group.status === "running" && !expanded}
-        />
+        <CompactChildState summary={compactSummary} />
       </button>
       {/* Always mounted so expand/collapse animates (grid-rows 0fr↔1fr). */}
       <div
@@ -634,6 +638,7 @@ const GroupRow = memo(function GroupRow({
                   files={agentFiles.get(task.id) ?? EMPTY_FILES}
                   onOpenFile={onOpenFile}
                   orderIndex={index}
+                  isTopLevel={false}
                 />
               ))}
             </AnimatePresence>
@@ -687,6 +692,7 @@ const TasksList = memo(function TasksList({
               files={agentFiles.get(row.task.id) ?? EMPTY_FILES}
               onOpenFile={onOpenFile}
               orderIndex={index}
+              isTopLevel={!nested}
             />
           ) : row.kind === "group" ? (
             <GroupRow
@@ -700,6 +706,7 @@ const TasksList = memo(function TasksList({
               agentFiles={agentFiles}
               onOpenFile={onOpenFile}
               orderIndex={index}
+              isTopLevel={!nested}
             />
           ) : (
             <ActivityTaskRow
@@ -715,11 +722,17 @@ const TasksList = memo(function TasksList({
               files={agentFiles.get(row.hierarchy.owner.id) ?? EMPTY_FILES}
               onOpenFile={onOpenFile}
               orderIndex={index}
+              isTopLevel={!nested}
               compactChildren={row.hierarchy.children}
-              compactFailurePriority={row.hierarchy.owner.status === "running"}
               childContent={
                 <TasksList
-                  rows={row.hierarchy.children}
+                  rows={
+                    row.hierarchy.owner.agentType === AGENT_IDS.MANAGER
+                      ? orderActiveActivityRowsForDisplay(
+                          row.hierarchy.children,
+                        )
+                      : row.hierarchy.children
+                  }
                   isTaskExpanded={isTaskExpanded}
                   isCompactTaskExpanded={isCompactTaskExpanded}
                   onToggleTask={onToggleTask}

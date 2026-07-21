@@ -4,6 +4,7 @@ import { useWindowType } from "@/shared/hooks/use-window-type";
 import { cn } from "@/shared/lib/utils";
 import { StellaAnimation } from "@/shell/ascii-creature/StellaAnimation";
 import { SwapText } from "./SwapText";
+import { CHAT_ACTIVITY_SHIMMER_GROUP } from "./TextShimmer";
 import { getWorkingIndicatorDisplayStatus } from "@/features/chat/working-indicator-state";
 import "./indicators.css";
 
@@ -19,6 +20,8 @@ interface WorkingIndicatorProps {
    * instead of always landing on the first variation ("Thinking"). */
   reasoningSeed?: string;
   className?: string;
+  /** Stops persistent motion while the shell finishes its finite exit. */
+  animationActive?: boolean;
 }
 
 export function WorkingIndicator({
@@ -28,11 +31,13 @@ export function WorkingIndicator({
   isReasoning,
   reasoningSeed,
   className,
+  animationActive = true,
 }: WorkingIndicatorProps) {
   const { state } = useUiState();
   const windowType = useWindowType();
   const windowFocused = useWindowFocus();
-  const animationPaused = !windowFocused || state.window !== windowType;
+  const animationPaused =
+    !animationActive || !windowFocused || state.window !== windowType;
 
   const displayStatus = getWorkingIndicatorDisplayStatus({
     status,
@@ -49,16 +54,19 @@ export function WorkingIndicator({
             width={20}
             height={20}
             maxDpr={1}
-            frameSkip={2}
+            maxFps={15}
             paused={animationPaused}
+            requireWindowFocus
           />
         </div>
       </div>
       <SwapText
         text={displayStatus}
-        active
+        active={animationActive}
         animateInitial={false}
         className="working-status"
+        shimmerGroup={CHAT_ACTIVITY_SHIMMER_GROUP}
+        shimmerPriority={100}
       />
     </div>
   );

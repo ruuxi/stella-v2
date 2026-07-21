@@ -1,8 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { streamAnthropic } from "@stella/runtime/ai/providers/anthropic";
-import { streamGoogleGeminiCli } from "@stella/runtime/ai/providers/google-gemini-cli";
 import type { AssistantMessageEvent, Context, Model } from "@stella/runtime/ai/types";
 import { anomalousStreamStopError, providerAbortedStopMessage } from "@stella/runtime/ai/utils/provider-stop";
 
@@ -103,60 +102,6 @@ describe("provider abort reason surfacing (anthropic)", () => {
 		expect(error!.error.errorMessage).toContain('stop reason: "refusal"');
 		expect(error!.error.errorMessage).toMatch(/refusal\/safety\/content-filter/i);
 		expect(error!.error.errorMessage).not.toBe("An unknown error occurred");
-	});
-});
-
-describe("provider abort reason surfacing (google-gemini-cli)", () => {
-	afterEach(() => {
-		vi.unstubAllGlobals();
-	});
-
-	it("captures the raw SAFETY finish reason from the Cloud Code Assist stream", async () => {
-		const encoder = new TextEncoder();
-		const sse = [
-			`data: ${JSON.stringify({
-				response: {
-					candidates: [
-						{
-							content: { parts: [{ text: "partial reply before the filter" }] },
-							finishReason: "SAFETY",
-						},
-					],
-					usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 2 },
-				},
-			})}`,
-			"",
-			"",
-		].join("\n");
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () =>
-				new Response(encoder.encode(sse), {
-					status: 200,
-					headers: { "content-type": "text/event-stream" },
-				}),
-			),
-		);
-
-		const geminiModel: Model<"google-gemini-cli"> = {
-			...(model as unknown as Model<"google-gemini-cli">),
-			id: "gemini-3-pro",
-			api: "google-gemini-cli",
-			provider: "google-gemini-cli",
-			baseUrl: "https://cloudcode.example",
-		};
-		const stream = streamGoogleGeminiCli(geminiModel, context, {
-			apiKey: JSON.stringify({ token: "test-token", projectId: "proj" }),
-		});
-		const events: AssistantMessageEvent[] = [];
-		for await (const event of stream) events.push(event);
-
-		const error = events.find((event) => event.type === "error") as
-			| Extract<AssistantMessageEvent, { type: "error" }>
-			| undefined;
-		expect(error).toBeDefined();
-		expect(error!.error.errorMessage).toContain('stop reason: "SAFETY"');
-		expect(error!.error.errorMessage).toMatch(/refusal\/safety\/content-filter/i);
 	});
 });
 

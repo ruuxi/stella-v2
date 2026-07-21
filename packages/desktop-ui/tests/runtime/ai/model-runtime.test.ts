@@ -8,6 +8,7 @@ import {
   mergeModelHeaders,
   ModelRuntime,
 } from "@stella/runtime/ai/model-runtime";
+import { resolveApiProviderInternal } from "@stella/runtime/ai/api-registry";
 import { getOAuthProvider } from "@stella/runtime/ai/utils/oauth/index";
 
 const tempDirs: string[] = [];
@@ -53,6 +54,17 @@ afterEach(async () => {
 });
 
 describe("ModelRuntime", () => {
+  it("does not register retired Google subscription providers", async () => {
+    expect(getOAuthProvider("google-gemini-cli")).toBeUndefined();
+    expect(getOAuthProvider("google-antigravity")).toBeUndefined();
+    await expect(
+      resolveApiProviderInternal("google-gemini-cli"),
+    ).resolves.toBeUndefined();
+    const runtime = new ModelRuntime();
+    expect(runtime.getProviderIds()).not.toContain("google-gemini-cli");
+    expect(runtime.getProviderIds()).not.toContain("google-antigravity");
+  });
+
   it("uses the platform shell contract for models.json commands", () => {
     expect(
       getModelConfigCommandInvocation("echo configured-token", {

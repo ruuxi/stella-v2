@@ -128,6 +128,7 @@ export const executeRuntimeAgentPrompt = async (args: {
   threadStore?: import("../storage/runtime-store.js").RuntimeStore;
   threadKey?: string;
   conversationId?: string;
+  stellaDataDir?: string;
   uiVisibility?: "visible" | "hidden";
   attemptGeneration?: number;
   /**
@@ -222,6 +223,7 @@ export const executeRuntimeAgentPrompt = async (args: {
     threadStore: args.threadStore,
     threadKey: args.threadKey,
     ...(args.conversationId ? { conversationId: args.conversationId } : {}),
+    ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
     ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
     ...(typeof args.attemptGeneration === "number"
       ? { attemptGeneration: args.attemptGeneration }

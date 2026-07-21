@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   claudeCodeSessionHasActiveProcess,
   collectClaudeCodeNativeFileChanges,
+  createClaudeNativeToolUseCorrelator,
   createClaudeCodeStreamEmitter,
   getClaudeCodeModelRoundFromStreamEvent,
   getClaudeCodeModelFallbackFromStreamEvent,
@@ -35,6 +36,89 @@ import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 import { DatabaseSync } from "node:sqlite";
 
 describe("claude-code-session-runtime", () => {
+  it("correlates protocol-shaped Claude tool_use ids across transport replay and intentional repeats", async () => {
+    const fixture = fs
+      .readFileSync(
+        path.resolve(
+          process.cwd(),
+          "tests/fixtures/external-image-tool-identities/claude-stream-json.jsonl",
+        ),
+        "utf8",
+      )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line)) as Array<{
+      type?: string;
+      message?: {
+        content?: Array<{
+          id?: string;
+          name?: string;
+          input?: Record<string, unknown>;
+        }>;
+      };
+    }>;
+    const blocks = fixture
+      .filter((entry) => entry.type === "assistant")
+      .flatMap((entry) => entry.message?.content ?? []);
+    const captured = blocks[0];
+    if (!captured?.id || !captured.name || !captured.input) {
+      throw new Error("Claude identity fixture is invalid");
+    }
+    const correlator = createClaudeNativeToolUseCorrelator();
+    const first = {
+      toolCallId: captured.id,
+      toolName: captured.name,
+      toolArgs: captured.input,
+    };
+    correlator.observeStreamEvent({
+      type: "stream_event",
+      event: {
+        type: "content_block_start",
+        index: 1,
+        content_block: {
+          type: "tool_use",
+          id: first.toolCallId,
+          name: first.toolName,
+          input: {},
+        },
+      },
+    });
+    const serialized = JSON.stringify(first.toolArgs);
+    for (const partial_json of [serialized.slice(0, 5), serialized.slice(5)]) {
+      correlator.observeStreamEvent({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 1,
+          delta: { type: "input_json_delta", partial_json },
+        },
+      });
+    }
+    correlator.observeStreamEvent({
+      type: "stream_event",
+      event: { type: "content_block_stop", index: 1 },
+    });
+    correlator.observe(first);
+    await expect(
+      correlator.claim(
+        "image_gen",
+        first.toolArgs,
+        new AbortController().signal,
+      ),
+    ).resolves.toBe(first.toolCallId);
+
+    const repeat = blocks[1];
+    if (!repeat?.id) throw new Error("Claude repeat fixture is invalid");
+    correlator.observe({ ...first, toolCallId: repeat.id });
+    await expect(
+      correlator.claim(
+        "image_gen",
+        first.toolArgs,
+        new AbortController().signal,
+      ),
+    ).resolves.toBe(repeat.id);
+  });
+
   it("classifies finalized assistant messages as model and tool rounds", () => {
     expect(
       getClaudeCodeModelRoundFromStreamEvent({

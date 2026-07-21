@@ -11,6 +11,7 @@ import {
   buildCodexUserInput,
   buildCodexPromptFromMessages,
   clampCodexSpawnReasoningEffort,
+  codexDurableImageToolCallId,
   codexImagePathFromFileUrl,
   CODEX_LIGHT_MODEL,
   CODEX_UTILITY_MODEL,
@@ -31,10 +32,106 @@ import {
   DEFAULT_CODEX_MODEL,
   updateLocalModelPreferences,
 } from "@stella/runtime/kernel/preferences/local-preferences";
+import {
+  markImageOperationDelivered,
+  reserveDurableImageOperation,
+  settleImageOperation,
+} from "@stella/runtime/kernel/tools/image-operation-store";
 
 describe("Codex agent runtime", () => {
   afterEach(() => {
     shutdownCodexAppServerRuntime();
+  });
+
+  it("uses Codex native dynamicToolCall identity for replay, repeats, and session isolation", () => {
+    const fixture = fs
+      .readFileSync(
+        path.resolve(
+          process.cwd(),
+          "tests/fixtures/external-image-tool-identities/codex-app-server.jsonl",
+        ),
+        "utf8",
+      )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line)) as Array<{
+      method?: string;
+      params?: {
+        threadId?: string;
+        callId?: string;
+        arguments?: Record<string, unknown>;
+        item?: { id?: string };
+      };
+    }>;
+    const started = fixture.find((entry) => entry.method === "item/started");
+    const requests = fixture.filter(
+      (entry) => entry.method === "item/tool/call",
+    );
+    const request = requests[0];
+    if (
+      !started?.params?.item?.id ||
+      !request?.params?.callId ||
+      !request.params.threadId ||
+      !request.params.arguments
+    ) {
+      throw new Error("Codex identity fixture is invalid");
+    }
+    expect(started.params.item.id).toBe(request.params.callId);
+    const common = {
+      sessionKey: "persisted-codex-thread-A",
+      threadId: request.params.threadId,
+      callId: request.params.callId,
+      toolArgs: request.params.arguments,
+    };
+    const replay = codexDurableImageToolCallId(common);
+    expect(requests[1]?.params?.callId).toBe(request.params.callId);
+    expect(requests[2]?.params?.callId).not.toBe(request.params.callId);
+    expect(codexDurableImageToolCallId(common)).toBe(replay);
+    expect(
+      codexDurableImageToolCallId({ ...common, callId: "call-native-2" }),
+    ).not.toBe(replay);
+    expect(
+      codexDurableImageToolCallId({
+        ...common,
+        sessionKey: "persisted-codex-thread-B",
+      }),
+    ).not.toBe(replay);
+    expect(
+      codexDurableImageToolCallId({
+        ...common,
+        toolArgs: { prompt: "changed image" },
+      }),
+    ).not.toBe(replay);
+  });
+
+  it("registers image_gen as a real app-server dynamic tool", () => {
+    expect(
+      buildCodexThreadStartParams({
+        model: "gpt-5.4",
+        tools: [
+          {
+            name: "image_gen",
+            description: "Generate one image and await its terminal result.",
+            parameters: {
+              type: "object",
+              properties: { prompt: { type: "string" } },
+              required: ["prompt"],
+            },
+          },
+        ],
+      }).dynamicTools,
+    ).toEqual([
+      {
+        type: "function",
+        name: "image_gen",
+        description: "Generate one image and await its terminal result.",
+        inputSchema: {
+          type: "object",
+          properties: { prompt: { type: "string" } },
+          required: ["prompt"],
+        },
+      },
+    ]);
   });
 
   it("clamps spawn effort against the Codex model/list surface", () => {
@@ -1293,6 +1390,254 @@ describe("Codex agent runtime", () => {
       } else {
         process.env.STELLA_FAKE_CODEX_STARTS_FILE = previousStartsFile;
       }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reattaches a terminal image result through an actual Codex app-server process restart", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-fake-codex-image-restart-"),
+    );
+    const fakeCodex = path.join(dir, "codex");
+    const startsFile = path.join(dir, "starts.txt");
+    fs.writeFileSync(
+      fakeCodex,
+      [
+        "#!/usr/bin/env node",
+        'const fs = require("node:fs");',
+        'const readline = require("node:readline");',
+        "fs.appendFileSync(process.env.STELLA_FAKE_CODEX_STARTS_FILE, 'start\\n');",
+        "const processNumber = fs.readFileSync(process.env.STELLA_FAKE_CODEX_STARTS_FILE, 'utf8').trim().split('\\n').length;",
+        "let threadId = '';",
+        "let turnId = '';",
+        "const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n');",
+        "readline.createInterface({ input: process.stdin }).on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') { send({ id: message.id, result: {} }); return; }",
+        "  if (message.method === 'initialized') return;",
+        "  if (message.method === 'thread/start') { threadId = `thread-${processNumber}`; send({ id: message.id, result: { thread: { id: threadId } } }); return; }",
+        "  if (message.method === 'turn/start') {",
+        "    turnId = `turn-${processNumber}`;",
+        "    const turn = { id: turnId, status: 'inProgress' };",
+        "    send({ id: message.id, result: { turn } });",
+        "    send({ method: 'turn/started', params: { threadId, turn } });",
+        "    send({ method: 'item/started', params: { threadId, turnId, startedAtMs: Date.now(), item: { type: 'dynamicToolCall', id: 'codex-image-stable-call', namespace: null, tool: 'image_gen', arguments: { prompt: 'durable codex fox' }, status: 'inProgress', success: null } } });",
+        "    send({ id: 900, method: 'item/tool/call', params: { threadId, turnId, callId: 'codex-image-stable-call', namespace: null, tool: 'image_gen', arguments: { prompt: 'durable codex fox' } } });",
+        "    return;",
+        "  }",
+        "  if (message.id === 900) {",
+        "    if (processNumber === 1) { process.exit(17); return; }",
+        "    const turn = { id: turnId, status: 'completed' };",
+        "    send({ method: 'item/completed', params: { threadId, turnId, item: { type: 'agentMessage', id: 'final-image', text: 'terminal image delivered after restart' } } });",
+        "    send({ method: 'turn/completed', params: { threadId, turn } });",
+        "  }",
+        "});",
+        "process.stdin.resume();",
+      ].join("\n"),
+    );
+    fs.chmodSync(fakeCodex, 0o755);
+    const previousPath = process.env.STELLA_CODEX_CLI_PATH;
+    const previousStartsFile = process.env.STELLA_FAKE_CODEX_STARTS_FILE;
+    process.env.STELLA_CODEX_CLI_PATH = fakeCodex;
+    process.env.STELLA_FAKE_CODEX_STARTS_FILE = startsFile;
+    let submissions = 0;
+    let adapterCalls = 0;
+    const executeTool = async (
+      toolCallId: string,
+      _toolName: string,
+      toolArgs: Record<string, unknown>,
+    ) => {
+      adapterCalls += 1;
+      const operation = reserveDurableImageOperation({
+        stellaDataDir: dir,
+        conversationId: "codex-app-server-restart",
+        toolCallId,
+        requestBody: toolArgs,
+      });
+      if (!operation.terminalResult) {
+        submissions += 1;
+        settleImageOperation({
+          stellaDataDir: dir,
+          operationId: operation.operationId,
+          result: {
+            ok: true,
+            job: {
+              jobId: "codex-image-job",
+              capability: "text_to_image",
+              profile: "best",
+              status: "succeeded",
+            },
+            filePaths: [],
+            artifacts: [],
+            reattached: false,
+          },
+        });
+      }
+      return {
+        result: operation.terminalResult ?? {
+          jobId: "codex-image-job",
+          status: "succeeded",
+        },
+      };
+    };
+    const onToolResponseWritten = ({ toolCallId }: { toolCallId: string }) => {
+      markImageOperationDelivered({
+        stellaDataDir: dir,
+        conversationId: "codex-app-server-restart",
+        toolCallId,
+      });
+    };
+    try {
+      await expect(
+        runCodexAgentTurn({
+          runId: "codex-image-durable-run",
+          sessionKey: "codex-image-session",
+          prompt: "generate image",
+          reuseAppServer: true,
+          executeTool,
+          onToolResponseWritten,
+        }),
+      ).rejects.toThrow();
+      const restarted = await runCodexAgentTurn({
+        runId: "codex-image-durable-run",
+        sessionKey: "codex-image-session",
+        prompt: "continue image generation",
+        reuseAppServer: true,
+        executeTool,
+        onToolResponseWritten,
+      });
+      expect(restarted.text).toBe("terminal image delivered after restart");
+      expect(submissions).toBe(1);
+      expect(adapterCalls).toBe(2);
+      expect(
+        fs.readFileSync(startsFile, "utf8").trim().split("\n"),
+      ).toHaveLength(2);
+    } finally {
+      shutdownCodexAppServerRuntime();
+      if (previousPath === undefined) delete process.env.STELLA_CODEX_CLI_PATH;
+      else process.env.STELLA_CODEX_CLI_PATH = previousPath;
+      if (previousStartsFile === undefined)
+        delete process.env.STELLA_FAKE_CODEX_STARTS_FILE;
+      else process.env.STELLA_FAKE_CODEX_STARTS_FILE = previousStartsFile;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reattaches when Codex exits after terminal persistence but before its response write", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-fake-codex-before-write-"),
+    );
+    const fakeCodex = path.join(dir, "codex");
+    const startsFile = path.join(dir, "starts.txt");
+    fs.writeFileSync(
+      fakeCodex,
+      [
+        "#!/usr/bin/env node",
+        'const fs = require("node:fs");',
+        'const readline = require("node:readline");',
+        "fs.appendFileSync(process.env.STELLA_FAKE_CODEX_STARTS_FILE, 'start\\n');",
+        "const processNumber = fs.readFileSync(process.env.STELLA_FAKE_CODEX_STARTS_FILE, 'utf8').trim().split('\\n').length;",
+        "let threadId = ''; let turnId = '';",
+        "const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n');",
+        "readline.createInterface({ input: process.stdin }).on('line', (line) => {",
+        " const message = JSON.parse(line);",
+        " if (message.method === 'initialize') { send({ id: message.id, result: {} }); return; }",
+        " if (message.method === 'initialized') return;",
+        " if (message.method === 'thread/start') { threadId = `thread-${processNumber}`; send({ id: message.id, result: { thread: { id: threadId } } }); return; }",
+        " if (message.method === 'turn/start') {",
+        "   turnId = `turn-${processNumber}`; const turn = { id: turnId, status: 'inProgress' };",
+        "   send({ id: message.id, result: { turn } }); send({ method: 'turn/started', params: { threadId, turn } });",
+        "   send({ method: 'item/started', params: { threadId, turnId, startedAtMs: Date.now(), item: { type: 'dynamicToolCall', id: 'codex-before-write-call', namespace: null, tool: 'image_gen', arguments: { prompt: 'codex before write' }, status: 'inProgress', success: null } } });",
+        "   send({ id: 901, method: 'item/tool/call', params: { threadId, turnId, callId: 'codex-before-write-call', namespace: null, tool: 'image_gen', arguments: { prompt: 'codex before write' } } });",
+        "   if (processNumber === 1) setTimeout(() => process.exit(19), 10); return;",
+        " }",
+        " if (message.id === 901) { const turn = { id: turnId, status: 'completed' }; send({ method: 'item/completed', params: { threadId, turnId, item: { type: 'agentMessage', id: 'final', text: 'replayed before-write result' } } }); send({ method: 'turn/completed', params: { threadId, turn } }); }",
+        "});",
+        "process.stdin.resume();",
+      ].join("\n"),
+    );
+    fs.chmodSync(fakeCodex, 0o755);
+    const previousPath = process.env.STELLA_CODEX_CLI_PATH;
+    const previousStartsFile = process.env.STELLA_FAKE_CODEX_STARTS_FILE;
+    process.env.STELLA_CODEX_CLI_PATH = fakeCodex;
+    process.env.STELLA_FAKE_CODEX_STARTS_FILE = startsFile;
+    let submissions = 0;
+    let adapterCalls = 0;
+    let acknowledgements = 0;
+    const executeTool = async (
+      toolCallId: string,
+      _toolName: string,
+      toolArgs: Record<string, unknown>,
+    ) => {
+      adapterCalls += 1;
+      const operation = reserveDurableImageOperation({
+        stellaDataDir: dir,
+        conversationId: "codex-before-response-write",
+        toolCallId,
+        requestBody: toolArgs,
+      });
+      if (!operation.terminalResult) {
+        submissions += 1;
+        settleImageOperation({
+          stellaDataDir: dir,
+          operationId: operation.operationId,
+          result: {
+            ok: true,
+            job: {
+              jobId: "codex-before-write-job",
+              capability: "text_to_image",
+              profile: "best",
+              status: "succeeded",
+            },
+            filePaths: [],
+            artifacts: [],
+            reattached: false,
+          },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return { result: operation.terminalResult ?? { status: "succeeded" } };
+    };
+    const onToolResponseWritten = ({ toolCallId }: { toolCallId: string }) => {
+      acknowledgements += 1;
+      markImageOperationDelivered({
+        stellaDataDir: dir,
+        conversationId: "codex-before-response-write",
+        toolCallId,
+      });
+    };
+    try {
+      await expect(
+        runCodexAgentTurn({
+          runId: "codex-before-write-run",
+          sessionKey: "codex-before-write-session",
+          prompt: "generate",
+          reuseAppServer: true,
+          executeTool,
+          onToolResponseWritten,
+        }),
+      ).rejects.toThrow();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(acknowledgements).toBe(0);
+      const recovered = await runCodexAgentTurn({
+        runId: "codex-before-write-run",
+        sessionKey: "codex-before-write-session",
+        prompt: "continue",
+        reuseAppServer: true,
+        executeTool,
+        onToolResponseWritten,
+      });
+      expect(recovered.text).toBe("replayed before-write result");
+      expect(submissions).toBe(1);
+      expect(adapterCalls).toBe(2);
+      expect(acknowledgements).toBe(1);
+    } finally {
+      shutdownCodexAppServerRuntime();
+      if (previousPath === undefined) delete process.env.STELLA_CODEX_CLI_PATH;
+      else process.env.STELLA_CODEX_CLI_PATH = previousPath;
+      if (previousStartsFile === undefined)
+        delete process.env.STELLA_FAKE_CODEX_STARTS_FILE;
+      else process.env.STELLA_FAKE_CODEX_STARTS_FILE = previousStartsFile;
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });

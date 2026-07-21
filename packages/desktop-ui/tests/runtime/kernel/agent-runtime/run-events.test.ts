@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { AssistantMessageEventStream } from "@stella/runtime/ai/utils/event-stream";
 import type { AssistantMessage } from "@stella/runtime/ai/types";
 import { runAgentLoop } from "@stella/runtime/kernel/agent-core/agent-loop";
@@ -13,6 +16,11 @@ import {
   createRunEventRecorder,
   subscribeRuntimeAgentEvents,
 } from "@stella/runtime/kernel/agent-runtime/run-events";
+import {
+  pruneImageOperationLedger,
+  reserveDurableImageOperation,
+  settleImageOperation,
+} from "@stella/runtime/kernel/tools/image-operation-store";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   initialStoreState,
@@ -927,6 +935,105 @@ describe("subscribeRuntimeAgentEvents", () => {
         }),
       }),
     );
+  });
+
+  it("acknowledges native image delivery only after the durable tool result write", () => {
+    const stellaDataDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-native-image-ack-"),
+    );
+    try {
+      const conversationId = "conversation-native-image";
+      const toolCallId = "native-image-call";
+      const operation = reserveDurableImageOperation({
+        stellaDataDir,
+        conversationId,
+        toolCallId,
+        requestBody: { prompt: "durable native image" },
+      });
+      settleImageOperation({
+        stellaDataDir,
+        operationId: operation.operationId,
+        result: {
+          ok: true,
+          job: {
+            jobId: "native-image-job",
+            capability: "text_to_image",
+            profile: "best",
+            status: "succeeded",
+          },
+          filePaths: [],
+          artifacts: [],
+          reattached: false,
+        },
+      });
+
+      let listener: ((event: AgentEvent) => void) | undefined;
+      const store = {
+        recordRunEvent: vi.fn(),
+        appendThreadMessage: vi.fn(),
+      };
+      const agent = {
+        state: { messages: [] },
+        subscribe: (next: (event: AgentEvent) => void) => {
+          listener = next;
+          return () => undefined;
+        },
+      };
+      const subscribe = (afterDurableMessagePersisted?: () => void) =>
+        subscribeRuntimeAgentEvents({
+          agent,
+          runId: "native-image-run",
+          agentType: AGENT_IDS.ORCHESTRATOR,
+          recorder: createRunEventRecorder({
+            store: store as never,
+            runId: "native-image-run",
+            conversationId,
+            agentType: AGENT_IDS.ORCHESTRATOR,
+            userMessageId: "native-image-user",
+          }),
+          threadStore: store as never,
+          threadKey: "orchestrator:native-image",
+          conversationId,
+          stellaDataDir,
+          ...(afterDurableMessagePersisted
+            ? { afterDurableMessagePersisted }
+            : {}),
+        });
+      const event = {
+        type: "message_end" as const,
+        message: {
+          role: "toolResult" as const,
+          toolCallId,
+          toolName: "image_gen",
+          content: [{ type: "text" as const, text: "ready" }],
+          isError: false,
+          timestamp: 10,
+        },
+      };
+
+      subscribe(() => {
+        throw new Error("crash after transcript write");
+      });
+      expect(() => listener?.(event)).toThrow("crash after transcript write");
+      expect(
+        pruneImageOperationLedger({
+          stellaDataDir,
+          deliveredBefore: Date.now() + 1,
+        }),
+      ).toBe(0);
+
+      subscribe();
+      listener?.(event);
+      expect(store.appendThreadMessage).toHaveBeenCalled();
+      expect(
+        pruneImageOperationLedger({
+          stellaDataDir,
+          deliveredBefore: Date.now() + 1,
+        }),
+      ).toBe(1);
+    } finally {
+      fs.rmSync(stellaDataDir, { recursive: true, force: true });
+    }
   });
 
   it("routes provider thinking_delta to onReasoning (NOT onStream) and skips thinking_end", () => {

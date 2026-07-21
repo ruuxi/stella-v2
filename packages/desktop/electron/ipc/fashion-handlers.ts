@@ -13,11 +13,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import {
-  BrowserWindow,
-  dialog,
-  type IpcMainInvokeEvent,
-} from "electron";
+import { BrowserWindow, dialog, type IpcMainInvokeEvent } from "electron";
 
 import {
   IPC_FASHION_DELETE_BODY_PHOTO,
@@ -64,8 +60,7 @@ const EXT_MIME_MAP: Record<string, string> = {
 
 const fashionDir = (root: string) => path.join(root, "fashion");
 const tryOnDir = (root: string) => path.join(fashionDir(root), "try-on");
-const mediaOutputsDir = (root: string) =>
-  path.join(root, "media", "outputs");
+const mediaOutputsDir = (root: string) => path.join(root, "media", "outputs");
 const hiddenFashionConversationId = (root: string) =>
   `fashion:${Buffer.from(root).toString("base64url").slice(0, 24)}`;
 
@@ -109,7 +104,11 @@ const removeAllBodyPhotos = async (root: string) => {
 
 const isPathInside = (childPath: string, parentPath: string): boolean => {
   const relative = path.relative(parentPath, childPath);
-  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+  return (
+    Boolean(relative) &&
+    !relative.startsWith("..") &&
+    !path.isAbsolute(relative)
+  );
 };
 
 const mimeTypeForImagePath = (filePath: string): string => {
@@ -117,7 +116,10 @@ const mimeTypeForImagePath = (filePath: string): string => {
   return EXT_MIME_MAP[ext] ?? "image/png";
 };
 
-const assertAllowedLocalImagePath = (root: string, rawPath: unknown): string => {
+const assertAllowedLocalImagePath = (
+  root: string,
+  rawPath: unknown,
+): string => {
   if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
     throw new Error("Image path is required.");
   }
@@ -127,8 +129,12 @@ const assertAllowedLocalImagePath = (root: string, rawPath: unknown): string => 
     tryOnDir(root),
     mediaOutputsDir(root),
   ].map((entry) => path.resolve(entry));
-  if (!allowedRoots.some((allowedRoot) => isPathInside(absolutePath, allowedRoot))) {
-    throw new Error("Image path is outside Fashion's allowed local image folders.");
+  if (
+    !allowedRoots.some((allowedRoot) => isPathInside(absolutePath, allowedRoot))
+  ) {
+    throw new Error(
+      "Image path is outside Fashion's allowed local image folders.",
+    );
   }
   return absolutePath;
 };
@@ -220,14 +226,10 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
     },
   );
 
-  registerPrivilegedHandle(
-    options,
-    IPC_FASHION_DELETE_BODY_PHOTO,
-    async () => {
-      await removeAllBodyPhotos(requireRoot());
-      return { ok: true } as const;
-    },
-  );
+  registerPrivilegedHandle(options, IPC_FASHION_DELETE_BODY_PHOTO, async () => {
+    await removeAllBodyPhotos(requireRoot());
+    return { ok: true } as const;
+  });
 
   registerPrivilegedHandle(
     options,
@@ -389,9 +391,9 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
         "",
         "Steps:",
         "1. Call FashionCreateOutfit with batchId, ordinal=0, themeLabel='Try-on', themeDescription set to a one-line summary of the user request, products=[] (empty array — there are no shoppable products in try-on mode), and tryOnPrompt set to the prompt you'll feed image_gen.",
-        "2. Call image_gen with profile='fast', aspectRatio='3:4', referenceImagePaths=[bodyPhotoPath, ...attachmentImagePaths], referenceImageUrls=attachmentImageUrls.",
+        "2. Call image_gen with profile='fast', aspectRatio='3:4', referenceImagePaths=[bodyPhotoPath, ...attachmentImagePaths], referenceImageUrls=attachmentImageUrls, and allowManagedReferenceUpload=true because the user explicitly chose these images for this try-on.",
         "   The prompt MUST include: 'studio photo on a clean white background, full body, natural pose, the same person as the first reference image, wearing the clothes from the remaining reference images.'",
-        "3. Read the image_gen `Saved image paths:` line and call FashionMarkOutfitReady with tryOnImagePath set to image_1's absolute path.",
+        "3. Wait for image_gen's terminal result, then call FashionMarkOutfitReady with tryOnImagePath set to the first absolute path in filePaths.",
         "4. If image_gen fails, call FashionMarkOutfitFailed with a one-line errorMessage. Stop after a single render — do not retry, do not generate more outfits.",
       ].filter(Boolean);
 
@@ -437,7 +439,9 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
         typeof payload?.batchId === "string" && payload.batchId.trim()
           ? payload.batchId.trim()
           : `fashion-${Date.now().toString(36)}`;
-      const excludeProductIds = normalizeStringArray(payload?.excludeProductIds);
+      const excludeProductIds = normalizeStringArray(
+        payload?.excludeProductIds,
+      );
       const seedHints = normalizeStringArray(payload?.seedHints);
 
       const promptLines = [

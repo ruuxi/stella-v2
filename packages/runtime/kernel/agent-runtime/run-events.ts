@@ -24,6 +24,7 @@ import {
   now,
 } from "./shared.js";
 import { persistThreadPayloadMessage } from "./thread-memory.js";
+import { markImageOperationDelivered } from "../tools/image-operation-store.js";
 import type {
   RuntimeEndEvent,
   RuntimeErrorEvent,
@@ -462,6 +463,8 @@ export const subscribeRuntimeAgentEvents = ({
   conversationId,
   uiVisibility,
   attemptGeneration,
+  stellaDataDir,
+  afterDurableMessagePersisted,
 }: {
   agent: RuntimeAgentLike;
   runId: string;
@@ -476,6 +479,11 @@ export const subscribeRuntimeAgentEvents = ({
   conversationId?: string;
   uiVisibility?: "visible" | "hidden";
   attemptGeneration?: number;
+  stellaDataDir?: string;
+  /** Crash-injection seam used to prove delivery acknowledgement ordering. */
+  afterDurableMessagePersisted?: (
+    payload: PersistedRuntimeThreadPayload,
+  ) => void;
 }) => {
   // Stable run-level fields shared by every hook payload from this subscription.
   const hookContext = buildHookRuntimeContext({
@@ -526,6 +534,18 @@ export const subscribeRuntimeAgentEvents = ({
               ? { attemptGeneration }
               : {}),
           });
+          afterDurableMessagePersisted?.(payload);
+          if (
+            payload.role === "toolResult" &&
+            payload.toolName === "image_gen" &&
+            conversationId
+          ) {
+            markImageOperationDelivered({
+              stellaDataDir,
+              conversationId,
+              toolCallId: payload.toolCallId,
+            });
+          }
         }
       }
 

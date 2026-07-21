@@ -65,8 +65,7 @@ describe("deriveTurnResource", () => {
       ]),
     ).toEqual({
       kind: "canvas-html",
-      filePath:
-        "/Users/me/.stella/outputs/html/onboarding-options.html",
+      filePath: "/Users/me/.stella/outputs/html/onboarding-options.html",
       title: "Onboarding Options",
       slug: "onboarding-options",
       createdAt: 7,
@@ -276,7 +275,10 @@ describe("deriveTurnResource", () => {
               createdAt: 3,
             },
             fileChanges: [
-              { path: "/.stella/outputs/html/plan.html", kind: { type: "add" } },
+              {
+                path: "/.stella/outputs/html/plan.html",
+                kind: { type: "add" },
+              },
             ],
           },
         }),
@@ -1142,6 +1144,36 @@ describe("deriveTurnInlineImagePayloads", () => {
     expect(result[1]?.jobId).toBe("job-2");
   });
 
+  it("deduplicates a restarted image tool result by durable job identity", () => {
+    const repeated = (id: string, timestamp: number) =>
+      event({
+        _id: id,
+        type: "tool_result",
+        timestamp,
+        payload: {
+          toolName: "image_gen",
+          agentType: "orchestrator",
+          details: {
+            jobId: "job-durable",
+            prompt: "durable fox",
+            status: "succeeded",
+            filePaths: ["/.stella/media/outputs/job-durable_0.png"],
+          },
+        },
+      });
+
+    const result = deriveTurnInlineImagePayloads([
+      repeated("ig-before-restart", 100),
+      repeated("ig-after-restart", 110),
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      jobId: "job-durable",
+      createdAt: 100,
+    });
+  });
+
   it("preserves the full image set for multi-image orchestrator image_gen turns", () => {
     const result = deriveTurnInlineImagePayloads([
       event({
@@ -1385,8 +1417,7 @@ describe("buildPayloadFromBarePath", () => {
       ),
     ).toEqual({
       kind: "canvas-html",
-      filePath:
-        "/Users/me/.stella/outputs/html/plan-options.html",
+      filePath: "/Users/me/.stella/outputs/html/plan-options.html",
       title: "Plan Options",
       slug: "plan-options",
       createdAt: 42,
@@ -1395,7 +1426,10 @@ describe("buildPayloadFromBarePath", () => {
 
   it("does not turn unrelated .html files into canvas payloads", () => {
     expect(
-      buildPayloadFromBarePath("/Users/me/projects/stella/desktop/index.html", 1),
+      buildPayloadFromBarePath(
+        "/Users/me/projects/stella/desktop/index.html",
+        1,
+      ),
     ).toBeNull();
   });
 });

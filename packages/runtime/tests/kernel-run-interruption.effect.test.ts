@@ -564,6 +564,44 @@ describe("Dream scheduler shutdown", () => {
     expect(followUp.reason).not.toBe("lock_busy");
     await shutdownDreamRuns(rootPath);
   });
+
+  it("keeps Dream single-flight per data dir: a concurrent spawn never starts a duplicate run", async () => {
+    const rootPath = path.join(
+      os.tmpdir(),
+      `stella-dream-single-flight-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`,
+    );
+    activeRoots.add(rootPath);
+    const first = { requested: false, aborted: false };
+    const second = { requested: false, aborted: false };
+
+    const started = await maybeSpawnDreamRun({
+      stellaDataDir: rootPath,
+      store: {
+        dreamInboxStore: { countUnprocessed: () => 1 },
+      } as RuntimeStore,
+      resolvedLlm: fakeHangingRoute(first),
+      trigger: "manual",
+    });
+    expect(started.scheduled).toBe(true);
+    await waitFor(() => first.requested);
+
+    // Same key, still in flight: the duplicate is refused and its provider
+    // route is never touched.
+    const duplicate = await maybeSpawnDreamRun({
+      stellaDataDir: rootPath,
+      store: {
+        dreamInboxStore: { countUnprocessed: () => 1 },
+      } as RuntimeStore,
+      resolvedLlm: fakeHangingRoute(second),
+      trigger: "manual",
+    });
+    expect(duplicate.scheduled).toBe(false);
+    expect(second.requested).toBe(false);
+
+    await shutdownDreamRuns(rootPath);
+  });
 });
 
 describe("agent-loop pending tool teardown", () => {

@@ -23,7 +23,12 @@
  * compact.
  *
  * Single-flight: only one Dream run may execute at a time, via a mkdir lock
- * under `.stella/locks/dream/`.
+ * under `.stella/locks/dream/` (cross-process) plus the per-dir `inFlight`
+ * flag (in-process). Together with the per-data-dir `SupervisedScope`, this
+ * is the keyed fiber executor for Dream: same key never runs twice
+ * concurrently, failures/timeouts never block later spawns, and a restart
+ * (scope closed) lazily recreates the key's scope. Durable home/SQLite
+ * state remains the only truth; fibers are executors.
  *
  * Most callers `void maybeSpawnDreamRun(...)` and never await it. The bounded
  * pre-compaction ordering is the deliberate exception: it may join the

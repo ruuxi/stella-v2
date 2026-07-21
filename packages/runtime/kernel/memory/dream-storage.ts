@@ -7,9 +7,9 @@
  * them and runtime injection never consumes them after the cutover.
  */
 
-import { constants as fsConstants, promises as fs } from "node:fs";
+import { constants as fsConstants, promises as fs, type Stats } from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ensurePrivateDir } from "../shared/private-fs.js";
 
 export const MEMORY_FILE = "MEMORY.md";
@@ -32,6 +32,27 @@ const MEMORY_MAP_MIGRATED_END_ANCHOR = "<!-- DREAM:MIGRATED_SUMMARY_END -->";
 
 const MEMORY_MAP_ROUTES_PLACEHOLDER = "- No routing entries recorded yet.";
 const MEMORY_MAP_DERIVED_PLACEHOLDER = "- None pending promotion.";
+const MIGRATION_STAGING_VERSION = "v2";
+
+export const unicodeCodePointLength = (text: string): number =>
+  Array.from(text).length;
+
+export const containsLoneUnicodeSurrogate = (text: string): boolean => {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const sha256Hex = (contents: string | Uint8Array): string =>
+  createHash("sha256").update(contents).digest("hex");
 
 const MEMORY_TEMPLATE = `# MEMORY
 
@@ -169,8 +190,9 @@ export const memoryIndexPath = (stellaDataDir: string): string =>
 const readOptionalFile = async (target: string): Promise<string | null> => {
   try {
     return await fs.readFile(target, "utf-8");
-  } catch {
-    return null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
   }
 };
 
@@ -202,18 +224,28 @@ const extractAnchoredBody = (
 const dropPlaceholder = (body: string, placeholder: string): string =>
   body === placeholder ? "" : body;
 
-const truncateAtLineBoundary = (
+/**
+ * Bound by Unicode code points while retaining only complete source lines.
+ * CRLF is one indivisible line ending; an overlong first line is omitted
+ * instead of being sliced through an emoji, combining sequence, or entry.
+ */
+export const truncateUnicodeAtLineBoundary = (
   text: string,
   maxChars: number,
   marker: string,
 ): string => {
-  if (text.length <= maxChars) return text;
-  if (maxChars <= marker.length + 1) return "";
-  const contentLimit = maxChars - marker.length - 1;
-  const slice = text.slice(0, contentLimit);
-  const lastNewline = slice.lastIndexOf("\n");
-  const prefix = lastNewline > 0 ? slice.slice(0, lastNewline) : slice;
-  return `${prefix}\n${marker}`;
+  if (unicodeCodePointLength(text) <= maxChars) return text;
+  const markerChars = unicodeCodePointLength(marker);
+  if (maxChars < markerChars) return "";
+  const prefixBudget = maxChars - markerChars;
+  let prefix = "";
+  const completeLinePattern = /[^\r\n]*(?:\r\n|\r|\n)/gu;
+  for (const match of text.matchAll(completeLinePattern)) {
+    const candidate = `${prefix}${match[0]}`;
+    if (unicodeCodePointLength(candidate) > prefixBudget) break;
+    prefix = candidate;
+  }
+  return `${prefix}${marker}`;
 };
 
 const buildSeededMemoryMapContent = (args: {
@@ -247,11 +279,12 @@ const buildSeededMemoryMapContent = (args: {
     ...(summaryBody ? { migratedSummary: "x" } : {}),
   });
   const skeletonChars =
-    stripInjectedHtmlComments(skeleton).length - (summaryBody ? 1 : 0);
+    unicodeCodePointLength(stripInjectedHtmlComments(skeleton)) -
+    (summaryBody ? 1 : 0);
   const available = Math.max(0, MEMORY_MAP_MAX_CHARS - skeletonChars);
   const routesBudget = indexBody ? Math.floor(available * 0.6) : 0;
   let routes = indexBody
-    ? truncateAtLineBoundary(
+    ? truncateUnicodeAtLineBoundary(
         indexBody,
         routesBudget,
         `[migration cut — remaining entries preserved in ${MEMORY_INDEX_FILE}]`,
@@ -259,10 +292,13 @@ const buildSeededMemoryMapContent = (args: {
     : MEMORY_MAP_ROUTES_PLACEHOLDER;
   const summaryBudget = Math.max(
     0,
-    available - (indexBody ? stripInjectedHtmlComments(routes).length : 0),
+    available -
+      (indexBody
+        ? unicodeCodePointLength(stripInjectedHtmlComments(routes))
+        : 0),
   );
   let migratedSummary = summaryBody
-    ? truncateAtLineBoundary(
+    ? truncateUnicodeAtLineBoundary(
         summaryBody,
         summaryBudget,
         `[migration cut — full text preserved in ${MEMORY_SUMMARY_FILE}]`,
@@ -278,18 +314,19 @@ const buildSeededMemoryMapContent = (args: {
   // their original files no matter how much must be folded out of the map.
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const excess =
-      stripInjectedHtmlComments(seeded).length - MEMORY_MAP_MAX_CHARS;
+      unicodeCodePointLength(stripInjectedHtmlComments(seeded)) -
+      MEMORY_MAP_MAX_CHARS;
     if (excess <= 0) return seeded;
     if (migratedSummary) {
-      migratedSummary = truncateAtLineBoundary(
+      migratedSummary = truncateUnicodeAtLineBoundary(
         migratedSummary,
-        Math.max(0, migratedSummary.length - excess - 1),
+        Math.max(0, unicodeCodePointLength(migratedSummary) - excess - 1),
         `[migration cut — full text preserved in ${MEMORY_SUMMARY_FILE}]`,
       );
     } else if (indexBody) {
-      routes = truncateAtLineBoundary(
+      routes = truncateUnicodeAtLineBoundary(
         routes,
-        Math.max(0, routes.length - excess - 1),
+        Math.max(0, unicodeCodePointLength(routes) - excess - 1),
         `[migration cut — remaining entries preserved in ${MEMORY_INDEX_FILE}]`,
       );
     }
@@ -298,21 +335,227 @@ const buildSeededMemoryMapContent = (args: {
       ...(migratedSummary ? { migratedSummary } : {}),
     });
   }
-  return stripInjectedHtmlComments(seeded).length <= MEMORY_MAP_MAX_CHARS
+  return unicodeCodePointLength(stripInjectedHtmlComments(seeded)) <=
+    MEMORY_MAP_MAX_CHARS
     ? seeded
     : MEMORY_MAP_TEMPLATE;
 };
 
 type PublishResult = "created" | "exists";
 
+type FileIdentity = Pick<
+  Stats,
+  "dev" | "ino" | "mode" | "nlink" | "size" | "mtimeMs" | "ctimeMs"
+>;
+
+type LegacySourceSnapshot =
+  | { path: string; exists: false }
+  | {
+      path: string;
+      exists: true;
+      raw: string;
+      digest: string;
+      identity: FileIdentity;
+    };
+
+const sameFileIdentity = (left: FileIdentity, right: FileIdentity): boolean =>
+  left.dev === right.dev &&
+  left.ino === right.ino &&
+  left.mode === right.mode &&
+  left.nlink === right.nlink &&
+  left.size === right.size &&
+  left.mtimeMs === right.mtimeMs &&
+  left.ctimeMs === right.ctimeMs;
+
+const decodeUtf8Strict = (bytes: Uint8Array, filePath: string): string => {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new Error(`Refusing invalid UTF-8 memory source ${filePath}.`, {
+      cause: error,
+    });
+  }
+};
+
+const readStableLegacySource = async (
+  target: string,
+  canonicalRoot: string,
+): Promise<LegacySourceSnapshot> => {
+  let pathStat: Stats;
+  try {
+    pathStat = await fs.lstat(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { path: target, exists: false };
+    }
+    throw error;
+  }
+  if (pathStat.isSymbolicLink() || !pathStat.isFile() || pathStat.nlink !== 1) {
+    throw new Error(
+      `Refusing legacy memory source ${target}: expected a stable regular unaliased file.`,
+    );
+  }
+  const canonicalPath = await fs.realpath(target);
+  if (canonicalPath !== path.join(canonicalRoot, path.basename(target))) {
+    throw new Error(
+      `Refusing legacy memory source ${target}: canonical path escaped the owned memory root.`,
+    );
+  }
+
+  const handle = await fs.open(
+    target,
+    fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+  );
+  try {
+    const before = await handle.stat();
+    if (
+      !before.isFile() ||
+      before.nlink !== 1 ||
+      !sameFileIdentity(pathStat, before)
+    ) {
+      throw new Error(`Legacy memory source changed before read: ${target}.`);
+    }
+    const bytes = await handle.readFile();
+    const after = await handle.stat();
+    if (!sameFileIdentity(before, after)) {
+      throw new Error(`Legacy memory source changed during read: ${target}.`);
+    }
+    return {
+      path: target,
+      exists: true,
+      raw: decodeUtf8Strict(bytes, target),
+      digest: sha256Hex(bytes),
+      identity: before,
+    };
+  } finally {
+    await handle.close();
+  }
+};
+
+const verifyLegacySourceSnapshot = async (
+  snapshot: LegacySourceSnapshot,
+  canonicalRoot: string,
+): Promise<void> => {
+  const current = await readStableLegacySource(snapshot.path, canonicalRoot);
+  if (!snapshot.exists || !current.exists) {
+    if (snapshot.exists !== current.exists) {
+      throw new Error(
+        `Legacy memory source changed during migration: ${snapshot.path}.`,
+      );
+    }
+    return;
+  }
+  if (
+    snapshot.digest !== current.digest ||
+    !sameFileIdentity(snapshot.identity, current.identity)
+  ) {
+    throw new Error(
+      `Legacy memory source changed during migration: ${snapshot.path}.`,
+    );
+  }
+};
+
+const syncDirectory = async (directory: string): Promise<void> => {
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  try {
+    handle = await fs.open(directory, fsConstants.O_RDONLY);
+    await handle.sync();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (
+      process.platform === "win32" &&
+      (code === "EACCES" || code === "EINVAL" || code === "EPERM")
+    ) {
+      return;
+    }
+    throw error;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+};
+
+const stagingPrefix = (target: string): string =>
+  `.${path.basename(target)}.migration-${MIGRATION_STAGING_VERSION}-`;
+
+const parseStagingDigest = (
+  target: string,
+  candidateName: string,
+): string | null => {
+  const prefix = stagingPrefix(target);
+  if (!candidateName.startsWith(prefix) || !candidateName.endsWith(".tmp")) {
+    return null;
+  }
+  const remainder = candidateName.slice(prefix.length, -4);
+  const separator = remainder.indexOf("-");
+  const digest = separator === -1 ? "" : remainder.slice(0, separator);
+  return /^[a-f0-9]{64}$/u.test(digest) ? digest : null;
+};
+
+const listMigrationStagingNames = async (target: string): Promise<string[]> => {
+  const genericPrefix = `.${path.basename(target)}.migration-`;
+  return (await fs.readdir(path.dirname(target))).filter((name) =>
+    name.startsWith(genericPrefix),
+  );
+};
+
+/**
+ * A crash after link(target) but before unlink(staging) leaves two names for
+ * one inode. Only the digest-bearing staging name can authorize unlinking it;
+ * every link must be accounted for so an unrelated hard-link alias still
+ * fails closed.
+ */
+const recoverPublishedStagingLink = async (
+  target: string,
+  targetStat: Stats,
+): Promise<void> => {
+  const targetBytes = await fs.readFile(target);
+  const targetDigest = sha256Hex(targetBytes);
+  const linkedStages: string[] = [];
+  for (const name of await listMigrationStagingNames(target)) {
+    const digest = parseStagingDigest(target, name);
+    if (!digest) {
+      throw new Error(
+        `Refusing unverified memory migration staging artifact ${name}.`,
+      );
+    }
+    const stagingPath = path.join(path.dirname(target), name);
+    const stat = await fs.lstat(stagingPath);
+    if (stat.dev !== targetStat.dev || stat.ino !== targetStat.ino) continue;
+    if (!stat.isFile() || digest !== targetDigest) {
+      throw new Error(
+        `Refusing tampered linked migration staging artifact ${stagingPath}.`,
+      );
+    }
+    linkedStages.push(stagingPath);
+  }
+  if (linkedStages.length !== targetStat.nlink - 1) {
+    throw new Error(
+      `Refusing memory layout conflict at ${target}: unaccounted hard-link aliases remain.`,
+    );
+  }
+  for (const stagingPath of linkedStages) await fs.unlink(stagingPath);
+  await syncDirectory(path.dirname(target));
+  const recovered = await fs.lstat(target);
+  if (
+    recovered.dev !== targetStat.dev ||
+    recovered.ino !== targetStat.ino ||
+    recovered.nlink !== 1
+  ) {
+    throw new Error(
+      `Memory migration staging recovery did not converge for ${target}.`,
+    );
+  }
+};
+
 const hasSafeExistingFile = async (target: string): Promise<boolean> => {
   try {
     const stat = await fs.lstat(target);
-    if (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1) {
+    if (stat.isSymbolicLink() || !stat.isFile()) {
       throw new Error(
         `Refusing memory layout conflict at ${target}: expected a regular unaliased file.`,
       );
     }
+    if (stat.nlink > 1) await recoverPublishedStagingLink(target, stat);
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
@@ -328,12 +571,19 @@ const hasSafeExistingFile = async (target: string): Promise<boolean> => {
 const publishFileIfMissing = async (
   target: string,
   contents: string,
+  validation?: {
+    beforeLink: () => Promise<void>;
+    afterLink: () => Promise<void>;
+  },
 ): Promise<PublishResult> => {
+  if (await hasSafeExistingFile(target)) return "exists";
+  const digest = sha256Hex(contents);
   const temporary = path.join(
     path.dirname(target),
-    `.${path.basename(target)}.migration-${process.pid}-${randomUUID()}.tmp`,
+    `${stagingPrefix(target)}${digest}-${process.pid}-${randomUUID()}.tmp`,
   );
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  let linked = false;
   try {
     handle = await fs.open(
       temporary,
@@ -344,9 +594,10 @@ const publishFileIfMissing = async (
     await handle.sync();
     await handle.close();
     handle = undefined;
+    await validation?.beforeLink();
     try {
       await fs.link(temporary, target);
-      return "created";
+      linked = true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
         await hasSafeExistingFile(target);
@@ -354,9 +605,130 @@ const publishFileIfMissing = async (
       }
       throw error;
     }
+    await validation?.afterLink();
+    await syncDirectory(path.dirname(target));
+    return "created";
+  } catch (error) {
+    if (linked) {
+      const [targetStat, stagingStat] = await Promise.all([
+        fs.lstat(target).catch(() => null),
+        fs.lstat(temporary).catch(() => null),
+      ]);
+      if (
+        targetStat &&
+        stagingStat &&
+        targetStat.dev === stagingStat.dev &&
+        targetStat.ino === stagingStat.ino
+      ) {
+        await fs.unlink(target).catch(() => undefined);
+        await syncDirectory(path.dirname(target)).catch(() => undefined);
+      }
+    }
+    throw error;
   } finally {
     await handle?.close().catch(() => undefined);
     await fs.unlink(temporary).catch(() => undefined);
+  }
+};
+
+const migrationQueueTails = new Map<string, Promise<void>>();
+const MIGRATION_LOCK_TIMEOUT_MS = 10_000;
+
+type MigrationLockDatabase = {
+  exec: (sql: string) => void;
+  close: () => void;
+};
+
+type MigrationLockDatabaseCtor = new (
+  filePath: string,
+) => MigrationLockDatabase;
+
+const dynamicImport = (specifier: string): Promise<Record<string, unknown>> =>
+  import(/* @vite-ignore */ specifier) as Promise<Record<string, unknown>>;
+
+const loadMigrationLockDatabaseCtor =
+  async (): Promise<MigrationLockDatabaseCtor> => {
+    try {
+      const nodeSqlite = await dynamicImport("node:sqlite");
+      if (typeof nodeSqlite.DatabaseSync === "function") {
+        return nodeSqlite.DatabaseSync as MigrationLockDatabaseCtor;
+      }
+    } catch {}
+    const bunSqlite = await dynamicImport("bun:sqlite");
+    if (typeof bunSqlite.Database === "function") {
+      return bunSqlite.Database as MigrationLockDatabaseCtor;
+    }
+    throw new Error(
+      "No compatible SQLite runtime is available for memory migration locking.",
+    );
+  };
+
+const acquireMigrationDatabaseLock = async (
+  stellaDataDir: string,
+): Promise<MigrationLockDatabase> => {
+  const lockRoot = path.join(stellaDataDir, "cache");
+  await ensurePrivateDir(lockRoot);
+  const Database = await loadMigrationLockDatabaseCtor();
+  const database = new Database(
+    path.join(lockRoot, "memory-layout-migration-lock.sqlite"),
+  );
+  try {
+    database.exec(`PRAGMA busy_timeout = ${MIGRATION_LOCK_TIMEOUT_MS}`);
+    database.exec("BEGIN IMMEDIATE");
+    return database;
+  } catch (error) {
+    database.close();
+    throw error;
+  }
+};
+
+const releaseMigrationDatabaseLock = (
+  database: MigrationLockDatabase,
+): void => {
+  try {
+    database.exec("ROLLBACK");
+  } catch {
+    // Process death or a compromised connection already released the lock.
+  } finally {
+    database.close();
+  }
+};
+
+const withDreamMemoryMigrationLock = async <T>(
+  stellaDataDir: string,
+  operation: () => Promise<T>,
+): Promise<T> => {
+  // Queue the same process first: a synchronous SQLite BEGIN waiting behind
+  // an async holder would otherwise block that holder's event loop. The
+  // SQLite write transaction then serializes independent app/worker processes
+  // and is released by the OS on crash.
+  let canonicalDataDir: string;
+  try {
+    canonicalDataDir = await fs.realpath(stellaDataDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    await ensurePrivateDir(stellaDataDir);
+    canonicalDataDir = await fs.realpath(stellaDataDir);
+  }
+  const key =
+    process.platform === "linux"
+      ? canonicalDataDir
+      : canonicalDataDir.toLowerCase();
+  const previous = migrationQueueTails.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const turn = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  migrationQueueTails.set(key, turn);
+  await previous;
+  let database: MigrationLockDatabase | undefined;
+  try {
+    database = await acquireMigrationDatabaseLock(stellaDataDir);
+    return await operation();
+  } finally {
+    if (database) releaseMigrationDatabaseLock(database);
+    release();
+    if (migrationQueueTails.get(key) === turn) migrationQueueTails.delete(key);
   }
 };
 
@@ -369,11 +741,14 @@ const publishFileIfMissing = async (
  * a crash require ambiguous rollback. v2 therefore preserves both retired
  * files byte-for-byte, copies their useful view into the create-only map, and
  * enforces retirement at the read/write ownership boundaries. A failed
- * publish leaves no live map and the next startup retries safely; an existing
- * map is treated as user-owned conflict and is never overwritten or merged.
+ * publish leaves no live map and the next startup retries safely. Once a
+ * verified map exists it is authoritative: later edits to retired legacy
+ * files are ignored, including when a retry first has to remove a verified
+ * same-inode staging link left beside that already-published map.
  */
-export const ensureDreamMemoryLayout = async (
+const ensureDreamMemoryLayoutLocked = async (
   stellaDataDir: string,
+  hooks?: DreamMemoryMigrationTestHooks,
 ): Promise<void> => {
   const root = memoriesRoot(stellaDataDir);
   try {
@@ -387,21 +762,45 @@ export const ensureDreamMemoryLayout = async (
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   await ensurePrivateDir(root);
-  await assertSafeDreamMemoryRoot(stellaDataDir);
+  const canonicalRoot = await assertSafeDreamMemoryRoot(stellaDataDir);
   await publishFileIfMissing(memoryFilePath(stellaDataDir), MEMORY_TEMPLATE);
 
   const mapTarget = memoryMapPath(stellaDataDir);
   if (await hasSafeExistingFile(mapTarget)) return;
 
-  const [indexRaw, summaryRaw] = await Promise.all([
-    readOptionalFile(memoryIndexPath(stellaDataDir)),
-    readOptionalFile(memorySummaryPath(stellaDataDir)),
+  const legacySnapshots = await Promise.all([
+    readStableLegacySource(memoryIndexPath(stellaDataDir), canonicalRoot),
+    readStableLegacySource(memorySummaryPath(stellaDataDir), canonicalRoot),
   ]);
+  const [indexSource, summarySource] = legacySnapshots;
+  await hooks?.afterLegacySnapshotsRead?.();
+  const verifyLegacySources = async (): Promise<void> => {
+    for (const snapshot of legacySnapshots) {
+      await verifyLegacySourceSnapshot(snapshot, canonicalRoot);
+    }
+  };
   await publishFileIfMissing(
     mapTarget,
-    buildSeededMemoryMapContent({ indexRaw, summaryRaw }),
+    buildSeededMemoryMapContent({
+      indexRaw: indexSource.exists ? indexSource.raw : null,
+      summaryRaw: summarySource.exists ? summarySource.raw : null,
+    }),
+    { beforeLink: verifyLegacySources, afterLink: verifyLegacySources },
   );
 };
+
+/** Test-only coordination point for deterministic filesystem race coverage. */
+export type DreamMemoryMigrationTestHooks = {
+  afterLegacySnapshotsRead?: () => void | Promise<void>;
+};
+
+export const ensureDreamMemoryLayout = async (
+  stellaDataDir: string,
+  hooks?: DreamMemoryMigrationTestHooks,
+): Promise<void> =>
+  withDreamMemoryMigrationLock(stellaDataDir, () =>
+    ensureDreamMemoryLayoutLocked(stellaDataDir, hooks),
+  );
 
 export const readMemoryFile = async (
   stellaDataDir: string,

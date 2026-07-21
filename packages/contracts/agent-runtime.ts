@@ -44,9 +44,9 @@ export type AgentCapabilities = {
   /**
    * Push-inject the live resident memory docs — the durable user profile
    * (`~/.stella/memories/profile.md`, written by the Remember tool) and
-   * Dream's focus summary (`~/.stella/memories/memory_summary.md`) — as hidden
-   * startup docs, so durable facts are always in context without a Context
-   * lookup.
+   * Dream's routing map (`~/.stella/memories/memory_map.md`) — as hidden
+   * startup docs, so resident facts and Recall routes are available without
+   * an extra lookup. Retired summary/index files are never injected.
    */
   injectsResidentMemory?: boolean;
   /** Inject the dynamic memory bundle on the every-Nth-turn cadence. */

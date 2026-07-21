@@ -6,7 +6,8 @@
  * Source-file changes never append or mutate that copy mid-epoch; compaction
  * already rebuilds the provider prefix, so it is the sole refresh boundary.
  * This preserves byte-stable cache prefixes without leaving durable memory
- * stale after a rebuild.
+ * stale after a rebuild. The planner below is applied by SessionStore in the
+ * same SQLite transaction as the compaction overlay.
  *
  * The v1 implementation also refreshed an imperative session mirror. v2's
  * Effect-owned compaction scheduler calls `notifyCompacted`, and PiSessionCore
@@ -20,8 +21,14 @@ import { redactMemoryText } from "./redaction.js";
 import {
   MEMORY_MAP_MAX_CHARS,
   stripInjectedHtmlComments,
+  truncateUnicodeAtLineBoundary,
+  unicodeCodePointLength,
 } from "./dream-storage.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
+import type {
+  RuntimeThreadCustomMessageEntry,
+  RuntimeThreadCustomMessageMutation,
+} from "../storage/shared.js";
 
 export { stripInjectedHtmlComments };
 
@@ -49,9 +56,12 @@ export const parseStartupDocPath = (docText: string): string | undefined =>
   STARTUP_DOC_PATH_PATTERN.exec(docText.trim())?.[1];
 
 const capResidentMemoryDoc = (content: string, maxChars?: number): string => {
-  if (!maxChars || content.length <= maxChars) return content;
-  const marker = "\n...[resident memory truncated]";
-  return `${content.slice(0, Math.max(0, maxChars - marker.length))}${marker}`;
+  if (!maxChars || unicodeCodePointLength(content) <= maxChars) return content;
+  return truncateUnicodeAtLineBoundary(
+    content,
+    maxChars,
+    "...[resident memory truncated]",
+  );
 };
 
 const readResidentMemoryDoc = (
@@ -61,8 +71,9 @@ const readResidentMemoryDoc = (
   try {
     // The retired archive/charter transport stays byte-for-byte on disk; only
     // the model-facing view drops HTML comments, before cap accounting.
+    const bytes = fs.readFileSync(filePath);
     const content = stripInjectedHtmlComments(
-      fs.readFileSync(filePath, "utf-8"),
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     );
     return content
       ? capResidentMemoryDoc(redactMemoryText(content), maxChars)
@@ -149,24 +160,27 @@ type StartupDocEntry = {
   entryId: string;
   displayPath: string;
   persistedDoc: string;
+  persistedContent: RuntimeThreadCustomMessageEntry["content"];
 };
 
-export type ResidentStartupDocRefreshResult = {
+export type ResidentStartupDocRefreshPlan = {
   refreshedDocs: number;
   removedDocs: number;
+  mutations: RuntimeThreadCustomMessageMutation[];
 };
 
 /**
- * Refresh and deduplicate pinned resident docs at a compaction boundary.
+ * Build the complete compare-and-swap mutation plan for a compaction
+ * boundary. SessionStore applies every mutation atomically with the overlay.
  * Missing sources never blank an existing pinned copy. Retired summary/index
  * entries convert only when a map body is available; otherwise the transition
  * stays frozen and retries at the next boundary.
  */
-export const refreshResidentStartupDocs = (args: {
+export const planResidentStartupDocRefresh = (args: {
   store: RuntimeStore;
   threadKey: string;
   stellaDataDir: string;
-}): ResidentStartupDocRefreshResult => {
+}): ResidentStartupDocRefreshPlan => {
   const entries: StartupDocEntry[] = [];
   for (const message of args.store.loadThreadMessages(args.threadKey)) {
     const customMessage = message.customMessage;
@@ -184,35 +198,35 @@ export const refreshResidentStartupDocs = (args: {
         entryId: message.entryId,
         displayPath,
         persistedDoc,
+        persistedContent: customMessage.content,
       });
     }
   }
 
-  const result: ResidentStartupDocRefreshResult = {
+  const plan: ResidentStartupDocRefreshPlan = {
     refreshedDocs: 0,
     removedDocs: 0,
+    mutations: [],
   };
   const writeEntry = (entry: StartupDocEntry, freshDoc: string): void => {
     if (freshDoc.trim() === entry.persistedDoc.trim()) return;
-    if (
-      args.store.updateThreadCustomMessageContent({
-        threadKey: args.threadKey,
-        entryId: entry.entryId,
-        content: [{ type: "text", text: freshDoc }],
-      })
-    ) {
-      result.refreshedDocs += 1;
-    }
+    plan.mutations.push({
+      action: "replace",
+      entryId: entry.entryId,
+      expectedCustomType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+      expectedContent: entry.persistedContent,
+      content: [{ type: "text", text: freshDoc }],
+    });
+    plan.refreshedDocs += 1;
   };
   const removeEntry = (entry: StartupDocEntry): void => {
-    if (
-      args.store.removeThreadCustomMessage({
-        threadKey: args.threadKey,
-        entryId: entry.entryId,
-      })
-    ) {
-      result.removedDocs += 1;
-    }
+    plan.mutations.push({
+      action: "remove",
+      entryId: entry.entryId,
+      expectedCustomType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+      expectedContent: entry.persistedContent,
+    });
+    plan.removedDocs += 1;
   };
 
   const retiredEntries = entries.filter((entry) =>
@@ -259,5 +273,5 @@ export const refreshResidentStartupDocs = (args: {
       writeEntry(entry, buildStartupDocMessage(entry.displayPath, freshBody));
     }
   }
-  return result;
+  return plan;
 };

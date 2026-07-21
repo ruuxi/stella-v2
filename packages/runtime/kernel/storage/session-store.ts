@@ -39,6 +39,7 @@ import {
   RUNTIME_THREAD_SESSION_VERSION,
   type RuntimeThreadCompactionEntry,
   type RuntimeThreadCustomMessageEntry,
+  type RuntimeThreadCustomMessageMutation,
   type RuntimeThreadMessageEntry,
   type RuntimeThreadSessionEntry,
   type RuntimeThreadMessage,
@@ -3164,6 +3165,113 @@ export class SessionStore {
     return startsByEntryId;
   }
 
+  private applyThreadCustomMessageMutationLocked(
+    threadKey: string,
+    mutation: RuntimeThreadCustomMessageMutation,
+  ): void {
+    const row = this.db
+      .prepare(
+        `SELECT data_json AS dataJson, parent_entry_id AS parentEntryId
+         FROM runtime_thread_entries
+         WHERE thread_key = ? AND entry_id = ? AND entry_type = 'custom_message'
+         LIMIT 1`,
+      )
+      .get(threadKey, mutation.entryId) as
+      | { dataJson?: string | null; parentEntryId?: string | null }
+      | undefined;
+    if (!row) {
+      throw new Error(
+        `Resident startup-doc compaction plan lost entry ${mutation.entryId}.`,
+      );
+    }
+    const data = parseJsonValue<Record<string, unknown>>(row.dataJson ?? null);
+    const customType =
+      typeof data?.customType === "string" ? data.customType.trim() : "";
+    const currentContent = data?.content;
+    if (
+      customType !== mutation.expectedCustomType ||
+      !isUserContent(currentContent) ||
+      JSON.stringify(currentContent) !==
+        JSON.stringify(mutation.expectedContent)
+    ) {
+      throw new Error(
+        `Resident startup-doc entry ${mutation.entryId} changed after its compaction plan was built.`,
+      );
+    }
+    if (mutation.action === "remove") {
+      this.db
+        .prepare(
+          `UPDATE runtime_thread_entries
+           SET parent_entry_id = ?
+           WHERE thread_key = ? AND parent_entry_id = ?`,
+        )
+        .run(row.parentEntryId ?? null, threadKey, mutation.entryId);
+      const result = this.db
+        .prepare(
+          `DELETE FROM runtime_thread_entries
+           WHERE thread_key = ? AND entry_id = ? AND entry_type = 'custom_message'`,
+        )
+        .run(threadKey, mutation.entryId) as
+        | { changes?: number | bigint }
+        | undefined;
+      if (Number(result?.changes ?? 0) !== 1) {
+        throw new Error(
+          `Resident startup-doc removal did not affect exactly one row: ${mutation.entryId}.`,
+        );
+      }
+      return;
+    }
+
+    const eventId =
+      typeof data?.eventId === "string" && data.eventId.trim()
+        ? data.eventId.trim()
+        : undefined;
+    const rawLifecycleEvent = asObject(data?.lifecycleEvent);
+    const lifecycleType = asTrimmedString(rawLifecycleEvent?.type);
+    const lifecyclePayload = asObject(rawLifecycleEvent?.payload);
+    const lifecycleEvent =
+      isThreadLifecycleEventType(lifecycleType) &&
+      asTrimmedString(lifecyclePayload?.agentId)
+        ? {
+            type: lifecycleType,
+            payload: lifecyclePayload as Record<string, unknown>,
+          }
+        : undefined;
+    const boundedMessage = enforceCustomMessageRowSizeLimit({
+      customType,
+      content: mutation.content,
+      display: data?.display === true,
+      ...(eventId ? { eventId } : {}),
+      ...(lifecycleEvent ? { lifecycleEvent } : {}),
+    });
+    const result = this.db
+      .prepare(
+        `UPDATE runtime_thread_entries
+         SET data_json = ?
+         WHERE thread_key = ? AND entry_id = ? AND entry_type = 'custom_message'`,
+      )
+      .run(
+        toJsonValueString({
+          customType: boundedMessage.customType,
+          content: boundedMessage.content,
+          display: boundedMessage.display,
+          ...(boundedMessage.eventId
+            ? { eventId: boundedMessage.eventId }
+            : {}),
+          ...(boundedMessage.lifecycleEvent
+            ? { lifecycleEvent: boundedMessage.lifecycleEvent }
+            : {}),
+        }),
+        threadKey,
+        mutation.entryId,
+      ) as { changes?: number | bigint } | undefined;
+    if (Number(result?.changes ?? 0) !== 1) {
+      throw new Error(
+        `Resident startup-doc replacement did not affect exactly one row: ${mutation.entryId}.`,
+      );
+    }
+  }
+
   compactThread(args: {
     threadKey: string;
     summary: string;
@@ -3179,6 +3287,7 @@ export class SessionStore {
     timestamp?: number;
     details?: unknown;
     fromHook?: boolean;
+    residentStartupDocMutations?: readonly RuntimeThreadCustomMessageMutation[];
   }): void {
     const threadKey = normalizeRuntimeThreadId(args.threadKey);
     if (!threadKey) {
@@ -3192,6 +3301,19 @@ export class SessionStore {
       throw new Error("summary and a compaction range are required.");
     }
     const timestamp = asFiniteNumber(args.timestamp) ?? Date.now();
+    const residentStartupDocMutations = [
+      ...(args.residentStartupDocMutations ?? []),
+    ];
+    const mutationEntryIds = new Set<string>();
+    for (const mutation of residentStartupDocMutations) {
+      const entryId = mutation.entryId.trim();
+      if (!entryId || mutationEntryIds.has(entryId)) {
+        throw new Error(
+          "Resident startup-doc compaction plan must contain unique non-empty entry ids.",
+        );
+      }
+      mutationEntryIds.add(entryId);
+    }
     if (
       args.summaryValidation &&
       (!Number.isFinite(args.summaryValidation.middleTokens) ||
@@ -3246,6 +3368,9 @@ export class SessionStore {
           ...(args.fromHook ? { fromHook: true } : {}),
         },
       });
+      for (const mutation of residentStartupDocMutations) {
+        this.applyThreadCustomMessageMutationLocked(threadKey, mutation);
+      }
       this.touchThread(threadKey);
     }, "immediate");
     this.options.onThreadTranscriptUpdate?.({
@@ -3255,132 +3380,6 @@ export class SessionStore {
       entryType: "compaction",
       atMs: timestamp,
     });
-  }
-
-  /**
-   * Rewrite one persisted custom-message body in place while retaining its
-   * entry id and insertion position. Resident startup-doc refresh is the sole
-   * caller: mutating model-visible history outside a compaction boundary
-   * would violate prompt-cache epoch stability.
-   */
-  updateThreadCustomMessageContent(args: {
-    threadKey: string;
-    entryId: string;
-    content: RuntimeThreadCustomMessageEntry["content"];
-  }): boolean {
-    const threadKey = normalizeRuntimeThreadId(args.threadKey);
-    const entryId = args.entryId.trim();
-    if (!threadKey || !entryId) return false;
-    const conversationId = this.getThreadConversationId(threadKey);
-    let updated = false;
-    let timestamp = 0;
-    this.withTransaction(() => {
-      const row = this.db
-        .prepare(
-          `SELECT data_json AS dataJson, created_at AS createdAt
-           FROM runtime_thread_entries
-           WHERE thread_key = ? AND entry_id = ? AND entry_type = 'custom_message'
-           LIMIT 1`,
-        )
-        .get(threadKey, entryId) as
-        | { dataJson?: string | null; createdAt?: number }
-        | undefined;
-      if (!row) return;
-      const data = parseJsonValue<Record<string, unknown>>(
-        row.dataJson ?? null,
-      );
-      const customType =
-        typeof data?.customType === "string" ? data.customType.trim() : "";
-      if (!customType) return;
-      const eventId =
-        typeof data?.eventId === "string" && data.eventId.trim()
-          ? data.eventId.trim()
-          : undefined;
-      const rawLifecycleEvent = asObject(data?.lifecycleEvent);
-      const lifecycleType = asTrimmedString(rawLifecycleEvent?.type);
-      const lifecyclePayload = asObject(rawLifecycleEvent?.payload);
-      const lifecycleEvent =
-        isThreadLifecycleEventType(lifecycleType) &&
-        asTrimmedString(lifecyclePayload?.agentId)
-          ? {
-              type: lifecycleType,
-              payload: lifecyclePayload as Record<string, unknown>,
-            }
-          : undefined;
-      const boundedMessage = enforceCustomMessageRowSizeLimit({
-        customType,
-        content: args.content,
-        display: data?.display === true,
-        ...(eventId ? { eventId } : {}),
-        ...(lifecycleEvent ? { lifecycleEvent } : {}),
-      });
-      this.db
-        .prepare(
-          `UPDATE runtime_thread_entries
-           SET data_json = ?
-           WHERE thread_key = ? AND entry_id = ?`,
-        )
-        .run(
-          toJsonValueString({
-            customType: boundedMessage.customType,
-            content: boundedMessage.content,
-            display: boundedMessage.display,
-            ...(boundedMessage.eventId
-              ? { eventId: boundedMessage.eventId }
-              : {}),
-            ...(boundedMessage.lifecycleEvent
-              ? { lifecycleEvent: boundedMessage.lifecycleEvent }
-              : {}),
-          }),
-          threadKey,
-          entryId,
-        );
-      timestamp = asFiniteNumber(row.createdAt) ?? Date.now();
-      updated = true;
-      this.touchThread(threadKey);
-    }, "immediate");
-    if (updated) {
-      this.options.onThreadTranscriptUpdate?.({
-        threadId: threadKey,
-        conversationId,
-        entryId,
-        entryType: "custom_message",
-        atMs: timestamp,
-      });
-    }
-    return updated;
-  }
-
-  /** Delete one custom-message row; ordinary conversation rows are fenced. */
-  removeThreadCustomMessage(args: {
-    threadKey: string;
-    entryId: string;
-  }): boolean {
-    const threadKey = normalizeRuntimeThreadId(args.threadKey);
-    const entryId = args.entryId.trim();
-    if (!threadKey || !entryId) return false;
-    const conversationId = this.getThreadConversationId(threadKey);
-    let removed = false;
-    this.withTransaction(() => {
-      const result = this.db
-        .prepare(
-          `DELETE FROM runtime_thread_entries
-           WHERE thread_key = ? AND entry_id = ? AND entry_type = 'custom_message'`,
-        )
-        .run(threadKey, entryId) as { changes?: number | bigint } | undefined;
-      removed = Number(result?.changes ?? 0) > 0;
-      if (removed) this.touchThread(threadKey);
-    }, "immediate");
-    if (removed) {
-      this.options.onThreadTranscriptUpdate?.({
-        threadId: threadKey,
-        conversationId,
-        entryId,
-        entryType: "custom_message",
-        atMs: Date.now(),
-      });
-    }
-    return removed;
   }
 
   recordRunEvent(event: RuntimeRunEvent): void {

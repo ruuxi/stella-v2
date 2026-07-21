@@ -11,7 +11,7 @@ import path from "node:path";
 import { createRuntimeLogger } from "./debug.js";
 import { redactMemoryText } from "./memory/redaction.js";
 import {
-  refreshResidentStartupDocs,
+  planResidentStartupDocRefresh,
   stripInjectedHtmlComments,
 } from "./memory/resident-docs.js";
 import { readHomePrompt } from "./prompts/home-prompts.js";
@@ -1323,6 +1323,15 @@ export const maybeCompactRuntimeThread = async (args: {
     return { compacted: false };
   }
 
+  const stellaDataDir = args.stellaDataDir?.trim();
+  const residentRefreshPlan = stellaDataDir
+    ? planResidentStartupDocRefresh({
+        store: args.store,
+        threadKey: args.threadKey,
+        stellaDataDir,
+      })
+    : { refreshedDocs: 0, removedDocs: 0, mutations: [] };
+
   args.store.compactThread({
     threadKey: args.threadKey,
     summary,
@@ -1336,34 +1345,23 @@ export const maybeCompactRuntimeThread = async (args: {
         : {}),
     },
     fromHook: summaryFromOverride,
+    residentStartupDocMutations: residentRefreshPlan.mutations,
   });
   args.store.updateThreadSummary(args.threadKey, summary);
 
-  // The overlay already starts a new provider-cache epoch. Refresh pinned
-  // resident bytes only now, then let the Effect-owned compaction scheduler's
-  // existing notifyCompacted path reload the session from durable storage.
-  // Best-effort: a doc read/write failure must never undo accepted compaction.
-  const stellaDataDir = args.stellaDataDir?.trim();
-  if (stellaDataDir) {
-    try {
-      const { refreshedDocs, removedDocs } = refreshResidentStartupDocs({
-        store: args.store,
-        threadKey: args.threadKey,
-        stellaDataDir,
-      });
-      if (refreshedDocs > 0 || removedDocs > 0) {
-        logger.info("thread.compaction.startup-docs-refreshed", {
-          threadKey: args.threadKey,
-          refreshedDocs,
-          removedDocs,
-        });
-      }
-    } catch (error) {
-      logger.warn("thread.compaction.startup-doc-refresh-failed", {
-        threadKey: args.threadKey,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+  // The compaction overlay and every resident-prefix mutation committed in
+  // one BEGIN IMMEDIATE transaction above. Effect's notifyCompacted path can
+  // therefore reload only the old epoch or the complete new epoch, never a
+  // mixed prefix after failure or restart.
+  if (
+    residentRefreshPlan.refreshedDocs > 0 ||
+    residentRefreshPlan.removedDocs > 0
+  ) {
+    logger.info("thread.compaction.startup-docs-refreshed", {
+      threadKey: args.threadKey,
+      refreshedDocs: residentRefreshPlan.refreshedDocs,
+      removedDocs: residentRefreshPlan.removedDocs,
+    });
   }
   return { compacted: true, summary, fromOverride: summaryFromOverride };
 };

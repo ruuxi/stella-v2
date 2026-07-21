@@ -301,6 +301,37 @@ export const setExternalEngineSessionId = (args: {
   );
 };
 
+/**
+ * External delivery state is namespaced by engine because each CLI transcript
+ * only contains rows actually prompted to that engine. An engine takeover must
+ * start from an empty cursor rather than inheriting another engine's delivery
+ * claim.
+ */
+export const getExternalDeliveredEntryId = (args: {
+  store: BaseRunOptions["store"];
+  threadKey: string;
+  engine: ExternalEngineSessionKind;
+}): string | undefined => {
+  const raw = args.store.getThreadExternalDeliveredEntryId(args.threadKey);
+  if (!raw) return undefined;
+  const expectedPrefix = `${args.engine}:`;
+  if (!raw.startsWith(expectedPrefix)) return undefined;
+  const entryId = raw.slice(expectedPrefix.length).trim();
+  return entryId || undefined;
+};
+
+export const setExternalDeliveredEntryId = (args: {
+  store: BaseRunOptions["store"];
+  threadKey: string;
+  engine: ExternalEngineSessionKind;
+  entryId: string;
+}): void => {
+  args.store.setThreadExternalDeliveredEntryId(
+    args.threadKey,
+    `${args.engine}:${args.entryId}`,
+  );
+};
+
 const persistExternalPromptMessages = (
   opts: BaseRunOptions,
   threadKey: string,
@@ -443,6 +474,405 @@ export const buildExternalStellaHistoryPromptMessage = (args: {
 };
 
 /**
+ * Out-of-band rows the orchestration layer appends to a thread without going
+ * through the engine's own turn loop — managed-child terminal reports and
+ * interim task updates (see runner/agent-orchestration.ts). The Pi engine
+ * picks these up through its history refresh; external engines resume from
+ * their own CLI transcript, so these rows must be injected explicitly.
+ */
+const EXTERNAL_DELTA_CUSTOM_TYPES: ReadonlySet<string> = new Set([
+  "runtime.task_lifecycle",
+  "runtime.task_update",
+]);
+
+/**
+ * Size budget for one delta block. Child final reports are not capped at
+ * persistence time, and an absent watermark (legacy value or engine takeover)
+ * selects the whole raw backlog — an unbounded block could exceed the
+ * engine's usable input, fail the turn, never advance the success-only
+ * watermark, and rebuild the identical oversized prompt forever. Bounding
+ * turns that failure loop into incremental drain: each successful turn
+ * advances the watermark past the delivered batch and the next turn picks up
+ * the remainder.
+ *
+ * Reports are delivered WHOLE: buildAgentEventPrompt deliberately preserves
+ * full child final reports because the TAIL carries outcomes and blockers —
+ * cutting it could make a manager act on a false completion with no way to
+ * retrieve the omitted end. A report too large for the normal block budget
+ * gets its own dedicated single-row batch (the contiguous-prefix watermark
+ * semantics permit a 1-row batch) sized up to the engine's practical input
+ * capacity; only a report exceeding even that is elided, and then from the
+ * MIDDLE with an explicit marker so head and tail both survive.
+ *
+ * Budgets bound the SERIALIZED output — wrapper tags, markers, and the
+ * envelope count, not just report text — and a row-count cap keeps a flood
+ * of tiny rows from ballooning the block through per-row overhead.
+ * `EXTERNAL_DELTA_MAX_MESSAGE_CHARS` is the hard contract on the COMPLETE
+ * serialized message (prefix + out-of-order latest section + markers +
+ * envelope): when a dedicated oversized report and an oversized triggering
+ * row coincide, their elision budgets shrink to share the cap. Without a
+ * global bound, an engine rejecting the oversized prompt combined with
+ * success-only watermark persistence would rebuild the identical prompt
+ * forever.
+ */
+export const EXTERNAL_DELTA_MAX_TOTAL_CHARS = 48_000;
+export const EXTERNAL_DELTA_MAX_ROWS = 100;
+export const EXTERNAL_DELTA_MAX_MESSAGE_CHARS = 300_000;
+
+export type ExternalThreadUpdatesDelta = {
+  /** Hidden prompt message carrying the undelivered rows, or null. */
+  message: RuntimePromptMessage | null;
+  /**
+   * Entry id of the newest out-of-band row COVERED by the prompt this delta
+   * rides in — included in the block, deduplicated against the turn's prompt
+   * messages, or contained in a `deliveredContextTexts` block sent alongside
+   * it. Rows past the size budget are NOT covered. When everything after the
+   * anchor was already delivered this is the newest candidate (an unchanged
+   * watermark); null only when the thread has no out-of-band rows at all.
+   * Persist it as the delivered watermark once the turn succeeds.
+   */
+  lastEntryId: string | null;
+  /** Number of candidates covered, counting from the `afterEntryId` anchor. */
+  coveredCount: number;
+  /** True when the size budget cut the batch short; more backlog remains. */
+  truncated: boolean;
+};
+
+/**
+ * Build the delta of out-of-band runtime rows an external engine session has
+ * not seen yet.
+ *
+ * The full Stella-history block is only sent on session-creating turns (see
+ * `buildClaudeCodeTurnPrompts`); resumed turns rely on the CLI transcript,
+ * which never contains rows written out-of-band by the orchestration layer —
+ * e.g. a manager's `runtime.task_lifecycle` child reports, whose wake prompt
+ * is deliberately a content-free stub. This delta carries exactly those rows
+ * persisted after `afterEntryId` (the delivered watermark), keeping resumed
+ * prompts small instead of re-sending the whole history each turn.
+ *
+ * Candidates are scanned from the RAW entry log, not the compaction-overlaid
+ * projection: a compaction checkpoint folds a range into one summary row, and
+ * an undelivered report inside that range would otherwise stop being a
+ * candidate while newer surviving rows advance the watermark past it —
+ * silently dropping it for engines that never re-read Stella history. The
+ * watermark bounds the scan, so raw reads stay small and deliver-once.
+ *
+ * Rows whose text is already present verbatim in this turn's prompt messages
+ * (e.g. an orchestrator's in-memory follow-up delivery of the same report)
+ * or contained in a `deliveredContextTexts` block that rides in the SAME
+ * prompt (the full-history block on session-creating turns) are counted as
+ * delivered but omitted from the block. The caller must guarantee that the
+ * returned message is included in every prompt variant actually sent —
+ * including resume-fallback reseeds — because `lastEntryId` becomes the
+ * delivered watermark on turn success.
+ */
+export const buildExternalThreadUpdatesDelta = (args: {
+  store: BaseRunOptions["store"];
+  threadKey: string;
+  afterEntryId?: string;
+  promptMessages: RuntimePromptMessage[];
+  /**
+   * Texts of context blocks included in the same prompt as the delta (e.g.
+   * the full Stella-history block). Rows already contained in one of them
+   * are delivered by that block, not re-injected.
+   */
+  deliveredContextTexts?: string[];
+}): ExternalThreadUpdatesDelta => {
+  const candidates = args.store
+    .loadRawThreadMessagesWithEntryTypes(args.threadKey)
+    .filter(
+      (row) =>
+        typeof row.entryId === "string" &&
+        row.entryId.length > 0 &&
+        row.customMessage !== undefined &&
+        EXTERNAL_DELTA_CUSTOM_TYPES.has(row.customMessage.customType),
+    );
+  if (candidates.length === 0) {
+    return {
+      message: null,
+      lastEntryId: null,
+      coveredCount: 0,
+      truncated: false,
+    };
+  }
+  const afterIndex = args.afterEntryId
+    ? candidates.findIndex((row) => row.entryId === args.afterEntryId)
+    : -1;
+  const undelivered = candidates.slice(afterIndex + 1);
+  if (undelivered.length === 0) {
+    return {
+      message: null,
+      lastEntryId: candidates[candidates.length - 1]?.entryId ?? null,
+      coveredCount: 0,
+      truncated: false,
+    };
+  }
+  const promptTexts = new Set(
+    args.promptMessages
+      .map((message) => message.text.trim())
+      .filter((text) => text.length > 0),
+  );
+  const contextTexts = (args.deliveredContextTexts ?? []).filter(
+    (text) => text.trim().length > 0,
+  );
+  const isRowCoveredElsewhere = (text: string): boolean =>
+    promptTexts.has(text) ||
+    contextTexts.some((context) => context.includes(text));
+  // Middle elision for a report beyond its rendering budget: the head
+  // carries the task framing and the TAIL carries outcomes and blockers, so
+  // both must survive; only the middle may be elided, marked. The result
+  // (marker included) never exceeds `maxChars`, and the cut boundaries are
+  // nudged off UTF-16 surrogate pairs so no lone surrogate is emitted.
+  const ELISION_MARKER_ALLOWANCE = 220;
+  const isHighSurrogate = (code: number): boolean =>
+    code >= 0xd800 && code <= 0xdbff;
+  const isLowSurrogate = (code: number): boolean =>
+    code >= 0xdc00 && code <= 0xdfff;
+  const elideMiddleTo = (text: string, maxChars: number): string => {
+    if (text.length <= maxChars) {
+      return text;
+    }
+    const usable = Math.max(0, maxChars - ELISION_MARKER_ALLOWANCE);
+    let headEnd = Math.ceil(usable * 0.6);
+    let tailStart = text.length - (usable - headEnd);
+    if (headEnd > 0 && isHighSurrogate(text.charCodeAt(headEnd - 1))) {
+      headEnd -= 1;
+    }
+    if (tailStart < text.length && isLowSurrogate(text.charCodeAt(tailStart))) {
+      tailStart += 1;
+    }
+    const elided = tailStart - headEnd;
+    return `${text.slice(0, headEnd)}\n[… ${elided} characters elided from the MIDDLE of this report to fit the engine input; head and tail are verbatim, and the full report is in the Stella thread …]\n${text.slice(tailStart)}`;
+  };
+  const serializeRow = (
+    index: number | string,
+    customType: string,
+    rowText: string,
+  ): string =>
+    `<thread_update index="${index}" customType="${customType}">\n${rowText}\n</thread_update>`;
+  const HEADER =
+    '<stella_thread_updates source="stella" note="Runtime events (managed-agent reports and task updates) persisted to this Stella thread since your previous turn. They are not in your session transcript; treat them as delivered context.">';
+  const FOOTER = "</stella_thread_updates>";
+  const WITHHELD_NOTE =
+    "[Some NEWER updates were withheld to fit this turn; they will be delivered in order on later turns. The newest update is included below so it is never withheld.]";
+  const LATEST_MARKER =
+    "[Newest update, delivered ahead of the withheld ones above; it will be re-delivered in order on a later turn.]";
+  // Reserve envelope + marker space so the serialized block (not just the
+  // report text) honors the budget; the latest-section reserve keeps a small
+  // triggering row from pushing the block past it.
+  const LATEST_SECTION_RESERVE = 2_000;
+  const packingBudget =
+    EXTERNAL_DELTA_MAX_TOTAL_CHARS -
+    HEADER.length -
+    FOOTER.length -
+    WITHHELD_NOTE.length -
+    LATEST_MARKER.length -
+    LATEST_SECTION_RESERVE;
+  // Oldest-first bounded SELECTION of the contiguous covered prefix (raw
+  // text cost; elision happens at render time under the global cap).
+  // Coverage must stay a contiguous prefix of the candidate order — once the
+  // budget is exhausted the scan stops, even for rows that would have been
+  // deduplicated for free, so the watermark can never step over an
+  // unexamined row. Rows are packed WHOLE: a first row too large for the
+  // budget becomes its own dedicated single-row batch instead of losing its
+  // tail.
+  type SelectedRow = { text: string; customType: string };
+  const prefixRows: SelectedRow[] = [];
+  let serializedChars = 0;
+  let dedicatedOversized = false;
+  let coveredCount = 0;
+  let coveredLastEntryId: string | null = null;
+  let coveredEndIndex = -1;
+  let truncated = false;
+  for (const [index, row] of undelivered.entries()) {
+    const text = row.content.trim();
+    if (!text || isRowCoveredElsewhere(text)) {
+      coveredCount += 1;
+      coveredLastEntryId = row.entryId ?? coveredLastEntryId;
+      coveredEndIndex = index;
+      continue;
+    }
+    const cost =
+      serializeRow(prefixRows.length + 1, row.customMessage!.customType, text)
+        .length + 1;
+    if (
+      prefixRows.length > 0 &&
+      (serializedChars + cost > packingBudget ||
+        prefixRows.length >= EXTERNAL_DELTA_MAX_ROWS)
+    ) {
+      truncated = true;
+      break;
+    }
+    prefixRows.push({ text, customType: row.customMessage!.customType });
+    serializedChars += cost;
+    coveredCount += 1;
+    coveredLastEntryId = row.entryId ?? coveredLastEntryId;
+    coveredEndIndex = index;
+    if (cost > packingBudget) {
+      // Dedicated single-row batch for an oversized report. Stop here so
+      // the block stays a one-report batch.
+      dedicatedOversized = true;
+      if (index < undelivered.length - 1) {
+        truncated = true;
+      }
+      break;
+    }
+  }
+  truncated = truncated || coveredEndIndex < undelivered.length - 1;
+  // The content-free wake stub means this delta is the manager's only view
+  // of the report that woke it — and external turns get no extra queued step
+  // to fetch more. The newest not-otherwise-covered row is therefore always
+  // included, even beyond the contiguous prefix, as a marked out-of-order
+  // section. The watermark still advances only through the contiguous
+  // prefix, so this row is re-delivered in order later (at-least-once).
+  let latestRow: SelectedRow | null = null;
+  if (truncated) {
+    for (
+      let index = undelivered.length - 1;
+      index > coveredEndIndex;
+      index -= 1
+    ) {
+      const row = undelivered[index]!;
+      const text = row.content.trim();
+      if (!text || isRowCoveredElsewhere(text)) {
+        continue;
+      }
+      latestRow = { text, customType: row.customMessage!.customType };
+      break;
+    }
+  }
+  const lastEntryId =
+    coveredLastEntryId ??
+    (args.afterEntryId && afterIndex >= 0 ? args.afterEntryId : null);
+  if (prefixRows.length === 0 && !latestRow) {
+    return { message: null, lastEntryId, coveredCount, truncated };
+  }
+  // Render under ONE global cap on the complete serialized message. All
+  // fixed parts (envelope, notes, markers, wrappers, joiners) are charged
+  // first; the remaining content budget is shared between the prefix and
+  // the latest section. In the normal path the prefix is already bounded by
+  // `packingBudget` (~1/6 of the cap), so the latest row gets the large
+  // remainder; when a dedicated oversized report and an oversized latest
+  // row coincide, each is elided to roughly half so the composed total
+  // still honors the cap and the drain loop keeps making progress.
+  const wrapperCost = (index: number | string, customType: string): number =>
+    serializeRow(index, customType, "").length + 1;
+  const fixedOverhead =
+    HEADER.length +
+    FOOTER.length +
+    1 +
+    (truncated ? WITHHELD_NOTE.length + 1 : 0) +
+    (latestRow ? LATEST_MARKER.length + 1 : 0);
+  const contentBudget = EXTERNAL_DELTA_MAX_MESSAGE_CHARS - fixedOverhead;
+  let renderedLatest: string | null = null;
+  let latestBudgetUsed = 0;
+  if (latestRow) {
+    const latestWrapper = wrapperCost("latest", latestRow.customType);
+    const prefixReserve = dedicatedOversized
+      ? // Split roughly in half with the dedicated report; a small latest
+        // row hands its unused share back to the report below.
+        Math.floor((contentBudget - latestWrapper) / 2)
+      : // Selection cost already includes wrappers and joiners, so this
+        // reserves exactly what the whole prefix will render to.
+        serializedChars;
+    const latestTextBudget = Math.max(
+      ELISION_MARKER_ALLOWANCE * 2,
+      contentBudget - latestWrapper - prefixReserve,
+    );
+    const latestText = elideMiddleTo(latestRow.text, latestTextBudget);
+    renderedLatest = serializeRow("latest", latestRow.customType, latestText);
+    latestBudgetUsed = renderedLatest.length + 1;
+  }
+  const prefixContentBudget = contentBudget - latestBudgetUsed;
+  const lines: string[] = [];
+  let prefixUsed = 0;
+  for (const [index, selected] of prefixRows.entries()) {
+    const rowWrapper = wrapperCost(index + 1, selected.customType);
+    const rowTextBudget = Math.max(
+      ELISION_MARKER_ALLOWANCE * 2,
+      prefixContentBudget - prefixUsed - rowWrapper,
+    );
+    const rowText = elideMiddleTo(selected.text, rowTextBudget);
+    const serialized = serializeRow(index + 1, selected.customType, rowText);
+    lines.push(serialized);
+    prefixUsed += serialized.length + 1;
+  }
+  return {
+    message: {
+      messageType: "message",
+      uiVisibility: "hidden",
+      customType: "runtime.stella_thread_updates",
+      text: [
+        HEADER,
+        ...lines,
+        ...(truncated ? [WITHHELD_NOTE] : []),
+        ...(renderedLatest ? [LATEST_MARKER, renderedLatest] : []),
+        FOOTER,
+      ].join("\n"),
+    },
+    lastEntryId,
+    coveredCount,
+    truncated,
+  };
+};
+
+/**
+ * Per-turn watermark arithmetic for external-engine delta delivery.
+ *
+ * A turn can send several prompts: the main prompt, queued follow-ups that
+ * continue the SAME session (deltas anchored at the in-turn cursor so the
+ * live session gets each row once), and fallback prompts that seed a FRESH
+ * session when recovery abandons the old one (missing resume / compaction
+ * loop). A fresh session never saw the cursor-anchored deltas, so
+ * reseed-capable prompts carry deltas anchored at the PERSISTED watermark.
+ * Because reseeds are not observable from here, the persisted watermark
+ * after success is the minimum of the mainline coverage and every
+ * reseed-prompt coverage — under-advancing only re-delivers (at-least-once),
+ * never skips.
+ *
+ * Coverage counts are comparable because every delta covers a contiguous
+ * prefix of the same append-only candidate order starting at the persisted
+ * watermark; mainline counts accumulate across cursor-anchored windows.
+ */
+export const createExternalDeltaWatermarkTracker = (
+  initialEntryId: string | undefined,
+) => {
+  let mainlineCoveredCount = 0;
+  let cursorEntryId = initialEntryId;
+  let guaranteedCoveredCount = Number.POSITIVE_INFINITY;
+  let guaranteedEntryId = initialEntryId;
+  return {
+    /** Anchor for the next mainline (live-session) delta build. */
+    get cursor(): string | undefined {
+      return cursorEntryId;
+    },
+    /** Record a delta sent to the live session (anchored at the cursor). */
+    noteMainlineDelta(delta: ExternalThreadUpdatesDelta): void {
+      mainlineCoveredCount += delta.coveredCount;
+      if (delta.lastEntryId) {
+        cursorEntryId = delta.lastEntryId;
+      }
+    },
+    /**
+     * Record a delta carried by a prompt that may seed a fresh session
+     * (anchored at the persisted watermark).
+     */
+    noteReseedDelta(delta: ExternalThreadUpdatesDelta): void {
+      if (delta.coveredCount < guaranteedCoveredCount) {
+        guaranteedCoveredCount = delta.coveredCount;
+        guaranteedEntryId = delta.lastEntryId ?? initialEntryId;
+      }
+    },
+    /** Watermark safe to persist after the turn succeeds. */
+    resolve(): string | undefined {
+      return guaranteedCoveredCount < mainlineCoveredCount
+        ? guaranteedEntryId
+        : cursorEntryId;
+    },
+  };
+};
+
+/**
  * Build the per-turn Claude Code prompt pair.
  *
  * The stored Stella history (already checkpoint-compacted by
@@ -459,17 +889,31 @@ export const buildClaudeCodeTurnPrompts = (args: {
   historyPromptMessage: RuntimePromptMessage | null;
   promptMessages: RuntimePromptMessage[];
   hasPersistedSession: boolean;
+  deltaPromptMessage?: RuntimePromptMessage | null;
+  fallbackDeltaPromptMessage?: RuntimePromptMessage | null;
 }): { prompt: string; resumeFallbackPrompt?: string } => {
-  const historyPrefixedPrompt = args.historyPromptMessage
-    ? buildClaudePromptFromMessages([
-        args.historyPromptMessage,
-        ...args.promptMessages,
-      ])
-    : undefined;
+  const fallbackDeltaMessage = args.hasPersistedSession
+    ? (args.fallbackDeltaPromptMessage ?? args.deltaPromptMessage)
+    : args.deltaPromptMessage;
+  const fallbackSeedMessages = [
+    ...(args.historyPromptMessage ? [args.historyPromptMessage] : []),
+    ...(fallbackDeltaMessage ? [fallbackDeltaMessage] : []),
+  ];
+  const historyPrefixedPrompt =
+    fallbackSeedMessages.length > 0
+      ? buildClaudePromptFromMessages([
+          ...fallbackSeedMessages,
+          ...args.promptMessages,
+        ])
+      : undefined;
   const prompt =
     !args.hasPersistedSession && historyPrefixedPrompt
       ? historyPrefixedPrompt
-      : buildClaudePromptFromMessages(args.promptMessages);
+      : buildClaudePromptFromMessages(
+          args.deltaPromptMessage
+            ? [args.deltaPromptMessage, ...args.promptMessages]
+            : args.promptMessages,
+        );
   return {
     prompt,
     ...(historyPrefixedPrompt
@@ -539,10 +983,64 @@ const createExternalLiveAgent = () => {
     drain(): ExternalQueuedMessage[] {
       return queued.splice(0, queued.length);
     },
+    /**
+     * Atomically close the live-delivery boundary only after every accepted
+     * message has been drained. Once closed, orchestration queues later work
+     * as a fresh root turn instead of handing it to a loop that already left.
+     */
+    finishIfIdle(): boolean {
+      if (queued.length > 0) return false;
+      state.isStreaming = false;
+      return true;
+    },
     finish(): void {
       state.isStreaming = false;
     },
   };
+};
+
+const isLatestExternalAttempt = (opts: BaseRunOptions): boolean => {
+  const generation = opts.agentContext.attemptGeneration;
+  if (typeof generation !== "number") return true;
+  const threadId = opts.agentContext.activeThreadId ?? opts.agentId;
+  if (!threadId) return false;
+  return opts.store.getAgentRecord(threadId)?.attemptGeneration === generation;
+};
+
+/**
+ * Persist and publish one completed serialized engine turn before any queued
+ * prompt advances. Attempt generation is checked on both sides of the durable
+ * write: a superseded completion may remain in raw history for diagnostics,
+ * tagged with its old epoch, but it is never published or allowed to advance
+ * session/delivery cursors.
+ */
+const persistCompletedExternalReply = async (args: {
+  opts: BaseRunOptions;
+  session: ExternalOrchestratorRunSession | ExternalSubagentRunSession;
+  callbacks?: Partial<RuntimeRunCallbacks>;
+  text: string;
+}): Promise<boolean> => {
+  if (!isLatestExternalAttempt(args.opts)) return false;
+  await persistAssistantReply({
+    store: args.opts.store,
+    threadKey: args.session.threadKey,
+    resolvedLlm: args.opts.resolvedLlm,
+    agentType: args.opts.agentType,
+    content: args.text,
+    stellaDataDir: args.opts.stellaDataDir,
+    runId: args.session.runId,
+    ...(typeof args.opts.agentContext.attemptGeneration === "number"
+      ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
+      : {}),
+  });
+  if (!isLatestExternalAttempt(args.opts)) return false;
+  const assistantMessageEvent = args.session.runEvents.recordAssistantTextEnd(
+    args.text,
+  );
+  if (assistantMessageEvent) {
+    args.callbacks?.onAssistantMessage?.(assistantMessageEvent);
+  }
+  return true;
 };
 
 const runClaudeHostedTurn = async (args: {
@@ -555,6 +1053,7 @@ const runClaudeHostedTurn = async (args: {
 }): Promise<{
   finalText: string;
   sessionId: string;
+  latestAttempt: boolean;
   fileChanges?: SubagentRunResult["fileChanges"];
 }> => {
   const { runId, threadKey, runEvents } = args.session;
@@ -752,10 +1251,49 @@ const runClaudeHostedTurn = async (args: {
     opts: args.opts,
     promptMessages: args.promptMessages,
   });
+  const initialDeliveredEntryId = getExternalDeliveredEntryId({
+    store: args.opts.store,
+    threadKey,
+    engine: sessionEngine,
+  });
+  const threadUpdatesDelta = buildExternalThreadUpdatesDelta({
+    store: args.opts.store,
+    threadKey,
+    ...(initialDeliveredEntryId
+      ? { afterEntryId: initialDeliveredEntryId }
+      : {}),
+    promptMessages: args.promptMessages,
+    ...(!persistedSessionId && historyPromptMessage
+      ? { deliveredContextTexts: [historyPromptMessage.text] }
+      : {}),
+  });
+  const watermarkTracker = createExternalDeltaWatermarkTracker(
+    initialDeliveredEntryId,
+  );
+  watermarkTracker.noteMainlineDelta(threadUpdatesDelta);
+  const mainFallbackDelta =
+    persistedSessionId && historyPromptMessage
+      ? buildExternalThreadUpdatesDelta({
+          store: args.opts.store,
+          threadKey,
+          ...(initialDeliveredEntryId
+            ? { afterEntryId: initialDeliveredEntryId }
+            : {}),
+          promptMessages: args.promptMessages,
+          deliveredContextTexts: [historyPromptMessage.text],
+        })
+      : null;
+  if (mainFallbackDelta) {
+    watermarkTracker.noteReseedDelta(mainFallbackDelta);
+  }
   const { prompt, resumeFallbackPrompt } = buildClaudeCodeTurnPrompts({
     historyPromptMessage,
     promptMessages: args.promptMessages,
     hasPersistedSession: Boolean(persistedSessionId),
+    deltaPromptMessage: threadUpdatesDelta.message,
+    ...(mainFallbackDelta
+      ? { fallbackDeltaPromptMessage: mainFallbackDelta.message }
+      : {}),
   });
   const claudeCodeEffortLevel = getClaudeCodeRuntimeEffortLevel(
     args.opts.stellaAppDir,
@@ -813,10 +1351,22 @@ const runClaudeHostedTurn = async (args: {
   assistantUpdateBuffer.discard();
   collectTurnFileChanges(finalResult.fileChanges);
 
+  let latestAttempt = true;
   for (;;) {
+    latestAttempt = await persistCompletedExternalReply({
+      opts: args.opts,
+      session: args.session,
+      callbacks: args.callbacks,
+      text: finalResult.text,
+    });
+    if (!latestAttempt) {
+      args.liveAgent?.finish();
+      break;
+    }
     const queued = args.liveAgent?.drain() ?? [];
     if (queued.length === 0) {
-      break;
+      if (!args.liveAgent || args.liveAgent.finishIfIdle()) break;
+      continue;
     }
     const queuedStarted = runEvents.recordQueuedUserMessageStart();
     if (queuedStarted) {
@@ -828,6 +1378,27 @@ const runClaudeHostedTurn = async (args: {
       opts: args.opts,
       promptMessages: queuedPromptMessages,
     });
+    const queuedThreadUpdatesDelta = buildExternalThreadUpdatesDelta({
+      store: args.opts.store,
+      threadKey,
+      ...(watermarkTracker.cursor
+        ? { afterEntryId: watermarkTracker.cursor }
+        : {}),
+      promptMessages: queuedPromptMessages,
+    });
+    const queuedFallbackDelta = buildExternalThreadUpdatesDelta({
+      store: args.opts.store,
+      threadKey,
+      ...(initialDeliveredEntryId
+        ? { afterEntryId: initialDeliveredEntryId }
+        : {}),
+      promptMessages: queuedPromptMessages,
+      ...(queuedHistoryPromptMessage
+        ? { deliveredContextTexts: [queuedHistoryPromptMessage.text] }
+        : {}),
+    });
+    watermarkTracker.noteMainlineDelta(queuedThreadUpdatesDelta);
+    watermarkTracker.noteReseedDelta(queuedFallbackDelta);
     // Queued follow-ups always continue the session the turn just ran on, so
     // the main prompt never re-sends history; a lost resume reseeds via the
     // fallback prompt.
@@ -838,6 +1409,8 @@ const runClaudeHostedTurn = async (args: {
       historyPromptMessage: queuedHistoryPromptMessage,
       promptMessages: queuedPromptMessages,
       hasPersistedSession: true,
+      deltaPromptMessage: queuedThreadUpdatesDelta.message,
+      fallbackDeltaPromptMessage: queuedFallbackDelta.message,
     });
     finalResult = await runClaudeCodeTurn({
       runId,
@@ -872,35 +1445,28 @@ const runClaudeHostedTurn = async (args: {
     assistantUpdateBuffer.discard();
     collectTurnFileChanges(finalResult.fileChanges);
   }
-
-  await persistAssistantReply({
-    store: args.opts.store,
-    threadKey,
-    resolvedLlm: args.opts.resolvedLlm,
-    agentType: args.opts.agentType,
-    content: finalResult.text,
-    stellaDataDir: args.opts.stellaDataDir,
-    runId,
-    ...(typeof args.opts.agentContext.attemptGeneration === "number"
-      ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
-      : {}),
-  });
-  const assistantMessageEvent = runEvents.recordAssistantTextEnd(
-    finalResult.text,
-  );
-  if (assistantMessageEvent) {
-    args.callbacks?.onAssistantMessage?.(assistantMessageEvent);
+  if (latestAttempt && isLatestExternalAttempt(args.opts)) {
+    setExternalEngineSessionId({
+      store: args.opts.store,
+      threadKey,
+      engine: sessionEngine,
+      sessionId: finalResult.sessionId,
+    });
+    const resolvedWatermark = watermarkTracker.resolve();
+    if (resolvedWatermark && resolvedWatermark !== initialDeliveredEntryId) {
+      setExternalDeliveredEntryId({
+        store: args.opts.store,
+        threadKey,
+        engine: sessionEngine,
+        entryId: resolvedWatermark,
+      });
+    }
   }
-  setExternalEngineSessionId({
-    store: args.opts.store,
-    threadKey,
-    engine: sessionEngine,
-    sessionId: finalResult.sessionId,
-  });
 
   return {
     finalText: finalResult.text,
     sessionId: finalResult.sessionId,
+    latestAttempt,
     ...(collectedFileChanges.length > 0
       ? { fileChanges: collectedFileChanges }
       : {}),
@@ -917,6 +1483,7 @@ const runCodexHostedTurn = async (args: {
 }): Promise<{
   finalText: string;
   sessionId: string;
+  latestAttempt: boolean;
   fileChanges?: SubagentRunResult["fileChanges"];
 }> => {
   const { runId, threadKey, runEvents } = args.session;
@@ -945,6 +1512,7 @@ const runCodexHostedTurn = async (args: {
     engine: "codex_cli",
   });
   const persistCodexSessionId = (sessionId: string) => {
+    if (!isLatestExternalAttempt(args.opts)) return;
     setExternalEngineSessionId({
       store: args.opts.store,
       threadKey,
@@ -1122,8 +1690,25 @@ const runCodexHostedTurn = async (args: {
       }),
     );
   };
-  const prompt = buildCodexPromptFromMessages({
+  const initialDeliveredEntryId = getExternalDeliveredEntryId({
+    store: args.opts.store,
+    threadKey,
+    engine: "codex_cli",
+  });
+  const threadUpdatesDelta = buildExternalThreadUpdatesDelta({
+    store: args.opts.store,
+    threadKey,
+    ...(initialDeliveredEntryId
+      ? { afterEntryId: initialDeliveredEntryId }
+      : {}),
     promptMessages: args.promptMessages,
+  });
+  let deliveredEntryWatermark =
+    threadUpdatesDelta.lastEntryId ?? initialDeliveredEntryId;
+  const prompt = buildCodexPromptFromMessages({
+    promptMessages: threadUpdatesDelta.message
+      ? [threadUpdatesDelta.message, ...args.promptMessages]
+      : args.promptMessages,
   });
   const inheritedCodexConfig =
     args.opts.agentContext.modelConfigSnapshot?.engine === "codex_cli"
@@ -1181,10 +1766,22 @@ const runCodexHostedTurn = async (args: {
   });
   assistantUpdateBuffer.discard();
 
+  let latestAttempt = true;
   for (;;) {
+    latestAttempt = await persistCompletedExternalReply({
+      opts: args.opts,
+      session: args.session,
+      callbacks: args.callbacks,
+      text: finalResult.text,
+    });
+    if (!latestAttempt) {
+      args.liveAgent?.finish();
+      break;
+    }
     const queued = args.liveAgent?.drain() ?? [];
     if (queued.length === 0) {
-      break;
+      if (!args.liveAgent || args.liveAgent.finishIfIdle()) break;
+      continue;
     }
     const queuedStarted = runEvents.recordQueuedUserMessageStart();
     if (queuedStarted) {
@@ -1192,8 +1789,20 @@ const runCodexHostedTurn = async (args: {
     }
     const queuedPromptMessages = queued.map(formatQueuedClaudeMessage);
     const queuedAttachments = attachmentsFromQueuedMessages(queued);
-    const queuedPrompt = buildCodexPromptFromMessages({
+    const queuedThreadUpdatesDelta = buildExternalThreadUpdatesDelta({
+      store: args.opts.store,
+      threadKey,
+      ...(initialDeliveredEntryId
+        ? { afterEntryId: initialDeliveredEntryId }
+        : {}),
       promptMessages: queuedPromptMessages,
+    });
+    deliveredEntryWatermark =
+      queuedThreadUpdatesDelta.lastEntryId ?? deliveredEntryWatermark;
+    const queuedPrompt = buildCodexPromptFromMessages({
+      promptMessages: queuedThreadUpdatesDelta.message
+        ? [queuedThreadUpdatesDelta.message, ...queuedPromptMessages]
+        : queuedPromptMessages,
     });
     finalResult = await runCodexAgentTurn({
       runId,
@@ -1238,30 +1847,25 @@ const runCodexHostedTurn = async (args: {
     });
     assistantUpdateBuffer.discard();
   }
-
-  await persistAssistantReply({
-    store: args.opts.store,
-    threadKey,
-    resolvedLlm: args.opts.resolvedLlm,
-    agentType: args.opts.agentType,
-    content: finalResult.text,
-    stellaDataDir: args.opts.stellaDataDir,
-    runId,
-    ...(typeof args.opts.agentContext.attemptGeneration === "number"
-      ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
-      : {}),
-  });
-  const assistantMessageEvent = runEvents.recordAssistantTextEnd(
-    finalResult.text,
-  );
-  if (assistantMessageEvent) {
-    args.callbacks?.onAssistantMessage?.(assistantMessageEvent);
+  if (latestAttempt && isLatestExternalAttempt(args.opts)) {
+    persistCodexSessionId(finalResult.sessionId);
+    if (
+      deliveredEntryWatermark &&
+      deliveredEntryWatermark !== initialDeliveredEntryId
+    ) {
+      setExternalDeliveredEntryId({
+        store: args.opts.store,
+        threadKey,
+        engine: "codex_cli",
+        entryId: deliveredEntryWatermark,
+      });
+    }
   }
-  persistCodexSessionId(finalResult.sessionId);
 
   return {
     finalText: finalResult.text,
     sessionId: finalResult.sessionId,
+    latestAttempt,
     ...(finalResult.fileChanges?.length
       ? { fileChanges: finalResult.fileChanges }
       : {}),
@@ -1387,6 +1991,9 @@ export const runExternalSubagentTurn = async (
         promptMessages,
         callbacks: opts.callbacks,
       });
+      if (!result.latestAttempt) {
+        return { runId: session.runId, result: "", interrupted: true };
+      }
       const finalized = await session.finalizeSuccess(result.finalText);
       if (result.fileChanges?.length) {
         finalized.fileChanges = result.fileChanges;
@@ -1436,6 +2043,9 @@ export const runExternalSubagentTurn = async (
       promptMessages,
       callbacks: opts.callbacks,
     });
+    if (!result.latestAttempt) {
+      return { runId: session.runId, result: "", interrupted: true };
+    }
     const finalized = await session.finalizeSuccess(result.finalText);
     // Vanilla-mode Claude Code executes its own file tools, so no Stella
     // tool-end events carry these writes — surface them on the run result

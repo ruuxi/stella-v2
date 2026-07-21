@@ -19,7 +19,7 @@ import type {
   AgentRuntimeEngine,
 } from "@stella/contracts/agent-engine";
 import {
-  resolveLocalCliCwd,
+  resolveAgentWorkingDirectory,
   textFromUnknown,
 } from "../agent-runtime/shared.js";
 import type { ToolMetadata, ToolResult } from "../tools/types.js";
@@ -195,7 +195,7 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
   /**
    * Explicit CLI working directory. Callers whose data dir differs from the
    * agent workspace should pass this; otherwise the cwd falls back to
-   * `resolveLocalCliCwd` over `stellaAppDir`.
+   * `resolveAgentWorkingDirectory` (home by default).
    */
   cwd?: string;
   executeTool?: (
@@ -226,12 +226,11 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
       ...(effortLevel ? { effortLevel } : {}),
       prompt: buildPromptFromMessages(args.context.messages),
       systemPrompt: args.context.systemPrompt,
-      cwd:
-        args.cwd?.trim() ||
-        resolveLocalCliCwd({
-          agentType: args.agentType,
-          stellaAppDir: args.stellaAppDir,
-        }),
+      cwd: resolveAgentWorkingDirectory({
+        agentType: args.agentType,
+        stellaAppDir: args.stellaAppDir,
+        workingDirectory: args.cwd,
+      }),
       tools: toolsToMetadata(args.context.tools),
       abortSignal: args.abortSignal,
       ...(args.onModelRound ? { onModelRound: args.onModelRound } : {}),

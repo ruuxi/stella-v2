@@ -47,7 +47,11 @@ import {
   type ExternalOrchestratorRunSession,
   type ExternalSubagentRunSession,
 } from "./run-session.js";
-import { now, resolveLocalCliCwd, textFromUnknown } from "./shared.js";
+import {
+  now,
+  resolveAgentWorkingDirectory,
+  textFromUnknown,
+} from "./shared.js";
 import {
   buildHistorySource,
   buildOrchestratorPromptMessages,
@@ -1072,9 +1076,10 @@ const runClaudeHostedTurn = async (args: {
     throw new Error("Aborted");
   }
 
-  const localCliCwd = resolveLocalCliCwd({
+  const localCliCwd = resolveAgentWorkingDirectory({
     agentType: args.opts.agentType,
     stellaAppDir: args.opts.stellaAppDir,
+    workingDirectory: args.opts.toolWorkspaceRoot,
   });
   // Per-spawn claude-code selection (spawn_agent `model: claude-code[/...]`)
   // runs vanilla Claude Code: CC keeps its own tools and config — no Stella
@@ -1519,9 +1524,10 @@ const runCodexHostedTurn = async (args: {
     throw new Error("Aborted");
   }
 
-  const localCliCwd = resolveLocalCliCwd({
+  const localCliCwd = resolveAgentWorkingDirectory({
     agentType: args.opts.agentType,
     stellaAppDir: args.opts.stellaAppDir,
+    workingDirectory: args.opts.toolWorkspaceRoot,
   });
   const sessionKey = args.opts.agentContext.activeThreadId
     ? `${args.opts.conversationId}:${args.opts.agentContext.activeThreadId}`

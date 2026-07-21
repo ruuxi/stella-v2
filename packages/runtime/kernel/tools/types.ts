@@ -31,6 +31,8 @@ export type ToolContext = {
   /** Fences tool side effects to the active execution attempt for an agent. */
   attemptGeneration?: number;
   agentType?: string;
+  /** Agent execution root. Kept separate from install and durable-data paths. */
+  workingDirectory?: string;
   stellaAppDir?: string;
   stellaDataDir?: string;
   toolWorkspaceRoot?: string;

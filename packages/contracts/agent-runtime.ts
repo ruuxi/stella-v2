@@ -91,7 +91,7 @@ const BUILTIN_AGENT_DEFINITIONS = [
     runsAsSubagent: false,
     usesLocalCliRuntime: true,
     promptRole: "orchestrator",
-    localCliWorkingDirectory: "frontend",
+    localCliWorkingDirectory: "home",
     modelSettings: {
       description: "Top-level agent that delegates tasks",
       order: 0,
@@ -120,7 +120,7 @@ const BUILTIN_AGENT_DEFINITIONS = [
     includeInAgentRoster: false,
     usesLocalCliRuntime: true,
     promptRole: "subagent",
-    localCliWorkingDirectory: null,
+    localCliWorkingDirectory: "home",
     modelSettings: null,
   },
   {
@@ -166,7 +166,7 @@ const BUILTIN_AGENT_DEFINITIONS = [
     runsAsSubagent: true,
     usesLocalCliRuntime: true,
     promptRole: "subagent",
-    localCliWorkingDirectory: "frontend",
+    localCliWorkingDirectory: "home",
     modelSettings: {
       description:
         "Single execution agent that works from files, manuals, and tools",

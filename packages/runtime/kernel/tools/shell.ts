@@ -21,7 +21,7 @@ import type {
   ShellRecord,
   ToolUpdateCallback,
 } from "./types.js";
-import { MAX_OUTPUT, truncate } from "./utils.js";
+import { expandHomePath, MAX_OUTPUT, truncate } from "./utils.js";
 import { resolveBundledRuntimeFile } from "../shared/runtime-paths.js";
 import { isDangerousCommand } from "./command-safety.js";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";
@@ -1441,11 +1441,17 @@ const resolveManagedShellCommand = (
   envOverrides: Record<string, string>;
 } => {
   let command = String(args.cmd ?? args.command ?? "");
-  const cwd = String(
-    args.workdir ??
-      args.working_directory ??
-      context?.stellaAppDir ??
-      process.cwd(),
+  const cwd = path.resolve(
+    expandHomePath(
+      String(
+        args.workdir ??
+          args.working_directory ??
+          args.cwd ??
+          context?.workingDirectory ??
+          context?.stellaAppDir ??
+          process.cwd(),
+      ),
+    ),
   );
   const envOverrides: Record<string, string> = {};
   const stellaComputerSessionId = getStellaComputerSessionId(context);

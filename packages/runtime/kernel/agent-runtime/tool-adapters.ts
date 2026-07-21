@@ -13,7 +13,11 @@ import type {
 } from "../tools/types.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import { TOOL_IDS } from "@stella/contracts/agent-runtime";
-import { AnyToolArgsSchema, textFromUnknown } from "./shared.js";
+import {
+  AnyToolArgsSchema,
+  resolveAgentWorkingDirectory,
+  textFromUnknown,
+} from "./shared.js";
 import { dispatchLocalTool } from "../tools/local-tool-dispatch.js";
 import {
   sanitizeToolError,
@@ -501,37 +505,45 @@ type RuntimeToolContextArgs = {
 
 export const buildRuntimeToolContext = (
   args: RuntimeToolContextArgs,
-): ToolContext => ({
-  conversationId: args.conversationId,
-  deviceId: args.deviceId,
-  requestId: args.toolCallId,
-  runId: args.runId,
-  ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}),
-  agentType: args.agentType,
-  ...(args.stellaAppDir ? { stellaAppDir: args.stellaAppDir } : {}),
-  ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
-  ...(args.toolWorkspaceRoot
-    ? { toolWorkspaceRoot: args.toolWorkspaceRoot }
-    : {}),
-  storageMode: "local",
-  ...(args.agentId ? { agentId: args.agentId } : {}),
-  ...(typeof args.agentDepth === "number"
-    ? { agentDepth: args.agentDepth }
-    : {}),
-  ...(typeof args.maxAgentDepth === "number"
-    ? { maxAgentDepth: args.maxAgentDepth }
-    : {}),
-  ...(args.modelConfigSnapshot
-    ? { modelConfigSnapshot: args.modelConfigSnapshot }
-    : {}),
-  ...(Array.isArray(args.allowedToolNames) && args.allowedToolNames.length > 0
-    ? { allowedToolNames: args.allowedToolNames }
-    : {}),
-  ...(args.deferImageDeliveryAck ? { deferImageDeliveryAck: true } : {}),
-  ...(args.connectorDeliveryTarget
-    ? { connectorDeliveryTarget: args.connectorDeliveryTarget }
-    : {}),
-});
+): ToolContext => {
+  const workingDirectory = resolveAgentWorkingDirectory({
+    agentType: args.agentType,
+    stellaAppDir: args.stellaAppDir,
+    workingDirectory: args.toolWorkspaceRoot,
+  });
+  return {
+    conversationId: args.conversationId,
+    deviceId: args.deviceId,
+    requestId: args.toolCallId,
+    runId: args.runId,
+    ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}),
+    agentType: args.agentType,
+    ...(workingDirectory ? { workingDirectory } : {}),
+    ...(args.stellaAppDir ? { stellaAppDir: args.stellaAppDir } : {}),
+    ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+    ...(args.toolWorkspaceRoot
+      ? { toolWorkspaceRoot: args.toolWorkspaceRoot }
+      : {}),
+    storageMode: "local",
+    ...(args.agentId ? { agentId: args.agentId } : {}),
+    ...(typeof args.agentDepth === "number"
+      ? { agentDepth: args.agentDepth }
+      : {}),
+    ...(typeof args.maxAgentDepth === "number"
+      ? { maxAgentDepth: args.maxAgentDepth }
+      : {}),
+    ...(args.modelConfigSnapshot
+      ? { modelConfigSnapshot: args.modelConfigSnapshot }
+      : {}),
+    ...(Array.isArray(args.allowedToolNames) && args.allowedToolNames.length > 0
+      ? { allowedToolNames: args.allowedToolNames }
+      : {}),
+    ...(args.deferImageDeliveryAck ? { deferImageDeliveryAck: true } : {}),
+    ...(args.connectorDeliveryTarget
+      ? { connectorDeliveryTarget: args.connectorDeliveryTarget }
+      : {}),
+  };
+};
 
 type RuntimeToolExecutionArgs = RuntimeToolContextArgs & {
   toolName: string;

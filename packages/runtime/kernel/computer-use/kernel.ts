@@ -1113,7 +1113,10 @@ export class NodeReplKernelRegistry {
         );
       }
       const cwd = path.resolve(
-        context.toolWorkspaceRoot ?? context.stellaAppDir ?? process.cwd(),
+        context.toolWorkspaceRoot ??
+          context.workingDirectory ??
+          context.stellaAppDir ??
+          process.cwd(),
       );
       const ownerLeaseIssuedAt = Math.max(
         Date.now(),

@@ -121,7 +121,7 @@ describe("runOneShotCompletion", () => {
     expect(completeSimpleCalls).toHaveLength(0);
   });
 
-  it("splits CC preferences (data dir) from the CLI working directory (app dir)", async () => {
+  it("splits CC preferences (data dir) from the default home working directory", async () => {
     claudeCodeEngineActive = true;
     await runOneShotCompletion({
       request,
@@ -130,8 +130,9 @@ describe("runOneShotCompletion", () => {
     expect(claudeCodeCalls).toHaveLength(1);
     // Preferences (claudeCodeModel, effort) resolve against the data dir…
     expect(claudeCodeCalls[0]?.stellaAppDir).toBe(dataDir);
-    // …while the CLI runs in the app dir, never inside the data dir.
-    expect(claudeCodeCalls[0]?.cwd).toBe("/tmp/does-not-matter-app-dir");
+    // …while the CLI runs from the user's absolute home, never inside the
+    // data or install directories.
+    expect(claudeCodeCalls[0]?.cwd).toBe(path.resolve(os.homedir()));
   });
 
   it("reuses and closes an explicitly lifecycle-scoped Claude session", async () => {

@@ -11,6 +11,12 @@ import path from "node:path";
 import { createRuntimeLogger } from "./debug.js";
 import { redactMemoryText } from "./memory/redaction.js";
 import { readHomePrompt } from "./prompts/home-prompts.js";
+import {
+  THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS,
+  validateThreadSummary,
+} from "./thread-summary-validation.js";
+export { validateThreadSummary } from "./thread-summary-validation.js";
+export type { ThreadSummaryValidation } from "./thread-summary-validation.js";
 
 const logger = createRuntimeLogger("thread-runtime");
 
@@ -500,9 +506,7 @@ export const formatThreadCheckpointMessage = (
 const computeSummaryBudget = (messages: StoredThreadMessage[]): number =>
   Math.max(100, Math.floor(getThreadTokenEstimate(messages) * 0.2));
 
-const THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS = 2_000;
 const THREAD_SUMMARY_MAX_GENERATION_ATTEMPTS = 2;
-const THREAD_SUMMARY_NEVER_SHRINK_RATIO = 0.5;
 const THREAD_COMPACTION_HARD_LIMIT_ESCALATION_PCT = 0.9;
 const THREAD_COMPACTION_ESCALATION_MIN_FAILURES = 2;
 const THREAD_COMPACTION_FALLBACK_EXCERPT_CHARS = 1_200;
@@ -563,188 +567,6 @@ const isAbortLikeSummaryFailure = (
       error.message.trim(),
     )
   );
-};
-
-const THREAD_SUMMARY_HEADINGS = [
-  "Topic",
-  "Key Points",
-  "Current State",
-  "Open Items",
-] as const;
-
-export type ThreadSummaryValidation = {
-  valid: boolean;
-  reason?: string;
-  visibleCodePoints: number;
-  wordCount: number;
-  uniqueWordCount: number;
-};
-
-const normalizeSummaryForValidation = (summary: string): string =>
-  summary
-    .normalize("NFKC")
-    .replace(/\p{Cf}/gu, "")
-    .replace(/[^\S\r\n]+/gu, " ")
-    .trim();
-
-const countVisibleCodePoints = (value: string): number =>
-  Array.from(normalizeSummaryForValidation(value)).filter(
-    (codePoint) => !/\s/u.test(codePoint),
-  ).length;
-
-const segmentSummaryWords = (summary: string): string[] => {
-  const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
-  return Array.from(segmenter.segment(summary))
-    .filter((segment) => segment.isWordLike)
-    .map((segment) => segment.segment.toLocaleLowerCase());
-};
-
-const summarySectionBodies = (summary: string): Map<string, string> => {
-  const matches = Array.from(
-    summary.matchAll(
-      /^##\s*(Topic|Key Points|Current State|Open Items)\s*$/gimu,
-    ),
-  );
-  const sections = new Map<string, string>();
-  for (let index = 0; index < matches.length; index += 1) {
-    const match = matches[index]!;
-    const heading = match[1]!.toLocaleLowerCase();
-    const bodyStart = (match.index ?? 0) + match[0].length;
-    const bodyEnd = matches[index + 1]?.index ?? summary.length;
-    sections.set(heading, summary.slice(bodyStart, bodyEnd).trim());
-  }
-  return sections;
-};
-
-const longestRepeatedCodePointRun = (value: string): number => {
-  let longest = 0;
-  let current = 0;
-  let previous = "";
-  for (const codePoint of value) {
-    if (codePoint === previous) {
-      current += 1;
-    } else {
-      previous = codePoint;
-      current = 1;
-    }
-    longest = Math.max(longest, current);
-  }
-  return longest;
-};
-
-/**
- * Validate the information carrier that will replace a folded thread span.
- * The checks operate on normalized Unicode code points, require informative
- * structure for non-trivial spans, reject template/repetition/gibberish, and
- * prevent a recursive checkpoint update from losing most prior context.
- */
-export const validateThreadSummary = (
-  summary: string,
-  middleTokens: number,
-  previousSummary?: string,
-): ThreadSummaryValidation => {
-  const normalized = normalizeSummaryForValidation(summary);
-  const visible = Array.from(normalized).filter(
-    (codePoint) => !/\s/u.test(codePoint),
-  );
-  const words = segmentSummaryWords(normalized);
-  const uniqueWords = new Set(words);
-  const base = {
-    visibleCodePoints: visible.length,
-    wordCount: words.length,
-    uniqueWordCount: uniqueWords.size,
-  };
-  if (!normalized || visible.length === 0) {
-    return { valid: false, reason: "no visible content", ...base };
-  }
-
-  const previousVisible = previousSummary
-    ? countVisibleCodePoints(previousSummary)
-    : 0;
-  if (
-    previousVisible > 0 &&
-    visible.length < previousVisible * THREAD_SUMMARY_NEVER_SHRINK_RATIO
-  ) {
-    return {
-      valid: false,
-      reason: `shrank below never-shrink floor (${visible.length} visible vs previous ${previousVisible})`,
-      ...base,
-    };
-  }
-
-  if (middleTokens < THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS) {
-    return { valid: true, ...base };
-  }
-
-  const sections = summarySectionBodies(normalized);
-  const missingSection = THREAD_SUMMARY_HEADINGS.find(
-    (heading) =>
-      !segmentSummaryWords(sections.get(heading.toLowerCase()) ?? "").length,
-  );
-  if (missingSection) {
-    return {
-      valid: false,
-      reason: `missing informative ## ${missingSection} section`,
-      ...base,
-    };
-  }
-
-  const scale = Math.max(
-    0,
-    Math.log2(middleTokens / THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS),
-  );
-  const minVisibleCodePoints = Math.min(150, Math.round(64 + scale * 14));
-  const minWords = Math.min(24, Math.round(10 + scale * 2));
-  if (visible.length < minVisibleCodePoints || words.length < minWords) {
-    return {
-      valid: false,
-      reason: `insufficient information for ${middleTokens} folded tokens`,
-      ...base,
-    };
-  }
-
-  const placeholderFragments = [
-    "[what the conversation is about]",
-    "important information, decisions, and conclusions from the conversation",
-    "where things stand now — what has been done, what is in progress",
-    "unresolved questions, pending tasks, or next steps discussed",
-  ];
-  const lower = normalized.toLocaleLowerCase();
-  if (placeholderFragments.some((fragment) => lower.includes(fragment))) {
-    return { valid: false, reason: "template boilerplate", ...base };
-  }
-
-  const frequencies = new Map<string, number>();
-  for (const word of words) {
-    frequencies.set(word, (frequencies.get(word) ?? 0) + 1);
-  }
-  const mostCommonWord = Math.max(0, ...frequencies.values());
-  const uniqueRatio = uniqueWords.size / Math.max(1, words.length);
-  const withoutDividerRuns = normalized.replace(/[=\-_*#~─]{3,}/gu, " ");
-  if (
-    (words.length >= 12 && uniqueRatio < 0.3) ||
-    mostCommonWord / Math.max(1, words.length) > 0.3 ||
-    longestRepeatedCodePointRun(withoutDividerRuns) >= 16
-  ) {
-    return { valid: false, reason: "extreme repetition", ...base };
-  }
-
-  const longAsciiWords = words.filter((word) => /^[a-z]{5,}$/u.test(word));
-  const vowelFreeWords = longAsciiWords.filter(
-    (word) => !/[aeiouy]/u.test(word),
-  );
-  if (
-    longAsciiWords.length >= 12 &&
-    vowelFreeWords.length / longAsciiWords.length > 0.55
-  ) {
-    return {
-      valid: false,
-      reason: "gibberish-like token distribution",
-      ...base,
-    };
-  }
-
-  return { valid: true, ...base };
 };
 
 /**
@@ -1246,8 +1068,8 @@ export const buildCompactionEscalationSummary = (args: {
   const previousSummary = args.previousSummary?.trim();
   const previousSummaryIsSafe = Boolean(
     previousSummary &&
-      validateThreadSummary(previousSummary, THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS)
-        .valid,
+    validateThreadSummary(previousSummary, THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS)
+      .valid,
   );
   if (previousSummary && previousSummaryIsSafe) {
     return [
@@ -1464,10 +1286,10 @@ export const maybeCompactRuntimeThread = async (args: {
     });
     const carriedForwardPrevious = Boolean(
       splitMessages.previousSummary?.trim() &&
-        validateThreadSummary(
-          splitMessages.previousSummary,
-          THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS,
-        ).valid,
+      validateThreadSummary(
+        splitMessages.previousSummary,
+        THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS,
+      ).valid,
     );
     logger.error("thread.compaction.summary-escalation", {
       threadKey: args.threadKey,

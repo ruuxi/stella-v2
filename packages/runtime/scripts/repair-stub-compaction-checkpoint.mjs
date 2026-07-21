@@ -15,15 +15,15 @@
 //   node packages/runtime/scripts/repair-stub-compaction-checkpoint.mjs \
 //     --db /offline/copy/stella.sqlite --entry <stub-entry-id>
 //   node packages/runtime/scripts/repair-stub-compaction-checkpoint.mjs \
-//     --db ~/.stella/stella.sqlite --entry <stub-entry-id> \
-//     --apply --confirm-stella-stopped --expect-fingerprint <dry-run-sha256>
+//     --db /offline/copy/stella.sqlite --entry <stub-entry-id> \
+//     --apply --confirm-stella-stopped --authorization-token <dry-run-token>
 //
 // Restore a repair from its JSON backup (dry-run first, then apply):
 //   node packages/runtime/scripts/repair-stub-compaction-checkpoint.mjs \
-//     --db ~/.stella/stella.sqlite --restore <backup.json>
+//     --db /offline/copy/stella.sqlite --restore <backup.json>
 //   node packages/runtime/scripts/repair-stub-compaction-checkpoint.mjs \
-//     --db ~/.stella/stella.sqlite --restore <backup.json> \
-//     --apply --confirm-stella-stopped --expect-fingerprint <dry-run-sha256>
+//     --db /offline/copy/stella.sqlite --restore <backup.json> \
+//     --apply --confirm-stella-stopped --authorization-token <dry-run-token>
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -33,11 +33,16 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { validateThreadSummary } from "../kernel/thread-summary-validation.js";
 
 const CERTIFIED_STUB_MAX_SUMMARY_CHARS = 200;
 const CERTIFIED_STUB_MIN_TOKENS_BEFORE = 10_000;
-const BACKUP_VERSION = 2;
-const REPORT_VERSION = 1;
+const CERTIFIED_STUB_PATTERN = /^## Topic\n[\x20-\x7e]{1,180}$/u;
+const CERTIFIED_ENTRY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+const BACKUP_VERSION = 3;
+const REPORT_VERSION = 2;
+const AUTHORIZATION_VERSION = 1;
+const AUTHORIZATION_PREFIX = "stella-offline-plan-v1";
 const LSOF_PATH = "/usr/sbin/lsof";
 const REQUIRED_ENTRY_COLUMNS = [
   "entry_id",
@@ -53,6 +58,80 @@ const REQUIRED_ENTRY_COLUMNS = [
 
 const fail = (message) => {
   throw new Error(message);
+};
+
+const isPlainObject = (value) =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  Object.getPrototypeOf(value) === Object.prototype;
+
+const isCanonicalRecord = (value) =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  [Object.prototype, null].includes(Object.getPrototypeOf(value));
+
+const canonicalize = (value) => {
+  if (value === null || typeof value === "string" || typeof value === "boolean")
+    return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value))
+      fail("Cannot canonicalize a non-finite number.");
+    return Object.is(value, -0) ? 0 : value;
+  }
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (isCanonicalRecord(value)) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalize(value[key])]),
+    );
+  }
+  fail(`Cannot canonicalize value of type ${typeof value}.`);
+};
+
+const canonicalJson = (value) => JSON.stringify(canonicalize(value));
+const sha256Canonical = (value) =>
+  createHash("sha256").update(canonicalJson(value)).digest("hex");
+
+const pathIsWithin = (candidate, root) => {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+};
+
+/**
+ * This utility is deliberately incapable of targeting Rahul's installed
+ * Stella tree or its live data root. Operators must first make an offline
+ * copy elsewhere; stopped-app confirmation and holder checks remain required
+ * for writes to that copy.
+ */
+export const assertOfflineDatabasePath = (candidate) => {
+  const protectedRoots = [
+    path.join(os.homedir(), "stella"),
+    path.join(os.homedir(), ".stella"),
+  ].map((root) => path.resolve(root));
+  const rejectProtected = (resolved) => {
+    const protectedRoot = protectedRoots.find((root) =>
+      pathIsWithin(resolved, root),
+    );
+    if (!protectedRoot) return;
+    fail(
+      `Refusing live Stella path ${resolved}; copy the database outside ${protectedRoot} before using this offline utility.`,
+    );
+  };
+  const absolute = path.resolve(candidate);
+  // Reject lexical live paths before any stat/read against them. Existing
+  // offline paths are then resolved once more to catch symlinks into live.
+  rejectProtected(absolute);
+  const canonical = fs.existsSync(absolute)
+    ? fs.realpathSync(absolute)
+    : absolute;
+  rejectProtected(canonical);
+  return canonical;
 };
 
 const quoteIdentifier = (value) => {
@@ -179,7 +258,10 @@ const parseCompactionData = (row) => {
       `Entry ${row.entry_id} has invalid data_json: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  return data && typeof data === "object" ? data : {};
+  if (!isPlainObject(data)) {
+    fail(`Entry ${row.entry_id} data_json must be a JSON object.`);
+  }
+  return data;
 };
 
 const rowMatches = (left, right, columns) =>
@@ -198,6 +280,91 @@ const fingerprintSnapshot = ({ entryColumns, threadColumns, rows, thread }) =>
       }),
     )
     .digest("hex");
+
+const databaseIdentity = (dbPath) => {
+  const canonicalPath = fs.realpathSync(dbPath);
+  const stat = fs.statSync(canonicalPath, { bigint: true });
+  return {
+    canonicalPath,
+    device: stat.dev.toString(),
+    inode: stat.ino.toString(),
+  };
+};
+
+const authorizationToken = (payload) =>
+  `${AUTHORIZATION_PREFIX}.${sha256Canonical(payload)}`;
+
+const schemaIdentity = (entryColumns, threadColumns) => ({
+  entryColumns,
+  threadColumns,
+});
+
+const repairMutationSet = (plan) => ({
+  deleteEntries: plan.affectedDeletionOrder.map((row) => row),
+  reparentChildren: plan.reparents.map((item) => ({
+    before: item.before,
+    afterParentEntryId: item.afterParentEntryId,
+  })),
+  threadSummary: {
+    threadKey: plan.target.thread_key,
+    before: plan.thread.summary,
+    after: plan.threadSummaryAfter,
+  },
+});
+
+export const buildRepairAuthorization = (dbPath, plan) => {
+  const payload = {
+    version: AUTHORIZATION_VERSION,
+    purpose: "stella-offline-compaction-checkpoint-mutation",
+    operation: "repair",
+    database: databaseIdentity(dbPath),
+    target: {
+      entryId: plan.entryId,
+      rowDigest: sha256Canonical(plan.target),
+    },
+    schema: schemaIdentity(plan.entryColumns, plan.threadColumns),
+    preStateFingerprint: plan.fingerprintBefore,
+    mutations: repairMutationSet(plan),
+  };
+  return { payload, token: authorizationToken(payload) };
+};
+
+const restoreMutationSet = (backup) => ({
+  insertEntries: rowsParentsFirst(backup.deletedEntries),
+  reparentChildren: backup.reparentedChildren.map((item) => ({
+    entryId: item.before.entry_id,
+    beforeParentEntryId: item.afterParentEntryId,
+    afterParentEntryId: item.before.parent_entry_id,
+  })),
+  threadSummary: {
+    threadKey: backup.threadBefore.thread_key,
+    before: backup.threadSummaryAfter,
+    after: backup.threadBefore.summary,
+  },
+});
+
+export const buildRestoreAuthorization = (
+  dbPath,
+  backupPath,
+  backup,
+  restorePlan,
+) => {
+  const payload = {
+    version: AUTHORIZATION_VERSION,
+    purpose: "stella-offline-compaction-checkpoint-mutation",
+    operation: "restore",
+    database: databaseIdentity(dbPath),
+    target: {
+      entryId: backup.targetEntryId,
+      receiptPath: fs.realpathSync(backupPath),
+      receiptDigest: backup.receiptDigest,
+    },
+    schema: schemaIdentity(backup.entryColumns, backup.threadColumns),
+    preStateFingerprint: restorePlan.fingerprint,
+    mutations: restoreMutationSet(backup),
+  };
+  return { payload, token: authorizationToken(payload) };
+};
 
 const loadThreadEntries = (db, threadKey, entryColumns) =>
   db
@@ -335,6 +502,79 @@ const countPathRows = (byId, startEntryId, stopEntryId, includeStop) => {
   fail(`Path from ${startEntryId} does not reach boundary ${stopEntryId}.`);
 };
 
+const strictCompactionRange = (entryId, data) => {
+  const { fromEntryId, toEntryId } = data;
+  if (
+    typeof fromEntryId !== "string" ||
+    typeof toEntryId !== "string" ||
+    !fromEntryId ||
+    !toEntryId ||
+    fromEntryId !== fromEntryId.trim() ||
+    toEntryId !== toEntryId.trim() ||
+    fromEntryId === toEntryId ||
+    !CERTIFIED_ENTRY_ID_PATTERN.test(fromEntryId) ||
+    !CERTIFIED_ENTRY_ID_PATTERN.test(toEntryId)
+  ) {
+    fail(
+      `Refusing: compaction ${entryId} has a malformed or ambiguous fromEntryId/toEntryId range.`,
+    );
+  }
+  return { fromEntryId, toEntryId };
+};
+
+const strictTokensBefore = (entryId, data) => {
+  const value = data.tokensBefore;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    !Number.isSafeInteger(value) ||
+    value < 0
+  ) {
+    fail(
+      `Refusing: compaction ${entryId} tokensBefore must be a finite non-negative safe integer.`,
+    );
+  }
+  return value;
+};
+
+const strictSummary = (entryId, data) => {
+  if (typeof data.summary !== "string") {
+    fail(`Refusing: compaction ${entryId} summary must be a string.`);
+  }
+  return data.summary;
+};
+
+export const classifyCertifiedStubCheckpoint = (entryId, data) => {
+  if (!isPlainObject(data)) {
+    fail(`Refusing: compaction ${entryId} data must be a plain object.`);
+  }
+  const summary = strictSummary(entryId, data);
+  const tokensBefore = strictTokensBefore(entryId, data);
+  const range = strictCompactionRange(entryId, data);
+  const runtimeValidation = validateThreadSummary(summary, tokensBefore);
+  if (runtimeValidation.valid) {
+    fail(
+      "Refusing: target summary satisfies the runtime acceptance validator and must not be repaired.",
+    );
+  }
+  if (summary.length >= CERTIFIED_STUB_MAX_SUMMARY_CHARS) {
+    fail(
+      `Refusing: summary is ${summary.length} chars (>= ${CERTIFIED_STUB_MAX_SUMMARY_CHARS}); checkpoint is not certified repairable.`,
+    );
+  }
+  if (tokensBefore < CERTIFIED_STUB_MIN_TOKENS_BEFORE) {
+    fail(
+      `Refusing: tokensBefore is ${tokensBefore} (< ${CERTIFIED_STUB_MIN_TOKENS_BEFORE}); checkpoint is not certified repairable.`,
+    );
+  }
+  if (!CERTIFIED_STUB_PATTERN.test(summary)) {
+    fail(
+      "Refusing: target summary does not match the exact certified ASCII stub signature.",
+    );
+  }
+  return { summary, tokensBefore, ...range, runtimeValidation };
+};
+
 export const analyzeRepair = (db, entryId) => {
   const { entryColumns, threadColumns } = assertSchema(db);
   const target = db
@@ -349,48 +589,31 @@ export const analyzeRepair = (db, entryId) => {
     fail(`Entry ${entryId} lacks a safe insertion_sequence.`);
 
   const targetData = parseCompactionData(target);
-  const summary = String(targetData.summary ?? "");
-  const tokensBefore = Number(targetData.tokensBefore ?? 0);
-  const fromEntryId = String(targetData.fromEntryId ?? "");
-  // This narrow classifier is the certified v1 repair signature: a tiny
-  // checkpoint over a genuinely large span, with an explicit durable range.
-  // Do not duplicate the online TypeScript summary validator here. The v2
-  // runtime now prevents new malformed checkpoints; this offline tool exists
-  // only to remove already-persisted rows that match the certified corruption
-  // shape. Anything outside it is refused for manual review.
-  if (summary.length >= CERTIFIED_STUB_MAX_SUMMARY_CHARS) {
-    fail(
-      `Refusing: summary is ${summary.length} chars (>= ${CERTIFIED_STUB_MAX_SUMMARY_CHARS}); checkpoint is not certified repairable.`,
-    );
-  }
-  if (tokensBefore < CERTIFIED_STUB_MIN_TOKENS_BEFORE) {
-    fail(
-      `Refusing: tokensBefore is ${tokensBefore} (< ${CERTIFIED_STUB_MIN_TOKENS_BEFORE}); checkpoint is not certified repairable.`,
-    );
-  }
-  if (!fromEntryId || !String(targetData.toEntryId ?? "")) {
-    fail(
-      "Refusing: target compaction has no explicit fromEntryId/toEntryId range.",
-    );
-  }
-
+  const { summary, tokensBefore, fromEntryId, toEntryId, runtimeValidation } =
+    classifyCertifiedStubCheckpoint(target.entry_id, targetData);
+  // The only automatically repairable corruption is the exact certified v1
+  // shape: one short ASCII `## Topic` fragment over a large explicit range.
+  // The ASCII signature intentionally rejects Unicode normalization tricks,
+  // format/invisible code points, extra headings, and ambiguous whitespace.
   const rows = loadThreadEntries(db, target.thread_key, entryColumns);
   const { byId, children } = buildTopology(rows);
   const ancestors = ancestorRows(target, byId);
   const previous = ancestors.find((candidate) => {
     if (candidate.entry_type !== "compaction") return false;
-    return (
-      String(parseCompactionData(candidate).summary ?? "").length >=
-      CERTIFIED_STUB_MAX_SUMMARY_CHARS
-    );
+    const data = parseCompactionData(candidate);
+    return validateThreadSummary(
+      strictSummary(candidate.entry_id, data),
+      strictTokensBefore(candidate.entry_id, data),
+    ).valid;
   });
   if (!previous)
     fail(
       "No earlier healthy checkpoint exists on the target's authoritative parent path.",
     );
   const previousData = parseCompactionData(previous);
-  const previousSummary = String(previousData.summary ?? "");
-  const previousTo = byId.get(String(previousData.toEntryId ?? ""));
+  const previousSummary = strictSummary(previous.entry_id, previousData);
+  const previousRange = strictCompactionRange(previous.entry_id, previousData);
+  const previousTo = byId.get(previousRange.toEntryId);
   if (!previousTo)
     fail(`Previous checkpoint ${previous.entry_id} has an invalid toEntryId.`);
 
@@ -415,7 +638,10 @@ export const analyzeRepair = (db, entryId) => {
     (row) => row.entry_id !== target.entry_id,
   )) {
     const data = parseCompactionData(candidate);
-    if (String(data.fromEntryId ?? "") !== fromEntryId) {
+    const range = strictCompactionRange(candidate.entry_id, data);
+    strictSummary(candidate.entry_id, data);
+    strictTokensBefore(candidate.entry_id, data);
+    if (range.fromEntryId !== fromEntryId) {
       fail(
         `Dependent compaction ${candidate.entry_id} starts from an incompatible range.`,
       );
@@ -450,7 +676,9 @@ export const analyzeRepair = (db, entryId) => {
   const thread = loadThreadRow(db, target.thread_key, threadColumns);
   if (!thread) fail(`Missing runtime_threads row for ${target.thread_key}.`);
   const removedSummaries = new Set(
-    affected.map((row) => String(parseCompactionData(row).summary ?? "")),
+    affected.map((row) =>
+      strictSummary(row.entry_id, parseCompactionData(row)),
+    ),
   );
   const metadataBelongsToAffectedOverlay =
     typeof thread.summary === "string" && removedSummaries.has(thread.summary);
@@ -464,7 +692,10 @@ export const analyzeRepair = (db, entryId) => {
       : latest,
   );
   const latestAffectedTo = byId.get(
-    String(parseCompactionData(latestAffected).toEntryId ?? ""),
+    strictCompactionRange(
+      latestAffected.entry_id,
+      parseCompactionData(latestAffected),
+    ).toEntryId,
   );
   if (!latestAffectedTo) {
     fail(
@@ -472,7 +703,7 @@ export const analyzeRepair = (db, entryId) => {
     );
   }
   const targetFrom = byId.get(fromEntryId);
-  const targetTo = byId.get(String(targetData.toEntryId));
+  const targetTo = byId.get(toEntryId);
   if (!targetFrom || !targetTo)
     fail("Target compaction range points outside its thread.");
 
@@ -519,10 +750,11 @@ export const analyzeRepair = (db, entryId) => {
     fingerprintBefore,
     fingerprintAfter,
     eligibility: {
-      classifier: "certified-v1-stub-checkpoint-v1",
+      classifier: "certified-v1-ascii-topic-stub-v2",
       summaryChars: summary.length,
       tokensBefore,
       explicitRange: true,
+      runtimeValidationReason: runtimeValidation.reason,
     },
     counts: {
       storedInTargetRange: countPathRows(
@@ -553,19 +785,65 @@ const createBackupPath = (dbPath, entryId) =>
     `${backupFilePrefix(entryId)}${Date.now()}.json`,
   );
 
-const writeDurableJson = (filePath, value) => {
-  const fd = fs.openSync(filePath, "wx", 0o600);
+export const writeDurableJson = (filePath, value, options = {}) => {
+  const fsyncSync = options.fsyncSync ?? fs.fsyncSync;
+  let fd;
+  let directoryFd;
+  let created = false;
   try {
+    fd = fs.openSync(filePath, "wx", 0o600);
+    created = true;
     fs.writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-    fs.fsyncSync(fd);
-  } finally {
+    fsyncSync(fd);
     fs.closeSync(fd);
-  }
-  const directoryFd = fs.openSync(path.dirname(filePath), "r");
-  try {
-    fs.fsyncSync(directoryFd);
-  } finally {
+    fd = undefined;
+    directoryFd = fs.openSync(path.dirname(filePath), "r");
+    fsyncSync(directoryFd);
     fs.closeSync(directoryFd);
+    directoryFd = undefined;
+  } catch (error) {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+    if (directoryFd !== undefined) {
+      try {
+        fs.closeSync(directoryFd);
+      } catch {}
+    }
+    // A receipt is authoritative only after file and directory fsync both
+    // succeed. Remove a partial/orphan artifact so discovery cannot later
+    // mistake it for a committed repair. Cleanup failure is surfaced too.
+    let cleanupError;
+    if (created) {
+      try {
+        fs.rmSync(filePath, { force: true });
+        const cleanupDirectoryFd = fs.openSync(path.dirname(filePath), "r");
+        try {
+          fs.fsyncSync(cleanupDirectoryFd);
+        } finally {
+          fs.closeSync(cleanupDirectoryFd);
+        }
+      } catch (candidate) {
+        cleanupError = candidate;
+      }
+    }
+    const original = error instanceof Error ? error.message : String(error);
+    if (cleanupError) {
+      const cleanup =
+        cleanupError instanceof Error
+          ? cleanupError.message
+          : String(cleanupError);
+      fail(
+        `Durable receipt write failed (${original}) and orphan cleanup failed (${cleanup}): ${filePath}`,
+      );
+    }
+    fail(
+      created
+        ? `Durable receipt write failed; incomplete artifact removed: ${original}`
+        : `Durable receipt write failed before artifact creation: ${original}`,
+    );
   }
 };
 
@@ -641,10 +919,12 @@ export const applyRepairPlan = (
       `CAS fingerprint conflict: expected ${plan.fingerprintBefore}, received ${currentFingerprint}. Re-run the dry run.`,
     );
   }
-  const backup = {
+  const repairAuthorization = buildRepairAuthorization(dbPath, plan);
+  const backupCore = {
     version: BACKUP_VERSION,
     kind: "stella-stub-checkpoint-repair",
     databasePath: dbPath,
+    databaseIdentity: databaseIdentity(dbPath),
     createdAt: new Date().toISOString(),
     entryColumns: plan.entryColumns,
     threadColumns: plan.threadColumns,
@@ -656,6 +936,11 @@ export const applyRepairPlan = (
     fingerprintBefore: plan.fingerprintBefore,
     fingerprintAfter: plan.fingerprintAfter,
     counts: plan.counts,
+    repairAuthorizationToken: repairAuthorization.token,
+  };
+  const backup = {
+    ...backupCore,
+    receiptDigest: sha256Canonical(backupCore),
   };
 
   const updateParent = db.prepare(
@@ -708,15 +993,63 @@ export const applyRepairPlan = (
   return { backupPath, backup, noop: false };
 };
 
-const loadBackup = (backupPath) => {
-  const value = JSON.parse(fs.readFileSync(backupPath, "utf8"));
+export const loadBackup = (backupPath) => {
+  let value;
+  try {
+    value = JSON.parse(fs.readFileSync(backupPath, "utf8"));
+  } catch (error) {
+    fail(
+      `Could not parse repair receipt ${backupPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   if (
+    !isPlainObject(value) ||
     value?.version !== BACKUP_VERSION ||
     value?.kind !== "stella-stub-checkpoint-repair"
   ) {
     fail(`Unsupported repair backup: ${backupPath}`);
   }
+  if (!/^[a-f0-9]{64}$/u.test(value.receiptDigest ?? "")) {
+    fail(`Repair receipt has no canonical digest: ${backupPath}`);
+  }
+  const { receiptDigest, ...receiptCore } = value;
+  const actualDigest = sha256Canonical(receiptCore);
+  if (actualDigest !== receiptDigest) {
+    fail(
+      `Repair receipt digest mismatch: expected ${receiptDigest}, received ${actualDigest}.`,
+    );
+  }
+  if (
+    !isPlainObject(value.databaseIdentity) ||
+    typeof value.databaseIdentity.canonicalPath !== "string" ||
+    typeof value.databaseIdentity.device !== "string" ||
+    typeof value.databaseIdentity.inode !== "string" ||
+    typeof value.targetEntryId !== "string" ||
+    !Array.isArray(value.entryColumns) ||
+    !value.entryColumns.every((column) => typeof column === "string") ||
+    !Array.isArray(value.threadColumns) ||
+    !value.threadColumns.every((column) => typeof column === "string") ||
+    !Array.isArray(value.deletedEntries) ||
+    !Array.isArray(value.reparentedChildren) ||
+    !isPlainObject(value.threadBefore) ||
+    !/^[a-f0-9]{64}$/u.test(value.fingerprintBefore ?? "") ||
+    !/^[a-f0-9]{64}$/u.test(value.fingerprintAfter ?? "") ||
+    !new RegExp(`^${AUTHORIZATION_PREFIX}\\.[a-f0-9]{64}$`, "u").test(
+      value.repairAuthorizationToken ?? "",
+    )
+  ) {
+    fail(`Repair receipt has malformed fields: ${backupPath}`);
+  }
   return value;
+};
+
+const assertReceiptDatabaseIdentity = (dbPath, backup) => {
+  const current = databaseIdentity(dbPath);
+  if (canonicalJson(current) !== canonicalJson(backup.databaseIdentity)) {
+    fail(
+      "Repair receipt belongs to a different canonical database identity; refusing copied or replaced database.",
+    );
+  }
 };
 
 const analyzeAppliedRepairState = (db, dbPath, backup) => {
@@ -724,6 +1057,7 @@ const analyzeAppliedRepairState = (db, dbPath, backup) => {
   if (path.resolve(backup.databasePath) !== dbPath) {
     fail(`Backup belongs to a different database path: ${backup.databasePath}`);
   }
+  assertReceiptDatabaseIdentity(dbPath, backup);
   if (
     JSON.stringify(schema.entryColumns) !==
       JSON.stringify(backup.entryColumns) ||
@@ -825,7 +1159,14 @@ export const analyzeRepairOrNoop = (db, dbPath, entryId) => {
   const target = db
     .prepare("SELECT 1 FROM runtime_thread_entries WHERE entry_id = ?")
     .get(entryId);
-  if (target) return { status: "repair", plan: analyzeRepair(db, entryId) };
+  if (target) {
+    const plan = analyzeRepair(db, entryId);
+    return {
+      status: "repair",
+      plan,
+      authorizationToken: buildRepairAuthorization(dbPath, plan).token,
+    };
+  }
   const applied = findAppliedRepair(db, dbPath, entryId);
   if (applied) {
     return {
@@ -835,6 +1176,7 @@ export const analyzeRepairOrNoop = (db, dbPath, entryId) => {
       backup: applied.backup,
       fingerprintBefore: applied.backup.fingerprintBefore,
       fingerprintAfter: applied.appliedState.fingerprint,
+      authorizationToken: applied.backup.repairAuthorizationToken,
     };
   }
   fail(`No entry with id ${entryId}, and no matching applied repair receipt.`);
@@ -845,6 +1187,7 @@ export const analyzeRestore = (db, dbPath, backup) => {
   if (path.resolve(backup.databasePath) !== dbPath) {
     fail(`Backup belongs to a different database path: ${backup.databasePath}`);
   }
+  assertReceiptDatabaseIdentity(dbPath, backup);
   if (
     JSON.stringify(schema.entryColumns) !==
       JSON.stringify(backup.entryColumns) ||
@@ -1052,6 +1395,7 @@ export const buildRepairReport = ({
         before: outcome.fingerprintBefore,
         current: outcome.fingerprintAfter,
       },
+      authorizationToken: outcome.authorizationToken,
       mutated: false,
     };
   }
@@ -1071,6 +1415,7 @@ export const buildRepairReport = ({
       before: plan.fingerprintBefore,
       after: plan.fingerprintAfter,
     },
+    authorizationToken: outcome.authorizationToken,
     fallbackCheckpoint: {
       entryId: plan.previous.entry_id,
       summaryChars: plan.previousSummary.length,
@@ -1098,7 +1443,7 @@ export const buildRepairReport = ({
           applyRequirements: [
             "--apply",
             "--confirm-stella-stopped",
-            `--expect-fingerprint ${plan.fingerprintBefore}`,
+            `--authorization-token ${outcome.authorizationToken}`,
           ],
         }
       : {}),
@@ -1110,6 +1455,7 @@ const buildRestoreReport = ({
   backupPath,
   backup,
   plan,
+  authorization,
   mode,
   status,
 }) => ({
@@ -1124,6 +1470,7 @@ const buildRestoreReport = ({
     current: plan.fingerprint,
     restored: backup.fingerprintBefore,
   },
+  authorizationToken: authorization.token,
   entriesRestored: backup.deletedEntries.length,
   childrenRestored: backup.reparentedChildren.length,
   mutated: status === "committed",
@@ -1132,7 +1479,7 @@ const buildRestoreReport = ({
         applyRequirements: [
           "--apply",
           "--confirm-stella-stopped",
-          `--expect-fingerprint ${plan.fingerprint}`,
+          `--authorization-token ${authorization.token}`,
         ],
       }
     : {}),
@@ -1142,16 +1489,20 @@ const printReport = (report) => {
   console.log(JSON.stringify(report, null, 2));
 };
 
-const assertExpectedFingerprint = (provided, accepted) => {
+const assertAuthorizationToken = (provided, expected) => {
   if (!provided) {
-    fail("Refusing --apply without --expect-fingerprint from a fresh dry run.");
-  }
-  if (!/^[a-f0-9]{64}$/u.test(provided)) {
-    fail("--expect-fingerprint must be a lowercase SHA-256 value.");
-  }
-  if (!accepted.includes(provided)) {
     fail(
-      `CAS fingerprint conflict: expected one of ${accepted.join(", ")}, received ${provided}. Re-run the dry run.`,
+      "Refusing --apply without --authorization-token from a fresh dry run.",
+    );
+  }
+  if (
+    !new RegExp(`^${AUTHORIZATION_PREFIX}\\.[a-f0-9]{64}$`, "u").test(provided)
+  ) {
+    fail("--authorization-token has an invalid format.");
+  }
+  if (provided !== expected) {
+    fail(
+      "Authorization token mismatch. The database identity, operation, target, receipt, schema, pre-state, or planned mutations changed; re-run the dry run.",
     );
   }
 };
@@ -1176,9 +1527,10 @@ const runLocked = (db, dbPath, work) =>
 
 export const main = (argv = process.argv.slice(2)) => {
   const dbPath = resolveExistingRegularFile(readFlag(argv, "db"), "Database");
+  assertOfflineDatabasePath(dbPath);
   const entryId = readFlag(argv, "entry");
   const restoreInput = readFlag(argv, "restore");
-  const expectedFingerprint = readFlag(argv, "expect-fingerprint");
+  const providedAuthorization = readFlag(argv, "authorization-token");
   const apply = hasFlag(argv, "apply");
   const confirmedStopped = hasFlag(argv, "confirm-stella-stopped");
   if (Boolean(entryId) === Boolean(restoreInput)) {
@@ -1187,10 +1539,20 @@ export const main = (argv = process.argv.slice(2)) => {
   if (apply && !confirmedStopped) {
     fail("Refusing --apply without --confirm-stella-stopped.");
   }
-  if (apply && !expectedFingerprint) {
-    fail("Refusing --apply without --expect-fingerprint from a fresh dry run.");
+  if (apply && !providedAuthorization) {
+    fail(
+      "Refusing --apply without --authorization-token from a fresh dry run.",
+    );
   }
   if (apply) assertNoActiveDatabaseHolders(dbPath);
+
+  const backupPath = restoreInput
+    ? resolveExistingRegularFile(restoreInput, "Backup")
+    : undefined;
+  if (backupPath) assertOfflineDatabasePath(backupPath);
+  // Receipt authenticity is checked before database readiness analysis and,
+  // critically, before opening the database writable.
+  const backup = backupPath ? loadBackup(backupPath) : undefined;
 
   const db = new DatabaseSync(dbPath, { readOnly: !apply });
   try {
@@ -1211,15 +1573,16 @@ export const main = (argv = process.argv.slice(2)) => {
       const result = runLocked(db, dbPath, () => {
         const outcome = analyzeRepairOrNoop(db, dbPath, entryId);
         if (outcome.status === "noop") {
-          assertExpectedFingerprint(expectedFingerprint, [
-            outcome.fingerprintBefore,
-            outcome.fingerprintAfter,
-          ]);
+          assertAuthorizationToken(
+            providedAuthorization,
+            outcome.authorizationToken,
+          );
           return { outcome, repair: null };
         }
-        assertExpectedFingerprint(expectedFingerprint, [
-          outcome.plan.fingerprintBefore,
-        ]);
+        assertAuthorizationToken(
+          providedAuthorization,
+          outcome.authorizationToken,
+        );
         return {
           outcome,
           repair: applyRepairPlan(db, dbPath, outcome.plan),
@@ -1236,32 +1599,45 @@ export const main = (argv = process.argv.slice(2)) => {
       return report;
     }
 
-    const backupPath = resolveExistingRegularFile(restoreInput, "Backup");
-    const backup = loadBackup(backupPath);
+    if (!backupPath || !backup) fail("Restore receipt was not loaded.");
     if (!apply) {
       const plan = analyzeRestore(db, dbPath, backup);
+      const authorization = buildRestoreAuthorization(
+        dbPath,
+        backupPath,
+        backup,
+        plan,
+      );
       const report = buildRestoreReport({
         dbPath,
         backupPath,
         backup,
         plan,
+        authorization,
         mode: "dry-run",
         status: "ready",
       });
       printReport(report);
       return report;
     }
-    const plan = runLocked(db, dbPath, () => {
+    const result = runLocked(db, dbPath, () => {
       const plan = analyzeRestore(db, dbPath, backup);
-      assertExpectedFingerprint(expectedFingerprint, [plan.fingerprint]);
+      const authorization = buildRestoreAuthorization(
+        dbPath,
+        backupPath,
+        backup,
+        plan,
+      );
+      assertAuthorizationToken(providedAuthorization, authorization.token);
       applyRestorePlan(db, backup, plan);
-      return plan;
+      return { plan, authorization };
     });
     const report = buildRestoreReport({
       dbPath,
       backupPath,
       backup,
-      plan,
+      plan: result.plan,
+      authorization: result.authorization,
       mode: "apply",
       status: "committed",
     });

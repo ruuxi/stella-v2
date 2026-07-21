@@ -1,10 +1,12 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,9 +16,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   analyzeRepair,
   applyRepairPlan,
+  assertOfflineDatabasePath,
   assertNoActiveDatabaseHolders,
+  classifyCertifiedStubCheckpoint,
   listDatabaseHolders,
   runImmediateTransaction,
+  writeDurableJson,
 } from "../../../../runtime/scripts/repair-stub-compaction-checkpoint.mjs";
 import { initializeDesktopDatabase } from "@stella/runtime/kernel/storage/database-init";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
@@ -25,8 +30,16 @@ const scriptPath = path.resolve(
   import.meta.dirname,
   "../../../../runtime/scripts/repair-stub-compaction-checkpoint.mjs",
 );
-const healthySummary = `## Topic\n${"healthy context ".repeat(18)}\n## Key Points\n- decisions\n## Current State\n- stable\n## Open Items\n- none`;
-const stubSummary = "Compacted conversation checkpoint.";
+const stubSummary = "## Topic\nCompacted conversation checkpoint.";
+const validShortSummary = `## Topic
+Stella release audit.
+## Key Points
+Build, lint and tests passed; raw history remains safe.
+## Current State
+Ready for independent review.
+## Open Items
+Await approval; no edits pending.`;
+const healthySummary = validShortSummary;
 const dependentSummaryA = `## Topic\n${"dependent branch alpha ".repeat(12)}\n## Key Points\n- alpha\n## Current State\n- active\n## Open Items\n- none`;
 const dependentSummaryB = `## Topic\n${"dependent branch beta ".repeat(12)}\n## Key Points\n- beta\n## Current State\n- active\n## Open Items\n- none`;
 
@@ -42,6 +55,7 @@ type JsonReport = {
   status: string;
   mutated: boolean;
   backupPath?: string;
+  authorizationToken: string;
   fingerprints: {
     before?: string;
     after?: string;
@@ -58,7 +72,9 @@ type JsonReport = {
 
 const temporaryDirectories: string[] = [];
 
-const makeDatabase = (args: { targetSummary?: string } = {}) => {
+const makeDatabase = (
+  args: { targetSummary?: string; targetData?: unknown } = {},
+) => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "stella-v2-repair-"));
   temporaryDirectories.push(directory);
   const dbPath = path.join(directory, "stella.sqlite");
@@ -134,7 +150,7 @@ const makeDatabase = (args: { targetSummary?: string } = {}) => {
     entryId: "stub",
     parentEntryId: "m3",
     entryType: "compaction",
-    data: {
+    data: args.targetData ?? {
       fromEntryId: "m0",
       toEntryId: "m3",
       summary: args.targetSummary ?? stubSummary,
@@ -231,6 +247,82 @@ const makeDatabase = (args: { targetSummary?: string } = {}) => {
   // checkpoints and uses parent topology as authority.
 
   return { db, dbPath, directory };
+};
+
+const addSecondRepairTarget = (db: SqliteDatabase) => {
+  db.prepare(
+    `INSERT INTO runtime_threads (
+       thread_key, conversation_id, agent_type, name, status,
+       created_at, last_used_at, summary
+     ) VALUES ('thread-2', 'conversation-2', 'orchestrator',
+       'Second repair fixture', 'active', 1, 1234, ?)`,
+  ).run(stubSummary);
+  const insert = db.prepare(`
+    INSERT INTO runtime_thread_entries (
+      entry_id, thread_key, session_id, parent_entry_id, entry_type,
+      timestamp_iso, created_at, insertion_sequence, data_json
+    ) VALUES (?, 'thread-2', 'session-2', ?, ?, ?, ?, ?, ?)
+  `);
+  const entries: Entry[] = [
+    {
+      entryId: "t2-m0",
+      parentEntryId: null,
+      entryType: "message",
+      data: { role: "user", content: "second root" },
+    },
+    {
+      entryId: "t2-m1",
+      parentEntryId: "t2-m0",
+      entryType: "message",
+      data: { role: "assistant", content: "second healthy boundary" },
+    },
+    {
+      entryId: "t2-healthy",
+      parentEntryId: "t2-m1",
+      entryType: "compaction",
+      data: {
+        fromEntryId: "t2-m0",
+        toEntryId: "t2-m1",
+        summary: healthySummary,
+        tokensBefore: 8_000,
+      },
+    },
+    {
+      entryId: "t2-m2",
+      parentEntryId: "t2-healthy",
+      entryType: "message",
+      data: { role: "user", content: "second raw message" },
+    },
+    {
+      entryId: "stub-2",
+      parentEntryId: "t2-m2",
+      entryType: "compaction",
+      data: {
+        fromEntryId: "t2-m0",
+        toEntryId: "t2-m2",
+        summary: stubSummary,
+        tokensBefore: 190_576,
+      },
+    },
+    {
+      entryId: "t2-child",
+      parentEntryId: "stub-2",
+      entryType: "message",
+      data: { role: "assistant", content: "second surviving child" },
+    },
+  ];
+  entries.forEach((entry, index) => {
+    const sequence = index + 201;
+    insert.run(
+      entry.entryId,
+      entry.parentEntryId,
+      entry.entryType,
+      `2026-07-20T01:00:${String(index + 1).padStart(2, "0")}.000Z`,
+      sequence,
+      sequence,
+      JSON.stringify(entry.data),
+    );
+  });
 };
 
 const asDatabaseSync = (db: SqliteDatabase) => db as unknown as DatabaseSync;
@@ -348,6 +440,9 @@ describe("offline stub compaction checkpoint repair", () => {
       ],
     });
     expect(report.fingerprints.before).toMatch(/^[a-f0-9]{64}$/u);
+    expect(report.authorizationToken).toMatch(
+      /^stella-offline-plan-v1\.[a-f0-9]{64}$/u,
+    );
     expect(report.reparents?.map((item) => item.entryId)).toEqual([
       "alpha-1",
       "bridge-1",
@@ -362,6 +457,90 @@ describe("offline stub compaction checkpoint repair", () => {
     expect(backupFiles(directory)).toHaveLength(0);
   });
 
+  it("never classifies a valid 195-character contextual summary as corruption", () => {
+    expect(validShortSummary).toHaveLength(195);
+    const { db, dbPath, directory } = makeDatabase({
+      targetSummary: validShortSummary,
+    });
+    const before = databaseSnapshot(db);
+    db.close();
+
+    const result = runCli(dbPath, "--entry", "stub");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "target summary satisfies the runtime acceptance validator",
+    );
+    const verified = openDatabase(dbPath, true);
+    expect(databaseSnapshot(verified)).toEqual(before);
+    verified.close();
+    expect(backupFiles(directory)).toHaveLength(0);
+  });
+
+  it.each([
+    ["numeric summary", { summary: 42 }],
+    ["object summary", { summary: { topic: "stub" } }],
+    ["string tokens", { tokensBefore: "190576" }],
+    ["null tokens", { tokensBefore: null }],
+    ["NaN tokens", { tokensBefore: Number.NaN }],
+    ["infinite tokens", { tokensBefore: Number.POSITIVE_INFINITY }],
+    ["numeric from", { fromEntryId: 1 }],
+    ["missing to", { toEntryId: undefined }],
+  ])(
+    "fails closed for malformed classifier field types: %s",
+    (_name, patch) => {
+      expect(() =>
+        classifyCertifiedStubCheckpoint("stub", {
+          fromEntryId: "m0",
+          toEntryId: "m3",
+          summary: stubSummary,
+          tokensBefore: 190_576,
+          ...patch,
+        }),
+      ).toThrow(/Refusing/u);
+    },
+  );
+
+  it.each([
+    ["Unicode body", "## Topic\nCompacted résumé checkpoint."],
+    ["zero-width format", "## Topic\nCompacted\u200b checkpoint."],
+    ["fullwidth heading", "＃＃ Topic\nCompacted checkpoint."],
+    ["astral body", "## Topic\nCompacted 🚀 checkpoint."],
+    ["extra section", "## Topic\nStub\n## Open Items\nNone"],
+  ])(
+    "rejects non-certified Unicode or ambiguous stub shapes: %s",
+    (_name, summary) => {
+      expect(() =>
+        classifyCertifiedStubCheckpoint("stub", {
+          fromEntryId: "m0",
+          toEntryId: "m3",
+          summary,
+          tokensBefore: 190_576,
+        }),
+      ).toThrow(/exact certified ASCII stub signature/u);
+    },
+  );
+
+  it.each([
+    ["equal endpoints", "m0", "m0"],
+    ["leading range whitespace", " m0", "m3"],
+    ["trailing range whitespace", "m0", "m3 "],
+    ["empty endpoint", "", "m3"],
+    ["invisible endpoint", "m0\u200b", "m3"],
+    ["Unicode endpoint", "mémoire", "m3"],
+  ])(
+    "rejects an ambiguous compaction range: %s",
+    (_name, fromEntryId, toEntryId) => {
+      expect(() =>
+        classifyCertifiedStubCheckpoint("stub", {
+          fromEntryId,
+          toEntryId,
+          summary: stubSummary,
+          tokensBefore: 190_576,
+        }),
+      ).toThrow(/malformed or ambiguous/u);
+    },
+  );
+
   it("refuses every write without explicit stopped-app confirmation", () => {
     const { db, dbPath, directory } = makeDatabase();
     const before = databaseSnapshot(db);
@@ -373,8 +552,8 @@ describe("offline stub compaction checkpoint repair", () => {
       "--entry",
       "stub",
       "--apply",
-      "--expect-fingerprint",
-      dryRun.fingerprints.before!,
+      "--authorization-token",
+      dryRun.authorizationToken,
     );
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(
@@ -387,7 +566,7 @@ describe("offline stub compaction checkpoint repair", () => {
     expect(backupFiles(directory)).toHaveLength(0);
   });
 
-  it("refuses a stale dry-run fingerprint without partial mutation", () => {
+  it("refuses a stale dry-run authorization token without partial mutation", () => {
     const { db, dbPath, directory } = makeDatabase();
     db.close();
     const dryRun = parseReport(runCli(dbPath, "--entry", "stub").stdout);
@@ -406,17 +585,123 @@ describe("offline stub compaction checkpoint repair", () => {
       "stub",
       "--apply",
       "--confirm-stella-stopped",
-      "--expect-fingerprint",
-      dryRun.fingerprints.before!,
+      "--authorization-token",
+      dryRun.authorizationToken,
     );
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("CAS fingerprint conflict");
+    expect(result.stderr).toContain("Authorization token mismatch");
 
     const verified = openDatabase(dbPath, true);
     expect(databaseSnapshot(verified)).toEqual(drifted);
     expect(rowCount(verified, "stub")).toBe(1);
     verified.close();
     expect(backupFiles(directory)).toHaveLength(0);
+  });
+
+  it("rejects a dry-run authorization token on a byte-identical database copy", () => {
+    const { db, dbPath } = makeDatabase();
+    db.close();
+    const sourceDryRun = parseReport(runCli(dbPath, "--entry", "stub").stdout);
+    const copyDirectory = mkdtempSync(
+      path.join(os.tmpdir(), "stella-v2-repair-copy-"),
+    );
+    temporaryDirectories.push(copyDirectory);
+    const copyPath = path.join(copyDirectory, "stella.sqlite");
+    copyFileSync(dbPath, copyPath);
+    const copyDryRun = runCli(copyPath, "--entry", "stub");
+    expect(copyDryRun.status, copyDryRun.stderr).toBe(0);
+    expect(parseReport(copyDryRun.stdout).authorizationToken).not.toBe(
+      sourceDryRun.authorizationToken,
+    );
+
+    const result = runCli(
+      copyPath,
+      "--entry",
+      "stub",
+      "--apply",
+      "--confirm-stella-stopped",
+      "--authorization-token",
+      sourceDryRun.authorizationToken,
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Authorization token mismatch");
+    const verified = openDatabase(copyPath, true);
+    expect(rowCount(verified, "stub")).toBe(1);
+    verified.close();
+  });
+
+  it("rejects cross-entry authorization-token reuse in the same database", () => {
+    const { db, dbPath, directory } = makeDatabase();
+    addSecondRepairTarget(db);
+    db.close();
+    const firstDryRun = parseReport(runCli(dbPath, "--entry", "stub").stdout);
+
+    const result = runCli(
+      dbPath,
+      "--entry",
+      "stub-2",
+      "--apply",
+      "--confirm-stella-stopped",
+      "--authorization-token",
+      firstDryRun.authorizationToken,
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Authorization token mismatch");
+    const verified = openDatabase(dbPath, true);
+    expect(rowCount(verified, "stub")).toBe(1);
+    expect(rowCount(verified, "stub-2")).toBe(1);
+    verified.close();
+    expect(backupFiles(directory)).toHaveLength(0);
+  });
+
+  it("rejects repair authorization for the inverse restore operation", () => {
+    const { db, dbPath } = makeDatabase();
+    db.close();
+    const repairDryRun = parseReport(runCli(dbPath, "--entry", "stub").stdout);
+    const applied = runCli(
+      dbPath,
+      "--entry",
+      "stub",
+      "--apply",
+      "--confirm-stella-stopped",
+      "--authorization-token",
+      repairDryRun.authorizationToken,
+    );
+    expect(applied.status, applied.stderr).toBe(0);
+    const backupPath = parseReport(applied.stdout).backupPath!;
+    const restoreDryRun = runCli(dbPath, "--restore", backupPath);
+    expect(restoreDryRun.status, restoreDryRun.stderr).toBe(0);
+    expect(parseReport(restoreDryRun.stdout).authorizationToken).not.toBe(
+      repairDryRun.authorizationToken,
+    );
+
+    const result = runCli(
+      dbPath,
+      "--restore",
+      backupPath,
+      "--apply",
+      "--confirm-stella-stopped",
+      "--authorization-token",
+      repairDryRun.authorizationToken,
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Authorization token mismatch");
+    const verified = openDatabase(dbPath, true);
+    expect(rowCount(verified, "stub")).toBe(0);
+    verified.close();
+  });
+
+  it("refuses installed and live-data paths before any database operation", () => {
+    expect(() =>
+      assertOfflineDatabasePath(
+        path.join(os.homedir(), "stella", "copied-token.sqlite"),
+      ),
+    ).toThrow("Refusing live Stella path");
+    expect(() =>
+      assertOfflineDatabasePath(
+        path.join(os.homedir(), ".stella", "stella.sqlite"),
+      ),
+    ).toThrow("Refusing live Stella path");
   });
 
   it("reparents the full descendant topology while preserving every raw durable row", () => {
@@ -512,6 +797,34 @@ describe("offline stub compaction checkpoint repair", () => {
     db.close();
   });
 
+  it.each([
+    ["file", 1],
+    ["directory", 2],
+  ])("removes an incomplete receipt when %s fsync fails", (_phase, failAt) => {
+    const directory = mkdtempSync(
+      path.join(os.tmpdir(), "stella-v2-receipt-fsync-"),
+    );
+    temporaryDirectories.push(directory);
+    const receiptPath = path.join(directory, "receipt.json");
+    let fsyncCalls = 0;
+
+    expect(() =>
+      writeDurableJson(
+        receiptPath,
+        { status: "not-authoritative" },
+        {
+          fsyncSync: () => {
+            fsyncCalls += 1;
+            if (fsyncCalls === failAt) {
+              throw new Error("injected fsync failure");
+            }
+          },
+        },
+      ),
+    ).toThrow("incomplete artifact removed");
+    expect(existsSync(receiptPath)).toBe(false);
+  });
+
   it("reports repeated repair attempts as an idempotent no-op", () => {
     const { db, dbPath, directory } = makeDatabase();
     db.close();
@@ -522,8 +835,8 @@ describe("offline stub compaction checkpoint repair", () => {
       "stub",
       "--apply",
       "--confirm-stella-stopped",
-      "--expect-fingerprint",
-      dryRun.fingerprints.before!,
+      "--authorization-token",
+      dryRun.authorizationToken,
     );
     expect(firstApply.status, firstApply.stderr).toBe(0);
     expect(parseReport(firstApply.stdout).status).toBe("committed");
@@ -554,8 +867,8 @@ describe("offline stub compaction checkpoint repair", () => {
       "stub",
       "--apply",
       "--confirm-stella-stopped",
-      "--expect-fingerprint",
-      dryRun.fingerprints.before!,
+      "--authorization-token",
+      dryRun.authorizationToken,
     );
     expect(secondApply.status, secondApply.stderr).toBe(0);
     expect(parseReport(secondApply.stdout)).toMatchObject({
@@ -577,7 +890,9 @@ describe("offline stub compaction checkpoint repair", () => {
 
     const result = runCli(dbPath, "--entry", "stub");
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("checkpoint is not certified repairable");
+    expect(result.stderr).toContain(
+      "target summary satisfies the runtime acceptance validator",
+    );
     const verified = openDatabase(dbPath, true);
     expect(databaseSnapshot(verified)).toEqual(before);
     verified.close();
@@ -595,8 +910,8 @@ describe("offline stub compaction checkpoint repair", () => {
       "stub",
       "--apply",
       "--confirm-stella-stopped",
-      "--expect-fingerprint",
-      dryRun.fingerprints.before!,
+      "--authorization-token",
+      dryRun.authorizationToken,
     );
     expect(applied.status, applied.stderr).toBe(0);
     const backupPath = parseReport(applied.stdout).backupPath;
@@ -611,14 +926,41 @@ describe("offline stub compaction checkpoint repair", () => {
       backupPath!,
       "--apply",
       "--confirm-stella-stopped",
-      "--expect-fingerprint",
-      restoreReport.fingerprints.current!,
+      "--authorization-token",
+      restoreReport.authorizationToken,
     );
     expect(restored.status, restored.stderr).toBe(0);
 
     const verified = openDatabase(dbPath, true);
     expect(databaseSnapshot(verified)).toEqual(original);
     expect(danglingParentCount(verified)).toBe(0);
+    verified.close();
+  });
+
+  it("rejects a tampered receipt before restore readiness or writes", () => {
+    const { db, dbPath } = makeDatabase();
+    db.close();
+    const dryRun = parseReport(runCli(dbPath, "--entry", "stub").stdout);
+    const applied = runCli(
+      dbPath,
+      "--entry",
+      "stub",
+      "--apply",
+      "--confirm-stella-stopped",
+      "--authorization-token",
+      dryRun.authorizationToken,
+    );
+    expect(applied.status, applied.stderr).toBe(0);
+    const backupPath = parseReport(applied.stdout).backupPath!;
+    const receipt = JSON.parse(readFileSync(backupPath, "utf8"));
+    receipt.counts.storedInTargetRange.message += 1;
+    writeFileSync(backupPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+
+    const result = runCli(dbPath, "--restore", backupPath);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Repair receipt digest mismatch");
+    const verified = openDatabase(dbPath, true);
+    expect(rowCount(verified, "stub")).toBe(0);
     verified.close();
   });
 

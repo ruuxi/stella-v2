@@ -2367,6 +2367,56 @@ describe("claude-code-session-runtime", () => {
     }
   });
 
+  it("reassembles stream-json frames split across arbitrary chunk boundaries", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-fake-claude-split-frame-"),
+    );
+    const binDir = path.join(dir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fakeClaude = path.join(binDir, "claude");
+    // Emit one assistant delta and the terminal result as raw bytes split
+    // mid-JSON across three writes with flush gaps: the runtime's stdout
+    // line buffer must reassemble them into exactly one delta and one
+    // terminal (no duplicates, no partial-frame parse errors).
+    fs.writeFileSync(
+      fakeClaude,
+      [
+        "#!/usr/bin/env node",
+        "const delta = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Hel' }] }, session_id: 'fake-split' });",
+        "const result = JSON.stringify({ type: 'result', session_id: 'fake-split', is_error: false, result: 'Hello split.' });",
+        "const wire = delta + '\\n' + result + '\\n';",
+        "const cutA = Math.floor(delta.length / 2);",
+        "const cutB = delta.length + 5;",
+        "process.stdin.once('data', () => {",
+        "  process.stdout.write(wire.slice(0, cutA));",
+        "  setTimeout(() => {",
+        "    process.stdout.write(wire.slice(cutA, cutB));",
+        "    setTimeout(() => { process.stdout.write(wire.slice(cutB)); }, 25);",
+        "  }, 25);",
+        "});",
+        "process.stdin.resume();",
+      ].join("\n"),
+    );
+    fs.chmodSync(fakeClaude, 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    try {
+      const result = await runClaudeCodeTurn({
+        runId: "run-split-frame",
+        sessionKey: `test:split-frame:${Date.now()}`,
+        prompt: "Hello.",
+        modelId: "claude-code/default",
+        tools: [],
+        executeTool: async () => ({ result: "unused" }),
+      });
+      expect(result.text).toBe("Hello split.");
+    } finally {
+      shutdownClaudeCodeRuntime();
+      process.env.PATH = previousPath;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("falls back to a fresh Claude Code session when the stored resume id is missing", async () => {
     const dir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-fake-claude-resume-"),

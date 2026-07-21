@@ -293,6 +293,12 @@ export const createAgentOrchestration = (
       /** Per-spawn reasoning override from spawn_agent's model suffix. */
       spawnReasoningEffort?: AgentToolRequest["spawnReasoningEffort"];
     }) => Promise<LocalAgentContext>;
+    resolveAgentModelConfig?: (args: {
+      agentType: string;
+      model?: string;
+      spawnEngine?: AgentToolRequest["spawnEngine"];
+      spawnReasoningEffort?: AgentToolRequest["spawnReasoningEffort"];
+    }) => Promise<NonNullable<LocalAgentContext["modelConfigSnapshot"]>>;
     sendMessage: (input: {
       conversationId: string;
       text: string;
@@ -540,6 +546,9 @@ export const createAgentOrchestration = (
       context.runtimeStore.listGroupMemberThreadIds(groupKey),
     onAgentEvent: handleAgentLifecycleEvent,
     fetchAgentContext: deps.buildAgentContext,
+    ...(deps.resolveAgentModelConfig
+      ? { resolveAgentModelConfig: deps.resolveAgentModelConfig }
+      : {}),
     superviseAttempt: (attempt) =>
       context.state.supervisor.adoptChild(attempt.rootRunId, attempt.threadId, {
         abort: attempt.abort,

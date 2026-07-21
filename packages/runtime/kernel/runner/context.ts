@@ -87,6 +87,7 @@ import {
 import {
   captureEffectiveModelConfig,
   resolveAgentEngineForRun,
+  restoreSpawnEngineFromModelConfig,
 } from "./agent-model-config.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import { getResponseLanguageSystemPrompt } from "./locale-prompt.js";
@@ -903,6 +904,85 @@ export const resolveSpawnReasoningEffortForModel = (
   return nearest === "off" ? undefined : nearest;
 };
 
+export const resolveEffectiveAgentExecutionConfig = (
+  context: RunnerContext,
+  args: Pick<
+    BuildAgentContextArgs,
+    | "agentType"
+    | "model"
+    | "resolvedLlm"
+    | "spawnEngine"
+    | "spawnReasoningEffort"
+    | "modelConfigSnapshot"
+  >,
+) => {
+  const restoredSpawnEngine =
+    args.spawnEngine ??
+    restoreSpawnEngineFromModelConfig(args.modelConfigSnapshot);
+  const agentEngine =
+    args.modelConfigSnapshot?.engine ??
+    resolveAgentEngineForRun(
+      getAgentRuntimeEngine(context.stellaDataDir),
+      restoredSpawnEngine,
+    );
+  const savedReasoningEffort = getReasoningEffort(
+    context.stellaDataDir,
+    args.agentType,
+  );
+  const spawnReasoningEffort = args.spawnReasoningEffort;
+  const inheritedReasoningEffort = args.modelConfigSnapshot
+    ? (args.modelConfigSnapshot.reasoningEffort ?? "default")
+    : undefined;
+  const effectiveReasoningEffort = inheritedReasoningEffort
+    ? inheritedReasoningEffort === "none"
+      ? undefined
+      : inheritedReasoningEffort
+    : spawnReasoningEffort && agentEngine === "default"
+      ? resolveSpawnReasoningEffortForModel(
+          args.resolvedLlm.model,
+          spawnReasoningEffort,
+        )
+      : (spawnReasoningEffort ?? savedReasoningEffort);
+  if (spawnReasoningEffort && agentEngine === "default") {
+    if (!effectiveReasoningEffort) {
+      console.debug("[stella:spawn-reasoning] effort dropped", {
+        requested: spawnReasoningEffort,
+        model: args.resolvedLlm.model.id,
+        reason: "resolved model has no reasoning dial",
+      });
+    } else if (effectiveReasoningEffort !== spawnReasoningEffort) {
+      console.debug("[stella:spawn-reasoning] effort clamped", {
+        requested: spawnReasoningEffort,
+        effective: effectiveReasoningEffort,
+        model: args.resolvedLlm.model.id,
+      });
+    }
+  }
+
+  const modelConfigSnapshot =
+    args.modelConfigSnapshot ??
+    (args.agentType === AGENT_IDS.ORCHESTRATOR ||
+    args.agentType === AGENT_IDS.GENERAL
+      ? captureEffectiveModelConfig({
+          stellaDataDir: context.stellaDataDir,
+          agentType: args.agentType,
+          engine: agentEngine,
+          configuredModel: args.model,
+          engineModelOverride: restoredSpawnEngine?.model,
+          ...(restoredSpawnEngine ? { spawnEngine: restoredSpawnEngine } : {}),
+          resolvedLlm: args.resolvedLlm,
+          reasoningEffort: effectiveReasoningEffort,
+        })
+      : undefined);
+
+  return {
+    agentEngine,
+    effectiveReasoningEffort,
+    modelConfigSnapshot,
+    restoredSpawnEngine,
+  };
+};
+
 export const buildAgentContext = async (
   context: RunnerContext,
   args: BuildAgentContextArgs,
@@ -1001,45 +1081,15 @@ export const buildAgentContext = async (
           shouldInjectDynamicReminder: false,
           reminderTokensSinceLastInjection: 0,
         };
-  // A per-spawn engine selection wins over the preference-configured engine
-  // for this run only; saved preferences are never touched.
-  const agentEngine =
-    args.modelConfigSnapshot?.engine ??
-    resolveAgentEngineForRun(
-      getAgentRuntimeEngine(context.stellaDataDir),
-      args.spawnEngine,
-    );
-  const savedReasoningEffort = getReasoningEffort(
-    context.stellaDataDir,
-    args.agentType,
-  );
-  const spawnReasoningEffort = args.spawnReasoningEffort;
-  const inheritedReasoningEffort = args.modelConfigSnapshot?.reasoningEffort;
-  const effectiveReasoningEffort = inheritedReasoningEffort
-    ? inheritedReasoningEffort === "none"
-      ? undefined
-      : inheritedReasoningEffort
-    : spawnReasoningEffort && agentEngine === "default"
-      ? resolveSpawnReasoningEffortForModel(
-          resolvedLlm.model,
-          spawnReasoningEffort,
-        )
-      : (spawnReasoningEffort ?? savedReasoningEffort);
-  if (spawnReasoningEffort && agentEngine === "default") {
-    if (!effectiveReasoningEffort) {
-      console.debug("[stella:spawn-reasoning] effort dropped", {
-        requested: spawnReasoningEffort,
-        model: resolvedLlm.model.id,
-        reason: "resolved model has no reasoning dial",
-      });
-    } else if (effectiveReasoningEffort !== spawnReasoningEffort) {
-      console.debug("[stella:spawn-reasoning] effort clamped", {
-        requested: spawnReasoningEffort,
-        effective: effectiveReasoningEffort,
-        model: resolvedLlm.model.id,
-      });
-    }
-  }
+  // A persisted snapshot is authoritative. New Orchestrator/General turns
+  // capture the current selection once; resumed turns restore it without
+  // consulting later preference changes.
+  const {
+    agentEngine,
+    effectiveReasoningEffort,
+    modelConfigSnapshot,
+    restoredSpawnEngine,
+  } = resolveEffectiveAgentExecutionConfig(context, args);
 
   const fileEditToolFamily = getFileEditToolFamily({
     agentType: args.agentType,
@@ -1117,18 +1167,7 @@ export const buildAgentContext = async (
     toolsAllowlist,
     model,
     resolvedLlm,
-    modelConfigSnapshot:
-      args.modelConfigSnapshot ??
-      (args.agentType === AGENT_IDS.ORCHESTRATOR
-        ? captureEffectiveModelConfig({
-            stellaDataDir: context.stellaDataDir,
-            engine: agentEngine,
-            configuredModel: model,
-            engineModelOverride: args.spawnEngine?.model,
-            resolvedLlm,
-            reasoningEffort: effectiveReasoningEffort,
-          })
-        : undefined),
+    modelConfigSnapshot,
     reasoningEffort: effectiveReasoningEffort,
     maxAgentDepth: agent?.maxAgentDepth ?? DEFAULT_MAX_AGENT_DEPTH,
     coreMemory: injectsCoreMemory
@@ -1146,7 +1185,7 @@ export const buildAgentContext = async (
     threadHistory: threadHistory.length > 0 ? threadHistory : undefined,
     activeThreadId: threadKey,
     agentEngine,
-    ...(args.spawnEngine ? { spawnEngine: args.spawnEngine } : {}),
+    ...(restoredSpawnEngine ? { spawnEngine: restoredSpawnEngine } : {}),
     ...(args.spawnReasoningEffort
       ? { spawnReasoningEffort: args.spawnReasoningEffort }
       : {}),

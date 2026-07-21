@@ -158,6 +158,8 @@ export type AgentToolSnapshot = {
   id: string;
   status: TaskLifecycleStatus;
   description: string;
+  /** Durable engine/model evidence for this agent thread. */
+  modelConfigSnapshot?: AgentModelConfigSnapshot;
   startedAt: number;
   completedAt: number | null;
   result?: string;

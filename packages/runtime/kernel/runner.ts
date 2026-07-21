@@ -2,6 +2,7 @@ import {
   buildAgentContext,
   createRunnerContext,
   getConfiguredModel,
+  resolveEffectiveAgentExecutionConfig,
   resolveAgentModelRoute,
   resolveAgent,
 } from "./runner/context.js";
@@ -222,6 +223,27 @@ export const createStellaHostRunner = (
   });
   const taskOrchestration = createAgentOrchestration(context, {
     buildAgentContext: buildAgentContextWithResolvedRoute,
+    resolveAgentModelConfig: async (args) => {
+      const resolved = await resolveAgentModelRoute(
+        context,
+        args.agentType,
+        args.model,
+      );
+      const snapshot = resolveEffectiveAgentExecutionConfig(context, {
+        agentType: args.agentType,
+        ...resolved,
+        ...(args.spawnEngine ? { spawnEngine: args.spawnEngine } : {}),
+        ...(args.spawnReasoningEffort
+          ? { spawnReasoningEffort: args.spawnReasoningEffort }
+          : {}),
+      }).modelConfigSnapshot;
+      if (!snapshot) {
+        throw new Error(
+          `Unable to resolve a durable model configuration for ${args.agentType}.`,
+        );
+      }
+      return snapshot;
+    },
     sendMessage: orchestratorController.sendMessage,
   });
   // Convert restart authorization and pre-cancel thread evidence before any

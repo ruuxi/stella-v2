@@ -16,6 +16,7 @@ export const normalizeCapturedReasoningEffort = (
   value: string | undefined,
 ): AgentModelReasoningEffort | undefined => {
   if (
+    value === "default" ||
     value === "none" ||
     value === "minimal" ||
     value === "low" ||
@@ -51,9 +52,11 @@ export const exactRouteModelReference = (
 
 export const captureEffectiveModelConfig = (args: {
   stellaDataDir: string;
+  agentType?: string;
   engine: AgentRuntimeEngine;
   configuredModel?: string;
   engineModelOverride?: string;
+  spawnEngine?: SpawnEngineSelection;
   resolvedLlm: ResolvedLlmRoute;
   reasoningEffort?: string;
 }): AgentModelConfigSnapshot => {
@@ -67,40 +70,65 @@ export const captureEffectiveModelConfig = (args: {
       args.configuredModel,
       args.engineModelOverride,
     );
+    const requestedEffort =
+      args.reasoningEffort === "default"
+        ? undefined
+        : normalizeCapturedReasoningEffort(args.reasoningEffort);
     const effort =
-      normalizeCapturedReasoningEffort(args.reasoningEffort) ??
-      normalizeCapturedReasoningEffort(codex.reasoningEffort);
+      requestedEffort ??
+      normalizeCapturedReasoningEffort(codex.reasoningEffort) ??
+      "default";
     return {
       engine: args.engine,
       routeModel,
       engineModel: codex.model,
-      ...(effort ? { reasoningEffort: effort } : {}),
+      reasoningEffort: effort,
+      ...(args.spawnEngine ? { executionProfile: "spawn_override" } : {}),
     };
   }
   if (args.engine === "claude_code_local") {
     const model = getClaudeCodeAgentModelId(
       args.stellaDataDir,
       args.configuredModel,
-      AGENT_IDS.ORCHESTRATOR,
+      args.agentType ?? AGENT_IDS.ORCHESTRATOR,
       args.engineModelOverride,
     ).replace(/^claude-code\//, "");
+    const requestedEffort =
+      args.reasoningEffort === "default"
+        ? undefined
+        : normalizeCapturedReasoningEffort(args.reasoningEffort);
     const effort =
-      normalizeCapturedReasoningEffort(args.reasoningEffort) ??
+      requestedEffort ??
       normalizeCapturedReasoningEffort(
         getClaudeCodeRuntimeEffortLevel(args.stellaDataDir),
-      );
+      ) ??
+      "default";
     return {
       engine: args.engine,
       routeModel,
       engineModel: model,
-      ...(effort ? { reasoningEffort: effort } : {}),
+      reasoningEffort: effort,
+      ...(args.spawnEngine ? { executionProfile: "spawn_override" } : {}),
     };
   }
-  const effort = normalizeCapturedReasoningEffort(args.reasoningEffort);
+  const effort =
+    normalizeCapturedReasoningEffort(args.reasoningEffort) ?? "default";
   return {
     engine: args.engine,
     routeModel,
-    ...(effort ? { reasoningEffort: effort } : {}),
+    reasoningEffort: effort,
+    ...(args.spawnEngine ? { executionProfile: "spawn_override" } : {}),
+  };
+};
+
+export const restoreSpawnEngineFromModelConfig = (
+  snapshot: AgentModelConfigSnapshot | undefined,
+): SpawnEngineSelection | undefined => {
+  if (snapshot?.executionProfile !== "spawn_override") return undefined;
+  if (snapshot.engine === "default") return { engine: "default" };
+  return {
+    engine: snapshot.engine,
+    ...(snapshot.engineModel ? { model: snapshot.engineModel } : {}),
   };
 };
 

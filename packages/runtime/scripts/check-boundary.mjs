@@ -28,6 +28,9 @@ const ignoredDirectories = new Set([
   "dist",
   "dist-electron",
   "coverage",
+  // electron-builder output: packaged .app bundles carry the compiled
+  // runtime worker, where effect is legitimately inlined.
+  "release",
 ]);
 const sourceSuffixes = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]);
 

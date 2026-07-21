@@ -21,7 +21,6 @@ export const resolveThreadCompactionSystemPrompt = (
   stellaDataDir
     ? (readHomePrompt(stellaDataDir, "thread-compaction") ?? "")
     : "";
-const THREAD_COMPACTION_RESERVE_TOKENS = 16_384;
 /**
  * Fraction of the model's real context window at which the orchestrator
  * thread store compacts. Keyed off `route.model.contextWindow` (the real,
@@ -509,19 +508,61 @@ const THREAD_COMPACTION_ESCALATION_MIN_FAILURES = 2;
 const THREAD_COMPACTION_FALLBACK_EXCERPT_CHARS = 1_200;
 
 /**
- * Consecutive final summary failures per thread. This state is deliberately
- * process-local: a restart merely requires another bounded failed cycle before
- * the near-ceiling fallback can run, while the context-window gate persists.
+ * Consecutive eligible summary failures per thread. This state is deliberately
+ * process-local: a restart requires another bounded failed cycle before the
+ * near-ceiling fallback can run. Only the latest-started cycle may mutate the
+ * streak or write an overlay, so overlapping scheduler/manual attempts cannot
+ * manufacture two "consecutive" failures or let a stale completion win.
+ * Successful generation, abort, and no-credential skips break the streak.
  */
 const consecutiveSummaryFailures = new Map<string, number>();
+const latestSummaryCycle = new Map<string, number>();
+let nextSummaryCycle = 0;
+
+const beginSummaryCycle = (threadKey: string): number => {
+  nextSummaryCycle += 1;
+  latestSummaryCycle.set(threadKey, nextSummaryCycle);
+  return nextSummaryCycle;
+};
+
+const isLatestSummaryCycle = (threadKey: string, cycle: number): boolean =>
+  latestSummaryCycle.get(threadKey) === cycle;
+
+const clearSummaryFailureStreak = (threadKey: string, cycle: number): void => {
+  if (!isLatestSummaryCycle(threadKey, cycle)) return;
+  consecutiveSummaryFailures.delete(threadKey);
+};
+
+const recordSummaryFailure = (threadKey: string, cycle: number): number => {
+  if (!isLatestSummaryCycle(threadKey, cycle)) return 0;
+  const count = (consecutiveSummaryFailures.get(threadKey) ?? 0) + 1;
+  consecutiveSummaryFailures.set(threadKey, count);
+  return count;
+};
 
 /** Test seam for isolating near-ceiling failure tracking. */
 export const resetThreadSummaryFailureTracking = (threadKey?: string): void => {
   if (threadKey === undefined) {
     consecutiveSummaryFailures.clear();
+    latestSummaryCycle.clear();
     return;
   }
   consecutiveSummaryFailures.delete(threadKey);
+  latestSummaryCycle.delete(threadKey);
+};
+
+const isAbortLikeSummaryFailure = (
+  error: unknown,
+  abortSignal?: AbortSignal,
+): boolean => {
+  if (abortSignal?.aborted) return true;
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === "AbortError" ||
+    /^(?:request was aborted|request aborted|aborted|canceled|cancelled)\.?$/i.test(
+      error.message.trim(),
+    )
+  );
 };
 
 const THREAD_SUMMARY_HEADINGS = [
@@ -710,6 +751,22 @@ export const validateThreadSummary = (
  * Estimated chars-per-token used to cap the summary request input.
  */
 const SUMMARY_INPUT_CHARS_PER_TOKEN = 4;
+const THREAD_SUMMARY_OUTPUT_MAX_TOKENS = 2_048;
+const THREAD_SUMMARY_OUTPUT_MIN_TOKENS = 512;
+const THREAD_SUMMARY_OUTPUT_CONTEXT_RATIO = 0.125;
+const THREAD_SUMMARY_REQUEST_MIN_SAFETY_TOKENS = 512;
+const THREAD_SUMMARY_REQUEST_MAX_RESERVE_TOKENS = 16_384;
+
+const fitTextToCharLimit = (
+  value: string,
+  maxChars: number,
+  suffix = "\n[truncated]",
+): string => {
+  if (maxChars <= 0) return "";
+  if (value.length <= maxChars) return value;
+  if (suffix.length >= maxChars) return suffix.slice(0, maxChars);
+  return `${value.slice(0, maxChars - suffix.length)}${suffix}`;
+};
 
 /**
  * Cap the formatted conversation fed to the summary model so a large backlog
@@ -724,23 +781,66 @@ const capSummaryConversation = (
   formatted: string,
   maxChars: number,
 ): string => {
-  if (maxChars <= 0 || formatted.length <= maxChars) {
+  if (maxChars <= 0) {
+    return "";
+  }
+  if (formatted.length <= maxChars) {
     return formatted;
   }
   const omittedChars = formatted.length - maxChars;
-  return [
-    `[Compaction input truncated: the oldest ~${Math.round(
-      omittedChars / SUMMARY_INPUT_CHARS_PER_TOKEN,
-    )} tokens of unsummarized conversation were omitted so this request fits the summary model's context window. Rely on the previous summary (when present) for older details.]`,
-    formatted.slice(formatted.length - maxChars),
-  ].join("\n\n");
+  const marker = `[Compaction input truncated: the oldest ~${Math.round(
+    omittedChars / SUMMARY_INPUT_CHARS_PER_TOKEN,
+  )} tokens of unsummarized conversation were omitted so this request fits the summary model's context window. Rely on the previous summary (when present) for older details.]`;
+  const separator = "\n\n";
+  const tailChars = Math.max(0, maxChars - marker.length - separator.length);
+  return fitTextToCharLimit(
+    `${marker}${separator}${formatted.slice(-tailChars)}`,
+    maxChars,
+    "",
+  );
 };
 
-const getSummaryInputCharBudget = (route: ResolvedLlmRoute): number =>
-  Math.max(
-    MIN_TRIGGER_TOKENS,
-    getContextWindow(route) - THREAD_COMPACTION_RESERVE_TOKENS,
-  ) * SUMMARY_INPUT_CHARS_PER_TOKEN;
+export type ThreadSummaryRequestLimits = {
+  contextTokens: number;
+  maxOutputTokens: number;
+  safetyTokens: number;
+  maxInputChars: number;
+};
+
+export const getThreadSummaryRequestLimits = (
+  route: ResolvedLlmRoute,
+): ThreadSummaryRequestLimits => {
+  const contextTokens = Math.max(MIN_TRIGGER_TOKENS, getContextWindow(route));
+  const maxOutputTokens = Math.min(
+    THREAD_SUMMARY_OUTPUT_MAX_TOKENS,
+    Math.max(
+      THREAD_SUMMARY_OUTPUT_MIN_TOKENS,
+      Math.floor(contextTokens * THREAD_SUMMARY_OUTPUT_CONTEXT_RATIO),
+    ),
+  );
+  // Preserve the historical 16k request reserve on normal/large windows,
+  // while scaling it down on the smallest supported window. The reserve is
+  // explicit output allowance plus framing/token-estimation safety; output is
+  // deliberately small so compaction cannot crowd its own input off the wire.
+  const reservedTokens = Math.min(
+    THREAD_SUMMARY_REQUEST_MAX_RESERVE_TOKENS,
+    Math.max(
+      maxOutputTokens + THREAD_SUMMARY_REQUEST_MIN_SAFETY_TOKENS,
+      Math.floor(contextTokens * 0.25),
+    ),
+  );
+  const safetyTokens = reservedTokens - maxOutputTokens;
+  const inputTokens = Math.max(
+    0,
+    contextTokens - maxOutputTokens - safetyTokens,
+  );
+  return {
+    contextTokens,
+    maxOutputTokens,
+    safetyTokens,
+    maxInputChars: inputTokens * SUMMARY_INPUT_CHARS_PER_TOKEN,
+  };
+};
 
 const SUMMARY_STRUCTURE = `## Topic
 [What the conversation is about]
@@ -829,6 +929,89 @@ ${SUMMARY_STRUCTURE}
 ${footer}`;
 };
 
+export const buildThreadSummaryRequest = (args: {
+  formattedConversation: string;
+  previousSummary?: string;
+  summaryBudget: number;
+  durableMemoryReference?: string;
+  correctiveReason?: string;
+  systemPrompt: string;
+  resolvedLlm: ResolvedLlmRoute;
+}): {
+  systemPrompt: string;
+  promptBody: string;
+  maxOutputTokens: number;
+  limits: ThreadSummaryRequestLimits;
+} => {
+  const limits = getThreadSummaryRequestLimits(args.resolvedLlm);
+  const systemPrompt = fitTextToCharLimit(
+    args.systemPrompt,
+    Math.floor(limits.maxInputChars * 0.1),
+  );
+  const previousSummary = args.previousSummary?.trim()
+    ? fitTextToCharLimit(
+        args.previousSummary.trim(),
+        Math.floor(limits.maxInputChars * 0.2),
+      )
+    : undefined;
+  const durableMemoryReference = args.durableMemoryReference?.trim()
+    ? fitTextToCharLimit(
+        args.durableMemoryReference.trim(),
+        Math.floor(limits.maxInputChars * 0.2),
+      )
+    : undefined;
+  const correctiveReason = args.correctiveReason?.trim()
+    ? fitTextToCharLimit(args.correctiveReason.trim(), 512, "")
+    : undefined;
+  const targetBudget = Math.min(
+    limits.maxOutputTokens,
+    Math.max(100, Math.floor(args.summaryBudget)),
+  );
+
+  // Build once with a one-character conversation to measure every fixed
+  // component: scaffolding, previous summary, durable-memory reference,
+  // correction text, and output instructions. The remaining input allowance
+  // belongs to the newest conversation tail.
+  const fixedPrompt = buildSummaryPrompt(
+    "x",
+    previousSummary,
+    targetBudget,
+    durableMemoryReference,
+    correctiveReason,
+  );
+  const conversationChars = Math.max(
+    0,
+    limits.maxInputChars - systemPrompt.length - (fixedPrompt.length - 1),
+  );
+  const formattedConversation = capSummaryConversation(
+    args.formattedConversation,
+    conversationChars,
+  );
+  let promptBody = buildSummaryPrompt(
+    formattedConversation ||
+      "[No conversation text retained within the request budget.]",
+    previousSummary,
+    targetBudget,
+    durableMemoryReference,
+    correctiveReason,
+  );
+
+  // Defensive final fence for future scaffold growth. The safety-token reserve
+  // accounts for provider message framing/JSON beyond these two strings.
+  const promptCharLimit = Math.max(
+    0,
+    limits.maxInputChars - systemPrompt.length,
+  );
+  promptBody = fitTextToCharLimit(promptBody, promptCharLimit, "");
+
+  return {
+    systemPrompt,
+    promptBody,
+    maxOutputTokens: limits.maxOutputTokens,
+    limits,
+  };
+};
+
 // Per-doc cap for the ALREADY KNOWN reference. The docs are small
 // always-loaded files; the cap only guards against a runaway doc inflating
 // the compaction request.
@@ -909,10 +1092,9 @@ const generateThreadSummary = async (args: {
     return { text: null, retryable: false, reason: "no API key" };
   }
 
-  const formattedConversation = capSummaryConversation(
-    formatThreadMessagesForCompaction(args.messages).trim(),
-    getSummaryInputCharBudget(args.resolvedLlm),
-  );
+  const formattedConversation = formatThreadMessagesForCompaction(
+    args.messages,
+  ).trim();
   if (!formattedConversation) {
     return {
       text: args.previousSummary?.trim() || null,
@@ -923,13 +1105,15 @@ const generateThreadSummary = async (args: {
     };
   }
 
-  const promptBody = buildSummaryPrompt(
+  const request = buildThreadSummaryRequest({
     formattedConversation,
-    args.previousSummary,
-    computeSummaryBudget(args.messages),
-    args.durableMemoryReference,
-    args.correctiveReason,
-  );
+    previousSummary: args.previousSummary,
+    summaryBudget: computeSummaryBudget(args.messages),
+    durableMemoryReference: args.durableMemoryReference,
+    correctiveReason: args.correctiveReason,
+    systemPrompt: resolveThreadCompactionSystemPrompt(args.stellaDataDir),
+    resolvedLlm: args.resolvedLlm,
+  });
 
   // LLM failures propagate to `compactRuntimeThreadHistory`, which logs
   // `thread.compaction.failed` — a swallowed error here previously made
@@ -938,17 +1122,18 @@ const generateThreadSummary = async (args: {
   const message = await completeSimple(
     args.resolvedLlm.model,
     {
-      systemPrompt: resolveThreadCompactionSystemPrompt(args.stellaDataDir),
+      systemPrompt: request.systemPrompt,
       messages: [
         {
           role: "user",
-          content: [{ type: "text", text: promptBody }],
+          content: [{ type: "text", text: request.promptBody }],
           timestamp: Date.now(),
         },
       ],
     },
     {
       apiKey,
+      maxTokens: request.maxOutputTokens,
       ...(args.abortSignal ? { signal: args.abortSignal } : {}),
     },
   );
@@ -964,7 +1149,10 @@ const generateThreadSummary = async (args: {
     return {
       text: null,
       retryable: message.stopReason !== "aborted",
-      reason: `unclean terminal reason ${String(message.stopReason)}`,
+      reason:
+        message.stopReason === "aborted"
+          ? "aborted"
+          : `unclean terminal reason ${String(message.stopReason)}`,
     };
   }
   if (!text) {
@@ -1136,10 +1324,12 @@ export const maybeCompactRuntimeThread = async (args: {
     return { compacted: false };
   }
 
+  const summaryCycle = beginSummaryCycle(args.threadKey);
   const middleTokens = getThreadTokenEstimate(splitMessages.middleMessages);
   let summary: string | null = null;
   let summaryFromOverride = false;
   let correctiveReason: string | undefined;
+  let summaryGenerationError: unknown;
   const overrideSummary = args.overrideSummary?.trim();
   if (overrideSummary) {
     const validation = validateThreadSummary(
@@ -1176,16 +1366,33 @@ export const maybeCompactRuntimeThread = async (args: {
       correctiveReason = "aborted";
       break;
     }
-    const generated = await generateThreadSummary({
-      threadKey: args.threadKey,
-      messages: splitMessages.middleMessages,
-      previousSummary: splitMessages.previousSummary,
-      resolvedLlm: args.resolvedLlm,
-      stellaDataDir: args.stellaDataDir,
-      durableMemoryReference,
-      ...(correctiveReason ? { correctiveReason } : {}),
-      ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
-    });
+    let generated: Awaited<ReturnType<typeof generateThreadSummary>>;
+    try {
+      generated = await generateThreadSummary({
+        threadKey: args.threadKey,
+        messages: splitMessages.middleMessages,
+        previousSummary: splitMessages.previousSummary,
+        resolvedLlm: args.resolvedLlm,
+        stellaDataDir: args.stellaDataDir,
+        durableMemoryReference,
+        ...(correctiveReason ? { correctiveReason } : {}),
+        ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
+      });
+    } catch (error) {
+      if (isAbortLikeSummaryFailure(error, args.abortSignal)) {
+        correctiveReason = "aborted";
+        break;
+      }
+      summaryGenerationError = error;
+      correctiveReason = `provider failure: ${error instanceof Error ? error.message : String(error)}`;
+      logger.warn("thread.compaction.summary-provider-failed", {
+        threadKey: args.threadKey,
+        model: args.resolvedLlm.model.id,
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     if (generated.text) {
       const validation = validateThreadSummary(
         generated.text,
@@ -1210,6 +1417,9 @@ export const maybeCompactRuntimeThread = async (args: {
       continue;
     }
     correctiveReason = generated.reason ?? "summary generation failed";
+    if (generated.reason === "aborted") {
+      break;
+    }
     if (!generated.retryable) {
       break;
     }
@@ -1220,10 +1430,10 @@ export const maybeCompactRuntimeThread = async (args: {
       correctiveReason !== "aborted" &&
       !args.abortSignal?.aborted;
     const failureCount = countsTowardEscalation
-      ? (consecutiveSummaryFailures.get(args.threadKey) ?? 0) + 1
-      : (consecutiveSummaryFailures.get(args.threadKey) ?? 0);
-    if (countsTowardEscalation) {
-      consecutiveSummaryFailures.set(args.threadKey, failureCount);
+      ? recordSummaryFailure(args.threadKey, summaryCycle)
+      : 0;
+    if (!countsTowardEscalation) {
+      clearSummaryFailureStreak(args.threadKey, summaryCycle);
     }
     const hardLimitTokens = Math.floor(
       getContextWindow(args.resolvedLlm) *
@@ -1243,6 +1453,9 @@ export const maybeCompactRuntimeThread = async (args: {
         totalTokens,
         hardLimitTokens,
       });
+      if (summaryGenerationError !== undefined) {
+        throw summaryGenerationError;
+      }
       return { compacted: false };
     }
     summary = buildCompactionEscalationSummary({
@@ -1266,10 +1479,19 @@ export const maybeCompactRuntimeThread = async (args: {
       carriedForwardPrevious,
     });
   }
-  consecutiveSummaryFailures.delete(args.threadKey);
+  clearSummaryFailureStreak(args.threadKey, summaryCycle);
   // Shutdown abort landed after the summary settled: skip the store write
   // rather than racing SQLite teardown.
   if (args.abortSignal?.aborted) {
+    return { compacted: false };
+  }
+  if (!isLatestSummaryCycle(args.threadKey, summaryCycle)) {
+    logger.warn("thread.compaction.stale-cycle-skipped", {
+      threadKey: args.threadKey,
+      model: args.resolvedLlm.model.id,
+      summaryCycle,
+      latestCycle: latestSummaryCycle.get(args.threadKey),
+    });
     return { compacted: false };
   }
 
@@ -1279,6 +1501,7 @@ export const maybeCompactRuntimeThread = async (args: {
     fromEntryId: splitMessages.fromEntryId,
     toEntryId: splitMessages.toEntryId,
     tokensBefore: totalTokens,
+    fromHook: summaryFromOverride,
   });
   args.store.updateThreadSummary(args.threadKey, summary);
   return { compacted: true, summary, fromOverride: summaryFromOverride };

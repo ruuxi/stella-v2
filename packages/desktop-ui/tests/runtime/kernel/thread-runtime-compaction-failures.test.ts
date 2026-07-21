@@ -25,6 +25,7 @@ vi.mock("@stella/runtime/ai/stream", () => ({
 }));
 
 import {
+  buildThreadSummaryRequest,
   formatThreadCheckpointMessage,
   maybeCompactRuntimeThread,
   resetThreadSummaryFailureTracking,
@@ -143,6 +144,37 @@ describe("thread summary validation", () => {
       valid: true,
     });
   });
+
+  it("bounds the complete maximum-overhead request at the smallest supported context", () => {
+    const request = buildThreadSummaryRequest({
+      formattedConversation: `${"old conversation ".repeat(20_000)}RECENT_CONVERSATION_TAIL`,
+      previousSummary: "previous state ".repeat(20_000),
+      summaryBudget: 100_000,
+      durableMemoryReference: "durable memory ".repeat(20_000),
+      correctiveReason: "malformed output ".repeat(2_000),
+      systemPrompt: "system instruction ".repeat(20_000),
+      resolvedLlm: createRoute("auth-token", 8_000),
+    });
+
+    const assembledInputChars =
+      request.systemPrompt.length + request.promptBody.length;
+    expect(assembledInputChars).toBeLessThanOrEqual(
+      request.limits.maxInputChars,
+    );
+    expect(
+      Math.ceil(assembledInputChars / 4) +
+        request.maxOutputTokens +
+        request.limits.safetyTokens,
+    ).toBeLessThanOrEqual(request.limits.contextTokens);
+    expect(request.limits.contextTokens).toBe(8_000);
+    expect(request.maxOutputTokens).toBe(1_000);
+    expect(request.systemPrompt).toContain("system instruction");
+    expect(request.promptBody).toContain("previous state");
+    expect(request.promptBody).toContain("durable memory");
+    expect(request.promptBody).toContain("RETRY CORRECTION");
+    expect(request.promptBody).toContain("RECENT_CONVERSATION_TAIL");
+    expect(request.promptBody).toContain("Target ~1000 tokens");
+  });
 });
 
 describe("orchestrator thread compaction failure handling", () => {
@@ -151,7 +183,7 @@ describe("orchestrator thread compaction failure handling", () => {
     resetThreadSummaryFailureTracking();
   });
 
-  it("propagates summary-LLM failures instead of silently skipping compaction", async () => {
+  it("propagates summary-LLM failures below the fallback ceiling", async () => {
     const { store, compactCalls } = createFakeStore();
     completeSimpleMock.mockRejectedValue(
       new Error(
@@ -163,7 +195,7 @@ describe("orchestrator thread compaction failure handling", () => {
       maybeCompactRuntimeThread({
         store,
         threadKey: "conversation-1",
-        resolvedLlm: createRoute("auth-token"),
+        resolvedLlm: createRoute("auth-token", 200_000),
         agentType: "orchestrator",
       }),
     ).rejects.toThrow(/thinking\.type\.disabled/);
@@ -174,10 +206,95 @@ describe("orchestrator thread compaction failure handling", () => {
     const wrapped = await compactRuntimeThreadHistory({
       store,
       threadKey: "conversation-1",
-      resolvedLlm: createRoute("auth-token"),
+      resolvedLlm: createRoute("auth-token", 200_000),
       agentType: "orchestrator",
     });
     expect(wrapped).toEqual({ compacted: false });
+  });
+
+  it("counts rejected provider promises through the real wrapper and reaches bounded fallback near the ceiling", async () => {
+    const { store, compactCalls } = createFakeStore();
+    completeSimpleMock.mockRejectedValue(new Error("upstream stream reset"));
+
+    const first = await compactRuntimeThreadHistory({
+      store,
+      threadKey: "conversation-thrown-near-ceiling",
+      resolvedLlm: createRoute("auth-token"),
+      agentType: "orchestrator",
+    });
+    const second = await compactRuntimeThreadHistory({
+      store,
+      threadKey: "conversation-thrown-near-ceiling",
+      resolvedLlm: createRoute("auth-token"),
+      agentType: "orchestrator",
+    });
+
+    expect(first).toEqual({ compacted: false });
+    expect(second).toMatchObject({ compacted: true, fromOverride: false });
+    expect(completeSimpleMock).toHaveBeenCalledTimes(4);
+    expect(compactCalls).toHaveLength(1);
+    expect(String(compactCalls[0]?.summary)).toContain(
+      "Mechanical fallback checkpoint",
+    );
+    expect(String(compactCalls[0]?.summary)).not.toContain(
+      "upstream stream reset",
+    );
+  });
+
+  it("does not advance a failure streak across no-credential or abort skips", async () => {
+    const { store, compactCalls } = createFakeStore();
+    const threadKey = "conversation-deterministic-skip-streak";
+    completeSimpleMock.mockRejectedValue(
+      new Error("eligible provider failure"),
+    );
+
+    expect(
+      await compactRuntimeThreadHistory({
+        store,
+        threadKey,
+        resolvedLlm: createRoute("auth-token"),
+        agentType: "orchestrator",
+      }),
+    ).toEqual({ compacted: false });
+    expect(
+      await compactRuntimeThreadHistory({
+        store,
+        threadKey,
+        resolvedLlm: createRoute(null),
+        agentType: "orchestrator",
+      }),
+    ).toEqual({ compacted: false });
+    expect(
+      await compactRuntimeThreadHistory({
+        store,
+        threadKey,
+        resolvedLlm: createRoute("auth-token"),
+        agentType: "orchestrator",
+      }),
+    ).toEqual({ compacted: false });
+
+    const abortError = new Error("Request was aborted");
+    abortError.name = "AbortError";
+    completeSimpleMock.mockRejectedValue(abortError);
+    expect(
+      await compactRuntimeThreadHistory({
+        store,
+        threadKey,
+        resolvedLlm: createRoute("auth-token"),
+        agentType: "orchestrator",
+      }),
+    ).toEqual({ compacted: false });
+
+    completeSimpleMock.mockRejectedValue(new Error("eligible after abort"));
+    expect(
+      await compactRuntimeThreadHistory({
+        store,
+        threadKey,
+        resolvedLlm: createRoute("auth-token"),
+        agentType: "orchestrator",
+      }),
+    ).toEqual({ compacted: false });
+    expect(compactCalls).toHaveLength(0);
   });
 
   it("caps the summary input so an oversized backlog still compacts", async () => {

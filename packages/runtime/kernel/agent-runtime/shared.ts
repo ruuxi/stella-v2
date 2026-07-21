@@ -22,6 +22,7 @@ import {
   isBootstrapStartupDocMessage,
   stripStaleImageBlocks,
 } from "./thread-memory.js";
+import { AGENT_RUN_MAX_ATTEMPTS } from "./run-retry.js";
 
 const MAX_RESULT_PREVIEW = 200;
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
@@ -515,6 +516,10 @@ export const createRuntimeAgent = (args: {
     // Agent core's default one-shot enabled here would allow every outer
     // attempt to make two provider calls.
     degenerateResponseRetries: 0,
+    // Adapter continuations, outer recovery resumes, and provider SDK retries
+    // share the same physical-request ceiling for one logical model completion.
+    // A successful tool-use completion releases it before the next model round.
+    providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
     afterToolCall: args.afterToolCall
       ? async (context, signal) => await args.afterToolCall?.(context, signal)
       : undefined,

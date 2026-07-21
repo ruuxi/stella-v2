@@ -161,6 +161,18 @@ export interface StreamOptions {
    */
   maxRetries?: number;
   /**
+   * Shared budget for physical provider requests that belong to one logical
+   * model completion. Runtime Agents preserve this object across outer
+   * recovery resumes and reset it only after a successful completion or a new
+   * user prompt, preventing adapter continuations from multiplying retries.
+   */
+  requestBudget?: {
+    limit: number;
+    used: number;
+    active: boolean;
+    exhaustionReason?: string;
+  };
+  /**
    * Maximum delay in milliseconds to wait for a retry when the server requests a long wait.
    * If the server's requested delay exceeds this value, the request fails immediately
    * with an error containing the requested delay, allowing higher-level retry logic

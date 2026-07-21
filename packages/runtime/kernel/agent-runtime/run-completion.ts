@@ -338,13 +338,13 @@ export const runCompactionWithHooks = async (args: {
       getCompactionTriggerTokens(args.opts.resolvedLlm)
   ) {
     try {
-      const { awaitPreCompactionConsolidation } = await import(
-        "./dream-scheduler.js"
-      );
+      const { awaitPreCompactionConsolidation } =
+        await import("./dream-scheduler.js");
       await awaitPreCompactionConsolidation({
         stellaDataDir: args.opts.stellaDataDir,
         store: args.opts.store,
         resolvedLlm: args.opts.resolvedLlm,
+        conversationId: args.opts.conversationId,
         ...(args.preCompactionTimeoutMs !== undefined
           ? { timeoutMs: args.preCompactionTimeoutMs }
           : {}),

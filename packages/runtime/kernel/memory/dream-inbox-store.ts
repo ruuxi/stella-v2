@@ -32,6 +32,8 @@ export type DreamInboxRow = {
   title: string | null;
   content: string;
   metadata: Record<string, unknown> | null;
+  /** Conversation whose raw orchestrator window durably contains the row. */
+  conversationId: string | null;
   sourceUpdatedAt: number;
   processedByDreamAt: number | null;
   usageCount: number;
@@ -43,6 +45,8 @@ export type RecordThreadSummaryArgs = {
   runId: string;
   agentType: string;
   rolloutSummary: string;
+  /** Omit until the same report has persisted in this conversation. */
+  conversationId?: string;
 };
 
 export type MemoryNoteCandidate = {
@@ -70,6 +74,7 @@ type DreamInboxRawRow = {
   title: string | null;
   content: string;
   metadata: string | null;
+  conversation_id: string | null;
   source_updated_at: number;
   processed_by_dream_at: number | null;
   usage_count: number;
@@ -86,6 +91,7 @@ const ROW_COLUMNS = `
   title,
   content,
   metadata,
+  conversation_id,
   source_updated_at,
   processed_by_dream_at,
   usage_count,
@@ -119,6 +125,7 @@ const fromRow = (row: DreamInboxRawRow): DreamInboxRow => ({
   title: row.title,
   content: row.content,
   metadata: parseMetadata(row.metadata),
+  conversationId: row.conversation_id,
   sourceUpdatedAt: row.source_updated_at,
   processedByDreamAt: row.processed_by_dream_at,
   usageCount: row.usage_count,
@@ -182,6 +189,7 @@ export class DreamInboxStore {
       title: null,
       content: summary,
       metadata: null,
+      conversationId: args.conversationId?.trim() || null,
     });
   }
 
@@ -190,7 +198,10 @@ export class DreamInboxStore {
    * (no coalescing); the formatted markdown body is what Dream and the
    * known-memory context read.
    */
-  recordMemoryNote(candidate: MemoryNoteCandidate): { id: number } {
+  recordMemoryNote(
+    candidate: MemoryNoteCandidate,
+    opts?: { conversationId?: string },
+  ): { id: number } {
     const title = redactMemoryText(candidate.title.trim());
     const memory = redactMemoryText(candidate.memory.trim());
     if (!title) throw new Error("title must not be empty.");
@@ -217,6 +228,7 @@ export class DreamInboxStore {
       evidence: note.evidence,
     });
 
+    const conversationId = opts?.conversationId?.trim() || null;
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const sourceKey = attempt === 0 ? baseKey : `${baseKey}-${attempt + 1}`;
       const result = this.db
@@ -224,14 +236,21 @@ export class DreamInboxStore {
           `
           INSERT INTO dream_inbox (
             kind, source_key, thread_id, run_id, agent_type, title,
-            content, metadata, source_updated_at, processed_by_dream_at,
+            content, metadata, conversation_id, source_updated_at, processed_by_dream_at,
             usage_count, last_usage
           )
-          VALUES ('memory_note', ?, NULL, NULL, NULL, ?, ?, ?, ?, NULL, 0, NULL)
+          VALUES ('memory_note', ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, NULL, 0, NULL)
           ON CONFLICT(kind, source_key) DO NOTHING
           `,
         )
-        .run(sourceKey, note.title, content, metadata, createdAt.getTime()) as
+        .run(
+          sourceKey,
+          note.title,
+          content,
+          metadata,
+          conversationId,
+          createdAt.getTime(),
+        ) as
         | { changes?: number; lastInsertRowid?: number | bigint }
         | undefined;
       if (Number(result?.changes ?? 0) > 0) {
@@ -275,16 +294,17 @@ export class DreamInboxStore {
     title: string | null;
     content: string;
     metadata: string | null;
+    conversationId?: string | null;
   }): void {
     this.db
       .prepare(
         `
         INSERT INTO dream_inbox (
           kind, source_key, thread_id, run_id, agent_type, title,
-          content, metadata, source_updated_at, processed_by_dream_at,
+          content, metadata, conversation_id, source_updated_at, processed_by_dream_at,
           usage_count, last_usage
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL)
         ON CONFLICT(kind, source_key) DO UPDATE SET
           thread_id = excluded.thread_id,
           run_id = excluded.run_id,
@@ -292,6 +312,7 @@ export class DreamInboxStore {
           title = excluded.title,
           content = excluded.content,
           metadata = excluded.metadata,
+          conversation_id = excluded.conversation_id,
           source_updated_at = excluded.source_updated_at,
           processed_by_dream_at = NULL
         `,
@@ -305,6 +326,7 @@ export class DreamInboxStore {
         args.title,
         args.content,
         args.metadata,
+        args.conversationId ?? null,
         Date.now(),
       );
   }
@@ -391,6 +413,120 @@ export class DreamInboxStore {
         `,
       )
       .run(args.frontier, args.completedAt ?? Date.now());
+  }
+
+  /** Persisted raw-message frontier covered by a completed shadow proposal. */
+  readDeltaWatermark(conversationId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT last_message_ts FROM dream_delta_watermark WHERE conversation_id = ?`,
+      )
+      .get(conversationId) as { last_message_ts?: number } | undefined;
+    const value = Number(row?.last_message_ts ?? 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+
+  /** Monotonic: a stale shadow completion cannot move coverage backwards. */
+  advanceDeltaWatermark(conversationId: string, lastMessageTs: number): void {
+    const id = conversationId.trim();
+    if (!id || !Number.isFinite(lastMessageTs) || lastMessageTs <= 0) return;
+    this.db
+      .prepare(
+        `
+        INSERT INTO dream_delta_watermark (
+          conversation_id, last_message_ts, applied_through_ts, updated_at
+        ) VALUES (?, ?, NULL, ?)
+        ON CONFLICT(conversation_id) DO UPDATE SET
+          last_message_ts = MAX(dream_delta_watermark.last_message_ts, excluded.last_message_ts),
+          updated_at = excluded.updated_at
+        `,
+      )
+      .run(id, Math.floor(lastMessageTs), Date.now());
+  }
+
+  /**
+   * Production delta consumption remains disabled. This separate field stays
+   * null/zero during shadow validation and prevents shadow coverage from ever
+   * being mistaken for an applied memory rewrite after a future promotion.
+   */
+  readAppliedThroughTs(conversationId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT applied_through_ts FROM dream_delta_watermark WHERE conversation_id = ?`,
+      )
+      .get(conversationId) as
+      | { applied_through_ts?: number | null }
+      | undefined;
+    const value = Number(row?.applied_through_ts ?? 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+
+  /**
+   * Phase two of report provenance. The agent_end hook creates an unstamped
+   * row; only the durable orchestrator-report branch calls this afterwards.
+   * Content and thread identity make stale/superseded events fail closed.
+   */
+  promoteThreadSummaryConversation(args: {
+    threadId: string;
+    conversationId: string;
+    rolloutSummary: string;
+  }): { updated: number } {
+    const conversationId = args.conversationId.trim();
+    const content = redactMemoryText(args.rolloutSummary.trim());
+    if (!conversationId || !content) return { updated: 0 };
+    const result = this.db
+      .prepare(
+        `
+        UPDATE dream_inbox
+        SET conversation_id = ?
+        WHERE kind = 'thread_summary'
+          AND thread_id = ?
+          AND conversation_id IS NULL
+          AND processed_by_dream_at IS NULL
+          AND content = ?
+        `,
+      )
+      .run(conversationId, args.threadId, content) as
+      | { changes?: number }
+      | undefined;
+    return { updated: Number(result?.changes ?? 0) };
+  }
+
+  readTokenBaseline(): number | null {
+    const row = this.db
+      .prepare(
+        `SELECT tokens_at_last_run FROM dream_scheduler_state WHERE id = 1`,
+      )
+      .get() as { tokens_at_last_run?: number } | undefined;
+    const value = Number(row?.tokens_at_last_run);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+
+  writeTokenBaseline(tokens: number): void {
+    if (!Number.isFinite(tokens) || tokens < 0) return;
+    this.db
+      .prepare(
+        `
+        INSERT INTO dream_scheduler_state (id, tokens_at_last_run, updated_at)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          tokens_at_last_run = excluded.tokens_at_last_run,
+          updated_at = excluded.updated_at
+        `,
+      )
+      .run(Math.floor(tokens), Date.now());
+  }
+
+  maxProcessedSourceUpdatedAtSince(sinceMs: number): number {
+    const row = this.db
+      .prepare(
+        `SELECT MAX(source_updated_at) AS frontier
+         FROM dream_inbox
+         WHERE processed_by_dream_at IS NOT NULL
+           AND processed_by_dream_at >= ?`,
+      )
+      .get(sinceMs) as { frontier?: number | null } | undefined;
+    return Number(row?.frontier ?? 0);
   }
 
   /** Stamp rows as consumed by Dream. Returns how many rows were updated. */

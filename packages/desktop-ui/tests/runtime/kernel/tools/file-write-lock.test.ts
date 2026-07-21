@@ -1,6 +1,6 @@
 import path from "node:path";
 import { promises as fsp } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -14,6 +14,7 @@ import {
   pendingFileWriteLockCount,
   withFileWriteLock,
   withFileWriteLocks,
+  writeFileAtomicWithVerify,
   writeFileWithNulGuard,
 } from "@stella/runtime/kernel/tools/file-write-lock";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
@@ -267,7 +268,9 @@ describe("writeFileWithNulGuard", () => {
       .spyOn(fsp, "writeFile")
       .mockImplementation(async (target, data, options) => {
         const payload =
-          target === filePath ? String(data) + "\u0000\u0000" : (data as string);
+          target === filePath
+            ? String(data) + "\u0000\u0000"
+            : (data as string);
         await realWriteFile(target, payload, options as never);
       });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -281,5 +284,34 @@ describe("writeFileWithNulGuard", () => {
       spy.mockRestore();
       errorSpy.mockRestore();
     }
+  });
+});
+
+describe("writeFileAtomicWithVerify", () => {
+  it("keeps the old target and cleans its temp when rename fails", async () => {
+    const dir = await createTempDir();
+    const filePath = path.join(dir, "atomic.txt");
+    await writeFile(filePath, "old bytes", "utf-8");
+    const rename = vi
+      .spyOn(fsp, "rename")
+      .mockRejectedValueOnce(new Error("simulated rename failure"));
+    try {
+      await expect(
+        writeFileAtomicWithVerify(filePath, "new bytes"),
+      ).rejects.toThrow("simulated rename failure");
+      expect(await readFile(filePath, "utf-8")).toBe("old bytes");
+      expect(
+        (await readdir(dir)).filter((name) => name.includes(".tmp-")),
+      ).toEqual([]);
+    } finally {
+      rename.mockRestore();
+    }
+  });
+
+  it("uses the UTF-8 on-disk intent for lone surrogate inputs", async () => {
+    const dir = await createTempDir();
+    const filePath = path.join(dir, "surrogate.txt");
+    await writeFileAtomicWithVerify(filePath, "before\ud83dafter");
+    expect(await readFile(filePath, "utf-8")).toBe("before�after");
   });
 });

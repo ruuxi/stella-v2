@@ -49,11 +49,16 @@ import type {
 } from "../../ai/types.js";
 import {
   ensureDreamMemoryLayout,
+  memoryFilePath,
+  memoryMapPath,
+  memoryShadowPath,
+  memoriesRoot,
   MEMORY_MAP_FILE,
   MEMORY_MAP_MAX_CHARS,
   MEMORY_MAP_MAX_ENTRIES,
   MEMORY_MAP_STALE_DAYS,
 } from "../memory/dream-storage.js";
+import { rotateMemoryFileIfNeeded } from "../memory/memory-rotation.js";
 import {
   getResolvedLlmApiKey,
   resolvedLlmSupportsCredentiallessCalls,
@@ -75,11 +80,35 @@ import {
   createSupervisedScope,
   type SupervisedScope,
 } from "../shared/supervised-scope.js";
+import { buildDurableMemoryReference } from "../thread-runtime.js";
+import {
+  appendToShadowLog,
+  buildDreamDeltaTranscript,
+  buildDreamShadowSystemPrompt,
+  buildDreamShadowUserPrompt,
+  DREAM_DELTA_LOAD_LIMIT,
+  formatShadowLogEntry,
+  shadowWindowIdentity,
+  type DreamDeltaSourceMessage,
+} from "./dream-delta.js";
+import {
+  canonicalFileWriteLockPath,
+  withFileWriteLock,
+  writeFileAtomicWithVerify,
+} from "../tools/file-write-lock.js";
 
 const logger = createRuntimeLogger("agent-runtime.dream-scheduler");
 
 const DEFAULT_TOKEN_INTERVAL = 20_000;
 const MAX_ITERATIONS = 12;
+
+/**
+ * Batch 6 rollout gates. Shadow validation is staged on; the production
+ * delta path is deliberately compile-time disabled and cannot be enabled by
+ * config until a later certified cutover batch changes this constant.
+ */
+export const DREAM_DELTA_SHADOW_DEFAULT_ENABLED = true;
+export const DREAM_PRODUCTION_DELTA_CUTOVER_ENABLED = false;
 
 /**
  * Supervising fiber scope per data dir. Recreated lazily after a shutdown so
@@ -115,6 +144,7 @@ export const shutdownDreamRuns = async (
 type DreamConfig = {
   enabled: boolean;
   tokenInterval: number;
+  deltaShadow: boolean;
 };
 
 type DreamRunOutcome = {
@@ -127,6 +157,7 @@ type DreamRuntimeState = {
   lastRunAt: number;
   /** Orchestrator token estimate captured at the last Dream run. */
   tokensAtLastRun: number;
+  baselineHydrated: boolean;
   /** Settled or live run handle; never rejects. */
   completion: Promise<DreamRunOutcome> | null;
 };
@@ -140,6 +171,7 @@ const stateFor = (stellaDataDir: string): DreamRuntimeState => {
       inFlight: false,
       lastRunAt: 0,
       tokensAtLastRun: 0,
+      baselineHydrated: false,
       completion: null,
     };
     RUNTIME_STATE.set(stellaDataDir, state);
@@ -149,6 +181,14 @@ const stateFor = (stellaDataDir: string): DreamRuntimeState => {
 
 const lockDir = (stellaDataDir: string): string =>
   path.join(stellaDataDir, "locks", "dream");
+
+const fileMtimeMs = (filePath: string): number => {
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch {
+    return 0;
+  }
+};
 
 const acquireLock = (stellaDataDir: string): (() => void) | null => {
   const dir = lockDir(stellaDataDir);
@@ -200,6 +240,59 @@ const readPendingFrontierSafe = (store: RuntimeStore): number => {
   }
 };
 
+const readProcessedFrontierSafe = (
+  store: RuntimeStore,
+  sinceMs: number,
+): number | null => {
+  try {
+    const value =
+      store.dreamInboxStore.maxProcessedSourceUpdatedAtSince(sinceMs);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  } catch {
+    return null;
+  }
+};
+
+const readDeltaWatermarkSafe = (
+  store: RuntimeStore,
+  conversationId: string,
+): number | null => {
+  try {
+    const value = store.dreamInboxStore.readDeltaWatermark(conversationId);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  } catch {
+    return null;
+  }
+};
+
+const advanceDeltaWatermarkSafe = (
+  store: RuntimeStore,
+  conversationId: string,
+  throughTs: number,
+): void => {
+  try {
+    store.dreamInboxStore.advanceDeltaWatermark(conversationId, throughTs);
+  } catch (error) {
+    logger.debug("dream.delta-watermark-write-failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+const loadRawOrchestratorMessagesSafe = (
+  store: RuntimeStore,
+  conversationId: string,
+): DreamDeltaSourceMessage[] => {
+  try {
+    return store.loadRawThreadMessagesWithEntryTypes(
+      conversationId,
+      DREAM_DELTA_LOAD_LIMIT,
+    );
+  } catch {
+    return [];
+  }
+};
+
 const readDreamConfig = (stellaDataDir: string): DreamConfig => {
   const configPath = path.join(stellaDataDir, "config.json");
   try {
@@ -216,11 +309,13 @@ const readDreamConfig = (stellaDataDir: string): DreamConfig => {
         typeof dream.tokenInterval === "number" && dream.tokenInterval > 0
           ? Math.floor(dream.tokenInterval)
           : DEFAULT_TOKEN_INTERVAL,
+      deltaShadow: dream.deltaShadow !== false,
     };
   } catch {
     return {
       enabled: true,
       tokenInterval: DEFAULT_TOKEN_INTERVAL,
+      deltaShadow: DREAM_DELTA_SHADOW_DEFAULT_ENABLED,
     };
   }
 };
@@ -236,6 +331,11 @@ export const buildDreamSystemPrompt = (stellaDataDir: string): string =>
       `Hard budget: at most ${MEMORY_MAP_MAX_ENTRIES} entries and ${MEMORY_MAP_MAX_CHARS} injected characters; both caps are mechanically enforced. Over-cap writes are rejected. On every pass, merge or prune entries older than ${MEMORY_MAP_STALE_DAYS} days unless current inbox usage_count/last_usage proves they remain useful.`,
       "Edit only between DREAM:MAP_START / DREAM:MAP_END and DREAM:DERIVED_START / DREAM:DERIVED_END with StrReplace. Prefer entries with higher usage_count or recent last_usage.",
       "Never put secrets, credentials, tokens, private keys, auth headers, or sensitive personal data in the map.",
+    ].join(" "),
+    [
+      "MEMORY.md lifecycle contract: supersede, don't append. Keep one active block per workstream and rewrite it in place as outcomes evolve.",
+      "Text removed from MEMORY.md is preserved automatically in memories/archive/MEMORY-superseded.md before the edit lands, so do not retain stale duplicate blocks as a backup.",
+      "The runtime rotates old dated blocks into quarterly memories/archive files when MEMORY.md exceeds its size threshold. Archive files are Recall-visible and read-only to you; never edit or delete them.",
     ].join(" "),
   ]
     .filter(Boolean)
@@ -478,6 +578,8 @@ export type SpawnDreamArgs = {
    * triggers, which run whenever anything is pending.
    */
   orchestratorTokenEstimate?: number;
+  /** Root orchestrator conversation whose raw durable delta is shadowed. */
+  conversationId?: string;
 };
 
 export type SpawnDreamResultReason =
@@ -552,9 +654,24 @@ export const maybeSpawnDreamRun = async (
   // baseline so growth is measured from the new floor rather than never
   // re-arming.
   if (args.trigger === "token_interval") {
+    if (!state.baselineHydrated) {
+      state.baselineHydrated = true;
+      try {
+        state.tokensAtLastRun =
+          args.store.dreamInboxStore.readTokenBaseline() ??
+          state.tokensAtLastRun;
+      } catch {
+        // Scheduling-only state; a missing baseline safely costs one pass.
+      }
+    }
     const estimate = args.orchestratorTokenEstimate;
     if (typeof estimate === "number" && estimate < state.tokensAtLastRun) {
       state.tokensAtLastRun = estimate;
+      try {
+        args.store.dreamInboxStore.writeTokenBaseline(estimate);
+      } catch {
+        // scheduling bookkeeping only
+      }
     }
     const growth =
       typeof estimate === "number" ? estimate - state.tokensAtLastRun : 0;
@@ -589,7 +706,10 @@ export const maybeSpawnDreamRun = async (
   state.inFlight = true;
 
   const controller = new AbortController();
+  const memoryMtimeBefore = fileMtimeMs(memoryFilePath(args.stellaDataDir));
+  const mapMtimeBefore = fileMtimeMs(memoryMapPath(args.stellaDataDir));
   const frontierAtStart = readPendingFrontierSafe(args.store);
+  const passStartedAt = Date.now();
   const completion = runDream({
     stellaDataDir: args.stellaDataDir,
     store: args.store,
@@ -602,14 +722,32 @@ export const maybeSpawnDreamRun = async (
       });
       return { completed: false };
     })
-    .then((outcome) => {
+    .then(async (outcome) => {
       if (outcome.completed && frontierAtStart > 0) {
+        const processedFrontier = readProcessedFrontierSafe(
+          args.store,
+          passStartedAt,
+        );
+        const advanceTo =
+          processedFrontier === null
+            ? frontierAtStart
+            : Math.min(frontierAtStart, processedFrontier);
         try {
-          args.store.dreamInboxStore.writeConsolidationWatermark({
-            frontier: frontierAtStart,
-          });
+          if (advanceTo > 0) {
+            args.store.dreamInboxStore.writeConsolidationWatermark({
+              frontier: advanceTo,
+            });
+          }
         } catch (error) {
           logger.debug("dream.watermark-write-failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        try {
+          const rotation = await rotateMemoryFileIfNeeded(args.stellaDataDir);
+          if (rotation) logger.info("dream.memory-rotation", rotation);
+        } catch (error) {
+          logger.warn("dream.memory-rotation-failed", {
             error: error instanceof Error ? error.message : String(error),
           });
         }
@@ -631,6 +769,22 @@ export const maybeSpawnDreamRun = async (
       state.lastRunAt = Date.now();
       if (typeof args.orchestratorTokenEstimate === "number") {
         state.tokensAtLastRun = args.orchestratorTokenEstimate;
+        try {
+          args.store.dreamInboxStore.writeTokenBaseline(
+            args.orchestratorTokenEstimate,
+          );
+        } catch {
+          // scheduling bookkeeping only
+        }
+      }
+      const memoryChanged =
+        fileMtimeMs(memoryFilePath(args.stellaDataDir)) !== memoryMtimeBefore;
+      const mapChanged =
+        fileMtimeMs(memoryMapPath(args.stellaDataDir)) !== mapMtimeBefore;
+      if (memoryChanged && !mapChanged) {
+        logger.warn("dream.memory-map.stale", {
+          detail: `Dream updated MEMORY.md without updating ${MEMORY_MAP_FILE}`,
+        });
       }
       release();
     });
@@ -644,11 +798,282 @@ export const maybeSpawnDreamRun = async (
     settled: completion,
   });
 
+  // Shadow-only staged delta: outside the live completion so compaction never
+  // waits on diagnostics. It starts only after a clean inbox pass and uses a
+  // separate supervised abort handle. The compile-time production cutover
+  // gate above remains false; no shadow proposal can mutate durable memory.
+  if (config.deltaShadow && args.conversationId) {
+    const shadowController = new AbortController();
+    const shadow = completion
+      .then(async (outcome) => {
+        if (!outcome.completed) return;
+        await runDreamDeltaShadow({
+          stellaDataDir: args.stellaDataDir,
+          store: args.store,
+          resolvedLlm: args.resolvedLlm,
+          conversationId: args.conversationId!,
+          liveMemoryChanged:
+            fileMtimeMs(memoryFilePath(args.stellaDataDir)) !==
+            memoryMtimeBefore,
+          liveMapChanged:
+            fileMtimeMs(memoryMapPath(args.stellaDataDir)) !== mapMtimeBefore,
+          abortSignal: shadowController.signal,
+        });
+      })
+      .catch((error) => {
+        logger.debug("dream.delta-shadow.spawn-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    dreamScopeFor(args.stellaDataDir).supervise({
+      label: "dream-delta-shadow",
+      abort: (reason) => shadowController.abort(reason),
+      settled: shadow,
+    });
+  }
+
   return {
     scheduled: true,
     reason: "scheduled",
     pendingItems,
   };
+};
+
+export type DreamShadowOutcome =
+  | "completed"
+  | "bootstrapped"
+  | "skipped_empty"
+  | "skipped_busy"
+  | "skipped_unsupported"
+  | "timed_out"
+  | "aborted"
+  | "failed";
+
+export const DREAM_SHADOW_TIMEOUT_MS = 180_000;
+const SHADOW_IN_FLIGHT = new Set<string>();
+
+const raceShadow = async <T>(args: {
+  promise: Promise<T>;
+  timeoutMs: number;
+  signal?: AbortSignal;
+}): Promise<T | "timed_out" | "aborted"> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const competitors: Array<Promise<T | "timed_out" | "aborted">> = [
+    args.promise,
+    new Promise<"timed_out">((resolve) => {
+      timer = setTimeout(() => resolve("timed_out"), args.timeoutMs);
+    }),
+  ];
+  if (args.signal) {
+    competitors.push(
+      new Promise<"aborted">((resolve) => {
+        if (args.signal?.aborted) return resolve("aborted");
+        onAbort = () => resolve("aborted");
+        args.signal?.addEventListener("abort", onAbort, { once: true });
+      }),
+    );
+  }
+  try {
+    return await Promise.race(competitors);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) args.signal?.removeEventListener("abort", onAbort);
+  }
+};
+
+/**
+ * Shadow validation only. It derives a bounded proposal from raw messages,
+ * atomically records it, and then advances coverage. The write-before-
+ * watermark order makes restart recovery at-least-once; a stable window
+ * identity makes the retry idempotent if the crash landed the log first.
+ */
+export const runDreamDeltaShadow = async (args: {
+  stellaDataDir: string;
+  store: RuntimeStore;
+  resolvedLlm: ResolvedLlmRoute;
+  conversationId: string;
+  liveMemoryChanged: boolean;
+  liveMapChanged: boolean;
+  timeoutMs?: number;
+  abortSignal?: AbortSignal;
+}): Promise<DreamShadowOutcome> => {
+  let scopeKey: string;
+  try {
+    scopeKey = fs.realpathSync(args.stellaDataDir);
+  } catch {
+    scopeKey = path.resolve(args.stellaDataDir);
+  }
+  if (SHADOW_IN_FLIGHT.has(scopeKey)) return "skipped_busy";
+  SHADOW_IN_FLIGHT.add(scopeKey);
+  try {
+    if (args.abortSignal?.aborted) return "aborted";
+    const watermark = readDeltaWatermarkSafe(args.store, args.conversationId);
+    if (watermark === null) return "skipped_unsupported";
+    const messages = loadRawOrchestratorMessagesSafe(
+      args.store,
+      args.conversationId,
+    );
+    if (messages.length === 0) return "skipped_empty";
+    if (watermark === 0) {
+      const bootstrap = buildDreamDeltaTranscript(messages, 0);
+      if (bootstrap.newestMessageTs > 0) {
+        advanceDeltaWatermarkSafe(
+          args.store,
+          args.conversationId,
+          bootstrap.newestMessageTs,
+        );
+      }
+      logger.info("dream.delta-shadow.bootstrapped", {
+        conversationId: args.conversationId,
+        watermark: bootstrap.newestMessageTs,
+      });
+      return "bootstrapped";
+    }
+
+    const delta = buildDreamDeltaTranscript(messages, watermark);
+    if (!delta.transcript || delta.coveredThroughTs <= watermark) {
+      return "skipped_empty";
+    }
+    const identity = shadowWindowIdentity({
+      conversationId: args.conversationId,
+      sinceTs: watermark,
+      coveredThroughTs: delta.coveredThroughTs,
+    });
+    const shadowPath = memoryShadowPath(args.stellaDataDir);
+    try {
+      const landed = await fs.promises.readFile(shadowPath, "utf-8");
+      if (landed.includes(identity)) {
+        advanceDeltaWatermarkSafe(
+          args.store,
+          args.conversationId,
+          delta.coveredThroughTs,
+        );
+        logger.info("dream.delta-shadow.recovered-landed-window", {
+          conversationId: args.conversationId,
+          watermarkTo: delta.coveredThroughTs,
+        });
+        return "completed";
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+
+    const useClaudeCode = shouldUseClaudeCodeAgentRuntime({
+      stellaAppDir: args.stellaDataDir,
+      modelId: args.resolvedLlm.model.id,
+    });
+    const apiKey = useClaudeCode
+      ? undefined
+      : await getResolvedLlmApiKey(args.resolvedLlm);
+    if (
+      !useClaudeCode &&
+      !apiKey &&
+      !resolvedLlmSupportsCredentiallessCalls(args.resolvedLlm)
+    ) {
+      return "failed";
+    }
+    const systemPrompt = buildDreamShadowSystemPrompt();
+    const messagesForModel: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: buildDreamShadowUserPrompt({
+              transcript: delta.transcript,
+              sinceIso: new Date(watermark).toISOString(),
+              alreadyKnown: buildDurableMemoryReference(args.stellaDataDir),
+            }),
+          },
+        ],
+        timestamp: Date.now(),
+      },
+    ];
+    const derive = async (): Promise<string> => {
+      if (useClaudeCode) {
+        return await runClaudeCodeAgentTextCompletion({
+          stellaAppDir: args.stellaDataDir,
+          agentType: AGENT_IDS.DREAM,
+          stellaModel: args.resolvedLlm.model.id,
+          ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
+          context: { systemPrompt, messages: messagesForModel, tools: [] },
+        });
+      }
+      const response = await completeSimple(
+        args.resolvedLlm.model,
+        { systemPrompt, messages: messagesForModel, tools: [] },
+        {
+          ...(apiKey ? { apiKey } : {}),
+          ...(args.abortSignal ? { signal: args.abortSignal } : {}),
+        },
+      );
+      if (response.stopReason !== "stop") {
+        throw new Error(`unclean shadow terminal: ${response.stopReason}`);
+      }
+      return readAssistantText(response);
+    };
+    const derivation = derive();
+    void derivation.catch(() => undefined);
+    const raced = await raceShadow({
+      promise: derivation,
+      timeoutMs: Math.max(1, args.timeoutMs ?? DREAM_SHADOW_TIMEOUT_MS),
+      ...(args.abortSignal ? { signal: args.abortSignal } : {}),
+    });
+    if (raced === "timed_out" || raced === "aborted") return raced;
+    if (!raced.trim()) return "failed";
+
+    const entry = formatShadowLogEntry({
+      nowIso: new Date().toISOString(),
+      conversationId: args.conversationId,
+      sinceTs: watermark,
+      coveredThroughTs: delta.coveredThroughTs,
+      includedMessages: delta.includedMessages,
+      transcriptChars: Array.from(delta.transcript).length,
+      truncated: delta.truncated,
+      liveMemoryChanged: args.liveMemoryChanged,
+      liveMapChanged: args.liveMapChanged,
+      proposal: raced,
+    });
+    await fs.promises.mkdir(memoriesRoot(args.stellaDataDir), {
+      recursive: true,
+    });
+    const lockPath = await canonicalFileWriteLockPath(shadowPath);
+    await withFileWriteLock(lockPath, async () => {
+      let existing: string | null = null;
+      try {
+        existing = await fs.promises.readFile(lockPath, "utf-8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (existing?.includes(identity)) return;
+      await writeFileAtomicWithVerify(
+        lockPath,
+        appendToShadowLog(existing, entry),
+      );
+    });
+    advanceDeltaWatermarkSafe(
+      args.store,
+      args.conversationId,
+      delta.coveredThroughTs,
+    );
+    logger.info("dream.delta-shadow.completed", {
+      conversationId: args.conversationId,
+      watermarkFrom: watermark,
+      watermarkTo: delta.coveredThroughTs,
+      includedMessages: delta.includedMessages,
+      truncated: delta.truncated,
+      productionCutover: DREAM_PRODUCTION_DELTA_CUTOVER_ENABLED,
+    });
+    return "completed";
+  } catch (error) {
+    logger.debug("dream.delta-shadow.failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return args.abortSignal?.aborted ? "aborted" : "failed";
+  } finally {
+    SHADOW_IN_FLIGHT.delete(scopeKey);
+  }
 };
 
 export const DREAM_PRE_COMPACTION_TIMEOUT_MS = 180_000;
@@ -713,6 +1138,7 @@ export const awaitPreCompactionConsolidation = async (args: {
   stellaDataDir: string;
   store: RuntimeStore;
   resolvedLlm: ResolvedLlmRoute;
+  conversationId?: string;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
 }): Promise<PreCompactionConsolidationResult> => {
@@ -767,6 +1193,7 @@ export const awaitPreCompactionConsolidation = async (args: {
         store: args.store,
         resolvedLlm: args.resolvedLlm,
         trigger: "pre_compaction",
+        ...(args.conversationId ? { conversationId: args.conversationId } : {}),
       });
       if (spawn.scheduled) {
         completion = state.completion;

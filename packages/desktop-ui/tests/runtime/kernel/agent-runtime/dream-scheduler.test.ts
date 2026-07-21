@@ -17,6 +17,7 @@ import type {
 import {
   awaitPreCompactionConsolidation,
   buildDreamSystemPrompt,
+  DREAM_PRODUCTION_DELTA_CUTOVER_ENABLED,
   maybeSpawnDreamRun,
 } from "@stella/runtime/kernel/agent-runtime/dream-scheduler";
 import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
@@ -156,6 +157,9 @@ describe("buildDreamSystemPrompt", () => {
     expect(prompt).toContain("higher usage_count or recent last_usage");
     expect(prompt).toContain("Never put secrets, credentials, tokens");
     expect(prompt).toContain("profile.md stays exclusively Remember-owned");
+    expect(prompt).toContain("supersede, don't append");
+    expect(prompt).toContain("MEMORY-superseded.md");
+    expect(DREAM_PRODUCTION_DELTA_CUTOVER_ENABLED).toBe(false);
   });
 });
 

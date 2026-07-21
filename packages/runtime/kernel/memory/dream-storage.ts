@@ -17,6 +17,8 @@ const logger = createRuntimeLogger("memory.dream-storage");
 
 export const MEMORY_FILE = "MEMORY.md";
 export const MEMORY_MAP_FILE = "memory_map.md";
+/** Shadow-only delta proposals. Never injected and never searched by Recall. */
+export const MEMORY_SHADOW_FILE = "memory_shadow.md";
 export const MEMORY_SUMMARY_FILE = "memory_summary.md";
 export const MEMORY_INDEX_FILE = "memory_index.md";
 
@@ -105,8 +107,10 @@ const MEMORY_TEMPLATE = `# MEMORY
 
 > Canonical task-group ledger maintained by the Dream agent. Newest blocks at
 > the top. Each block describes one cohesive task or thread the user has been
-> working on. Stale blocks (>30 days, superseded) are moved under the trailing
-> Archive heading instead of being deleted.
+> working on. Supersede, don't append: keep one active block per workstream
+> and rewrite it in place as outcomes change. Removed text is preserved in
+> archive/MEMORY-superseded.md. The runtime size-rotates old dated blocks into
+> quarterly files under archive/; neither Dream nor rotation deletes history.
 >
 > Schema for each block (do not break the format):
 >
@@ -226,6 +230,9 @@ export const memoryFilePath = (stellaDataDir: string): string =>
 
 export const memoryMapPath = (stellaDataDir: string): string =>
   path.join(memoriesRoot(stellaDataDir), MEMORY_MAP_FILE);
+
+export const memoryShadowPath = (stellaDataDir: string): string =>
+  path.join(memoriesRoot(stellaDataDir), MEMORY_SHADOW_FILE);
 
 /** Legacy paths are exposed only for migration and jail diagnostics. */
 export const memorySummaryPath = (stellaDataDir: string): string =>

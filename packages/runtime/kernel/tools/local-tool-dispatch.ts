@@ -23,6 +23,10 @@ import {
   unicodeCodePointLength,
 } from "../memory/dream-storage.js";
 import { redactMemoryText } from "../memory/redaction.js";
+import {
+  appendSupersededMemoryText,
+  memoryArchiveRoot,
+} from "../memory/memory-rotation.js";
 import type { DreamInboxStore } from "../memory/dream-inbox-store.js";
 import { localNoResponse } from "./local-tool-overrides.js";
 import { withFileWriteLock, writeFileWithNulGuard } from "./file-write-lock.js";
@@ -117,6 +121,16 @@ const ensureDreamWritePath = async (
   if (retiredFiles.includes(candidate)) {
     throw new Error(
       `${MEMORY_SUMMARY_FILE} and ${MEMORY_INDEX_FILE} are retired and read-only; edit ${MEMORY_MAP_FILE} instead.`,
+    );
+  }
+  if (
+    isWithinDirectory(
+      candidate,
+      path.resolve(memoryArchiveRoot(dream.stellaDataDir)),
+    )
+  ) {
+    throw new Error(
+      "Files under memories/archive are runtime-owned preservation output and read-only to Dream. Edit MEMORY.md; removed text is journaled automatically.",
     );
   }
   throw new Error(
@@ -307,6 +321,28 @@ export async function dispatchLocalTool(
             return {
               handled: true,
               text: JSON.stringify({ success: false, error: rejection }),
+            };
+          }
+        }
+        if (
+          deps.dream &&
+          resolvedPath ===
+            (await normalizePath(memoryFilePath(deps.dream.stellaDataDir))) &&
+          oldString.trim() &&
+          !updated.includes(oldString)
+        ) {
+          try {
+            await appendSupersededMemoryText(
+              deps.dream.stellaDataDir,
+              oldString,
+            );
+          } catch (error) {
+            return {
+              handled: true,
+              text: JSON.stringify({
+                success: false,
+                error: `Write rejected: removed MEMORY.md text could not be preserved (${error instanceof Error ? error.message : String(error)}). Nothing was written.`,
+              }),
             };
           }
         }

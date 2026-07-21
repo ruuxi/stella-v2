@@ -910,6 +910,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       title TEXT,
       content TEXT NOT NULL,
       metadata TEXT,
+      conversation_id TEXT,
       source_updated_at INTEGER NOT NULL,
       processed_by_dream_at INTEGER,
       usage_count INTEGER NOT NULL DEFAULT 0,
@@ -917,6 +918,14 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       UNIQUE (kind, source_key)
     );
   `);
+  // Existing databases predate report provenance. Legacy NULL rows remain on
+  // Dream's model-driven inbox path; only post-persistence promotion stamps a
+  // conversation, so migration cannot authorize mechanical consumption.
+  try {
+    db.exec("ALTER TABLE dream_inbox ADD COLUMN conversation_id TEXT;");
+  } catch {
+    // Column already exists.
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_dream_inbox_unprocessed
     ON dream_inbox(processed_by_dream_at, source_updated_at);
@@ -930,6 +939,28 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       frontier INTEGER NOT NULL,
       completed_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dream_delta_watermark (
+      conversation_id TEXT PRIMARY KEY,
+      last_message_ts INTEGER NOT NULL,
+      applied_through_ts INTEGER,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  try {
+    db.exec(
+      "ALTER TABLE dream_delta_watermark ADD COLUMN applied_through_ts INTEGER;",
+    );
+  } catch {
+    // Column already exists.
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dream_scheduler_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      tokens_at_last_run INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     );
   `);
 };

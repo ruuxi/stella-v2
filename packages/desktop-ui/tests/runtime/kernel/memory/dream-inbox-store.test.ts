@@ -363,6 +363,70 @@ describe("DreamInboxStore", () => {
     }
   });
 
+  it("persists shadow watermarks and promotes report provenance only after an exact live row", () => {
+    const { rootPath, store } = createTestContext();
+    store.recordThreadSummary({
+      threadId: "thread-promote",
+      runId: "run-1",
+      agentType: "general",
+      rolloutSummary: "Exact terminal report",
+    });
+    expect(store.listUnprocessed()[0]?.conversationId).toBeNull();
+    expect(
+      store.promoteThreadSummaryConversation({
+        threadId: "thread-promote",
+        conversationId: "conv-wrong",
+        rolloutSummary: "Different report",
+      }).updated,
+    ).toBe(0);
+    expect(
+      store.promoteThreadSummaryConversation({
+        threadId: "thread-promote",
+        conversationId: "conv-1",
+        rolloutSummary: "Exact terminal report",
+      }).updated,
+    ).toBe(1);
+    expect(store.listUnprocessed()[0]?.conversationId).toBe("conv-1");
+
+    store.advanceDeltaWatermark("conv-1", 400);
+    store.advanceDeltaWatermark("conv-1", 250);
+    store.writeTokenBaseline(12_000);
+    const reloadedDb = new DatabaseSync(getDesktopDatabasePath(rootPath), {
+      timeout: 5_000,
+    }) as unknown as SqliteDatabase;
+    try {
+      initializeDesktopDatabase(reloadedDb);
+      const reloaded = new DreamInboxStore(reloadedDb);
+      expect(reloaded.readDeltaWatermark("conv-1")).toBe(400);
+      expect(reloaded.readAppliedThroughTs("conv-1")).toBe(0);
+      expect(reloaded.readTokenBaseline()).toBe(12_000);
+    } finally {
+      reloadedDb.close();
+    }
+  });
+
+  it("refuses stale promotion after a row was processed", () => {
+    const { store } = createTestContext();
+    store.recordThreadSummary({
+      threadId: "thread-stale",
+      runId: "run-stale",
+      agentType: "general",
+      rolloutSummary: "Stale report",
+    });
+    const [row] = store.listUnprocessed();
+    store.markProcessed({ ids: [row!.id] });
+    expect(
+      store.promoteThreadSummaryConversation({
+        threadId: "thread-stale",
+        conversationId: "conv-late",
+        rolloutSummary: "Stale report",
+      }).updated,
+    ).toBe(0);
+    expect(
+      store.findThreadSummariesByThreadIds(["thread-stale"])[0],
+    ).toMatchObject({ conversationId: null });
+  });
+
   it("garbage-collects only old consumed unused non-Chronicle rows", () => {
     const { store } = createTestContext();
     const day = 24 * 60 * 60 * 1_000;

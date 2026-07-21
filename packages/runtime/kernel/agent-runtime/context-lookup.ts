@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 
@@ -564,32 +565,56 @@ type MemoryFileSource = {
   stripInjectedComments?: boolean;
 };
 
-const MEMORY_FILE_SOURCES = (stellaDataDir: string): MemoryFileSource[] => [
-  {
-    displayPath: "~/.stella/memories/memory_map.md",
-    path: path.join(stellaDataDir, "memories", "memory_map.md"),
-    includeByDefault: true,
-    stripInjectedComments: true,
-  },
-  {
-    displayPath: "~/.stella/memories/MEMORY.md",
-    path: path.join(stellaDataDir, "memories", "MEMORY.md"),
-    includeByDefault: true,
-  },
-];
+const listMemoryFileSources = async (
+  stellaDataDir: string,
+): Promise<MemoryFileSource[]> => {
+  const root = path.join(stellaDataDir, "memories");
+  const sources: MemoryFileSource[] = [
+    {
+      displayPath: "~/.stella/memories/memory_map.md",
+      path: path.join(root, "memory_map.md"),
+      includeByDefault: true,
+      stripInjectedComments: true,
+    },
+    {
+      displayPath: "~/.stella/memories/MEMORY.md",
+      path: path.join(root, "MEMORY.md"),
+      includeByDefault: true,
+    },
+    {
+      displayPath: "~/.stella/memories/profile.md",
+      path: path.join(root, "profile.md"),
+      includeByDefault: true,
+      stripInjectedComments: true,
+    },
+  ];
+  const archiveDir = path.join(root, "archive");
+  try {
+    for (const entry of (await fs.readdir(archiveDir, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .sort((left, right) => left.name.localeCompare(right.name))) {
+      sources.push({
+        displayPath: `~/.stella/memories/archive/${entry.name}`,
+        path: path.join(archiveDir, entry.name),
+        includeByDefault: false,
+      });
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return sources;
+};
 
 const readMemoryFiles = async (
   stellaDataDir: string,
   opts?: { hasSearchTerms?: boolean },
 ): Promise<string> => {
-  const files = [
-    ...MEMORY_FILE_SOURCES(stellaDataDir).filter(
-      (file) =>
-        file.includeByDefault &&
-        (!opts?.hasSearchTerms ||
-          file.displayPath !== "~/.stella/memories/MEMORY.md"),
-    ),
-  ];
+  const files = (await listMemoryFileSources(stellaDataDir)).filter(
+    (file) =>
+      file.includeByDefault &&
+      (!opts?.hasSearchTerms ||
+        file.displayPath !== "~/.stella/memories/MEMORY.md"),
+  );
   const blocks: string[] = [];
   for (const file of files) {
     const content = await readOptionalTextFile(file.path);
@@ -683,7 +708,7 @@ const readMemorySearchResults = async (
   let matchCount = 0;
   let truncated = false;
 
-  for (const file of MEMORY_FILE_SOURCES(stellaDataDir)) {
+  for (const file of await listMemoryFileSources(stellaDataDir)) {
     const raw = await readOptionalTextFile(file.path);
     // Blanking rather than stripping preserves physical line numbers for
     // follow-up reads while excluding charter/anchor prose from matching.
@@ -1531,8 +1556,7 @@ const runArchitecturalRecall = async (args: {
   const intentDecision = classifyRecallIntent(args.lookupPrompt);
   const intent = intentDecision.intent;
   const bareRepoLookup = isBareRepoLookup(args.lookupPrompt);
-  const classificationRequiresSynthesis =
-    !intentDecision.deterministicFastPath;
+  const classificationRequiresSynthesis = !intentDecision.deterministicFastPath;
   let synthesisRequired = classificationRequiresSynthesis;
   args.telemetry.setIntent(intent, intentDecision.deterministicFastPath);
   const useClaudeCode = args.recallRoute.executionEngine === "claude-code";

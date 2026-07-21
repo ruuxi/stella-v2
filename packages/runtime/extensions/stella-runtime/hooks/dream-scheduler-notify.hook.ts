@@ -57,9 +57,8 @@ export const createDreamSchedulerNotifyHook = (opts: {
     const trigger = compactionImminent ? "pre_compaction" : "token_interval";
 
     try {
-      const { maybeSpawnDreamRun } = await import(
-        "../../../kernel/agent-runtime/dream-scheduler.js"
-      );
+      const { maybeSpawnDreamRun } =
+        await import("../../../kernel/agent-runtime/dream-scheduler.js");
       void maybeSpawnDreamRun({
         stellaDataDir: opts.stellaDataDir,
         store: opts.store,
@@ -67,6 +66,9 @@ export const createDreamSchedulerNotifyHook = (opts: {
         trigger,
         ...(typeof tokenEstimate === "number"
           ? { orchestratorTokenEstimate: tokenEstimate }
+          : {}),
+        ...(payload.conversationId
+          ? { conversationId: payload.conversationId }
           : {}),
       }).catch((error) => {
         logger.debug("dream-scheduler.notify-failed", {

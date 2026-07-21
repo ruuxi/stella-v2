@@ -377,7 +377,9 @@ const runReview = async (args: {
   }
 
   try {
-    const written = args.store.dreamInboxStore.recordMemoryNote(candidate);
+    const written = args.store.dreamInboxStore.recordMemoryNote(candidate, {
+      conversationId: args.conversationId,
+    });
     logger.debug("memory-review.completed.candidate-written", {
       inboxId: written.id,
       title: candidate.title,

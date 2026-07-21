@@ -522,12 +522,22 @@ export const createRuntimeInitialization = (
     // Give in-flight background compactions their historical 5s grace to
     // finish SQLite writes, then interrupt whatever remains and join it —
     // an interrupted compaction aborts its LLM call and skips its store
-    // write, so nothing races the store handle teardown.
+    // write, so nothing races the store handle teardown. The scheduler and
+    // Dream joins run in parallel (independent subsystems) and are BOUNDED:
+    // a wedged LLM promise that ignores its abort must not hang worker
+    // stop; past the bound its store writes are already fenced off by the
+    // abort signal.
     await drainCompactionsWithTimeout();
-    await context.state.compactionScheduler.shutdown();
-    // Interrupt and join any in-flight Dream run: its lock directory and
-    // in-flight flag are released before the worker exits.
-    await shutdownDreamRuns(context.stellaDataDir);
+    await Promise.all([
+      joinWithTimeout(context.state.compactionScheduler.shutdown(), 10_000, () =>
+        logger.warn("runner.stop.compaction-shutdown-timeout", {}),
+      ),
+      // Interrupt and join any in-flight Dream run: its lock directory and
+      // in-flight flag are released before the worker exits.
+      joinWithTimeout(shutdownDreamRuns(context.stellaDataDir), 10_000, () =>
+        logger.warn("runner.stop.dream-shutdown-timeout", {}),
+      ),
+    ]);
   };
 
   return {

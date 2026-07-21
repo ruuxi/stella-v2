@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { StringDecoder } from "node:string_decoder";
 import crypto from "crypto";
 import fs from "fs";
 import os from "os";
@@ -493,6 +494,12 @@ type PendingClaudeCodePrompt = {
 type ClaudeCodeStreamingProcess = {
   child: ChildProcessWithoutNullStreams;
   stdoutBuffer: string;
+  /**
+   * Stateful UTF-8 decoder for stdout chunking: a multi-byte character
+   * split across chunk boundaries must not be corrupted into U+FFFD
+   * (plain `chunk.toString("utf8")` decodes each chunk independently).
+   */
+  stdoutDecoder: StringDecoder;
   stderrText: string;
   finalSessionId: string;
   pending: PendingClaudeCodePrompt[];
@@ -2125,6 +2132,7 @@ class ClaudeCodeSessionRuntime {
     const processState: ClaudeCodeStreamingProcess = {
       child,
       stdoutBuffer: "",
+      stdoutDecoder: new StringDecoder("utf8"),
       stderrText: "",
       finalSessionId: session.sessionId,
       pending: [],
@@ -2287,7 +2295,7 @@ class ClaudeCodeSessionRuntime {
     };
 
     child.stdout.on("data", (chunk: Buffer) => {
-      processState.stdoutBuffer += chunk.toString("utf8");
+      processState.stdoutBuffer += processState.stdoutDecoder.write(chunk);
       refreshPendingIdleTimers(true);
       consumeStdout(false);
     });

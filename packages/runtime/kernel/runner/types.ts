@@ -553,6 +553,7 @@ export type RunnerPublicApi = {
       | "scheduled"
       | "disabled"
       | "in_flight"
+      | "shutting_down"
       | "count_failed"
       | "no_inputs"
       | "below_threshold"

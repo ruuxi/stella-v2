@@ -183,29 +183,8 @@ export const createSupervisedScope = (label: string): SupervisedScope => {
   };
 };
 
-/**
- * Bounded join for shutdown paths. Interruption is always delivered first by
- * the caller (via `SupervisedScope.close`); this only caps how long we wait
- * for a wedged native promise that no JavaScript runtime can force-kill.
- * Returns `"joined"` when the promise settled in time, `"timeout"` otherwise.
- */
-export const joinWithTimeout = async (
-  promise: Promise<unknown>,
-  timeoutMs: number,
-  onTimeout?: () => void,
-): Promise<"joined" | "timeout"> => {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const result = await Promise.race([
-      settleSilently(promise).then(() => "joined" as const),
-      new Promise<"timeout">((resolve) => {
-        timer = setTimeout(() => resolve("timeout"), timeoutMs);
-        timer.unref?.();
-      }),
-    ]);
-    if (result === "timeout") onTimeout?.();
-    return result;
-  } finally {
-    if (timer !== null) clearTimeout(timer);
-  }
-};
+// Bounded shutdown join. Implementation lives in the Effect-free
+// `join-timeout.ts` so the fenced tools tree can consume it without
+// importing an effect-bearing module; re-exported here for the
+// supervision-side callers.
+export { joinWithTimeout } from "./join-timeout.js";

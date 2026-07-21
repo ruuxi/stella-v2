@@ -718,27 +718,35 @@ const truncateStderr = (chunks: Buffer[]): string => {
   return text.slice(text.length - MAX_STDERR_CAPTURE);
 };
 
+/**
+ * True only when the child has actually terminated. `child.killed` is
+ * "a signal was SENT", not "the process died" — using it as a ladder
+ * guard made SIGTERM/SIGKILL unreachable after the SIGINT in
+ * `abortCodexProcess`, so a signal-ignoring app-server survived.
+ */
+const codexProcessIsDead = (child: ChildProcessWithoutNullStreams): boolean =>
+  child.exitCode !== null || child.signalCode !== null;
+
 const killCodexProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (child.killed || child.exitCode !== null) return;
+  if (codexProcessIsDead(child)) return;
   try {
     child.kill("SIGTERM");
   } catch {
     // Process may have already exited.
   }
   const sigkillTimer = setTimeout(() => {
-    if (!child.killed && child.exitCode === null) {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // Process may have already exited.
-      }
+    if (codexProcessIsDead(child)) return;
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Process may have already exited.
     }
   }, SIGKILL_TIMEOUT_MS);
   child.once("exit", () => clearTimeout(sigkillTimer));
 };
 
 const abortCodexProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (child.killed || child.exitCode !== null) return;
+  if (codexProcessIsDead(child)) return;
   try {
     child.kill("SIGINT");
   } catch {
@@ -1021,7 +1029,14 @@ class CodexAppServerClient {
   }
 
   isClosed(): boolean {
-    return Boolean(this.closedError);
+    // A signaled (dying) child counts as closed for reuse: the shared
+    // client must not accept new work while the kill ladder tears the
+    // app-server down.
+    return (
+      Boolean(this.closedError) ||
+      this.child.killed ||
+      codexProcessIsDead(this.child)
+    );
   }
 
   async initialize(): Promise<void> {

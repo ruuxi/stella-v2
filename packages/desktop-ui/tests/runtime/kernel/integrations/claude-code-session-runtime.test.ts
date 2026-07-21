@@ -2322,6 +2322,129 @@ describe("claude-code-session-runtime", () => {
     }
   });
 
+  it(
+    "escalates the kill ladder to SIGKILL for a signal-ignoring CLI",
+    { timeout: 20_000 },
+    async () => {
+      const dir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "stella-fake-claude-ignore-signals-"),
+      );
+      const binDir = path.join(dir, "bin");
+      const logPath = path.join(dir, "signals.log");
+      fs.mkdirSync(binDir, { recursive: true });
+      const fakeClaude = path.join(binDir, "claude");
+      // Traps SIGINT and SIGTERM without exiting: only the SIGKILL rung can
+      // reap it. Before the ladder guards used real terminal state
+      // (exitCode/signalCode instead of child.killed), the first signal
+      // marked the child "killed" and every later rung was skipped — this
+      // process survived cancellation forever.
+      fs.writeFileSync(
+        fakeClaude,
+        [
+          "#!/usr/bin/env node",
+          "const fs = require('node:fs');",
+          "const logPath = process.env.STELLA_FAKE_CLAUDE_LOG;",
+          "const log = (event) => fs.appendFileSync(logPath, JSON.stringify({ event, pid: process.pid }) + '\\n');",
+          "log('spawned');",
+          "process.on('SIGINT', () => log('sigint-ignored'));",
+          "process.on('SIGTERM', () => log('sigterm-ignored'));",
+          "process.stdin.on('data', () => {",
+          "  log('prompt');",
+          "  process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'stubborn-session' }) + '\\n');",
+          "});",
+          "setInterval(() => {}, 1000);",
+        ].join("\n"),
+      );
+      fs.chmodSync(fakeClaude, 0o755);
+      const previousPath = process.env.PATH;
+      const previousLogPath = process.env.STELLA_FAKE_CLAUDE_LOG;
+      process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+      process.env.STELLA_FAKE_CLAUDE_LOG = logPath;
+      const readEvents = () =>
+        fs.existsSync(logPath)
+          ? fs
+              .readFileSync(logPath, "utf8")
+              .trim()
+              .split("\n")
+              .filter(Boolean)
+              .map((line) => JSON.parse(line) as { event: string; pid: number })
+          : [];
+      const pidAlive = (pid: number) => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      try {
+        const controller = new AbortController();
+        const turn = runClaudeCodeTurn({
+          runId: "run-stubborn",
+          sessionKey: `test:stubborn:${Date.now()}`,
+          prompt: "Start.",
+          modelId: "claude-code/default",
+          tools: [],
+          abortSignal: controller.signal,
+          executeTool: async () => ({ result: "unused" }),
+        });
+        await new Promise<void>((resolve, reject) => {
+          const startedAt = Date.now();
+          const poll = () => {
+            if (readEvents().some((entry) => entry.event === "prompt")) {
+              resolve();
+              return;
+            }
+            if (Date.now() - startedAt > 3_000) {
+              reject(new Error("Fake Claude did not receive the prompt."));
+              return;
+            }
+            setTimeout(poll, 10);
+          };
+          poll();
+        });
+        const pid = readEvents()[0]!.pid;
+        expect(pidAlive(pid)).toBe(true);
+
+        controller.abort();
+        await expect(turn).rejects.toThrow();
+
+        // SIGINT (ignored) → 1.5s → SIGTERM (ignored) → 4s → SIGKILL:
+        // the process must actually die, and the trap log proves the
+        // intermediate rungs really fired.
+        await new Promise<void>((resolve, reject) => {
+          const startedAt = Date.now();
+          const poll = () => {
+            if (!pidAlive(pid)) {
+              resolve();
+              return;
+            }
+            if (Date.now() - startedAt > 12_000) {
+              reject(
+                new Error("Signal-ignoring fake Claude survived the ladder."),
+              );
+              return;
+            }
+            setTimeout(poll, 50);
+          };
+          poll();
+        });
+        const events = readEvents().map((entry) => entry.event);
+        expect(events).toContain("sigint-ignored");
+        expect(events).toContain("sigterm-ignored");
+      } finally {
+        shutdownClaudeCodeRuntime();
+        process.env.PATH = previousPath;
+        if (previousLogPath === undefined) {
+          delete process.env.STELLA_FAKE_CLAUDE_LOG;
+        } else {
+          process.env.STELLA_FAKE_CLAUDE_LOG = previousLogPath;
+        }
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("fails a silent Claude Code process instead of hanging", async () => {
     const dir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-fake-claude-silent-"),

@@ -746,8 +746,18 @@ const configuredTimeoutMs = (envName: string, fallbackMs: number): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
 };
 
+/**
+ * True only when the child has actually terminated. `child.killed` must
+ * NOT be used for ladder guards: it flips true as soon as any signal was
+ * SENT, which previously made every later rung unreachable — after the
+ * SIGINT in `abortProcess`, neither SIGTERM nor SIGKILL could ever fire,
+ * so a signal-ignoring CLI survived cancellation.
+ */
+const processIsDead = (child: ChildProcessWithoutNullStreams): boolean =>
+  child.exitCode !== null || child.signalCode !== null;
+
 const killProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (child.killed || child.exitCode !== null) return;
+  if (processIsDead(child)) return;
   try {
     child.kill("SIGTERM");
   } catch {
@@ -755,12 +765,11 @@ const killProcess = (child: ChildProcessWithoutNullStreams) => {
   }
 
   const sigkillTimer = setTimeout(() => {
-    if (!child.killed && child.exitCode === null) {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // Process may have already exited.
-      }
+    if (processIsDead(child)) return;
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Process may have already exited.
     }
   }, SIGKILL_TIMEOUT_MS);
 
@@ -768,7 +777,7 @@ const killProcess = (child: ChildProcessWithoutNullStreams) => {
 };
 
 const abortProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (child.killed || child.exitCode !== null) return;
+  if (processIsDead(child)) return;
   try {
     child.kill("SIGINT");
   } catch {
@@ -2043,7 +2052,18 @@ class ClaudeCodeSessionRuntime {
       effectiveSystemPrompt,
       mcpHost,
     );
-    if (session.process && !session.process.closed) {
+    if (
+      session.process &&
+      !session.process.closed &&
+      // Dying-process fence: a child that has been signaled (`killed` is
+      // "signal sent") or already terminated must never take new prompts —
+      // a late reuse would write into a process the kill ladder is tearing
+      // down. Its exit handler rejects the pendings and clears
+      // `session.process`; respawning below (same resume id) is the
+      // correct successor.
+      !session.process.child.killed &&
+      !processIsDead(session.process.child)
+    ) {
       if (session.process.launchConfig === launchConfig) {
         return session.process;
       }

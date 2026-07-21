@@ -4,9 +4,15 @@ import { BIRTH_DURATION, FLASH_DURATION, parseColor } from "./glyph-atlas";
 import { resolveCreatureSpec } from "./creature-spec";
 import {
   acquireCreatureRenderer,
+  discardCreatureRenderer,
   releaseCreatureRenderer,
 } from "./renderer-pool";
 import { computeAnalyserEnergy } from "@/features/voice/services/audio-energy";
+import { useContinuousAnimationGate } from "@/shared/hooks/use-continuous-animation-gate";
+import {
+  createDemandDrivenAnimationLoop,
+  type DemandDrivenAnimationLoop,
+} from "@/shared/lib/demand-driven-animation-loop";
 
 /** Reusable buffer for frequency data — avoids per-frame allocation. */
 let energyBuffer: Uint8Array | null = null;
@@ -45,6 +51,8 @@ interface StellaAnimationProps {
   paused?: boolean;
   maxDpr?: number;
   frameSkip?: number;
+  maxFps?: number;
+  requireWindowFocus?: boolean;
   voiceMode?: VoiceMode;
   isUserSpeaking?: boolean;
   analyserRef?: React.RefObject<AnalyserNode | null>;
@@ -67,6 +75,8 @@ export const StellaAnimation = React.forwardRef<
       paused = false,
       maxDpr,
       frameSkip = 0,
+      maxFps,
+      requireWindowFocus = false,
       voiceMode = "idle",
       isUserSpeaking = false,
       analyserRef: externalAnalyserRef,
@@ -84,12 +94,15 @@ export const StellaAnimation = React.forwardRef<
     const mediumRef = useRef<HTMLSpanElement>(null);
     const brightRef = useRef<HTMLSpanElement>(null);
     const brightestRef = useRef<HTMLSpanElement>(null);
-    const [documentHidden, setDocumentHidden] = useState(() =>
-      typeof document === "undefined" ? false : document.hidden,
-    );
-    const effectivePaused = paused || documentHidden;
-    const requestRef = useRef<number | undefined>(undefined);
-    const animateRef = useRef<(() => void) | null>(null);
+    const animationGateOpen = useContinuousAnimationGate({
+      active: !paused,
+      elementRef: containerRef,
+      requireWindowFocus,
+    });
+    const effectivePaused = paused || !animationGateOpen;
+    const [rendererEpoch, setRendererEpoch] = useState(0);
+    const loopRef = useRef<DemandDrivenAnimationLoop | null>(null);
+    const renderStaticRef = useRef<(() => void) | null>(null);
     const pausedRef = useRef(effectivePaused);
     const timeRef = useRef<number>(0);
     const lastFrameTimeRef = useRef<number>(0);
@@ -116,6 +129,7 @@ export const StellaAnimation = React.forwardRef<
     const externalOutputLevelValueRef = useRef<number | undefined>(
       externalOutputLevel,
     );
+    const resolvedMaxFps = maxFps ?? 60 / (Math.max(0, frameSkip) + 1);
 
     useImperativeHandle(
       ref,
@@ -168,31 +182,14 @@ export const StellaAnimation = React.forwardRef<
     }, [externalOutputLevel]);
 
     useEffect(() => {
-      const handleVisibilityChange = () => {
-        setDocumentHidden(document.hidden);
-      };
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-      return () => {
-        document.removeEventListener(
-          "visibilitychange",
-          handleVisibilityChange,
-        );
-      };
-    }, []);
-
-    useEffect(() => {
       pausedRef.current = effectivePaused;
       if (effectivePaused) {
-        if (requestRef.current) {
-          cancelAnimationFrame(requestRef.current);
-          requestRef.current = undefined;
-        }
+        loopRef.current?.stop();
         lastFrameTimeRef.current = 0;
+        renderStaticRef.current?.();
         return;
       }
-      if (!requestRef.current && animateRef.current) {
-        requestRef.current = requestAnimationFrame(animateRef.current);
-      }
+      loopRef.current?.start();
     }, [effectivePaused]);
 
     useEffect(() => {
@@ -214,7 +211,10 @@ export const StellaAnimation = React.forwardRef<
       };
 
       const spec = resolveCreatureSpec(container, { width, height, maxDpr });
-      if (!spec) return;
+      if (!spec) {
+        container.dataset.rendererState = "fallback";
+        return;
+      }
 
       // Borrow a warm GL context + compiled program from the pool (or create
       // one on the very first appearance for this size). This is what keeps
@@ -226,30 +226,46 @@ export const StellaAnimation = React.forwardRef<
         birthRef.current,
         flashRef.current,
       );
-      if (!pooled) return;
+      if (!pooled) {
+        container.dataset.rendererState = "fallback";
+        return;
+      }
       container.appendChild(pooled.canvas);
+      container.dataset.rendererState = "webgl";
       const mainRenderer = pooled.renderer;
+      let rendererFailed = false;
+      let loop: DemandDrivenAnimationLoop | null = null;
 
-      let frameCount = 0;
+      const failRenderer = () => {
+        if (rendererFailed) return;
+        rendererFailed = true;
+        loop?.stop();
+        lastFrameTimeRef.current = 0;
+        container.dataset.rendererState = "fallback";
+      };
 
-      const animate = () => {
+      const safeRender = (...args: Parameters<typeof mainRenderer.render>) => {
+        if (rendererFailed) return false;
+        try {
+          mainRenderer.render(...args);
+          return true;
+        } catch {
+          failRenderer();
+          return false;
+        }
+      };
+
+      const animate = (now: number) => {
         if (pausedRef.current) {
-          requestRef.current = undefined;
           lastFrameTimeRef.current = 0;
           return;
         }
-        const now = performance.now();
         const dt =
           lastFrameTimeRef.current > 0
             ? Math.min(now - lastFrameTimeRef.current, 100)
             : 16.667;
         lastFrameTimeRef.current = now;
         timeRef.current += (dt / 1000) * TIME_RATE;
-
-        if (frameSkip > 0 && ++frameCount % (frameSkip + 1) !== 0) {
-          requestRef.current = requestAnimationFrame(animate);
-          return;
-        }
 
         const birthAnimation = birthAnimationRef.current;
         if (birthAnimation) {
@@ -366,7 +382,7 @@ export const StellaAnimation = React.forwardRef<
         if (rawEnergy === 0 && voiceEnergyRef.current < 0.005)
           voiceEnergyRef.current = 0;
 
-        mainRenderer.render(
+        safeRender(
           timeRef.current,
           birthRef.current,
           flashRef.current,
@@ -374,40 +390,75 @@ export const StellaAnimation = React.forwardRef<
           speakingRef.current,
           voiceEnergyRef.current,
         );
-        requestRef.current = requestAnimationFrame(animate);
       };
 
-      animateRef.current = animate;
-      // Always render one initial frame so paused mode shows the creature
-      mainRenderer.render(
-        timeRef.current,
-        birthRef.current,
-        flashRef.current,
-        0,
-        0,
-        0,
+      const renderStatic = () =>
+        safeRender(
+          timeRef.current,
+          birthRef.current,
+          flashRef.current,
+          0,
+          0,
+          0,
+        );
+      loop = createDemandDrivenAnimationLoop({
+        maxFramesPerSecond: resolvedMaxFps,
+        onFrame: animate,
+      });
+      loopRef.current = loop;
+      renderStaticRef.current = renderStatic;
+
+      const handleContextLost = (event: Event) => {
+        event.preventDefault();
+        failRenderer();
+      };
+      const handleContextRestored = () => {
+        if (rendererFailed) setRendererEpoch((value) => value + 1);
+      };
+      pooled.canvas.addEventListener("webglcontextlost", handleContextLost);
+      pooled.canvas.addEventListener(
+        "webglcontextrestored",
+        handleContextRestored,
       );
+
+      // Paused/reduced-motion/fallback mode still gets one useful frame.
+      renderStatic();
       if (!pausedRef.current) {
-        requestRef.current = requestAnimationFrame(animate);
+        loop.start();
       }
 
-      const observer = new MutationObserver(() => {
-        mainRenderer.setColors(readColors());
-      });
-      observer.observe(document.documentElement, {
+      const observer =
+        typeof MutationObserver === "undefined"
+          ? null
+          : new MutationObserver(() => {
+              try {
+                mainRenderer.setColors(readColors());
+              } catch {
+                failRenderer();
+              }
+            });
+      observer?.observe(document.documentElement, {
         attributes: true,
         attributeFilter: ["class", "style", "data-theme"],
       });
 
       return () => {
-        if (requestRef.current) cancelAnimationFrame(requestRef.current);
-        requestRef.current = undefined;
-        animateRef.current = null;
-        observer.disconnect();
-        // Hand the GL context back to the pool (kept warm) rather than
-        // tearing it down — the next mount reuses it instead of re-spinning
-        // a context + recompiling shaders.
-        releaseCreatureRenderer(pooled);
+        loop?.stop();
+        if (loopRef.current === loop) loopRef.current = null;
+        if (renderStaticRef.current === renderStatic) {
+          renderStaticRef.current = null;
+        }
+        observer?.disconnect();
+        pooled.canvas.removeEventListener(
+          "webglcontextlost",
+          handleContextLost,
+        );
+        pooled.canvas.removeEventListener(
+          "webglcontextrestored",
+          handleContextRestored,
+        );
+        if (rendererFailed) discardCreatureRenderer(pooled);
+        else releaseCreatureRenderer(pooled);
       };
     }, [
       width,
@@ -416,8 +467,10 @@ export const StellaAnimation = React.forwardRef<
       externalOutputAnalyserRef,
       externalMicLevelSourceRef,
       externalOutputLevelSourceRef,
-      frameSkip,
       maxDpr,
+      rendererEpoch,
+      requireWindowFocus,
+      resolvedMaxFps,
     ]);
 
     return (

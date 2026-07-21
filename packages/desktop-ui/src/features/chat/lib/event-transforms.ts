@@ -615,7 +615,6 @@ export type CompactActivitySummary = {
   canceledCount: number;
   latestTask?: TaskItem;
   latestText?: string;
-  failureTask?: TaskItem;
   usesProgressBar: boolean;
 };
 
@@ -695,7 +694,6 @@ export function summarizeCompactActivity(
 ): CompactActivitySummary {
   const ordered = [...tasks].sort(compareCompactAssistantRecency);
   const latestTask = ordered[0];
-  const failureTask = ordered.find((task) => task.status === "error");
   return {
     tasks: [...tasks],
     totalCount: tasks.length,
@@ -705,25 +703,20 @@ export function summarizeCompactActivity(
     canceledCount: tasks.filter((task) => task.status === "canceled").length,
     latestTask,
     latestText: latestTask ? compactLatestText(latestTask) : undefined,
-    failureTask,
     usesProgressBar: tasks.length > COMPACT_ACTIVITY_CELL_LIMIT,
   };
 }
 
 export function getCompactActivityStatusText(
   summary: CompactActivitySummary,
-  prioritizeFailure: boolean,
+  latestProse: string | null | undefined = summary.latestText,
 ): string {
   const tally = `${summary.runningCount} running · ${summary.completedCount} done`;
   const stopped =
     summary.canceledCount > 0 ? ` · ${summary.canceledCount} stopped` : "";
-  if (prioritizeFailure && summary.failureTask) {
-    const name = summary.failureTask.description.trim() || "Agent";
-    return `${summary.errorCount} failed — ${name} · ${tally}${stopped}`;
-  }
   const failed =
     summary.errorCount > 0 ? ` · ${summary.errorCount} failed` : "";
-  const latest = summary.latestText ? ` — latest: ${summary.latestText}` : "";
+  const latest = latestProse ? ` — latest: ${latestProse}` : "";
   return `${tally}${failed}${stopped}${latest}`;
 }
 
@@ -778,6 +771,31 @@ export const getActivityRowStatus = (row: ActivityRow): TaskLifecycleStatus =>
     : row.kind === "group"
       ? row.group.status
       : row.hierarchy.status;
+
+/**
+ * Promote live children in the expanded Manager list without changing the
+ * persisted child array used for compact grid-cell identity. Existing order
+ * remains stable within the running and settled buckets.
+ */
+export const orderActiveActivityRowsForDisplay = (
+  rows: readonly ActivityRow[],
+): readonly ActivityRow[] => {
+  let sawSettled = false;
+  let needsPromotion = false;
+  for (const row of rows) {
+    if (getActivityRowStatus(row) === "running") {
+      if (sawSettled) needsPromotion = true;
+    } else {
+      sawSettled = true;
+    }
+  }
+  if (!needsPromotion) return rows;
+  return [...rows].sort(
+    (a, b) =>
+      Number(getActivityRowStatus(b) === "running") -
+      Number(getActivityRowStatus(a) === "running"),
+  );
+};
 
 export const getActivityRowCompletedAtMs = (row: ActivityRow): number => {
   const entry =

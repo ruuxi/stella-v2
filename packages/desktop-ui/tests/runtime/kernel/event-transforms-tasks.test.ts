@@ -14,6 +14,7 @@ import {
   getTaskHierarchyStatusText,
   getActivityRowStatus,
   groupActivityTasks,
+  orderActiveActivityRowsForDisplay,
   pruneGroupExpandOverrides,
   selectFreshActivityTasks,
   summarizeCompactActivity,
@@ -449,23 +450,28 @@ describe("compact activity summary", () => {
       }),
     ]);
     expect(summary.latestTask?.id).toBe("latest-prose");
-    expect(getCompactActivityStatusText(summary, false)).toContain(
+    expect(getCompactActivityStatusText(summary)).toContain(
       "latest: Drafting the human-readable answer",
     );
-    expect(getCompactActivityStatusText(summary, false)).not.toContain(
-      "exec_command",
-    );
+    expect(getCompactActivityStatusText(summary)).not.toContain("exec_command");
   });
 
-  it("keeps failures visible and switches to overflow after sixteen agents", () => {
+  it("keeps failure counts without dedicated failure prose", () => {
     const failedSummary = summarizeCompactActivity([
       task({ id: "active" }),
       task({ id: "Review round 4", status: "error" }),
       task({ id: "done", status: "completed" }),
     ]);
-    expect(getCompactActivityStatusText(failedSummary, true)).toContain(
-      "1 failed — Review round 4",
+    const status = getCompactActivityStatusText(
+      failedSummary,
+      "Reconciling the latest batch",
     );
+    expect(status).toContain("1 failed");
+    expect(status).toContain("latest: Reconciling the latest batch");
+    expect(status).not.toContain("Review round 4");
+  });
+
+  it("switches to overflow after sixteen agents", () => {
     expect(
       summarizeCompactActivity(
         Array.from({ length: COMPACT_ACTIVITY_CELL_LIMIT }, (_, index) =>
@@ -480,6 +486,43 @@ describe("compact activity summary", () => {
         ),
       ).usesProgressBar,
     ).toBe(true);
+  });
+
+  it("promotes active Manager children without disturbing either stable bucket", () => {
+    const settledFirst = {
+      kind: "task" as const,
+      task: task({ id: "done-1", status: "completed" }),
+    };
+    const activeFirst = {
+      kind: "task" as const,
+      task: task({ id: "active-1" }),
+    };
+    const settledSecond = {
+      kind: "task" as const,
+      task: task({ id: "done-2", status: "error" }),
+    };
+    const activeSecond = {
+      kind: "task" as const,
+      task: task({ id: "active-2" }),
+    };
+    const input = [settledFirst, activeFirst, settledSecond, activeSecond];
+    expect(
+      orderActiveActivityRowsForDisplay(input).map((row) =>
+        row.kind === "task" ? row.task.id : "",
+      ),
+    ).toEqual(["active-1", "active-2", "done-1", "done-2"]);
+
+    const allSettled = input.map((row) => ({
+      ...row,
+      task: { ...row.task, status: "completed" as const },
+    }));
+    expect(orderActiveActivityRowsForDisplay(allSettled)).toBe(allSettled);
+    expect(allSettled.map((row) => row.task.id)).toEqual([
+      "done-1",
+      "active-1",
+      "done-2",
+      "active-2",
+    ]);
   });
 });
 

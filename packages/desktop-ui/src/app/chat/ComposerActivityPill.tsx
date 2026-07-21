@@ -32,7 +32,10 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 import { AlertCircle, Check, Search } from "@/ui/icons";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
-import { TextShimmer } from "@/app/chat/TextShimmer";
+import {
+  CHAT_ACTIVITY_SHIMMER_GROUP,
+  TextShimmer,
+} from "@/app/chat/TextShimmer";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import {
   deriveTopLevelActivityWorkUnits,
@@ -281,7 +284,12 @@ const ActivityPillBody = memo(function ActivityPillBody({
 
   const labelNode: ReactNode =
     state === "running" ? (
-      <TextShimmer text={label} durationMs={TITLE_SHIMMER_MS} />
+      <TextShimmer
+        text={label}
+        durationMs={TITLE_SHIMMER_MS}
+        exclusiveGroup={CHAT_ACTIVITY_SHIMMER_GROUP}
+        exclusivePriority={30}
+      />
     ) : (
       label
     );

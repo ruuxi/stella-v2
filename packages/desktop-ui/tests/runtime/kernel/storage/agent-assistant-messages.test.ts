@@ -201,7 +201,7 @@ describe("agent-authored assistant updates", () => {
     );
   });
 
-  it("keeps final General prose after completion and reload but excludes Manager coordination", () => {
+  it("keeps final General and Manager prose after completion and reload", () => {
     const context = createTestContext();
     saveRunningAgent(context.store, {
       threadId: "general-final",
@@ -244,7 +244,7 @@ describe("agent-authored assistant updates", () => {
     appendAssistant(context.store, {
       threadId: "manager-internal",
       timestamp: 1_004,
-      text: "Internal coordination should not become a row summary.",
+      text: "Reconciled the latest child results.",
       stopReason: "stop",
       attemptGeneration: 1,
     });
@@ -262,7 +262,7 @@ describe("agent-authored assistant updates", () => {
     expect(
       beforeReload.find((row) => row.threadId === "manager-internal")
         ?.assistantMessages,
-    ).toBeUndefined();
+    ).toEqual(["Reconciled the latest child results."]);
 
     context.db.close();
     const reopenedDb = new DatabaseSync(
@@ -279,6 +279,11 @@ describe("agent-authored assistant updates", () => {
       "I am checking the last invariant.",
       "The invariant is now verified.",
     ]);
+    expect(
+      context.store
+        .listThreadActivity("conv-1")
+        .find((row) => row.threadId === "manager-internal")?.assistantMessages,
+    ).toEqual(["Reconciled the latest child results."]);
   });
 
   it("orders and fences authored messages written in the same millisecond", () => {
@@ -1035,7 +1040,7 @@ describe("agent-authored assistant updates", () => {
     expect(reloaded).toEqual(beforeReload);
   });
 
-  it("never projects finalized Manager replies into Activity", () => {
+  it("projects Manager-authored prose while excluding tool calls and results", () => {
     const { store } = createTestContext();
     store.saveAgentRecord({
       threadId: "manager-activity",
@@ -1052,24 +1057,86 @@ describe("agent-authored assistant updates", () => {
     appendAssistant(store, {
       threadId: "manager-activity",
       timestamp: 1_001,
-      text: "Internal child synthesis",
+      text: "Synthesizing the current child results.",
       stopReason: "stop",
       attemptGeneration: 2,
     });
-    expect(
-      store.listThreadActivity("conv-1")[0]?.assistantMessages,
-    ).toBeUndefined();
+    expect(store.listThreadActivity("conv-1")[0]?.assistantMessages).toEqual([
+      "Synthesizing the current child results.",
+    ]);
+
+    store.appendThreadMessage({
+      threadKey: "manager-activity",
+      timestamp: 1_002,
+      role: "assistant",
+      content: "",
+      payload: {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "manager-send-input",
+            name: "send_input",
+            arguments: { thread: "child" },
+          },
+        ],
+        api: "openai-codex-responses",
+        provider: "openai-codex",
+        model: "codex",
+        usage: EMPTY_USAGE,
+        stopReason: "toolUse",
+        timestamp: 1_002,
+        stellaAttemptGeneration: 2,
+      } as never,
+    });
+    store.appendThreadMessage({
+      threadKey: "manager-activity",
+      timestamp: 1_003,
+      role: "toolResult",
+      toolCallId: "manager-send-input",
+      content: "Finished send_input",
+    });
 
     appendAssistant(store, {
       threadId: "manager-activity",
-      timestamp: 1_002,
-      text: "Another private Manager final response",
+      timestamp: 1_004,
+      text: "The follow-up is now incorporated.",
       stopReason: "stop",
       attemptGeneration: 2,
     });
-    expect(
-      store.listThreadActivity("conv-1")[0]?.assistantMessages,
-    ).toBeUndefined();
+    expect(store.listThreadActivity("conv-1")[0]?.assistantMessages).toEqual([
+      "Synthesizing the current child results.",
+      "The follow-up is now incorporated.",
+    ]);
+    expect(JSON.stringify(store.listThreadActivity("conv-1"))).not.toContain(
+      "send_input",
+    );
+  });
+
+  it("publishes Manager prose through the current-attempt incremental path", () => {
+    const onThreadAssistantUpdate = vi.fn();
+    const { store } = createTestContext(onThreadAssistantUpdate);
+    saveRunningAgent(store, {
+      threadId: "manager-live",
+      startedAt: 2_000,
+      attemptGeneration: 7,
+      agentType: "manager",
+    });
+    appendAssistant(store, {
+      threadId: "manager-live",
+      timestamp: 2_001,
+      text: "Coordinating the active verification.",
+      attemptGeneration: 7,
+    });
+
+    expect(onThreadAssistantUpdate).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      assistantUpdate: expect.objectContaining({
+        threadId: "manager-live",
+        latestMessage: "Coordinating the active verification.",
+        attemptGeneration: 7,
+      }),
+    });
   });
 
   it("scopes prose to the current attempt and includes its final answer", () => {

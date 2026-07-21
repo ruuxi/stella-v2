@@ -11,6 +11,9 @@ import path from "node:path";
 import { createRuntimeLogger } from "./debug.js";
 import { redactMemoryText } from "./memory/redaction.js";
 import {
+  BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+  collectResidentStartupDocStats,
+  emitResidentStartupDocTelemetry,
   planResidentStartupDocRefresh,
   stripInjectedHtmlComments,
 } from "./memory/resident-docs.js";
@@ -1374,6 +1377,34 @@ export const maybeCompactRuntimeThread = async (args: {
       refreshedDocs: residentRefreshPlan.refreshedDocs,
       removedDocs: residentRefreshPlan.removedDocs,
     });
+  }
+  try {
+    const residentTexts = args.store
+      .loadThreadMessages(args.threadKey)
+      .flatMap((message) => {
+        const customMessage = message.customMessage;
+        if (
+          message.role !== "runtimeInternal" ||
+          customMessage?.customType !== BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE
+        ) {
+          return [];
+        }
+        const text =
+          typeof customMessage.content === "string"
+            ? customMessage.content
+            : customMessage.content
+                .map((block) =>
+                  block.type === "text" ? (block.text ?? "") : "",
+                )
+                .join("\n");
+        return [text];
+      });
+    emitResidentStartupDocTelemetry({
+      source: "compaction-boundary",
+      stats: collectResidentStartupDocStats(residentTexts),
+    });
+  } catch {
+    // Boundary telemetry is never allowed to affect the committed overlay.
   }
   return { compacted: true, summary, fromOverride: summaryFromOverride };
 };

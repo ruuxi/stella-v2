@@ -15,6 +15,7 @@ import type {
   StreamOptions,
 } from "@stella/runtime/ai/types";
 import {
+  awaitPreCompactionConsolidation,
   buildDreamSystemPrompt,
   maybeSpawnDreamRun,
 } from "@stella/runtime/kernel/agent-runtime/dream-scheduler";
@@ -44,6 +45,17 @@ afterEach(async () => {
 const fakeAssistant = (text: string): AssistantMessage => ({
   role: "assistant",
   content: [{ type: "text", text }],
+  api: "fake" as Api,
+  provider: "openai",
+  model: "fake-model",
+  usage: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  },
+  stopReason: "stop",
   timestamp: Date.now(),
 });
 
@@ -101,6 +113,21 @@ const buildFakeRoute = (args: {
     route: "direct-provider",
     getApiKey: () => args.apiKey ?? "",
   };
+};
+
+const replaceRouteApi = (
+  route: ResolvedLlmRoute,
+  api: Api,
+): ResolvedLlmRoute => ({
+  ...route,
+  model: { ...route.model, api } as typeof route.model,
+});
+
+const registerResultApi = (result: () => Promise<AssistantMessage>): Api => {
+  const api = `fake-result-${Math.random().toString(36).slice(2)}` as Api;
+  const stream = () => ({ result }) as AssistantMessageEventStream;
+  registerApiProvider({ api, stream, streamSimple: stream });
+  return api;
 };
 
 const waitFor = async (
@@ -250,5 +277,151 @@ describe("maybeSpawnDreamRun", () => {
     expect(result.scheduled).toBe(false);
     expect(result.reason).toBe("no_inputs");
     expect(providerCalls).toBe(0);
+  });
+});
+
+describe("awaitPreCompactionConsolidation", () => {
+  const buildStore = (args: {
+    pending?: number;
+    frontier?: number;
+    watermark?: { frontier: number; completedAt: number } | null;
+    onWatermark?: (frontier: number) => void;
+    onGc?: () => void;
+  }): RuntimeStore =>
+    ({
+      dreamInboxStore: {
+        countUnprocessed: () => args.pending ?? 1,
+        pendingFrontier: () => args.frontier ?? 100,
+        readConsolidationWatermark: () => args.watermark ?? null,
+        writeConsolidationWatermark: ({ frontier }: { frontier: number }) =>
+          args.onWatermark?.(frontier),
+        gcProcessedRows: () => {
+          args.onGc?.();
+          return { deleted: 0 };
+        },
+      },
+    }) as RuntimeStore;
+
+  it("skips when the persisted completed-pass frontier is fresh", async () => {
+    let providerCalls = 0;
+    const result = await awaitPreCompactionConsolidation({
+      stellaDataDir: createRoot(),
+      store: buildStore({
+        pending: 2,
+        frontier: 200,
+        watermark: { frontier: 200, completedAt: 1 },
+      }),
+      resolvedLlm: buildFakeRoute({
+        response: fakeAssistant("unused"),
+        apiKey: "key",
+        onRequest: () => {
+          providerCalls += 1;
+        },
+      }),
+    });
+    expect(result.outcome).toBe("skipped_fresh");
+    expect(providerCalls).toBe(0);
+  });
+
+  it("times out a hung provider within the supplied bound without advancing state", async () => {
+    const route = replaceRouteApi(
+      buildFakeRoute({ response: fakeAssistant("unused"), apiKey: "key" }),
+      registerResultApi(() => new Promise<AssistantMessage>(() => {})),
+    );
+    const writes: number[] = [];
+    const startedAt = Date.now();
+    const result = await awaitPreCompactionConsolidation({
+      stellaDataDir: createRoot(),
+      store: buildStore({ onWatermark: (frontier) => writes.push(frontier) }),
+      resolvedLlm: route,
+      timeoutMs: 40,
+    });
+    expect(result.outcome).toBe("timed_out");
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(writes).toEqual([]);
+  });
+
+  it("isolates provider failure and leaves the durable frontier pending", async () => {
+    const route = replaceRouteApi(
+      buildFakeRoute({ response: fakeAssistant("unused"), apiKey: "key" }),
+      registerResultApi(async () => {
+        throw new Error("provider failed");
+      }),
+    );
+    const writes: number[] = [];
+    const result = await awaitPreCompactionConsolidation({
+      stellaDataDir: createRoot(),
+      store: buildStore({ onWatermark: (frontier) => writes.push(frontier) }),
+      resolvedLlm: route,
+      timeoutMs: 100,
+    });
+    expect(result.outcome).toBe("incomplete");
+    expect(writes).toEqual([]);
+  });
+
+  it("fails closed on an unknown provider terminal without watermarking", async () => {
+    const unknownTerminal = {
+      ...fakeAssistant("provider returned an unfamiliar terminal"),
+      stopReason: "future_stop_reason" as never,
+    };
+    const writes: number[] = [];
+    const result = await awaitPreCompactionConsolidation({
+      stellaDataDir: createRoot(),
+      store: buildStore({ onWatermark: (frontier) => writes.push(frontier) }),
+      resolvedLlm: buildFakeRoute({
+        response: unknownTerminal,
+        apiKey: "key",
+      }),
+      timeoutMs: 100,
+    });
+    expect(result.outcome).toBe("incomplete");
+    expect(writes).toEqual([]);
+  });
+
+  it("joins one concurrent Dream run and advances the watermark only after completion", async () => {
+    let deliver!: (message: AssistantMessage) => void;
+    const response = new Promise<AssistantMessage>((resolve) => {
+      deliver = resolve;
+    });
+    let providerCalls = 0;
+    const api = registerResultApi(() => {
+      providerCalls += 1;
+      return response;
+    });
+    const route = replaceRouteApi(
+      buildFakeRoute({ response: fakeAssistant("unused"), apiKey: "key" }),
+      api,
+    );
+    const writes: number[] = [];
+    let gcCalls = 0;
+    const rootPath = createRoot();
+    const store = buildStore({
+      frontier: 4242,
+      onWatermark: (frontier) => writes.push(frontier),
+      onGc: () => {
+        gcCalls += 1;
+      },
+    });
+    const spawned = await maybeSpawnDreamRun({
+      stellaDataDir: rootPath,
+      store,
+      resolvedLlm: route,
+      trigger: "token_interval",
+      orchestratorTokenEstimate: 25_000,
+    });
+    expect(spawned.scheduled).toBe(true);
+    await waitFor(() => providerCalls === 1);
+
+    const waiting = awaitPreCompactionConsolidation({
+      stellaDataDir: rootPath,
+      store,
+      resolvedLlm: route,
+      timeoutMs: 500,
+    });
+    deliver(fakeAssistant("Consolidated."));
+    await expect(waiting).resolves.toMatchObject({ outcome: "consolidated" });
+    expect(providerCalls).toBe(1);
+    expect(writes).toEqual([4242]);
+    expect(gcCalls).toBe(1);
   });
 });

@@ -24,6 +24,8 @@ import {
   truncateUnicodeAtLineBoundary,
   unicodeCodePointLength,
 } from "./dream-storage.js";
+import { USER_PROFILE_INJECTED_MAX_CHARS } from "./user-profile-store.js";
+import { createRuntimeLogger } from "../debug.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type {
   RuntimeThreadCustomMessageEntry,
@@ -31,6 +33,8 @@ import type {
 } from "../storage/shared.js";
 
 export { stripInjectedHtmlComments };
+
+const logger = createRuntimeLogger("memory.resident-docs");
 
 export const LIFE_REGISTRY_DISPLAY_PATH = "~/.stella/registry.md";
 export const LIFE_CORE_MEMORY_DISPLAY_PATH = "~/.stella/core-memory.md";
@@ -106,7 +110,10 @@ export const readMemoryMapDoc = (stellaDataDir: string): string | undefined =>
   );
 
 export const readUserProfileDoc = (stellaDataDir: string): string | undefined =>
-  readResidentMemoryDoc(path.join(stellaDataDir, "memories", "profile.md"));
+  readResidentMemoryDoc(
+    path.join(stellaDataDir, "memories", "profile.md"),
+    USER_PROFILE_INJECTED_MAX_CHARS,
+  );
 
 const readOptionalTextFileSync = (filePath: string): string | undefined => {
   try {
@@ -274,4 +281,108 @@ export const planResidentStartupDocRefresh = (args: {
     }
   }
   return plan;
+};
+
+export type ResidentStartupDocStat = {
+  displayPath: string;
+  copies: number;
+  injectedChars: number;
+  capChars?: number;
+};
+
+export type ResidentDocTelemetryAnomalies = {
+  duplicatePaths: string[];
+  capPressurePaths: string[];
+};
+
+const RESIDENT_DOC_CAPS: Readonly<Record<string, number>> = {
+  [LIFE_MEMORY_MAP_DISPLAY_PATH]: MEMORY_MAP_MAX_CHARS,
+  [LIFE_USER_PROFILE_DISPLAY_PATH]: USER_PROFILE_INJECTED_MAX_CHARS,
+};
+const RESIDENT_DOC_CAP_PRESSURE_RATIO = 0.9;
+
+/** Per-path copy count and code-point cost in the provider-facing prefix. */
+export const collectResidentStartupDocStats = (
+  docTexts: readonly string[],
+): ResidentStartupDocStat[] => {
+  const byPath = new Map<string, ResidentStartupDocStat>();
+  for (const text of docTexts) {
+    const displayPath = parseStartupDocPath(text);
+    if (!displayPath) continue;
+    const existing = byPath.get(displayPath);
+    if (existing) {
+      existing.copies += 1;
+      existing.injectedChars += unicodeCodePointLength(text);
+      continue;
+    }
+    const capChars = RESIDENT_DOC_CAPS[displayPath];
+    byPath.set(displayPath, {
+      displayPath,
+      copies: 1,
+      injectedChars: unicodeCodePointLength(text),
+      ...(capChars ? { capChars } : {}),
+    });
+  }
+  return [...byPath.values()];
+};
+
+let lastResidentAnomalySignature = "";
+
+export const resetResidentDocTelemetryForTests = (): void => {
+  lastResidentAnomalySignature = "";
+};
+
+/** Structured, best-effort observability for resident-prefix regressions. */
+export const emitResidentStartupDocTelemetry = (args: {
+  source: "prompt-build" | "compaction-boundary";
+  stats: readonly ResidentStartupDocStat[];
+}): ResidentDocTelemetryAnomalies => {
+  const duplicatePaths = args.stats
+    .filter((stat) => stat.copies > 1)
+    .map((stat) => stat.displayPath);
+  const capPressurePaths = args.stats
+    .filter(
+      (stat) =>
+        stat.copies === 1 &&
+        stat.capChars !== undefined &&
+        stat.injectedChars >= stat.capChars * RESIDENT_DOC_CAP_PRESSURE_RATIO,
+    )
+    .map((stat) => stat.displayPath);
+  const payload = {
+    source: args.source,
+    totalChars: args.stats.reduce(
+      (total, stat) => total + stat.injectedChars,
+      0,
+    ),
+    docs: args.stats.map((stat) => ({
+      path: stat.displayPath,
+      copies: stat.copies,
+      chars: stat.injectedChars,
+      ...(stat.capChars !== undefined ? { cap: stat.capChars } : {}),
+    })),
+  };
+  if (args.source === "compaction-boundary") {
+    logger.info("resident-docs.telemetry", payload);
+  } else {
+    logger.debug("resident-docs.telemetry", payload);
+  }
+
+  const signature = JSON.stringify({ duplicatePaths, capPressurePaths });
+  const hasAnomaly = duplicatePaths.length > 0 || capPressurePaths.length > 0;
+  if (hasAnomaly && signature !== lastResidentAnomalySignature) {
+    if (duplicatePaths.length > 0) {
+      logger.warn("resident-docs.duplicate-copies", {
+        source: args.source,
+        paths: duplicatePaths,
+      });
+    }
+    if (capPressurePaths.length > 0) {
+      logger.warn("resident-docs.cap-pressure", {
+        source: args.source,
+        paths: capPressurePaths,
+      });
+    }
+  }
+  lastResidentAnomalySignature = hasAnomaly ? signature : "";
+  return { duplicatePaths, capPressurePaths };
 };

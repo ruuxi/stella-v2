@@ -34,9 +34,7 @@ describe("user-profile-store", () => {
     });
     expect(result.ok).toBe(true);
     expect(result.entryCount).toBe(1);
-    expect(userProfilePath(dir)).toBe(
-      path.join(dir, "memories", "profile.md"),
-    );
+    expect(userProfilePath(dir)).toBe(path.join(dir, "memories", "profile.md"));
     expect(await entries()).toEqual(["The user goes by Bob"]);
   });
 
@@ -103,8 +101,8 @@ describe("user-profile-store", () => {
     expect(await entries()).toEqual([content]);
   });
 
-  it("allows ten lean facts within the doubled aggregate size cap", async () => {
-    const entry = "x".repeat(390);
+  it("allows ten lean facts within the 6K aggregate size cap", async () => {
+    const entry = "x".repeat(590);
 
     for (let index = 0; index < 10; index += 1) {
       const result = await applyUserProfileOperation(dir, {
@@ -115,7 +113,7 @@ describe("user-profile-store", () => {
     }
 
     expect(await entries()).toHaveLength(10);
-    expect(MAX_USER_PROFILE_CHARS).toBe(4_000);
+    expect(MAX_USER_PROFILE_CHARS).toBe(6_000);
   });
 
   it("rejects adds that would exceed the size cap", async () => {
@@ -167,5 +165,27 @@ describe("user-profile-store", () => {
     });
     const stored = (await readUserProfile(dir)) ?? "";
     expect(stored).not.toContain("sk-abcdef0123456789abcdef0123456789");
+  });
+
+  it("serializes concurrent redaction, dedupe, and durable writes", async () => {
+    const secret = "sk-abcdef0123456789abcdef0123456789";
+    const results = await Promise.all([
+      applyUserProfileOperation(dir, {
+        action: "add",
+        content: `API key ${secret}`,
+      }),
+      applyUserProfileOperation(dir, {
+        action: "add",
+        content: "The user prefers morning meetings",
+      }),
+      applyUserProfileOperation(dir, {
+        action: "add",
+        content: "the user prefers morning meetings",
+      }),
+    ]);
+    expect(results.every((result) => result.ok)).toBe(true);
+    const stored = (await readUserProfile(dir)) ?? "";
+    expect(stored).not.toContain(secret);
+    expect(parseUserProfileEntries(stored)).toHaveLength(2);
   });
 });

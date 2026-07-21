@@ -4,11 +4,13 @@ import path from "node:path";
 import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import {
   assertSafeDreamMemoryRoot,
+  countMemoryMapPolicyEntries,
   MEMORY_INDEX_FILE,
   MEMORY_MAP_DERIVED_END_ANCHOR,
   MEMORY_MAP_DERIVED_START_ANCHOR,
   MEMORY_MAP_FILE,
   MEMORY_MAP_MAX_CHARS,
+  MEMORY_MAP_MAX_ENTRIES,
   MEMORY_MAP_ROUTES_END_ANCHOR,
   MEMORY_MAP_ROUTES_START_ANCHOR,
   MEMORY_SUMMARY_FILE,
@@ -147,6 +149,17 @@ export const validateMemoryMapWrite = (updated: string): string | null => {
   ) {
     return `Write rejected: the ${MEMORY_MAP_DERIVED_START_ANCHOR} / ${MEMORY_MAP_DERIVED_END_ANCHOR} anchors must stay intact (restore them under "## Derived constraints" if missing). Nothing was written.`;
   }
+  const entryCount = countMemoryMapPolicyEntries(updated);
+  if (entryCount === null) {
+    return `Write rejected: ${MEMORY_MAP_FILE} must contain exactly one ordered routing-anchor pair and one ordered derived-anchor pair. Nothing was written.`;
+  }
+  if (entryCount > MEMORY_MAP_MAX_ENTRIES) {
+    return `Write rejected: ${MEMORY_MAP_FILE} would contain ${entryCount} entries (hard cap ${MEMORY_MAP_MAX_ENTRIES}). Merge or prune entries before writing. Nothing was written.`;
+  }
+  // The 90-day rule is intentionally enforced by Dream's consolidation
+  // prompt rather than by this file-only guard: certified policy exempts an
+  // old route when current inbox usage proves it useful, and the StrReplace
+  // boundary has no authoritative usage ledger to make that decision.
   return null;
 };
 

@@ -1,12 +1,16 @@
 import type { Agent } from "../agent-core/agent.js";
 import type { AgentMessage } from "../agent-core/types.js";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { createRuntimeLogger } from "../debug.js";
 import type { RuntimeRunEventRecorder } from "./run-events.js";
 import {
   compactRuntimeThreadHistory,
   updateOrchestratorReminderState,
 } from "./thread-memory.js";
-import { getThreadTokenEstimate } from "../thread-runtime.js";
+import {
+  getCompactionTriggerTokens,
+  getThreadTokenEstimate,
+} from "../thread-runtime.js";
 import type { ThreadCompactionResult } from "../thread-runtime.js";
 import type {
   OrchestratorRunOptions,
@@ -319,9 +323,43 @@ export const runCompactionWithHooks = async (args: {
   threadKey: string;
   runId: string;
   messageCount: number;
+  /** Schedule-time estimate used to avoid Dream waits below the fold gate. */
+  orchestratorTokenEstimate?: number;
+  /** Focused-test seam; production always uses the certified 180s ceiling. */
+  preCompactionTimeoutMs?: number;
   /** Aborts the summarization LLM call on compaction-scheduler shutdown. */
   abortSignal?: AbortSignal;
 }): Promise<ThreadCompactionResult> => {
+  if (
+    args.opts.agentType === AGENT_IDS.ORCHESTRATOR &&
+    args.opts.stellaDataDir?.trim() &&
+    typeof args.orchestratorTokenEstimate === "number" &&
+    args.orchestratorTokenEstimate >=
+      getCompactionTriggerTokens(args.opts.resolvedLlm)
+  ) {
+    try {
+      const { awaitPreCompactionConsolidation } = await import(
+        "./dream-scheduler.js"
+      );
+      await awaitPreCompactionConsolidation({
+        stellaDataDir: args.opts.stellaDataDir,
+        store: args.opts.store,
+        resolvedLlm: args.opts.resolvedLlm,
+        ...(args.preCompactionTimeoutMs !== undefined
+          ? { timeoutMs: args.preCompactionTimeoutMs }
+          : {}),
+        ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
+      });
+    } catch (error) {
+      // Consolidation affects freshness only. The durable compaction path
+      // always proceeds after failure, timeout, or an unexpected adapter bug.
+      logger.debug("compaction.pre-consolidation-failed", {
+        threadKey: args.threadKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   let shouldCompact = true;
   let hookCompaction: { summary: string; preserveLastN?: number } | undefined;
   if (args.opts.hookEmitter) {
@@ -487,6 +525,9 @@ export const finalizeOrchestratorSuccess = async (args: {
           threadKey: args.threadKey,
           runId: args.runId,
           messageCount: args.agent.state.messages.length,
+          ...(orchestratorTokenEstimate != null
+            ? { orchestratorTokenEstimate }
+            : {}),
           ...(signal ? { abortSignal: signal } : {}),
         });
         if (compacted) {

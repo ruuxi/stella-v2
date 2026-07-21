@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   blankInjectedHtmlComments,
+  countMemoryMapPolicyEntries,
   ensureDreamMemoryLayout,
   MEMORY_MAP_MAX_CHARS,
   memoryIndexPath,
@@ -56,7 +57,7 @@ describe("Dream memory_map layout and migration", () => {
   it("seeds MEMORY.md and memory_map.md without creating retired files", async () => {
     const root = await createRoot();
 
-    await ensureDreamMemoryLayout(root);
+    const first = await ensureDreamMemoryLayout(root);
 
     const map = await readMemoryMap(root);
     expect(map).toContain("# Memory map");
@@ -70,6 +71,18 @@ describe("Dream memory_map layout and migration", () => {
     await expect(
       access(path.join(root, "memories", "profile.md")),
     ).rejects.toThrow();
+    expect(first).toMatchObject({
+      memory: "created",
+      map: "created",
+      legacyIndex: "absent",
+      legacySummary: "absent",
+    });
+    await expect(ensureDreamMemoryLayout(root)).resolves.toMatchObject({
+      memory: "exists",
+      map: "exists",
+      legacyIndex: "not_read",
+      legacySummary: "not_read",
+    });
   });
 
   it("derives one bounded map from both legacy files without changing either", async () => {
@@ -345,6 +358,7 @@ describe("Dream memory_map layout and migration", () => {
       unicodeCodePointLength(stripInjectedHtmlComments(map)),
     ).toBeLessThanOrEqual(MEMORY_MAP_MAX_CHARS);
     expect(map).toContain("migration cut");
+    expect(countMemoryMapPolicyEntries(map)).toBeLessThanOrEqual(80);
     await expect(readFile(memorySummaryPath(root), "utf-8")).resolves.toBe(
       summary,
     );

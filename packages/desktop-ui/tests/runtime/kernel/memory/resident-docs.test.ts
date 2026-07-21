@@ -6,13 +6,19 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { unicodeCodePointLength } from "@stella/runtime/kernel/memory/dream-storage";
 
 import {
+  buildStartupDocMessage,
+  collectResidentStartupDocStats,
+  emitResidentStartupDocTelemetry,
   LIFE_MEMORY_MAP_DISPLAY_PATH,
+  LIFE_USER_PROFILE_DISPLAY_PATH,
   readMemoryMapDoc,
   readStartupDocBodyFromDisk,
   readUserProfileDoc,
   RETIRED_STARTUP_DOC_DISPLAY_PATHS,
+  resetResidentDocTelemetryForTests,
   stripInjectedHtmlComments,
 } from "@stella/runtime/kernel/memory/resident-docs";
+import { USER_PROFILE_INJECTED_MAX_CHARS } from "@stella/runtime/kernel/memory/user-profile-store";
 
 let stellaDataDir: string;
 
@@ -125,5 +131,55 @@ describe("resident memory document reads", () => {
         "utf-8",
       ),
     ).toBe(raw);
+  });
+
+  it("bounds a manually oversized profile at the read-side backstop", () => {
+    writeMemoryFile(
+      "profile.md",
+      `# User Profile\n\n${"- hand-edited runaway fact 😀\n".repeat(400)}`,
+    );
+    const profile = readUserProfileDoc(stellaDataDir) ?? "";
+    expect(unicodeCodePointLength(profile)).toBeLessThanOrEqual(
+      USER_PROFILE_INJECTED_MAX_CHARS,
+    );
+    expect(profile).toContain("[resident memory truncated]");
+    expect(profile).not.toContain("\uFFFD");
+  });
+});
+
+describe("resident startup-doc telemetry", () => {
+  beforeEach(() => resetResidentDocTelemetryForTests());
+
+  it("reports per-path sizes, duplicate copies, and cap pressure", () => {
+    const stats = collectResidentStartupDocStats([
+      buildStartupDocMessage(LIFE_USER_PROFILE_DISPLAY_PATH, "- goes by Bob"),
+      buildStartupDocMessage(LIFE_MEMORY_MAP_DISPLAY_PATH, "- route v1"),
+      buildStartupDocMessage(
+        LIFE_MEMORY_MAP_DISPLAY_PATH,
+        "- route v2 stale copy",
+      ),
+    ]);
+    const byPath = new Map(stats.map((stat) => [stat.displayPath, stat]));
+    expect(byPath.get(LIFE_USER_PROFILE_DISPLAY_PATH)?.copies).toBe(1);
+    expect(byPath.get(LIFE_MEMORY_MAP_DISPLAY_PATH)?.copies).toBe(2);
+    expect(
+      emitResidentStartupDocTelemetry({ source: "prompt-build", stats }),
+    ).toEqual({
+      duplicatePaths: [LIFE_MEMORY_MAP_DISPLAY_PATH],
+      capPressurePaths: [],
+    });
+
+    const pressured = collectResidentStartupDocStats([
+      buildStartupDocMessage(LIFE_MEMORY_MAP_DISPLAY_PATH, "x".repeat(5_500)),
+    ]);
+    expect(
+      emitResidentStartupDocTelemetry({
+        source: "compaction-boundary",
+        stats: pressured,
+      }),
+    ).toEqual({
+      duplicatePaths: [],
+      capPressurePaths: [LIFE_MEMORY_MAP_DISPLAY_PATH],
+    });
   });
 });

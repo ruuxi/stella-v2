@@ -22,8 +22,15 @@ import { redactMemoryText } from "./redaction.js";
 
 export const USER_PROFILE_FILE = "profile.md";
 
-/** Cap on the rendered entries body (excludes the header). */
-export const MAX_USER_PROFILE_CHARS = 4_000;
+/** Cap on the rendered entries body (excludes the fixed header). */
+export const MAX_USER_PROFILE_CHARS = 6_000;
+
+/**
+ * Read-side safety ceiling. Remember is the only supported writer and rejects
+ * at 6K; the extra headroom bounds manually damaged files without clipping a
+ * valid profile produced by the tool.
+ */
+export const USER_PROFILE_INJECTED_MAX_CHARS = MAX_USER_PROFILE_CHARS + 1_000;
 
 const HEADER = [
   "# User Profile",
@@ -158,7 +165,11 @@ const applyUserProfileOperationLocked = async (
 
   if (op.action === "add") {
     if (!content) {
-      return { ok: false, message: "add requires content.", entryCount: entries.length };
+      return {
+        ok: false,
+        message: "add requires content.",
+        entryCount: entries.length,
+      };
     }
     if (entries.some((entry) => sameEntry(entry, content))) {
       return {

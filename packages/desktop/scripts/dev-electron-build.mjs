@@ -48,9 +48,7 @@ const nodeTarget = `node${process.versions.node.split(".")[0]}`;
 const includeLocalUpdateVerification = process.argv.includes(
   "--local-update-verification",
 );
-const runtimeStaticAssetRoots = [
-  "packages/runtime/extensions/stella-runtime/agent-metadata",
-];
+const runtimeStaticAssetRoots = [];
 const electronRuntimeEntryPoints = {
   "electron/main": "packages/desktop/electron/main.ts",
   ...(includeLocalUpdateVerification
@@ -77,8 +75,6 @@ const workerEntryPoints = {
   "runtime/worker/entry": "packages/runtime/worker/entry.ts",
   "runtime/worker/social-sessions/packaged-smoke":
     "packages/runtime/worker/social-sessions/packaged-smoke.ts",
-  "runtime/extensions/stella-runtime/index":
-    "packages/runtime/extensions/stella-runtime/index.ts",
 };
 const preloadEntryPoints = {
   "electron/preload": "packages/desktop/electron/preload.ts",

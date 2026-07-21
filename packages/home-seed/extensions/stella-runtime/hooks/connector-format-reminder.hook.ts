@@ -1,5 +1,4 @@
-import type { HookDefinition } from "../../../kernel/extensions/types.js";
-import { wrapInternalSystemReminder } from "@stella/contracts/system-reminders";
+import type { ExtensionRuntime, HookDefinition } from "../types.js";
 
 /**
  * Connector-surface transition reminder (stella-runtime).
@@ -20,21 +19,22 @@ import { wrapInternalSystemReminder } from "@stella/contracts/system-reminders";
  * (which already walks the recent local event stream); this hook just
  * checks for the pre-rendered text and injects it.
  */
-export const createConnectorFormatReminderHook =
-  (): HookDefinition<"before_user_message"> => ({
-    event: "before_user_message",
-    async handler(payload) {
-      const text = payload.connectorTransitionReminderText?.trim();
-      if (!text) return;
-      return {
-        prependMessages: [
-          {
-            text: wrapInternalSystemReminder(text),
-            uiVisibility: "hidden",
-            messageType: "message",
-            customType: "runtime.connector_format_reminder",
-          },
-        ],
-      };
-    },
-  });
+export const createConnectorFormatReminderHook = (
+  runtime: ExtensionRuntime,
+): HookDefinition => ({
+  event: "before_user_message",
+  async handler(payload) {
+    const text = payload.connectorTransitionReminderText?.trim();
+    if (!text) return;
+    return {
+      prependMessages: [
+        {
+          text: runtime.wrapInternalSystemReminder(text),
+          uiVisibility: "hidden",
+          messageType: "message",
+          customType: "runtime.connector_format_reminder",
+        },
+      ],
+    };
+  },
+});

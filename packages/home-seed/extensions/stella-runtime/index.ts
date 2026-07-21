@@ -1,9 +1,4 @@
-import path from "node:path";
-import { loadParsedAgentsFromDir } from "../../kernel/agents/markdown-agent-loader.js";
-import type {
-  ExtensionFactory,
-  HookDefinition,
-} from "../../kernel/extensions/types.js";
+import type { ExtensionFactory, HookDefinition } from "./types.js";
 import { createConnectorAvailabilityReminderHook } from "./hooks/connector-availability-reminder.hook.js";
 import { createConnectorFormatReminderHook } from "./hooks/connector-format-reminder.hook.js";
 import { createDreamSchedulerNotifyHook } from "./hooks/dream-scheduler-notify.hook.js";
@@ -12,43 +7,6 @@ import { createMemoryReviewHook } from "./hooks/memory-review.hook.js";
 import { createRestartContinuationReminderHooks } from "./hooks/restart-continuation-reminder.hook.js";
 import { createStaleUserReminderHook } from "./hooks/stale-user-reminder.hook.js";
 import { createThreadSummariesRecordHook } from "./hooks/thread-summaries-record.hook.js";
-import { resolveRuntimeSourceAsset } from "../../kernel/shared/runtime-paths.js";
-
-const bundledAgentMetadataDir = () =>
-  resolveRuntimeSourceAsset("extensions", "stella-runtime", "agent-metadata");
-
-/**
- * Keep shipped capability metadata authoritative without overwriting a user's
- * customized prompt body under `~/.stella/agents/`.
- */
-export const loadStellaRuntimeAgents = (
-  stellaDataDir: string,
-  agentMetadataDir: string | URL = bundledAgentMetadataDir(),
-) => {
-  const metadataById = new Map(
-    loadParsedAgentsFromDir(agentMetadataDir).map((agent) => [agent.id, agent]),
-  );
-  return loadParsedAgentsFromDir(path.join(stellaDataDir, "agents")).map(
-    (homeAgent) => {
-      const metadata = metadataById.get(homeAgent.id);
-      if (!metadata) return homeAgent;
-      return {
-        id: metadata.id,
-        name: metadata.name,
-        description: metadata.description,
-        systemPrompt: homeAgent.systemPrompt,
-        agentTypes: metadata.agentTypes,
-        ...(metadata.toolsAllowlist
-          ? { toolsAllowlist: metadata.toolsAllowlist }
-          : {}),
-        ...(metadata.model ? { model: metadata.model } : {}),
-        ...(typeof metadata.maxAgentDepth === "number"
-          ? { maxAgentDepth: metadata.maxAgentDepth }
-          : {}),
-      };
-    },
-  );
-};
 
 /**
  * Stella's runtime extension.
@@ -63,17 +21,15 @@ export const loadStellaRuntimeAgents = (
  *   - Dream scheduler notify (post-subagent finalize)
  *   - Thread-summaries record (post-subagent finalize, capability-gated)
  *
- * Lives in `runtime/extensions/stella-runtime/` so power users can fork
- * any of these behaviors in place. The kernel has no special "bundled"
- * tier anymore — this extension goes through the same loader path as
- * any third-party extension, with `services` (stellaDataDir, stellaAppDir,
- * store) supplied by the runtime at registration time.
+ * Lives under `~/.stella/extensions/stella-runtime/` so users can fork any of
+ * these behaviors in place. The kernel has no special bundled tier.
  */
 const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
   // Prompt bodies remain live and user-editable under `~/.stella/agents/`.
   // Shipped capability metadata comes from this runtime extension so a body
   // customization cannot freeze an older tool allowlist across updates.
-  for (const agent of loadStellaRuntimeAgents(services.stellaDataDir)) {
+  const agentMetadataDir = new URL("./agent-metadata/", import.meta.url);
+  for (const agent of services.runtime.loadHomeAgents(agentMetadataDir)) {
     pi.registerAgent(agent);
   }
 
@@ -81,16 +37,14 @@ const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
   // a HookDefinition closing over whatever subset of services it
   // needs; we register them via a single helper to keep the factory
   // body flat.
-  const register = <E extends Parameters<typeof pi.on>[0]>(
-    hook: HookDefinition<E>,
-  ): void => {
-    pi.on(hook.event, hook.handler, hook.filter);
+  const register = (hook: HookDefinition): void => {
+    pi.on(hook.event, hook.handler);
   };
 
-  register(createStaleUserReminderHook());
-  register(createDynamicMemoryReminderHook());
+  register(createStaleUserReminderHook(services.runtime));
+  register(createDynamicMemoryReminderHook(services.runtime));
   for (const hook of createRestartContinuationReminderHooks({
-    stellaDataDir: services.stellaDataDir,
+    runtime: services.runtime,
     store: services.store,
   })) {
     register(hook);
@@ -99,31 +53,33 @@ const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
   // single turn where the user's routing surface changes (desktop ⇄
   // connector / connector ⇄ different connector). Cheap — the
   // transition decision is precomputed in `prepareOrchestratorRun`.
-  register(createConnectorFormatReminderHook());
+  register(createConnectorFormatReminderHook(services.runtime));
   // Connector-availability reminder: deterministic keyword match of each
   // user message against the connector catalog; injects a hidden
   // connected/not-connected note for the orchestrator, deduped once per
   // active context window (compaction resets eligibility; declines win).
   register(
     createConnectorAvailabilityReminderHook({
-      stellaDataDir: services.stellaDataDir,
-      store: services.store,
+      runtime: services.runtime,
     }),
   );
   register(
     createMemoryReviewHook({
-      stellaDataDir: services.stellaDataDir,
-      stellaAppDir: services.stellaAppDir,
+      runtime: services.runtime,
       store: services.store,
     }),
   );
   register(
     createDreamSchedulerNotifyHook({
-      stellaDataDir: services.stellaDataDir,
+      runtime: services.runtime,
+    }),
+  );
+  register(
+    createThreadSummariesRecordHook({
+      runtime: services.runtime,
       store: services.store,
     }),
   );
-  register(createThreadSummariesRecordHook({ store: services.store }));
 };
 
 export default stellaRuntimeExtension;

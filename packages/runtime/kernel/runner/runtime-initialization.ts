@@ -6,6 +6,7 @@ import {
 } from "../agents/agents.js";
 import { loadExtensions } from "../extensions/loader.js";
 import type { ExtensionServices } from "../extensions/services.js";
+import { createExtensionRuntimeApi } from "../extensions/runtime-api.js";
 import { modelRuntime } from "../../ai/model-runtime.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { RunnerContext } from "./types.js";
@@ -65,10 +66,16 @@ export const createRuntimeInitialization = (
    * factory invocation (initial load + every F1 reload) so factories can
    * close over the services they need at registration time.
    */
+  const extensionRuntimeApi = createExtensionRuntimeApi({
+    stellaDataDir: context.stellaDataDir,
+    stellaAppDir: context.stellaAppDir,
+    store: context.runtimeStore,
+  });
   const buildExtensionServices = (): ExtensionServices => ({
     stellaDataDir: context.stellaDataDir,
     stellaAppDir: context.stellaAppDir,
     store: context.runtimeStore,
+    runtime: extensionRuntimeApi,
   });
 
   /**
@@ -95,11 +102,8 @@ export const createRuntimeInitialization = (
 
   const initializeRuntime = () => {
     // Stella's lifecycle hooks (memory, scheduling, and others) live in the
-    // stella-runtime extension and register through the same loader path
-    // as user extensions. There's no separate "bundled" registration
-    // step — the loader is the one place hooks/tools/providers/agents
-    // get installed. Stella-runtime is just an extension that ships in
-    // the source tree.
+    // home-loaded stella-runtime extension and register through the same path
+    // as any other user extension. The engine has no bundled extension tier.
     const extensionsLoad = loadAndRegisterExtensions();
     const modelsLoad = modelRuntime.initialize({
       stellaDataDir: context.stellaDataDir,

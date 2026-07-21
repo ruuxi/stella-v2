@@ -26,7 +26,7 @@ describe("loadParsedAgentsFromDir", () => {
       path.resolve(
         process.cwd(),
         "..",
-        "runtime",
+        "home-seed",
         "extensions",
         "stella-runtime",
         "agent-metadata",
@@ -48,12 +48,12 @@ describe("loadParsedAgentsFromDir", () => {
     expect(agents.every((agent) => agent.systemPrompt.length > 0)).toBe(true);
   });
 
-  it("loads the bundled manager fallback with only agent-management tools", () => {
+  it("loads the home extension manager metadata with only agent-management tools", () => {
     const agents = loadParsedAgentsFromDir(
       path.resolve(
         process.cwd(),
         "..",
-        "runtime",
+        "home-seed",
         "extensions",
         "stella-runtime",
         "agent-metadata",

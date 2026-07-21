@@ -36,7 +36,8 @@ import {
   LocalAgentManager,
 } from "../../../../runtime/kernel/agents/local-agent-manager.js";
 import type { PersistedAgentRecord } from "../../../../runtime/kernel/storage/session-store.js";
-import { createRestartContinuationReminderHooks } from "../../../../runtime/extensions/stella-runtime/hooks/restart-continuation-reminder.hook.js";
+import { createExtensionRuntimeApi } from "../../../../runtime/kernel/extensions/runtime-api.js";
+import { createRestartContinuationReminderHooks } from "../../../../home-seed/extensions/stella-runtime/hooks/restart-continuation-reminder.hook.js";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
@@ -1266,14 +1267,21 @@ describe("production-shaped restart durability", () => {
 
 describe("restart-continuation reminder hooks", () => {
   const makeHooks = (rows: Map<string, PersistedAgentRecord>) =>
-    createRestartContinuationReminderHooks({
-      stellaDataDir: dataDir,
-      store: {
+    (() => {
+      const store = {
         getAgentRecord: (threadId: string) => rows.get(threadId) ?? null,
       } as unknown as Parameters<
         typeof createRestartContinuationReminderHooks
-      >[0]["store"],
-    });
+      >[0]["store"];
+      return createRestartContinuationReminderHooks({
+        runtime: createExtensionRuntimeApi({
+          stellaDataDir: dataDir,
+          stellaAppDir: dataDir,
+          store: store as never,
+        }),
+        store,
+      });
+    })();
 
   const persistedRow = (
     overrides: Partial<PersistedAgentRecord> & { threadId: string },

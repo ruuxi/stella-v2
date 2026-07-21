@@ -1,21 +1,8 @@
-import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import {
-  AGENT_ORPHANED_RESTART_CANCEL_REASON,
-  AGENT_PAUSE_CANCEL_REASON,
-  AGENT_SHUTDOWN_CANCEL_REASON,
-} from "../../../kernel/agents/local-agent-manager.js";
-import type { HookDefinition } from "../../../kernel/extensions/types.js";
-import type { ExtensionServices } from "../../../kernel/extensions/services.js";
-import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
-import {
-  RESTART_CONTINUATION_REMINDER_CUSTOM_TYPE,
-  attachRestartReminderForConversation,
-  buildRestartReminderText,
-  describeCurrentThreadState,
-  isRestartContinuationEnabled,
-  resolveRestartReminderOutcome,
-  type ThreadStateSentinels,
-} from "../../../kernel/restart-continuation.js";
+import type {
+  ExtensionRuntime,
+  ExtensionStore,
+  HookDefinition,
+} from "../types.js";
 
 /**
  * Restart-continuation reminder (stella-runtime).
@@ -42,31 +29,24 @@ import {
  * including the synthetic continuation turn itself.
  */
 
-const sentinels: ThreadStateSentinels = {
-  pausedReasons: [AGENT_PAUSE_CANCEL_REASON],
-  restartCancelReasons: [
-    AGENT_ORPHANED_RESTART_CANCEL_REASON,
-    AGENT_SHUTDOWN_CANCEL_REASON,
-  ],
-};
-
 export const createRestartContinuationReminderHooks = (options: {
-  /** `~/.stella` — where the interruption state file lives. */
-  stellaDataDir: string;
-  store: ExtensionServices["store"];
-}): [HookDefinition<"before_user_message">, HookDefinition<"agent_end">] => {
-  const attachHook: HookDefinition<"before_user_message"> = {
+  runtime: ExtensionRuntime;
+  store: ExtensionStore;
+}): [HookDefinition, HookDefinition] => {
+  const attachHook: HookDefinition = {
     event: "before_user_message",
     async handler(payload) {
-      if (payload.agentType !== AGENT_IDS.ORCHESTRATOR) return;
+      if (payload.agentType !== "orchestrator") return;
       if (payload.isUserTurn === false) return;
       const conversationId = payload.conversationId;
       if (!conversationId) return;
-      if (!isRestartContinuationEnabled(process.env)) return;
+      if (!options.runtime.restartContinuation.enabled()) return;
 
-      let attached: ReturnType<typeof attachRestartReminderForConversation>;
+      let attached: ReturnType<
+        ExtensionRuntime["restartContinuation"]["attach"]
+      >;
       try {
-        attached = attachRestartReminderForConversation(options.stellaDataDir, {
+        attached = options.runtime.restartContinuation.attach({
           conversationId,
           ...(payload.runId ? { runId: payload.runId } : {}),
         });
@@ -77,7 +57,10 @@ export const createRestartContinuationReminderHooks = (options: {
 
       const threads = attached.threads.map((ref) => {
         const record = options.store.getAgentRecord?.(ref.threadId) ?? null;
-        const current = describeCurrentThreadState(record, sentinels);
+        const current =
+          options.runtime.restartContinuation.describeCurrentThreadState(
+            record,
+          );
         return {
           threadId: ref.threadId,
           description: record?.description ?? "(unknown task)",
@@ -86,7 +69,7 @@ export const createRestartContinuationReminderHooks = (options: {
         };
       });
 
-      const text = buildRestartReminderText({
+      const text = options.runtime.restartContinuation.buildReminderText({
         reason: attached.state.reason,
         shutdownAt: attached.state.shutdownAt,
         syntheticTurnCompleted: attached.turnCompleted,
@@ -95,25 +78,25 @@ export const createRestartContinuationReminderHooks = (options: {
       return {
         prependMessages: [
           {
-            text: wrapSystemReminder(text),
+            text: options.runtime.wrapSystemReminder(text),
             uiVisibility: "hidden" as const,
             messageType: "message" as const,
-            customType: RESTART_CONTINUATION_REMINDER_CUSTOM_TYPE,
+            customType: options.runtime.restartContinuation.reminderCustomType,
           },
         ],
       };
     },
   };
 
-  const settleHook: HookDefinition<"agent_end"> = {
+  const settleHook: HookDefinition = {
     event: "agent_end",
     async handler(payload) {
-      if (payload.agentType !== AGENT_IDS.ORCHESTRATOR) return;
+      if (payload.agentType !== "orchestrator") return;
       const conversationId = payload.conversationId;
       if (!conversationId) return;
-      if (!isRestartContinuationEnabled(process.env)) return;
+      if (!options.runtime.restartContinuation.enabled()) return;
       try {
-        resolveRestartReminderOutcome(options.stellaDataDir, {
+        options.runtime.restartContinuation.settle({
           conversationId,
           ...(payload.runId ? { runId: payload.runId } : {}),
           succeeded: payload.outcome === "success",

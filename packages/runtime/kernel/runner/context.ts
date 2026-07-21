@@ -1,5 +1,4 @@
 import path from "path";
-import { resolveRuntimeSourceAsset } from "../shared/runtime-paths.js";
 import { createFashionApi } from "./fashion-api.js";
 import { createToolHost } from "../tools/host.js";
 import { HookEmitter } from "../extensions/hook-emitter.js";
@@ -769,7 +768,7 @@ export const createRunnerContext = ({
     notifyThreadActivityUpdated,
     getDefaultConversationId,
     paths: {
-      extensionsPath: resolveRuntimeSourceAsset("extensions"),
+      extensionsPath: path.join(stellaDataDir, "extensions"),
     },
     state: {
       convexSiteUrl: envProxyBaseUrl,

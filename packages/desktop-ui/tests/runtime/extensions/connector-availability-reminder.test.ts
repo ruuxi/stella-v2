@@ -12,7 +12,8 @@ import {
   type NativeConnectorCatalogEntry,
 } from "@stella/runtime/kernel/connectors/native-integrations";
 import type { BeforeUserMessagePayload } from "@stella/runtime/kernel/extensions/types";
-import { createConnectorAvailabilityReminderHook } from "@stella/runtime/extensions/stella-runtime/hooks/connector-availability-reminder.hook";
+import { createExtensionRuntimeApi } from "@stella/runtime/kernel/extensions/runtime-api";
+import { createConnectorAvailabilityReminderHook } from "../../../../home-seed/extensions/stella-runtime/hooks/connector-availability-reminder.hook";
 import { recordReminderShown } from "@stella/runtime/kernel/runner/reminder-window-gate";
 import { formatThreadCheckpointMessage } from "@stella/runtime/kernel/thread-runtime";
 
@@ -69,8 +70,11 @@ const makeHook = (
   windowMessages: Array<{ content: string; timestamp: number }> = [],
 ) =>
   createConnectorAvailabilityReminderHook({
-    stellaDataDir: root,
-    store: storeWith(windowMessages),
+    runtime: createExtensionRuntimeApi({
+      stellaDataDir: root,
+      stellaAppDir: root,
+      store: storeWith(windowMessages) as never,
+    }),
   });
 
 describe("connector-availability reminder hook", () => {

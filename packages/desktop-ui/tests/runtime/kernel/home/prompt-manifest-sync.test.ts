@@ -35,7 +35,7 @@ const roots = new Set<string>();
 const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
 const managerMetadataDir = path.join(
   repoRoot,
-  "packages/runtime/extensions/stella-runtime/agent-metadata",
+  "packages/home-seed/extensions/stella-runtime/agent-metadata",
 );
 const promptSyncBundles = new Map<string, Promise<string>>();
 const tempDir = async () => {

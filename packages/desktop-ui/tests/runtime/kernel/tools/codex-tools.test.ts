@@ -810,7 +810,7 @@ EOF`,
   it("exposes persistent Computer Use through node_repl in the general agent metadata", async () => {
     const metadataPath = path.join(
       repoRoot,
-      "packages/runtime/extensions/stella-runtime/agent-metadata/general.md",
+      "packages/home-seed/extensions/stella-runtime/agent-metadata/general.md",
     );
     const metadata = await readFile(metadataPath, "utf-8");
     const toolsLine = metadata

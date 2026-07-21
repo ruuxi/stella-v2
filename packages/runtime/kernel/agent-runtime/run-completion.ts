@@ -545,7 +545,7 @@ export const finalizeOrchestratorSuccess = async (args: {
   });
 
   // Memory review now lives as an `agent_end` hook in
-  // `runtime/extensions/stella-runtime/hooks/memory-review.hook.ts`.
+  // `~/.stella/extensions/stella-runtime/hooks/memory-review.hook.ts`.
   // The hook reads `userTurnsSinceMemoryReview` off
   // `payload.services` (populated by `emitAgentEndHook` above) and
   // self-skips when the threshold isn't met.
@@ -612,7 +612,7 @@ export const finalizeSubagentSuccess = async (args: {
   agentMessageCount?: number;
 }): Promise<SubagentRunResult> => {
   // Thread-summaries record and dream-scheduler notify
-  // live as `agent_end` hooks in `runtime/extensions/stella-runtime/`.
+  // live as `agent_end` hooks in `~/.stella/extensions/stella-runtime/`.
   // The kernel just fires the lifecycle event with the per-run services
   // populated; each hook self-skips when its capability gate doesn't match.
   const trimmedResult = args.result.trim();

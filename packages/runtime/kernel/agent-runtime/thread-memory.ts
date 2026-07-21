@@ -754,7 +754,7 @@ export const buildOrchestratorPromptMessages = async (args: {
 
   // Stale-user / dynamic-memory reminders used to be inline branches
   // here; they now live as `before_user_message` hooks in
-  // `runtime/extensions/stella-runtime/hooks/`. The reminder text is
+  // `~/.stella/extensions/stella-runtime/hooks/`. The reminder text is
   // forwarded through the hook payload so the hooks can decide whether
   // to inject. When no hook emitter is wired (legacy / direct test
   // callers) the prompt builds without reminders, matching the

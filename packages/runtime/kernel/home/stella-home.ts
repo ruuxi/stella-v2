@@ -12,6 +12,11 @@ import {
   type BundledSyncReport,
 } from "./bundled-sync.js";
 import {
+  reconcileBundledExtensions,
+  summarizeExtensionsSync,
+  type ExtensionsSyncReport,
+} from "./extensions-sync.js";
+import {
   StalePromptManifestError,
   applyPromptManifestIfCurrent,
   reconcileBundledManagerPromptFallback,
@@ -92,6 +97,7 @@ export const ensureStellaDataDirSeeded = async (
   options: { promptSiteUrl?: string | null } = {},
 ): Promise<{
   skillsSync: SkillsSyncReport;
+  extensionsSync: ExtensionsSyncReport;
   personalitySync: BundledSyncReport;
   promptResolution: PromptManifestResolution["source"];
 }> => {
@@ -114,6 +120,15 @@ export const ensureStellaDataDirSeeded = async (
   const summary = summarizeSkillsSync(skillsSync);
   if (summary !== "no-op") {
     console.log(`[stella-home] skills sync: ${summary}`);
+  }
+
+  const extensionsSync = await reconcileBundledExtensions(
+    path.join(seedPath, "extensions"),
+    path.join(stellaDataDir, "extensions"),
+  );
+  const extensionsSummary = summarizeExtensionsSync(extensionsSync);
+  if (extensionsSummary !== "no-op") {
+    console.log(`[stella-home] extensions sync: ${extensionsSummary}`);
   }
 
   const promptResolution = await resolvePromptManifest({
@@ -163,6 +178,7 @@ export const ensureStellaDataDirSeeded = async (
 
   return {
     skillsSync,
+    extensionsSync,
     personalitySync,
     promptResolution: promptResolution.source,
   };
@@ -226,10 +242,9 @@ export const resolveStellaDataDir = async (
     explicitStatePath,
   );
   const mutableRoot = app.isPackaged ? statePath : stellaAppDir;
-  const runtimeRoot = path.join(mutableRoot, "runtime");
   const workspacePath = path.join(mutableRoot, "workspace");
 
-  const extensionsPath = path.join(runtimeRoot, "extensions");
+  const extensionsPath = path.join(statePath, "extensions");
   const workspaceAppsPath = path.join(workspacePath, "apps");
 
   process.env.STELLA_APP_DIR = stellaAppDir;

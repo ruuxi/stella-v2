@@ -13,7 +13,7 @@ import { createToolHost } from "@stella/runtime/kernel/tools/host";
 import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 import { getRuntimeToolMetadata } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
 import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
-import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
+import { loadHomeAgentsWithMetadata } from "@stella/runtime/kernel/agents/agents";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 
 type TestHostContext = {
@@ -128,7 +128,7 @@ describe("orchestrator direct tool surface", () => {
     const agents = loadParsedAgentsFromDir(
       path.join(
         repoRoot,
-        "packages/runtime/extensions/stella-runtime/agent-metadata",
+        "packages/home-seed/extensions/stella-runtime/agent-metadata",
       ),
     );
     const orchestrator = agents.find((agent) => agent.id === "orchestrator");
@@ -186,11 +186,11 @@ describe("orchestrator direct tool surface", () => {
       ),
     ]);
 
-    const agents = loadStellaRuntimeAgents(
+    const agents = loadHomeAgentsWithMetadata(
       rootPath,
       path.join(
         repoRoot,
-        "packages/runtime/extensions/stella-runtime/agent-metadata",
+        "packages/home-seed/extensions/stella-runtime/agent-metadata",
       ),
     );
     const advertisedToolNames = (agentType: string) => {

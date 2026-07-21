@@ -830,18 +830,13 @@ export const createOrchestratorController = (
     });
   };
 
-  const cancelLocalChat = (runId: string) => {
+  const cancelLocalChat = async (runId: string): Promise<void> => {
     const controller = context.state.activeRunAbortControllers.get(runId);
     if (!controller) return;
     const wasPreExecution = preparingRunIds.has(runId);
     const uiVisibility = context.state.activeOrchestratorUiVisibility;
     const callbacks = context.state.runCallbacksByRunId.get(runId);
     controller.abort();
-    // Interrupt the run's fiber tree: the root turn fiber plus every
-    // subagent attempt adopted under this rootRunId. Interruption cancels
-    // each unit cooperatively (idempotent with the abort above) and joins
-    // its teardown; the synchronous cancel surface below stays unchanged.
-    void context.state.supervisor.cancelRun(runId, "Canceled");
     if (wasPreExecution) {
       preExecutionCanceledRunIds.add(runId);
       cleanupRun(runId);
@@ -853,6 +848,18 @@ export const createOrchestratorController = (
       });
       return;
     }
+    // ONE joining cancel path: interrupt the run's fiber tree (root turn
+    // fiber plus every adopted subagent attempt, provider stream, tool
+    // call, and engine turn) and wait until each unit's teardown has
+    // settled. The run's own finalizeInterrupted emits the single truthful
+    // terminal and releases the lane via its terminal callback
+    // (`cleanupRun`); the joins are bounded by the per-resource abandonment
+    // graces, so cancel can never hang. Only after the join do the
+    // idempotent fallback releases run — a run whose terminal callback
+    // already cleaned up makes them no-ops (releaseRun is stale-id safe),
+    // and a queued turn can no longer start while the old turn is still
+    // tearing down.
+    await context.state.supervisor.cancelRun(runId, "Canceled");
     context.state.activeRunAbortControllers.delete(runId);
     clearActiveOrchestratorRun(runId);
   };
@@ -866,13 +873,15 @@ export const createOrchestratorController = (
    *
    * Returns `true` if a run was cancelled, `false` if none matched.
    */
-  const cancelLocalChatByConversation = (conversationId: string): boolean => {
+  const cancelLocalChatByConversation = async (
+    conversationId: string,
+  ): Promise<boolean> => {
     const activeConversationId = context.state.activeOrchestratorConversationId;
     const activeRunId = context.state.activeOrchestratorRunId;
     if (!activeRunId || activeConversationId !== conversationId) {
       return false;
     }
-    cancelLocalChat(activeRunId);
+    await cancelLocalChat(activeRunId);
     return true;
   };
 

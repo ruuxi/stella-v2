@@ -498,13 +498,21 @@ export type RunnerPublicApi = {
     agentId: string,
     reason?: string,
   ) => Promise<{ canceled: boolean }>;
-  cancelLocalChat: (runId: string) => void;
+  /**
+   * The single joining cancel path: interrupts the run's fiber tree and
+   * resolves only after every owned resource (provider streams, tools,
+   * engine turns, subagent attempts) has torn down and the run's one
+   * truthful terminal was emitted. Bounded by the per-resource abandonment
+   * graces, so it can never hang.
+   */
+  cancelLocalChat: (runId: string) => Promise<void>;
   /**
    * Cancel the active orchestrator run for the given local conversation,
-   * if one exists. Returns `true` if a run was cancelled. Used by the
-   * remote-turn cancel path so callers don't need to track runIds.
+   * if one exists. Resolves `true` (after the joining cancel) if a run was
+   * cancelled. Used by the remote-turn cancel path so callers don't need
+   * to track runIds.
    */
-  cancelLocalChatByConversation: (conversationId: string) => boolean;
+  cancelLocalChatByConversation: (conversationId: string) => Promise<boolean>;
   getActiveOrchestratorRun: () => RuntimeActiveRun | null;
   appendThreadMessage: (args: {
     threadKey: string;

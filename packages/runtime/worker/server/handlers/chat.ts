@@ -66,24 +66,32 @@ export const chatHandlers: WorkerRpcHandlers = {
     Effect.gen(function* () {
       const sessions = yield* WorkerSessions.Service;
       // Tolerate the runner still building (post-ready window): nothing to
-      // cancel if it hasn't started yet.
-      sessions
-        .current()
-        ?.runnerCell.get()
-        ?.cancelLocalChat((params as { runId: string }).runId);
+      // cancel if it hasn't started yet. The joining cancel resolves only
+      // after the run's owned resources tore down and its single terminal
+      // was emitted (bounded by the per-resource abandonment graces).
+      yield* Effect.promise(
+        () =>
+          sessions
+            .current()
+            ?.runnerCell.get()
+            ?.cancelLocalChat((params as { runId: string }).runId) ??
+          Promise.resolve(),
+      );
       return { ok: true };
     }),
 
   [METHOD_NAMES.INTERNAL_WORKER_CANCEL_BY_CONVERSATION]: (params) =>
     Effect.gen(function* () {
       const sessions = yield* WorkerSessions.Service;
-      const cancelled =
-        sessions
-          .current()
-          ?.runnerCell.get()
-          ?.cancelLocalChatByConversation(
-            (params as { conversationId: string }).conversationId,
-          ) ?? false;
+      const cancelled = yield* Effect.promise(
+        () =>
+          sessions
+            .current()
+            ?.runnerCell.get()
+            ?.cancelLocalChatByConversation(
+              (params as { conversationId: string }).conversationId,
+            ) ?? Promise.resolve(false),
+      );
       return { ok: true, cancelled };
     }),
 };

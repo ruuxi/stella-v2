@@ -126,8 +126,8 @@ const QUERIES = [
   {
     id: "memory_system",
     prompt:
-      "What did we determine about profile.md, memory_summary.md, MEMORY.md, and the sources Recall searches?",
-    terms: ["profile.md", "memory_summary.md", "MEMORY.md", "Recall"],
+      "What did we determine about profile.md, memory_map.md, MEMORY.md, and the sources Recall searches?",
+    terms: ["profile.md", "memory_map.md", "MEMORY.md", "Recall"],
   },
   {
     id: "carplay_thread",

@@ -214,12 +214,12 @@ describe("buildKnownMemoryContext", () => {
     ).toBe("");
   });
 
-  it("combines the consolidated summary with recent candidate notes", async () => {
+  it("combines the comment-stripped map with recent candidate notes", async () => {
     const { rootPath, store } = createTestContext();
     await mkdir(path.join(rootPath, "memories"), { recursive: true });
     await writeFile(
-      path.join(rootPath, "memories", "memory_summary.md"),
-      "- User prefers terse summaries.\n",
+      path.join(rootPath, "memories", "memory_map.md"),
+      "<!-- writer-only charter -->\n- terse summaries -> profile.md\n",
       "utf-8",
     );
     store.recordMemoryNote({
@@ -236,6 +236,8 @@ describe("buildKnownMemoryContext", () => {
     });
     expect(context).toContain("consolidated_memory");
     expect(context).toContain("terse summaries");
+    expect(context).not.toContain("writer-only charter");
+    expect(context).toContain('path="~/.stella/memories/memory_map.md"');
     expect(context).toContain("recent_candidates");
     expect(context).toContain("dark mode as the default theme");
   });
@@ -244,7 +246,7 @@ describe("buildKnownMemoryContext", () => {
     const { rootPath, store } = createTestContext();
     await mkdir(path.join(rootPath, "memories"), { recursive: true });
     await writeFile(
-      path.join(rootPath, "memories", "memory_summary.md"),
+      path.join(rootPath, "memories", "memory_map.md"),
       "- OPENAI_API_KEY=sk-testsecret12345678901234567890\n",
       "utf-8",
     );

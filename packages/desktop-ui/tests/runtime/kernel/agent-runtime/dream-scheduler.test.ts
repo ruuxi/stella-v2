@@ -117,15 +117,18 @@ const waitFor = async (
 };
 
 describe("buildDreamSystemPrompt", () => {
-  it("requires bounded, usage-aware, sensitive-data-safe index maintenance", () => {
+  it("requires bounded, usage-aware, ownership-safe map maintenance", () => {
     const prompt = buildDreamSystemPrompt(createRoot());
 
-    expect(prompt).toContain("memory_index.md on every consolidation pass");
-    expect(prompt).toContain("at most 80 entries and 6000 characters");
+    expect(prompt).toContain("memory_map.md on every consolidation pass");
+    expect(prompt).toContain(
+      "memory_summary.md and memory_index.md are retired",
+    );
+    expect(prompt).toContain("at most 80 entries and 6000 injected characters");
     expect(prompt).toContain("prune entries older than 90 days");
     expect(prompt).toContain("higher usage_count or recent last_usage");
     expect(prompt).toContain("Never put secrets, credentials, tokens");
-    expect(prompt).toContain("profile.md remains exclusively Remember-owned");
+    expect(prompt).toContain("profile.md stays exclusively Remember-owned");
   });
 });
 

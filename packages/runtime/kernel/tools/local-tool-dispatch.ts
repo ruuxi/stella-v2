@@ -3,9 +3,18 @@ import path from "node:path";
 
 import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import {
-  memoryIndexPath,
+  assertSafeDreamMemoryRoot,
+  MEMORY_INDEX_FILE,
+  MEMORY_MAP_FILE,
+  MEMORY_MAP_MAX_CHARS,
+  MEMORY_MAP_ROUTES_END_ANCHOR,
+  MEMORY_MAP_ROUTES_START_ANCHOR,
+  MEMORY_SUMMARY_FILE,
   memoryFilePath,
+  memoryIndexPath,
+  memoryMapPath,
   memorySummaryPath,
+  stripInjectedHtmlComments,
 } from "../memory/dream-storage.js";
 import { redactMemoryText } from "../memory/redaction.js";
 import type { DreamInboxStore } from "../memory/dream-inbox-store.js";
@@ -70,18 +79,61 @@ const ensureDreamWritePath = async (
   dream: LocalDreamConfig,
   filePath: string,
 ): Promise<string> => {
-  const resolved = await resolveDreamToolPath(dream, filePath);
-  const allowedFiles = await Promise.all([
-    normalizePath(memoryFilePath(dream.stellaDataDir)),
-    normalizePath(memorySummaryPath(dream.stellaDataDir)),
-    normalizePath(memoryIndexPath(dream.stellaDataDir)),
-  ]);
-  if (allowedFiles.includes(resolved)) {
+  const candidate = path.resolve(
+    path.isAbsolute(filePath)
+      ? filePath
+      : path.resolve(dream.stellaDataDir, filePath),
+  );
+  const allowedFiles = [
+    path.resolve(memoryFilePath(dream.stellaDataDir)),
+    path.resolve(memoryMapPath(dream.stellaDataDir)),
+  ];
+  if (allowedFiles.includes(candidate)) {
+    const canonicalRoot = await assertSafeDreamMemoryRoot(dream.stellaDataDir);
+    const stat = await fs.lstat(candidate);
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1) {
+      throw new Error(
+        `Dream StrReplace refuses aliased or non-regular durable memory files: ${candidate}`,
+      );
+    }
+    const resolved = await fs.realpath(candidate);
+    if (resolved !== path.join(canonicalRoot, path.basename(candidate))) {
+      throw new Error(
+        `Dream StrReplace refuses a durable memory path outside the owned memory root: ${candidate}`,
+      );
+    }
     return resolved;
   }
+  const retiredFiles = [
+    path.resolve(memorySummaryPath(dream.stellaDataDir)),
+    path.resolve(memoryIndexPath(dream.stellaDataDir)),
+  ];
+  if (retiredFiles.includes(candidate)) {
+    throw new Error(
+      `${MEMORY_SUMMARY_FILE} and ${MEMORY_INDEX_FILE} are retired and read-only; edit ${MEMORY_MAP_FILE} instead.`,
+    );
+  }
   throw new Error(
-    "Dream StrReplace may only edit MEMORY.md, memory_summary.md, and memory_index.md.",
+    `Dream StrReplace may only edit MEMORY.md and ${MEMORY_MAP_FILE}.`,
   );
+};
+
+/** Mechanical structure and injected-byte budget guard for Dream map edits. */
+export const validateMemoryMapWrite = (updated: string): string | null => {
+  const injected = stripInjectedHtmlComments(updated);
+  if (injected.length > MEMORY_MAP_MAX_CHARS) {
+    return `Write rejected: ${MEMORY_MAP_FILE} would inject ${injected.length} characters (hard cap ${MEMORY_MAP_MAX_CHARS}). Curate the map instead of exceeding the budget. Nothing was written.`;
+  }
+  if (injected.length === 0) {
+    return `Write rejected: ${MEMORY_MAP_FILE} would have no injectable content. Nothing was written.`;
+  }
+  if (
+    !updated.includes(MEMORY_MAP_ROUTES_START_ANCHOR) ||
+    !updated.includes(MEMORY_MAP_ROUTES_END_ANCHOR)
+  ) {
+    return `Write rejected: the ${MEMORY_MAP_ROUTES_START_ANCHOR} / ${MEMORY_MAP_ROUTES_END_ANCHOR} anchors must stay intact. Nothing was written.`;
+  }
+  return null;
 };
 
 const isNumberArray = (value: unknown): value is number[] =>
@@ -217,6 +269,19 @@ export async function dispatchLocalTool(
             newString +
             original.slice(idx + oldString.length);
           count = 1;
+        }
+        if (
+          deps.dream &&
+          resolvedPath ===
+            (await normalizePath(memoryMapPath(deps.dream.stellaDataDir)))
+        ) {
+          const rejection = validateMemoryMapWrite(updated);
+          if (rejection) {
+            return {
+              handled: true,
+              text: JSON.stringify({ success: false, error: rejection }),
+            };
+          }
         }
         await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
         await writeFileWithNulGuard(resolvedPath, updated);

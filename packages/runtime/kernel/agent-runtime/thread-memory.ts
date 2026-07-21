@@ -28,17 +28,19 @@ import { now } from "./shared.js";
 import type { AgentMessage } from "../agent-core/types.js";
 import { readOptionalTextFile } from "../shared/read-optional-text-file.js";
 import { redactMemoryText } from "../memory/redaction.js";
+import {
+  BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+  buildStartupDocMessage,
+  LIFE_CORE_MEMORY_DISPLAY_PATH,
+  LIFE_MEMORY_MAP_DISPLAY_PATH,
+  LIFE_PERSONALITY_DISPLAY_PATH,
+  LIFE_REGISTRY_DISPLAY_PATH,
+  LIFE_USER_PROFILE_DISPLAY_PATH,
+  parseStartupDocPath,
+  RETIRED_STARTUP_DOC_DISPLAY_PATHS,
+} from "../memory/resident-docs.js";
 
 const logger = createRuntimeLogger("agent-runtime.thread-memory");
-const LIFE_REGISTRY_DISPLAY_PATH = "~/.stella/registry.md";
-const LIFE_CORE_MEMORY_DISPLAY_PATH = "~/.stella/core-memory.md";
-const LIFE_USER_PROFILE_DISPLAY_PATH = "~/.stella/memories/profile.md";
-const LIFE_MEMORY_SUMMARY_DISPLAY_PATH = "~/.stella/memories/memory_summary.md";
-const MEMORY_SUMMARY_BOOTSTRAP_MAX_CHARS = 12_000;
-const MEMORY_SUMMARY_TRUNCATION_MARKER =
-  "\n...[resident memory summary truncated]";
-const LIFE_PERSONALITY_DISPLAY_PATH = "~/.stella/PERSONALITY.md";
-const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
 export const buildRunThreadKey = ({
   conversationId,
   agentType,
@@ -417,17 +419,6 @@ export const buildSystemPrompt = (context: LocalAgentContext): string => {
   return sections.filter(Boolean).join("\n\n");
 };
 
-const buildStartupDocMessage = (
-  displayPath: string,
-  content: string,
-): string => {
-  return [
-    `<startup_doc path="${displayPath}">`,
-    content,
-    "</startup_doc>",
-  ].join("\n");
-};
-
 export const isBootstrapStartupDocMessage = (
   message: Pick<AgentMessage, "role"> & { customType?: string },
 ): boolean =>
@@ -445,28 +436,31 @@ const customMessageContentText = (
     .join("\n");
 };
 
+const persistedStartupDocPaths = (context: LocalAgentContext): Set<string> => {
+  const paths = new Set<string>();
+  for (const entry of context.threadHistory ?? []) {
+    const customMessage = entry.customMessage;
+    if (
+      entry.role !== "runtimeInternal" ||
+      customMessage?.customType !== BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE
+    ) {
+      continue;
+    }
+    const docPath = parseStartupDocPath(
+      customMessageContentText(customMessage.content),
+    );
+    if (docPath) paths.add(docPath);
+  }
+  return paths;
+};
+
+// Deduplicate by path, never by body. Source bytes are frozen for the current
+// provider-cache epoch and catch up only through the compaction-boundary
+// refresh. A mid-epoch rewrite must not append a second resident copy.
 const hasPersistedStartupDoc = (
   context: LocalAgentContext,
-  docText: string,
-): boolean => {
-  const needle = docText.trim();
-  return (
-    context.threadHistory?.some((entry) => {
-      const customMessage = entry.customMessage;
-      if (
-        entry.role !== "runtimeInternal" ||
-        customMessage?.customType !== BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE
-      ) {
-        return false;
-      }
-      // Match on the full doc body, not just its path. A resident doc whose
-      // content changed mid-thread (a Remember replace/remove, or Dream
-      // refreshing memory_summary.md) must re-inject so the thread sees the
-      // current version instead of the stale copy already in history.
-      return customMessageContentText(customMessage.content).trim() === needle;
-    }) ?? false
-  );
-};
+  displayPath: string,
+): boolean => persistedStartupDocPaths(context).has(displayPath);
 
 export type OrchestratorPromptMessage = RuntimePromptMessage;
 
@@ -501,60 +495,51 @@ export const buildStartupPromptMessages = async (args: {
   const shouldIncludeRegistry = args.includeRegistry ?? false;
 
   const personality = args.context.personality?.trim();
-  if (personality) {
-    const doc = buildStartupDocMessage(
-      LIFE_PERSONALITY_DISPLAY_PATH,
-      personality,
+  if (
+    personality &&
+    !hasPersistedStartupDoc(args.context, LIFE_PERSONALITY_DISPLAY_PATH)
+  ) {
+    messages.push(
+      createInternalPromptMessage(
+        buildStartupDocMessage(LIFE_PERSONALITY_DISPLAY_PATH, personality),
+        "hidden",
+        BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+      ),
     );
-    if (!hasPersistedStartupDoc(args.context, doc)) {
-      messages.push(
-        createInternalPromptMessage(
-          doc,
-          "hidden",
-          BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
-        ),
-      );
-    }
   }
 
-  if (shouldIncludeRegistry) {
+  if (
+    shouldIncludeRegistry &&
+    !hasPersistedStartupDoc(args.context, LIFE_REGISTRY_DISPLAY_PATH)
+  ) {
     const registryContent = await readRegistryContent({
       stellaDataDir: args.stellaDataDir,
     });
     if (registryContent) {
-      const doc = buildStartupDocMessage(
-        LIFE_REGISTRY_DISPLAY_PATH,
-        registryContent,
+      messages.push(
+        createInternalPromptMessage(
+          buildStartupDocMessage(LIFE_REGISTRY_DISPLAY_PATH, registryContent),
+          "hidden",
+          BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+        ),
       );
-      if (!hasPersistedStartupDoc(args.context, doc)) {
-        messages.push(
-          createInternalPromptMessage(
-            doc,
-            "hidden",
-            BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
-          ),
-        );
-      }
     }
   }
 
   const coreMemory = args.context.coreMemory
     ? redactMemoryText(args.context.coreMemory.trim())
     : "";
-  if (coreMemory) {
-    const doc = buildStartupDocMessage(
-      LIFE_CORE_MEMORY_DISPLAY_PATH,
-      coreMemory,
+  if (
+    coreMemory &&
+    !hasPersistedStartupDoc(args.context, LIFE_CORE_MEMORY_DISPLAY_PATH)
+  ) {
+    messages.push(
+      createInternalPromptMessage(
+        buildStartupDocMessage(LIFE_CORE_MEMORY_DISPLAY_PATH, coreMemory),
+        "hidden",
+        BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+      ),
     );
-    if (!hasPersistedStartupDoc(args.context, doc)) {
-      messages.push(
-        createInternalPromptMessage(
-          doc,
-          "hidden",
-          BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
-        ),
-      );
-    }
   }
 
   // Resident user profile — durable facts the Remember tool persists. Pushed
@@ -563,44 +548,35 @@ export const buildStartupPromptMessages = async (args: {
   const userProfile = args.context.userProfile
     ? redactMemoryText(args.context.userProfile.trim())
     : "";
-  if (userProfile) {
-    const doc = buildStartupDocMessage(
-      LIFE_USER_PROFILE_DISPLAY_PATH,
-      userProfile,
+  if (
+    userProfile &&
+    !hasPersistedStartupDoc(args.context, LIFE_USER_PROFILE_DISPLAY_PATH)
+  ) {
+    messages.push(
+      createInternalPromptMessage(
+        buildStartupDocMessage(LIFE_USER_PROFILE_DISPLAY_PATH, userProfile),
+        "hidden",
+        BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+      ),
     );
-    if (!hasPersistedStartupDoc(args.context, doc)) {
-      messages.push(
-        createInternalPromptMessage(
-          doc,
-          "hidden",
-          BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
-        ),
-      );
-    }
   }
 
-  // Resident focus summary — Dream's dynamic snapshot of what the user is
-  // actively working on, now pushed instead of only reachable via Context.
-  const rawMemorySummary = args.context.memorySummary
-    ? redactMemoryText(args.context.memorySummary.trim())
+  // The memory map is the single Dream-owned resident routing doc. A legacy
+  // thread carrying a pinned summary/index suppresses the map until the next
+  // compaction boundary converts the old head entry in place; injecting both
+  // mid-epoch would duplicate resident context and churn the cache prefix.
+  const memoryMap = args.context.memoryMap
+    ? redactMemoryText(args.context.memoryMap.trim())
     : "";
-  const memorySummary =
-    rawMemorySummary.length > MEMORY_SUMMARY_BOOTSTRAP_MAX_CHARS
-      ? `${rawMemorySummary.slice(
-          0,
-          MEMORY_SUMMARY_BOOTSTRAP_MAX_CHARS -
-            MEMORY_SUMMARY_TRUNCATION_MARKER.length,
-        )}${MEMORY_SUMMARY_TRUNCATION_MARKER}`
-      : rawMemorySummary;
-  if (memorySummary) {
-    const doc = buildStartupDocMessage(
-      LIFE_MEMORY_SUMMARY_DISPLAY_PATH,
-      memorySummary,
+  if (memoryMap) {
+    const persistedPaths = persistedStartupDocPaths(args.context);
+    const hasRetiredDoc = [...RETIRED_STARTUP_DOC_DISPLAY_PATHS].some(
+      (retiredPath) => persistedPaths.has(retiredPath),
     );
-    if (!hasPersistedStartupDoc(args.context, doc)) {
+    if (!persistedPaths.has(LIFE_MEMORY_MAP_DISPLAY_PATH) && !hasRetiredDoc) {
       messages.push(
         createInternalPromptMessage(
-          doc,
+          buildStartupDocMessage(LIFE_MEMORY_MAP_DISPLAY_PATH, memoryMap),
           "hidden",
           BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
         ),

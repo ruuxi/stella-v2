@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,6 +14,8 @@ import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import {
   ensureDreamMemoryLayout,
   memoryIndexPath,
+  memoryMapPath,
+  memorySummaryPath,
 } from "@stella/runtime/kernel/memory/dream-storage";
 import { dispatchLocalTool } from "@stella/runtime/kernel/tools/local-tool-dispatch";
 
@@ -82,17 +91,17 @@ describe("dispatchLocalTool", () => {
     expect(updated).toContain("***");
   });
 
-  it("allows Dream to edit the routing index but keeps profile.md Remember-owned", async () => {
+  it("allows Dream to edit the map but keeps profile.md Remember-owned", async () => {
     const rootPath = await createRoot();
     await ensureDreamMemoryLayout(rootPath);
-    const indexPath = memoryIndexPath(rootPath);
+    const mapPath = memoryMapPath(rootPath);
     const profilePath = path.join(rootPath, "memories", "profile.md");
     await writeFile(profilePath, "# User Profile\n- The user goes by Bob\n");
 
-    const indexResult = await dispatchLocalTool(
+    const mapResult = await dispatchLocalTool(
       TOOL_IDS.STR_REPLACE,
       {
-        file_path: indexPath,
+        file_path: mapPath,
         old_string: "- No routing entries recorded yet.",
         new_string: "- 2026-07-18 — Stella v2; source: memory",
       },
@@ -101,10 +110,10 @@ describe("dispatchLocalTool", () => {
         dream: { stellaDataDir: rootPath },
       },
     );
-    expect(
-      JSON.parse(indexResult.handled ? indexResult.text : "{}"),
-    ).toMatchObject({ success: true });
-    await expect(readFile(indexPath, "utf-8")).resolves.toContain("Stella v2");
+    expect(JSON.parse(mapResult.handled ? mapResult.text : "{}")).toMatchObject(
+      { success: true },
+    );
+    await expect(readFile(mapPath, "utf-8")).resolves.toContain("Stella v2");
 
     const profileResult = await dispatchLocalTool(
       TOOL_IDS.STR_REPLACE,
@@ -122,9 +131,94 @@ describe("dispatchLocalTool", () => {
       JSON.parse(profileResult.handled ? profileResult.text : "{}"),
     ).toMatchObject({
       success: false,
-      error: expect.stringContaining("memory_index.md"),
+      error: expect.stringContaining("memory_map.md"),
     });
     await expect(readFile(profilePath, "utf-8")).resolves.toContain("Bob");
+  });
+
+  it("rejects over-cap map writes without mutating the file", async () => {
+    const rootPath = await createRoot();
+    await ensureDreamMemoryLayout(rootPath);
+    const mapPath = memoryMapPath(rootPath);
+    const before = await readFile(mapPath, "utf-8");
+
+    const result = await dispatchLocalTool(
+      TOOL_IDS.STR_REPLACE,
+      {
+        file_path: mapPath,
+        old_string: "- No routing entries recorded yet.",
+        new_string: `- ${"x".repeat(6_100)}`,
+      },
+      {
+        conversationId: "c1",
+        dream: { stellaDataDir: rootPath },
+      },
+    );
+
+    expect(JSON.parse(result.handled ? result.text : "{}")).toMatchObject({
+      success: false,
+      error: expect.stringContaining("hard cap 6000"),
+    });
+    await expect(readFile(mapPath, "utf-8")).resolves.toBe(before);
+  });
+
+  it("keeps both retired files and arbitrary paths outside Dream's write ownership", async () => {
+    const rootPath = await createRoot();
+    await ensureDreamMemoryLayout(rootPath);
+    const targets = [
+      memorySummaryPath(rootPath),
+      memoryIndexPath(rootPath),
+      path.join(rootPath, "memories", "profile.md"),
+      path.join(rootPath, "outside.md"),
+    ];
+    for (const target of targets) {
+      await writeFile(target, "original", "utf-8");
+      const result = await dispatchLocalTool(
+        TOOL_IDS.STR_REPLACE,
+        {
+          file_path: target,
+          old_string: "original",
+          new_string: "mutated",
+        },
+        {
+          conversationId: "c1",
+          dream: { stellaDataDir: rootPath },
+        },
+      );
+      expect(JSON.parse(result.handled ? result.text : "{}")).toMatchObject({
+        success: false,
+      });
+      await expect(readFile(target, "utf-8")).resolves.toBe("original");
+    }
+  });
+
+  it("rejects hard-linked owned files without mutating either alias", async () => {
+    const rootPath = await createRoot();
+    await ensureDreamMemoryLayout(rootPath);
+    const mapPath = memoryMapPath(rootPath);
+    const aliasPath = path.join(rootPath, "map-backup.md");
+    const before = await readFile(mapPath, "utf-8");
+    await link(mapPath, aliasPath);
+
+    const result = await dispatchLocalTool(
+      TOOL_IDS.STR_REPLACE,
+      {
+        file_path: mapPath,
+        old_string: "- No routing entries recorded yet.",
+        new_string: "- must not be written through a hard link",
+      },
+      {
+        conversationId: "c1",
+        dream: { stellaDataDir: rootPath },
+      },
+    );
+
+    expect(JSON.parse(result.handled ? result.text : "{}")).toMatchObject({
+      success: false,
+      error: expect.stringContaining("aliased"),
+    });
+    await expect(readFile(mapPath, "utf-8")).resolves.toBe(before);
+    await expect(readFile(aliasPath, "utf-8")).resolves.toBe(before);
   });
 
   it("passes usage priority signals through the Dream list payload", async () => {

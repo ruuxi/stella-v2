@@ -20,7 +20,7 @@ vi.mock("@/platform/electron/platform", () => ({
   getPlatform: () => "darwin",
 }));
 vi.mock("@/shell/LeftSidebarSections", () => ({
-  LeftSidebarSections: () => null,
+  LeftSidebarSections: () => <div data-testid="sidebar-sections" />,
 }));
 vi.mock("@/shell/sidebar/ShellTopBarAccount", () => ({
   ShellTopBarAccount: () => null,
@@ -53,7 +53,6 @@ function HomeActivationHarness({ Nav }: { Nav: ComponentType }) {
 
 const navImplementations = [
   { name: "top-bar navigation", Nav: ShellTopBarPrimaryNav },
-  { name: "left-sidebar navigation", Nav: LeftSidebar },
 ];
 
 describe.each(navImplementations)(
@@ -120,7 +119,7 @@ describe.each(navImplementations)(
       ).toBe("/settings");
 
       const homeLink = container.querySelector<HTMLAnchorElement>(
-        'a[aria-label="Home"], a.left-sidebar__nav-row',
+        'a[aria-label="Home"]',
       );
       expect(homeLink).not.toBeNull();
       await act(async () => {
@@ -136,6 +135,21 @@ describe.each(navImplementations)(
         container.querySelector('[data-testid="surface"]')?.textContent,
       ).toBe("home");
       expect(uiState.getItem(CHAT_HOME_SURFACE_STORAGE_KEY)).toBe("home");
+    });
+
+    it("omits Home from the left sidebar while retaining its content", async () => {
+      await act(async () => {
+        root.render(<LeftSidebar />);
+      });
+
+      expect(container.querySelector("aside")?.getAttribute("aria-label")).toBe(
+        "Sidebar",
+      );
+      expect(
+        container.querySelector('[data-testid="sidebar-sections"]'),
+      ).not.toBeNull();
+      expect(container.querySelector('a[aria-label="Home"]')).toBeNull();
+      expect(container.querySelector(".left-sidebar__nav")).toBeNull();
     });
   },
 );

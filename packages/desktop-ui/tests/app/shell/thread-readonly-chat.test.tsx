@@ -101,6 +101,7 @@ describe("read-only exact-thread chat surfaces", () => {
   let currentTranscript = transcript;
   const listThreadTranscript = vi.fn(async () => currentTranscript);
   let activityAttemptGeneration = 2;
+  let activityStatus: "running" | "completed" = "running";
   let activityAssistantMessages = ["Latest authored Manager update"];
   const listThreadActivity = vi.fn(async () => [
     {
@@ -108,7 +109,7 @@ describe("read-only exact-thread chat surfaces", () => {
       conversationId: "conv-readonly",
       agentType: "manager",
       description: task.description,
-      status: "running" as const,
+      status: activityStatus,
       attemptGeneration: activityAttemptGeneration,
       startedAt: 1_000,
       updatedAt: 1_100,
@@ -129,6 +130,7 @@ describe("read-only exact-thread chat surfaces", () => {
     listThreadTranscript.mockImplementation(async () => currentTranscript);
     listThreadActivity.mockClear();
     activityAttemptGeneration = 2;
+    activityStatus = "running";
     activityAssistantMessages = ["Latest authored Manager update"];
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
@@ -219,7 +221,7 @@ describe("read-only exact-thread chat surfaces", () => {
     const lastRow = rows.item(1);
     expect(lastRow).toBe(lastRow.parentElement?.lastElementChild);
     const action = lastRow.querySelector<HTMLButtonElement>(
-      '.chat-workspace-strip__task-chat[aria-label^="Open read-only chat"]',
+      '.chat-workspace-strip__task-chat[aria-label="View activity"]',
     );
     expect(action).not.toBeNull();
     action!.focus();
@@ -262,6 +264,61 @@ describe("read-only exact-thread chat surfaces", () => {
     const rowHeadHeight = px(headRule, "min-height");
     expect(actionSize + actionInset * 2).toBeLessThanOrEqual(rowHeadHeight);
     expect(actionSize + actionInset).toBeLessThan(96);
+  });
+
+  it("renders a bounded accessible overflow summary for 17 owned agents", async () => {
+    const children = Array.from({ length: 17 }, (_, index) => ({
+      kind: "task" as const,
+      task: {
+        ...task,
+        id: `child-${index}`,
+        agentType: "general",
+        description: `Child ${index + 1}`,
+        status:
+          index === 0
+            ? ("completed" as const)
+            : index === 1
+              ? ("error" as const)
+              : ("running" as const),
+      },
+    }));
+    await act(async () => {
+      root.render(
+        <ul>
+          <ActivityTaskRow
+            task={task}
+            expanded={false}
+            onToggle={vi.fn()}
+            onSelect={vi.fn()}
+            files={[]}
+            onOpenFile={vi.fn()}
+            orderIndex={0}
+            compactChildren={children}
+            compactFailurePriority
+          />
+        </ul>,
+      );
+    });
+    expect(
+      container.querySelector(".chat-workspace-strip__compact-progress"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(".chat-workspace-strip__compact-cells"),
+    ).toBeNull();
+    expect(
+      container
+        .querySelector(".chat-workspace-strip__compact-progress")
+        ?.getAttribute("aria-hidden"),
+    ).toBe("true");
+    expect(
+      container.querySelector(".chat-workspace-strip__compact-status")
+        ?.textContent,
+    ).toContain("1 failed — Child 2");
+    expect(
+      container
+        .querySelector(".chat-workspace-strip__task-chat")
+        ?.getAttribute("aria-label"),
+    ).toBe("View activity");
   });
 
   it("renders authored prose and structured lifecycle cards with no raw tools or send surface", async () => {
@@ -520,7 +577,7 @@ describe("read-only exact-thread chat surfaces", () => {
     );
   });
 
-  it("uses the latest authored update as live card text and keeps chat as a separate trailing action", async () => {
+  it("uses the latest authored update as the summary and keeps inspection separate", async () => {
     await act(async () => {
       root.render(
         <BackgroundWorkCard
@@ -529,11 +586,9 @@ describe("read-only exact-thread chat surfaces", () => {
           pausedThreadIds={[]}
           failedThreadIds={[]}
           supersededThreadIds={[]}
-          spawnedAtMs={{ [task.id]: Date.now() }}
+          spawnedAtMs={{ [task.id]: 1_000 }}
           descriptions={{ [task.id]: task.description }}
           statusTexts={{}}
-          progressTexts={{ [task.id]: "finished send_input" }}
-          toolActivities={{}}
           followUpThreadIds={[]}
           cardId="card-readonly"
           startEventIdsByThread={{ [task.id]: "start-1" }}
@@ -546,22 +601,22 @@ describe("read-only exact-thread chat surfaces", () => {
     });
     expect(
       container.querySelector(".background-work-card__title")?.textContent,
-    ).toContain("Latest authored Manager update");
+    ).toContain(task.description);
     expect(
       container.querySelector(".background-work-card__subtitle")?.textContent,
-    ).toContain(task.description);
+    ).toContain("Latest authored Manager update");
     expect(container.textContent).not.toContain("finished send_input");
     const chat = container.querySelector<HTMLButtonElement>(
       ".background-work-card__chat",
     );
-    expect(chat?.getAttribute("aria-label")).toContain("Open read-only chat");
+    expect(chat?.getAttribute("aria-label")).toBe("View activity");
     chat!.click();
     expect(displayTabs.getSnapshot().activeTabId).toBe(
       `thread-chat:${task.id}`,
     );
   });
 
-  it("keeps a resumed thread's authored text on its owning attempt card", async () => {
+  it("never projects a resumed attempt's authored text onto its predecessor", async () => {
     activityAttemptGeneration = 1;
     activityAssistantMessages = ["Attempt one authored update"];
     const card = (args: {
@@ -579,11 +634,9 @@ describe("read-only exact-thread chat surfaces", () => {
         pausedThreadIds={[]}
         failedThreadIds={[]}
         supersededThreadIds={args.superseded ? [task.id] : []}
-        spawnedAtMs={{ [task.id]: Date.now() }}
+        spawnedAtMs={{ [task.id]: 1_000 }}
         descriptions={{ [task.id]: args.description }}
         statusTexts={{}}
-        progressTexts={{}}
-        toolActivities={{}}
         followUpThreadIds={args.attemptGeneration > 1 ? [task.id] : []}
         cardId={`card-${args.startEventId}`}
         startEventIdsByThread={{ [task.id]: args.startEventId }}
@@ -610,10 +663,11 @@ describe("read-only exact-thread chat surfaces", () => {
       await Promise.resolve();
     });
     expect(
-      container.querySelector(".background-work-card__title")?.textContent,
+      container.querySelector(".background-work-card__subtitle")?.textContent,
     ).toContain("Attempt one authored update");
 
     activityAttemptGeneration = 2;
+    activityStatus = "completed";
     activityAssistantMessages = ["Attempt two authored update"];
     await act(async () => {
       activityUpdateListener?.({ conversationId: "conv-readonly" });
@@ -649,13 +703,12 @@ describe("read-only exact-thread chat surfaces", () => {
     const currentCard = container.querySelector<HTMLElement>(
       '[data-start-event-ids="start-attempt-2"]',
     );
-    expect(
-      oldCard?.querySelector(".background-work-card__title")?.textContent,
-    ).toContain("Attempt one authored update");
+    expect(oldCard?.textContent).toContain("Attempt one task");
     expect(oldCard?.textContent).not.toContain("Attempt two authored update");
     expect(oldCard?.getAttribute("data-working")).toBeNull();
     expect(
-      currentCard?.querySelector(".background-work-card__title")?.textContent,
+      currentCard?.querySelector(".background-work-card__subtitle")
+        ?.textContent,
     ).toContain("Attempt two authored update");
     expect(currentCard?.getAttribute("data-working")).toBeNull();
   });

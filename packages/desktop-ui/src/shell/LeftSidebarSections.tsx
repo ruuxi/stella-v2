@@ -10,18 +10,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import {
-  History,
-  CheckCircle2,
-  Circle,
-  CircleDot,
-  AlertCircle,
-  ChevronDown,
-  MessageSquare,
-} from "@/ui/icons";
+import { History, ChevronDown, Eye } from "@/ui/icons";
+import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
 import {
@@ -41,15 +35,16 @@ import {
 import {
   EMPTY_FIRST_SEEN_ORDER,
   activityRowKey,
+  flattenActivityTasks,
+  getCompactActivityStatusText,
   getActivityRowCompletedAtMs,
   getActivityRowSearchText,
   getActivityRowStatus,
-  getTaskGroupStatusText,
-  getTaskHierarchyStatusText,
   groupActivityTasks,
   orderByFirstSeen,
   pruneGroupExpandOverrides,
   getTaskAgentUpdates,
+  summarizeCompactActivity,
   updateSeenRunningGroupKeys,
   updateSeenRunningTaskIds,
   type ActivityRow,
@@ -80,6 +75,7 @@ import { ScheduleDetailsDialog } from "@/global/schedule/ScheduleDetailsDialog";
 import type { ScheduleToolAffectedRef } from "@stella/contracts/scheduling";
 import { TextShimmer } from "@/app/chat/TextShimmer";
 import { AgentAssistantUpdates } from "@/shell/AgentAssistantUpdates";
+import { selectLatestAgentAssistantMessage } from "@/features/chat/lib/agent-assistant-summary";
 import "@/app/chat/chat-workspace-strip.css";
 
 // Default per-section caps. The compact strip shows a small preview; the
@@ -223,49 +219,112 @@ function WorkspaceSection({
   );
 }
 
-function TaskStatusIcon({ status }: { status: TaskItem["status"] }) {
-  switch (status) {
-    // Running rows carry a static "active" status dot (a ringed center dot)
-    // rather than a spinner — the label's text shimmer already conveys the
-    // working state, so this fills the reserved icon slot for alignment and
-    // reads as "this thread is live" without a second animation.
+const compactTaskState = (task: TaskItem): string => {
+  switch (task.status) {
     case "running":
-      return (
-        <CircleDot
-          className="chat-workspace-strip__task-icon chat-workspace-strip__task-icon--running"
-          size={15}
-          strokeWidth={2}
-          aria-hidden="true"
-        />
-      );
+      return "running";
     case "completed":
-      return (
-        <CheckCircle2
-          className="chat-workspace-strip__task-icon chat-workspace-strip__task-icon--done"
-          size={15}
-          strokeWidth={2}
-          aria-hidden="true"
-        />
-      );
+      return "done";
     case "error":
-      return (
-        <AlertCircle
-          className="chat-workspace-strip__task-icon chat-workspace-strip__task-icon--error"
-          size={15}
-          strokeWidth={2}
-          aria-hidden="true"
-        />
-      );
+      return "failed";
     case "canceled":
-      return (
-        <Circle
-          className="chat-workspace-strip__task-icon chat-workspace-strip__task-icon--canceled"
-          size={15}
-          strokeWidth={2}
-          aria-hidden="true"
-        />
-      );
+      return "stopped";
   }
+};
+
+const compactTaskTooltip = (task: TaskItem): string => {
+  const label = task.description.trim() || "Agent";
+  const detail = (
+    selectLatestAgentAssistantMessage(task.assistantMessages) ?? ""
+  ).replace(/\s+/g, " ");
+  const clipped = detail.length > 120 ? `${detail.slice(0, 117)}…` : detail;
+  return `${label} · ${compactTaskState(task)}${clipped ? ` — ${clipped}` : ""}`;
+};
+
+const CompactChildState = memo(function CompactChildState({
+  summary,
+  prioritizeFailure,
+}: {
+  summary: ReturnType<typeof summarizeCompactActivity>;
+  prioritizeFailure: boolean;
+}) {
+  const statusText = getCompactActivityStatusText(summary, prioritizeFailure);
+  return (
+    <>
+      {summary.usesProgressBar ? (
+        <span
+          className="chat-workspace-strip__compact-progress"
+          aria-hidden="true"
+        >
+          <span className="chat-workspace-strip__compact-bar">
+            {summary.completedCount > 0 ? (
+              <span
+                className="chat-workspace-strip__compact-bar-segment chat-workspace-strip__compact-bar-segment--done"
+                style={{ flexGrow: summary.completedCount }}
+              />
+            ) : null}
+            {summary.runningCount > 0 ? (
+              <span
+                className="chat-workspace-strip__compact-bar-segment chat-workspace-strip__compact-bar-segment--running"
+                style={{ flexGrow: summary.runningCount }}
+              />
+            ) : null}
+            {summary.errorCount > 0 ? (
+              <span
+                className="chat-workspace-strip__compact-bar-segment chat-workspace-strip__compact-bar-segment--error"
+                style={{ flexGrow: summary.errorCount }}
+              />
+            ) : null}
+            {summary.canceledCount > 0 ? (
+              <span
+                className="chat-workspace-strip__compact-bar-segment chat-workspace-strip__compact-bar-segment--queued"
+                style={{ flexGrow: summary.canceledCount }}
+              />
+            ) : null}
+          </span>
+          <span className="chat-workspace-strip__compact-progress-count">
+            {summary.completedCount}/{summary.totalCount}
+          </span>
+        </span>
+      ) : (
+        <span
+          className="chat-workspace-strip__compact-cells"
+          aria-hidden="true"
+        >
+          {summary.tasks.map((task, index) => (
+            <span
+              key={task.id}
+              className={`chat-workspace-strip__compact-cell chat-workspace-strip__compact-cell--${task.status}`}
+              style={{ "--cell-order": index } as CSSProperties}
+              title={compactTaskTooltip(task)}
+            />
+          ))}
+        </span>
+      )}
+      <span
+        className="chat-workspace-strip__compact-status"
+        data-failure={
+          prioritizeFailure && summary.errorCount > 0 ? "true" : undefined
+        }
+      >
+        {statusText}
+      </span>
+    </>
+  );
+});
+
+function TaskStatusIcon({ status }: { status: TaskItem["status"] }) {
+  const suffix =
+    status === "completed" ? "done" : status === "error" ? "error" : status;
+  return (
+    <AgentLifecycleStatusIcon
+      status={status}
+      className={`chat-workspace-strip__task-icon chat-workspace-strip__task-icon--${suffix}`}
+      size={15}
+      strokeWidth={2}
+      aria-hidden="true"
+    />
+  );
 }
 
 export const ActivityTaskRow = memo(function ActivityTaskRow({
@@ -278,6 +337,8 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   orderIndex,
   metaText,
   childContent,
+  compactChildren,
+  compactFailurePriority = false,
 }: {
   task: TaskItem;
   expanded: boolean;
@@ -292,6 +353,10 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   metaText?: string;
   /** Persisted child ownership hierarchy, rendered before files. */
   childContent?: ReactNode;
+  /** Owned agents collapsed into the Manager's cell-grid summary. */
+  compactChildren?: readonly ActivityRow[];
+  /** Keep a child failure at the front while its Manager is still active. */
+  compactFailurePriority?: boolean;
 }) {
   const motionProps = useActivityRowMotionProps(orderIndex);
   // Sidebar and tray rows identify the delegated thread. Live tool state is
@@ -301,9 +366,8 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   const agentUpdates = getTaskAgentUpdates(task);
   // Per-session only; resets when the row unmounts, which is fine.
   const [showAllFiles, setShowAllFiles] = useState(false);
-  // Agent-authored assistant messages replace the generated progress-summary
-  // ticker. They display only while the thread is active, matching the old
-  // live-update surface without scheduling any extra inference.
+  // Agent-authored assistant messages replace generated/tool-status summary
+  // text and remain available after completion without extra inference.
   const hasAgentUpdates = agentUpdates.length > 0;
   const managerDetail =
     task.agentType === AGENT_IDS.MANAGER
@@ -318,6 +382,14 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   const filesCapped = files.length > AGENT_FILE_CAP;
   const visibleFiles =
     filesCapped && !showAllFiles ? files.slice(0, AGENT_FILE_CAP) : files;
+  const compactTasks = useMemo(
+    () => (compactChildren ? flattenActivityTasks(compactChildren) : undefined),
+    [compactChildren],
+  );
+  const compactSummary = useMemo(
+    () => (compactTasks ? summarizeCompactActivity(compactTasks) : undefined),
+    [compactTasks],
+  );
   const hasChildContent = Boolean(childContent);
   const hasDetail =
     hasChildContent || Boolean(managerDetail) || hasAgentUpdates || hasFiles;
@@ -334,39 +406,66 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
         <button
           type="button"
           className="chat-workspace-strip__task-button"
+          data-compact={compactSummary ? "true" : undefined}
           onClick={() => onToggle(task.id, !expanded)}
           aria-expanded={expanded}
           aria-label={`${label || "Activity"} — ${
             expanded ? "collapse" : "expand"
           }`}
         >
-          <span
-            className="chat-workspace-strip__task-icon-wrap"
-            aria-hidden="true"
-          >
-            <TaskStatusIcon status={task.status} />
-          </span>
-          <span className="chat-workspace-strip__task-label">
-            {task.status === "running" ? (
-              <TextShimmer text={label} durationMs={2000} syncPhase />
-            ) : (
-              label
-            )}
-          </span>
-          {metaText ? (
-            <span className="chat-workspace-strip__row-meta chat-workspace-strip__group-status">
-              {metaText}
-            </span>
-          ) : null}
+          {compactSummary ? (
+            <>
+              <span className="chat-workspace-strip__compact-main">
+                <span
+                  className="chat-workspace-strip__task-icon-wrap"
+                  aria-hidden="true"
+                >
+                  <TaskStatusIcon status={task.status} />
+                </span>
+                <span className="chat-workspace-strip__task-label">
+                  {task.status === "running" ? (
+                    <TextShimmer text={label} durationMs={2000} syncPhase />
+                  ) : (
+                    label
+                  )}
+                </span>
+              </span>
+              <CompactChildState
+                summary={compactSummary}
+                prioritizeFailure={compactFailurePriority && !expanded}
+              />
+            </>
+          ) : (
+            <>
+              <span
+                className="chat-workspace-strip__task-icon-wrap"
+                aria-hidden="true"
+              >
+                <TaskStatusIcon status={task.status} />
+              </span>
+              <span className="chat-workspace-strip__task-label">
+                {task.status === "running" ? (
+                  <TextShimmer text={label} durationMs={2000} syncPhase />
+                ) : (
+                  label
+                )}
+              </span>
+              {metaText ? (
+                <span className="chat-workspace-strip__row-meta chat-workspace-strip__group-status">
+                  {metaText}
+                </span>
+              ) : null}
+            </>
+          )}
         </button>
         <button
           type="button"
           className="chat-workspace-strip__task-chat"
           onClick={() => onSelect(task)}
-          aria-label={`Open read-only chat for ${label || "activity"}`}
-          title="Open read-only chat"
+          aria-label="View activity"
+          title="View activity"
         >
-          <MessageSquare size={14} strokeWidth={2} aria-hidden="true" />
+          <Eye size={14} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
       {/* Always mounted so both the user toggle and the first summary/file
@@ -473,7 +572,14 @@ const GroupRow = memo(function GroupRow({
 }) {
   const motionProps = useActivityRowMotionProps(orderIndex);
   const label = group.label.trim();
-  const statusText = getTaskGroupStatusText(group);
+  const compactSummary = useMemo(
+    () => summarizeCompactActivity(group.members),
+    [group.members],
+  );
+  const statusText = getCompactActivityStatusText(
+    compactSummary,
+    group.status === "running" && !expanded,
+  );
   return (
     <motion.li
       {...motionProps}
@@ -484,26 +590,30 @@ const GroupRow = memo(function GroupRow({
       <button
         type="button"
         className="chat-workspace-strip__task-button"
+        data-compact="true"
         onClick={() => onToggle(group.groupKey, !expanded)}
         aria-expanded={expanded}
         aria-label={`${label || "Task group"}: ${statusText}`}
       >
-        <span
-          className="chat-workspace-strip__task-icon-wrap"
-          aria-hidden="true"
-        >
-          <TaskStatusIcon status={group.status} />
+        <span className="chat-workspace-strip__compact-main">
+          <span
+            className="chat-workspace-strip__task-icon-wrap"
+            aria-hidden="true"
+          >
+            <TaskStatusIcon status={group.status} />
+          </span>
+          <span className="chat-workspace-strip__task-label">
+            {group.status === "running" ? (
+              <TextShimmer text={label} durationMs={2000} syncPhase />
+            ) : (
+              label
+            )}
+          </span>
         </span>
-        <span className="chat-workspace-strip__task-label">
-          {group.status === "running" ? (
-            <TextShimmer text={label} durationMs={2000} syncPhase />
-          ) : (
-            label
-          )}
-        </span>
-        <span className="chat-workspace-strip__row-meta chat-workspace-strip__group-status">
-          {statusText}
-        </span>
+        <CompactChildState
+          summary={compactSummary}
+          prioritizeFailure={group.status === "running" && !expanded}
+        />
       </button>
       {/* Always mounted so expand/collapse animates (grid-rows 0fr↔1fr). */}
       <div
@@ -537,6 +647,7 @@ const GroupRow = memo(function GroupRow({
 const TasksList = memo(function TasksList({
   rows,
   isTaskExpanded,
+  isCompactTaskExpanded,
   onToggleTask,
   onSelectTask,
   isGroupExpanded,
@@ -547,6 +658,7 @@ const TasksList = memo(function TasksList({
 }: {
   rows: ReadonlyArray<ActivityRow>;
   isTaskExpanded: (task: TaskItem) => boolean;
+  isCompactTaskExpanded: (task: TaskItem) => boolean;
   onToggleTask: (taskId: string, nextExpanded: boolean) => void;
   onSelectTask: (task: TaskItem) => void;
   isGroupExpanded: (group: TaskGroup) => boolean;
@@ -597,20 +709,19 @@ const TasksList = memo(function TasksList({
                   ? row.hierarchy.owner
                   : { ...row.hierarchy.owner, status: row.hierarchy.status }
               }
-              expanded={
-                row.hierarchy.status === "running" ||
-                isTaskExpanded(row.hierarchy.owner)
-              }
+              expanded={isCompactTaskExpanded(row.hierarchy.owner)}
               onToggle={onToggleTask}
               onSelect={onSelectTask}
               files={agentFiles.get(row.hierarchy.owner.id) ?? EMPTY_FILES}
               onOpenFile={onOpenFile}
               orderIndex={index}
-              metaText={getTaskHierarchyStatusText(row.hierarchy)}
+              compactChildren={row.hierarchy.children}
+              compactFailurePriority={row.hierarchy.owner.status === "running"}
               childContent={
                 <TasksList
                   rows={row.hierarchy.children}
                   isTaskExpanded={isTaskExpanded}
+                  isCompactTaskExpanded={isCompactTaskExpanded}
                   onToggleTask={onToggleTask}
                   onSelectTask={onSelectTask}
                   isGroupExpanded={isGroupExpanded}
@@ -705,19 +816,14 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
   // expansion defaults below (rolled forward next to `allTasks`).
   const seenRunningTasksRef = useRef<ReadonlySet<string>>(new Set());
   const seenRunningGroupsRef = useRef<ReadonlySet<string>>(new Set());
-  // Group expand/collapse mirrors the per-task semantics below: a running
-  // group comes up expanded (its members are live) and STAYS expanded once
-  // it finishes (seen-running set), so completion never yanks the group's
-  // work out of view. `groupExpandOverrides` records explicit user toggles,
-  // which win over the status default and are never stomped by it.
+  // Compact groups are collapsed by default, including while running.
+  // Explicit user toggles are persisted and always win.
   const [groupExpandOverrides, setGroupExpandOverrides] = useState<
     ReadonlyMap<string, boolean>
   >(() => new Map());
   const isGroupExpanded = useCallback(
     (group: TaskGroup): boolean =>
-      groupExpandOverrides.get(group.groupKey) ??
-      (group.status === "running" ||
-        seenRunningGroupsRef.current.has(group.groupKey)),
+      groupExpandOverrides.get(group.groupKey) ?? false,
     [groupExpandOverrides],
   );
   const toggleGroup = useCallback((groupKey: string, nextExpanded: boolean) => {
@@ -749,6 +855,10 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
         (task.status === "running" || seenRunningTasksRef.current.has(task.id))
       );
     },
+    [expandOverrides],
+  );
+  const isCompactTaskExpanded = useCallback(
+    (task: TaskItem): boolean => expandOverrides.get(task.id) ?? false,
     [expandOverrides],
   );
   const toggleTask = useCallback((taskId: string, nextExpanded: boolean) => {
@@ -1034,6 +1144,7 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
             <TasksList
               rows={visibleActivityRows}
               isTaskExpanded={isTaskExpanded}
+              isCompactTaskExpanded={isCompactTaskExpanded}
               onToggleTask={toggleTask}
               onSelectTask={handleSelectTask}
               isGroupExpanded={isGroupExpanded}

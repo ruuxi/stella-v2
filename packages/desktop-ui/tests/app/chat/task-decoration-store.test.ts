@@ -7,6 +7,7 @@ import {
   getTaskDecoration,
   getTaskDecorationsSnapshot,
   MAX_TASK_DECORATIONS,
+  settleTaskDecoration,
   subscribeTaskDecoration,
   subscribeTaskDecorations,
 } from "@/features/chat/streaming/task-decoration-store";
@@ -50,6 +51,56 @@ describe("task-decoration-store", () => {
     expect(mine).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps a newer resumed attempt active when an older completion arrives late", () => {
+    decorateTask({
+      agentId: "t1",
+      conversationId: "c1",
+      runId: "follow-up-root",
+      attemptGeneration: 8,
+      lifecycleSequence: 80,
+      startsAttempt: true,
+      statusText: "Stop milestone spam",
+    });
+    settleTaskDecoration({
+      agentId: "t1",
+      conversationId: "c1",
+      runId: "old-root",
+      attemptGeneration: 7,
+      lifecycleSequence: 90,
+      status: "completed",
+    });
+    expect(getTaskDecoration("t1")).toMatchObject({
+      status: "running",
+      attemptGeneration: 8,
+      runId: "follow-up-root",
+      statusText: "Stop milestone spam",
+    });
+  });
+
+  it("settles only the latest attempt", () => {
+    decorateTask({
+      agentId: "t1",
+      conversationId: "c1",
+      runId: "follow-up-root",
+      attemptGeneration: 8,
+      lifecycleSequence: 80,
+      startsAttempt: true,
+    });
+    settleTaskDecoration({
+      agentId: "t1",
+      conversationId: "c1",
+      runId: "follow-up-root",
+      attemptGeneration: 8,
+      lifecycleSequence: 100,
+      status: "completed",
+    });
+    expect(getTaskDecoration("t1")).toMatchObject({
+      status: "completed",
+      attemptGeneration: 8,
+      lifecycleSequence: 100,
+    });
+  });
+
   it("caps the map by evicting the least-recently-updated entry, only on genuinely new keys", () => {
     for (let index = 0; index < MAX_TASK_DECORATIONS; index += 1) {
       decorateTask({
@@ -65,7 +116,11 @@ describe("task-decoration-store", () => {
     );
     expect(getTaskDecoration("t0")).toBeDefined();
     // A new key past the cap evicts the oldest entry.
-    decorateTask({ agentId: "overflow", conversationId: "c1", statusText: "z" });
+    decorateTask({
+      agentId: "overflow",
+      conversationId: "c1",
+      statusText: "z",
+    });
     expect(Object.keys(getTaskDecorationsSnapshot())).toHaveLength(
       MAX_TASK_DECORATIONS,
     );

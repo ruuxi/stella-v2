@@ -1,16 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
   TASK_COMPLETION_INDICATOR_MS,
+  COMPACT_ACTIVITY_CELL_LIMIT,
   buildActivityTasks,
+  countActiveTopLevelActivityWorkUnits,
+  deriveTopLevelActivityWorkUnits,
   fallbackTaskDescription,
   isActivityFeedTask,
   extractStepsFromEvents,
+  flattenActivityTasks,
+  getCompactActivityStatusText,
   getTaskGroupStatusText,
   getTaskHierarchyStatusText,
   getActivityRowStatus,
   groupActivityTasks,
   pruneGroupExpandOverrides,
   selectFreshActivityTasks,
+  summarizeCompactActivity,
   getTaskAgentUpdates,
   updateSeenRunningGroupKeys,
   updateSeenRunningTaskIds,
@@ -332,6 +338,151 @@ describe("manager ownership hierarchy", () => {
   });
 });
 
+describe("top-level Activity work-unit counts", () => {
+  const task = (overrides: Partial<TaskItem> & { id: string }): TaskItem => ({
+    description: overrides.id,
+    agentType: "general",
+    status: "running",
+    startedAtMs: 100,
+    lastUpdatedAtMs: 100,
+    ...overrides,
+  });
+
+  it("counts a General plus a Manager tree as two without descendant inflation", () => {
+    const tasks = [
+      task({ id: "direct" }),
+      task({ id: "manager", agentType: "manager" }),
+      task({ id: "child-a", parentAgentId: "manager" }),
+      task({ id: "child-b", parentAgentId: "manager" }),
+    ];
+    expect(countActiveTopLevelActivityWorkUnits(tasks)).toBe(2);
+    expect(deriveTopLevelActivityWorkUnits(tasks)).toEqual([
+      { id: "task:direct", status: "running" },
+      { id: "hierarchy:manager", status: "running" },
+    ]);
+  });
+
+  it("keeps a completed owner active while its owned work is running", () => {
+    const tasks = [
+      task({ id: "manager", agentType: "manager", status: "completed" }),
+      task({ id: "active-child", parentAgentId: "manager" }),
+    ];
+    expect(deriveTopLevelActivityWorkUnits(tasks)).toEqual([
+      { id: "hierarchy:manager", status: "running" },
+    ]);
+    expect(countActiveTopLevelActivityWorkUnits(tasks)).toBe(1);
+  });
+
+  it("deduplicates stale retry generations by authoritative attempt", () => {
+    const staleRunning = task({
+      id: "retried",
+      attemptGeneration: 4,
+      lastUpdatedAtMs: 900,
+    });
+    const latestCompleted = task({
+      id: "retried",
+      status: "completed",
+      attemptGeneration: 5,
+      lastUpdatedAtMs: 1_000,
+    });
+    expect(
+      countActiveTopLevelActivityWorkUnits([
+        latestCompleted,
+        staleRunning,
+        staleRunning,
+      ]),
+    ).toBe(0);
+    expect(
+      countActiveTopLevelActivityWorkUnits([
+        latestCompleted,
+        staleRunning,
+        { ...latestCompleted, status: "running", attemptGeneration: 6 },
+      ]),
+    ).toBe(1);
+  });
+});
+
+describe("compact activity summary", () => {
+  const task = (overrides: Partial<TaskItem> & { id: string }): TaskItem => ({
+    description: overrides.id,
+    agentType: "general",
+    status: "running",
+    startedAtMs: 100,
+    lastUpdatedAtMs: 100,
+    ...overrides,
+  });
+
+  it("flattens nested descendants into one compact Manager model", () => {
+    const row = groupActivityTasks([
+      task({ id: "manager", agentType: "manager" }),
+      task({ id: "child", parentAgentId: "manager" }),
+      task({ id: "grandchild", parentAgentId: "child" }),
+      task({ id: "done", parentAgentId: "manager", status: "completed" }),
+    ])[0];
+    expect(row?.kind).toBe("hierarchy");
+    if (row?.kind !== "hierarchy") return;
+    expect(
+      flattenActivityTasks(row.hierarchy.children).map((item) => item.id),
+    ).toEqual(["child", "grandchild", "done"]);
+  });
+
+  it("uses assistant prose by durable insertion sequence, never tool status", () => {
+    const summary = summarizeCompactActivity([
+      task({
+        id: "older",
+        assistantMessages: ["Checking sources"],
+        assistantMessagesUpdatedAtMs: 400,
+        assistantMessagesEntrySequence: 20,
+        lastUpdatedAtMs: 400,
+      }),
+      task({
+        id: "latest-prose",
+        assistantMessages: ["Drafting the human-readable answer"],
+        assistantMessagesUpdatedAtMs: 300,
+        assistantMessagesEntrySequence: 21,
+        lastUpdatedAtMs: 300,
+      }),
+      task({
+        id: "tool-result",
+        statusText: "exec_command exited 0",
+        lastUpdatedAtMs: 500,
+      }),
+    ]);
+    expect(summary.latestTask?.id).toBe("latest-prose");
+    expect(getCompactActivityStatusText(summary, false)).toContain(
+      "latest: Drafting the human-readable answer",
+    );
+    expect(getCompactActivityStatusText(summary, false)).not.toContain(
+      "exec_command",
+    );
+  });
+
+  it("keeps failures visible and switches to overflow after sixteen agents", () => {
+    const failedSummary = summarizeCompactActivity([
+      task({ id: "active" }),
+      task({ id: "Review round 4", status: "error" }),
+      task({ id: "done", status: "completed" }),
+    ]);
+    expect(getCompactActivityStatusText(failedSummary, true)).toContain(
+      "1 failed — Review round 4",
+    );
+    expect(
+      summarizeCompactActivity(
+        Array.from({ length: COMPACT_ACTIVITY_CELL_LIMIT }, (_, index) =>
+          task({ id: `agent-${index}` }),
+        ),
+      ).usesProgressBar,
+    ).toBe(false);
+    expect(
+      summarizeCompactActivity(
+        Array.from({ length: COMPACT_ACTIVITY_CELL_LIMIT + 1 }, (_, index) =>
+          task({ id: `agent-${index}` }),
+        ),
+      ).usesProgressBar,
+    ).toBe(true);
+  });
+});
+
 describe("extractStepsFromEvents", () => {
   it("does not guess a tool result target when the result has no request id", () => {
     const steps = extractStepsFromEvents([
@@ -573,7 +724,7 @@ describe("getInlineWorkingIndicatorExitDelayMs", () => {
 });
 
 describe("getTaskAgentUpdates", () => {
-  it("uses verbatim assistant messages only while a non-manager agent is running", () => {
+  it("uses verbatim assistant messages for active and completed non-manager agents", () => {
     const assistantMessages = [
       "I checked the exact route.\nNo rewrite was needed.",
       "The focused tests now pass.",
@@ -599,7 +750,7 @@ describe("getTaskAgentUpdates", () => {
           agentType: "general",
           assistantMessages,
         }),
-      ).toEqual([]);
+      ).toEqual(assistantMessages);
     }
   });
 });
@@ -740,6 +891,71 @@ describe("buildActivityTasks", () => {
     });
     expect(done?.statusText).toBeUndefined();
     expect(done?.reasoningText).toBeUndefined();
+  });
+
+  it.each(["general", "manager"] as const)(
+    "lets a newer live follow-up supersede a stale completed %s row",
+    (agentType) => {
+      const [task] = buildActivityTasks(
+        [
+          record({
+            agentType,
+            status: "completed",
+            attemptGeneration: 4,
+            rootRunId: "prior-root",
+            completedAt: 2_000,
+            updatedAt: 2_000,
+            result: "Prior attempt finished",
+            assistantMessages: ["Prior final answer"],
+          }),
+        ],
+        {
+          "research-flights": {
+            status: "running",
+            attemptGeneration: 5,
+            runId: "follow-up-root",
+            startedAtMs: 3_000,
+            observedAtMs: 3_000,
+            statusText: "Apply the new direction",
+          },
+        },
+      );
+      expect(task).toMatchObject({
+        status: "running",
+        runId: "follow-up-root",
+        description: "Apply the new direction",
+        statusText: "Apply the new direction",
+      });
+      expect(task?.completedAtMs).toBeUndefined();
+      expect(task?.outputPreview).toBeUndefined();
+      expect(task?.assistantMessages).toBeUndefined();
+    },
+  );
+
+  it("ignores a stale same-attempt running observation on a terminal row", () => {
+    const [task] = buildActivityTasks(
+      [
+        record({
+          status: "completed",
+          attemptGeneration: 2,
+          rootRunId: "root-2",
+          completedAt: 3_000,
+          updatedAt: 3_000,
+        }),
+      ],
+      {
+        "research-flights": {
+          status: "running",
+          attemptGeneration: 2,
+          runId: "root-2",
+          startedAtMs: 2_000,
+          observedAtMs: 2_500,
+          statusText: "still working",
+        },
+      },
+    );
+    expect(task?.status).toBe("completed");
+    expect(task?.statusText).toBeUndefined();
   });
 
   it("shows the row's own description: a send_input follow-up that re-described the thread just shows the new text", () => {

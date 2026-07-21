@@ -79,7 +79,7 @@ describe("attempt-generation row ownership", () => {
     container.remove();
   });
 
-  it("keeps the higher generation current when its row and id sort earlier", async () => {
+  it("keeps only the higher-generation follow-up when its row and id sort earlier", async () => {
     const currentStart = lifecycle("aa-current-start", "agent-started", 2);
     const currentTerminal = lifecycle(
       "00-current-terminal",
@@ -111,12 +111,6 @@ describe("attempt-generation row ownership", () => {
         completed: true,
         superseded: false,
         terminal: "00-current-terminal",
-      },
-      {
-        start: "zz-old-start",
-        attempt: 1,
-        completed: false,
-        superseded: true,
       },
     ]);
   });

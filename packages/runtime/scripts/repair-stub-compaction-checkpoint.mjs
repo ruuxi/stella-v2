@@ -714,6 +714,29 @@ const ancestorRows = (row, byId) => {
   return ancestors;
 };
 
+const parentPathIncludes = (byId, startEntryId, ancestorEntryId) => {
+  let current = byId.get(startEntryId);
+  while (current) {
+    if (current.entry_id === ancestorEntryId) return true;
+    current =
+      current.parent_entry_id === null
+        ? undefined
+        : byId.get(current.parent_entry_id);
+  }
+  return false;
+};
+
+const assertCheckpointRangeParentAncestry = (row, range, byId, label) => {
+  if (
+    row.parent_entry_id === null ||
+    !parentPathIncludes(byId, row.parent_entry_id, range.toEntryId)
+  ) {
+    fail(
+      `Refusing: ${label} ${row.entry_id} toEntryId ${range.toEntryId} is not on its authoritative parent chain.`,
+    );
+  }
+};
+
 const descendantIds = (entryId, children) => {
   const descendants = new Set();
   const pending = [...(children.get(entryId) ?? [])];
@@ -920,6 +943,12 @@ export const analyzeRepair = (db, entryId) => {
   // format/invisible code points, extra headings, and ambiguous whitespace.
   const rows = loadThreadEntries(db, target.thread_key, entryColumns);
   const { byId, children } = buildTopology(rows);
+  assertCheckpointRangeParentAncestry(
+    target,
+    { fromEntryId, toEntryId },
+    byId,
+    "target compaction",
+  );
   const ancestors = ancestorRows(target, byId);
   const previous = ancestors.find((candidate) => {
     if (candidate.entry_type !== "compaction") return false;
@@ -936,6 +965,12 @@ export const analyzeRepair = (db, entryId) => {
   const previousData = parseCompactionData(previous);
   const previousSummary = strictSummary(previous.entry_id, previousData);
   const previousRange = strictCompactionRange(previous.entry_id, previousData);
+  assertCheckpointRangeParentAncestry(
+    previous,
+    previousRange,
+    byId,
+    "fallback compaction",
+  );
   const previousTo = byId.get(previousRange.toEntryId);
   if (!previousTo)
     fail(`Previous checkpoint ${previous.entry_id} has an invalid toEntryId.`);
@@ -964,6 +999,12 @@ export const analyzeRepair = (db, entryId) => {
     const range = strictCompactionRange(candidate.entry_id, data);
     strictSummary(candidate.entry_id, data);
     strictTokensBefore(candidate.entry_id, data);
+    assertCheckpointRangeParentAncestry(
+      candidate,
+      range,
+      byId,
+      "dependent compaction",
+    );
     if (range.fromEntryId !== fromEntryId) {
       fail(
         `Dependent compaction ${candidate.entry_id} starts from an incompatible range.`,
@@ -1049,20 +1090,9 @@ export const analyzeRepair = (db, entryId) => {
       "Refusing fallback: target and chosen ancestor have incompatible fromEntryId values.",
     );
   }
-  const pathIncludes = (startEntryId, ancestorEntryId) => {
-    let current = byId.get(startEntryId);
-    while (current) {
-      if (current.entry_id === ancestorEntryId) return true;
-      current =
-        current.parent_entry_id === null
-          ? undefined
-          : byId.get(current.parent_entry_id);
-    }
-    return false;
-  };
   if (
-    !pathIncludes(targetTo.entry_id, previousTo.entry_id) ||
-    !pathIncludes(previousTo.entry_id, targetFrom.entry_id)
+    !parentPathIncludes(byId, targetTo.entry_id, previousTo.entry_id) ||
+    !parentPathIncludes(byId, previousTo.entry_id, targetFrom.entry_id)
   ) {
     fail(
       "Refusing fallback: chosen ancestor range is incompatible with the target's authoritative parent topology.",

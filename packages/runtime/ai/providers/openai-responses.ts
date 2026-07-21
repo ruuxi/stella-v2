@@ -103,7 +103,8 @@ export const streamOpenAIResponses: StreamFunction<"openai-responses", OpenAIRes
 				totalTokens: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
+			// A response is successful only after a terminal protocol event.
+			stopReason: "error",
 			timestamp: Date.now(),
 		};
 

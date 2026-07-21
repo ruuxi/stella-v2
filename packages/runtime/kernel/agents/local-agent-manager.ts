@@ -696,7 +696,10 @@ const getFsLockKey = (
     return normalizeFsPathKey(
       filePath,
       normalizeString(
-        args.working_directory ?? args.cwd ?? context?.stellaAppDir,
+        args.working_directory ??
+          args.cwd ??
+          context?.workingDirectory ??
+          context?.stellaAppDir,
       ),
     );
   }
@@ -708,7 +711,10 @@ const getFsLockKey = (
     return normalizeFsPathKey(
       pathFromCommand,
       normalizeString(
-        args.working_directory ?? args.cwd ?? context?.stellaAppDir,
+        args.working_directory ??
+          args.cwd ??
+          context?.workingDirectory ??
+          context?.stellaAppDir,
       ),
     );
   }

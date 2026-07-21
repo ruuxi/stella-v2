@@ -41,6 +41,7 @@ import {
   markOrchestratorErrorReported,
   resolveInterruptionReason,
 } from "./run-completion.js";
+import { superviseExternalEngineTurn } from "./external-engine-lifecycle.js";
 import {
   createExternalOrchestratorRunSession,
   createExternalSubagentRunSession,
@@ -1966,13 +1967,27 @@ export const runExternalOrchestratorTurn = async (
       queueUserMessageId: session.runEvents.queueUserMessageId,
       agent: liveAgent.agent,
     });
-    const result = await runClaudeHostedTurn({
-      opts,
-      session,
-      systemPrompt,
-      promptMessages,
-      callbacks: opts.callbacks,
-      liveAgent,
+    // The engine turn supervises as a child resource of the run's scope:
+    // fiber interruption drives the runtime's abort teardown (MCP reset +
+    // kill ladder) through the relay signal, and cancel joins the turn's
+    // settlement, bounded past the kill ladder.
+    const result = await superviseExternalEngineTurn({
+      supervise: opts.superviseRunResource,
+      engine: "claude-code",
+      runId: session.runId,
+      signal: opts.abortSignal,
+      run: (signal) =>
+        runClaudeHostedTurn({
+          opts:
+            signal && signal !== opts.abortSignal
+              ? { ...opts, abortSignal: signal }
+              : opts,
+          session,
+          systemPrompt,
+          promptMessages,
+          callbacks: opts.callbacks,
+          liveAgent,
+        }),
     });
     return await session.finalizeSuccess(result.finalText);
   } catch (error) {
@@ -2036,12 +2051,22 @@ export const runExternalSubagentTurn = async (
         ...opts,
         runId: session.runId,
       });
-      const result = await runCodexHostedTurn({
-        opts,
-        session,
-        systemPrompt,
-        promptMessages,
-        callbacks: opts.callbacks,
+      const result = await superviseExternalEngineTurn({
+        supervise: opts.superviseRunResource,
+        engine: "codex",
+        runId: session.runId,
+        signal: opts.abortSignal,
+        run: (signal) =>
+          runCodexHostedTurn({
+            opts:
+              signal && signal !== opts.abortSignal
+                ? { ...opts, abortSignal: signal }
+                : opts,
+            session,
+            systemPrompt,
+            promptMessages,
+            callbacks: opts.callbacks,
+          }),
       });
       if (!result.latestAttempt) {
         return { runId: session.runId, result: "", interrupted: true };
@@ -2088,12 +2113,22 @@ export const runExternalSubagentTurn = async (
       ...opts,
       runId: session.runId,
     });
-    const result = await runClaudeHostedTurn({
-      opts,
-      session,
-      systemPrompt,
-      promptMessages,
-      callbacks: opts.callbacks,
+    const result = await superviseExternalEngineTurn({
+      supervise: opts.superviseRunResource,
+      engine: "claude-code",
+      runId: session.runId,
+      signal: opts.abortSignal,
+      run: (signal) =>
+        runClaudeHostedTurn({
+          opts:
+            signal && signal !== opts.abortSignal
+              ? { ...opts, abortSignal: signal }
+              : opts,
+          session,
+          systemPrompt,
+          promptMessages,
+          callbacks: opts.callbacks,
+        }),
     });
     if (!result.latestAttempt) {
       return { runId: session.runId, result: "", interrupted: true };

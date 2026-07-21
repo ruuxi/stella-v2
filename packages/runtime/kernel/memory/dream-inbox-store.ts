@@ -10,9 +10,9 @@
  *     ("10m"/"6h"); upserted by window so refreshes coalesce into one
  *     unprocessed row instead of flooding the queue.
  *
- * `processed_by_dream_at IS NULL` is the entire queue state. There is no
- * separate watermark file or per-file mtime tracking; Dream lists unprocessed
- * rows and marks them processed by id.
+ * `processed_by_dream_at IS NULL` is the entire queue state. The persisted
+ * consolidation watermark is scheduling bookkeeping only; Dream still lists
+ * unprocessed rows and marks them processed by id.
  *
  * The store is intentionally tiny — it is a queue, not a search index.
  */
@@ -93,6 +93,9 @@ const ROW_COLUMNS = `
 `;
 
 export const DREAM_USAGE_REQUEUE_DEBOUNCE_MS = 6 * 60 * 60 * 1_000;
+
+/** Retention for consumed, no-longer-used, non-Chronicle inbox rows. */
+export const DREAM_INBOX_GC_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 const parseMetadata = (raw: string | null): Record<string, unknown> | null => {
   if (!raw) return null;
@@ -196,8 +199,7 @@ export class DreamInboxStore {
     const createdAt = candidate.createdAt ?? new Date();
     const note: Required<MemoryNoteCandidate> = {
       title,
-      category:
-        redactMemoryText(candidate.category.trim()) || "active_focus",
+      category: redactMemoryText(candidate.category.trim()) || "active_focus",
       memory,
       recallHooks: redactMemoryStringArray(
         candidate.recallHooks.map((hook) => hook.trim()).filter(Boolean),
@@ -338,11 +340,63 @@ export class DreamInboxStore {
     return Number(row?.c ?? 0);
   }
 
+  /**
+   * Newest pending material, used only to skip redundant pre-compaction
+   * consolidation waits. Per-row processed state remains the queue authority.
+   */
+  pendingFrontier(): number {
+    const row = this.db
+      .prepare(
+        `SELECT MAX(source_updated_at) AS frontier FROM dream_inbox WHERE processed_by_dream_at IS NULL`,
+      )
+      .get() as { frontier?: number | null } | undefined;
+    const frontier = Number(row?.frontier ?? 0);
+    return Number.isFinite(frontier) && frontier > 0 ? frontier : 0;
+  }
+
+  /** Last completed pass frontier, persisted across app restarts. */
+  readConsolidationWatermark(): {
+    frontier: number;
+    completedAt: number;
+  } | null {
+    const row = this.db
+      .prepare(
+        `SELECT frontier, completed_at FROM dream_consolidation_watermark WHERE id = 1`,
+      )
+      .get() as { frontier?: number; completed_at?: number } | undefined;
+    if (!row || typeof row.frontier !== "number") return null;
+    return {
+      frontier: row.frontier,
+      completedAt: Number(row.completed_at ?? 0),
+    };
+  }
+
+  /**
+   * Monotonically advance the completed-pass frontier. A delayed process can
+   * never move it backwards; a failed write merely causes a redundant pass.
+   */
+  writeConsolidationWatermark(args: {
+    frontier: number;
+    completedAt?: number;
+  }): void {
+    if (!Number.isFinite(args.frontier) || args.frontier <= 0) return;
+    this.db
+      .prepare(
+        `
+        INSERT INTO dream_consolidation_watermark (id, frontier, completed_at)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          frontier = MAX(dream_consolidation_watermark.frontier, excluded.frontier),
+          completed_at = excluded.completed_at
+        `,
+      )
+      .run(args.frontier, args.completedAt ?? Date.now());
+  }
+
   /** Stamp rows as consumed by Dream. Returns how many rows were updated. */
-  markProcessed(args: {
-    ids: number[];
-    processedAt?: number;
-  }): { updated: number } {
+  markProcessed(args: { ids: number[]; processedAt?: number }): {
+    updated: number;
+  } {
     if (args.ids.length === 0) return { updated: 0 };
     const processedAt = args.processedAt ?? Date.now();
     const stmt = this.db.prepare(
@@ -367,6 +421,33 @@ export class DreamInboxStore {
       throw error;
     }
     return { updated };
+  }
+
+  /**
+   * Conservatively collect only old rows that Dream already consumed.
+   * Pending rows, recently surfaced rows, and bounded Chronicle window rows
+   * are deliberately retained.
+   */
+  gcProcessedRows(args?: { retentionMs?: number; nowMs?: number }): {
+    deleted: number;
+  } {
+    const retentionMs = Math.max(
+      0,
+      args?.retentionMs ?? DREAM_INBOX_GC_RETENTION_MS,
+    );
+    const cutoff = (args?.nowMs ?? Date.now()) - retentionMs;
+    const result = this.db
+      .prepare(
+        `
+        DELETE FROM dream_inbox
+        WHERE processed_by_dream_at IS NOT NULL
+          AND processed_by_dream_at < ?
+          AND (last_usage IS NULL OR last_usage < ?)
+          AND kind != 'chronicle'
+        `,
+      )
+      .run(cutoff, cutoff) as { changes?: number } | undefined;
+    return { deleted: Number(result?.changes ?? 0) };
   }
 
   /**

@@ -25,8 +25,10 @@
  * Single-flight: only one Dream run may execute at a time, via a mkdir lock
  * under `.stella/locks/dream/`.
  *
- * Callers `void maybeSpawnDreamRun(...)` and never await it, but the spawned
- * run is not an orphan: it executes under a supervising fiber
+ * Most callers `void maybeSpawnDreamRun(...)` and never await it. The bounded
+ * pre-compaction ordering is the deliberate exception: it may join the
+ * supervised completion promise, but can never wait past its hard timeout.
+ * The spawned run is not an orphan: it executes under a supervising fiber
  * (`SupervisedScope`) keyed by data dir. `shutdownDreamRuns` interrupts the
  * in-flight run (aborting its LLM calls) and joins its teardown — the
  * `finally` below releases the filesystem lock and clears `inFlight` before
@@ -115,11 +117,18 @@ type DreamConfig = {
   tokenInterval: number;
 };
 
+type DreamRunOutcome = {
+  /** True only when the provider pass reached a clean terminal response. */
+  completed: boolean;
+};
+
 type DreamRuntimeState = {
   inFlight: boolean;
   lastRunAt: number;
   /** Orchestrator token estimate captured at the last Dream run. */
   tokensAtLastRun: number;
+  /** Settled or live run handle; never rejects. */
+  completion: Promise<DreamRunOutcome> | null;
 };
 
 const RUNTIME_STATE = new Map<string, DreamRuntimeState>();
@@ -127,7 +136,12 @@ const RUNTIME_STATE = new Map<string, DreamRuntimeState>();
 const stateFor = (stellaDataDir: string): DreamRuntimeState => {
   let state = RUNTIME_STATE.get(stellaDataDir);
   if (!state) {
-    state = { inFlight: false, lastRunAt: 0, tokensAtLastRun: 0 };
+    state = {
+      inFlight: false,
+      lastRunAt: 0,
+      tokensAtLastRun: 0,
+      completion: null,
+    };
     RUNTIME_STATE.set(stellaDataDir, state);
   }
   return state;
@@ -177,6 +191,15 @@ const acquireLock = (stellaDataDir: string): (() => void) | null => {
   }
 };
 
+const readPendingFrontierSafe = (store: RuntimeStore): number => {
+  try {
+    const frontier = store.dreamInboxStore.pendingFrontier();
+    return Number.isFinite(frontier) && frontier > 0 ? frontier : 0;
+  } catch {
+    return 0;
+  }
+};
+
 const readDreamConfig = (stellaDataDir: string): DreamConfig => {
   const configPath = path.join(stellaDataDir, "config.json");
   try {
@@ -210,7 +233,7 @@ export const buildDreamSystemPrompt = (stellaDataDir: string): string =>
       "memory_summary.md and memory_index.md are retired and read-only; never write to them. The map replaced both.",
       `${MEMORY_MAP_FILE} is pointer-only routing: what memory contains and where to find it. Durable facts stay in MEMORY.md; profile.md stays exclusively Remember-owned.`,
       `Stage unpromoted durable constraints only under "## Derived constraints", tagged [derived YYYY-MM-DD]; never edit profile.md.`,
-      `Hard budget: at most ${MEMORY_MAP_MAX_ENTRIES} entries and ${MEMORY_MAP_MAX_CHARS} injected characters. Over-cap writes are rejected; merge or prune entries older than ${MEMORY_MAP_STALE_DAYS} days unless recent usage proves they remain useful.`,
+      `Hard budget: at most ${MEMORY_MAP_MAX_ENTRIES} entries and ${MEMORY_MAP_MAX_CHARS} injected characters; both caps are mechanically enforced. Over-cap writes are rejected. On every pass, merge or prune entries older than ${MEMORY_MAP_STALE_DAYS} days unless current inbox usage_count/last_usage proves they remain useful.`,
       "Edit only between DREAM:MAP_START / DREAM:MAP_END and DREAM:DERIVED_START / DREAM:DERIVED_END with StrReplace. Prefer entries with higher usage_count or recent last_usage.",
       "Never put secrets, credentials, tokens, private keys, auth headers, or sensitive personal data in the map.",
     ].join(" "),
@@ -244,7 +267,7 @@ const runDream = async (args: {
   resolvedLlm: ResolvedLlmRoute;
   /** Aborts in-flight LLM calls and stops the loop on runner shutdown. */
   abortSignal?: AbortSignal;
-}): Promise<void> => {
+}): Promise<DreamRunOutcome> => {
   const useClaudeCode = shouldUseClaudeCodeAgentRuntime({
     stellaAppDir: args.stellaDataDir,
     modelId: args.resolvedLlm.model.id,
@@ -258,7 +281,7 @@ const runDream = async (args: {
     !resolvedLlmSupportsCredentiallessCalls(args.resolvedLlm)
   ) {
     logger.debug("dream.skipped.no-api-key");
-    return;
+    return { completed: false };
   }
 
   await ensureDreamMemoryLayout(args.stellaDataDir);
@@ -315,18 +338,19 @@ const runDream = async (args: {
         toolCalls: totalToolCalls,
         finalText: finalText.slice(0, 80),
       });
+      return { completed: true };
     } catch (error) {
       logger.debug("dream.claude-code.failed", {
         error: error instanceof Error ? error.message : String(error),
       });
+      return { completed: false };
     }
-    return;
   }
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration += 1) {
     if (args.abortSignal?.aborted) {
       logger.debug("dream.aborted", { iterations: iteration });
-      return;
+      return { completed: false };
     }
     const context: Context = {
       systemPrompt: buildDreamSystemPrompt(args.stellaDataDir),
@@ -344,7 +368,15 @@ const runDream = async (args: {
       logger.debug("dream.completeSimple.failed", {
         error: error instanceof Error ? error.message : String(error),
       });
-      return;
+      return { completed: false };
+    }
+
+    if (response.stopReason !== "stop" && response.stopReason !== "toolUse") {
+      logger.debug("dream.unclean-terminal", {
+        stopReason: response.stopReason,
+        error: response.errorMessage,
+      });
+      return { completed: false };
     }
 
     messages.push(response);
@@ -354,18 +386,31 @@ const runDream = async (args: {
     );
 
     if (toolCalls.length === 0) {
+      if (response.stopReason !== "stop") {
+        logger.debug("dream.terminal-without-tool-call", {
+          stopReason: response.stopReason,
+        });
+        return { completed: false };
+      }
       logger.debug("dream.completed", {
         iterations: iteration + 1,
         toolCalls: totalToolCalls,
         finalText: readAssistantText(response).slice(0, 80),
       });
-      return;
+      return { completed: true };
+    }
+    if (response.stopReason !== "toolUse") {
+      logger.debug("dream.tool-call-without-tool-terminal", {
+        stopReason: response.stopReason,
+        toolCalls: toolCalls.length,
+      });
+      return { completed: false };
     }
 
     for (const toolCall of toolCalls) {
       if (args.abortSignal?.aborted) {
         logger.debug("dream.aborted", { iterations: iteration + 1 });
-        return;
+        return { completed: false };
       }
       totalToolCalls += 1;
       try {
@@ -413,6 +458,7 @@ const runDream = async (args: {
     iterations: MAX_ITERATIONS,
     toolCalls: totalToolCalls,
   });
+  return { completed: false };
 };
 
 export type SpawnDreamTrigger =
@@ -543,16 +589,42 @@ export const maybeSpawnDreamRun = async (
   state.inFlight = true;
 
   const controller = new AbortController();
-  const settled = runDream({
+  const frontierAtStart = readPendingFrontierSafe(args.store);
+  const completion = runDream({
     stellaDataDir: args.stellaDataDir,
     store: args.store,
     resolvedLlm: args.resolvedLlm,
     abortSignal: controller.signal,
   })
-    .catch((error) => {
+    .catch((error): DreamRunOutcome => {
       logger.debug("dream.run-failed", {
         error: error instanceof Error ? error.message : String(error),
       });
+      return { completed: false };
+    })
+    .then((outcome) => {
+      if (outcome.completed && frontierAtStart > 0) {
+        try {
+          args.store.dreamInboxStore.writeConsolidationWatermark({
+            frontier: frontierAtStart,
+          });
+        } catch (error) {
+          logger.debug("dream.watermark-write-failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      if (outcome.completed) {
+        try {
+          const { deleted } = args.store.dreamInboxStore.gcProcessedRows();
+          if (deleted > 0) logger.info("dream.inbox-gc", { deleted });
+        } catch (error) {
+          logger.debug("dream.inbox-gc-failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return outcome;
     })
     .finally(() => {
       state.inFlight = false;
@@ -562,13 +634,14 @@ export const maybeSpawnDreamRun = async (
       }
       release();
     });
+  state.completion = completion;
   // The caller still never awaits the run, but it is supervised: shutdown
   // interrupts it (aborting the LLM calls) and joins the `finally` above so
   // the lock and in-flight flag are released before teardown continues.
   dreamScopeFor(args.stellaDataDir).supervise({
     label: `dream-run:${args.trigger}`,
     abort: (reason) => controller.abort(reason),
-    settled,
+    settled: completion,
   });
 
   return {
@@ -576,4 +649,164 @@ export const maybeSpawnDreamRun = async (
     reason: "scheduled",
     pendingItems,
   };
+};
+
+export const DREAM_PRE_COMPACTION_TIMEOUT_MS = 180_000;
+
+export type PreCompactionConsolidationOutcome =
+  | "consolidated"
+  | "incomplete"
+  | "timed_out"
+  | "aborted"
+  | "skipped_fresh"
+  | "not_started"
+  | "failed";
+
+export type PreCompactionConsolidationResult = {
+  outcome: PreCompactionConsolidationOutcome;
+  pendingItems: number;
+  waitedMs: number;
+  detail?: string;
+};
+
+const raceDreamCompletion = async (args: {
+  completion: Promise<DreamRunOutcome>;
+  timeoutMs: number;
+  abortSignal?: AbortSignal;
+}): Promise<DreamRunOutcome | "timed_out" | "aborted"> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  try {
+    const competitors: Array<
+      Promise<DreamRunOutcome | "timed_out" | "aborted">
+    > = [
+      args.completion,
+      new Promise<"timed_out">((resolve) => {
+        timer = setTimeout(() => resolve("timed_out"), args.timeoutMs);
+      }),
+    ];
+    if (args.abortSignal) {
+      competitors.push(
+        new Promise<"aborted">((resolve) => {
+          if (args.abortSignal?.aborted) {
+            resolve("aborted");
+            return;
+          }
+          onAbort = () => resolve("aborted");
+          args.abortSignal?.addEventListener("abort", onAbort, { once: true });
+        }),
+      );
+    }
+    return await Promise.race(competitors);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) args.abortSignal?.removeEventListener("abort", onAbort);
+  }
+};
+
+/**
+ * Give Dream one bounded opportunity to consolidate the pending frontier
+ * before durable history is folded. Every result authorizes compaction to
+ * continue; a timed-out Dream run remains supervised and may finish later.
+ */
+export const awaitPreCompactionConsolidation = async (args: {
+  stellaDataDir: string;
+  store: RuntimeStore;
+  resolvedLlm: ResolvedLlmRoute;
+  timeoutMs?: number;
+  abortSignal?: AbortSignal;
+}): Promise<PreCompactionConsolidationResult> => {
+  const startedAt = Date.now();
+  const finish = (
+    outcome: PreCompactionConsolidationOutcome,
+    pendingItems: number,
+    detail?: string,
+  ): PreCompactionConsolidationResult => {
+    const result = {
+      outcome,
+      pendingItems,
+      waitedMs: Date.now() - startedAt,
+      ...(detail ? { detail } : {}),
+    };
+    logger.info("dream.pre-compaction", result);
+    return result;
+  };
+
+  try {
+    let pendingItems = 0;
+    try {
+      pendingItems = args.store.dreamInboxStore.countUnprocessed();
+    } catch {
+      return finish("skipped_fresh", 0, "inbox unavailable");
+    }
+    const frontier = readPendingFrontierSafe(args.store);
+    if (pendingItems === 0 || frontier === 0) {
+      return finish("skipped_fresh", pendingItems, "nothing pending");
+    }
+    let watermark: { frontier: number } | null = null;
+    try {
+      watermark = args.store.dreamInboxStore.readConsolidationWatermark();
+    } catch {
+      watermark = null;
+    }
+    if (watermark && watermark.frontier >= frontier) {
+      return finish(
+        "skipped_fresh",
+        pendingItems,
+        "completed pass covers pending frontier",
+      );
+    }
+
+    const state = stateFor(args.stellaDataDir);
+    const completionBeforeSpawn = state.completion;
+    let completion = state.inFlight ? state.completion : null;
+    let joined = completion !== null;
+    if (!completion) {
+      const spawn = await maybeSpawnDreamRun({
+        stellaDataDir: args.stellaDataDir,
+        store: args.store,
+        resolvedLlm: args.resolvedLlm,
+        trigger: "pre_compaction",
+      });
+      if (spawn.scheduled) {
+        completion = state.completion;
+      } else if (
+        state.completion &&
+        state.completion !== completionBeforeSpawn
+      ) {
+        completion = state.completion;
+        joined = true;
+      } else {
+        return finish("not_started", pendingItems, spawn.reason);
+      }
+    }
+    if (!completion) {
+      return finish("not_started", pendingItems, "no completion handle");
+    }
+
+    const raced = await raceDreamCompletion({
+      completion,
+      timeoutMs: Math.max(1, args.timeoutMs ?? DREAM_PRE_COMPACTION_TIMEOUT_MS),
+      ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
+    });
+    if (raced === "timed_out") {
+      return finish(
+        "timed_out",
+        pendingItems,
+        joined ? "joined run still in flight" : "spawned run still in flight",
+      );
+    }
+    if (raced === "aborted") {
+      return finish("aborted", pendingItems, "compaction scheduler aborted");
+    }
+    return raced.completed
+      ? finish("consolidated", pendingItems)
+      : finish("incomplete", pendingItems);
+  } catch (error) {
+    return finish(
+      "failed",
+      0,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 };

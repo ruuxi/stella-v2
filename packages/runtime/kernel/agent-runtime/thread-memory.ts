@@ -31,6 +31,8 @@ import { redactMemoryText } from "../memory/redaction.js";
 import {
   BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
   buildStartupDocMessage,
+  collectResidentStartupDocStats,
+  emitResidentStartupDocTelemetry,
   LIFE_CORE_MEMORY_DISPLAY_PATH,
   LIFE_MEMORY_MAP_DISPLAY_PATH,
   LIFE_PERSONALITY_DISPLAY_PATH,
@@ -582,6 +584,31 @@ export const buildStartupPromptMessages = async (args: {
         ),
       );
     }
+  }
+
+  // Observe both persisted and newly injected copies. This is deliberately
+  // best-effort: prompt construction cannot fail because telemetry did.
+  try {
+    const persistedTexts: string[] = [];
+    for (const entry of args.context.threadHistory ?? []) {
+      if (
+        entry.role === "runtimeInternal" &&
+        entry.customMessage?.customType === BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE
+      ) {
+        persistedTexts.push(
+          customMessageContentText(entry.customMessage.content),
+        );
+      }
+    }
+    emitResidentStartupDocTelemetry({
+      source: "prompt-build",
+      stats: collectResidentStartupDocStats([
+        ...persistedTexts,
+        ...messages.map((message) => message.text),
+      ]),
+    });
+  } catch {
+    // best-effort
   }
 
   return messages;

@@ -11,6 +11,9 @@ import { constants as fsConstants, promises as fs, type Stats } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { ensurePrivateDir } from "../shared/private-fs.js";
+import { createRuntimeLogger } from "../debug.js";
+
+const logger = createRuntimeLogger("memory.dream-storage");
 
 export const MEMORY_FILE = "MEMORY.md";
 export const MEMORY_MAP_FILE = "memory_map.md";
@@ -33,6 +36,50 @@ const MEMORY_MAP_MIGRATED_END_ANCHOR = "<!-- DREAM:MIGRATED_SUMMARY_END -->";
 const MEMORY_MAP_ROUTES_PLACEHOLDER = "- No routing entries recorded yet.";
 const MEMORY_MAP_DERIVED_PLACEHOLDER = "- None pending promotion.";
 const MIGRATION_STAGING_VERSION = "v2";
+
+const policySection = (
+  text: string,
+  startAnchor: string,
+  endAnchor: string,
+): string | null => {
+  const start = text.indexOf(startAnchor);
+  const end = text.indexOf(endAnchor);
+  if (
+    start < 0 ||
+    end < start + startAnchor.length ||
+    text.indexOf(startAnchor, start + startAnchor.length) !== -1 ||
+    text.indexOf(endAnchor, end + endAnchor.length) !== -1
+  ) {
+    return null;
+  }
+  return text.slice(start + startAnchor.length, end);
+};
+
+/**
+ * Count model-visible routing/derived lines under the certified map policy.
+ * Null means the anchor topology is ambiguous and must fail closed.
+ */
+export const countMemoryMapPolicyEntries = (text: string): number | null => {
+  const routes = policySection(
+    text,
+    MEMORY_MAP_ROUTES_START_ANCHOR,
+    MEMORY_MAP_ROUTES_END_ANCHOR,
+  );
+  const derived = policySection(
+    text,
+    MEMORY_MAP_DERIVED_START_ANCHOR,
+    MEMORY_MAP_DERIVED_END_ANCHOR,
+  );
+  if (routes === null || derived === null) return null;
+  const placeholders = new Set([
+    MEMORY_MAP_ROUTES_PLACEHOLDER,
+    MEMORY_MAP_DERIVED_PLACEHOLDER,
+  ]);
+  return [routes, derived]
+    .flatMap((section) => blankInjectedHtmlComments(section).split(/\r?\n/u))
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !placeholders.has(line)).length;
+};
 
 export const unicodeCodePointLength = (text: string): number =>
   Array.from(text).length;
@@ -301,6 +348,13 @@ const buildSeededMemoryMapContent = (args: {
         `[migration cut — remaining entries preserved in ${MEMORY_INDEX_FILE}]`,
       )
     : MEMORY_MAP_ROUTES_PLACEHOLDER;
+  const routeLines = routes.split(/\r?\n/u);
+  if (routeLines.length > MEMORY_MAP_MAX_ENTRIES) {
+    routes = [
+      ...routeLines.slice(0, MEMORY_MAP_MAX_ENTRIES - 1),
+      `[migration cut — remaining entries preserved in ${MEMORY_INDEX_FILE}]`,
+    ].join("\n");
+  }
   const summaryBudget = Math.max(
     0,
     available -
@@ -522,8 +576,8 @@ const listMigrationStagingNames = async (target: string): Promise<string[]> => {
 const cleanupUnattachedMigrationStages = async (
   target: string,
   canonicalRoot: string,
-): Promise<void> => {
-  let removed = false;
+): Promise<number> => {
+  let removed = 0;
   for (const name of await listMigrationStagingNames(target)) {
     const digest = parseStagingDigest(target, name);
     if (!digest) continue;
@@ -566,7 +620,7 @@ const cleanupUnattachedMigrationStages = async (
       const current = await fs.lstat(stagingPath);
       if (!sameFileIdentity(verified, current) || current.nlink !== 1) continue;
       await fs.unlink(stagingPath);
-      removed = true;
+      removed += 1;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         // A candidate that cannot be proved safe is not migration-owned.
@@ -574,7 +628,8 @@ const cleanupUnattachedMigrationStages = async (
       }
     }
   }
-  if (removed) await syncDirectory(path.dirname(target));
+  if (removed > 0) await syncDirectory(path.dirname(target));
+  return removed;
 };
 
 /**
@@ -825,10 +880,18 @@ const withDreamMemoryMigrationLock = async <T>(
  * files are ignored, including when a retry first has to remove a verified
  * same-inode staging link left beside that already-published map.
  */
+export type DreamMemoryLayoutTelemetry = {
+  memory: PublishResult;
+  map: PublishResult;
+  legacyIndex: "used" | "absent" | "not_read";
+  legacySummary: "used" | "absent" | "not_read";
+  cleanedStagingFiles: number;
+};
+
 const ensureDreamMemoryLayoutLocked = async (
   stellaDataDir: string,
   hooks?: DreamMemoryMigrationTestHooks,
-): Promise<void> => {
+): Promise<DreamMemoryLayoutTelemetry> => {
   const root = memoriesRoot(stellaDataDir);
   try {
     const existingRoot = await fs.lstat(root);
@@ -844,11 +907,20 @@ const ensureDreamMemoryLayoutLocked = async (
   const canonicalRoot = await assertSafeDreamMemoryRoot(stellaDataDir);
   const memoryTarget = memoryFilePath(stellaDataDir);
   const mapTarget = memoryMapPath(stellaDataDir);
-  await cleanupUnattachedMigrationStages(memoryTarget, canonicalRoot);
-  await cleanupUnattachedMigrationStages(mapTarget, canonicalRoot);
-  await publishFileIfMissing(memoryTarget, MEMORY_TEMPLATE);
+  const cleanedStagingFiles =
+    (await cleanupUnattachedMigrationStages(memoryTarget, canonicalRoot)) +
+    (await cleanupUnattachedMigrationStages(mapTarget, canonicalRoot));
+  const memory = await publishFileIfMissing(memoryTarget, MEMORY_TEMPLATE);
 
-  if (await hasSafeExistingFile(mapTarget)) return;
+  if (await hasSafeExistingFile(mapTarget)) {
+    return {
+      memory,
+      map: "exists",
+      legacyIndex: "not_read",
+      legacySummary: "not_read",
+      cleanedStagingFiles,
+    };
+  }
 
   const legacySnapshots = await Promise.all([
     readStableLegacySource(memoryIndexPath(stellaDataDir), canonicalRoot),
@@ -861,7 +933,7 @@ const ensureDreamMemoryLayoutLocked = async (
       await verifyLegacySourceSnapshot(snapshot, canonicalRoot);
     }
   };
-  await publishFileIfMissing(
+  const map = await publishFileIfMissing(
     mapTarget,
     buildSeededMemoryMapContent({
       indexRaw: indexSource.exists ? indexSource.raw : null,
@@ -869,6 +941,13 @@ const ensureDreamMemoryLayoutLocked = async (
     }),
     { beforeLink: verifyLegacySources, afterLink: verifyLegacySources },
   );
+  return {
+    memory,
+    map,
+    legacyIndex: indexSource.exists ? "used" : "absent",
+    legacySummary: summarySource.exists ? "used" : "absent",
+    cleanedStagingFiles,
+  };
 };
 
 /** Test-only coordination point for deterministic filesystem race coverage. */
@@ -879,10 +958,20 @@ export type DreamMemoryMigrationTestHooks = {
 export const ensureDreamMemoryLayout = async (
   stellaDataDir: string,
   hooks?: DreamMemoryMigrationTestHooks,
-): Promise<void> =>
-  withDreamMemoryMigrationLock(stellaDataDir, () =>
-    ensureDreamMemoryLayoutLocked(stellaDataDir, hooks),
-  );
+): Promise<DreamMemoryLayoutTelemetry> => {
+  try {
+    const telemetry = await withDreamMemoryMigrationLock(stellaDataDir, () =>
+      ensureDreamMemoryLayoutLocked(stellaDataDir, hooks),
+    );
+    logger.info("dream.memory-layout", telemetry);
+    return telemetry;
+  } catch (error) {
+    logger.warn("dream.memory-layout-failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+};
 
 export const readMemoryFile = async (
   stellaDataDir: string,

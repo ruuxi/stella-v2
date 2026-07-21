@@ -895,7 +895,8 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   // Unified Dream inbox: every durable input Dream consolidates flows through
   // this one queue — subagent rollout summaries, orchestrator memory-review
   // notes, and chronicle screen-activity digests. `processed_by_dream_at IS
-  // NULL` is the entire queue state; there is no separate watermark file.
+  // NULL` is the entire queue state; the completed-pass watermark below is
+  // scheduling bookkeeping only.
   // Replaces the pre-launch `thread_summaries` table (hard cut, no migration).
   db.exec("DROP TABLE IF EXISTS thread_summaries;");
   db.exec(`
@@ -923,5 +924,12 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_dream_inbox_kind_updated
     ON dream_inbox(kind, source_updated_at);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dream_consolidation_watermark (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      frontier INTEGER NOT NULL,
+      completed_at INTEGER NOT NULL
+    );
   `);
 };

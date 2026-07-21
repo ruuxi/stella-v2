@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DatabaseSync } from "node:sqlite";
 import { DreamInboxStore } from "@stella/runtime/kernel/memory/dream-inbox-store";
+import {
+  getDesktopDatabasePath,
+  initializeDesktopDatabase,
+} from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 import { createSqliteTestContextFactory } from "../../../helpers/sqlite-test-context.js";
 
 const testContexts = createSqliteTestContextFactory(
@@ -226,7 +232,10 @@ describe("DreamInboxStore", () => {
     const tenMinute = unprocessed.find((row) => row.sourceKey === "10m");
     expect(tenMinute?.kind).toBe("chronicle");
     expect(tenMinute?.content).toBe("- Now reviewing a pull request");
-    expect(tenMinute?.metadata).toMatchObject({ window: "10m", uniqueLines: 9 });
+    expect(tenMinute?.metadata).toMatchObject({
+      window: "10m",
+      uniqueLines: 9,
+    });
   });
 
   it("stores memory notes as formatted candidates and lists them newest first", () => {
@@ -320,5 +329,76 @@ describe("DreamInboxStore", () => {
     expect(recents).toHaveLength(1);
     expect(recents[0]?.kind).toBe("thread_summary");
     expect(recents[0]?.threadId).toBe("thread-a");
+  });
+
+  it("persists a monotonic consolidation watermark across a new SQLite connection", () => {
+    const { rootPath, store } = createTestContext();
+    store.recordThreadSummary({
+      threadId: "thread-a",
+      runId: "run-1",
+      agentType: "general",
+      rolloutSummary: "Pending work",
+    });
+    const frontier = store.pendingFrontier();
+    expect(frontier).toBeGreaterThan(0);
+    store.writeConsolidationWatermark({ frontier, completedAt: 111 });
+    store.writeConsolidationWatermark({
+      frontier: frontier - 1,
+      completedAt: 222,
+    });
+
+    const reloadedDb = new DatabaseSync(getDesktopDatabasePath(rootPath), {
+      timeout: 5_000,
+    }) as unknown as SqliteDatabase;
+    try {
+      initializeDesktopDatabase(reloadedDb);
+      const reloaded = new DreamInboxStore(reloadedDb);
+      expect(reloaded.readConsolidationWatermark()).toEqual({
+        frontier,
+        completedAt: 222,
+      });
+      expect(reloaded.pendingFrontier()).toBe(frontier);
+    } finally {
+      reloadedDb.close();
+    }
+  });
+
+  it("garbage-collects only old consumed unused non-Chronicle rows", () => {
+    const { store } = createTestContext();
+    const day = 24 * 60 * 60 * 1_000;
+    const now = Date.now();
+    const old = now - 40 * day;
+    for (const threadId of ["old", "pending", "used", "fresh"]) {
+      store.recordThreadSummary({
+        threadId,
+        runId: `run-${threadId}`,
+        agentType: "general",
+        rolloutSummary: `${threadId} durable work`,
+      });
+    }
+    store.recordChronicleSummary({ window: "10m", content: "- digest" });
+    const row = (threadId: string) =>
+      store
+        .listUnprocessed({ limit: 100 })
+        .find((candidate) => candidate.threadId === threadId)!;
+    store.markProcessed({ ids: [row("old").id], processedAt: old });
+    const used = row("used");
+    store.markProcessed({ ids: [used.id], processedAt: old });
+    store.recordUsage("used", "run-used", { nowMs: now - 1 });
+    store.markProcessed({ ids: [used.id], processedAt: old });
+    store.recordUsage("used", "run-used", { nowMs: now });
+    store.markProcessed({ ids: [row("fresh").id], processedAt: now - day });
+    const chronicle = store
+      .listUnprocessed({ limit: 100 })
+      .find((candidate) => candidate.kind === "chronicle")!;
+    store.markProcessed({ ids: [chronicle.id], processedAt: old });
+
+    expect(store.gcProcessedRows({ nowMs: now }).deleted).toBe(1);
+    expect(
+      store
+        .listRecentThreadSummaries({ limit: 100 })
+        .map((candidate) => candidate.threadId)
+        .sort(),
+    ).toEqual(["fresh", "pending", "used"]);
   });
 });

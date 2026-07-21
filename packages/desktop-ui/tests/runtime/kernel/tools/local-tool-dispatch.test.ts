@@ -15,6 +15,7 @@ import {
   ensureDreamMemoryLayout,
   MEMORY_MAP_DERIVED_END_ANCHOR,
   MEMORY_MAP_DERIVED_START_ANCHOR,
+  MEMORY_MAP_MAX_ENTRIES,
   MEMORY_MAP_ROUTES_END_ANCHOR,
   MEMORY_MAP_ROUTES_START_ANCHOR,
   memoryIndexPath,
@@ -255,6 +256,35 @@ describe("dispatchLocalTool", () => {
         `${MEMORY_MAP_ROUTES_START_ANCHOR}\n\uFFFD\n${MEMORY_MAP_ROUTES_END_ANCHOR}`,
       ),
     ).toContain("invalid or replacement Unicode");
+  });
+
+  it("mechanically rejects more than 80 map-policy entries and ambiguous anchors", () => {
+    const entries = Array.from(
+      { length: MEMORY_MAP_MAX_ENTRIES + 1 },
+      (_, index) => `- route ${index} -> MEMORY.md (updated 2026-07-21)`,
+    ).join("\n");
+    const over = [
+      MEMORY_MAP_ROUTES_START_ANCHOR,
+      entries,
+      MEMORY_MAP_ROUTES_END_ANCHOR,
+      MEMORY_MAP_DERIVED_START_ANCHOR,
+      MEMORY_MAP_DERIVED_END_ANCHOR,
+    ].join("\n");
+    expect(validateMemoryMapWrite(over)).toContain("hard cap 80");
+
+    const exact = over.replace(
+      `- route ${MEMORY_MAP_MAX_ENTRIES} -> MEMORY.md (updated 2026-07-21)`,
+      "",
+    );
+    expect(validateMemoryMapWrite(exact)).toBeNull();
+    expect(
+      validateMemoryMapWrite(
+        exact.replace(
+          MEMORY_MAP_ROUTES_END_ANCHOR,
+          `${MEMORY_MAP_ROUTES_END_ANCHOR}\n${MEMORY_MAP_ROUTES_END_ANCHOR}`,
+        ),
+      ),
+    ).toContain("exactly one ordered");
   });
 
   it("keeps both retired files and arbitrary paths outside Dream's write ownership", async () => {

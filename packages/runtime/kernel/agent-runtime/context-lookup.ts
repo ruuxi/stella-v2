@@ -36,7 +36,10 @@ import {
   type RecallTelemetrySourceKind,
 } from "./recall-telemetry.js";
 import type { RecallModelRoute } from "./recall-route.js";
-import { stripInjectedHtmlComments } from "../memory/dream-storage.js";
+import {
+  blankInjectedHtmlComments,
+  stripInjectedHtmlComments,
+} from "../memory/dream-storage.js";
 
 const MAX_CONTEXT_OUTPUT_TOKENS = 1_500;
 const EAGER_MEMORY_FILE_CHAR_BUDGET = 4_000;
@@ -557,6 +560,8 @@ type MemoryFileSource = {
   displayPath: string;
   path: string;
   includeByDefault: boolean;
+  /** Map charter/anchor comments are transport, never Recall evidence. */
+  stripInjectedComments?: boolean;
 };
 
 const MEMORY_FILE_SOURCES = (stellaDataDir: string): MemoryFileSource[] => [
@@ -564,6 +569,7 @@ const MEMORY_FILE_SOURCES = (stellaDataDir: string): MemoryFileSource[] => [
     displayPath: "~/.stella/memories/memory_map.md",
     path: path.join(stellaDataDir, "memories", "memory_map.md"),
     includeByDefault: true,
+    stripInjectedComments: true,
   },
   {
     displayPath: "~/.stella/memories/MEMORY.md",
@@ -588,10 +594,9 @@ const readMemoryFiles = async (
   for (const file of files) {
     const content = await readOptionalTextFile(file.path);
     if (!content) continue;
-    const injectedContent =
-      file.displayPath === "~/.stella/memories/memory_map.md"
-        ? stripInjectedHtmlComments(content)
-        : content;
+    const injectedContent = file.stripInjectedComments
+      ? stripInjectedHtmlComments(content)
+      : content;
     if (!injectedContent) continue;
     const rendered = truncate(
       sanitizePromptContext(injectedContent, file.displayPath),
@@ -679,9 +684,13 @@ const readMemorySearchResults = async (
   let truncated = false;
 
   for (const file of MEMORY_FILE_SOURCES(stellaDataDir)) {
-    const content = await readOptionalTextFile(file.path);
-    if (!content) continue;
-    const lines = content.split(/\r?\n/);
+    const raw = await readOptionalTextFile(file.path);
+    // Blanking rather than stripping preserves physical line numbers for
+    // follow-up reads while excluding charter/anchor prose from matching.
+    const searchable =
+      raw && file.stripInjectedComments ? blankInjectedHtmlComments(raw) : raw;
+    if (!searchable) continue;
+    const lines = searchable.split(/\r?\n/);
     const usedRanges: Array<{ start: number; end: number }> = [];
 
     for (let index = 0; index < lines.length; index += 1) {

@@ -13,6 +13,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import {
   ensureDreamMemoryLayout,
+  MEMORY_MAP_DERIVED_END_ANCHOR,
+  MEMORY_MAP_DERIVED_START_ANCHOR,
   MEMORY_MAP_ROUTES_END_ANCHOR,
   MEMORY_MAP_ROUTES_START_ANCHOR,
   memoryIndexPath,
@@ -169,11 +171,72 @@ describe("dispatchLocalTool", () => {
     await expect(readFile(mapPath, "utf-8")).resolves.toBe(before);
   });
 
+  it.each([MEMORY_MAP_DERIVED_START_ANCHOR, MEMORY_MAP_DERIVED_END_ANCHOR])(
+    "rejects deleting the derived anchor %s without mutating the map",
+    async (anchor) => {
+      const rootPath = await createRoot();
+      await ensureDreamMemoryLayout(rootPath);
+      const mapPath = memoryMapPath(rootPath);
+      const before = await readFile(mapPath, "utf-8");
+
+      const result = await dispatchLocalTool(
+        TOOL_IDS.STR_REPLACE,
+        { file_path: mapPath, old_string: anchor, new_string: "" },
+        {
+          conversationId: "c1",
+          dream: { stellaDataDir: rootPath },
+        },
+      );
+
+      expect(JSON.parse(result.handled ? result.text : "{}")).toMatchObject({
+        success: false,
+        error: expect.stringContaining("DREAM:DERIVED"),
+      });
+      await expect(readFile(mapPath, "utf-8")).resolves.toBe(before);
+    },
+  );
+
+  it("accepts a map write that restores both missing derived anchors", async () => {
+    const rootPath = await createRoot();
+    await ensureDreamMemoryLayout(rootPath);
+    const mapPath = memoryMapPath(rootPath);
+    const damaged = (await readFile(mapPath, "utf-8"))
+      .replace(`${MEMORY_MAP_DERIVED_START_ANCHOR}\n`, "")
+      .replace(`${MEMORY_MAP_DERIVED_END_ANCHOR}\n`, "");
+    await writeFile(mapPath, damaged, "utf-8");
+
+    const result = await dispatchLocalTool(
+      TOOL_IDS.STR_REPLACE,
+      {
+        file_path: mapPath,
+        old_string: "- None pending promotion.",
+        new_string: [
+          MEMORY_MAP_DERIVED_START_ANCHOR,
+          "- None pending promotion.",
+          MEMORY_MAP_DERIVED_END_ANCHOR,
+        ].join("\n"),
+      },
+      {
+        conversationId: "c1",
+        dream: { stellaDataDir: rootPath },
+      },
+    );
+
+    expect(JSON.parse(result.handled ? result.text : "{}")).toMatchObject({
+      success: true,
+    });
+    const repaired = await readFile(mapPath, "utf-8");
+    expect(repaired).toContain(MEMORY_MAP_DERIVED_START_ANCHOR);
+    expect(repaired).toContain(MEMORY_MAP_DERIVED_END_ANCHOR);
+  });
+
   it("counts exact-cap emoji by code point and rejects invalid Unicode", () => {
     const exact = [
       MEMORY_MAP_ROUTES_START_ANCHOR,
       "😀".repeat(6_000),
       MEMORY_MAP_ROUTES_END_ANCHOR,
+      MEMORY_MAP_DERIVED_START_ANCHOR,
+      MEMORY_MAP_DERIVED_END_ANCHOR,
     ].join("\n");
     expect(unicodeCodePointLength(stripInjectedHtmlComments(exact))).toBe(
       6_000,

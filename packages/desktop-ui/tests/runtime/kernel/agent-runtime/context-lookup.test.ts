@@ -298,6 +298,49 @@ describe("buildContextLookupUserPrompt", () => {
     expect(prompt).toContain("Full ~/.stella/memories/MEMORY.md omitted");
   });
 
+  it("never matches map comment text and keeps real match line numbers aligned with disk", async () => {
+    const { rootPath, db } = await createRoot();
+    await writeFile(
+      path.join(rootPath, "memories", "memory_map.md"),
+      [
+        "<!-- DREAM:MAP_CHARTER",
+        "Writer guidance mentioning zanzibar workflows and aliases.",
+        "-->",
+        "# Memory map",
+        "",
+        "<!-- DREAM:MAP_START -->",
+        "- quokka migration -> MEMORY.md 2026-07-01 | aliases: quokka",
+        "<!-- DREAM:MAP_END -->",
+      ].join("\n"),
+    );
+
+    const commentOnly = await buildContextLookupUserPrompt({
+      conversationId: "conv-1",
+      lookupPrompt: "Anything about zanzibar?",
+      searchTerms: ["zanzibar"],
+      stellaDataDir: rootPath,
+      store: makeLookupStore(),
+      localEvents: [],
+    });
+    expect(commentOnly).toContain("No matching memory lines found.");
+    expect(commentOnly).not.toContain("Writer guidance mentioning");
+
+    const realMatch = await buildContextLookupUserPrompt({
+      conversationId: "conv-1",
+      lookupPrompt: "Where is the quokka work?",
+      searchTerms: ["quokka"],
+      stellaDataDir: rootPath,
+      store: makeLookupStore(),
+      localEvents: [],
+    });
+    db.close();
+
+    expect(realMatch).toContain(
+      "7: - quokka migration -> MEMORY.md 2026-07-01 | aliases: quokka",
+    );
+    expect(realMatch).not.toContain("Writer guidance mentioning");
+  });
+
   it("puts only RUNNING threads in the live-status tail, with agent messages", async () => {
     const { rootPath, db } = await createRoot();
     db.close();

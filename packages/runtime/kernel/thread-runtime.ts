@@ -14,6 +14,10 @@ import {
   planResidentStartupDocRefresh,
   stripInjectedHtmlComments,
 } from "./memory/resident-docs.js";
+import {
+  truncateUnicodeAtLineBoundary,
+  unicodeCodePointLength,
+} from "./memory/dream-storage.js";
 import { readHomePrompt } from "./prompts/home-prompts.js";
 import {
   THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS,
@@ -842,6 +846,7 @@ export const buildThreadSummaryRequest = (args: {
 // always-loaded files; the cap only guards against a runaway doc inflating
 // the compaction request.
 const DURABLE_MEMORY_DOC_MAX_CHARS = 8_000;
+const DURABLE_MEMORY_TRUNCATION_MARKER = "[truncated]";
 
 /**
  * Read one always-loaded durable-memory doc. Mirrors
@@ -885,8 +890,12 @@ export const buildDurableMemoryReference = (
       const text = readDurableMemoryDoc(docPath);
       if (!text) return "";
       const capped =
-        text.length > DURABLE_MEMORY_DOC_MAX_CHARS
-          ? `${text.slice(0, DURABLE_MEMORY_DOC_MAX_CHARS)}\n[truncated]`
+        unicodeCodePointLength(text) > DURABLE_MEMORY_DOC_MAX_CHARS
+          ? truncateUnicodeAtLineBoundary(
+              text,
+              DURABLE_MEMORY_DOC_MAX_CHARS,
+              DURABLE_MEMORY_TRUNCATION_MARKER,
+            )
           : text;
       return `### ${label}\n${capped}`;
     })

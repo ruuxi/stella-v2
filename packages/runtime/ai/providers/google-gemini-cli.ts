@@ -736,6 +736,11 @@ export const streamGoogleGeminiCli: StreamFunction<"google-gemini-cli", GoogleGe
 					}
 				} finally {
 					options?.signal?.removeEventListener("abort", abortHandler);
+					// Close the transport exactly once on every exit path: an
+					// early error exit without an abort would otherwise leave
+					// the response body open until GC. Cancel on a finished or
+					// already-cancelled stream is a no-op.
+					void reader.cancel().catch(() => {});
 				}
 
 				if (currentBlock) {

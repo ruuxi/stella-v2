@@ -342,7 +342,9 @@ function consumeLine(text: string): { line: string; rest: string } | null {
 	};
 }
 
-async function* iterateSseMessages(
+// Exported for tests (transport close-once coverage); not part of the
+// provider's public adapter surface.
+export async function* iterateSseMessages(
 	body: ReadableStream<Uint8Array>,
 	signal?: AbortSignal,
 ): AsyncGenerator<ServerSentEvent> {
@@ -397,6 +399,16 @@ async function* iterateSseMessages(
 			yield trailingEvent;
 		}
 	} finally {
+		// Close the transport exactly once on every exit path. An early
+		// consumer exit (error/break mid-iteration without an abort) would
+		// otherwise leave the response body — and its connection — open
+		// until GC; cancel on an already-finished stream is a no-op. Same
+		// pattern as openai-codex-responses.
+		try {
+			await reader.cancel();
+		} catch {
+			// The stream may already be closed or errored.
+		}
 		reader.releaseLock();
 	}
 }

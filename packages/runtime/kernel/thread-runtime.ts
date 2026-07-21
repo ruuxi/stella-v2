@@ -501,6 +501,211 @@ export const formatThreadCheckpointMessage = (
 const computeSummaryBudget = (messages: StoredThreadMessage[]): number =>
   Math.max(100, Math.floor(getThreadTokenEstimate(messages) * 0.2));
 
+const THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS = 2_000;
+const THREAD_SUMMARY_MAX_GENERATION_ATTEMPTS = 2;
+const THREAD_SUMMARY_NEVER_SHRINK_RATIO = 0.5;
+const THREAD_COMPACTION_HARD_LIMIT_ESCALATION_PCT = 0.9;
+const THREAD_COMPACTION_ESCALATION_MIN_FAILURES = 2;
+const THREAD_COMPACTION_FALLBACK_EXCERPT_CHARS = 1_200;
+
+/**
+ * Consecutive final summary failures per thread. This state is deliberately
+ * process-local: a restart merely requires another bounded failed cycle before
+ * the near-ceiling fallback can run, while the context-window gate persists.
+ */
+const consecutiveSummaryFailures = new Map<string, number>();
+
+/** Test seam for isolating near-ceiling failure tracking. */
+export const resetThreadSummaryFailureTracking = (threadKey?: string): void => {
+  if (threadKey === undefined) {
+    consecutiveSummaryFailures.clear();
+    return;
+  }
+  consecutiveSummaryFailures.delete(threadKey);
+};
+
+const THREAD_SUMMARY_HEADINGS = [
+  "Topic",
+  "Key Points",
+  "Current State",
+  "Open Items",
+] as const;
+
+export type ThreadSummaryValidation = {
+  valid: boolean;
+  reason?: string;
+  visibleCodePoints: number;
+  wordCount: number;
+  uniqueWordCount: number;
+};
+
+const normalizeSummaryForValidation = (summary: string): string =>
+  summary
+    .normalize("NFKC")
+    .replace(/\p{Cf}/gu, "")
+    .replace(/[^\S\r\n]+/gu, " ")
+    .trim();
+
+const countVisibleCodePoints = (value: string): number =>
+  Array.from(normalizeSummaryForValidation(value)).filter(
+    (codePoint) => !/\s/u.test(codePoint),
+  ).length;
+
+const segmentSummaryWords = (summary: string): string[] => {
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+  return Array.from(segmenter.segment(summary))
+    .filter((segment) => segment.isWordLike)
+    .map((segment) => segment.segment.toLocaleLowerCase());
+};
+
+const summarySectionBodies = (summary: string): Map<string, string> => {
+  const matches = Array.from(
+    summary.matchAll(
+      /^##\s*(Topic|Key Points|Current State|Open Items)\s*$/gimu,
+    ),
+  );
+  const sections = new Map<string, string>();
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index]!;
+    const heading = match[1]!.toLocaleLowerCase();
+    const bodyStart = (match.index ?? 0) + match[0].length;
+    const bodyEnd = matches[index + 1]?.index ?? summary.length;
+    sections.set(heading, summary.slice(bodyStart, bodyEnd).trim());
+  }
+  return sections;
+};
+
+const longestRepeatedCodePointRun = (value: string): number => {
+  let longest = 0;
+  let current = 0;
+  let previous = "";
+  for (const codePoint of value) {
+    if (codePoint === previous) {
+      current += 1;
+    } else {
+      previous = codePoint;
+      current = 1;
+    }
+    longest = Math.max(longest, current);
+  }
+  return longest;
+};
+
+/**
+ * Validate the information carrier that will replace a folded thread span.
+ * The checks operate on normalized Unicode code points, require informative
+ * structure for non-trivial spans, reject template/repetition/gibberish, and
+ * prevent a recursive checkpoint update from losing most prior context.
+ */
+export const validateThreadSummary = (
+  summary: string,
+  middleTokens: number,
+  previousSummary?: string,
+): ThreadSummaryValidation => {
+  const normalized = normalizeSummaryForValidation(summary);
+  const visible = Array.from(normalized).filter(
+    (codePoint) => !/\s/u.test(codePoint),
+  );
+  const words = segmentSummaryWords(normalized);
+  const uniqueWords = new Set(words);
+  const base = {
+    visibleCodePoints: visible.length,
+    wordCount: words.length,
+    uniqueWordCount: uniqueWords.size,
+  };
+  if (!normalized || visible.length === 0) {
+    return { valid: false, reason: "no visible content", ...base };
+  }
+
+  const previousVisible = previousSummary
+    ? countVisibleCodePoints(previousSummary)
+    : 0;
+  if (
+    previousVisible > 0 &&
+    visible.length < previousVisible * THREAD_SUMMARY_NEVER_SHRINK_RATIO
+  ) {
+    return {
+      valid: false,
+      reason: `shrank below never-shrink floor (${visible.length} visible vs previous ${previousVisible})`,
+      ...base,
+    };
+  }
+
+  if (middleTokens < THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS) {
+    return { valid: true, ...base };
+  }
+
+  const sections = summarySectionBodies(normalized);
+  const missingSection = THREAD_SUMMARY_HEADINGS.find(
+    (heading) =>
+      !segmentSummaryWords(sections.get(heading.toLowerCase()) ?? "").length,
+  );
+  if (missingSection) {
+    return {
+      valid: false,
+      reason: `missing informative ## ${missingSection} section`,
+      ...base,
+    };
+  }
+
+  const scale = Math.max(
+    0,
+    Math.log2(middleTokens / THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS),
+  );
+  const minVisibleCodePoints = Math.min(150, Math.round(64 + scale * 14));
+  const minWords = Math.min(24, Math.round(10 + scale * 2));
+  if (visible.length < minVisibleCodePoints || words.length < minWords) {
+    return {
+      valid: false,
+      reason: `insufficient information for ${middleTokens} folded tokens`,
+      ...base,
+    };
+  }
+
+  const placeholderFragments = [
+    "[what the conversation is about]",
+    "important information, decisions, and conclusions from the conversation",
+    "where things stand now — what has been done, what is in progress",
+    "unresolved questions, pending tasks, or next steps discussed",
+  ];
+  const lower = normalized.toLocaleLowerCase();
+  if (placeholderFragments.some((fragment) => lower.includes(fragment))) {
+    return { valid: false, reason: "template boilerplate", ...base };
+  }
+
+  const frequencies = new Map<string, number>();
+  for (const word of words) {
+    frequencies.set(word, (frequencies.get(word) ?? 0) + 1);
+  }
+  const mostCommonWord = Math.max(0, ...frequencies.values());
+  const uniqueRatio = uniqueWords.size / Math.max(1, words.length);
+  const withoutDividerRuns = normalized.replace(/[=\-_*#~─]{3,}/gu, " ");
+  if (
+    (words.length >= 12 && uniqueRatio < 0.3) ||
+    mostCommonWord / Math.max(1, words.length) > 0.3 ||
+    longestRepeatedCodePointRun(withoutDividerRuns) >= 16
+  ) {
+    return { valid: false, reason: "extreme repetition", ...base };
+  }
+
+  const longAsciiWords = words.filter((word) => /^[a-z]{5,}$/u.test(word));
+  const vowelFreeWords = longAsciiWords.filter(
+    (word) => !/[aeiouy]/u.test(word),
+  );
+  if (
+    longAsciiWords.length >= 12 &&
+    vowelFreeWords.length / longAsciiWords.length > 0.55
+  ) {
+    return {
+      valid: false,
+      reason: "gibberish-like token distribution",
+      ...base,
+    };
+  }
+
+  return { valid: true, ...base };
+};
+
 /**
  * Estimated chars-per-token used to cap the summary request input.
  */
@@ -554,6 +759,7 @@ const buildSummaryGuidelines = (hasDurableMemoryReference: boolean): string =>
     "Guidelines:",
     '- Thread ids: delegated/background work appears in the conversation as spawn_agent / send_input / check-status tool calls and results carrying a `thread_id`. Name that exact thread_id alongside every workstream you mention (e.g. "shell redesign polish — thread_id: shell-redesign-v2-full-polish") so follow-ups after this checkpoint route to the existing thread instead of spawning a duplicate.',
     "- Pending user decisions: any question posed to the user that was not yet answered by the end of the conversation goes under Open Items with the exact question quoted verbatim; if the user gave a partial or nuanced answer, quote the user's exact relevant words too. Never paraphrase half-answered decisions — quote them.",
+    "- Never return an empty or near-empty summary. After compaction this summary is the only visible carrier of the compacted span's thread-specific context, so it must stand alone. A bare heading, template echo, or one-line fragment is never acceptable.",
     // The durable-memory rule only applies when the always-loaded docs are
     // actually injected for this agent (orchestrator); for other agents the
     // summary is the only carrier of such facts, so omitting them would lose
@@ -580,6 +786,7 @@ const buildSummaryPrompt = (
   previousSummary: string | undefined,
   budget: number,
   durableMemoryReference?: string,
+  correctiveReason?: string,
 ): string => {
   if (!formattedConversation) {
     return previousSummary?.trim() ?? "";
@@ -588,7 +795,10 @@ const buildSummaryPrompt = (
     Boolean(durableMemoryReference?.trim()),
   );
   const alreadyKnown = buildAlreadyKnownSection(durableMemoryReference);
-  const footer = `${guidelines}
+  const correction = correctiveReason
+    ? `RETRY CORRECTION: The previous summary was rejected (${correctiveReason}). Return all four required headings with specific, non-repetitive facts. Do not return placeholders, invisible text, or a fragment.\n\n`
+    : "";
+  const footer = `${correction}${guidelines}
 
 Target ~${budget} tokens. Be factual — only include information that was explicitly discussed in the conversation. Do NOT invent file paths, commands, or details that were not mentioned. Write only the summary body.`;
   if (previousSummary?.trim()) {
@@ -674,22 +884,29 @@ export const buildDurableMemoryReference = (
 };
 
 const generateThreadSummary = async (args: {
+  threadKey: string;
   messages: StoredThreadMessage[];
   previousSummary?: string;
   resolvedLlm: ResolvedLlmRoute;
   durableMemoryReference?: string;
   stellaDataDir?: string;
+  correctiveReason?: string;
   abortSignal?: AbortSignal;
-}): Promise<string | null> => {
+}): Promise<{
+  text: string | null;
+  retryable: boolean;
+  reason?: string;
+}> => {
   const apiKey = (await args.resolvedLlm.getApiKey())?.trim();
   if (!apiKey) {
     // Silent-null here previously hid every failed compaction; keep the
     // benign no-credential skip but make it diagnosable.
     logger.warn("thread.compaction.summary-skipped", {
+      threadKey: args.threadKey,
       reason: "no-api-key",
       model: args.resolvedLlm.model.id,
     });
-    return null;
+    return { text: null, retryable: false, reason: "no API key" };
   }
 
   const formattedConversation = capSummaryConversation(
@@ -697,7 +914,13 @@ const generateThreadSummary = async (args: {
     getSummaryInputCharBudget(args.resolvedLlm),
   );
   if (!formattedConversation) {
-    return args.previousSummary?.trim() || null;
+    return {
+      text: args.previousSummary?.trim() || null,
+      retryable: false,
+      ...(!args.previousSummary?.trim()
+        ? { reason: "empty formatted conversation" }
+        : {}),
+    };
   }
 
   const promptBody = buildSummaryPrompt(
@@ -705,6 +928,7 @@ const generateThreadSummary = async (args: {
     args.previousSummary,
     computeSummaryBudget(args.messages),
     args.durableMemoryReference,
+    args.correctiveReason,
   );
 
   // LLM failures propagate to `compactRuntimeThreadHistory`, which logs
@@ -729,13 +953,28 @@ const generateThreadSummary = async (args: {
     },
   );
   const text = readAssistantText(message);
+  if (message.stopReason !== "stop") {
+    logger.warn("thread.compaction.summary-failed", {
+      threadKey: args.threadKey,
+      model: args.resolvedLlm.model.id,
+      stopReason: message.stopReason,
+      errorMessage: message.errorMessage,
+      partialChars: text.length,
+    });
+    return {
+      text: null,
+      retryable: message.stopReason !== "aborted",
+      reason: `unclean terminal reason ${String(message.stopReason)}`,
+    };
+  }
   if (!text) {
     logger.warn("thread.compaction.summary-empty", {
+      threadKey: args.threadKey,
       model: args.resolvedLlm.model.id,
     });
-    return null;
+    return { text: null, retryable: true, reason: "empty output" };
   }
-  return text;
+  return { text, retryable: false };
 };
 
 /**
@@ -795,6 +1034,63 @@ export const resolveCompactionProtectHeadMessages = (
     ? countLeadingBootstrapStartupDocs(messages)
     : THREAD_COMPACTION_PROTECT_HEAD_MESSAGES;
 
+/**
+ * Last-resort checkpoint for a thread that repeatedly failed summary
+ * validation while approaching the provider's context ceiling. Provider text
+ * is intentionally excluded: a malformed or incomplete candidate must never
+ * become the durable checkpoint. A known-good previous checkpoint is carried
+ * forward when available; otherwise a bounded mechanical skeleton records the
+ * loss of narration while raw entries remain in thread storage.
+ */
+export const buildCompactionEscalationSummary = (args: {
+  previousSummary?: string;
+  middleTokens: number;
+}): string => {
+  const marker = `[compaction summary refresh failed ${new Date()
+    .toISOString()
+    .slice(0, 10)}; state may lag]`;
+  const previousSummary = args.previousSummary?.trim();
+  const previousSummaryIsSafe = Boolean(
+    previousSummary &&
+      validateThreadSummary(previousSummary, THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS)
+        .valid,
+  );
+  if (previousSummary && previousSummaryIsSafe) {
+    return [
+      marker,
+      "",
+      previousSummary,
+      "",
+      "## Compaction Recovery Note",
+      `A fresh summary could not be accepted near the context ceiling. The prior validated checkpoint was carried forward; ~${args.middleTokens} newly folded tokens are not narrated here. Their raw entries remain in thread storage.`,
+    ].join("\n");
+  }
+  const boundedTokenCount = Math.max(
+    0,
+    Math.min(args.middleTokens, Number.MAX_SAFE_INTEGER),
+  );
+  const summary = [
+    marker,
+    "",
+    "## Topic",
+    "Mechanical fallback checkpoint after repeated summary failures.",
+    "",
+    "## Key Points",
+    `About ${boundedTokenCount} tokens were folded without accepting provider-generated summary text. The raw messages remain in thread storage.`,
+    "",
+    "## Current State",
+    "Recent visible messages and durable memory remain authoritative while summary generation recovers.",
+    "",
+    "## Open Items",
+    "Produce a healthy validated checkpoint at the next compaction opportunity.",
+  ].join("\n");
+  return truncateWithSuffix(
+    summary,
+    THREAD_COMPACTION_FALLBACK_EXCERPT_CHARS,
+    "",
+  );
+};
+
 export const maybeCompactRuntimeThread = async (args: {
   store: RuntimeStore;
   threadKey: string;
@@ -834,24 +1130,135 @@ export const maybeCompactRuntimeThread = async (args: {
     return { compacted: false };
   }
 
-  const summary =
-    args.overrideSummary?.trim() ||
-    (await generateThreadSummary({
+  const middleTokens = getThreadTokenEstimate(splitMessages.middleMessages);
+  let summary: string | null = null;
+  let correctiveReason: string | undefined;
+  const overrideSummary = args.overrideSummary?.trim();
+  if (overrideSummary) {
+    const validation = validateThreadSummary(
+      overrideSummary,
+      middleTokens,
+      splitMessages.previousSummary,
+    );
+    if (validation.valid) {
+      summary = overrideSummary;
+    } else {
+      correctiveReason = `hook override: ${validation.reason ?? "invalid summary"}`;
+      logger.warn("thread.compaction.override-invalid-fallback", {
+        threadKey: args.threadKey,
+        model: args.resolvedLlm.model.id,
+        reason: validation.reason,
+        visibleCodePoints: validation.visibleCodePoints,
+        wordCount: validation.wordCount,
+        middleTokens,
+      });
+    }
+  }
+
+  const durableMemoryReference =
+    args.agentType === AGENT_IDS.ORCHESTRATOR
+      ? buildDurableMemoryReference(args.stellaDataDir)
+      : undefined;
+  for (
+    let attempt = 1;
+    !summary && attempt <= THREAD_SUMMARY_MAX_GENERATION_ATTEMPTS;
+    attempt += 1
+  ) {
+    if (args.abortSignal?.aborted) {
+      correctiveReason = "aborted";
+      break;
+    }
+    const generated = await generateThreadSummary({
+      threadKey: args.threadKey,
       messages: splitMessages.middleMessages,
       previousSummary: splitMessages.previousSummary,
       resolvedLlm: args.resolvedLlm,
       stellaDataDir: args.stellaDataDir,
+      durableMemoryReference,
+      ...(correctiveReason ? { correctiveReason } : {}),
       ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
-      // Only the orchestrator has the durable-memory docs injected on every
-      // turn; other agents must keep such facts in the summary itself.
-      durableMemoryReference:
-        args.agentType === AGENT_IDS.ORCHESTRATOR
-          ? buildDurableMemoryReference(args.stellaDataDir)
-          : undefined,
-    }));
-  if (!summary) {
-    return { compacted: false };
+    });
+    if (generated.text) {
+      const validation = validateThreadSummary(
+        generated.text,
+        middleTokens,
+        splitMessages.previousSummary,
+      );
+      if (validation.valid) {
+        summary = generated.text;
+        break;
+      }
+      correctiveReason = validation.reason ?? "invalid summary";
+      logger.warn("thread.compaction.summary-invalid", {
+        threadKey: args.threadKey,
+        model: args.resolvedLlm.model.id,
+        attempt,
+        reason: validation.reason,
+        visibleCodePoints: validation.visibleCodePoints,
+        wordCount: validation.wordCount,
+        uniqueWordCount: validation.uniqueWordCount,
+        middleTokens,
+      });
+      continue;
+    }
+    correctiveReason = generated.reason ?? "summary generation failed";
+    if (!generated.retryable) {
+      break;
+    }
   }
+  if (!summary) {
+    const countsTowardEscalation =
+      correctiveReason !== "no API key" &&
+      correctiveReason !== "aborted" &&
+      !args.abortSignal?.aborted;
+    const failureCount = countsTowardEscalation
+      ? (consecutiveSummaryFailures.get(args.threadKey) ?? 0) + 1
+      : (consecutiveSummaryFailures.get(args.threadKey) ?? 0);
+    if (countsTowardEscalation) {
+      consecutiveSummaryFailures.set(args.threadKey, failureCount);
+    }
+    const hardLimitTokens = Math.floor(
+      getContextWindow(args.resolvedLlm) *
+        THREAD_COMPACTION_HARD_LIMIT_ESCALATION_PCT,
+    );
+    const shouldEscalate =
+      countsTowardEscalation &&
+      failureCount >= THREAD_COMPACTION_ESCALATION_MIN_FAILURES &&
+      totalTokens >= hardLimitTokens;
+    if (!shouldEscalate) {
+      logger.error("thread.compaction.summary-invalid-final", {
+        threadKey: args.threadKey,
+        model: args.resolvedLlm.model.id,
+        reason: correctiveReason,
+        middleTokens,
+        consecutiveFailures: failureCount,
+        totalTokens,
+        hardLimitTokens,
+      });
+      return { compacted: false };
+    }
+    summary = buildCompactionEscalationSummary({
+      previousSummary: splitMessages.previousSummary,
+      middleTokens,
+    });
+    const carriedForwardPrevious = Boolean(
+      splitMessages.previousSummary?.trim() &&
+        validateThreadSummary(
+          splitMessages.previousSummary,
+          THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS,
+        ).valid,
+    );
+    logger.error("thread.compaction.summary-escalation", {
+      threadKey: args.threadKey,
+      model: args.resolvedLlm.model.id,
+      reason: correctiveReason,
+      consecutiveFailures: failureCount,
+      totalTokens,
+      hardLimitTokens,
+      carriedForwardPrevious,
+    });
+  }
+  consecutiveSummaryFailures.delete(args.threadKey);
   // Shutdown abort landed after the summary settled: skip the store write
   // rather than racing SQLite teardown.
   if (args.abortSignal?.aborted) {

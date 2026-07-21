@@ -24,7 +24,12 @@ vi.mock("@stella/runtime/ai/stream", () => ({
       .trim(),
 }));
 
-import { maybeCompactRuntimeThread } from "@stella/runtime/kernel/thread-runtime";
+import {
+  formatThreadCheckpointMessage,
+  maybeCompactRuntimeThread,
+  resetThreadSummaryFailureTracking,
+  validateThreadSummary,
+} from "@stella/runtime/kernel/thread-runtime";
 import { compactRuntimeThreadHistory } from "@stella/runtime/kernel/agent-runtime/thread-memory";
 import type { RuntimeStore } from "@stella/runtime/kernel/storage/runtime-store";
 import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
@@ -40,10 +45,14 @@ const buildBigThreadMessages = () =>
     content: `message ${index + 1} ${"x".repeat(10_000)}`,
   }));
 
-const createFakeStore = () => {
+const createFakeStore = (
+  messages: ReturnType<
+    typeof buildBigThreadMessages
+  > = buildBigThreadMessages(),
+) => {
   const compactCalls: Array<Record<string, unknown>> = [];
   const store = {
-    loadThreadMessages: () => buildBigThreadMessages(),
+    loadThreadMessages: () => messages,
     compactThread: (args: Record<string, unknown>) => {
       compactCalls.push(args);
     },
@@ -52,16 +61,94 @@ const createFakeStore = () => {
   return { store, compactCalls };
 };
 
-const createRoute = (apiKey: string | null): ResolvedLlmRoute =>
+const createRoute = (
+  apiKey: string | null,
+  contextWindow = 80_000,
+): ResolvedLlmRoute =>
   ({
     route: "stella",
-    model: { id: "stella/max", contextWindow: 80_000 },
+    model: { id: "stella/max", contextWindow },
     getApiKey: async () => apiKey,
   }) as unknown as ResolvedLlmRoute;
+
+const validSummary = (
+  detail = "The compaction backlog is summarized safely.",
+) =>
+  [
+    "## Topic",
+    "Stella runtime compaction acceptance safety.",
+    "",
+    "## Key Points",
+    `${detail} Durable history remains available and provider protocol failures fail closed.`,
+    "",
+    "## Current State",
+    "The implementation is under focused validation with bounded retry behavior.",
+    "",
+    "## Open Items",
+    "Run the remaining checks and obtain an independent review.",
+  ].join("\n");
+
+const assistantResult = (
+  text: string,
+  stopReason: "stop" | "length" | "toolUse" | "error" | "aborted" = "stop",
+) => ({
+  content: [{ type: "text", text }],
+  stopReason,
+  ...(stopReason === "error" ? { errorMessage: "provider stream failed" } : {}),
+});
+
+describe("thread summary validation", () => {
+  it("rejects malformed, invisible, template, and never-shrinking summaries", () => {
+    expect(
+      validateThreadSummary("## Topic\nCut off mid-sentence", 20_000),
+    ).toMatchObject({
+      valid: false,
+      reason: "missing informative ## Key Points section",
+    });
+    expect(validateThreadSummary("\u200B\u200C\u2060", 20_000)).toMatchObject({
+      valid: false,
+      reason: "no visible content",
+    });
+    expect(
+      validateThreadSummary(
+        [
+          "## Topic",
+          "[What the conversation is about]",
+          "## Key Points",
+          "Important information, decisions, and conclusions from the conversation",
+          "## Current State",
+          "Where things stand now — what has been done, what is in progress",
+          "## Open Items",
+          "Unresolved questions, pending tasks, or next steps discussed",
+        ].join("\n"),
+        20_000,
+      ),
+    ).toMatchObject({ valid: false, reason: "template boilerplate" });
+
+    const previousSummary = validSummary("Prior validated state. ".repeat(80));
+    expect(
+      validateThreadSummary(
+        validSummary("Tiny update."),
+        20_000,
+        previousSummary,
+      ),
+    ).toMatchObject({
+      valid: false,
+      reason: expect.stringContaining("never-shrink floor"),
+    });
+  });
+
+  it("accepts a complete informative summary", () => {
+    expect(validateThreadSummary(validSummary(), 20_000)).toMatchObject({
+      valid: true,
+    });
+  });
+});
 
 describe("orchestrator thread compaction failure handling", () => {
   beforeEach(() => {
     completeSimpleMock.mockReset();
+    resetThreadSummaryFailureTracking();
   });
 
   it("propagates summary-LLM failures instead of silently skipping compaction", async () => {
@@ -95,9 +182,7 @@ describe("orchestrator thread compaction failure handling", () => {
 
   it("caps the summary input so an oversized backlog still compacts", async () => {
     const { store, compactCalls } = createFakeStore();
-    completeSimpleMock.mockResolvedValue({
-      content: [{ type: "text", text: "Condensed summary of the backlog." }],
-    });
+    completeSimpleMock.mockResolvedValue(assistantResult(validSummary()));
 
     const result = await maybeCompactRuntimeThread({
       store,
@@ -110,7 +195,7 @@ describe("orchestrator thread compaction failure handling", () => {
     expect(compactCalls).toHaveLength(1);
     expect(compactCalls[0]).toMatchObject({
       threadKey: "conversation-1",
-      summary: "Condensed summary of the backlog.",
+      summary: validSummary(),
     });
 
     expect(completeSimpleMock).toHaveBeenCalledTimes(1);
@@ -129,6 +214,212 @@ describe("orchestrator thread compaction failure handling", () => {
     expect(prompt).not.toContain("message 3 ");
   });
 
+  it("retries one malformed summary with a corrective prompt, then compacts the valid replacement", async () => {
+    const { store, compactCalls } = createFakeStore();
+    completeSimpleMock
+      .mockResolvedValueOnce(assistantResult("## Topic\nCut off"))
+      .mockResolvedValueOnce(
+        assistantResult(
+          validSummary("The corrective retry returned complete state."),
+        ),
+      );
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "conversation-corrected",
+      resolvedLlm: createRoute("auth-token"),
+      agentType: "orchestrator",
+    });
+
+    expect(result).toEqual({ compacted: true });
+    expect(completeSimpleMock).toHaveBeenCalledTimes(2);
+    expect(compactCalls).toHaveLength(1);
+    expect(compactCalls[0]?.summary).toBe(
+      validSummary("The corrective retry returned complete state."),
+    );
+    const retryContext = completeSimpleMock.mock.calls[1]![1] as {
+      messages: Array<{ content: Array<{ type: string; text: string }> }>;
+    };
+    expect(retryContext.messages[0]!.content[0]!.text).toContain(
+      "RETRY CORRECTION",
+    );
+  });
+
+  it("rejects an invalid hook override and generates a validated replacement", async () => {
+    const { store, compactCalls } = createFakeStore();
+    completeSimpleMock.mockResolvedValue(
+      assistantResult(validSummary("The invalid hook override was replaced.")),
+    );
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "conversation-invalid-override",
+      resolvedLlm: createRoute("auth-token"),
+      agentType: "orchestrator",
+      overrideSummary: "## Topic\nHook output cut off",
+    });
+
+    expect(result).toEqual({ compacted: true });
+    expect(completeSimpleMock).toHaveBeenCalledTimes(1);
+    expect(compactCalls).toHaveLength(1);
+    expect(compactCalls[0]?.summary).toBe(
+      validSummary("The invalid hook override was replaced."),
+    );
+    const context = completeSimpleMock.mock.calls[0]![1] as {
+      messages: Array<{ content: Array<{ type: string; text: string }> }>;
+    };
+    expect(context.messages[0]!.content[0]!.text).toContain("hook override");
+  });
+
+  it("compacts a valid hook override without calling the provider", async () => {
+    const { store, compactCalls } = createFakeStore();
+    const overrideSummary = validSummary("The hook supplied complete state.");
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "conversation-valid-override",
+      resolvedLlm: createRoute("auth-token"),
+      agentType: "orchestrator",
+      overrideSummary,
+    });
+
+    expect(result).toEqual({ compacted: true });
+    expect(completeSimpleMock).not.toHaveBeenCalled();
+    expect(compactCalls).toHaveLength(1);
+    expect(compactCalls[0]?.summary).toBe(overrideSummary);
+  });
+
+  it("bounds malformed output to exactly one corrective retry and preserves raw history", async () => {
+    const { store, compactCalls } = createFakeStore();
+    completeSimpleMock.mockResolvedValue(
+      assistantResult("## Topic\nStill cut off"),
+    );
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "conversation-malformed",
+      resolvedLlm: createRoute("auth-token", 200_000),
+      agentType: "orchestrator",
+    });
+
+    expect(result).toEqual({ compacted: false });
+    expect(completeSimpleMock).toHaveBeenCalledTimes(2);
+    expect(compactCalls).toHaveLength(0);
+  });
+
+  it.each(["error", "length", "toolUse"] as const)(
+    "rejects a %s provider terminal and retries only once",
+    async (stopReason) => {
+      const { store, compactCalls } = createFakeStore();
+      completeSimpleMock.mockResolvedValue(
+        assistantResult(validSummary("Partial provider output."), stopReason),
+      );
+
+      const result = await maybeCompactRuntimeThread({
+        store,
+        threadKey: `conversation-terminal-${stopReason}`,
+        resolvedLlm: createRoute("auth-token", 200_000),
+        agentType: "orchestrator",
+      });
+
+      expect(result).toEqual({ compacted: false });
+      expect(completeSimpleMock).toHaveBeenCalledTimes(2);
+      expect(compactCalls).toHaveLength(0);
+    },
+  );
+
+  it("does not retry an aborted provider terminal or write a checkpoint", async () => {
+    const { store, compactCalls } = createFakeStore();
+    completeSimpleMock.mockResolvedValue(
+      assistantResult(validSummary("Aborted partial output."), "aborted"),
+    );
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "conversation-terminal-aborted",
+      resolvedLlm: createRoute("auth-token", 200_000),
+      agentType: "orchestrator",
+    });
+
+    expect(result).toEqual({ compacted: false });
+    expect(completeSimpleMock).toHaveBeenCalledTimes(1);
+    expect(compactCalls).toHaveLength(0);
+  });
+
+  it("carries a validated prior summary near the ceiling without persisting malformed candidates", async () => {
+    const previousSummary = validSummary(
+      Array.from(
+        { length: 100 },
+        (_, index) =>
+          `ValidatedDecision${index + 1} StoredArtifact${index + 1} remains tracked.`,
+      ).join(" "),
+    );
+    const messages = [
+      {
+        entryId: "checkpoint-1",
+        timestamp: 999,
+        role: "assistant",
+        content: formatThreadCheckpointMessage({ summary: previousSummary }),
+      },
+      ...buildBigThreadMessages(),
+    ];
+    const { store, compactCalls } = createFakeStore(messages);
+    completeSimpleMock.mockResolvedValue(
+      assistantResult("## Topic\nmalformed provider candidate"),
+    );
+
+    const first = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "conversation-near-ceiling-prior",
+      resolvedLlm: createRoute("auth-token"),
+      agentType: "orchestrator",
+    });
+    const second = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "conversation-near-ceiling-prior",
+      resolvedLlm: createRoute("auth-token"),
+      agentType: "orchestrator",
+    });
+
+    expect(first).toEqual({ compacted: false });
+    expect(second).toEqual({ compacted: true });
+    expect(completeSimpleMock).toHaveBeenCalledTimes(4);
+    expect(compactCalls).toHaveLength(1);
+    const fallback = String(compactCalls[0]?.summary);
+    expect(fallback).toContain(previousSummary);
+    expect(fallback).toContain("Compaction Recovery Note");
+    expect(fallback).not.toContain("malformed provider candidate");
+  });
+
+  it("uses a bounded mechanical fallback near the ceiling when no prior checkpoint exists", async () => {
+    const { store, compactCalls } = createFakeStore();
+    completeSimpleMock.mockResolvedValue(
+      assistantResult("## Topic\nmalformed provider candidate"),
+    );
+
+    const first = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "conversation-near-ceiling-mechanical",
+      resolvedLlm: createRoute("auth-token"),
+      agentType: "orchestrator",
+    });
+    const second = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "conversation-near-ceiling-mechanical",
+      resolvedLlm: createRoute("auth-token"),
+      agentType: "orchestrator",
+    });
+
+    expect(first).toEqual({ compacted: false });
+    expect(second).toEqual({ compacted: true });
+    expect(completeSimpleMock).toHaveBeenCalledTimes(4);
+    expect(compactCalls).toHaveLength(1);
+    const fallback = String(compactCalls[0]?.summary);
+    expect(fallback).toContain("Mechanical fallback checkpoint");
+    expect(fallback.length).toBeLessThanOrEqual(1_200);
+    expect(fallback).not.toContain("malformed provider candidate");
+  });
+
   it("threads summary guidelines and the durable-memory reference into the prompt", async () => {
     const stellaDataDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-compaction-memory-"),
@@ -144,9 +435,7 @@ describe("orchestrator thread compaction failure handling", () => {
     );
     try {
       const { store } = createFakeStore();
-      completeSimpleMock.mockResolvedValue({
-        content: [{ type: "text", text: "Summary." }],
-      });
+      completeSimpleMock.mockResolvedValue(assistantResult(validSummary()));
 
       await maybeCompactRuntimeThread({
         store,
@@ -172,9 +461,7 @@ describe("orchestrator thread compaction failure handling", () => {
       // Non-orchestrator agents don't get the docs injected per turn, so
       // their summaries must keep such facts: no reference, no omit rule.
       completeSimpleMock.mockClear();
-      completeSimpleMock.mockResolvedValue({
-        content: [{ type: "text", text: "Summary." }],
-      });
+      completeSimpleMock.mockResolvedValue(assistantResult(validSummary()));
       await maybeCompactRuntimeThread({
         store: createFakeStore().store,
         threadKey: "conversation-2",

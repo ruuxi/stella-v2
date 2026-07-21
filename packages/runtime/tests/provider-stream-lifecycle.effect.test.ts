@@ -113,15 +113,30 @@ describe("run-owned provider stream lifecycle", () => {
     await flush();
     expect(settled).toBe(false);
 
+    const consumed: string[] = [];
+    const consumption = (async () => {
+      for await (const event of stream) {
+        consumed.push(event.type);
+      }
+      return stream.result();
+    })();
+
+    provider.streams[0].stream.push({
+      type: "text_delta",
+      partial: terminalMessage("stop"),
+    } as never);
+    const done = terminalMessage("stop");
     provider.streams[0].stream.push({
       type: "done",
-      message: terminalMessage("stop"),
+      message: done,
     } as never);
-    await flush();
+    await resources[0].settled;
     expect(settled).toBe(true);
 
-    // The returned stream is the provider's own object (consumption parity).
-    expect(stream).toBe(provider.streams[0].stream);
+    // Delivery parity: every event forwarded untouched, in order, and the
+    // terminal settles result() with the provider's own message object.
+    await expect(consumption).resolves.toBe(done);
+    expect(consumed).toEqual(["text_delta", "done"]);
 
     wrapped(FAKE_MODEL, FAKE_CONTEXT, {});
     expect(resources).toHaveLength(2);

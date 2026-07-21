@@ -1,8 +1,10 @@
 import "./providers/register-builtins.js";
 import "./utils/http-proxy.js";
 
+import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { getApiProvider, resolveApiProviderInternal } from "./api-registry.js";
 import { AssistantMessageEventStream } from "./utils/event-stream.js";
+import type { AssistantMessageEvent } from "./types.js";
 import type {
 	Api,
 	AssistantMessage,
@@ -47,10 +49,21 @@ function makeProviderErrorMessage(
 }
 
 /**
+ * Requirements-free runtime for the provider event pipelines below (same
+ * convention as the kernel's supervision runtimes: context rides in
+ * closures).
+ */
+const providerPipelineRuntime = ManagedRuntime.make(Layer.empty);
+
+/**
  * Drive `inner` (the real provider stream, produced after the lazy
  * provider load resolves) into `out` (the stream returned synchronously
- * to callers). Forwarding every event preserves both consumption modes:
- * async iteration over `out` and `out.result()`.
+ * to callers) as a true Effect Stream (M5 surface 3, phase 3). Event
+ * bytes and order are preserved exactly — each element is forwarded
+ * untouched in sequence — and both consumption modes keep working: async
+ * iteration over `out` and `out.result()`. An iteration failure maps to
+ * the same terminal `error` event the pre-Effect loop pushed, and `end`
+ * always runs exactly once (`ensuring`).
  */
 async function pipeStream(
 	model: Model<Api>,
@@ -73,20 +86,34 @@ async function pipeStream(
 		out.end();
 		return;
 	}
-	try {
-		for await (const event of inner) {
-			out.push(event);
-		}
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		out.push({
-			type: "error",
-			reason: "error",
-			error: makeProviderErrorMessage(model, message),
-		});
-	} finally {
-		out.end();
-	}
+	await providerPipelineRuntime.runPromise(
+		Stream.fromAsyncIterable(
+			inner as AsyncIterable<AssistantMessageEvent>,
+			(error) => error,
+		).pipe(
+			Stream.runForEach((event) =>
+				Effect.sync(() => {
+					out.push(event);
+				}),
+			),
+			Effect.catch((error) =>
+				Effect.sync(() => {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					out.push({
+						type: "error",
+						reason: "error",
+						error: makeProviderErrorMessage(model, message),
+					});
+				}),
+			),
+			Effect.ensuring(
+				Effect.sync(() => {
+					out.end();
+				}),
+			),
+		),
+	);
 }
 
 export function streamSimple<TApi extends Api>(

@@ -18,6 +18,16 @@ import {
   loadConnectorAccessToken,
 } from "./connectors/oauth.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import {
+  AGENT_ORPHANED_RESTART_CANCEL_REASON,
+  AGENT_PAUSE_CANCEL_REASON,
+  AGENT_SHUTDOWN_CANCEL_REASON,
+} from "./agents/local-agent-manager.js";
+import {
+  convertRestartShutdownRecordAtBoot,
+  fireRestartContinuationTurn,
+  readRestartInterruptionState,
+} from "./restart-continuation.js";
 import type {
   RunnerPublicApi,
   StellaHostRunnerOptions,
@@ -214,6 +224,61 @@ export const createStellaHostRunner = (
     buildAgentContext: buildAgentContextWithResolvedRoute,
     sendMessage: orchestratorController.sendMessage,
   });
+  // Convert restart authorization and pre-cancel thread evidence before any
+  // user prompt can be assembled. A previously converted, still-unclaimed
+  // state is also eligible: that closes the crash window between the durable
+  // state write and scheduling the synthetic recovery turn.
+  const restartInterruptionState =
+    convertRestartShutdownRecordAtBoot({
+      stellaDataDir: context.stellaDataDir,
+      env: process.env,
+      interruptedThreads:
+        context.state.localAgentManager?.getBootInterruptedThreads() ?? [],
+      capturedEpisodeId:
+        context.state.localAgentManager?.getBootInterruptionEpisodeId() ?? null,
+    }) ?? readRestartInterruptionState(context.stellaDataDir);
+  if (restartInterruptionState) {
+    void (async () => {
+      const deadline = Date.now() + 30_000;
+      while (!context.state.initializationPromise && Date.now() < deadline) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      }
+      try {
+        await context.state.initializationPromise;
+      } catch {
+        // The recovery turn reports readiness/model failures itself. Its
+        // durable claim remains unfinished so the user-turn reminder wins.
+      }
+      await fireRestartContinuationTurn({
+        stellaDataDir: context.stellaDataDir,
+        env: process.env,
+        sentinels: {
+          pausedReasons: [AGENT_PAUSE_CANCEL_REASON],
+          restartCancelReasons: [
+            AGENT_ORPHANED_RESTART_CANCEL_REASON,
+            AGENT_SHUTDOWN_CANCEL_REASON,
+          ],
+        },
+        getAgentRecord: (threadId) =>
+          context.runtimeStore.getAgentRecord?.(threadId) ?? null,
+        listAgentRecordsByStatus: (status) =>
+          context.runtimeStore.listAgentRecordsByStatus?.(status) ?? [],
+        appendLocalChatEvent: (args) => {
+          context.appendLocalChatEvent?.(args);
+        },
+        runAutomationTurn: (args) =>
+          orchestratorController.runAutomationTurn(args),
+        log: (message, detail) => {
+          console.warn(`[runner] ${message}`, detail ?? {});
+        },
+      });
+    })().catch((error) => {
+      console.warn(
+        "[runner] restart-continuation boot fire failed",
+        error instanceof Error ? error.message : error,
+      );
+    });
+  }
   const warmModelCatalog = async (): Promise<void> => {
     await resolveAgentModelRoute(context, AGENT_IDS.ORCHESTRATOR);
   };

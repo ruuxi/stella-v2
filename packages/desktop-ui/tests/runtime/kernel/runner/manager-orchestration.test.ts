@@ -39,6 +39,10 @@ import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
 import { resolveOrchestratorThreadKey } from "@stella/runtime/kernel/thread-runtime";
 import { providerAbortedStopMessage } from "@stella/runtime/ai/utils/provider-stop";
 import type { Api, Model } from "@stella/runtime/ai/types";
+import {
+  readRestartInterruptedSnapshot,
+  recordRestartShutdown,
+} from "@stella/runtime/kernel/restart-continuation";
 
 const sessionExecutionMock = vi.hoisted(() => vi.fn());
 
@@ -1436,6 +1440,61 @@ describe("manager orchestration production routing", () => {
     expect(repeatedRestart.store.getAgentRecord(task.threadId)?.status).toBe(
       "completed",
     );
+  });
+
+  it("repairs both accepted-final artifacts during graceful restart teardown without resuming the sealed Manager", async () => {
+    const harness = createHarness();
+    let accepted!: () => void;
+    const acceptedReport = new Promise<void>((resolve) => {
+      accepted = resolve;
+    });
+    runMock.handler = async (args) => {
+      expect(
+        await reportFromMockManager(
+          args,
+          "Graceful restart final report.",
+          true,
+          "graceful-restart-final",
+        ),
+      ).toMatchObject({ accepted: true, final: true });
+      accepted();
+      await new Promise<never>(() => {});
+    };
+
+    const task = await harness.manager.createAgent({
+      conversationId: "conversation-manager-graceful-restart-final",
+      description: "Seal the Manager before graceful restart",
+      prompt: "Submit the final report, then wait.",
+      agentType: AGENT_IDS.MANAGER,
+      agentDepth: 1,
+      storageMode: "local",
+    });
+    await acceptedReport;
+    expect(
+      recordRestartShutdown(harness.rootPath, { reason: "app-shutdown" }),
+    ).toBe(true);
+
+    await harness.manager.shutdown();
+
+    expect(harness.store.getAgentRecord(task.threadId)).toMatchObject({
+      status: "completed",
+      result: "Graceful restart final report.",
+      managerFinalReport: "Graceful restart final report.",
+      managerFinalReportId: "graceful-restart-final",
+    });
+    expect(
+      harness.appendedEvents.filter(
+        (event) =>
+          event.type === "agent-completed" &&
+          (event.payload as { agentId?: string }).agentId === task.threadId,
+      ),
+    ).toHaveLength(1);
+    expect(
+      harness.sentMessages.filter((message) =>
+        message.text.includes("Graceful restart final report."),
+      ),
+    ).toHaveLength(1);
+    expect(readRestartInterruptedSnapshot(harness.rootPath)).toBeNull();
   });
 
   it("completes a restarted Manager with the fallback when no final report was accepted", async () => {

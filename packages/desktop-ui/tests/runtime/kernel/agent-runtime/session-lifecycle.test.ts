@@ -11,7 +11,7 @@ import { BackgroundCompactionScheduler } from "@stella/runtime/kernel/agent-runt
 import { OrchestratorSession } from "@stella/runtime/kernel/agent-runtime/orchestrator-session";
 import { SubagentSession } from "@stella/runtime/kernel/agent-runtime/subagent-session";
 import { createExternalOrchestratorRunSession } from "@stella/runtime/kernel/agent-runtime/run-session";
-import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
+import { loadHomeAgentsWithMetadata } from "@stella/runtime/kernel/agents/agents";
 
 const executeRuntimeAgentPrompt = vi.fn();
 
@@ -164,7 +164,9 @@ describe("OrchestratorSession", () => {
           callbacks: { onEnd, onError },
         }),
       );
-      const failedTurn = expect(turn).rejects.toThrow("failed after 4 attempts");
+      const failedTurn = expect(turn).rejects.toThrow(
+        "failed after 4 attempts",
+      );
       await vi.advanceTimersByTimeAsync(9_500);
       await failedTurn;
 
@@ -221,15 +223,16 @@ describe("OrchestratorSession", () => {
     const metadataDir = path.resolve(
       process.cwd(),
       "..",
-      "runtime",
+      "home-seed",
       "extensions",
       "stella-runtime",
       "agent-metadata",
     );
-    const beforeReload = loadStellaRuntimeAgents(tempRoot, oldMetadataDir).find(
-      (agent) => agent.id === "orchestrator",
-    );
-    const afterReload = loadStellaRuntimeAgents(tempRoot, metadataDir).find(
+    const beforeReload = loadHomeAgentsWithMetadata(
+      tempRoot,
+      oldMetadataDir,
+    ).find((agent) => agent.id === "orchestrator");
+    const afterReload = loadHomeAgentsWithMetadata(tempRoot, metadataDir).find(
       (agent) => agent.id === "orchestrator",
     );
     expect(beforeReload?.systemPrompt).toBe(

@@ -1,5 +1,4 @@
-import type { HookDefinition } from "../../../kernel/extensions/types.js";
-import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
+import type { ExtensionRuntime, HookDefinition } from "../types.js";
 
 /**
  * Stale-user reminder (stella-runtime).
@@ -17,21 +16,22 @@ import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
  * this turn carry the reminder?" (it does whenever non-empty text is
  * present).
  */
-export const createStaleUserReminderHook =
-  (): HookDefinition<"before_user_message"> => ({
-    event: "before_user_message",
-    async handler(payload) {
-      const text = payload.staleUserReminderText?.trim();
-      if (!text) return;
-      return {
-        prependMessages: [
-          {
-            text: wrapSystemReminder(text),
-            uiVisibility: "hidden",
-            messageType: "message",
-            customType: "runtime.stale_user_reminder",
-          },
-        ],
-      };
-    },
-  });
+export const createStaleUserReminderHook = (
+  runtime: ExtensionRuntime,
+): HookDefinition => ({
+  event: "before_user_message",
+  async handler(payload) {
+    const text = payload.staleUserReminderText?.trim();
+    if (!text) return;
+    return {
+      prependMessages: [
+        {
+          text: runtime.wrapSystemReminder(text),
+          uiVisibility: "hidden",
+          messageType: "message",
+          customType: "runtime.stale_user_reminder",
+        },
+      ],
+    };
+  },
+});

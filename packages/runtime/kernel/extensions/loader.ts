@@ -17,8 +17,10 @@ import type {
 import type { ExtensionServices } from "./services.js";
 import { extractFrontmatter } from "../frontmatter.js";
 
-const log = (...args: unknown[]) => console.error("[stella:extensions]", ...args);
-const logError = (...args: unknown[]) => console.error("[stella:extensions]", ...args);
+const log = (...args: unknown[]) =>
+  console.error("[stella:extensions]", ...args);
+const logError = (...args: unknown[]) =>
+  console.error("[stella:extensions]", ...args);
 
 /**
  * Build a cache-busting query suffix for ESM `import()` so the runtime
@@ -197,7 +199,10 @@ async function loadExtensionFactories(
       await factory(api, services);
       log(`Loaded extension: ${entry}`);
     } catch (error) {
-      logError(`Failed to load extension ${filePath}:`, (error as Error).message);
+      logError(
+        `Failed to load extension ${filePath}:`,
+        (error as Error).message,
+      );
     }
   }
 
@@ -244,6 +249,7 @@ async function loadPrompts(dir: string): Promise<PromptTemplate[]> {
  *
  * Expected structure:
  *   baseDir/
+ *     my-extension/index.ts
  *     tools/*.tool.ts
  *     hooks/*.hook.ts
  *     providers/*.provider.ts

@@ -1,11 +1,8 @@
-import { agentHasCapability } from "@stella/contracts/agent-runtime";
-import {
-  MEMORY_REVIEW_TURN_THRESHOLD,
-  spawnMemoryReview,
-} from "../../../kernel/agent-runtime/memory-review.js";
-import type { HookDefinition } from "../../../kernel/extensions/types.js";
-import type { RuntimeStore } from "../../../kernel/storage/runtime-store.js";
-import { getCompactionTriggerTokens } from "../../../kernel/thread-runtime.js";
+import type {
+  ExtensionRuntime,
+  ExtensionStore,
+  HookDefinition,
+} from "../types.js";
 
 /**
  * Background memory review (stella-runtime).
@@ -33,14 +30,20 @@ import { getCompactionTriggerTokens } from "../../../kernel/thread-runtime.js";
  *     counter to compare against threshold.
  */
 export const createMemoryReviewHook = (opts: {
-  stellaDataDir: string;
-  stellaAppDir: string;
-  store: RuntimeStore;
-}): HookDefinition<"agent_end"> => ({
+  runtime: ExtensionRuntime;
+  store: ExtensionStore;
+}): HookDefinition => ({
   event: "agent_end",
   async handler(payload) {
     if (payload.outcome !== "success") return;
-    if (!agentHasCapability(payload.agentType, "triggersMemoryReview")) return;
+    if (
+      !opts.runtime.agentHasCapability(
+        payload.agentType,
+        "triggersMemoryReview",
+      )
+    ) {
+      return;
+    }
     const services = payload.services;
     if (!services) return;
     if (!services.resolvedLlm) return;
@@ -54,11 +57,12 @@ export const createMemoryReviewHook = (opts: {
     // compaction runs asynchronously after this hook.
     const turns = services.userTurnsSinceMemoryReview;
     const reachedTurnThreshold =
-      turns != null && turns >= MEMORY_REVIEW_TURN_THRESHOLD;
+      turns != null && turns >= opts.runtime.memory.reviewTurnThreshold;
     const tokenEstimate = services.orchestratorTokenEstimate;
     const compactionImminent =
       typeof tokenEstimate === "number" &&
-      tokenEstimate >= getCompactionTriggerTokens(services.resolvedLlm);
+      tokenEstimate >=
+        opts.runtime.getCompactionTriggerTokens(services.resolvedLlm);
     if (!reachedTurnThreshold && !compactionImminent) return;
 
     // Read the previous watermark before spawnMemoryReview advances it, so the
@@ -67,14 +71,11 @@ export const createMemoryReviewHook = (opts: {
       payload.conversationId,
     );
 
-    spawnMemoryReview({
+    opts.runtime.memory.spawnReview({
       conversationId: payload.conversationId,
-      stellaDataDir: opts.stellaDataDir,
-      stellaAppDir: opts.stellaAppDir,
       messagesSnapshot: services.messagesSnapshot,
       sinceMessageTs: lastReviewedMessageTs,
       resolvedLlm: services.resolvedLlm,
-      store: opts.store,
     });
     return;
   },

@@ -1,18 +1,8 @@
-import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { getConnectorDecline } from "../../../kernel/connectors/connect-preferences.js";
-import { getNativeConnectorConnectionState } from "../../../kernel/connectors/connection-status.js";
-import {
-  getConnectorKeywordIndex,
-  matchConnectorsInMessage,
-} from "../../../kernel/connectors/keyword-index.js";
-import type { NativeConnectorCatalogEntry } from "../../../kernel/connectors/native-integrations.js";
-import type { HookDefinition } from "../../../kernel/extensions/types.js";
-import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
-import {
-  isReminderShownInActiveWindow,
-  recordReminderShown,
-  type ReminderWindowStore,
-} from "../../../kernel/runner/reminder-window-gate.js";
+import type {
+  ExtensionRuntime,
+  HookDefinition,
+  NativeConnectorCatalogEntry,
+} from "../types.js";
 
 /**
  * Connector-availability reminder (stella-runtime).
@@ -60,13 +50,11 @@ export const buildOfferReminderText = (
   ].join(" ");
 
 export const createConnectorAvailabilityReminderHook = (options: {
-  /** `~/.stella` — where connector state and the catalog cache live. */
-  stellaDataDir: string;
-  store: ReminderWindowStore;
-}): HookDefinition<"before_user_message"> => ({
+  runtime: ExtensionRuntime;
+}): HookDefinition => ({
   event: "before_user_message",
   async handler(payload) {
-    if (payload.agentType !== AGENT_IDS.ORCHESTRATOR) return;
+    if (payload.agentType !== "orchestrator") return;
     if (payload.isUserTurn === false) return;
     const prompt = payload.userPrompt?.trim();
     if (!prompt) return;
@@ -75,8 +63,7 @@ export const createConnectorAvailabilityReminderHook = (options: {
 
     let matches: NativeConnectorCatalogEntry[];
     try {
-      const index = await getConnectorKeywordIndex(options.stellaDataDir);
-      matches = matchConnectorsInMessage(index, prompt);
+      matches = await options.runtime.connectors.match(prompt);
     } catch {
       return;
     }
@@ -86,19 +73,12 @@ export const createConnectorAvailabilityReminderHook = (options: {
     for (const entry of matches) {
       if (reminders.length >= MAX_REMINDERS_PER_TURN) break;
       try {
-        const state = await getNativeConnectorConnectionState(
-          options.stellaDataDir,
-          entry,
-        );
+        const state =
+          await options.runtime.connectors.getConnectionState(entry);
         if (state.connected) {
           const key = connectedReminderKey(entry.id);
           if (
-            await isReminderShownInActiveWindow({
-              stellaDataDir: options.stellaDataDir,
-              store: options.store,
-              threadKey,
-              key,
-            })
+            await options.runtime.connectors.isReminderShown(threadKey, key)
           ) {
             continue;
           }
@@ -109,20 +89,10 @@ export const createConnectorAvailabilityReminderHook = (options: {
         if (!entry.connectable) continue;
         // Decline persistence wins over window resets: once the user
         // declined the connect card, the offer reminder stays suppressed.
-        const declined = await getConnectorDecline(
-          options.stellaDataDir,
-          entry.id,
-        );
+        const declined = await options.runtime.connectors.getDecline(entry.id);
         if (declined) continue;
         const key = offerReminderKey(entry.id);
-        if (
-          await isReminderShownInActiveWindow({
-            stellaDataDir: options.stellaDataDir,
-            store: options.store,
-            threadKey,
-            key,
-          })
-        ) {
+        if (await options.runtime.connectors.isReminderShown(threadKey, key)) {
           continue;
         }
         reminders.push({ key, text: buildOfferReminderText(entry) });
@@ -135,16 +105,14 @@ export const createConnectorAvailabilityReminderHook = (options: {
     // Record before returning: the prepends are handed to the prompt
     // build unconditionally from here on.
     for (const reminder of reminders) {
-      await recordReminderShown({
-        stellaDataDir: options.stellaDataDir,
-        threadKey,
-        key: reminder.key,
-      }).catch(() => undefined);
+      await options.runtime.connectors
+        .recordReminderShown(threadKey, reminder.key)
+        .catch(() => undefined);
     }
 
     return {
       prependMessages: reminders.map(({ text }) => ({
-        text: wrapSystemReminder(text),
+        text: options.runtime.wrapSystemReminder(text),
         uiVisibility: "hidden" as const,
         messageType: "message" as const,
         customType: CONNECTOR_AVAILABILITY_REMINDER_CUSTOM_TYPE,

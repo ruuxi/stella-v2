@@ -26,7 +26,10 @@ describe("ensureStellaDataDirSeeded", () => {
     const stellaDataDir = await createTempDir("stella-home-");
     const seedRoot = path.join(stellaAppDir, "packages", "home-seed");
 
-    await mkdir(path.join(seedRoot, "skills", "stella-desktop"), {
+    await mkdir(path.join(seedRoot, "skills", "stella-media"), {
+      recursive: true,
+    });
+    await mkdir(path.join(seedRoot, "extensions", "stella-runtime"), {
       recursive: true,
     });
     await mkdir(path.join(seedRoot, "outputs"), { recursive: true });
@@ -34,14 +37,18 @@ describe("ensureStellaDataDirSeeded", () => {
     await mkdir(
       path.join(
         stellaAppDir,
-        "packages/runtime/extensions/stella-runtime/agent-metadata",
+        "packages/home-seed/extensions/stella-runtime/agent-metadata",
       ),
       { recursive: true },
     );
     await writeFile(path.join(seedRoot, "DREAM.md"), "seed dream");
     await writeFile(
-      path.join(seedRoot, "skills", "stella-desktop", "SKILL.md"),
-      "desktop skill",
+      path.join(seedRoot, "skills", "stella-media", "SKILL.md"),
+      "media skill",
+    );
+    await writeFile(
+      path.join(seedRoot, "extensions", "stella-runtime", "index.ts"),
+      "export default () => undefined;",
     );
     await writeFile(path.join(seedRoot, "outputs", "README.md"), "outputs");
     await writeFile(path.join(seedRoot, "preferences.json"), "{}");
@@ -49,7 +56,7 @@ describe("ensureStellaDataDirSeeded", () => {
     await writeFile(
       path.join(
         stellaAppDir,
-        "packages/runtime/extensions/stella-runtime/agent-metadata/manager.md",
+        "packages/home-seed/extensions/stella-runtime/agent-metadata/manager.md",
       ),
       "---\nname: Manager\ndescription: manager\ntools: spawn_agent, send_input, pause_agent\nmaxAgentDepth: 2\n---\n\nbundled manager\n",
     );
@@ -66,10 +73,16 @@ describe("ensureStellaDataDirSeeded", () => {
     ).rejects.toThrow();
     await expect(
       readFile(
-        path.join(stellaDataDir, "skills", "stella-desktop", "SKILL.md"),
+        path.join(stellaDataDir, "skills", "stella-media", "SKILL.md"),
         "utf-8",
       ),
-    ).resolves.toBe("desktop skill");
+    ).resolves.toBe("media skill");
+    await expect(
+      readFile(
+        path.join(stellaDataDir, "extensions", "stella-runtime", "index.ts"),
+        "utf-8",
+      ),
+    ).resolves.toContain("export default");
     await expect(
       readFile(path.join(stellaDataDir, "preferences.json"), "utf-8"),
     ).rejects.toThrow();

@@ -1,5 +1,4 @@
-import type { HookDefinition } from "../../../kernel/extensions/types.js";
-import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
+import type { ExtensionRuntime, HookDefinition } from "../types.js";
 
 /**
  * Dynamic memory reminder (stella-runtime).
@@ -17,22 +16,23 @@ import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
  * cadence in the runtime preserves the existing SQLite-backed counter
  * semantics — this hook only consumes the decision.
  */
-export const createDynamicMemoryReminderHook =
-  (): HookDefinition<"before_user_message"> => ({
-    event: "before_user_message",
-    async handler(payload) {
-      if (!payload.shouldInjectDynamicReminder) return;
-      const text = payload.orchestratorReminderText?.trim();
-      if (!text) return;
-      return {
-        prependMessages: [
-          {
-            text: wrapSystemReminder(text),
-            uiVisibility: "hidden",
-            messageType: "message",
-            customType: "runtime.orchestrator_reminder",
-          },
-        ],
-      };
-    },
-  });
+export const createDynamicMemoryReminderHook = (
+  runtime: ExtensionRuntime,
+): HookDefinition => ({
+  event: "before_user_message",
+  async handler(payload) {
+    if (!payload.shouldInjectDynamicReminder) return;
+    const text = payload.orchestratorReminderText?.trim();
+    if (!text) return;
+    return {
+      prependMessages: [
+        {
+          text: runtime.wrapSystemReminder(text),
+          uiVisibility: "hidden",
+          messageType: "message",
+          customType: "runtime.orchestrator_reminder",
+        },
+      ],
+    };
+  },
+});

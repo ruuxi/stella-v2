@@ -3,6 +3,7 @@ import type { RuntimeStore } from "../storage/runtime-store.js";
 import type { LocalContextEvent } from "../local-history.js";
 import type { LocalChatAppendEventArgs } from "../storage/shared.js";
 import type { AgentMessage } from "../agent-core/types.js";
+import type { ExtensionRuntimeApi } from "./runtime-api.js";
 
 /**
  * Runtime services exposed to extension factories.
@@ -29,6 +30,8 @@ export type ExtensionServices = {
   stellaAppDir: string;
   /** Runtime SQLite store. Hooks that need to read/write per-conversation counters or thread summaries reach in here. */
   store: RuntimeStore;
+  /** Stable engine capabilities for extensions loaded outside the app bundle. */
+  runtime: ExtensionRuntimeApi;
 };
 
 /**

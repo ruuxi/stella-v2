@@ -1,34 +1,44 @@
+import path from "node:path";
+
 import type { ParsedAgent } from "./types.js";
-import {
-  BUNDLED_CORE_AGENT_IDS,
-  getAgentDefinition,
-} from "@stella/contracts/agent-runtime";
 import { loadParsedAgentsFromDir } from "./markdown-agent-loader.js";
-import { resolveRuntimeSourceAsset } from "../shared/runtime-paths.js";
 
-const BUNDLED_AGENT_ORDER = new Map<string, number>(
-  BUNDLED_CORE_AGENT_IDS.map((agentId, index) => [agentId, index]),
-);
+/** The engine ships no agent definitions; Stella's home extension owns them. */
+export const loadBundledAgents = (): ParsedAgent[] => [];
 
-const resolveBundledAgentDir = (): string =>
-  resolveRuntimeSourceAsset(
-    "extensions",
-    "stella-runtime",
-    "agents",
+/**
+ * Join user-editable home prompt bodies with extension-owned capability
+ * metadata. Kept in the engine as a generic loader primitive so home extension
+ * code never imports repo-relative parser modules.
+ */
+export const loadHomeAgentsWithMetadata = (
+  stellaDataDir: string,
+  agentMetadataDir: string | URL,
+): ParsedAgent[] => {
+  const metadataById = new Map(
+    loadParsedAgentsFromDir(agentMetadataDir).map((agent) => [agent.id, agent]),
   );
-
-export const loadBundledAgents = (): ParsedAgent[] =>
-  loadParsedAgentsFromDir(resolveBundledAgentDir())
-    .filter(
-      (agent) => getAgentDefinition(agent.id)?.includeInAgentRoster !== false,
-    )
-    .sort((left, right) => {
-      const leftOrder =
-        BUNDLED_AGENT_ORDER.get(left.id) ?? Number.MAX_SAFE_INTEGER;
-      const rightOrder =
-        BUNDLED_AGENT_ORDER.get(right.id) ?? Number.MAX_SAFE_INTEGER;
-      return leftOrder - rightOrder || left.id.localeCompare(right.id);
-    });
+  return loadParsedAgentsFromDir(path.join(stellaDataDir, "agents")).map(
+    (homeAgent) => {
+      const metadata = metadataById.get(homeAgent.id);
+      if (!metadata) return homeAgent;
+      return {
+        id: metadata.id,
+        name: metadata.name,
+        description: metadata.description,
+        systemPrompt: homeAgent.systemPrompt,
+        agentTypes: metadata.agentTypes,
+        ...(metadata.toolsAllowlist
+          ? { toolsAllowlist: metadata.toolsAllowlist }
+          : {}),
+        ...(metadata.model ? { model: metadata.model } : {}),
+        ...(typeof metadata.maxAgentDepth === "number"
+          ? { maxAgentDepth: metadata.maxAgentDepth }
+          : {}),
+      };
+    },
+  );
+};
 
 const agentKeys = (agent: ParsedAgent): Set<string> =>
   new Set([agent.id, ...agent.agentTypes]);
@@ -62,12 +72,5 @@ export const mergeBundledAndExtensionAgents = (
 
 /** Resolved when `agentType` is internal-only (not in `loadBundledAgents`). */
 export const getBundledCoreAgentFallback = (
-  agentType: string,
-): ParsedAgent | undefined => {
-  if (getAgentDefinition(agentType)?.includeInAgentRoster !== false) {
-    return undefined;
-  }
-  return loadParsedAgentsFromDir(resolveBundledAgentDir()).find(
-    (agent) => agent.id === agentType || agent.agentTypes.includes(agentType),
-  );
-};
+  _agentType: string,
+): ParsedAgent | undefined => undefined;

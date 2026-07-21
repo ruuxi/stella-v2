@@ -58,15 +58,18 @@ const runtimeDirs: string[] = [];
 const servers: Server[] = [];
 const trackedConnections: Socket[][] = [];
 const spawnedPids: number[] = [];
+const originalRuntimeStateDir = process.env.STELLA_RUNTIME_STATE_DIR;
 
 const makeRoot = () => {
   const stellaAppDir = mkdtempSync(
     path.join(os.tmpdir(), "stella-host-lifecycle-"),
   );
   tempDirs.push(stellaAppDir);
+  process.env.STELLA_RUNTIME_STATE_DIR = path.join(stellaAppDir, "state");
   const paths = resolveRuntimePaths(stellaAppDir);
   mkdirSync(paths.rootDir, { recursive: true });
-  runtimeDirs.push(paths.rootDir, paths.logDir);
+  mkdirSync(paths.ipcDir, { recursive: true, mode: 0o700 });
+  runtimeDirs.push(paths.rootDir, paths.logDir, paths.ipcDir);
   return { stellaAppDir, paths };
 };
 
@@ -163,7 +166,12 @@ const startFakeWorkerServer = (
     trackedConnections.push(connections);
     server.on("error", reject);
     server.listen(paths.socketPath, () =>
-      resolve({ server, connections, connectionTimes, closedCount: () => closed }),
+      resolve({
+        server,
+        connections,
+        connectionTimes,
+        closedCount: () => closed,
+      }),
     );
   });
 
@@ -194,6 +202,11 @@ afterEach(async () => {
   }
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
+  }
+  if (originalRuntimeStateDir === undefined) {
+    delete process.env.STELLA_RUNTIME_STATE_DIR;
+  } else {
+    process.env.STELLA_RUNTIME_STATE_DIR = originalRuntimeStateDir;
   }
 });
 

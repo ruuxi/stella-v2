@@ -75,6 +75,8 @@ export type KernelRunSupervisor = {
 
 export const createKernelRunSupervisor = (): KernelRunSupervisor => {
   const entries = new Map<string, SupervisedScope>();
+  /** In-flight per-run closes; concurrent cancels join the same promise. */
+  const closing = new Map<string, Promise<void>>();
   const detached = createSupervisedScope("kernel-runs:detached");
   let shutdownPromise: Promise<void> | null = null;
 
@@ -127,14 +129,26 @@ export const createKernelRunSupervisor = (): KernelRunSupervisor => {
       scope.supervise({ label, ...work });
       if (rootRunId) reclaimWhenQuiescent(rootRunId, scope);
     },
-    cancelRun: async (runId, reason) => {
+    cancelRun: (runId, reason) => {
+      // Double-cancel join: concurrent cancels for the same run must all
+      // await the SAME teardown. Without the memo, the second caller would
+      // observe the deleted entry and resolve immediately — releasing the
+      // lane while the first close is still joining fibers.
+      const inFlight = closing.get(runId);
+      if (inFlight) return inFlight;
       const scope = entries.get(runId);
-      if (!scope) return;
+      if (!scope) return Promise.resolve();
       entries.delete(runId);
-      await scope.close(reason ?? "canceled");
+      const close = scope
+        .close(reason ?? "canceled")
+        .finally(() => closing.delete(runId));
+      closing.set(runId, close);
+      return close;
     },
     awaitRunTermination: (runId) =>
-      entries.get(runId)?.quiesced() ?? Promise.resolve(),
+      closing.get(runId) ??
+      entries.get(runId)?.quiesced() ??
+      Promise.resolve(),
     liveFiberCount: () =>
       [...entries.values()].reduce(
         (total, scope) => total + scope.liveCount(),

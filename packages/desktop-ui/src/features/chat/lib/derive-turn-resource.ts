@@ -343,9 +343,8 @@ const titleFromHtmlSlug = (slug: string): string => {
 const fileChangeHtmlOutputPayload = (
   toolEvents: EventRecord[],
 ): DisplayPayload | null => {
-  let latest:
-    | { filePath: string; slug: string; createdAt: number }
-    | null = null;
+  let latest: { filePath: string; slug: string; createdAt: number } | null =
+    null;
   for (const event of toolEvents) {
     // Orchestrator-DIRECT html writes only. Delegated-agent `agent-completed`
     // events (which may fold an auto "finishing up" canvas into producedFiles)
@@ -390,10 +389,9 @@ const orchestratorImageGenRecord = (
   event: EventRecord,
 ): Record<string, unknown> | null => {
   if (!isToolResult(event)) return null;
-  if (event.payload.toolName !== "image_gen" || event.payload.error) return null;
-  if (
-    (event.payload as { agentType?: unknown }).agentType !== "orchestrator"
-  ) {
+  if (event.payload.toolName !== "image_gen" || event.payload.error)
+    return null;
+  if ((event.payload as { agentType?: unknown }).agentType !== "orchestrator") {
     return null;
   }
   const candidate =
@@ -416,6 +414,7 @@ export const deriveTurnInlineImagePayloads = (
   toolEvents: EventRecord[],
 ): DisplayPayload[] => {
   const payloads: DisplayPayload[] = [];
+  const seen = new Set<string>();
 
   for (const event of toolEvents) {
     const record = orchestratorImageGenRecord(event);
@@ -434,6 +433,11 @@ export const deriveTurnInlineImagePayloads = (
       normalizeNumImages(record.num_images);
 
     if (!jobId && filePaths.length === 0) continue;
+    const identity = jobId
+      ? `job:${jobId}`
+      : `paths:${[...filePaths].sort().join("\0")}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
 
     payloads.push({
       kind: "media",

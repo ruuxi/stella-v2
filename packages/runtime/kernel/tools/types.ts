@@ -42,6 +42,8 @@ export type ToolContext = {
   /** Effective Orchestrator route inherited by spawn_manager. */
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   allowedToolNames?: string[];
+  /** External engines acknowledge image delivery after their protocol write. */
+  deferImageDeliveryAck?: boolean;
   connectorDeliveryTarget?: {
     requestId: string;
     conversationId: string;

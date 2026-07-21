@@ -23,7 +23,11 @@ import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
-import type { ToolResult, ToolUpdateCallback } from "../tools/types.js";
+import type {
+  ToolMetadata,
+  ToolResult,
+  ToolUpdateCallback,
+} from "../tools/types.js";
 import { executeToolWithInactivityBound } from "./tool-inactivity.js";
 import {
   DEFAULT_CODEX_MODEL,
@@ -129,6 +133,12 @@ type CodexThreadStartParams = {
   developerInstructions?: string | null;
   ephemeral?: boolean | null;
   experimentalRawEvents: boolean;
+  dynamicTools?: Array<{
+    type: "function";
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }>;
 };
 
 type CodexThreadResumeParams = {
@@ -806,10 +816,42 @@ const toolArgsFromCodexValue = (value: unknown): Record<string, unknown> => {
   return {};
 };
 
+const stableJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+};
+
+export const codexDurableImageToolCallId = (args: {
+  sessionKey?: string;
+  threadId: string;
+  callId: string;
+  toolArgs: Record<string, unknown>;
+}): string => {
+  const requestHash = crypto
+    .createHash("sha256")
+    .update("image_gen")
+    .update("\0")
+    .update(stableJson(args.toolArgs))
+    .digest("hex");
+  const durableScope = crypto
+    .createHash("sha256")
+    .update(args.sessionKey ?? args.threadId)
+    .digest("hex")
+    .slice(0, 24);
+  return `codex:${durableScope}:${args.callId}:${requestHash.slice(0, 24)}`;
+};
+
 export const buildCodexThreadStartParams = (args: {
   model: string;
   cwd?: string;
   systemPrompt?: string;
+  tools?: ToolMetadata[];
 }): CodexThreadStartParams => {
   const developerInstructions = extractCodexDeveloperInstructions(
     args.systemPrompt,
@@ -827,6 +869,16 @@ export const buildCodexThreadStartParams = (args: {
       : {}),
     ephemeral: false,
     experimentalRawEvents: false,
+    ...(args.tools?.length
+      ? {
+          dynamicTools: args.tools.map((tool) => ({
+            type: "function" as const,
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.parameters,
+          })),
+        }
+      : {}),
   };
 };
 
@@ -879,6 +931,29 @@ type PendingRequest = {
 type CodexServerRequestHandler = (
   request: JsonRpcRequestMessage,
 ) => Promise<unknown | undefined> | unknown | undefined;
+
+const CODEX_RESPONSE_WITH_ACK = Symbol("codex-response-with-ack");
+type CodexResponseWithAck = {
+  [CODEX_RESPONSE_WITH_ACK]: true;
+  result: unknown;
+  afterResponseWritten?: () => void | Promise<void>;
+};
+
+const responseWithAck = (
+  result: unknown,
+  afterResponseWritten?: () => void | Promise<void>,
+): CodexResponseWithAck => ({
+  [CODEX_RESPONSE_WITH_ACK]: true,
+  result,
+  afterResponseWritten,
+});
+
+const isResponseWithAck = (value: unknown): value is CodexResponseWithAck =>
+  Boolean(
+    value &&
+      typeof value === "object" &&
+      (value as Partial<CodexResponseWithAck>)[CODEX_RESPONSE_WITH_ACK],
+  );
 
 const configuredTimeoutMs = (envName: string, fallbackMs: number): number => {
   const raw = process.env[envName]?.trim();
@@ -1039,6 +1114,20 @@ class CodexAppServerClient {
     }
   }
 
+  private writeAsync(message: JsonRpcOutgoingMessage): Promise<void> {
+    if (this.closedError) return Promise.reject(this.closedError);
+    const line = `${JSON.stringify(message)}\n`;
+    return new Promise((resolve, reject) => {
+      this.child.stdin.write(line, (error) => {
+        if (error) {
+          reject(new Error(`Codex app-server write failed: ${error.message}`));
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
   private handleLine(line: string) {
     const trimmed = line.trim();
     if (!trimmed) return;
@@ -1094,7 +1183,17 @@ class CodexAppServerClient {
       for (const handler of this.requestHandlers) {
         const result = await handler(message);
         if (result !== undefined) {
-          this.write({ jsonrpc: "2.0", id: message.id, result });
+          const response = isResponseWithAck(result) ? result.result : result;
+          await this.writeAsync({
+            jsonrpc: "2.0",
+            id: message.id,
+            result: response,
+          });
+          if (isResponseWithAck(result)) {
+            await Promise.resolve(result.afterResponseWritten?.()).catch(
+              () => undefined,
+            );
+          }
           return;
         }
       }
@@ -1281,6 +1380,7 @@ const startOrResumeCodexThread = async (args: {
   model: string;
   cwd?: string;
   systemPrompt?: string;
+  tools?: ToolMetadata[];
   onStatus?: (status: string) => void;
 }): Promise<string> => {
   if (args.persistedSessionId) {
@@ -1306,6 +1406,7 @@ const startOrResumeCodexThread = async (args: {
       model: args.model,
       cwd: args.cwd,
       systemPrompt: args.systemPrompt,
+      tools: args.tools,
     }),
   );
   return response.thread.id;
@@ -1377,6 +1478,8 @@ export const runCodexAgentTurn = async (request: {
   persistedSessionId?: string;
   prompt: string;
   systemPrompt?: string;
+  /** Dynamic Stella tools persisted on a freshly created Codex thread. */
+  tools?: ToolMetadata[];
   cwd?: string;
   stellaDataDir?: string;
   stellaAppDir?: string;
@@ -1403,6 +1506,10 @@ export const runCodexAgentTurn = async (request: {
     toolName: string;
     update: ToolResult;
   }) => void;
+  onToolResponseWritten?: (args: {
+    toolCallId: string;
+    toolName: string;
+  }) => void | Promise<void>;
   executeTool?: (
     toolCallId: string,
     toolName: string,
@@ -1707,6 +1814,15 @@ export const runCodexAgentTurn = async (request: {
         const executeTool = request.executeTool;
         const toolName = params.tool;
         const toolArgs = toolArgsFromCodexValue(params.arguments);
+        const toolCallId =
+          toolName === "image_gen"
+            ? codexDurableImageToolCallId({
+                sessionKey: request.sessionKey,
+                threadId: params.threadId,
+                callId: params.callId,
+                toolArgs,
+              })
+            : params.callId;
         const workKey = `tool:${params.callId}`;
         activeTurnWork.add(workKey);
         refreshTurnIdleTimer?.();
@@ -1719,35 +1835,39 @@ export const runCodexAgentTurn = async (request: {
             toolName,
             signal: request.abortSignal,
             run: (signal, onActivity) =>
-              executeTool(
-                params.callId,
-                toolName,
-                toolArgs,
-                signal,
-                (update) => {
-                  onActivity();
-                  refreshTurnIdleTimer?.();
-                  request.onToolUpdate?.({
-                    toolCallId: params.callId,
-                    toolName,
-                    update,
-                  });
-                  const statusText = buildToolResultText(update).trim();
-                  if (statusText) emitStatus(statusText);
-                },
-              ),
+              executeTool(toolCallId, toolName, toolArgs, signal, (update) => {
+                onActivity();
+                refreshTurnIdleTimer?.();
+                request.onToolUpdate?.({
+                  toolCallId,
+                  toolName,
+                  update,
+                });
+                const statusText = buildToolResultText(update).trim();
+                if (statusText) emitStatus(statusText);
+              }),
           });
         } finally {
           activeTurnWork.delete(workKey);
           refreshTurnIdleTimer?.();
         }
         appendUniqueFileChanges(fileChanges, toolResult.fileChanges ?? []);
-        return {
+        const response = {
           contentItems: [
             { type: "inputText", text: buildToolResultText(toolResult) },
           ],
           success: !toolResult.error,
         };
+        return responseWithAck(
+          response,
+          toolName === "image_gen"
+            ? () =>
+                request.onToolResponseWritten?.({
+                  toolCallId,
+                  toolName,
+                })
+            : undefined,
+        );
       }
       if (message.method === "item/commandExecution/requestApproval") {
         return { decision: "decline" };
@@ -1789,6 +1909,7 @@ export const runCodexAgentTurn = async (request: {
       model,
       cwd: request.cwd,
       systemPrompt: request.systemPrompt,
+      tools: request.tools,
       onStatus: emitStatus,
     });
     request.onSessionId?.(threadId);

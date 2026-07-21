@@ -490,6 +490,7 @@ type RuntimeToolContextArgs = {
   maxAgentDepth?: number;
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   allowedToolNames?: string[];
+  deferImageDeliveryAck?: boolean;
   connectorDeliveryTarget?: {
     requestId: string;
     conversationId: string;
@@ -526,6 +527,7 @@ export const buildRuntimeToolContext = (
   ...(Array.isArray(args.allowedToolNames) && args.allowedToolNames.length > 0
     ? { allowedToolNames: args.allowedToolNames }
     : {}),
+  ...(args.deferImageDeliveryAck ? { deferImageDeliveryAck: true } : {}),
   ...(args.connectorDeliveryTarget
     ? { connectorDeliveryTarget: args.connectorDeliveryTarget }
     : {}),

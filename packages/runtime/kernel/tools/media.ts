@@ -1,50 +1,43 @@
-import { promises as fs } from "node:fs";
-
 import type {
   ToolContext,
   ToolHandler,
   ToolHandlerExtras,
   ToolResult,
 } from "./types.js";
+import {
+  submitAndWaitForManagedImageJob,
+  type ManagedImageJobOptions,
+} from "./managed-image-job.js";
+import { validateImageDataUri } from "./image-reference-policy.js";
+import {
+  MAX_MANAGED_IMAGE_REQUEST_BYTES,
+  MAX_MANAGED_IMAGE_REFERENCE_ITEMS,
+  prepareManagedImageReferences,
+} from "./managed-image-references.js";
 import { runLocalImageGeneration } from "./local-image-generation.js";
+import { pruneImageOperationLedger } from "./image-operation-store.js";
 
 export const IMAGE_GEN_TOOL_NAME = "image_gen";
 
 type MediaToolOptions = {
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
+  managedImageJob?: Partial<
+    Pick<
+      ManagedImageJobOptions,
+      | "fetchImpl"
+      | "now"
+      | "sleep"
+      | "timeoutMs"
+      | "initialPollMs"
+      | "maxPollMs"
+      | "artifactGraceMs"
+      | "artifactDownloadTimeoutMs"
+    >
+  >;
 };
 
 const asNonEmptyString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-
-const mimeTypeFromExtension = (extension: string): string => {
-  switch (extension.toLowerCase()) {
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "gif":
-      return "image/gif";
-    case "webp":
-      return "image/webp";
-    default:
-      return "image/png";
-  }
-};
-
-const parseErrorResponse = async (response: Response): Promise<string> => {
-  try {
-    const json = (await response.json()) as {
-      error?: unknown;
-      action?: unknown;
-    };
-    const error = asNonEmptyString(json.error);
-    const action = asNonEmptyString(json.action);
-    return [error, action].filter(Boolean).join(" ");
-  } catch {
-    const text = await response.text().catch(() => "");
-    return text.trim();
-  }
-};
 
 const HTTP_URL_RE = /^https?:\/\//i;
 
@@ -58,18 +51,6 @@ const collectStringList = (value: unknown): string[] => {
   return out;
 };
 
-const mimeTypeFromPath = (filePath: string): string => {
-  const match = filePath.match(/\.([a-z0-9]{2,5})$/i);
-  return mimeTypeFromExtension(match?.[1]?.toLowerCase() ?? "png");
-};
-
-/** Read a local image file and convert it into a `data:` URI. */
-const readLocalImageAsDataUri = async (filePath: string): Promise<string> => {
-  const buffer = await fs.readFile(filePath);
-  const mimeType = mimeTypeFromPath(filePath);
-  return `data:${mimeType};base64,${buffer.toString("base64")}`;
-};
-
 const createImageGenHandler =
   (options: MediaToolOptions): ToolHandler =>
   async (
@@ -80,6 +61,17 @@ const createImageGenHandler =
     const prompt = asNonEmptyString(args.prompt);
     if (!prompt) {
       return { error: "prompt is required." };
+    }
+    const operationDataDir = context.stellaDataDir ?? context.stellaAppDir;
+    if (operationDataDir) {
+      try {
+        pruneImageOperationLedger({
+          stellaDataDir: operationDataDir,
+          limit: 50,
+        });
+      } catch {
+        // Retention cleanup must never block a current generation.
+      }
     }
 
     const input: Record<string, unknown> = {};
@@ -139,12 +131,23 @@ const createImageGenHandler =
       input.image_size = { width, height };
     }
 
-    // Reference images: local paths get base64-encoded into data: URIs (so the
-    // body photo never lands in Convex storage), remote URLs are passed as-is.
-    // Any reference present switches the capability to image_edit (GPT Image 2
-    // edit endpoint) which expects an `image_urls` array on the input.
+    // Reference paths are authorized and signature-checked before any read.
+    // BYOK sends them only to the selected provider. Managed Stella requires
+    // an explicit per-call upload consent flag below.
     const referencePaths = collectStringList(args.referenceImagePaths);
     const referenceUrlsRaw = collectStringList(args.referenceImageUrls);
+    if (
+      referencePaths.length + referenceUrlsRaw.length >
+      MAX_MANAGED_IMAGE_REFERENCE_ITEMS
+    ) {
+      return {
+        error: `image_gen accepts at most ${MAX_MANAGED_IMAGE_REFERENCE_ITEMS} reference images.`,
+        details: {
+          status: "failed",
+          error: { code: "managed_reference_count_exceeded" },
+        },
+      };
+    }
     const referenceUrls: string[] = [];
     for (const url of referenceUrlsRaw) {
       if (!HTTP_URL_RE.test(url) && !url.startsWith("data:")) {
@@ -152,38 +155,64 @@ const createImageGenHandler =
           error: `referenceImageUrls entry is not a valid http(s)/data URL: ${url}`,
         };
       }
+      if (url.startsWith("data:")) {
+        try {
+          await validateImageDataUri(url);
+        } catch (error) {
+          return {
+            error: `invalid referenceImageUrls data URI: ${(error as Error).message}`,
+          };
+        }
+      }
       referenceUrls.push(url);
     }
-    let imageUrls: string[] = [];
-    if (referencePaths.length > 0) {
-      try {
-        for (const filePath of referencePaths) {
-          imageUrls.push(await readLocalImageAsDataUri(filePath));
-        }
-      } catch (error) {
-        return {
-          error: `image_gen failed to read reference image: ${(error as Error).message}`,
-        };
-      }
-    }
-    imageUrls.push(...referenceUrls);
-
-    const useImageEdit = imageUrls.length > 0;
-    if (useImageEdit) {
-      input.image_urls = imageUrls;
-    }
-    const capability = useImageEdit ? "image_edit" : "text_to_image";
-
-    const localResult = await runLocalImageGeneration({
+    const local = await runLocalImageGeneration({
       args,
       context,
       extras,
       prompt,
       aspectRatio,
-      referenceImagePaths: referencePaths,
       referenceImageUrls: referenceUrls,
+      referenceImagePaths: referencePaths,
     });
-    if (localResult) return localResult;
+    if (local) return local;
+
+    const hasInlineReferenceBytes = referenceUrls.some((url) =>
+      /^data:image\//i.test(url),
+    );
+    if (
+      (referencePaths.length > 0 || hasInlineReferenceBytes) &&
+      args.allowManagedReferenceUpload !== true
+    ) {
+      return {
+        error:
+          "Using local or inline reference image bytes with Stella managed generation requires allowManagedReferenceUpload=true for this call. The bytes are uploaded encrypted for the managed request and deleted after submission settles.",
+        details: {
+          status: "failed",
+          error: { code: "managed_reference_consent_required" },
+        },
+      };
+    }
+
+    let imageUrls: string[];
+    try {
+      imageUrls = await prepareManagedImageReferences({
+        paths: referencePaths,
+        urls: referenceUrls,
+        context,
+      });
+    } catch (error) {
+      return {
+        error: `image_gen failed to prepare managed reference image: ${(error as Error).message}`,
+        details: {
+          status: "failed",
+          error: { code: "managed_reference_envelope_exceeded" },
+        },
+      };
+    }
+    const useImageEdit = imageUrls.length > 0;
+    if (useImageEdit) input.image_urls = imageUrls;
+    const capability = useImageEdit ? "image_edit" : "text_to_image";
 
     if (!options.getStellaSiteAuth) {
       return {
@@ -200,67 +229,57 @@ const createImageGenHandler =
       };
     }
 
-    let submitResponse: Response;
-    try {
-      submitResponse = await fetch(
-        new URL("/api/media/v1/generate", siteAuth.baseUrl).toString(),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${siteAuth.authToken}`,
-            "X-Device-ID": context.deviceId,
-          },
-          body: JSON.stringify({
-            capability,
-            prompt,
-            ...(profile ? { profile } : {}),
-            ...(aspectRatio ? { aspectRatio } : {}),
-            ...(Object.keys(input).length > 0 ? { input } : {}),
-            ...(context.connectorDeliveryTarget
-              ? {
-                  connectorRequestId: context.connectorDeliveryTarget.requestId,
-                }
-              : {}),
-          }),
-          signal: extras?.signal,
+    const requestBody = {
+      capability,
+      prompt,
+      ...(profile ? { profile } : {}),
+      ...(aspectRatio ? { aspectRatio } : {}),
+      ...(Object.keys(input).length > 0 ? { input } : {}),
+      ...(context.connectorDeliveryTarget
+        ? {
+            connectorRequestId: context.connectorDeliveryTarget.requestId,
+          }
+        : {}),
+    };
+    if (
+      Buffer.byteLength(JSON.stringify(requestBody), "utf8") >
+      MAX_MANAGED_IMAGE_REQUEST_BYTES
+    ) {
+      return {
+        error: `image_gen managed request exceeds the ${MAX_MANAGED_IMAGE_REQUEST_BYTES} byte ingress limit.`,
+        details: {
+          status: "failed",
+          error: { code: "managed_request_envelope_exceeded" },
         },
-      );
-    } catch (error) {
-      return {
-        error: `image_gen submission failed: ${(error as Error).message}`,
       };
     }
 
-    if (!submitResponse.ok) {
-      const message = await parseErrorResponse(submitResponse);
-      return {
-        error:
-          message ||
-          `image_gen submission failed with status ${submitResponse.status}.`,
+    const terminal = await submitAndWaitForManagedImageJob({
+      baseUrl: siteAuth.baseUrl,
+      authToken: siteAuth.authToken,
+      requestBody,
+      context,
+      extras,
+      ...options.managedImageJob,
+    });
+    if (!terminal.ok) {
+      const details = {
+        ...(terminal.jobId ? { jobId: terminal.jobId } : {}),
+        status: terminal.status,
+        error: {
+          code: terminal.code,
+          message: terminal.message,
+          ...(terminal.reason !== undefined ? { reason: terminal.reason } : {}),
+        },
+        reattached: terminal.reattached,
       };
-    }
-
-    let accepted: { jobId?: unknown; capability?: unknown; profile?: unknown };
-    try {
-      accepted = (await submitResponse.json()) as {
-        jobId?: unknown;
-        capability?: unknown;
-        profile?: unknown;
-      };
-    } catch {
-      return { error: "image_gen returned an invalid JSON response." };
-    }
-
-    const jobId = asNonEmptyString(accepted.jobId);
-    if (!jobId) {
-      return { error: "image_gen response did not include a jobId." };
+      return { error: terminal.message, details };
     }
 
     const details = {
-      jobId,
-      capability: asNonEmptyString(accepted.capability) ?? capability,
-      profile: asNonEmptyString(accepted.profile) ?? profile ?? "best",
+      jobId: terminal.job.jobId,
+      capability: terminal.job.capability,
+      profile: terminal.job.profile,
       prompt,
       ...(aspectRatio ? { aspectRatio } : {}),
       ...(sizeArg && typeof sizeArg === "object" && input.image_size
@@ -269,10 +288,16 @@ const createImageGenHandler =
       ...(typeof input.num_images === "number"
         ? { numImages: input.num_images as number }
         : {}),
-      status: "submitted",
+      status: "succeeded",
+      filePaths: terminal.filePaths,
+      artifacts: terminal.artifacts,
+      reattached: terminal.reattached,
+      ...(typeof terminal.job.completedAt === "number"
+        ? { completedAt: terminal.job.completedAt }
+        : {}),
     };
     return {
-      result: `image_gen job ${jobId} submitted. The generated image will appear automatically when it finishes.`,
+      result: details,
       details,
     };
   };

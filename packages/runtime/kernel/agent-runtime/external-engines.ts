@@ -68,6 +68,7 @@ import type {
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
 import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
+import { markImageOperationDelivered } from "../tools/image-operation-store.js";
 
 const EMPTY_USAGE: Usage = {
   input: 0,
@@ -1208,12 +1209,14 @@ const runClaudeHostedTurn = async (args: {
       agentType: args.opts.agentType,
       deviceId: args.opts.deviceId,
       stellaAppDir: args.opts.stellaAppDir,
+      stellaDataDir: args.opts.stellaDataDir,
       toolWorkspaceRoot: args.opts.toolWorkspaceRoot,
       agentDepth: args.opts.agentContext.agentDepth ?? 0,
       maxAgentDepth: args.opts.agentContext.maxAgentDepth,
       modelConfigSnapshot: args.opts.agentContext.modelConfigSnapshot,
       connectorDeliveryTarget: args.opts.connectorDeliveryTarget,
       allowedToolNames: args.opts.agentContext.toolsAllowlist,
+      deferImageDeliveryAck: toolName === "image_gen",
       store: args.opts.store,
       toolExecutor: args.opts.toolExecutor,
       hookEmitter: args.opts.hookEmitter,
@@ -1345,6 +1348,14 @@ const runClaudeHostedTurn = async (args: {
     onStream: acceptClaudeStreamChunk,
     onNativeToolStart: flushPreambleBeforeTool,
     onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
+    onToolResponseWritten: ({ toolCallId, toolName }) => {
+      if (toolName !== "image_gen") return;
+      markImageOperationDelivered({
+        stellaDataDir: args.opts.stellaDataDir ?? args.opts.stellaAppDir,
+        conversationId: args.opts.conversationId,
+        toolCallId,
+      });
+    },
     executeTool: executeClaudeTool,
   });
   // The remaining buffer is this turn's final answer. It is persisted exactly
@@ -1442,6 +1453,14 @@ const runClaudeHostedTurn = async (args: {
       onNativeToolStart: flushPreambleBeforeTool,
       executeTool: executeClaudeTool,
       onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
+      onToolResponseWritten: ({ toolCallId, toolName }) => {
+        if (toolName !== "image_gen") return;
+        markImageOperationDelivered({
+          stellaDataDir: args.opts.stellaDataDir ?? args.opts.stellaAppDir,
+          conversationId: args.opts.conversationId,
+          toolCallId,
+        });
+      },
     });
     assistantUpdateBuffer.discard();
     collectTurnFileChanges(finalResult.fileChanges);
@@ -1512,6 +1531,10 @@ const runCodexHostedTurn = async (args: {
     threadKey,
     engine: "codex_cli",
   });
+  const imageToolMetadata = getRuntimeToolMetadata({
+    toolsAllowlist: args.opts.agentContext.toolsAllowlist,
+    toolCatalog: args.opts.toolCatalog,
+  }).filter((tool) => tool.name === "image_gen");
   const persistCodexSessionId = (sessionId: string) => {
     if (!isLatestExternalAttempt(args.opts)) return;
     setExternalEngineSessionId({
@@ -1605,12 +1628,14 @@ const runCodexHostedTurn = async (args: {
       agentType: args.opts.agentType,
       deviceId: args.opts.deviceId,
       stellaAppDir: args.opts.stellaAppDir,
+      stellaDataDir: args.opts.stellaDataDir,
       toolWorkspaceRoot: args.opts.toolWorkspaceRoot,
       agentDepth: args.opts.agentContext.agentDepth ?? 0,
       maxAgentDepth: args.opts.agentContext.maxAgentDepth,
       modelConfigSnapshot: args.opts.agentContext.modelConfigSnapshot,
       connectorDeliveryTarget: args.opts.connectorDeliveryTarget,
       allowedToolNames: args.opts.agentContext.toolsAllowlist,
+      deferImageDeliveryAck: toolName === "image_gen",
       store: args.opts.store,
       toolExecutor: args.opts.toolExecutor,
       hookEmitter: args.opts.hookEmitter,
@@ -1729,6 +1754,9 @@ const runCodexHostedTurn = async (args: {
     ...(persistedSessionId ? { persistedSessionId } : {}),
     prompt,
     systemPrompt: args.systemPrompt,
+    // Keep this durability surface narrow: the existing Codex integration
+    // exposes only terminal image_gen as a dynamic Stella tool.
+    tools: imageToolMetadata,
     cwd: localCliCwd,
     stellaDataDir: args.opts.stellaDataDir,
     stellaAppDir: args.opts.stellaAppDir,
@@ -1761,6 +1789,14 @@ const runCodexHostedTurn = async (args: {
     },
     onSessionId: persistCodexSessionId,
     onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
+    onToolResponseWritten: ({ toolCallId, toolName }) => {
+      if (toolName !== "image_gen") return;
+      markImageOperationDelivered({
+        stellaDataDir: args.opts.stellaDataDir ?? args.opts.stellaAppDir,
+        conversationId: args.opts.conversationId,
+        toolCallId,
+      });
+    },
     executeTool: executeCodexTool,
     reuseAppServer: true,
     streamFinalAnswer: args.session.kind === "orchestrator",
@@ -1811,6 +1847,7 @@ const runCodexHostedTurn = async (args: {
       persistedSessionId: finalResult.sessionId,
       prompt: queuedPrompt,
       systemPrompt: args.systemPrompt,
+      tools: imageToolMetadata,
       cwd: localCliCwd,
       stellaDataDir: args.opts.stellaDataDir,
       stellaAppDir: args.opts.stellaAppDir,
@@ -1842,6 +1879,14 @@ const runCodexHostedTurn = async (args: {
       },
       onSessionId: persistCodexSessionId,
       onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
+      onToolResponseWritten: ({ toolCallId, toolName }) => {
+        if (toolName !== "image_gen") return;
+        markImageOperationDelivered({
+          stellaDataDir: args.opts.stellaDataDir ?? args.opts.stellaAppDir,
+          conversationId: args.opts.conversationId,
+          toolCallId,
+        });
+      },
       executeTool: executeCodexTool,
       reuseAppServer: true,
       streamFinalAnswer: args.session.kind === "orchestrator",

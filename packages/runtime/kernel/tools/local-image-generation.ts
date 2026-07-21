@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import {
@@ -7,6 +5,21 @@ import {
   type ImageGenerationProvider,
 } from "../preferences/local-preferences.js";
 import { getAccessibleLocalLlmApiKey } from "../storage/local-llm-credential-access.js";
+import {
+  claimImageOperationSubmission,
+  markImageOperationSubmitted,
+  reserveDurableImageOperation,
+  settleImageOperation,
+} from "./image-operation-store.js";
+import { authorizedReferenceAsDataUri } from "./image-reference-policy.js";
+import {
+  decodeBase64ImageBounded,
+  decodeAndValidateImage,
+  readResponseBodyBounded,
+  validateDecodedImageFile,
+} from "./image-decode-validation.js";
+import { materializeMediaArtifact } from "./media-artifact-store.js";
+import type { ManagedImageTerminalResult } from "./managed-image-job.js";
 import type { ToolContext, ToolHandlerExtras, ToolResult } from "./types.js";
 
 type LocalImageGenerationInput = {
@@ -20,461 +33,548 @@ type LocalImageGenerationInput = {
 };
 
 const HTTP_URL_RE = /^https?:\/\//i;
+const MAX_PROVIDER_IMAGE_JSON_BYTES = 4 * 64 * 1024 * 1024 + 1024 * 1024;
 
-const asNonEmptyString = (value: unknown): string | null =>
-  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+const asString = (value: unknown): string | null =>
+  typeof value === "string" && value.trim() ? value.trim() : null;
 
-const extensionFromFormat = (format: string): string => {
-  const normalized = format.toLowerCase();
-  if (normalized === "jpg" || normalized === "jpeg") return "jpg";
-  if (normalized === "webp") return "webp";
-  return "png";
+const abortError = (signal: AbortSignal): Error => {
+  const error =
+    signal.reason instanceof Error
+      ? signal.reason
+      : new Error("Image generation was canceled.");
+  error.name = "AbortError";
+  return error;
 };
 
-const mimeTypeFromExtension = (extension: string): string => {
-  switch (extension.toLowerCase()) {
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "webp":
-      return "image/webp";
-    case "gif":
-      return "image/gif";
-    default:
-      return "image/png";
-  }
-};
-
-const mimeTypeFromPath = (filePath: string): string => {
-  const match = filePath.match(/\.([a-z0-9]{2,5})$/i);
-  return mimeTypeFromExtension(match?.[1] ?? "png");
-};
-
-const readLocalImageAsDataUri = async (filePath: string): Promise<string> => {
-  const buffer = await fs.readFile(filePath);
-  return `data:${mimeTypeFromPath(filePath)};base64,${buffer.toString("base64")}`;
-};
-
-const dataUriToBuffer = (uri: string): { buffer: Buffer; mimeType: string } => {
-  const match = uri.match(/^data:([^;,]+);base64,(.+)$/);
-  if (!match) {
-    throw new Error("Invalid image data URI.");
-  }
-  return {
-    mimeType: match[1],
-    buffer: Buffer.from(match[2], "base64"),
-  };
-};
-
-const fetchJson = async (
-  url: string,
-  init: RequestInit,
-): Promise<{ ok: true; json: unknown } | { ok: false; error: string }> => {
-  let response: Response;
-  try {
-    response = await fetch(url, init);
-  } catch (error) {
-    return { ok: false, error: (error as Error).message };
-  }
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    return {
-      ok: false,
-      error: text.trim() || `request failed with status ${response.status}.`,
+export const localImagePollSleep = (
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(abortError(signal));
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortError(signal!));
     };
-  }
-  try {
-    return { ok: true, json: await response.json() };
-  } catch {
-    return { ok: false, error: "request returned invalid JSON." };
-  }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    timer.unref?.();
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
+const sleep = localImagePollSleep;
+
+const normalizeCount = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.max(1, Math.min(4, Math.floor(value)))
+    : 1;
+
+const normalizeFormat = (value: unknown): "png" | "jpeg" | "webp" => {
+  const format = asString(value)?.toLowerCase();
+  return format === "jpeg" || format === "jpg"
+    ? "jpeg"
+    : format === "webp"
+      ? "webp"
+      : "png";
 };
 
-const normalizeNumImages = (value: unknown): number => {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 1;
-  return Math.max(1, Math.min(4, Math.floor(value)));
-};
-
-const normalizeOutputFormat = (value: unknown): string => {
-  const format = asNonEmptyString(value)?.toLowerCase();
-  if (format === "jpg" || format === "jpeg") return "jpeg";
-  if (format === "webp") return "webp";
-  return "png";
-};
-
-const openAiSizeFor = (
-  sizeArg: unknown,
-  aspectRatio: string | null | undefined,
-): "auto" | "1024x1024" | "1536x1024" | "1024x1536" => {
-  if (sizeArg && typeof sizeArg === "object") {
-    const size = sizeArg as { width?: unknown; height?: unknown };
-    const width = typeof size.width === "number" ? size.width : 0;
-    const height = typeof size.height === "number" ? size.height : 0;
-    if (width > 0 && height > 0) {
-      if (Math.abs(width - height) / Math.max(width, height) < 0.05) {
-        return "1024x1024";
-      }
-      return width > height ? "1536x1024" : "1024x1536";
-    }
-  }
-  if (!aspectRatio) return "auto";
-  const match = aspectRatio.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
-  if (!match) return "auto";
-  const ratio = Number(match[1]) / Number(match[2]);
-  if (!Number.isFinite(ratio)) return "auto";
-  if (ratio > 1.08) return "1536x1024";
-  if (ratio < 0.92) return "1024x1536";
-  return "1024x1024";
-};
-
-const falImageSizeFor = (
-  sizeArg: unknown,
-  aspectRatio: string | null | undefined,
-): unknown => {
-  if (sizeArg && typeof sizeArg === "object") {
-    const size = sizeArg as { width?: unknown; height?: unknown };
-    const width = typeof size.width === "number" ? Math.floor(size.width) : 0;
-    const height =
-      typeof size.height === "number" ? Math.floor(size.height) : 0;
-    if (width > 0 && height > 0) return { width, height };
-  }
-  if (!aspectRatio) return "auto";
-  const match = aspectRatio.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
-  if (!match) return "auto";
-  const ratio = Number(match[1]) / Number(match[2]);
-  if (!Number.isFinite(ratio)) return "auto";
-  if (ratio > 1.08) return { width: 1536, height: 1024 };
-  if (ratio < 0.92) return { width: 1024, height: 1536 };
-  return { width: 1024, height: 1024 };
-};
-
-const stripProviderPrefix = (
+const providerModel = (
   provider: ImageGenerationProvider,
-  model: string | undefined,
+  configured?: string,
 ): string => {
-  if (!model) {
-    if (provider === "openai") return "gpt-image-1.5";
-    return "openai/gpt-image-2";
-  }
+  const fallback =
+    provider === "openai"
+      ? "gpt-image-2"
+      : provider === "fal"
+        ? "fal-ai/flux-2-pro"
+        : "openai/gpt-image-2";
+  const model = configured?.trim() || fallback;
   const prefix = `${provider}/`;
   return model.startsWith(prefix) ? model.slice(prefix.length) : model;
 };
 
-const collectReferenceDataUrls = async (
-  localPaths: readonly string[],
-  urls: readonly string[],
-): Promise<string[]> => {
-  const dataUrls: string[] = [];
-  for (const filePath of localPaths) {
-    dataUrls.push(await readLocalImageAsDataUri(filePath));
+const openAiSize = (
+  size: unknown,
+  ratio?: string | null,
+): "auto" | "1024x1024" | "1536x1024" | "1024x1536" => {
+  if (size && typeof size === "object") {
+    const record = size as { width?: unknown; height?: unknown };
+    const width = typeof record.width === "number" ? record.width : 0;
+    const height = typeof record.height === "number" ? record.height : 0;
+    if (width > 0 && height > 0) {
+      if (Math.abs(width - height) / Math.max(width, height) < 0.05)
+        return "1024x1024";
+      return width > height ? "1536x1024" : "1024x1536";
+    }
   }
-  dataUrls.push(...urls);
-  return dataUrls;
+  const match = ratio?.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!match) return "auto";
+  const value = Number(match[1]) / Number(match[2]);
+  return value > 1.08 ? "1536x1024" : value < 0.92 ? "1024x1536" : "1024x1024";
 };
 
-const referenceToBlobInfo = async (
-  reference: string,
-): Promise<{ buffer: Buffer; mimeType: string }> => {
-  if (reference.startsWith("data:")) {
-    return dataUriToBuffer(reference);
-  }
-  if (HTTP_URL_RE.test(reference)) {
-    const response = await fetch(reference);
-    if (!response.ok) {
-      throw new Error(`failed to fetch reference image ${reference}.`);
-    }
-    return {
-      buffer: Buffer.from(await response.arrayBuffer()),
-      mimeType:
-        response.headers.get("content-type")?.split(";")[0]?.trim() ||
-        "image/png",
-    };
-  }
-  return dataUriToBuffer(await readLocalImageAsDataUri(reference));
-};
+const parseError = async (response: Response): Promise<string> =>
+  (
+    await readResponseBodyBounded(response, { maxBytes: 1024 * 1024 }).catch(
+      () => Buffer.alloc(0),
+    )
+  )
+    .toString("utf8")
+    .trim() || `request failed with status ${response.status}`;
 
-const saveImages = async (
-  stellaDataDir: string,
-  jobId: string,
-  outputFormat: string,
-  images: readonly string[],
-): Promise<string[]> => {
-  const extension = extensionFromFormat(outputFormat);
-  const outputDir = path.join(stellaDataDir, "media", "outputs");
-  await fs.mkdir(outputDir, { recursive: true });
-  const filePaths: string[] = [];
-  for (const [index, image] of images.entries()) {
-    let buffer: Buffer;
-    if (image.startsWith("data:")) {
-      buffer = dataUriToBuffer(image).buffer;
-    } else if (HTTP_URL_RE.test(image)) {
-      const response = await fetch(image);
-      if (!response.ok) {
-        throw new Error(`failed to download generated image ${index + 1}.`);
-      }
-      buffer = Buffer.from(await response.arrayBuffer());
-    } else {
-      buffer = Buffer.from(image, "base64");
-    }
-    const filePath = path.join(outputDir, `${jobId}-${index + 1}.${extension}`);
-    await fs.writeFile(filePath, buffer);
-    filePaths.push(filePath);
-  }
-  return filePaths;
-};
+const parseProviderImageJson = async (response: Response): Promise<unknown> =>
+  JSON.parse(
+    (
+      await readResponseBodyBounded(response, {
+        maxBytes: MAX_PROVIDER_IMAGE_JSON_BYTES,
+      })
+    ).toString("utf8"),
+  );
 
 const extractOpenAiImages = (json: unknown): string[] => {
-  const data = (json as { data?: unknown }).data;
+  const data = (json as { data?: unknown })?.data;
   if (!Array.isArray(data)) return [];
   return data
     .map((entry) => {
-      const record = entry as { b64_json?: unknown; url?: unknown };
-      return asNonEmptyString(record.b64_json) ?? asNonEmptyString(record.url);
+      const image = entry as { b64_json?: unknown; url?: unknown };
+      return asString(image.b64_json) ?? asString(image.url);
     })
-    .filter((value): value is string => Boolean(value));
-};
-
-const runOpenAi = async (
-  input: LocalImageGenerationInput,
-  apiKey: string,
-  model: string,
-  outputFormat: string,
-): Promise<string[] | { error: string }> => {
-  const common = {
-    model,
-    prompt: input.prompt,
-    quality: asNonEmptyString(input.args.quality) ?? "low",
-    size: openAiSizeFor(input.args.size, input.aspectRatio),
-    n: normalizeNumImages(input.args.num_images),
-    response_format: "b64_json",
-    output_format: outputFormat,
-  };
-  const references = await collectReferenceDataUrls(
-    input.referenceImagePaths,
-    input.referenceImageUrls,
-  );
-  if (references.length === 0) {
-    const response = await fetchJson(
-      "https://api.openai.com/v1/images/generations",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(common),
-        signal: input.extras?.signal,
-      },
-    );
-    if (!response.ok) return { error: response.error };
-    return extractOpenAiImages(response.json);
-  }
-
-  const form = new FormData();
-  for (const [key, value] of Object.entries(common)) {
-    form.append(key, String(value));
-  }
-  for (const [index, reference] of references.entries()) {
-    const image = await referenceToBlobInfo(reference);
-    form.append(
-      "image",
-      new Blob([new Uint8Array(image.buffer)], { type: image.mimeType }),
-      `reference-${index + 1}.png`,
-    );
-  }
-  const response = await fetchJson("https://api.openai.com/v1/images/edits", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: form,
-    signal: input.extras?.signal,
-  });
-  if (!response.ok) return { error: response.error };
-  return extractOpenAiImages(response.json);
+    .filter((value): value is string => value !== null);
 };
 
 const extractFalImages = (json: unknown): string[] => {
-  const images = (json as { images?: unknown }).images;
+  const images = (json as { images?: unknown })?.images;
   if (!Array.isArray(images)) return [];
   return images
     .map((entry) =>
       typeof entry === "string"
-        ? entry
-        : asNonEmptyString((entry as { url?: unknown }).url),
+        ? asString(entry)
+        : asString((entry as { url?: unknown })?.url),
     )
-    .filter((value): value is string => Boolean(value));
+    .filter((value): value is string => value !== null);
 };
 
-const runFal = async (
-  input: LocalImageGenerationInput,
-  apiKey: string,
-  endpoint: string,
-  outputFormat: string,
-): Promise<string[] | { error: string }> => {
-  const references = await collectReferenceDataUrls(
-    input.referenceImagePaths,
-    input.referenceImageUrls,
-  );
-  const endpointId = references.length > 0 ? `${endpoint}/edit` : endpoint;
-  const inputBody: Record<string, unknown> = {
-    prompt: input.prompt,
-    quality: asNonEmptyString(input.args.quality) ?? "low",
-    image_size: falImageSizeFor(input.args.size, input.aspectRatio),
-    output_format: outputFormat,
-    num_images: normalizeNumImages(input.args.num_images),
-  };
-  if (references.length > 0) inputBody.image_urls = references;
-  const submit = await fetchJson(`https://queue.fal.run/${endpointId}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Key ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(inputBody),
-    signal: input.extras?.signal,
-  });
-  if (!submit.ok) return { error: submit.error };
-  const submitted = submit.json as {
-    response_url?: unknown;
-    request_id?: unknown;
-  };
-  const responseUrl =
-    asNonEmptyString(submitted.response_url) ??
-    (asNonEmptyString(submitted.request_id)
-      ? `https://queue.fal.run/${endpointId}/requests/${submitted.request_id}`
-      : null);
-  if (!responseUrl) return { error: "fal did not return a response URL." };
+const imageBytes = async (
+  image: string,
+  signal?: AbortSignal,
+): Promise<Buffer> => {
+  if (image.startsWith("data:")) {
+    const match = image.match(/^data:([^;,]+);base64,(.+)$/s);
+    if (!match) throw new Error("provider returned an invalid image data URI");
+    return decodeBase64ImageBounded(match[2]);
+  }
+  if (!HTTP_URL_RE.test(image)) return decodeBase64ImageBounded(image);
+  const response = await fetch(image, { signal, redirect: "follow" });
+  if (!response.ok)
+    throw new Error(`image download failed (${response.status})`);
+  return await readResponseBodyBounded(response, { signal });
+};
 
-  for (let attempt = 0; attempt < 90; attempt += 1) {
-    const result = await fetchJson(responseUrl, {
-      method: "GET",
-      headers: { Authorization: `Key ${apiKey}` },
-      signal: input.extras?.signal,
+const saveProviderImages = async (args: {
+  images: string[];
+  dataDir: string;
+  operationId: string;
+  signal?: AbortSignal;
+  outputFormat: "png" | "jpeg" | "webp";
+}) => {
+  const artifacts = [];
+  for (const [index, image] of args.images.entries()) {
+    const extension = args.outputFormat === "jpeg" ? "jpg" : args.outputFormat;
+    const expectedMime = `image/${args.outputFormat}`;
+    let detectedMime = expectedMime;
+    const filePath = path.join(
+      args.dataDir,
+      "media",
+      "outputs",
+      `${args.operationId}_${index}.${extension}`,
+    );
+    const saved = await materializeMediaArtifact({
+      filePath,
+      signal: args.signal,
+      producerTimeoutMs: 60_000,
+      validateExisting: async (candidate) =>
+        await validateDecodedImageFile(candidate, expectedMime),
+      producer: async (signal) => {
+        const bytes = await imageBytes(image, signal);
+        const decoded = await decodeAndValidateImage(bytes);
+        if (!decoded)
+          throw new Error("provider returned an unsupported or partial image");
+        if (decoded.mimeType !== expectedMime) {
+          throw new Error(
+            `provider returned ${decoded.mimeType} for requested ${expectedMime}`,
+          );
+        }
+        detectedMime = decoded.mimeType;
+        return bytes;
+      },
     });
-    if (result.ok) {
-      const images = extractFalImages(result.json);
-      if (images.length > 0) return images;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    artifacts.push({
+      kind: "image" as const,
+      index,
+      path: saved.path,
+      mimeType: detectedMime,
+      sizeBytes: saved.sizeBytes,
+    });
   }
-  return { error: "fal image generation timed out." };
+  return { artifacts, filePaths: artifacts.map((artifact) => artifact.path) };
 };
 
-const runOpenRouter = async (
-  input: LocalImageGenerationInput,
-  apiKey: string,
+const terminalToolResult = (
+  terminal: ManagedImageTerminalResult,
+  provider: string,
   model: string,
-  outputFormat: string,
-): Promise<string[] | { error: string }> => {
-  // OpenRouter's dedicated Image API (`POST /api/v1/images`) is uniform across
-  // every image model and returns `data[].b64_json` (same shape as OpenAI). The
-  // older chat-completions `modalities: ["image","text"]` path only worked for
-  // models that also emit text, so image-only models (e.g. openai/gpt-image-2)
-  // were rejected with a "text, image" modalities error.
-  // https://openrouter.ai/docs/features/multimodal/image-generation
-  const references = await collectReferenceDataUrls(
-    input.referenceImagePaths,
-    input.referenceImageUrls,
-  );
-  const body: Record<string, unknown> = {
+  prompt: string,
+): ToolResult => {
+  if (!terminal.ok) {
+    return {
+      error: terminal.message,
+      details: {
+        ...(terminal.jobId ? { jobId: terminal.jobId } : {}),
+        status: terminal.status,
+        provider,
+        model,
+        error: { code: terminal.code, message: terminal.message },
+        reattached: terminal.reattached,
+      },
+    };
+  }
+  const details = {
+    jobId: terminal.job.jobId,
+    capability: terminal.job.capability,
+    profile: provider,
+    provider,
     model,
-    prompt: input.prompt,
-    n: normalizeNumImages(input.args.num_images),
-    quality: asNonEmptyString(input.args.quality) ?? "low",
-    output_format: outputFormat,
+    prompt,
+    status: "succeeded",
+    filePaths: terminal.filePaths,
+    artifacts: terminal.artifacts,
+    reattached: terminal.reattached,
   };
-  // `aspect_ratio` is the normalized ratio OpenRouter accepts; models that
-  // don't support it ignore the field.
-  if (input.aspectRatio) {
-    body.aspect_ratio = input.aspectRatio;
-  }
-  if (references.length > 0) {
-    body.input_references = references.map((url) => ({
-      type: "image_url",
-      image_url: { url },
-    }));
-  }
-  const response = await fetchJson("https://openrouter.ai/api/v1/images", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://stella.sh",
-      "X-OpenRouter-Title": "Stella",
-    },
-    body: JSON.stringify(body),
-    signal: input.extras?.signal,
-  });
-  if (!response.ok) return { error: response.error };
-  // `/api/v1/images` returns `{ data: [{ b64_json }] }` — same as OpenAI.
-  return extractOpenAiImages(response.json);
+  return { result: details, details };
 };
 
 export const runLocalImageGeneration = async (
   input: LocalImageGenerationInput,
 ): Promise<ToolResult | null> => {
-  const stellaDataDir = input.context.stellaDataDir;
-  if (!stellaDataDir) return null;
-
-  const preferences = getImageGenerationPreferences(stellaDataDir);
+  const dataDir = input.context.stellaDataDir;
+  if (!dataDir) return null;
+  const preferences = getImageGenerationPreferences(dataDir);
   if (preferences.provider === "stella") return null;
-
-  const apiKey = await getAccessibleLocalLlmApiKey(
-    stellaDataDir,
-    preferences.provider,
-  );
+  const provider = preferences.provider;
+  const model = providerModel(provider, preferences.model);
+  const apiKey = await getAccessibleLocalLlmApiKey(dataDir, provider);
   if (!apiKey) {
-    return {
-      error: `Connect ${preferences.provider} in Settings to use it for images.`,
-    };
+    return { error: `Connect ${provider} in Settings to use it for images.` };
   }
 
-  const outputFormat = normalizeOutputFormat(input.args.output_format);
-  const providerModel = stripProviderPrefix(
-    preferences.provider,
-    preferences.model,
+  const references = await Promise.all(
+    input.referenceImagePaths.map((filePath) =>
+      authorizedReferenceAsDataUri(filePath, input.context),
+    ),
   );
-  const generated =
-    preferences.provider === "openai"
-      ? await runOpenAi(input, apiKey, providerModel, outputFormat)
-      : preferences.provider === "fal"
-        ? await runFal(input, apiKey, providerModel, outputFormat)
-        : await runOpenRouter(input, apiKey, providerModel, outputFormat);
-  if ("error" in generated) {
-    return {
-      error: `image_gen ${preferences.provider} failed: ${generated.error}`,
-    };
+  references.push(...input.referenceImageUrls);
+  const outputFormat = normalizeFormat(input.args.output_format);
+  const requestIdentity = {
+    route: "byok",
+    provider,
+    model,
+    prompt: input.prompt,
+    aspectRatio: input.aspectRatio ?? null,
+    size: input.args.size ?? null,
+    quality: input.args.quality ?? null,
+    outputFormat,
+    count: normalizeCount(input.args.num_images),
+    references,
+  };
+  const operation = reserveDurableImageOperation({
+    stellaDataDir: dataDir,
+    conversationId: input.context.conversationId,
+    toolCallId: input.context.requestId,
+    requestBody: requestIdentity,
+  });
+  if (operation.terminalResult) {
+    return terminalToolResult(
+      operation.terminalResult,
+      provider,
+      model,
+      input.prompt,
+    );
   }
-  if (generated.length === 0) {
-    return {
-      error: `image_gen ${preferences.provider} did not return an image.`,
-    };
+  const finish = (result: ManagedImageTerminalResult): ToolResult => {
+    settleImageOperation({
+      stellaDataDir: dataDir,
+      operationId: operation.operationId,
+      result,
+    });
+    return terminalToolResult(result, provider, model, input.prompt);
+  };
+  const unknown = (cause: string): ToolResult =>
+    finish({
+      ok: false,
+      ...(operation.jobId ? { jobId: operation.jobId } : {}),
+      status: "unknown",
+      code: "provider_outcome_unknown",
+      message: `${provider} may have accepted this image request, but Stella cannot safely reconcile it and will not submit it again.`,
+      reason: { cause },
+      reattached: operation.reattached,
+    });
+
+  if (
+    provider === "openai" &&
+    references.some((value) => HTTP_URL_RE.test(value))
+  ) {
+    return finish({
+      ok: false,
+      status: "failed",
+      code: "unsupported_reference",
+      message:
+        "OpenAI image edits require a local authorized image or a validated image data URI.",
+      reattached: operation.reattached,
+    });
   }
 
-  const jobId = `local-${preferences.provider}-${randomUUID()}`;
-  let filePaths: string[];
+  let images: string[] = [];
   try {
-    filePaths = await saveImages(stellaDataDir, jobId, outputFormat, generated);
+    if (operation.submissionState === "dispatching") {
+      return unknown(
+        "desktop restarted after the durable direct-provider claim",
+      );
+    }
+    if (
+      provider === "fal" &&
+      operation.submissionState === "submitted" &&
+      operation.jobId
+    ) {
+      // The provider request id was durable before restart, so polling is safe.
+    } else if (
+      !claimImageOperationSubmission({
+        stellaDataDir: dataDir,
+        operationId: operation.operationId,
+      })
+    ) {
+      return unknown("direct-provider submission claim was already consumed");
+    } else if (provider === "openai") {
+      const common = {
+        model,
+        prompt: input.prompt,
+        n: normalizeCount(input.args.num_images),
+        quality: asString(input.args.quality) ?? "low",
+        size: openAiSize(input.args.size, input.aspectRatio),
+        output_format: outputFormat,
+      };
+      let response: Response;
+      if (references.length === 0) {
+        response = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ...common, response_format: "b64_json" }),
+          signal: input.extras?.signal,
+        });
+      } else {
+        const form = new FormData();
+        for (const [key, value] of Object.entries(common))
+          form.append(key, String(value));
+        for (const [index, reference] of references.entries()) {
+          const match = reference.match(/^data:([^;,]+);base64,(.+)$/s);
+          if (!match)
+            throw new Error(
+              "OpenAI edits require local or data URI references",
+            );
+          form.append(
+            "image",
+            new Blob([decodeBase64ImageBounded(match[2])], { type: match[1] }),
+            `reference-${index}.png`,
+          );
+        }
+        response = await fetch("https://api.openai.com/v1/images/edits", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}` },
+          body: form,
+          signal: input.extras?.signal,
+        });
+      }
+      if (!response.ok) {
+        return finish({
+          ok: false,
+          status: "failed",
+          code: `provider_${response.status}`,
+          message: await parseError(response),
+          reattached: false,
+        });
+      }
+      images = extractOpenAiImages(await parseProviderImageJson(response));
+      markImageOperationSubmitted({
+        stellaDataDir: dataDir,
+        operationId: operation.operationId,
+      });
+    } else if (provider === "openrouter") {
+      const response = await fetch("https://openrouter.ai/api/v1/images", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://stella.sh",
+          "X-OpenRouter-Title": "Stella",
+        },
+        body: JSON.stringify({
+          model,
+          prompt: input.prompt,
+          n: normalizeCount(input.args.num_images),
+          quality: asString(input.args.quality) ?? "low",
+          output_format: outputFormat,
+          ...(input.aspectRatio ? { aspect_ratio: input.aspectRatio } : {}),
+          ...(references.length
+            ? {
+                input_references: references.map((url) => ({
+                  type: "image_url",
+                  image_url: { url },
+                })),
+              }
+            : {}),
+        }),
+        signal: input.extras?.signal,
+      });
+      if (!response.ok) {
+        return finish({
+          ok: false,
+          status: "failed",
+          code: `provider_${response.status}`,
+          message: await parseError(response),
+          reattached: false,
+        });
+      }
+      images = extractOpenAiImages(await parseProviderImageJson(response));
+      markImageOperationSubmitted({
+        stellaDataDir: dataDir,
+        operationId: operation.operationId,
+      });
+    } else {
+      const endpoint = references.length ? `${model}/edit` : model;
+      let requestId = operation.jobId;
+      if (!requestId) {
+        const response = await fetch(`https://queue.fal.run/${endpoint}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Key ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prompt: input.prompt,
+            quality: asString(input.args.quality) ?? "low",
+            image_size: input.args.size ?? "auto",
+            output_format: outputFormat,
+            num_images: normalizeCount(input.args.num_images),
+            ...(references.length ? { image_urls: references } : {}),
+          }),
+          signal: input.extras?.signal,
+        });
+        if (!response.ok) {
+          return finish({
+            ok: false,
+            status: "failed",
+            code: `provider_${response.status}`,
+            message: await parseError(response),
+            reattached: false,
+          });
+        }
+        const submitted = (await parseProviderImageJson(response)) as {
+          request_id?: unknown;
+        };
+        requestId = asString(submitted.request_id) ?? undefined;
+        if (!requestId) return unknown("Fal accepted no durable request id");
+        markImageOperationSubmitted({
+          stellaDataDir: dataDir,
+          operationId: operation.operationId,
+          providerRequestId: requestId,
+        });
+      }
+      for (let attempt = 0; attempt < 1_200; attempt += 1) {
+        if (input.extras?.signal?.aborted)
+          throw abortError(input.extras.signal);
+        const response = await fetch(
+          `https://queue.fal.run/${endpoint}/requests/${requestId}`,
+          {
+            headers: { Authorization: `Key ${apiKey}` },
+            signal: input.extras?.signal,
+          },
+        );
+        if (response.ok) {
+          images = extractFalImages(await parseProviderImageJson(response));
+          if (images.length) break;
+        } else if (response.status >= 400 && response.status < 500) {
+          return finish({
+            ok: false,
+            jobId: requestId,
+            status: "failed",
+            code: `provider_${response.status}`,
+            message: await parseError(response),
+            reattached: operation.reattached,
+          });
+        }
+        input.extras?.onUpdate?.({
+          details: {
+            jobId: requestId,
+            status: "running",
+            statusText: "Generating image with your Fal account…",
+          },
+        });
+        await sleep(3_000, input.extras?.signal);
+      }
+      if (!images.length)
+        return unknown("Fal did not reach a terminal result within one hour");
+    }
+
+    if (!images.length) {
+      return finish({
+        ok: false,
+        status: "failed",
+        code: "artifact_missing",
+        message: `${provider} completed without an image.`,
+        reattached: operation.reattached,
+      });
+    }
+    const saved = await saveProviderImages({
+      images,
+      dataDir,
+      operationId: operation.operationId,
+      signal: input.extras?.signal,
+      outputFormat,
+    });
+    const jobId = `local-${provider}-${operation.operationId}`;
+    return finish({
+      ok: true,
+      job: {
+        jobId,
+        capability: references.length ? "image_edit" : "text_to_image",
+        profile: provider,
+        status: "succeeded",
+        completedAt: Date.now(),
+      },
+      ...saved,
+      reattached: operation.reattached,
+    });
   } catch (error) {
-    return {
-      error: `image_gen saved no images: ${(error as Error).message}`,
-    };
+    if (input.extras?.signal?.aborted) {
+      settleImageOperation({
+        stellaDataDir: dataDir,
+        operationId: operation.operationId,
+        result: {
+          ok: false,
+          ...(operation.jobId ? { jobId: operation.jobId } : {}),
+          status: "canceled",
+          code: "canceled",
+          message: "Image generation was canceled.",
+          reattached: operation.reattached,
+        },
+      });
+      throw abortError(input.extras.signal);
+    }
+    return unknown(error instanceof Error ? error.message : String(error));
   }
-  const capability =
-    input.referenceImagePaths.length > 0 || input.referenceImageUrls.length > 0
-      ? "image_edit"
-      : "text_to_image";
-  return {
-    result: `image_gen ${preferences.provider} created ${filePaths.length} image${filePaths.length === 1 ? "" : "s"}.`,
-    details: {
-      jobId,
-      capability,
-      profile: preferences.provider,
-      provider: preferences.provider,
-      model: providerModel,
-      prompt: input.prompt,
-      ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
-      filePaths,
-      status: "succeeded",
-    },
-  };
 };

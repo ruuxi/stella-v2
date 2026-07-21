@@ -5,6 +5,8 @@ import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import {
   assertSafeDreamMemoryRoot,
   MEMORY_INDEX_FILE,
+  MEMORY_MAP_DERIVED_END_ANCHOR,
+  MEMORY_MAP_DERIVED_START_ANCHOR,
   MEMORY_MAP_FILE,
   MEMORY_MAP_MAX_CHARS,
   MEMORY_MAP_ROUTES_END_ANCHOR,
@@ -138,6 +140,12 @@ export const validateMemoryMapWrite = (updated: string): string | null => {
     !updated.includes(MEMORY_MAP_ROUTES_END_ANCHOR)
   ) {
     return `Write rejected: the ${MEMORY_MAP_ROUTES_START_ANCHOR} / ${MEMORY_MAP_ROUTES_END_ANCHOR} anchors must stay intact. Nothing was written.`;
+  }
+  if (
+    !updated.includes(MEMORY_MAP_DERIVED_START_ANCHOR) ||
+    !updated.includes(MEMORY_MAP_DERIVED_END_ANCHOR)
+  ) {
+    return `Write rejected: the ${MEMORY_MAP_DERIVED_START_ANCHOR} / ${MEMORY_MAP_DERIVED_END_ANCHOR} anchors must stay intact (restore them under "## Derived constraints" if missing). Nothing was written.`;
   }
   return null;
 };

@@ -17,6 +17,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  blankInjectedHtmlComments,
   ensureDreamMemoryLayout,
   MEMORY_MAP_MAX_CHARS,
   memoryIndexPath,
@@ -40,7 +41,7 @@ const stagingPathForPublishedFile = async (target: string): Promise<string> => {
   const digest = createHash("sha256").update(bytes).digest("hex");
   return path.join(
     path.dirname(target),
-    `.${path.basename(target)}.migration-v2-${digest}-999-crash.tmp`,
+    `.${path.basename(target)}.migration-v2-${digest}-999-00000000-0000-4000-8000-000000000000.tmp`,
   );
 };
 
@@ -209,6 +210,42 @@ describe("Dream memory_map layout and migration", () => {
     await expect(readFile(mapPath, "utf-8")).resolves.toBe(mapBefore);
   });
 
+  it("cleans only a verified unattached stage left by a crash before link", async () => {
+    const root = await createRoot();
+    const memories = path.join(root, "memories");
+    await mkdir(memories, { recursive: true });
+    const target = memoryMapPath(root);
+    const orphanContents = "complete but never linked\n";
+    const digest = createHash("sha256").update(orphanContents).digest("hex");
+    const orphan = path.join(
+      memories,
+      `.memory_map.md.migration-v2-${digest}-999-00000000-0000-4000-8000-000000000000.tmp`,
+    );
+    const unrelated = path.join(
+      memories,
+      ".memory_map.md.migration-v2-not-a-certified-stage.tmp",
+    );
+    const wrongDigest = createHash("sha256")
+      .update("different expected contents")
+      .digest("hex");
+    const tampered = path.join(
+      memories,
+      `.memory_map.md.migration-v2-${wrongDigest}-999-00000000-0000-4000-8000-000000000000.tmp`,
+    );
+    await writeFile(orphan, orphanContents, "utf-8");
+    await writeFile(unrelated, "operator file", "utf-8");
+    await writeFile(tampered, "does not match its name", "utf-8");
+
+    await ensureDreamMemoryLayout(root);
+
+    await expect(access(orphan)).rejects.toThrow();
+    await expect(readFile(unrelated, "utf-8")).resolves.toBe("operator file");
+    await expect(readFile(tampered, "utf-8")).resolves.toBe(
+      "does not match its name",
+    );
+    await expect(readFile(target, "utf-8")).resolves.toContain("# Memory map");
+  });
+
   it.each(["symlink", "hard link"])(
     "refuses an external legacy %s without publishing a map",
     async (kind) => {
@@ -335,5 +372,33 @@ describe("Dream memory_map layout and migration", () => {
     expect(/(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(injected)).toBe(false);
     expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(injected)).toBe(false);
     expect(map).toContain("migration cut");
+  });
+});
+
+describe("blankInjectedHtmlComments", () => {
+  it("blanks closed and unterminated comments without changing line positions", () => {
+    const raw = [
+      "<!-- DREAM:MAP_CHARTER",
+      "guidance the model must not match",
+      "-->",
+      "# Memory map",
+      "- real entry",
+      "<!-- never closed",
+      "still hidden",
+    ].join("\n");
+
+    const blanked = blankInjectedHtmlComments(raw);
+
+    expect(blanked.split("\n")).toEqual([
+      "",
+      "",
+      "",
+      "# Memory map",
+      "- real entry",
+      "",
+      "",
+    ]);
+    expect(blanked).not.toContain("guidance");
+    expect(blanked).not.toContain("still hidden");
   });
 });

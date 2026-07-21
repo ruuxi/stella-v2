@@ -1352,7 +1352,10 @@ export const maybeCompactRuntimeThread = async (args: {
   // The compaction overlay and every resident-prefix mutation committed in
   // one BEGIN IMMEDIATE transaction above. Effect's notifyCompacted path can
   // therefore reload only the old epoch or the complete new epoch, never a
-  // mixed prefix after failure or restart.
+  // mixed prefix after failure or restart. If the process exits after this
+  // commit but before the process-local notification, startup reconstructs
+  // the session from SQLite before history load, so the durable new epoch is
+  // the restart recovery marker rather than a second fallible sidecar.
   if (
     residentRefreshPlan.refreshedDocs > 0 ||
     residentRefreshPlan.removedDocs > 0

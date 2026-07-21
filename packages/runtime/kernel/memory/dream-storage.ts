@@ -208,6 +208,17 @@ export const stripInjectedHtmlComments = (text: string): string =>
     .replace(/\n{3,}/gu, "\n\n")
     .trim();
 
+/**
+ * Blank injected HTML comments without removing their newlines. Recall uses
+ * this for line-oriented map search so comment-only terms cannot match while
+ * reported line numbers remain aligned with the on-disk file. An unterminated
+ * opener is blanked through EOF, matching the stripping variant above.
+ */
+export const blankInjectedHtmlComments = (text: string): string =>
+  text
+    .replace(/<!--[\s\S]*?-->/gu, (comment) => comment.replace(/[^\n]/gu, ""))
+    .replace(/<!--[\s\S]*$/u, (comment) => comment.replace(/[^\n]/gu, ""));
+
 const extractAnchoredBody = (
   raw: string,
   startAnchor: string,
@@ -486,9 +497,11 @@ const parseStagingDigest = (
     return null;
   }
   const remainder = candidateName.slice(prefix.length, -4);
-  const separator = remainder.indexOf("-");
-  const digest = separator === -1 ? "" : remainder.slice(0, separator);
-  return /^[a-f0-9]{64}$/u.test(digest) ? digest : null;
+  const match =
+    /^([a-f0-9]{64})-([1-9][0-9]*)-([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/u.exec(
+      remainder,
+    );
+  return match?.[1] ?? null;
 };
 
 const listMigrationStagingNames = async (target: string): Promise<string[]> => {
@@ -496,6 +509,72 @@ const listMigrationStagingNames = async (target: string): Promise<string[]> => {
   return (await fs.readdir(path.dirname(target))).filter((name) =>
     name.startsWith(genericPrefix),
   );
+};
+
+/**
+ * Remove only an unattached file from this migration's reserved staging
+ * namespace when its exact production-shaped name, canonical location,
+ * stable inode, link count, and content digest all verify. This runs while
+ * the cross-process migration lock is held, so an unattached verified stage
+ * cannot belong to a live publisher. Unrecognized or aliased files are left
+ * untouched.
+ */
+const cleanupUnattachedMigrationStages = async (
+  target: string,
+  canonicalRoot: string,
+): Promise<void> => {
+  let removed = false;
+  for (const name of await listMigrationStagingNames(target)) {
+    const digest = parseStagingDigest(target, name);
+    if (!digest) continue;
+    const stagingPath = path.join(path.dirname(target), name);
+    try {
+      const pathStat = await fs.lstat(stagingPath);
+      if (
+        pathStat.isSymbolicLink() ||
+        !pathStat.isFile() ||
+        pathStat.nlink !== 1
+      ) {
+        continue;
+      }
+      if ((await fs.realpath(stagingPath)) !== path.join(canonicalRoot, name)) {
+        continue;
+      }
+      const handle = await fs.open(
+        stagingPath,
+        fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+      );
+      let verified: FileIdentity | undefined;
+      try {
+        const before = await handle.stat();
+        if (
+          !before.isFile() ||
+          before.nlink !== 1 ||
+          !sameFileIdentity(pathStat, before)
+        ) {
+          continue;
+        }
+        const bytes = await handle.readFile();
+        const after = await handle.stat();
+        if (sameFileIdentity(before, after) && sha256Hex(bytes) === digest) {
+          verified = after;
+        }
+      } finally {
+        await handle.close();
+      }
+      if (!verified) continue;
+      const current = await fs.lstat(stagingPath);
+      if (!sameFileIdentity(verified, current) || current.nlink !== 1) continue;
+      await fs.unlink(stagingPath);
+      removed = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        // A candidate that cannot be proved safe is not migration-owned.
+        continue;
+      }
+    }
+  }
+  if (removed) await syncDirectory(path.dirname(target));
 };
 
 /**
@@ -763,9 +842,12 @@ const ensureDreamMemoryLayoutLocked = async (
   }
   await ensurePrivateDir(root);
   const canonicalRoot = await assertSafeDreamMemoryRoot(stellaDataDir);
-  await publishFileIfMissing(memoryFilePath(stellaDataDir), MEMORY_TEMPLATE);
-
+  const memoryTarget = memoryFilePath(stellaDataDir);
   const mapTarget = memoryMapPath(stellaDataDir);
+  await cleanupUnattachedMigrationStages(memoryTarget, canonicalRoot);
+  await cleanupUnattachedMigrationStages(mapTarget, canonicalRoot);
+  await publishFileIfMissing(memoryTarget, MEMORY_TEMPLATE);
+
   if (await hasSafeExistingFile(mapTarget)) return;
 
   const legacySnapshots = await Promise.all([

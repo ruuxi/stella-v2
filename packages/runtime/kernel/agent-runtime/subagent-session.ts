@@ -30,6 +30,8 @@ import {
   persistThreadCustomMessage,
 } from "./thread-memory.js";
 import { createPiTools } from "./tool-adapters.js";
+import { createRunScopedStreamFn } from "./provider-stream-lifecycle.js";
+import { streamSimple } from "../../ai/stream.js";
 import type {
   RuntimeRunCallbacks,
   SubagentRunOptions,
@@ -156,6 +158,17 @@ export class SubagentSession extends PiSessionCore {
       opts.store,
       { threadId: this.threadId, runId },
     );
+
+    // Provider streams opened this turn supervise as child fibers of the
+    // root run's scope (fiber-derived abort, terminal-settlement join).
+    // Reset every turn: the Agent is long-lived but the registrar is
+    // per-run.
+    agent.streamFn = opts.superviseRunResource
+      ? createRunScopedStreamFn({
+          supervise: opts.superviseRunResource,
+          runId,
+        })
+      : streamSimple;
 
     const containmentTurn = this.beginAbortContainmentTurn(
       agent,

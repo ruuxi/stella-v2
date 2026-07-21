@@ -250,10 +250,11 @@
   transform: translateY(0);
 }
 
-/* Full-window account/settings + panel controls. Mounted only while the
-   workspace panel is closed; the open panel owns the same controls in its
-   header so the actions stay in top-shell chrome without duplication. */
-.shell-edge-right-cluster {
+/* Main-column top chrome. Positioning against the content-area flex sibling
+   immediately left of the right panel makes this follow the column boundary
+   through panel animation and live resizing without mirroring panel width. */
+.main-shell-top-actions {
+  --main-shell-sidebar-gap: 10px;
   position: absolute;
   top: 0;
   right: 0;
@@ -261,38 +262,38 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 10px 0 8px;
+  padding: 0 var(--main-shell-sidebar-gap) 0 8px;
   z-index: 80;
   -webkit-app-region: no-drag;
 }
 
-.shell-edge-right-cluster[data-platform="win"] {
+.main-shell-top-actions[data-platform="win"][data-panel-open="false"] {
   padding-right: 0;
 }
 
-.shell-edge-right-cluster .shell-topbar-account {
+.main-shell-top-actions .shell-topbar-account {
   flex: 0 1 auto;
   min-width: 0;
   max-width: min(240px, 32vw);
 }
 
-.shell-edge-right-cluster .shell-topbar-account-trigger {
+.main-shell-top-actions .shell-topbar-account-trigger {
   min-width: 0;
 }
 
 /* Anchor tooltips to the right edge so the rightmost (Close) hint doesn't
    spill past the window corner — mirrors the `.shell-topbar-right` rules. */
-.shell-edge-right-cluster .shell-topbar-icon-btn::after,
-.shell-edge-right-cluster .shell-topbar-wc-btn::after {
+.main-shell-top-actions .shell-topbar-icon-btn::after,
+.main-shell-top-actions .shell-topbar-wc-btn::after {
   left: auto;
   right: 0;
   transform: translateY(-2px);
 }
 
-.shell-edge-right-cluster .shell-topbar-icon-btn:hover::after,
-.shell-edge-right-cluster .shell-topbar-icon-btn:focus-visible::after,
-.shell-edge-right-cluster .shell-topbar-wc-btn:hover::after,
-.shell-edge-right-cluster .shell-topbar-wc-btn:focus-visible::after {
+.main-shell-top-actions .shell-topbar-icon-btn:hover::after,
+.main-shell-top-actions .shell-topbar-icon-btn:focus-visible::after,
+.main-shell-top-actions .shell-topbar-wc-btn:hover::after,
+.main-shell-top-actions .shell-topbar-wc-btn:focus-visible::after {
   transform: translateY(0);
 }
 

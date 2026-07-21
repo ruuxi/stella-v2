@@ -175,6 +175,14 @@ describe("real-store compaction provenance", () => {
     });
     const reloaded = reloadCompaction(context);
     expect(reloaded.data.fromHook).toBe(true);
+    expect(reloaded.data.summaryValidation).toMatchObject({
+      version: 1,
+      previousSummary: null,
+    });
+    expect(
+      (reloaded.data.summaryValidation as { middleTokens: number })
+        .middleTokens,
+    ).toBeGreaterThan(2_000);
     expect(reloaded.messages[0]?.content).toContain(overrideSummary);
   });
 
@@ -230,6 +238,10 @@ describe("real-store compaction provenance", () => {
     const reloaded = reloadCompaction(context);
     expect(reloaded.data.fromHook).toBeUndefined();
     expect(reloaded.data.summary).toBe(generatedSummary);
+    expect(reloaded.data.summaryValidation).toMatchObject({
+      version: 1,
+      previousSummary: null,
+    });
     expect(reloaded.messages[0]?.content).toContain(generatedSummary);
   });
 });

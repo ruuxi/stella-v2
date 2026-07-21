@@ -1323,6 +1323,12 @@ export const maybeCompactRuntimeThread = async (args: {
     fromEntryId: splitMessages.fromEntryId,
     toEntryId: splitMessages.toEntryId,
     tokensBefore: totalTokens,
+    summaryValidation: {
+      middleTokens,
+      ...(splitMessages.previousSummary !== undefined
+        ? { previousSummary: splitMessages.previousSummary }
+        : {}),
+    },
     fromHook: summaryFromOverride,
   });
   args.store.updateThreadSummary(args.threadKey, summary);

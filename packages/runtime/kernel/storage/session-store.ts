@@ -830,6 +830,28 @@ const parseThreadSessionEntry = (
         Number.isFinite(data.tokensBefore)
           ? data.tokensBefore
           : 0;
+      const rawSummaryValidation =
+        data?.summaryValidation &&
+        typeof data.summaryValidation === "object" &&
+        !Array.isArray(data.summaryValidation)
+          ? (data.summaryValidation as Record<string, unknown>)
+          : undefined;
+      const summaryValidation =
+        rawSummaryValidation?.version === 1 &&
+        typeof rawSummaryValidation.middleTokens === "number" &&
+        Number.isFinite(rawSummaryValidation.middleTokens) &&
+        Number.isSafeInteger(rawSummaryValidation.middleTokens) &&
+        rawSummaryValidation.middleTokens >= 0 &&
+        (rawSummaryValidation.previousSummary === null ||
+          typeof rawSummaryValidation.previousSummary === "string")
+          ? {
+              version: 1 as const,
+              middleTokens: rawSummaryValidation.middleTokens,
+              previousSummary: rawSummaryValidation.previousSummary as
+                | string
+                | null,
+            }
+          : undefined;
       if (!summary || (!(fromEntryId && toEntryId) && !firstKeptEntryId)) {
         return null;
       }
@@ -842,6 +864,7 @@ const parseThreadSessionEntry = (
         ...(fromEntryId && toEntryId ? { fromEntryId, toEntryId } : {}),
         ...(firstKeptEntryId ? { firstKeptEntryId } : {}),
         tokensBefore,
+        ...(summaryValidation ? { summaryValidation } : {}),
         ...(data && "details" in data ? { details: data.details } : {}),
         ...(data?.fromHook === true ? { fromHook: true } : {}),
       } satisfies RuntimeThreadCompactionEntry;
@@ -3148,6 +3171,11 @@ export class SessionStore {
     toEntryId?: string;
     firstKeptEntryId?: string;
     tokensBefore: number;
+    /** Exact inputs used for runtime summary acceptance. */
+    summaryValidation?: {
+      middleTokens: number;
+      previousSummary?: string;
+    };
     timestamp?: number;
     details?: unknown;
     fromHook?: boolean;
@@ -3164,6 +3192,16 @@ export class SessionStore {
       throw new Error("summary and a compaction range are required.");
     }
     const timestamp = asFiniteNumber(args.timestamp) ?? Date.now();
+    if (
+      args.summaryValidation &&
+      (!Number.isFinite(args.summaryValidation.middleTokens) ||
+        !Number.isSafeInteger(args.summaryValidation.middleTokens) ||
+        args.summaryValidation.middleTokens < 0)
+    ) {
+      throw new Error(
+        "summaryValidation.middleTokens must be a finite non-negative safe integer.",
+      );
+    }
     const conversationId = this.getThreadConversationId(threadKey);
     let entryId = "";
     this.withTransaction(() => {
@@ -3194,6 +3232,16 @@ export class SessionStore {
             : {}),
           ...(normalizedFromEntryId || toEntryId ? {} : { firstKeptEntryId }),
           tokensBefore: Math.max(0, Math.floor(args.tokensBefore)),
+          ...(args.summaryValidation
+            ? {
+                summaryValidation: {
+                  version: 1,
+                  middleTokens: args.summaryValidation.middleTokens,
+                  previousSummary:
+                    args.summaryValidation.previousSummary ?? null,
+                },
+              }
+            : {}),
           ...(args.details !== undefined ? { details: args.details } : {}),
           ...(args.fromHook ? { fromHook: true } : {}),
         },

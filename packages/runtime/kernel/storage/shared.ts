@@ -158,6 +158,13 @@ export type RuntimeThreadCompactionEntry = RuntimeThreadSessionEntryBase & {
   toEntryId?: string;
   firstKeptEntryId?: string;
   tokensBefore: number;
+  summaryValidation?: {
+    version: 1;
+    /** Exact folded middle-span estimate passed to validateThreadSummary. */
+    middleTokens: number;
+    /** Exact prior checkpoint input, or null when no prior checkpoint existed. */
+    previousSummary: string | null;
+  };
   details?: unknown;
   fromHook?: boolean;
 };

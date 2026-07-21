@@ -25,6 +25,7 @@ vi.mock("@stella/runtime/ai/stream", () => ({
 }));
 
 import {
+  buildDurableMemoryReference,
   buildThreadSummaryRequest,
   formatThreadCheckpointMessage,
   maybeCompactRuntimeThread,
@@ -603,6 +604,54 @@ describe("orchestrator thread compaction failure handling", () => {
       expect(subagentPrompt).not.toContain("ALREADY KNOWN");
       expect(subagentPrompt).not.toContain("123 Elm Street");
       expect(subagentPrompt).not.toContain("Do not restate durable memory");
+    } finally {
+      fs.rmSync(stellaDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves an odd-prefix astral document at the exact code-point cap without a lone surrogate", () => {
+    const stellaDataDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-compaction-unicode-"),
+    );
+    const memoriesDir = path.join(stellaDataDir, "memories");
+    fs.mkdirSync(memoriesDir, { recursive: true });
+    const exact = `x${"😀".repeat(7_999)}`;
+    expect(Array.from(exact)).toHaveLength(8_000);
+    expect(exact.length).toBe(15_999);
+    fs.writeFileSync(path.join(memoriesDir, "profile.md"), exact, "utf-8");
+
+    try {
+      const reference = buildDurableMemoryReference(stellaDataDir);
+      expect(reference).toBe(
+        `### User profile (memories/profile.md)\n${exact}`,
+      );
+      expect(reference).not.toContain("[truncated]");
+      expect(reference).not.toContain("\uFFFD");
+      expect(reference).not.toMatch(
+        /(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u,
+      );
+    } finally {
+      fs.rmSync(stellaDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("truncates an over-cap durable-memory reference only at a complete line", () => {
+    const stellaDataDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-compaction-line-cap-"),
+    );
+    const memoriesDir = path.join(stellaDataDir, "memories");
+    fs.mkdirSync(memoriesDir, { recursive: true });
+    const firstLine = `x${"😀".repeat(3_999)}`;
+    fs.writeFileSync(
+      path.join(memoriesDir, "profile.md"),
+      `${firstLine}\n${"z".repeat(4_100)}`,
+      "utf-8",
+    );
+
+    try {
+      expect(buildDurableMemoryReference(stellaDataDir)).toBe(
+        `### User profile (memories/profile.md)\n${firstLine}\n[truncated]`,
+      );
     } finally {
       fs.rmSync(stellaDataDir, { recursive: true, force: true });
     }

@@ -108,8 +108,8 @@ export function ThreadChatTab({ threadId }: { threadId: string }) {
         if (entry.kind !== "lifecycle") return true;
         return Boolean(
           entry.lifecycleEvent &&
-          isAgentStartedEvent(entry.lifecycleEvent) &&
-          lifecycleIndex.byStartEventId.has(entry.lifecycleEvent._id),
+            isAgentStartedEvent(entry.lifecycleEvent) &&
+            lifecycleIndex.byStartEventId.has(entry.lifecycleEvent._id),
         );
       }) ?? [],
     [lifecycleIndex, transcript],
@@ -198,7 +198,11 @@ export function ThreadChatTab({ threadId }: { threadId: string }) {
   }, [transcript?.entries.length]);
 
   return (
-    <section className="thread-chat-tab" aria-label="Read-only agent chat">
+    <section
+      className="chat-panel-tab thread-chat-tab"
+      aria-label="Read-only agent thread"
+      data-agent-type={transcript?.agentType}
+    >
       <header className="thread-chat-tab__header">
         <span className="thread-chat-tab__avatar" aria-hidden="true">
           <User size={16} strokeWidth={1.8} />

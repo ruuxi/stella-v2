@@ -20,6 +20,7 @@ import {
 } from "@/features/workspace-display/media-files";
 import { notifyMediaGenerationError } from "@/global/billing/paid-media-tier-toast";
 import { useMediaGeneration } from "./use-media-generation";
+import "@/features/chat/composer-surface.css";
 import { MediaTile } from "./MediaTile";
 import { AttachedChip } from "./AttachedChip";
 import { MediaActionBar } from "./MediaActionBar";
@@ -411,7 +412,7 @@ export const MediaTabContent = ({
       </div>
 
       <form
-        className={`media-tab__composer${composerExpanded ? " expanded" : ""}`}
+        className={`media-tab__composer composer-surface${composerExpanded ? " expanded" : ""}`}
         onSubmit={onSubmit}
       >
         <div

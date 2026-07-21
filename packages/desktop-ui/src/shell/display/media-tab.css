@@ -480,15 +480,10 @@
   gap: 0;
   margin: 0 10px 6px;
   padding: 8px 10px 10px;
-  background: var(--background);
-  border: 1px solid color-mix(in oklch, var(--border) 45%, transparent);
-  border-radius: 12px;
-  box-shadow: none;
-  overflow: visible;
-}
-
-.media-tab__composer:focus-within .media-tab__composer-row {
-  border-color: color-mix(in oklch, var(--primary) 35%, transparent);
+  /* The media composer is always multi-row, so it uses the same 20px radius
+     as the expanded main composer while the shared class owns its surface. */
+  border-radius: 20px;
+  overflow: clip;
 }
 
 .media-tab__modes {
@@ -544,12 +539,10 @@
   gap: 8px;
   min-height: 40px;
   padding: 6px 8px 6px 12px;
-  border: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  border: none;
   border-radius: 999px;
-  background: color-mix(in oklch, var(--foreground) 2%, transparent);
-  transition:
-    border-color 0.15s ease,
-    border-radius 0.2s ease;
+  background: transparent;
+  transition: border-radius 0.2s ease;
 }
 
 .media-tab__composer.expanded .media-tab__composer-row {

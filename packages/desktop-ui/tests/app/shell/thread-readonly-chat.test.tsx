@@ -415,6 +415,36 @@ describe("read-only exact-thread chat surfaces", () => {
     expect(listThreadTranscript.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  it.each([
+    ["general", "Agent"],
+    ["manager", "Manager"],
+  ] as const)(
+    "uses the normal right-sidebar chat canvas for %s threads",
+    async (agentType, label) => {
+      currentTranscript = {
+        ...transcript,
+        threadId: `${agentType}-thread`,
+        agentType,
+      };
+
+      await act(async () => {
+        root.render(<ThreadChatTab threadId={currentTranscript.threadId} />);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const surface = container.querySelector<HTMLElement>(".thread-chat-tab");
+      expect(surface).not.toBeNull();
+      expect(surface?.classList.contains("chat-panel-tab")).toBe(true);
+      expect(surface?.getAttribute("aria-label")).toBe(
+        "Read-only agent thread",
+      );
+      expect(surface?.dataset.agentType).toBe(agentType);
+      expect(surface?.textContent).toContain(`${label} · running`);
+      expect(surface?.textContent).toContain("Read only");
+    },
+  );
+
   it("renders captured Claude spawn and follow-up lifecycles as canonical completion cards", async () => {
     const childId = "m5-surface-1-rearchitect-worker-server-ts-into";
     currentTranscript = {

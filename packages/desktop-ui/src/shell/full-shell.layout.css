@@ -250,9 +250,9 @@
   transform: translateY(0);
 }
 
-/* Windows full-window: the panel toggle + custom min/max/close controls
-   share the top-right corner (controls outermost). Only mounted while the
-   panel is closed, so opening the panel removes the whole cluster. */
+/* Full-window account/settings + panel controls. Mounted only while the
+   workspace panel is closed; the open panel owns the same controls in its
+   header so the actions stay in top-shell chrome without duplication. */
 .shell-edge-right-cluster {
   position: absolute;
   top: 0;
@@ -261,9 +261,23 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-left: 8px;
+  padding: 0 10px 0 8px;
   z-index: 80;
   -webkit-app-region: no-drag;
+}
+
+.shell-edge-right-cluster[data-platform="win"] {
+  padding-right: 0;
+}
+
+.shell-edge-right-cluster .shell-topbar-account {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(240px, 32vw);
+}
+
+.shell-edge-right-cluster .shell-topbar-account-trigger {
+  min-width: 0;
 }
 
 /* Anchor tooltips to the right edge so the rightmost (Close) hint doesn't

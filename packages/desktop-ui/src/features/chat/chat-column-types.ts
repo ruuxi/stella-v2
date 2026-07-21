@@ -5,6 +5,7 @@ import type {
   EventRecord,
   TaskItem,
 } from "@/features/chat/lib/event-transforms";
+import type { ActivityPresence } from "@/features/chat/lib/activity-presence";
 
 export type { EventRecord };
 import type { ChatContext } from "@/shared/types/electron";
@@ -28,6 +29,8 @@ export type ChatColumnConversation = {
    * into state anymore.
    */
   tasks: TaskItem[];
+  /** Loaded/displayed state for Activity-driven shell chrome. */
+  activityPresence: ActivityPresence;
   /**
    * Agent-lifecycle activity events for the conversation. Fed by
    * `useConversationActivity` in local mode. Only file-derived surfaces

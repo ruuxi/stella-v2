@@ -19,6 +19,10 @@ import {
   buildActivityTasks,
   type TaskLiveDecoration,
 } from "@/features/chat/lib/event-transforms";
+import {
+  getActivityPresence,
+  type ActivityPresence,
+} from "@/features/chat/lib/activity-presence";
 
 const EMPTY_RECORDS: ThreadActivityRecord[] = [];
 
@@ -30,6 +34,7 @@ const EMPTY_SNAPSHOT: ThreadActivitySnapshot = {
 
 export type ConversationThreadActivity = {
   records: ThreadActivityRecord[];
+  hasLoaded: boolean;
   isInitialLoading: boolean;
 };
 
@@ -89,6 +94,7 @@ export const useThreadActivity = (
 
   return {
     records: activeSnapshot.records,
+    hasLoaded: !conversationId || activeSnapshot.hasLoaded,
     isInitialLoading:
       Boolean(conversationId) &&
       !activeSnapshot.hasLoaded &&
@@ -96,16 +102,30 @@ export const useThreadActivity = (
   };
 };
 
+export type ActivityTaskState = {
+  tasks: ReturnType<typeof buildActivityTasks>;
+  presence: ActivityPresence;
+};
+
 /** Exact Activity projection consumed by the full chat runtime. Keeping the
  * mounted storage subscription and task transform together gives tests the
  * same zero-cost path that production renders. */
+export const useActivityTaskState = (
+  conversationId?: string,
+  decorations?: Record<string, TaskLiveDecoration>,
+): ActivityTaskState => {
+  const { records, hasLoaded } = useThreadActivity(conversationId);
+  return useMemo(() => {
+    const tasks = buildActivityTasks(records, decorations);
+    return {
+      tasks,
+      presence: getActivityPresence(tasks, hasLoaded),
+    };
+  }, [records, decorations, hasLoaded]);
+};
+
+/** Backward-compatible task-only projection for task-focused consumers. */
 export const useActivityTasks = (
   conversationId?: string,
   decorations?: Record<string, TaskLiveDecoration>,
-) => {
-  const { records } = useThreadActivity(conversationId);
-  return useMemo(
-    () => buildActivityTasks(records, decorations),
-    [records, decorations],
-  );
-};
+) => useActivityTaskState(conversationId, decorations).tasks;

@@ -31,7 +31,7 @@ import { sanitizeInlineImagePayload } from "../utils/image-payload.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.js";
-import { anomalousStreamStopError, providerAbortedStopMessage } from "../utils/provider-stop.js";
+import { anomalousStreamStopError, pausedTurnStopMessage, providerAbortedStopMessage } from "../utils/provider-stop.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 
 import { resolveCloudflareBaseUrl } from "./cloudflare.js";
@@ -550,42 +550,50 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 			// modified block still slips through, drop the most-recent thinking /
 			// redacted_thinking block(s) from the offending message and retry.
 			// Bounded so a persistent 400 can never loop forever.
-			let response: Response;
 			let thinkingStripAttempts = 0;
-			while (true) {
-				try {
-					response = await client.messages.create({ ...params, stream: true }, requestOptions).asResponse();
-					break;
-				} catch (err) {
-					if (
-						thinkingStripAttempts < MAX_THINKING_STRIP_RETRIES &&
-						isLatestAssistantThinkingModifiedError(err)
-					) {
-						const stripped = stripThinkingFromLastAssistantParam(params.messages);
-						if (stripped) {
-							params = { ...params, messages: stripped };
-							thinkingStripAttempts++;
-							continue;
+			const openStream = async (): Promise<Response> => {
+				while (true) {
+					try {
+						return await client.messages.create({ ...params, stream: true }, requestOptions).asResponse();
+					} catch (err) {
+						if (
+							thinkingStripAttempts < MAX_THINKING_STRIP_RETRIES &&
+							isLatestAssistantThinkingModifiedError(err)
+						) {
+							const stripped = stripThinkingFromLastAssistantParam(params.messages);
+							if (stripped) {
+								params = { ...params, messages: stripped };
+								thinkingStripAttempts++;
+								continue;
+							}
 						}
+						throw err;
 					}
-					throw err;
 				}
-			}
+			};
+			let response = await openStream();
 			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
 			stream.push({ type: "start", partial: output });
 
 			type Block = (ThinkingContent | TextContent | (ToolCall & { partialJson: string })) & { index: number };
 			const blocks = output.content as Block[];
 
-			for await (const event of iterateAnthropicEvents(response, effectiveSignal)) {
+			let pauseResubmits = 0;
+			for (;;) {
+				let pausedTurn = false;
+				let sawUncapturedBlock = false;
+				const segmentStart = output.content.length;
+				const usageBase = { ...output.usage };
+
+				for await (const event of iterateAnthropicEvents(response, effectiveSignal)) {
 				if (event.type === "message_start") {
 					output.responseId = event.message.id;
 					// Capture initial token usage from message_start event
 					// This ensures we have input token counts even if the stream is aborted early
-					output.usage.input = event.message.usage.input_tokens || 0;
-					output.usage.output = event.message.usage.output_tokens || 0;
-					output.usage.cacheRead = event.message.usage.cache_read_input_tokens || 0;
-					output.usage.cacheWrite = event.message.usage.cache_creation_input_tokens || 0;
+					output.usage.input = usageBase.input + (event.message.usage.input_tokens || 0);
+					output.usage.output = usageBase.output + (event.message.usage.output_tokens || 0);
+					output.usage.cacheRead = usageBase.cacheRead + (event.message.usage.cache_read_input_tokens || 0);
+					output.usage.cacheWrite = usageBase.cacheWrite + (event.message.usage.cache_creation_input_tokens || 0);
 					// Anthropic doesn't provide total_tokens, compute from components
 					output.usage.totalTokens =
 						output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
@@ -633,6 +641,8 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 						};
 						output.content.push(block);
 						stream.push({ type: "toolcall_start", contentIndex: output.content.length - 1, partial: output });
+					} else {
+						sawUncapturedBlock = true;
 					}
 				} else if (event.type === "content_block_delta") {
 					if (event.delta.type === "text_delta") {
@@ -717,33 +727,67 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 					}
 				} else if (event.type === "message_delta") {
 					if (event.delta.stop_reason) {
+						pausedTurn = event.delta.stop_reason === "pause_turn";
 						output.stopReason = mapStopReason(event.delta.stop_reason);
 						// Preserve the raw provider stop reason (refusal/sensitive/etc.)
 						// so the surfaced error explains WHY the stream died instead of
 						// collapsing into an opaque "unknown error".
 						if (output.stopReason === "error" && !output.errorMessage) {
-							output.errorMessage = providerAbortedStopMessage(event.delta.stop_reason);
+							output.errorMessage = pausedTurn
+								? pausedTurnStopMessage()
+								: providerAbortedStopMessage(event.delta.stop_reason);
 						}
 					}
 					// Only update usage fields if present (not null).
 					// Preserves input_tokens from message_start when proxies omit it in message_delta.
 					if (event.usage.input_tokens != null) {
-						output.usage.input = event.usage.input_tokens;
+						output.usage.input = usageBase.input + event.usage.input_tokens;
 					}
 					if (event.usage.output_tokens != null) {
-						output.usage.output = event.usage.output_tokens;
+						output.usage.output = usageBase.output + event.usage.output_tokens;
 					}
 					if (event.usage.cache_read_input_tokens != null) {
-						output.usage.cacheRead = event.usage.cache_read_input_tokens;
+						output.usage.cacheRead = usageBase.cacheRead + event.usage.cache_read_input_tokens;
 					}
 					if (event.usage.cache_creation_input_tokens != null) {
-						output.usage.cacheWrite = event.usage.cache_creation_input_tokens;
+						output.usage.cacheWrite = usageBase.cacheWrite + event.usage.cache_creation_input_tokens;
 					}
 					// Anthropic doesn't provide total_tokens, compute from components
 					output.usage.totalTokens =
 						output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
 					calculateCost(model, output.usage);
 				}
+				}
+
+				if (
+					!pausedTurn ||
+					options?.signal?.aborted ||
+					sawUncapturedBlock ||
+					pauseResubmits >= MAX_PAUSE_TURN_RESUBMITS
+				) {
+					break;
+				}
+
+				pauseResubmits++;
+				for (const block of blocks) {
+					delete (block as { index?: number }).index;
+					delete (block as { partialJson?: string }).partialJson;
+				}
+				const continuation = convertAssistantContentBlocks(output.content.slice(segmentStart), isOAuth);
+				if (continuation.length > 0) {
+					const messages = [...params.messages];
+					const last = messages[messages.length - 1];
+					if (last && last.role === "assistant" && Array.isArray(last.content)) {
+						messages[messages.length - 1] = { ...last, content: [...last.content, ...continuation] };
+					} else {
+						messages.push({ role: "assistant", content: continuation });
+					}
+					params = { ...params, messages };
+				}
+				output.stopReason = "error";
+				output.errorMessage = undefined;
+				response = await openStream();
+				await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
 			}
 
 			if (options?.signal?.aborted) {
@@ -1164,6 +1208,9 @@ function normalizeToolCallId(id: string): string {
  */
 const MAX_THINKING_STRIP_RETRIES = 2;
 
+/** Maximum in-place continuations for Anthropic's pause_turn protocol. */
+const MAX_PAUSE_TURN_RESUBMITS = 4;
+
 /**
  * Default bound (ms) on how long an external abort waits for an in-flight
  * Anthropic thinking block to seal before it is forced through anyway. Kept
@@ -1397,6 +1444,47 @@ export function stripDanglingThinkingFromLatestAssistant(messages: Message[]): M
 	return next;
 }
 
+/**
+ * Convert internal assistant content blocks to Anthropic request blocks.
+ * Shared by history replay and the pause_turn continuation path.
+ */
+function convertAssistantContentBlocks(
+	content: AssistantMessage["content"],
+	isOAuthToken: boolean,
+): ContentBlockParam[] {
+	const blocks: ContentBlockParam[] = [];
+
+	for (const block of content) {
+		if (block.type === "text") {
+			if (block.text.trim().length === 0) continue;
+			blocks.push({ type: "text", text: sanitizeSurrogates(block.text) });
+		} else if (block.type === "thinking") {
+			if (block.redacted) {
+				blocks.push({ type: "redacted_thinking", data: block.thinkingSignature! });
+				continue;
+			}
+			if (block.thinking.trim().length === 0) continue;
+			if (!block.thinkingSignature || block.thinkingSignature.trim().length === 0) {
+				blocks.push({ type: "text", text: sanitizeSurrogates(block.thinking) });
+			} else {
+				blocks.push({
+					type: "thinking",
+					thinking: sanitizeSurrogates(block.thinking),
+					signature: block.thinkingSignature,
+				});
+			}
+		} else if (block.type === "toolCall") {
+			blocks.push({
+				type: "tool_use",
+				id: block.id,
+				name: isOAuthToken ? toClaudeCodeName(block.name) : block.name,
+				input: block.arguments ?? {},
+			});
+		}
+	}
+	return blocks;
+}
+
 // Exported for tests: asserts the outgoing Anthropic request shape, including
 // validation/repair of tool-produced image blocks.
 export function convertMessages(
@@ -1465,49 +1553,7 @@ export function convertMessages(
 				});
 			}
 		} else if (msg.role === "assistant") {
-			const blocks: ContentBlockParam[] = [];
-
-			for (const block of msg.content) {
-				if (block.type === "text") {
-					if (block.text.trim().length === 0) continue;
-					blocks.push({
-						type: "text",
-						text: sanitizeSurrogates(block.text),
-					});
-				} else if (block.type === "thinking") {
-					// Redacted thinking: pass the opaque payload back as redacted_thinking
-					if (block.redacted) {
-						blocks.push({
-							type: "redacted_thinking",
-							data: block.thinkingSignature!,
-						});
-						continue;
-					}
-					if (block.thinking.trim().length === 0) continue;
-					// If thinking signature is missing/empty (e.g., from aborted stream),
-					// convert to plain text block without <thinking> tags to avoid API rejection
-					// and prevent Claude from mimicking the tags in responses
-					if (!block.thinkingSignature || block.thinkingSignature.trim().length === 0) {
-						blocks.push({
-							type: "text",
-							text: sanitizeSurrogates(block.thinking),
-						});
-					} else {
-						blocks.push({
-							type: "thinking",
-							thinking: sanitizeSurrogates(block.thinking),
-							signature: block.thinkingSignature,
-						});
-					}
-				} else if (block.type === "toolCall") {
-					blocks.push({
-						type: "tool_use",
-						id: block.id,
-						name: isOAuthToken ? toClaudeCodeName(block.name) : block.name,
-						input: block.arguments ?? {},
-					});
-				}
-			}
+			const blocks = convertAssistantContentBlocks(msg.content, isOAuthToken);
 			if (blocks.length === 0) continue;
 			params.push({
 				role: "assistant",

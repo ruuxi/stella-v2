@@ -1,3 +1,4 @@
+import { isTransientProviderStreamAnomalyMessage } from "../../ai/utils/provider-stop.js";
 import { isTransientTransportError } from "../../ai/utils/retry.js";
 
 export const AGENT_RUN_MAX_RETRIES = 3;
@@ -164,6 +165,7 @@ export const classifyAgentRunFailure = (
   }
   if (
     chain.some(isTransientTransportError) ||
+    messages.some(isTransientProviderStreamAnomalyMessage) ||
     /unexpected\s+eof|\beof\b|end of file|transport eof|connection recovery failed|socket hang up|fetch failed|failed to fetch|connection (?:reset|refused|timed?\s*out)|\beconnreset\b|\betimedout\b|timed?\s*out|timeout|agent (?:did not produce|produced no) activity/i.test(
       combined,
     )

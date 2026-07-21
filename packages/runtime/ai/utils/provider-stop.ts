@@ -69,6 +69,44 @@ export function providerAbortedStopMessage(rawStopReason: string): string {
 }
 
 /**
+ * Anthropic can pause a turn after returning partial assistant content. The
+ * adapter resubmits that content in place while its bounded continuation
+ * budget remains; this neutral wording keeps any unresolved pause retryable.
+ */
+export function pausedTurnStopMessage(): string {
+	return (
+		'Provider paused the turn (stop reason: "pause_turn") before the response completed. ' +
+		"Resubmitting the request continues the turn."
+	);
+}
+
+/**
+ * Google prompt feedback is a deterministic request-content block, not a
+ * transport anomaly. Content-abort containment recognizes this exact shape.
+ */
+export function promptBlockedStopMessage(blockReason: string, blockReasonMessage?: string): string {
+	const detail = blockReasonMessage?.trim();
+	return (
+		`Provider blocked the prompt (block reason: "${blockReason}")${detail ? `: ${detail}` : ""}. ` +
+		"This is a provider-side content block triggered by something in the request content."
+	);
+}
+
+const TRANSIENT_STREAM_ANOMALY_PATTERNS: RegExp[] = [
+	/\bprovider stream ended with stopreason "/i,
+	/\bprovider ended the stream abnormally \(stop reason:/i,
+	/\bprovider paused the turn \(stop reason: "pause_turn"\)/i,
+	/\bstream ended before message_stop\b/i,
+];
+
+/** Neutral terminal/protocol anomalies that are safe for the run retry ladder. */
+export function isTransientProviderStreamAnomalyMessage(message: string | undefined): boolean {
+	const trimmed = message?.trim();
+	if (!trimmed) return false;
+	return TRANSIENT_STREAM_ANOMALY_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+/**
  * Error to throw when a stream finished in an `error`/`aborted` state.
  * Prefers whatever detail the adapter captured (provider error body, raw
  * stop reason) over a generic fallback.

@@ -22,6 +22,7 @@ import {
   buildRuntimeThreadKey,
   maybeCompactRuntimeThread,
 } from "../thread-runtime.js";
+import type { ThreadCompactionResult } from "../thread-runtime.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import { now } from "./shared.js";
 import type { AgentMessage } from "../agent-core/types.js";
@@ -865,7 +866,7 @@ export const compactRuntimeThreadHistory = async (args: {
   stellaDataDir?: string;
   /** Aborts the summarization LLM call on scheduler shutdown. */
   abortSignal?: AbortSignal;
-}): Promise<{ compacted: boolean }> => {
+}): Promise<ThreadCompactionResult> => {
   try {
     return await maybeCompactRuntimeThread({
       store: args.store,

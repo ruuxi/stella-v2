@@ -624,7 +624,7 @@ function mapToolChoice(
 }
 
 function mapChatStopReason(reason: string | null): StopReason {
-	if (reason === null) return "stop";
+	if (reason === null) return "error";
 	switch (reason) {
 		case "stop":
 			return "stop";
@@ -636,6 +636,6 @@ function mapChatStopReason(reason: string | null): StopReason {
 		case "error":
 			return "error";
 		default:
-			return "stop";
+			return "error";
 	}
 }

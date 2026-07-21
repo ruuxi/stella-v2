@@ -1,8 +1,8 @@
 /**
  * Persistent floating left sidebar — the consolidated index.
  *
- * Top-to-bottom: the Home entry and the Activity sections
- * (`LeftSidebarSections`). Activity rows expand in place to show each agent's messages and
+ * Top-to-bottom: Activity sections (`LeftSidebarSections`) and account
+ * controls. Activity rows expand in place to show each agent's messages and
  * files. Search lives entirely in the composer pill's activity tray — the
  * sidebar never filters by it, so an active tray search leaves this stable
  * activity index untouched.
@@ -10,22 +10,12 @@
  * Full window only — the mini window keeps its own chrome.
  */
 
-import { useMemo, useSyncExternalStore } from "react";
-import { Link, useMatchRoute } from "@tanstack/react-router";
-import type { AppMetadata } from "@/app/_shared/app-metadata";
-import {
-  getSnapshot as getAppRegistrySnapshot,
-  subscribe as subscribeToAppRegistry,
-} from "@/shell/sidebar/app-registry";
 import { getPlatform } from "@/platform/electron/platform";
 import { LeftSidebarSections } from "@/shell/LeftSidebarSections";
 import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
 import { ShellTopBarUpdatePill } from "@/shell/ShellTopBarUpdatePill";
 import "./left-sidebar.css";
 import "./shell-junction.css";
-
-const useRegisteredApps = (): readonly AppMetadata[] =>
-  useSyncExternalStore(subscribeToAppRegistry, getAppRegistrySnapshot);
 
 type LeftSidebarProps = {
   onSignIn?: () => void;
@@ -39,17 +29,9 @@ export function LeftSidebar({
   onConnect,
   collapsed = false,
 }: LeftSidebarProps) {
-  const allApps = useRegisteredApps();
-  const matchRoute = useMatchRoute();
   const platform = getPlatform();
   const isMac = platform === "darwin";
   const isWin = platform === "win32";
-
-  // Primary nav: Home. Chat remains the persistent conversation surface.
-  const navApps = useMemo(
-    () => allApps.filter((app) => !app.hideFromSidebar && app.slot === "top"),
-    [allApps],
-  );
 
   return (
     <aside
@@ -64,41 +46,6 @@ export function LeftSidebar({
           <div className="left-sidebar__chrome-spacer" aria-hidden="true" />
         </div>
         <div className="left-sidebar__scroll">
-          {navApps.length > 0 ? (
-            <nav className="left-sidebar__nav" aria-label="Navigation">
-              {navApps.map((app) => {
-                const active = Boolean(
-                  matchRoute({ to: app.route, fuzzy: true }),
-                );
-                const Icon = app.icon;
-                return (
-                  <Link
-                    key={app.id}
-                    to={app.route}
-                    className="left-sidebar__nav-row"
-                    data-active={active ? "true" : undefined}
-                    aria-current={active ? "page" : undefined}
-                    onClick={(event) => {
-                      // Selection behavior runs both while entering a route
-                      // and while re-entering its active surface. Home needs
-                      // this before /chat navigation so a nonempty chat that
-                      // was left for Settings deterministically opens Home.
-                      app.onSelect?.();
-                      if (active && app.onSelect) {
-                        event.preventDefault();
-                      }
-                    }}
-                  >
-                    <span className="left-sidebar__nav-icon" aria-hidden="true">
-                      <Icon size={16} />
-                    </span>
-                    <span className="left-sidebar__nav-label">{app.label}</span>
-                  </Link>
-                );
-              })}
-            </nav>
-          ) : null}
-
           <LeftSidebarSections variant="overview" />
         </div>
 

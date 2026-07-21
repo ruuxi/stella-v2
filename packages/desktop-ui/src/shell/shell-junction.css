@@ -1,10 +1,7 @@
-/* Three-column shell junction — full-height side panels, visible borders.
-   Left seam: center column rounds outward. Right seam: flat — the display
-   panel butts straight against the center column with no curve. */
+/* Three-column shell junction. The left sidebar and center column share one
+   continuous canvas; the right display panel keeps its existing behavior. */
 
 :root[data-shell-panel-chrome="true"] {
-  --shell-junction-radius: 16px;
-  --shell-window-radius: 12px;
   --shell-junction-border: var(--border-base);
 }
 
@@ -12,11 +9,11 @@
 
 :root[data-shell-panel-chrome="true"] .content-area {
   border: 1px solid var(--shell-junction-border);
-  /* Round only the left edge — right edge stays square for inward panel scoops. */
-  border-radius: var(--shell-junction-radius) 0 0 var(--shell-junction-radius);
+  border-left: none;
+  border-radius: 0;
   overflow: clip;
   z-index: 2;
-  box-shadow: var(--panel-surface-highlight);
+  box-shadow: none;
 }
 
 :root[data-shell-panel-chrome="true"] .left-sidebar {
@@ -25,60 +22,6 @@
 
 :root[data-shell-panel-chrome="true"] .right-sidebar.right-sidebar-panel {
   z-index: 1;
-}
-
-:root[data-shell-panel-chrome="true"] .full-body::before {
-  content: "";
-  position: absolute;
-  top: 1px;
-  bottom: 1px;
-  left: var(--shell-left-sidebar-width, 0px);
-  width: var(--shell-junction-radius);
-  z-index: 1;
-  opacity: 0;
-  pointer-events: none;
-  background: var(--panel-surface-bg-gradient);
-  transition:
-    left 460ms cubic-bezier(0.32, 0.72, 0.16, 1),
-    opacity 1ms linear 460ms;
-  -webkit-mask:
-    radial-gradient(
-        circle at 100% 100%,
-        transparent calc(var(--shell-junction-radius) - 0.5px),
-        #000 calc(var(--shell-junction-radius) + 0.5px)
-      )
-      top left / var(--shell-junction-radius) var(--shell-junction-radius)
-      no-repeat,
-    radial-gradient(
-        circle at 100% 0,
-        transparent calc(var(--shell-junction-radius) - 0.5px),
-        #000 calc(var(--shell-junction-radius) + 0.5px)
-      )
-      bottom left / var(--shell-junction-radius) var(--shell-junction-radius)
-      no-repeat;
-  mask:
-    radial-gradient(
-        circle at 100% 100%,
-        transparent calc(var(--shell-junction-radius) - 0.5px),
-        #000 calc(var(--shell-junction-radius) + 0.5px)
-      )
-      top left / var(--shell-junction-radius) var(--shell-junction-radius)
-      no-repeat,
-    radial-gradient(
-        circle at 100% 0,
-        transparent calc(var(--shell-junction-radius) - 0.5px),
-        #000 calc(var(--shell-junction-radius) + 0.5px)
-      )
-      bottom left / var(--shell-junction-radius) var(--shell-junction-radius)
-      no-repeat;
-}
-
-:root[data-shell-panel-chrome="true"][data-shell-left-sidebar-docked="true"]
-  .full-body::before {
-  opacity: 1;
-  transition:
-    left 460ms cubic-bezier(0.32, 0.72, 0.16, 1),
-    opacity 80ms linear;
 }
 
 /* ── Left sidebar ──────────────────────────────────────────────────── */
@@ -92,12 +35,10 @@
   position: relative;
   height: 100%;
   margin: 0;
-  border: 1px solid var(--shell-junction-border);
-  border-right: none;
+  background: transparent;
+  border: none;
   border-radius: 0;
-  border-top-left-radius: var(--shell-window-radius);
-  border-bottom-left-radius: var(--shell-window-radius);
-  box-shadow: var(--panel-surface-highlight);
+  box-shadow: none;
 }
 
 /* ── Right viewer panel ────────────────────────────────────────────── */

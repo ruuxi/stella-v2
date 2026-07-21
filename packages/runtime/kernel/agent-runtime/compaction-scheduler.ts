@@ -4,6 +4,13 @@
  * Keeps compaction off the user-visible finalize path. Each thread gets at
  * most one active run and one queued follow-up, which bounds stale history
  * without letting back-to-back turns spawn unbounded summary work.
+ *
+ * Ownership model (M5 surface 3): this is the keyed fiber executor for
+ * compaction — one supervised Effect fiber per active run keyed by
+ * `threadKey`, same-key schedules coalesce into the pending slot (never a
+ * duplicate run), failures are logged and never block the next schedule,
+ * and shutdown interrupts each run's abort signal and joins settlement.
+ * Durable SQLite state remains the only truth; fibers are executors.
  */
 
 import { createRuntimeLogger } from "../debug.js";

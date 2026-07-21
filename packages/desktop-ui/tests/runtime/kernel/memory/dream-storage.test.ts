@@ -1,12 +1,16 @@
 import {
   access,
+  link,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -20,6 +24,7 @@ import {
   memorySummaryPath,
   readMemoryMap,
   stripInjectedHtmlComments,
+  unicodeCodePointLength,
 } from "@stella/runtime/kernel/memory/dream-storage";
 
 const roots = new Set<string>();
@@ -28,6 +33,15 @@ const createRoot = async (): Promise<string> => {
   const root = await mkdtemp(path.join(tmpdir(), "stella-dream-storage-"));
   roots.add(root);
   return root;
+};
+
+const stagingPathForPublishedFile = async (target: string): Promise<string> => {
+  const bytes = await readFile(target);
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  return path.join(
+    path.dirname(target),
+    `.${path.basename(target)}.migration-v2-${digest}-999-crash.tmp`,
+  );
 };
 
 afterEach(async () => {
@@ -74,9 +88,9 @@ describe("Dream memory_map layout and migration", () => {
     expect(map).toContain("Migrated focus notes");
     expect(map).toContain("Shipping the certified redesign");
     expect(map).not.toContain("old archived bullet");
-    expect(stripInjectedHtmlComments(map).length).toBeLessThanOrEqual(
-      MEMORY_MAP_MAX_CHARS,
-    );
+    expect(
+      unicodeCodePointLength(stripInjectedHtmlComments(map)),
+    ).toBeLessThanOrEqual(MEMORY_MAP_MAX_CHARS);
     await expect(readFile(memorySummaryPath(root), "utf-8")).resolves.toBe(
       summary,
     );
@@ -138,6 +152,129 @@ describe("Dream memory_map layout and migration", () => {
     );
   });
 
+  it("serializes concurrent publishers and leaves one complete MEMORY/map pair", async () => {
+    const root = await createRoot();
+    const alias = `${root}-alias`;
+    await symlink(root, alias);
+    roots.add(alias);
+    await mkdir(path.join(root, "memories"), { recursive: true });
+    await writeFile(
+      memoryIndexPath(root),
+      "# Index\n\n- concurrent route -> MEMORY.md\n",
+      "utf-8",
+    );
+
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        ensureDreamMemoryLayout(index % 2 === 0 ? root : alias),
+      ),
+    );
+    await ensureDreamMemoryLayout(root);
+
+    await expect(
+      readFile(path.join(root, "memories", "MEMORY.md"), "utf-8"),
+    ).resolves.toContain("# MEMORY");
+    await expect(readFile(memoryMapPath(root), "utf-8")).resolves.toContain(
+      "concurrent route",
+    );
+    expect(
+      (await readdir(path.join(root, "memories"))).filter((name) =>
+        name.includes(".migration-"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("recovers verified same-inode staging links for MEMORY and map while ignoring later legacy edits", async () => {
+    const root = await createRoot();
+    await mkdir(path.join(root, "memories"), { recursive: true });
+    await writeFile(memorySummaryPath(root), "- original legacy focus\n");
+    await ensureDreamMemoryLayout(root);
+    const memoryPath = path.join(root, "memories", "MEMORY.md");
+    const mapPath = memoryMapPath(root);
+    const mapBefore = await readFile(mapPath, "utf-8");
+    const memoryStage = await stagingPathForPublishedFile(memoryPath);
+    const mapStage = await stagingPathForPublishedFile(mapPath);
+    await link(memoryPath, memoryStage);
+    await link(mapPath, mapStage);
+    expect((await stat(memoryPath)).nlink).toBe(2);
+    expect((await stat(mapPath)).nlink).toBe(2);
+    await writeFile(memorySummaryPath(root), "- later retired-file edit\n");
+
+    await ensureDreamMemoryLayout(root);
+
+    expect((await stat(memoryPath)).nlink).toBe(1);
+    expect((await stat(mapPath)).nlink).toBe(1);
+    await expect(access(memoryStage)).rejects.toThrow();
+    await expect(access(mapStage)).rejects.toThrow();
+    await expect(readFile(mapPath, "utf-8")).resolves.toBe(mapBefore);
+  });
+
+  it.each(["symlink", "hard link"])(
+    "refuses an external legacy %s without publishing a map",
+    async (kind) => {
+      const root = await createRoot();
+      const outside = await createRoot();
+      await mkdir(path.join(root, "memories"), { recursive: true });
+      const external = path.join(outside, "external-summary.md");
+      await writeFile(external, "- external secret route\n", "utf-8");
+      if (kind === "symlink") {
+        await symlink(external, memorySummaryPath(root));
+      } else {
+        await link(external, memorySummaryPath(root));
+      }
+
+      await expect(ensureDreamMemoryLayout(root)).rejects.toThrow(
+        /stable regular unaliased file/,
+      );
+      await expect(access(memoryMapPath(root))).rejects.toThrow();
+      await expect(readFile(external, "utf-8")).resolves.toBe(
+        "- external secret route\n",
+      );
+    },
+  );
+
+  it("propagates non-ENOENT legacy read errors and invalid UTF-8 without publishing", async () => {
+    const directoryRoot = await createRoot();
+    await mkdir(path.join(directoryRoot, "memories"), { recursive: true });
+    await mkdir(memoryIndexPath(directoryRoot));
+    await expect(ensureDreamMemoryLayout(directoryRoot)).rejects.toThrow(
+      /stable regular unaliased file/,
+    );
+    await expect(access(memoryMapPath(directoryRoot))).rejects.toThrow();
+
+    const invalidRoot = await createRoot();
+    await mkdir(path.join(invalidRoot, "memories"), { recursive: true });
+    await writeFile(
+      memorySummaryPath(invalidRoot),
+      new Uint8Array([0xc3, 0x28]),
+    );
+    await expect(ensureDreamMemoryLayout(invalidRoot)).rejects.toThrow(
+      /invalid UTF-8/,
+    );
+    await expect(access(memoryMapPath(invalidRoot))).rejects.toThrow();
+  });
+
+  it("aborts and rolls back map publication when a legacy source changes after snapshot", async () => {
+    const root = await createRoot();
+    await mkdir(path.join(root, "memories"), { recursive: true });
+    const legacyPath = memoryIndexPath(root);
+    await writeFile(legacyPath, "- first stable route\n", "utf-8");
+
+    await expect(
+      ensureDreamMemoryLayout(root, {
+        afterLegacySnapshotsRead: async () => {
+          await writeFile(legacyPath, "- changed during migration\n", "utf-8");
+        },
+      }),
+    ).rejects.toThrow(/changed during migration/);
+    await expect(access(memoryMapPath(root))).rejects.toThrow();
+    expect(
+      (await readdir(path.join(root, "memories"))).filter((name) =>
+        name.startsWith(".memory_map.md.migration-"),
+      ),
+    ).toEqual([]);
+  });
+
   it("refuses a symlinked memory root without writing through the jail", async () => {
     const root = await createRoot();
     const outside = await createRoot();
@@ -167,13 +304,36 @@ describe("Dream memory_map layout and migration", () => {
     await ensureDreamMemoryLayout(root);
 
     const map = await readFile(memoryMapPath(root), "utf-8");
-    expect(stripInjectedHtmlComments(map).length).toBeLessThanOrEqual(
-      MEMORY_MAP_MAX_CHARS,
-    );
+    expect(
+      unicodeCodePointLength(stripInjectedHtmlComments(map)),
+    ).toBeLessThanOrEqual(MEMORY_MAP_MAX_CHARS);
     expect(map).toContain("migration cut");
     await expect(readFile(memorySummaryPath(root), "utf-8")).resolves.toBe(
       summary,
     );
     await expect(readFile(memoryIndexPath(root), "utf-8")).resolves.toBe(index);
+  });
+
+  it("folds emoji and combining-mark CRLF input only at complete line boundaries", async () => {
+    const root = await createRoot();
+    await mkdir(path.join(root, "memories"), { recursive: true });
+    const line = "- route 😀 cafe\u0301 -> MEMORY.md\r\n";
+    const legacy = line.repeat(600);
+    await writeFile(memoryIndexPath(root), legacy, "utf-8");
+
+    await ensureDreamMemoryLayout(root);
+
+    const map = await readFile(memoryMapPath(root), "utf-8");
+    const injected = stripInjectedHtmlComments(map);
+    expect(unicodeCodePointLength(injected)).toBeLessThanOrEqual(
+      MEMORY_MAP_MAX_CHARS,
+    );
+    expect(injected).toContain("😀");
+    expect(injected).toContain("cafe\u0301");
+    expect(injected).not.toMatch(/\r(?!\n)/u);
+    expect(injected).not.toContain("\uFFFD");
+    expect(/(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(injected)).toBe(false);
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(injected)).toBe(false);
+    expect(map).toContain("migration cut");
   });
 });

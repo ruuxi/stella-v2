@@ -11,7 +11,10 @@ import {
   routeRecallIntent,
   runRecall,
 } from "@stella/runtime/kernel/agent-runtime/context-lookup";
-import { MEMORY_MAP_MAX_CHARS } from "@stella/runtime/kernel/memory/dream-storage";
+import {
+  MEMORY_MAP_MAX_CHARS,
+  unicodeCodePointLength,
+} from "@stella/runtime/kernel/memory/dream-storage";
 import { readMemoryMapDoc } from "@stella/runtime/kernel/runner/shared";
 import {
   getDesktopDatabasePath,
@@ -74,9 +77,14 @@ describe("architectural Recall pipeline", () => {
       );
 
       const resident = readMemoryMapDoc(root) ?? "";
-      expect(resident).toHaveLength(MEMORY_MAP_MAX_CHARS);
+      expect(unicodeCodePointLength(resident)).toBeLessThanOrEqual(
+        MEMORY_MAP_MAX_CHARS,
+      );
       expect(resident.includes("resident memory truncated")).toBe(truncated);
       expect(resident.includes(sentinel)).toBe(!truncated);
+      if (!truncated) {
+        expect(unicodeCodePointLength(resident)).toBe(MEMORY_MAP_MAX_CHARS);
+      }
     },
   );
 

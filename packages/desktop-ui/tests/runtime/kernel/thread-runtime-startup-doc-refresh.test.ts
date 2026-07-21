@@ -27,7 +27,7 @@ import {
   buildStartupDocMessage,
   LIFE_MEMORY_MAP_DISPLAY_PATH,
   LIFE_USER_PROFILE_DISPLAY_PATH,
-  refreshResidentStartupDocs,
+  planResidentStartupDocRefresh,
 } from "@stella/runtime/kernel/memory/resident-docs";
 import {
   getDesktopDatabasePath,
@@ -178,12 +178,12 @@ describe("resident startup-doc cache epochs", () => {
     const docsBefore = loadStartupDocs();
 
     expect(
-      refreshResidentStartupDocs({
+      planResidentStartupDocRefresh({
         store: context.store,
         threadKey: THREAD_KEY,
         stellaDataDir: context.rootPath,
       }),
-    ).toEqual({ refreshedDocs: 0, removedDocs: 0 });
+    ).toEqual({ refreshedDocs: 0, removedDocs: 0, mutations: [] });
     expect(loadStartupDocs()).toEqual(docsBefore);
 
     appendLargeConversation();
@@ -259,13 +259,18 @@ describe("resident startup-doc cache epochs", () => {
       }),
     ).toEqual([]);
 
-    expect(
-      refreshResidentStartupDocs({
-        store: context.store,
-        threadKey: THREAD_KEY,
-        stellaDataDir: context.rootPath,
-      }),
-    ).toEqual({ refreshedDocs: 1, removedDocs: 1 });
+    appendLargeConversation();
+    completeSimpleMock.mockResolvedValue({
+      content: [{ type: "text", text: VALID_SUMMARY }],
+      stopReason: "stop",
+    });
+    await maybeCompactRuntimeThread({
+      store: context.store,
+      threadKey: THREAD_KEY,
+      resolvedLlm: createRoute(),
+      agentType: "orchestrator",
+      stellaDataDir: context.rootPath,
+    });
     const docsAfter = loadStartupDocs();
     expect(docsAfter).toHaveLength(1);
     expect(docsAfter[0]?.entryId).toBe(docsBefore[0]?.entryId);
@@ -275,9 +280,21 @@ describe("resident startup-doc cache epochs", () => {
         "# Memory map\n\n- canonical route",
       ),
     );
+    const danglingParentCount = context.db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM runtime_thread_entries child
+         LEFT JOIN runtime_thread_entries parent
+           ON parent.entry_id = child.parent_entry_id
+         WHERE child.thread_key = ?
+           AND child.parent_entry_id IS NOT NULL
+           AND parent.entry_id IS NULL`,
+      )
+      .get(THREAD_KEY) as { count: number };
+    expect(danglingParentCount.count).toBe(0);
   });
 
-  it("scrubs retired HTML comments and fences ordinary message deletion", () => {
+  it("scrubs retired HTML comments without deleting ordinary history", async () => {
     fs.mkdirSync(path.join(context.rootPath, "memories"), { recursive: true });
     fs.writeFileSync(
       path.join(context.rootPath, "memories", "memory_map.md"),
@@ -297,24 +314,110 @@ describe("resident startup-doc cache epochs", () => {
       .loadThreadMessages(THREAD_KEY)
       .find((message) => message.role === "user")?.entryId;
 
-    expect(
-      refreshResidentStartupDocs({
+    appendLargeConversation();
+    completeSimpleMock.mockResolvedValue({
+      content: [{ type: "text", text: VALID_SUMMARY }],
+      stopReason: "stop",
+    });
+    await maybeCompactRuntimeThread({
+      store: context.store,
+      threadKey: THREAD_KEY,
+      resolvedLlm: createRoute(),
+      agentType: "orchestrator",
+      stellaDataDir: context.rootPath,
+    });
+    expect(loadStartupDocs()[0]?.text).not.toContain("retired route");
+    const ordinaryRow = context.db
+      .prepare(
+        `SELECT entry_type AS entryType
+         FROM runtime_thread_entries
+         WHERE entry_id = ?`,
+      )
+      .get(ordinaryEntry!) as { entryType?: string } | undefined;
+    expect(ordinaryRow?.entryType).toBe("message");
+  });
+
+  it("rolls back the overlay and every resident mutation when the second update fails, then retries after restart", async () => {
+    writeResidentDocs(
+      "# User Profile\n\n- profile epoch one",
+      "# Memory map\n\n- map epoch one",
+    );
+    expect(await persistStartupDocsFromPrompt()).toBe(2);
+    const docsBefore = loadStartupDocs();
+    appendLargeConversation();
+    writeResidentDocs(
+      "# User Profile\n\n- profile epoch two",
+      "# Memory map\n\n- map epoch two",
+    );
+    const mapEntryId = docsBefore.find((doc) =>
+      doc.text.includes(LIFE_MEMORY_MAP_DISPLAY_PATH),
+    )?.entryId;
+    expect(mapEntryId).toBeTruthy();
+    const quotedMapEntryId = mapEntryId!.replaceAll("'", "''");
+    context.db.exec(`
+      CREATE TRIGGER fail_second_resident_update
+      BEFORE UPDATE ON runtime_thread_entries
+      WHEN OLD.entry_id = '${quotedMapEntryId}'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced second resident mutation failure');
+      END;
+    `);
+    completeSimpleMock.mockResolvedValue({
+      content: [{ type: "text", text: VALID_SUMMARY }],
+      stopReason: "stop",
+    });
+
+    await expect(
+      maybeCompactRuntimeThread({
         store: context.store,
         threadKey: THREAD_KEY,
+        resolvedLlm: createRoute(),
+        agentType: "orchestrator",
         stellaDataDir: context.rootPath,
       }),
-    ).toEqual({ refreshedDocs: 1, removedDocs: 0 });
-    expect(loadStartupDocs()[0]?.text).not.toContain("retired route");
-    expect(
-      context.store.removeThreadCustomMessage({
+    ).rejects.toThrow("forced second resident mutation failure");
+    expect(loadStartupDocs()).toEqual(docsBefore);
+    const failedOverlayCount = context.db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM runtime_thread_entries
+         WHERE thread_key = ? AND entry_type = 'compaction'`,
+      )
+      .get(THREAD_KEY) as { count: number };
+    expect(failedOverlayCount.count).toBe(0);
+
+    context.db.close();
+    context.db = new DatabaseSync(context.dbPath, {
+      timeout: 5000,
+    }) as unknown as SqliteDatabase;
+    initializeDesktopDatabase(context.db);
+    context.store = new SessionStore(context.db);
+    expect(loadStartupDocs()).toEqual(docsBefore);
+    context.db.exec("DROP TRIGGER fail_second_resident_update");
+
+    completeSimpleMock.mockResolvedValue({
+      content: [{ type: "text", text: VALID_SUMMARY }],
+      stopReason: "stop",
+    });
+    await expect(
+      maybeCompactRuntimeThread({
+        store: context.store,
         threadKey: THREAD_KEY,
-        entryId: ordinaryEntry!,
+        resolvedLlm: createRoute(),
+        agentType: "orchestrator",
+        stellaDataDir: context.rootPath,
       }),
-    ).toBe(false);
-    expect(
-      context.store
-        .loadThreadMessages(THREAD_KEY)
-        .some((message) => message.content === "ordinary durable message"),
-    ).toBe(true);
+    ).resolves.toMatchObject({ compacted: true });
+    const docsAfterRetry = loadStartupDocs();
+    expect(docsAfterRetry).toHaveLength(2);
+    expect(docsAfterRetry.map((doc) => doc.entryId)).toEqual(
+      docsBefore.map((doc) => doc.entryId),
+    );
+    expect(docsAfterRetry.map((doc) => doc.text).join("\n")).toContain(
+      "profile epoch two",
+    );
+    expect(docsAfterRetry.map((doc) => doc.text).join("\n")).toContain(
+      "map epoch two",
+    );
   });
 });

@@ -147,7 +147,7 @@ const PROFILE_MD = `# Profile
 const MEMORY_MAP_MD = `# Memory map
 
 > What memory contains and where to find it. Pointer-only routing entries.
-> Maximum 80 entries and 6000 characters. Each entry carries an
+> Maximum 80 entries and 6000 injected characters. Each entry carries an
 > updated date; prune entries older than 90 days unless recent usage shows they remain useful.
 
 - Memory system layout: Recall searches memory_map.md and MEMORY.md; profile.md stays resident and Remember-owned while Dream never edits it. (updated 2026-07-10)

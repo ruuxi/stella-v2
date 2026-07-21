@@ -10,11 +10,13 @@ import {
   MEMORY_MAP_ROUTES_END_ANCHOR,
   MEMORY_MAP_ROUTES_START_ANCHOR,
   MEMORY_SUMMARY_FILE,
+  containsLoneUnicodeSurrogate,
   memoryFilePath,
   memoryIndexPath,
   memoryMapPath,
   memorySummaryPath,
   stripInjectedHtmlComments,
+  unicodeCodePointLength,
 } from "../memory/dream-storage.js";
 import { redactMemoryText } from "../memory/redaction.js";
 import type { DreamInboxStore } from "../memory/dream-inbox-store.js";
@@ -121,10 +123,14 @@ const ensureDreamWritePath = async (
 /** Mechanical structure and injected-byte budget guard for Dream map edits. */
 export const validateMemoryMapWrite = (updated: string): string | null => {
   const injected = stripInjectedHtmlComments(updated);
-  if (injected.length > MEMORY_MAP_MAX_CHARS) {
-    return `Write rejected: ${MEMORY_MAP_FILE} would inject ${injected.length} characters (hard cap ${MEMORY_MAP_MAX_CHARS}). Curate the map instead of exceeding the budget. Nothing was written.`;
+  const injectedChars = unicodeCodePointLength(injected);
+  if (containsLoneUnicodeSurrogate(updated) || updated.includes("\uFFFD")) {
+    return `Write rejected: ${MEMORY_MAP_FILE} contains invalid or replacement Unicode. Nothing was written.`;
   }
-  if (injected.length === 0) {
+  if (injectedChars > MEMORY_MAP_MAX_CHARS) {
+    return `Write rejected: ${MEMORY_MAP_FILE} would inject ${injectedChars} characters (hard cap ${MEMORY_MAP_MAX_CHARS}). Curate the map instead of exceeding the budget. Nothing was written.`;
+  }
+  if (injectedChars === 0) {
     return `Write rejected: ${MEMORY_MAP_FILE} would have no injectable content. Nothing was written.`;
   }
   if (

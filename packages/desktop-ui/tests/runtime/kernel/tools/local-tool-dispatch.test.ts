@@ -13,11 +13,18 @@ import { afterEach, describe, expect, it } from "vitest";
 import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import {
   ensureDreamMemoryLayout,
+  MEMORY_MAP_ROUTES_END_ANCHOR,
+  MEMORY_MAP_ROUTES_START_ANCHOR,
   memoryIndexPath,
   memoryMapPath,
   memorySummaryPath,
+  stripInjectedHtmlComments,
+  unicodeCodePointLength,
 } from "@stella/runtime/kernel/memory/dream-storage";
-import { dispatchLocalTool } from "@stella/runtime/kernel/tools/local-tool-dispatch";
+import {
+  dispatchLocalTool,
+  validateMemoryMapWrite,
+} from "@stella/runtime/kernel/tools/local-tool-dispatch";
 
 const activeRoots = new Set<string>();
 
@@ -160,6 +167,31 @@ describe("dispatchLocalTool", () => {
       error: expect.stringContaining("hard cap 6000"),
     });
     await expect(readFile(mapPath, "utf-8")).resolves.toBe(before);
+  });
+
+  it("counts exact-cap emoji by code point and rejects invalid Unicode", () => {
+    const exact = [
+      MEMORY_MAP_ROUTES_START_ANCHOR,
+      "😀".repeat(6_000),
+      MEMORY_MAP_ROUTES_END_ANCHOR,
+    ].join("\n");
+    expect(unicodeCodePointLength(stripInjectedHtmlComments(exact))).toBe(
+      6_000,
+    );
+    expect(validateMemoryMapWrite(exact)).toBeNull();
+
+    const over = exact.replace("😀".repeat(6_000), "😀".repeat(6_001));
+    expect(validateMemoryMapWrite(over)).toContain("hard cap 6000");
+    expect(
+      validateMemoryMapWrite(
+        `${MEMORY_MAP_ROUTES_START_ANCHOR}\n\uD83D\n${MEMORY_MAP_ROUTES_END_ANCHOR}`,
+      ),
+    ).toContain("invalid or replacement Unicode");
+    expect(
+      validateMemoryMapWrite(
+        `${MEMORY_MAP_ROUTES_START_ANCHOR}\n\uFFFD\n${MEMORY_MAP_ROUTES_END_ANCHOR}`,
+      ),
+    ).toContain("invalid or replacement Unicode");
   });
 
   it("keeps both retired files and arbitrary paths outside Dream's write ownership", async () => {

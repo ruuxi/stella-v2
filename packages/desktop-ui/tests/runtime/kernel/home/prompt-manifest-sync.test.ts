@@ -964,7 +964,10 @@ describe("remote prompt startup sync", () => {
     await reconcileRemotePromptManifest(remote, home, bundled);
     const prompt = buildDreamSystemPrompt(home);
     expect(prompt).toContain("remote dream prompt");
-    expect(prompt).toContain("at most 80 entries and 6000 characters");
+    expect(prompt).toContain("at most 80 entries and 6000 injected characters");
+    expect(prompt).toContain(
+      "memory_summary.md and memory_index.md are retired and read-only",
+    );
     expect(prompt).toContain("Never put secrets, credentials, tokens");
     expect(prompt).toContain("prune entries older than 90 days");
   });

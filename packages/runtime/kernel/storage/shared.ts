@@ -203,6 +203,27 @@ export type RuntimeThreadCustomMessageEntry = RuntimeThreadSessionEntryBase & {
   };
 };
 
+/**
+ * Compare-and-swap mutations applied in the same SQLite transaction as a
+ * compaction overlay. They are intentionally storage-level so the resident
+ * memory module can plan a complete cache-epoch transition without making
+ * SessionStore depend on memory policy.
+ */
+export type RuntimeThreadCustomMessageMutation =
+  | {
+      action: "replace";
+      entryId: string;
+      expectedCustomType: string;
+      expectedContent: RuntimeThreadCustomMessageEntry["content"];
+      content: RuntimeThreadCustomMessageEntry["content"];
+    }
+  | {
+      action: "remove";
+      entryId: string;
+      expectedCustomType: string;
+      expectedContent: RuntimeThreadCustomMessageEntry["content"];
+    };
+
 export type RuntimeThreadLabelEntry = RuntimeThreadSessionEntryBase & {
   type: "label";
   targetId: string;

@@ -4,14 +4,15 @@ Run this protocol periodically or on demand to review skill health and prune sta
 
 ## Background Dream memory contract
 
-The background Dream agent also maintains `memories/memory_index.md` on every consolidation pass. The index is a compact routing map of task families, aliases, repositories, paths, prior-decision hooks, and the best retrieval source.
+The background Dream agent maintains `memories/MEMORY.md` and the resident routing layer `memories/memory_map.md` on every consolidation pass. Recall searches those sources for durable facts and work history. `memory_summary.md` and `memory_index.md` are retired, read-only migration inputs; if a map already exists, it is authoritative and later legacy-file changes are deliberately ignored.
 
-- Keep at most 80 entries and 6,000 characters.
+- Keep the map pointer-only and at most 80 entries / 6,000 injected characters (HTML comments do not count).
 - Give entries an updated date. Prune entries older than 90 days unless recent usage shows they remain useful.
 - Prefer retaining and refreshing inbox entries with higher `usage_count` or recent `last_usage`.
-- Never store secrets, credentials, tokens, private keys, auth headers, or sensitive personal data in the index.
-- Edit only between `DREAM:INDEX_START` and `DREAM:INDEX_END` using StrReplace.
+- Never store secrets, credentials, tokens, private keys, auth headers, or sensitive personal data in the map.
+- Edit routing only between `DREAM:MAP_START` and `DREAM:MAP_END`; stage unpromoted durable constraints between `DREAM:DERIVED_START` and `DREAM:DERIVED_END`, using StrReplace.
 - `memories/profile.md` remains exclusively Remember-owned; Dream must never edit it.
+- Never edit or delete `memory_summary.md` or `memory_index.md`.
 
 ## When to Dream
 

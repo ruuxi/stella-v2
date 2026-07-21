@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { unicodeCodePointLength } from "@stella/runtime/kernel/memory/dream-storage";
+
 import {
   LIFE_MEMORY_MAP_DISPLAY_PATH,
   readMemoryMapDoc,
@@ -66,14 +68,38 @@ describe("resident memory document reads", () => {
     ).toContain("benchmark");
   });
 
-  it("caps an oversized map at exactly the 6,000-character read backstop", () => {
+  it("caps an oversized map at a complete line without corrupting Unicode or CRLF", () => {
     writeMemoryFile(
       "memory_map.md",
-      `<!-- guidance -->\n${"- entry pointing somewhere useful\n".repeat(400)}`,
+      `<!-- guidance -->\r\n${"- 😀 cafe\u0301 route\r\n".repeat(600)}`,
     );
     const map = readMemoryMapDoc(stellaDataDir);
-    expect(map).toHaveLength(6_000);
+    expect(unicodeCodePointLength(map ?? "")).toBeLessThanOrEqual(6_000);
     expect(map).toContain("[resident memory truncated]");
+    expect(map).not.toMatch(/\r(?!\n)/u);
+    expect(map).not.toContain("\uFFFD");
+    expect(/(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(map ?? "")).toBe(
+      false,
+    );
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(map ?? "")).toBe(false);
+  });
+
+  it("preserves an exact 6,000-code-point map without truncation", () => {
+    const exact = "😀".repeat(6_000);
+    writeMemoryFile("memory_map.md", exact);
+    const map = readMemoryMapDoc(stellaDataDir);
+    expect(map).toBe(exact);
+    expect(unicodeCodePointLength(map ?? "")).toBe(6_000);
+  });
+
+  it("rejects malformed UTF-8 instead of injecting replacement characters", () => {
+    const memoriesDir = path.join(stellaDataDir, "memories");
+    fs.mkdirSync(memoriesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(memoriesDir, "memory_map.md"),
+      new Uint8Array([0xc3, 0x28]),
+    );
+    expect(readMemoryMapDoc(stellaDataDir)).toBeUndefined();
   });
 
   it("never reloads retired summary or index paths", () => {

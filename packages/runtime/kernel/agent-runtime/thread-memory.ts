@@ -544,7 +544,7 @@ export const buildStartupPromptMessages = async (args: {
 
   // Resident user profile — durable facts the Remember tool persists. Pushed
   // every session so identity facts ("the user goes by Bob") are always in
-  // context without a Context lookup.
+  // context without an extra Recall lookup.
   const userProfile = args.context.userProfile
     ? redactMemoryText(args.context.userProfile.trim())
     : "";

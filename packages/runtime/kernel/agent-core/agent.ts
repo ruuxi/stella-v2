@@ -127,6 +127,9 @@ export interface AgentOptions {
 	 */
 	maxRetryDelayMs?: number;
 
+	/** Maximum physical requests for one logical provider completion. */
+	providerRequestLimit?: number;
+
 	/** Tool execution mode. Default: "parallel" */
 	toolExecution?: ToolExecutionMode;
 
@@ -183,6 +186,7 @@ export class Agent {
 	private _thinkingBudgets?: ThinkingBudgets;
 	private _transport: Transport;
 	private _maxRetryDelayMs?: number;
+	private _requestBudget?: NonNullable<SimpleStreamOptions["requestBudget"]>;
 	private _toolExecution: ToolExecutionMode;
 	private _toolInactivityTimeoutMs?: number;
 	private _beforeToolCall?: (
@@ -210,6 +214,11 @@ export class Agent {
 		this._thinkingBudgets = opts.thinkingBudgets;
 		this._transport = opts.transport ?? "sse";
 		this._maxRetryDelayMs = opts.maxRetryDelayMs;
+		const providerRequestLimit = Math.floor(opts.providerRequestLimit ?? 0);
+		this._requestBudget =
+			providerRequestLimit > 0
+				? { limit: providerRequestLimit, used: 0, active: false }
+				: undefined;
 		this._toolExecution = opts.toolExecution ?? "parallel";
 		this._toolInactivityTimeoutMs = opts.toolInactivityTimeoutMs;
 		this._beforeToolCall = opts.beforeToolCall;
@@ -431,6 +440,14 @@ export class Agent {
 		this._state.error = undefined;
 		this.steeringQueue = [];
 		this.followUpQueue = [];
+		this.resetRequestBudget();
+	}
+
+	private resetRequestBudget(): void {
+		if (!this._requestBudget) return;
+		this._requestBudget.used = 0;
+		this._requestBudget.active = false;
+		delete this._requestBudget.exhaustionReason;
 	}
 
 	/** Send a prompt with an AgentMessage */
@@ -466,6 +483,10 @@ export class Agent {
 			msgs = [input];
 		}
 
+		// A new user turn starts a new logical completion budget. `continue()`
+		// intentionally does not reset it: outer recovery must share the physical
+		// request count already spent by adapter-level continuations.
+		this.resetRequestBudget();
 		await this._runLoop(msgs);
 	}
 
@@ -583,6 +604,7 @@ export class Agent {
 			transport: this._transport,
 			thinkingBudgets: this._thinkingBudgets,
 			maxRetryDelayMs: this._maxRetryDelayMs,
+			requestBudget: this._requestBudget,
 			toolExecution: this._toolExecution,
 			toolInactivityTimeoutMs: this._toolInactivityTimeoutMs,
 			beforeToolCall: this._beforeToolCall

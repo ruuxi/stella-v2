@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { streamAnthropic } from "@stella/runtime/ai/providers/anthropic";
 import { readAssistantText } from "@stella/runtime/ai/stream";
@@ -8,8 +8,14 @@ import {
   isTransientProviderStreamAnomalyMessage,
   pausedTurnStopMessage,
 } from "@stella/runtime/ai/utils/provider-stop";
-import { classifyAgentRunFailure } from "@stella/runtime/kernel/agent-runtime/run-retry";
+import {
+  classifyAgentRunFailure,
+  executeAgentRunWithRetry,
+} from "@stella/runtime/kernel/agent-runtime/run-retry";
 import { isProviderContentAbortMessage } from "@stella/runtime/kernel/agent-runtime/provider-abort-containment";
+import { createRuntimeAgent } from "@stella/runtime/kernel/agent-runtime/shared";
+import { executeRuntimeAgentPrompt } from "@stella/runtime/kernel/agent-runtime/run-execution";
+import { createRunEventRecorder } from "@stella/runtime/kernel/agent-runtime/run-events";
 
 const model: Model<"anthropic-messages"> = {
   id: "claude-fable-5",
@@ -41,9 +47,11 @@ function makeQueuedClient(bodies: string[]) {
   const requests: Array<{
     messages: Array<{ role: string; content: unknown }>;
   }> = [];
+  const requestOptions: Array<{ maxRetries?: number }> = [];
   let call = 0;
-  const create = (body: unknown) => {
+  const create = (body: unknown, options?: { maxRetries?: number }) => {
     requests.push(body as (typeof requests)[number]);
+    requestOptions.push(options ?? {});
     const sseBody = bodies[Math.min(call, bodies.length - 1)]!;
     call += 1;
     return {
@@ -57,6 +65,7 @@ function makeQueuedClient(bodies: string[]) {
   return {
     client: { messages: { create } } as unknown as Anthropic,
     requests,
+    requestOptions,
   };
 }
 
@@ -151,12 +160,73 @@ describe("anthropic pause_turn resubmission", () => {
 
     expect(result.stopReason).toBe("error");
     expect(result.errorMessage).toBe(pausedTurnStopMessage());
-    expect(requests).toHaveLength(5);
+    expect(requests).toHaveLength(4);
     expect(classifyAgentRunFailure(new Error(result.errorMessage!))).toEqual({
       retryable: true,
       category: "transport",
     });
     expect(isProviderContentAbortMessage(result.errorMessage)).toBe(false);
+  });
+
+  it("shares one four-request budget across continuation, outer recovery, and SDK policy", async () => {
+    const { client, requests, requestOptions } = makeQueuedClient([
+      pausedSegment,
+    ]);
+    const agent = createRuntimeAgent({
+      agentType: "general",
+      systemPrompt: context.systemPrompt ?? "",
+      resolvedLlm: {
+        model,
+        route: "direct-provider",
+        getApiKey: () => "test-key",
+      },
+      tools: [],
+      historySource: [],
+    });
+    agent.streamFn = ((_model, llmContext, options) =>
+      streamAnthropic(model, llmContext, {
+        ...options,
+        client,
+      })) as typeof agent.streamFn;
+    const recorder = createRunEventRecorder({
+      store: { recordRunEvent: vi.fn() } as never,
+      runId: "pause-budget-run",
+      conversationId: "pause-budget-conversation",
+      agentType: "general",
+      userMessageId: "pause-budget-user",
+    });
+
+    const result = await executeAgentRunWithRetry({
+      state: { attemptsUsed: 0, retriesUsed: 0 },
+      execute: (resume) =>
+        executeRuntimeAgentPrompt({
+          agent,
+          ...(resume ? { resume: true } : { promptText: "Continue safely." }),
+          runId: "pause-budget-run",
+          agentType: "general",
+          userMessageId: "pause-budget-user",
+          recorder,
+        }),
+      prepareResume: (_reason, classification) => {
+        expect(classification).toEqual({
+          retryable: true,
+          category: "transport",
+        });
+        expect(agent.state.messages.at(-1)?.role).toBe("assistant");
+        agent.state.messages.pop();
+        return true;
+      },
+      sleep: async () => undefined,
+      random: () => 0.5,
+    });
+
+    expect(result.errorMessage).toContain("failed after 4 attempts");
+    expect(result.errorMessage).toContain('"pause_turn"');
+    expect(requests).toHaveLength(4);
+    expect(requestOptions).toHaveLength(4);
+    expect(requestOptions.every((options) => options.maxRetries === 0)).toBe(
+      true,
+    );
   });
 
   it("does not resubmit a pause containing uncaptured server-tool blocks", async () => {

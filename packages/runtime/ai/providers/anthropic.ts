@@ -539,7 +539,15 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 			const requestOptions = {
 				...(effectiveSignal ? { signal: effectiveSignal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
-				...(options?.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
+				// The runtime recovery envelope owns retries and request accounting.
+				// SDK retries would be invisible physical requests multiplying
+				// pause_turn continuations, so Anthropic retries are always disabled.
+				maxRetries: 0,
+			};
+			const requestBudget = options?.requestBudget ?? {
+				limit: ANTHROPIC_STANDALONE_REQUEST_LIMIT,
+				used: 0,
+				active: true,
 			};
 
 			// Reactive safety net for the Anthropic "thinking blocks in the latest
@@ -554,6 +562,13 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 			const openStream = async (): Promise<Response> => {
 				while (true) {
 					try {
+						if (requestBudget.used >= requestBudget.limit) {
+							throw new Error(
+								requestBudget.exhaustionReason ??
+									`Provider request budget exhausted after ${requestBudget.used} physical requests.`,
+							);
+						}
+						requestBudget.used += 1;
 						return await client.messages.create({ ...params, stream: true }, requestOptions).asResponse();
 					} catch (err) {
 						if (
@@ -736,6 +751,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 							output.errorMessage = pausedTurn
 								? pausedTurnStopMessage()
 								: providerAbortedStopMessage(event.delta.stop_reason);
+							requestBudget.exhaustionReason = output.errorMessage;
 						}
 					}
 					// Only update usage fields if present (not null).
@@ -1209,7 +1225,8 @@ function normalizeToolCallId(id: string): string {
 const MAX_THINKING_STRIP_RETRIES = 2;
 
 /** Maximum in-place continuations for Anthropic's pause_turn protocol. */
-const MAX_PAUSE_TURN_RESUBMITS = 4;
+const ANTHROPIC_STANDALONE_REQUEST_LIMIT = 4;
+const MAX_PAUSE_TURN_RESUBMITS = ANTHROPIC_STANDALONE_REQUEST_LIMIT - 1;
 
 /**
  * Default bound (ms) on how long an external abort waits for an in-flight

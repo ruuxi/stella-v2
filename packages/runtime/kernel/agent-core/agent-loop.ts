@@ -267,6 +267,12 @@ async function streamAssistantResponse(
 	emit: AgentEventSink,
 	streamFn?: StreamFn,
 ): Promise<AssistantMessage> {
+	const requestBudget = config.requestBudget;
+	if (requestBudget && !requestBudget.active) {
+		requestBudget.used = 0;
+		requestBudget.active = true;
+		delete requestBudget.exhaustionReason;
+	}
 	let messages = context.messages;
 	if (config.transformContext) {
 		messages = await config.transformContext(messages, signal);
@@ -336,6 +342,11 @@ async function streamAssistantResponse(
 		const finalize = async (): Promise<AssistantMessage> => {
 			if (finalMessage) return finalMessage;
 			const next = normalizeFinalMessage(await response.result());
+			if (requestBudget && next.stopReason !== "error" && next.stopReason !== "aborted") {
+				requestBudget.used = 0;
+				requestBudget.active = false;
+				delete requestBudget.exhaustionReason;
+			}
 			if (addedPartial) {
 				context.messages[context.messages.length - 1] = next;
 			} else {

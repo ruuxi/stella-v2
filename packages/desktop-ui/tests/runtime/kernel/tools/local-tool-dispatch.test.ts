@@ -24,6 +24,7 @@ import {
   stripInjectedHtmlComments,
   unicodeCodePointLength,
 } from "@stella/runtime/kernel/memory/dream-storage";
+import { memorySupersededArchivePath } from "@stella/runtime/kernel/memory/memory-rotation";
 import {
   dispatchLocalTool,
   validateMemoryMapWrite,
@@ -99,6 +100,39 @@ describe("dispatchLocalTool", () => {
     expect(updated).not.toContain("sk-testsecret12345678901234567890");
     expect(updated).toContain("OPENAI_API_KEY=");
     expect(updated).toContain("***");
+    await expect(
+      readFile(memorySupersededArchivePath(rootPath), "utf-8"),
+    ).resolves.toContain("old");
+  });
+
+  it("keeps rotation and supersede archives read-only to Dream", async () => {
+    const rootPath = await createRoot();
+    await ensureDreamMemoryLayout(rootPath);
+    const archivePath = path.join(
+      rootPath,
+      "memories",
+      "archive",
+      "MEMORY-2026-Q2.md",
+    );
+    await mkdir(path.dirname(archivePath), { recursive: true });
+    await writeFile(archivePath, "old archive", "utf-8");
+    const result = await dispatchLocalTool(
+      TOOL_IDS.STR_REPLACE,
+      {
+        file_path: archivePath,
+        old_string: "old",
+        new_string: "changed",
+      },
+      {
+        conversationId: "c1",
+        dream: { stellaDataDir: rootPath },
+      },
+    );
+    expect(JSON.parse(result.handled ? result.text : "{}")).toMatchObject({
+      success: false,
+      error: expect.stringContaining("read-only"),
+    });
+    await expect(readFile(archivePath, "utf-8")).resolves.toBe("old archive");
   });
 
   it("allows Dream to edit the map but keeps profile.md Remember-owned", async () => {

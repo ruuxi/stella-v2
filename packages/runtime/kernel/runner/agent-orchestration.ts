@@ -482,6 +482,22 @@ export const createAgentOrchestration = (
         ? { eventId: event.eventId }
         : {}),
     });
+    // Phase two of Dream report provenance: only after the terminal report
+    // has durably landed in this orchestrator thread may its inbox row claim
+    // that conversation. Superseded/adopted/crashed attempts never reach
+    // this branch and stay NULL on the model-driven path.
+    if (event.type === "agent-completed" && event.result?.trim()) {
+      try {
+        context.runtimeStore.dreamInboxStore.promoteThreadSummaryConversation({
+          threadId: event.agentId,
+          conversationId: event.conversationId,
+          rolloutSummary: event.result,
+        });
+      } catch {
+        // Best effort and fail-safe: an unpromoted row remains visible to
+        // Dream's inbox and cannot be mechanically consumed by a future gate.
+      }
+    }
     void deps.sendMessage({
       conversationId: event.conversationId,
       text: userPrompt,

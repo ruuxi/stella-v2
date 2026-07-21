@@ -341,6 +341,40 @@ describe("buildContextLookupUserPrompt", () => {
     expect(realMatch).not.toContain("Writer guidance mentioning");
   });
 
+  it("searches profile and rotation archives but excludes the delta shadow log", async () => {
+    const { rootPath, db } = await createRoot();
+    const archiveDir = path.join(rootPath, "memories", "archive");
+    await mkdir(archiveDir, { recursive: true });
+    await writeFile(
+      path.join(rootPath, "memories", "profile.md"),
+      "# Profile\n- Preferred project codename: aurora\n",
+    );
+    await writeFile(
+      path.join(archiveDir, "MEMORY-2026-Q1.md"),
+      "# Archive\n## 2026-02-01 — Borealis migration\nOutcome: borealis shipped.\n",
+    );
+    await writeFile(
+      path.join(rootPath, "memories", "memory_shadow.md"),
+      "diagnostic-only shadowsecret proposal",
+    );
+
+    const prompt = await buildContextLookupUserPrompt({
+      conversationId: "conv-1",
+      lookupPrompt: "Recall aurora, borealis, and shadowsecret",
+      searchTerms: ["aurora", "borealis", "shadowsecret"],
+      stellaDataDir: rootPath,
+      store: makeLookupStore(),
+      localEvents: [],
+    });
+    db.close();
+    expect(prompt).toContain('<match path="~/.stella/memories/profile.md"');
+    expect(prompt).toContain(
+      '<match path="~/.stella/memories/archive/MEMORY-2026-Q1.md"',
+    );
+    expect(prompt).not.toContain("shadowsecret proposal");
+    expect(prompt).not.toContain("memory_shadow.md");
+  });
+
   it("puts only RUNNING threads in the live-status tail, with agent messages", async () => {
     const { rootPath, db } = await createRoot();
     db.close();

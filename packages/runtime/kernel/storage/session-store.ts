@@ -3049,6 +3049,29 @@ export class SessionStore {
     }));
   }
 
+  /**
+   * Raw durable projection used by the staged Dream delta. Compaction
+   * checkpoints/overlays are intentionally absent: buildRawThreadMessages
+   * projects only message/custom-message entries from the authoritative
+   * parent chain. The limit applies after projection so display-only storage
+   * rows cannot crowd authored messages out of the window.
+   */
+  loadRawThreadMessagesWithEntryTypes(
+    threadKeyInput: string,
+    limit?: number,
+  ): Array<RuntimeThreadMessage & { entryId: string }> {
+    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+    if (!threadKey) throw new Error("threadKey is required.");
+    const raw = buildRawThreadMessages(
+      buildThreadPathEntries(this.loadThreadSessionEntries(threadKey)),
+    );
+    const normalizedLimit =
+      typeof limit === "number" && Number.isFinite(limit)
+        ? Math.max(1, Math.floor(limit))
+        : undefined;
+    return normalizedLimit ? raw.slice(-normalizedLimit) : raw;
+  }
+
   /** Exact-thread UI reads the original typed entries, not the compaction
    * overlay used to rebuild model context. The latter deliberately flattens
    * tool transport into a text checkpoint, which loses the block semantics

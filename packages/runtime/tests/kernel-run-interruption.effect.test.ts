@@ -284,6 +284,49 @@ describe("KernelRunSupervisor", () => {
     expect(supervisor.liveFiberCount()).toBe(0);
   });
 
+  it("concurrent double-cancel joins ONE close: neither caller resolves before teardown", async () => {
+    const supervisor = createKernelRunSupervisor();
+    const runId = "local:run-double-cancel";
+    let abortCount = 0;
+    let teardownComplete = false;
+    let releaseWork!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      releaseWork = resolve;
+    }).then(async () => {
+      // Slow asynchronous teardown the close must join.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      teardownComplete = true;
+    });
+    supervisor.startRun(runId, {
+      abort: () => {
+        abortCount += 1;
+        releaseWork();
+      },
+      settled,
+    });
+
+    // Two cancels in the same tick: both must join the SAME close and
+    // resolve only after the work's teardown completed. Before the
+    // memoization, the second caller saw the deleted entry and resolved
+    // immediately — releasing the lane mid-close.
+    const first = supervisor.cancelRun(runId, "Canceled").then(() => {
+      expect(teardownComplete).toBe(true);
+    });
+    const second = supervisor.cancelRun(runId, "Canceled").then(() => {
+      expect(teardownComplete).toBe(true);
+    });
+    // awaitRunTermination during the close joins it too.
+    const observer = supervisor.awaitRunTermination(runId).then(() => {
+      expect(teardownComplete).toBe(true);
+    });
+    await Promise.all([first, second, observer]);
+    expect(abortCount).toBe(1);
+    expect(supervisor.liveFiberCount()).toBe(0);
+    // A third cancel after completion is a resolved no-op (stale-run
+    // semantics preserved).
+    await supervisor.cancelRun(runId, "Canceled");
+  });
+
   it("shutdown interrupts and joins children spawned without a root run", async () => {
     const supervisor = createKernelRunSupervisor();
     const { child, pid, exited } = await spawnHangingChild();

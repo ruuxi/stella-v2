@@ -2,9 +2,9 @@
  * Composer activity pill — the compact presentation of background work that
  * sits in the context chip row above the composer.
  *
- * It stays visible regardless of the docked left sidebar state so search is
- * always available above the composer. While the sidebar is visible, its
- * Activity section owns live progress and the pill stays in its Search state.
+ * It exists only while the authoritative Activity projection has a displayed
+ * work unit. While the sidebar is visible, its Activity section owns live
+ * progress and the pill stays in its Search state.
  *
  * The pill does double duty:
  *   • Idle, it's the entry point to search — a search icon + "Search".
@@ -41,6 +41,7 @@ import {
   deriveTopLevelActivityWorkUnits,
   type TaskItem,
 } from "@/features/chat/lib/event-transforms";
+import type { ActivityPresence } from "@/features/chat/lib/activity-presence";
 import {
   displaySearchStore,
   useDisplaySearchQuery,
@@ -79,6 +80,9 @@ export const getDisplayedActivityPillState = (
   state: PillState,
   sidebarDocked: boolean,
 ): PillState => (sidebarDocked && state === "running" ? "idle" : state);
+
+export const shouldShowActivityPill = (presence: ActivityPresence): boolean =>
+  presence === "present";
 
 /**
  * Whether the tray should hold its fixed "searching" layout (a resolved,
@@ -327,6 +331,7 @@ export const ComposerActivityPill = memo(function ComposerActivityPill() {
   const reduceMotion = useReducedMotion();
   const chat = useChatRuntime();
   const tasks = chat.conversation.tasks;
+  const visible = shouldShowActivityPill(chat.conversation.activityPresence);
 
   const { state, runningCount } = useActivityPillState(tasks);
   const displayedState = getDisplayedActivityPillState(state, sidebarDocked);
@@ -336,6 +341,14 @@ export const ComposerActivityPill = memo(function ComposerActivityPill() {
     setOpen(next);
     if (!next) displaySearchStore.clear();
   };
+
+  useEffect(() => {
+    if (visible) return;
+    setOpen(false);
+    displaySearchStore.clear();
+  }, [visible]);
+
+  if (!visible) return null;
 
   return (
     <motion.div

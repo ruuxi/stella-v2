@@ -16,7 +16,7 @@ import { useConversationFiles } from "@/features/chat/hooks/use-conversation-fil
 import { useConversationMessages } from "@/features/chat/hooks/use-conversation-messages";
 import { useComposerMessageState } from "@/features/chat/hooks/use-composer-message-state";
 import { useStreamingChat } from "@/features/chat/hooks/use-streaming-chat";
-import { useActivityTasks } from "@/features/chat/hooks/use-thread-activity";
+import { useActivityTaskState } from "@/features/chat/hooks/use-thread-activity";
 import {
   useTraceEventMonitor,
   useTraceIpcListener,
@@ -394,7 +394,7 @@ export function useFullShellChat({
 
   // The single task list every activity surface renders: authoritative
   // thread rows overlaid with live stream decoration. No event folding.
-  const tasks = useActivityTasks(
+  const { tasks, presence: activityPresence } = useActivityTaskState(
     activeConversationId ?? undefined,
     taskDecorations,
   );
@@ -402,6 +402,7 @@ export function useFullShellChat({
   const chatColumnConversation = useMemo<ChatColumnConversation>(
     () => ({
       tasks,
+      activityPresence,
       activity: {
         activities,
         hasOlder: hasOlderActivity,
@@ -435,6 +436,7 @@ export function useFullShellChat({
     }),
     [
       activities,
+      activityPresence,
       activeToolCallId,
       activeToolName,
       hasToolActivity,

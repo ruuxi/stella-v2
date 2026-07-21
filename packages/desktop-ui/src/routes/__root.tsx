@@ -66,6 +66,12 @@ import { ShellTopBar } from "@/shell/ShellTopBar";
 import { WindowControls } from "@/shell/WindowControls";
 import { LeftSidebar } from "@/shell/LeftSidebar";
 import { leftSidebarVisibilityStore } from "@/shell/left-sidebar-visibility-store";
+import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
+import {
+  activityPresenceAllowsSidebar,
+  isActivitySidebarDocked,
+  shouldAutoOpenActivitySidebar,
+} from "@/shell/activity-sidebar-visibility";
 import {
   displayTabs,
   useDisplayPanelExpanded,
@@ -169,17 +175,20 @@ function RootChrome() {
   const { state } = useUiState();
   const conversationId = state.conversationId;
   const chat = useChatRuntime();
+  const activityPresence = chat.conversation.activityPresence;
   const panelOpen = useDisplayPanelOpen();
   const panelExpanded = useDisplayPanelExpanded();
   const [leftSidebarVisible, setLeftSidebarVisible] = useState<boolean>(
     () => uiState.getItem(LEFT_SIDEBAR_VISIBLE_KEY) !== "0",
   );
+  const breakpointSidebarVisible =
+    leftSidebarVisible && activityPresenceAllowsSidebar(activityPresence);
 
   const [shellBreakpoints, setShellBreakpoints] =
     useState<ShellBreakpointState>(() =>
       getShellBreakpointState(
         typeof window === "undefined" ? 0 : window.innerWidth,
-        leftSidebarVisible,
+        breakpointSidebarVisible,
       ),
     );
   const shellBreakpointsRef = useRef(shellBreakpoints);
@@ -204,8 +213,12 @@ function RootChrome() {
   const platform = getPlatform();
   const isMac = platform === "darwin";
   const isWin = platform === "win32";
-  const dockedLeftSidebarVisible =
-    isFullWindow && leftSidebarVisible && !shellBreakpoints.hideLeftSidebar;
+  const dockedLeftSidebarVisible = isActivitySidebarDocked({
+    presence: activityPresence,
+    preferredVisible: leftSidebarVisible,
+    isFullWindow,
+    breakpointHidden: shellBreakpoints.hideLeftSidebar,
+  });
 
   // Left sidebar visibility — a toggle next to the traffic lights collapses
   // it; a floating button at the same spot brings it back. Persisted so the
@@ -217,6 +230,19 @@ function RootChrome() {
       return next;
     });
   }, []);
+
+  const previousActivityPresenceRef =
+    useRef<typeof activityPresence>("unknown");
+  useLayoutEffect(() => {
+    const previous = previousActivityPresenceRef.current;
+    previousActivityPresenceRef.current = activityPresence;
+    if (!shouldAutoOpenActivitySidebar(previous, activityPresence)) return;
+    setLeftSidebarVisible((visible) => {
+      if (visible) return visible;
+      uiState.setItem(LEFT_SIDEBAR_VISIBLE_KEY, "1");
+      return true;
+    });
+  }, [activityPresence]);
 
   const triggerDisplayBreakpointTransition = useCallback(() => {
     document.body.dataset.displayBreakpointTransition = "true";
@@ -518,11 +544,12 @@ function RootChrome() {
     [],
   );
 
-  // The observer mounts once; `leftSidebarVisible` flows in via a ref so a
+  // The observer mounts once; effective Activity/sidebar presence flows
+  // through a ref so a transition doesn't recreate the ResizeObserver.
   // sidebar toggle doesn't tear down / recreate the ResizeObserver and force
   // a synchronous re-measure on the very frame the collapse animation starts.
-  const leftSidebarVisibleRef = useRef(leftSidebarVisible);
-  leftSidebarVisibleRef.current = leftSidebarVisible;
+  const breakpointSidebarVisibleRef = useRef(breakpointSidebarVisible);
+  breakpointSidebarVisibleRef.current = breakpointSidebarVisible;
   const shellWidthRef = useRef(0);
 
   useEffect(() => {
@@ -537,7 +564,7 @@ function RootChrome() {
         frame = 0;
         applyShellBreakpoints(
           shellWidthRef.current,
-          leftSidebarVisibleRef.current,
+          breakpointSidebarVisibleRef.current,
         );
       });
     };
@@ -571,8 +598,8 @@ function RootChrome() {
   // cached shell width instead of re-measuring on toggle.
   useEffect(() => {
     if (shellWidthRef.current <= 0) return;
-    applyShellBreakpoints(shellWidthRef.current, leftSidebarVisible);
-  }, [applyShellBreakpoints, leftSidebarVisible]);
+    applyShellBreakpoints(shellWidthRef.current, breakpointSidebarVisible);
+  }, [applyShellBreakpoints, breakpointSidebarVisible]);
 
   useEffect(() => {
     if (isMiniWindow || isMobileWebView) {
@@ -619,11 +646,7 @@ function RootChrome() {
       {!isFullWindow ? <ShellTopBar /> : null}
 
       {isFullWindow ? (
-        <LeftSidebar
-          onSignIn={showAuthDialog}
-          onConnect={showConnectDialog}
-          collapsed={!dockedLeftSidebarVisible}
-        />
+        <LeftSidebar collapsed={!dockedLeftSidebarVisible} />
       ) : null}
 
       <StellaContextMenu
@@ -658,9 +681,9 @@ function RootChrome() {
           after the content area's top `-webkit-app-region: drag` strip —
           draggable regions resolve in DOM order, not z-index, so a button
           painted above but earlier in the DOM would still read as draggable
-          (and swallow clicks). The left toggle is always mounted at a fixed
-          position so it doesn't shift between the open and collapsed states. */}
-      {isFullWindow ? (
+          (and swallow clicks). When Activity exists, the left toggle stays at
+          a fixed position across open and collapsed states. */}
+      {isFullWindow && activityPresenceAllowsSidebar(activityPresence) ? (
         <button
           type="button"
           className="shell-topbar-icon-btn shell-edge-toggle shell-edge-toggle--left"
@@ -676,37 +699,34 @@ function RootChrome() {
       ) : null}
 
       {isFullWindow && !panelOpen ? (
-        isWin ? (
-          // Windows: the panel toggle and the custom min/max/close controls
-          // share the top-right corner, controls outermost. Mounted only
-          // while the panel is closed — opening the panel hides both.
-          <div className="shell-edge-right-cluster">
-            <button
-              type="button"
-              className="shell-topbar-icon-btn"
-              onClick={() => dispatchOpenWorkspacePanel()}
-              aria-label="Open panel"
-              title="Open panel"
-            >
-              <PanelRight size={16} strokeWidth={1.75} />
-            </button>
-            <WindowControls useWindowsIcons hidden={false} />
-          </div>
-        ) : (
+        <div
+          className="shell-edge-right-cluster"
+          data-platform={isWin ? "win" : isMac ? "mac" : "other"}
+        >
+          <ShellTopBarAccount
+            onSignIn={showAuthDialog}
+            onConnect={showConnectDialog}
+          />
           <button
             type="button"
-            className="shell-topbar-icon-btn shell-edge-toggle shell-edge-toggle--right"
+            className="shell-topbar-icon-btn"
             onClick={() => dispatchOpenWorkspacePanel()}
             aria-label="Open panel"
             title="Open panel"
           >
             <PanelRight size={16} strokeWidth={1.75} />
           </button>
-        )
+          {isWin ? <WindowControls useWindowsIcons hidden={false} /> : null}
+        </div>
       ) : null}
 
       <Suspense fallback={null}>
-        <RightSidebar ref={rightSidebarRef} />
+        <RightSidebar
+          ref={rightSidebarRef}
+          showAccountControls={isFullWindow}
+          onSignIn={showAuthDialog}
+          onConnect={showConnectDialog}
+        />
       </Suspense>
 
       <ComposerAreaSelectOverlay

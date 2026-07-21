@@ -34,6 +34,7 @@ import { useWindowType } from "@/shared/hooks/use-window-type";
 import { DisplayPanelControls } from "@/shell/DisplayPanelControls";
 import { DisplayTabSwitcher } from "@/shell/display/DisplayTabSwitcher";
 import { CanvasTopBarTabs } from "@/shell/display/canvas-tab/CanvasTopBarTabs";
+import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
 import "./right-sidebar.css";
 import "./right-sidebar-panel.css";
 import "./shell-junction.css";
@@ -55,6 +56,9 @@ export interface RightSidebarHandle {
 
 type RightSidebarProps = {
   portalTarget?: Element | null;
+  showAccountControls?: boolean;
+  onSignIn?: () => void;
+  onConnect?: () => void;
 };
 
 const DISPLAY_PANEL_DEFAULT_WIDTH = 600;
@@ -153,7 +157,10 @@ const DeferredDisplayContent = ({ render }: { render: () => ReactNode }) => {
 export const RightSidebar = forwardRef<
   RightSidebarHandle,
   RightSidebarProps
->(function RightSidebar({ portalTarget }, ref) {
+>(function RightSidebar(
+  { portalTarget, showAccountControls = false, onSignIn, onConnect },
+  ref,
+) {
   const panelOpen = useDisplayPanelOpen();
   const panelExpanded = useDisplayPanelExpanded();
   const activeTab = useActiveDisplayTab();
@@ -484,6 +491,9 @@ export const RightSidebar = forwardRef<
               <DisplayTabSwitcher />
               <CanvasTopBarTabs />
             </div>
+            {showAccountControls ? (
+              <ShellTopBarAccount onSignIn={onSignIn} onConnect={onConnect} />
+            ) : null}
             <DisplayPanelControls />
           </div>
         ) : null}

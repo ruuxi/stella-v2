@@ -7,6 +7,7 @@ import { getContextSuggestionLabel } from "@/app/chat/ComposerAddMenu";
 import {
   getActivityPillLabel,
   getDisplayedActivityPillState,
+  shouldShowActivityPill,
   shouldTrayHoldSearchLayout,
 } from "@/app/chat/ComposerActivityPill";
 import { isComposerContextMenuTarget } from "@/shell/context-menu/StellaContextMenu";
@@ -18,7 +19,10 @@ const SOURCE_ROOT = path.resolve(
 );
 
 describe("chat shell UI contracts", () => {
-  it("keeps the activity pill visible but suppresses running state while the sidebar is docked", () => {
+  it("shows the activity pill only for displayed work and suppresses running state while the sidebar is docked", () => {
+    expect(shouldShowActivityPill("unknown")).toBe(false);
+    expect(shouldShowActivityPill("empty")).toBe(false);
+    expect(shouldShowActivityPill("present")).toBe(true);
     expect(getDisplayedActivityPillState("running", false)).toBe("running");
     expect(getDisplayedActivityPillState("running", true)).toBe("idle");
     expect(getDisplayedActivityPillState("done", true)).toBe("done");

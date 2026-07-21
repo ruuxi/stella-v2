@@ -120,8 +120,20 @@ body[data-display-expanding="true"]
   -webkit-app-region: drag;
 }
 
+.right-sidebar-panel__chrome .shell-topbar-account {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(220px, 38%);
+  -webkit-app-region: no-drag;
+}
+
+.right-sidebar-panel__chrome .shell-topbar-account-trigger {
+  min-width: 0;
+}
+
 .right-sidebar-panel__chrome .shell-topbar-display-controls,
-.right-sidebar-panel__chrome .shell-topbar-icon-btn {
+.right-sidebar-panel__chrome .shell-topbar-icon-btn,
+.right-sidebar-panel__chrome .shell-topbar-account {
   -webkit-app-region: no-drag;
 }
 

@@ -1,9 +1,8 @@
 /**
  * Persistent floating left sidebar — the consolidated index.
  *
- * Top-to-bottom: Activity sections (`LeftSidebarSections`) and account
- * controls. Activity rows expand in place to show each agent's messages and
- * files. Search lives entirely in the composer pill's activity tray — the
+ * Activity rows expand in place to show each agent's messages and files.
+ * Search lives entirely in the composer pill's activity tray — the
  * sidebar never filters by it, so an active tray search leaves this stable
  * activity index untouched.
  *
@@ -12,23 +11,16 @@
 
 import { getPlatform } from "@/platform/electron/platform";
 import { LeftSidebarSections } from "@/shell/LeftSidebarSections";
-import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
 import { ShellTopBarUpdatePill } from "@/shell/ShellTopBarUpdatePill";
 import "./left-sidebar.css";
 import "./shell-junction.css";
 
 type LeftSidebarProps = {
-  onSignIn?: () => void;
-  onConnect?: () => void;
   /** When true, the sidebar animates its width to 0 (stays mounted). */
   collapsed?: boolean;
 };
 
-export function LeftSidebar({
-  onSignIn,
-  onConnect,
-  collapsed = false,
-}: LeftSidebarProps) {
+export function LeftSidebar({ collapsed = false }: LeftSidebarProps) {
   const platform = getPlatform();
   const isMac = platform === "darwin";
   const isWin = platform === "win32";
@@ -47,10 +39,6 @@ export function LeftSidebar({
         </div>
         <div className="left-sidebar__scroll">
           <LeftSidebarSections variant="overview" />
-        </div>
-
-        <div className="left-sidebar__footer">
-          <ShellTopBarAccount onSignIn={onSignIn} onConnect={onConnect} />
         </div>
       </div>
     </aside>

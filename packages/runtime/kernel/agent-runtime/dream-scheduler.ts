@@ -47,9 +47,10 @@ import type {
 } from "../../ai/types.js";
 import {
   ensureDreamMemoryLayout,
-  MEMORY_INDEX_MAX_CHARS,
-  MEMORY_INDEX_MAX_ENTRIES,
-  MEMORY_INDEX_STALE_DAYS,
+  MEMORY_MAP_FILE,
+  MEMORY_MAP_MAX_CHARS,
+  MEMORY_MAP_MAX_ENTRIES,
+  MEMORY_MAP_STALE_DAYS,
 } from "../memory/dream-storage.js";
 import {
   getResolvedLlmApiKey,
@@ -205,12 +206,13 @@ export const buildDreamSystemPrompt = (stellaDataDir: string): string =>
   [
     readHomePrompt(stellaDataDir, "dream-scheduled") ?? "",
     [
-      "Maintain ~/.stella/memories/memory_index.md on every consolidation pass.",
-      "Keep it a compact routing map: task families, aliases, repo names, paths, prior-decision hooks, and the best retrieval source (memory, threads, or transcripts).",
-      `Enforce a hard budget of at most ${MEMORY_INDEX_MAX_ENTRIES} entries and ${MEMORY_INDEX_MAX_CHARS} characters. Give entries an updated date and prune entries older than ${MEMORY_INDEX_STALE_DAYS} days unless recent usage proves they are still useful.`,
-      "Never put secrets, credentials, tokens, private keys, auth headers, or sensitive personal data in the routing index; store only the minimum routing metadata.",
-      "Use the DREAM:INDEX_START / DREAM:INDEX_END anchors and StrReplace. Prefer retaining and refreshing inbox entries with higher usage_count or recent last_usage.",
-      "profile.md remains exclusively Remember-owned; never edit it.",
+      `Routing map contract (authoritative — supersedes any earlier instructions about memory_summary.md or memory_index.md): maintain ~/.stella/memories/${MEMORY_MAP_FILE} on every consolidation pass.`,
+      "memory_summary.md and memory_index.md are retired and read-only; never write to them. The map replaced both.",
+      `${MEMORY_MAP_FILE} is pointer-only routing: what memory contains and where to find it. Durable facts stay in MEMORY.md; profile.md stays exclusively Remember-owned.`,
+      `Stage unpromoted durable constraints only under "## Derived constraints", tagged [derived YYYY-MM-DD]; never edit profile.md.`,
+      `Hard budget: at most ${MEMORY_MAP_MAX_ENTRIES} entries and ${MEMORY_MAP_MAX_CHARS} injected characters. Over-cap writes are rejected; merge or prune entries older than ${MEMORY_MAP_STALE_DAYS} days unless recent usage proves they remain useful.`,
+      "Edit only between DREAM:MAP_START / DREAM:MAP_END and DREAM:DERIVED_START / DREAM:DERIVED_END with StrReplace. Prefer entries with higher usage_count or recent last_usage.",
+      "Never put secrets, credentials, tokens, private keys, auth headers, or sensitive personal data in the map.",
     ].join(" "),
   ]
     .filter(Boolean)

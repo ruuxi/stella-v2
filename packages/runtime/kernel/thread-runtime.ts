@@ -10,6 +10,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRuntimeLogger } from "./debug.js";
 import { redactMemoryText } from "./memory/redaction.js";
+import {
+  refreshResidentStartupDocs,
+  stripInjectedHtmlComments,
+} from "./memory/resident-docs.js";
 import { readHomePrompt } from "./prompts/home-prompts.js";
 import {
   THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS,
@@ -847,7 +851,9 @@ const DURABLE_MEMORY_DOC_MAX_CHARS = 8_000;
  */
 const readDurableMemoryDoc = (filePath: string): string | undefined => {
   try {
-    const content = fs.readFileSync(filePath, "utf-8").trim();
+    const content = stripInjectedHtmlComments(
+      fs.readFileSync(filePath, "utf-8"),
+    );
     return content ? redactMemoryText(content) : undefined;
   } catch {
     return undefined;
@@ -856,7 +862,7 @@ const readDurableMemoryDoc = (filePath: string): string | undefined => {
 
 /**
  * Build the "already known — do not repeat" reference from the always-loaded
- * durable-memory docs (user profile + Dream memory summary), so the
+ * durable-memory docs (user profile + Dream memory map), so the
  * summarizer can skip restating facts the assistant sees on every turn.
  */
 export const buildDurableMemoryReference = (
@@ -871,8 +877,8 @@ export const buildDurableMemoryReference = (
       docPath: path.join(stellaDataDir, "memories", "profile.md"),
     },
     {
-      label: "Memory summary (memories/memory_summary.md)",
-      docPath: path.join(stellaDataDir, "memories", "memory_summary.md"),
+      label: "Memory map (memories/memory_map.md)",
+      docPath: path.join(stellaDataDir, "memories", "memory_map.md"),
     },
   ]
     .map(({ label, docPath }) => {
@@ -1068,8 +1074,8 @@ export const buildCompactionEscalationSummary = (args: {
   const previousSummary = args.previousSummary?.trim();
   const previousSummaryIsSafe = Boolean(
     previousSummary &&
-    validateThreadSummary(previousSummary, THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS)
-      .valid,
+      validateThreadSummary(previousSummary, THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS)
+        .valid,
   );
   if (previousSummary && previousSummaryIsSafe) {
     return [
@@ -1286,10 +1292,10 @@ export const maybeCompactRuntimeThread = async (args: {
     });
     const carriedForwardPrevious = Boolean(
       splitMessages.previousSummary?.trim() &&
-      validateThreadSummary(
-        splitMessages.previousSummary,
-        THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS,
-      ).valid,
+        validateThreadSummary(
+          splitMessages.previousSummary,
+          THREAD_SUMMARY_FLOOR_EXEMPT_TOKENS,
+        ).valid,
     );
     logger.error("thread.compaction.summary-escalation", {
       threadKey: args.threadKey,
@@ -1332,5 +1338,32 @@ export const maybeCompactRuntimeThread = async (args: {
     fromHook: summaryFromOverride,
   });
   args.store.updateThreadSummary(args.threadKey, summary);
+
+  // The overlay already starts a new provider-cache epoch. Refresh pinned
+  // resident bytes only now, then let the Effect-owned compaction scheduler's
+  // existing notifyCompacted path reload the session from durable storage.
+  // Best-effort: a doc read/write failure must never undo accepted compaction.
+  const stellaDataDir = args.stellaDataDir?.trim();
+  if (stellaDataDir) {
+    try {
+      const { refreshedDocs, removedDocs } = refreshResidentStartupDocs({
+        store: args.store,
+        threadKey: args.threadKey,
+        stellaDataDir,
+      });
+      if (refreshedDocs > 0 || removedDocs > 0) {
+        logger.info("thread.compaction.startup-docs-refreshed", {
+          threadKey: args.threadKey,
+          refreshedDocs,
+          removedDocs,
+        });
+      }
+    } catch (error) {
+      logger.warn("thread.compaction.startup-doc-refresh-failed", {
+        threadKey: args.threadKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   return { compacted: true, summary, fromOverride: summaryFromOverride };
 };

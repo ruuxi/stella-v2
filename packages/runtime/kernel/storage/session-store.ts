@@ -3257,6 +3257,132 @@ export class SessionStore {
     });
   }
 
+  /**
+   * Rewrite one persisted custom-message body in place while retaining its
+   * entry id and insertion position. Resident startup-doc refresh is the sole
+   * caller: mutating model-visible history outside a compaction boundary
+   * would violate prompt-cache epoch stability.
+   */
+  updateThreadCustomMessageContent(args: {
+    threadKey: string;
+    entryId: string;
+    content: RuntimeThreadCustomMessageEntry["content"];
+  }): boolean {
+    const threadKey = normalizeRuntimeThreadId(args.threadKey);
+    const entryId = args.entryId.trim();
+    if (!threadKey || !entryId) return false;
+    const conversationId = this.getThreadConversationId(threadKey);
+    let updated = false;
+    let timestamp = 0;
+    this.withTransaction(() => {
+      const row = this.db
+        .prepare(
+          `SELECT data_json AS dataJson, created_at AS createdAt
+           FROM runtime_thread_entries
+           WHERE thread_key = ? AND entry_id = ? AND entry_type = 'custom_message'
+           LIMIT 1`,
+        )
+        .get(threadKey, entryId) as
+        | { dataJson?: string | null; createdAt?: number }
+        | undefined;
+      if (!row) return;
+      const data = parseJsonValue<Record<string, unknown>>(
+        row.dataJson ?? null,
+      );
+      const customType =
+        typeof data?.customType === "string" ? data.customType.trim() : "";
+      if (!customType) return;
+      const eventId =
+        typeof data?.eventId === "string" && data.eventId.trim()
+          ? data.eventId.trim()
+          : undefined;
+      const rawLifecycleEvent = asObject(data?.lifecycleEvent);
+      const lifecycleType = asTrimmedString(rawLifecycleEvent?.type);
+      const lifecyclePayload = asObject(rawLifecycleEvent?.payload);
+      const lifecycleEvent =
+        isThreadLifecycleEventType(lifecycleType) &&
+        asTrimmedString(lifecyclePayload?.agentId)
+          ? {
+              type: lifecycleType,
+              payload: lifecyclePayload as Record<string, unknown>,
+            }
+          : undefined;
+      const boundedMessage = enforceCustomMessageRowSizeLimit({
+        customType,
+        content: args.content,
+        display: data?.display === true,
+        ...(eventId ? { eventId } : {}),
+        ...(lifecycleEvent ? { lifecycleEvent } : {}),
+      });
+      this.db
+        .prepare(
+          `UPDATE runtime_thread_entries
+           SET data_json = ?
+           WHERE thread_key = ? AND entry_id = ?`,
+        )
+        .run(
+          toJsonValueString({
+            customType: boundedMessage.customType,
+            content: boundedMessage.content,
+            display: boundedMessage.display,
+            ...(boundedMessage.eventId
+              ? { eventId: boundedMessage.eventId }
+              : {}),
+            ...(boundedMessage.lifecycleEvent
+              ? { lifecycleEvent: boundedMessage.lifecycleEvent }
+              : {}),
+          }),
+          threadKey,
+          entryId,
+        );
+      timestamp = asFiniteNumber(row.createdAt) ?? Date.now();
+      updated = true;
+      this.touchThread(threadKey);
+    }, "immediate");
+    if (updated) {
+      this.options.onThreadTranscriptUpdate?.({
+        threadId: threadKey,
+        conversationId,
+        entryId,
+        entryType: "custom_message",
+        atMs: timestamp,
+      });
+    }
+    return updated;
+  }
+
+  /** Delete one custom-message row; ordinary conversation rows are fenced. */
+  removeThreadCustomMessage(args: {
+    threadKey: string;
+    entryId: string;
+  }): boolean {
+    const threadKey = normalizeRuntimeThreadId(args.threadKey);
+    const entryId = args.entryId.trim();
+    if (!threadKey || !entryId) return false;
+    const conversationId = this.getThreadConversationId(threadKey);
+    let removed = false;
+    this.withTransaction(() => {
+      const result = this.db
+        .prepare(
+          `DELETE FROM runtime_thread_entries
+           WHERE thread_key = ? AND entry_id = ? AND entry_type = 'custom_message'`,
+        )
+        .run(threadKey, entryId) as { changes?: number | bigint } | undefined;
+      removed = Number(result?.changes ?? 0) > 0;
+      if (removed) this.touchThread(threadKey);
+    }, "immediate");
+    if (removed) {
+      this.options.onThreadTranscriptUpdate?.({
+        threadId: threadKey,
+        conversationId,
+        entryId,
+        entryType: "custom_message",
+        atMs: Date.now(),
+      });
+    }
+    return removed;
+  }
+
   recordRunEvent(event: RuntimeRunEvent): void {
     const messageId = `run:${event.runId}:${event.seq ?? generateLocalId()}`;
     this.withTransaction(() => {

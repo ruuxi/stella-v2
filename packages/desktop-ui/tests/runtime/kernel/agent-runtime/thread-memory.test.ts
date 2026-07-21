@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -12,13 +12,6 @@ import {
 } from "@stella/runtime/kernel/agent-runtime/thread-memory";
 import { buildDefaultTransformContext } from "@stella/runtime/kernel/agent-runtime/shared";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types";
-import { readMemorySummaryDoc } from "@stella/runtime/kernel/runner/shared";
-
-const readStartupDocBody = (text: string): string => {
-  const match = text.match(/<startup_doc[^>]*>\n([\s\S]*)\n<\/startup_doc>/);
-  if (!match?.[1]) throw new Error("startup doc body not found");
-  return match[1];
-};
 
 describe("buildSystemPrompt", () => {
   it("adds structured file-editing guidance when apply_patch is available", () => {
@@ -123,7 +116,7 @@ describe("buildStartupPromptMessages", () => {
     expect(promptText).toContain("***");
   });
 
-  it("push-injects the resident user profile and focus summary as startup docs", async () => {
+  it("push-injects the resident user profile and memory map as startup docs", async () => {
     const messages = await buildStartupPromptMessages({
       context: {
         systemPrompt: "system",
@@ -131,76 +124,50 @@ describe("buildStartupPromptMessages", () => {
         maxAgentDepth: 1,
         threadHistory: [],
         userProfile: "# User Profile\n\n- The user goes by Bob",
-        memorySummary:
-          "# Memory summary\n\n- Shipping the resident-memory rewire",
+        memoryMap:
+          "# Memory map\n\n- resident-memory rewire -> MEMORY.md 2026-07-18",
       },
     });
 
     const promptText = messages.map((message) => message.text).join("\n");
     expect(promptText).toContain('path="~/.stella/memories/profile.md"');
     expect(promptText).toContain("The user goes by Bob");
-    expect(promptText).toContain('path="~/.stella/memories/memory_summary.md"');
+    expect(promptText).toContain('path="~/.stella/memories/memory_map.md"');
     expect(promptText).toContain("resident-memory rewire");
     expect(
       messages.every((m) => m.customType === "bootstrap.startup_doc"),
     ).toBe(true);
   });
 
-  it.each([
-    { chars: 12_000, truncated: false },
-    { chars: 12_001, truncated: true },
-  ])(
-    "caps a $chars-character combined resident memory block at 12,000 characters",
-    async ({ chars, truncated }) => {
+  it("suppresses map injection while a retired pinned doc remains", async () => {
+    for (const retiredPath of [
+      "~/.stella/memories/memory_summary.md",
+      "~/.stella/memories/memory_index.md",
+    ]) {
       const messages = await buildStartupPromptMessages({
         context: {
           systemPrompt: "system",
           dynamicContext: "",
           maxAgentDepth: 1,
-          threadHistory: [],
-          memorySummary: "x".repeat(chars),
+          threadHistory: [
+            {
+              role: "runtimeInternal",
+              content: "",
+              customMessage: {
+                customType: "bootstrap.startup_doc",
+                content: [
+                  {
+                    type: "text",
+                    text: `<startup_doc path="${retiredPath}">\n# Retired doc\n\n- frozen content\n</startup_doc>`,
+                  },
+                ],
+              },
+            },
+          ],
+          memoryMap: "# Memory map\n\n- entry -> MEMORY.md 2026-07-18",
         },
       });
-
-      const body = readStartupDocBody(messages[0]?.text ?? "");
-      expect(body).toHaveLength(12_000);
-      expect(body.includes("resident memory summary truncated")).toBe(
-        truncated,
-      );
-    },
-  );
-
-  it("defense-in-depth caps the combined summary and routing index", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "stella-resident-memory-"));
-    try {
-      const memoriesDir = path.join(root, "memories");
-      await mkdir(memoriesDir, { recursive: true });
-      await writeFile(
-        path.join(memoriesDir, "memory_summary.md"),
-        "s".repeat(7_000),
-      );
-      await writeFile(
-        path.join(memoriesDir, "memory_index.md"),
-        `${"i".repeat(6_000 - "TAIL_SENTINEL".length)}TAIL_SENTINEL`,
-      );
-      const combined = readMemorySummaryDoc(root);
-      expect(combined?.length).toBeGreaterThan(12_000);
-
-      const messages = await buildStartupPromptMessages({
-        context: {
-          systemPrompt: "system",
-          dynamicContext: "",
-          maxAgentDepth: 1,
-          threadHistory: [],
-          memorySummary: combined,
-        },
-      });
-      const body = readStartupDocBody(messages[0]?.text ?? "");
-      expect(body).toHaveLength(12_000);
-      expect(body).toContain("resident memory summary truncated");
-      expect(body).not.toContain("TAIL_SENTINEL");
-    } finally {
-      await rm(root, { recursive: true, force: true });
+      expect(messages).toEqual([]);
     }
   });
 
@@ -232,7 +199,7 @@ describe("buildStartupPromptMessages", () => {
     expect(messages).toEqual([]);
   });
 
-  it("re-injects a resident doc whose content changed since it was persisted", async () => {
+  it("does not re-inject a resident doc whose content changed mid-epoch", async () => {
     const messages = await buildStartupPromptMessages({
       context: {
         systemPrompt: "system",
@@ -258,10 +225,38 @@ describe("buildStartupPromptMessages", () => {
       },
     });
 
-    const promptText = messages.map((message) => message.text).join("\n");
-    expect(promptText).toContain('path="~/.stella/memories/profile.md"');
-    expect(promptText).toContain("The user goes by Robert");
-    expect(promptText).not.toContain("The user goes by Bob");
+    expect(messages).toEqual([]);
+  });
+
+  it("keeps startup bytes stable across repeated map rewrites", async () => {
+    const persistedHistory = [
+      {
+        role: "runtimeInternal",
+        content: "",
+        customMessage: {
+          customType: "bootstrap.startup_doc",
+          content: [
+            {
+              type: "text" as const,
+              text: '<startup_doc path="~/.stella/memories/memory_map.md">\n# Memory map\n\n- v1\n</startup_doc>',
+            },
+          ],
+        },
+      },
+    ];
+    for (const rewrite of ["v1", "v2", "v3"]) {
+      expect(
+        await buildStartupPromptMessages({
+          context: {
+            systemPrompt: "system",
+            dynamicContext: "",
+            maxAgentDepth: 1,
+            threadHistory: persistedHistory,
+            memoryMap: `# Memory map\n\n- ${rewrite}`,
+          },
+        }),
+      ).toEqual([]);
+    }
   });
 
   it("injects personality as a startup doc ahead of core memory on the first turn", async () => {

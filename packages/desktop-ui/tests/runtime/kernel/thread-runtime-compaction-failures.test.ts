@@ -555,8 +555,8 @@ describe("orchestrator thread compaction failure handling", () => {
       "Rahul's workshop address is 123 Elm Street.",
     );
     fs.writeFileSync(
-      path.join(stellaDataDir, "memories", "memory_summary.md"),
-      "Workflow tiers: tier-1 ships without review.",
+      path.join(stellaDataDir, "memories", "memory_map.md"),
+      "Workflow tiers: tier-1 ships without review.\n<!-- retired transport -->",
     );
     try {
       const { store } = createFakeStore();
@@ -581,6 +581,7 @@ describe("orchestrator thread compaction failure handling", () => {
       expect(prompt).toContain("ALREADY KNOWN");
       expect(prompt).toContain("123 Elm Street");
       expect(prompt).toContain("tier-1 ships without review");
+      expect(prompt).not.toContain("retired transport");
       expect(prompt).toContain("Do not restate durable memory");
 
       // Non-orchestrator agents don't get the docs injected per turn, so

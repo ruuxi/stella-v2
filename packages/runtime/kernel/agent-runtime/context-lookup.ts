@@ -36,6 +36,7 @@ import {
   type RecallTelemetrySourceKind,
 } from "./recall-telemetry.js";
 import type { RecallModelRoute } from "./recall-route.js";
+import { stripInjectedHtmlComments } from "../memory/dream-storage.js";
 
 const MAX_CONTEXT_OUTPUT_TOKENS = 1_500;
 const EAGER_MEMORY_FILE_CHAR_BUDGET = 4_000;
@@ -560,13 +561,8 @@ type MemoryFileSource = {
 
 const MEMORY_FILE_SOURCES = (stellaDataDir: string): MemoryFileSource[] => [
   {
-    displayPath: "~/.stella/memories/memory_index.md",
-    path: path.join(stellaDataDir, "memories", "memory_index.md"),
-    includeByDefault: true,
-  },
-  {
-    displayPath: "~/.stella/memories/memory_summary.md",
-    path: path.join(stellaDataDir, "memories", "memory_summary.md"),
+    displayPath: "~/.stella/memories/memory_map.md",
+    path: path.join(stellaDataDir, "memories", "memory_map.md"),
     includeByDefault: true,
   },
   {
@@ -592,8 +588,13 @@ const readMemoryFiles = async (
   for (const file of files) {
     const content = await readOptionalTextFile(file.path);
     if (!content) continue;
+    const injectedContent =
+      file.displayPath === "~/.stella/memories/memory_map.md"
+        ? stripInjectedHtmlComments(content)
+        : content;
+    if (!injectedContent) continue;
     const rendered = truncate(
-      sanitizePromptContext(content, file.displayPath),
+      sanitizePromptContext(injectedContent, file.displayPath),
       EAGER_MEMORY_FILE_CHAR_BUDGET,
     );
     blocks.push(

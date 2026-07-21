@@ -13,14 +13,14 @@
  * must not already contain a database (no accidental reseeding over data).
  *
  * The seeded content recreates the SHAPE of the certified v1 measurement
- * environment (certified design: memory_summary.md + memory_index.md +
- * MEMORY.md + profile.md + chronicle + conversations/threads relevant to the
+ * environment (current design: memory_map.md + MEMORY.md + profile.md +
+ * chronicle + conversations/threads relevant to the
  * ten canonical queries), not its bytes: the certified snapshot was a frozen
  * copy of a real 2.1 GB home and is not reproducible nor appropriate to
  * copy. Per-query intent:
  *
- * - memory_system     -> one memory_index.md entry carries all four anchors
- *                        (profile.md, memory_summary.md, MEMORY.md, Recall)
+ * - memory_system     -> one memory_map.md entry carries all four anchors
+ *                        (profile.md, memory_map.md, MEMORY.md, Recall)
  *                        so the durable fast path can answer directly.
  * - carplay_thread    -> a CarPlay thread exists, but its identity line does
  *                        not carry all anchor groups -> deterministic no-match.
@@ -56,8 +56,7 @@ import { SessionStore } from "../kernel/storage/session-store.js";
 import {
   memoriesRoot,
   memoryFilePath,
-  memoryIndexPath,
-  memorySummaryPath,
+  memoryMapPath,
 } from "../kernel/memory/dream-storage.js";
 
 const readArg = (name: string): string | undefined => {
@@ -141,25 +140,18 @@ const PROFILE_MD = `# Profile
 - Preference: terse status reports, no filler
 `;
 
-const MEMORY_SUMMARY_MD = `# Memory summary
-
-- Active focus: v2 desktop hardening and the Recall latency overhaul port.
-- Recent context: benchmark harness work on an isolated dev home; the live
-  home is never touched by tests or measurements.
-- Secondary: intermittent CarPlay screen debugging on the test vehicle.
-`;
-
-// The memory_system entry deliberately carries profile.md, memory_summary.md,
+// The memory_system entry deliberately carries profile.md, memory_map.md,
 // MEMORY.md, and Recall in ONE entry so the durable fast path can return it
 // directly. Other entries scatter their topic words so no other query's full
 // anchor set co-occurs inside a single entry.
-const MEMORY_INDEX_MD = `# Memory routing index
+const MEMORY_MAP_MD = `# Memory map
 
 > What memory contains and where to find it. Pointer-only routing entries.
 > Maximum 80 entries and 6000 characters. Each entry carries an
 > updated date; prune entries older than 90 days unless recent usage shows they remain useful.
 
-- Memory system layout: Recall searches profile.md, memory_summary.md, memory_index.md, and MEMORY.md; profile.md stays Remember-owned and Dream never edits it. (updated 2026-07-10)
+- Memory system layout: Recall searches memory_map.md and MEMORY.md; profile.md stays resident and Remember-owned while Dream never edits it. (updated 2026-07-10)
+- Active focus: v2 desktop hardening and the Recall latency overhaul port. (updated 2026-07-18)
 - Vehicle debugging notes live in agent threads, newest first. (updated 2026-07-08)
 - Release procedures: see MEMORY.md task blocks from early July. (updated 2026-07-06)
 - Billing follow-ups are tracked in past chat transcripts. (updated 2026-07-12)
@@ -190,8 +182,7 @@ const CHRONICLE_MD = `# 2026-07-12
 `;
 
 writeFileSync(path.join(memoriesRoot(DATA_DIR), "profile.md"), PROFILE_MD);
-writeFileSync(memorySummaryPath(DATA_DIR), MEMORY_SUMMARY_MD);
-writeFileSync(memoryIndexPath(DATA_DIR), MEMORY_INDEX_MD);
+writeFileSync(memoryMapPath(DATA_DIR), MEMORY_MAP_MD);
 writeFileSync(memoryFilePath(DATA_DIR), MEMORY_MD);
 writeFileSync(
   path.join(DATA_DIR, "memories_extensions", "chronicle", "2026-07-12.md"),
@@ -354,8 +345,7 @@ const manifest = {
     [
       "preferences.json",
       "memories/profile.md",
-      "memories/memory_summary.md",
-      "memories/memory_index.md",
+      "memories/memory_map.md",
       "memories/MEMORY.md",
       "memories_extensions/chronicle/2026-07-12.md",
     ].map((relative) => [relative, fileSha(path.join(DATA_DIR, relative))]),

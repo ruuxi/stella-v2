@@ -39,10 +39,10 @@ const CERTIFIED_STUB_MAX_SUMMARY_CHARS = 200;
 const CERTIFIED_STUB_MIN_TOKENS_BEFORE = 10_000;
 const CERTIFIED_STUB_PATTERN = /^## Topic\n[\x20-\x7e]{1,180}$/u;
 const CERTIFIED_ENTRY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
-const BACKUP_VERSION = 3;
-const REPORT_VERSION = 2;
-const AUTHORIZATION_VERSION = 1;
-const AUTHORIZATION_PREFIX = "stella-offline-plan-v1";
+const BACKUP_VERSION = 4;
+const REPORT_VERSION = 3;
+const AUTHORIZATION_VERSION = 2;
+const AUTHORIZATION_PREFIX = "stella-offline-plan-v2";
 const LSOF_PATH = "/usr/sbin/lsof";
 const REQUIRED_ENTRY_COLUMNS = [
   "entry_id",
@@ -55,6 +55,44 @@ const REQUIRED_ENTRY_COLUMNS = [
   "data_json",
   "insertion_sequence",
 ];
+const REQUIRED_THREAD_COLUMNS = ["thread_key", "summary", "agent_type"];
+const MUTATING_SQL_PATTERN = /\b(?:INSERT|UPDATE|DELETE|REPLACE)\b/iu;
+const PROTECTED_MUTATION_TABLES = new Set([
+  "runtime_thread_entries",
+  "runtime_threads",
+]);
+// These are the exact trigger definitions installed by database-init.ts.
+// A newly added or locally modified mutating trigger must be reviewed and
+// added deliberately; dry-run authorization never blesses an unknown one.
+const CERTIFIED_MUTATING_TRIGGER_DIGESTS = new Map([
+  [
+    "trg_runtime_thread_entries_sequence",
+    "9d88a030ea31b2833d9d5c9dafc4f426b575f1113248a3119e820958d028c2aa",
+  ],
+  [
+    "trg_thread_search_fts_thread_delete",
+    "2a9bbda2ee9e3ed91bd05c011e30f621a377f2041d173932298a5399d99d4781",
+  ],
+  [
+    "trg_thread_search_fts_thread_insert",
+    "0846849f8d22f83a56db7b0f723903db4a924df7c802e77d738d162b0fd0ab86",
+  ],
+  [
+    "trg_thread_search_fts_thread_update",
+    "72aab06d73f24d1c675238f4801e4f326928b4de946fd7aa545d393dc24a57da",
+  ],
+]);
+const CERTIFIED_LEGACY_INCIDENT = {
+  entryId: "01KXSGPM354E01QJ3SXF6V89PJ",
+  threadKey: "01KWJ93DCEH7FVYAZ849P21J68",
+  rowDigest: "c121f4aa7cac0b92c24eb9666374a031151f322bd40671e7dd193d4a79796d0a",
+  data: {
+    summary: "## Topic\nStella v2 completion and notarization; removal",
+    fromEntryId: "01KWJ93EVJ6HW9X8NJ935RA4PQ",
+    toEntryId: "01KXS79SSD23GXS0FN9CZT1Z51",
+    tokensBefore: 190_576,
+  },
+};
 
 const fail = (message) => {
   throw new Error(message);
@@ -79,6 +117,18 @@ const canonicalize = (value) => {
     if (!Number.isFinite(value))
       fail("Cannot canonicalize a non-finite number.");
     return Object.is(value, -0) ? 0 : value;
+  }
+  if (typeof value === "bigint") {
+    return { $sqliteBigInt: value.toString() };
+  }
+  if (value instanceof Uint8Array) {
+    return {
+      $sqliteBlob: Buffer.from(
+        value.buffer,
+        value.byteOffset,
+        value.byteLength,
+      ).toString("hex"),
+    };
   }
   if (Array.isArray(value)) return value.map(canonicalize);
   if (isCanonicalRecord(value)) {
@@ -109,11 +159,31 @@ const pathIsWithin = (candidate, root) => {
  * copy elsewhere; stopped-app confirmation and holder checks remain required
  * for writes to that copy.
  */
-export const assertOfflineDatabasePath = (candidate) => {
-  const protectedRoots = [
-    path.join(os.homedir(), "stella"),
-    path.join(os.homedir(), ".stella"),
-  ].map((root) => path.resolve(root));
+const findInodeWithin = (root, targetStat) => {
+  if (!fs.existsSync(root)) return undefined;
+  const pending = [root];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    const stat = fs.lstatSync(current, { bigint: true });
+    if (stat.isSymbolicLink()) continue;
+    if (stat.dev === targetStat.dev && stat.ino === targetStat.ino) {
+      return current;
+    }
+    if (!stat.isDirectory()) continue;
+    for (const name of fs.readdirSync(current)) {
+      pending.push(path.join(current, name));
+    }
+  }
+  return undefined;
+};
+
+export const assertOfflineDatabasePath = (candidate, options = {}) => {
+  const protectedRoots = (
+    options.protectedRoots ?? [
+      path.join(os.homedir(), "stella"),
+      path.join(os.homedir(), ".stella"),
+    ]
+  ).map((root) => path.resolve(root));
   const rejectProtected = (resolved) => {
     const protectedRoot = protectedRoots.find((root) =>
       pathIsWithin(resolved, root),
@@ -131,6 +201,19 @@ export const assertOfflineDatabasePath = (candidate) => {
     ? fs.realpathSync(absolute)
     : absolute;
   rejectProtected(canonical);
+  if (fs.existsSync(canonical)) {
+    const stat = fs.statSync(canonical, { bigint: true });
+    if (stat.nlink > 1n) {
+      for (const protectedRoot of protectedRoots) {
+        const alias = findInodeWithin(protectedRoot, stat);
+        if (alias) {
+          fail(
+            `Refusing hard-linked alias ${canonical}; the same inode exists under protected Stella path ${alias}.`,
+          );
+        }
+      }
+    }
+  }
   return canonical;
 };
 
@@ -231,6 +314,51 @@ const tableColumns = (db, table) =>
     .all()
     .map((row) => String(row.name));
 
+const canonicalDdl = (sql) =>
+  String(sql)
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/gu, ""))
+    .join("\n")
+    .trim();
+
+const loadCanonicalSchemaObjects = (db) =>
+  db
+    .prepare(
+      `SELECT type, name, tbl_name, sql
+       FROM sqlite_schema
+       WHERE type IN ('table', 'index', 'trigger', 'view')
+         AND name NOT LIKE 'sqlite_%'
+         AND sql IS NOT NULL
+       ORDER BY type, name, tbl_name`,
+    )
+    .all()
+    .map((row) => ({
+      type: String(row.type),
+      name: String(row.name),
+      table: String(row.tbl_name),
+      sql: canonicalDdl(row.sql),
+    }));
+
+const assertCertifiedMutatingTriggers = (schemaObjects) => {
+  for (const object of schemaObjects) {
+    if (
+      object.type !== "trigger" ||
+      !PROTECTED_MUTATION_TABLES.has(object.table) ||
+      !MUTATING_SQL_PATTERN.test(object.sql)
+    ) {
+      continue;
+    }
+    const expected = CERTIFIED_MUTATING_TRIGGER_DIGESTS.get(object.name);
+    const actual = sha256Canonical(object.sql);
+    if (!expected || expected !== actual) {
+      fail(
+        `Refusing unknown or modified mutating trigger ${object.name} on ${object.table}.`,
+      );
+    }
+  }
+};
+
 const assertSchema = (db) => {
   const entryColumns = tableColumns(db, "runtime_thread_entries");
   const threadColumns = tableColumns(db, "runtime_threads");
@@ -238,13 +366,19 @@ const assertSchema = (db) => {
     if (!entryColumns.includes(column))
       fail(`Database is missing runtime_thread_entries.${column}.`);
   }
-  if (
-    !threadColumns.includes("thread_key") ||
-    !threadColumns.includes("summary")
-  ) {
-    fail("Database has an incompatible runtime_threads schema.");
+  for (const column of REQUIRED_THREAD_COLUMNS) {
+    if (!threadColumns.includes(column)) {
+      fail(`Database is missing runtime_threads.${column}.`);
+    }
   }
-  return { entryColumns, threadColumns };
+  const schemaObjects = loadCanonicalSchemaObjects(db);
+  assertCertifiedMutatingTriggers(schemaObjects);
+  return {
+    entryColumns,
+    threadColumns,
+    ddlDigest: sha256Canonical(schemaObjects),
+    schemaObjects,
+  };
 };
 
 const selectColumns = (columns) => columns.map(quoteIdentifier).join(", ");
@@ -281,6 +415,99 @@ const fingerprintSnapshot = ({ entryColumns, threadColumns, rows, thread }) =>
     )
     .digest("hex");
 
+const digestQueryRows = (db, sql, parameters = []) => {
+  const rows = db.prepare(sql).all(...parameters);
+  return {
+    count: rows.length,
+    digest: sha256Canonical(rows),
+  };
+};
+
+const digestWholeTable = (db, table) => {
+  const identifier = quoteIdentifier(table);
+  try {
+    return digestQueryRows(db, `SELECT * FROM ${identifier} ORDER BY rowid`);
+  } catch {
+    const columns = tableColumns(db, table);
+    if (columns.length === 0) {
+      fail(`Cannot fingerprint out-of-plan table ${table}.`);
+    }
+    return digestQueryRows(
+      db,
+      `SELECT * FROM ${identifier} ORDER BY ${selectColumns(columns)}`,
+    );
+  }
+};
+
+const captureOutOfPlanState = (db, plan) => {
+  const schema = assertSchema(db);
+  const currentSchemaIdentity = schemaIdentity(schema);
+  if (
+    canonicalJson(currentSchemaIdentity) !== canonicalJson(plan.schemaIdentity)
+  ) {
+    fail("Database schema changed after the authorized plan was assembled.");
+  }
+  const plannedIds = [...plan.plannedEntryIds].sort();
+  const placeholders = plannedIds.map(() => "?").join(", ");
+  const entryWhere = plannedIds.length
+    ? `WHERE entry_id NOT IN (${placeholders})`
+    : "";
+  const otherTables = Object.fromEntries(
+    schema.schemaObjects
+      .filter(
+        (object) =>
+          object.type === "table" &&
+          !PROTECTED_MUTATION_TABLES.has(object.name),
+      )
+      .map((object) => [object.name, digestWholeTable(db, object.name)]),
+  );
+  return {
+    schemaIdentity: currentSchemaIdentity,
+    entries: digestQueryRows(
+      db,
+      `SELECT ${selectColumns(schema.entryColumns)}
+       FROM runtime_thread_entries ${entryWhere}
+       ORDER BY entry_id`,
+      plannedIds,
+    ),
+    threads: digestQueryRows(
+      db,
+      `SELECT ${selectColumns(schema.threadColumns)}
+       FROM runtime_threads
+       WHERE thread_key <> ?
+       ORDER BY thread_key`,
+      [plan.targetThreadKey],
+    ),
+    otherTables,
+  };
+};
+
+const assertOutOfPlanUnchanged = (before, after) => {
+  if (canonicalJson(before) === canonicalJson(after)) return;
+  const changed = [];
+  if (
+    canonicalJson(before.schemaIdentity) !== canonicalJson(after.schemaIdentity)
+  )
+    changed.push("sqlite_schema");
+  if (canonicalJson(before.entries) !== canonicalJson(after.entries))
+    changed.push("runtime_thread_entries outside the planned row set");
+  if (canonicalJson(before.threads) !== canonicalJson(after.threads))
+    changed.push("runtime_threads outside the target thread");
+  const names = new Set([
+    ...Object.keys(before.otherTables),
+    ...Object.keys(after.otherTables),
+  ]);
+  for (const name of [...names].sort()) {
+    if (
+      canonicalJson(before.otherTables[name]) !==
+      canonicalJson(after.otherTables[name])
+    ) {
+      changed.push(name);
+    }
+  }
+  fail(`Out-of-plan database rows changed: ${changed.join(", ")}.`);
+};
+
 const databaseIdentity = (dbPath) => {
   const canonicalPath = fs.realpathSync(dbPath);
   const stat = fs.statSync(canonicalPath, { bigint: true });
@@ -294,9 +521,10 @@ const databaseIdentity = (dbPath) => {
 const authorizationToken = (payload) =>
   `${AUTHORIZATION_PREFIX}.${sha256Canonical(payload)}`;
 
-const schemaIdentity = (entryColumns, threadColumns) => ({
-  entryColumns,
-  threadColumns,
+const schemaIdentity = (schema) => ({
+  entryColumns: schema.entryColumns,
+  threadColumns: schema.threadColumns,
+  ddlDigest: schema.ddlDigest,
 });
 
 const repairMutationSet = (plan) => ({
@@ -322,7 +550,7 @@ export const buildRepairAuthorization = (dbPath, plan) => {
       entryId: plan.entryId,
       rowDigest: sha256Canonical(plan.target),
     },
-    schema: schemaIdentity(plan.entryColumns, plan.threadColumns),
+    schema: plan.schemaIdentity,
     preStateFingerprint: plan.fingerprintBefore,
     mutations: repairMutationSet(plan),
   };
@@ -359,7 +587,7 @@ export const buildRestoreAuthorization = (
       receiptPath: fs.realpathSync(backupPath),
       receiptDigest: backup.receiptDigest,
     },
-    schema: schemaIdentity(backup.entryColumns, backup.threadColumns),
+    schema: restorePlan.schemaIdentity,
     preStateFingerprint: restorePlan.fingerprint,
     mutations: restoreMutationSet(backup),
   };
@@ -544,14 +772,100 @@ const strictSummary = (entryId, data) => {
   return data.summary;
 };
 
-export const classifyCertifiedStubCheckpoint = (entryId, data) => {
+const strictSummaryValidationInput = (entryId, data, options = {}) => {
+  if (!("summaryValidation" in data)) {
+    if (options.allowMissing) return undefined;
+    fail(
+      `Refusing: compaction ${entryId} lacks authoritative summaryValidation inputs from the runtime fold.`,
+    );
+  }
+  const input = data.summaryValidation;
+  const keys = isPlainObject(input) ? Object.keys(input).sort() : [];
+  if (
+    !isPlainObject(input) ||
+    canonicalJson(keys) !==
+      canonicalJson(["middleTokens", "previousSummary", "version"]) ||
+    input.version !== 1 ||
+    typeof input.middleTokens !== "number" ||
+    !Number.isFinite(input.middleTokens) ||
+    !Number.isSafeInteger(input.middleTokens) ||
+    input.middleTokens < 0 ||
+    (input.previousSummary !== null &&
+      typeof input.previousSummary !== "string")
+  ) {
+    fail(
+      `Refusing: compaction ${entryId} has malformed or ambiguous summaryValidation inputs.`,
+    );
+  }
+  return {
+    middleTokens: input.middleTokens,
+    previousSummary: input.previousSummary ?? undefined,
+  };
+};
+
+const matchesCertifiedLegacyIncident = (entryId, data, context) =>
+  entryId === CERTIFIED_LEGACY_INCIDENT.entryId &&
+  context?.threadKey === CERTIFIED_LEGACY_INCIDENT.threadKey &&
+  context?.rowDigest === CERTIFIED_LEGACY_INCIDENT.rowDigest &&
+  canonicalJson(data) === canonicalJson(CERTIFIED_LEGACY_INCIDENT.data);
+
+// v2 now persists both acceptance inputs. Older checkpoints do not contain
+// enough information to replay the runtime validator: tokensBefore is the
+// whole-thread estimate, not the folded middle span, and the previous summary
+// was not recorded. Only the forensic row digest of the single certified
+// incident may cross that target-classification boundary. Fallback candidates
+// never get this exception because selecting the wrong "healthy" predecessor
+// would replace durable thread metadata with an unproven summary.
+
+const validatePersistedCheckpointSummary = (entryId, data) => {
+  const summary = strictSummary(entryId, data);
+  const validationInput = strictSummaryValidationInput(entryId, data);
+  return {
+    summary,
+    validationInput,
+    runtimeValidation: validateThreadSummary(
+      summary,
+      validationInput.middleTokens,
+      validationInput.previousSummary,
+    ),
+  };
+};
+
+export const classifyCertifiedStubCheckpoint = (
+  entryId,
+  data,
+  context = {},
+) => {
   if (!isPlainObject(data)) {
     fail(`Refusing: compaction ${entryId} data must be a plain object.`);
   }
   const summary = strictSummary(entryId, data);
   const tokensBefore = strictTokensBefore(entryId, data);
   const range = strictCompactionRange(entryId, data);
-  const runtimeValidation = validateThreadSummary(summary, tokensBefore);
+  const validationInput = strictSummaryValidationInput(entryId, data, {
+    allowMissing: true,
+  });
+  const certifiedLegacyIncident =
+    validationInput === undefined &&
+    matchesCertifiedLegacyIncident(entryId, data, context);
+  if (validationInput === undefined && !certifiedLegacyIncident) {
+    fail(
+      `Refusing: legacy compaction ${entryId} lacks authoritative folded-span validation inputs and is not the exact certified incident row.`,
+    );
+  }
+  const runtimeValidation = validationInput
+    ? validateThreadSummary(
+        summary,
+        validationInput.middleTokens,
+        validationInput.previousSummary,
+      )
+    : {
+        valid: false,
+        reason: "exact certified legacy incident identity",
+        visibleCodePoints: Array.from(summary).length,
+        wordCount: 0,
+        uniqueWordCount: 0,
+      };
   if (runtimeValidation.valid) {
     fail(
       "Refusing: target summary satisfies the runtime acceptance validator and must not be repaired.",
@@ -572,11 +886,19 @@ export const classifyCertifiedStubCheckpoint = (entryId, data) => {
       "Refusing: target summary does not match the exact certified ASCII stub signature.",
     );
   }
-  return { summary, tokensBefore, ...range, runtimeValidation };
+  return {
+    summary,
+    tokensBefore,
+    ...range,
+    runtimeValidation,
+    validationInput,
+    certifiedLegacyIncident,
+  };
 };
 
 export const analyzeRepair = (db, entryId) => {
-  const { entryColumns, threadColumns } = assertSchema(db);
+  const schema = assertSchema(db);
+  const { entryColumns, threadColumns } = schema;
   const target = db
     .prepare(
       `SELECT ${selectColumns(entryColumns)} FROM runtime_thread_entries WHERE entry_id = ?`,
@@ -589,8 +911,18 @@ export const analyzeRepair = (db, entryId) => {
     fail(`Entry ${entryId} lacks a safe insertion_sequence.`);
 
   const targetData = parseCompactionData(target);
-  const { summary, tokensBefore, fromEntryId, toEntryId, runtimeValidation } =
-    classifyCertifiedStubCheckpoint(target.entry_id, targetData);
+  const {
+    summary,
+    tokensBefore,
+    fromEntryId,
+    toEntryId,
+    runtimeValidation,
+    validationInput,
+    certifiedLegacyIncident,
+  } = classifyCertifiedStubCheckpoint(target.entry_id, targetData, {
+    threadKey: target.thread_key,
+    rowDigest: sha256Canonical(target),
+  });
   // The only automatically repairable corruption is the exact certified v1
   // shape: one short ASCII `## Topic` fragment over a large explicit range.
   // The ASCII signature intentionally rejects Unicode normalization tricks,
@@ -601,10 +933,10 @@ export const analyzeRepair = (db, entryId) => {
   const previous = ancestors.find((candidate) => {
     if (candidate.entry_type !== "compaction") return false;
     const data = parseCompactionData(candidate);
-    return validateThreadSummary(
-      strictSummary(candidate.entry_id, data),
-      strictTokensBefore(candidate.entry_id, data),
-    ).valid;
+    strictTokensBefore(candidate.entry_id, data);
+    strictCompactionRange(candidate.entry_id, data);
+    return validatePersistedCheckpointSummary(candidate.entry_id, data)
+      .runtimeValidation.valid;
   });
   if (!previous)
     fail(
@@ -675,6 +1007,11 @@ export const analyzeRepair = (db, entryId) => {
 
   const thread = loadThreadRow(db, target.thread_key, threadColumns);
   if (!thread) fail(`Missing runtime_threads row for ${target.thread_key}.`);
+  if (thread.agent_type !== "orchestrator") {
+    fail(
+      `Refusing: certified checkpoint repair only applies to orchestrator threads, received ${thread.agent_type}.`,
+    );
+  }
   const removedSummaries = new Set(
     affected.map((row) =>
       strictSummary(row.entry_id, parseCompactionData(row)),
@@ -735,6 +1072,8 @@ export const analyzeRepair = (db, entryId) => {
     entryId,
     entryColumns,
     threadColumns,
+    schemaIdentity: schemaIdentity(schema),
+    targetThreadKey: target.thread_key,
     target,
     targetData,
     rows,
@@ -744,15 +1083,22 @@ export const analyzeRepair = (db, entryId) => {
     previous,
     previousSummary,
     reparents,
+    plannedEntryIds: new Set([
+      ...affected.map((row) => row.entry_id),
+      ...reparents.map((item) => item.before.entry_id),
+    ]),
     thread,
     threadSummaryAfter,
     metadataBelongsToAffectedOverlay,
     fingerprintBefore,
     fingerprintAfter,
     eligibility: {
-      classifier: "certified-v1-ascii-topic-stub-v2",
+      classifier: "certified-v1-ascii-topic-stub-v3",
       summaryChars: summary.length,
       tokensBefore,
+      foldedSpanTokens: validationInput?.middleTokens ?? null,
+      previousSummaryChars: validationInput?.previousSummary?.length ?? null,
+      certifiedLegacyIncident,
       explicitRange: true,
       runtimeValidationReason: runtimeValidation.reason,
     },
@@ -847,6 +1193,9 @@ export const writeDurableJson = (filePath, value, options = {}) => {
   }
 };
 
+export const createReceiptDigest = (receiptCore) =>
+  sha256Canonical(receiptCore);
+
 const fullRowWhere = (columns) =>
   columns.map((column) => `${quoteIdentifier(column)} IS ?`).join(" AND ");
 
@@ -902,6 +1251,7 @@ export const applyRepairPlan = (
   dbPath,
   plan,
   backupPath = createBackupPath(dbPath, plan.entryId),
+  options = {},
 ) => {
   if (!db.isTransaction) {
     fail("applyRepairPlan requires an active BEGIN IMMEDIATE transaction.");
@@ -919,6 +1269,7 @@ export const applyRepairPlan = (
       `CAS fingerprint conflict: expected ${plan.fingerprintBefore}, received ${currentFingerprint}. Re-run the dry run.`,
     );
   }
+  const outOfPlanBefore = captureOutOfPlanState(db, plan);
   const repairAuthorization = buildRepairAuthorization(dbPath, plan);
   const backupCore = {
     version: BACKUP_VERSION,
@@ -928,6 +1279,7 @@ export const applyRepairPlan = (
     createdAt: new Date().toISOString(),
     entryColumns: plan.entryColumns,
     threadColumns: plan.threadColumns,
+    schemaIdentity: plan.schemaIdentity,
     targetEntryId: plan.entryId,
     deletedEntries: plan.affected,
     reparentedChildren: plan.reparents,
@@ -940,7 +1292,7 @@ export const applyRepairPlan = (
   };
   const backup = {
     ...backupCore,
-    receiptDigest: sha256Canonical(backupCore),
+    receiptDigest: createReceiptDigest(backupCore),
   };
 
   const updateParent = db.prepare(
@@ -986,10 +1338,12 @@ export const applyRepairPlan = (
       fail("CAS failed while updating runtime_threads.summary.");
   }
   assertRepairPostconditions(db, plan);
+  const outOfPlanAfter = captureOutOfPlanState(db, plan);
+  assertOutOfPlanUnchanged(outOfPlanBefore, outOfPlanAfter);
   // The verified transaction is still uncommitted here. Persist and fsync its
   // reversible preimage before the caller may COMMIT; a backup write failure
   // therefore rolls the SQLite changes back instead of committing unrecoverably.
-  writeDurableJson(backupPath, backup);
+  writeDurableJson(backupPath, backup, options.writeOptions);
   return { backupPath, backup, noop: false };
 };
 
@@ -1013,7 +1367,7 @@ export const loadBackup = (backupPath) => {
     fail(`Repair receipt has no canonical digest: ${backupPath}`);
   }
   const { receiptDigest, ...receiptCore } = value;
-  const actualDigest = sha256Canonical(receiptCore);
+  const actualDigest = createReceiptDigest(receiptCore);
   if (actualDigest !== receiptDigest) {
     fail(
       `Repair receipt digest mismatch: expected ${receiptDigest}, received ${actualDigest}.`,
@@ -1029,6 +1383,20 @@ export const loadBackup = (backupPath) => {
     !value.entryColumns.every((column) => typeof column === "string") ||
     !Array.isArray(value.threadColumns) ||
     !value.threadColumns.every((column) => typeof column === "string") ||
+    !isPlainObject(value.schemaIdentity) ||
+    !Array.isArray(value.schemaIdentity.entryColumns) ||
+    !value.schemaIdentity.entryColumns.every(
+      (column) => typeof column === "string",
+    ) ||
+    !Array.isArray(value.schemaIdentity.threadColumns) ||
+    !value.schemaIdentity.threadColumns.every(
+      (column) => typeof column === "string",
+    ) ||
+    !/^[a-f0-9]{64}$/u.test(value.schemaIdentity.ddlDigest ?? "") ||
+    canonicalJson(value.entryColumns) !==
+      canonicalJson(value.schemaIdentity.entryColumns) ||
+    canonicalJson(value.threadColumns) !==
+      canonicalJson(value.schemaIdentity.threadColumns) ||
     !Array.isArray(value.deletedEntries) ||
     !Array.isArray(value.reparentedChildren) ||
     !isPlainObject(value.threadBefore) ||
@@ -1059,10 +1427,8 @@ const analyzeAppliedRepairState = (db, dbPath, backup) => {
   }
   assertReceiptDatabaseIdentity(dbPath, backup);
   if (
-    JSON.stringify(schema.entryColumns) !==
-      JSON.stringify(backup.entryColumns) ||
-    JSON.stringify(schema.threadColumns) !==
-      JSON.stringify(backup.threadColumns)
+    canonicalJson(schemaIdentity(schema)) !==
+    canonicalJson(backup.schemaIdentity)
   ) {
     fail("Database schema no longer matches the repair receipt.");
   }
@@ -1189,10 +1555,8 @@ export const analyzeRestore = (db, dbPath, backup) => {
   }
   assertReceiptDatabaseIdentity(dbPath, backup);
   if (
-    JSON.stringify(schema.entryColumns) !==
-      JSON.stringify(backup.entryColumns) ||
-    JSON.stringify(schema.threadColumns) !==
-      JSON.stringify(backup.threadColumns)
+    canonicalJson(schemaIdentity(schema)) !==
+    canonicalJson(backup.schemaIdentity)
   ) {
     fail("Database schema no longer matches the repair backup.");
   }
@@ -1260,7 +1624,17 @@ export const analyzeRestore = (db, dbPath, backup) => {
       `Cannot restore: database fingerprint changed after repair (expected ${backup.fingerprintAfter}, received ${fingerprint}).`,
     );
   }
-  return { schema, thread, fingerprint };
+  return {
+    schema,
+    schemaIdentity: schemaIdentity(schema),
+    targetThreadKey: backup.threadBefore.thread_key,
+    plannedEntryIds: new Set([
+      ...backup.deletedEntries.map((row) => row.entry_id),
+      ...backup.reparentedChildren.map((item) => item.before.entry_id),
+    ]),
+    thread,
+    fingerprint,
+  };
 };
 
 export const applyRestorePlan = (db, backup, restorePlan) => {
@@ -1286,6 +1660,7 @@ export const applyRestorePlan = (db, backup, restorePlan) => {
       `Restore CAS fingerprint conflict: expected ${restorePlan.fingerprint}, received ${currentFingerprint}. Re-run the restore dry run.`,
     );
   }
+  const outOfPlanBefore = captureOutOfPlanState(db, restorePlan);
   const insert = db.prepare(
     `INSERT INTO runtime_thread_entries (${selectColumns(backup.entryColumns)})
      VALUES (${backup.entryColumns.map(() => "?").join(", ")})`,
@@ -1372,6 +1747,8 @@ export const applyRestorePlan = (db, backup, restorePlan) => {
       `Restore verification fingerprint mismatch: expected ${backup.fingerprintBefore}, received ${restoredFingerprint}.`,
     );
   }
+  const outOfPlanAfter = captureOutOfPlanState(db, restorePlan);
+  assertOutOfPlanUnchanged(outOfPlanBefore, outOfPlanAfter);
   return restorePlan;
 };
 

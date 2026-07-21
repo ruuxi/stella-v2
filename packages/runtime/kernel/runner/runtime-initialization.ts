@@ -479,6 +479,19 @@ export const createRuntimeInitialization = (
         });
       },
     );
+    // Interrupt the run coordinator's drain fiber and join any in-flight
+    // queued-turn admission before the lane state is torn down beneath it.
+    // The runner is not restarted on this instance, so coordinator shutdown
+    // is terminal (a fresh runner builds a fresh coordinator).
+    await joinWithTimeout(
+      context.state.runCoordinator?.shutdown() ?? Promise.resolve(),
+      SUPERVISOR_JOIN_TIMEOUT_MS,
+      () => {
+        logger.warn("runner.stop.run-coordinator-join-timeout", {
+          timeoutMs: SUPERVISOR_JOIN_TIMEOUT_MS,
+        });
+      },
+    );
     context.state.activeOrchestratorRunId = null;
     context.state.activeOrchestratorConversationId = null;
     context.state.activeOrchestratorUiVisibility = "visible";

@@ -1,4 +1,5 @@
 import type { RuntimeRunCallbacks } from "../agent-runtime.js";
+import { ensureRunCoordinator } from "./run-coordinator.js";
 import type {
   AgentCallbacks,
   QueuedOrchestratorTurn,
@@ -6,6 +7,10 @@ import type {
 } from "./types.js";
 
 export const createOrchestratorCoordinator = (context: RunnerContext) => {
+  // Admission, queue ordering, and the drain lifecycle live on the
+  // Effect-owned run coordinator; this module keeps the callback/session
+  // plumbing and delegates lane state to it.
+  const runCoordinator = ensureRunCoordinator(context);
   /**
    * Fires a fresh reply turn for user chat messages that were injected into a
    * run as follow-ups but never answered (the run was interrupted or failed
@@ -27,63 +32,21 @@ export const createOrchestratorCoordinator = (context: RunnerContext) => {
   };
 
   const clearActiveOrchestratorRun = (runId: string) => {
-    if (context.state.activeOrchestratorRunId !== runId) {
-      return;
-    }
-    context.state.activeOrchestratorRunId = null;
-    context.state.activeOrchestratorConversationId = null;
-    context.state.activeOrchestratorUiVisibility = "visible";
-    context.state.activeOrchestratorSession = null;
+    runCoordinator.releaseRun(runId);
   };
 
-  const drainQueuedOrchestratorTurns = async (): Promise<void> => {
-    if (context.state.activeOrchestratorRunId) {
-      return;
-    }
-
-    while (
-      !context.state.activeOrchestratorRunId &&
-      context.state.queuedOrchestratorTurns.length > 0
-    ) {
-      const nextTurn = context.state.queuedOrchestratorTurns.shift();
-      if (!nextTurn) {
-        return;
-      }
-      try {
-        await nextTurn.execute();
-      } catch {
-        // Individual queued turn handlers notify callers.
-      }
-    }
-  };
+  const drainQueuedOrchestratorTurns = (): Promise<void> =>
+    runCoordinator.drainNow();
 
   const queueOrchestratorTurn = (turn: QueuedOrchestratorTurn) => {
-    if (turn.priority === "user") {
-      const firstSystemIndex = context.state.queuedOrchestratorTurns.findIndex(
-        (entry) => entry.priority !== "user",
-      );
-      if (firstSystemIndex === -1) {
-        context.state.queuedOrchestratorTurns.push(turn);
-      } else {
-        context.state.queuedOrchestratorTurns.splice(firstSystemIndex, 0, turn);
-      }
-    } else {
-      context.state.queuedOrchestratorTurns.push(turn);
-    }
-    if (!context.state.activeOrchestratorRunId) {
-      queueMicrotask(() => {
-        void drainQueuedOrchestratorTurns();
-      });
-    }
+    runCoordinator.enqueueTurn(turn);
   };
 
   const cleanupRun = (runId: string, onCleanup?: () => void) => {
     context.state.activeRunAbortControllers.delete(runId);
-    clearActiveOrchestratorRun(runId);
+    runCoordinator.releaseRun(runId);
     onCleanup?.();
-    queueMicrotask(() => {
-      void drainQueuedOrchestratorTurns();
-    });
+    runCoordinator.wake();
   };
 
   const createRuntimeCallbacks = (

@@ -302,6 +302,7 @@ export const clampCodexSpawnReasoningEffort = (
   model: Pick<CodexModel, "supportedReasoningEfforts">,
   requested: AgentModelReasoningEffort,
 ): CodexReasoningEffort | undefined => {
+  if (requested === "default") return undefined;
   const supported = new Set(
     model.supportedReasoningEfforts.map(
       ({ reasoningEffort }) => reasoningEffort,
@@ -1419,9 +1420,13 @@ export const runCodexAgentTurn = async (request: {
     request.utility ? CODEX_UTILITY_MODEL : request.modelOverride,
   );
   const model = runtimePreferences.model;
+  const requestedReasoningEffort =
+    request.reasoningEffort === "default" ? undefined : request.reasoningEffort;
   let reasoningEffort: CodexReasoningEffort | undefined = request.utility
     ? "low"
-    : (request.reasoningEffort ?? runtimePreferences.reasoningEffort);
+    : request.reasoningEffortResolved
+      ? requestedReasoningEffort
+      : (requestedReasoningEffort ?? runtimePreferences.reasoningEffort);
   const { input, cleanupDir } = buildCodexUserInput({
     runId: request.runId,
     prompt: request.prompt,

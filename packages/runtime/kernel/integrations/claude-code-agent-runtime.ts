@@ -102,7 +102,7 @@ export const getClaudeCodeAgentModelId = (
  * Claude Code has no "minimal" tier, so it folds into "low".
  */
 const CLAUDE_CODE_EFFORT_BY_REASONING: Record<
-  Exclude<AgentModelReasoningEffort, "none">,
+  Exclude<AgentModelReasoningEffort, "default" | "none">,
   string
 > = {
   minimal: "low",
@@ -118,6 +118,7 @@ export const getClaudeCodeRuntimeEffortLevel = (
 ): string | undefined => {
   // A spawn suffix is authoritative for this run only and never writes the
   // engine-wide preference or environment configuration.
+  if (spawnOverride === "default") return undefined;
   if (spawnOverride === "none") return undefined;
   if (spawnOverride) return CLAUDE_CODE_EFFORT_BY_REASONING[spawnOverride];
   const envOverride = process.env.CLAUDE_CODE_EFFORT_LEVEL?.trim();

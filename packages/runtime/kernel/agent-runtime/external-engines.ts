@@ -1298,7 +1298,8 @@ const runClaudeHostedTurn = async (args: {
   const claudeCodeEffortLevel = getClaudeCodeRuntimeEffortLevel(
     args.opts.stellaAppDir,
     args.opts.agentContext.modelConfigSnapshot?.engine === "claude_code_local"
-      ? args.opts.agentContext.modelConfigSnapshot.reasoningEffort
+      ? (args.opts.agentContext.modelConfigSnapshot.reasoningEffort ??
+          "default")
       : args.opts.agentContext.spawnReasoningEffort,
   );
 
@@ -1740,9 +1741,9 @@ const runCodexHostedTurn = async (args: {
     ...(codexReasoningEffort
       ? {
           reasoningEffort: codexReasoningEffort,
-          ...(inheritedCodexConfig ? { reasoningEffortResolved: true } : {}),
         }
       : {}),
+    ...(inheritedCodexConfig ? { reasoningEffortResolved: true } : {}),
     attachments: args.opts.attachments,
     abortSignal: args.opts.abortSignal,
     onStatus: (status) => {
@@ -1821,9 +1822,9 @@ const runCodexHostedTurn = async (args: {
       ...(codexReasoningEffort
         ? {
             reasoningEffort: codexReasoningEffort,
-            ...(inheritedCodexConfig ? { reasoningEffortResolved: true } : {}),
           }
         : {}),
+      ...(inheritedCodexConfig ? { reasoningEffortResolved: true } : {}),
       attachments: queuedAttachments,
       abortSignal: args.opts.abortSignal,
       onStatus: (status) => {

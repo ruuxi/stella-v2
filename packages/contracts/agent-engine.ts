@@ -9,15 +9,16 @@ export type SpawnReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 /** Effective reasoning setting captured from a running agent turn. */
 export type AgentModelReasoningEffort =
+  | "default"
   | "none"
   | "minimal"
   | SpawnReasoningEffort;
 
 /**
- * Serializable snapshot of the effective model configuration for a turn.
- * Manager threads persist this so every resume uses the spawning
- * Orchestrator's engine/model instead of resolving an independent Manager
- * default.
+ * Serializable snapshot of the effective model configuration for a durable
+ * agent thread. General agents persist their spawn-time route, while Manager
+ * threads persist the spawning Orchestrator's route. Every resume therefore
+ * uses the same engine/model instead of re-reading current preferences.
  */
 export type AgentModelConfigSnapshot = {
   engine: AgentRuntimeEngine;
@@ -26,6 +27,12 @@ export type AgentModelConfigSnapshot = {
   /** Exact engine-native model when an external engine owns execution. */
   engineModel?: string;
   reasoningEffort?: AgentModelReasoningEffort;
+  /**
+   * The engine was selected explicitly by spawn_agent rather than inherited
+   * from preferences. This preserves execution-profile semantics such as
+   * vanilla Claude Code after worker/app restart.
+   */
+  executionProfile?: "spawn_override";
 };
 
 export const AGENT_RUNTIME_ENGINES: readonly AgentRuntimeEngine[] = [

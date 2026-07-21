@@ -481,6 +481,13 @@ type LocalAgentManagerOpts = {
     modelConfigSnapshot?: AgentModelConfigSnapshot;
     toolWorkspaceRoot?: string;
   }) => Promise<LocalAgentContext>;
+  /** Resolve the concrete General route before its durable record is written. */
+  resolveAgentModelConfig?: (args: {
+    agentType: string;
+    model?: string;
+    spawnEngine?: SpawnEngineSelection;
+    spawnReasoningEffort?: SpawnReasoningEffort;
+  }) => Promise<AgentModelConfigSnapshot>;
   runSubagent: (args: {
     conversationId: string;
     userMessageId: string;
@@ -822,6 +829,26 @@ export class LocalAgentManager implements AgentToolApi {
     }
   }
 
+  private async resolveGeneralModelConfigIfMissing(
+    task: RuntimeAgentRecord,
+  ): Promise<void> {
+    if (
+      task.agentType !== AGENT_IDS.GENERAL ||
+      task.modelConfigSnapshot ||
+      !this.opts.resolveAgentModelConfig
+    ) {
+      return;
+    }
+    task.modelConfigSnapshot = await this.opts.resolveAgentModelConfig({
+      agentType: task.agentType,
+      ...(task.model ? { model: task.model } : {}),
+      ...(task.spawnEngine ? { spawnEngine: task.spawnEngine } : {}),
+      ...(task.spawnReasoningEffort
+        ? { spawnReasoningEffort: task.spawnReasoningEffort }
+        : {}),
+    });
+  }
+
   private recoverOrCancelOrphanedPersistedAgents(): void {
     const now = Date.now();
     const runningRecords =
@@ -994,6 +1021,9 @@ export class LocalAgentManager implements AgentToolApi {
     return {
       id: task.threadId,
       description: task.description,
+      ...(task.modelConfigSnapshot
+        ? { modelConfigSnapshot: task.modelConfigSnapshot }
+        : {}),
       status: task.status === "pending" ? "running" : task.status,
       startedAt: task.startedAt,
       completedAt: task.completedAt,
@@ -1018,6 +1048,9 @@ export class LocalAgentManager implements AgentToolApi {
     return {
       id: record.threadId,
       description: record.description,
+      ...(record.modelConfigSnapshot
+        ? { modelConfigSnapshot: record.modelConfigSnapshot }
+        : {}),
       status: record.status,
       startedAt: record.startedAt,
       completedAt: record.completedAt,
@@ -1623,6 +1656,13 @@ export class LocalAgentManager implements AgentToolApi {
       task.attemptGeneration === attempt.generation &&
       task.controller === attempt.controller;
     try {
+      // Defensive legacy healing: every production spawn/resume resolves
+      // before enqueue, but an old in-memory/null row must still be pinned
+      // before its context is built or any model executes.
+      if (!task.modelConfigSnapshot) {
+        await this.resolveGeneralModelConfigIfMissing(task);
+        if (task.modelConfigSnapshot) this.persistTask(task);
+      }
       const runId = `run:${task.threadId}:${++this.nextId}`;
       // Create the session before the context load. A managed-child report
       // can persist while that async load (or prompt hooks) is in flight;
@@ -2104,6 +2144,11 @@ export class LocalAgentManager implements AgentToolApi {
       }) ?? null;
     const threadId =
       resolvedThread?.threadId ?? request.threadId ?? `thread-${++this.nextId}`;
+    const existingModelConfigSnapshot = resolvedThread?.reused
+      ? this.opts.getAgentRecord?.(threadId)?.modelConfigSnapshot
+      : undefined;
+    const modelConfigSnapshot =
+      existingModelConfigSnapshot ?? request.modelConfigSnapshot;
 
     const task: RuntimeAgentRecord = {
       threadId,
@@ -2117,9 +2162,7 @@ export class LocalAgentManager implements AgentToolApi {
       ...(request.spawnReasoningEffort
         ? { spawnReasoningEffort: request.spawnReasoningEffort }
         : {}),
-      ...(request.modelConfigSnapshot
-        ? { modelConfigSnapshot: request.modelConfigSnapshot }
-        : {}),
+      ...(modelConfigSnapshot ? { modelConfigSnapshot } : {}),
       ...(request.toolWorkspaceRoot
         ? { toolWorkspaceRoot: request.toolWorkspaceRoot }
         : {}),
@@ -2150,6 +2193,7 @@ export class LocalAgentManager implements AgentToolApi {
       managerIntermediateReportInTurn: false,
       attemptGeneration: 0,
     };
+    await this.resolveGeneralModelConfigIfMissing(task);
     logWorkingIndicatorTrace("[stella:working-indicator:create-agent]", {
       threadId,
       conversationId: request.conversationId,
@@ -2685,6 +2729,7 @@ export class LocalAgentManager implements AgentToolApi {
         resumedTask,
         options?.modelConfigSnapshot,
       );
+      await this.resolveGeneralModelConfigIfMissing(resumedTask);
       if (rootRunId) {
         resumedTask.rootRunId = rootRunId;
       }
@@ -2726,6 +2771,7 @@ export class LocalAgentManager implements AgentToolApi {
       task.parentAgentId = options.parentAgentId;
     }
     this.assignModelConfigSnapshotIfMissing(task, options?.modelConfigSnapshot);
+    await this.resolveGeneralModelConfigIfMissing(task);
     if (options?.deliveryKind === "external-input") {
       task.pendingStartAudience = "default";
     } else if (isManagerEvent && task.pendingStartAudience !== "default") {

@@ -5,6 +5,7 @@ import type { AgentMessage } from "../agent-core/types.js";
 import type { OrchestratorSession } from "../agent-runtime/orchestrator-session.js";
 import type { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
 import type { KernelRunSupervisor } from "./supervision/run-supervisor.js";
+import type { RunCoordinator } from "./run-coordinator.js";
 import type {
   RuntimeAssistantMessageEvent,
   RuntimeEndEvent,
@@ -301,6 +302,16 @@ export type RunnerState = {
    */
   compactionScheduler: BackgroundCompactionScheduler;
   queuedOrchestratorTurns: QueuedOrchestratorTurn[];
+  /**
+   * Effect-owned run coordinator for the orchestrator lane: single writer
+   * for run admission (`activeOrchestrator*` fields) and sole consumer of
+   * `queuedOrchestratorTurns`, with a structurally single-flight,
+   * interruptible drain. Installed on first use via `ensureRunCoordinator`
+   * and shut down (drain fiber interrupted and joined) in
+   * `runtime-initialization.ts:stop`. See
+   * `runtime/kernel/runner/run-coordinator.ts`.
+   */
+  runCoordinator: RunCoordinator | null;
   /**
    * Per-conversation buffer of user chat messages that were injected into an
    * active run as follow-ups. Populated when a user message lands on a live

@@ -790,6 +790,7 @@ export const createRunnerContext = ({
       orchestratorSessions: new Map(),
       compactionScheduler: new BackgroundCompactionScheduler(),
       queuedOrchestratorTurns: [],
+      runCoordinator: null,
       pendingFollowUpReplies: new Map(),
       activeRunAbortControllers: new Map(),
       supervisor: createKernelRunSupervisor(),

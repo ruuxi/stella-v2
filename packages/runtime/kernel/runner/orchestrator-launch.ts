@@ -9,6 +9,7 @@ import {
   type BuildAgentContextArgs,
 } from "./context.js";
 import { isReportedOrchestratorError } from "../agent-runtime/run-completion.js";
+import { ensureRunCoordinator } from "./run-coordinator.js";
 import type { RunnerContext } from "./types.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import type {
@@ -71,10 +72,15 @@ export const prepareOrchestratorRun = async (args: {
 }): Promise<PreparedOrchestratorRun> => {
   const isUserTurn = args.uiVisibility !== "hidden";
 
-  args.context.state.activeOrchestratorRunId = args.runId;
-  args.context.state.activeOrchestratorConversationId = args.conversationId;
-  args.context.state.activeOrchestratorUiVisibility =
-    args.uiVisibility ?? "visible";
+  // Run admission is owned by the Effect run coordinator: it claims the
+  // lane (throwing the canonical already-running error on a double
+  // admission) and is the single writer of the active-run mirror.
+  const runCoordinator = ensureRunCoordinator(args.context);
+  runCoordinator.beginRun({
+    runId: args.runId,
+    conversationId: args.conversationId,
+    uiVisibility: args.uiVisibility ?? "visible",
+  });
 
   const abortController = new AbortController();
   args.context.state.activeRunAbortControllers.set(args.runId, abortController);
@@ -145,12 +151,7 @@ export const prepareOrchestratorRun = async (args: {
     };
     return prepared;
   } catch (error) {
-    if (args.context.state.activeOrchestratorRunId === args.runId) {
-      args.context.state.activeOrchestratorRunId = null;
-      args.context.state.activeOrchestratorConversationId = null;
-      args.context.state.activeOrchestratorUiVisibility = "visible";
-      args.context.state.activeOrchestratorSession = null;
-    }
+    runCoordinator.releaseRun(args.runId);
     args.context.state.activeRunAbortControllers.delete(args.runId);
     throw error;
   }

@@ -7,6 +7,7 @@ import {
   updateOrchestratorReminderState,
 } from "./thread-memory.js";
 import { getThreadTokenEstimate } from "../thread-runtime.js";
+import type { ThreadCompactionResult } from "../thread-runtime.js";
 import type {
   OrchestratorRunOptions,
   SubagentRunOptions,
@@ -304,7 +305,7 @@ type CompactableAgentState = {
  * the call site). Hooks that need a precise pre-compaction count should
  * read from the SQLite store directly via the threadKey.
  */
-const runCompactionWithHooks = async (args: {
+export const runCompactionWithHooks = async (args: {
   opts: Pick<
     OrchestratorRunOptions,
     | "agentType"
@@ -320,7 +321,7 @@ const runCompactionWithHooks = async (args: {
   messageCount: number;
   /** Aborts the summarization LLM call on compaction-scheduler shutdown. */
   abortSignal?: AbortSignal;
-}): Promise<{ compacted: boolean }> => {
+}): Promise<ThreadCompactionResult> => {
   let shouldCompact = true;
   let hookCompaction: { summary: string; preserveLastN?: number } | undefined;
   if (args.opts.hookEmitter) {
@@ -383,11 +384,11 @@ const runCompactionWithHooks = async (args: {
         "session_compact",
         {
           agentType: args.opts.agentType,
-          summary: hookCompaction.summary,
+          summary: result.summary,
           ...(hookCompaction.preserveLastN !== undefined
             ? { preserveLastN: hookCompaction.preserveLastN }
             : {}),
-          fromHook: true,
+          fromHook: result.fromOverride,
           conversationId: args.opts.conversationId,
           threadKey: args.threadKey,
           runId: args.runId,

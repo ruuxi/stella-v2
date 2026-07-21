@@ -989,9 +989,15 @@ const generateThreadSummary = async (args: {
  * `agent.state.messages` from the store and defeats the prompt-cache
  * stability the long-lived session was meant to provide).
  */
-export type ThreadCompactionResult = {
-  compacted: boolean;
-};
+export type ThreadCompactionResult =
+  | { compacted: false }
+  | {
+      compacted: true;
+      /** Exact summary written to the checkpoint overlay and summary index. */
+      summary: string;
+      /** True only when the persisted summary was the accepted hook override. */
+      fromOverride: boolean;
+    };
 
 /**
  * Count the contiguous bootstrap startup docs (personality, core memory) at
@@ -1132,6 +1138,7 @@ export const maybeCompactRuntimeThread = async (args: {
 
   const middleTokens = getThreadTokenEstimate(splitMessages.middleMessages);
   let summary: string | null = null;
+  let summaryFromOverride = false;
   let correctiveReason: string | undefined;
   const overrideSummary = args.overrideSummary?.trim();
   if (overrideSummary) {
@@ -1142,6 +1149,7 @@ export const maybeCompactRuntimeThread = async (args: {
     );
     if (validation.valid) {
       summary = overrideSummary;
+      summaryFromOverride = true;
     } else {
       correctiveReason = `hook override: ${validation.reason ?? "invalid summary"}`;
       logger.warn("thread.compaction.override-invalid-fallback", {
@@ -1273,5 +1281,5 @@ export const maybeCompactRuntimeThread = async (args: {
     tokensBefore: totalTokens,
   });
   args.store.updateThreadSummary(args.threadKey, summary);
-  return { compacted: true };
+  return { compacted: true, summary, fromOverride: summaryFromOverride };
 };

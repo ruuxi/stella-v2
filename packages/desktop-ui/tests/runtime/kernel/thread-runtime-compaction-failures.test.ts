@@ -191,7 +191,7 @@ describe("orchestrator thread compaction failure handling", () => {
       agentType: "orchestrator",
     });
 
-    expect(result).toEqual({ compacted: true });
+    expect(result).toMatchObject({ compacted: true });
     expect(compactCalls).toHaveLength(1);
     expect(compactCalls[0]).toMatchObject({
       threadKey: "conversation-1",
@@ -231,7 +231,7 @@ describe("orchestrator thread compaction failure handling", () => {
       agentType: "orchestrator",
     });
 
-    expect(result).toEqual({ compacted: true });
+    expect(result).toMatchObject({ compacted: true });
     expect(completeSimpleMock).toHaveBeenCalledTimes(2);
     expect(compactCalls).toHaveLength(1);
     expect(compactCalls[0]?.summary).toBe(
@@ -259,7 +259,11 @@ describe("orchestrator thread compaction failure handling", () => {
       overrideSummary: "## Topic\nHook output cut off",
     });
 
-    expect(result).toEqual({ compacted: true });
+    expect(result).toEqual({
+      compacted: true,
+      summary: validSummary("The invalid hook override was replaced."),
+      fromOverride: false,
+    });
     expect(completeSimpleMock).toHaveBeenCalledTimes(1);
     expect(compactCalls).toHaveLength(1);
     expect(compactCalls[0]?.summary).toBe(
@@ -283,7 +287,11 @@ describe("orchestrator thread compaction failure handling", () => {
       overrideSummary,
     });
 
-    expect(result).toEqual({ compacted: true });
+    expect(result).toEqual({
+      compacted: true,
+      summary: overrideSummary,
+      fromOverride: true,
+    });
     expect(completeSimpleMock).not.toHaveBeenCalled();
     expect(compactCalls).toHaveLength(1);
     expect(compactCalls[0]?.summary).toBe(overrideSummary);
@@ -382,7 +390,7 @@ describe("orchestrator thread compaction failure handling", () => {
     });
 
     expect(first).toEqual({ compacted: false });
-    expect(second).toEqual({ compacted: true });
+    expect(second).toMatchObject({ compacted: true });
     expect(completeSimpleMock).toHaveBeenCalledTimes(4);
     expect(compactCalls).toHaveLength(1);
     const fallback = String(compactCalls[0]?.summary);
@@ -411,7 +419,7 @@ describe("orchestrator thread compaction failure handling", () => {
     });
 
     expect(first).toEqual({ compacted: false });
-    expect(second).toEqual({ compacted: true });
+    expect(second).toMatchObject({ compacted: true });
     expect(completeSimpleMock).toHaveBeenCalledTimes(4);
     expect(compactCalls).toHaveLength(1);
     const fallback = String(compactCalls[0]?.summary);

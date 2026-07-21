@@ -674,6 +674,32 @@ function RootChrome() {
           >
             <Outlet />
           </div>
+          {isFullWindow && !panelExpanded ? (
+            <div
+              className="main-shell-top-actions"
+              data-platform={isWin ? "win" : isMac ? "mac" : "other"}
+              data-panel-open={panelOpen ? "true" : "false"}
+            >
+              {!panelOpen ? (
+                <button
+                  type="button"
+                  className="shell-topbar-icon-btn"
+                  onClick={() => dispatchOpenWorkspacePanel()}
+                  aria-label="Open panel"
+                  title="Open panel"
+                >
+                  <PanelRight size={16} strokeWidth={1.75} />
+                </button>
+              ) : null}
+              <ShellTopBarAccount
+                onSignIn={showAuthDialog}
+                onConnect={showConnectDialog}
+              />
+              {!panelOpen && isWin ? (
+                <WindowControls useWindowsIcons hidden={false} />
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </StellaContextMenu>
 
@@ -698,35 +724,8 @@ function RootChrome() {
         </button>
       ) : null}
 
-      {isFullWindow && !panelOpen ? (
-        <div
-          className="shell-edge-right-cluster"
-          data-platform={isWin ? "win" : isMac ? "mac" : "other"}
-        >
-          <ShellTopBarAccount
-            onSignIn={showAuthDialog}
-            onConnect={showConnectDialog}
-          />
-          <button
-            type="button"
-            className="shell-topbar-icon-btn"
-            onClick={() => dispatchOpenWorkspacePanel()}
-            aria-label="Open panel"
-            title="Open panel"
-          >
-            <PanelRight size={16} strokeWidth={1.75} />
-          </button>
-          {isWin ? <WindowControls useWindowsIcons hidden={false} /> : null}
-        </div>
-      ) : null}
-
       <Suspense fallback={null}>
-        <RightSidebar
-          ref={rightSidebarRef}
-          showAccountControls={isFullWindow}
-          onSignIn={showAuthDialog}
-          onConnect={showConnectDialog}
-        />
+        <RightSidebar ref={rightSidebarRef} />
       </Suspense>
 
       <ComposerAreaSelectOverlay

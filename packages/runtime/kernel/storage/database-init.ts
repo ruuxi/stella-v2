@@ -432,6 +432,130 @@ class ThreadFtsBackfillError extends Error {
   }
 }
 
+/**
+ * Migrates durable thread-entry ordering as one serialized schema transition.
+ *
+ * A previous initializer backfilled the sequence column, then created the
+ * uniqueness index and insert trigger in separate autocommit statements. A
+ * second connection could insert in those gaps, leaving NULLs or assigning a
+ * sequence that collided with the backfill. BEGIN IMMEDIATE takes SQLite's
+ * writer reservation before inspecting or changing the table, so concurrent
+ * appenders see either the legacy schema or the complete migrated schema.
+ *
+ * If an interrupted/older migration left any invalid value or collision, all
+ * rows are deliberately re-densified by rowid. rowid is the only authoritative
+ * pre-migration insertion order; valid unique sequences are otherwise retained
+ * verbatim so repeated startup never renumbers durable history.
+ */
+const ensureRuntimeThreadEntryOrdering = (db: SqliteDatabase) => {
+  db.exec("BEGIN IMMEDIATE;");
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runtime_thread_entries (
+        entry_id TEXT PRIMARY KEY,
+        thread_key TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        parent_entry_id TEXT,
+        entry_type TEXT NOT NULL,
+        timestamp_iso TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        insertion_sequence INTEGER,
+        data_json TEXT,
+        FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
+      );
+    `);
+    const insertionSequenceColumn = db
+      .prepare(
+        `SELECT 1
+         FROM pragma_table_info('runtime_thread_entries')
+         WHERE name = 'insertion_sequence'`,
+      )
+      .get();
+    if (!insertionSequenceColumn) {
+      db.exec(
+        "ALTER TABLE runtime_thread_entries ADD COLUMN insertion_sequence INTEGER;",
+      );
+    }
+
+    db.exec("DROP INDEX IF EXISTS idx_runtime_thread_entries_thread_append;");
+
+    const invalidSequence = db
+      .prepare(
+        `SELECT 1
+         FROM runtime_thread_entries
+         GROUP BY insertion_sequence
+         HAVING insertion_sequence IS NULL
+           OR typeof(insertion_sequence) != 'integer'
+           OR insertion_sequence <= 0
+           OR COUNT(*) > 1
+         LIMIT 1`,
+      )
+      .get();
+
+    // Recreate both enforcement objects even when the data is already valid:
+    // IF NOT EXISTS alone would trust a partial migration that left a
+    // non-unique same-named index or an obsolete trigger body.
+    db.exec("DROP TRIGGER IF EXISTS trg_runtime_thread_entries_sequence;");
+    db.exec("DROP INDEX IF EXISTS idx_runtime_thread_entries_sequence;");
+
+    if (invalidSequence) {
+      db.exec(`
+        WITH ranked_entries AS (
+          SELECT
+            rowid,
+            ROW_NUMBER() OVER (ORDER BY rowid) AS insertion_sequence
+          FROM runtime_thread_entries
+        )
+        UPDATE runtime_thread_entries
+        SET insertion_sequence = (
+          SELECT ranked_entries.insertion_sequence
+          FROM ranked_entries
+          WHERE ranked_entries.rowid = runtime_thread_entries.rowid
+        );
+      `);
+    }
+
+    db.exec(`
+      CREATE UNIQUE INDEX idx_runtime_thread_entries_sequence
+      ON runtime_thread_entries(insertion_sequence)
+      WHERE insertion_sequence IS NOT NULL;
+    `);
+    db.exec(`
+      CREATE TRIGGER trg_runtime_thread_entries_sequence
+      AFTER INSERT ON runtime_thread_entries
+      WHEN NEW.insertion_sequence IS NULL
+      BEGIN
+        UPDATE runtime_thread_entries
+        SET insertion_sequence = (
+          SELECT COALESCE(MAX(insertion_sequence), 0) + 1
+          FROM runtime_thread_entries
+        )
+        WHERE rowid = NEW.rowid;
+      END;
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_created
+      ON runtime_thread_entries(thread_key, created_at, entry_id);
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_sequence
+      ON runtime_thread_entries(thread_key, insertion_sequence);
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_parent
+      ON runtime_thread_entries(thread_key, parent_entry_id, created_at, entry_id);
+    `);
+    db.exec("COMMIT;");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK;");
+    } catch {
+      // BEGIN itself failed, or SQLite already rolled the transaction back.
+    }
+    throw error;
+  }
+};
+
 export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA synchronous = NORMAL;");
@@ -623,69 +747,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     );
   `);
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS runtime_thread_entries (
-      entry_id TEXT PRIMARY KEY,
-      thread_key TEXT NOT NULL,
-      session_id TEXT NOT NULL,
-      parent_entry_id TEXT,
-      entry_type TEXT NOT NULL,
-      timestamp_iso TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      insertion_sequence INTEGER,
-      data_json TEXT,
-      FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
-    );
-  `);
-  try {
-    db.exec(
-      "ALTER TABLE runtime_thread_entries ADD COLUMN insertion_sequence INTEGER;",
-    );
-  } catch {
-    // Column already exists.
-  }
-  db.exec("DROP INDEX IF EXISTS idx_runtime_thread_entries_thread_append;");
-  // Timestamp-prefixed entry ids have a random suffix, so neither
-  // `(created_at, entry_id)` nor the timestamp alone records append order.
-  // Preserve the current SQLite insertion order for legacy rows once, then
-  // assign a durable ordinal to every future row. The stored ordinal survives
-  // VACUUM (raw rowid does not), and SQLite's single-writer transaction model
-  // serializes the MAX + 1 assignment across connections.
-  db.exec(`
-    UPDATE runtime_thread_entries
-    SET insertion_sequence = rowid
-    WHERE insertion_sequence IS NULL;
-  `);
-  db.exec(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_thread_entries_sequence
-    ON runtime_thread_entries(insertion_sequence)
-    WHERE insertion_sequence IS NOT NULL;
-  `);
-  db.exec(`
-    CREATE TRIGGER IF NOT EXISTS trg_runtime_thread_entries_sequence
-    AFTER INSERT ON runtime_thread_entries
-    WHEN NEW.insertion_sequence IS NULL
-    BEGIN
-      UPDATE runtime_thread_entries
-      SET insertion_sequence = (
-        SELECT COALESCE(MAX(insertion_sequence), 0) + 1
-        FROM runtime_thread_entries
-      )
-      WHERE rowid = NEW.rowid;
-    END;
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_created
-    ON runtime_thread_entries(thread_key, created_at, entry_id);
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_sequence
-    ON runtime_thread_entries(thread_key, insertion_sequence);
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_parent
-    ON runtime_thread_entries(thread_key, parent_entry_id, created_at, entry_id);
-  `);
+  ensureRuntimeThreadEntryOrdering(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS runtime_agents (

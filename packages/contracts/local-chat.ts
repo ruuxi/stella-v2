@@ -55,10 +55,10 @@ export type ThreadActivityRecord = {
 
 /**
  * Bounded replacement for the retired generated-summary stream. Emitted only
- * after a complete, persisted interim assistant message lands for the current
- * attempt of a visible running task. `reasoningSummaries` deliberately mirrors
- * the authored messages for older mobile clients; current clients use the
- * accurately named `assistantMessages` field.
+ * after complete, persisted assistant prose lands for the current attempt of
+ * a visible General task, including its final answer. `reasoningSummaries`
+ * deliberately mirrors the authored messages for older mobile clients;
+ * current clients use the accurately named `assistantMessages` field.
  */
 export type ThreadActivityAssistantUpdate = {
   threadId: string;

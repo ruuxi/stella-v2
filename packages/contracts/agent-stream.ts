@@ -20,6 +20,8 @@ export type AgentStreamEvent = {
   seq: number;
   /** Runtime-recorder sequence retained when the main process re-sequences IPC. */
   sourceSeq?: number;
+  /** Monotonic durable attempt for an agent thread; fences stale lifecycle. */
+  attemptGeneration?: number;
   conversationId?: string;
   requestId?: string;
   userMessageId?: string;

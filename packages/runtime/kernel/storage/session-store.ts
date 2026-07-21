@@ -433,14 +433,10 @@ const authoredTextFromAssistantPayload = (
     .join("\n\n")
     .trim();
 
-/** Final answers are already represented by the task terminal result. Only a
- * completed assistant turn that hands off to a tool is a live authored update. */
-const activityUpdateTextFromAssistantPayload = (
+/** Human-readable assistant prose for Activity, including final answers. */
+const activitySummaryTextFromAssistantPayload = (
   payload: Extract<PersistedRuntimeThreadPayload, { role: "assistant" }>,
-): string =>
-  payload.stopReason === "toolUse"
-    ? authoredTextFromAssistantPayload(payload)
-    : "";
+): string => authoredTextFromAssistantPayload(payload);
 
 const truncateAuthoredUpdate = (
   value: string,
@@ -2949,7 +2945,7 @@ export class SessionStore {
     });
     if (
       payload.role === "assistant" &&
-      activityUpdateTextFromAssistantPayload(payload)
+      activitySummaryTextFromAssistantPayload(payload)
     ) {
       this.emitThreadAssistantUpdate(threadKey, message.timestamp);
     }
@@ -4861,8 +4857,8 @@ export class SessionStore {
       ),
     );
     // Scan past tool-only assistant entries, but never beyond this strict
-    // per-thread row envelope. Only complete tool-handoff messages from the
-    // current attempt qualify; final answers stay on the terminal result.
+    // per-thread row envelope. Any non-empty assistant prose from the current
+    // attempt qualifies, including the final answer before lifecycle completion.
     const scanLimit =
       cappedLimit * AGENT_ASSISTANT_UPDATE_LIMITS.scanRowsPerMessage;
     const targetValues = targets.map(() => "(?, ?, ?, ?)").join(", ");
@@ -4882,19 +4878,18 @@ export class SessionStore {
           entries.thread_key AS threadId,
           entries.created_at AS atMs,
           entries.entry_id AS entryId,
-          entries.rowid AS entrySequence,
+          entries.insertion_sequence AS entrySequence,
           entries.data_json AS dataJson,
           targets.targetOrder AS targetOrder,
           ROW_NUMBER() OVER (
             PARTITION BY entries.thread_key
-            ORDER BY entries.created_at DESC, entries.rowid DESC
+            ORDER BY entries.insertion_sequence DESC, entries.rowid DESC
           ) AS messageRank
         FROM runtime_thread_entries entries
         INNER JOIN targets ON targets.threadId = entries.thread_key
         WHERE entries.created_at >= targets.startedAt
           AND entries.entry_type = 'message'
           AND json_extract(entries.data_json, '$.message.role') = 'assistant'
-          AND json_extract(entries.data_json, '$.message.stopReason') = 'toolUse'
           AND json_extract(entries.data_json, '$.message.stellaAttemptGeneration') = targets.attemptGeneration
       )
       SELECT threadId, atMs, entryId, entrySequence, dataJson, targetOrder
@@ -4926,7 +4921,7 @@ export class SessionStore {
         continue;
       }
       if (payload?.role !== "assistant") continue;
-      const authoredText = activityUpdateTextFromAssistantPayload(payload);
+      const authoredText = activitySummaryTextFromAssistantPayload(payload);
       const text = truncateAuthoredUpdate(
         authoredText,
         AGENT_ASSISTANT_UPDATE_LIMITS.messageChars,
@@ -5068,7 +5063,12 @@ export class SessionStore {
     limit = AGENT_ASSISTANT_UPDATE_LIMITS.messagesPerThread,
   ): Array<{ text: string; atMs: number }> {
     const record = this.getAgentRecord(agentId.trim());
-    if (!record || record.status !== "running") return [];
+    if (
+      !record ||
+      record.status !== "running" ||
+      record.agentType !== AGENT_IDS.GENERAL
+    )
+      return [];
     return (
       this.listAgentAssistantMessagesByThread(
         [
@@ -5089,8 +5089,7 @@ export class SessionStore {
     if (
       !record ||
       record.status !== "running" ||
-      (record.agentType !== AGENT_IDS.GENERAL &&
-        record.agentType !== AGENT_IDS.MANAGER) ||
+      record.agentType !== AGENT_IDS.GENERAL ||
       atMs < record.startedAt
     ) {
       return;
@@ -5358,15 +5357,12 @@ export class SessionStore {
       group_label: string | null;
     }>;
     const assistantTargets = rows
-      .filter(
-        (row) =>
-          row.status === "running" &&
-          (row.agent_type === AGENT_IDS.GENERAL ||
-            row.agent_type === AGENT_IDS.MANAGER),
-      )
+      .filter((row) => row.agent_type === AGENT_IDS.GENERAL)
       .sort(
         (a, b) =>
-          b.updated_at - a.updated_at || a.thread_id.localeCompare(b.thread_id),
+          Number(b.status === "running") - Number(a.status === "running") ||
+          b.updated_at - a.updated_at ||
+          a.thread_id.localeCompare(b.thread_id),
       )
       .slice(0, AGENT_ASSISTANT_UPDATE_LIMITS.activeThreads)
       .map((row) => ({

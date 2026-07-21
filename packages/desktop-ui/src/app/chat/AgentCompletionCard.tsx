@@ -19,7 +19,7 @@
  */
 import { useLayoutEffect, useState } from "react";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
-import { Check, ChevronDown, MessageSquare } from "@/ui/icons";
+import { Check, ChevronDown, Eye } from "@/ui/icons";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { displayTabKindForPayload } from "@/features/workspace-display/payload-kind";
@@ -99,10 +99,10 @@ const CompletionSection = ({
                 title: section.title,
               })
             }
-            aria-label={`Open read-only chat for ${section.title}`}
-            title="Open read-only chat"
+            aria-label="View activity"
+            title="View activity"
           >
-            <MessageSquare size={14} strokeWidth={1.9} aria-hidden="true" />
+            <Eye size={14} strokeWidth={1.8} aria-hidden="true" />
           </button>
         </div>
       ) : null}
@@ -225,10 +225,10 @@ export function AgentCompletionCard({
                 title: visible[0]!.title,
               })
             }
-            aria-label={`Open read-only chat for ${visible[0]!.title}`}
-            title="Open read-only chat"
+            aria-label="View activity"
+            title="View activity"
           >
-            <MessageSquare size={14} strokeWidth={1.9} aria-hidden="true" />
+            <Eye size={14} strokeWidth={1.8} aria-hidden="true" />
           </button>
         </div>
       ) : null}

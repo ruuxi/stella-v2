@@ -169,7 +169,7 @@ describe("AgentCompletionCard fileless summary rendering", () => {
     const action = container.querySelector<HTMLButtonElement>(
       ".agent-completion-card__chat",
     );
-    expect(action?.getAttribute("aria-label")).toContain("Open read-only chat");
+    expect(action?.getAttribute("aria-label")).toBe("View activity");
     action!.click();
     expect(displayTabs.getSnapshot().activeTabId).toBe("thread-chat:a1");
     expect(

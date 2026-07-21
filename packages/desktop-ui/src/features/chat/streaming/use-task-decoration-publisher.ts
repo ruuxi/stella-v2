@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef } from "react";
 import {
   getTaskDecorationsSnapshot,
   subscribeTaskDecorations,
-} from '@/features/chat/streaming/task-decoration-store'
+} from "@/features/chat/streaming/task-decoration-store";
 
 /**
  * Mirror the task-decoration store's per-thread statusText to the electron
@@ -18,29 +18,34 @@ import {
  * window feeds the bridge.
  */
 export function useTaskDecorationPublisher(): void {
-  const lastPublishedRef = useRef<string>('')
+  const lastPublishedRef = useRef<string>("");
   useEffect(() => {
     const publish = () => {
-      const api = window.electronAPI?.localChat
-      if (!api?.publishTaskDecoration) return
-      const statusTextByAgentId: Record<string, string> = {}
+      const api = window.electronAPI?.localChat;
+      if (!api?.publishTaskDecoration) return;
+      const statusTextByAgentId: Record<string, string> = {};
       for (const [agentId, decoration] of Object.entries(
         getTaskDecorationsSnapshot(),
       )) {
-        if (decoration.statusText) {
-          statusTextByAgentId[agentId] = decoration.statusText
+        if (
+          decoration.status !== "completed" &&
+          decoration.status !== "error" &&
+          decoration.status !== "canceled" &&
+          decoration.statusText
+        ) {
+          statusTextByAgentId[agentId] = decoration.statusText;
         }
       }
-      const serialized = JSON.stringify(statusTextByAgentId)
-      if (serialized === lastPublishedRef.current) return
-      lastPublishedRef.current = serialized
+      const serialized = JSON.stringify(statusTextByAgentId);
+      if (serialized === lastPublishedRef.current) return;
+      lastPublishedRef.current = serialized;
       void api.publishTaskDecoration({ statusTextByAgentId }).catch(() => {
         // Republish on the next change; the snapshot is replaced wholesale so
         // a dropped publish never leaves stale entries behind.
-        lastPublishedRef.current = ''
-      })
-    }
-    publish()
-    return subscribeTaskDecorations(publish)
-  }, [])
+        lastPublishedRef.current = "";
+      });
+    };
+    publish();
+    return subscribeTaskDecorations(publish);
+  }, []);
 }

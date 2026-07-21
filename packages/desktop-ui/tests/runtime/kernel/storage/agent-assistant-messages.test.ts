@@ -201,6 +201,86 @@ describe("agent-authored assistant updates", () => {
     );
   });
 
+  it("keeps final General prose after completion and reload but excludes Manager coordination", () => {
+    const context = createTestContext();
+    saveRunningAgent(context.store, {
+      threadId: "general-final",
+      startedAt: 1_000,
+      attemptGeneration: 2,
+    });
+    appendAssistant(context.store, {
+      threadId: "general-final",
+      timestamp: 1_001,
+      text: "I am checking the last invariant.",
+      attemptGeneration: 2,
+    });
+    appendAssistant(context.store, {
+      threadId: "general-final",
+      timestamp: 1_002,
+      text: "The invariant is now verified.",
+      stopReason: "stop",
+      attemptGeneration: 2,
+    });
+    context.store.saveAgentRecord({
+      threadId: "general-final",
+      conversationId: "conv-1",
+      agentType: "general",
+      description: "Verify the invariant",
+      agentDepth: 0,
+      status: "completed",
+      attemptGeneration: 2,
+      startedAt: 1_000,
+      completedAt: 1_003,
+      result: "Done",
+      updatedAt: 1_003,
+    });
+
+    saveRunningAgent(context.store, {
+      threadId: "manager-internal",
+      startedAt: 1_000,
+      attemptGeneration: 1,
+      agentType: "manager",
+    });
+    appendAssistant(context.store, {
+      threadId: "manager-internal",
+      timestamp: 1_004,
+      text: "Internal coordination should not become a row summary.",
+      stopReason: "stop",
+      attemptGeneration: 1,
+    });
+
+    const beforeReload = context.store.listThreadActivity("conv-1");
+    expect(
+      beforeReload.find((row) => row.threadId === "general-final"),
+    ).toMatchObject({
+      status: "completed",
+      assistantMessages: [
+        "I am checking the last invariant.",
+        "The invariant is now verified.",
+      ],
+    });
+    expect(
+      beforeReload.find((row) => row.threadId === "manager-internal")
+        ?.assistantMessages,
+    ).toBeUndefined();
+
+    context.db.close();
+    const reopenedDb = new DatabaseSync(
+      getDesktopDatabasePath(context.rootPath),
+      { timeout: 5000 },
+    ) as unknown as SqliteDatabase;
+    context.db = reopenedDb;
+    context.store = new SessionStore(reopenedDb);
+    expect(
+      context.store
+        .listThreadActivity("conv-1")
+        .find((row) => row.threadId === "general-final")?.assistantMessages,
+    ).toEqual([
+      "I am checking the last invariant.",
+      "The invariant is now verified.",
+    ]);
+  });
+
   it("orders and fences authored messages written in the same millisecond", () => {
     const onThreadAssistantUpdate = vi.fn();
     const { store } = createTestContext(onThreadAssistantUpdate);
@@ -992,7 +1072,7 @@ describe("agent-authored assistant updates", () => {
     ).toBeUndefined();
   });
 
-  it("scopes updates to the current attempt and excludes terminal answers", () => {
+  it("scopes prose to the current attempt and includes its final answer", () => {
     const { store } = createTestContext();
     const threadId = "agent-reused";
     saveRunningAgent(store, { threadId, startedAt: 1_000 });
@@ -1037,6 +1117,7 @@ describe("agent-authored assistant updates", () => {
 
     expect(store.listAgentAssistantMessages(threadId)).toEqual([
       { text: "Current attempt preamble", atMs: 2_001 },
+      { text: "Current final answer", atMs: 2_003 },
     ]);
   });
 
@@ -1075,7 +1156,19 @@ describe("agent-authored assistant updates", () => {
       stopReason: "stop",
       attemptGeneration: 4,
     });
-    expect(onThreadAssistantUpdate).toHaveBeenCalledOnce();
+    expect(onThreadAssistantUpdate).toHaveBeenCalledTimes(2);
+    expect(onThreadAssistantUpdate).toHaveBeenLastCalledWith({
+      conversationId: "conv-1",
+      assistantUpdate: expect.objectContaining({
+        assistantMessages: [
+          "I am checking the live route.",
+          "The final answer",
+        ],
+        latestMessage: "The final answer",
+        atMs: 1_002,
+        attemptGeneration: 4,
+      }),
+    });
   });
 
   it("bounds active visible task queries per thread and overall", () => {

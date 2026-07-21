@@ -15,7 +15,7 @@
  */
 import { useCallback, type Dispatch, type MutableRefObject } from "react";
 import { showToast } from "@/ui/toast";
-import { clearTaskDecoration, decorateTask } from "./task-decoration-store";
+import { decorateTask, settleTaskDecoration } from "./task-decoration-store";
 import {
   AGENT_IDS,
   AGENT_RUN_FINISH_OUTCOMES,
@@ -32,6 +32,8 @@ type ReasoningQueueEntry = {
   agentId: string;
   conversationId: string;
   runId?: string;
+  attemptGeneration?: number;
+  lifecycleSequence?: number;
   chunk: string;
 };
 
@@ -443,15 +445,27 @@ export function useAgentEventHandler({
           // runtime's `runtime_agents` table. Stream events only maintain
           // the ephemeral per-thread decoration — statusText ticks, tool
           // activity, reasoning — keyed by the durable agentId, never by
-          // run. Terminal events clear the decoration; the row itself
-          // turns terminal via the authoritative push.
+          // run. Terminal observations remain long enough to fence a stale
+          // authoritative row, then a newer attempt replaces them.
           if (
             event.type === AGENT_STREAM_EVENT_TYPES.AGENT_COMPLETED ||
             event.type === AGENT_STREAM_EVENT_TYPES.AGENT_FAILED ||
             event.type === AGENT_STREAM_EVENT_TYPES.AGENT_CANCELED
           ) {
             discardPendingReasoningChunks(event.agentId);
-            clearTaskDecoration(event.agentId);
+            settleTaskDecoration({
+              agentId: event.agentId,
+              conversationId,
+              runId,
+              attemptGeneration: event.attemptGeneration,
+              lifecycleSequence: event.sourceSeq ?? event.seq,
+              status:
+                event.type === AGENT_STREAM_EVENT_TYPES.AGENT_COMPLETED
+                  ? "completed"
+                  : event.type === AGENT_STREAM_EVENT_TYPES.AGENT_FAILED
+                    ? "error"
+                    : "canceled",
+            });
             break;
           }
 
@@ -463,6 +477,8 @@ export function useAgentEventHandler({
               agentId: event.agentId,
               conversationId,
               runId,
+              attemptGeneration: event.attemptGeneration,
+              lifecycleSequence: event.sourceSeq ?? event.seq,
               chunk: event.chunk,
             });
             break;
@@ -473,7 +489,6 @@ export function useAgentEventHandler({
             // clean decoration — stale reasoning/status from the previous
             // attempt must not bleed into the new one.
             discardPendingReasoningChunks(event.agentId);
-            clearTaskDecoration(event.agentId);
           }
 
           flushPendingReasoningChunks(event.agentId);
@@ -481,6 +496,10 @@ export function useAgentEventHandler({
             agentId: event.agentId,
             conversationId,
             runId,
+            attemptGeneration: event.attemptGeneration,
+            lifecycleSequence: event.sourceSeq ?? event.seq,
+            startsAttempt:
+              event.type === AGENT_STREAM_EVENT_TYPES.AGENT_STARTED,
             anchorTurnId: event.userMessageId,
             statusText: event.statusText,
             toolActivity: event.toolActivity,

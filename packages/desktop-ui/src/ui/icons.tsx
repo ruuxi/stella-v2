@@ -30,7 +30,11 @@ function createIcon(name: string, children: ReactNode) {
         strokeWidth={strokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"
-        className={className ? `stella-icon stella-icon-${name} ${className}` : `stella-icon stella-icon-${name}`}
+        className={
+          className
+            ? `stella-icon stella-icon-${name} ${className}`
+            : `stella-icon stella-icon-${name}`
+        }
         {...rest}
       >
         {children}
@@ -68,7 +72,10 @@ export const Search = createIcon(
   </>,
 );
 
-export const LoaderCircle = createIcon("loader-circle", <path d="M20.25 12A8.25 8.25 0 1 1 12 3.75" />);
+export const LoaderCircle = createIcon(
+  "loader-circle",
+  <path d="M20.25 12A8.25 8.25 0 1 1 12 3.75" />,
+);
 
 export const Circle = createIcon("circle", <circle cx="12" cy="12" r="8.25" />);
 
@@ -98,17 +105,41 @@ export const CheckCircle2 = createIcon(
 
 /* -------------------------------- chevrons ------------------------------- */
 
-export const ChevronDown = createIcon("chevron-down", <path d="m6.5 9.25 5.5 5.5 5.5-5.5" />);
-export const ChevronUp = createIcon("chevron-up", <path d="m6.5 14.75 5.5-5.5 5.5 5.5" />);
-export const ChevronLeft = createIcon("chevron-left", <path d="m14.75 6.5-5.5 5.5 5.5 5.5" />);
-export const ChevronRight = createIcon("chevron-right", <path d="m9.25 6.5 5.5 5.5-5.5 5.5" />);
+export const ChevronDown = createIcon(
+  "chevron-down",
+  <path d="m6.5 9.25 5.5 5.5 5.5-5.5" />,
+);
+export const ChevronUp = createIcon(
+  "chevron-up",
+  <path d="m6.5 14.75 5.5-5.5 5.5 5.5" />,
+);
+export const ChevronLeft = createIcon(
+  "chevron-left",
+  <path d="m14.75 6.5-5.5 5.5 5.5 5.5" />,
+);
+export const ChevronRight = createIcon(
+  "chevron-right",
+  <path d="m9.25 6.5 5.5 5.5-5.5 5.5" />,
+);
 
 /* --------------------------------- arrows -------------------------------- */
 
-export const ArrowUp = createIcon("arrow-up", <path d="M12 19.5v-15M5.5 11 12 4.5 18.5 11" />);
-export const ArrowDown = createIcon("arrow-down", <path d="M12 4.5v15M5.5 13l6.5 6.5L18.5 13" />);
-export const ArrowLeft = createIcon("arrow-left", <path d="M19.5 12h-15M11 5.5 4.5 12l6.5 6.5" />);
-export const ArrowRight = createIcon("arrow-right", <path d="M4.5 12h15M13 5.5 19.5 12 13 18.5" />);
+export const ArrowUp = createIcon(
+  "arrow-up",
+  <path d="M12 19.5v-15M5.5 11 12 4.5 18.5 11" />,
+);
+export const ArrowDown = createIcon(
+  "arrow-down",
+  <path d="M12 4.5v15M5.5 13l6.5 6.5L18.5 13" />,
+);
+export const ArrowLeft = createIcon(
+  "arrow-left",
+  <path d="M19.5 12h-15M11 5.5 4.5 12l6.5 6.5" />,
+);
+export const ArrowRight = createIcon(
+  "arrow-right",
+  <path d="M4.5 12h15M13 5.5 19.5 12 13 18.5" />,
+);
 
 export const Maximize2 = createIcon(
   "maximize-2",
@@ -187,6 +218,14 @@ export const MessageSquarePlus = createIcon(
   </>,
 );
 
+export const Eye = createIcon(
+  "eye",
+  <>
+    <path d="M3.5 12s3.2-5.5 8.5-5.5 8.5 5.5 8.5 5.5-3.2 5.5-8.5 5.5S3.5 12 3.5 12Z" />
+    <circle cx="12" cy="12" r="2.5" />
+  </>,
+);
+
 export const Phone = createIcon(
   "phone",
   <path d="M7.6 4.1c.62-.62 1.64-.56 2.2.12l1.55 1.93c.46.57.46 1.39 0 1.96l-1 1.27a.94.94 0 0 0-.07 1.1 13.1 13.1 0 0 0 3.64 3.64c.34.23.8.2 1.1-.07l1.27-1a1.56 1.56 0 0 1 1.96 0l1.93 1.55c.68.56.74 1.58.12 2.2l-1.05 1.05c-.9.9-2.24 1.23-3.44.77-2.52-.97-4.9-2.5-6.9-4.5s-3.53-4.38-4.5-6.9c-.46-1.2-.13-2.54.77-3.44Z" />,
@@ -207,9 +246,15 @@ export const Play = createIcon(
   <path d="M8.25 5.6v12.8c0 .87.96 1.4 1.7.93l10.06-6.4a1.1 1.1 0 0 0 0-1.86L9.95 4.67c-.74-.47-1.7.06-1.7.93Z" />,
 );
 
-export const Pause = createIcon("pause", <path d="M9.25 5.5v13M14.75 5.5v13" />);
+export const Pause = createIcon(
+  "pause",
+  <path d="M9.25 5.5v13M14.75 5.5v13" />,
+);
 
-export const Square = createIcon("square", <rect x="5.75" y="5.75" width="12.5" height="12.5" rx="2.5" />);
+export const Square = createIcon(
+  "square",
+  <rect x="5.75" y="5.75" width="12.5" height="12.5" rx="2.5" />,
+);
 
 export const Mic = createIcon(
   "mic",
@@ -367,7 +412,10 @@ export const Archive = createIcon(
   </>,
 );
 
-export const Code = createIcon("code", <path d="m15.5 7.25 5 4.75-5 4.75M8.5 7.25 3.5 12l5 4.75" />);
+export const Code = createIcon(
+  "code",
+  <path d="m15.5 7.25 5 4.75-5 4.75M8.5 7.25 3.5 12l5 4.75" />,
+);
 
 export const Presentation = createIcon(
   "presentation",

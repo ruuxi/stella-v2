@@ -109,14 +109,17 @@ const applyAssistantUpdateWatermarks = (
   records.map((record) => {
     const update = entry.assistantUpdates.get(record.threadId);
     if (!update) return record;
+    const recordAttempt = record.attemptGeneration;
+    const updateIsOlderAttempt =
+      recordAttempt !== undefined && update.attemptGeneration < recordAttempt;
     const sameAttempt =
-      record.attemptGeneration === undefined ||
-      record.attemptGeneration === update.attemptGeneration;
-    const sameRoot =
-      !record.rootRunId ||
-      !update.rootRunId ||
-      record.rootRunId === update.rootRunId;
-    if (record.status !== "running" || !sameAttempt || !sameRoot) {
+      recordAttempt === undefined || recordAttempt === update.attemptGeneration;
+    const conflictingRootOnSameAttempt =
+      sameAttempt &&
+      Boolean(record.rootRunId) &&
+      Boolean(update.rootRunId) &&
+      record.rootRunId !== update.rootRunId;
+    if (updateIsOlderAttempt || conflictingRootOnSameAttempt) {
       entry.assistantUpdates.delete(record.threadId);
       return record;
     }

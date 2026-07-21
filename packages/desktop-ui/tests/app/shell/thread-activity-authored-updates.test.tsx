@@ -167,6 +167,41 @@ describe("mounted Activity authored-message refresh", () => {
     expect(oneShotCompletion).not.toHaveBeenCalled();
   });
 
+  it("keeps persisted final prose across a terminal-row refetch", async () => {
+    await act(async () => {
+      root.render(<MountedActivity />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    records = [
+      runningRecord([], {
+        status: "completed",
+        completedAt: 2_200,
+        updatedAt: 2_200,
+      }),
+    ];
+    await act(async () => {
+      updateListener?.(
+        assistantUpdate(["First persisted update", "Final persisted answer"], {
+          atMs: 2_200,
+          entrySequence: 22,
+        }),
+      );
+    });
+    expect(container.querySelector("output")?.textContent).toBe(
+      "First persisted update|Final persisted answer",
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120);
+      await Promise.resolve();
+    });
+    expect(container.querySelector("output")?.textContent).toBe(
+      "First persisted update|Final persisted answer",
+    );
+  });
+
   it("never lets a stale in-flight refetch roll back rapid live updates", async () => {
     const slowFetch = deferred<ThreadActivityRecord[]>();
     const latest = [

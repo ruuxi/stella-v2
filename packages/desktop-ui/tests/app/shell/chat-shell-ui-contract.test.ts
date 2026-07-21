@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { getContextSuggestionLabel } from "@/app/chat/ComposerAddMenu";
 import {
+  getActivityPillLabel,
   getDisplayedActivityPillState,
   shouldTrayHoldSearchLayout,
 } from "@/app/chat/ComposerActivityPill";
@@ -21,6 +22,32 @@ describe("chat shell UI contracts", () => {
     expect(getDisplayedActivityPillState("running", false)).toBe("running");
     expect(getDisplayedActivityPillState("running", true)).toBe("idle");
     expect(getDisplayedActivityPillState("done", true)).toBe("done");
+  });
+
+  it("labels exact top-level work-unit counts", () => {
+    expect(getActivityPillLabel("running", 1)).toBe("1 task in progress");
+    expect(getActivityPillLabel("running", 3)).toBe("3 tasks in progress");
+  });
+
+  it("keeps compact Manager dots stationary and reduced-motion safe", () => {
+    const css = fs.readFileSync(
+      path.join(SOURCE_ROOT, "app/chat/chat-workspace-strip.css"),
+      "utf8",
+    );
+    const cellRule = css.match(
+      /\.chat-workspace-strip__compact-cell\s*\{([^}]*)\}/,
+    )?.[1];
+    const pulseRule = css.match(
+      /@keyframes chat-workspace-strip__compact-pulse\s*\{([\s\S]*?)\n\}/,
+    )?.[1];
+    expect(cellRule).toContain("width: 4px");
+    expect(cellRule).toContain("height: 4px");
+    expect(cellRule).not.toMatch(/transform:/);
+    expect(pulseRule).toContain("opacity:");
+    expect(pulseRule).not.toMatch(/transform:|width:|height:/);
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*compact-cell--running::before[\s\S]*animation: none/,
+    );
   });
 
   it("labels app and browser context options for the + menu", () => {

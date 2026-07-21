@@ -2,12 +2,12 @@ import {
   AGENT_IDS,
   type TaskLifecycleStatus,
   type TaskToolActivity,
-} from '@stella/contracts/agent-runtime'
-import { normalizeDisplayStatusText } from '../status-utils'
+} from "@stella/contracts/agent-runtime";
+import { normalizeDisplayStatusText } from "../status-utils";
 import type {
   FileChangeRecord,
   ProducedFileRecord,
-} from '@stella/contracts/file-changes'
+} from "@stella/contracts/file-changes";
 import type {
   Attachment,
   ChannelEnvelope,
@@ -17,7 +17,13 @@ import type {
   ThreadActivityRecord,
   ToolRequestPayload,
   ToolResultPayload,
-} from '@stella/contracts/local-chat'
+} from "@stella/contracts/local-chat";
+import { selectLatestAgentAssistantMessage } from "./agent-assistant-summary";
+import {
+  deriveLatestAgentPresentationStatus,
+  deriveOwnedAgentPresentationStatus,
+  latestAttemptSupersedesAuthoritative,
+} from "./agent-activity-presentation";
 
 export type {
   Attachment,
@@ -25,14 +31,14 @@ export type {
   EventRecord,
   MessageMetadata,
   MessagePayload,
-}
+};
 
 interface StepItem {
-  id: string
-  tool: string
-  title?: string
-  subtitle?: string
-  status: 'pending' | 'running' | 'completed' | 'error'
+  id: string;
+  tool: string;
+  title?: string;
+  subtitle?: string;
+  status: "pending" | "running" | "completed" | "error";
 }
 
 /**
@@ -42,13 +48,13 @@ interface StepItem {
  * the first non-empty string found.  Returns `""` when no text is present.
  */
 export const getEventText = (event: EventRecord): string => {
-  if (!event.payload || typeof event.payload !== 'object') return ''
-  const payload = event.payload as MessagePayload
-  if (typeof payload.text === 'string' && payload.text.trim().length > 0) {
-    return payload.text
+  if (!event.payload || typeof event.payload !== "object") return "";
+  const payload = event.payload as MessagePayload;
+  if (typeof payload.text === "string" && payload.text.trim().length > 0) {
+    return payload.text;
   }
-  return ''
-}
+  return "";
+};
 
 // Persisted lifecycle event payloads (kebab-case `agent-*` events). These
 // mirror the data emitted by `appendAgentLifecycleChatEvent` in the runner.
@@ -61,78 +67,82 @@ type AgentLifecycleGroupFields = {
    * lifecycle packets, but is not a card identity by itself: one root run can
    * call `send_input` on the same thread more than once. Timeline cards use
    * the matching persisted `agent-started` event id. */
-  rootRunId?: string
+  rootRunId?: string;
   /** Durable execution-attempt identity. New lifecycle rows always carry it;
    * legacy/imported rows may omit it and use timestamp/id fallback ordering. */
-  attemptGeneration?: number
-  groupKey?: string
-  groupLabel?: string
-}
+  attemptGeneration?: number;
+  groupKey?: string;
+  groupLabel?: string;
+};
 
 type AgentStartedEventPayload = AgentLifecycleGroupFields & {
-  agentId: string
-  description: string
-  agentType: string
-  parentAgentId?: string
-  agentDepth?: number
-  maxAgentDepth?: number
-  statusText?: string
+  agentId: string;
+  description: string;
+  agentType: string;
+  parentAgentId?: string;
+  agentDepth?: number;
+  maxAgentDepth?: number;
+  statusText?: string;
   /** `true` when this start re-activates an existing thread (a `send_input`
    *  follow-up) rather than spawning fresh work. The explicit signal the
    *  inline background-work card keys its follow-up variant off. Absent on a
    *  fresh spawn (and on legacy persisted events, which read as spawns). */
-  isFollowUp?: boolean
-}
+  isFollowUp?: boolean;
+};
 
 type AgentCompletedEventPayload = AgentLifecycleGroupFields & {
-  agentId: string
-  result?: string
-  fileChanges?: FileChangeRecord[]
-  producedFiles?: ProducedFileRecord[]
-}
+  agentId: string;
+  result?: string;
+  fileChanges?: FileChangeRecord[];
+  producedFiles?: ProducedFileRecord[];
+};
 
 type AgentFailedEventPayload = AgentLifecycleGroupFields & {
-  agentId: string
-  error?: string
-}
+  agentId: string;
+  error?: string;
+};
 
 type AgentCanceledEventPayload = AgentLifecycleGroupFields & {
-  agentId: string
-  error?: string
-}
+  agentId: string;
+  error?: string;
+};
 
 type AgentProgressEventPayload = AgentLifecycleGroupFields & {
-  agentId: string
-  statusText: string
-  toolActivity?: TaskToolActivity
-}
+  agentId: string;
+  statusText: string;
+  toolActivity?: TaskToolActivity;
+};
 
 // Task item for UI display
 export type TaskItem = {
-  id: string
-  description: string
-  agentType: string
-  status: TaskLifecycleStatus
+  id: string;
+  description: string;
+  agentType: string;
+  status: TaskLifecycleStatus;
+  /** Durable execution epoch for retry/resume deduplication. */
+  attemptGeneration?: number;
   /** Root run that owns the thread's latest lifecycle. */
-  runId?: string
-  anchorTurnId?: string
-  parentAgentId?: string
+  runId?: string;
+  anchorTurnId?: string;
+  parentAgentId?: string;
   /** Work group this task's agent thread was spawned into. Tasks sharing
    *  a groupKey collapse under one Activity group header; absent for
    *  ungrouped agents and legacy persisted events. */
-  groupKey?: string
-  groupLabel?: string
-  statusText?: string
-  toolActivity?: TaskToolActivity
-  reasoningText?: string
-  startedAtMs: number
-  completedAtMs?: number
-  lastUpdatedAtMs: number
-  outputPreview?: string
-  assistantMessages?: string[]
-}
+  groupKey?: string;
+  groupLabel?: string;
+  statusText?: string;
+  toolActivity?: TaskToolActivity;
+  reasoningText?: string;
+  startedAtMs: number;
+  completedAtMs?: number;
+  lastUpdatedAtMs: number;
+  outputPreview?: string;
+  assistantMessages?: string[];
+  assistantMessagesUpdatedAtMs?: number;
+  assistantMessagesEntrySequence?: number;
+};
 
-export const TASK_COMPLETION_INDICATOR_MS = 3000
+export const TASK_COMPLETION_INDICATOR_MS = 3000;
 
 /**
  * Ephemeral stream-fed extras for a running thread, keyed by thread id.
@@ -142,12 +152,22 @@ export const TASK_COMPLETION_INDICATOR_MS = 3000
  * thread-activity rows.
  */
 export type TaskLiveDecoration = {
-  runId?: string
-  anchorTurnId?: string
-  statusText?: string
-  toolActivity?: TaskToolActivity
-  reasoningText?: string
-}
+  runId?: string;
+  /** Lifecycle state observed directly from the ordered agent stream. */
+  status?: TaskLifecycleStatus;
+  /** Durable attempt epoch; lets a resumed run supersede a stale terminal row. */
+  attemptGeneration?: number;
+  /** Receipt time of this attempt's start, used only for legacy packets. */
+  startedAtMs?: number;
+  /** Receipt time of the latest lifecycle packet for this attempt. */
+  observedAtMs?: number;
+  /** Monotonic runtime-recorder sequence for stale packet fencing. */
+  lifecycleSequence?: number;
+  anchorTurnId?: string;
+  statusText?: string;
+  toolActivity?: TaskToolActivity;
+  reasoningText?: string;
+};
 
 /**
  * Tasks that should drive "is Stella working right now" surfaces: running
@@ -162,18 +182,18 @@ export function selectFreshActivityTasks(
 ): TaskItem[] {
   return tasks.filter(
     (task) =>
-      task.status === 'running' ||
-      (typeof task.completedAtMs === 'number' &&
+      task.status === "running" ||
+      (typeof task.completedAtMs === "number" &&
         nowMs - task.completedAtMs <= TASK_COMPLETION_INDICATOR_MS),
-  )
+  );
 }
 
 /**
  * The Activity task list: authoritative thread rows (from the runtime's
  * `runtime_agents` table via `useThreadActivity`) overlaid with the live
- * stream decoration for still-running threads. No reconciliation — the two
- * sources own disjoint fields, so a stale decoration can never flip a
- * row's status or title, and a terminal row ignores decoration entirely.
+ * stream lifecycle observation. The durable row wins within one attempt;
+ * only a strictly newer observed generation may temporarily supersede it
+ * while the row refetch catches up.
  */
 export function buildActivityTasks(
   records: readonly ThreadActivityRecord[],
@@ -182,14 +202,49 @@ export function buildActivityTasks(
   return records
     .filter((record) => isActivityFeedTask({ agentType: record.agentType }))
     .map((record) => {
-      const running = record.status === 'running'
-      const decoration = running ? decorations?.[record.threadId] : undefined
+      const candidateDecoration = decorations?.[record.threadId];
+      const authoritative = {
+        status: record.status,
+        attemptGeneration: record.attemptGeneration,
+        rootRunId: record.rootRunId,
+        updatedAtMs: record.updatedAt,
+        completedAtMs: record.completedAt,
+      };
+      const latestAttempt = candidateDecoration
+        ? {
+            status: candidateDecoration.status,
+            attemptGeneration: candidateDecoration.attemptGeneration,
+            rootRunId: candidateDecoration.runId,
+            startedAtMs: candidateDecoration.startedAtMs,
+            observedAtMs: candidateDecoration.observedAtMs,
+          }
+        : undefined;
+      const status = deriveLatestAgentPresentationStatus(
+        authoritative,
+        latestAttempt,
+      );
+      const running = status === "running";
+      const decoration = running ? candidateDecoration : undefined;
+      const latestAttemptOwns = latestAttemptSupersedesAuthoritative(
+        authoritative,
+        latestAttempt,
+      );
+      const recordOwnsAttempt = !latestAttemptOwns;
+      const observedDescription = latestAttemptOwns
+        ? normalizeTaskDisplayStatusText(candidateDecoration?.statusText)
+        : undefined;
       return {
         id: record.threadId,
-        description: record.description,
+        description: observedDescription ?? record.description,
         agentType: record.agentType,
-        status: record.status,
-        runId: decoration?.runId ?? record.rootRunId,
+        status,
+        attemptGeneration:
+          (latestAttemptOwns
+            ? candidateDecoration?.attemptGeneration
+            : undefined) ?? record.attemptGeneration,
+        runId:
+          (latestAttemptOwns ? candidateDecoration?.runId : undefined) ??
+          record.rootRunId,
         anchorTurnId: decoration?.anchorTurnId,
         parentAgentId: record.parentAgentId,
         groupKey: record.groupKey,
@@ -203,25 +258,42 @@ export function buildActivityTasks(
         toolActivity: running ? decoration?.toolActivity : undefined,
         reasoningText: running ? decoration?.reasoningText : undefined,
         startedAtMs: record.startedAt,
-        completedAtMs: running ? undefined : record.completedAt,
-        lastUpdatedAtMs: record.updatedAt,
-        outputPreview: running ? undefined : (record.result ?? record.error),
-        assistantMessages: record.assistantMessages,
-      }
+        completedAtMs: running
+          ? undefined
+          : latestAttemptOwns
+            ? candidateDecoration?.observedAtMs
+            : record.completedAt,
+        lastUpdatedAtMs:
+          (latestAttemptOwns ? candidateDecoration?.observedAtMs : undefined) ??
+          record.updatedAt,
+        outputPreview:
+          running || !recordOwnsAttempt
+            ? undefined
+            : (record.result ?? record.error),
+        assistantMessages: recordOwnsAttempt
+          ? record.assistantMessages
+          : undefined,
+        assistantMessagesUpdatedAtMs: recordOwnsAttempt
+          ? record.assistantMessagesUpdatedAt
+          : undefined,
+        assistantMessagesEntrySequence: recordOwnsAttempt
+          ? record.assistantMessagesEntrySequence
+          : undefined,
+      };
     })
-    .sort((a, b) => a.startedAtMs - b.startedAtMs || a.id.localeCompare(b.id))
+    .sort((a, b) => a.startedAtMs - b.startedAtMs || a.id.localeCompare(b.id));
 }
 
-const STANDALONE_STATUS_TEXT = new Set(['Pausing'])
+const STANDALONE_STATUS_TEXT = new Set(["Pausing"]);
 const GENERIC_TASK_DESCRIPTION_PATTERN =
-  /^(task|agent|work|help|do this|follow up)$/i
+  /^(task|agent|work|help|do this|follow up)$/i;
 
 export function isGenericTaskDescription(
   description: string | undefined,
 ): boolean {
   return (
     !description || GENERIC_TASK_DESCRIPTION_PATTERN.test(description.trim())
-  )
+  );
 }
 
 /**
@@ -236,23 +308,23 @@ export function isGenericTaskDescription(
 // capped at 48 chars. Ids from any other generator (uppercase, underscores,
 // other alphabets, overlong) may embed text that was never meant as a display
 // label — treat those as opaque and keep the generic "Task".
-const SPAWN_SLUG_MAX_LENGTH = 48
-const SPAWN_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const SPAWN_SLUG_MAX_LENGTH = 48;
+const SPAWN_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function fallbackTaskDescription(agentId: string | undefined): string {
-  const slug = (agentId ?? '').trim()
-  if (!slug || /^(task|grp|legacy)-/i.test(slug)) return 'Task'
+  const slug = (agentId ?? "").trim();
+  if (!slug || /^(task|grp|legacy)-/i.test(slug)) return "Task";
   if (slug.length > SPAWN_SLUG_MAX_LENGTH || !SPAWN_SLUG_PATTERN.test(slug)) {
-    return 'Task'
+    return "Task";
   }
-  const words = slug.split('-')
-  const letterCount = (words.join('').match(/[a-z]/gi) ?? []).length
+  const words = slug.split("-");
+  const letterCount = (words.join("").match(/[a-z]/gi) ?? []).length;
   // Short single-token ids ("a1", "x7f3") are opaque junk, not slugged
   // descriptions — keep the generic label for those.
-  if (words.length < 2 && letterCount < 4) return 'Task'
-  if (letterCount === 0) return 'Task'
-  const text = words.join(' ')
-  return text.charAt(0).toUpperCase() + text.slice(1)
+  if (words.length < 2 && letterCount < 4) return "Task";
+  if (letterCount === 0) return "Task";
+  const text = words.join(" ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /**
@@ -261,53 +333,53 @@ export function fallbackTaskDescription(agentId: string | undefined): string {
  * specialists, recall lookups, and any future machinery agent types) remain
  * execution detail and must not surface as activity rows.
  */
-export function isActivityFeedTask(task: Pick<TaskItem, 'agentType'>): boolean {
+export function isActivityFeedTask(task: Pick<TaskItem, "agentType">): boolean {
   return (
     task.agentType === AGENT_IDS.GENERAL || task.agentType === AGENT_IDS.MANAGER
-  )
+  );
 }
 
 export function isStandaloneTaskStatusText(
   statusText: string | undefined,
 ): boolean {
-  const normalized = normalizeTaskDisplayStatusText(statusText)
-  return Boolean(normalized && STANDALONE_STATUS_TEXT.has(normalized))
+  const normalized = normalizeTaskDisplayStatusText(statusText);
+  return Boolean(normalized && STANDALONE_STATUS_TEXT.has(normalized));
 }
 
 export function normalizeTaskDisplayStatusText(
   statusText: string | undefined,
 ): string | undefined {
-  return normalizeDisplayStatusText(statusText)
+  return normalizeDisplayStatusText(statusText);
 }
 
 export function getTaskDisplayText(task: TaskItem): string {
   const description = isGenericTaskDescription(task.description)
-    ? ''
-    : task.description
+    ? ""
+    : task.description;
 
-  if (task.status === 'running') {
-    const statusText = normalizeTaskDisplayStatusText(task.statusText)
+  if (task.status === "running") {
+    const statusText = normalizeTaskDisplayStatusText(task.statusText);
     if (statusText && !isStandaloneTaskStatusText(statusText)) {
-      return statusText
+      return statusText;
     }
-    return description
+    return description;
   }
-  return description
+  return description;
 }
 
 export function getTaskWorkingIndicatorText(task: TaskItem): string {
-  const statusText = normalizeTaskDisplayStatusText(task.statusText)
+  const statusText = normalizeTaskDisplayStatusText(task.statusText);
   if (
-    task.status === 'running' &&
+    task.status === "running" &&
     statusText &&
     isStandaloneTaskStatusText(statusText)
   ) {
     const description = isGenericTaskDescription(task.description)
-      ? ''
-      : task.description
-    return description ? `${statusText} · ${description}` : statusText
+      ? ""
+      : task.description;
+    return description ? `${statusText} · ${description}` : statusText;
   }
-  return getTaskDisplayText(task)
+  return getTaskDisplayText(task);
 }
 
 // Generic type guard factory — reduces per-event-type boilerplate.
@@ -317,152 +389,154 @@ function createEventGuard<T extends Record<string, unknown>>(
 ) {
   return (event: EventRecord): event is EventRecord & { payload: T } =>
     event.type === type &&
-    typeof event.payload === 'object' &&
+    typeof event.payload === "object" &&
     event.payload !== null &&
     (requiredFields === undefined ||
-      requiredFields.every((field) => field in (event.payload as object)))
+      requiredFields.every((field) => field in (event.payload as object)));
 }
 
 export const isToolRequest = createEventGuard<ToolRequestPayload>(
-  'tool_request',
-  ['toolName'],
-)
+  "tool_request",
+  ["toolName"],
+);
 
-export const isToolResult = createEventGuard<ToolResultPayload>('tool_result')
+export const isToolResult = createEventGuard<ToolResultPayload>("tool_result");
 
 export function isUserMessage(event: EventRecord): boolean {
-  return event.type === 'user_message'
+  return event.type === "user_message";
 }
 
 export function isAssistantMessage(event: EventRecord): boolean {
-  return event.type === 'assistant_message'
+  return event.type === "assistant_message";
 }
 
 export const isAgentStartedEvent = createEventGuard<AgentStartedEventPayload>(
-  'agent-started',
-  ['agentId'],
-)
+  "agent-started",
+  ["agentId"],
+);
 
 export const isAgentCompletedEvent =
-  createEventGuard<AgentCompletedEventPayload>('agent-completed', ['agentId'])
+  createEventGuard<AgentCompletedEventPayload>("agent-completed", ["agentId"]);
 
 export const isAgentFailedEvent = createEventGuard<AgentFailedEventPayload>(
-  'agent-failed',
-  ['agentId'],
-)
+  "agent-failed",
+  ["agentId"],
+);
 
 export const isAgentCanceledEvent = createEventGuard<AgentCanceledEventPayload>(
-  'agent-canceled',
-  ['agentId'],
-)
+  "agent-canceled",
+  ["agentId"],
+);
 
 export const isAgentProgressEvent = createEventGuard<AgentProgressEventPayload>(
-  'agent-progress',
-  ['agentId', 'statusText'],
-)
+  "agent-progress",
+  ["agentId", "statusText"],
+);
 
 export function extractToolTitle(event: EventRecord): string {
-  if (!isToolRequest(event)) return ''
+  if (!isToolRequest(event)) return "";
 
-  const { toolName, args } = event.payload
+  const { toolName, args } = event.payload;
 
-  const str = (v: unknown) => v as string
+  const str = (v: unknown) => v as string;
 
   switch (toolName.toLowerCase()) {
-    case 'read':
-      return args?.path ? str(args.path).split('/').pop()! : 'Reading file'
-    case 'write':
-      return args?.path ? str(args.path).split('/').pop()! : 'Writing file'
-    case 'edit':
-      return args?.path ? str(args.path).split('/').pop()! : 'Editing file'
-    case 'grep':
-      return args?.pattern ? `"${str(args.pattern).slice(0, 30)}"` : 'Searching'
-    case 'executetypescript':
+    case "read":
+      return args?.path ? str(args.path).split("/").pop()! : "Reading file";
+    case "write":
+      return args?.path ? str(args.path).split("/").pop()! : "Writing file";
+    case "edit":
+      return args?.path ? str(args.path).split("/").pop()! : "Editing file";
+    case "grep":
+      return args?.pattern
+        ? `"${str(args.pattern).slice(0, 30)}"`
+        : "Searching";
+    case "executetypescript":
       return args?.summary
         ? str(args.summary).slice(0, 40)
-        : 'Running code mode'
-    case 'glob':
-      return args?.pattern ? str(args.pattern) : 'Finding files'
-    case 'bash':
+        : "Running code mode";
+    case "glob":
+      return args?.pattern ? str(args.pattern) : "Finding files";
+    case "bash":
       return args?.command
         ? str(args.command).slice(0, 40) +
-            (str(args.command).length > 40 ? '...' : '')
-        : 'Running command'
-    case 'webfetch':
-      return args?.url ? new URL(str(args.url)).hostname : 'Fetching'
-    case 'web':
+            (str(args.command).length > 40 ? "..." : "")
+        : "Running command";
+    case "webfetch":
+      return args?.url ? new URL(str(args.url)).hostname : "Fetching";
+    case "web":
       if (args?.url) {
         try {
-          return new URL(str(args.url)).hostname
+          return new URL(str(args.url)).hostname;
         } catch {
-          return 'Fetching'
+          return "Fetching";
         }
       }
       return args?.query
-        ? `"${str(args.query).slice(0, 40)}${str(args.query).length > 40 ? '…' : ''}"`
-        : 'Searching the web'
-    case 'task':
+        ? `"${str(args.query).slice(0, 40)}${str(args.query).length > 40 ? "…" : ""}"`
+        : "Searching the web";
+    case "task":
       return args?.description
         ? str(args.description).slice(0, 40)
-        : 'Delegating'
+        : "Delegating";
     default:
-      return toolName
+      return toolName;
   }
 }
 
 // Helper to get requestId from event (can be at top level or in payload)
 function getRequestId(event: EventRecord): string | undefined {
   // Check top level first
-  if (event.requestId) return event.requestId
+  if (event.requestId) return event.requestId;
   // Then check payload
-  if (event.payload && typeof event.payload === 'object') {
-    const payload = event.payload as { requestId?: string }
-    if (payload.requestId) return payload.requestId
+  if (event.payload && typeof event.payload === "object") {
+    const payload = event.payload as { requestId?: string };
+    if (payload.requestId) return payload.requestId;
   }
-  return undefined
+  return undefined;
 }
 
 export function extractStepsFromEvents(events: EventRecord[]): StepItem[] {
-  const steps: StepItem[] = []
-  const stepIndexByRequestId = new Map<string, number>()
+  const steps: StepItem[] = [];
+  const stepIndexByRequestId = new Map<string, number>();
 
   for (const event of events) {
     if (isToolRequest(event)) {
-      const requestId = getRequestId(event) ?? event._id
-      const toolName = event.payload.toolName
-      const stepIndex = steps.length
+      const requestId = getRequestId(event) ?? event._id;
+      const toolName = event.payload.toolName;
+      const stepIndex = steps.length;
       steps.push({
         id: requestId,
         tool: toolName,
         title: extractToolTitle(event),
-        status: 'running',
-      })
-      stepIndexByRequestId.set(requestId, stepIndex)
-      continue
+        status: "running",
+      });
+      stepIndexByRequestId.set(requestId, stepIndex);
+      continue;
     }
 
     if (!isToolResult(event)) {
-      continue
+      continue;
     }
 
-    const status: StepItem['status'] = event.payload.error
-      ? 'error'
-      : 'completed'
-    const requestId = getRequestId(event)
+    const status: StepItem["status"] = event.payload.error
+      ? "error"
+      : "completed";
+    const requestId = getRequestId(event);
 
     if (requestId) {
-      const directIndex = stepIndexByRequestId.get(requestId)
+      const directIndex = stepIndexByRequestId.get(requestId);
       if (
         directIndex !== undefined &&
-        steps[directIndex]?.status === 'running'
+        steps[directIndex]?.status === "running"
       ) {
-        steps[directIndex] = { ...steps[directIndex], status }
-        continue
+        steps[directIndex] = { ...steps[directIndex], status };
+        continue;
       }
     }
   }
 
-  return steps
+  return steps;
 }
 
 /**
@@ -479,15 +553,15 @@ export function extractStepsFromEvents(events: EventRecord[]): StepItem[] {
 export function getCurrentRunningTool(
   messages: { toolEvents: EventRecord[] }[],
 ): { tool: string; id: string } | undefined {
-  const events: EventRecord[] = []
+  const events: EventRecord[] = [];
   for (const message of messages) {
-    if (message.toolEvents.length === 0) continue
-    for (const toolEvent of message.toolEvents) events.push(toolEvent)
+    if (message.toolEvents.length === 0) continue;
+    for (const toolEvent of message.toolEvents) events.push(toolEvent);
   }
   const running = extractStepsFromEvents(events).find(
-    (s) => s.status === 'running',
-  )
-  return running ? { tool: running.tool, id: running.id } : undefined
+    (s) => s.status === "running",
+  );
+  return running ? { tool: running.tool, id: running.id } : undefined;
 }
 
 /**
@@ -496,19 +570,19 @@ export function getCurrentRunningTool(
  * by `groupActivityTasks`.
  */
 export type TaskGroup = {
-  groupKey: string
-  label: string
+  groupKey: string;
+  label: string;
   /** Members in spawn order (startedAtMs asc, id tie-break). */
-  members: TaskItem[]
+  members: TaskItem[];
   /** Aggregate: any member running → running; else any error → error;
    *  else any completed → completed; else canceled. */
-  status: TaskLifecycleStatus
-  completedCount: number
-  totalCount: number
-  startedAtMs: number
-  completedAtMs?: number
-  lastUpdatedAtMs: number
-}
+  status: TaskLifecycleStatus;
+  completedCount: number;
+  totalCount: number;
+  startedAtMs: number;
+  completedAtMs?: number;
+  lastUpdatedAtMs: number;
+};
 
 /**
  * One persisted ownership tree rooted at a Manager (or any future nested
@@ -517,56 +591,216 @@ export type TaskGroup = {
  * descendants and legacy groups can nest without a second visual language.
  */
 export type TaskHierarchy = {
-  owner: TaskItem
-  children: ActivityRow[]
+  owner: TaskItem;
+  children: ActivityRow[];
   /** All descendants, excluding `owner`. */
-  descendantCount: number
+  descendantCount: number;
   /** Aggregate owner/descendant status used by collapsed Activity surfaces. */
-  status: TaskLifecycleStatus
-}
+  status: TaskLifecycleStatus;
+};
 
 export type ActivityRow =
-  | { kind: 'task'; task: TaskItem }
-  | { kind: 'group'; group: TaskGroup }
-  | { kind: 'hierarchy'; hierarchy: TaskHierarchy }
+  | { kind: "task"; task: TaskItem }
+  | { kind: "group"; group: TaskGroup }
+  | { kind: "hierarchy"; hierarchy: TaskHierarchy };
+
+export const COMPACT_ACTIVITY_CELL_LIMIT = 16;
+
+export type CompactActivitySummary = {
+  tasks: TaskItem[];
+  totalCount: number;
+  runningCount: number;
+  completedCount: number;
+  errorCount: number;
+  canceledCount: number;
+  latestTask?: TaskItem;
+  latestText?: string;
+  failureTask?: TaskItem;
+  usesProgressBar: boolean;
+};
+
+/** Flatten a nested ownership/group projection into one visual per agent. */
+export const flattenActivityTasks = (
+  rows: readonly ActivityRow[],
+): TaskItem[] => {
+  const tasks: TaskItem[] = [];
+  const append = (row: ActivityRow): void => {
+    if (row.kind === "task") {
+      tasks.push(row.task);
+      return;
+    }
+    if (row.kind === "group") {
+      tasks.push(...row.group.members);
+      return;
+    }
+    tasks.push(row.hierarchy.owner);
+    for (const child of row.hierarchy.children) append(child);
+  };
+  for (const row of rows) append(row);
+  return tasks;
+};
+
+const compareCompactTaskRecency = (a: TaskItem, b: TaskItem): number =>
+  b.lastUpdatedAtMs - a.lastUpdatedAtMs ||
+  (b.completedAtMs ?? 0) - (a.completedAtMs ?? 0) ||
+  b.startedAtMs - a.startedAtMs ||
+  a.id.localeCompare(b.id);
+
+const compactLatestText = (task: TaskItem): string => {
+  const assistantText = selectLatestAgentAssistantMessage(
+    task.assistantMessages,
+  );
+  if (assistantText) return assistantText;
+  switch (task.status) {
+    case "running":
+      return "Working…";
+    case "completed":
+      return "Completed";
+    case "error":
+      return "Failed";
+    case "canceled":
+      return "Paused";
+  }
+};
+
+const compareCompactAssistantRecency = (a: TaskItem, b: TaskItem): number => {
+  const aHasText = Boolean(
+    selectLatestAgentAssistantMessage(a.assistantMessages),
+  );
+  const bHasText = Boolean(
+    selectLatestAgentAssistantMessage(b.assistantMessages),
+  );
+  if (aHasText !== bHasText) return Number(bHasText) - Number(aHasText);
+  if (aHasText && bHasText) {
+    const aSequence = a.assistantMessagesEntrySequence;
+    const bSequence = b.assistantMessagesEntrySequence;
+    if (
+      aSequence !== undefined &&
+      bSequence !== undefined &&
+      aSequence !== bSequence
+    ) {
+      return bSequence - aSequence;
+    }
+    const byTimestamp =
+      (b.assistantMessagesUpdatedAtMs ?? 0) -
+      (a.assistantMessagesUpdatedAtMs ?? 0);
+    if (byTimestamp !== 0) return byTimestamp;
+  }
+  return compareCompactTaskRecency(a, b);
+};
+
+/** Counts and newest assistant-prose selection for compact Manager/group rows. */
+export function summarizeCompactActivity(
+  tasks: readonly TaskItem[],
+): CompactActivitySummary {
+  const ordered = [...tasks].sort(compareCompactAssistantRecency);
+  const latestTask = ordered[0];
+  const failureTask = ordered.find((task) => task.status === "error");
+  return {
+    tasks: [...tasks],
+    totalCount: tasks.length,
+    runningCount: tasks.filter((task) => task.status === "running").length,
+    completedCount: tasks.filter((task) => task.status === "completed").length,
+    errorCount: tasks.filter((task) => task.status === "error").length,
+    canceledCount: tasks.filter((task) => task.status === "canceled").length,
+    latestTask,
+    latestText: latestTask ? compactLatestText(latestTask) : undefined,
+    failureTask,
+    usesProgressBar: tasks.length > COMPACT_ACTIVITY_CELL_LIMIT,
+  };
+}
+
+export function getCompactActivityStatusText(
+  summary: CompactActivitySummary,
+  prioritizeFailure: boolean,
+): string {
+  const tally = `${summary.runningCount} running · ${summary.completedCount} done`;
+  const stopped =
+    summary.canceledCount > 0 ? ` · ${summary.canceledCount} stopped` : "";
+  if (prioritizeFailure && summary.failureTask) {
+    const name = summary.failureTask.description.trim() || "Agent";
+    return `${summary.errorCount} failed — ${name} · ${tally}${stopped}`;
+  }
+  const failed =
+    summary.errorCount > 0 ? ` · ${summary.errorCount} failed` : "";
+  const latest = summary.latestText ? ` — latest: ${summary.latestText}` : "";
+  return `${tally}${failed}${stopped}${latest}`;
+}
 
 /** Stable, namespaced identity shared by sorting state and React keys. */
 export const activityRowKey = (row: ActivityRow): string =>
-  row.kind === 'task'
+  row.kind === "task"
     ? `task:${row.task.id}`
-    : row.kind === 'group'
+    : row.kind === "group"
       ? `group:${row.group.groupKey}`
-      : `hierarchy:${row.hierarchy.owner.id}`
+      : `hierarchy:${row.hierarchy.owner.id}`;
+
+export type TopLevelActivityWorkUnit = {
+  id: string;
+  status: TaskLifecycleStatus;
+};
+
+/** Top-level visible Activity rows; owned descendants never inflate counts. */
+export const deriveTopLevelActivityWorkUnits = (
+  tasks: readonly TaskItem[],
+): TopLevelActivityWorkUnit[] => {
+  const latestById = new Map<string, TaskItem>();
+  for (const task of tasks) {
+    if (!isActivityFeedTask(task)) continue;
+    const current = latestById.get(task.id);
+    if (
+      !current ||
+      (task.attemptGeneration ?? 0) > (current.attemptGeneration ?? 0) ||
+      ((task.attemptGeneration ?? 0) === (current.attemptGeneration ?? 0) &&
+        (task.lastUpdatedAtMs > current.lastUpdatedAtMs ||
+          (task.lastUpdatedAtMs === current.lastUpdatedAtMs &&
+            task.startedAtMs > current.startedAtMs)))
+    ) {
+      latestById.set(task.id, task);
+    }
+  }
+  return groupActivityTasks([...latestById.values()]).map((row) => ({
+    id: activityRowKey(row),
+    status: getActivityRowStatus(row),
+  }));
+};
+
+export const countActiveTopLevelActivityWorkUnits = (
+  tasks: readonly TaskItem[],
+): number =>
+  deriveTopLevelActivityWorkUnits(tasks).filter(
+    (unit) => unit.status === "running",
+  ).length;
 
 export const getActivityRowStatus = (row: ActivityRow): TaskLifecycleStatus =>
-  row.kind === 'task'
+  row.kind === "task"
     ? row.task.status
-    : row.kind === 'group'
+    : row.kind === "group"
       ? row.group.status
-      : row.hierarchy.status
+      : row.hierarchy.status;
 
 export const getActivityRowCompletedAtMs = (row: ActivityRow): number => {
   const entry =
-    row.kind === 'task'
+    row.kind === "task"
       ? row.task
-      : row.kind === 'group'
+      : row.kind === "group"
         ? row.group
-        : row.hierarchy.owner
-  return entry.completedAtMs ?? entry.lastUpdatedAtMs ?? entry.startedAtMs
-}
+        : row.hierarchy.owner;
+  return entry.completedAtMs ?? entry.lastUpdatedAtMs ?? entry.startedAtMs;
+};
 
 /** Search text for a whole visible row, including nested owned descendants. */
 export const getActivityRowSearchText = (row: ActivityRow): string => {
-  if (row.kind === 'task') {
+  if (row.kind === "task") {
     return [row.task.description, row.task.statusText, row.task.outputPreview]
       .filter(Boolean)
-      .join(' ')
+      .join(" ");
   }
-  if (row.kind === 'group') {
+  if (row.kind === "group") {
     return [
       row.group.label,
       ...row.group.members.map((member) => member.description),
-    ].join(' ')
+    ].join(" ");
   }
   return [
     row.hierarchy.owner.description,
@@ -575,25 +809,25 @@ export const getActivityRowSearchText = (row: ActivityRow): string => {
     ...row.hierarchy.children.map(getActivityRowSearchText),
   ]
     .filter(Boolean)
-    .join(' ')
-}
+    .join(" ");
+};
 
 const buildTaskGroup = (groupKey: string, members: TaskItem[]): TaskGroup => {
   const ordered = [...members].sort(
     (a, b) => a.startedAtMs - b.startedAtMs || a.id.localeCompare(b.id),
-  )
+  );
   const completedCount = ordered.filter(
-    (member) => member.status === 'completed',
-  ).length
+    (member) => member.status === "completed",
+  ).length;
   const status: TaskLifecycleStatus = ordered.some(
-    (member) => member.status === 'running',
+    (member) => member.status === "running",
   )
-    ? 'running'
-    : ordered.some((member) => member.status === 'error')
-      ? 'error'
+    ? "running"
+    : ordered.some((member) => member.status === "error")
+      ? "error"
       : completedCount > 0
-        ? 'completed'
-        : 'canceled'
+        ? "completed"
+        : "canceled";
   return {
     groupKey,
     label:
@@ -605,7 +839,7 @@ const buildTaskGroup = (groupKey: string, members: TaskItem[]): TaskGroup => {
     totalCount: ordered.length,
     startedAtMs: Math.min(...ordered.map((member) => member.startedAtMs)),
     completedAtMs:
-      status === 'running'
+      status === "running"
         ? undefined
         : Math.max(
             ...ordered.map(
@@ -615,8 +849,8 @@ const buildTaskGroup = (groupKey: string, members: TaskItem[]): TaskGroup => {
     lastUpdatedAtMs: Math.max(
       ...ordered.map((member) => member.lastUpdatedAtMs),
     ),
-  }
-}
+  };
+};
 
 /**
  * Project the persisted task list into Activity rows.
@@ -629,19 +863,19 @@ const buildTaskGroup = (groupKey: string, members: TaskItem[]): TaskGroup => {
  * before. Missing parents stay top-level rather than disappearing.
  */
 export function groupActivityTasks(tasks: readonly TaskItem[]): ActivityRow[] {
-  const taskById = new Map(tasks.map((task) => [task.id, task]))
-  const childrenByParentId = new Map<string, TaskItem[]>()
-  const ownedTaskIds = new Set<string>()
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const childrenByParentId = new Map<string, TaskItem[]>();
+  const ownedTaskIds = new Set<string>();
   for (const task of tasks) {
-    const parentId = task.parentAgentId
-    if (!parentId || parentId === task.id || !taskById.has(parentId)) continue
-    const children = childrenByParentId.get(parentId)
-    if (children) children.push(task)
-    else childrenByParentId.set(parentId, [task])
-    ownedTaskIds.add(task.id)
+    const parentId = task.parentAgentId;
+    if (!parentId || parentId === task.id || !taskById.has(parentId)) continue;
+    const children = childrenByParentId.get(parentId);
+    if (children) children.push(task);
+    else childrenByParentId.set(parentId, [task]);
+    ownedTaskIds.add(task.id);
   }
 
-  const visited = new Set<string>()
+  const visited = new Set<string>();
   const buildRows = (
     siblings: readonly TaskItem[],
     ancestors: ReadonlySet<string>,
@@ -649,82 +883,78 @@ export function groupActivityTasks(tasks: readonly TaskItem[]): ActivityRow[] {
     const visibleChildren = (task: TaskItem): TaskItem[] =>
       (childrenByParentId.get(task.id) ?? []).filter(
         (child) => !ancestors.has(child.id) && child.id !== task.id,
-      )
+      );
 
     // Legacy groups only collapse sibling leaves. An owning task remains the
     // hierarchy header so its children cannot be hidden inside a group.
-    const membersByGroupKey = new Map<string, TaskItem[]>()
+    const membersByGroupKey = new Map<string, TaskItem[]>();
     for (const task of siblings) {
-      if (!task.groupKey || visibleChildren(task).length > 0) continue
-      const members = membersByGroupKey.get(task.groupKey)
-      if (members) members.push(task)
-      else membersByGroupKey.set(task.groupKey, [task])
+      if (!task.groupKey || visibleChildren(task).length > 0) continue;
+      const members = membersByGroupKey.get(task.groupKey);
+      if (members) members.push(task);
+      else membersByGroupKey.set(task.groupKey, [task]);
     }
 
-    const rows: ActivityRow[] = []
-    const emittedGroupKeys = new Set<string>()
+    const rows: ActivityRow[] = [];
+    const emittedGroupKeys = new Set<string>();
     for (const task of siblings) {
-      if (visited.has(task.id)) continue
-      const children = visibleChildren(task)
+      if (visited.has(task.id)) continue;
+      const children = visibleChildren(task);
       if (children.length > 0) {
-        visited.add(task.id)
-        const nextAncestors = new Set(ancestors)
-        nextAncestors.add(task.id)
-        const childRows = buildRows(children, nextAncestors)
-        const statuses = [task.status, ...childRows.map(getActivityRowStatus)]
-        const status: TaskLifecycleStatus = statuses.includes('running')
-          ? 'running'
-          : statuses.includes('error')
-            ? 'error'
-            : statuses.includes('completed')
-              ? 'completed'
-              : 'canceled'
+        visited.add(task.id);
+        const nextAncestors = new Set(ancestors);
+        nextAncestors.add(task.id);
+        const childRows = buildRows(children, nextAncestors);
+        const status = deriveOwnedAgentPresentationStatus(
+          task.status,
+          childRows.map(getActivityRowStatus),
+        );
         rows.push({
-          kind: 'hierarchy',
+          kind: "hierarchy",
           hierarchy: {
             owner: task,
             children: childRows,
             descendantCount: countActivityTasks(childRows),
             status,
           },
-        })
-        continue
+        });
+        continue;
       }
 
       const members = task.groupKey
         ? membersByGroupKey.get(task.groupKey)
-        : undefined
+        : undefined;
       if (!task.groupKey || !members || members.length < 2) {
-        visited.add(task.id)
-        rows.push({ kind: 'task', task })
-        continue
+        visited.add(task.id);
+        rows.push({ kind: "task", task });
+        continue;
       }
-      if (emittedGroupKeys.has(task.groupKey)) continue
-      emittedGroupKeys.add(task.groupKey)
-      for (const member of members) visited.add(member.id)
+      if (emittedGroupKeys.has(task.groupKey)) continue;
+      emittedGroupKeys.add(task.groupKey);
+      for (const member of members) visited.add(member.id);
       rows.push({
-        kind: 'group',
+        kind: "group",
         group: buildTaskGroup(task.groupKey, members),
-      })
+      });
     }
-    return rows
-  }
+    return rows;
+  };
 
-  const roots = tasks.filter((task) => !ownedTaskIds.has(task.id))
-  const rows = buildRows(roots, new Set())
+  const roots = tasks.filter((task) => !ownedTaskIds.has(task.id));
+  const rows = buildRows(roots, new Set());
   // Corrupt/cyclic ownership must not make work disappear. Runtime rejects
   // cycles, but old/imported rows still fail open as top-level activity.
-  const unvisited = tasks.filter((task) => !visited.has(task.id))
-  if (unvisited.length > 0) rows.push(...buildRows(unvisited, new Set()))
-  return rows
+  const unvisited = tasks.filter((task) => !visited.has(task.id));
+  if (unvisited.length > 0) rows.push(...buildRows(unvisited, new Set()));
+  return rows;
 }
 
 const countActivityTasks = (rows: readonly ActivityRow[]): number =>
   rows.reduce((total, row) => {
-    if (row.kind === 'task') return total + 1
-    if (row.kind === 'group') return total + row.group.members.length
-    return total + 1 + row.hierarchy.descendantCount
-  }, 0)
+    if (row.kind === "task") return total + 1;
+    if (row.kind === "group") return total + row.group.members.length;
+    return total + 1 + row.hierarchy.descendantCount;
+  }, 0);
 
 /**
  * Prune group expand/collapse overrides whose group no longer has ANY member
@@ -738,33 +968,32 @@ export function pruneGroupExpandOverrides(
   overrides: ReadonlyMap<string, boolean>,
   tasks: readonly TaskItem[],
 ): ReadonlyMap<string, boolean> {
-  if (overrides.size === 0) return overrides
-  const liveKeys = new Set<string>()
+  if (overrides.size === 0) return overrides;
+  const liveKeys = new Set<string>();
   for (const task of tasks) {
-    if (task.groupKey) liveKeys.add(task.groupKey)
+    if (task.groupKey) liveKeys.add(task.groupKey);
   }
-  let stale = false
+  let stale = false;
   for (const key of overrides.keys()) {
     if (!liveKeys.has(key)) {
-      stale = true
-      break
+      stale = true;
+      break;
     }
   }
-  if (!stale) return overrides
-  const next = new Map<string, boolean>()
+  if (!stale) return overrides;
+  const next = new Map<string, boolean>();
   for (const [key, value] of overrides) {
-    if (liveKeys.has(key)) next.set(key, value)
+    if (liveKeys.has(key)) next.set(key, value);
   }
-  return next
+  return next;
 }
 
-/** Agent-authored updates replace the old generated live-summary ticker. */
+/** Agent-authored prose for Activity rows, active or completed. */
 export function getTaskAgentUpdates(
-  task: Pick<TaskItem, 'status' | 'agentType' | 'assistantMessages'>,
+  task: Pick<TaskItem, "status" | "agentType" | "assistantMessages">,
 ): readonly string[] {
-  if (task.status !== 'running' || task.agentType === AGENT_IDS.MANAGER)
-    return []
-  return task.assistantMessages ?? []
+  if (task.agentType === AGENT_IDS.MANAGER) return [];
+  return (task.assistantMessages ?? []).filter((message) => message.trim());
 }
 
 /**
@@ -781,21 +1010,21 @@ export function updateSeenRunningTaskIds(
   seen: ReadonlySet<string>,
   tasks: readonly TaskItem[],
 ): ReadonlySet<string> {
-  let changed = false
-  const present = new Set<string>()
-  for (const task of tasks) present.add(task.id)
-  const next = new Set<string>()
+  let changed = false;
+  const present = new Set<string>();
+  for (const task of tasks) present.add(task.id);
+  const next = new Set<string>();
   for (const id of seen) {
-    if (present.has(id)) next.add(id)
-    else changed = true
+    if (present.has(id)) next.add(id);
+    else changed = true;
   }
   for (const task of tasks) {
-    if (task.status === 'running' && !next.has(task.id)) {
-      next.add(task.id)
-      changed = true
+    if (task.status === "running" && !next.has(task.id)) {
+      next.add(task.id);
+      changed = true;
     }
   }
-  return changed ? next : seen
+  return changed ? next : seen;
 }
 
 /**
@@ -810,40 +1039,40 @@ export function updateSeenRunningGroupKeys(
   seen: ReadonlySet<string>,
   tasks: readonly TaskItem[],
 ): ReadonlySet<string> {
-  let changed = false
-  const presentKeys = new Set<string>()
-  const runningKeys = new Set<string>()
+  let changed = false;
+  const presentKeys = new Set<string>();
+  const runningKeys = new Set<string>();
   for (const task of tasks) {
-    if (!task.groupKey) continue
-    presentKeys.add(task.groupKey)
-    if (task.status === 'running') runningKeys.add(task.groupKey)
+    if (!task.groupKey) continue;
+    presentKeys.add(task.groupKey);
+    if (task.status === "running") runningKeys.add(task.groupKey);
   }
-  const next = new Set<string>()
+  const next = new Set<string>();
   for (const key of seen) {
-    if (presentKeys.has(key)) next.add(key)
-    else changed = true
+    if (presentKeys.has(key)) next.add(key);
+    else changed = true;
   }
   for (const key of runningKeys) {
     if (!next.has(key)) {
-      next.add(key)
-      changed = true
+      next.add(key);
+      changed = true;
     }
   }
-  return changed ? next : seen
+  return changed ? next : seen;
 }
 
 /** Persistent first-seen ordering state for {@link orderByFirstSeen}. */
 export type FirstSeenOrder = {
   /** Frozen insertion index per item key. */
-  order: ReadonlyMap<string, number>
+  order: ReadonlyMap<string, number>;
   /** Next index to hand out to a newly-seen key. */
-  next: number
-}
+  next: number;
+};
 
 export const EMPTY_FIRST_SEEN_ORDER: FirstSeenOrder = {
   order: new Map(),
   next: 0,
-}
+};
 
 /**
  * Order `items` by the sequence in which their keys were *first* seen and
@@ -869,29 +1098,29 @@ export function orderByFirstSeen<T>(
   prev: FirstSeenOrder = EMPTY_FIRST_SEEN_ORDER,
   descending = false,
 ): { ordered: T[]; state: FirstSeenOrder } {
-  const order = new Map<string, number>()
-  let next = prev.next
+  const order = new Map<string, number>();
+  let next = prev.next;
   for (const item of items) {
-    const key = keyOf(item)
-    if (order.has(key)) continue
-    const existing = prev.order.get(key)
+    const key = keyOf(item);
+    if (order.has(key)) continue;
+    const existing = prev.order.get(key);
     if (existing === undefined) {
-      order.set(key, next)
-      next += 1
+      order.set(key, next);
+      next += 1;
     } else {
-      order.set(key, existing)
+      order.set(key, existing);
     }
   }
   const ordered = [...items].sort((a, b) => {
-    const aKey = keyOf(a)
-    const bKey = keyOf(b)
-    const ai = order.get(aKey) ?? 0
-    const bi = order.get(bKey) ?? 0
+    const aKey = keyOf(a);
+    const bKey = keyOf(b);
+    const ai = order.get(aKey) ?? 0;
+    const bi = order.get(bKey) ?? 0;
     return descending
       ? bi - ai || bKey.localeCompare(aKey)
-      : ai - bi || aKey.localeCompare(bKey)
-  })
-  return { ordered, state: { order, next } }
+      : ai - bi || aKey.localeCompare(bKey);
+  });
+  return { ordered, state: { order, next } };
 }
 
 /**
@@ -902,11 +1131,11 @@ export function orderByFirstSeen<T>(
  * own label carries the title; this count only changes when membership does.
  */
 export function getTaskGroupStatusText(group: TaskGroup): string {
-  return group.totalCount === 1 ? '1 task' : `${group.totalCount} tasks`
+  return group.totalCount === 1 ? "1 task" : `${group.totalCount} tasks`;
 }
 
 export function getTaskHierarchyStatusText(hierarchy: TaskHierarchy): string {
   return hierarchy.descendantCount === 1
-    ? '1 agent'
-    : `${hierarchy.descendantCount} agents`
+    ? "1 agent"
+    : `${hierarchy.descendantCount} agents`;
 }

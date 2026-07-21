@@ -68,7 +68,7 @@ const PROTECTED_MUTATION_TABLES = new Set([
 const CERTIFIED_MUTATING_TRIGGER_DIGESTS = new Map([
   [
     "trg_runtime_thread_entries_sequence",
-    "9d88a030ea31b2833d9d5c9dafc4f426b575f1113248a3119e820958d028c2aa",
+    "ff631f34e62f3ee290526bbd67ef6375cd2f271d9ca1d0dcacaac4463e26b32f",
   ],
   [
     "trg_thread_search_fts_thread_delete",

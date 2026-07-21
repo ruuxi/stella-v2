@@ -95,6 +95,8 @@ const isOlderLifecycleSignal = (
     existing.runId &&
     signal.runId &&
     existing.runId !== signal.runId &&
+    existing.attemptGeneration !== undefined &&
+    signal.attemptGeneration !== undefined &&
     existing.attemptGeneration === signal.attemptGeneration
   ) {
     return signal.startsAttempt !== true;

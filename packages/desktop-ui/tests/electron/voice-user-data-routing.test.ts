@@ -33,7 +33,7 @@ describe("voice user-data routing", () => {
       "../../../desktop/electron/bootstrap/ipc.ts",
     );
     const registration = bootstrapIpc.match(
-      /registerVoiceHandlers\(\{[\s\S]*?\n  \}\);/,
+      /registerVoiceHandlers\(\{[\s\S]*?\n {2}\}\);/,
     )?.[0];
 
     expect(registration).toBeDefined();

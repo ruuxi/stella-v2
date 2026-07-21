@@ -64,6 +64,12 @@ describe("check-boundary fence rules", () => {
       "packages/desktop/scripts/build.mjs",
       'import { build } from "esbuild";\n',
     );
+    // Packaged electron-builder output bundles the compiled runtime worker
+    // (effect inlined) — build artifacts are not source.
+    write(
+      "packages/desktop/release/mac-arm64/Stella.app/Contents/Resources/runtime/worker/chunks/chunk-A.js",
+      `import { some } from "${EFFECT}/Option";\n`,
+    );
     await expect(offendersFor()).resolves.toEqual([]);
   });
 

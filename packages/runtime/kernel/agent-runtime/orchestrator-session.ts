@@ -68,6 +68,8 @@ import {
   persistThreadCustomMessage,
 } from "./thread-memory.js";
 import { createPiTools } from "./tool-adapters.js";
+import { createRunScopedStreamFn } from "./provider-stream-lifecycle.js";
+import { streamSimple } from "../../ai/stream.js";
 import type { OrchestratorRunOptions, RuntimeRunCallbacks } from "./types.js";
 
 /**
@@ -212,6 +214,16 @@ export class OrchestratorSession extends PiSessionCore {
       recorder: runEvents,
       ...(opts.callbacks ? { callbacks: opts.callbacks } : {}),
     };
+
+    // Provider streams opened this turn supervise as child fibers of the
+    // run's scope (fiber-derived abort, terminal-settlement join). Reset
+    // every turn: the Agent is long-lived but the registrar is per-run.
+    agent.streamFn = opts.superviseRunResource
+      ? createRunScopedStreamFn({
+          supervise: opts.superviseRunResource,
+          runId,
+        })
+      : streamSimple;
 
     const containmentTurn = this.beginAbortContainmentTurn(
       agent,

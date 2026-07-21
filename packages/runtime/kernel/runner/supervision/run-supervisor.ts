@@ -49,6 +49,17 @@ export type KernelRunSupervisor = {
     work: SupervisedRunWork,
   ) => void;
   /**
+   * Register an arbitrary run-owned resource (provider stream, tool call,
+   * external engine process) under `rootRunId`'s cancellation scope with a
+   * verbatim label, or under the detached scope when no root exists. Same
+   * structural guarantees as `adoptChild`.
+   */
+  adoptResource: (
+    rootRunId: string | undefined,
+    label: string,
+    work: SupervisedRunWork,
+  ) => void;
+  /**
    * Interrupt the run's root fiber and every descendant, firing each unit's
    * abort and joining its teardown. Resolves after all finalizers ran.
    * No-op for unknown runs.
@@ -105,6 +116,15 @@ export const createKernelRunSupervisor = (): KernelRunSupervisor => {
       }
       const scope = rootRunId ? ensureRunScope(rootRunId) : detached;
       scope.supervise({ label: `subagent-attempt:${childId}`, ...work });
+      if (rootRunId) reclaimWhenQuiescent(rootRunId, scope);
+    },
+    adoptResource: (rootRunId, label, work) => {
+      if (shutdownPromise) {
+        work.abort(new Error("Runtime is shutting down."));
+        return;
+      }
+      const scope = rootRunId ? ensureRunScope(rootRunId) : detached;
+      scope.supervise({ label, ...work });
       if (rootRunId) reclaimWhenQuiescent(rootRunId, scope);
     },
     cancelRun: async (runId, reason) => {

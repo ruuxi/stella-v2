@@ -217,6 +217,13 @@ export type BaseRunOptions = {
   stellaAppDir?: string;
   toolWorkspaceRoot?: string;
   hookEmitter?: HookEmitter;
+  /**
+   * Registers run-owned resources (provider streams, tool calls) into the
+   * owning run's supervision scope, so cancel/shutdown interrupts them and
+   * joins their teardown. Wired by the runner; sessions run unsupervised
+   * (today's behavior) when absent.
+   */
+  superviseRunResource?: import("./run-resources.js").RunResourceRegistrar;
   responseTarget?: RuntimeAgentEventPayload["responseTarget"];
   /**
    * Append a local-chat event for the conversation. Routes through the

@@ -227,6 +227,14 @@ export const launchPreparedOrchestratorRun = (args: {
     hookEmitter: context.hookEmitter,
     onExecutionSessionCreated: args.onExecutionSessionCreated,
     orchestratorSession,
+    // Provider streams and tool calls opened by this turn supervise as
+    // child fibers of the run's scope, so cancelRun/shutdown interrupts
+    // them and joins their teardown.
+    superviseRunResource: (resource) =>
+      context.state.supervisor.adoptResource(prepared.runId, resource.label, {
+        abort: resource.abort,
+        settled: resource.settled,
+      }),
     compactionScheduler: context.state.compactionScheduler,
     ...(prepared.userTurnsSinceMemoryReview != null
       ? { userTurnsSinceMemoryReview: prepared.userTurnsSinceMemoryReview }

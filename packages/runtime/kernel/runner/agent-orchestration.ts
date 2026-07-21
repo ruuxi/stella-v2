@@ -697,6 +697,14 @@ export const createAgentOrchestration = (
         store: context.runtimeStore,
         abortSignal,
         stellaAppDir: context.stellaAppDir,
+        // Subagent provider streams / tool calls supervise under the root
+        // run's scope (or detached when the child has no live root), same
+        // structure as the attempt fiber itself.
+        superviseRunResource: (resource) =>
+          context.state.supervisor.adoptResource(rootRunId, resource.label, {
+            abort: resource.abort,
+            settled: resource.settled,
+          }),
         ...(toolWorkspaceRoot ? { toolWorkspaceRoot } : {}),
         ...(subagentSession ? { subagentSession } : {}),
         compactionScheduler: context.state.compactionScheduler,

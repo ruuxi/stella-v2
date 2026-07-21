@@ -661,6 +661,65 @@ describe("offline stub compaction checkpoint repair", () => {
     expect(backupFiles(directory)).toHaveLength(0);
   });
 
+  it.each([
+    ["byte mismatch", "not byte-exactly equal"],
+    ["fromEntryId", "incompatible fromEntryId"],
+    [
+      "topology",
+      "incompatible with the target's authoritative parent topology",
+    ],
+  ])(
+    "refuses independent-metadata fallback %s provenance without mutation",
+    (kind, expectedError) => {
+      const { db, dbPath, directory } = makeDatabase();
+      db.prepare(
+        "UPDATE runtime_threads SET summary = ? WHERE thread_key = 'thread-1'",
+      ).run("independent thread metadata");
+      if (kind === "byte mismatch") {
+        const target = JSON.parse(
+          String(
+            db
+              .prepare(
+                "SELECT data_json FROM runtime_thread_entries WHERE entry_id = 'stub'",
+              )
+              .get()?.data_json,
+          ),
+        );
+        target.summaryValidation.previousSummary = `${healthySummary}\n`;
+        db.prepare(
+          "UPDATE runtime_thread_entries SET data_json = ? WHERE entry_id = 'stub'",
+        ).run(JSON.stringify(target));
+      } else {
+        const fallback = JSON.parse(
+          String(
+            db
+              .prepare(
+                "SELECT data_json FROM runtime_thread_entries WHERE entry_id = 'healthy'",
+              )
+              .get()?.data_json,
+          ),
+        );
+        const rangePatch =
+          kind === "fromEntryId"
+            ? { fromEntryId: "unrelated", toEntryId: "m1" }
+            : { fromEntryId: "m0", toEntryId: "unrelated" };
+        db.prepare(
+          "UPDATE runtime_thread_entries SET data_json = ? WHERE entry_id = 'healthy'",
+        ).run(JSON.stringify({ ...fallback, ...rangePatch }));
+      }
+      const before = databaseSnapshot(db);
+      db.close();
+
+      const result = runCli(dbPath, "--entry", "stub");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(expectedError);
+      const verified = openDatabase(dbPath, true);
+      expect(databaseSnapshot(verified)).toEqual(before);
+      verified.close();
+      expect(backupFiles(directory)).toHaveLength(0);
+    },
+  );
+
   it("skips a shrink-invalid checkpoint when selecting the fallback", () => {
     const { db } = makeDatabase();
     db.prepare(

@@ -1034,41 +1034,39 @@ export const analyzeRepair = (db, entryId) => {
   const targetTo = byId.get(toEntryId);
   if (!targetFrom || !targetTo)
     fail("Target compaction range points outside its thread.");
-  if (metadataBelongsToAffectedOverlay) {
-    if (!validationInput.previousSummary) {
-      fail(
-        "Refusing fallback: target summaryValidation.previousSummary is null or empty.",
-      );
+  if (!validationInput.previousSummary) {
+    fail(
+      "Refusing fallback: target summaryValidation.previousSummary is null or empty.",
+    );
+  }
+  if (!Object.is(validationInput.previousSummary, previousSummary)) {
+    fail(
+      "Refusing fallback: target summaryValidation.previousSummary is not byte-exactly equal to the chosen ancestor summary.",
+    );
+  }
+  if (previousRange.fromEntryId !== fromEntryId) {
+    fail(
+      "Refusing fallback: target and chosen ancestor have incompatible fromEntryId values.",
+    );
+  }
+  const pathIncludes = (startEntryId, ancestorEntryId) => {
+    let current = byId.get(startEntryId);
+    while (current) {
+      if (current.entry_id === ancestorEntryId) return true;
+      current =
+        current.parent_entry_id === null
+          ? undefined
+          : byId.get(current.parent_entry_id);
     }
-    if (!Object.is(validationInput.previousSummary, previousSummary)) {
-      fail(
-        "Refusing fallback: target summaryValidation.previousSummary is not byte-exactly equal to the chosen ancestor summary.",
-      );
-    }
-    if (previousRange.fromEntryId !== fromEntryId) {
-      fail(
-        "Refusing fallback: target and chosen ancestor have incompatible fromEntryId values.",
-      );
-    }
-    const pathIncludes = (startEntryId, ancestorEntryId) => {
-      let current = byId.get(startEntryId);
-      while (current) {
-        if (current.entry_id === ancestorEntryId) return true;
-        current =
-          current.parent_entry_id === null
-            ? undefined
-            : byId.get(current.parent_entry_id);
-      }
-      return false;
-    };
-    if (
-      !pathIncludes(targetTo.entry_id, previousTo.entry_id) ||
-      !pathIncludes(previousTo.entry_id, targetFrom.entry_id)
-    ) {
-      fail(
-        "Refusing fallback: chosen ancestor range is incompatible with the target's authoritative parent topology.",
-      );
-    }
+    return false;
+  };
+  if (
+    !pathIncludes(targetTo.entry_id, previousTo.entry_id) ||
+    !pathIncludes(previousTo.entry_id, targetFrom.entry_id)
+  ) {
+    fail(
+      "Refusing fallback: chosen ancestor range is incompatible with the target's authoritative parent topology.",
+    );
   }
 
   const survivingRows = rows

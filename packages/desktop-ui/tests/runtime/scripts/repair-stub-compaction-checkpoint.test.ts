@@ -653,7 +653,7 @@ describe("offline stub compaction checkpoint repair", () => {
     expect(result.stderr).toContain(
       kind === "fromEntryId"
         ? "incompatible fromEntryId"
-        : "incompatible with the target's authoritative parent topology",
+        : "fallback compaction healthy toEntryId unrelated is not on its authoritative parent chain",
     );
     const verified = openDatabase(dbPath, true);
     expect(databaseSnapshot(verified)).toEqual(before);
@@ -666,7 +666,7 @@ describe("offline stub compaction checkpoint repair", () => {
     ["fromEntryId", "incompatible fromEntryId"],
     [
       "topology",
-      "incompatible with the target's authoritative parent topology",
+      "fallback compaction healthy toEntryId unrelated is not on its authoritative parent chain",
     ],
   ])(
     "refuses independent-metadata fallback %s provenance without mutation",
@@ -707,6 +707,52 @@ describe("offline stub compaction checkpoint repair", () => {
           "UPDATE runtime_thread_entries SET data_json = ? WHERE entry_id = 'healthy'",
         ).run(JSON.stringify({ ...fallback, ...rangePatch }));
       }
+      const before = databaseSnapshot(db);
+      db.close();
+
+      const result = runCli(dbPath, "--entry", "stub");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(expectedError);
+      const verified = openDatabase(dbPath, true);
+      expect(databaseSnapshot(verified)).toEqual(before);
+      verified.close();
+      expect(backupFiles(directory)).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    [
+      "target",
+      "stub",
+      "unrelated",
+      "target compaction stub toEntryId unrelated is not on its authoritative parent chain",
+    ],
+    [
+      "dependent",
+      "dependent-a",
+      "beta-1",
+      "dependent compaction dependent-a toEntryId beta-1 is not on its authoritative parent chain",
+    ],
+  ])(
+    "refuses a cross-branch %s range with independent metadata and no mutation",
+    (_kind, entryId, crossBranchToEntryId, expectedError) => {
+      const { db, dbPath, directory } = makeDatabase();
+      db.prepare(
+        "UPDATE runtime_threads SET summary = ? WHERE thread_key = 'thread-1'",
+      ).run("independent thread metadata");
+      const checkpoint = JSON.parse(
+        String(
+          db
+            .prepare(
+              "SELECT data_json FROM runtime_thread_entries WHERE entry_id = ?",
+            )
+            .get(entryId)?.data_json,
+        ),
+      );
+      checkpoint.toEntryId = crossBranchToEntryId;
+      db.prepare(
+        "UPDATE runtime_thread_entries SET data_json = ? WHERE entry_id = ?",
+      ).run(JSON.stringify(checkpoint), entryId);
       const before = databaseSnapshot(db);
       db.close();
 

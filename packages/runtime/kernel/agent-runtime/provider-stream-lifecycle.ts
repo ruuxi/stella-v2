@@ -1,41 +1,46 @@
 /**
- * Run-owned provider stream lifecycle (M5 surface 3, phase 2 batch 1).
+ * Run-owned provider stream lifecycle (M5 surface 3; phase 2 batch 1,
+ * upgraded to true Effect Stream delivery in phase 3).
  *
  * Every provider stream a Pi turn opens is registered as a child resource of
- * its run's supervision scope (`kernel/runner/supervision/run-supervisor.ts`),
- * where a dedicated Effect fiber owns its lifecycle:
+ * its run's supervision scope (`kernel/runner/supervision/run-supervisor.ts`):
  *
- * - **Fiber-derived cancellation.** The provider receives a relay
- *   `AbortController`'s signal instead of the run signal directly. The run
- *   signal forwards into the relay (same tick, reason preserved), and
- *   interrupting the stream's fiber (run cancel / runtime shutdown) fires
- *   the same relay — `ai/stream.ts` and the provider adapters stay untouched
- *   behind their existing signal contract.
- * - **Terminal detection & teardown-before-settlement.** The resource's
- *   `settled` promise tracks the stream's terminal event
- *   (`AssistantMessageEventStream.result()`), so closing the run scope joins
- *   the stream until the provider's own `done`/`error` terminal has landed —
- *   the outcome the caller observes is always the provider's truthful one.
- * - **Bounded abandonment.** A provider that ignores its abort signal would
- *   otherwise hold run cancellation forever. After the relay aborts, the
- *   join is bounded by an abandonment grace (default 5s, mirroring the
- *   agent-core tool abort grace); an abandoned stream is logged and released
+ * - **True Effect Stream delivery.** The supervised path returns a fresh
+ *   `AssistantMessageEventStream` fed by a `Stream.fromAsyncIterable`
+ *   pipeline over the provider's stream. Every element is forwarded
+ *   untouched in order (byte/order parity), terminal `done`/`error` events
+ *   settle `result()` exactly as the provider's own stream would, and
+ *   `end` runs exactly once (`ensuring`) — so agent-loop consumption and
+ *   backpressure semantics are unchanged while delivery itself is an
+ *   interruptible Effect pipeline owned by the run.
+ * - **Fiber-derived cancellation, close-once.** The provider receives a
+ *   relay `AbortController`'s signal. The run signal forwards into the
+ *   relay (same tick, reason preserved) and fiber interruption fires the
+ *   same relay — one idempotent transport close, after which the pipeline
+ *   drains the provider's terminal and joins cleanup.
+ * - **Teardown-before-settlement.** The resource settles only when the
+ *   delivery pipeline has finished (terminal forwarded + `end` ran), so
+ *   closing the run scope joins actual cleanup, not just the terminal.
+ * - **Bounded abandonment.** After the relay aborts, the join is bounded
+ *   by a grace (default 5s); an abandoned stream is logged and released
  *   without fabricating a terminal result.
  * - **No leaked listeners.** The run-signal forwarding listener is removed
- *   as soon as the stream settles (or is abandoned).
- *
- * Consumption/backpressure semantics stay in `agent-core/agent-loop.ts`
- * (WRAP, don't rewrite): the loop iterates the same stream object the
- * provider produced; this module owns lifecycle, not event delivery.
+ *   as soon as the pipeline settles (or is abandoned).
  */
 
+import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { streamSimple } from "../../ai/stream.js";
+import { AssistantMessageEventStream } from "../../ai/utils/event-stream.js";
+import type { AssistantMessageEvent } from "../../ai/types.js";
 import type { StreamFn } from "../agent-core/types.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { RunResourceRegistrar } from "./run-resources.js";
 import { RunResourceAbandonedError } from "./run-resource-errors.js";
 
 const logger = createRuntimeLogger("provider-stream-lifecycle");
+
+/** Requirements-free runtime for the delivery pipelines (context in closures). */
+const deliveryRuntime = ManagedRuntime.make(Layer.empty);
 
 /**
  * How long a cancelled provider stream may keep running before its fiber is
@@ -50,9 +55,10 @@ type ProviderStream = Awaited<ReturnType<StreamFn>>;
 
 /**
  * Wrap a `StreamFn` so every stream it opens is supervised as a child
- * resource of the owning run. The returned function preserves the base
- * function's sync/async shape and returns the provider's stream object
- * unchanged, so agent-loop consumption is byte-for-byte identical.
+ * resource of the owning run and delivered through a run-owned Effect
+ * Stream pipeline. The returned function preserves the base function's
+ * sync/async shape; the stream handed back settles and iterates exactly
+ * like the provider's own (same events, same order, same terminals).
  */
 export const createRunScopedStreamFn = (args: {
   /** Underlying provider entry. Defaults to `ai/stream.ts#streamSimple`. */
@@ -83,6 +89,35 @@ export const createRunScopedStreamFn = (args: {
     const release = () => outer?.removeEventListener("abort", onOuterAbort);
 
     const superviseStream = (inner: ProviderStream): ProviderStream => {
+      // True Effect Stream delivery: forward every provider event, in
+      // order and untouched, into the stream the agent loop consumes.
+      // Iteration ends when the provider's terminal event lands (the
+      // EventStream iterator drains and closes on done/error), so the
+      // pipeline promise settles only after terminal + cleanup.
+      const out = new AssistantMessageEventStream();
+      const delivered = deliveryRuntime.runPromise(
+        Stream.fromAsyncIterable(
+          inner as AsyncIterable<AssistantMessageEvent>,
+          (error) => error,
+        ).pipe(
+          Stream.runForEach((event) =>
+            Effect.sync(() => {
+              out.push(event);
+            }),
+          ),
+          // Provider streams encode failures as terminal error events
+          // (StreamFn contract); a raw iteration failure here would be a
+          // defect — swallow into the terminal `end` below rather than
+          // rejecting the supervision join.
+          Effect.ignore,
+          Effect.ensuring(
+            Effect.sync(() => {
+              out.end();
+            }),
+          ),
+        ),
+      );
+
       let settledFlag = false;
       let abandonTimer: ReturnType<typeof setTimeout> | null = null;
       const settled = new Promise<void>((resolve) => {
@@ -101,7 +136,7 @@ export const createRunScopedStreamFn = (args: {
           }
           resolve();
         };
-        inner.result().then(
+        delivered.then(
           () => finish(false),
           () => finish(false),
         );
@@ -124,7 +159,7 @@ export const createRunScopedStreamFn = (args: {
         abort: (reason) => relay.abort(reason),
         settled,
       });
-      return inner;
+      return out;
     };
 
     const relayOptions = {

@@ -124,6 +124,9 @@ export class SubagentSession extends PiSessionCore {
       store: opts.store,
       toolExecutor: opts.toolExecutor,
       hookEmitter: opts.hookEmitter,
+      ...(opts.superviseRunResource
+        ? { superviseRunResource: opts.superviseRunResource }
+        : {}),
       imageCapTarget: {
         provider: opts.resolvedLlm.model.provider,
         api: opts.resolvedLlm.model.api,

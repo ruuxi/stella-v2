@@ -202,6 +202,23 @@
 }
 
 /*
+ * Streamdown already wraps each fenced block in the outer code card that owns
+ * the language header and copy/download controls. Its code-block body adds a
+ * second rounded, bordered, padded surface around Stella's tinted <pre>, which
+ * makes the block read as three nested cards and needlessly narrows the code.
+ * Collapse only that semantic middle wrapper: the outer card chrome and the
+ * readable padding/scrolling on <pre> remain unchanged.
+ */
+.markdown [data-streamdown="code-block-body"] {
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+}
+
+/*
  * Disable Streamdown's per-code-block `content-visibility: auto` /
  * `contain-intrinsic-size: auto 200px` inline-style optimization
  * inside virtualized chat rows.

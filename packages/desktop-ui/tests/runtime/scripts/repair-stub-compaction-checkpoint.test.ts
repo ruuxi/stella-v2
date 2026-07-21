@@ -8,6 +8,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -18,6 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   analyzeRepair,
   applyRepairPlan,
+  assertOfflineDatabaseBundle,
   assertOfflineDatabasePath,
   assertNoActiveDatabaseHolders,
   classifyCertifiedStubCheckpoint,
@@ -552,36 +554,111 @@ describe("offline stub compaction checkpoint repair", () => {
     };
     if (value !== undefined) data.summaryValidation = value;
     expect(() => classifyCertifiedStubCheckpoint("stub", data)).toThrow(
-      /authoritative folded-span|malformed or ambiguous summaryValidation/u,
+      /unsupported because it lacks authoritative folded-span|malformed or ambiguous summaryValidation/u,
     );
   });
 
-  it("limits metadata-free classification to the exact certified incident fingerprint", () => {
+  it("explicitly refuses the exact metadata-free certified incident", () => {
     const data = {
       summary: "## Topic\nStella v2 completion and notarization; removal",
       fromEntryId: "01KWJ93EVJ6HW9X8NJ935RA4PQ",
       toEntryId: "01KXS79SSD23GXS0FN9CZT1Z51",
       tokensBefore: 190_576,
     };
-    const context = {
-      threadKey: "01KWJ93DCEH7FVYAZ849P21J68",
-      rowDigest:
-        "c121f4aa7cac0b92c24eb9666374a031151f322bd40671e7dd193d4a79796d0a",
-    };
-    expect(
-      classifyCertifiedStubCheckpoint(
-        "01KXSGPM354E01QJ3SXF6V89PJ",
-        data,
-        context,
-      ).certifiedLegacyIncident,
-    ).toBe(true);
     expect(() =>
-      classifyCertifiedStubCheckpoint(
-        "01KXSGPM354E01QJ3SXF6V89PJ",
-        data,
-        { ...context, rowDigest: "0".repeat(64) },
+      classifyCertifiedStubCheckpoint("01KXSGPM354E01QJ3SXF6V89PJ", data),
+    ).toThrow("legacy compaction 01KXSGPM354E01QJ3SXF6V89PJ is unsupported");
+  });
+
+  it("leaves a metadata-free legacy checkpoint chain unchanged", () => {
+    const { db, dbPath, directory } = makeDatabase();
+    db.prepare(
+      "UPDATE runtime_thread_entries SET data_json = ? WHERE entry_id = 'stub'",
+    ).run(
+      JSON.stringify({
+        fromEntryId: "m0",
+        toEntryId: "m3",
+        summary: stubSummary,
+        tokensBefore: 190_576,
+      }),
+    );
+    const before = databaseSnapshot(db);
+    db.close();
+
+    const result = runCli(dbPath, "--entry", "stub");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("legacy compaction stub is unsupported");
+    const verified = openDatabase(dbPath, true);
+    expect(databaseSnapshot(verified)).toEqual(before);
+    verified.close();
+    expect(backupFiles(directory)).toHaveLength(0);
+  });
+
+  it.each([
+    ["null", null, "null or empty"],
+    ["empty", "", "null or empty"],
+    ["byte mismatch", `${healthySummary}\n`, "not byte-exactly equal"],
+  ])(
+    "refuses a %s target previous-summary fallback provenance",
+    (_name, previousSummary, expectedError) => {
+      const { db, dbPath, directory } = makeDatabase();
+      const target = JSON.parse(
+        String(
+          db
+            .prepare(
+              "SELECT data_json FROM runtime_thread_entries WHERE entry_id = 'stub'",
+            )
+            .get()?.data_json,
+        ),
+      );
+      target.summaryValidation.previousSummary = previousSummary;
+      db.prepare(
+        "UPDATE runtime_thread_entries SET data_json = ? WHERE entry_id = 'stub'",
+      ).run(JSON.stringify(target));
+      const before = databaseSnapshot(db);
+      db.close();
+
+      const result = runCli(dbPath, "--entry", "stub");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(expectedError);
+      const verified = openDatabase(dbPath, true);
+      expect(databaseSnapshot(verified)).toEqual(before);
+      verified.close();
+      expect(backupFiles(directory)).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    ["fromEntryId", { fromEntryId: "unrelated", toEntryId: "m1" }],
+    ["topology", { fromEntryId: "m0", toEntryId: "unrelated" }],
+  ])("refuses incompatible fallback %s provenance", (kind, rangePatch) => {
+    const { db, dbPath, directory } = makeDatabase();
+    const fallback = JSON.parse(
+      String(
+        db
+          .prepare(
+            "SELECT data_json FROM runtime_thread_entries WHERE entry_id = 'healthy'",
+          )
+          .get()?.data_json,
       ),
-    ).toThrow("not the exact certified incident row");
+    );
+    db.prepare(
+      "UPDATE runtime_thread_entries SET data_json = ? WHERE entry_id = 'healthy'",
+    ).run(JSON.stringify({ ...fallback, ...rangePatch }));
+    const before = databaseSnapshot(db);
+    db.close();
+
+    const result = runCli(dbPath, "--entry", "stub");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      kind === "fromEntryId"
+        ? "incompatible fromEntryId"
+        : "incompatible with the target's authoritative parent topology",
+    );
+    const verified = openDatabase(dbPath, true);
+    expect(databaseSnapshot(verified)).toEqual(before);
+    verified.close();
+    expect(backupFiles(directory)).toHaveLength(0);
   });
 
   it("skips a shrink-invalid checkpoint when selecting the fallback", () => {
@@ -943,6 +1020,48 @@ describe("offline stub compaction checkpoint repair", () => {
       assertOfflineDatabasePath(alias, { protectedRoots: [protectedRoot] }),
     ).toThrow("hard-linked alias");
   });
+
+  it.each(
+    ["-wal", "-shm", "-journal"].flatMap((suffix) => [
+      [suffix, "symlink"],
+      [suffix, "hard-link"],
+    ]),
+  )(
+    "refuses a protected-root %s sidecar %s before SQLite opens",
+    (suffix, aliasKind) => {
+      const directory = mkdtempSync(
+        path.join(os.tmpdir(), "stella-v2-sidecar-protection-"),
+      );
+      temporaryDirectories.push(directory);
+      const protectedRoot = path.join(directory, "protected");
+      const offlineRoot = path.join(directory, "offline");
+      mkdirSync(protectedRoot);
+      mkdirSync(offlineRoot);
+      const dbPath = path.join(offlineRoot, "stella.sqlite");
+      writeFileSync(dbPath, "not opened", "utf8");
+      const protectedSidecar = path.join(
+        protectedRoot,
+        `stella.sqlite${suffix}`,
+      );
+      writeFileSync(protectedSidecar, "protected", "utf8");
+      const sidecarAlias = `${dbPath}${suffix}`;
+      if (aliasKind === "symlink") {
+        symlinkSync(protectedSidecar, sidecarAlias);
+      } else {
+        linkSync(protectedSidecar, sidecarAlias);
+      }
+
+      expect(() =>
+        assertOfflineDatabaseBundle(dbPath, {
+          protectedRoots: [protectedRoot],
+        }),
+      ).toThrow(
+        aliasKind === "symlink"
+          ? "Refusing live Stella path"
+          : "hard-linked alias",
+      );
+    },
+  );
 
   it("reparents the full descendant topology while preserving every raw durable row", () => {
     const { db, dbPath, directory } = makeDatabase();

@@ -44,6 +44,7 @@ const REPORT_VERSION = 3;
 const AUTHORIZATION_VERSION = 2;
 const AUTHORIZATION_PREFIX = "stella-offline-plan-v2";
 const LSOF_PATH = "/usr/sbin/lsof";
+const DATABASE_SIDECAR_SUFFIXES = ["-wal", "-shm", "-journal"];
 const REQUIRED_ENTRY_COLUMNS = [
   "entry_id",
   "thread_key",
@@ -82,17 +83,6 @@ const CERTIFIED_MUTATING_TRIGGER_DIGESTS = new Map([
     "72aab06d73f24d1c675238f4801e4f326928b4de946fd7aa545d393dc24a57da",
   ],
 ]);
-const CERTIFIED_LEGACY_INCIDENT = {
-  entryId: "01KXSGPM354E01QJ3SXF6V89PJ",
-  threadKey: "01KWJ93DCEH7FVYAZ849P21J68",
-  rowDigest: "c121f4aa7cac0b92c24eb9666374a031151f322bd40671e7dd193d4a79796d0a",
-  data: {
-    summary: "## Topic\nStella v2 completion and notarization; removal",
-    fromEntryId: "01KWJ93EVJ6HW9X8NJ935RA4PQ",
-    toEntryId: "01KXS79SSD23GXS0FN9CZT1Z51",
-    tokensBefore: 190_576,
-  },
-};
 
 const fail = (message) => {
   throw new Error(message);
@@ -177,6 +167,15 @@ const findInodeWithin = (root, targetStat) => {
   return undefined;
 };
 
+const lstatIfPresent = (candidate) => {
+  try {
+    return fs.lstatSync(candidate, { bigint: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return undefined;
+    throw error;
+  }
+};
+
 export const assertOfflineDatabasePath = (candidate, options = {}) => {
   const protectedRoots = (
     options.protectedRoots ?? [
@@ -197,11 +196,23 @@ export const assertOfflineDatabasePath = (candidate, options = {}) => {
   // Reject lexical live paths before any stat/read against them. Existing
   // offline paths are then resolved once more to catch symlinks into live.
   rejectProtected(absolute);
-  const canonical = fs.existsSync(absolute)
-    ? fs.realpathSync(absolute)
-    : absolute;
+  const lexicalStat = lstatIfPresent(absolute);
+  if (lexicalStat?.isSymbolicLink()) {
+    const linkTarget = fs.readlinkSync(absolute);
+    rejectProtected(path.resolve(path.dirname(absolute), linkTarget));
+  }
+  let canonical = absolute;
+  if (lexicalStat) {
+    try {
+      canonical = fs.realpathSync(absolute);
+    } catch (error) {
+      fail(
+        `Refusing unresolved filesystem alias ${absolute}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   rejectProtected(canonical);
-  if (fs.existsSync(canonical)) {
+  if (lexicalStat) {
     const stat = fs.statSync(canonical, { bigint: true });
     if (stat.nlink > 1n) {
       for (const protectedRoot of protectedRoots) {
@@ -215,6 +226,19 @@ export const assertOfflineDatabasePath = (candidate, options = {}) => {
     }
   }
   return canonical;
+};
+
+export const assertOfflineDatabaseBundle = (candidate, options = {}) => {
+  const dbPath = assertOfflineDatabasePath(candidate, options);
+  for (const suffix of DATABASE_SIDECAR_SUFFIXES) {
+    const sidecarPath = `${dbPath}${suffix}`;
+    if (!lstatIfPresent(sidecarPath)) continue;
+    const canonicalSidecar = assertOfflineDatabasePath(sidecarPath, options);
+    if (!fs.statSync(canonicalSidecar).isFile()) {
+      fail(`Database sidecar is not a regular file: ${sidecarPath}`);
+    }
+  }
+  return dbPath;
 };
 
 const quoteIdentifier = (value) => {
@@ -277,9 +301,10 @@ export const listDatabaseHolders = (dbPath, ignoredPids = [process.pid]) => {
   }
   if (!fs.existsSync(LSOF_PATH))
     fail(`Required active-writer verifier not found: ${LSOF_PATH}`);
-  const candidates = [dbPath, `${dbPath}-wal`, `${dbPath}-shm`].filter(
-    (candidate) => fs.existsSync(candidate),
-  );
+  const candidates = [
+    dbPath,
+    ...DATABASE_SIDECAR_SUFFIXES.map((suffix) => `${dbPath}${suffix}`),
+  ].filter((candidate) => fs.existsSync(candidate));
   const result = spawnSync(LSOF_PATH, ["-Fpcu", "--", ...candidates], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -772,11 +797,10 @@ const strictSummary = (entryId, data) => {
   return data.summary;
 };
 
-const strictSummaryValidationInput = (entryId, data, options = {}) => {
+const strictSummaryValidationInput = (entryId, data) => {
   if (!("summaryValidation" in data)) {
-    if (options.allowMissing) return undefined;
     fail(
-      `Refusing: compaction ${entryId} lacks authoritative summaryValidation inputs from the runtime fold.`,
+      `Refusing: legacy compaction ${entryId} is unsupported because it lacks authoritative folded-span and previous-summary validation inputs.`,
     );
   }
   const input = data.summaryValidation;
@@ -803,19 +827,13 @@ const strictSummaryValidationInput = (entryId, data, options = {}) => {
   };
 };
 
-const matchesCertifiedLegacyIncident = (entryId, data, context) =>
-  entryId === CERTIFIED_LEGACY_INCIDENT.entryId &&
-  context?.threadKey === CERTIFIED_LEGACY_INCIDENT.threadKey &&
-  context?.rowDigest === CERTIFIED_LEGACY_INCIDENT.rowDigest &&
-  canonicalJson(data) === canonicalJson(CERTIFIED_LEGACY_INCIDENT.data);
-
 // v2 now persists both acceptance inputs. Older checkpoints do not contain
 // enough information to replay the runtime validator: tokensBefore is the
 // whole-thread estimate, not the folded middle span, and the previous summary
-// was not recorded. Only the forensic row digest of the single certified
-// incident may cross that target-classification boundary. Fallback candidates
-// never get this exception because selecting the wrong "healthy" predecessor
-// would replace durable thread metadata with an unproven summary.
+// was not recorded. Committed forensic evidence identifies the damaged target
+// and a predecessor ID/length, but not the predecessor's exact summary, full
+// row digest, or runtime inputs. That is insufficient to authorize a byte-exact
+// fallback, so all legacy checkpoints are explicitly unsupported.
 
 const validatePersistedCheckpointSummary = (entryId, data) => {
   const summary = strictSummary(entryId, data);
@@ -831,41 +849,19 @@ const validatePersistedCheckpointSummary = (entryId, data) => {
   };
 };
 
-export const classifyCertifiedStubCheckpoint = (
-  entryId,
-  data,
-  context = {},
-) => {
+export const classifyCertifiedStubCheckpoint = (entryId, data) => {
   if (!isPlainObject(data)) {
     fail(`Refusing: compaction ${entryId} data must be a plain object.`);
   }
   const summary = strictSummary(entryId, data);
   const tokensBefore = strictTokensBefore(entryId, data);
   const range = strictCompactionRange(entryId, data);
-  const validationInput = strictSummaryValidationInput(entryId, data, {
-    allowMissing: true,
-  });
-  const certifiedLegacyIncident =
-    validationInput === undefined &&
-    matchesCertifiedLegacyIncident(entryId, data, context);
-  if (validationInput === undefined && !certifiedLegacyIncident) {
-    fail(
-      `Refusing: legacy compaction ${entryId} lacks authoritative folded-span validation inputs and is not the exact certified incident row.`,
-    );
-  }
-  const runtimeValidation = validationInput
-    ? validateThreadSummary(
-        summary,
-        validationInput.middleTokens,
-        validationInput.previousSummary,
-      )
-    : {
-        valid: false,
-        reason: "exact certified legacy incident identity",
-        visibleCodePoints: Array.from(summary).length,
-        wordCount: 0,
-        uniqueWordCount: 0,
-      };
+  const validationInput = strictSummaryValidationInput(entryId, data);
+  const runtimeValidation = validateThreadSummary(
+    summary,
+    validationInput.middleTokens,
+    validationInput.previousSummary,
+  );
   if (runtimeValidation.valid) {
     fail(
       "Refusing: target summary satisfies the runtime acceptance validator and must not be repaired.",
@@ -892,7 +888,6 @@ export const classifyCertifiedStubCheckpoint = (
     ...range,
     runtimeValidation,
     validationInput,
-    certifiedLegacyIncident,
   };
 };
 
@@ -918,11 +913,7 @@ export const analyzeRepair = (db, entryId) => {
     toEntryId,
     runtimeValidation,
     validationInput,
-    certifiedLegacyIncident,
-  } = classifyCertifiedStubCheckpoint(target.entry_id, targetData, {
-    threadKey: target.thread_key,
-    rowDigest: sha256Canonical(target),
-  });
+  } = classifyCertifiedStubCheckpoint(target.entry_id, targetData);
   // The only automatically repairable corruption is the exact certified v1
   // shape: one short ASCII `## Topic` fragment over a large explicit range.
   // The ASCII signature intentionally rejects Unicode normalization tricks,
@@ -1043,6 +1034,42 @@ export const analyzeRepair = (db, entryId) => {
   const targetTo = byId.get(toEntryId);
   if (!targetFrom || !targetTo)
     fail("Target compaction range points outside its thread.");
+  if (metadataBelongsToAffectedOverlay) {
+    if (!validationInput.previousSummary) {
+      fail(
+        "Refusing fallback: target summaryValidation.previousSummary is null or empty.",
+      );
+    }
+    if (!Object.is(validationInput.previousSummary, previousSummary)) {
+      fail(
+        "Refusing fallback: target summaryValidation.previousSummary is not byte-exactly equal to the chosen ancestor summary.",
+      );
+    }
+    if (previousRange.fromEntryId !== fromEntryId) {
+      fail(
+        "Refusing fallback: target and chosen ancestor have incompatible fromEntryId values.",
+      );
+    }
+    const pathIncludes = (startEntryId, ancestorEntryId) => {
+      let current = byId.get(startEntryId);
+      while (current) {
+        if (current.entry_id === ancestorEntryId) return true;
+        current =
+          current.parent_entry_id === null
+            ? undefined
+            : byId.get(current.parent_entry_id);
+      }
+      return false;
+    };
+    if (
+      !pathIncludes(targetTo.entry_id, previousTo.entry_id) ||
+      !pathIncludes(previousTo.entry_id, targetFrom.entry_id)
+    ) {
+      fail(
+        "Refusing fallback: chosen ancestor range is incompatible with the target's authoritative parent topology.",
+      );
+    }
+  }
 
   const survivingRows = rows
     .filter((row) => !affectedIds.has(row.entry_id))
@@ -1098,7 +1125,6 @@ export const analyzeRepair = (db, entryId) => {
       tokensBefore,
       foldedSpanTokens: validationInput?.middleTokens ?? null,
       previousSummaryChars: validationInput?.previousSummary?.length ?? null,
-      certifiedLegacyIncident,
       explicitRange: true,
       runtimeValidationReason: runtimeValidation.reason,
     },
@@ -1903,8 +1929,9 @@ const runLocked = (db, dbPath, work) =>
   });
 
 export const main = (argv = process.argv.slice(2)) => {
-  const dbPath = resolveExistingRegularFile(readFlag(argv, "db"), "Database");
-  assertOfflineDatabasePath(dbPath);
+  const dbPath = assertOfflineDatabaseBundle(
+    resolveExistingRegularFile(readFlag(argv, "db"), "Database"),
+  );
   const entryId = readFlag(argv, "entry");
   const restoreInput = readFlag(argv, "restore");
   const providedAuthorization = readFlag(argv, "authorization-token");

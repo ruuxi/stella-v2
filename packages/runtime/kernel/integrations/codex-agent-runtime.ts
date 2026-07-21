@@ -1687,7 +1687,15 @@ export const runCodexAgentTurn = async (request: {
               : `Codex app-server did not report turn progress for ${Math.round(timeoutMs / 1000)}s.`,
           ),
         );
-        client.abort();
+        // Shared-client guard (same policy as the abort handler): one
+        // turn's idleness must interrupt only ITS turn, never tear down a
+        // shared app-server that other turns are using.
+        if (threadId && turnId) {
+          void client.interrupt(threadId, turnId).catch(() => {});
+        }
+        if (!request.reuseAppServer) {
+          client.abort();
+        }
       }, timeoutMs);
       turnIdleTimer.unref?.();
     };

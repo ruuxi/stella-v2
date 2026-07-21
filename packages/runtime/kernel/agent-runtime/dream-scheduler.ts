@@ -130,6 +130,17 @@ const dreamScopeFor = (stellaDataDir: string): SupervisedScope => {
 };
 
 /**
+ * Data dirs whose Dream scope is currently mid-close. Closes the admission
+ * window: without this, a spawn arriving DURING shutdown would lazily
+ * recreate the just-deleted scope and admit a run the shutdown never
+ * interrupts.
+ */
+const CLOSING_DREAM_DIRS = new Set<string>();
+
+export const dreamDirIsShuttingDown = (stellaDataDir: string): boolean =>
+  CLOSING_DREAM_DIRS.has(stellaDataDir);
+
+/**
  * Interrupt any in-flight Dream run for `stellaDataDir` (all dirs when
  * omitted) and resolve once its teardown — lock release, `inFlight` clear —
  * has completed. Called from runner shutdown.
@@ -138,12 +149,19 @@ export const shutdownDreamRuns = async (
   stellaDataDir?: string,
 ): Promise<void> => {
   const closing: Array<Promise<void>> = [];
+  const closingDirs: string[] = [];
   for (const [dir, scope] of DREAM_SCOPES) {
     if (stellaDataDir !== undefined && dir !== stellaDataDir) continue;
     DREAM_SCOPES.delete(dir);
+    closingDirs.push(dir);
+    CLOSING_DREAM_DIRS.add(dir);
     closing.push(scope.close("runtime-shutdown"));
   }
-  await Promise.all(closing);
+  try {
+    await Promise.all(closing);
+  } finally {
+    for (const dir of closingDirs) CLOSING_DREAM_DIRS.delete(dir);
+  }
 };
 
 type DreamConfig = {
@@ -591,6 +609,7 @@ export type SpawnDreamResultReason =
   | "scheduled"
   | "disabled"
   | "in_flight"
+  | "shutting_down"
   | "count_failed"
   | "no_inputs"
   | "below_threshold"
@@ -626,6 +645,15 @@ export const maybeSpawnDreamRun = async (
     return {
       scheduled: false,
       reason: "in_flight",
+      pendingItems: 0,
+    };
+  }
+  if (dreamDirIsShuttingDown(args.stellaDataDir)) {
+    // Admission window closed: a spawn racing shutdown must not recreate
+    // the scope being torn down and slip an uninterrupted run past it.
+    return {
+      scheduled: false,
+      reason: "shutting_down",
       pendingItems: 0,
     };
   }

@@ -63,6 +63,38 @@ describe("anthropic SSE transport close", () => {
     expect(state.cancelled).toBeLessThanOrEqual(1);
   });
 
+  it("closes exactly once when the body stream itself errors mid-read", async () => {
+    const state = { cancelled: 0 };
+    let controllerRef!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controllerRef = controller;
+      },
+      cancel() {
+        state.cancelled += 1;
+      },
+    });
+    controllerRef.enqueue(
+      encoder.encode('event: message_start\ndata: {"type":"message_start"}\n\n'),
+    );
+
+    const failure = new Error("socket reset");
+    const events: string[] = [];
+    const iterate = async () => {
+      for await (const sse of iterateSseMessages(body)) {
+        events.push(sse.event ?? "");
+        controllerRef.error(failure);
+      }
+    };
+    // The transport error propagates to the consumer (the provider layer
+    // maps it to its terminal error event), and cleanup neither throws nor
+    // double-closes: cancel on an errored stream is a rejected no-op the
+    // finally swallows.
+    await expect(iterate()).rejects.toThrow("socket reset");
+    expect(events).toEqual(["message_start"]);
+    expect(state.cancelled).toBeLessThanOrEqual(1);
+  });
+
   it("propagates an abort as an error and still closes the transport", async () => {
     const { body, state, push } = makeBody();
     push('event: message_start\ndata: {"type":"message_start"}\n\n');

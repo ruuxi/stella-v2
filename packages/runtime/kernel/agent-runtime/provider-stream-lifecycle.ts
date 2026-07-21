@@ -106,10 +106,18 @@ export const createRunScopedStreamFn = (args: {
             }),
           ),
           // Provider streams encode failures as terminal error events
-          // (StreamFn contract); a raw iteration failure here would be a
-          // defect — swallow into the terminal `end` below rather than
-          // rejecting the supervision join.
-          Effect.ignore,
+          // (StreamFn contract); a raw iteration failure here is a defect.
+          // Log it — never silently swallow — but still fall through to the
+          // terminal `end` below instead of rejecting the supervision join.
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              logger.warn("provider-stream.delivery-defect", {
+                label,
+                model: model.id,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }),
+          ),
           Effect.ensuring(
             Effect.sync(() => {
               out.end();

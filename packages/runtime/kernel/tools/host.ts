@@ -50,7 +50,7 @@ import { buildBuiltinTools } from "./defs/index.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
 import { NodeReplKernelRegistry } from "../computer-use/kernel.js";
-import { joinWithTimeout } from "../shared/supervised-scope.js";
+import { joinWithTimeout } from "../shared/join-timeout.js";
 import {
   createMacComputerUseSession,
   shutdownMacStellaComputerSession,

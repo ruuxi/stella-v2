@@ -1,6 +1,12 @@
 import { promises as fs } from "node:fs";
 
-import type { AgentTool } from "../agent-core/types.js";
+import type {
+  AgentTool,
+  AgentToolResult,
+  AgentToolUpdateCallback,
+} from "../agent-core/types.js";
+import { createToolExecutionSupervisor } from "./tool-lifecycle.js";
+import type { RunResourceRegistrar } from "./run-resources.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { TextContent } from "../../ai/types.js";
 import { DEVICE_TOOL_NAMES } from "../tools/schemas.js";
@@ -659,7 +665,17 @@ export const createPiTools = (opts: {
    * (e.g. Anthropic's 2576px high-res tier) instead of a blunt global cap.
    */
   imageCapTarget?: ImageCapTarget;
+  /**
+   * Registers each tool execution as a child resource of the owning run's
+   * supervision scope (fiber-derived abort, teardown-joining settlement,
+   * duplicate-execution guard). Absent (tests/one-shot paths): tools run
+   * exactly as before, minus supervision.
+   */
+  superviseRunResource?: RunResourceRegistrar;
 }): AgentTool[] => {
+  const superviseToolExecution = createToolExecutionSupervisor({
+    supervise: opts.superviseRunResource,
+  });
   const requested = getRequestedRuntimeToolNames(opts.toolsAllowlist);
   const catalog = new Map<string, ToolMetadata>(
     (opts.toolCatalog ?? []).map((tool) => [tool.name, tool]),
@@ -676,13 +692,12 @@ export const createPiTools = (opts: {
       description: `${toolName} tool`,
       parameters: AnyToolArgsSchema as Record<string, unknown>,
     };
-    const tool: AgentTool = {
-      name: toolName,
-      label: metadata.label ?? formatToolLabel(toolName),
-      workingText: formatToolWorkingText(metadata),
-      description: metadata.description,
-      parameters: metadata.parameters as typeof AnyToolArgsSchema,
-      execute: async (toolCallId, params, signal, onUpdate) => {
+    const executeBody = async (
+      toolCallId: string,
+      params: unknown,
+      signal: AbortSignal | undefined,
+      onUpdate: AgentToolUpdateCallback | undefined,
+    ): Promise<AgentToolResult<unknown>> => {
         const args = (params as Record<string, unknown>) ?? {};
         if (toolName === TOOL_SEARCH_TOOL_NAME) {
           const query = typeof args.query === "string" ? args.query.trim() : "";
@@ -824,7 +839,25 @@ export const createPiTools = (opts: {
           content,
           details: formatted.details,
         };
-      },
+    };
+    const tool: AgentTool = {
+      name: toolName,
+      label: metadata.label ?? formatToolLabel(toolName),
+      workingText: formatToolWorkingText(metadata),
+      description: metadata.description,
+      parameters: metadata.parameters as typeof AnyToolArgsSchema,
+      // Tool executions supervise as child fibers of the owning run: the
+      // body observes a child signal derived from the loop's per-tool
+      // signal, run cancel/shutdown interrupts it, and settlement joins
+      // the body's own cleanup.
+      execute: (toolCallId, params, signal, onUpdate) =>
+        superviseToolExecution({
+          toolCallId,
+          toolName,
+          signal,
+          run: (toolSignal) =>
+            executeBody(toolCallId, params, toolSignal, onUpdate),
+        }),
     };
     return tool;
   };

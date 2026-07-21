@@ -55,6 +55,7 @@ import { getBundledCoreAgentFallback } from "../agents/agents.js";
 import { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
 import { ensureDreamMemoryLayout } from "../memory/dream-storage.js";
 import { createKernelRunSupervisor } from "./supervision/run-supervisor.js";
+import { createReadinessLatch } from "../shared/readiness-latch.js";
 import {
   isRecallNoMatchBrief,
   RecallRetrievalError,
@@ -782,6 +783,7 @@ export const createRunnerContext = ({
       isRunning: false,
       isInitialized: false,
       initializationPromise: null,
+      initializationStarted: createReadinessLatch(),
       localAgentManager: null,
       activeOrchestratorRunId: null,
       activeOrchestratorConversationId: null,

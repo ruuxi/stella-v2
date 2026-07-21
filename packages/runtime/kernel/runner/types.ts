@@ -279,6 +279,12 @@ export type RunnerState = {
   isRunning: boolean;
   isInitialized: boolean;
   initializationPromise: Promise<void> | null;
+  /**
+   * Opens when `initializationPromise` is assigned at boot; reset when the
+   * runner stops. Boot-window waiters (restart continuation) park here
+   * instead of polling for the assignment.
+   */
+  initializationStarted: import("../shared/readiness-latch.js").ReadinessLatch;
   localAgentManager: LocalAgentManager | null;
   activeOrchestratorRunId: string | null;
   activeOrchestratorConversationId: string | null;

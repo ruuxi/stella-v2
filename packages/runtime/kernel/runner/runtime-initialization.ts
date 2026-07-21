@@ -128,6 +128,8 @@ export const createRuntimeInitialization = (
     ]).then(() => {
       context.state.isInitialized = true;
     });
+    // Wake boot-window waiters parked on the readiness latch.
+    context.state.initializationStarted.open();
 
     return context.state.initializationPromise;
   };
@@ -448,6 +450,9 @@ export const createRuntimeInitialization = (
     context.state.isRunning = false;
     context.state.isInitialized = false;
     context.state.initializationPromise = null;
+    // Re-arm the boot latch so a restarted runner's waiters park again
+    // instead of observing the previous generation as already open.
+    context.state.initializationStarted.reset();
     deps.disposeConvexClient();
     // Cancel every live orchestrator turn cooperatively first, then cancel
     // agent tasks (awaited: lifecycle events + managed-child cascades), then

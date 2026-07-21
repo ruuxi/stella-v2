@@ -261,10 +261,10 @@ export const createStellaHostRunner = (
     }) ?? readRestartInterruptionState(context.stellaDataDir);
   if (restartInterruptionState) {
     void (async () => {
-      const deadline = Date.now() + 30_000;
-      while (!context.state.initializationPromise && Date.now() < deadline) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 250));
-      }
+      // Park on the boot latch instead of polling for the assignment; the
+      // 30s bound mirrors the old deadline and uses one cleared, unref'd
+      // timer (no leak on either outcome).
+      await context.state.initializationStarted.awaitOpen(30_000);
       try {
         await context.state.initializationPromise;
       } catch {

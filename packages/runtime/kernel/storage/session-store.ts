@@ -4658,6 +4658,50 @@ export class SessionStore {
       .run(normalized, Date.now(), threadKey);
   }
 
+  /**
+   * Engine-namespaced cursor for out-of-band runtime rows already delivered
+   * to an external session. External engines resume from their own transcript
+   * instead of re-reading Stella history, so Manager child reports and task
+   * updates appended between turns are injected from this durable boundary.
+   */
+  getThreadExternalDeliveredEntryId(threadKey: string): string | undefined {
+    this.ensureImplicitThreadRow(threadKey);
+    const row = this.db
+      .prepare(
+        `
+      SELECT external_delivered_entry_id AS externalDeliveredEntryId
+      FROM runtime_threads
+      WHERE thread_key = ?
+      LIMIT 1
+    `,
+      )
+      .get(threadKey) as { externalDeliveredEntryId?: unknown } | undefined;
+    return typeof row?.externalDeliveredEntryId === "string" &&
+      row.externalDeliveredEntryId.trim().length > 0
+      ? row.externalDeliveredEntryId.trim()
+      : undefined;
+  }
+
+  setThreadExternalDeliveredEntryId(
+    threadKey: string,
+    entryId: string | null | undefined,
+  ): void {
+    this.ensureImplicitThreadRow(threadKey);
+    const normalized =
+      typeof entryId === "string" && entryId.trim().length > 0
+        ? entryId.trim()
+        : null;
+    this.db
+      .prepare(
+        `
+      UPDATE runtime_threads
+      SET external_delivered_entry_id = ?
+      WHERE thread_key = ?
+    `,
+      )
+      .run(normalized, threadKey);
+  }
+
   updateThreadSummary(threadKey: string, summary: string): void {
     const trimmed = summary.trim();
     if (!trimmed) return;

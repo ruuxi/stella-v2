@@ -33,6 +33,7 @@ import { streamSimple } from "../../ai/stream.js";
 import type { StreamFn } from "../agent-core/types.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { RunResourceRegistrar } from "./run-resources.js";
+import { RunResourceAbandonedError } from "./run-resource-errors.js";
 
 const logger = createRuntimeLogger("provider-stream-lifecycle");
 
@@ -95,6 +96,7 @@ export const createRunScopedStreamFn = (args: {
               label,
               graceMs,
               model: model.id,
+              error: new RunResourceAbandonedError({ label, graceMs }).message,
             });
           }
           resolve();

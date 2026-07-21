@@ -24,6 +24,7 @@
 
 import { createRuntimeLogger } from "../debug.js";
 import type { RunResourceRegistrar } from "./run-resources.js";
+import { RunResourceAbandonedError } from "./run-resource-errors.js";
 
 const logger = createRuntimeLogger("external-engine-lifecycle");
 
@@ -76,7 +77,11 @@ export const superviseExternalEngineTurn = async <T>(args: {
       settledFlag = true;
       if (abandonTimer) clearTimeout(abandonTimer);
       if (abandoned) {
-        logger.warn("external-engine-turn.abandoned", { label, graceMs });
+        logger.warn("external-engine-turn.abandoned", {
+          label,
+          graceMs,
+          error: new RunResourceAbandonedError({ label, graceMs }).message,
+        });
       }
       resolve();
     };

@@ -32,6 +32,10 @@
 
 import { createRuntimeLogger } from "../debug.js";
 import type { RunResourceRegistrar } from "./run-resources.js";
+import {
+  DuplicateToolExecutionError,
+  RunResourceAbandonedError,
+} from "./run-resource-errors.js";
 
 const logger = createRuntimeLogger("tool-lifecycle");
 
@@ -71,10 +75,8 @@ export const createToolExecutionSupervisor = (opts: {
     if (inFlight.has(toolCallId)) {
       // Never double-run side effects: the first execution keeps the slot
       // until it settles. Surfaces as a canonical error tool result via the
-      // agent loop's existing catch path.
-      throw new Error(
-        `Tool call ${toolCallId} (${toolName}) is already executing.`,
-      );
+      // agent loop's existing catch path (message unchanged by the typing).
+      throw new DuplicateToolExecutionError({ toolCallId, toolName });
     }
     inFlight.add(toolCallId);
 
@@ -114,7 +116,11 @@ export const createToolExecutionSupervisor = (opts: {
         settledFlag = true;
         if (abandonTimer) clearTimeout(abandonTimer);
         if (abandoned) {
-          logger.warn("tool-execution.abandoned", { label, graceMs });
+          logger.warn("tool-execution.abandoned", {
+            label,
+            graceMs,
+            error: new RunResourceAbandonedError({ label, graceMs }).message,
+          });
         }
         resolve();
       };

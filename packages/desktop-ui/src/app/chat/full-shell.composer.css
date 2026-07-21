@@ -16,12 +16,8 @@
   position: relative;
   width: 100%;
   max-width: min(var(--full-chat-composer-max-width), calc(100% - 48px));
-  background: var(--panel-surface-bg-gradient);
-  border: 1px solid var(--panel-surface-border);
   border-radius: 999px; /* CSS fallback; overridden by motion inline style */
-  box-shadow: var(--shadow-sm), var(--panel-surface-highlight);
   overflow: clip;
-  transition: box-shadow 200ms ease, border-color 200ms ease;
 }
 
 /* Anchor for the above-composer stack (assistant reply peek + suggestion
@@ -81,11 +77,6 @@
 
 .composer-attached-strip .composer-context-actions {
   width: 100%;
-}
-
-/* Focus — border tint only; avoid stacking a thick ring on the resting shadow. */
-.composer-shell:focus-within {
-  border-color: color-mix(in oklch, var(--primary) 18%, var(--border));
 }
 
 .composer-shell--drag-over {

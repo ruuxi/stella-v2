@@ -33,6 +33,7 @@ import {
   updateComposerTextareaExpansion,
   useAnimatedComposerShell,
 } from "@/shared/hooks/use-animated-composer-shell";
+import "@/features/chat/composer-surface.css";
 import "./full-shell.composer.css";
 
 type ComposerProps = {
@@ -174,7 +175,7 @@ function ComposerImpl({
       <ComposerLeadRow replyPeek={replyPeek} showActivityPill />
       <div
         ref={shellRef}
-        className={`composer-shell${isDragOver ? " composer-shell--drag-over" : ""}`}
+        className={`composer-shell composer-surface${isDragOver ? " composer-shell--drag-over" : ""}`}
       >
         <div ref={shellContentRef} className="composer-shell-content">
           {hasAttachedChips && (

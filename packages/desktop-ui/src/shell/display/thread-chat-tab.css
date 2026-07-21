@@ -4,6 +4,7 @@
   min-width: 0;
   height: 100%;
   color: var(--text-base);
+  background: transparent;
 }
 
 .thread-chat-tab__header {
@@ -12,7 +13,8 @@
   gap: 10px;
   min-width: 0;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--panel-surface-border);
+  border-bottom: 1px solid var(--border);
+  background: transparent;
 }
 
 .thread-chat-tab__avatar {
@@ -59,7 +61,7 @@
 .thread-chat-tab__readonly {
   flex: 0 0 auto;
   padding: 3px 7px;
-  border: 1px solid var(--panel-surface-border);
+  border: 1px solid var(--border);
   border-radius: 999px;
 }
 
@@ -68,6 +70,7 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  background: transparent;
 }
 
 .thread-chat-tab__entries {
@@ -126,7 +129,7 @@
 }
 
 .thread-chat-tab__state button {
-  border: 1px solid var(--panel-surface-border);
+  border: 1px solid var(--border);
   border-radius: 7px;
   padding: 5px 8px;
   background: transparent;

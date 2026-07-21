@@ -1,0 +1,22 @@
+/* Shared visual contract for composer shells that sit on the main canvas.
+ * Layout stays with each composer so feature-specific controls can keep their
+ * own density while fill, border, elevation, focus, and theme behavior stay
+ * identical. */
+.composer-surface {
+  background: var(--panel-surface-bg-gradient);
+  border: 1px solid var(--panel-surface-border);
+  box-shadow: var(--shadow-sm), var(--panel-surface-highlight);
+  transition:
+    box-shadow 200ms ease,
+    border-color 200ms ease;
+}
+
+.composer-surface:focus-within {
+  border-color: color-mix(in oklch, var(--primary) 18%, var(--border));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-surface {
+    transition: none;
+  }
+}

@@ -141,15 +141,15 @@
   background: transparent;
   border: none;
   padding: 0;
-  /* The wrapper's `inline-indicator-in` already animates the entrance;
-   * the pill's own `stream-fade-in` would stack on top of it and read
-   * as a doubled entrance. */
+  /* The wrapper's effect-owned entrance already animates the surface; the
+   * pill's own `stream-fade-in` would stack on top of it and read as a
+   * doubled entrance. */
   animation: none;
 }
 
-/* Grow-out + fade exit. Short and prompt — once the assistant starts
- * streaming answer text (or work otherwise stops) the indicator gets out
- * of the way rather than trailing the message. Duration matches
+/* Grow-out + fade exit. Short and prompt — once the root run settles, the
+ * indicator gets out of the way rather than lingering below the completed
+ * message. Duration matches
  * `EXIT_ANIMATION_MS` in `InlineWorkingIndicator.tsx`. The scale collapses
  * toward the top edge so it looks like it's tucking up under the message
  * rather than drifting off below. */

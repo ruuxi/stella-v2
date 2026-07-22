@@ -61,16 +61,6 @@
   color: var(--text-weak);
 }
 
-.chat-composer-icon-button--stop {
-  background: color-mix(in oklch, var(--foreground) 10%, transparent);
-  border: none;
-  color: var(--text-weak);
-}
-
-.chat-composer-icon-button--stop:hover {
-  background: color-mix(in oklch, var(--foreground) 16%, transparent);
-}
-
 .chat-composer-icon-button--submit {
   background: var(--primary);
   border: none;

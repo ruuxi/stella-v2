@@ -1,5 +1,5 @@
 /**
- * Composer: Input bar, attachment handling, send/stream logic, stop button, context chips.
+ * Composer: Input bar, attachment handling, send/stream logic, primary action, context chips.
  */
 
 import type { Dispatch, SetStateAction } from "react";
@@ -14,9 +14,9 @@ import { type AssistantReplyPeekProps } from "./AssistantReplyPeek";
 import { ComposerAddMenu } from "./ComposerAddMenu";
 import {
   ComposerMicButton,
-  ComposerStopButton,
   ComposerSubmitButton,
   ComposerTextarea,
+  StopIcon,
 } from "@/features/chat/ComposerPrimitives";
 import {
   deriveComposerState,
@@ -135,6 +135,8 @@ function ComposerImpl({
   // the transcription finishes but the message is never sent/queued.
   const dictationInFlight = dictation.isRecording || dictation.isTranscribing;
   const canSubmitWithDictation = canSubmit || dictationInFlight;
+  const hasComposerContent = composerState.hasContent || dictationInFlight;
+  const showStopAction = isStreaming && !hasComposerContent;
   const hasText = message.trim().length > 0;
   const dictationBelow = dictation.isRecordingVisible && hasText;
   const dictationInline = dictation.isRecordingVisible && !hasText;
@@ -274,19 +276,19 @@ function ComposerImpl({
                           : undefined
                       }
                     />
-                    {isStreaming && (
-                      <ComposerStopButton
-                        className="composer-stop"
-                        onClick={onStop}
-                        title="Stop"
-                        aria-label="Stop"
-                      />
-                    )}
                     <ComposerSubmitButton
                       className="composer-submit"
-                      disabled={!canSubmitWithDictation}
+                      type={showStopAction ? "button" : "submit"}
+                      disabled={
+                        showStopAction ? false : !canSubmitWithDictation
+                      }
+                      onClick={showStopAction ? onStop : undefined}
+                      title={showStopAction ? "Stop" : undefined}
+                      aria-label={showStopAction ? "Stop" : undefined}
                       animated
-                    />
+                    >
+                      {showStopAction ? <StopIcon /> : undefined}
+                    </ComposerSubmitButton>
                   </div>
                 </div>
 

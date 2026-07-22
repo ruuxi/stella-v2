@@ -23,7 +23,7 @@ function AddIcon() {
   return <Plus size={16} strokeWidth={1.75} />;
 }
 
-function StopIcon() {
+export function StopIcon() {
   return <Square size={16} fill="currentColor" stroke="none" />;
 }
 
@@ -73,24 +73,6 @@ export const ComposerAddButton = forwardRef<HTMLButtonElement, ComposerButtonPro
         {...props}
       >
         {children ?? <AddIcon />}
-      </button>
-    );
-  },
-);
-
-export const ComposerStopButton = forwardRef<HTMLButtonElement, ComposerButtonProps>(
-  function ComposerStopButton({ className, children, ...props }, ref) {
-    return (
-      <button
-        ref={ref}
-        type="button"
-        className={cn(
-          "chat-composer-icon-button chat-composer-icon-button--stop",
-          className,
-        )}
-        {...props}
-      >
-        {children ?? <StopIcon />}
       </button>
     );
   },

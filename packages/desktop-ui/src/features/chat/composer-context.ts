@@ -153,6 +153,7 @@ export const deriveComposerState = ({
   const contextState = resolveComposerContextState(chatContext, selectedText);
   const trimmedMessage = message.trim();
   const hasMessage = Boolean(trimmedMessage);
+  const hasContent = Boolean(hasMessage || contextState.hasComposerContext);
   const hasConversation = !requireConversationId || Boolean(conversationId);
   const canSubmit = Boolean(
     hasConversation && (hasMessage || contextState.hasSubmittableContext),
@@ -163,6 +164,7 @@ export const deriveComposerState = ({
     placeholder: resolveComposerPlaceholder({ contextState }),
     trimmedMessage,
     hasMessage,
+    hasContent,
     canSubmit,
   };
 };

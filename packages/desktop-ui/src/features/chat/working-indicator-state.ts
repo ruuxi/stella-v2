@@ -18,19 +18,15 @@ export type InlineWorkingIndicatorProps = {
 
 export type InlineWorkingIndicatorMountProps = InlineWorkingIndicatorProps & {
   /**
-   * `true` while the orchestrator is thinking or running a tool (and not
-   * yet streaming answer text). Flipping to `false` triggers the grow-out
-   * exit; the component stays mounted until the exit completes. If
-   * `active` flips back to true mid-exit, the exit is canceled and the
-   * indicator resumes live updates.
+   * `true` for the complete submitted root turn, from optimistic insertion
+   * through the terminal run event. Provider and tool phase transitions do
+   * not change ownership or replay the entrance.
    */
   active: boolean;
   /**
-   * Escape hatch to skip the `MIN_VISIBLE_MS` floor on deactivation.
-   * No longer set by `buildInlineWorkingIndicatorProps`: because `active`
-   * now stays true until the first visible provider delta, the floor is
-   * purely anti-flicker and must never cause an early dismiss. Kept
-   * optional for the component's own fallback handling.
+   * Skip the `MIN_VISIBLE_MS` floor when a terminal run ends. The exit
+   * animation still runs, but completion/cancel/failure removes the
+   * indicator promptly.
    */
   exitImmediately?: boolean;
 };
@@ -61,7 +57,6 @@ export function buildInlineWorkingIndicatorProps({
 }): InlineWorkingIndicatorMountProps {
   const active = getInlineWorkingIndicatorActive({
     isStreaming,
-    isStreamingResponseText,
     isToolActive,
   });
   // Initial thinking is pre-tool only. Once a tool lifecycle begins the
@@ -72,11 +67,7 @@ export function buildInlineWorkingIndicatorProps({
     isStreaming && !isStreamingResponseText && !hasToolActivity;
   return {
     active,
-    // No early dismiss: deactivation always runs through the min-visible
-    // floor (`getInlineWorkingIndicatorExitDelayMs`). Because `active` now
-    // stays true until the first visible delta, the floor only ever
-    // *delays* a too-fast hide (anti-flicker) — it never causes one. The
-    // effective hide time is max(min-duration elapsed, first-visible-delta).
+    exitImmediately: true,
     runningTool: isToolActive ? (activeToolName ?? undefined) : undefined,
     runningToolId: isToolActive ? (activeToolCallId ?? undefined) : undefined,
     status:
@@ -129,20 +120,16 @@ export function getRunningTaskIndicatorText(
 
 export function getInlineWorkingIndicatorActive({
   isStreaming,
-  isStreamingResponseText,
   isToolActive,
 }: {
   isStreaming: boolean;
-  /** True once the assistant emits its first visible provider delta. */
-  isStreamingResponseText: boolean;
   isToolActive: boolean;
 }): boolean {
   if (isToolActive) return true;
-  // Stay visible continuously from send through the whole turn — pre-tool
-  // thinking, gaps between tools, and while a spawned agent works — until
-  // the assistant's first visible delta arrives. A background or
-  // spawned agent no longer suppresses the orchestrator's own indicator.
-  return isStreaming && !isStreamingResponseText;
+  // The submitted root turn is the owner. First provider text, tool
+  // boundaries, queued -> running, and run hydration are phases within that
+  // owner and must not make the indicator disappear or enter again.
+  return isStreaming;
 }
 
 export function getInlineWorkingIndicatorExitDelayMs({

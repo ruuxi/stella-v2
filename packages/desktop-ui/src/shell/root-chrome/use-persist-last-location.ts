@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 import type { useRouter } from "@tanstack/react-router";
-import { writePersistedLastLocation } from "@/shared/lib/last-location";
+import {
+  rememberSettingsReturnLocation,
+  writePersistedLastLocation,
+} from "@/shared/lib/last-location";
 import { useWindowType } from "@/shared/hooks/use-window-type";
 
 type Router = ReturnType<typeof useRouter>;
@@ -25,7 +28,9 @@ export function usePersistLastLocation(router: Router): void {
   const isMiniWindow = useWindowType() === "mini";
   useEffect(() => {
     if (isMiniWindow) return;
+    rememberSettingsReturnLocation(router.state.location.href);
     return router.subscribe("onResolved", ({ toLocation }) => {
+      rememberSettingsReturnLocation(toLocation.href);
       const href = toLocation.pathname === "/chat" ? "/chat" : toLocation.href;
       writePersistedLastLocation(href);
     });

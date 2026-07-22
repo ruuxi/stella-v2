@@ -1630,6 +1630,7 @@ export function AgentModelPicker({
                       : "ChatGPT is disconnected."}{" "}
                     <button
                       type="button"
+                      className="agent-model-picker-connection-action"
                       disabled={pendingAgent !== null || codexCatalog.loading}
                       onClick={() =>
                         void commitEngineSelection(

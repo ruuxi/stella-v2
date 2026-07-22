@@ -7,7 +7,10 @@ import {
   useRef,
   useState,
 } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useEdgeFadeRef } from "@/shared/hooks/use-edge-fade";
+import { readSettingsReturnLocation } from "@/shared/lib/last-location";
+import { ArrowLeft } from "@/ui/icons";
 import type { LegalDocument } from "@/global/legal/legal-text";
 import { SettingsPanel } from "@/global/settings/SettingsPanel";
 import { SettingsSearch } from "@/global/settings/SettingsSearch";
@@ -65,8 +68,13 @@ export const SettingsScreen = ({
   );
   const [searchQuery, setSearchQuery] = useState("");
   const t = useT();
+  const navigate = useNavigate();
 
   const activeTab = activeTabProp ?? selectedTab;
+
+  const handleBack = useCallback(() => {
+    void navigate({ href: readSettingsReturnLocation() });
+  }, [navigate]);
 
   // Defer the value used for filtering work. Keeps the input
   // responsive even on slower machines while the results list catches
@@ -135,8 +143,19 @@ export const SettingsScreen = ({
             aria-label={t("settings.title")}
           >
             <div className="settings-tab-rail-header">
-              <div className="settings-tab-rail-title">
-                {t("settings.title")}
+              <div className="settings-tab-rail-heading">
+                <button
+                  type="button"
+                  className="settings-back-button"
+                  onClick={handleBack}
+                  aria-label="Back"
+                  title="Back"
+                >
+                  <ArrowLeft size={16} strokeWidth={1.75} aria-hidden />
+                </button>
+                <div className="settings-tab-rail-title">
+                  {t("settings.title")}
+                </div>
               </div>
               <SettingsSearch value={searchQuery} onChange={setSearchQuery} />
             </div>

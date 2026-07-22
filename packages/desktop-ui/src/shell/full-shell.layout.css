@@ -261,7 +261,7 @@
   height: var(--shell-topbar-height, 38px);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   padding: 0 var(--main-shell-sidebar-gap) 0 8px;
   z-index: 80;
   -webkit-app-region: no-drag;

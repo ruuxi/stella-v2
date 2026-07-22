@@ -12,6 +12,20 @@ const STORAGE_KEY = 'stella:lastLocation'
 /** Maximum bytes we will accept from storage. Prevents pathological values. */
 const MAX_LENGTH = 2048
 
+let settingsReturnLocation = ''
+
+/** Remember the latest resolved non-Settings route for the Settings back control. */
+export const rememberSettingsReturnLocation = (location = '') => {
+  if (!location || location.length > MAX_LENGTH) return
+  const pathname = location.split(/[?#]/, 1)[0] ?? ''
+  if (pathname === '/settings') return
+  settingsReturnLocation = location
+}
+
+/** Return to the known source surface, or Chat after a direct/restored entry. */
+export const readSettingsReturnLocation = () =>
+  settingsReturnLocation || '/chat'
+
 /** Read the persisted location, or `null` if missing/invalid/unavailable. */
 export function readPersistedLastLocation(): string | null {
   const raw = uiState.getItem(STORAGE_KEY)

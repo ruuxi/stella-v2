@@ -328,6 +328,44 @@
   color: var(--destructive);
 }
 
+.agent-model-picker-connection-action {
+  appearance: none;
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-strong);
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  cursor: default;
+  text-decoration: underline;
+  text-decoration-color: color-mix(
+    in oklch,
+    var(--foreground) 25%,
+    transparent
+  );
+  text-underline-offset: 2px;
+  transition:
+    color 120ms ease,
+    text-decoration-color 120ms ease;
+}
+
+.agent-model-picker-connection-action:hover:not(:disabled) {
+  color: var(--text-base);
+  text-decoration-color: currentColor;
+}
+
+.agent-model-picker-connection-action:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.agent-model-picker-connection-action:disabled {
+  opacity: 0.5;
+}
+
 .agent-model-picker-chronicle-notice {
   margin: 8px 4px 0;
   font-size: var(--font-size-xs);

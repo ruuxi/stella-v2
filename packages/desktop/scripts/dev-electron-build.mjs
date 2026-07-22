@@ -616,6 +616,10 @@ const smokeTestWorkerChunksUnderBun = () => {
   const chunkPaths = chunkFiles.map((f) => path.join(chunksDir, f));
   // One Bun process for the whole set: chunks import each other anyway, and
   // per-chunk spawns would add ~10s of process startup to release builds.
+  // After the imports, prove the runtime's SQLite builtin actually works
+  // (open + DDL + insert on a temp db): the worker initializes SQLite
+  // stores at startup, so an import-clean chunk with a broken sqlite
+  // builtin would still crash the first run.
   const importScript = [
     `const chunks = ${JSON.stringify(chunkPaths)};`,
     "for (const chunk of chunks) {",
@@ -626,9 +630,26 @@ const smokeTestWorkerChunksUnderBun = () => {
     "    process.exit(1);",
     "  }",
     "}",
+    "try {",
+    '  const { Database } = await import("bun:sqlite");',
+    '  const os = await import("node:os");',
+    '  const pathMod = await import("node:path");',
+    '  const fs = await import("node:fs");',
+    "  const probePath = pathMod.join(os.tmpdir(), `stella-worker-sqlite-probe-${process.pid}.sqlite`);",
+    "  const db = new Database(probePath);",
+    '  db.exec("CREATE TABLE IF NOT EXISTS probe (id TEXT PRIMARY KEY)");',
+    '  db.prepare("INSERT OR REPLACE INTO probe (id) VALUES (?)").run("ok");',
+    "  db.close();",
+    "  fs.rmSync(probePath, { force: true });",
+    "} catch (error) {",
+    '  console.error("SQLITE_PROBE_FAILED");',
+    "  console.error(error);",
+    "  process.exit(1);",
+    "}",
     "process.exit(0);",
   ].join("\n");
-  const result = spawnSync(resolveBunBinary(), ["--eval", importScript], {
+  const bunBinary = resolveBunBinary();
+  const result = spawnSync(bunBinary, ["--eval", importScript], {
     cwd: repoRootDir,
     encoding: "utf8",
     timeout: 120_000,
@@ -639,14 +660,18 @@ const smokeTestWorkerChunksUnderBun = () => {
     );
     return;
   }
+  const bunVersion = spawnSync(bunBinary, ["--version"], {
+    encoding: "utf8",
+  }).stdout?.trim();
   if (result.status !== 0) {
     throw new Error(
       "Worker chunk failed to import under Bun (would crash the detached worker):\n" +
+        `runtime: ${bunBinary} (bun ${bunVersion ?? "unknown"})\n` +
         `${result.stderr || result.stdout || result.error?.message || "unknown error"}`,
     );
   }
   console.log(
-    `[electron-build] ${chunkFiles.length} worker chunk(s) import cleanly under Bun.`,
+    `[electron-build] ${chunkFiles.length} worker chunk(s) import cleanly and SQLite initializes under bun ${bunVersion ?? "unknown"}.`,
   );
 };
 

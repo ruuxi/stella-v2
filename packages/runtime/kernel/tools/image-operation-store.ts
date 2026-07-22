@@ -1,9 +1,80 @@
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 
 import type { ManagedImageTerminalResult } from "./managed-image-job.js";
+
+/**
+ * Runtime-portable synchronous SQLite driver resolution, module-local so
+ * this file stays runnable as raw TS under both plain Node
+ * (`--experimental-strip-types`, which cannot resolve cross-file value
+ * imports) and Bun — the same reason `prompt-manifest-sync.ts` and
+ * `dream-storage.ts` carry their own copies. The detached worker runs
+ * under Bun, which does NOT expose the Node sqlite builtin (the
+ * desktop-v0.0.409 outage): a static top-level import of it crashes the
+ * lazily loaded runner chunk, which the dev-electron-build chunk smoke
+ * and the check-boundary node:sqlite rule both guard. Both drivers are
+ * SQLite over the same file format with compatible
+ * `prepare/run/get/all/exec/close` surfaces, so persistence behavior and
+ * the DB file are identical either way.
+ */
+type PortableSqliteStatement = {
+  run: (...params: ReadonlyArray<string | number | null>) => {
+    changes: number | bigint;
+    lastInsertRowid: number | bigint;
+  };
+  get: (...params: ReadonlyArray<string | number | null>) => unknown;
+  all: (...params: ReadonlyArray<string | number | null>) => unknown[];
+};
+
+type PortableSqliteDatabase = {
+  prepare: (sql: string) => PortableSqliteStatement;
+  exec: (sql: string) => void;
+  close: () => void;
+};
+
+type PortableSqliteDatabaseCtor = new (
+  filePath: string,
+) => PortableSqliteDatabase;
+
+const requireRuntime = createRequire(import.meta.url);
+
+const describeJsRuntime = (): string =>
+  process.versions.bun
+    ? `Bun ${process.versions.bun}`
+    : `Node ${process.versions.node}`;
+
+let cachedSqliteCtor: PortableSqliteDatabaseCtor | null = null;
+
+const loadSqliteDatabaseCtorSync = (): PortableSqliteDatabaseCtor => {
+  if (cachedSqliteCtor) return cachedSqliteCtor;
+  if (process.versions.bun) {
+    const bunSqlite = requireRuntime("bun:sqlite") as {
+      Database?: PortableSqliteDatabaseCtor;
+    };
+    if (typeof bunSqlite.Database === "function") {
+      cachedSqliteCtor = bunSqlite.Database;
+      return cachedSqliteCtor;
+    }
+  } else {
+    try {
+      const nodeSqlite = requireRuntime("node:sqlite") as {
+        DatabaseSync?: PortableSqliteDatabaseCtor;
+      };
+      if (typeof nodeSqlite.DatabaseSync === "function") {
+        cachedSqliteCtor = nodeSqlite.DatabaseSync;
+        return cachedSqliteCtor;
+      }
+    } catch {
+      // Fall through to the unsupported-runtime error below.
+    }
+  }
+  throw new Error(
+    `No compatible SQLite builtin is available under ${describeJsRuntime()}. ` +
+      "The Stella worker requires Bun (bun:sqlite) or Node >= 22.5 (node:sqlite).",
+  );
+};
 
 const DATABASE_FILE = "image-tool-operations.sqlite";
 
@@ -46,7 +117,7 @@ export type DurableImageOperation = {
   submissionState: "pending" | "dispatching" | "submitted";
 };
 
-const tableColumns = (db: DatabaseSync, table: string): Set<string> =>
+const tableColumns = (db: PortableSqliteDatabase, table: string): Set<string> =>
   new Set(
     (
       db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
@@ -55,11 +126,15 @@ const tableColumns = (db: DatabaseSync, table: string): Set<string> =>
     ).map((column) => column.name),
   );
 
-const openDatabase = (stellaDataDir: string): DatabaseSync => {
+const openDatabase = (stellaDataDir: string): PortableSqliteDatabase => {
   fs.mkdirSync(stellaDataDir, { recursive: true });
-  const db = new DatabaseSync(path.join(stellaDataDir, DATABASE_FILE), {
-    timeout: 5_000,
-  });
+  // Runtime-portable driver (bun:sqlite under the detached worker,
+  // node:sqlite under tests/Electron): a static node:sqlite import here
+  // crashed the runner chunk under Bun at load. The busy handler comes
+  // from the PRAGMA below (identical to the old ctor `timeout` option —
+  // both call sqlite3_busy_timeout).
+  const Database = loadSqliteDatabaseCtorSync();
+  const db = new Database(path.join(stellaDataDir, DATABASE_FILE));
   // Install the busy handler before asking SQLite to switch journal modes.
   // `journal_mode=WAL` can still report SQLITE_BUSY immediately while a
   // sibling process is performing the same first-open migration. That is
@@ -272,7 +347,8 @@ export const claimImageOperationSubmission = (args: {
            AND submission_state = 'pending'`,
       )
       .run(Date.now(), args.operationId);
-    return result.changes === 1;
+    // Number(): bun:sqlite may report changes as a bigint.
+    return Number(result.changes) === 1;
   } finally {
     db.close();
   }

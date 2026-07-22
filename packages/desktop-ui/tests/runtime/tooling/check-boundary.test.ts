@@ -73,6 +73,30 @@ describe("check-boundary fence rules", () => {
     await expect(offendersFor()).resolves.toEqual([]);
   });
 
+  it("bans static node:sqlite in runtime source but allows scripts/tests", async () => {
+    // The detached worker runs under Bun (no node:sqlite): a static import
+    // in worker-reachable runtime source crashes the runner chunk at load.
+    write(
+      "packages/runtime/kernel/tools/some-store.ts",
+      'import { DatabaseSync } from "node:sqlite";\n',
+    );
+    // Node-only scripts and tests keep the builtin.
+    write(
+      "packages/runtime/scripts/some-benchmark.ts",
+      'import { DatabaseSync } from "node:sqlite";\n',
+    );
+    write(
+      "packages/runtime/tests/some-store.test.ts",
+      'import { DatabaseSync } from "node:sqlite";\n',
+    );
+    const offenders = await offendersFor();
+    expect(offenders).toHaveLength(1);
+    expect(offenders[0]).toMatchObject({
+      file: "packages/runtime/kernel/tools/some-store.ts",
+      specifier: "node:sqlite",
+    });
+  });
+
   it("flags an effect import in every banned location", async () => {
     const banned: Array<[string, string]> = [
       ["packages/desktop-ui/src/App.tsx", `import { Effect } from "${EFFECT}";\n`],

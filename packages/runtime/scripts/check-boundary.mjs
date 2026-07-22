@@ -103,6 +103,17 @@ export const checkBoundaries = async (repoRoot) => {
     ) {
       return "tool/prompt definitions must stay Effect-free";
     }
+    if (
+      specifier === "node:sqlite" &&
+      !file.startsWith("packages/runtime/scripts/") &&
+      !file.startsWith("packages/runtime/tests/") &&
+      !/\.test\.tsx?$/.test(file)
+    ) {
+      // The detached worker runs under Bun, which has no node:sqlite; a
+      // static import crashes the runner chunk at load (desktop-v0.0.409,
+      // regressed again via kernel/tools/image-operation-store.ts).
+      return "static node:sqlite breaks the Bun worker; resolve the driver at runtime (see image-operation-store.ts loadSqliteDatabaseCtorSync)";
+    }
     return null;
   });
 

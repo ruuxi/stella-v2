@@ -779,11 +779,32 @@ export const createAgentOrchestration = (
               subagentProducedFileKeys,
               event.producedFiles?.length ? event : event.details,
             );
-            // Stamp the spawned agent's thread id onto the tool-end event
-            // so the persisted `tool_result` payload carries `agentId` —
-            // that's what lets the left sidebar attribute files to this
-            // agent's Activity row live, before the completion rollup.
-            runnerCallbacks?.onToolEnd(agentId ? { ...event, agentId } : event);
+            // Stamp durable thread + attempt provenance onto live tool-file
+            // events. `details` is flattened into the persisted tool_result
+            // payload by the worker, so the renderer can fence a write to the
+            // exact Activity attempt instead of replaying it on every later
+            // follow-up that reuses this agent id.
+            const eventDetails =
+              event.details &&
+              typeof event.details === "object" &&
+              !Array.isArray(event.details)
+                ? event.details
+                : event.details === undefined
+                  ? {}
+                  : { result: event.details };
+            runnerCallbacks?.onToolEnd(
+              agentId
+                ? {
+                    ...event,
+                    agentId,
+                    details: {
+                      ...eventDetails,
+                      attemptGeneration: agentContext.attemptGeneration,
+                      ...(rootRunId ? { rootRunId } : {}),
+                    },
+                  }
+                : event,
+            );
           },
         },
         hookEmitter: context.hookEmitter,

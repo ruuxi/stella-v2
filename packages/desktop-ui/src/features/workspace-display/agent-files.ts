@@ -39,7 +39,87 @@ export function deriveAgentFilesMap(
   }
   const filesByAgent = new Map<string, ConversationFileEntry[]>();
   for (const [agentId, events] of eventsByAgent) {
-    const files = deriveConversationFiles(events);
+    // A durable agent id survives follow-ups and retries. Activity renders
+    // that durable id as one current row, so replaying every historical
+    // completion for the id leaks older attempts' files onto the latest card.
+    // Attempt generation is the authoritative fence. Legacy live tool rows
+    // written before tool events carried the generation are admitted only
+    // when they fall at/after the latest generation's start event.
+    let latestAttempt = -1;
+    let latestAttemptStartedAt = -1;
+    let latestAttemptStartedId = "";
+    let latestLegacyStartAt = -1;
+    let latestLegacyStartId = "";
+    let latestLegacyCompletionAt = -1;
+    let latestLegacyCompletionId = "";
+    for (const event of events) {
+      const attempt = event.payload?.attemptGeneration;
+      if (typeof attempt === "number" && Number.isFinite(attempt)) {
+        const generation = Math.max(0, Math.floor(attempt));
+        if (generation > latestAttempt) {
+          latestAttempt = generation;
+          latestAttemptStartedAt = -1;
+          latestAttemptStartedId = "";
+        }
+        if (
+          generation === latestAttempt &&
+          event.type === "agent-started" &&
+          (event.timestamp > latestAttemptStartedAt ||
+            (event.timestamp === latestAttemptStartedAt &&
+              event._id > latestAttemptStartedId))
+        ) {
+          latestAttemptStartedAt = event.timestamp;
+          latestAttemptStartedId = event._id;
+        }
+        continue;
+      }
+      if (
+        event.type === "agent-started" &&
+        (event.timestamp > latestLegacyStartAt ||
+          (event.timestamp === latestLegacyStartAt &&
+            event._id > latestLegacyStartId))
+      ) {
+        latestLegacyStartAt = event.timestamp;
+        latestLegacyStartId = event._id;
+      }
+      if (
+        event.type === "agent-completed" &&
+        (event.timestamp > latestLegacyCompletionAt ||
+          (event.timestamp === latestLegacyCompletionAt &&
+            event._id > latestLegacyCompletionId))
+      ) {
+        latestLegacyCompletionAt = event.timestamp;
+        latestLegacyCompletionId = event._id;
+      }
+    }
+
+    const scopedEvents = events.filter((event) => {
+      const attempt = event.payload?.attemptGeneration;
+      if (latestAttempt >= 0) {
+        if (typeof attempt === "number" && Number.isFinite(attempt)) {
+          return Math.max(0, Math.floor(attempt)) === latestAttempt;
+        }
+        return (
+          event.type === "tool_result" &&
+          latestAttemptStartedAt >= 0 &&
+          (event.timestamp > latestAttemptStartedAt ||
+            (event.timestamp === latestAttemptStartedAt &&
+              event._id >= latestAttemptStartedId))
+        );
+      }
+      if (latestLegacyStartAt >= 0) {
+        return (
+          event.timestamp > latestLegacyStartAt ||
+          (event.timestamp === latestLegacyStartAt &&
+            event._id >= latestLegacyStartId)
+        );
+      }
+      // A lone legacy completion is self-contained. Multiple historical
+      // completions without a start/attempt fence are ambiguous, so only the
+      // newest one is honest enough to display.
+      return event._id === latestLegacyCompletionId;
+    });
+    const files = deriveConversationFiles(scopedEvents);
     if (files.length > 0) filesByAgent.set(agentId, files);
   }
   return filesByAgent;
@@ -139,8 +219,11 @@ export function eventContributesFiles(event: EventRecord): boolean {
 
 /**
  * Cheap content signature of everything `deriveAgentFilesMap` depends on: the
- * ordered set of file-contributing events that carry an `agentId`, keyed by
- * `agentId`, event `_id`, `timestamp`, and file-record count.
+ * ordered set of file-contributing events and attempt-boundary lifecycle
+ * events that carry an `agentId`, keyed by `agentId`, event `_id`,
+ * `timestamp`, attempt generation, and file-record count. Boundaries matter
+ * even before the new attempt writes anything: they clear the prior attempt's
+ * cached file list as soon as a follow-up begins.
  *
  * The activity window is refetched (new array identity) on every streamed
  * delta even though file events are rare, so memoizing the map on the array
@@ -159,7 +242,15 @@ export function agentFilesSignature(
     const agentId = (event.payload as { agentId?: unknown } | undefined)
       ?.agentId;
     if (typeof agentId !== "string" || agentId.length === 0) continue;
-    if (!eventContributesFiles(event)) continue;
+    const attemptGeneration = event.payload?.attemptGeneration;
+    const attemptBoundary =
+      event.type === "agent-started" ||
+      ((event.type === "agent-completed" ||
+        event.type === "agent-failed" ||
+        event.type === "agent-canceled") &&
+        typeof attemptGeneration === "number" &&
+        Number.isFinite(attemptGeneration));
+    if (!eventContributesFiles(event) && !attemptBoundary) continue;
     const payload = event.payload as {
       fileChanges?: unknown;
       producedFiles?: unknown;
@@ -167,7 +258,7 @@ export function agentFilesSignature(
     const fileCount =
       (Array.isArray(payload.fileChanges) ? payload.fileChanges.length : 0) +
       (Array.isArray(payload.producedFiles) ? payload.producedFiles.length : 0);
-    signature += `${agentId}\u001f${event._id}\u001f${event.timestamp}\u001f${fileCount}\u001e`;
+    signature += `${agentId}\u001f${event._id}\u001f${event.timestamp}\u001f${typeof attemptGeneration === "number" ? attemptGeneration : "legacy"}\u001f${fileCount}\u001e`;
   }
   return signature;
 }

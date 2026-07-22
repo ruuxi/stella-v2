@@ -3156,7 +3156,7 @@ export class SessionStore {
       const description =
         asTrimmedString(call.arguments.description) ||
         record?.description ||
-        agentId;
+        "Task";
       const group = this.getThreadGroup(agentId);
       const event: EventRecord = {
         _id: `thread-tool:${call.entryId}:${payload.toolCallId}:agent-started`,

@@ -230,12 +230,15 @@ export function buildActivityTasks(
         latestAttempt,
       );
       const recordOwnsAttempt = !latestAttemptOwns;
-      const observedDescription = latestAttemptOwns
-        ? normalizeTaskDisplayStatusText(candidateDecoration?.statusText)
-        : undefined;
+      const description = record.description.trim();
       return {
         id: record.threadId,
-        description: observedDescription ?? record.description,
+        // Identity comes only from the durable spawn/follow-up description.
+        // A newer lifecycle observation may supersede status while the row
+        // refetch catches up, but its statusText is tool/progress telemetry.
+        description: isGenericTaskDescription(description)
+          ? "Task"
+          : description,
         agentType: record.agentType,
         status,
         attemptGeneration:
@@ -296,35 +299,9 @@ export function isGenericTaskDescription(
   );
 }
 
-/**
- * Best-effort display name for a task whose spawn description is missing
- * (e.g. a resumed legacy thread rebuilt from reasoning-only events). Thread
- * ids are slugs of the original spawn description (`compare-flight-prices`),
- * so de-slugging the id recovers a meaningful label. Ordinal/namespace ids
- * (`task-7`, `grp-…`) carry no words, so they fall back to plain "Task".
- */
-// Spawn-thread ids are minted by `slugify()` (runtime/kernel/shared/slug.ts):
-// lowercase a-z0-9 words joined by single dashes, no leading/trailing dash,
-// capped at 48 chars. Ids from any other generator (uppercase, underscores,
-// other alphabets, overlong) may embed text that was never meant as a display
-// label — treat those as opaque and keep the generic "Task".
-const SPAWN_SLUG_MAX_LENGTH = 48;
-const SPAWN_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
-export function fallbackTaskDescription(agentId: string | undefined): string {
-  const slug = (agentId ?? "").trim();
-  if (!slug || /^(task|grp|legacy)-/i.test(slug)) return "Task";
-  if (slug.length > SPAWN_SLUG_MAX_LENGTH || !SPAWN_SLUG_PATTERN.test(slug)) {
-    return "Task";
-  }
-  const words = slug.split("-");
-  const letterCount = (words.join("").match(/[a-z]/gi) ?? []).length;
-  // Short single-token ids ("a1", "x7f3") are opaque junk, not slugged
-  // descriptions — keep the generic label for those.
-  if (words.length < 2 && letterCount < 4) return "Task";
-  if (letterCount === 0) return "Task";
-  const text = words.join(" ");
-  return text.charAt(0).toUpperCase() + text.slice(1);
+/** Neutral title when a legacy occurrence has no explicit description. */
+export function fallbackTaskDescription(_agentId: string | undefined): string {
+  return "Task";
 }
 
 /**
@@ -353,18 +330,9 @@ export function normalizeTaskDisplayStatusText(
 }
 
 export function getTaskDisplayText(task: TaskItem): string {
-  const description = isGenericTaskDescription(task.description)
-    ? ""
-    : task.description;
-
-  if (task.status === "running") {
-    const statusText = normalizeTaskDisplayStatusText(task.statusText);
-    if (statusText && !isStandaloneTaskStatusText(statusText)) {
-      return statusText;
-    }
-    return description;
-  }
-  return description;
+  return isGenericTaskDescription(task.description)
+    ? "Task"
+    : task.description.trim();
 }
 
 export function getTaskWorkingIndicatorText(task: TaskItem): string {

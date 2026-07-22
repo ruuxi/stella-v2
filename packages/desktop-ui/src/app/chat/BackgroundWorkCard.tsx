@@ -171,10 +171,10 @@ export function BackgroundWorkCard({
   // Several threads in one turn collapse to a plain count instead of cycling
   // through descriptions — a single task shows its own description.
   const lifecycleTitle = isFollowUp
-    ? statusTexts?.[followUpId] || resolved[0] || label?.trim() || "Follow-up"
+    ? statusTexts?.[followUpId] || resolved[0] || "Task"
     : multi
       ? label?.trim() || resolved[0] || `${threadIds.length} tasks`
-      : resolved[0] || label?.trim() || "Background work";
+      : resolved[0] || "Task";
   const assistantSummaryExcludedThreadIds = useMemo(
     () =>
       (supersededThreadIds ?? []).filter(

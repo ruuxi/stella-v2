@@ -643,13 +643,7 @@ export class AuthService {
     app.setAsDefaultProtocolClient(this.options.authProtocol);
   }
 
-  enforceSingleInstanceLock() {
-    const gotSingleInstanceLock = app.requestSingleInstanceLock();
-    if (!gotSingleInstanceLock) {
-      app.quit();
-      return false;
-    }
-
+  bindSingleInstanceHandler() {
     app.on("second-instance", (_event, argv) => {
       const url = this.getDeepLinkUrl(argv);
       if (url) {
@@ -657,7 +651,6 @@ export class AuthService {
       }
       this.options.onSecondInstanceFocus();
     });
-    return true;
   }
 
   bindOpenUrlHandler() {

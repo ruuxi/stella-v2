@@ -7,7 +7,6 @@ import {
   STARTUP_RUNTIME_WARMUP_DELAY_MS,
   STARTUP_STAGE_DELAY_MS,
   STELLA_APP_NAME,
-  STELLA_DEV_APP_NAME,
   STELLA_SESSION_PARTITION,
   STELLA_WINDOWS_APP_USER_MODEL_ID,
 } from "./bootstrap/constants.js";
@@ -28,21 +27,26 @@ const __dirname = import.meta.dirname;
 // app.isPackaged is the authority. Inherited environment variables must never
 // turn a signed build back into a Vite client.
 const isDev = !app.isPackaged;
-// macOS derives safeStorage's Keychain service from app.name. Keep unpackaged
-// v2 development in its own namespace while v1 remains installed under
-// "Stella Safe Storage". Signed production builds retain the clean name.
-app.setName(isDev ? STELLA_DEV_APP_NAME : STELLA_APP_NAME);
+// Development and packaged launches intentionally share the normal Stella
+// identity. On macOS this keeps safeStorage compatible with credentials in the
+// shared home instead of assigning development a separate Keychain service.
+app.setName(STELLA_APP_NAME);
 
 const desktopDataPaths = resolveDesktopDataPaths({
   isPackaged: app.isPackaged,
-  appDataDir: app.getPath("appData"),
   devHomeOverride: isDev
     ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()
     : undefined,
 });
-// Electron's Library/AppData root is runtime state only. Durable, user-facing
-// Stella data lives in desktopDataPaths.stellaHomeDir.
+// Keep userData rooted exactly where v1 roots it. Electron's process singleton
+// is keyed by this path, so v1, packaged v2, and ordinary v2 development cannot
+// concurrently own the shared Stella home. An explicit isolated data-root
+// override receives its own userData and therefore its own instance lock.
 app.setPath("userData", desktopDataPaths.electronUserDataDir);
+app.setPath(
+  "sessionData",
+  path.join(desktopDataPaths.electronUserDataDir, "session-data"),
+);
 // The detached worker inherits this explicit ephemeral root. Host and worker
 // lifecycle files/logs must never fall back to the durable Stella home.
 process.env.STELLA_RUNTIME_STATE_DIR = desktopDataPaths.electronUserDataDir;
@@ -85,6 +89,15 @@ const startLocalCrashReporter = () => {
 };
 
 export const bootstrapMainProcess = () => {
+  // Acquire the shared-userData ProcessSingleton before constructing bootstrap
+  // services. LocalChatHistoryService opens and initializes stella.sqlite in
+  // its constructor, so taking this lock later would leave a write window when
+  // v1 or another v2 instance already owns the shared home.
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    return;
+  }
+
   initMainProcessLogging(stellaAppDir, desktopDataPaths.electronUserDataDir);
   installDevBrokenPipeGuards();
   startLocalCrashReporter();
@@ -120,9 +133,7 @@ export const bootstrapMainProcess = () => {
     startupRuntimeWarmupDelayMs: STARTUP_RUNTIME_WARMUP_DELAY_MS,
   });
 
-  if (!initializeBootstrapSingleInstance(context)) {
-    return;
-  }
+  initializeBootstrapSingleInstance(context);
 
   registerBootstrapLifecycle(context);
 };

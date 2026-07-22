@@ -14,25 +14,34 @@ afterEach(async () => {
   tempRoots.clear();
 });
 
-describe("Vite dev home isolation", () => {
-  it("ignores generic STELLA_DATA_DIR and shares the v2-only dev home", async () => {
+describe("Vite dev home resolution", () => {
+  it("shares the normal Stella home and ignores generic STELLA_DATA_DIR", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "stella-v2-vite-home-"));
     tempRoots.add(root);
     const homeDir = path.join(root, "home");
-    const liveHome = path.join(homeDir, ".stella");
+    const sharedHome = path.join(homeDir, ".stella");
     const previousGenericDataDir = process.env.STELLA_DATA_DIR;
-    process.env.STELLA_DATA_DIR = liveHome;
+    process.env.STELLA_DATA_DIR = path.join(homeDir, "generic-override");
 
     try {
-      const resolved = resolveViteDevStellaHome({ homeDir });
-      expect(resolved).toBe(path.join(homeDir, ".stella-v2-dev"));
-      expect(resolved).not.toBe(liveHome);
+      expect(resolveViteDevStellaHome({ homeDir })).toBe(sharedHome);
     } finally {
-      if (previousGenericDataDir === undefined) {
+      if (previousGenericDataDir === undefined)
         delete process.env.STELLA_DATA_DIR;
-      } else {
-        process.env.STELLA_DATA_DIR = previousGenericDataDir;
-      }
+      else process.env.STELLA_DATA_DIR = previousGenericDataDir;
     }
+  });
+
+  it("honors the explicit v2 isolation override", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "stella-v2-vite-home-"));
+    tempRoots.add(root);
+    const homeDir = path.join(root, "home");
+    const isolatedHome = path.join(homeDir, "isolated-v2");
+    expect(
+      resolveViteDevStellaHome({
+        homeDir,
+        devHomeOverride: isolatedHome,
+      }),
+    ).toBe(isolatedHome);
   });
 });

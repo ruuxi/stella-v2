@@ -3,9 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 export const PACKAGED_STELLA_HOME_DIRNAME = ".stella";
-export const DEV_STELLA_HOME_DIRNAME = ".stella-v2-dev";
-export const PACKAGED_ELECTRON_USER_DATA_DIRNAME = "Stella";
-export const DEV_ELECTRON_USER_DATA_DIRNAME = "Stella Development";
+export const ELECTRON_USER_DATA_DIRNAME = "electron-user-data";
 
 export type DesktopDataPaths = {
   /** User-owned durable data: DB, memory, skills, prompts, connectors, config. */
@@ -88,13 +86,13 @@ export const resolveStellaHomeDir = (options: StellaHomeOptions): string => {
     homeDir,
     PACKAGED_STELLA_HOME_DIRNAME,
   );
-  const stellaHomeDir = options.isPackaged
-    ? packagedStellaHomeDir
-    : path.resolve(
-        options.devHomeOverride?.trim() ||
-          path.join(homeDir, DEV_STELLA_HOME_DIRNAME),
-      );
-  if (!options.isPackaged) {
+  const explicitDevHome = options.isPackaged
+    ? ""
+    : options.devHomeOverride?.trim() || "";
+  const stellaHomeDir = explicitDevHome
+    ? path.resolve(explicitDevHome)
+    : packagedStellaHomeDir;
+  if (explicitDevHome) {
     assertIsolatedDevPath(
       stellaHomeDir,
       homeDir,
@@ -129,34 +127,22 @@ export const resolveLifecycleVerificationHome = (options: {
 /**
  * Resolve the durable Stella home independently from Electron's runtime state.
  *
- * `isPackaged` is the security boundary: only a packaged app may share the v1
- * home. Development ignores generic STELLA_DATA_DIR state and can only be
- * redirected through the v2-specific override supplied by bootstrap. The
- * dev guard compares case-folded paths and rejects symlink components without
- * following them, so it never inspects the packaged home during dev startup.
+ * Packaged and ordinary development launches share the normal Stella home.
+ * Development ignores generic STELLA_DATA_DIR state and can only be redirected
+ * through the v2-specific opt-in override supplied by bootstrap. Explicit
+ * overrides remain isolated: the guard compares case-folded paths and rejects
+ * symlink components without following them.
  */
 export const resolveDesktopDataPaths = (options: {
   isPackaged: boolean;
-  appDataDir: string;
   homeDir?: string;
   devHomeOverride?: string | null;
 }): DesktopDataPaths => {
-  const homeDir = path.resolve(options.homeDir ?? os.homedir());
   const stellaHomeDir = resolveStellaHomeDir(options);
   const electronUserDataDir = path.join(
-    path.resolve(options.appDataDir),
-    options.isPackaged
-      ? PACKAGED_ELECTRON_USER_DATA_DIRNAME
-      : DEV_ELECTRON_USER_DATA_DIRNAME,
+    stellaHomeDir,
+    ELECTRON_USER_DATA_DIRNAME,
   );
-  if (!options.isPackaged) {
-    assertIsolatedDevPath(
-      electronUserDataDir,
-      homeDir,
-      path.join(homeDir, PACKAGED_STELLA_HOME_DIRNAME),
-      "Development Electron userData",
-    );
-  }
 
   return {
     stellaHomeDir,

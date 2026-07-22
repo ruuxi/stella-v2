@@ -25,9 +25,8 @@ describe("resolveRuntimePaths", () => {
   it("keeps runtime control files and logs under explicit Electron userData", () => {
     const runtimeStateDir = path.join(
       "/Users/test",
-      "Library",
-      "Application Support",
-      "Stella Development",
+      ".stella",
+      "electron-user-data",
     );
     const paths = resolveRuntimePaths("/Users/test/stella-v2", {
       platform: "darwin",
@@ -40,8 +39,8 @@ describe("resolveRuntimePaths", () => {
     expect(paths.logDir).toBe(
       path.join(runtimeStateDir, "logs", paths.rootHash),
     );
-    expect(paths.rootDir).not.toContain(path.join("/Users/test", ".stella"));
-    expect(paths.logDir).not.toContain(path.join("/Users/test", ".stella"));
+    expect(paths.rootDir).toContain(runtimeStateDir);
+    expect(paths.logDir).toContain(runtimeStateDir);
     expect(paths.socketPath).not.toContain(runtimeStateDir);
   });
 
@@ -85,8 +84,8 @@ describe("resolveRuntimePaths", () => {
 
   it("keeps every macOS socket path below the BSD sun_path byte cap", () => {
     for (const runtimeStateDir of [
-      "/Users/rahulnanda/Library/Application Support/Stella",
-      "/Users/rahulnanda/Library/Application Support/Stella Development",
+      "/Users/rahulnanda/.stella/electron-user-data",
+      "/tmp/stella-v2-isolated/electron-user-data",
     ]) {
       const paths = resolveRuntimePaths(
         "/Users/rahulnanda/projects/stella-v2",

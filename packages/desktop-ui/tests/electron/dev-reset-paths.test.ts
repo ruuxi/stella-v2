@@ -23,34 +23,42 @@ afterEach(async () => {
   tempRoots.clear();
 });
 
-describe("v2 dev-tool path isolation", () => {
-  it("ignores generic STELLA_DATA_DIR for reset targets", async () => {
+describe("v2 dev-tool path safety", () => {
+  it("requires destructive reset tools to name an isolated root", async () => {
     const homeDir = await makeTempHome();
-    const previousGenericDataDir = process.env.STELLA_DATA_DIR;
-    process.env.STELLA_DATA_DIR = path.join(homeDir, ".stella");
-    try {
-      expect(resolveDevStellaHome({ homeDir })).toBe(
-        path.join(homeDir, ".stella-v2-dev"),
-      );
-    } finally {
-      if (previousGenericDataDir === undefined) {
-        delete process.env.STELLA_DATA_DIR;
-      } else {
-        process.env.STELLA_DATA_DIR = previousGenericDataDir;
-      }
-    }
+    expect(() => resolveDevStellaHome({ homeDir })).toThrow(
+      "Dev reset requires STELLA_V2_DEV_DATA_DIR",
+    );
+
+    const isolatedHome = path.join(homeDir, "isolated-v2-reset");
+    expect(
+      resolveDevStellaHome({ homeDir, devHomeOverride: isolatedHome }),
+    ).toBe(isolatedHome);
   });
 
-  it("rejects direct, ancestor, case, and symlink aliases of the packaged home", async () => {
+  it("resolves normal and isolated dev logs beside their selected home", async () => {
     const homeDir = await makeTempHome();
-    const packagedHome = path.join(homeDir, ".stella");
+    expect(resolveDevElectronUserDataDir({ homeDir })).toBe(
+      path.join(homeDir, ".stella", "electron-user-data"),
+    );
+    expect(
+      resolveDevElectronUserDataDir({
+        homeDir,
+        devHomeOverride: path.join(homeDir, "isolated-v2"),
+      }),
+    ).toBe(path.join(homeDir, "isolated-v2", "electron-user-data"));
+  });
+
+  it("rejects reset roots that overlap or alias the shared home", async () => {
+    const homeDir = await makeTempHome();
+    const sharedHome = path.join(homeDir, ".stella");
     const alias = path.join(homeDir, "dev-alias");
-    await mkdir(packagedHome, { recursive: true });
-    await symlink(packagedHome, alias, "dir");
+    await mkdir(sharedHome, { recursive: true });
+    await symlink(sharedHome, alias, "dir");
 
     for (const devHomeOverride of [
-      packagedHome,
-      path.join(packagedHome, "nested"),
+      sharedHome,
+      path.join(sharedHome, "nested"),
       homeDir,
       path.join(homeDir, ".STELLA"),
     ]) {
@@ -65,24 +73,7 @@ describe("v2 dev-tool path isolation", () => {
     }
   });
 
-  it("resolves dev logs under Electron's isolated userData root", async () => {
-    const homeDir = await makeTempHome();
-    expect(
-      resolveDevElectronUserDataDir({
-        platform: "darwin",
-        homeDir,
-      }),
-    ).toBe(
-      path.join(
-        homeDir,
-        "Library",
-        "Application Support",
-        "Stella Development",
-      ),
-    );
-  });
-
-  it("rejects reset targets outside the user home", async () => {
+  it("rejects reset roots outside the user home or OS temp", async () => {
     const homeDir = await makeTempHome();
     expect(() =>
       resolveDevStellaHome({
@@ -94,48 +85,12 @@ describe("v2 dev-tool path isolation", () => {
     );
   });
 
-  it("rejects dev log userData paths that overlap or alias the packaged home", async () => {
-    const homeDir = await makeTempHome();
-    const packagedHome = path.join(homeDir, ".stella");
-    await mkdir(packagedHome, { recursive: true });
-
-    expect(() =>
-      resolveDevElectronUserDataDir({
-        homeDir,
-        appDataDir: packagedHome,
-      }),
-    ).toThrow("Development Electron userData must not overlap");
-
-    const appDataDir = path.join(homeDir, "Library", "Application Support");
-    await mkdir(appDataDir, { recursive: true });
-    await symlink(
-      packagedHome,
-      path.join(appDataDir, "Stella Development"),
-      "dir",
-    );
-    expect(() =>
-      resolveDevElectronUserDataDir({ homeDir, appDataDir }),
-    ).toThrow("Development Electron userData must not use symlink aliases");
-  });
-
-  it("rejects a default dev-home symlink", async () => {
-    const homeDir = await makeTempHome();
-    const packagedHome = path.join(homeDir, ".stella");
-    const defaultDevHome = path.join(homeDir, ".stella-v2-dev");
-    await mkdir(packagedHome, { recursive: true });
-    await symlink(packagedHome, defaultDevHome, "dir");
-
-    expect(() => resolveDevStellaHome({ homeDir })).toThrow(
-      "Development Stella home must not use symlink aliases",
-    );
-  });
-
   it("rejects a symlinked inherited temp boundary", async () => {
     const homeDir = await makeTempHome();
-    const packagedHome = path.join(homeDir, ".stella");
+    const sharedHome = path.join(homeDir, ".stella");
     const tempAlias = path.join(path.dirname(homeDir), "tmp-alias");
-    await mkdir(packagedHome, { recursive: true });
-    await symlink(packagedHome, tempAlias, "dir");
+    await mkdir(sharedHome, { recursive: true });
+    await symlink(sharedHome, tempAlias, "dir");
     const previousTmpDir = process.env.TMPDIR;
     process.env.TMPDIR = tempAlias;
     try {

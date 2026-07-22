@@ -8,12 +8,8 @@ import { initializeBootstrapApplication } from "./runtime.js";
 export const initializeBootstrapSingleInstance = (
   context: BootstrapContext,
 ) => {
-  if (!context.services.authService.enforceSingleInstanceLock()) {
-    return false;
-  }
-
+  context.services.authService.bindSingleInstanceHandler();
   context.services.authService.bindOpenUrlHandler();
-  return true;
 };
 
 export const registerBootstrapLifecycle = (context: BootstrapContext) => {

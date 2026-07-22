@@ -131,7 +131,12 @@ export function useLocalAgentStream({
   const activeRun = activeRunId
     ? (storeState.runsById[activeRunId] ?? null)
     : null;
-  const isStreaming = Boolean(activeRun && !activeRun.terminal);
+  // A submitted turn owns the streaming lifecycle immediately. Do not wait
+  // for RUN_STARTED hydration: optimistic -> durable message replacement and
+  // queued -> running/provider transitions are all the same logical turn.
+  const isStreaming = Boolean(
+    pendingUserMessageId || (activeRun && !activeRun.terminal),
+  );
   const runtimeStatusText = activeRun?.statusText ?? null;
   const activeToolEntry = Object.entries(activeRun?.activeToolCalls ?? {}).at(
     -1,

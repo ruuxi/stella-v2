@@ -6,21 +6,34 @@ separate and **never replace `/Applications/Stella.app`**.
 
 ## Development mode
 
-The real Electron development command is `bun run electron:dev`. Run it with a
-different loopback port and an explicit v2-only runtime directory:
+The real Electron development command is `bun run electron:dev`. A normal
+launch uses the same `~/.stella` home, conversation database, configuration,
+credentials, and `electron-user-data` as Stella v1 and packaged v2:
 
 ```sh
 cd /Users/rahulnanda/projects/stella-v2
-mkdir -p "$HOME/.stella-v2-dev-test"
 STELLA_DEV_SERVER_URL=http://127.0.0.1:57316 \
-STELLA_V2_DEV_DATA_DIR="$HOME/.stella-v2-dev-test" \
 bun run electron:dev
 ```
 
 This starts Vite and Electron together. The port override is honored by both
-the Vite server and Electron launcher. Development uses the separate visible
-app name `Stella v2 Development` and does not inherit v1's `STELLA_DATA_DIR`.
-Quit the terminal process with `Ctrl-C` when finished.
+the Vite server and Electron launcher. Fully quit v1 first: both apps use the
+same Electron process-singleton path, so the second launch exits instead of
+opening the shared database concurrently. Quit the terminal process with
+`Ctrl-C` when finished.
+
+Tests and harnesses that need isolation must opt in explicitly:
+
+```sh
+isolated_root=$(mktemp -d "${TMPDIR:-/tmp}/stella-v2-test.XXXXXX")
+STELLA_DEV_SERVER_URL=http://127.0.0.1:57316 \
+STELLA_V2_DEV_DATA_DIR="$isolated_root" \
+bun run electron:dev
+```
+
+`STELLA_V2_DEV_DATA_DIR` is the only development data-root override. Generic
+`STELLA_DATA_DIR` is ignored, and destructive reset commands require the
+explicit isolated override.
 
 ## Packaged macOS test build
 

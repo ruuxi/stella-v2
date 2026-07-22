@@ -59,46 +59,37 @@ const assertIsolatedDevPath = (candidate, homeDir, packagedHome, label) => {
   }
 };
 
-export const resolveDevStellaHome = (options = {}) => {
+const resolveConfiguredStellaHome = (options = {}) => {
   const homeDir = path.resolve(options.homeDir ?? os.homedir());
   const packagedHome = path.join(homeDir, ".stella");
-  const devHome = path.resolve(
+  const explicitDevHome =
     options.devHomeOverride?.trim() ||
-      process.env.STELLA_V2_DEV_DATA_DIR?.trim() ||
-      path.join(homeDir, ".stella-v2-dev"),
-  );
+    process.env.STELLA_V2_DEV_DATA_DIR?.trim() ||
+    "";
+  if (!explicitDevHome) return packagedHome;
+  const stellaHome = path.resolve(explicitDevHome);
   assertIsolatedDevPath(
-    devHome,
+    stellaHome,
     homeDir,
     packagedHome,
     "Development Stella home",
   );
-  return devHome;
+  return stellaHome;
+};
+
+export const resolveDevStellaHome = (options = {}) => {
+  const explicitDevHome =
+    options.devHomeOverride?.trim() ||
+    process.env.STELLA_V2_DEV_DATA_DIR?.trim() ||
+    "";
+  if (!explicitDevHome) {
+    throw new Error(
+      "Dev reset requires STELLA_V2_DEV_DATA_DIR so it cannot target the shared ~/.stella home.",
+    );
+  }
+  return resolveConfiguredStellaHome(options);
 };
 
 export const resolveDevElectronUserDataDir = (options = {}) => {
-  const homeDir = path.resolve(options.homeDir ?? os.homedir());
-  const platform = options.platform ?? process.platform;
-  let appDataDir;
-  if (options.appDataDir) {
-    appDataDir = path.resolve(options.appDataDir);
-  } else if (platform === "darwin") {
-    appDataDir = path.join(homeDir, "Library", "Application Support");
-  } else if (platform === "win32") {
-    appDataDir = path.resolve(
-      process.env.APPDATA || path.join(homeDir, "AppData", "Roaming"),
-    );
-  } else {
-    appDataDir = path.resolve(
-      process.env.XDG_CONFIG_HOME || path.join(homeDir, ".config"),
-    );
-  }
-  const electronUserDataDir = path.join(appDataDir, "Stella Development");
-  assertIsolatedDevPath(
-    electronUserDataDir,
-    homeDir,
-    path.join(homeDir, ".stella"),
-    "Development Electron userData",
-  );
-  return electronUserDataDir;
+  return path.join(resolveConfiguredStellaHome(options), "electron-user-data");
 };

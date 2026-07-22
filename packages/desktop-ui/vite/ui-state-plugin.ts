@@ -2,9 +2,9 @@
  * Shared UI state Vite plugin — gives plain-browser dev tabs (`bun run dev`)
  * the same durable renderer state as the Electron app.
  *
- * The dev server runs its own `UiStateStore` instance against
- * the isolated v2 dev home (the Electron main process runs another; the two
- * converge through per-key read-merge-write flushes plus file watching):
+ * The dev server runs its own `UiStateStore` instance against the selected
+ * Stella home (the Electron main process runs another; the two converge
+ * through per-key read-merge-write flushes plus file watching):
  *
  *   - Every served HTML page gets an inline `window.__stellaUiState` snapshot
  *     injected ahead of `stella-boot.js`, so synchronous pre-paint reads

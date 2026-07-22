@@ -1,12 +1,10 @@
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  DEV_ELECTRON_USER_DATA_DIRNAME,
-  DEV_STELLA_HOME_DIRNAME,
-  PACKAGED_ELECTRON_USER_DATA_DIRNAME,
+  ELECTRON_USER_DATA_DIRNAME,
   PACKAGED_STELLA_HOME_DIRNAME,
   resolveDesktopDataPaths,
   resolveLifecycleVerificationHome,
@@ -18,10 +16,7 @@ const tempRoots = new Set<string>();
 const makeTempHome = async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "stella-v2-home-paths-"));
   tempRoots.add(root);
-  return {
-    home: path.join(root, "home"),
-    appData: path.join(root, "Library", "Application Support"),
-  };
+  return path.join(root, "home");
 };
 
 afterEach(async () => {
@@ -31,117 +26,120 @@ afterEach(async () => {
   tempRoots.clear();
 });
 
-describe("desktop Stella home isolation", () => {
-  it("puts a packaged build's durable home and DB beside the v1 home data", async () => {
-    const temp = await makeTempHome();
-    const paths = resolveDesktopDataPaths({
+describe("desktop Stella home resolution", () => {
+  it("uses the normal Stella home and v1-compatible userData in both modes", async () => {
+    const homeDir = await makeTempHome();
+    const expectedHome = path.join(homeDir, PACKAGED_STELLA_HOME_DIRNAME);
+    const expectedUserData = path.join(
+      expectedHome,
+      ELECTRON_USER_DATA_DIRNAME,
+    );
+
+    const packaged = resolveDesktopDataPaths({
       isPackaged: true,
-      homeDir: temp.home,
-      appDataDir: temp.appData,
+      homeDir,
+    });
+    const development = resolveDesktopDataPaths({
+      isPackaged: false,
+      homeDir,
     });
 
-    expect(paths).toEqual({
-      stellaHomeDir: path.join(temp.home, PACKAGED_STELLA_HOME_DIRNAME),
-      electronUserDataDir: path.join(
-        temp.appData,
-        PACKAGED_ELECTRON_USER_DATA_DIRNAME,
-      ),
+    expect(packaged).toEqual({
+      stellaHomeDir: expectedHome,
+      electronUserDataDir: expectedUserData,
     });
-    expect(getDesktopDatabasePath(paths.stellaHomeDir)).toBe(
-      path.join(temp.home, PACKAGED_STELLA_HOME_DIRNAME, "stella.sqlite"),
+    expect(development).toEqual(packaged);
+    expect(getDesktopDatabasePath(development.stellaHomeDir)).toBe(
+      path.join(expectedHome, "stella.sqlite"),
     );
-    for (const userDataPath of [
-      "memories",
-      "skills",
-      "prompts",
-      "connectors",
-      "agents",
-      "models.json",
-      "preferences.json",
-    ]) {
-      expect(path.join(paths.stellaHomeDir, userDataPath)).not.toContain(
-        paths.electronUserDataDir,
-      );
-    }
   });
 
-  it("keeps an unpackaged build out of the packaged ~/.stella home", async () => {
-    const temp = await makeTempHome();
-    const liveHome = path.join(temp.home, PACKAGED_STELLA_HOME_DIRNAME);
+  it("takes the shared process lock before bootstrap services can open SQLite", async () => {
+    const bootstrapSource = await readFile(
+      new URL("../../../desktop/electron/bootstrap.ts", import.meta.url),
+      "utf8",
+    );
+    const lockIndex = bootstrapSource.indexOf(
+      "app.requestSingleInstanceLock()",
+    );
+    const serviceConstructionIndex = bootstrapSource.indexOf(
+      "createBootstrapContext({",
+    );
+
+    expect(lockIndex).toBeGreaterThan(-1);
+    expect(serviceConstructionIndex).toBeGreaterThan(lockIndex);
+  });
+
+  it("keeps durable config and content consumers under the shared home", async () => {
+    const homeDir = await makeTempHome();
+    const paths = resolveDesktopDataPaths({ isPackaged: false, homeDir });
+
+    for (const relativePath of [
+      "stella.sqlite",
+      "preferences.json",
+      "connectors",
+      "extensions",
+      "prompts",
+      "skills",
+      "media",
+    ]) {
+      expect(path.join(paths.stellaHomeDir, relativePath)).toBe(
+        path.join(homeDir, ".stella", relativePath),
+      );
+    }
+    expect(paths.electronUserDataDir).toBe(
+      path.join(homeDir, ".stella", "electron-user-data"),
+    );
+  });
+
+  it("ignores generic STELLA_DATA_DIR and accepts an explicit isolated override", async () => {
+    const homeDir = await makeTempHome();
     const previousGenericDataDir = process.env.STELLA_DATA_DIR;
-    process.env.STELLA_DATA_DIR = liveHome;
+    process.env.STELLA_DATA_DIR = path.join(homeDir, "generic-override");
+    const isolatedOverride = path.join(homeDir, "intentional-v2-isolation");
 
     try {
-      const paths = resolveDesktopDataPaths({
-        isPackaged: false,
-        homeDir: temp.home,
-        appDataDir: temp.appData,
-      });
-
-      expect(paths.stellaHomeDir).toBe(
-        path.join(temp.home, DEV_STELLA_HOME_DIRNAME),
-      );
-      expect(paths.stellaHomeDir).not.toBe(liveHome);
-      expect(getDesktopDatabasePath(paths.stellaHomeDir)).toBe(
-        path.join(temp.home, DEV_STELLA_HOME_DIRNAME, "stella.sqlite"),
-      );
-      expect(paths.electronUserDataDir).toBe(
-        path.join(temp.appData, DEV_ELECTRON_USER_DATA_DIRNAME),
-      );
-    } finally {
-      if (previousGenericDataDir === undefined) {
-        delete process.env.STELLA_DATA_DIR;
-      } else {
-        process.env.STELLA_DATA_DIR = previousGenericDataDir;
-      }
-    }
-  });
-
-  it("accepts only the v2-specific dev-home override for development", async () => {
-    const temp = await makeTempHome();
-    const isolatedOverride = path.join(temp.home, "custom-v2-dev-home");
-    const paths = resolveDesktopDataPaths({
-      isPackaged: false,
-      homeDir: temp.home,
-      appDataDir: temp.appData,
-      devHomeOverride: isolatedOverride,
-    });
-
-    expect(paths.stellaHomeDir).toBe(isolatedOverride);
-    expect(paths.stellaHomeDir).not.toBe(
-      path.join(temp.home, PACKAGED_STELLA_HOME_DIRNAME),
-    );
-  });
-
-  it("rejects dev overrides that target the packaged home or its descendants", async () => {
-    const temp = await makeTempHome();
-    const liveHome = path.join(temp.home, PACKAGED_STELLA_HOME_DIRNAME);
-
-    for (const devHomeOverride of [liveHome, path.join(liveHome, "dev")]) {
-      expect(() =>
+      expect(
+        resolveDesktopDataPaths({ isPackaged: false, homeDir }).stellaHomeDir,
+      ).toBe(path.join(homeDir, ".stella"));
+      expect(
         resolveDesktopDataPaths({
           isPackaged: false,
-          homeDir: temp.home,
-          appDataDir: temp.appData,
-          devHomeOverride,
+          homeDir,
+          devHomeOverride: isolatedOverride,
         }),
-      ).toThrow("Development Stella home must not overlap the packaged home");
+      ).toEqual({
+        stellaHomeDir: isolatedOverride,
+        electronUserDataDir: path.join(
+          isolatedOverride,
+          ELECTRON_USER_DATA_DIRNAME,
+        ),
+      });
+    } finally {
+      if (previousGenericDataDir === undefined)
+        delete process.env.STELLA_DATA_DIR;
+      else process.env.STELLA_DATA_DIR = previousGenericDataDir;
     }
   });
 
-  it("rejects symlink and case aliases of the packaged home", async () => {
-    const temp = await makeTempHome();
-    const liveHome = path.join(temp.home, PACKAGED_STELLA_HOME_DIRNAME);
-    const symlinkAlias = path.join(temp.home, "v2-dev-alias");
-    await mkdir(liveHome, { recursive: true });
-    await symlink(liveHome, symlinkAlias, "dir");
+  it("rejects explicit overrides that overlap or alias the shared home", async () => {
+    const homeDir = await makeTempHome();
+    const sharedHome = path.join(homeDir, PACKAGED_STELLA_HOME_DIRNAME);
+    const symlinkAlias = path.join(homeDir, "v2-dev-alias");
+    await mkdir(sharedHome, { recursive: true });
+    await symlink(sharedHome, symlinkAlias, "dir");
 
-    for (const devHomeOverride of [path.join(temp.home, ".STELLA")]) {
+    for (const devHomeOverride of [
+      sharedHome,
+      path.join(sharedHome, "dev"),
+      homeDir,
+      path.dirname(homeDir),
+      path.join(homeDir, ".STELLA"),
+    ]) {
       expect(() =>
         resolveDesktopDataPaths({
           isPackaged: false,
-          homeDir: temp.home,
-          appDataDir: temp.appData,
+          homeDir,
           devHomeOverride,
         }),
       ).toThrow("Development Stella home must not overlap the packaged home");
@@ -153,36 +151,51 @@ describe("desktop Stella home isolation", () => {
       expect(() =>
         resolveDesktopDataPaths({
           isPackaged: false,
-          homeDir: temp.home,
-          appDataDir: temp.appData,
+          homeDir,
           devHomeOverride,
         }),
       ).toThrow("Development Stella home must not use symlink aliases");
     }
   });
 
-  it("rejects a default dev-home symlink without following it", async () => {
-    const temp = await makeTempHome();
-    const liveHome = path.join(temp.home, PACKAGED_STELLA_HOME_DIRNAME);
-    const defaultDevHome = path.join(temp.home, DEV_STELLA_HOME_DIRNAME);
-    await mkdir(liveHome, { recursive: true });
-    await symlink(liveHome, defaultDevHome, "dir");
-
+  it("rejects explicit overrides outside the user home or OS temp", async () => {
+    const homeDir = await makeTempHome();
     expect(() =>
       resolveDesktopDataPaths({
         isPackaged: false,
-        homeDir: temp.home,
-        appDataDir: temp.appData,
+        homeDir,
+        devHomeOverride: "/opt/stella-v2-dev-test",
       }),
-    ).toThrow("Development Stella home must not use symlink aliases");
+    ).toThrow(
+      "Development Stella home must stay within the user home or OS temp",
+    );
+  });
+
+  it("keeps lifecycle verification explicitly isolated from the shared home", async () => {
+    const homeDir = await makeTempHome();
+    expect(() => resolveLifecycleVerificationHome({ homeDir })).toThrow(
+      "STELLA_V2_LIFECYCLE_VERIFY_DATA_DIR",
+    );
+    expect(() =>
+      resolveLifecycleVerificationHome({
+        homeDir,
+        explicitPath: path.join(homeDir, PACKAGED_STELLA_HOME_DIRNAME),
+      }),
+    ).toThrow("Lifecycle verification home must not overlap the packaged home");
+    expect(
+      resolveLifecycleVerificationHome({
+        homeDir,
+        explicitPath: path.join(homeDir, "lifecycle-verification"),
+      }),
+    ).toBe(path.join(homeDir, "lifecycle-verification"));
   });
 
   it("rejects a symlinked inherited temp boundary", async () => {
-    const temp = await makeTempHome();
-    const liveHome = path.join(temp.home, PACKAGED_STELLA_HOME_DIRNAME);
-    const tempAlias = path.join(path.dirname(temp.home), "tmp-alias");
-    await mkdir(liveHome, { recursive: true });
-    await symlink(liveHome, tempAlias, "dir");
+    const homeDir = await makeTempHome();
+    const sharedHome = path.join(homeDir, PACKAGED_STELLA_HOME_DIRNAME);
+    const tempAlias = path.join(path.dirname(homeDir), "tmp-alias");
+    await mkdir(sharedHome, { recursive: true });
+    await symlink(sharedHome, tempAlias, "dir");
     const previousTmpDir = process.env.TMPDIR;
     process.env.TMPDIR = tempAlias;
     try {
@@ -196,92 +209,5 @@ describe("desktop Stella home isolation", () => {
       if (previousTmpDir === undefined) delete process.env.TMPDIR;
       else process.env.TMPDIR = previousTmpDir;
     }
-  });
-
-  it("rejects dev overrides that are ancestors of the packaged home", async () => {
-    const temp = await makeTempHome();
-
-    for (const devHomeOverride of [temp.home, path.dirname(temp.home)]) {
-      expect(() =>
-        resolveDesktopDataPaths({
-          isPackaged: false,
-          homeDir: temp.home,
-          appDataDir: temp.appData,
-          devHomeOverride,
-        }),
-      ).toThrow("Development Stella home must not overlap the packaged home");
-    }
-  });
-
-  it("rejects dev overrides outside the user home", async () => {
-    const temp = await makeTempHome();
-    expect(() =>
-      resolveDesktopDataPaths({
-        isPackaged: false,
-        homeDir: temp.home,
-        appDataDir: temp.appData,
-        devHomeOverride: "/opt/stella-v2-dev-test",
-      }),
-    ).toThrow(
-      "Development Stella home must stay within the user home or OS temp",
-    );
-  });
-
-  it("rejects dev Electron userData paths that overlap or alias the packaged home", async () => {
-    const temp = await makeTempHome();
-    const liveHome = path.join(temp.home, PACKAGED_STELLA_HOME_DIRNAME);
-    await mkdir(liveHome, { recursive: true });
-
-    expect(() =>
-      resolveDesktopDataPaths({
-        isPackaged: false,
-        homeDir: temp.home,
-        appDataDir: liveHome,
-      }),
-    ).toThrow("Development Electron userData must not overlap");
-
-    const appDataDir = path.join(temp.home, "Library", "Application Support");
-    await mkdir(appDataDir, { recursive: true });
-    await symlink(
-      liveHome,
-      path.join(appDataDir, DEV_ELECTRON_USER_DATA_DIRNAME),
-      "dir",
-    );
-    expect(() =>
-      resolveDesktopDataPaths({
-        isPackaged: false,
-        homeDir: temp.home,
-        appDataDir,
-      }),
-    ).toThrow("Development Electron userData must not use symlink aliases");
-  });
-
-  it("requires lifecycle verification to name a non-live isolated home", async () => {
-    const temp = await makeTempHome();
-    expect(() =>
-      resolveLifecycleVerificationHome({ homeDir: temp.home }),
-    ).toThrow("STELLA_V2_LIFECYCLE_VERIFY_DATA_DIR");
-    expect(() =>
-      resolveLifecycleVerificationHome({
-        homeDir: temp.home,
-        explicitPath: path.join(temp.home, PACKAGED_STELLA_HOME_DIRNAME),
-      }),
-    ).toThrow("Lifecycle verification home must not overlap the packaged home");
-    expect(
-      resolveLifecycleVerificationHome({
-        homeDir: temp.home,
-        explicitPath: path.join(temp.home, "lifecycle-verification"),
-      }),
-    ).toBe(path.join(temp.home, "lifecycle-verification"));
-    const actualStyleTempPath = path.join(
-      os.tmpdir(),
-      `stella-v2-lifecycle-${process.pid}`,
-    );
-    expect(
-      resolveLifecycleVerificationHome({
-        homeDir: "/Users/test",
-        explicitPath: actualStyleTempPath,
-      }),
-    ).toBe(actualStyleTempPath);
   });
 });

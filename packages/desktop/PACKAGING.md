@@ -16,27 +16,32 @@ can override the loopback URL with `STELLA_DEV_SERVER_URL`. There is no
 bundle rename, Info.plist rewrite, icon swap, re-sign, responsibility-disclaim
 shim, generated supervisor markers, or generated dev-URL file.
 
-The built product name is explicitly `Stella`; internal workspace names such
-as `@stella/desktop` never become the visible application or Safe Storage
-name. Unpackaged v2 development sets `app.name` to `Stella v2 Development`
-before Electron becomes ready. On macOS that gives safeStorage its own
-`Stella v2 Development Safe Storage` Keychain service instead of reading or
-overwriting the installed v1 app's `Stella Safe Storage` item. Signed packaged
-releases use the clean production `Stella` identity. The dev launcher strips
-inherited live-install paths and ignores generic `STELLA_DATA_DIR`.
+The product and development app name are explicitly `Stella`; internal
+workspace names such as `@stella/desktop` never become the visible application
+or Safe Storage name. On macOS that keeps development compatible with the
+normal `Stella Safe Storage` Keychain service used by credentials in the shared
+home. The dev launcher strips inherited source/install paths and ignores the
+generic `STELLA_DATA_DIR`; only the explicit v2 test override below can select
+another home.
 
-Durable user data is separate from Electron runtime state. Packaged builds use
+Packaged builds and ordinary `bun run electron:dev` launches both use
 `~/.stella` for `stella.sqlite`, memories, skills, prompts, connectors, agent
-configuration, and other user-owned files, matching the v1 home layout.
-Unpackaged builds use the isolated `~/.stella-v2-dev` home; a deliberate dev
-override must use `STELLA_V2_DEV_DATA_DIR`. Electron `userData` stays under the
-platform app-data directory (`Stella` for packaged builds, `Stella Development`
-for dev) and is reserved for caches, Chromium/session state, window state,
-updater state, detached-worker control files, diagnostics, and similar
-replaceable runtime files. POSIX sockets use a short, owner-only per-user
-namespace under `/tmp` to stay within platform socket-path limits. The dev
-Safe Storage service remains isolated by the `Stella v2 Development`
-application name.
+configuration, media, and other user-owned files, matching the v1 home layout.
+Electron `userData` is `~/.stella/electron-user-data` in both modes. Sharing
+that path is intentional: Electron's process-singleton lock prevents v1 and v2
+from concurrently owning the same home. V2 acquires that lock before it creates
+the local transcript service or opens SQLite. Caches, Chromium/session state,
+window state, updater state, detached-worker control files, and diagnostics
+remain under that replaceable `userData` subtree. POSIX sockets use a short,
+owner-only per-user namespace under `/tmp` to stay within platform socket-path
+limits.
+
+Harnesses and tests can opt into an isolated home with
+`STELLA_V2_DEV_DATA_DIR`; its `electron-user-data` subtree and instance lock
+stay isolated with it. Overrides are rejected if they overlap or alias the
+normal `~/.stella` home. Destructive `bun run reset` and `bun run reset:sql`
+commands require this explicit override and will not default to the shared
+home.
 
 ## Runtime sidecar and packaged binaries
 

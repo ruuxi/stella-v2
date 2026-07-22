@@ -645,7 +645,9 @@ const compareCompactTaskRecency = (a: TaskItem, b: TaskItem): number =>
   b.startedAtMs - a.startedAtMs ||
   a.id.localeCompare(b.id);
 
-const compactLatestText = (task: TaskItem): string => {
+/** V1 Activity prose contract: authored assistant text wins; lifecycle state
+ * supplies the only fallback. Tool status/result fields never participate. */
+export const getTaskActivityProse = (task: TaskItem): string => {
   const assistantText = selectLatestAgentAssistantMessage(
     task.assistantMessages,
   );
@@ -702,7 +704,7 @@ export function summarizeCompactActivity(
     errorCount: tasks.filter((task) => task.status === "error").length,
     canceledCount: tasks.filter((task) => task.status === "canceled").length,
     latestTask,
-    latestText: latestTask ? compactLatestText(latestTask) : undefined,
+    latestText: latestTask ? getTaskActivityProse(latestTask) : undefined,
     usesProgressBar: tasks.length > COMPACT_ACTIVITY_CELL_LIMIT,
   };
 }
@@ -810,7 +812,7 @@ export const getActivityRowCompletedAtMs = (row: ActivityRow): number => {
 /** Search text for a whole visible row, including nested owned descendants. */
 export const getActivityRowSearchText = (row: ActivityRow): string => {
   if (row.kind === "task") {
-    return [row.task.description, row.task.statusText, row.task.outputPreview]
+    return [row.task.description, ...(row.task.assistantMessages ?? [])]
       .filter(Boolean)
       .join(" ");
   }
@@ -822,8 +824,7 @@ export const getActivityRowSearchText = (row: ActivityRow): string => {
   }
   return [
     row.hierarchy.owner.description,
-    row.hierarchy.owner.statusText,
-    row.hierarchy.owner.outputPreview,
+    ...(row.hierarchy.owner.assistantMessages ?? []),
     ...row.hierarchy.children.map(getActivityRowSearchText),
   ]
     .filter(Boolean)

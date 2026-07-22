@@ -164,6 +164,8 @@ export const orderLifecycleEventsByAttempt = (
   });
 };
 
+/** Stable occurrence identity, evaluated only for `agent-started`. Progress
+ * packets update `progressText` and can never rewrite this title. */
 const cardTitle = (
   event: EventRecord & {
     payload: {
@@ -182,7 +184,6 @@ const cardTitle = (
   return (
     followUpTitle ??
     asNonEmptyString(event.payload.description) ??
-    asNonEmptyString(event.payload.groupLabel) ??
     fallbackTaskDescription(agentId)
   );
 };

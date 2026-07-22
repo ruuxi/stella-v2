@@ -50,9 +50,8 @@ export const startOrAttachWorker = async (
   runLifecycle(Effect.scoped(startOrAttachWorkerEffect(options)));
 
 /**
- * Stop a running worker by SIGTERM-then-SIGKILL. The worker also has its
- * own self-shutdown-on-idle timer, so this is mostly used by tests and
- * by `runtime restart` flows that want a synchronous tear-down.
+ * Stop a running worker by SIGTERM-then-SIGKILL for `runtime restart` flows
+ * that need a synchronous tear-down.
  */
 export const stopRunningWorker = async (
   stellaAppDir: string,

@@ -4,7 +4,7 @@
 //! Subcommands:
 //!   probe --model <path.onnx>
 //!     Loads the classifier and prints a single ready event with model names,
-//!     then exits. Useful for smoke tests / Settings UI verification.
+//!     then exits. Useful for smoke checks / Settings UI verification.
 //!
 //!   start --model <path.onnx> [--threshold 0.55] [--debounce-ms 2000]
 //!         [--predict-stride-ms 120] [--vad-hangover-ms 900]

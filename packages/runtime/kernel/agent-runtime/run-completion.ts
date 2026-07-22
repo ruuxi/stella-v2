@@ -325,8 +325,6 @@ export const runCompactionWithHooks = async (args: {
   messageCount: number;
   /** Schedule-time estimate used to avoid Dream waits below the fold gate. */
   orchestratorTokenEstimate?: number;
-  /** Focused-test seam; production always uses the certified 180s ceiling. */
-  preCompactionTimeoutMs?: number;
   /** Aborts the summarization LLM call on compaction-scheduler shutdown. */
   abortSignal?: AbortSignal;
 }): Promise<ThreadCompactionResult> => {
@@ -345,9 +343,6 @@ export const runCompactionWithHooks = async (args: {
         store: args.opts.store,
         resolvedLlm: args.opts.resolvedLlm,
         conversationId: args.opts.conversationId,
-        ...(args.preCompactionTimeoutMs !== undefined
-          ? { timeoutMs: args.preCompactionTimeoutMs }
-          : {}),
         ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
       });
     } catch (error) {
@@ -440,8 +435,8 @@ export const runCompactionWithHooks = async (args: {
 
 export const finalizeOrchestratorSuccess = async (args: {
   opts: OrchestratorRunOptions;
-  runId: string;
-  threadKey: string;
+  runId?: string;
+  threadKey?: string;
   runEvents: RuntimeRunEventRecorder;
   agent: CompactableAgentState;
   finalText: string;
@@ -555,8 +550,8 @@ export const finalizeOrchestratorError = (args: {
   opts: OrchestratorRunOptions;
   runEvents: RuntimeRunEventRecorder;
   error: unknown;
-  runId?: string;
-  threadKey?: string;
+  runId: string;
+  threadKey: string;
 }): string => {
   const errorMessage = safeErrorMessage(args.error, "Stella runtime failed");
   args.opts.callbacks.onError(args.runEvents.recordError(errorMessage));
@@ -665,13 +660,7 @@ export const finalizeSubagentError = (args: {
   runEvents: RuntimeRunEventRecorder;
   runId: string;
   error: unknown;
-  /**
-   * Optional threadKey used to fire the matching `agent_end` cleanup
-   * hook. Optional for the same reason as the orchestrator counterpart:
-   * direct callers (tests) without a threadKey wired through skip the
-   * hook fire — the only side effect is that hooks tracking subagent
-   * run-scoped state may leak entries for those test runs.
-   */
+  /** Optional for direct callers that do not have a runtime thread. */
   threadKey?: string;
 }): SubagentRunResult => {
   const errorMessage = safeErrorMessage(args.error, "Subagent failed");

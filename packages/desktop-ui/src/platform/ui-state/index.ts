@@ -23,7 +23,7 @@ import {
 
 const FLUSH_DELAY_MS = 10;
 
-// Windowless environments (unit tests, SSR-ish tooling) get a plain
+// Windowless environments (SSR-ish tooling) get a plain
 // in-memory map with no adapter — reads/writes work, nothing persists.
 const hasWindow = typeof window !== "undefined";
 
@@ -115,7 +115,7 @@ const createDevServerAdapter = (): WriteAdapter | null => {
   };
 };
 
-/** In-memory only — windowless tests, or a bundle opened outside Electron. */
+/** In-memory only — windowless tooling, or a bundle opened outside Electron. */
 const noopAdapter: WriteAdapter = {
   flushChanges: () => {},
   clear: () => {},

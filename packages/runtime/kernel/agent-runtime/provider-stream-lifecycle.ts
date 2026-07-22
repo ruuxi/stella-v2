@@ -48,7 +48,7 @@ const deliveryRuntime = ManagedRuntime.make(Layer.empty);
  * cooperative abort, a healthy provider terminates almost immediately; one
  * that ignores its signal must not hold run cancellation hostage.
  */
-export const PROVIDER_STREAM_ABORT_JOIN_GRACE_MS = 5_000;
+const PROVIDER_STREAM_ABORT_JOIN_GRACE_MS = 5_000;
 
 type StreamOptions = NonNullable<Parameters<StreamFn>[2]>;
 type ProviderStream = Awaited<ReturnType<StreamFn>>;
@@ -61,17 +61,13 @@ type ProviderStream = Awaited<ReturnType<StreamFn>>;
  * like the provider's own (same events, same order, same terminals).
  */
 export const createRunScopedStreamFn = (args: {
-  /** Underlying provider entry. Defaults to `ai/stream.ts#streamSimple`. */
-  base?: StreamFn;
   /** Registers the stream resource into the owning run's scope. */
   supervise: RunResourceRegistrar;
   /** Run that owns every stream opened through this function. */
   runId: string;
-  /** Test seam; production uses {@link PROVIDER_STREAM_ABORT_JOIN_GRACE_MS}. */
-  abortJoinGraceMs?: number;
 }): StreamFn => {
-  const base = args.base ?? streamSimple;
-  const graceMs = args.abortJoinGraceMs ?? PROVIDER_STREAM_ABORT_JOIN_GRACE_MS;
+  const base = streamSimple;
+  const graceMs = PROVIDER_STREAM_ABORT_JOIN_GRACE_MS;
   let sequence = 0;
 
   return (model, context, options) => {

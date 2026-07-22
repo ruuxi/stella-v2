@@ -108,7 +108,7 @@ export type ActivityTaskState = {
 };
 
 /** Exact Activity projection consumed by the full chat runtime. Keeping the
- * mounted storage subscription and task transform together gives tests the
+ * mounted storage subscription and task transform together gives callers the
  * same zero-cost path that production renders. */
 export const useActivityTaskState = (
   conversationId?: string,

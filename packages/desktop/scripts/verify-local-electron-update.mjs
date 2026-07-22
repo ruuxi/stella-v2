@@ -293,7 +293,7 @@ try {
     });
   }
   if (server) await new Promise((resolve) => server.close(resolve));
-  // Squirrel.Mac can finish materializing its test-only cache just after the
+  // Squirrel.Mac can finish materializing its verification-only cache just after the
   // Electron process exits. Give that helper a bounded drain window, then
   // retry exact-path cleanup so the automated verifier leaves no payload.
   await new Promise((resolve) => setTimeout(resolve, 2_000));

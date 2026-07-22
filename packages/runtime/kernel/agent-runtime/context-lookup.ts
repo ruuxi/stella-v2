@@ -1969,8 +1969,8 @@ export const runRecall = async (args: {
     }
   }
 
-  // Test/replay callers without the read-query bundle retain the previous
-  // implementation while production always supplies the architectural path.
+  // Replay callers without the read-query bundle retain the previous
+  // implementation while the runtime supplies the architectural path.
   let seed: string;
   try {
     seed = await buildContextLookupUserPrompt({

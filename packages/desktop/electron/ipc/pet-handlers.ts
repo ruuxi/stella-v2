@@ -98,8 +98,8 @@ const broadcast = (
  * Returns a disposer that removes every registered handler/listener
  * and resets the module-level state caches. The bootstrap quit-cleanup
  * calls it on app shutdown; it's also safe to call manually for
- * testing or before re-registering on a fresh `ipcMain` (e.g. in a
- * test harness). Calling `registerPetHandlers` while a previous
+ * teardown or before re-registering on a fresh `ipcMain`. Calling
+ * `registerPetHandlers` while a previous
  * registration is still live is treated as a programmer error and
  * throws — `ipcMain.handle` would throw on its own anyway because
  * `pet:getState` is an `invoke` channel that can only have one

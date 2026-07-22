@@ -14,8 +14,8 @@ let cachedRoot: string | null = null;
  *
  * Prefers `STELLA_APP_DIR` (set in the Electron main process and inherited by
  * spawned sidecar children); falls back to walking up from this module until a
- * `package.json` + `packages/runtime/` marker is found so vitest and any child without
- * the env still resolve. Stella runs from its source tree, so source-tree
+ * `package.json` + `packages/runtime/` marker is found so any child without the
+ * env still resolves. Stella runs from its source tree, so source-tree
  * assets always live under `<root>/packages/runtime/...`.
  */
 export function getStellaAppDir(): string {
@@ -72,7 +72,7 @@ export function resolveRuntimeSourceAsset(...segments: string[]): string {
  * deferred-delete helper). Anchored on STELLA_APP_DIR rather than this module's
  * `import.meta` — esbuild inlines shared modules into each entry/chunk, so a
  * shared helper's own location is not a stable offset to sibling files. The
- * `.ts` source candidate keeps vitest (which runs the un-bundled tree) working.
+ * `.ts` source candidate keeps unbundled source-tree execution working.
  *
  * @param relativeToRuntimeRoot e.g. "worker/entry.js" or "kernel/cli/foo.js"
  */

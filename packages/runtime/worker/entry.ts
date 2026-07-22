@@ -25,7 +25,7 @@ import {
  *
  *   bun run runtime/worker/entry.js
  *     -> default stdio mode. Parent process owns the worker; lifecycle is
- *        tied to stdin/stdout. Used by tests, by the legacy embedded
+ *        tied to stdin/stdout. Used by the legacy embedded
  *        worker codepath, and by the host adapter when the lifecycle
  *        manager spawns the worker as a regular child process.
  *
@@ -195,7 +195,7 @@ void main().catch((error) => {
 });
 
 export {
-  // Re-exports for tests / external callers.
+  // Re-exports for external callers.
   WorkerPeerBroker,
   parseWorkerListenUrl,
   parseWorkerArgs,

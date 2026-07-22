@@ -21,7 +21,7 @@ workspace names such as `@stella/desktop` never become the visible application
 or Safe Storage name. On macOS that keeps development compatible with the
 normal `Stella Safe Storage` Keychain service used by credentials in the shared
 home. The dev launcher strips inherited source/install paths and ignores the
-generic `STELLA_DATA_DIR`; only the explicit v2 test override below can select
+generic `STELLA_DATA_DIR`; only the explicit isolated-v2 override below can select
 another home.
 
 Packaged builds and ordinary `bun run electron:dev` launches both use
@@ -36,7 +36,7 @@ remain under that replaceable `userData` subtree. POSIX sockets use a short,
 owner-only per-user namespace under `/tmp` to stay within platform socket-path
 limits.
 
-Harnesses and tests can opt into an isolated home with
+Isolated development launches can opt into a separate home with
 `STELLA_V2_DEV_DATA_DIR`; its `electron-user-data` subtree and instance lock
 stay isolated with it. Overrides are rejected if they overlap or alias the
 normal `~/.stella` home. Destructive `bun run reset` and `bun run reset:sql`
@@ -136,7 +136,7 @@ an Authenticode verification step that requires a valid trusted signature.
 versioned macOS ZIP releases in a temporary directory, serves the newer
 `latest-v2-mac.yml` and payload from a loopback
 `desktop-v2/stable/<platform>` feed, and launches the older app with isolated
-Electron user/session/cache state, a test-only bundle ID, signed package
+Electron user/session/cache state, a verification-only bundle ID, signed package
 metadata marker, and Electron's mock macOS Keychain. Normal production bundles
 do not contain the verifier entry point, and the production updater refuses
 loopback URLs unconditionally. The verifier sets `autoInstallOnAppQuit=false`,

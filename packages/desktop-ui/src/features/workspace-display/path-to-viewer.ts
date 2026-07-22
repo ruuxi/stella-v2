@@ -3,7 +3,7 @@
  * `DisplayTabKind` / id / title.
  *
  * Kept render-free and dependency-free so the chat surface, IPC bridge, and
- * tests can all share the same routing rules.
+ * callers can all share the same routing rules.
  */
 
 import type { DisplayTabKind } from "./types";
@@ -306,7 +306,7 @@ export const tabIdForPath = (filePath: string): string => {
 };
 
 /**
- * Extension guards exported for tests & the resource-card UI.
+ * Extension guards used by the resource-card UI.
  */
 export const isPreviewableExtension = (extension: string | null): boolean =>
   extension != null && PREFERRED_RESOURCE_EXTS.has(extension);

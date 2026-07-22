@@ -1,9 +1,7 @@
 {
   // Runtime-scoped typecheck (`bun run runtime:typecheck`). The renderer,
-  // electron, and preload projects never include this package, so without
-  // this config the kernel/worker sources are only ever executed by vitest
-  // — type breaks (e.g. a callback missing from a completion API) stay
-  // invisible when test mocks stand in for the real modules.
+  // electron, and preload projects never include this package, so this config
+  // keeps type breaks (e.g. a callback missing from a completion API) visible.
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -17,5 +15,5 @@
     "types": ["node", "bun-types"]
   },
   "include": ["**/*.ts"],
-  "exclude": ["node_modules", "**/*.test.ts"]
+  "exclude": ["node_modules"]
 }

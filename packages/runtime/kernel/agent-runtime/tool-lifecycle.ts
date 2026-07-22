@@ -46,7 +46,7 @@ const logger = createRuntimeLogger("tool-lifecycle");
  * the same bound, so supervision never out-waits the loop by more than the
  * grace itself.
  */
-export const TOOL_ABORT_JOIN_GRACE_MS = 5_000;
+const TOOL_ABORT_JOIN_GRACE_MS = 5_000;
 
 export type ToolExecutionSupervisor = <T>(args: {
   toolCallId: string;
@@ -63,12 +63,10 @@ export type ToolExecutionSupervisor = <T>(args: {
  * turn that issued the tool calls.
  */
 export const createToolExecutionSupervisor = (opts: {
-  /** Absent (tests/one-shot paths): passthrough minus the duplicate guard. */
+  /** When absent, execute without run-resource supervision. */
   supervise?: RunResourceRegistrar | undefined;
-  /** Test seam; production uses {@link TOOL_ABORT_JOIN_GRACE_MS}. */
-  abortJoinGraceMs?: number;
 }): ToolExecutionSupervisor => {
-  const graceMs = opts.abortJoinGraceMs ?? TOOL_ABORT_JOIN_GRACE_MS;
+  const graceMs = TOOL_ABORT_JOIN_GRACE_MS;
   const inFlight = new Set<string>();
 
   return async ({ toolCallId, toolName, signal, run }) => {

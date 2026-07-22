@@ -15,5 +15,5 @@
   "include": [
     "electron/**/*"
   ],
-  "exclude": ["electron/preload.ts", "electron/store-web-preload.ts", "**/*.test.ts"],
+  "exclude": ["electron/preload.ts", "electron/store-web-preload.ts"],
 }

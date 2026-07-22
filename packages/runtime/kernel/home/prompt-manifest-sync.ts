@@ -78,7 +78,7 @@ const dynamicImport = (specifier: string): Promise<Record<string, unknown>> =>
   import(/* @vite-ignore */ specifier) as Promise<Record<string, unknown>>;
 
 /**
- * The prompt sync runs in both Electron/Node tests and Stella's detached Bun
+ * The prompt sync runs in Electron/Node and Stella's detached Bun
  * worker. A static `node:sqlite` import makes the lazily loaded runner chunk
  * fail before it can initialize under Bun, so resolve the native database
  * implementation for the current host at runtime instead.

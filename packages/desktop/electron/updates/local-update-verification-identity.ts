@@ -37,7 +37,7 @@ export const assertLocalUpdateVerificationRequest = (
     identity.packageBundleId !== LOCAL_UPDATE_VERIFICATION_APP_ID
   ) {
     throw new Error(
-      "Local updater verification is restricted to the packaged test-only application identity.",
+      "Local updater verification is restricted to the packaged verification-only application identity.",
     );
   }
 

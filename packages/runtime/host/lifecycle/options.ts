@@ -24,10 +24,7 @@ export type LifecycleStartOptions = {
 };
 
 /**
- * Retry/timeout policy for the attach pipeline. Production always runs the
- * defaults below (the facade does not expose overrides); the Effect-level
- * tests shrink the budgets so timeout/interruption paths run in
- * milliseconds instead of tens of seconds.
+ * Retry/timeout policy for the attach pipeline.
  */
 export type LifecycleBudgets = {
   /** Spacing of the spawn-readiness poll attempts. */

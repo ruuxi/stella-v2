@@ -82,7 +82,7 @@ export const activityExpansionStore = {
 
   save(conversationId: string, snapshot: ActivityExpansionSnapshot): void {
     // No window guard: `uiState` degrades to an in-memory map in windowless
-    // environments, which is exactly what unit tests want.
+    // environments without a browser storage surface.
     const map = readPersisted();
     // Monotonic stamp: same-millisecond saves would otherwise tie and make
     // LRU eviction order arbitrary.

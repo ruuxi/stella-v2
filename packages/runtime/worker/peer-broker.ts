@@ -15,7 +15,7 @@ type NotificationHandler = (params: unknown) => Promise<void> | void;
  * Minimal surface shared by `JsonRpcPeer` and `WorkerPeerBroker`. All
  * server-side helpers (notifyLocalChatUpdated, dispatchApplyBatch, etc.)
  * type their `peer` param against this so both single-peer (legacy
- * stdio embed, tests) and multi-peer (detached UDS) wiring work
+ * stdio embed) and multi-peer (detached UDS) wiring work
  * without any code-site changes.
  */
 export type WorkerPeerLike = {

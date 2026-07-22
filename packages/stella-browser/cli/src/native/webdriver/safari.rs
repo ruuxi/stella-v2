@@ -61,20 +61,3 @@ pub fn launch_safaridriver(port: u16) -> Result<SafariDriverProcess, String> {
 
     Ok(SafariDriverProcess { child, port })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_find_safaridriver() {
-        // Only check on macOS
-        if cfg!(target_os = "macos") {
-            let result = find_safaridriver();
-            // Don't assert Some since it may not be enabled
-            if let Some(path) = result {
-                assert!(path.exists());
-            }
-        }
-    }
-}

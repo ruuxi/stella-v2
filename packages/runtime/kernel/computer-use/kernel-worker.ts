@@ -12,7 +12,7 @@ import type {
 
 /**
  * Kept self-contained because the function body is stringified and started as
- * an eval worker. That makes the same entry work from Vitest source, compiled
+ * an eval worker. That makes the same entry work from source, compiled
  * Electron output, and bundled runtime chunks without a separate worker asset.
  */
 const nodeReplWorkerMain = async (

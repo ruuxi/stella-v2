@@ -8,9 +8,8 @@
  *
  * The two ends are linked by the stable `kind` markers embedded in the
  * message — NEVER by matching human-readable prose. Reworded or translated copy
- * therefore can't silently drop the specific error handling. The
- * `formatLlmRouteFailure`/`detectLlmRouteFailureKind` round-trip is covered by a
- * test so the contract can't drift.
+ * therefore can't silently drop the specific error handling. Keep the
+ * `formatLlmRouteFailure`/`detectLlmRouteFailureKind` round-trip aligned.
  */
 import { getProviderDisplayName } from "./provider-display.js";
 

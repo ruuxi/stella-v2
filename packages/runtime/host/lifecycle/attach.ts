@@ -70,10 +70,8 @@ const hostExecutableMatches = (
  * "version-mismatch" fails fast with the protocol parity error; deadline
  * lapse maps to the readiness-timeout parity error.
  *
- * Exported for the timing-parity regression tests only; the exports map
- * does not expose this module outside packages/runtime.
  */
-export const pollForWorkerReady = (
+const pollForWorkerReady = (
   paths: RuntimePaths,
   timeoutMs: number,
   budgets: LifecycleBudgets,
@@ -232,9 +230,9 @@ const discoverExistingWorker = (
  */
 export const startOrAttachWorkerEffect = (
   options: LifecycleStartOptions,
-  budgets: LifecycleBudgets = defaultLifecycleBudgets,
 ): Effect.Effect<LifecycleConnection, unknown, Scope.Scope> =>
   Effect.gen(function* () {
+    const budgets = defaultLifecycleBudgets;
     const paths = resolveRuntimePaths(options.stellaAppDir);
     yield* Effect.promise(() =>
       Promise.all([
@@ -264,9 +262,8 @@ export const startOrAttachWorkerEffect = (
   });
 
 /**
- * Stop a running worker by SIGTERM-then-SIGKILL. The worker also has its
- * own self-shutdown-on-idle timer, so this is mostly used by tests and
- * by `runtime restart` flows that want a synchronous tear-down.
+ * Stop a running worker by SIGTERM-then-SIGKILL for `runtime restart` flows
+ * that need a synchronous tear-down.
  */
 export const stopRunningWorkerEffect = (
   stellaAppDir: string,

@@ -6,8 +6,8 @@
  * `deriveConversationFiles` derivation, so the per-agent list dedupes by path
  * exactly like the old standalone Files section did.
  *
- * Kept as a pure module (no React) so the memoization signature is
- * unit-testable, mirroring the other extracted chat derivations.
+ * Kept as a pure module (no React) so the memoization signature is reusable,
+ * mirroring the other extracted chat derivations.
  */
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import {

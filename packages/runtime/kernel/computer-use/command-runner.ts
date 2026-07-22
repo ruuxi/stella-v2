@@ -66,7 +66,7 @@ export const createInProcessComputerCommandRunner =
 export const runComputerCommandInProcess =
   createInProcessComputerCommandRunner();
 
-// Explicit subprocess path retained for CLI diagnostics and process-boundary tests.
+// Explicit subprocess path retained for CLI diagnostics and isolated execution.
 export const runComputerCommandSubprocess: ComputerCommandRunner = async (
   request,
 ) => {

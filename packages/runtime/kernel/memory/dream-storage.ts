@@ -897,7 +897,6 @@ export type DreamMemoryLayoutTelemetry = {
 
 const ensureDreamMemoryLayoutLocked = async (
   stellaDataDir: string,
-  hooks?: DreamMemoryMigrationTestHooks,
 ): Promise<DreamMemoryLayoutTelemetry> => {
   const root = memoriesRoot(stellaDataDir);
   try {
@@ -934,7 +933,6 @@ const ensureDreamMemoryLayoutLocked = async (
     readStableLegacySource(memorySummaryPath(stellaDataDir), canonicalRoot),
   ]);
   const [indexSource, summarySource] = legacySnapshots;
-  await hooks?.afterLegacySnapshotsRead?.();
   const verifyLegacySources = async (): Promise<void> => {
     for (const snapshot of legacySnapshots) {
       await verifyLegacySourceSnapshot(snapshot, canonicalRoot);
@@ -957,18 +955,12 @@ const ensureDreamMemoryLayoutLocked = async (
   };
 };
 
-/** Test-only coordination point for deterministic filesystem race coverage. */
-export type DreamMemoryMigrationTestHooks = {
-  afterLegacySnapshotsRead?: () => void | Promise<void>;
-};
-
 export const ensureDreamMemoryLayout = async (
   stellaDataDir: string,
-  hooks?: DreamMemoryMigrationTestHooks,
 ): Promise<DreamMemoryLayoutTelemetry> => {
   try {
     const telemetry = await withDreamMemoryMigrationLock(stellaDataDir, () =>
-      ensureDreamMemoryLayoutLocked(stellaDataDir, hooks),
+      ensureDreamMemoryLayoutLocked(stellaDataDir),
     );
     logger.info("dream.memory-layout", telemetry);
     return telemetry;

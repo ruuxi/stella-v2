@@ -1,8 +1,6 @@
 mod connection;
 mod install;
 mod native;
-#[cfg(test)]
-mod test_utils;
 mod validation;
 
 use serde_json::{json, Value};

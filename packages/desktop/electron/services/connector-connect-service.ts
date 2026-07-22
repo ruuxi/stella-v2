@@ -457,7 +457,7 @@ export class ConnectorConnectService {
     if (alreadyInstalled) {
       // Extension files exist — it's likely disabled or the browser is
       // closed. Give the user a moment with the Web Store page (which
-      // shows the enable state), then let the worker's re-run test
+      // shows the enable state), then let the worker's retry
       // whether the bridge is actually back.
       await sleep(EXTENSION_ALREADY_INSTALLED_GRACE_MS);
       if (!this.pending.has(requestId)) return;

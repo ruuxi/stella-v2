@@ -46,10 +46,8 @@ export type SessionServices =
  * Service-graph evaluation (M5 phase 4): 13 services across two tiers
  * (worker: ModelCatalog/HostBus/WorkerSessions; session: the ten below).
  * A LayerNode-style DAG compiler was considered and REJECTED — one
- * hand-ordered chain per tier stays readable, the finalizer order is
- * documented here in one place, and it is pinned by the ordering
- * assertions in `session-lifecycle.test.ts` and
- * `worker-server-interruption.effect.test.ts`. Revisit only if a tier
+ * hand-ordered chain per tier stays readable and the finalizer order is
+ * documented here in one place. Revisit only if a tier
  * outgrows what this comment can order by hand.
  */
 const sessionLayer = (init: WorkerInitializationState, deviceId: string) =>

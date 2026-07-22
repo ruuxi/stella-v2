@@ -483,7 +483,7 @@ export const mergeConversationDisplayMessageSources = (args: {
  * the previous delta. So the merged ordering can be reused wholesale and only
  * the overlay objects swapped in by id, skipping the dedup + sort + filter.
  *
- * The three helpers below are pure so the equivalence is unit-testable.
+ * The three helpers below are pure so their equivalence is explicit.
  * ----------------------------------------------------------------------- */
 
 /**

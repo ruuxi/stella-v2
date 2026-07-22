@@ -3,7 +3,7 @@
  *
  * All side-effecting concerns (timers, IPC subscriptions, rAF batching,
  * React state) live in the surrounding hooks; this module is a plain
- * data transition layer so the same shapes are usable from tests
+ * data transition layer so the same shapes are usable from headless callers
  * without a React renderer.
  */
 import type { AttachmentRef } from './chat-types'

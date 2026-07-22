@@ -18,13 +18,6 @@ const PROTECTED_PREFIX = "stella-protected";
 
 let safeStorageCache: SafeStorageLike | null | undefined;
 
-/** Test-only injection; production and development both use Electron safeStorage. */
-export const setSafeStorageForTesting = (
-  provider: SafeStorageLike | null,
-): void => {
-  safeStorageCache = provider;
-};
-
 const getSafeStorage = (): SafeStorageLike => {
   if (safeStorageCache) {
     return safeStorageCache;

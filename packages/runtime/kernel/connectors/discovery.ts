@@ -71,11 +71,11 @@ type ScoreFields = {
 };
 
 /**
- * Exported for tests. Exact id/name hits dominate so `discover gmail`
+ * Exact id/name hits dominate so `discover gmail`
  * always puts the Gmail integration first even though "mail" appears in
  * dozens of descriptions.
  */
-export const scoreConnectorMatch = (
+const scoreConnectorMatch = (
   tokens: readonly string[],
   fields: ScoreFields,
 ): number => {

@@ -45,7 +45,7 @@ export type ExtensionServices = {
  * object at emit time from the live run options; hooks read whichever
  * accessors they need. Every field is optional so hooks must guard
  * before using them and emit sites are free to omit fields they don't
- * have wired (e.g. test runs without a renderer-side `appendLocalChatEvent`).
+ * have wired (e.g. headless runs without a renderer-side `appendLocalChatEvent`).
  */
 export type RuntimeRunServices = {
   /** Resolved LLM route the run used. Per-turn — finalize hooks reuse it for their follow-up calls (memory review, etc.). */

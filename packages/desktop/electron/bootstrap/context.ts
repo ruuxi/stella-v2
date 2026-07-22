@@ -65,7 +65,7 @@ export type BootstrapState = {
   petController: PetWindowController | null;
   /** Disposer returned by `registerPetHandlers`. Stored on the
    *  bootstrap state so the quit-cleanup can tear down every pet IPC
-   *  registration on app exit (or explicitly during tests). */
+   *  registration on app exit (or during explicit teardown). */
   petHandlersDispose: (() => void) | null;
   chronicleController: ChronicleController | null;
   meetingCaptureController: MeetingCaptureController | null;

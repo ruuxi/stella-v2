@@ -129,7 +129,7 @@ const tableColumns = (db: PortableSqliteDatabase, table: string): Set<string> =>
 const openDatabase = (stellaDataDir: string): PortableSqliteDatabase => {
   fs.mkdirSync(stellaDataDir, { recursive: true });
   // Runtime-portable driver (bun:sqlite under the detached worker,
-  // node:sqlite under tests/Electron): a static node:sqlite import here
+  // node:sqlite under Node/Electron): a static node:sqlite import here
   // crashed the runner chunk under Bun at load. The busy handler comes
   // from the PRAGMA below (identical to the old ctor `timeout` option —
   // both call sqlite3_busy_timeout).

@@ -186,7 +186,6 @@ export const readValidatedImageFileNoFollow = async (
 export const readAuthorizedImageReference = async (
   filePath: string,
   context: ToolContext,
-  hooks?: ReferenceReadHooks,
 ): Promise<AuthorizedImageReference> => {
   const roots = await authorizedRoots(context);
   if (roots.length === 0) {
@@ -196,7 +195,6 @@ export const readAuthorizedImageReference = async (
   }
   return await readValidatedImageFileNoFollow(filePath, {
     allowedRoots: roots,
-    ...(hooks ? { hooks } : {}),
   });
 };
 

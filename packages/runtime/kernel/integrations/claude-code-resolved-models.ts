@@ -108,7 +108,7 @@ export const readClaudeCodeResolvedModels = (
 /**
  * Persist a requested -> resolved mapping. Best-effort: failures are
  * swallowed (never fail a turn over display metadata), but the returned
- * promise resolves only after the write settles so tests can await it.
+ * promise resolves only after the write settles so callers can await it.
  */
 export const recordClaudeCodeResolvedModel = (
   stellaAppDir: string,

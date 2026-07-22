@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 // The Effect fence (M5): Effect lives ONLY in packages/runtime, and even
 // there it is banned from tool and prompt definitions so those stay plain
 // portable TS. Every source-bearing file in the banned packages is scanned —
-// src, tests, scripts, configs — not just the app entry roots.
+// source, scripts, and configs — not just the app entry roots.
 const isEffectImport = (specifier) =>
   specifier === "effect" || specifier.startsWith("effect/");
 // Runtime modules whose EXPORTED SIGNATURES carry Effect/Scope types. The
@@ -39,7 +39,7 @@ const walk = async (directory) => {
   try {
     entries = await readdir(directory, { withFileTypes: true });
   } catch {
-    return []; // root may not exist (fixture trees)
+    return []; // an optional package root may not exist
   }
   const files = [];
   for (const entry of entries) {
@@ -67,10 +67,9 @@ const moduleSpecifiers = (text) => {
 };
 
 /**
- * Scan a repo tree for workspace-boundary violations. Returns the offender
- * list instead of exiting so tests can run it against fixture trees.
+ * Scan a repo tree for workspace-boundary violations.
  */
-export const checkBoundaries = async (repoRoot) => {
+const checkBoundaries = async (repoRoot) => {
   const offenders = [];
   const inspect = async (root, isForbidden) => {
     for (const file of await walk(root)) {
@@ -105,9 +104,7 @@ export const checkBoundaries = async (repoRoot) => {
     }
     if (
       specifier === "node:sqlite" &&
-      !file.startsWith("packages/runtime/scripts/") &&
-      !file.startsWith("packages/runtime/tests/") &&
-      !/\.test\.tsx?$/.test(file)
+      !file.startsWith("packages/runtime/scripts/")
     ) {
       // The detached worker runs under Bun, which has no node:sqlite; a
       // static import crashes the runner chunk at load (desktop-v0.0.409,
@@ -118,8 +115,7 @@ export const checkBoundaries = async (repoRoot) => {
   });
 
   // packages/desktop-ui — the whole package is Effect-free. The stricter
-  // contracts-only import rule applies to renderer src (tests intentionally
-  // exercise @stella/runtime/worker/* internals; configs use build tooling).
+  // contracts-only import rule applies to renderer src; configs use build tooling.
   await inspect(path.join(repoRoot, "packages", "desktop-ui"), (specifier, file) => {
     if (isEffectImport(specifier)) {
       return "Effect is fenced inside packages/runtime";

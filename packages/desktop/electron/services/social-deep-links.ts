@@ -3,7 +3,7 @@
 // to the shared renderer grammar (`src/shared/social/invite-links.ts`) so
 // main can never divert a URL off the auth path that the renderer's
 // SocialInviteLayer then silently drops. Kept free of electron imports so
-// the routing rules are directly unit-testable.
+// the routing rules stay independent of Electron state.
 //
 // Recognized shapes (everything else stays untrusted and is dropped by the
 // auth-service funnel):

@@ -58,7 +58,7 @@ export function shouldUseLowPowerEffects(): boolean {
   return prefersReducedMotion() || isLowPowerDevice();
 }
 
-/** Sync `data-low-power` when boot script could not run (tests, dev HMR). */
+/** Sync `data-low-power` when the boot script could not run (for example, dev HMR). */
 export function applyLowPowerDocumentFlag(): void {
   if (typeof document === "undefined") return;
   if (shouldUseLowPowerEffects()) {

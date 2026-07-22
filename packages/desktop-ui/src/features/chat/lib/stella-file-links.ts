@@ -11,7 +11,7 @@
  * the reference out of the `<a href>` pipeline entirely, so
  * rehype-sanitize's protocol allow-list never sees a non-http URL.
  *
- * Kept render-free so tests and the markdown surface share one parser.
+ * Kept render-free so every markdown surface shares one parser.
  */
 
 import type { Plugin } from "unified";

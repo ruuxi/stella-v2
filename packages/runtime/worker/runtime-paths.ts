@@ -39,17 +39,12 @@ type RuntimePathOptions = {
   platform?: NodeJS.Platform;
   /** Electron userData root for ephemeral runtime state. */
   runtimeStateDir?: string;
-  /** Legacy/test-only home injection preserving the old ~/.stella layout. */
-  homeDir?: string;
   /** Short POSIX socket root; defaults to a per-user directory under /tmp. */
   runtimeIpcDir?: string;
 };
 
 const resolveRuntimeStateDir = (options?: RuntimePathOptions): string => {
   if (options?.runtimeStateDir) return path.resolve(options.runtimeStateDir);
-  if (options?.homeDir) {
-    return path.join(path.resolve(options.homeDir), ".stella");
-  }
   const configured = process.env.STELLA_RUNTIME_STATE_DIR?.trim();
   return configured
     ? path.resolve(configured)
@@ -126,12 +121,12 @@ const windowsNamedPipePath = (name: string, rootHash: string): string =>
 export const createSecureCliBridgeEndpoint = (
   paths: Pick<RuntimePaths, "rootDir" | "rootHash"> &
     Partial<Pick<RuntimePaths, "ipcDir">>,
-  options?: { platform?: NodeJS.Platform; nonce?: string },
 ): string => {
-  const platform = options?.platform ?? process.platform;
-  const nonce = (
-    options?.nonce ?? crypto.randomBytes(16).toString("hex")
-  ).replace(/[^A-Za-z0-9_-]/gu, "");
+  const platform = process.platform;
+  const nonce = crypto
+    .randomBytes(16)
+    .toString("hex")
+    .replace(/[^A-Za-z0-9_-]/gu, "");
   if (nonce.length < 32) {
     throw new Error(
       "CLI bridge nonce must contain at least 128 bits of entropy.",

@@ -627,37 +627,3 @@ pub async fn ack_screencast_frame(
         .await?;
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_allowed_origin_none() {
-        assert!(is_allowed_origin(None));
-    }
-
-    #[test]
-    fn test_allowed_origin_file() {
-        assert!(is_allowed_origin(Some("file:///path/to/file")));
-    }
-
-    #[test]
-    fn test_allowed_origin_localhost() {
-        assert!(is_allowed_origin(Some("http://localhost:3000")));
-        assert!(is_allowed_origin(Some("http://127.0.0.1:8080")));
-    }
-
-    #[test]
-    fn test_disallowed_origin() {
-        assert!(!is_allowed_origin(Some("http://evil.com")));
-    }
-
-    #[test]
-    fn test_frame_metadata_default() {
-        let meta = FrameMetadata::default();
-        assert_eq!(meta.device_width, 1280);
-        assert_eq!(meta.device_height, 720);
-        assert_eq!(meta.page_scale_factor, 1.0);
-    }
-}

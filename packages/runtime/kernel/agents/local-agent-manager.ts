@@ -192,7 +192,7 @@ type RuntimeAgentRecord = {
    * while a tool call is running, so mid-call this stamp goes stale by
    * design — `activeToolCount` below is the authoritative in-flight signal.
    * Timeout/idle logic must never trust this timestamp alone; check the
-   * count first (see the Schedule tool's idle test in tools/schedule.ts).
+   * count first (see the Schedule tool's idle accounting in tools/schedule.ts).
    */
   lastActivityAt: number;
   /**
@@ -453,8 +453,6 @@ const taskToolActivityFromEnd = (event: {
 
 type LocalAgentManagerOpts = {
   maxConcurrent?: number;
-  /** Bounded ownership handoff for an aborted attempt that never settles. */
-  attemptTeardownTimeoutMs?: number;
   getMaxConcurrent?: () => number;
   resolveTaskThread?: (args: {
     conversationId: string;
@@ -1512,11 +1510,7 @@ export class LocalAgentManager implements AgentToolApi {
       return;
     }
     this.clearAttemptTakeoverTimer(task.threadId);
-    const timeoutMs = Math.max(
-      1,
-      this.opts.attemptTeardownTimeoutMs ??
-        DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS,
-    );
+    const timeoutMs = DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS;
     const timer = setTimeout(() => {
       const inFlight = this.inFlightAttempts.get(task.threadId);
       const takeover = this.attemptTakeoverTimers.get(task.threadId);

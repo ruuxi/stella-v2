@@ -25,10 +25,8 @@ import {
 import type { ToolDefinition } from "../types.js";
 
 export type MapToolOptions = {
-  /** Override the stella.sh base (tests, self-hosted resolve). */
+  /** Override the stella.sh base for self-hosted resolution. */
   siteBaseUrl?: string;
-  /** Injectable fetch for tests. */
-  fetchImpl?: typeof fetch;
 };
 
 const RESOLVE_TIMEOUT_MS = 25_000;
@@ -140,7 +138,6 @@ const summarizeArtifact = (
 };
 
 export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
-  const fetchImpl = options.fetchImpl ?? fetch;
   const resolveBase = () =>
     (
       options.siteBaseUrl ??
@@ -189,7 +186,7 @@ export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
       const onAbort = () => controller.abort();
       extras?.signal?.addEventListener("abort", onAbort, { once: true });
       try {
-        const response = await fetchImpl(
+        const response = await fetch(
           `${resolveBase()}${MAPS_RESOLVE_PATH}`,
           {
             method: "POST",

@@ -82,8 +82,7 @@
    (`chat-workspace-strip__task-progress-item`: --text-weak ink, a size step
    below the row label).
 
-   TWO facts about the REAL rendered DOM shape everything below (confirmed
-   by unit-rendering the card — see agent-completion-render.test.tsx):
+   TWO facts about the REAL rendered DOM shape everything below:
 
    1. The card sits inside a chat row, where full-shell.chat.css's
       `.event-item.assistant .markdown` (0,3,0) paints the markdown root

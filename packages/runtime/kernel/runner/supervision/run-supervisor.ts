@@ -67,7 +67,7 @@ export type KernelRunSupervisor = {
   cancelRun: (runId: string, reason?: string) => Promise<void>;
   /** Resolves once the run's scope has no live fibers. Does not interrupt. */
   awaitRunTermination: (runId: string) => Promise<void>;
-  /** Total live supervised fibers across all runs (tests/telemetry). */
+  /** Total live supervised fibers across all runs for runtime telemetry. */
   liveFiberCount: () => number;
   /** Interrupt and join everything (runs + detached children). Idempotent. */
   shutdown: () => Promise<void>;

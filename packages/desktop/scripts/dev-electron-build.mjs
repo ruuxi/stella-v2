@@ -590,7 +590,7 @@ const resolveBunBinary = () => {
 
 /**
  * Import every worker chunk under Bun — the runtime the detached worker
- * actually runs on, unlike the Node-based test suite. Chunks execute their
+ * actually runs on, unlike a plain Node process. Chunks execute their
  * module scope on import, which is exactly where the desktop-v0.0.409 outage
  * lived (a static `node:sqlite` import Node accepts but Bun rejects): the
  * worker's socket came up, but the lazy runner chunk crashed on load and

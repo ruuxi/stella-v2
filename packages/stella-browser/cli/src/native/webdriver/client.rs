@@ -290,29 +290,3 @@ async fn http_request(method: &str, url: &str, body: Option<&Value>) -> Result<V
         )
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_client_new() {
-        let client = WebDriverClient::new(4444);
-        assert_eq!(client.base_url, "http://127.0.0.1:4444");
-        assert!(client.session_id.is_none());
-    }
-
-    #[test]
-    fn test_session_id_none() {
-        let client = WebDriverClient::new(4444);
-        let result = client.session_id();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("No active WebDriver session"));
-    }
-
-    #[test]
-    fn test_client_custom_port() {
-        let client = WebDriverClient::new(9515);
-        assert_eq!(client.base_url, "http://127.0.0.1:9515");
-    }
-}

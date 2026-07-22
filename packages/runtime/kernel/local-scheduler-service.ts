@@ -45,7 +45,7 @@ type LocalSchedulerState = {
 /**
  * Optional OS-notification surface. The runtime client wires this to the
  * Electron-side `showStellaNotification` so each delivered scheduled
- * message also pops a native banner. Headless contexts (tests, the
+ * message also pops a native banner. Headless contexts (the
  * mobile/social runtime if it ever embeds the scheduler) leave it
  * undefined and silently skip notifications.
  */

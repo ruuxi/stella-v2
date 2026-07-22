@@ -42,7 +42,7 @@ const logger = createRuntimeLogger("supervised-scope");
 const supervisionRuntime = ManagedRuntime.make(Layer.empty);
 
 export type SupervisedWork = {
-  /** Short human tag for logs and test assertions. */
+  /** Short human tag for logs and diagnostics. */
   label: string;
   /**
    * Cooperative cancel for the underlying unit (typically
@@ -65,7 +65,7 @@ export type SupervisedScope = {
    * work is aborted immediately (shutdown race) and no fiber is created.
    */
   supervise: (work: SupervisedWork) => void;
-  /** Number of live supervised fibers (tests/telemetry). */
+  /** Number of live supervised fibers for runtime telemetry. */
   liveCount: () => number;
   /** Resolves once every live fiber has finalized. Does not interrupt. */
   quiesced: () => Promise<void>;

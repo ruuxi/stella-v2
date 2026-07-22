@@ -6357,7 +6357,7 @@ func envBool(_ key: String) -> Bool {
 }
 
 // Apply uniformly to click, type, press. Old click-specific name retained
-// for back-compat in tests; new uniform name takes precedence if both set.
+// for backward compatibility; the new uniform name takes precedence if both are set.
 func alwaysSimulateInput() -> Bool {
     envBool("STELLA_COMPUTER_ALWAYS_SIMULATE_INPUT") ||
         envBool("STELLA_COMPUTER_ALWAYS_SIMULATE_CLICK")

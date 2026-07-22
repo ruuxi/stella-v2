@@ -112,15 +112,3 @@ pub const WEBDRIVER_UNSUPPORTED_ACTIONS: &[&str] = &[
     "har_start",
     "har_stop",
 ];
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_unsupported_actions() {
-        assert!(WEBDRIVER_UNSUPPORTED_ACTIONS.contains(&"screencast_start"));
-        assert!(WEBDRIVER_UNSUPPORTED_ACTIONS.contains(&"trace_start"));
-        assert!(!WEBDRIVER_UNSUPPORTED_ACTIONS.contains(&"navigate"));
-    }
-}

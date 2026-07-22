@@ -7,7 +7,7 @@ import { useEffect, useState, type RefObject } from "react";
  * when the user scrolls slightly off-screen and back.
  *
  * Returns `true` immediately on environments without
- * `IntersectionObserver` (older renderers / tests) so callers fall
+ * `IntersectionObserver` (older renderers) so callers fall
  * back to eager mounting rather than blocking forever.
  */
 export const useHasBeenVisible = (

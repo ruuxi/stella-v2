@@ -23,7 +23,7 @@
  *      `use-event-rows` collapses that duplicate (keyed by `agentId` +
  *      `completedAtMs`).
  *
- * Kept as a pure module (no React) so the derivation is unit-testable,
+ * Kept as a pure module (no React) so the derivation is reusable,
  * mirroring the other extracted chat derivations.
  */
 import type { EventRecord } from "./event-transforms";

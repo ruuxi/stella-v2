@@ -326,7 +326,6 @@ const scoreDeferredTool = (tool: ToolMetadata, queryTokens: string[]) => {
   return score;
 };
 
-// Exported for tests. See `desktop/tests/runtime/kernel/agent-runtime/stella-attach-image.test.ts`.
 export const extractAttachImageBlocks = async (
   text: string,
   target: ImageCapTarget = {},
@@ -668,8 +667,7 @@ export const createPiTools = (opts: {
   /**
    * Registers each tool execution as a child resource of the owning run's
    * supervision scope (fiber-derived abort, teardown-joining settlement,
-   * duplicate-execution guard). Absent (tests/one-shot paths): tools run
-   * exactly as before, minus supervision.
+   * duplicate-execution guard). When absent, tools run without supervision.
    */
   superviseRunResource?: RunResourceRegistrar;
 }): AgentTool[] => {

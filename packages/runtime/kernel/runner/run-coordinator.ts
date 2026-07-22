@@ -8,8 +8,7 @@
  * rehydration — keeps observing the same fields; this module is the single
  * writer for admission and the only consumer of the queue.
  *
- * Structural guarantees (each pinned by
- * `tests/runtime/kernel/runner/run-coordinator.test.ts`):
+ * Structural guarantees:
  *
  * - **One active drain per lane.** The drain runs as one Effect fiber forked
  *   into the coordinator's scope; overlapping wakeups can never start a
@@ -59,8 +58,7 @@ export type ActiveOrchestratorRunRegistration = {
 
 /**
  * The mutable lane mirror the coordinator administers. Structurally a subset
- * of `RunnerState`, kept loose so unit tests can drive the coordinator with
- * a minimal state object.
+ * of `RunnerState` so the coordinator stays decoupled from unrelated state.
  */
 export type RunCoordinatorHost = {
   state: {
@@ -101,8 +99,6 @@ export type RunCoordinator = {
   drainNow: () => Promise<void>;
   pendingTurnCount: () => number;
   isDraining: () => boolean;
-  /** Number of drain fibers ever forked (coalescing assertions in tests). */
-  drainPassCount: () => number;
   /**
    * Interrupt the drain fiber and join the in-flight turn. Idempotent and
    * terminal: no wakeup or drain runs afterwards. Queue/slot mirrors are
@@ -118,7 +114,6 @@ export const createRunCoordinator = (
   let draining = false;
   let wakePending = false;
   let closed = false;
-  let drainPasses = 0;
   let closePromise: Promise<void> | null = null;
   const passWaiters: Array<() => void> = [];
 
@@ -174,7 +169,6 @@ export const createRunCoordinator = (
       return;
     }
     draining = true;
-    drainPasses += 1;
     coordinatorRuntime.runSync(
       Effect.forkIn(drainEffect, scope, { startImmediately: true }),
     );
@@ -247,7 +241,6 @@ export const createRunCoordinator = (
     },
     pendingTurnCount: () => host.state.queuedOrchestratorTurns.length,
     isDraining: () => draining,
-    drainPassCount: () => drainPasses,
     shutdown: () => {
       if (closePromise) {
         return closePromise;

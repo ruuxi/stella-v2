@@ -126,7 +126,7 @@ export type RuntimeWorkerLifecycleControllerOptions = {
    * resulting Unix-domain-socket in a JsonRpcPeer. Returns a
    * `WorkerConnection` whose `process.kill()` only kills the worker if
    * `killWorkerOnStop?.(reason)` is true (so an Electron restart leaves
-   * the worker running for the next host). Tests inject a mock here.
+   * the worker running for the next host).
    */
   createConnectionAsync: (workerEntryPath: string) => Promise<WorkerConnection>;
   initializeConnection: (connection: WorkerConnection) => Promise<void>;

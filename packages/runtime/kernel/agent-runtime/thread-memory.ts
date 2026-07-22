@@ -384,7 +384,7 @@ const buildFileEditingPrompt = (context: LocalAgentContext): string | null => {
       "File edits:",
       "- Use `Write` for new files or full-file replacements.",
       "- Use `Edit` for targeted text replacements inside existing files.",
-      "- Use `exec_command` for read-only inspection, builds/tests, package-manager commands, and commands that create external artifacts.",
+      "- Use `exec_command` for read-only inspection, builds/checks, package-manager commands, and commands that create external artifacts.",
       "- Do not use shell heredocs or `cat > file` for source edits when `Write` or `Edit` can express the change.",
     ].join("\n");
   }
@@ -396,7 +396,7 @@ const buildFileEditingPrompt = (context: LocalAgentContext): string | null => {
   return [
     "File edits:",
     "- Prefer `apply_patch` for source and text-file edits so changes are tracked as structured patches.",
-    "- Use `exec_command` for read-only inspection, builds/tests, package-manager commands, and commands that create external artifacts.",
+    "- Use `exec_command` for read-only inspection, builds/checks, package-manager commands, and commands that create external artifacts.",
     "- Do not use shell heredocs or `cat > file` for source edits when `apply_patch` can express the change.",
   ].join("\n");
 };
@@ -616,7 +616,7 @@ export const buildStartupPromptMessages = async (args: {
 
 /**
  * Hook context fields passed to the `before_user_message` emitter.
- * Optional because direct test callers and external engines can build
+ * Optional because external engines can build
  * prompt messages without a hook emitter; in that case the hook fan-out
  * is skipped and the kernel produces a bundled-startup-only prompt.
  */
@@ -756,7 +756,7 @@ export const buildOrchestratorPromptMessages = async (args: {
   // here; they now live as `before_user_message` hooks in
   // `~/.stella/extensions/stella-runtime/hooks/`. The reminder text is
   // forwarded through the hook payload so the hooks can decide whether
-  // to inject. When no hook emitter is wired (legacy / direct test
+  // to inject. When no hook emitter is wired (legacy / external
   // callers) the prompt builds without reminders, matching the
   // pre-migration behavior for those callers.
   if (args.agentType && args.hookContext) {

@@ -6,9 +6,8 @@
 // BEGIN IMMEDIATE before authoritative reads, and writes a durable logical
 // backup that can be reversed with --restore.
 //
-// RUNTIME REQUIREMENT: run this script — and its vitest suite
-// (packages/desktop-ui/tests/runtime/scripts/repair-stub-compaction-checkpoint.test.ts) —
-// under real Node >= 22 (e.g. /opt/homebrew/bin/node), NOT Bun. Bun 1.3.x
+// RUNTIME REQUIREMENT: run this script under real Node >= 22
+// (e.g. /opt/homebrew/bin/node), NOT Bun. Bun 1.3.x
 // does not ship the `node:sqlite` module this script depends on.
 //
 // Repair:

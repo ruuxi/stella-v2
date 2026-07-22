@@ -58,7 +58,7 @@ const hasStampedSuffix = (name: string): boolean => {
 
 /**
  * The worker entry lives at `<bundleRoot>/worker/entry.js` (bundled) or
- * `<repoRoot>/packages/runtime/worker/entry.ts` (unbundled/vitest). Either way the
+ * `<repoRoot>/packages/runtime/worker/entry.ts` (unbundled source). Either way the
  * runtime tree root is one directory up from the entry's directory.
  */
 export const resolveRuntimeBundleRoot = (workerEntryPath: string): string =>

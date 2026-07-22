@@ -33,10 +33,10 @@ const logger = createRuntimeLogger("external-engine-lifecycle");
  * (SIGINT → 1.5s → SIGTERM → 4s → SIGKILL); 10s leaves margin for exit
  * handlers to settle the pending step without ever hanging cancellation.
  */
-export const ENGINE_ABORT_JOIN_GRACE_MS = 10_000;
+const ENGINE_ABORT_JOIN_GRACE_MS = 10_000;
 
 export const superviseExternalEngineTurn = async <T>(args: {
-  /** Absent (tests/unwired paths): exact passthrough. */
+  /** When absent, execute the engine turn without run-resource supervision. */
   supervise: RunResourceRegistrar | undefined;
   engine: "claude-code" | "codex";
   runId: string;
@@ -44,13 +44,11 @@ export const superviseExternalEngineTurn = async <T>(args: {
   signal: AbortSignal | undefined;
   /** The engine turn body. Must observe the signal it is handed. */
   run: (signal: AbortSignal | undefined) => Promise<T>;
-  /** Test seam; production uses {@link ENGINE_ABORT_JOIN_GRACE_MS}. */
-  abortJoinGraceMs?: number;
 }): Promise<T> => {
   if (!args.supervise) {
     return args.run(args.signal);
   }
-  const graceMs = args.abortJoinGraceMs ?? ENGINE_ABORT_JOIN_GRACE_MS;
+  const graceMs = ENGINE_ABORT_JOIN_GRACE_MS;
   const label = `external-engine:${args.engine}:${args.runId}`;
   const outer = args.signal;
   const relay = new AbortController();

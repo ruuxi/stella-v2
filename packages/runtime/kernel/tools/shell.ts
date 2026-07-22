@@ -900,7 +900,7 @@ export const resolveShellNodeBinary = (
   const hostExecutable = env.STELLA_HOST_EXECUTABLE_PATH?.trim();
   if (hostExecutable && existsSync(hostExecutable)) return hostExecutable;
 
-  // Tests and non-Electron embeddings commonly run the kernel under Node.
+  // Non-Electron embeddings commonly run the kernel under Node.
   return process.execPath;
 };
 
@@ -1033,7 +1033,7 @@ const buildShellEnv = (
 // hand the runtime a `process.env` whose PATH does not include /bin, so
 // spawning bare "bash" fails with `ENOENT: posix_spawn 'bash'`. Probe for
 // /bin/bash first; fall back to PATH-resolved "bash" only if it isn't there
-// (e.g. a stripped-down BSD jail), which keeps test environments working.
+// (e.g. a stripped-down BSD jail), which keeps constrained environments working.
 const UNIX_BASH_CANDIDATES = [
   "/bin/bash",
   "/usr/bin/bash",

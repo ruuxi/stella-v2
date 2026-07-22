@@ -1377,16 +1377,6 @@ class ClaudeCodeSessionRuntime {
     });
   }
 
-  /**
-   * Diagnostic/test hook: whether a live CLI child is tracked for the
-   * session key. Guards against restart races where a stale close handler
-   * would otherwise evict the replacement child from tracking.
-   */
-  hasActiveProcess(sessionKey: string): boolean {
-    const child = this.activeProcesses.get(sessionKey);
-    return Boolean(child && !child.killed && child.exitCode === null);
-  }
-
   closeSessionWhenIdle(sessionKey: string): void {
     this.clearIdleCloseTimer(sessionKey);
     const session = this.sessions.get(sessionKey);
@@ -2641,11 +2631,6 @@ export const isClaudeCodeModel = (modelId: string): boolean =>
 export const runClaudeCodeTurn = async (
   request: ClaudeCodeTurnRequest,
 ): Promise<ClaudeCodeTurnResult> => await runtime.runTurn(request);
-
-/** Diagnostic/test hook: is a live CLI process tracked for this session key? */
-export const claudeCodeSessionHasActiveProcess = (
-  sessionKey: string,
-): boolean => runtime.hasActiveProcess(sessionKey);
 
 export const closeClaudeCodeSessionWhenIdle = (sessionKey: string): void => {
   runtime.closeSessionWhenIdle(sessionKey);

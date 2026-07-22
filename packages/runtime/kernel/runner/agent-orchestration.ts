@@ -310,8 +310,6 @@ export const createAgentOrchestration = (
       customType?: string;
       display?: boolean;
     }) => Promise<void>;
-    /** Test/embedding override; production uses the manager's bounded default. */
-    attemptTeardownTimeoutMs?: number;
   },
 ) => {
   const handleAgentLifecycleEvent = (rawEvent: AgentLifecycleEvent) => {
@@ -321,8 +319,8 @@ export const createAgentOrchestration = (
     // header.
     let event = rawEvent;
     if (!event.groupKey) {
-      // Optional-chained like the other runtimeStore lookups here: test
-      // harnesses stub partial stores.
+      // Optional-chained like the other runtimeStore lookups here so partial
+      // runtime-store adapters remain supported.
       const group = context.runtimeStore.getThreadGroup?.(event.agentId);
       if (group?.groupKey) {
         event = {
@@ -525,9 +523,6 @@ export const createAgentOrchestration = (
 
   context.state.localAgentManager = new LocalAgentManager({
     maxConcurrent: 24,
-    ...(deps.attemptTeardownTimeoutMs !== undefined
-      ? { attemptTeardownTimeoutMs: deps.attemptTeardownTimeoutMs }
-      : {}),
     getMaxConcurrent: () => getMaxAgentConcurrency(context.stellaDataDir),
     resolveTaskThread: ({ conversationId, agentType, threadId, nameHint }) => {
       if (!isLocalCliAgentId(agentType)) {

@@ -280,9 +280,9 @@ export type OrchestratorRunOptions = BaseRunOptions & {
    * survives across turns and provider prompt-cache prefixes stay stable.
    * The external engine path (`runExternalOrchestratorTurn`) ignores this
    * field; external engines own their own session concept on the binary
-   * side. Direct test helpers may omit it and get an ephemeral session
-   * through `runOrchestratorTurn`, but the Pi execution path is still the
-   * same session code.
+   * side. Callers that omit it get an ephemeral session through
+   * `runOrchestratorTurn`, but the Pi execution path is still the same
+   * session code.
    */
   orchestratorSession?: OrchestratorSession;
 };

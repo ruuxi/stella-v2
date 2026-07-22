@@ -307,7 +307,7 @@ export const createToolHost = ({
       // display name, " agent" suffix). Use the agent definition's `name`
       // field so the Fashion path doesn't degrade to "the fashion." (broken
       // grammar, leaked internal id) — but special-case the orchestrator so
-      // existing UI/error consumers and tests pinning that exact substring
+      // existing UI/error consumers that depend on that exact substring
       // keep working.
       const formatAllowedAgent = (id: string): string => {
         if (id === AGENT_IDS.ORCHESTRATOR) return "the orchestrator";

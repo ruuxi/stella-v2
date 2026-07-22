@@ -342,9 +342,7 @@ function consumeLine(text: string): { line: string; rest: string } | null {
 	};
 }
 
-// Exported for tests (transport close-once coverage); not part of the
-// provider's public adapter surface.
-export async function* iterateSseMessages(
+async function* iterateSseMessages(
 	body: ReadableStream<Uint8Array>,
 	signal?: AbortSignal,
 ): AsyncGenerator<ServerSentEvent> {
@@ -1514,9 +1512,7 @@ function convertAssistantContentBlocks(
 	return blocks;
 }
 
-// Exported for tests: asserts the outgoing Anthropic request shape, including
-// validation/repair of tool-produced image blocks.
-export function convertMessages(
+function convertMessages(
 	messages: Message[],
 	model: Model<"anthropic-messages">,
 	isOAuthToken: boolean,

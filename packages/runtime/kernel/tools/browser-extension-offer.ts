@@ -73,12 +73,6 @@ type OfferGateState = {
 
 const gate: OfferGateState = { lastRefusedAt: null, inFlight: false };
 
-/** Test hook: reset the module-level offer gate. */
-export const resetBrowserExtensionOfferGate = () => {
-  gate.lastRefusedAt = null;
-  gate.inFlight = false;
-};
-
 export const isBrowserExtensionFailure = (
   command: string,
   payload: { running?: unknown; output?: unknown } | undefined,
@@ -142,10 +136,8 @@ export const maybeRequestBrowserExtensionConnect = async (options: {
   conversationId?: string;
   agentId?: string;
   signal?: AbortSignal;
-  now?: () => number;
 }): Promise<BrowserExtensionConnectOutcome | null> => {
   const command = options.command ?? "stella-browser";
-  const now = options.now ?? Date.now;
   if (!options.requestConnect || options.signal?.aborted) return null;
   if (
     !isBrowserExtensionFailure(command, {
@@ -158,7 +150,7 @@ export const maybeRequestBrowserExtensionConnect = async (options: {
   if (gate.inFlight) return { ok: false, reason: "already_in_flight" };
   if (
     gate.lastRefusedAt !== null &&
-    now() - gate.lastRefusedAt < DECLINE_COOLDOWN_MS
+    Date.now() - gate.lastRefusedAt < DECLINE_COOLDOWN_MS
   ) {
     return { ok: false, reason: "cooldown" };
   }
@@ -191,7 +183,7 @@ export const maybeRequestBrowserExtensionConnect = async (options: {
     !outcome.ok &&
     (outcome.reason === "declined" || outcome.reason === "timeout")
   ) {
-    gate.lastRefusedAt = now();
+    gate.lastRefusedAt = Date.now();
   }
   return outcome;
 };
@@ -210,8 +202,6 @@ export const maybeOfferBrowserExtensionConnect = async (options: {
   conversationId?: string;
   agentId?: string;
   signal?: AbortSignal;
-  /** Injectable clock for tests. */
-  now?: () => number;
 }): Promise<ToolResult> => {
   const {
     result,
@@ -222,7 +212,6 @@ export const maybeOfferBrowserExtensionConnect = async (options: {
     agentId,
     signal,
   } = options;
-  const now = options.now ?? Date.now;
   if (!requestConnect) return result;
   if (signal?.aborted) return result;
   const payload = execPayloadOf(result);
@@ -236,7 +225,7 @@ export const maybeOfferBrowserExtensionConnect = async (options: {
   }
   if (
     gate.lastRefusedAt !== null &&
-    now() - gate.lastRefusedAt < DECLINE_COOLDOWN_MS
+    Date.now() - gate.lastRefusedAt < DECLINE_COOLDOWN_MS
   ) {
     return annotate(
       result,
@@ -268,7 +257,7 @@ export const maybeOfferBrowserExtensionConnect = async (options: {
 
   if (!outcome.ok) {
     if (outcome.reason === "declined" || outcome.reason === "timeout") {
-      gate.lastRefusedAt = now();
+      gate.lastRefusedAt = Date.now();
       return annotate(
         result,
         outcome.reason === "declined"
@@ -284,7 +273,7 @@ export const maybeOfferBrowserExtensionConnect = async (options: {
   if (isBrowserExtensionFailure(command, execPayloadOf(retried) ?? undefined)) {
     // The user accepted but the bridge still isn't up (extension disabled,
     // browser closed, install still settling). Don't loop offers.
-    gate.lastRefusedAt = now();
+    gate.lastRefusedAt = Date.now();
     return annotate(
       retried,
       "The user accepted the browser-extension connect card, but the browser service still cannot reach the extension (the browser may be closed or the extension disabled). Do not re-offer; continue through the persistent `node_repl` `sky` API for visible browser control, or briefly tell the user what is still missing.",

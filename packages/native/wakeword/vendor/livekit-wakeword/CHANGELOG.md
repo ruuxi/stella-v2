@@ -38,8 +38,6 @@ This PRs provides options to set a bounded buffer for video stream, and use 1 bu
 - Fix mel spectrogram post-processing normalization (`x/10 + 2`) to match the openWakeWord pipeline
 - Custom `WakeWordError` enum replacing `Box<dyn Error>` in the public API
 
-### Test plan
-- [x] `cargo test -p livekit-wakeword` — integration tests exercise the full pipeline
 - [x] Validates score output is in [0.0, 1.0] range
 - [x] Validates too-short audio returns zero scores
 - [x] Positive WAV sample ("Hey LiveKit") scores >= 0.5 threshold

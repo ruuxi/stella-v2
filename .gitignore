@@ -76,7 +76,7 @@ DEV-CONTEXT.md
 # TanStack Router temporary files (machine-generated).
 /.tanstack/
 
-# Exec worker fallback CJS cache (Node-test runtime only; Bun loads .ts directly).
+# Exec worker fallback CJS cache (Node fallback runtime only; Bun loads .ts directly).
 packages/runtime/kernel/exec/.exec-worker-cache/
 
 

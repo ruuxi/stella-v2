@@ -28,8 +28,7 @@ import * as RunnerCell from "./runner-cell.js";
  * need to call back into the host without speaking the full runtime JSON-RPC
  * protocol. Connector-capable children may launch immediately after
  * initialize returns, so this layer builds (and therefore listens) BEFORE
- * the session is reported ready — a startup failure fails initialization,
- * preserving the old `afterRequiredCliBridgeReady` gate.
+ * the session is reported ready, so a startup failure fails initialization.
  */
 export interface Interface {
   /** Stable socket path advertised to the runner; undefined when unsupported. */

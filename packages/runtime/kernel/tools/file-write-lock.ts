@@ -92,9 +92,6 @@ export const withFileWriteLocks = async <T>(
   return run();
 };
 
-/** Exposed for tests: number of paths with an in-flight lock chain. */
-export const pendingFileWriteLockCount = (): number => queues.size;
-
 const containsUnexpectedNul = (written: string, intended: string): boolean =>
   written.includes("\u0000") && !intended.includes("\u0000");
 

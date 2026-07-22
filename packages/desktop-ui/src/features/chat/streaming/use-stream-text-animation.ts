@@ -91,7 +91,7 @@ export function streamRevealRate(
   return Math.min(rate, coastRate)
 }
 
-/** Pure cadence step, exported so timing guarantees can be tested directly. */
+/** Pure cadence step, exported so timing guarantees can be checked directly. */
 export function stepStreamReveal(args: {
   backlog: number
   carry: number

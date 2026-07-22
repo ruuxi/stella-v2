@@ -11,7 +11,7 @@ aesthetics.
 
 | Seam | Owner |
 | --- | --- |
-| Worker RPC services + session graph | `worker/server/` Layers; teardown order pinned by `session-lifecycle` / `worker-server-interruption` tests |
+| Worker RPC services + session graph | `worker/server/` Layers; teardown order documented in `worker/server/sessions.ts` |
 | Host worker lifecycle (lock/spawn/kill/readiness) | `host/lifecycle/` Scope + Schedule |
 | Orchestrator lane admission + queued-turn drain | `kernel/runner/run-coordinator.ts` |
 | Run fiber tree (turns, subagent attempts) | `kernel/runner/supervision/run-supervisor.ts` over `shared/supervised-scope.ts` |
@@ -27,14 +27,13 @@ aesthetics.
 ## Retained imperative seams (deliberate, with reasons)
 
 - `ai/utils/resilient-event-stream.ts` — reconnect/backoff state machine.
-  Timers/listeners are finally-scoped, its single consumer runs under a
-  run-scoped fiber, and it has a dedicated behavioral test suite; a
+  Timers/listeners are finally-scoped and its single consumer runs under a
+  run-scoped fiber; a
   Stream/Schedule rewrite risks resume-cursor parity for zero ownership
   gain.
 - Provider adapters (`ai/providers/*`) — boundary code over SDKs/fetch.
   Network lifetime derives from run-scope relay signals (phases 2–3);
-  bodies close exactly once on every reader exit path (phase 4), pinned
-  by `sse-transport-close.test.ts`.
+  bodies close exactly once on every reader exit path (phase 4).
 - Claude Code / Codex stdio framing — protocol boundary code. Process
   lifetime is scope-joined via engine-turn resources + kill ladders;
   pendings settle exactly once; durable session ids/resume are covered by

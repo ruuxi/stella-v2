@@ -87,8 +87,8 @@ import "@/app/chat/chat-workspace-strip.css";
 // group overview shows more. An active search ignores caps entirely
 // (see `caps` below) and pages in the full dataset.
 const SECTION_CAPS = {
-  strip: { activity: 8, files: 5, schedule: 4 },
-  overview: { activity: 6, files: 6, schedule: 6 },
+  strip: { activity: 12, files: 5, schedule: 4 },
+  overview: { activity: 12, files: 6, schedule: 6 },
 } as const;
 // Search still scans every loaded record, but rendering an unbounded match
 // set made a common query mount hundreds of rows at once. The history dialogs

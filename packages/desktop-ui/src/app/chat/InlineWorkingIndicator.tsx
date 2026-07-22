@@ -119,7 +119,6 @@ export function InlineWorkingIndicator({
       clearTimer();
       if (!wasActiveRef.current) {
         activatedAtRef.current = Date.now();
-        setReasoningSeed(String(Date.now()));
       }
       wasActiveRef.current = true;
       setLeaving(false);
@@ -136,6 +135,10 @@ export function InlineWorkingIndicator({
         exitTimerRef.current = null;
         setRenderShell(false);
         setLeaving(false);
+        // Prepare the next turn while the inner indicator is absent. Seeding
+        // on activation would change the first visible phrase immediately
+        // after entrance and make the text layer look like a replay.
+        setReasoningSeed(String(Date.now()));
       }, EXIT_ANIMATION_MS);
     };
     // When answer text has started streaming, the indicator must not trail

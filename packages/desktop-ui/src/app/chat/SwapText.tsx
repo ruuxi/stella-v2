@@ -40,6 +40,7 @@ export function SwapText({
   const [current, setCurrent] = useState(text);
   const [previous, setPrevious] = useState<string | null>(null);
   const [hasChanged, setHasChanged] = useState(false);
+  const [incomingAnimating, setIncomingAnimating] = useState(animateInitial);
   const lastTextRef = useRef(text);
   const timeoutRef = useRef<number | null>(null);
 
@@ -50,6 +51,7 @@ export function SwapText({
     setPrevious(lastTextRef.current);
     setCurrent(text);
     setHasChanged(true);
+    setIncomingAnimating(true);
     lastTextRef.current = text;
 
     if (timeoutRef.current !== null) {
@@ -57,6 +59,7 @@ export function SwapText({
     }
     timeoutRef.current = window.setTimeout(() => {
       setPrevious(null);
+      setIncomingAnimating(false);
       timeoutRef.current = null;
     }, SWAP_DURATION_MS);
 
@@ -67,6 +70,18 @@ export function SwapText({
       }
     };
   }, [text]);
+
+  // Remove the initial animation class once its finite entrance completes.
+  // Leaving a completed CSS animation assigned permanently lets a virtualized
+  // parent replay it when the same DOM node is detached and reinserted.
+  useEffect(() => {
+    if (!incomingAnimating || hasChanged) return;
+    const timeout = window.setTimeout(
+      () => setIncomingAnimating(false),
+      SWAP_DURATION_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [hasChanged, incomingAnimating]);
 
   return (
     <span className={`swap-text ${className ?? ""}`}>
@@ -81,7 +96,7 @@ export function SwapText({
       )}
       <span
         key={`in:${current}`}
-        className={`swap-text__layer swap-text__layer--in${!animateInitial && !hasChanged ? " swap-text__layer--initial-static" : ""}`}
+        className={`swap-text__layer${incomingAnimating ? " swap-text__layer--in" : ""}${!animateInitial && !hasChanged ? " swap-text__layer--initial-static" : ""}`}
       >
         <TextShimmer
           text={current}

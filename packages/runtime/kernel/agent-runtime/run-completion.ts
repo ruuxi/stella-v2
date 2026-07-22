@@ -435,8 +435,8 @@ export const runCompactionWithHooks = async (args: {
 
 export const finalizeOrchestratorSuccess = async (args: {
   opts: OrchestratorRunOptions;
-  runId?: string;
-  threadKey?: string;
+  runId: string;
+  threadKey: string;
   runEvents: RuntimeRunEventRecorder;
   agent: CompactableAgentState;
   finalText: string;

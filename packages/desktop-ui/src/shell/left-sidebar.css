@@ -95,16 +95,23 @@
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
-  padding: 4px 6px 6px;
+  /* Asymmetric gutters: a real inset from the window's left edge, plus a
+     near-flush right edge so the space the sidebar reserves matches what it
+     visibly occupies — the gap to the centered chat column then reads the
+     same as the chat column's right-hand margin. */
+  padding: 4px 2px 6px 12px;
 }
 
 .left-sidebar__scroll::-webkit-scrollbar {
   display: none;
 }
 
-/* Activity / Files / Schedule / Store — align without a nav-row indent. */
+/* Activity / Files / Schedule / Store — align without a nav-row indent.
+   Left-heavy side padding mirrors the scroll body's gutters (see above):
+   rows keep breathing room from the window edge while their trailing edge
+   stays close to the sidebar/chat seam. */
 .left-sidebar__scroll .chat-workspace-strip__section {
-  padding: 6px 8px 8px;
+  padding: 6px 2px 8px 10px;
 }
 
 .left-sidebar__scroll .chat-workspace-strip__section-header {

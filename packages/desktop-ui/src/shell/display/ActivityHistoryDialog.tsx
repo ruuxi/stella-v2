@@ -28,7 +28,7 @@ import {
 } from "@legendapp/list/react";
 import { Dialog } from "@/ui/dialog";
 import {
-  getTaskDisplayText,
+  getTaskActivityProse,
   getTaskGroupStatusText,
   getTaskHierarchyStatusText,
   type EventRecord,
@@ -89,8 +89,7 @@ const taskBadge = (task: TaskItem): string => {
   }
 };
 
-const taskLabel = (task: TaskItem): string =>
-  (getTaskDisplayText(task) || task.description || "").trim();
+const taskLabel = (task: TaskItem): string => task.description.trim();
 
 type UpNextListItem = { kind: "upNext"; entry: ScheduleEntry };
 type FilesListItem = { kind: "files"; entry: ActivityHistoryFile };
@@ -283,11 +282,9 @@ export function ActivityHistoryDialog({
           >
             <span className="activity-history-dialog__row-main">
               <span className="activity-history-dialog__row-text">{label}</span>
-              {owner.outputPreview?.trim() ? (
-                <span className="activity-history-dialog__row-summary">
-                  {owner.outputPreview.trim()}
-                </span>
-              ) : null}
+              <span className="activity-history-dialog__row-summary">
+                {getTaskActivityProse(owner)}
+              </span>
             </span>
             <span className="activity-history-dialog__row-meta">
               {getTaskHierarchyStatusText(hierarchy)} · {taskBadge(owner)}

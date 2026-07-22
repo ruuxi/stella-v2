@@ -40,6 +40,7 @@ import {
   getActivityRowCompletedAtMs,
   getActivityRowSearchText,
   getActivityRowStatus,
+  getTaskActivityProse,
   groupActivityTasks,
   orderActiveActivityRowsForDisplay,
   orderByFirstSeen,
@@ -359,9 +360,9 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   const motionProps = useActivityRowMotionProps(orderIndex);
   const rowRef = useRef<HTMLLIElement>(null);
   const ownsAnimation = useActivityTaskAnimationOwner(task, isTopLevel, rowRef);
-  // Sidebar and tray rows identify the delegated thread. Live tool state is
-  // intentionally reserved for the inline chat card, so it cannot replace
-  // the stable description here or leak into activity search.
+  // Activity rows identify the delegated thread. Raw live-tool state remains
+  // inspector-only, so it cannot replace the stable description here or leak
+  // into Activity prose/search.
   const label = task.description.trim();
   const agentUpdates = getTaskAgentUpdates(task);
   // Per-session only; resets when the row unmounts, which is fine.
@@ -369,14 +370,9 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   // Agent-authored assistant messages replace generated/tool-status summary
   // text and remain available after completion without extra inference.
   const hasAgentUpdates = agentUpdates.length > 0;
-  const managerAssistantProse =
-    task.agentType === AGENT_IDS.MANAGER
-      ? selectLatestAgentAssistantMessage(task.assistantMessages)
-      : undefined;
   const managerDetail =
     task.agentType === AGENT_IDS.MANAGER
-      ? (managerAssistantProse ??
-        (task.status === "running" ? "Working…" : undefined))
+      ? getTaskActivityProse(task)
       : undefined;
   const hasFiles = files.length > 0;
   const filesCapped = files.length > AGENT_FILE_CAP;

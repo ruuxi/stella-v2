@@ -1,0 +1,23 @@
+diff --git a/dist/component/shared.d.ts b/dist/component/shared.d.ts
+index 6c89c3ee9d2eaa864c413ec97814c399ceeddea6..3ee422f2752883f751eab7684edc4ab6e416364b 100644
+--- a/dist/component/shared.d.ts
++++ b/dist/component/shared.d.ts
+@@ -1,4 +1,4 @@
+-import { type GenericDataModel, type GenericMutationCtx, type GenericQueryCtx } from "convex/server";
++import { type GenericActionCtx, type GenericDataModel, type GenericMutationCtx, type GenericQueryCtx } from "convex/server";
+ import { type Infer } from "convex/values";
+ export declare const onEmailEvent: import("convex/values").VObject<{
+     fnHandle: string;
+@@ -927,9 +927,9 @@ export type EventEventOfType<T extends EventEventTypes> = Extract<EmailEvent, {
+     type: T;
+ }>;
+ export type RunQueryCtx = {
+-    runQuery: GenericQueryCtx<GenericDataModel>["runQuery"];
++    runQuery: GenericActionCtx<GenericDataModel>["runQuery"];
+ };
+ export type RunMutationCtx = {
+-    runMutation: GenericMutationCtx<GenericDataModel>["runMutation"];
++    runMutation: GenericActionCtx<GenericDataModel>["runMutation"];
+ };
+ //# sourceMappingURL=shared.d.ts.map
+\ No newline at end of file

@@ -9,6 +9,8 @@ RUN bun install --production
 
 RUN mkdir -p /workspace \
   && ln -s /opt/stella/node_modules /opt/stella/packages/app-template/node_modules \
+  && mkdir -p /opt/stella/node_modules/@stella \
+  && ln -s /opt/stella/packages/apps-sdk /opt/stella/node_modules/@stella/apps-sdk \
   && ln -s "$(find /opt/stella/node_modules/.bun -path '*/vite/bin/vite.js' -print -quit)" /usr/local/bin/vite
 
 EXPOSE 5173

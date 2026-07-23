@@ -2,6 +2,7 @@ type Env = {
   APP_BUILDS: R2Bucket;
   APP_ROUTES: KVNamespace;
   SHARES_DISABLED: string;
+  CONVEX_SITE_URL: string;
 };
 
 type RouteRecord = {
@@ -9,20 +10,103 @@ type RouteRecord = {
   suspended: boolean;
 };
 
-const securityHeaders = {
+const isPrivateTarget = (hostname: string): boolean => {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized === "::1" ||
+    normalized === "0.0.0.0"
+  ) return true;
+  const ipv4 = normalized.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!ipv4) return false;
+  const octets = ipv4.slice(1).map(Number);
+  return (
+    octets.some((part) => part > 255) ||
+    octets[0] === 10 ||
+    octets[0] === 127 ||
+    octets[0] === 0 ||
+    (octets[0] === 169 && octets[1] === 254) ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168)
+  );
+};
+
+const proxyFetch = async (request: Request): Promise<Response> => {
+  const origin = request.headers.get("origin");
+  if (origin !== new URL(request.url).origin) {
+    return Response.json({ error: "Stella fetch requires the app origin." }, { status: 403 });
+  }
+  const body = await request.json<{
+    input?: string;
+    init?: { method?: string; headers?: HeadersInit; body?: string };
+  }>();
+  if (!body.input) return Response.json({ error: "A target URL is required." }, { status: 400 });
+  let target: URL;
+  try {
+    target = new URL(body.input);
+  } catch {
+    return Response.json({ error: "The target URL is invalid." }, { status: 400 });
+  }
+  if (target.protocol !== "https:" || isPrivateTarget(target.hostname)) {
+    return Response.json({ error: "Only public HTTPS targets are allowed." }, { status: 400 });
+  }
+  const method = (body.init?.method ?? "GET").toUpperCase();
+  if (!["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    return Response.json({ error: "That HTTP method is not allowed." }, { status: 400 });
+  }
+  const requestedHeaders = new Headers(body.init?.headers);
+  const upstreamHeaders = new Headers();
+  for (const name of ["accept", "content-type", "if-none-match", "if-modified-since"]) {
+    const value = requestedHeaders.get(name);
+    if (value) upstreamHeaders.set(name, value);
+  }
+  let currentTarget = target;
+  let upstream: Response | undefined;
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    upstream = await fetch(currentTarget, {
+      method,
+      headers: upstreamHeaders,
+      body: method === "GET" || method === "HEAD" ? undefined : body.init?.body,
+      redirect: "manual",
+    });
+    const location = upstream.headers.get("location");
+    if (!location || upstream.status < 300 || upstream.status >= 400) break;
+    const next = new URL(location, currentTarget);
+    if (next.protocol !== "https:" || isPrivateTarget(next.hostname)) {
+      return Response.json({ error: "The upstream redirect was blocked." }, { status: 400 });
+    }
+    currentTarget = next;
+  }
+  if (!upstream) {
+    return Response.json({ error: "The upstream service did not respond." }, { status: 502 });
+  }
+  const responseHeaders = new Headers();
+  for (const name of ["content-type", "content-length", "etag", "last-modified", "cache-control"]) {
+    const value = upstream.headers.get(name);
+    if (value) responseHeaders.set(name, value);
+  }
+  responseHeaders.set("x-stella-proxy", "standalone");
+  return new Response(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers: responseHeaders,
+  });
+};
+
+const securityHeaders = (env: Env) => ({
   "content-security-policy":
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${env.CONVEX_SITE_URL}; object-src 'none'; base-uri 'none'; frame-ancestors http://localhost:57315 http://127.0.0.1:57315 https://stella.sh; form-action 'self'`,
   "cross-origin-opener-policy": "same-origin",
   "cross-origin-resource-policy": "same-origin",
   "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
-};
+});
 
-const notice = (title: string, message: string, status: number) =>
+const notice = (env: Env, title: string, message: string, status: number) =>
   new Response(
     `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title><style>body{font:16px system-ui;display:grid;min-height:100vh;place-content:center;background:#f4f1e8;color:#182019}main{max-width:520px;padding:42px;background:white;border-radius:20px}h1{font:42px Georgia,serif;margin:0 0 14px}p{line-height:1.6}</style><main><h1>${title}</h1><p>${message}</p></main>`,
-    { status, headers: { "content-type": "text/html; charset=utf-8", ...securityHeaders } },
+    { status, headers: { "content-type": "text/html; charset=utf-8", ...securityHeaders(env) } },
   );
 
 export default {
@@ -31,14 +115,28 @@ export default {
     if (url.pathname === "/healthz") {
       return Response.json({ ok: true, service: "stella-v2-apps-host" });
     }
+    if (url.pathname === "/api/apps/fetch" && request.method === "POST") {
+      try {
+        return await proxyFetch(request);
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: "standalone_proxy_failed",
+          message: error instanceof Error ? error.message : String(error),
+        }));
+        return Response.json(
+          { error: "The upstream service could not be reached. Try again." },
+          { status: 502 },
+        );
+      }
+    }
     if (env.SHARES_DISABLED === "true") {
-      return notice("Temporarily unavailable", "Shared Stella apps are paused right now.", 503);
+      return notice(env, "Temporarily unavailable", "Shared Stella apps are paused right now.", 503);
     }
     const match = url.pathname.match(/^\/apps\/([a-z0-9-]+)(\/.*)?$/);
     if (!match) return new Response("Not found", { status: 404 });
     const route = await env.APP_ROUTES.get<RouteRecord>(`app:${match[1]}`, "json");
-    if (!route) return notice("App not found", "This Stella app does not exist.", 404);
-    if (route.suspended) return notice("App suspended", "This Stella app is currently unavailable.", 403);
+    if (!route) return notice(env, "App not found", "This Stella app does not exist.", 404);
+    if (route.suspended) return notice(env, "App suspended", "This Stella app is currently unavailable.", 403);
     let assetPath = (match[2] ?? "/").replace(/^\/+/, "");
     if (!assetPath || assetPath.endsWith("/")) assetPath += "index.html";
     const object = await env.APP_BUILDS.get(`${route.artifactPrefix}/${assetPath}`);
@@ -46,7 +144,7 @@ export default {
       if (!assetPath.includes(".")) {
         const fallback = await env.APP_BUILDS.get(`${route.artifactPrefix}/index.html`);
         if (fallback) {
-          const headers = new Headers(securityHeaders);
+          const headers = new Headers(securityHeaders(env));
           fallback.writeHttpMetadata(headers);
           headers.set("cache-control", "no-cache");
           return new Response(fallback.body, { headers });
@@ -54,11 +152,13 @@ export default {
       }
       return new Response("Not found", { status: 404 });
     }
-    const headers = new Headers(securityHeaders);
+    const headers = new Headers(securityHeaders(env));
     object.writeHttpMetadata(headers);
     headers.set(
       "cache-control",
-      assetPath === "index.html" ? "no-cache" : "public, max-age=31536000, immutable",
+      assetPath === "index.html" || assetPath === "stella-context.js"
+        ? "no-cache"
+        : "public, max-age=31536000, immutable",
     );
     headers.set("etag", object.httpEtag);
     return new Response(object.body, { headers });

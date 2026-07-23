@@ -333,6 +333,7 @@ export class BuildSession extends DurableObject<Env> {
       });
       const buildId = crypto.randomUUID();
       const artifactPrefix = `builds/${buildId}`;
+      const slug = `orbit-${turn.appId.slice(-8)}`;
       let uploadedBytes = 0;
       for (const file of files.files.filter((entry) => entry.type === "file")) {
         const relative = file.absolutePath
@@ -346,7 +347,20 @@ export class BuildSession extends DurableObject<Env> {
           customMetadata: { buildId, appId: turn.appId },
         });
       }
-      const slug = `orbit-${turn.appId.slice(-8)}`;
+      const contextSource = `window.__STELLA_APP_CONTEXT__=${JSON.stringify({
+        appId: turn.appId,
+        convexSiteUrl: turn.convexCallbackBase,
+        bridge: false,
+      })};\n`;
+      uploadedBytes += new TextEncoder().encode(contextSource).byteLength;
+      await this.env.APP_BUILDS.put(
+        `${artifactPrefix}/stella-context.js`,
+        contextSource,
+        {
+          httpMetadata: { contentType: "text/javascript; charset=utf-8" },
+          customMetadata: { buildId, appId: turn.appId },
+        },
+      );
       const previewUrl = `${this.env.APPS_HOST_BASE_URL.replace(/\/+$/, "")}/apps/${slug}/`;
       if (turn.autoActivate !== false) {
         await this.env.APP_ROUTES.put(

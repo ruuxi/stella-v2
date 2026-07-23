@@ -10,6 +10,7 @@
 
 import { configurePiRuntime } from "@/platform/electron/device";
 import { getJwtExpMs } from "@/shared/lib/jwt";
+import { authClient } from "@/global/auth/lib/auth-client";
 
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
@@ -50,8 +51,14 @@ export async function getConvexToken(
   const requestVersion = tokenRequestVersion;
   inflightTokenPromise = (async () => {
     try {
-      await configurePiRuntime();
-      const token = await window.electronAPI?.system.getConvexAuthToken?.();
+      let token: string | null | undefined;
+      if (window.electronAPI?.system.getConvexAuthToken) {
+        await configurePiRuntime();
+        token = await window.electronAPI.system.getConvexAuthToken();
+      } else {
+        const result = await authClient.convex.token();
+        token = result.data?.token ?? null;
+      }
       if (!token) {
         if (requestVersion === tokenRequestVersion) {
           cachedToken = null;

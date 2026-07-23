@@ -119,6 +119,18 @@
   margin-bottom: 4px;
 }
 
+.cloud-sidebar-app {
+  gap: 8px;
+  min-height: 34px;
+  text-decoration: none;
+}
+
+.cloud-sidebar-app__status {
+  margin-left: auto;
+  color: var(--text-weaker);
+  font-size: 10px;
+}
+
 /* "View all" history buttons stay hidden until the section is hovered
    (or the button is focused), keeping the resting sidebar quiet. */
 .left-sidebar__scroll .chat-workspace-strip__section-history {

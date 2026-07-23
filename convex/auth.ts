@@ -24,10 +24,7 @@ import {
   getMagicLinkSubject,
 } from "./lib/email_templates";
 import { appReviewAuth } from "./lib/app_review_auth";
-import {
-  enforceMutationRateLimit,
-  RATE_SENSITIVE,
-} from "./lib/rate_limits";
+import { enforceMutationRateLimit, RATE_SENSITIVE } from "./lib/rate_limits";
 import { importPKCS8, SignJWT } from "jose";
 
 const getRequiredEnv = (name: string) => {
@@ -92,6 +89,8 @@ const extraTrustedOrigins = [
   "http://localhost:57315",
   "http://127.0.0.1:57315",
   "https://stella.sh",
+  "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+  "https://stella-v2-interior-dev.lolruuxi.workers.dev",
   // Mobile WebView loads the desktop UI via Cloudflare tunnel
   "*.stellatunnel.com",
 ];
@@ -108,9 +107,9 @@ const getDeepLinkOrigin = () => {
 /** Matches `EXPO_PUBLIC_STELLA_MOBILE_SCHEME` default in `mobile/src/config/env.ts` (magic-link callback). */
 const getMobileDeepLinkOrigins = () => {
   const scheme =
-    process.env.EXPO_PUBLIC_STELLA_MOBILE_SCHEME?.trim()
-    || process.env.STELLA_MOBILE_SCHEME?.trim()
-    || "stella-mobile";
+    process.env.EXPO_PUBLIC_STELLA_MOBILE_SCHEME?.trim() ||
+    process.env.STELLA_MOBILE_SCHEME?.trim() ||
+    "stella-mobile";
   // expoClient sends `Linking.createURL("", { scheme })` as expo-origin,
   // which varies by platform (e.g. "stella-mobile://", "stella-mobile:///").
   // Include both with and without the /auth path.
@@ -138,11 +137,13 @@ const parseExpirationSeconds = (raw: string | undefined): number => {
   }
   const value = Number(match[1]);
   const unit = (match[2] ?? "s").toLowerCase();
-  const multiplier =
-    unit.startsWith("d") ? 86400
-    : unit.startsWith("h") ? 3600
-    : unit.startsWith("m") ? 60
-    : 1;
+  const multiplier = unit.startsWith("d")
+    ? 86400
+    : unit.startsWith("h")
+      ? 3600
+      : unit.startsWith("m")
+        ? 60
+        : 1;
   return value * multiplier;
 };
 
@@ -350,9 +351,12 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         enabled: true,
         beforeDelete: async (user) => {
           const actionCtx = requireActionCtx(ctx);
-          await actionCtx.runAction(internal.account_deletion.purgeOwnerCloudData, {
-            ownerId: tokenIdentifierForBetterAuthUserId(user.id),
-          });
+          await actionCtx.runAction(
+            internal.account_deletion.purgeOwnerCloudData,
+            {
+              ownerId: tokenIdentifierForBetterAuthUserId(user.id),
+            },
+          );
         },
       },
     },
@@ -376,7 +380,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
             0,
             internal.auth_migration.migrateOwnership,
             {
-              fromOwnerId: tokenIdentifierForBetterAuthUserId(anonymousUser.user.id),
+              fromOwnerId: tokenIdentifierForBetterAuthUserId(
+                anonymousUser.user.id,
+              ),
               toOwnerId: tokenIdentifierForBetterAuthUserId(newUser.user.id),
             },
           );
@@ -563,9 +569,9 @@ export const requireUserId = async (
 
 export const isAnonymousIdentity = (identity: unknown): boolean =>
   Boolean(
-    identity
-    && typeof identity === "object"
-    && (identity as Record<string, unknown>).isAnonymous === true,
+    identity &&
+      typeof identity === "object" &&
+      (identity as Record<string, unknown>).isAnonymous === true,
   );
 
 export const requireConnectedUserIdentity = async (
@@ -581,9 +587,7 @@ export const requireConnectedUserIdentity = async (
   return identity;
 };
 
-export const requireConnectedUserIdentityAction = async (
-  ctx: ActionCtx,
-) => {
+export const requireConnectedUserIdentityAction = async (ctx: ActionCtx) => {
   const identity = await requireUserIdentity(ctx);
   if (isAnonymousIdentity(identity)) {
     throw new ConvexError({
@@ -594,16 +598,12 @@ export const requireConnectedUserIdentityAction = async (
   return identity;
 };
 
-export const requireConnectedUserId = async (
-  ctx: QueryCtx | MutationCtx,
-) => {
+export const requireConnectedUserId = async (ctx: QueryCtx | MutationCtx) => {
   const identity = await requireConnectedUserIdentity(ctx);
   return identity.tokenIdentifier;
 };
 
-export const getConnectedUserIdOrNull = async (
-  ctx: QueryCtx | MutationCtx,
-) => {
+export const getConnectedUserIdOrNull = async (ctx: QueryCtx | MutationCtx) => {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity || isAnonymousIdentity(identity)) {
     return null;
@@ -619,16 +619,12 @@ export const getConnectedUserIdOrNull = async (
  * React error boundary. Mutations and actions should keep using
  * `requireUserId` / `requireConnectedUserId` to enforce auth strictly.
  */
-export const getUserIdOrNull = async (
-  ctx: QueryCtx | MutationCtx,
-) => {
+export const getUserIdOrNull = async (ctx: QueryCtx | MutationCtx) => {
   const identity = await ctx.auth.getUserIdentity();
   return identity?.tokenIdentifier ?? null;
 };
 
-export const requireConnectedUserIdAction = async (
-  ctx: ActionCtx,
-) => {
+export const requireConnectedUserIdAction = async (ctx: ActionCtx) => {
   const identity = await requireConnectedUserIdentityAction(ctx);
   return identity.tokenIdentifier;
 };
@@ -641,24 +637,18 @@ export const requireSensitiveUserIdentity = async (
   return identity;
 };
 
-export const requireSensitiveUserIdentityAction = async (
-  ctx: ActionCtx,
-) => {
+export const requireSensitiveUserIdentityAction = async (ctx: ActionCtx) => {
   const identity = await requireUserIdentity(ctx);
   await assertSensitiveSessionPolicyAction(ctx, identity);
   return identity;
 };
 
-export const requireSensitiveUserId = async (
-  ctx: QueryCtx | MutationCtx,
-) => {
+export const requireSensitiveUserId = async (ctx: QueryCtx | MutationCtx) => {
   const identity = await requireSensitiveUserIdentity(ctx);
   return identity.tokenIdentifier;
 };
 
-export const requireSensitiveUserIdAction = async (
-  ctx: ActionCtx,
-) => {
+export const requireSensitiveUserIdAction = async (ctx: ActionCtx) => {
   const identity = await requireSensitiveUserIdentityAction(ctx);
   return identity.tokenIdentifier;
 };

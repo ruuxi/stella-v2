@@ -166,11 +166,14 @@ function DesktopAuthRuntimeEffects({
       error: null,
     });
 
-    void signInAnonymous().catch(() => {
+    void signInAnonymous().catch((error) => {
       attemptedAnonAuthRef.current = false;
       setAuthBootstrapState({
         status: "failed",
-        error: "Stella could not create a local sign-in session.",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Stella could not create a local sign-in session.",
       });
     });
   }, [session.data, session.isPending, setAuthBootstrapState]);
@@ -216,6 +219,10 @@ function DesktopAuthRuntimeEffects({
     const systemApi = window.electronAPI?.system;
     if (!systemApi?.setAuthState) {
       runtimeAuthRefreshHandlerRef.current = null;
+      // Browser and mobile shells authenticate Convex directly. They have no
+      // desktop runtime process to synchronize, so absence of this IPC method
+      // is expected rather than an auth bootstrap failure.
+      if (!window.electronAPI) return;
       setAuthBootstrapState({
         status: "failed",
         error: "Stella could not connect auth to the desktop runtime.",

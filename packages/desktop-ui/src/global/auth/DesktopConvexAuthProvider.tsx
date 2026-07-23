@@ -20,6 +20,11 @@ import {
 } from "@/global/auth/services/auth-session";
 import { convexClient } from "@/platform/convex/convex-client";
 import { getJwtExpMs } from "@/shared/lib/jwt";
+import {
+  getInjectedMobileConvexToken,
+  isMobileShell,
+  requestMobileConvexToken,
+} from "@/platform/mobile/mobile-shell";
 
 const TOKEN_BOOTSTRAP_RETRY_BASE_MS = 3_000;
 const TOKEN_BOOTSTRAP_RETRY_MAX_MS = 60_000;
@@ -82,6 +87,7 @@ const getHostTokenRefreshDelayMs = (token: string): number => {
  */
 export function useDesktopConvexAuth() {
   const session = useDesktopAuthSession();
+  const mobileToken = getInjectedMobileConvexToken();
 
   const sessionUserId =
     (session.data as { user?: { id?: string } } | null | undefined)?.user?.id ??
@@ -102,22 +108,27 @@ export function useDesktopConvexAuth() {
     async ({
       forceRefreshToken = false,
     }: { forceRefreshToken?: boolean } = {}) => {
+      if (mobileToken) {
+        return forceRefreshToken
+          ? await requestMobileConvexToken()
+          : getInjectedMobileConvexToken();
+      }
       return await getConvexToken({ forceRefresh: forceRefreshToken });
     },
     // Intentionally keyed on sessionUserId and sessionIsAnonymous so
     // ConvexProviderWithAuth re-calls setAuth when the signed-in identity
     // changes, including anonymous → real account links that preserve user.id.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessionIsAnonymous, sessionUserId],
+    [mobileToken, sessionIsAnonymous, sessionUserId],
   );
 
   return useMemo(
     () => ({
-      isLoading: Boolean(session.isPending),
-      isAuthenticated: Boolean(session.data),
+      isLoading: mobileToken ? false : Boolean(session.isPending),
+      isAuthenticated: Boolean(mobileToken || session.data),
       fetchAccessToken,
     }),
-    [fetchAccessToken, session.data, session.isPending],
+    [fetchAccessToken, mobileToken, session.data, session.isPending],
   );
 }
 
@@ -149,6 +160,10 @@ function DesktopAuthRuntimeEffects({
   const isSessionPending = Boolean(session.isPending);
 
   useEffect(() => {
+    if (isMobileShell()) {
+      setAuthBootstrapState({ status: "ready", error: null });
+      return;
+    }
     if (session.isPending) {
       setAuthBootstrapState({ status: "loading_session", error: null });
       return;

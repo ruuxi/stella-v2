@@ -1,0 +1,37 @@
+{
+  "cli": {
+    "version": ">= 18.4.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "env": {
+        "EXPO_NO_CAPABILITY_SYNC": "1",
+        "EXPO_PUBLIC_CONVEX_URL": "https://flexible-panther-999.convex.cloud",
+        "EXPO_PUBLIC_CONVEX_SITE_URL": "https://flexible-panther-999.convex.site"
+      }
+    },
+    "preview": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "channel": "preview"
+    },
+    "production": {
+      "autoIncrement": true,
+      "channel": "production",
+      "env": {
+        "EXPO_NO_CAPABILITY_SYNC": "1"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6761148311"
+      }
+    }
+  }
+}

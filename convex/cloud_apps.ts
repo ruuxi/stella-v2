@@ -6,8 +6,48 @@ import {
   internalQuery,
   mutation,
   query,
+  type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { makeFunctionReference } from "convex/server";
+import { enforceMutationRateLimit } from "./lib/rate_limits";
+import type { SubscriptionPlan } from "./lib/billing_plans";
+
+type CloudPlanQuota = {
+  dailyTurns: number;
+  concurrentTurns: number;
+  burstStarts: number;
+};
+
+const CLOUD_PLAN_QUOTAS: Record<SubscriptionPlan, CloudPlanQuota> = {
+  free: { dailyTurns: 3, concurrentTurns: 1, burstStarts: 4 },
+  go: { dailyTurns: 10, concurrentTurns: 1, burstStarts: 6 },
+  pro: { dailyTurns: 25, concurrentTurns: 2, burstStarts: 10 },
+  plus: { dailyTurns: 50, concurrentTurns: 3, burstStarts: 16 },
+  ultra: { dailyTurns: 100, concurrentTurns: 4, burstStarts: 24 },
+  max: { dailyTurns: 200, concurrentTurns: 6, burstStarts: 40 },
+};
+
+const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
+
+const resolveCloudPlan = async (
+  ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
+  ownerId: string,
+): Promise<{ plan: SubscriptionPlan; quota: CloudPlanQuota }> => {
+  const profile = await ctx.db
+    .query("billing_profiles")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  const plan: SubscriptionPlan =
+    profile?.usageMode === "unlimited"
+      ? "max"
+      : profile &&
+          ACTIVE_SUBSCRIPTION_STATUSES.has(profile.subscriptionStatus) &&
+          profile.activePlan !== "free"
+        ? profile.activePlan
+        : "free";
+  return { plan, quota: CLOUD_PLAN_QUOTAS[plan] };
+};
 
 const benchmarkPrompt =
   "Build a polished responsive habit tracker named Orbit. It needs a warm editorial visual style, a daily progress ring, four useful habit cards, and an encouraging focus panel. Make it feel like a real product, not a generic dashboard.";
@@ -217,6 +257,24 @@ export const listMyAppBuilds = query({
   },
 });
 
+export const getMyCloudLimits = query({
+  args: {},
+  returns: v.object({
+    plan: v.string(),
+    dailyTurns: v.number(),
+    concurrentTurns: v.number(),
+  }),
+  handler: async (ctx) => {
+    const ownerId = await requireOwnerId(ctx);
+    const { plan, quota } = await resolveCloudPlan(ctx, ownerId);
+    return {
+      plan,
+      dailyTurns: quota.dailyTurns,
+      concurrentTurns: quota.concurrentTurns,
+    };
+  },
+});
+
 export const startCloudChat = mutation({
   args: {
     prompt: v.string(),
@@ -234,20 +292,31 @@ export const startCloudChat = mutation({
     if (!prompt || prompt.length > 4_000) {
       throw new ConvexError("Describe the app in 1–4,000 characters.");
     }
+    const { plan, quota } = await resolveCloudPlan(ctx, ownerId);
+    await enforceMutationRateLimit(
+      ctx,
+      "cloud_apps_start",
+      ownerId,
+      { rate: quota.burstStarts, periodMs: 10 * 60_000 },
+      "Too many cloud turns started recently. Wait a few minutes and try again.",
+    );
     const recentTurns = await ctx.db
       .query("agent_turns")
       .withIndex("by_ownerId_and_createdAt", (q) =>
         q.eq("ownerId", ownerId).gte("createdAt", Date.now() - 86_400_000),
       )
-      .take(10);
-    if (recentTurns.some((turn) => turn.status === "running")) {
+      .take(quota.dailyTurns + 1);
+    const running = recentTurns.filter((turn) => turn.status === "running");
+    if (running.length >= quota.concurrentTurns) {
       throw new ConvexError(
-        "One cloud turn is already running. Wait for it to finish.",
+        `${plan === "free" ? "Free" : plan} allows ${quota.concurrentTurns} active cloud ${
+          quota.concurrentTurns === 1 ? "turn" : "turns"
+        }. Wait for one to finish or cancel it.`,
       );
     }
-    if (recentTurns.length >= 10) {
+    if (recentTurns.length >= quota.dailyTurns) {
       throw new ConvexError(
-        "Daily cloud-build quota reached. Try again after the rolling 24-hour window resets.",
+        `${plan === "free" ? "Free" : plan} includes ${quota.dailyTurns} cloud turns per rolling 24 hours. Try again after the window resets.`,
       );
     }
 
@@ -655,6 +724,129 @@ export const suspendAppInternal = internalMutation({
       await ctx.db.patch(app._id, { status: "suspended", updatedAt: args.now });
     }
     return null;
+  },
+});
+
+export const scanFailureSpikes = internalMutation({
+  args: {
+    thresholdOverride: v.optional(v.number()),
+    windowMsOverride: v.optional(v.number()),
+  },
+  returns: v.object({
+    failureCount: v.number(),
+    threshold: v.number(),
+    alerted: v.boolean(),
+    resolved: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const threshold = Math.max(1, Math.floor(args.thresholdOverride ?? 3));
+    const windowMs = Math.min(
+      24 * 60 * 60_000,
+      Math.max(60_000, Math.floor(args.windowMsOverride ?? 15 * 60_000)),
+    );
+    const windowStartedAt = now - windowMs;
+    const turns = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_createdAt", (q) => q.gte("createdAt", windowStartedAt))
+      .take(500);
+    const failures = turns.filter(
+      (turn) => turn.status === "failed" || turn.status === "timeout",
+    );
+    const open = await ctx.db
+      .query("cloud_failure_alerts")
+      .withIndex("by_status_and_createdAt", (q) => q.eq("status", "open"))
+      .order("desc")
+      .first();
+    if (failures.length >= threshold) {
+      if (!open || open.windowEndedAt < windowStartedAt) {
+        const summary = `${failures.length} cloud turns failed or timed out in ${Math.round(windowMs / 60_000)} minutes.`;
+        await ctx.db.insert("cloud_failure_alerts", {
+          windowStartedAt,
+          windowEndedAt: now,
+          failureCount: failures.length,
+          threshold,
+          status: "open",
+          summary,
+          createdAt: now,
+          updatedAt: now,
+        });
+        console.error(
+          JSON.stringify({
+            service: "convex-cloud-apps",
+            event: "failure_spike_opened",
+            failureCount: failures.length,
+            threshold,
+            windowMs,
+          }),
+        );
+        return {
+          failureCount: failures.length,
+          threshold,
+          alerted: true,
+          resolved: false,
+        };
+      }
+      return {
+        failureCount: failures.length,
+        threshold,
+        alerted: false,
+        resolved: false,
+      };
+    }
+    if (open) {
+      await ctx.db.patch(open._id, {
+        status: "resolved",
+        resolvedAt: now,
+        updatedAt: now,
+      });
+      console.info(
+        JSON.stringify({
+          service: "convex-cloud-apps",
+          event: "failure_spike_resolved",
+          alertId: open._id,
+          failureCount: failures.length,
+        }),
+      );
+      return {
+        failureCount: failures.length,
+        threshold,
+        alerted: false,
+        resolved: true,
+      };
+    }
+    return {
+      failureCount: failures.length,
+      threshold,
+      alerted: false,
+      resolved: false,
+    };
+  },
+});
+
+export const listFailureAlertsInternal = internalQuery({
+  args: {},
+  returns: v.any(),
+  handler: async (ctx) =>
+    await ctx.db
+      .query("cloud_failure_alerts")
+      .withIndex("by_createdAt")
+      .order("desc")
+      .take(25),
+});
+
+export const probeCloudRateLimitInternal = internalMutation({
+  args: { key: v.string() },
+  returns: v.object({ allowed: v.boolean() }),
+  handler: async (ctx, args) => {
+    await enforceMutationRateLimit(
+      ctx,
+      "cloud_apps_start",
+      `ops-probe:${args.key}`,
+      { rate: 4, periodMs: 10 * 60_000 },
+      "Cloud start-rate probe was limited as expected.",
+    );
+    return { allowed: true };
   },
 });
 

@@ -34,6 +34,9 @@ type TurnRequest = {
   prompt: string;
   turnToken: string;
   convexCallbackBase: string;
+  autoActivate?: boolean;
+  preflightDelayMs?: number;
+  watchdogMs?: number;
 };
 
 type ExecutorResult = {
@@ -142,6 +145,17 @@ export class BuildSession extends DurableObject<Env> {
     });
   }
 
+  async alarm(): Promise<void> {
+    const turn = await this.ctx.storage.get<TurnRequest>("turn");
+    if (!turn || await this.ctx.storage.get<boolean>("terminal")) return;
+    await this.ctx.storage.put("terminal", true);
+    const sandboxId = await this.ctx.storage.get<string>("sandboxId");
+    if (sandboxId) await this.sandbox(sandboxId).destroy().catch(() => undefined);
+    await this.event(turn, 99, "timeout", {
+      message: "The build exceeded its wall-clock limit. Retry the turn.",
+    }, true).catch(() => undefined);
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (request.method !== "POST") {
@@ -150,7 +164,13 @@ export class BuildSession extends DurableObject<Env> {
     if (url.pathname === "/cancel") {
       const sandboxId = await this.ctx.storage.get<string>("sandboxId");
       if (sandboxId) await this.sandbox(sandboxId).destroy().catch(() => undefined);
-      await this.ctx.storage.deleteAll();
+      const turn = await this.ctx.storage.get<TurnRequest>("turn");
+      if (turn && !(await this.ctx.storage.get<boolean>("terminal"))) {
+        await this.ctx.storage.put("terminal", true);
+        await this.event(turn, 98, "canceled", {
+          message: "Build canceled. No changes were applied.",
+        }, true).catch(() => undefined);
+      }
       return json({ canceled: true });
     }
     if (url.pathname === "/echo") return this.runEcho();
@@ -195,13 +215,24 @@ export class BuildSession extends DurableObject<Env> {
     const first = this.sandbox(firstSandboxId);
     await this.ctx.storage.put({
       sandboxId: firstSandboxId,
+      turn,
       turnTokenHash: await digest(turn.turnToken),
       turnId: turn.turnId,
+      terminal: false,
     });
+    await this.ctx.storage.setAlarm(
+      Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000),
+    );
     let seq = 0;
     const requestStarted = performance.now();
     try {
       await this.event(turn, seq++, "started", { appId: turn.appId });
+      if (turn.preflightDelayMs) {
+        await scheduler.wait(turn.preflightDelayMs);
+      }
+      if (await this.ctx.storage.get<boolean>("terminal")) {
+        throw new Error("Turn was canceled or timed out before execution.");
+      }
       const coldStarted = performance.now();
       const session = await first.createSession({
         id: sessionName(`build-${turn.turnId}`),
@@ -317,17 +348,19 @@ export class BuildSession extends DurableObject<Env> {
       }
       const slug = `orbit-${turn.appId.slice(-8)}`;
       const previewUrl = `${this.env.APPS_HOST_BASE_URL.replace(/\/+$/, "")}/apps/${slug}/`;
-      await this.env.APP_ROUTES.put(
-        `app:${slug}`,
-        JSON.stringify({
-          appId: turn.appId,
-          ownerId: turn.ownerId,
-          buildId,
-          artifactPrefix,
-          suspended: false,
-          updatedAt: Date.now(),
-        }),
-      );
+      if (turn.autoActivate !== false) {
+        await this.env.APP_ROUTES.put(
+          `app:${slug}`,
+          JSON.stringify({
+            appId: turn.appId,
+            ownerId: turn.ownerId,
+            buildId,
+            artifactPrefix,
+            suspended: false,
+            updatedAt: Date.now(),
+          }),
+        );
+      }
       const metrics = {
         coldContainerStartMs,
         backupRestoreMs: restoreMs,
@@ -351,15 +384,21 @@ export class BuildSession extends DurableObject<Env> {
         artifactPrefix,
         previewUrl,
         metrics,
+        slug,
+        autoActivate: turn.autoActivate !== false,
       });
       const result = { turnId: turn.turnId, appId: turn.appId, buildId, previewUrl, metrics };
       await this.event(turn, seq++, "completed", result, true);
+      await this.ctx.storage.put("terminal", true);
       await restore.destroy();
       await this.ctx.storage.deleteAll();
       return json({ ok: true, ...result });
     } catch (error) {
       const message = errorMessage(error);
-      await this.event(turn, seq++, "failed", { message }, true).catch(() => undefined);
+      if (!(await this.ctx.storage.get<boolean>("terminal"))) {
+        await this.ctx.storage.put("terminal", true);
+        await this.event(turn, seq++, "failed", { message }, true).catch(() => undefined);
+      }
       const sandboxId = await this.ctx.storage.get<string>("sandboxId");
       if (sandboxId) await this.sandbox(sandboxId).destroy().catch(() => undefined);
       await first.destroy().catch(() => undefined);
@@ -394,6 +433,21 @@ export default {
       return env.BUILD_SESSIONS.getByName(cancelMatch[1]!).fetch("https://build-session/cancel", {
         method: "POST",
       });
+    }
+    if (request.method === "POST" && url.pathname === "/routes/activate") {
+      const body = (await request.json()) as {
+        slug: string;
+        appId: string;
+        ownerId: string;
+        buildId: string;
+        artifactPrefix: string;
+      };
+      await env.APP_ROUTES.put(`app:${body.slug}`, JSON.stringify({
+        ...body,
+        suspended: false,
+        updatedAt: Date.now(),
+      }));
+      return json({ ok: true });
     }
     return json({ error: "Not found." }, 404);
   },

@@ -23,6 +23,7 @@ export const cloudAppsSchema = {
     status: v.string(),
     artifactPrefix: v.optional(v.string()),
     previewUrl: v.optional(v.string()),
+    slug: v.optional(v.string()),
     metricsJson: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

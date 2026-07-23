@@ -54,6 +54,8 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         artifactPrefix: string;
         previewUrl: string;
         metrics: unknown;
+        slug: string;
+        autoActivate: boolean;
       };
       await ctx.runMutation(internal.cloud_apps.recordBuildInternal, {
         buildId: body.buildId,
@@ -62,6 +64,8 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         artifactPrefix: body.artifactPrefix,
         previewUrl: body.previewUrl,
         metricsJson: JSON.stringify(body.metrics),
+        slug: body.slug,
+        autoActivate: body.autoActivate,
         now: Date.now(),
       });
       return json({ ok: true });

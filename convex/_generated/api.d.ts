@@ -83,6 +83,7 @@ import type * as events from "../events.js";
 import type * as feedback from "../feedback.js";
 import type * as http from "../http.js";
 import type * as http_routes_admin from "../http_routes/admin.js";
+import type * as http_routes_apps_sdk from "../http_routes/apps_sdk.js";
 import type * as http_routes_backups from "../http_routes/backups.js";
 import type * as http_routes_cloud_apps from "../http_routes/cloud_apps.js";
 import type * as http_routes_connectors from "../http_routes/connectors.js";
@@ -322,6 +323,7 @@ declare const fullApi: ApiFromModules<{
   feedback: typeof feedback;
   http: typeof http;
   "http_routes/admin": typeof http_routes_admin;
+  "http_routes/apps_sdk": typeof http_routes_apps_sdk;
   "http_routes/backups": typeof http_routes_backups;
   "http_routes/cloud_apps": typeof http_routes_cloud_apps;
   "http_routes/connectors": typeof http_routes_connectors;

@@ -91,6 +91,100 @@ export const checkQuotaInternal = internalQuery({
   },
 });
 
+export const getStorageInternal = internalQuery({
+  args: { appId: v.string(), userId: v.string(), key: v.string() },
+  returns: v.any(),
+  handler: (ctx, args) =>
+    ctx.db
+      .query("cloud_app_storage")
+      .withIndex("by_appId_and_userId_and_key", (q) =>
+        q.eq("appId", args.appId).eq("userId", args.userId).eq("key", args.key),
+      )
+      .unique(),
+});
+
+export const listStorageInternal = internalQuery({
+  args: { appId: v.string(), userId: v.string() },
+  returns: v.any(),
+  handler: (ctx, args) =>
+    ctx.db
+      .query("cloud_app_storage")
+      .withIndex("by_appId_and_userId", (q) =>
+        q.eq("appId", args.appId).eq("userId", args.userId),
+      )
+      .take(101),
+});
+
+export const setStorageInternal = internalMutation({
+  args: {
+    appId: v.string(),
+    ownerId: v.string(),
+    userId: v.string(),
+    key: v.string(),
+    valueJson: v.string(),
+    sizeBytes: v.number(),
+    now: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (args.key.length < 1 || args.key.length > 128) {
+      throw new ConvexError("Storage keys must be 1–128 characters.");
+    }
+    if (args.sizeBytes > 16 * 1024) {
+      throw new ConvexError("Storage value exceeds the 16 KB per-key limit.");
+    }
+    const rows = await ctx.db
+      .query("cloud_app_storage")
+      .withIndex("by_appId_and_userId", (q) =>
+        q.eq("appId", args.appId).eq("userId", args.userId),
+      )
+      .take(101);
+    const existing = rows.find((row) => row.key === args.key);
+    if (!existing && rows.length >= 100) {
+      throw new ConvexError("Storage quota reached: maximum 100 keys.");
+    }
+    const total = rows.reduce((sum, row) => sum + row.sizeBytes, 0)
+      - (existing?.sizeBytes ?? 0)
+      + args.sizeBytes;
+    if (total > 64 * 1024) {
+      throw new ConvexError("Storage quota reached: maximum 64 KB per app.");
+    }
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        valueJson: args.valueJson,
+        sizeBytes: args.sizeBytes,
+        updatedAt: args.now,
+      });
+    } else {
+      await ctx.db.insert("cloud_app_storage", {
+        appId: args.appId,
+        ownerId: args.ownerId,
+        userId: args.userId,
+        key: args.key,
+        valueJson: args.valueJson,
+        sizeBytes: args.sizeBytes,
+        updatedAt: args.now,
+      });
+    }
+    return null;
+  },
+});
+
+export const deleteStorageInternal = internalMutation({
+  args: { appId: v.string(), userId: v.string(), key: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("cloud_app_storage")
+      .withIndex("by_appId_and_userId_and_key", (q) =>
+        q.eq("appId", args.appId).eq("userId", args.userId).eq("key", args.key),
+      )
+      .unique();
+    if (row) await ctx.db.delete(row._id);
+    return null;
+  },
+});
+
 export const appendEventInternal = internalMutation({
   args: {
     turnId: v.string(),

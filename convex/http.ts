@@ -20,6 +20,7 @@ import { registerVoiceRoutes } from "./http_routes/voice";
 import { registerDictationRoutes } from "./http_routes/dictation";
 import { registerXRoutes } from "./http_routes/x";
 import { registerCloudAppRoutes } from "./http_routes/cloud_apps";
+import { registerAppsSdkRoutes } from "./http_routes/apps_sdk";
 import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
 
 // Stella provider endpoints
@@ -67,6 +68,7 @@ registerVoiceRoutes(http);
 registerDictationRoutes(http);
 registerXRoutes(http);
 registerCloudAppRoutes(http);
+registerAppsSdkRoutes(http);
 
 registerStripeRoutes(http);
 

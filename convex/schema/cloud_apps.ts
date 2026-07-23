@@ -62,10 +62,13 @@ export const cloudAppsSchema = {
   cloud_app_storage: defineTable({
     appId: v.string(),
     ownerId: v.string(),
+    userId: v.string(),
     key: v.string(),
     valueJson: v.string(),
+    sizeBytes: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_appId_and_key", ["appId", "key"])
+    .index("by_appId_and_userId_and_key", ["appId", "userId", "key"])
+    .index("by_appId_and_userId", ["appId", "userId"])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
 };

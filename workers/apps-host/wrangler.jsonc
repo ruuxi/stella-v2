@@ -11,7 +11,8 @@
     }
   },
   "vars": {
-    "SHARES_DISABLED": "false"
+    "SHARES_DISABLED": "false",
+    "CONVEX_SITE_URL": "https://flexible-panther-999.convex.site"
   },
   "r2_buckets": [
     {

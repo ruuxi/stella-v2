@@ -51,11 +51,14 @@ const getConvexSiteUrl = () => {
 
 const startDesktopSocialAuth = async () => {
   const convexSiteUrl = getConvexSiteUrl();
-  const response = await fetch(`${convexSiteUrl}/api/auth/desktop-social/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "google" }),
-  });
+  const response = await fetch(
+    `${convexSiteUrl}/api/auth/desktop-social/start`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: "google" }),
+    },
+  );
   const data = (await response.json().catch(() => null)) as {
     requestId?: string;
     callbackURL?: string;
@@ -173,6 +176,20 @@ function GoogleAuthButton() {
     setIsSigningIn(true);
 
     try {
+      if (!window.electronAPI) {
+        const result = (await authClient.signIn.social({
+          provider: "google",
+          callbackURL: window.location.href,
+        })) as SocialSignInResult | undefined;
+        if (result?.error) {
+          setError(
+            result.error.message ||
+              result.error.statusText ||
+              "Google sign-in could not start.",
+          );
+        }
+        return;
+      }
       const { convexSiteUrl, requestId, callbackURL } =
         await startDesktopSocialAuth();
       const result = (await authClient.signIn.social({

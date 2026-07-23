@@ -6,6 +6,8 @@ const DEFAULT_CORS_ALLOWED_ORIGINS = [
   "http://localhost:57315",
   "http://127.0.0.1:57315",
   "https://stella.sh",
+  "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+  "https://stella-v2-interior-dev.lolruuxi.workers.dev",
   "null",
 ];
 

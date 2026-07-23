@@ -14,7 +14,10 @@ import {
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { History, ChevronDown, Eye } from "@/ui/icons";
+import { Link } from "@tanstack/react-router";
+import { useConvexAuth, useQuery } from "convex/react";
+import { History, ChevronDown, Eye, AppWindowMac } from "@/ui/icons";
+import { cloudApi } from "@/features/cloud/cloud-api";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
@@ -799,10 +802,27 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
     loadOlder: loadOlderFiles,
   } = filesFeed;
   const schedules = useConversationSchedules(conversationId);
+  const { isAuthenticated } = useConvexAuth();
+  const cloudApps = useQuery(
+    cloudApi.listMyApps,
+    isAuthenticated ? {} : "skip",
+  );
 
   const normalizedQuery = query.trim().toLowerCase();
   const searching = normalizedQuery.length > 0;
   const caps = searching ? SEARCH_CAPS : SECTION_CAPS[variant];
+  const visibleCloudApps = useMemo(
+    () =>
+      (cloudApps ?? [])
+        .filter((app) => app.status !== "suspended")
+        .filter(
+          (app) =>
+            !searching ||
+            `${app.title} ${app.slug}`.toLowerCase().includes(normalizedQuery),
+        )
+        .slice(0, 12),
+    [cloudApps, normalizedQuery, searching],
+  );
 
   // While searching, page in the full dataset so the query matches every
   // item, not just what's already loaded. Each loader call updates
@@ -1134,13 +1154,41 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
     [onNavigate],
   );
 
-  if (!hasActivity && !hasFiles && !hasSchedule) {
+  if (!visibleCloudApps.length && !hasActivity && !hasFiles && !hasSchedule) {
     return renderEmpty ? <>{renderEmpty()}</> : null;
   }
 
   return (
     <>
       <div className="chat-workspace-strip__panel">
+        {visibleCloudApps.length ? (
+          <WorkspaceSection title="Apps" sectionId="cloud-apps">
+            <ul className="chat-workspace-strip__list">
+              {visibleCloudApps.map((app) => (
+                <li key={app.appId} className="chat-workspace-strip__row">
+                  <Link
+                    to="/apps/$slug"
+                    params={{ slug: app.slug }}
+                    className="chat-workspace-strip__file-button cloud-sidebar-app"
+                    onClick={() => onNavigate?.()}
+                  >
+                    <AppWindowMac
+                      size={15}
+                      strokeWidth={1.7}
+                      aria-hidden="true"
+                    />
+                    <span className="chat-workspace-strip__file-name">
+                      {app.title}
+                    </span>
+                    <span className="cloud-sidebar-app__status">
+                      {app.status === "building" ? "Building" : "Live"}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </WorkspaceSection>
+        ) : null}
         {hasActivity && (
           <WorkspaceSection
             title="Activity"

@@ -2,6 +2,16 @@ import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export const cloudAppsSchema = {
+  cloud_conversations: defineTable({
+    conversationId: v.string(),
+    ownerId: v.string(),
+    title: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_conversationId", ["conversationId"])
+    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
+
   cloud_apps: defineTable({
     appId: v.string(),
     ownerId: v.string(),
@@ -35,6 +45,7 @@ export const cloudAppsSchema = {
     turnId: v.string(),
     sessionId: v.string(),
     ownerId: v.string(),
+    conversationId: v.optional(v.string()),
     appId: v.string(),
     prompt: v.string(),
     status: v.string(),
@@ -46,7 +57,8 @@ export const cloudAppsSchema = {
   })
     .index("by_turnId", ["turnId"])
     .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"])
-    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"]),
+    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
+    .index("by_conversationId_and_createdAt", ["conversationId", "createdAt"]),
 
   agent_events: defineTable({
     turnId: v.string(),

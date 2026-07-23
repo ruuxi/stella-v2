@@ -116,8 +116,13 @@ const hydrateOnboardingCompleted = async () => {
     const preferencesApi = window.electronAPI?.system;
 
     if (!preferencesApi?.getOnboardingCompleted) {
-      durableCompleted = localCompleted;
+      // The standalone web interior and mobile WebView do not have the
+      // desktop preload bridge. Their first-run path is account auth, not the
+      // hardware/shortcut onboarding flow, whose later steps require native
+      // IPC and global shortcuts. Treat those shells as already onboarded.
+      durableCompleted = true;
       durableHydrated = true;
+      writeLocalOnboardingCompleted(true);
       notifyAll();
       return;
     }

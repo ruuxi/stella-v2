@@ -186,7 +186,7 @@ const requireOwnerId = async (ctx: {
   auth: { getUserIdentity: () => Promise<{ tokenIdentifier: string } | null> };
 }): Promise<string> => {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new ConvexError("Sign in to use cloud apps.");
+  if (!identity) throw new ConvexError("Sign in to build apps with Stella.");
   return identity.tokenIdentifier;
 };
 
@@ -315,8 +315,10 @@ export const startCloudChat = mutation({
     // Resolve the target app first: turns aimed at an active app that has
     // registered operations enter the routed lane, which never reserves build
     // quota up front (the router re-checks it if the model chooses a build).
-    let targetApp: { appId: string; ownerId: string; status: string } | null =
-      null;
+    let targetApp:
+      | { appId: string; ownerId: string; status: string; title?: string }
+      | null = null;
+    let inferredAppId: string | undefined;
     if (args.appId) {
       const requestedAppId = args.appId;
       const app = await ctx.db
@@ -326,6 +328,36 @@ export const startCloudChat = mutation({
       if (!app || app.ownerId !== ownerId)
         throw new ConvexError("App not found.");
       targetApp = app;
+    } else {
+      // No explicit target: infer it from the message so the normal chat
+      // composer needs no app picker. Naming an app targets it; with exactly
+      // one app, follow-ups target it unless the user asks for something new.
+      const myApps = await ctx.db
+        .query("cloud_apps")
+        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
+        .order("desc")
+        .take(20);
+      const active = myApps.filter((app) => app.status === "active");
+      const escapeRegExp = (value: string) =>
+        value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const named = active.filter(
+        (app) =>
+          app.title !== "New app" &&
+          new RegExp(
+            `(^|[^A-Za-z0-9])${escapeRegExp(app.title)}([^A-Za-z0-9]|$)`,
+            "i",
+          ).test(prompt),
+      );
+      const wantsNewApp =
+        /\bnew app\b/i.test(prompt) ||
+        /\b(?:make|build|create)\b[\s\S]{0,60}\bapp\b/i.test(prompt);
+      if (named.length === 1) {
+        targetApp = named[0]!;
+        inferredAppId = named[0]!.appId;
+      } else if (!wantsNewApp && named.length === 0 && active.length === 1) {
+        targetApp = active[0]!;
+        inferredAppId = active[0]!.appId;
+      }
     }
     const opsManifest =
       targetApp && targetApp.status === "active"
@@ -349,7 +381,7 @@ export const startCloudChat = mutation({
         "cloud_ops_daily",
         ownerId,
         { rate: quota.dailyTurns * 20, periodMs: 24 * 60 * 60_000 },
-        "Daily app-operation quota reached. Try again after the rolling 24-hour window resets.",
+        "You've reached today's limit for quick app changes. Try again tomorrow.",
       );
     } else {
       await enforceMutationRateLimit(
@@ -357,7 +389,7 @@ export const startCloudChat = mutation({
         "cloud_apps_start",
         ownerId,
         { rate: quota.burstStarts, periodMs: 10 * 60_000 },
-        "Too many cloud turns started recently. Wait a few minutes and try again.",
+        "You're sending requests quickly. Give Stella a few minutes, then try again.",
       );
       const recentTurns = await ctx.db
         .query("agent_turns")
@@ -371,14 +403,14 @@ export const startCloudChat = mutation({
       const running = buildTurns.filter((turn) => turn.status === "running");
       if (running.length >= quota.concurrentTurns) {
         throw new ConvexError(
-          `${plan === "free" ? "Free" : plan} allows ${quota.concurrentTurns} active cloud ${
-            quota.concurrentTurns === 1 ? "turn" : "turns"
-          }. Wait for one to finish or cancel it.`,
+          "Stella is still working on an earlier change. Wait for it to finish, then try again.",
         );
       }
       if (buildTurns.length >= quota.dailyTurns) {
         throw new ConvexError(
-          `${plan === "free" ? "Free" : plan} includes ${quota.dailyTurns} cloud turns per rolling 24 hours. Try again after the window resets.`,
+          `You've used all ${quota.dailyTurns} app updates included with the ${
+            plan === "free" ? "Free" : plan
+          } plan today. Try again tomorrow.`,
         );
       }
     }
@@ -408,21 +440,20 @@ export const startCloudChat = mutation({
       });
     }
 
-    let appId = args.appId;
+    let appId = args.appId ?? inferredAppId;
     let isNewApp = false;
     if (appId) {
       if (!targetApp) throw new ConvexError("App not found.");
     } else {
       appId = `app-${crypto.randomUUID()}`;
       isNewApp = true;
+      // Provisional name only — the real app name arrives with the first
+      // finished build and replaces this everywhere it is shown.
       await ctx.db.insert("cloud_apps", {
         appId,
         ownerId,
         slug: `orbit-${appId.slice(-8)}`,
-        title:
-          prompt.length > 32
-            ? `${prompt.slice(0, 29).replace(/\s+\S*$/, "")}…`
-            : prompt,
+        title: "New app",
         status: "building",
         createdAt: now,
         updatedAt: now,
@@ -515,7 +546,7 @@ export const runCloudTurnInternal = internalAction({
   handler: async (ctx, args) => {
     const builderUrl = process.env.CLOUD_BUILDER_URL?.trim();
     const builderSecret = process.env.BUILDER_SERVICE_SECRET?.trim();
-    let failure = "The cloud builder is not configured. Try again later.";
+    let failure = "Stella couldn't start on this. Try again in a moment.";
     try {
       if (!builderUrl || !builderSecret) throw new Error(failure);
       const response = await fetch(
@@ -538,7 +569,7 @@ export const runCloudTurnInternal = internalAction({
         },
       );
       if (response.ok) return null;
-      failure = `The cloud builder returned ${response.status}. Retry this turn.`;
+      failure = "Stella hit a snag starting this change. Try again.";
     } catch (error) {
       failure = error instanceof Error ? error.message : String(error);
     }
@@ -711,6 +742,7 @@ export const recordBuildInternal = internalMutation({
     metricsJson: v.string(),
     slug: v.string(),
     autoActivate: v.boolean(),
+    title: v.optional(v.string()),
     now: v.number(),
   },
   returns: v.null(),
@@ -731,11 +763,34 @@ export const recordBuildInternal = internalMutation({
       .query("cloud_apps")
       .withIndex("by_appId", (q) => q.eq("appId", args.appId))
       .unique();
-    if (app && args.autoActivate) {
+    if (app) {
+      // Apps carry their real product name (from the finished build), never
+      // the prompt text that created them.
+      const title = args.title?.trim().slice(0, 32);
       await ctx.db.patch(app._id, {
-        status: "active",
-        activeBuildId: args.buildId,
+        ...(title && title !== app.title ? { title } : {}),
+        ...(args.autoActivate
+          ? { status: "active", activeBuildId: args.buildId }
+          : {}),
         updatedAt: args.now,
+      });
+    }
+    return null;
+  },
+});
+
+export const setAppTitleInternal = internalMutation({
+  args: { appId: v.string(), title: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const app = await ctx.db
+      .query("cloud_apps")
+      .withIndex("by_appId", (q) => q.eq("appId", args.appId))
+      .unique();
+    if (app) {
+      await ctx.db.patch(app._id, {
+        title: args.title.trim().slice(0, 32),
+        updatedAt: Date.now(),
       });
     }
     return null;
@@ -1575,7 +1630,7 @@ export const createOpInvocationInternal = internalMutation({
     const def = operations.find((op) => op.name === args.name);
     if (!def) {
       return await fail(
-        `The app does not expose an operation named ${args.name}. Ask for a change to the app instead.`,
+        "The app can't do that directly — ask Stella to change the app instead.",
       );
     }
     let parsedArgs: Record<string, unknown>;
@@ -1651,14 +1706,14 @@ export const reserveBuildLaneInternal = internalMutation({
     };
     if (running.length >= quota.concurrentTurns) {
       return await fail(
-        `${plan === "free" ? "Free" : plan} allows ${quota.concurrentTurns} active cloud ${
-          quota.concurrentTurns === 1 ? "turn" : "turns"
-        }. Wait for one to finish or cancel it.`,
+        "Stella is still working on an earlier change. Wait for it to finish, then try again.",
       );
     }
     if (buildTurns.length >= quota.dailyTurns) {
       return await fail(
-        `${plan === "free" ? "Free" : plan} includes ${quota.dailyTurns} cloud turns per rolling 24 hours. Try again after the window resets.`,
+        `You've used all ${quota.dailyTurns} app updates included with the ${
+          plan === "free" ? "Free" : plan
+        } plan today. Try again tomorrow.`,
       );
     }
     await ctx.db.patch(turn._id, { lane: "build", updatedAt: now });
@@ -1883,7 +1938,7 @@ export const routeCloudTurnInternal = internalAction({
     const app = await ctx.runQuery(getAppRef, { appId: args.appId });
     const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
     if (!apiKey) {
-      await failTurn("The cloud agent is not configured. Try again later.");
+      await failTurn("Stella couldn't start on this. Try again in a moment.");
       return null;
     }
     let decision: {
@@ -1929,11 +1984,7 @@ export const routeCloudTurnInternal = internalAction({
         payload.content?.find((item) => item.type === "text")?.text ?? "";
       decision = JSON.parse(text.replace(/^```json\s*|\s*```$/g, ""));
     } catch (error) {
-      await failTurn(
-        `Stella could not route this request: ${
-          error instanceof Error ? error.message : String(error)
-        }. Try again.`,
-      );
+      await failTurn("Stella couldn't finish this request. Try again.");
       return null;
     }
     if (decision.decision !== "operation" || !decision.name) {

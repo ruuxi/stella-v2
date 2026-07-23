@@ -375,6 +375,23 @@ export const ChatTimeline = memo(function ChatTimeline({
   }
 
   if (rows.length === 0) {
+    // Extra tail rows (cloud app turns) count as content: without local
+    // messages they still render in place of the empty state.
+    if (extraTail) {
+      return (
+        <div
+          className={`event-list-fallback${className ? ` ${className}` : ""}`}
+          data-empty="false"
+        >
+          <div
+            className="event-list-extra-tail"
+            style={contentContainerStyle}
+          >
+            {extraTail}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="event-list-fallback" data-empty="true">
         {emptyState ?? <div className="event-empty">Start a conversation</div>}

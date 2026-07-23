@@ -11,6 +11,10 @@
 import { configurePiRuntime } from "@/platform/electron/device";
 import { getJwtExpMs } from "@/shared/lib/jwt";
 import { authClient } from "@/global/auth/lib/auth-client";
+import {
+  getInjectedMobileConvexToken,
+  requestMobileConvexToken,
+} from "@/platform/mobile/mobile-shell";
 
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
@@ -32,6 +36,10 @@ export async function getConvexToken(
   options: GetConvexTokenOptions = {},
 ): Promise<string | null> {
   const forceRefresh = options.forceRefresh ?? false;
+  const mobileToken = forceRefresh
+    ? await requestMobileConvexToken()
+    : getInjectedMobileConvexToken();
+  if (mobileToken) return mobileToken;
 
   if (forceRefresh) {
     tokenRequestVersion += 1;

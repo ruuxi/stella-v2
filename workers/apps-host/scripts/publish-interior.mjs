@@ -1,89 +1,111 @@
+/**
+ * Publish a built renderer as a new immutable interior version.
+ *
+ * Usage:
+ *   node scripts/publish-interior.mjs <distDir> <artifactPrefix>
+ *
+ * Requires R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY in the
+ * environment (pipe them from the Convex deployment; never print them) and an
+ * existing `<distDir>/../interior-bundle.zip` alongside, produced by zipping
+ * the dist contents. Uploads every file plus bundle.zip under the prefix in
+ * the dev app-builds bucket, then prints the KV record to store at
+ * `app:stella-interior`. Never reuses an existing prefix.
+ */
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
-const [distArg, prefixArg] = process.argv.slice(2);
-if (!distArg || !prefixArg) {
-  throw new Error("Usage: publish-interior.mjs <dist-dir> <artifact-prefix>");
+const [distDir, prefix] = process.argv.slice(2);
+if (!distDir || !prefix) {
+  console.error("Usage: publish-interior.mjs <distDir> <artifactPrefix>");
+  process.exit(1);
 }
 
-const required = (name) => {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is required.`);
-  return value;
-};
-
-const dist = path.resolve(distArg);
-if (!(await stat(dist)).isDirectory())
-  throw new Error("Dist directory not found.");
-
-const files = [];
-const walk = async (directory) => {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) await walk(absolute);
-    else if (entry.isFile()) files.push(absolute);
-  }
-};
-await walk(dist);
-
-const contentType = (file) => {
-  const extension = path.extname(file).toLowerCase();
-  return (
-    {
-      ".html": "text/html; charset=utf-8",
-      ".js": "text/javascript; charset=utf-8",
-      ".css": "text/css; charset=utf-8",
-      ".json": "application/json; charset=utf-8",
-      ".svg": "image/svg+xml",
-      ".png": "image/png",
-      ".jpg": "image/jpeg",
-      ".jpeg": "image/jpeg",
-      ".webp": "image/webp",
-      ".woff2": "font/woff2",
-      ".woff": "font/woff",
-      ".ttf": "font/ttf",
-      ".mjs": "text/javascript; charset=utf-8",
-      ".wasm": "application/wasm",
-    }[extension] ?? "application/octet-stream"
-  );
-};
-
+const BUCKET = process.env.INTERIOR_BUCKET ?? "stella-v2-app-builds-dev";
 const client = new S3Client({
   region: "auto",
-  endpoint: required("R2_ENDPOINT"),
+  endpoint: process.env.R2_ENDPOINT,
   credentials: {
-    accessKeyId: required("R2_ACCESS_KEY_ID"),
-    secretAccessKey: required("R2_SECRET_ACCESS_KEY"),
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
   },
 });
-const bucket = required("R2_BUCKET");
-let uploadedBytes = 0;
-const pending = [...files];
-await Promise.all(
-  Array.from({ length: Math.min(12, files.length) }, async () => {
-    while (pending.length) {
-      const absolute = pending.pop();
-      if (!absolute) return;
-      const body = await readFile(absolute);
-      const relative = path.relative(dist, absolute).split(path.sep).join("/");
-      await client.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: `${prefixArg.replace(/\/+$/, "")}/${relative}`,
-          Body: body,
-          ContentType: contentType(relative),
-          CacheControl:
-            relative === "index.html"
-              ? "no-cache"
-              : "public, max-age=31536000, immutable",
-        }),
-      );
-      uploadedBytes += body.byteLength;
-    }
-  }),
-);
 
-process.stdout.write(
-  `${JSON.stringify({ prefix: prefixArg, files: files.length, uploadedBytes })}\n`,
+const contentTypes = new Map([
+  [".html", "text/html; charset=utf-8"],
+  [".js", "text/javascript; charset=utf-8"],
+  [".css", "text/css; charset=utf-8"],
+  [".json", "application/json; charset=utf-8"],
+  [".svg", "image/svg+xml"],
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".webp", "image/webp"],
+  [".gif", "image/gif"],
+  [".ico", "image/x-icon"],
+  [".woff", "font/woff"],
+  [".woff2", "font/woff2"],
+  [".ttf", "font/ttf"],
+  [".wasm", "application/wasm"],
+  [".zip", "application/zip"],
+  [".webmanifest", "application/manifest+json"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".map", "application/json"],
+  [".mp3", "audio/mpeg"],
+  [".wav", "audio/wav"],
+]);
+
+const listFiles = async (dir) => {
+  const out = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...(await listFiles(full)));
+    else out.push(full);
+  }
+  return out;
+};
+
+const files = await listFiles(distDir);
+const bundlePath = path.join(path.dirname(distDir), "interior-bundle.zip");
+const uploads = files.map((file) => ({
+  key: `${prefix}/${path.relative(distDir, file).split(path.sep).join("/")}`,
+  file,
+}));
+try {
+  await stat(bundlePath);
+  uploads.push({ key: `${prefix}/bundle.zip`, file: bundlePath });
+} catch {
+  console.error("No interior-bundle.zip found; publishing files only.");
+}
+
+let done = 0;
+const queue = [...uploads];
+const worker = async () => {
+  for (;;) {
+    const item = queue.shift();
+    if (!item) return;
+    const body = await readFile(item.file);
+    await client.send(
+      new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: item.key,
+        Body: body,
+        ContentType:
+          contentTypes.get(path.extname(item.file).toLowerCase()) ??
+          "application/octet-stream",
+        CacheControl: item.key.endsWith("index.html")
+          ? "no-store"
+          : "public, max-age=31536000, immutable",
+      }),
+    );
+    done += 1;
+  }
+};
+await Promise.all(Array.from({ length: 8 }, worker));
+console.log(
+  JSON.stringify({
+    uploaded: done,
+    prefix,
+    kvRecord: { artifactPrefix: prefix, suspended: false },
+  }),
 );

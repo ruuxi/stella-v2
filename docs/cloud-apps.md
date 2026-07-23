@@ -109,11 +109,18 @@ bunx wrangler deploy --config wrangler.interior.jsonc
 unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
 ```
 
-Publish an interior by building the renderer, uploading the dist directory and
-ZIP under a new immutable R2 prefix, then atomically replacing
+Publish an interior by building the renderer with `NODE_ENV=production` set
+explicitly (a leaked `NODE_ENV=development` makes Vite emit a dev-flagged
+bundle), zipping the dist as `interior-bundle.zip`, then running
+`workers/apps-host/scripts/publish-interior.mjs <dist> <new-prefix>` with the
+R2 credentials piped from Convex, and atomically replacing
 `app:stella-interior` in KV. Never overwrite an existing prefix. The manifest
-endpoint must return the new prefix, ZIP content type, immutable cache policy,
-and an ETag before mobile rollout.
+endpoint must return the new prefix before mobile rollout.
+
+Framing contract: the interior worker's CSP must carry
+`frame-src <apps host origin>` (via `EMBED_APPS_ORIGIN`) and the apps host's
+`frame-ancestors` must include the interior origin, or embedded apps silently
+render as a blocked frame.
 
 ## Apply and rollback
 

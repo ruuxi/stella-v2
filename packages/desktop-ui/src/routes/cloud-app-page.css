@@ -1,6 +1,7 @@
+/* The app page is the app: a single full-bleed frame, nothing else. */
 .cloud-app-page {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -13,106 +14,15 @@
   text-align: center;
 }
 
-.cloud-app-page__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 46px 22px 12px;
-  border-bottom: 1px solid var(--border-weak);
-}
-
-.cloud-app-page__identity,
-.cloud-app-page__actions {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.cloud-app-page__icon {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border: 1px solid var(--border-base);
-  border-radius: 11px;
-  background: var(--surface-inset);
-  color: var(--text-strong);
-  font-weight: 700;
-}
-
-.cloud-app-page__identity h1 {
+.cloud-app-page--state h1 {
   margin: 0;
   color: var(--text-strong);
   font-size: 17px;
   font-weight: 650;
 }
 
-.cloud-app-page__identity p {
-  margin: 3px 0 0;
-  color: var(--text-weak);
-  font-size: 12px;
-}
-
-.cloud-app-page__actions a,
-.cloud-app-page__actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 0 11px;
-  border: 1px solid var(--border-base);
-  border-radius: 9px;
-  background: var(--surface-raised);
-  color: var(--text-base);
-  font: inherit;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.cloud-app-page__actions a:hover,
-.cloud-app-page__actions button:hover:not(:disabled) {
-  background: var(--surface-raised-hover);
-}
-
-.cloud-app-page__actions a:focus-visible,
-.cloud-app-page__actions button:focus-visible,
-.cloud-app-page__notice button:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-
-.cloud-app-page__actions button:disabled {
-  cursor: default;
-  opacity: 0.4;
-}
-
-.cloud-app-page__actions .cloud-app-page__delete {
-  color: var(--text-error);
-}
-
-.cloud-app-page__notice,
-.cloud-app-page__error {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 9px 22px;
-  border-bottom: 1px solid var(--border-weak);
-  background: var(--surface-inset);
-  font-size: 12px;
-}
-
-.cloud-app-page__notice button {
-  border: 0;
-  background: transparent;
+.cloud-app-page--state a {
   color: var(--text-interactive-base);
-  cursor: pointer;
-}
-
-.cloud-app-page__error {
-  justify-content: flex-start;
-  color: var(--text-error);
 }
 
 .cloud-app-page__frame {
@@ -120,16 +30,4 @@
   height: 100%;
   border: 0;
   background: var(--surface-base);
-}
-
-@media (max-width: 760px) {
-  .cloud-app-page__header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .cloud-app-page__actions {
-    width: 100%;
-    overflow-x: auto;
-  }
 }

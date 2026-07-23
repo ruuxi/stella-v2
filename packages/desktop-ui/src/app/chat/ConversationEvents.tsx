@@ -10,6 +10,7 @@ import {
   useMemo,
   useState,
   type CSSProperties,
+  type ReactNode,
   type RefObject,
 } from "react";
 import type { LegendListRef } from "@legendapp/list/react";
@@ -48,6 +49,8 @@ type Props = {
   className?: string;
   contentContainerStyle?: CSSProperties;
   estimatedItemSize?: number;
+  /** Extra rows appended after the timeline (cloud app turns). */
+  extraTail?: ReactNode;
 };
 
 /**
@@ -118,6 +121,7 @@ export const ConversationEvents = memo(function ConversationEvents({
   className,
   contentContainerStyle,
   estimatedItemSize,
+  extraTail,
 }: Props) {
   const { rows: projectedRows } = useEventRows({
     messages,
@@ -159,6 +163,7 @@ export const ConversationEvents = memo(function ConversationEvents({
       className={className}
       contentContainerStyle={contentContainerStyle}
       estimatedItemSize={estimatedItemSize}
+      extraTail={extraTail}
     />
   );
 });

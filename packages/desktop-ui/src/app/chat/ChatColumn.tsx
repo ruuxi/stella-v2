@@ -69,6 +69,7 @@ export const ChatColumn = memo(function ChatColumn({
   conversationId,
   showHomeContent,
   onDismissHome,
+  extraTail,
 }: ChatColumnProps) {
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ y: number; scrollTop: number } | null>(null);
@@ -340,6 +341,7 @@ export const ChatColumn = memo(function ChatColumn({
               className="session-content"
               contentContainerStyle={FULL_CHAT_CONTENT_STYLE}
               estimatedItemSize={140}
+              extraTail={extraTail}
             />
 
             {showScrollButton && !assistantReplyPeek.visible && (

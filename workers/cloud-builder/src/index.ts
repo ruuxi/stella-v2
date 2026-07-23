@@ -181,7 +181,7 @@ export class BuildSession extends DurableObject<Env> {
       99,
       "timeout",
       {
-        message: "The build exceeded its wall-clock limit. Retry the turn.",
+        message: "This took longer than expected, so Stella stopped. Try again.",
       },
       true,
     ).catch(() => undefined);
@@ -206,7 +206,7 @@ export class BuildSession extends DurableObject<Env> {
           98,
           "canceled",
           {
-            message: "Build canceled. No changes were applied.",
+            message: "Stopped. Nothing was changed.",
           },
           true,
         ).catch(() => undefined);
@@ -327,6 +327,11 @@ export class BuildSession extends DurableObject<Env> {
           modelPayload.error ?? `Model relay failed (${modelResponse.status}).`,
         );
       }
+      const appTitle =
+        typeof (modelPayload.spec as { title?: unknown })?.title === "string"
+          ? ((modelPayload.spec as { title: string }).title.trim().slice(0, 32) ||
+            undefined)
+          : undefined;
       await this.event(turn, seq++, "model_completed", {
         ...modelPayload.usage,
         roundTripMs: Math.round(performance.now() - modelStarted),
@@ -340,7 +345,12 @@ export class BuildSession extends DurableObject<Env> {
         { timeout: commandTimeoutMs },
       )) as Execution;
       if (!execution.success) {
-        throw new Error(`Executor failed: ${execution.stderr.slice(-4_000)}`);
+        log("error", "executor_failed", {
+          turnId: turn.turnId,
+          appId: turn.appId,
+          stderr: execution.stderr.slice(-4_000),
+        });
+        throw new Error("Stella hit a problem while building. Try again.");
       }
       const executor = JSON.parse(
         execution.stdout.trim().split("\n").at(-1) ?? "{}",
@@ -478,6 +488,7 @@ export class BuildSession extends DurableObject<Env> {
         metrics,
         slug,
         autoActivate: turn.autoActivate !== false,
+        title: appTitle,
       });
       const result = {
         turnId: turn.turnId,

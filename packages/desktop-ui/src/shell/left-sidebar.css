@@ -125,10 +125,46 @@
   text-decoration: none;
 }
 
-.cloud-sidebar-app__status {
-  margin-left: auto;
+/* App rows stay quiet: icon + name. Delete only appears on hover/focus. */
+.cloud-sidebar-app__row {
+  position: relative;
+}
+
+.cloud-sidebar-app__delete {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-weaker);
-  font-size: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease;
+}
+
+.cloud-sidebar-app__row:hover .cloud-sidebar-app__delete,
+.cloud-sidebar-app__delete:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.cloud-sidebar-app__delete:hover {
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+
+.cloud-sidebar-app__delete:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* "View all" history buttons stay hidden until the section is hovered

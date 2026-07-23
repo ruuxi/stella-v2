@@ -154,7 +154,7 @@ const proxyFetch = async (request: Request, env: Env): Promise<Response> => {
 };
 
 const securityHeaders = (env: Env) => ({
-  "content-security-policy": `default-src 'self'; script-src 'self' ${env.APPS_HOST_ORIGIN}; style-src 'self' ${env.APPS_HOST_ORIGIN} 'unsafe-inline'; img-src 'self' ${env.APPS_HOST_ORIGIN} data: blob:; font-src 'self' ${env.APPS_HOST_ORIGIN}; connect-src 'self' ${env.CONVEX_SITE_URL} ${env.CONVEX_CLOUD_URL} ${env.CONVEX_CLOUD_URL.replace("https://", "wss://")}; object-src 'none'; base-uri 'none'; frame-ancestors 'self' http://localhost:57315 http://127.0.0.1:57315 https://stella.sh; form-action 'self'`,
+  "content-security-policy": `default-src 'self'; script-src 'self' ${env.APPS_HOST_ORIGIN}; style-src 'self' ${env.APPS_HOST_ORIGIN} 'unsafe-inline'; img-src 'self' ${env.APPS_HOST_ORIGIN} data: blob:; font-src 'self' ${env.APPS_HOST_ORIGIN}; connect-src 'self' ${env.CONVEX_SITE_URL} ${env.CONVEX_CLOUD_URL} ${env.CONVEX_CLOUD_URL.replace("https://", "wss://")}; object-src 'none'; base-uri 'none'; frame-ancestors 'self' file: http://localhost:57315 http://127.0.0.1:57315 https://stella.sh; form-action 'self'`,
   "cross-origin-opener-policy": "same-origin",
   // Embedded apps run in sandboxed opaque origins. CSP + the shell bridge
   // enforce capability boundaries; assets must remain loadable in that sandbox.
@@ -180,6 +180,26 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/healthz") {
       return Response.json({ ok: true, service: "stella-v2-apps-host" });
+    }
+    if (url.pathname === "/api/interior/manifest") {
+      const route = await env.APP_ROUTES.get<RouteRecord>(
+        "app:stella-interior",
+        "json",
+      );
+      if (!route || route.suspended) {
+        return Response.json(
+          { error: "The Stella interior is not available." },
+          { status: 503 },
+        );
+      }
+      return Response.json(
+        {
+          version: route.artifactPrefix,
+          bundleUrl: `${url.origin}/apps/stella-interior/bundle.zip`,
+          remoteUrl: `${url.origin}/apps/stella-interior/`,
+        },
+        { headers: { "cache-control": "no-store" } },
+      );
     }
     if (url.pathname === "/api/apps/fetch" && request.method === "OPTIONS") {
       const origin = request.headers.get("origin") ?? "";

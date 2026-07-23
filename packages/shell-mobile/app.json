@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "newArchEnabled": false,
+    "owner": "stella-ai",
+    "name": "Stella",
+    "slug": "stella-mobile",
+    "version": "2.0.0",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/892d4162-8a4f-40e8-a0d5-b24516cb7537"
+    },
+    "orientation": "portrait",
+    "scheme": "stella-mobile",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "appleTeamId": "7UVYHQ763X",
+      "bundleIdentifier": "com.stella.mobile",
+      "buildNumber": "53",
+      "supportsTablet": true,
+      "entitlements": {
+        "com.apple.security.application-groups": ["group.com.stella.mobile"],
+        "com.apple.developer.carplay-audio": true
+      },
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Stella uses the camera when an app asks you to capture a photo.",
+        "NSMicrophoneUsageDescription": "Stella uses the microphone for voice input in chat and CarPlay.",
+        "NSSpeechRecognitionUsageDescription": "Stella transcribes your voice when you talk to it from CarPlay.",
+        "NSPhotoLibraryUsageDescription": "Stella lets you choose photos and files to share with your apps."
+      }
+    },
+    "android": {
+      "package": "com.fromyou.stella",
+      "predictiveBackGestureEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-notifications",
+      "expo-splash-screen",
+      "./plugins/withStellaCarPlay"
+    ],
+    "extra": {
+      "convexUrl": "https://flexible-panther-999.convex.cloud",
+      "convexSiteUrl": "https://flexible-panther-999.convex.site",
+      "interiorManifestUrl": "https://stella-v2-interior-dev.lolruuxi.workers.dev/api/interior/manifest",
+      "interiorFallbackUrl": "https://stella-v2-interior-dev.lolruuxi.workers.dev/apps/stella-interior/",
+      "eas": {
+        "projectId": "892d4162-8a4f-40e8-a0d5-b24516cb7537"
+      }
+    }
+  }
+}

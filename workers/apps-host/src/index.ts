@@ -13,6 +13,21 @@ type RouteRecord = {
   suspended: boolean;
 };
 
+const log = (
+  level: "info" | "error",
+  event: string,
+  fields: Record<string, unknown> = {},
+) => {
+  console[level](
+    JSON.stringify({
+      service: "stella-v2-apps-host",
+      event,
+      timestamp: new Date().toISOString(),
+      ...fields,
+    }),
+  );
+};
+
 const isPrivateTarget = (hostname: string): boolean => {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (
@@ -178,6 +193,13 @@ const notice = (env: Env, title: string, message: string, status: number) =>
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
+    log("info", "request_started", {
+      requestId,
+      method: request.method,
+      path: url.pathname,
+      host: url.host,
+    });
     if (url.pathname === "/healthz") {
       return Response.json({ ok: true, service: "stella-v2-apps-host" });
     }
@@ -187,6 +209,7 @@ export default {
         "json",
       );
       if (!route || route.suspended) {
+        log("error", "interior_manifest_unavailable", { requestId });
         return Response.json(
           { error: "The Stella interior is not available." },
           { status: 503 },
@@ -222,6 +245,7 @@ export default {
       }
     }
     if (env.SHARES_DISABLED === "true") {
+      log("error", "global_kill_switch_served", { requestId });
       return notice(
         env,
         "Temporarily unavailable",
@@ -242,6 +266,11 @@ export default {
         "This Stella app does not exist.",
         404,
       );
+    if (route.suspended)
+      log("info", "suspended_notice_served", {
+        requestId,
+        slug: match[1],
+      });
     if (route.suspended)
       return notice(
         env,
@@ -266,6 +295,11 @@ export default {
           return new Response(fallback.body, { headers });
         }
       }
+      log("error", "asset_not_found", {
+        requestId,
+        slug: match[1],
+        assetPath,
+      });
       return new Response("Not found", { status: 404 });
     }
     const headers = new Headers(securityHeaders(env));

@@ -60,6 +60,21 @@ const json = (body: unknown, status = 200): Response =>
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const log = (
+  level: "info" | "error",
+  event: string,
+  fields: Record<string, unknown> = {},
+) => {
+  console[level](
+    JSON.stringify({
+      service: "stella-v2-cloud-builder",
+      event,
+      timestamp: new Date().toISOString(),
+      ...fields,
+    }),
+  );
+};
+
 const authorized = (request: Request, env: Env): boolean =>
   request.headers.get("authorization") ===
   `Bearer ${env.BUILDER_SERVICE_SECRET}`;
@@ -156,6 +171,11 @@ export class BuildSession extends DurableObject<Env> {
       await this.sandbox(sandboxId)
         .destroy()
         .catch(() => undefined);
+    log("error", "turn_timed_out", {
+      turnId: turn.turnId,
+      appId: turn.appId,
+      sandboxId,
+    });
     await this.event(
       turn,
       99,
@@ -190,6 +210,11 @@ export class BuildSession extends DurableObject<Env> {
           },
           true,
         ).catch(() => undefined);
+        log("info", "turn_canceled", {
+          turnId: turn.turnId,
+          appId: turn.appId,
+          sandboxId,
+        });
       }
       return json({ canceled: true });
     }
@@ -253,6 +278,12 @@ export class BuildSession extends DurableObject<Env> {
     );
     let seq = 0;
     const requestStarted = performance.now();
+    log("info", "turn_started", {
+      turnId: turn.turnId,
+      appId: turn.appId,
+      sessionId: this.ctx.id.toString(),
+      autoActivate: turn.autoActivate !== false,
+    });
     try {
       await this.event(turn, seq++, "started", { appId: turn.appId });
       if (turn.preflightDelayMs) {
@@ -459,6 +490,14 @@ export class BuildSession extends DurableObject<Env> {
       await this.ctx.storage.put("terminal", true);
       await restore.destroy();
       await this.ctx.storage.deleteAll();
+      log("info", "turn_completed", {
+        turnId: turn.turnId,
+        appId: turn.appId,
+        buildId,
+        wallClockMs: metrics.wallClockMs,
+        activeCpuSeconds: metrics.activeCpuSeconds,
+        uploadedBytes,
+      });
       return json({ ok: true, ...result });
     } catch (error) {
       const message = errorMessage(error);
@@ -475,6 +514,11 @@ export class BuildSession extends DurableObject<Env> {
           .catch(() => undefined);
       await first.destroy().catch(() => undefined);
       await this.ctx.storage.deleteAll();
+      log("error", "turn_failed", {
+        turnId: turn.turnId,
+        appId: turn.appId,
+        message,
+      });
       return json({ error: "Cloud app turn failed.", detail: message }, 502);
     }
   }
@@ -483,6 +527,12 @@ export class BuildSession extends DurableObject<Env> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
+    log("info", "request_started", {
+      requestId,
+      method: request.method,
+      path: url.pathname,
+    });
     if (request.method === "GET" && url.pathname === "/healthz") {
       return json({ ok: true, service: "stella-v2-cloud-builder" });
     }
@@ -531,6 +581,12 @@ export default {
           updatedAt: Date.now(),
         }),
       );
+      log("info", "route_activated", {
+        requestId,
+        slug: body.slug,
+        appId: body.appId,
+        buildId: body.buildId,
+      });
       return json({ ok: true });
     }
     if (request.method === "POST" && url.pathname === "/routes/suspend") {
@@ -558,6 +614,11 @@ export default {
           updatedAt: Date.now(),
         }),
       );
+      log("info", "route_suspended", {
+        requestId,
+        slug: body.slug,
+        appId: body.appId,
+      });
       return json({ ok: true });
     }
     return json({ error: "Not found." }, 404);

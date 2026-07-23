@@ -1,0 +1,18 @@
+{
+  "name": "@stella/app-template",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "vite": "^7.0.0",
+    "typescript": "^5.9.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {}
+}

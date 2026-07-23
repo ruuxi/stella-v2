@@ -20,7 +20,8 @@ import { z } from "zod";
 import { ChatRuntimeProvider } from "@/context/chat-runtime";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
-import { CloudChatSurface } from "@/features/cloud/CloudChatSurface";
+import { ChatColumn } from "@/app/chat/ChatColumn";
+import { useCloudChat } from "@/features/cloud/CloudChatTail";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import { ComposerAreaSelectOverlay } from "@/app/chat/ComposerAreaSelectOverlay";
 import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
@@ -177,6 +178,7 @@ function RootChrome() {
   const { state } = useUiState();
   const conversationId = state.conversationId;
   const chat = useChatRuntime();
+  const cloudChat = useCloudChat(chat.composer);
   const activityPresence = chat.conversation.activityPresence;
   const { isAuthenticated } = useConvexAuth();
   const cloudApps = useQuery(
@@ -672,7 +674,15 @@ function RootChrome() {
             className={`persistent-chat-surface${isOnChatRoute ? " persistent-chat-surface--active" : ""}`}
             aria-hidden={!isOnChatRoute}
           >
-            <CloudChatSurface />
+            <ChatColumn
+              conversation={chat.conversation}
+              composer={cloudChat.composer}
+              scroll={chat.scroll}
+              conversationId={conversationId}
+              showHomeContent={chat.showHomeContent}
+              onDismissHome={chat.dismissHome}
+              extraTail={cloudChat.extraTail}
+            />
           </div>
           <div
             className={`route-outlet-surface${isOnChatRoute ? "" : " route-outlet-surface--active"}`}

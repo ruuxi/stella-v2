@@ -56,6 +56,7 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         metrics: unknown;
         slug: string;
         autoActivate: boolean;
+        title?: string;
       };
       await ctx.runMutation(internal.cloud_apps.recordBuildInternal, {
         buildId: body.buildId,
@@ -66,6 +67,7 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         metricsJson: JSON.stringify(body.metrics),
         slug: body.slug,
         autoActivate: body.autoActivate,
+        title: typeof body.title === "string" ? body.title : undefined,
         now: Date.now(),
       });
       return json({ ok: true });

@@ -57,6 +57,7 @@ export const cloudAppsSchema = {
   })
     .index("by_turnId", ["turnId"])
     .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"])
+    .index("by_createdAt", ["createdAt"])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
     .index("by_conversationId_and_createdAt", ["conversationId", "createdAt"]),
 
@@ -83,4 +84,18 @@ export const cloudAppsSchema = {
     .index("by_appId_and_userId_and_key", ["appId", "userId", "key"])
     .index("by_appId_and_userId", ["appId", "userId"])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
+
+  cloud_failure_alerts: defineTable({
+    windowStartedAt: v.number(),
+    windowEndedAt: v.number(),
+    failureCount: v.number(),
+    threshold: v.number(),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    summary: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index("by_status_and_createdAt", ["status", "createdAt"])
+    .index("by_createdAt", ["createdAt"]),
 };

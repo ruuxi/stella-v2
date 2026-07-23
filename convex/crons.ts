@@ -156,4 +156,11 @@ crons.interval(
   { batchSize: 200, maxBatches: 10 },
 );
 
+crons.interval(
+  "cloud app failure spike detection",
+  { minutes: 5 },
+  internal.cloud_apps.scanFailureSpikes,
+  {},
+);
+
 export default crons;

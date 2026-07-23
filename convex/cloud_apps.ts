@@ -72,6 +72,24 @@ const checkQuotaRef = makeFunctionReference<
 const runCloudTurnRef = makeFunctionReference<"action", any, any>(
   "cloud_apps:runCloudTurnInternal",
 );
+const routeCloudTurnRef = makeFunctionReference<"action", any, any>(
+  "cloud_apps:routeCloudTurnInternal",
+);
+const failCloudTurnRef = makeFunctionReference<"mutation", any, any>(
+  "cloud_apps:failCloudTurnInternal",
+);
+const getOpsManifestRef = makeFunctionReference<"query", { appId: string }, any>(
+  "cloud_apps:getOperationsManifestInternal",
+);
+const createOpInvocationRef = makeFunctionReference<"mutation", any, any>(
+  "cloud_apps:createOpInvocationInternal",
+);
+const reserveBuildLaneRef = makeFunctionReference<"mutation", any, any>(
+  "cloud_apps:reserveBuildLaneInternal",
+);
+const expireOpInvocationRef = makeFunctionReference<"mutation", any, any>(
+  "cloud_apps:expireOpInvocationInternal",
+);
 
 export const createTurnInternal = internalMutation({
   args: {
@@ -293,31 +311,76 @@ export const startCloudChat = mutation({
       throw new ConvexError("Describe the app in 1–4,000 characters.");
     }
     const { plan, quota } = await resolveCloudPlan(ctx, ownerId);
-    await enforceMutationRateLimit(
-      ctx,
-      "cloud_apps_start",
-      ownerId,
-      { rate: quota.burstStarts, periodMs: 10 * 60_000 },
-      "Too many cloud turns started recently. Wait a few minutes and try again.",
-    );
-    const recentTurns = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", ownerId).gte("createdAt", Date.now() - 86_400_000),
-      )
-      .take(quota.dailyTurns + 1);
-    const running = recentTurns.filter((turn) => turn.status === "running");
-    if (running.length >= quota.concurrentTurns) {
-      throw new ConvexError(
-        `${plan === "free" ? "Free" : plan} allows ${quota.concurrentTurns} active cloud ${
-          quota.concurrentTurns === 1 ? "turn" : "turns"
-        }. Wait for one to finish or cancel it.`,
-      );
+
+    // Resolve the target app first: turns aimed at an active app that has
+    // registered operations enter the routed lane, which never reserves build
+    // quota up front (the router re-checks it if the model chooses a build).
+    let targetApp: { appId: string; ownerId: string; status: string } | null =
+      null;
+    if (args.appId) {
+      const requestedAppId = args.appId;
+      const app = await ctx.db
+        .query("cloud_apps")
+        .withIndex("by_appId", (q) => q.eq("appId", requestedAppId))
+        .unique();
+      if (!app || app.ownerId !== ownerId)
+        throw new ConvexError("App not found.");
+      targetApp = app;
     }
-    if (recentTurns.length >= quota.dailyTurns) {
-      throw new ConvexError(
-        `${plan === "free" ? "Free" : plan} includes ${quota.dailyTurns} cloud turns per rolling 24 hours. Try again after the window resets.`,
+    const opsManifest =
+      targetApp && targetApp.status === "active"
+        ? await ctx.db
+            .query("cloud_app_operations")
+            .withIndex("by_appId", (q) => q.eq("appId", targetApp!.appId))
+            .unique()
+        : null;
+    const routed = opsManifest !== null;
+
+    if (routed) {
+      await enforceMutationRateLimit(
+        ctx,
+        "cloud_ops_start",
+        ownerId,
+        { rate: quota.burstStarts * 5, periodMs: 10 * 60_000 },
+        "Too many app requests in a row. Wait a moment and try again.",
       );
+      await enforceMutationRateLimit(
+        ctx,
+        "cloud_ops_daily",
+        ownerId,
+        { rate: quota.dailyTurns * 20, periodMs: 24 * 60 * 60_000 },
+        "Daily app-operation quota reached. Try again after the rolling 24-hour window resets.",
+      );
+    } else {
+      await enforceMutationRateLimit(
+        ctx,
+        "cloud_apps_start",
+        ownerId,
+        { rate: quota.burstStarts, periodMs: 10 * 60_000 },
+        "Too many cloud turns started recently. Wait a few minutes and try again.",
+      );
+      const recentTurns = await ctx.db
+        .query("agent_turns")
+        .withIndex("by_ownerId_and_createdAt", (q) =>
+          q.eq("ownerId", ownerId).gte("createdAt", Date.now() - 86_400_000),
+        )
+        .take(quota.dailyTurns + 1);
+      const buildTurns = recentTurns.filter(
+        (turn) => turn.lane !== "operation",
+      );
+      const running = buildTurns.filter((turn) => turn.status === "running");
+      if (running.length >= quota.concurrentTurns) {
+        throw new ConvexError(
+          `${plan === "free" ? "Free" : plan} allows ${quota.concurrentTurns} active cloud ${
+            quota.concurrentTurns === 1 ? "turn" : "turns"
+          }. Wait for one to finish or cancel it.`,
+        );
+      }
+      if (buildTurns.length >= quota.dailyTurns) {
+        throw new ConvexError(
+          `${plan === "free" ? "Free" : plan} includes ${quota.dailyTurns} cloud turns per rolling 24 hours. Try again after the window resets.`,
+        );
+      }
     }
 
     const now = Date.now();
@@ -348,13 +411,7 @@ export const startCloudChat = mutation({
     let appId = args.appId;
     let isNewApp = false;
     if (appId) {
-      const requestedAppId = appId;
-      const app = await ctx.db
-        .query("cloud_apps")
-        .withIndex("by_appId", (q) => q.eq("appId", requestedAppId))
-        .unique();
-      if (!app || app.ownerId !== ownerId)
-        throw new ConvexError("App not found.");
+      if (!targetApp) throw new ConvexError("App not found.");
     } else {
       appId = `app-${crypto.randomUUID()}`;
       isNewApp = true;
@@ -373,7 +430,9 @@ export const startCloudChat = mutation({
     }
 
     const turnId = crypto.randomUUID();
-    const sessionId = `cloud-${turnId.slice(0, 8)}`;
+    const sessionId = routed
+      ? `ops-${turnId.slice(0, 8)}`
+      : `cloud-${turnId.slice(0, 8)}`;
     await ctx.db.insert("agent_turns", {
       turnId,
       sessionId,
@@ -382,21 +441,27 @@ export const startCloudChat = mutation({
       appId,
       prompt,
       status: "running",
+      lane: routed ? "auto" : "build",
       createdAt: now,
       updatedAt: now,
     });
-    await ctx.scheduler.runAfter(0, runCloudTurnRef, {
-      ownerId,
-      conversationId,
-      appId,
-      turnId,
-      sessionId,
-      prompt,
-      turnToken:
-        crypto.randomUUID().replaceAll("-", "") +
-        crypto.randomUUID().replaceAll("-", ""),
-      autoActivate: isNewApp,
-    });
+    const turnToken =
+      crypto.randomUUID().replaceAll("-", "") +
+      crypto.randomUUID().replaceAll("-", "");
+    await ctx.scheduler.runAfter(
+      0,
+      routed ? routeCloudTurnRef : runCloudTurnRef,
+      {
+        ownerId,
+        conversationId,
+        appId,
+        turnId,
+        sessionId,
+        prompt,
+        turnToken,
+        autoActivate: isNewApp,
+      },
+    );
     return { conversationId, appId, turnId };
   },
 });
@@ -850,6 +915,21 @@ export const probeCloudRateLimitInternal = internalMutation({
   },
 });
 
+export const probeOpsRateLimitInternal = internalMutation({
+  args: { key: v.string() },
+  returns: v.object({ allowed: v.boolean() }),
+  handler: async (ctx, args) => {
+    await enforceMutationRateLimit(
+      ctx,
+      "cloud_ops_start",
+      `ops-probe:${args.key}`,
+      { rate: 4, periodMs: 10 * 60_000 },
+      "App-operation rate probe was limited as expected.",
+    );
+    return { allowed: true };
+  },
+});
+
 export const startBenchmarkTurn = action({
   args: {},
   returns: v.any(),
@@ -1124,6 +1204,760 @@ export const startLifecycleProbe = action({
         `Lifecycle probe ended (${response.status}): ${JSON.stringify(body)}`,
       );
     return body;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Operations layer (two-speed agents). See docs/cloud-apps.md.
+// The model only picks a verb and JSON arguments; the app's own deterministic
+// code applies the change inside its origin-isolated instance.
+// ---------------------------------------------------------------------------
+
+type CloudOperationArg = {
+  name: string;
+  type: "string" | "number" | "boolean";
+  description?: string;
+  required?: boolean;
+};
+type CloudOperationDef = {
+  name: string;
+  description: string;
+  args: CloudOperationArg[];
+};
+
+const OPS_LIMITS = {
+  maxOperations: 20,
+  maxArgs: 8,
+  maxManifestBytes: 8 * 1024,
+  maxArgsBytes: 8 * 1024,
+  maxResultBytes: 8 * 1024,
+  deliveryWindowMs: 20_000,
+};
+
+const OP_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const OP_ARG_NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
+const OP_ARG_TYPES = new Set(["string", "number", "boolean"]);
+
+const parseOperationsManifest = (manifestJson: string): CloudOperationDef[] => {
+  if (
+    new TextEncoder().encode(manifestJson).byteLength >
+    OPS_LIMITS.maxManifestBytes
+  ) {
+    throw new ConvexError("Operations manifest exceeds the 8 KB limit.");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(manifestJson);
+  } catch {
+    throw new ConvexError("Operations manifest is not valid JSON.");
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new ConvexError("Operations manifest must be a non-empty array.");
+  }
+  if (parsed.length > OPS_LIMITS.maxOperations) {
+    throw new ConvexError(
+      `Apps may register at most ${OPS_LIMITS.maxOperations} operations.`,
+    );
+  }
+  const seen = new Set<string>();
+  return parsed.map((entry) => {
+    const op = entry as Partial<CloudOperationDef>;
+    if (typeof op.name !== "string" || !OP_NAME_PATTERN.test(op.name)) {
+      throw new ConvexError(
+        "Operation names must be kebab-case, 1–64 characters.",
+      );
+    }
+    if (seen.has(op.name)) {
+      throw new ConvexError(`Duplicate operation name: ${op.name}.`);
+    }
+    seen.add(op.name);
+    if (
+      typeof op.description !== "string" ||
+      op.description.length < 1 ||
+      op.description.length > 200
+    ) {
+      throw new ConvexError(
+        `Operation ${op.name} needs a 1–200 character description.`,
+      );
+    }
+    const argDefs = Array.isArray(op.args) ? op.args : [];
+    if (argDefs.length > OPS_LIMITS.maxArgs) {
+      throw new ConvexError(
+        `Operation ${op.name} declares more than ${OPS_LIMITS.maxArgs} arguments.`,
+      );
+    }
+    const argNames = new Set<string>();
+    const args = argDefs.map((raw) => {
+      const arg = raw as Partial<CloudOperationArg>;
+      if (
+        typeof arg.name !== "string" ||
+        !OP_ARG_NAME_PATTERN.test(arg.name) ||
+        argNames.has(arg.name)
+      ) {
+        throw new ConvexError(
+          `Operation ${op.name} has an invalid or duplicate argument name.`,
+        );
+      }
+      argNames.add(arg.name);
+      if (typeof arg.type !== "string" || !OP_ARG_TYPES.has(arg.type)) {
+        throw new ConvexError(
+          `Operation ${op.name} argument ${arg.name} must be string, number, or boolean.`,
+        );
+      }
+      if (
+        arg.description !== undefined &&
+        (typeof arg.description !== "string" || arg.description.length > 200)
+      ) {
+        throw new ConvexError(
+          `Operation ${op.name} argument ${arg.name} has an invalid description.`,
+        );
+      }
+      return {
+        name: arg.name,
+        type: arg.type as CloudOperationArg["type"],
+        ...(arg.description ? { description: arg.description } : {}),
+        ...(arg.required === true ? { required: true } : {}),
+      };
+    });
+    return { name: op.name, description: op.description, args };
+  });
+};
+
+const validateOperationArgs = (
+  def: CloudOperationDef,
+  args: Record<string, unknown>,
+): void => {
+  for (const key of Object.keys(args)) {
+    if (!def.args.some((arg) => arg.name === key)) {
+      throw new ConvexError(
+        `Operation ${def.name} does not accept an argument named ${key}.`,
+      );
+    }
+  }
+  for (const arg of def.args) {
+    const value = args[arg.name];
+    if (value === undefined) {
+      if (arg.required) {
+        throw new ConvexError(
+          `Operation ${def.name} requires the ${arg.name} argument.`,
+        );
+      }
+      continue;
+    }
+    if (typeof value !== arg.type) {
+      throw new ConvexError(
+        `Operation ${def.name} argument ${arg.name} must be a ${arg.type}.`,
+      );
+    }
+  }
+};
+
+const nextEventSeq = async (
+  ctx: Pick<MutationCtx, "db">,
+  turnId: string,
+): Promise<number> => {
+  const existing = await ctx.db
+    .query("agent_events")
+    .withIndex("by_turnId_and_seq", (q) => q.eq("turnId", turnId))
+    .take(200);
+  return existing.reduce((max, event) => Math.max(max, event.seq), -1) + 1;
+};
+
+const appendTurnEvent = async (
+  ctx: MutationCtx,
+  turn: { _id: any; turnId: string; sessionId: string; terminalKind?: string },
+  kind: string,
+  payload: unknown,
+  terminal: boolean,
+  now: number,
+): Promise<boolean> => {
+  if (turn.terminalKind) return false;
+  const payloadJson = JSON.stringify(payload ?? {});
+  await ctx.db.insert("agent_events", {
+    turnId: turn.turnId,
+    sessionId: turn.sessionId,
+    seq: await nextEventSeq(ctx, turn.turnId),
+    kind,
+    payloadJson,
+    createdAt: now,
+  });
+  if (terminal) {
+    await ctx.db.patch(turn._id, {
+      status: ["completed", "failed", "canceled", "timeout"].includes(kind)
+        ? kind
+        : "failed",
+      terminalKind: kind,
+      resultJson: kind === "completed" ? payloadJson : undefined,
+      errorMessage: kind === "completed" ? undefined : payloadJson,
+      updatedAt: now,
+    });
+  }
+  return true;
+};
+
+const upsertOperationsManifest = async (
+  ctx: MutationCtx,
+  args: { appId: string; ownerId: string; manifestJson: string; now: number },
+): Promise<{ operationCount: number }> => {
+  const operations = parseOperationsManifest(args.manifestJson);
+  const manifestJson = JSON.stringify(operations);
+  const sizeBytes = new TextEncoder().encode(manifestJson).byteLength;
+  const existing = await ctx.db
+    .query("cloud_app_operations")
+    .withIndex("by_appId", (q) => q.eq("appId", args.appId))
+    .unique();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      manifestJson,
+      sizeBytes,
+      updatedAt: args.now,
+    });
+  } else {
+    await ctx.db.insert("cloud_app_operations", {
+      appId: args.appId,
+      ownerId: args.ownerId,
+      manifestJson,
+      sizeBytes,
+      updatedAt: args.now,
+    });
+  }
+  return { operationCount: operations.length };
+};
+
+const completeOpInvocationRow = async (
+  ctx: MutationCtx,
+  row: {
+    _id: any;
+    turnId: string;
+    name: string;
+    argsJson: string;
+    status: string;
+  },
+  outcome: { ok: boolean; resultJson?: string; errorMessage?: string },
+  now: number,
+): Promise<void> => {
+  if (row.status !== "pending" && row.status !== "delivered") {
+    throw new ConvexError("This operation request is no longer active.");
+  }
+  if (
+    outcome.resultJson &&
+    new TextEncoder().encode(outcome.resultJson).byteLength >
+      OPS_LIMITS.maxResultBytes
+  ) {
+    throw new ConvexError("Operation result exceeds the 8 KB limit.");
+  }
+  await ctx.db.patch(row._id, {
+    status: outcome.ok ? "completed" : "failed",
+    resultJson: outcome.resultJson,
+    errorMessage: outcome.errorMessage,
+    updatedAt: now,
+  });
+  const turn = await ctx.db
+    .query("agent_turns")
+    .withIndex("by_turnId", (q) => q.eq("turnId", row.turnId))
+    .unique();
+  if (!turn) return;
+  const payload = outcome.ok
+    ? {
+        operation: row.name,
+        args: JSON.parse(row.argsJson),
+        result: outcome.resultJson ? JSON.parse(outcome.resultJson) : null,
+      }
+    : {
+        operation: row.name,
+        args: JSON.parse(row.argsJson),
+        message:
+          outcome.errorMessage ?? "The app could not apply this operation.",
+      };
+  await appendTurnEvent(
+    ctx,
+    turn,
+    outcome.ok ? "completed" : "failed",
+    payload,
+    true,
+    now,
+  );
+};
+
+export const getOperationsManifestInternal = internalQuery({
+  args: { appId: v.string() },
+  returns: v.any(),
+  handler: (ctx, args) =>
+    ctx.db
+      .query("cloud_app_operations")
+      .withIndex("by_appId", (q) => q.eq("appId", args.appId))
+      .unique(),
+});
+
+export const upsertOperationsManifestInternal = internalMutation({
+  args: {
+    appId: v.string(),
+    userId: v.string(),
+    manifestJson: v.string(),
+    now: v.number(),
+  },
+  returns: v.object({ operationCount: v.number() }),
+  handler: async (ctx, args) => {
+    const app = await ctx.db
+      .query("cloud_apps")
+      .withIndex("by_appId", (q) => q.eq("appId", args.appId))
+      .unique();
+    if (!app || app.ownerId !== args.userId) {
+      throw new ConvexError(
+        "Only the app owner's session can register operations.",
+      );
+    }
+    return await upsertOperationsManifest(ctx, {
+      appId: app.appId,
+      ownerId: app.ownerId,
+      manifestJson: args.manifestJson,
+      now: args.now,
+    });
+  },
+});
+
+export const publishMyAppOperations = mutation({
+  args: { appId: v.string(), manifestJson: v.string() },
+  returns: v.object({ operationCount: v.number() }),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const app = await ctx.db
+      .query("cloud_apps")
+      .withIndex("by_appId", (q) => q.eq("appId", args.appId))
+      .unique();
+    if (!app || app.ownerId !== ownerId)
+      throw new ConvexError("App not found.");
+    return await upsertOperationsManifest(ctx, {
+      appId: app.appId,
+      ownerId,
+      manifestJson: args.manifestJson,
+      now: Date.now(),
+    });
+  },
+});
+
+export const createOpInvocationInternal = internalMutation({
+  args: {
+    invocationId: v.string(),
+    appId: v.string(),
+    ownerId: v.string(),
+    turnId: v.string(),
+    name: v.string(),
+    argsJson: v.string(),
+    now: v.number(),
+  },
+  returns: v.object({ ok: v.boolean(), message: v.optional(v.string()) }),
+  handler: async (ctx, args) => {
+    const turn = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
+      .unique();
+    if (!turn || turn.terminalKind) {
+      return { ok: false, message: "Turn is no longer active." };
+    }
+    const fail = async (message: string) => {
+      await appendTurnEvent(ctx, turn, "failed", { message }, true, args.now);
+      return { ok: false, message };
+    };
+    if (
+      new TextEncoder().encode(args.argsJson).byteLength >
+      OPS_LIMITS.maxArgsBytes
+    ) {
+      return await fail("Operation arguments exceed the 8 KB limit.");
+    }
+    const manifestRow = await ctx.db
+      .query("cloud_app_operations")
+      .withIndex("by_appId", (q) => q.eq("appId", args.appId))
+      .unique();
+    const operations = manifestRow
+      ? (JSON.parse(manifestRow.manifestJson) as CloudOperationDef[])
+      : [];
+    const def = operations.find((op) => op.name === args.name);
+    if (!def) {
+      return await fail(
+        `The app does not expose an operation named ${args.name}. Ask for a change to the app instead.`,
+      );
+    }
+    let parsedArgs: Record<string, unknown>;
+    try {
+      parsedArgs = JSON.parse(args.argsJson) as Record<string, unknown>;
+      if (parsedArgs === null || typeof parsedArgs !== "object") {
+        throw new Error("not an object");
+      }
+    } catch {
+      return await fail("Operation arguments must be a JSON object.");
+    }
+    try {
+      validateOperationArgs(def, parsedArgs);
+    } catch (error) {
+      return await fail(
+        error instanceof ConvexError
+          ? String(error.data)
+          : "Operation arguments did not match the app's declaration.",
+      );
+    }
+    await ctx.db.insert("cloud_app_op_invocations", {
+      invocationId: args.invocationId,
+      appId: args.appId,
+      ownerId: args.ownerId,
+      turnId: args.turnId,
+      name: args.name,
+      argsJson: args.argsJson,
+      status: "pending",
+      expiresAt: args.now + OPS_LIMITS.deliveryWindowMs,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+    await ctx.db.patch(turn._id, { lane: "operation", updatedAt: args.now });
+    await appendTurnEvent(
+      ctx,
+      turn,
+      "op_selected",
+      { operation: args.name, args: parsedArgs },
+      false,
+      args.now,
+    );
+    return { ok: true };
+  },
+});
+
+export const reserveBuildLaneInternal = internalMutation({
+  args: { ownerId: v.string(), turnId: v.string() },
+  returns: v.object({ ok: v.boolean() }),
+  handler: async (ctx, args) => {
+    const turn = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
+      .unique();
+    if (!turn || turn.terminalKind) return { ok: false };
+    const now = Date.now();
+    const { plan, quota } = await resolveCloudPlan(ctx, args.ownerId);
+    const recentTurns = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_ownerId_and_createdAt", (q) =>
+        q.eq("ownerId", args.ownerId).gte("createdAt", now - 86_400_000),
+      )
+      .take(quota.dailyTurns + 21);
+    const buildTurns = recentTurns.filter(
+      (candidate) =>
+        candidate.lane !== "operation" && candidate.turnId !== args.turnId,
+    );
+    const running = buildTurns.filter(
+      (candidate) => candidate.status === "running",
+    );
+    const fail = async (message: string) => {
+      await appendTurnEvent(ctx, turn, "failed", { message }, true, now);
+      return { ok: false };
+    };
+    if (running.length >= quota.concurrentTurns) {
+      return await fail(
+        `${plan === "free" ? "Free" : plan} allows ${quota.concurrentTurns} active cloud ${
+          quota.concurrentTurns === 1 ? "turn" : "turns"
+        }. Wait for one to finish or cancel it.`,
+      );
+    }
+    if (buildTurns.length >= quota.dailyTurns) {
+      return await fail(
+        `${plan === "free" ? "Free" : plan} includes ${quota.dailyTurns} cloud turns per rolling 24 hours. Try again after the window resets.`,
+      );
+    }
+    await ctx.db.patch(turn._id, { lane: "build", updatedAt: now });
+    return { ok: true };
+  },
+});
+
+export const expireOpInvocationInternal = internalMutation({
+  args: { invocationId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("cloud_app_op_invocations")
+      .withIndex("by_invocationId", (q) =>
+        q.eq("invocationId", args.invocationId),
+      )
+      .unique();
+    if (!row || (row.status !== "pending" && row.status !== "delivered")) {
+      return null;
+    }
+    const now = Date.now();
+    await ctx.db.patch(row._id, { status: "expired", updatedAt: now });
+    const turn = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_turnId", (q) => q.eq("turnId", row.turnId))
+      .unique();
+    if (turn) {
+      await appendTurnEvent(
+        ctx,
+        turn,
+        "failed",
+        {
+          operation: row.name,
+          message:
+            "The app was not open to receive this action. Open the app in Stella, then ask again.",
+        },
+        true,
+        now,
+      );
+    }
+    return null;
+  },
+});
+
+export const listPendingOpInvocations = query({
+  args: { appId: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const rows = await ctx.db
+      .query("cloud_app_op_invocations")
+      .withIndex("by_appId_and_status_and_createdAt", (q) =>
+        q.eq("appId", args.appId).eq("status", "pending"),
+      )
+      .order("desc")
+      .take(10);
+    return rows
+      .filter((row) => row.ownerId === ownerId)
+      .map((row) => ({
+        invocationId: row.invocationId,
+        name: row.name,
+        argsJson: row.argsJson,
+        createdAt: row.createdAt,
+      }));
+  },
+});
+
+export const claimOpInvocation = mutation({
+  args: { invocationId: v.string() },
+  returns: v.object({ claimed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const row = await ctx.db
+      .query("cloud_app_op_invocations")
+      .withIndex("by_invocationId", (q) =>
+        q.eq("invocationId", args.invocationId),
+      )
+      .unique();
+    if (!row || row.ownerId !== ownerId || row.status !== "pending") {
+      return { claimed: false };
+    }
+    await ctx.db.patch(row._id, { status: "delivered", updatedAt: Date.now() });
+    return { claimed: true };
+  },
+});
+
+export const completeOpInvocation = mutation({
+  args: {
+    invocationId: v.string(),
+    ok: v.boolean(),
+    resultJson: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const row = await ctx.db
+      .query("cloud_app_op_invocations")
+      .withIndex("by_invocationId", (q) =>
+        q.eq("invocationId", args.invocationId),
+      )
+      .unique();
+    if (!row || row.ownerId !== ownerId) {
+      throw new ConvexError("Operation request not found.");
+    }
+    await completeOpInvocationRow(
+      ctx,
+      row,
+      {
+        ok: args.ok,
+        resultJson: args.resultJson,
+        errorMessage: args.errorMessage,
+      },
+      Date.now(),
+    );
+    return null;
+  },
+});
+
+export const claimOpInvocationsInternal = internalMutation({
+  args: { appId: v.string(), userId: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("cloud_app_op_invocations")
+      .withIndex("by_appId_and_status_and_createdAt", (q) =>
+        q.eq("appId", args.appId).eq("status", "pending"),
+      )
+      .take(5);
+    const claimed = [];
+    const now = Date.now();
+    for (const row of rows) {
+      if (row.ownerId !== args.userId) continue;
+      await ctx.db.patch(row._id, { status: "delivered", updatedAt: now });
+      claimed.push({
+        invocationId: row.invocationId,
+        name: row.name,
+        argsJson: row.argsJson,
+      });
+    }
+    return claimed;
+  },
+});
+
+export const completeOpInvocationInternal = internalMutation({
+  args: {
+    invocationId: v.string(),
+    userId: v.string(),
+    ok: v.boolean(),
+    resultJson: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("cloud_app_op_invocations")
+      .withIndex("by_invocationId", (q) =>
+        q.eq("invocationId", args.invocationId),
+      )
+      .unique();
+    if (!row || row.ownerId !== args.userId) {
+      throw new ConvexError("Operation request not found.");
+    }
+    await completeOpInvocationRow(
+      ctx,
+      row,
+      {
+        ok: args.ok,
+        resultJson: args.resultJson,
+        errorMessage: args.errorMessage,
+      },
+      Date.now(),
+    );
+    return null;
+  },
+});
+
+export const routeCloudTurnInternal = internalAction({
+  args: {
+    ownerId: v.string(),
+    conversationId: v.string(),
+    appId: v.string(),
+    turnId: v.string(),
+    sessionId: v.string(),
+    prompt: v.string(),
+    turnToken: v.string(),
+    autoActivate: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const failTurn = (message: string) =>
+      ctx.runMutation(failCloudTurnRef, {
+        turnId: args.turnId,
+        message,
+        now: Date.now(),
+      });
+    const dispatchBuild = async () => {
+      const reserved = (await ctx.runMutation(reserveBuildLaneRef, {
+        ownerId: args.ownerId,
+        turnId: args.turnId,
+      })) as { ok: boolean };
+      if (!reserved.ok) return;
+      await ctx.runAction(runCloudTurnRef, {
+        ownerId: args.ownerId,
+        conversationId: args.conversationId,
+        appId: args.appId,
+        turnId: args.turnId,
+        sessionId: args.sessionId,
+        prompt: args.prompt,
+        turnToken: args.turnToken,
+        autoActivate: false,
+      });
+    };
+
+    const manifestRow = await ctx.runQuery(getOpsManifestRef, {
+      appId: args.appId,
+    });
+    if (!manifestRow) {
+      await dispatchBuild();
+      return null;
+    }
+    const app = await ctx.runQuery(getAppRef, { appId: args.appId });
+    const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+    if (!apiKey) {
+      await failTurn("The cloud agent is not configured. Try again later.");
+      return null;
+    }
+    let decision: {
+      decision?: string;
+      name?: string;
+      args?: Record<string, unknown>;
+    };
+    try {
+      const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 300,
+          system: [
+            "You are Stella's cloud app agent. The user already runs the app",
+            ` "${app?.title ?? "app"}" and is asking for something in chat.`,
+            " Prefer operating the running app over rebuilding it: if the",
+            " request can be satisfied by one of the app's operations, return",
+            ' {"decision":"operation","name":"<operation-name>","args":{...}}',
+            " with arguments matching the declared names and types exactly.",
+            ' Return {"decision":"build"} only for structural, visual, or code',
+            " changes (new features, layout, styling, copy baked into the UI)",
+            " or when no operation fits the request. The app's operations:",
+            ` ${manifestRow.manifestJson}`,
+            " Respond with only the JSON object, no markdown.",
+          ].join(""),
+          messages: [{ role: "user", content: args.prompt }],
+        }),
+      });
+      const payload = (await upstream.json()) as {
+        content?: Array<{ type?: string; text?: string }>;
+        error?: { message?: string };
+      };
+      if (!upstream.ok) {
+        throw new Error(payload.error?.message ?? "Routing model failed.");
+      }
+      const text =
+        payload.content?.find((item) => item.type === "text")?.text ?? "";
+      decision = JSON.parse(text.replace(/^```json\s*|\s*```$/g, ""));
+    } catch (error) {
+      await failTurn(
+        `Stella could not route this request: ${
+          error instanceof Error ? error.message : String(error)
+        }. Try again.`,
+      );
+      return null;
+    }
+    if (decision.decision !== "operation" || !decision.name) {
+      await dispatchBuild();
+      return null;
+    }
+    const invocationId = crypto.randomUUID();
+    const created = (await ctx.runMutation(createOpInvocationRef, {
+      invocationId,
+      appId: args.appId,
+      ownerId: args.ownerId,
+      turnId: args.turnId,
+      name: decision.name,
+      argsJson: JSON.stringify(decision.args ?? {}),
+      now: Date.now(),
+    })) as { ok: boolean };
+    if (created.ok) {
+      await ctx.scheduler.runAfter(
+        OPS_LIMITS.deliveryWindowMs + 1_000,
+        expireOpInvocationRef,
+        { invocationId },
+      );
+    }
+    return null;
   },
 });
 

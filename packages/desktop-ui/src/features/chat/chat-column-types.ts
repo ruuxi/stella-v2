@@ -1,4 +1,4 @@
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import type { Dispatch, ReactNode, RefObject, SetStateAction } from "react";
 import type { LegendListRef } from "@legendapp/list/react";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
 import type {
@@ -137,4 +137,6 @@ export type ChatColumnProps = {
   conversationId: string | null;
   showHomeContent?: boolean;
   onDismissHome?: () => void;
+  /** Extra rows appended after the timeline (cloud app turns). */
+  extraTail?: ReactNode;
 };

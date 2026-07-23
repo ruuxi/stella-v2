@@ -1,11 +1,11 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import { getAuthHeaders } from "@/global/auth/services/auth-token";
 import { cloudAppUrl, CLOUD_APPS_HOST } from "@/features/cloud/cloud-config";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
-import { RefreshCw, RotateCcw, Trash2 } from "@/ui/icons";
+import { showToast } from "@/ui/toast";
 import "./cloud-app-page.css";
 
 type BridgeRequest = {
@@ -24,7 +24,7 @@ const convexSiteUrl = () => {
   const value = readConfiguredConvexSiteUrl(
     import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
   );
-  if (!value) throw new Error("Stella cloud services are not configured.");
+  if (!value) throw new Error("Stella isn't fully set up yet.");
   return value.replace(/\/+$/, "");
 };
 
@@ -32,18 +32,14 @@ export const Route = createFileRoute("/apps/$slug")({
   component: CloudAppPage,
 });
 
+// The app page is the app, period. Everything else lives elsewhere: changes
+// happen by chatting with Stella, rollback lives on the update card in chat,
+// and remove lives on the app's sidebar row.
 function CloudAppPage() {
   const { slug } = Route.useParams();
-  const navigate = useNavigate();
   const { isAuthenticated } = useConvexAuth();
   const apps = useQuery(cloudApi.listMyApps, isAuthenticated ? {} : "skip");
   const app = apps?.find((candidate) => candidate.slug === slug);
-  const builds = useQuery(
-    cloudApi.listMyAppBuilds,
-    app ? { appId: app.appId } : "skip",
-  );
-  const applyBuild = useAction(cloudApi.applyMyBuild);
-  const deleteApp = useAction(cloudApi.deleteMyApp);
   const publishOperations = useMutation(cloudApi.publishMyAppOperations);
   const claimInvocation = useMutation(cloudApi.claimOpInvocation);
   const completeInvocation = useMutation(cloudApi.completeOpInvocation);
@@ -58,9 +54,6 @@ function CloudAppPage() {
     user: unknown;
     expiresAt: number;
   } | null>(null);
-  const [noticeVisible, setNoticeVisible] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<string | null>(null);
   const appUrl = useMemo(() => (app ? cloudAppUrl(app.slug) : null), [app]);
   const frameUrl = useMemo(
     () =>
@@ -70,12 +63,15 @@ function CloudAppPage() {
     [appUrl],
   );
 
+  // First-open notice as a one-time toast so the app keeps its full canvas.
   useEffect(() => {
     if (!app) return;
     const key = `stella:app-permissions:${app.appId}`;
     if (!window.localStorage.getItem(key)) {
       window.localStorage.setItem(key, JSON.stringify(["identity", "storage"]));
-      setNoticeVisible(true);
+      showToast({
+        title: `${app.title} can use your Stella profile and keep its own private data.`,
+      });
     }
   }, [app]);
 
@@ -245,7 +241,7 @@ function CloudAppPage() {
 
   if (!apps) {
     return (
-      <main className="cloud-app-page cloud-app-page--state">Loading app…</main>
+      <main className="cloud-app-page cloud-app-page--state">Opening…</main>
     );
   }
   if (!app || !appUrl) {
@@ -257,90 +253,8 @@ function CloudAppPage() {
     );
   }
 
-  const previousBuild = builds?.find(
-    (build) => build.buildId !== app.activeBuildId && build.artifactPrefix,
-  );
-
-  const runAction = async (name: string, action: () => Promise<unknown>) => {
-    setActionError(null);
-    setBusyAction(name);
-    try {
-      await action();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
   return (
     <main className="cloud-app-page">
-      <header className="cloud-app-page__header">
-        <div className="cloud-app-page__identity">
-          <span className="cloud-app-page__icon" aria-hidden="true">
-            {app.title.slice(0, 1).toUpperCase()}
-          </span>
-          <div>
-            <h1>{app.title}</h1>
-            <p>Built with Stella · Private</p>
-          </div>
-        </div>
-        <div className="cloud-app-page__actions">
-          <Link to="/chat">
-            <RefreshCw size={15} strokeWidth={1.8} aria-hidden="true" />
-            Iterate
-          </Link>
-          <button
-            type="button"
-            disabled={!previousBuild || busyAction !== null}
-            onClick={() => {
-              if (!previousBuild) return;
-              void runAction("rollback", () =>
-                applyBuild({ buildId: previousBuild.buildId }),
-              );
-            }}
-          >
-            <RotateCcw size={15} strokeWidth={1.8} aria-hidden="true" />
-            {busyAction === "rollback" ? "Rolling back…" : "Rollback"}
-          </button>
-          <button
-            type="button"
-            className="cloud-app-page__delete"
-            disabled={busyAction !== null}
-            onClick={() => {
-              if (
-                !window.confirm(
-                  `Remove ${app.title}? Its builds will remain recoverable.`,
-                )
-              ) {
-                return;
-              }
-              void runAction("delete", async () => {
-                await deleteApp({ appId: app.appId });
-                await navigate({ to: "/chat" });
-              });
-            }}
-          >
-            <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
-            Remove
-          </button>
-        </div>
-      </header>
-      {noticeVisible ? (
-        <div className="cloud-app-page__notice" role="status">
-          <span>
-            This app can use your Stella identity and private app storage.
-          </span>
-          <button type="button" onClick={() => setNoticeVisible(false)}>
-            Got it
-          </button>
-        </div>
-      ) : null}
-      {actionError ? (
-        <div className="cloud-app-page__error" role="alert">
-          {actionError} Try again.
-        </div>
-      ) : null}
       <iframe
         ref={iframeRef}
         className="cloud-app-page__frame"

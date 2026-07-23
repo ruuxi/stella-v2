@@ -16,6 +16,7 @@
     "CONVEX_CLOUD_URL": "https://flexible-panther-999.convex.cloud",
     "APPS_HOST_ORIGIN": "https://stella-v2-interior-dev.lolruuxi.workers.dev",
     "INTERIOR_ORIGIN": "https://stella-v2-interior-dev.lolruuxi.workers.dev",
+    "EMBED_APPS_ORIGIN": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
   },
   "r2_buckets": [
     {

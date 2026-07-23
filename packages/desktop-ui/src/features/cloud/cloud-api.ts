@@ -36,6 +36,7 @@ export type CloudTurn = {
   appId: string;
   prompt: string;
   status: string;
+  updatedAt: number;
   terminalKind?: string;
   errorMessage?: string;
   events: Array<{

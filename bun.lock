@@ -128,11 +128,19 @@
       "name": "@stella/app-template",
       "version": "0.0.0",
       "dependencies": {
+        "@stella/apps-sdk": "workspace:*",
         "@vitejs/plugin-react": "^4.7.0",
         "react": "^19.1.0",
         "react-dom": "^19.1.0",
         "typescript": "^5.9.0",
         "vite": "^7.0.0",
+      },
+    },
+    "packages/apps-sdk": {
+      "name": "@stella/apps-sdk",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "^5.9.0",
       },
     },
     "packages/contracts": {
@@ -861,6 +869,8 @@
     "@stella/app-template": ["@stella/app-template@workspace:packages/app-template"],
 
     "@stella/apps-host": ["@stella/apps-host@workspace:workers/apps-host"],
+
+    "@stella/apps-sdk": ["@stella/apps-sdk@workspace:packages/apps-sdk"],
 
     "@stella/cloud-builder": ["@stella/cloud-builder@workspace:workers/cloud-builder"],
 
@@ -2931,6 +2941,8 @@
     "@stella/app-template/@vitejs/plugin-react": ["@vitejs/plugin-react@4.7.0", "", { "dependencies": { "@babel/core": "^7.28.0", "@babel/plugin-transform-react-jsx-self": "^7.27.1", "@babel/plugin-transform-react-jsx-source": "^7.27.1", "@rolldown/pluginutils": "1.0.0-beta.27", "@types/babel__core": "^7.20.5", "react-refresh": "^0.17.0" }, "peerDependencies": { "vite": "^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0" } }, "sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA=="],
 
     "@stella/app-template/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "@stella/apps-sdk/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@tailwindcss/node/jiti": ["jiti@2.7.0", "", { "bin": { "jiti": "lib/jiti-cli.mjs" } }, "sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ=="],
 

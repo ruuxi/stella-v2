@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": [
     "packages/app-template",
+    "packages/apps-sdk",
     "packages/*",
     "convex",
     "workers/*"

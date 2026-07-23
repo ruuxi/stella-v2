@@ -2,3 +2,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button { font: inherit; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 220ms; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*) { animation-duration: 0.01ms; }
+}

@@ -21,6 +21,7 @@ const imagePackage = {
   type: "module",
   workspaces: [
     "packages/app-template",
+    "packages/apps-sdk",
     "packages/contracts",
     "packages/runtime",
     "packages/executor-cloud",
@@ -33,7 +34,7 @@ await writeFile(
   `${JSON.stringify(imagePackage, null, 2)}\n`,
 );
 
-for (const packageName of ["app-template", "contracts", "runtime", "executor-cloud"]) {
+for (const packageName of ["app-template", "apps-sdk", "contracts", "runtime", "executor-cloud"]) {
   await cp(
     path.join(repoRoot, "packages", packageName),
     path.join(imageRoot, "packages", packageName),

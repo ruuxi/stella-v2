@@ -8,6 +8,7 @@
     "dev": "vite --host 0.0.0.0"
   },
   "dependencies": {
+    "@stella/apps-sdk": "workspace:*",
     "@vitejs/plugin-react": "^4.7.0",
     "vite": "^7.0.0",
     "typescript": "^5.9.0",

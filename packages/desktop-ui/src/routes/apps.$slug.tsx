@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import { getAuthHeaders } from "@/global/auth/services/auth-token";
@@ -13,6 +13,11 @@ type BridgeRequest = {
   id?: string;
   method?: string;
   params?: Record<string, unknown>;
+  kind?: string;
+  invocationId?: string;
+  ok?: boolean;
+  resultJson?: string;
+  errorMessage?: string;
 };
 
 const convexSiteUrl = () => {
@@ -39,6 +44,14 @@ function CloudAppPage() {
   );
   const applyBuild = useAction(cloudApi.applyMyBuild);
   const deleteApp = useAction(cloudApi.deleteMyApp);
+  const publishOperations = useMutation(cloudApi.publishMyAppOperations);
+  const claimInvocation = useMutation(cloudApi.claimOpInvocation);
+  const completeInvocation = useMutation(cloudApi.completeOpInvocation);
+  const pendingInvocations = useQuery(
+    cloudApi.listPendingOpInvocations,
+    isAuthenticated && app ? { appId: app.appId } : "skip",
+  );
+  const forwardedInvocationsRef = useRef(new Set<string>());
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const sessionRef = useRef<{
     token: string;
@@ -97,12 +110,22 @@ function CloudAppPage() {
       if (
         event.origin !== appOrigin ||
         event.source !== iframeRef.current?.contentWindow ||
-        message?.source !== "stella-app" ||
-        !message.id ||
-        !message.method
+        message?.source !== "stella-app"
       ) {
         return;
       }
+      // Operation results come back from the app after the host forwarded an
+      // agent invocation; report them to Convex, which terminalizes the turn.
+      if (message.kind === "stella-operation-result" && message.invocationId) {
+        void completeInvocation({
+          invocationId: message.invocationId,
+          ok: message.ok === true,
+          resultJson: message.resultJson,
+          errorMessage: message.errorMessage,
+        }).catch(() => undefined);
+        return;
+      }
+      if (!message.id || !message.method) return;
       const method = message.method;
       const respond = (result?: unknown, error?: string) => {
         iframeRef.current?.contentWindow?.postMessage(
@@ -114,6 +137,17 @@ function CloudAppPage() {
         try {
           if (method === "session") {
             respond(await getSession());
+            return;
+          }
+          if (method === "operations/describe") {
+            if (!app) throw new Error("App not found.");
+            const result = await publishOperations({
+              appId: app.appId,
+              manifestJson: JSON.stringify(
+                (message.params as { operations?: unknown })?.operations ?? [],
+              ),
+            });
+            respond({ ok: true, eligible: true, ...result });
             return;
           }
           if (method.startsWith("storage/")) {
@@ -177,7 +211,37 @@ function CloudAppPage() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [appUrl, getSession]);
+  }, [appUrl, getSession, app, publishOperations, completeInvocation]);
+
+  // Deliver agent operation invocations to the running app instance. Claiming
+  // is atomic in Convex, so two open tabs never double-fire an operation.
+  useEffect(() => {
+    if (!appUrl || !pendingInvocations?.length) return;
+    const appOrigin = new URL(appUrl).origin;
+    for (const invocation of pendingInvocations) {
+      if (forwardedInvocationsRef.current.has(invocation.invocationId)) {
+        continue;
+      }
+      forwardedInvocationsRef.current.add(invocation.invocationId);
+      void claimInvocation({ invocationId: invocation.invocationId })
+        .then(({ claimed }) => {
+          if (!claimed) return;
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              source: "stella-host",
+              kind: "stella-operation",
+              invocationId: invocation.invocationId,
+              name: invocation.name,
+              args: JSON.parse(invocation.argsJson) as Record<string, unknown>,
+            },
+            appOrigin,
+          );
+        })
+        .catch(() =>
+          forwardedInvocationsRef.current.delete(invocation.invocationId),
+        );
+    }
+  }, [appUrl, pendingInvocations, claimInvocation]);
 
   if (!apps) {
     return (

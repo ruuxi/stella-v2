@@ -28,6 +28,15 @@ const setStorageRef = makeFunctionReference<"mutation", any, any>(
 const deleteStorageRef = makeFunctionReference<"mutation", any, any>(
   "cloud_apps:deleteStorageInternal",
 );
+const upsertOpsManifestRef = makeFunctionReference<"mutation", any, any>(
+  "cloud_apps:upsertOperationsManifestInternal",
+);
+const claimOpInvocationsRef = makeFunctionReference<"mutation", any, any>(
+  "cloud_apps:claimOpInvocationsInternal",
+);
+const completeOpInvocationRef = makeFunctionReference<"mutation", any, any>(
+  "cloud_apps:completeOpInvocationInternal",
+);
 
 const encoder = new TextEncoder();
 const base64url = (bytes: Uint8Array): string =>
@@ -111,6 +120,9 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
     "/api/apps/storage/list",
     "/api/apps/storage/set",
     "/api/apps/storage/delete",
+    "/api/apps/operations/describe",
+    "/api/apps/operations/poll",
+    "/api/apps/operations/result",
   ] as const;
   for (const path of paths) {
     http.route({
@@ -203,6 +215,67 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
       return { ok: true };
     }),
   });
+  // Operations layer: manifests are accepted only from owner sessions, and
+  // only owner sessions may claim or complete invocations. Anonymous app
+  // sessions receive an eligibility flag so the SDK never polls for them.
+  http.route({
+    path: "/api/apps/operations/describe",
+    method: "POST",
+    handler: handle(async (ctx, request) => {
+      const token = await verifyToken(request);
+      if (token.anonymous || token.userId !== token.ownerId) {
+        return { ok: false, eligible: false };
+      }
+      const { operations } = (await request.json()) as { operations: unknown };
+      const result = await ctx.runMutation(upsertOpsManifestRef, {
+        appId: token.appId,
+        userId: token.userId,
+        manifestJson: JSON.stringify(operations ?? []),
+        now: Date.now(),
+      });
+      return { ok: true, eligible: true, ...result };
+    }),
+  });
+  http.route({
+    path: "/api/apps/operations/poll",
+    method: "POST",
+    handler: handle(async (ctx, request) => {
+      const token = await verifyToken(request);
+      if (token.anonymous || token.userId !== token.ownerId) {
+        return { eligible: false, invocations: [] };
+      }
+      const invocations = await ctx.runMutation(claimOpInvocationsRef, {
+        appId: token.appId,
+        userId: token.userId,
+      });
+      return { eligible: true, invocations };
+    }),
+  });
+  http.route({
+    path: "/api/apps/operations/result",
+    method: "POST",
+    handler: handle(async (ctx, request) => {
+      const token = await verifyToken(request);
+      if (token.anonymous || token.userId !== token.ownerId) {
+        throw new ConvexError("Only the app owner can report results.");
+      }
+      const body = (await request.json()) as {
+        invocationId: string;
+        ok: boolean;
+        resultJson?: string;
+        errorMessage?: string;
+      };
+      await ctx.runMutation(completeOpInvocationRef, {
+        invocationId: body.invocationId,
+        userId: token.userId,
+        ok: body.ok === true,
+        resultJson: body.resultJson,
+        errorMessage: body.errorMessage,
+      });
+      return { ok: true };
+    }),
+  });
+
   http.route({
     path: "/api/apps/storage/delete",
     method: "POST",

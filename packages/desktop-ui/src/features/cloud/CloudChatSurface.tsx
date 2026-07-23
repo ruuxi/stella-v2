@@ -12,6 +12,10 @@ import "./cloud-chat.css";
 
 const eventLabel = (kind: string): string => {
   switch (kind) {
+    case "running":
+      return "Choosing the fastest path";
+    case "op_selected":
+      return "Operating the app";
     case "started":
       return "Starting your cloud turn";
     case "sandbox_ready":
@@ -201,12 +205,18 @@ export function CloudChatSurface() {
             const app = appById.get(turn.appId);
             const needsApply =
               Boolean(buildId) && app?.activeBuildId !== buildId;
+            const operation =
+              typeof completed?.payload.operation === "string"
+                ? completed.payload.operation
+                : null;
             return (
               <article className="cloud-turn" key={turn.turnId}>
                 <p className="cloud-turn__prompt">{turn.prompt}</p>
                 <div className="cloud-turn__result" data-status={turn.status}>
                   <span className="cloud-turn__status">
-                    {eventLabel(latest?.kind ?? turn.status)}
+                    {operation && turn.status === "completed"
+                      ? "Done"
+                      : eventLabel(latest?.kind ?? turn.status)}
                   </span>
                   {turn.status === "running" ? (
                     <div
@@ -221,6 +231,12 @@ export function CloudChatSurface() {
                   turn.status === "canceled" ? (
                     <p className="cloud-turn__error">
                       {errorText(turn.errorMessage)}
+                    </p>
+                  ) : null}
+                  {turn.status === "completed" && operation ? (
+                    <p className="cloud-turn__operation">
+                      Ran <code>{operation}</code> on {app?.title ?? "the app"}{" "}
+                      — applied instantly, no rebuild.
                     </p>
                   ) : null}
                   {turn.status === "completed" && previewUrl ? (

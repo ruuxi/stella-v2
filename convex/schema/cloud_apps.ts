@@ -49,6 +49,7 @@ export const cloudAppsSchema = {
     appId: v.string(),
     prompt: v.string(),
     status: v.string(),
+    lane: v.optional(v.string()),
     terminalKind: v.optional(v.string()),
     errorMessage: v.optional(v.string()),
     resultJson: v.optional(v.string()),
@@ -84,6 +85,32 @@ export const cloudAppsSchema = {
     .index("by_appId_and_userId_and_key", ["appId", "userId", "key"])
     .index("by_appId_and_userId", ["appId", "userId"])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
+
+  cloud_app_operations: defineTable({
+    appId: v.string(),
+    ownerId: v.string(),
+    manifestJson: v.string(),
+    sizeBytes: v.number(),
+    updatedAt: v.number(),
+  }).index("by_appId", ["appId"]),
+
+  cloud_app_op_invocations: defineTable({
+    invocationId: v.string(),
+    appId: v.string(),
+    ownerId: v.string(),
+    turnId: v.string(),
+    name: v.string(),
+    argsJson: v.string(),
+    status: v.string(),
+    resultJson: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_invocationId", ["invocationId"])
+    .index("by_appId_and_status_and_createdAt", ["appId", "status", "createdAt"])
+    .index("by_turnId", ["turnId"]),
 
   cloud_failure_alerts: defineTable({
     windowStartedAt: v.number(),

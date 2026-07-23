@@ -77,4 +77,34 @@ export const cloudApi = {
     { appId: string },
     { ok: boolean }
   >("cloud_apps:deleteMyApp"),
+  publishMyAppOperations: makeFunctionReference<
+    "mutation",
+    { appId: string; manifestJson: string },
+    { operationCount: number }
+  >("cloud_apps:publishMyAppOperations"),
+  listPendingOpInvocations: makeFunctionReference<
+    "query",
+    { appId: string },
+    Array<{
+      invocationId: string;
+      name: string;
+      argsJson: string;
+      createdAt: number;
+    }>
+  >("cloud_apps:listPendingOpInvocations"),
+  claimOpInvocation: makeFunctionReference<
+    "mutation",
+    { invocationId: string },
+    { claimed: boolean }
+  >("cloud_apps:claimOpInvocation"),
+  completeOpInvocation: makeFunctionReference<
+    "mutation",
+    {
+      invocationId: string;
+      ok: boolean;
+      resultJson?: string;
+      errorMessage?: string;
+    },
+    null
+  >("cloud_apps:completeOpInvocation"),
 };

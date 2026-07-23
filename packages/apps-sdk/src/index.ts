@@ -4,6 +4,26 @@ export type StellaUser = {
   anonymous: boolean;
 };
 
+export type StellaOperationArg = {
+  name: string;
+  type: "string" | "number" | "boolean";
+  description?: string;
+  required?: boolean;
+};
+
+export type StellaOperationDef = {
+  name: string;
+  description: string;
+  args?: StellaOperationArg[];
+  handler: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+};
+
+type OperationInvocation = {
+  invocationId: string;
+  name: string;
+  argsJson: string;
+};
+
 export type StellaAppContext = {
   appId: string;
   convexSiteUrl: string;
@@ -118,6 +138,159 @@ export class Stella {
   readonly user = {
     get: async (): Promise<StellaUser> => (await this.session()).user,
   };
+
+  private registeredOperations = new Map<string, StellaOperationDef>();
+  private operationsListening = false;
+
+  /**
+   * Two-speed operations layer: the app declares named deterministic
+   * functions once, its own UI calls them directly, and the Stella agent
+   * invokes the same functions with model-chosen arguments. Handlers run
+   * only inside this app instance; the platform sees names, argument
+   * descriptors, and JSON results — never code.
+   */
+  readonly operations = {
+    register: async (defs: StellaOperationDef[]): Promise<void> => {
+      for (const def of defs) {
+        if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(def.name)) {
+          throw new Error(`Operation name ${def.name} must be kebab-case.`);
+        }
+        if (typeof def.handler !== "function") {
+          throw new Error(`Operation ${def.name} needs a handler function.`);
+        }
+        this.registeredOperations.set(def.name, def);
+      }
+      const manifest = defs.map((def) => ({
+        name: def.name,
+        description: def.description,
+        args: (def.args ?? []).map((arg) => ({
+          name: arg.name,
+          type: arg.type,
+          ...(arg.description ? { description: arg.description } : {}),
+          ...(arg.required ? { required: true } : {}),
+        })),
+      }));
+      const outcome = (await this.call("operations/describe", {
+        operations: manifest,
+      })) as { eligible?: boolean };
+      this.startOperationsTransport(outcome?.eligible !== false);
+    },
+  };
+
+  private validateOperationArgs(
+    def: StellaOperationDef,
+    args: Record<string, unknown>,
+  ): void {
+    const declared = def.args ?? [];
+    for (const key of Object.keys(args)) {
+      if (!declared.some((arg) => arg.name === key)) {
+        throw new Error(`Unexpected argument ${key} for ${def.name}.`);
+      }
+    }
+    for (const arg of declared) {
+      const value = args[arg.name];
+      if (value === undefined) {
+        if (arg.required) {
+          throw new Error(`${def.name} requires the ${arg.name} argument.`);
+        }
+        continue;
+      }
+      if (typeof value !== arg.type) {
+        throw new Error(`${def.name} argument ${arg.name} must be a ${arg.type}.`);
+      }
+    }
+  }
+
+  private async runOperation(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<{ ok: boolean; resultJson?: string; errorMessage?: string }> {
+    try {
+      const def = this.registeredOperations.get(name);
+      if (!def) throw new Error(`Operation ${name} is not registered.`);
+      this.validateOperationArgs(def, args);
+      const result = await def.handler(args);
+      const resultJson = JSON.stringify(result ?? null);
+      if (resultJson.length > 8 * 1024) {
+        throw new Error(`Operation ${name} returned more than 8 KB.`);
+      }
+      return { ok: true, resultJson };
+    } catch (error) {
+      return {
+        ok: false,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private startOperationsTransport(eligible: boolean): void {
+    if (this.operationsListening || typeof window === "undefined") return;
+    this.operationsListening = true;
+    if (this.context.bridge) {
+      window.addEventListener(
+        "message",
+        (
+          event: MessageEvent<{
+            source?: string;
+            kind?: string;
+            invocationId?: string;
+            name?: string;
+            args?: Record<string, unknown>;
+          }>,
+        ) => {
+          const message = event.data;
+          if (
+            event.source !== window.parent ||
+            message?.source !== "stella-host" ||
+            message.kind !== "stella-operation" ||
+            !message.invocationId ||
+            !message.name
+          ) {
+            return;
+          }
+          void this.runOperation(message.name, message.args ?? {}).then(
+            (outcome) => {
+              window.parent.postMessage(
+                {
+                  source: "stella-app",
+                  kind: "stella-operation-result",
+                  invocationId: message.invocationId,
+                  ...outcome,
+                },
+                "*",
+              );
+            },
+          );
+        },
+      );
+      return;
+    }
+    // Standalone transport: only owner sessions are eligible; poll while the
+    // page is visible so a closed or backgrounded app never claims work.
+    if (!eligible) return;
+    const poll = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const payload = (await this.call("operations/poll", {})) as {
+          invocations?: OperationInvocation[];
+        };
+        for (const invocation of payload.invocations ?? []) {
+          const outcome = await this.runOperation(
+            invocation.name,
+            JSON.parse(invocation.argsJson) as Record<string, unknown>,
+          );
+          await this.call("operations/result", {
+            invocationId: invocation.invocationId,
+            ...outcome,
+          });
+        }
+      } catch {
+        // Transient polling failures are retried on the next interval.
+      }
+    };
+    window.setInterval(() => void poll(), 3_500);
+    void poll();
+  }
 
   readonly storage = {
     get: async <T>(key: string): Promise<T | null> =>

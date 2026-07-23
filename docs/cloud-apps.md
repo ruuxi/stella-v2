@@ -160,6 +160,109 @@ For a stuck turn:
 4. confirm the sandbox is destroyed and the turn is terminal;
 5. retry as a new turn—never rewrite the old event stream.
 
+## Operations layer (two-speed agents)
+
+Mini apps expose two agent lanes over one document of state. The build lane is
+the existing source-edit → sandbox → immutable artifact → apply-card path. The
+operations lane lets the agent act as a *user* of the running app: the app
+declares named, deterministic operations, the model only picks a verb and
+arguments, and ordinary in-app code applies the change. The app's own UI
+controls and the agent invoke the same functions — one implementation, no
+separate AI path.
+
+### App-side convention
+
+The template ships `src/operations.ts`: deterministic functions over the app's
+state store with in-app argument validation, plus `createAppOperations`, which
+binds those functions to SDK operation definitions. UI controls call the same
+functions directly. Durable state lives in `stella.storage` (the app persists
+its state document after every mutation and hydrates it on load); operations
+mutate the live in-memory state and render immediately.
+
+Apps register operations through the SDK only:
+
+```ts
+await stella.operations.register([
+  { name: "set-habit-progress", description: "…",
+    args: [{ name: "habit", type: "string", required: true },
+           { name: "progress", type: "number", required: true }],
+    handler: (args) => fns.setHabitProgress(args) },
+]);
+```
+
+`register` publishes a manifest (names, argument descriptors, descriptions —
+never handlers) to Convex and starts listening for invocations. Apps never see
+Convex directly; the SDK remains the only boundary. Manifest writes are
+accepted only from owner sessions and are capped: at most 20 operations, 8
+arguments each, kebab-case names ≤ 64 chars, descriptions ≤ 200 chars, 8 KB of
+manifest JSON.
+
+### Data model
+
+- `cloud_app_operations` — one row per app: the current manifest JSON and its
+  size, replaced idempotently on registration.
+- `cloud_app_op_invocations` — one row per agent invocation: `invocationId`,
+  `appId`, `ownerId`, `turnId`, `name`, `argsJson`, `status`
+  (`pending → delivered → completed | failed`, or `expired`), result/error and
+  timestamps.
+- `agent_turns.lane` — `"build"`, `"operation"`, or `"auto"` while routing.
+  Turn records stay executor-agnostic: the lane names the dispatch path, and
+  everything the agent did is visible as ordered `agent_events`.
+
+### Turn routing
+
+`startCloudChat` keeps the build path unchanged for new apps and for apps
+without a manifest. When the target app is active and has registered
+operations, the mutation records the turn with `lane: "auto"` and schedules
+`routeCloudTurnInternal` instead of dispatching the builder directly. The
+router makes one small model call (Claude Haiku, JSON-only) with the user
+request and the manifest, instructed to prefer operating the running app and
+to choose `build` only for structural/code/visual changes. Then:
+
+- **operation** — validate the verb against the manifest, write the
+  invocation row, log an `op_selected` turn event, and schedule a 20-second
+  expiry. No sandbox, no build, no apply card; the executor is never involved.
+- **build** — re-check the plan's build quota (op turns never reserve build
+  quota up front), set `lane: "build"`, and dispatch the existing builder
+  path. Quota failures terminalize the turn with the standard readable
+  message.
+
+Completion is reported by the platform surface that delivered the invocation:
+a `completed` (or `failed`) terminal event carries the operation name,
+arguments, and the app-returned result, so the chat timeline shows exactly
+what the agent did.
+
+### Live reach
+
+Delivery targets a running instance the owner has open:
+
+- **In-shell (iframe bridge)** — the app page subscribes to pending
+  invocations for its app, claims each one atomically (`pending → delivered`,
+  so two open tabs never double-fire), forwards it to the iframe over
+  `postMessage` with the existing origin checks, and reports the app's result
+  back to Convex. The SDK validates arguments against the registered
+  definition in-app before running the handler.
+- **Standalone (HTTP)** — the SDK polls `/api/apps/operations/poll` with its
+  app-session token while the page is visible. Only sessions whose user is the
+  app owner are eligible; anonymous sessions are told once and never poll.
+
+If no eligible instance claims the invocation before expiry, the turn fails
+gracefully within ~20 seconds: "Open the app, then ask again." No queueing in
+v1 — rejected invocations are never executed later against stale intent.
+
+### Safety and quotas
+
+Operations are app-defined untrusted code and run only inside the app's own
+origin-isolated instance; the platform never executes them. Argument validation
+lives in-app (SDK schema check plus the operation's own semantic checks). The
+platform enforces: owner-only routing and delivery, origin/session verification
+on every transport (unchanged from M3), manifest and argument size caps (8 KB),
+result caps (8 KB), and plan-scaled limits consistent with M6 — op turns draw
+from their own budgets (`burstStarts × 5` per 10 minutes, `dailyTurns × 20` per
+rolling 24 hours) so a chatty operator lane can never starve or bypass build
+quotas. No new secret paths: invocations carry only the verb and JSON
+arguments; results carry only app-returned JSON.
+
 ## Observability and alerts
 
 Both Workers have invocation logs enabled and emit JSON records with `service`,

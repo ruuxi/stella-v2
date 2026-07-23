@@ -1,0 +1,146 @@
+diff --git a/android/build.gradle b/android/build.gradle
+index 0c7bca6da7a6cf057ca933930411d49886cf11d3..bc35c974a401903f1db9bded470d808ca3013831 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -20,7 +20,6 @@ def safeExtGet(prop, fallback) {
+ }
+
+ apply plugin: 'com.android.library'
+-apply plugin: 'maven'
+
+ buildscript {
+     // The Android Gradle plugin is only required when opening the android folder stand-alone.
+@@ -30,7 +29,7 @@ buildscript {
+     if (project == rootProject) {
+         repositories {
+             google()
+-            jcenter()
++            mavenCentral()
+         }
+         dependencies {
+             classpath 'com.android.tools.build:gradle:3.4.1'
+@@ -38,10 +37,8 @@ buildscript {
+     }
+ }
+
+-apply plugin: 'com.android.library'
+-apply plugin: 'maven'
+-
+ android {
++    namespace "com.futurepress.staticserver"
+     compileSdkVersion safeExtGet('compileSdkVersion', DEFAULT_COMPILE_SDK_VERSION)
+     buildToolsVersion safeExtGet('buildToolsVersion', DEFAULT_BUILD_TOOLS_VERSION)
+     defaultConfig {
+@@ -67,7 +64,7 @@ repositories {
+         url "$rootDir/../node_modules/jsc-android/dist"
+     }
+     google()
+-    jcenter()
++    mavenCentral()
+ }
+
+ dependencies {
+@@ -76,76 +73,3 @@ dependencies {
+     implementation 'org.nanohttpd:nanohttpd:2.3.1'
+     implementation 'org.nanohttpd:nanohttpd-webserver:2.3.1'
+ }
+-
+-def configureReactNativePom(def pom) {
+-    def packageJson = new groovy.json.JsonSlurper().parseText(file('../package.json').text)
+-
+-    pom.project {
+-        name packageJson.title
+-        artifactId packageJson.name
+-        version = packageJson.version
+-        group = "com.futurepress.staticserver"
+-        description packageJson.description
+-        url packageJson.repository.baseUrl
+-
+-        licenses {
+-            license {
+-                name packageJson.license
+-                url packageJson.repository.baseUrl + '/blob/master/' + packageJson.licenseFilename
+-                distribution 'repo'
+-            }
+-        }
+-
+-        developers {
+-            developer {
+-                id packageJson.author.username
+-                name packageJson.author.name
+-            }
+-        }
+-    }
+-}
+-
+-afterEvaluate { project ->
+-    // some Gradle build hooks ref:
+-    // https://www.oreilly.com/library/view/gradle-beyond-the/9781449373801/ch03.html
+-    task androidJavadoc(type: Javadoc) {
+-        source = android.sourceSets.main.java.srcDirs
+-        classpath += files(android.bootClasspath)
+-        classpath += files(project.getConfigurations().getByName('compile').asList())
+-        include '**/*.java'
+-    }
+-
+-    task androidJavadocJar(type: Jar, dependsOn: androidJavadoc) {
+-        classifier = 'javadoc'
+-        from androidJavadoc.destinationDir
+-    }
+-
+-    task androidSourcesJar(type: Jar) {
+-        classifier = 'sources'
+-        from android.sourceSets.main.java.srcDirs
+-        include '**/*.java'
+-    }
+-
+-    android.libraryVariants.all { variant ->
+-        def name = variant.name.capitalize()
+-        def javaCompileTask = variant.javaCompileProvider.get()
+-
+-        task "jar${name}"(type: Jar, dependsOn: javaCompileTask) {
+-            from javaCompileTask.destinationDir
+-        }
+-    }
+-
+-    artifacts {
+-        archives androidSourcesJar
+-        archives androidJavadocJar
+-    }
+-
+-    task installArchives(type: Upload) {
+-        configuration = configurations.archives
+-        repositories.mavenDeployer {
+-            // Deploy to react-native-event-bridge/maven, ready to publish to npm
+-            repository url: "file://${projectDir}/../android/maven"
+-            configureReactNativePom pom
+-        }
+-    }
+-}
+diff --git a/ios/FPStaticServer.m b/ios/FPStaticServer.m
+index a55a18f1e559142f2d2a7ed2ecde456e3775dfab..a8ca50aa1d78713927f6598e35444c13b356c678 100644
+--- a/ios/FPStaticServer.m
++++ b/ios/FPStaticServer.m
+@@ -32,8 +32,8 @@ RCT_EXPORT_MODULE();
+
+ RCT_EXPORT_METHOD(start: (NSString *)port
+                   root:(NSString *)optroot
+-                  localOnly:(BOOL *)localhost_only
+-                  keepAlive:(BOOL *)keep_alive
++                  localOnly:(NSNumber *)localhost_only
++                  keepAlive:(NSNumber *)keep_alive
+                   resolver:(RCTPromiseResolveBlock)resolve
+                   rejecter:(RCTPromiseRejectBlock)reject) {
+
+@@ -63,9 +63,9 @@ RCT_EXPORT_METHOD(start: (NSString *)port
+     }
+
+
+-    self.keep_alive = keep_alive;
++    self.keep_alive = [keep_alive boolValue];
+
+-    self.localhost_only = localhost_only;
++    self.localhost_only = [localhost_only boolValue];
+
+     if(_webServer.isRunning != NO) {
+         NSLog(@"StaticServer already running at %@", self.url);

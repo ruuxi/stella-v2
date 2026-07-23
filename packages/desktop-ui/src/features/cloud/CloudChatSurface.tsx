@@ -3,6 +3,10 @@ import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { AppWindowMac, Send } from "@/ui/icons";
 import { useAuthBootstrapState } from "@/global/auth/DesktopConvexAuthProvider";
 import { cloudAppUrl } from "./cloud-config";
+import {
+  isMobileShell,
+  speakCarPlayReply,
+} from "@/platform/mobile/mobile-shell";
 import { cloudApi, type CloudTurn } from "./cloud-api";
 import "./cloud-chat.css";
 
@@ -59,6 +63,7 @@ export function CloudChatSurface() {
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const spokenTerminalTurns = useRef(new Set<string>());
   const startTurn = useMutation(cloudApi.startCloudChat);
   const applyBuild = useAction(cloudApi.applyMyBuild);
   const turns = useQuery(
@@ -84,11 +89,8 @@ export function CloudChatSurface() {
     [apps],
   );
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const message = prompt.trim();
+  const startMessage = async (message: string) => {
     if (!message || isSending) return;
-    setPrompt("");
     setSendError(null);
     setIsSending(true);
     try {
@@ -106,6 +108,38 @@ export function CloudChatSurface() {
       setIsSending(false);
     }
   };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const message = prompt.trim();
+    if (!message || isSending) return;
+    setPrompt("");
+    void startMessage(message);
+  };
+
+  useEffect(() => {
+    const onCarPlayPrompt = (event: Event) => {
+      const message = (
+        event as CustomEvent<{ prompt?: string }>
+      ).detail?.prompt?.trim();
+      if (message) void startMessage(message);
+    };
+    window.addEventListener("stella:carplay-prompt", onCarPlayPrompt);
+    return () =>
+      window.removeEventListener("stella:carplay-prompt", onCarPlayPrompt);
+  });
+
+  useEffect(() => {
+    if (!isMobileShell() || !turns) return;
+    const terminal = turns.findLast(
+      (turn) =>
+        turn.status === "completed" &&
+        !spokenTerminalTurns.current.has(turn.turnId),
+    );
+    if (!terminal) return;
+    spokenTerminalTurns.current.add(terminal.turnId);
+    speakCarPlayReply("Your Stella cloud turn is complete. The app is ready.");
+  }, [turns]);
 
   if (isLoading || !isAuthenticated) {
     return (

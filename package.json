@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "convex",
+    "workers/*"
   ],
   "main": "packages/desktop/dist-electron/electron/main.js",
   "scripts": {

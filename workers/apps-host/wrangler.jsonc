@@ -1,0 +1,28 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "stella-v2-apps-host-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-22",
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
+  "vars": {
+    "SHARES_DISABLED": "false"
+  },
+  "r2_buckets": [
+    {
+      "binding": "APP_BUILDS",
+      "bucket_name": "stella-v2-app-builds-dev"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "APP_ROUTES",
+      "id": "dc5c7bac2bd04ec7bbd6a89f18a04ee7"
+    }
+  ]
+}

@@ -1,0 +1,352 @@
+import {
+  mutation,
+  query,
+  type MutationCtx,
+} from "../_generated/server";
+import type { Doc } from "../_generated/dataModel";
+import { ConvexError, v } from "convex/values";
+import {
+  socialProfileValidator,
+  socialRelationshipValidator,
+  ensureRelationshipIsAccepted,
+  ensureSocialProfileDoc,
+  getRelationshipKey,
+  getSocialProfileByOwnerId,
+  listAcceptedRelationshipsForOwner,
+  loadRelationship,
+} from "./shared";
+import {
+  getConnectedUserIdOrNull,
+  requireConnectedUserId,
+} from "../auth";
+import {
+  enforceMutationRateLimit,
+  RATE_HOT_PATH,
+  RATE_STANDARD,
+  RATE_VERY_EXPENSIVE,
+} from "../lib/rate_limits";
+
+const socialFriendSummaryValidator = v.object({
+  relationship: socialRelationshipValidator,
+  profile: socialProfileValidator,
+});
+
+const socialPendingRequestSummaryValidator = v.object({
+  relationship: socialRelationshipValidator,
+  profile: socialProfileValidator,
+  direction: v.union(v.literal("incoming"), v.literal("outgoing")),
+});
+
+const hydrateRelationshipPeer = async (
+  ctx: Parameters<typeof listAcceptedRelationshipsForOwner>[0],
+  ownerId: string,
+  relationship: {
+    lowOwnerId: string;
+    highOwnerId: string;
+  },
+) => {
+  const peerOwnerId =
+    relationship.lowOwnerId === ownerId
+      ? relationship.highOwnerId
+      : relationship.lowOwnerId;
+  return await getSocialProfileByOwnerId(ctx, peerOwnerId);
+};
+
+export const listFriends = query({
+  args: {},
+  returns: v.array(socialFriendSummaryValidator),
+  handler: async (ctx) => {
+    const ownerId = await getConnectedUserIdOrNull(ctx);
+    if (!ownerId) {
+      return [];
+    }
+    const relationships = await listAcceptedRelationshipsForOwner(ctx, ownerId);
+    const friends = await Promise.all(
+      relationships.map(async (relationship) => {
+        const profile = await hydrateRelationshipPeer(ctx, ownerId, relationship);
+        return profile ? { relationship, profile } : null;
+      }),
+    );
+    return friends.filter((entry): entry is (typeof friends)[number] & NonNullable<typeof entry> => Boolean(entry));
+  },
+});
+
+export const listPendingRequests = query({
+  args: {},
+  returns: v.array(socialPendingRequestSummaryValidator),
+  handler: async (ctx) => {
+    const ownerId = await getConnectedUserIdOrNull(ctx);
+    if (!ownerId) {
+      return [];
+    }
+    // Pending lists are typically small; cap the scan to keep the query
+    // bounded even for prolific senders/receivers.
+    const MAX_PENDING_REQUESTS_PER_SIDE = 200;
+    const [incoming, outgoing] = await Promise.all([
+      ctx.db
+        .query("social_relationships")
+        .withIndex("by_addresseeOwnerId_and_status", (q) =>
+          q.eq("addresseeOwnerId", ownerId).eq("status", "pending"),
+        )
+        .take(MAX_PENDING_REQUESTS_PER_SIDE),
+      ctx.db
+        .query("social_relationships")
+        .withIndex("by_requesterOwnerId_and_status", (q) =>
+          q.eq("requesterOwnerId", ownerId).eq("status", "pending"),
+        )
+        .take(MAX_PENDING_REQUESTS_PER_SIDE),
+    ]);
+
+    const entries = await Promise.all(
+      [...incoming.map((relationship) => ({ relationship, direction: "incoming" as const })), ...outgoing.map((relationship) => ({ relationship, direction: "outgoing" as const }))]
+        .map(async (entry) => {
+          const profile = await hydrateRelationshipPeer(ctx, ownerId, entry.relationship);
+          return profile ? { ...entry, profile } : null;
+        }),
+    );
+    return entries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+  },
+});
+
+export const getUnseenIncomingFriendRequestCount = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const ownerId = await getConnectedUserIdOrNull(ctx);
+    if (!ownerId) {
+      return 0;
+    }
+    const profile = await getSocialProfileByOwnerId(ctx, ownerId);
+    const lastSeenAt = profile?.lastSeenIncomingFriendRequestAt ?? 0;
+    const MAX_PENDING_REQUESTS_PER_SIDE = 200;
+    const incoming = await ctx.db
+      .query("social_relationships")
+      .withIndex("by_addresseeOwnerId_and_status", (q) =>
+        q.eq("addresseeOwnerId", ownerId).eq("status", "pending"),
+      )
+      .take(MAX_PENDING_REQUESTS_PER_SIDE);
+    return incoming.filter((relationship) => relationship.createdAt > lastSeenAt)
+      .length;
+  },
+});
+
+export const markIncomingFriendRequestsSeen = mutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const ownerId = await requireConnectedUserId(ctx);
+    await enforceMutationRateLimit(
+      ctx,
+      "social_mark_friend_requests_seen",
+      ownerId,
+      RATE_HOT_PATH,
+    );
+    const profile = await ensureSocialProfileDoc(ctx, ownerId);
+    await ctx.db.patch(profile._id, {
+      lastSeenIncomingFriendRequestAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+/**
+ * Shared helper that produces (or revives) a pending friend-request row from
+ * the caller to `targetOwnerId`. The two `sendFriendRequest*` mutations both
+ * rate-limit + resolve their target profile before delegating here.
+ */
+const upsertPendingFriendRequest = async (
+  ctx: MutationCtx,
+  ownerId: string,
+  targetOwnerId: string,
+): Promise<Doc<"social_relationships">> => {
+  if (targetOwnerId === ownerId) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "You cannot friend yourself",
+    });
+  }
+
+  const existing = await loadRelationship(ctx, ownerId, targetOwnerId);
+  if (existing) {
+    if (existing.status === "accepted" || existing.status === "pending") {
+      return existing;
+    }
+    // A block can only be lifted by the user who placed it (the addressee at
+    // block time). Surface the same error as an unknown username so the
+    // blocked sender can't detect the block.
+    if (existing.status === "blocked" && existing.addresseeOwnerId !== ownerId) {
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "No user found with that username",
+      });
+    }
+    await ctx.db.patch(existing._id, {
+      requesterOwnerId: ownerId,
+      addresseeOwnerId: targetOwnerId,
+      initiatedByOwnerId: ownerId,
+      status: "pending",
+      updatedAt: Date.now(),
+      respondedAt: undefined,
+    });
+    const updated = await ctx.db.get(existing._id);
+    if (!updated) {
+      throw new ConvexError({
+        code: "INTERNAL_ERROR",
+        message: "Failed to update friend request",
+      });
+    }
+    return updated;
+  }
+
+  const now = Date.now();
+  const sorted = [ownerId, targetOwnerId].sort((a, b) => a.localeCompare(b));
+  const id = await ctx.db.insert("social_relationships", {
+    relationshipKey: getRelationshipKey(ownerId, targetOwnerId),
+    lowOwnerId: sorted[0]!,
+    highOwnerId: sorted[1]!,
+    requesterOwnerId: ownerId,
+    addresseeOwnerId: targetOwnerId,
+    initiatedByOwnerId: ownerId,
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const created = await ctx.db.get(id);
+  if (!created) {
+    throw new ConvexError({
+      code: "INTERNAL_ERROR",
+      message: "Failed to create friend request",
+    });
+  }
+  return created;
+};
+
+export const sendFriendRequest = mutation({
+  args: {
+    username: v.string(),
+  },
+  returns: socialRelationshipValidator,
+  handler: async (ctx, args) => {
+    const ownerId = await requireConnectedUserId(ctx);
+    // Friend-request spam vector: cap aggressively per owner so a malicious
+    // client can't probe usernames or harass other users.
+    await enforceMutationRateLimit(
+      ctx,
+      "social_send_friend_request",
+      ownerId,
+      RATE_VERY_EXPENSIVE,
+      "Too many friend requests. Please wait a minute before trying again.",
+    );
+    await ensureSocialProfileDoc(ctx, ownerId);
+    const username = args.username.trim().toLowerCase();
+    if (!username) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "username is required",
+      });
+    }
+
+    const targetProfile = await ctx.db
+      .query("social_profiles")
+      .withIndex("by_username", (q) => q.eq("username", username))
+      .unique();
+    if (!targetProfile) {
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "No user found with that username",
+      });
+    }
+
+    return await upsertPendingFriendRequest(ctx, ownerId, targetProfile.ownerId);
+  },
+});
+
+export const respondToFriendRequest = mutation({
+  args: {
+    requesterOwnerId: v.string(),
+    action: v.union(v.literal("accept"), v.literal("decline"), v.literal("block")),
+  },
+  returns: socialRelationshipValidator,
+  handler: async (ctx, args) => {
+    const ownerId = await requireConnectedUserId(ctx);
+    await enforceMutationRateLimit(
+      ctx,
+      "social_respond_to_friend_request",
+      ownerId,
+      RATE_STANDARD,
+      "Too many requests. Please slow down and try again.",
+    );
+    const relationship = await loadRelationship(ctx, ownerId, args.requesterOwnerId);
+    if (!relationship || relationship.addresseeOwnerId !== ownerId) {
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "Friend request not found",
+      });
+    }
+
+    // Accept/decline only applies to a live pending request — a declined
+    // request must not be acceptable later without the requester sending a
+    // fresh one. Blocking is allowed from any state (including blocking an
+    // existing friend).
+    if (args.action !== "block" && relationship.status !== "pending") {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "This friend request is no longer pending",
+      });
+    }
+
+    const nextStatus =
+      args.action === "accept"
+        ? "accepted"
+        : args.action === "decline"
+          ? "declined"
+          : "blocked";
+    await ctx.db.patch(relationship._id, {
+      status: nextStatus,
+      updatedAt: Date.now(),
+      respondedAt: Date.now(),
+    });
+    const updated = await ctx.db.get(relationship._id);
+    if (!updated) {
+      throw new ConvexError({
+        code: "INTERNAL_ERROR",
+        message: "Failed to update friend request",
+      });
+    }
+    return updated;
+  },
+});
+
+export const removeFriend = mutation({
+  args: {
+    otherOwnerId: v.string(),
+  },
+  returns: v.object({ removed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const ownerId = await requireConnectedUserId(ctx);
+    await enforceMutationRateLimit(
+      ctx,
+      "social_remove_friend",
+      ownerId,
+      RATE_STANDARD,
+      "Too many requests. Please slow down and try again.",
+    );
+    const relationship = await loadRelationship(ctx, ownerId, args.otherOwnerId);
+    if (!relationship) {
+      return { removed: false };
+    }
+    // Unblock path: the user who placed a block can lift it by removing the
+    // relationship (the blocked side still gets the accepted-only check).
+    if (
+      relationship.status === "blocked" &&
+      relationship.addresseeOwnerId === ownerId
+    ) {
+      await ctx.db.delete(relationship._id);
+      return { removed: true };
+    }
+    ensureRelationshipIsAccepted(relationship);
+    await ctx.db.delete(relationship._id);
+    return { removed: true };
+  },
+});

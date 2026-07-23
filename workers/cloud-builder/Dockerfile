@@ -7,6 +7,8 @@ COPY .image/package.json ./
 COPY .image/packages ./packages
 RUN bun install --production
 
-RUN mkdir -p /workspace
+RUN mkdir -p /workspace \
+  && ln -s /opt/stella/node_modules /opt/stella/packages/app-template/node_modules \
+  && ln -s "$(find /opt/stella/node_modules/.bun -path '*/vite/bin/vite.js' -print -quit)" /usr/local/bin/vite
 
 EXPOSE 5173

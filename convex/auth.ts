@@ -89,6 +89,8 @@ const getEmailLogoSrc = (siteUrl: string) => {
 const extraTrustedOrigins = [
   "http://localhost:57314",
   "http://127.0.0.1:57314",
+  "http://localhost:57315",
+  "http://127.0.0.1:57315",
   "https://stella.sh",
   // Mobile WebView loads the desktop UI via Cloudflare tunnel
   "*.stellatunnel.com",

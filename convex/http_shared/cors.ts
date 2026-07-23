@@ -3,6 +3,8 @@ import { httpAction } from "../_generated/server";
 
 const DEFAULT_CORS_ALLOWED_ORIGINS = [
   "http://localhost:57314",
+  "http://localhost:57315",
+  "http://127.0.0.1:57315",
   "https://stella.sh",
   "null",
 ];

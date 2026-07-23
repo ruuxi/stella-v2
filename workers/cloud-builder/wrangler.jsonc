@@ -14,8 +14,25 @@
   "vars": {
     "SANDBOX_TRANSPORT": "rpc",
     "TURN_TIMEOUT_MS": "900000",
-    "SANDBOX_IDLE_TIMEOUT_MS": "600000"
+    "SANDBOX_IDLE_TIMEOUT_MS": "600000",
+    "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev"
   },
+  "r2_buckets": [
+    {
+      "binding": "APP_BUILDS",
+      "bucket_name": "stella-v2-app-builds-dev"
+    },
+    {
+      "binding": "BACKUP_BUCKET",
+      "bucket_name": "stella-v2-app-builds-dev"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "APP_ROUTES",
+      "id": "dc5c7bac2bd04ec7bbd6a89f18a04ee7"
+    }
+  ],
   "containers": [
     {
       "class_name": "Sandbox",

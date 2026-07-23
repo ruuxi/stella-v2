@@ -20,6 +20,7 @@ const imagePackage = {
   private: true,
   type: "module",
   workspaces: [
+    "packages/app-template",
     "packages/contracts",
     "packages/runtime",
     "packages/executor-cloud",
@@ -32,7 +33,7 @@ await writeFile(
   `${JSON.stringify(imagePackage, null, 2)}\n`,
 );
 
-for (const packageName of ["contracts", "runtime", "executor-cloud"]) {
+for (const packageName of ["app-template", "contracts", "runtime", "executor-cloud"]) {
   await cp(
     path.join(repoRoot, "packages", packageName),
     path.join(imageRoot, "packages", packageName),

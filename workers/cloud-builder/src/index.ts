@@ -124,7 +124,9 @@ export class BuildSession extends DurableObject<Env> {
       },
     );
     if (!response.ok) {
-      throw new Error(`Convex callback ${path} failed with ${response.status}.`);
+      throw new Error(
+        `Convex callback ${path} failed with ${response.status}.`,
+      );
     }
   }
 
@@ -147,13 +149,22 @@ export class BuildSession extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     const turn = await this.ctx.storage.get<TurnRequest>("turn");
-    if (!turn || await this.ctx.storage.get<boolean>("terminal")) return;
+    if (!turn || (await this.ctx.storage.get<boolean>("terminal"))) return;
     await this.ctx.storage.put("terminal", true);
     const sandboxId = await this.ctx.storage.get<string>("sandboxId");
-    if (sandboxId) await this.sandbox(sandboxId).destroy().catch(() => undefined);
-    await this.event(turn, 99, "timeout", {
-      message: "The build exceeded its wall-clock limit. Retry the turn.",
-    }, true).catch(() => undefined);
+    if (sandboxId)
+      await this.sandbox(sandboxId)
+        .destroy()
+        .catch(() => undefined);
+    await this.event(
+      turn,
+      99,
+      "timeout",
+      {
+        message: "The build exceeded its wall-clock limit. Retry the turn.",
+      },
+      true,
+    ).catch(() => undefined);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -163,13 +174,22 @@ export class BuildSession extends DurableObject<Env> {
     }
     if (url.pathname === "/cancel") {
       const sandboxId = await this.ctx.storage.get<string>("sandboxId");
-      if (sandboxId) await this.sandbox(sandboxId).destroy().catch(() => undefined);
+      if (sandboxId)
+        await this.sandbox(sandboxId)
+          .destroy()
+          .catch(() => undefined);
       const turn = await this.ctx.storage.get<TurnRequest>("turn");
       if (turn && !(await this.ctx.storage.get<boolean>("terminal"))) {
         await this.ctx.storage.put("terminal", true);
-        await this.event(turn, 98, "canceled", {
-          message: "Build canceled. No changes were applied.",
-        }, true).catch(() => undefined);
+        await this.event(
+          turn,
+          98,
+          "canceled",
+          {
+            message: "Build canceled. No changes were applied.",
+          },
+          true,
+        ).catch(() => undefined);
       }
       return json({ canceled: true });
     }
@@ -194,14 +214,22 @@ export class BuildSession extends DurableObject<Env> {
       );
       await sandbox.deleteSession(session.id).catch(() => undefined);
       if (!execution.success) {
-        return json({ error: "Executor echo failed", detail: execution.stderr }, 502);
+        return json(
+          { error: "Executor echo failed", detail: execution.stderr },
+          502,
+        );
       }
       return json({
         ok: true,
-        executor: JSON.parse(execution.stdout.trim().split("\n").at(-1) ?? "{}"),
+        executor: JSON.parse(
+          execution.stdout.trim().split("\n").at(-1) ?? "{}",
+        ),
       });
     } catch (error) {
-      return json({ error: "Sandbox echo failed", detail: errorMessage(error) }, 502);
+      return json(
+        { error: "Sandbox echo failed", detail: errorMessage(error) },
+        502,
+      );
     } finally {
       await sandbox.destroy().catch(() => undefined);
       await this.ctx.storage.deleteAll();
@@ -264,7 +292,9 @@ export class BuildSession extends DurableObject<Env> {
         error?: string;
       };
       if (!modelResponse.ok || !modelPayload.spec) {
-        throw new Error(modelPayload.error ?? `Model relay failed (${modelResponse.status}).`);
+        throw new Error(
+          modelPayload.error ?? `Model relay failed (${modelResponse.status}).`,
+        );
       }
       await this.event(turn, seq++, "model_completed", {
         ...modelPayload.usage,
@@ -294,7 +324,11 @@ export class BuildSession extends DurableObject<Env> {
         "/usr/local/bin/vite --host 0.0.0.0 --port 5173",
         { cwd: "/workspace/app" },
       );
-      await vite.waitForPort(5173, { path: "/", status: 200, timeout: 120_000 });
+      await vite.waitForPort(5173, {
+        path: "/",
+        status: 200,
+        timeout: 120_000,
+      });
       const tunnel = await first.tunnels.get(5173);
       const firstPreviewMs = Math.round(performance.now() - viteStarted);
       await this.event(turn, seq++, "live_preview", {
@@ -311,7 +345,10 @@ export class BuildSession extends DurableObject<Env> {
         compression: { format: "zstd", threads: 2 },
       });
       const checkpointMs = Math.round(performance.now() - checkpointStarted);
-      await this.event(turn, seq++, "checkpointed", { checkpointMs, backupId: backup.id });
+      await this.event(turn, seq++, "checkpointed", {
+        checkpointMs,
+        backupId: backup.id,
+      });
       await first.destroy();
 
       const restore = this.sandbox(secondSandboxId);
@@ -324,8 +361,13 @@ export class BuildSession extends DurableObject<Env> {
         cwd: "/workspace/app",
         commandTimeoutMs,
       });
-      const verify = await restoredSession.exec("test -f dist/index.html && test -d dist/assets");
-      if (!verify.success) throw new Error("Restored workspace did not contain the production build.");
+      const verify = await restoredSession.exec(
+        "test -f dist/index.html && test -d dist/assets",
+      );
+      if (!verify.success)
+        throw new Error(
+          "Restored workspace did not contain the production build.",
+        );
       await this.event(turn, seq++, "workspace_restored", { restoreMs });
 
       const files = await restoredSession.listFiles("/workspace/app/dist", {
@@ -339,19 +381,24 @@ export class BuildSession extends DurableObject<Env> {
         const relative = file.absolutePath
           .replace(/^\/workspace\/app\/dist\/?/, "")
           .replace(/^dist\/?/, "");
-        const read = await restoredSession.readFile(file.absolutePath, { encoding: "base64" });
-        const bytes = Uint8Array.from(atob(read.content), (char) => char.charCodeAt(0));
+        const read = await restoredSession.readFile(file.absolutePath, {
+          encoding: "base64",
+        });
+        const bytes = Uint8Array.from(atob(read.content), (char) =>
+          char.charCodeAt(0),
+        );
         uploadedBytes += bytes.byteLength;
         await this.env.APP_BUILDS.put(`${artifactPrefix}/${relative}`, bytes, {
           httpMetadata: { contentType: contentType(relative) },
           customMetadata: { buildId, appId: turn.appId },
         });
       }
-      const contextSource = `window.__STELLA_APP_CONTEXT__=${JSON.stringify({
-        appId: turn.appId,
-        convexSiteUrl: turn.convexCallbackBase,
-        bridge: false,
-      })};\n`;
+      const contextSource = `window.__STELLA_APP_CONTEXT__={...${JSON.stringify(
+        {
+          appId: turn.appId,
+          convexSiteUrl: turn.convexCallbackBase,
+        },
+      )},bridge:window.parent!==window};\n`;
       uploadedBytes += new TextEncoder().encode(contextSource).byteLength;
       await this.env.APP_BUILDS.put(
         `${artifactPrefix}/stella-context.js`,
@@ -401,7 +448,13 @@ export class BuildSession extends DurableObject<Env> {
         slug,
         autoActivate: turn.autoActivate !== false,
       });
-      const result = { turnId: turn.turnId, appId: turn.appId, buildId, previewUrl, metrics };
+      const result = {
+        turnId: turn.turnId,
+        appId: turn.appId,
+        buildId,
+        previewUrl,
+        metrics,
+      };
       await this.event(turn, seq++, "completed", result, true);
       await this.ctx.storage.put("terminal", true);
       await restore.destroy();
@@ -411,10 +464,15 @@ export class BuildSession extends DurableObject<Env> {
       const message = errorMessage(error);
       if (!(await this.ctx.storage.get<boolean>("terminal"))) {
         await this.ctx.storage.put("terminal", true);
-        await this.event(turn, seq++, "failed", { message }, true).catch(() => undefined);
+        await this.event(turn, seq++, "failed", { message }, true).catch(
+          () => undefined,
+        );
       }
       const sandboxId = await this.ctx.storage.get<string>("sandboxId");
-      if (sandboxId) await this.sandbox(sandboxId).destroy().catch(() => undefined);
+      if (sandboxId)
+        await this.sandbox(sandboxId)
+          .destroy()
+          .catch(() => undefined);
       await first.destroy().catch(() => undefined);
       await this.ctx.storage.deleteAll();
       return json({ error: "Cloud app turn failed.", detail: message }, 502);
@@ -430,23 +488,32 @@ export default {
     }
     if (!authorized(request, env)) return json({ error: "Unauthorized." }, 401);
     if (request.method === "POST" && url.pathname === "/m0/echo") {
-      return env.BUILD_SESSIONS.getByName("m0-echo").fetch("https://build-session/echo", {
-        method: "POST",
-      });
+      return env.BUILD_SESSIONS.getByName("m0-echo").fetch(
+        "https://build-session/echo",
+        {
+          method: "POST",
+        },
+      );
     }
     const turnMatch = url.pathname.match(/^\/sessions\/([^/]+)\/turns$/);
     if (request.method === "POST" && turnMatch) {
-      return env.BUILD_SESSIONS.getByName(turnMatch[1]!).fetch("https://build-session/turn", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: await request.text(),
-      });
+      return env.BUILD_SESSIONS.getByName(turnMatch[1]!).fetch(
+        "https://build-session/turn",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: await request.text(),
+        },
+      );
     }
     const cancelMatch = url.pathname.match(/^\/sessions\/([^/]+)\/cancel$/);
     if (request.method === "POST" && cancelMatch) {
-      return env.BUILD_SESSIONS.getByName(cancelMatch[1]!).fetch("https://build-session/cancel", {
-        method: "POST",
-      });
+      return env.BUILD_SESSIONS.getByName(cancelMatch[1]!).fetch(
+        "https://build-session/cancel",
+        {
+          method: "POST",
+        },
+      );
     }
     if (request.method === "POST" && url.pathname === "/routes/activate") {
       const body = (await request.json()) as {
@@ -456,11 +523,41 @@ export default {
         buildId: string;
         artifactPrefix: string;
       };
-      await env.APP_ROUTES.put(`app:${body.slug}`, JSON.stringify({
-        ...body,
-        suspended: false,
-        updatedAt: Date.now(),
-      }));
+      await env.APP_ROUTES.put(
+        `app:${body.slug}`,
+        JSON.stringify({
+          ...body,
+          suspended: false,
+          updatedAt: Date.now(),
+        }),
+      );
+      return json({ ok: true });
+    }
+    if (request.method === "POST" && url.pathname === "/routes/suspend") {
+      const body = (await request.json()) as {
+        slug: string;
+        appId: string;
+        ownerId: string;
+      };
+      const route = await env.APP_ROUTES.get<Record<string, unknown>>(
+        `app:${body.slug}`,
+        "json",
+      );
+      if (
+        !route ||
+        route.appId !== body.appId ||
+        route.ownerId !== body.ownerId
+      ) {
+        return json({ error: "App route not found." }, 404);
+      }
+      await env.APP_ROUTES.put(
+        `app:${body.slug}`,
+        JSON.stringify({
+          ...route,
+          suspended: true,
+          updatedAt: Date.now(),
+        }),
+      );
       return json({ ok: true });
     }
     return json({ error: "Not found." }, 404);

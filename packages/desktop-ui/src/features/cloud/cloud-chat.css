@@ -1,0 +1,253 @@
+.cloud-chat {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(780px, 100%);
+  height: 100%;
+  margin: 0 auto;
+  color: var(--text-base);
+}
+
+.cloud-chat--centered {
+  place-items: center;
+  color: var(--text-weak);
+}
+
+.cloud-chat__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 58px 24px 18px;
+  border-bottom: 1px solid var(--border-weak);
+}
+
+.cloud-chat__eyebrow {
+  color: var(--text-weak);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cloud-chat__header h1 {
+  margin: 4px 0 0;
+  color: var(--text-strong);
+  font-size: 24px;
+  font-weight: 620;
+  letter-spacing: -0.025em;
+}
+
+.cloud-chat__header select {
+  min-width: 180px;
+  max-width: 260px;
+  height: 36px;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--border-base);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  color: var(--text-base);
+}
+
+.cloud-chat__header select:focus-visible,
+.cloud-chat__composer textarea:focus-visible,
+.cloud-chat__composer button:focus-visible,
+.cloud-turn__actions button:focus-visible,
+.cloud-turn__actions a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.cloud-chat__timeline {
+  min-height: 0;
+  overflow: auto;
+  padding: 26px 24px 18px;
+  scrollbar-width: thin;
+}
+
+.cloud-chat__empty {
+  display: grid;
+  justify-items: center;
+  max-width: 360px;
+  margin: min(20vh, 160px) auto 0;
+  text-align: center;
+  color: var(--text-weak);
+}
+
+.cloud-chat__empty h2 {
+  margin: 16px 0 5px;
+  color: var(--text-strong);
+  font-size: 18px;
+  font-weight: 620;
+}
+
+.cloud-chat__empty p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.cloud-turn {
+  margin-bottom: 26px;
+}
+
+.cloud-turn__prompt {
+  width: fit-content;
+  max-width: min(620px, 88%);
+  margin: 0 0 12px auto;
+  padding: 11px 14px;
+  border-radius: 15px 15px 4px 15px;
+  background: var(--surface-inset);
+  color: var(--text-strong);
+  line-height: 1.5;
+}
+
+.cloud-turn__result {
+  max-width: 610px;
+  padding: 14px 16px;
+  border-left: 2px solid var(--border-base);
+}
+
+.cloud-turn__result[data-status="failed"],
+.cloud-turn__result[data-status="timeout"] {
+  border-left-color: var(--destructive);
+}
+
+.cloud-turn__status {
+  color: var(--text-strong);
+  font-weight: 620;
+}
+
+.cloud-turn__progress {
+  width: min(280px, 100%);
+  height: 3px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border-weak);
+}
+
+.cloud-turn__progress i {
+  display: block;
+  width: 45%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  animation: cloud-progress 1.4s ease-in-out infinite alternate;
+}
+
+.cloud-turn__error,
+.cloud-chat__error {
+  color: var(--text-error);
+  line-height: 1.45;
+}
+
+.cloud-turn__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.cloud-turn__actions a,
+.cloud-turn__actions button,
+.cloud-turn__actions span {
+  min-height: 32px;
+  padding: 7px 11px;
+  border: 1px solid var(--border-base);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  color: var(--text-base);
+  font: inherit;
+  text-decoration: none;
+}
+
+.cloud-turn__actions button {
+  cursor: pointer;
+}
+
+.cloud-turn__actions a:hover,
+.cloud-turn__actions button:hover {
+  background: var(--surface-raised-hover);
+}
+
+.cloud-chat__composer {
+  padding: 12px 24px 24px;
+}
+
+.cloud-chat__composer-row {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-base);
+  border-radius: 16px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-xs-border);
+}
+
+.cloud-chat__composer textarea {
+  flex: 1;
+  min-height: 46px;
+  max-height: 150px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.cloud-chat__composer button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  cursor: pointer;
+}
+
+.cloud-chat__composer button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+@keyframes cloud-progress {
+  from {
+    transform: translateX(-20%);
+  }
+  to {
+    transform: translateX(140%);
+  }
+}
+
+@media (max-width: 640px) {
+  .cloud-chat__header {
+    align-items: stretch;
+    flex-direction: column;
+    padding-top: 48px;
+  }
+
+  .cloud-chat__header select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .cloud-chat__timeline,
+  .cloud-chat__composer,
+  .cloud-chat__header {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cloud-turn__progress i {
+    width: 70%;
+    animation: none;
+  }
+}

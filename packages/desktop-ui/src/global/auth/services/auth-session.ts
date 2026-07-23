@@ -1,5 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { configurePiRuntime } from "@/platform/electron/device";
+import { authClient } from "@/global/auth/lib/auth-client";
+import { ensureBrowserAuthBootstrapCookie } from "./auth-storage";
 
 type AuthSessionResult = {
   data: unknown | null;
@@ -46,11 +48,29 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
   }
   const systemApi = window.electronAPI?.system;
   if (!systemApi?.getAuthSession) {
-    currentSession = {
-      data: null,
-      isPending: false,
-      error: new Error("Desktop auth API is unavailable."),
-    };
+    const version = ++refreshVersion;
+    currentSession = { ...currentSession, isPending: true, error: null };
+    emit();
+    try {
+      const result = await authClient.getSession();
+      if (version !== refreshVersion) return;
+      currentSession = {
+        data: result.data ?? null,
+        isPending: false,
+        error: result.error
+          ? new Error(
+              result.error.message ?? "Could not read the browser session.",
+            )
+          : null,
+      };
+    } catch (error) {
+      if (version !== refreshVersion) return;
+      currentSession = {
+        data: null,
+        isPending: false,
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
     emit();
     return;
   }
@@ -104,13 +124,39 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
 };
 
 export const signInAnonymous = async () => {
+  if (!window.electronAPI?.system.signInAnonymous) {
+    ensureBrowserAuthBootstrapCookie();
+    const result = await authClient.signIn.anonymous();
+    if (result.error) {
+      throw new Error(
+        result.error.message ?? "Could not start a browser session.",
+      );
+    }
+    const mirroredCookie = authClient.getCookie();
+    if (!mirroredCookie.includes("session_token=")) {
+      throw new Error(
+        "The browser session cookie was not mirrored by the auth service.",
+      );
+    }
+    await refreshAuthSession();
+    if (!currentSession.data) {
+      throw new Error(
+        "The browser session could not be verified after sign-in.",
+      );
+    }
+    return;
+  }
   await configurePiRuntime();
-  await window.electronAPI?.system.signInAnonymous?.();
+  await window.electronAPI.system.signInAnonymous();
   await refreshAuthSession();
 };
 
 export const signOutAuthSession = async () => {
-  await window.electronAPI?.system.signOutAuth?.();
+  if (window.electronAPI?.system.signOutAuth) {
+    await window.electronAPI.system.signOutAuth();
+  } else {
+    await authClient.signOut();
+  }
   // Invalidate any in-flight optimistic refresh so a late revalidated emit
   // can't resurrect the signed-out session.
   refreshVersion += 1;
@@ -119,7 +165,11 @@ export const signOutAuthSession = async () => {
 };
 
 export const deleteAuthUser = async () => {
-  await window.electronAPI?.system.deleteAuthUser?.();
+  if (window.electronAPI?.system.deleteAuthUser) {
+    await window.electronAPI.system.deleteAuthUser();
+  } else {
+    await authClient.deleteUser();
+  }
   refreshVersion += 1;
   currentSession = { data: null, isPending: false, error: null };
   emit();

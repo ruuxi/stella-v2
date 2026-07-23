@@ -6,6 +6,7 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
+import { useConvexAuth, useQuery } from "convex/react";
 import {
   lazy,
   Suspense,
@@ -19,7 +20,8 @@ import { z } from "zod";
 import { ChatRuntimeProvider } from "@/context/chat-runtime";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
-import { ChatColumn } from "@/app/chat/ChatColumn";
+import { CloudChatSurface } from "@/features/cloud/CloudChatSurface";
+import { cloudApi } from "@/features/cloud/cloud-api";
 import { ComposerAreaSelectOverlay } from "@/app/chat/ComposerAreaSelectOverlay";
 import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
 import { setActiveLocalConversationId } from "@/features/chat/services/local-chat-store";
@@ -176,13 +178,22 @@ function RootChrome() {
   const conversationId = state.conversationId;
   const chat = useChatRuntime();
   const activityPresence = chat.conversation.activityPresence;
+  const { isAuthenticated } = useConvexAuth();
+  const cloudApps = useQuery(
+    cloudApi.listMyApps,
+    isAuthenticated ? {} : "skip",
+  );
+  const hasCloudApps = Boolean(
+    cloudApps?.some((app) => app.status !== "suspended"),
+  );
+  const sidebarHasContent =
+    hasCloudApps || activityPresenceAllowsSidebar(activityPresence);
   const panelOpen = useDisplayPanelOpen();
   const panelExpanded = useDisplayPanelExpanded();
   const [leftSidebarVisible, setLeftSidebarVisible] = useState<boolean>(
     () => uiState.getItem(LEFT_SIDEBAR_VISIBLE_KEY) !== "0",
   );
-  const breakpointSidebarVisible =
-    leftSidebarVisible && activityPresenceAllowsSidebar(activityPresence);
+  const breakpointSidebarVisible = leftSidebarVisible && sidebarHasContent;
 
   const [shellBreakpoints, setShellBreakpoints] =
     useState<ShellBreakpointState>(() =>
@@ -213,12 +224,14 @@ function RootChrome() {
   const platform = getPlatform();
   const isMac = platform === "darwin";
   const isWin = platform === "win32";
-  const dockedLeftSidebarVisible = isActivitySidebarDocked({
-    presence: activityPresence,
-    preferredVisible: leftSidebarVisible,
-    isFullWindow,
-    breakpointHidden: shellBreakpoints.hideLeftSidebar,
-  });
+  const dockedLeftSidebarVisible = hasCloudApps
+    ? leftSidebarVisible && isFullWindow && !shellBreakpoints.hideLeftSidebar
+    : isActivitySidebarDocked({
+        presence: activityPresence,
+        preferredVisible: leftSidebarVisible,
+        isFullWindow,
+        breakpointHidden: shellBreakpoints.hideLeftSidebar,
+      });
 
   // Left sidebar visibility — a toggle next to the traffic lights collapses
   // it; a floating button at the same spot brings it back. Persisted so the
@@ -659,14 +672,7 @@ function RootChrome() {
             className={`persistent-chat-surface${isOnChatRoute ? " persistent-chat-surface--active" : ""}`}
             aria-hidden={!isOnChatRoute}
           >
-            <ChatColumn
-              conversation={chat.conversation}
-              composer={chat.composer}
-              scroll={chat.scroll}
-              conversationId={conversationId}
-              showHomeContent={chat.showHomeContent}
-              onDismissHome={chat.dismissHome}
-            />
+            <CloudChatSurface />
           </div>
           <div
             className={`route-outlet-surface${isOnChatRoute ? "" : " route-outlet-surface--active"}`}
@@ -709,7 +715,7 @@ function RootChrome() {
           painted above but earlier in the DOM would still read as draggable
           (and swallow clicks). When Activity exists, the left toggle stays at
           a fixed position across open and collapsed states. */}
-      {isFullWindow && activityPresenceAllowsSidebar(activityPresence) ? (
+      {isFullWindow && sidebarHasContent ? (
         <button
           type="button"
           className="shell-topbar-icon-btn shell-edge-toggle shell-edge-toggle--left"

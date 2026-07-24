@@ -17,7 +17,11 @@ export default defineConfig([
     'src/routeTree.gen.ts',
   ]),
   {
-    files: ['**/*.{ts,tsx}'],
+    files: [
+      '**/*.{ts,tsx}',
+      'src/features/cloud/CloudAppPanel.jsx',
+      'src/features/cloud/open-cloud-app-panel.jsx',
+    ],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,

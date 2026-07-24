@@ -14,10 +14,13 @@ import {
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Link } from "@tanstack/react-router";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { History, ChevronDown, Eye, AppWindowMac, Trash2 } from "@/ui/icons";
 import { cloudApi } from "@/features/cloud/cloud-api";
+import {
+  closeCloudAppPanel,
+  openCloudAppPanel,
+} from "@/features/cloud/open-cloud-app-panel";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
@@ -1170,11 +1173,13 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
                   key={app.appId}
                   className="chat-workspace-strip__row cloud-sidebar-app__row"
                 >
-                  <Link
-                    to="/apps/$slug"
-                    params={{ slug: app.slug }}
+                  <button
+                    type="button"
                     className="chat-workspace-strip__file-button cloud-sidebar-app"
-                    onClick={() => onNavigate?.()}
+                    onClick={() => {
+                      openCloudAppPanel(app);
+                      onNavigate?.();
+                    }}
                   >
                     <AppWindowMac
                       size={15}
@@ -1184,7 +1189,7 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
                     <span className="chat-workspace-strip__file-name">
                       {app.title}
                     </span>
-                  </Link>
+                  </button>
                   <button
                     type="button"
                     className="cloud-sidebar-app__delete"
@@ -1192,9 +1197,9 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
                     title={`Remove ${app.title}`}
                     onClick={() => {
                       if (!window.confirm(`Remove ${app.title}?`)) return;
-                      void deleteCloudApp({ appId: app.appId }).catch(
-                        () => undefined,
-                      );
+                      void deleteCloudApp({ appId: app.appId })
+                        .then(() => closeCloudAppPanel(app.slug))
+                        .catch(() => undefined);
                     }}
                   >
                     <Trash2 size={13} strokeWidth={1.7} aria-hidden="true" />

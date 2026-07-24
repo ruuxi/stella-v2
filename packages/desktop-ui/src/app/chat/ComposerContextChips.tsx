@@ -1,20 +1,11 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { ChatContext, ChatContextFile } from "@/shared/types/electron";
 import { cn } from "@/shared/lib/utils";
-import {
-  Archive,
-  Code,
-  File,
-  FileSpreadsheet,
-  FileText,
-  Music,
-  Video,
-  X,
-} from "@/ui/icons";
+import { X } from "@/ui/icons";
 import { ChipPreviewPortal } from "./ChipPreviewPortal";
 import { useHoverPreview } from "./use-hover-preview";
 import { ImageLightbox } from "@/ui/image-lightbox";
-import { getElectronApi } from "@/platform/electron/electron";
+import { FileAttachmentChip } from "./FileAttachmentChip";
 import {
   describePastedText,
   PASTED_TEXT_PREVIEW_MAX_CHARS,
@@ -388,82 +379,6 @@ export function ScreenshotContextChips({
 /*  File attachment chips                                             */
 /* ------------------------------------------------------------------ */
 
-function resolveFileCategory(
-  mimeType: string,
-  name: string,
-): "pdf" | "document" | "spreadsheet" | "code" | "archive" | "audio" | "video" | "file" {
-  if (mimeType === "application/pdf") return "pdf";
-  if (mimeType.startsWith("audio/")) return "audio";
-  if (mimeType.startsWith("video/")) return "video";
-  if (
-    mimeType.includes("zip") || mimeType.includes("tar") ||
-    mimeType.includes("gzip") || mimeType.includes("rar") || mimeType.includes("7z")
-  ) return "archive";
-  if (
-    mimeType.includes("spreadsheet") || mimeType.includes("csv") ||
-    /\.(?:xlsx?|csv|tsv|ods)$/i.test(name)
-  ) return "spreadsheet";
-  if (
-    mimeType.includes("document") || mimeType.includes("msword") ||
-    mimeType.includes("text/plain") || mimeType.includes("text/markdown") ||
-    mimeType.includes("rtf") || /\.(?:docx?|txt|md|rtf|odt|pages)$/i.test(name)
-  ) return "document";
-  if (
-    mimeType.includes("javascript") || mimeType.includes("typescript") ||
-    mimeType.includes("json") || mimeType.includes("xml") ||
-    mimeType.includes("html") || mimeType.includes("css") ||
-    mimeType.includes("python") || mimeType.includes("java") ||
-    mimeType.includes("x-sh") ||
-    /\.(?:js|jsx|ts|tsx|py|rb|rs|go|c|cpp|h|swift|kt|java|json|yaml|yml|toml|sh|bash|zsh|css|scss|html|xml|sql|lua|r|php)$/i.test(name)
-  ) return "code";
-  return "file";
-}
-
-function FileIcon({ category }: { category: ReturnType<typeof resolveFileCategory> }) {
-  const shared = { size: 16, strokeWidth: 1.75 };
-  switch (category) {
-    case "pdf":
-      return <FileText {...shared} />;
-    case "document":
-      return <FileText {...shared} />;
-    case "spreadsheet":
-      return <FileSpreadsheet {...shared} />;
-    case "code":
-      return <Code {...shared} />;
-    case "archive":
-      return <Archive {...shared} />;
-    case "audio":
-      return <Music {...shared} />;
-    case "video":
-      return <Video {...shared} />;
-    default:
-      return <File {...shared} />;
-  }
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-const FILE_NAME_MAX_CHARS = 12;
-
-// Truncate to FILE_NAME_MAX_CHARS but keep the extension visible when it
-// fits — losing the extension drops a lot of context for short caps.
-function truncateFileName(name: string, max: number = FILE_NAME_MAX_CHARS): string {
-  if (name.length <= max) return name;
-  const dotIdx = name.lastIndexOf(".");
-  if (dotIdx > 0 && dotIdx >= name.length - 6) {
-    const ext = name.slice(dotIdx);
-    const stemBudget = max - ext.length - 1;
-    if (stemBudget >= 1) {
-      return `${name.slice(0, stemBudget)}…${ext}`;
-    }
-  }
-  return `${name.slice(0, max)}…`;
-}
-
 function FileContextChip({
   file,
   index,
@@ -475,41 +390,20 @@ function FileContextChip({
   setChatContext: SetChatContext;
   chipClassName?: string;
 }) {
-  const category = resolveFileCategory(file.mimeType, file.name);
-  // Disk-backed attachments open in their default app for preview;
-  // synthetic files (no on-disk path) have no preview target.
-  const canOpen = Boolean(file.path);
   return (
-    <span className="composer-chip-shell">
-      <button
-        type="button"
-        className={cn(
-          "chat-composer-file-chip",
-          chipClassName,
-          canOpen && "composer-chip-previewable",
-        )}
-        title={canOpen ? `${file.name} — click to open` : file.name}
-        onClick={
-          canOpen
-            ? () => {
-                void getElectronApi()?.system?.openPath?.(file.path!);
-              }
-            : undefined
-        }
-      >
-        <div className="chat-composer-file-icon">
-          <FileIcon category={category} />
-        </div>
-        <div className="chat-composer-file-info">
-          <span className="chat-composer-file-name">{truncateFileName(file.name)}</span>
-          <span className="chat-composer-file-size">{formatFileSize(file.size)}</span>
-        </div>
-      </button>
-      <ChipRemoveButton
-        label={`Remove ${file.name}`}
-        onRemove={() => removeComposerFileContext(index, setChatContext)}
-      />
-    </span>
+    <FileAttachmentChip
+      name={file.name}
+      size={file.size}
+      mimeType={file.mimeType}
+      path={file.path}
+      chipClassName={chipClassName}
+      removeButton={
+        <ChipRemoveButton
+          label={`Remove ${file.name}`}
+          onRemove={() => removeComposerFileContext(index, setChatContext)}
+        />
+      }
+    />
   );
 }
 

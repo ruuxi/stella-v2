@@ -6,7 +6,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { StellaLogoIcon } from "@/ui/stella-logo-icon";
@@ -17,6 +16,7 @@ import {
   speakCarPlayReply,
 } from "@/platform/mobile/mobile-shell";
 import { cloudApi, type CloudApp, type CloudTurn } from "./cloud-api";
+import { openCloudAppPanel } from "./open-cloud-app-panel";
 import "./cloud-inline.css";
 
 /**
@@ -129,7 +129,6 @@ function CloudBuildCard({
   app: CloudApp | undefined;
   buildId: string;
 }) {
-  const navigate = useNavigate();
   const applyBuild = useAction(cloudApi.applyMyBuild);
   const builds = useQuery(
     cloudApi.listMyAppBuilds,
@@ -207,9 +206,7 @@ function CloudBuildCard({
         <button
           type="button"
           className="cloud-build-card__action"
-          onClick={() =>
-            void navigate({ to: "/apps/$slug", params: { slug: app.slug } })
-          }
+          onClick={() => openCloudAppPanel(app)}
         >
           Open
         </button>

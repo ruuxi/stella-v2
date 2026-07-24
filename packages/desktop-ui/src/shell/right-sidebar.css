@@ -194,6 +194,14 @@
   max-width: var(--display-panel-expanded-wide-column);
 }
 
+/* Cloud apps are already complete responsive surfaces. Let them fill the
+   panel body in expanded and narrow full-width modes rather than imposing
+   the document viewer's readable-column cap. */
+.right-sidebar--expanded .right-sidebar__active > .cloud-app-page {
+  max-width: none;
+  margin-inline: 0;
+}
+
 /* When the display panel is expanded it visually owns the full content
    area to the right of the sidebar, so the tab strip should stretch
    across that whole region instead of staying pinned to its normal

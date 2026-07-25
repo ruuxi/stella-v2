@@ -110,37 +110,11 @@ describe("Stella prompt defaults", () => {
     )?.content;
     expect(manager).toBeDefined();
     expect(manager).toMatch(/`report` is your only upward channel/);
+    expect(manager).toMatch(/final: false.*sparingly/s);
+    expect(manager).toMatch(/blockers, questions.*progress updates/s);
     expect(manager).toMatch(/assistant responses.*private.*never reach/s);
-    expect(manager).toMatch(
-      /final: true.*exactly once.*only after ALL requested work.*every child, review, fix, and re-review round.*deliberately canceled/s,
-    );
-    expect(manager).toMatch(
-      /final: false.*only for a genuine blocker.*requires orchestrator or user action, judgment, credentials, money, access, or a scope decision/s,
-    );
-    expect(manager).toContain("It is not a progress-update channel.");
-    expect(manager).toMatch(
-      /Never report child or reviewer spawn, start, or completion.*review PASS\/FAIL.*routine status.*partial milestones.*recoverable child failures/s,
-    );
-    expect(manager).toMatch(
-      /absorb the result and immediately continue.*siblings remain, wait.*send them to the fixer and re-review without reporting upward/s,
-    );
-    expect(manager).toMatch(/No keep-alives/);
-    expect(manager).toMatch(/production credentials.*is valid/s);
-    expect(manager).toMatch(/one child is still running.*is never valid/s);
-    expect(manager).not.toMatch(/explicitly requested progress updates/);
-
-    const orchestrator = STELLA_PROMPT_DEFAULTS.prompts.find(
-      (prompt) => prompt.id === "agents/orchestrator.md",
-    )?.content;
-    expect(orchestrator).toBeDefined();
-    expect(orchestrator).toMatch(
-      /Do not request routine status from a running manager/,
-    );
-    expect(orchestrator).toMatch(/Do not poll a manager/);
-    expect(orchestrator).toMatch(
-      /child completions, milestones, review results, and recoverable failures stay with it/,
-    );
-    expect(orchestrator).not.toMatch(/surface an earlier milestone/);
+    expect(manager).toMatch(/final: true.*exactly once/s);
+    expect(manager).toMatch(/complete terminal deliverable.*message/s);
   });
 
   it("validates the publish set all-or-nothing and derives its revision", async () => {

@@ -177,6 +177,7 @@
       "name": "@stella/executor-cloud",
       "version": "0.0.0",
       "dependencies": {
+        "@sinclair/typebox": "0.34.49",
         "@stella/contracts": "workspace:*",
         "@stella/runtime": "workspace:*",
         "effect": "4.0.0-beta.83",
@@ -266,6 +267,10 @@
       "version": "0.0.0",
       "dependencies": {
         "@cloudflare/sandbox": "0.12.4",
+        "@sinclair/typebox": "0.34.49",
+        "@stella/contracts": "workspace:*",
+        "@stella/executor-cloud": "workspace:*",
+        "@stella/runtime": "workspace:*",
         "effect": "4.0.0-beta.83",
       },
       "devDependencies": {

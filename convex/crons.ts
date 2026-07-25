@@ -163,4 +163,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "purge expired cloud turn tokens",
+  { minutes: 30 },
+  internal.cloud_apps.purgeExpiredTurnTokensInternal,
+  {},
+);
+
 export default crons;

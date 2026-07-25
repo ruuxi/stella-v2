@@ -46,13 +46,26 @@ export const cloudAppsSchema = {
     sessionId: v.string(),
     ownerId: v.string(),
     conversationId: v.optional(v.string()),
-    appId: v.string(),
+    // Absent for plain-chat and spawned-agent turns; required only when the
+    // turn targets a mini app (build/operation lanes).
+    appId: v.optional(v.string()),
     prompt: v.string(),
     status: v.string(),
     lane: v.optional(v.string()),
     terminalKind: v.optional(v.string()),
     errorMessage: v.optional(v.string()),
     resultJson: v.optional(v.string()),
+    // "chat" (orchestrator in the DO), "build" (legacy app build), or
+    // "agent" (spawned general agent in a sandbox). Absent on legacy rows.
+    kind: v.optional(v.string()),
+    agentType: v.optional(v.string()),
+    // Spawn placement for kind "agent" turns: drive | app:<slug> |
+    // project:<name> | stella | computer.
+    workspace: v.optional(v.string()),
+    threadId: v.optional(v.string()),
+    parentTurnId: v.optional(v.string()),
+    // Wake/lifecycle turns the UI must not render as user messages.
+    hidden: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -60,7 +73,62 @@ export const cloudAppsSchema = {
     .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"])
     .index("by_createdAt", ["createdAt"])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
-    .index("by_conversationId_and_createdAt", ["conversationId", "createdAt"]),
+    // Quota gates count per-lane: chat rows outnumber build rows by up to
+    // 20x, so a mixed-lane window can't bound a per-lane count.
+    .index("by_ownerId_and_lane_and_createdAt", ["ownerId", "lane", "createdAt"])
+    .index("by_conversationId_and_createdAt", ["conversationId", "createdAt"])
+    .index("by_threadId_and_createdAt", ["threadId", "createdAt"]),
+
+  // Canonical conversation transcript for cloud-executed chat. One row per
+  // AgentMessage (user/assistant/toolResult), ordered by seq within a
+  // conversation. The orchestrator DO reconstructs its loop context from
+  // these rows — Convex is the source of truth, the DO only buffers.
+  cloud_messages: defineTable({
+    conversationId: v.string(),
+    ownerId: v.string(),
+    seq: v.number(),
+    role: v.string(),
+    payloadJson: v.string(),
+    turnId: v.string(),
+    hidden: v.optional(v.boolean()),
+    createdAt: v.number(),
+  })
+    .index("by_conversationId_and_seq", ["conversationId", "seq"])
+    .index("by_turnId", ["turnId"]),
+
+  // Short-lived per-turn credentials. Only the SHA-256 hash is stored; the
+  // raw token travels to the executor and authenticates relay model calls
+  // and event/message callbacks for exactly one turn.
+  cloud_turn_tokens: defineTable({
+    tokenHash: v.string(),
+    ownerId: v.string(),
+    turnId: v.string(),
+    agentType: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  // Durable spawned-agent threads (cloud analog of the desktop runtime's
+  // agent threads). One row per spawn_agent call from the cloud orchestrator.
+  cloud_agent_threads: defineTable({
+    threadId: v.string(),
+    ownerId: v.string(),
+    conversationId: v.string(),
+    parentTurnId: v.string(),
+    description: v.string(),
+    workspace: v.string(),
+    agentType: v.string(),
+    status: v.string(),
+    resultJson: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_threadId", ["threadId"])
+    .index("by_conversationId_and_updatedAt", ["conversationId", "updatedAt"])
+    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
 
   agent_events: defineTable({
     turnId: v.string(),

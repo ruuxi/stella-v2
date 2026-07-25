@@ -10,6 +10,7 @@ import {
   type ManagedGatewayProvider,
 } from "../lib/managed_gateway";
 import { resolveManagedModelAccess } from "../lib/managed_billing";
+import { resolveEngineAccess } from "../cloud_engines";
 import { computeUsageCostMicroCents } from "../lib/billing_money";
 import {
   consumeAnonymousIpAllowance,
@@ -60,6 +61,16 @@ export function toProviderNativeModel(
   if (provider === "anthropic") return stripped.replace(/\./g, "-");
   return stripped;
 }
+const sha256Hex = async (value: string): Promise<string> => {
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(bytes), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+};
+
 const estimatedCostMicroCents = async (
   ctx: ActionCtx,
   model: string,
@@ -180,14 +191,121 @@ export async function authorizeStellaRelayRequest(args: {
     };
   }
 
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    return stellaProviderErrorResponse(401, "Unauthorized", request);
+  // A non-JWT bearer (a cloud turn token) makes Convex's JWT parse throw;
+  // treat that as "no identity" so the turn-token branch below can run.
+  let identity: Awaited<ReturnType<typeof ctx.auth.getUserIdentity>> = null;
+  try {
+    identity = await ctx.auth.getUserIdentity();
+  } catch {
+    identity = null;
+  }
+  let ownerId: string;
+  let isAnonymous = false;
+  let viaTurnToken = false;
+  if (identity) {
+    ownerId = identity.tokenIdentifier;
+    isAnonymous = (identity as Record<string, unknown>).isAnonymous === true;
+  } else {
+    // Cloud executors (the orchestrator DO and sandbox agents) hold no user
+    // JWT — only an opaque per-turn token whose hash Convex stored at
+    // dispatch. Resolving it to its owner reuses every downstream gate
+    // unchanged: plan access, usage limits, and metering all bill the owner.
+    const turnToken = request.headers.get("x-stella-turn-token")?.trim();
+    const tokenRow = turnToken
+      ? ((await ctx.runQuery(
+          internal.cloud_apps.getTurnTokenByHashInternal,
+          { tokenHash: await sha256Hex(turnToken) },
+        )) as { ownerId: string; turnId: string } | null)
+      : null;
+    if (!tokenRow) {
+      return stellaProviderErrorResponse(401, "Unauthorized", request);
+    }
+    ownerId = tokenRow.ownerId;
+    viaTurnToken = true;
   }
 
-  const ownerId = identity.tokenIdentifier;
-  const isAnonymous =
-    (identity as Record<string, unknown>).isAnonymous === true;
+  // Cloud turns can run on the owner's own connected engine subscription
+  // (Claude Pro/Max). This is a turn-token-only mode: the header names the
+  // provider, the relay resolves the owner's stored OAuth token server-side
+  // (refreshing if needed), and no managed gating/metering applies — the
+  // spend is the user's subscription. Sandboxes never see the token; they
+  // only carry this flag.
+  const credentialHeader = request.headers
+    .get("x-stella-llm-credential")
+    ?.trim();
+  if (credentialHeader) {
+    if (!viaTurnToken) {
+      return stellaProviderErrorResponse(
+        403,
+        "Engine credentials are only available to cloud turns",
+        request,
+      );
+    }
+    if (credentialHeader !== "anthropic") {
+      return stellaProviderErrorResponse(
+        403,
+        `Engine "${credentialHeader}" can't run cloud turns yet`,
+        request,
+      );
+    }
+    const engineAccess = await resolveEngineAccess(
+      ctx,
+      ownerId,
+      credentialHeader,
+    );
+    if (!engineAccess) {
+      return stellaProviderErrorResponse(
+        403,
+        "No connected Claude subscription for this account. Connect it in Settings, then try again.",
+        request,
+      );
+    }
+    const credentialRequestJson = await parseRequestJson(request);
+    if (!credentialRequestJson) {
+      return stellaProviderErrorResponse(
+        400,
+        "Stella request body must be valid JSON",
+        request,
+      );
+    }
+    const credentialAgentType =
+      request.headers.get("X-Stella-Agent-Type")?.trim() || "general";
+    const requestedModel =
+      typeof credentialRequestJson.model === "string"
+        ? credentialRequestJson.model.trim()
+        : "";
+    // Model ids arrive as stella/anthropic/<model>; the subscription decides
+    // entitlement upstream, so no audience gate applies here.
+    const modelMatch = /^stella\/(anthropic\/[A-Za-z0-9._-]+)$/.exec(
+      requestedModel,
+    );
+    if (!modelMatch) {
+      return stellaProviderErrorResponse(
+        400,
+        "Engine-credential turns must pin a stella/anthropic/<model> id",
+        request,
+      );
+    }
+    const resolvedModel = modelMatch[1]!;
+    console.log(
+      `[stella-provider] agent=${credentialAgentType} | engine-credential=anthropic | resolvedModel=${resolvedModel}`,
+    );
+    return {
+      ownerId,
+      agentType: credentialAgentType,
+      relayProvider: "anthropic",
+      requestJson: credentialRequestJson as StellaRequestBody,
+      requestedModel,
+      resolvedModel,
+      upstreamModel: toProviderNativeModel(resolvedModel, "anthropic"),
+      apiKey: "",
+      tokenEstimate: estimateRequestTokens(credentialRequestJson),
+      userCredential: {
+        provider: "anthropic",
+        accessToken: engineAccess.accessToken,
+      },
+    };
+  }
   let modelAudience: ManagedModelAudience = isAnonymous ? "anonymous" : "free";
 
   if (isAnonymous) {
@@ -258,10 +376,15 @@ export async function authorizeStellaRelayRequest(args: {
 
   let selection: ReturnType<typeof resolveRequestedStellaModel>;
   try {
+    // Turn-token requests come from Stella's own cloud executors, whose
+    // pinned model must be honored even for restricted audiences (free/go)
+    // — the executor's adapter cannot follow an audience coercion to a
+    // different provider. Scoped to CLOUD_EXECUTOR_PINNED_MODEL_IDS.
     selection = resolveRequestedStellaModel(
       agentType,
       requestJson,
       modelAudience,
+      { trustedExecutorPin: viaTurnToken },
     );
   } catch (error) {
     return stellaProviderErrorResponse(

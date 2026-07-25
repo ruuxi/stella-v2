@@ -32,6 +32,17 @@ export type AuthorizedStellaRequest = {
   serviceTier?: string;
   apiKey: string;
   tokenEstimate: import("./billing").TokenEstimate;
+  /**
+   * Set when a cloud turn runs on the owner's own connected engine
+   * subscription (x-stella-llm-credential + turn-token auth): the upstream
+   * call authenticates with the user's OAuth token instead of the managed
+   * gateway key, and managed usage limits/metering do not apply — the spend
+   * is on the user's subscription, not Stella's gateway.
+   */
+  userCredential?: {
+    provider: "anthropic";
+    accessToken: string;
+  };
 };
 
 export const STELLA_API_BASE_PATH = "/api/stella";

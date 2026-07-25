@@ -19,6 +19,7 @@ DEV-CONTEXT.md
 /node_modules/
 /convex/.env.local
 /convex/node_modules/
+/packages/*/node_modules/
 /workers/*/.dev.vars
 /workers/*/node_modules/
 /workers/*/.wrangler/

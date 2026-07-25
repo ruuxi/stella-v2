@@ -90,6 +90,151 @@ const reserveBuildLaneRef = makeFunctionReference<"mutation", any, any>(
 const expireOpInvocationRef = makeFunctionReference<"mutation", any, any>(
   "cloud_apps:expireOpInvocationInternal",
 );
+const runOrchestratorTurnRef = makeFunctionReference<"action", any, any>(
+  "cloud_apps:runOrchestratorTurnInternal",
+);
+const runCloudAgentTurnRef = makeFunctionReference<"action", any, any>(
+  "cloud_apps:runCloudAgentTurnInternal",
+);
+const storeTurnTokenRef = makeFunctionReference<"mutation", any, any>(
+  "cloud_apps:storeTurnTokenInternal",
+);
+const completeAgentThreadRef = makeFunctionReference<"mutation", any, any>(
+  "cloud_apps:completeAgentThreadInternal",
+);
+const getEngineSettingsRef = makeFunctionReference<
+  "query",
+  { ownerId: string },
+  { chatEngine: string; connectedProviders: string[] }
+>("cloud_engines:getEngineSettingsInternal");
+
+// Engine-native default when a cloud turn runs on the owner's Claude
+// subscription (mirrors DEFAULT_CLOUD_ANTHROPIC_ENGINE_MODEL in
+// packages/executor-cloud/src/relay-model.ts).
+const CLOUD_ANTHROPIC_ENGINE_DEFAULT_MODEL = "claude-sonnet-4.6";
+
+type CloudEngineSelection = { provider: "anthropic"; model: string };
+
+// Resolve which engine a cloud turn runs on: the owner's setting, honored
+// only while the matching credential is still connected.
+const resolveOwnerEngine = async (
+  ctx: { runQuery: (ref: any, args: any) => Promise<any> },
+  ownerId: string,
+): Promise<CloudEngineSelection | undefined> => {
+  const settings = (await ctx.runQuery(getEngineSettingsRef, { ownerId })) as {
+    chatEngine: string;
+    connectedProviders: string[];
+  };
+  if (
+    settings.chatEngine === "anthropic" &&
+    settings.connectedProviders.includes("anthropic")
+  ) {
+    return {
+      provider: "anthropic",
+      model: CLOUD_ANTHROPIC_ENGINE_DEFAULT_MODEL,
+    };
+  }
+  return undefined;
+};
+
+/**
+ * Parse spawn_agent's cloud `model` override: "claude" | "claude/<model>".
+ * Returns undefined for absent/default; throws readable errors otherwise.
+ */
+const parseSpawnEngineModel = (
+  value: string | undefined,
+): CloudEngineSelection | undefined => {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === "default") return undefined;
+  if (trimmed === "claude") {
+    return {
+      provider: "anthropic",
+      model: CLOUD_ANTHROPIC_ENGINE_DEFAULT_MODEL,
+    };
+  }
+  const pinned = /^claude\/([A-Za-z0-9._-]{1,64})$/.exec(trimmed);
+  if (pinned) {
+    return { provider: "anthropic", model: pinned[1]! };
+  }
+  throw new ConvexError(
+    'Only "claude" or "claude/<model>" engines are available for cloud spawns right now.',
+  );
+};
+
+const TURN_TOKEN_TTL_MS = 30 * 60_000;
+
+// The build lane's quota counts builds: "build", the pre-routing "auto"
+// (which may become a build), and legacy rows from before lanes existed.
+// Chat, wake, agent, and operation turns share the same table but draw from
+// their own budgets. Counting queries the per-lane index — a mixed-lane
+// window is defeatable, since chat rows outnumber builds by up to 20x and
+// crowd them out of any fixed-size take().
+const BUILD_LANES: Array<string | undefined> = ["build", "auto", undefined];
+
+const listRecentBuildTurns = async (
+  ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
+  ownerId: string,
+  limitPerLane: number,
+): Promise<Array<{ turnId: string; status: string }>> => {
+  const cutoff = Date.now() - 86_400_000;
+  const perLane = await Promise.all(
+    BUILD_LANES.map((lane) =>
+      ctx.db
+        .query("agent_turns")
+        .withIndex("by_ownerId_and_lane_and_createdAt", (q) =>
+          q.eq("ownerId", ownerId).eq("lane", lane).gte("createdAt", cutoff),
+        )
+        .order("desc")
+        .take(limitPerLane),
+    ),
+  );
+  return perLane.flat();
+};
+
+const hashToken = async (value: string): Promise<string> => {
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(bytes), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+};
+
+// Allocates the next transcript seq and inserts one canonical AgentMessage
+// row. Callers hold the mutation transaction, so max(seq)+1 is race-free.
+const appendConversationMessage = async (
+  ctx: MutationCtx,
+  args: {
+    conversationId: string;
+    ownerId: string;
+    turnId: string;
+    role: string;
+    payloadJson: string;
+    hidden?: boolean;
+    now: number;
+  },
+): Promise<number> => {
+  const last = await ctx.db
+    .query("cloud_messages")
+    .withIndex("by_conversationId_and_seq", (q) =>
+      q.eq("conversationId", args.conversationId),
+    )
+    .order("desc")
+    .first();
+  const seq = (last?.seq ?? -1) + 1;
+  await ctx.db.insert("cloud_messages", {
+    conversationId: args.conversationId,
+    ownerId: args.ownerId,
+    seq,
+    role: args.role,
+    payloadJson: args.payloadJson,
+    turnId: args.turnId,
+    hidden: args.hidden,
+    createdAt: args.now,
+  });
+  return seq;
+};
 
 export const createTurnInternal = internalMutation({
   args: {
@@ -239,10 +384,15 @@ export const listMyCloudTurns = query({
       .take(20);
     const hydrated = await Promise.all(
       turns.reverse().map(async (turn) => {
-        const events = await ctx.db
-          .query("agent_events")
-          .withIndex("by_turnId_and_seq", (q) => q.eq("turnId", turn.turnId))
-          .take(100);
+        // Newest 100 events, oldest-first: a tool-heavy turn can exceed 100
+        // events, and the terminal event (the reply text) must survive.
+        const events = (
+          await ctx.db
+            .query("agent_events")
+            .withIndex("by_turnId_and_seq", (q) => q.eq("turnId", turn.turnId))
+            .order("desc")
+            .take(100)
+        ).reverse();
         return {
           ...turn,
           events: events.map((event) => ({
@@ -301,7 +451,7 @@ export const startCloudChat = mutation({
   },
   returns: v.object({
     conversationId: v.string(),
-    appId: v.string(),
+    appId: v.optional(v.string()),
     turnId: v.string(),
   }),
   handler: async (ctx, args) => {
@@ -319,6 +469,7 @@ export const startCloudChat = mutation({
       | { appId: string; ownerId: string; status: string; title?: string }
       | null = null;
     let inferredAppId: string | undefined;
+    let wantsNewApp = false;
     if (args.appId) {
       const requestedAppId = args.appId;
       const app = await ctx.db
@@ -348,7 +499,7 @@ export const startCloudChat = mutation({
             "i",
           ).test(prompt),
       );
-      const wantsNewApp =
+      wantsNewApp =
         /\bnew app\b/i.test(prompt) ||
         /\b(?:make|build|create)\b[\s\S]{0,60}\bapp\b/i.test(prompt);
       if (named.length === 1) {
@@ -367,8 +518,28 @@ export const startCloudChat = mutation({
             .unique()
         : null;
     const routed = opsManifest !== null;
+    // No app targeted and no clear ask for one: this is plain chat. It runs
+    // as the orchestrator loop in the builder DO — token cost only, no
+    // sandbox, no app row. Only an explicit "make/build/create an app"
+    // fallthrough still enters the legacy build lane with a fresh app.
+    const chatLane = !routed && !targetApp && !wantsNewApp;
 
-    if (routed) {
+    if (chatLane) {
+      await enforceMutationRateLimit(
+        ctx,
+        "cloud_chat_start",
+        ownerId,
+        { rate: quota.burstStarts * 5, periodMs: 10 * 60_000 },
+        "You're sending messages quickly. Wait a moment and try again.",
+      );
+      await enforceMutationRateLimit(
+        ctx,
+        "cloud_chat_daily",
+        ownerId,
+        { rate: quota.dailyTurns * 20, periodMs: 24 * 60 * 60_000 },
+        "You've reached today's cloud chat limit. Try again tomorrow.",
+      );
+    } else if (routed) {
       await enforceMutationRateLimit(
         ctx,
         "cloud_ops_start",
@@ -391,14 +562,10 @@ export const startCloudChat = mutation({
         { rate: quota.burstStarts, periodMs: 10 * 60_000 },
         "You're sending requests quickly. Give Stella a few minutes, then try again.",
       );
-      const recentTurns = await ctx.db
-        .query("agent_turns")
-        .withIndex("by_ownerId_and_createdAt", (q) =>
-          q.eq("ownerId", ownerId).gte("createdAt", Date.now() - 86_400_000),
-        )
-        .take(quota.dailyTurns + 1);
-      const buildTurns = recentTurns.filter(
-        (turn) => turn.lane !== "operation",
+      const buildTurns = await listRecentBuildTurns(
+        ctx,
+        ownerId,
+        quota.dailyTurns + 1,
       );
       const running = buildTurns.filter((turn) => turn.status === "running");
       if (running.length >= quota.concurrentTurns) {
@@ -440,6 +607,49 @@ export const startCloudChat = mutation({
       });
     }
 
+    const turnId = crypto.randomUUID();
+    const turnToken =
+      crypto.randomUUID().replaceAll("-", "") +
+      crypto.randomUUID().replaceAll("-", "");
+
+    if (chatLane) {
+      const sessionId = `chat-${conversationId.slice(0, 8)}`;
+      await ctx.db.insert("agent_turns", {
+        turnId,
+        sessionId,
+        ownerId,
+        conversationId,
+        prompt,
+        status: "running",
+        lane: "chat",
+        kind: "chat",
+        agentType: "orchestrator",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await appendConversationMessage(ctx, {
+        conversationId,
+        ownerId,
+        turnId,
+        role: "user",
+        payloadJson: JSON.stringify({
+          role: "user",
+          content: [{ type: "text", text: prompt }],
+          timestamp: now,
+        }),
+        now,
+      });
+      await ctx.scheduler.runAfter(0, runOrchestratorTurnRef, {
+        ownerId,
+        conversationId,
+        turnId,
+        sessionId,
+        prompt,
+        turnToken,
+      });
+      return { conversationId, turnId };
+    }
+
     let appId = args.appId ?? inferredAppId;
     let isNewApp = false;
     if (appId) {
@@ -460,7 +670,6 @@ export const startCloudChat = mutation({
       });
     }
 
-    const turnId = crypto.randomUUID();
     const sessionId = routed
       ? `ops-${turnId.slice(0, 8)}`
       : `cloud-${turnId.slice(0, 8)}`;
@@ -473,12 +682,10 @@ export const startCloudChat = mutation({
       prompt,
       status: "running",
       lane: routed ? "auto" : "build",
+      kind: "build",
       createdAt: now,
       updatedAt: now,
     });
-    const turnToken =
-      crypto.randomUUID().replaceAll("-", "") +
-      crypto.randomUUID().replaceAll("-", "");
     await ctx.scheduler.runAfter(
       0,
       routed ? routeCloudTurnRef : runCloudTurnRef,
@@ -506,12 +713,7 @@ export const failCloudTurnInternal = internalMutation({
       .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
       .unique();
     if (!turn || turn.terminalKind) return null;
-    const existing = await ctx.db
-      .query("agent_events")
-      .withIndex("by_turnId_and_seq", (q) => q.eq("turnId", args.turnId))
-      .take(100);
-    const seq =
-      existing.reduce((max, event) => Math.max(max, event.seq), -1) + 1;
+    const seq = await nextEventSeq(ctx, args.turnId);
     const payloadJson = JSON.stringify({ message: args.message });
     await ctx.db.insert("agent_events", {
       turnId: turn.turnId,
@@ -571,7 +773,16 @@ export const runCloudTurnInternal = internalAction({
       if (response.ok) return null;
       failure = "Stella hit a snag starting this change. Try again.";
     } catch (error) {
-      failure = error instanceof Error ? error.message : String(error);
+      // The raw error (fetch stack, provider blob) goes to logs; the turn
+      // keeps the readable message the UI renders verbatim.
+      console.error(
+        JSON.stringify({
+          service: "convex-cloud-apps",
+          event: "build_dispatch_failed",
+          turnId: args.turnId,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
     await ctx.runMutation(
       makeFunctionReference<"mutation", any, any>(
@@ -580,6 +791,732 @@ export const runCloudTurnInternal = internalAction({
       { turnId: args.turnId, message: failure, now: Date.now() },
     );
     return null;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Cloud chat — the orchestrator loop lives in the builder's OrchestratorSession
+// DO; these functions are its Convex half: canonical transcript rows, turn
+// tokens, spawned-agent threads, and the wake path that turns a finished
+// subagent into a hidden orchestrator follow-up turn.
+// ---------------------------------------------------------------------------
+
+export const storeTurnTokenInternal = internalMutation({
+  args: {
+    tokenHash: v.string(),
+    ownerId: v.string(),
+    turnId: v.string(),
+    agentType: v.string(),
+    now: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.insert("cloud_turn_tokens", {
+      tokenHash: args.tokenHash,
+      ownerId: args.ownerId,
+      turnId: args.turnId,
+      agentType: args.agentType,
+      createdAt: args.now,
+      expiresAt: args.now + TURN_TOKEN_TTL_MS,
+    });
+    return null;
+  },
+});
+
+export const getTurnTokenByHashInternal = internalQuery({
+  args: { tokenHash: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("cloud_turn_tokens")
+      .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
+      .unique();
+    if (!row || row.expiresAt <= Date.now()) return null;
+    return row;
+  },
+});
+
+export const purgeExpiredTurnTokensInternal = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const expired = await ctx.db
+      .query("cloud_turn_tokens")
+      .withIndex("by_expiresAt", (q) => q.lte("expiresAt", Date.now()))
+      .take(200);
+    for (const row of expired) await ctx.db.delete(row._id);
+    return expired.length;
+  },
+});
+
+export const listConversationMessagesInternal = internalQuery({
+  args: {
+    conversationId: v.string(),
+    excludeTurnId: v.optional(v.string()),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    // Newest 400 rows, returned oldest-first. The loops prune this to a
+    // context-window token budget (packages/executor-cloud/prune-history);
+    // real compaction is a later seam (the desktop runtime's compaction
+    // scheduler is the model).
+    const rows = await ctx.db
+      .query("cloud_messages")
+      .withIndex("by_conversationId_and_seq", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
+      .order("desc")
+      .take(400);
+    return rows
+      .reverse()
+      .filter((row) => row.turnId !== args.excludeTurnId)
+      .map((row) => ({
+        seq: row.seq,
+        role: row.role,
+        payloadJson: row.payloadJson,
+        turnId: row.turnId,
+        hidden: row.hidden === true,
+      }));
+  },
+});
+
+export const appendConversationMessagesInternal = internalMutation({
+  args: {
+    conversationId: v.string(),
+    turnId: v.string(),
+    messages: v.array(
+      v.object({
+        role: v.string(),
+        payloadJson: v.string(),
+        hidden: v.optional(v.boolean()),
+      }),
+    ),
+    now: v.number(),
+  },
+  returns: v.object({ lastSeq: v.number() }),
+  handler: async (ctx, args) => {
+    const turn = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
+      .unique();
+    if (!turn) throw new ConvexError("Unknown cloud turn.");
+    // A turn writes exactly one transcript. Spawned-agent turns write ONLY
+    // their own thread transcript (conversationId = threadId) — their turn
+    // token must never reach the parent user conversation, where a hijacked
+    // sandbox could forge assistant/user history the orchestrator would
+    // reload as genuine context. Orchestrator turns write their conversation.
+    const allowedConversationId =
+      turn.kind === "agent" ? turn.threadId : turn.conversationId;
+    if (
+      !allowedConversationId ||
+      allowedConversationId !== args.conversationId
+    ) {
+      throw new ConvexError("Turn does not belong to this conversation.");
+    }
+    let lastSeq = -1;
+    for (const message of args.messages) {
+      lastSeq = await appendConversationMessage(ctx, {
+        conversationId: args.conversationId,
+        ownerId: turn.ownerId,
+        turnId: args.turnId,
+        role: message.role,
+        payloadJson: message.payloadJson,
+        hidden: message.hidden,
+        now: args.now,
+      });
+    }
+    return { lastSeq };
+  },
+});
+
+export const runOrchestratorTurnInternal = internalAction({
+  args: {
+    ownerId: v.string(),
+    conversationId: v.string(),
+    turnId: v.string(),
+    sessionId: v.string(),
+    prompt: v.string(),
+    turnToken: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const builderUrl = process.env.CLOUD_BUILDER_URL?.trim();
+    const builderSecret = process.env.BUILDER_SERVICE_SECRET?.trim();
+    let failure = "Stella couldn't start on this. Try again in a moment.";
+    try {
+      if (!builderUrl || !builderSecret) throw new Error(failure);
+      // The hash must exist before the DO can present the raw token to the
+      // relay or the callback routes, so store it before dispatching.
+      await ctx.runMutation(storeTurnTokenRef, {
+        tokenHash: await hashToken(args.turnToken),
+        ownerId: args.ownerId,
+        turnId: args.turnId,
+        agentType: "orchestrator",
+        now: Date.now(),
+      });
+      // Engine is resolved here (one place covers user and wake turns): the
+      // DO gets only a provider flag, never a credential.
+      const engine = await resolveOwnerEngine(ctx, args.ownerId);
+      const response = await fetch(
+        `${builderUrl.replace(/\/+$/, "")}/conversations/${args.conversationId}/turns`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${builderSecret}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            kind: "chat",
+            ownerId: args.ownerId,
+            conversationId: args.conversationId,
+            turnId: args.turnId,
+            sessionId: args.sessionId,
+            prompt: args.prompt,
+            turnToken: args.turnToken,
+            convexCallbackBase: process.env.CONVEX_SITE_URL,
+            ...(engine ? { engine } : {}),
+          }),
+        },
+      );
+      if (response.ok) return null;
+      failure = "Stella hit a snag starting this chat. Try again.";
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          service: "convex-cloud-apps",
+          event: "chat_dispatch_failed",
+          turnId: args.turnId,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    await ctx.runMutation(failCloudTurnRef, {
+      turnId: args.turnId,
+      message: failure,
+      now: Date.now(),
+    });
+    return null;
+  },
+});
+
+const CLOUD_WORKSPACE_PATTERN =
+  /^(drive|stella|project:[A-Za-z0-9._-]{1,64}|app:[a-z0-9-]{1,64})$/;
+
+export const spawnCloudAgentInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    conversationId: v.string(),
+    parentTurnId: v.string(),
+    description: v.string(),
+    prompt: v.string(),
+    workspace: v.string(),
+    threadId: v.optional(v.string()),
+    // spawn_agent's per-spawn engine override ("claude" | "claude/<model>").
+    model: v.optional(v.string()),
+    now: v.number(),
+  },
+  returns: v.object({
+    ok: v.boolean(),
+    threadId: v.optional(v.string()),
+    turnId: v.optional(v.string()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const parent = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_turnId", (q) => q.eq("turnId", args.parentTurnId))
+      .unique();
+    if (!parent || parent.ownerId !== args.ownerId) {
+      return { ok: false, error: "Parent turn not found." };
+    }
+    if (!CLOUD_WORKSPACE_PATTERN.test(args.workspace)) {
+      return {
+        ok: false,
+        error:
+          "workspace must be drive, stella, project:<name>, or app:<slug> for cloud spawns.",
+      };
+    }
+    if (args.workspace !== "drive") {
+      // Honest v1 limit: only the drive workspace has restore/checkpoint
+      // wiring in the builder. Widen this as app/project/stella land.
+      return {
+        ok: false,
+        error:
+          "Only the drive workspace is wired for cloud agents so far — app, project, and stella workspaces are coming next. Use workspace \"drive\".",
+      };
+    }
+    // Validate an explicit engine override up front so the orchestrator gets
+    // an immediate readable error instead of an async turn failure.
+    let engineOverride: CloudEngineSelection | undefined;
+    if (args.model) {
+      try {
+        engineOverride = parseSpawnEngineModel(args.model);
+      } catch (error) {
+        return {
+          ok: false,
+          error:
+            error instanceof ConvexError
+              ? String(error.data)
+              : "That engine selection isn't available.",
+        };
+      }
+      if (engineOverride) {
+        const credential = await ctx.db
+          .query("cloud_llm_credentials")
+          .withIndex("by_ownerId_and_provider", (q) =>
+            q.eq("ownerId", args.ownerId).eq("provider", "anthropic"),
+          )
+          .unique();
+        if (!credential) {
+          return {
+            ok: false,
+            error:
+              "No connected Claude subscription for this account. Connect Claude in Settings first, or omit the model.",
+          };
+        }
+      }
+    }
+    let threadId = args.threadId;
+    let workspace = args.workspace;
+    let continuedThread: { _id: any } | null = null;
+    if (threadId) {
+      const requestedThreadId = threadId;
+      const thread = await ctx.db
+        .query("cloud_agent_threads")
+        .withIndex("by_threadId", (q) => q.eq("threadId", requestedThreadId))
+        .unique();
+      if (!thread || thread.ownerId !== args.ownerId) {
+        return { ok: false, error: `Thread not found: ${threadId}` };
+      }
+      if (thread.status === "running") {
+        return {
+          ok: false,
+          error:
+            "That agent is still working. Wait for its [Agent completed] event, then send the follow-up.",
+        };
+      }
+      // Continuations stay in the thread's own workspace.
+      workspace = thread.workspace;
+      continuedThread = thread;
+    }
+    const { quota } = await resolveCloudPlan(ctx, args.ownerId);
+    // Concurrency is judged from thread status, not agent_turns rows: a
+    // running thread's updatedAt is always fresh (patched at spawn), so the
+    // newest-first window reliably contains every live agent, where an
+    // oldest-first turns scan could miss them behind a day of chat rows.
+    const runningThreads = (
+      await ctx.db
+        .query("cloud_agent_threads")
+        .withIndex("by_ownerId_and_updatedAt", (q) =>
+          q.eq("ownerId", args.ownerId),
+        )
+        .order("desc")
+        .take(50)
+    ).filter(
+      (thread) =>
+        thread.status === "running" &&
+        thread.threadId !== threadId &&
+        // Defense in depth: the 15-min watchdog (with retried terminal
+        // delivery) should terminalize every thread, but a thread stuck
+        // "running" must degrade to a bounded lockout, not a permanent one.
+        thread.updatedAt > args.now - 60 * 60_000,
+    );
+    if (runningThreads.length >= quota.concurrentTurns) {
+      return {
+        ok: false,
+        error: `Your plan allows ${quota.concurrentTurns} concurrent background agent${
+          quota.concurrentTurns === 1 ? "" : "s"
+        }. Wait for one to finish, then try again.`,
+      };
+    }
+    // One agent per workspace at a time: turns restore the workspace
+    // checkpoint at start and overwrite it at end, so two concurrent agents
+    // in the same workspace would silently lose the first one's work
+    // (last-writer-wins on the ws:* key). This mutation is transactional, so
+    // the check-and-insert can't race with itself.
+    if (runningThreads.some((thread) => thread.workspace === workspace)) {
+      return {
+        ok: false,
+        error: `Another agent is already working in the "${workspace}" workspace. Wait for it to finish, then try again — concurrent agents can run in different workspaces.`,
+      };
+    }
+    if (continuedThread) {
+      await ctx.db.patch(continuedThread._id, {
+        status: "running",
+        description: args.description,
+        updatedAt: args.now,
+      });
+    }
+    if (!threadId) {
+      threadId = `thr-${crypto.randomUUID().slice(0, 18)}`;
+      await ctx.db.insert("cloud_agent_threads", {
+        threadId,
+        ownerId: args.ownerId,
+        conversationId: args.conversationId,
+        parentTurnId: args.parentTurnId,
+        description: args.description,
+        workspace: args.workspace,
+        agentType: "general",
+        status: "running",
+        createdAt: args.now,
+        updatedAt: args.now,
+      });
+    }
+    const turnId = crypto.randomUUID();
+    await ctx.db.insert("agent_turns", {
+      turnId,
+      sessionId: threadId,
+      ownerId: args.ownerId,
+      conversationId: args.conversationId,
+      prompt: args.prompt,
+      status: "running",
+      lane: "agent",
+      kind: "agent",
+      agentType: "general",
+      workspace,
+      threadId,
+      parentTurnId: args.parentTurnId,
+      hidden: true,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+    const turnToken =
+      crypto.randomUUID().replaceAll("-", "") +
+      crypto.randomUUID().replaceAll("-", "");
+    await ctx.scheduler.runAfter(0, runCloudAgentTurnRef, {
+      ownerId: args.ownerId,
+      conversationId: args.conversationId,
+      threadId,
+      turnId,
+      prompt: args.prompt,
+      workspace,
+      turnToken,
+      ...(engineOverride ? { engine: engineOverride } : {}),
+    });
+    return { ok: true, threadId, turnId };
+  },
+});
+
+export const runCloudAgentTurnInternal = internalAction({
+  args: {
+    ownerId: v.string(),
+    conversationId: v.string(),
+    threadId: v.string(),
+    turnId: v.string(),
+    prompt: v.string(),
+    workspace: v.string(),
+    turnToken: v.string(),
+    engine: v.optional(
+      v.object({ provider: v.string(), model: v.string() }),
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const builderUrl = process.env.CLOUD_BUILDER_URL?.trim();
+    const builderSecret = process.env.BUILDER_SERVICE_SECRET?.trim();
+    let failure = "Stella couldn't start that agent. Try again in a moment.";
+    try {
+      if (!builderUrl || !builderSecret) throw new Error(failure);
+      await ctx.runMutation(storeTurnTokenRef, {
+        tokenHash: await hashToken(args.turnToken),
+        ownerId: args.ownerId,
+        turnId: args.turnId,
+        agentType: "general",
+        now: Date.now(),
+      });
+      // Explicit spawn override wins; otherwise follow the owner's engine
+      // setting, same as chat turns.
+      const engine =
+        args.engine ?? (await resolveOwnerEngine(ctx, args.ownerId));
+      const response = await fetch(
+        `${builderUrl.replace(/\/+$/, "")}/sessions/${args.threadId}/turns`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${builderSecret}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            kind: "agent",
+            ownerId: args.ownerId,
+            conversationId: args.conversationId,
+            threadId: args.threadId,
+            turnId: args.turnId,
+            prompt: args.prompt,
+            workspace: args.workspace,
+            turnToken: args.turnToken,
+            convexCallbackBase: process.env.CONVEX_SITE_URL,
+            ...(engine ? { engine } : {}),
+          }),
+        },
+      );
+      if (response.ok) return null;
+      failure = "Stella hit a snag starting that agent. Try again.";
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          service: "convex-cloud-apps",
+          event: "agent_dispatch_failed",
+          turnId: args.turnId,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    await ctx.runMutation(failCloudTurnRef, {
+      turnId: args.turnId,
+      message: failure,
+      now: Date.now(),
+    });
+    await ctx.runMutation(completeAgentThreadRef, {
+      threadId: args.threadId,
+      status: "failed",
+      errorMessage: failure,
+      now: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const completeAgentThreadInternal = internalMutation({
+  args: {
+    threadId: v.string(),
+    status: v.string(),
+    resultJson: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    wake: v.optional(v.boolean()),
+    // Set when the caller authenticated with a turn token: the token's turn
+    // must belong to the thread it is completing. Service-secret callers
+    // (the DOs) omit it.
+    callerTurnId: v.optional(v.string()),
+    now: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (!["completed", "failed", "canceled"].includes(args.status)) {
+      throw new ConvexError("Invalid thread status.");
+    }
+    if (args.callerTurnId) {
+      const callerTurn = await ctx.db
+        .query("agent_turns")
+        .withIndex("by_turnId", (q) => q.eq("turnId", args.callerTurnId!))
+        .unique();
+      if (!callerTurn || callerTurn.threadId !== args.threadId) {
+        // A sandbox token speaks only for its own thread — anything else is
+        // the forged-lifecycle channel finding 4 closed for messages.
+        throw new ConvexError("Turn does not belong to this thread.");
+      }
+    }
+    const thread = await ctx.db
+      .query("cloud_agent_threads")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .unique();
+    if (!thread) throw new ConvexError("Unknown agent thread.");
+    if (thread.status !== "running") return null;
+    await ctx.db.patch(thread._id, {
+      status: args.status,
+      resultJson: args.resultJson,
+      errorMessage: args.errorMessage,
+      updatedAt: args.now,
+    });
+    if (args.wake === false) return null;
+
+    // Wake the orchestrator with a lifecycle turn, mirroring the desktop
+    // runtime's follow-up delivery for task lifecycle events. The turn itself
+    // is VISIBLE — it is the only turn that carries the orchestrator's relay
+    // of the agent's report, so hiding it would hide the result from the
+    // user. Only its lifecycle prompt is hidden (the UI skips the user bubble
+    // for lane "wake"; the transcript row below stays hidden context).
+    let resultText = args.errorMessage ?? "";
+    if (args.resultJson) {
+      try {
+        const parsed = JSON.parse(args.resultJson) as { finalText?: string };
+        resultText =
+          typeof parsed.finalText === "string" && parsed.finalText.trim()
+            ? parsed.finalText
+            : args.resultJson;
+      } catch {
+        resultText = args.resultJson;
+      }
+    }
+    const label =
+      args.status === "completed"
+        ? "[Agent completed]"
+        : args.status === "canceled"
+          ? "[Agent canceled]"
+          : "[Agent failed]";
+    const lifecycleText = `${label} ${thread.description} (thread ${thread.threadId})\n\n${
+      resultText || "No result was reported."
+    }`;
+    const turnId = crypto.randomUUID();
+    const sessionId = `chat-${thread.conversationId.slice(0, 8)}`;
+    await ctx.db.insert("agent_turns", {
+      turnId,
+      sessionId,
+      ownerId: thread.ownerId,
+      conversationId: thread.conversationId,
+      prompt: lifecycleText,
+      status: "running",
+      lane: "wake",
+      kind: "chat",
+      agentType: "orchestrator",
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+    await appendConversationMessage(ctx, {
+      conversationId: thread.conversationId,
+      ownerId: thread.ownerId,
+      turnId,
+      role: "user",
+      payloadJson: JSON.stringify({
+        role: "user",
+        content: [{ type: "text", text: lifecycleText }],
+        timestamp: args.now,
+      }),
+      hidden: true,
+      now: args.now,
+    });
+    const turnToken =
+      crypto.randomUUID().replaceAll("-", "") +
+      crypto.randomUUID().replaceAll("-", "");
+    await ctx.scheduler.runAfter(0, runOrchestratorTurnRef, {
+      ownerId: thread.ownerId,
+      conversationId: thread.conversationId,
+      turnId,
+      sessionId,
+      prompt: lifecycleText,
+      turnToken,
+    });
+    return null;
+  },
+});
+
+// Dev-only probe: drives the chat lane end to end without a signed-in
+// client. Run with `bunx convex run cloud_apps:startChatProbeInternal`.
+export const startChatProbeInternal = internalMutation({
+  args: {
+    prompt: v.string(),
+    ownerId: v.optional(v.string()),
+    conversationId: v.optional(v.string()),
+  },
+  returns: v.object({ conversationId: v.string(), turnId: v.string() }),
+  handler: async (ctx, args) => {
+    const ownerId = args.ownerId ?? "probe:cloud-chat";
+    const now = Date.now();
+    let conversationId = args.conversationId;
+    if (conversationId) {
+      const existing = await ctx.db
+        .query("cloud_conversations")
+        .withIndex("by_conversationId", (q) =>
+          q.eq("conversationId", conversationId!),
+        )
+        .unique();
+      if (!existing) throw new ConvexError("Conversation not found.");
+      await ctx.db.patch(existing._id, { updatedAt: now });
+    } else {
+      conversationId = crypto.randomUUID();
+      await ctx.db.insert("cloud_conversations", {
+        conversationId,
+        ownerId,
+        title: `[probe] ${args.prompt.slice(0, 40)}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    const turnId = crypto.randomUUID();
+    const sessionId = `chat-${conversationId.slice(0, 8)}`;
+    await ctx.db.insert("agent_turns", {
+      turnId,
+      sessionId,
+      ownerId,
+      conversationId,
+      prompt: args.prompt,
+      status: "running",
+      lane: "chat",
+      kind: "chat",
+      agentType: "orchestrator",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await appendConversationMessage(ctx, {
+      conversationId,
+      ownerId,
+      turnId,
+      role: "user",
+      payloadJson: JSON.stringify({
+        role: "user",
+        content: [{ type: "text", text: args.prompt }],
+        timestamp: now,
+      }),
+      now,
+    });
+    const turnToken =
+      crypto.randomUUID().replaceAll("-", "") +
+      crypto.randomUUID().replaceAll("-", "");
+    await ctx.scheduler.runAfter(0, runOrchestratorTurnRef, {
+      ownerId,
+      conversationId,
+      turnId,
+      sessionId,
+      prompt: args.prompt,
+      turnToken,
+    });
+    return { conversationId, turnId };
+  },
+});
+
+export const getTurnProbeInternal = internalQuery({
+  args: { turnId: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const turn = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
+      .unique();
+    if (!turn) return null;
+    const events = await ctx.db
+      .query("agent_events")
+      .withIndex("by_turnId_and_seq", (q) => q.eq("turnId", args.turnId))
+      .take(100);
+    const messages = turn.conversationId
+      ? await ctx.db
+          .query("cloud_messages")
+          .withIndex("by_conversationId_and_seq", (q) =>
+            q.eq("conversationId", turn.conversationId!),
+          )
+          .take(100)
+      : [];
+    return {
+      status: turn.status,
+      terminalKind: turn.terminalKind,
+      errorMessage: turn.errorMessage,
+      events: events.map((event) => ({
+        seq: event.seq,
+        kind: event.kind,
+        payload: JSON.parse(event.payloadJson),
+      })),
+      messages: messages.map((row) => ({
+        seq: row.seq,
+        role: row.role,
+        turnId: row.turnId,
+        preview: row.payloadJson.slice(0, 200),
+      })),
+    };
+  },
+});
+
+export const listMyAgentThreads = query({
+  args: { conversationId: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const rows = await ctx.db
+      .query("cloud_agent_threads")
+      .withIndex("by_conversationId_and_updatedAt", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
+      .order("desc")
+      .take(30);
+    return rows.filter((row) => row.ownerId === ownerId);
   },
 });
 
@@ -683,6 +1620,10 @@ export const appendEventInternal = internalMutation({
     turnId: v.string(),
     sessionId: v.string(),
     seq: v.number(),
+    // Executors that can't coordinate a shared counter with the DO (the
+    // in-sandbox agent, the orchestrator loop) let Convex assign max(seq)+1.
+    // Auto-seq events skip the duplicate check by construction.
+    autoSeq: v.optional(v.boolean()),
     kind: v.string(),
     payloadJson: v.string(),
     terminal: v.boolean(),
@@ -690,14 +1631,19 @@ export const appendEventInternal = internalMutation({
   },
   returns: v.object({ inserted: v.boolean(), terminalAccepted: v.boolean() }),
   handler: async (ctx, args) => {
-    const duplicate = await ctx.db
-      .query("agent_events")
-      .withIndex("by_turnId_and_seq", (q) =>
-        q.eq("turnId", args.turnId).eq("seq", args.seq),
-      )
-      .unique();
-    if (duplicate) {
-      return { inserted: false, terminalAccepted: false };
+    const seq = args.autoSeq
+      ? await nextEventSeq(ctx, args.turnId)
+      : args.seq;
+    if (!args.autoSeq) {
+      const duplicate = await ctx.db
+        .query("agent_events")
+        .withIndex("by_turnId_and_seq", (q) =>
+          q.eq("turnId", args.turnId).eq("seq", seq),
+        )
+        .unique();
+      if (duplicate) {
+        return { inserted: false, terminalAccepted: false };
+      }
     }
     const turn = await ctx.db
       .query("agent_turns")
@@ -710,7 +1656,7 @@ export const appendEventInternal = internalMutation({
     await ctx.db.insert("agent_events", {
       turnId: args.turnId,
       sessionId: args.sessionId,
-      seq: args.seq,
+      seq,
       kind: args.kind,
       payloadJson: args.payloadJson,
       createdAt: args.now,
@@ -985,7 +1931,9 @@ export const probeOpsRateLimitInternal = internalMutation({
   },
 });
 
-export const startBenchmarkTurn = action({
+// Dev/ops probe: internal-only (run via `bunx convex run`) — as a public
+// action this was callable without auth against real owners/builds.
+export const startBenchmarkTurn = internalAction({
   args: {},
   returns: v.any(),
   handler: async (ctx) => {
@@ -1042,7 +1990,9 @@ export const startBenchmarkTurn = action({
   },
 });
 
-export const startLifecycleTurn = action({
+// Dev/ops probe: internal-only (run via `bunx convex run`) — as a public
+// action this was callable without auth against real owners/builds.
+export const startLifecycleTurn = internalAction({
   args: { appId: v.string() },
   returns: v.any(),
   handler: async (ctx, args) => {
@@ -1098,7 +2048,9 @@ export const startLifecycleTurn = action({
   },
 });
 
-export const applyBuild = action({
+// Dev/ops probe: internal-only (run via `bunx convex run`) — as a public
+// action this was callable without auth against real owners/builds.
+export const applyBuild = internalAction({
   args: { buildId: v.string() },
   returns: v.any(),
   handler: async (ctx, args) => {
@@ -1206,7 +2158,9 @@ export const deleteMyApp = action({
   },
 });
 
-export const startLifecycleProbe = action({
+// Dev/ops probe: internal-only (run via `bunx convex run`) — as a public
+// action this was callable without auth against real owners/builds.
+export const startLifecycleProbe = internalAction({
   args: {
     turnId: v.string(),
     sessionId: v.string(),
@@ -1411,11 +2365,14 @@ const nextEventSeq = async (
   ctx: Pick<MutationCtx, "db">,
   turnId: string,
 ): Promise<number> => {
-  const existing = await ctx.db
+  // Read the max seq from the index tail: a bounded ascending scan caps out
+  // once a turn exceeds the window and every later event collides on one seq.
+  const last = await ctx.db
     .query("agent_events")
     .withIndex("by_turnId_and_seq", (q) => q.eq("turnId", turnId))
-    .take(200);
-  return existing.reduce((max, event) => Math.max(max, event.seq), -1) + 1;
+    .order("desc")
+    .first();
+  return (last?.seq ?? -1) + 1;
 };
 
 const appendTurnEvent = async (
@@ -1687,16 +2644,9 @@ export const reserveBuildLaneInternal = internalMutation({
     if (!turn || turn.terminalKind) return { ok: false };
     const now = Date.now();
     const { plan, quota } = await resolveCloudPlan(ctx, args.ownerId);
-    const recentTurns = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.ownerId).gte("createdAt", now - 86_400_000),
-      )
-      .take(quota.dailyTurns + 21);
-    const buildTurns = recentTurns.filter(
-      (candidate) =>
-        candidate.lane !== "operation" && candidate.turnId !== args.turnId,
-    );
+    const buildTurns = (
+      await listRecentBuildTurns(ctx, args.ownerId, quota.dailyTurns + 2)
+    ).filter((candidate) => candidate.turnId !== args.turnId);
     const running = buildTurns.filter(
       (candidate) => candidate.status === "running",
     );

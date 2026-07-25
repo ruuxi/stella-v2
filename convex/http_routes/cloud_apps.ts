@@ -1,6 +1,8 @@
 import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { enforceActionRateLimit } from "../lib/rate_limits";
+import { executeWebSearch } from "../tools/backend";
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -12,32 +14,246 @@ const serviceAuthorized = (request: Request): boolean => {
   );
 };
 
+const hashToken = async (value: string): Promise<string> => {
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(bytes), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+};
+
+type TurnTokenRow = {
+  ownerId: string;
+  turnId: string;
+  agentType: string;
+  expiresAt: number;
+};
+
+// The sandbox/DO executor's only credential: an opaque per-turn token whose
+// hash Convex stored at dispatch. Callers present it as `x-stella-turn-token`.
+const verifyTurnToken = async (
+  ctx: { runQuery: (ref: any, args: any) => Promise<any> },
+  request: Request,
+): Promise<TurnTokenRow | null> => {
+  const token = request.headers.get("x-stella-turn-token")?.trim();
+  if (!token) return null;
+  const row = await ctx.runQuery(
+    internal.cloud_apps.getTurnTokenByHashInternal,
+    { tokenHash: await hashToken(token) },
+  );
+  return (row as TurnTokenRow | null) ?? null;
+};
+
 export function registerCloudAppRoutes(http: HttpRouter) {
   http.route({
     path: "/api/cloud/events",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      const service = serviceAuthorized(request);
+      const token = service ? null : await verifyTurnToken(ctx, request);
+      if (!service && !token) return json({ error: "Unauthorized" }, 401);
       const body = (await request.json()) as {
         turnId: string;
         sessionId: string;
-        seq: number;
+        seq?: number | "auto";
         kind: string;
         payload: unknown;
         terminal?: boolean;
       };
+      // A turn token only speaks for its own turn.
+      if (token && token.turnId !== body.turnId) {
+        return json({ error: "Forbidden" }, 403);
+      }
+      const autoSeq = body.seq === undefined || body.seq === "auto";
       const result = await ctx.runMutation(
         internal.cloud_apps.appendEventInternal,
         {
           turnId: body.turnId,
           sessionId: body.sessionId,
-          seq: body.seq,
+          seq: autoSeq ? 0 : (body.seq as number),
+          autoSeq,
           kind: body.kind,
           payloadJson: JSON.stringify(body.payload ?? {}),
           terminal: body.terminal === true,
           now: Date.now(),
         },
       );
+      return json(result);
+    }),
+  });
+
+  // The orchestrator DO reconstructs its loop context from the canonical
+  // transcript. Service-secret only: the DO fetches before it holds a token
+  // audience of its own, and history is never exposed to sandboxes directly.
+  http.route({
+    path: "/api/cloud/context",
+    method: "GET",
+    handler: httpAction(async (ctx, request) => {
+      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      const url = new URL(request.url);
+      const conversationId = url.searchParams.get("conversationId")?.trim();
+      if (!conversationId) return json({ error: "conversationId required" }, 400);
+      const messages = await ctx.runQuery(
+        internal.cloud_apps.listConversationMessagesInternal,
+        {
+          conversationId,
+          excludeTurnId: url.searchParams.get("excludeTurnId") ?? undefined,
+        },
+      );
+      return json({ messages });
+    }),
+  });
+
+  http.route({
+    path: "/api/cloud/messages",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const service = serviceAuthorized(request);
+      const token = service ? null : await verifyTurnToken(ctx, request);
+      if (!service && !token) return json({ error: "Unauthorized" }, 401);
+      const body = (await request.json()) as {
+        conversationId: string;
+        turnId: string;
+        messages: Array<{ role: string; payloadJson: string; hidden?: boolean }>;
+      };
+      if (token && token.turnId !== body.turnId) {
+        return json({ error: "Forbidden" }, 403);
+      }
+      if (!Array.isArray(body.messages) || body.messages.length === 0) {
+        return json({ error: "messages required" }, 400);
+      }
+      if (body.messages.length > 50) {
+        return json({ error: "Too many messages in one append." }, 400);
+      }
+      const result = await ctx.runMutation(
+        internal.cloud_apps.appendConversationMessagesInternal,
+        {
+          conversationId: body.conversationId,
+          turnId: body.turnId,
+          messages: body.messages.map((message) => ({
+            role: message.role,
+            payloadJson: message.payloadJson,
+            hidden: message.hidden === true ? true : undefined,
+          })),
+          now: Date.now(),
+        },
+      );
+      return json(result);
+    }),
+  });
+
+  // Spawn/cancel surface for the orchestrator DO's agent tools. Service
+  // secret only — spawning is a platform decision, never a sandbox one.
+  http.route({
+    path: "/api/cloud/spawn",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      const body = (await request.json()) as {
+        action?: "spawn" | "cancel";
+        ownerId: string;
+        conversationId: string;
+        parentTurnId?: string;
+        description?: string;
+        prompt?: string;
+        workspace?: string;
+        threadId?: string;
+        model?: string;
+      };
+      if (body.action === "cancel") {
+        if (!body.threadId) return json({ error: "threadId required" }, 400);
+        await ctx.runMutation(internal.cloud_apps.completeAgentThreadInternal, {
+          threadId: body.threadId,
+          status: "canceled",
+          errorMessage: "Paused by the orchestrator.",
+          wake: false,
+          now: Date.now(),
+        });
+        return json({ ok: true, threadId: body.threadId });
+      }
+      if (!body.parentTurnId || !body.prompt || !body.description) {
+        return json({ error: "description, prompt, parentTurnId required" }, 400);
+      }
+      const result = await ctx.runMutation(
+        internal.cloud_apps.spawnCloudAgentInternal,
+        {
+          ownerId: body.ownerId,
+          conversationId: body.conversationId,
+          parentTurnId: body.parentTurnId,
+          description: body.description,
+          prompt: body.prompt,
+          workspace: body.workspace ?? "drive",
+          threadId: body.threadId,
+          model: body.model,
+          now: Date.now(),
+        },
+      );
+      return json(result, result.ok ? 200 : 409);
+    }),
+  });
+
+  http.route({
+    path: "/api/cloud/threads/complete",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const service = serviceAuthorized(request);
+      const token = service ? null : await verifyTurnToken(ctx, request);
+      if (!service && !token) return json({ error: "Unauthorized" }, 401);
+      const body = (await request.json()) as {
+        threadId: string;
+        turnId?: string;
+        status: string;
+        resultJson?: string;
+        errorMessage?: string;
+        wake?: boolean;
+      };
+      if (token && body.turnId && token.turnId !== body.turnId) {
+        return json({ error: "Forbidden" }, 403);
+      }
+      // A turn token is bound to its own thread inside the mutation (the
+      // volunteered-turnId check above is skippable by omitting turnId).
+      await ctx.runMutation(internal.cloud_apps.completeAgentThreadInternal, {
+        threadId: body.threadId,
+        status: body.status,
+        resultJson: body.resultJson,
+        errorMessage: body.errorMessage,
+        wake: body.wake,
+        callerTurnId: token?.turnId,
+        now: Date.now(),
+      });
+      return json({ ok: true });
+    }),
+  });
+
+  // Web search for cloud executors (orchestrator DO + sandbox agents). The
+  // turn token attributes the search to its owner for rate limiting.
+  http.route({
+    path: "/api/cloud/web-search",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const service = serviceAuthorized(request);
+      const token = service ? null : await verifyTurnToken(ctx, request);
+      if (!service && !token) return json({ error: "Unauthorized" }, 401);
+      const body = (await request.json()) as {
+        query: string;
+        category?: string;
+        ownerId?: string;
+      };
+      const ownerId = token?.ownerId ?? body.ownerId;
+      if (!ownerId) return json({ error: "ownerId required" }, 400);
+      await enforceActionRateLimit(
+        ctx,
+        "cloud_web_search",
+        ownerId,
+        { rate: 30, periodMs: 60_000 },
+        "Too many web searches. Wait a moment and try again.",
+      );
+      const result = await executeWebSearch(ctx, body.query ?? "", {
+        ownerId,
+        category: body.category,
+      });
       return json(result);
     }),
   });

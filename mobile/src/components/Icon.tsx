@@ -33,6 +33,9 @@ export type IconName =
   | "volume-x"
   | "pause"
   | "play"
+  | "rewind-15"
+  | "forward-15"
+  | "waveform"
   | "settings"
   | "more-horizontal"
   | "search"
@@ -82,6 +85,11 @@ const FEATHER_NAMES: Record<
   "volume-x": "volume-x",
   pause: "pause",
   play: "play",
+  // Feather has no "skip back 15 seconds" glyph; the rotate arrows are the
+  // closest thing to the SF Symbol's circular seek affordance.
+  "rewind-15": "rotate-ccw",
+  "forward-15": "rotate-cw",
+  waveform: "activity",
   settings: "settings",
   "more-horizontal": "more-horizontal",
   search: "search",
@@ -129,6 +137,9 @@ const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
   "volume-x": "speaker.slash",
   pause: "pause.fill",
   play: "play.fill",
+  "rewind-15": "gobackward.15",
+  "forward-15": "goforward.15",
+  waveform: "waveform",
   settings: "gearshape",
   "more-horizontal": "ellipsis",
   search: "magnifyingglass",

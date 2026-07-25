@@ -343,13 +343,6 @@ export async function generatePdf(
   }
 }
 
-/** Read an on-device PDF as a base64 data URI for in-app preview. */
-export async function readLocalPdfDataUri(localUri: string): Promise<string> {
-  const { File } = await import("expo-file-system");
-  const base64 = await new File(localUri).base64();
-  return `data:application/pdf;base64,${base64}`;
-}
-
 export type PdfShareOutcome = { ok: true } | { ok: false; error: string };
 
 /** Present the OS share sheet for an on-device PDF (save to Files / share). */

@@ -206,14 +206,14 @@ export function generateShimScript(
   // ── HTTP helpers ──────────────────────────────────────────────────────
 
   function invoke(channel) {
-    var args = Array.prototype.slice.call(arguments, 1);
+    var args = packArgs(channel, Array.prototype.slice.call(arguments, 1));
     return postBridgeJson('/bridge/ipc/' + encodeURIComponent(channel), args, channel).then(function(data) {
       return reviveBridgeBinary(data.result);
     });
   }
 
   function fire(channel) {
-    var args = Array.prototype.slice.call(arguments, 1);
+    var args = packArgs(channel, Array.prototype.slice.call(arguments, 1));
     postBridgeVoid('/bridge/ipc/' + encodeURIComponent(channel), args, channel);
   }
 
@@ -299,6 +299,84 @@ export function generateShimScript(
       }
     }
     return null;
+  }
+
+  // ── Payload contracts ─────────────────────────────────────────────────
+  // preload.ts is the desktop's real window.electronAPI, and the ipcMain
+  // handlers are written against the payloads it sends. Several of its methods
+  // take positional arguments but pack them into one object before invoking,
+  // so a call forwarded positionally arrives as (event, url, init) where the
+  // handler destructures payload.url — undefined, which is where
+  // "Cannot read properties of undefined (reading 'trim')" came from.
+  //
+  // Rather than keep a second copy of those shapes here, where it drifts every
+  // time preload changes, the desktop derives them from preload and ships them
+  // on each capability as a payload contract. Packing from that data means a channel
+  // added or reshaped on a newer desktop is handled by a phone build that has
+  // never heard of it.
+
+  var contractByChannel = (function() {
+    var map = new Map();
+    for (var i = 0; i < bridgeCapabilities.length; i++) {
+      var capability = bridgeCapabilities[i];
+      if (capability && capability.channel && capability.payload) {
+        map.set(capability.channel, capability.payload);
+      }
+    }
+    return map;
+  })();
+
+  function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  /**
+   * Packs positional arguments into the object the handler destructures.
+   * A lone object is treated as already packed and passed through, which is
+   * what the hand-written methods below send when they have to flatten an
+   * options bag (readFile's { conversationId } cannot be derived positionally).
+   */
+  function packArgs(channel, args) {
+    var contract = contractByChannel.get(channel);
+    if (!contract || contract.kind !== 'object' || args.length === 0) return args;
+
+    if (args.length === 1 && isPlainObject(args[0])) {
+      warnOnUnknownFields(channel, contract, args[0]);
+      return args;
+    }
+
+    var payload = {};
+    for (var i = 0; i < contract.fields.length; i++) {
+      if (i < args.length && args[i] !== undefined) {
+        payload[contract.fields[i]] = args[i];
+      }
+    }
+    return [payload];
+  }
+
+  // A field the desktop does not declare means this shim and preload disagree
+  // about the channel — the exact drift that silently broke apps before. The
+  // call still goes out; this makes the disagreement findable instead of
+  // surfacing later as an undefined deep inside a handler.
+  var reportedMismatch = new Set();
+
+  function warnOnUnknownFields(channel, contract, payload) {
+    if (reportedMismatch.has(channel)) return;
+    var unknown = Object.keys(payload).filter(function(key) {
+      return contract.fields.indexOf(key) === -1;
+    });
+    if (unknown.length === 0) return;
+    reportedMismatch.add(channel);
+    console.error(
+      '[stella-bridge] Payload mismatch on ' + channel + ': sent [' +
+      unknown.join(', ') + '], desktop expects [' + contract.fields.join(', ') + ']',
+    );
+    postNativeMessage({
+      type: 'bridgeContractMismatch',
+      channel: channel,
+      unexpectedFields: unknown,
+      expectedFields: contract.fields,
+    });
   }
 
   // ── Loud degradation ──────────────────────────────────────────────────

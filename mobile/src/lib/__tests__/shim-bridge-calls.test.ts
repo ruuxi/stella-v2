@@ -179,6 +179,124 @@ describe("shim binary payloads", () => {
   });
 });
 
+/**
+ * The desktop derives each channel's payload shape from preload.ts and ships it
+ * on the capability. Packing from that data is what stops this shim from
+ * keeping its own copy of the shapes and drifting out of step with preload.
+ */
+describe("shim packs from the desktop's payload contract", () => {
+  const capability = (path: string, channel: string, fields: string[]) => ({
+    mode: "remote-request",
+    transport: "invoke",
+    path,
+    channel,
+    payload: { kind: "object", fields },
+  });
+
+  test("packs a channel this build has no hand-written method for", async () => {
+    // The whole point: a capability the desktop added later is auto-installed
+    // from the manifest and still reaches the handler correctly.
+    const shim = loadShim([
+      capability("widgets.rename", "widgets:rename", ["widgetId", "name"]),
+    ]);
+    shim.respondWith({ ok: true });
+
+    await shim.api.widgets.rename("w_1", "Weather");
+
+    expect(shim.calls[0]).toEqual({
+      channel: "widgets:rename",
+      args: [{ widgetId: "w_1", name: "Weather" }],
+    });
+  });
+
+  test("leaves an already-packed payload alone", async () => {
+    // readFile has to flatten its options bag by hand, so it sends one object.
+    const shim = loadShim([
+      capability("display.readFile", "display:readFile", [
+        "filePath",
+        "conversationId",
+      ]),
+    ]);
+    shim.respondWith({ missing: true });
+
+    await shim.api.display.readFile("/x/a.json", { conversationId: "c1" });
+
+    expect(shim.calls[0].args).toEqual([
+      { filePath: "/x/a.json", conversationId: "c1" },
+    ]);
+  });
+
+  test("omits arguments the caller left off", async () => {
+    const shim = loadShim([
+      capability("store.getPackage", "store:getPackage", ["packageId"]),
+    ]);
+    shim.respondWith(null);
+
+    await shim.api.store.getPackage("pkg_1");
+
+    expect(shim.calls[0].args).toEqual([{ packageId: "pkg_1" }]);
+  });
+
+  test("forwards untouched when the desktop declares no packed shape", async () => {
+    const shim = loadShim([
+      {
+        mode: "remote-request",
+        transport: "invoke",
+        path: "localChat.listMessages",
+        channel: "localChat:listMessages",
+        payload: { kind: "passthrough" },
+      },
+    ]);
+    shim.respondWith([]);
+
+    await shim.api.localChat.listMessages({ conversationId: "c1", limit: 20 });
+
+    expect(shim.calls[0].args).toEqual([
+      { conversationId: "c1", limit: 20 },
+    ]);
+  });
+
+  test("stays quiet when a hand-written method matches the contract", async () => {
+    const shim = loadShim([
+      capability("media.saveOutput", "media:saveOutput", [
+        "url",
+        "fileName",
+        "kind",
+      ]),
+    ]);
+    shim.respondWith({ ok: true });
+
+    await shim.api.media.saveOutput("https://x/y.png", "y.png", "image");
+
+    expect(
+      shim.nativeMessages.filter((m) => m.type === "bridgeContractMismatch"),
+    ).toEqual([]);
+  });
+
+  test("reports a hand-written method that drifted from preload", async () => {
+    // Simulates preload renaming fileName -> filename. The shim's hand-written
+    // saveOutput still sends the old spelling, which is exactly the drift that
+    // used to reach the handler as an undefined.
+    const shim = loadShim([
+      capability("media.saveOutput", "media:saveOutput", [
+        "url",
+        "filename",
+        "kind",
+      ]),
+    ]);
+    shim.respondWith({ ok: true });
+
+    await shim.api.media.saveOutput("https://x/y.png", "y.png", "image");
+
+    expect(shim.nativeMessages).toContainEqual({
+      type: "bridgeContractMismatch",
+      channel: "media:saveOutput",
+      unexpectedFields: ["fileName"],
+      expectedFields: ["url", "filename", "kind"],
+    });
+  });
+});
+
 describe("shim degrades loudly", () => {
   test("reports a refused capability to the native shell instead of failing silently", async () => {
     const shim = loadShim();

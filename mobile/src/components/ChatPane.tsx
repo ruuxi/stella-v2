@@ -3132,7 +3132,11 @@ export function ChatPane({
                     <Icon
                       name="x"
                       size={12}
-                      color={colors.accentForeground}
+                      // The button's scrim is a fixed dark wash (it sits over
+                      // arbitrary photo content), so the glyph has to be a
+                      // fixed light colour too — `accentForeground` inverts
+                      // with the theme and goes near-black in every dark one.
+                      color="#ffffff"
                       weight="bold"
                     />
                   </Pressable>
@@ -3634,6 +3638,9 @@ const makeStyles = (colors: Colors) =>
     },
 
     attachmentStrip: {
+      // `composerWrap` centres its children, which would shrink-wrap this row
+      // and centre the thumbnails; stretch so they start at the left edge.
+      alignSelf: "stretch",
       flexDirection: "row",
       gap: 8,
       paddingBottom: 10,

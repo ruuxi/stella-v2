@@ -459,6 +459,30 @@ export const handleSpawnAgent = async (
     };
   }
 
+  const workspace = toOptionalString(args.workspace);
+  if (
+    workspace &&
+    !/^(computer|drive|stella|project:[A-Za-z0-9._-]{1,64}|app:[a-z0-9-]{1,64})$/.test(
+      workspace,
+    )
+  ) {
+    return {
+      error:
+        "workspace must be one of computer, drive, stella, project:<name>, app:<slug>.",
+    };
+  }
+  // This handler only runs in the local runtime today, so any non-computer
+  // placement is undispatchable by construction — reject it before the agent
+  // exists rather than letting LocalAgentManager run it in the wrong place.
+  // The value still flows through AgentToolRequest so a future cloud
+  // AgentToolApi implementation can route the other placements.
+  if (workspace && workspace !== "computer") {
+    return {
+      error:
+        'Cloud workspaces (drive, project:*, stella, app:*) aren\'t dispatchable from this device yet — the cloud orchestrator handles those. Omit workspace or use "computer" to run it on this machine.',
+    };
+  }
+
   let modelSelection: SpawnModelSelection;
   try {
     modelSelection = parseSpawnAgentModel(args.model, (modelName) => {
@@ -538,6 +562,7 @@ export const handleSpawnAgent = async (
         ...(modelSelection.reasoningEffort
           ? { spawnReasoningEffort: modelSelection.reasoningEffort }
           : {}),
+        ...(workspace ? { workspace } : {}),
         rootRunId: context.rootRunId,
         agentDepth: nextAgentDepth,
         ...(typeof maxAgentDepth === "number" ? { maxAgentDepth } : {}),

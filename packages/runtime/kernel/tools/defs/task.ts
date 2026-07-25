@@ -49,6 +49,11 @@ export const createAgentTools = (
           description:
             "Optional model or engine for this one spawn. Omit (or pass `default`) to use the user's configured setup. A model reference (`stella/light`, `stella/max`, `anthropic/...`, `openrouter/<vendor>/<model>`) uses Stella's in-process engine even when Codex or Claude Code is selected globally. Use `codex` / `claude-code` for that engine's configured model, or `codex/<model>` / `claude-code/<model>` to pin one. Closed model/engine forms may add `:low`, `:medium`, `:high`, or `:xhigh` for a per-spawn reasoning override (for example `default:high`, `codex:xhigh`, or `stella/standard:medium`). Open-ended `openrouter/...`, `vercel-ai-gateway/...`, and `stella/<provider>/<model>` references keep colon segments verbatim, so effort suffixes are unavailable on those forms; use `default:<effort>` or an engine-native `codex...` / `claude-code...` form when unambiguous effort control is required. Use ONLY when the user explicitly asked for it or has a recorded standing preference; when in doubt, omit.",
         },
+        workspace: {
+          type: "string",
+          description:
+            "Optional. Choose by what the task operates on: `computer` = the user's local machine (files, apps, anything on this device); `drive` = the user's cloud drive (general file/document work with no local dependency); `project:<name>` = a connected dev repo; `stella` = Stella's own interior; `app:<slug>` = an existing mini app. Omit when the work has no file subject — it then runs wherever the orchestrator runs. Ambiguous new-file work defaults to `drive`.",
+        },
       },
       required: ["description", "prompt"],
     },

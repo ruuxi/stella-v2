@@ -2180,6 +2180,7 @@ export class LocalAgentManager implements AgentToolApi {
     threadId: string;
     activeThreads?: RuntimeThreadRecord[];
   }> {
+    // `request.workspace` is intentionally ignored: local execution implies the computer workspace.
     this.assertActiveParentChain(request);
     const controller = new AbortController();
     const resolvedThread =

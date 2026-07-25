@@ -147,6 +147,13 @@ export type AgentToolRequest = {
   spawnEngine?: SpawnEngineSelection;
   /** Per-spawn reasoning override parsed from model's `:<effort>` suffix. */
   spawnReasoningEffort?: SpawnReasoningEffort;
+  /**
+   * Subject-shaped placement from spawn_agent's `workspace` parameter:
+   * `computer`, `drive`, `stella`, `project:<name>`, or `app:<slug>`.
+   * The local runtime only ever forwards `computer` (or nothing); a cloud
+   * AgentToolApi implementation routes the remaining placements.
+   */
+  workspace?: string;
   /** Durable effective route inherited by a Manager from its Orchestrator. */
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   toolWorkspaceRoot?: string;

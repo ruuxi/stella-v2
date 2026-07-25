@@ -16,6 +16,7 @@ import { clearCachedToken } from "@/global/auth/services/auth-token";
 import { uiState } from "@/platform/ui-state";
 import type { LegalDocument } from "@/global/legal/legal-text";
 import { useT } from "@/shared/i18n";
+import { CloudEnginesCard } from "@/features/cloud/CloudEnginesCard";
 import { getSettingsErrorMessage } from "./shared";
 
 type AccountDeleteAction = "data" | "account";
@@ -229,6 +230,7 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
           </div>
         </div>
       </div>
+      <CloudEnginesCard />
       <div className="settings-card">
         <h3 className="settings-card-title">
           {t("settings.account.legal.title")}

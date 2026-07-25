@@ -67,6 +67,14 @@
   color: var(--text-weak, var(--muted-foreground));
 }
 
+/* Selected/active choice in a pill group (e.g. the cloud engine picker). */
+.pill-btn--active,
+.pill-btn--active[data-component="button"] {
+  color: var(--text-base, var(--foreground));
+  border-color: color-mix(in srgb, var(--foreground) 35%, transparent);
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
 /* Sizes ------------------------------------------------------------------- */
 
 .pill-btn--lg,

@@ -100,7 +100,7 @@ export function generateShimScript(
     return url.toString();
   }
 
-  function postBridgeJson(path, args) {
+  function postBridgeJson(path, args, channel) {
     return fetch(BRIDGE_URL + path, {
       method: 'POST',
       headers: {
@@ -110,35 +110,111 @@ export function generateShimScript(
     }).then(function(res) {
       if (!res.ok) {
         return res.json().catch(function() { return { error: 'Bridge error' }; }).then(function(err) {
-          throw new Error(err.error || 'Bridge error');
+          var message = err.error || 'Bridge error';
+          // 403 means the channel is not on the desktop's mobile allowlist;
+          // the denial prefix means the handler refused this specific call
+          // because the caller is the phone. Both are "needs your computer",
+          // not a transient failure, so surface them rather than let a caller
+          // swallow them into an empty state.
+          if (res.status === 403 || message.indexOf(REMOTE_VIEW_DENIAL_PREFIX) === 0) {
+            reportUnavailable(channel || path, message);
+          }
+          throw new Error(message);
         });
       }
       return res.json();
     });
   }
 
-  function postBridgeVoid(path, args) {
+  function postBridgeVoid(path, args, channel) {
     fetch(BRIDGE_URL + path, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ args: args }),
+    }).then(function(res) {
+      // Fire-and-forget still has to report a refusal: a send the desktop
+      // never allowed would otherwise vanish with no trace anywhere.
+      if (res && res.status === 403) { reportUnavailable(channel || path); }
     }).catch(function() {});
+  }
+
+  // ── Binary payloads ───────────────────────────────────────────────────
+  // Electron IPC uses structured clone, so desktop handlers hand back real
+  // Uint8Arrays (display:readFile returns file bytes). The bridge is JSON, so
+  // those have to be tagged and base64'd on the wire and rebuilt here —
+  // otherwise the desktop renderer receives a numeric-keyed plain object and
+  // calls like new TextDecoder().decode(bytes) throw, which apps swallow into
+  // an empty state. Kept in sync with the desktop's binary-codec.ts.
+
+  var BRIDGE_BINARY_TAG = '__stellaBridgeBinary';
+
+  function base64ToBytes(base64) {
+    var binary = atob(base64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) { bytes[i] = binary.charCodeAt(i); }
+    return bytes;
+  }
+
+  // Older desktops send bytes as {"0":137,"1":80,…}. Detect that shape so a
+  // current phone still gets a usable Uint8Array before the desktop updates.
+  // Restricted to the field that actually carries bytes, so an unrelated
+  // index-keyed payload is never silently rewritten into a typed array.
+  var LEGACY_BYTE_FIELD = 'bytes';
+
+  function isLegacyByteObject(value) {
+    var keys = Object.keys(value);
+    if (keys.length === 0) return false;
+    for (var i = 0; i < keys.length; i++) {
+      if (String(i) !== keys[i]) return false;
+      var byte = value[keys[i]];
+      if (typeof byte !== 'number' || byte < 0 || byte > 255) return false;
+    }
+    return true;
+  }
+
+  function reviveBridgeBinary(value, depth) {
+    depth = depth || 0;
+    if (depth > 8 || value === null || typeof value !== 'object') return value;
+
+    if (typeof value[BRIDGE_BINARY_TAG] === 'string') {
+      try { return base64ToBytes(value.data); } catch(e) { return value; }
+    }
+
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i++) {
+        value[i] = reviveBridgeBinary(value[i], depth + 1);
+      }
+      return value;
+    }
+
+    var keys = Object.keys(value);
+    for (var k = 0; k < keys.length; k++) {
+      var entry = value[keys[k]];
+      if (keys[k] === LEGACY_BYTE_FIELD && entry && typeof entry === 'object' &&
+          !Array.isArray(entry) && typeof entry[BRIDGE_BINARY_TAG] !== 'string' &&
+          isLegacyByteObject(entry)) {
+        value[keys[k]] = new Uint8Array(Object.values(entry));
+        continue;
+      }
+      value[keys[k]] = reviveBridgeBinary(entry, depth + 1);
+    }
+    return value;
   }
 
   // ── HTTP helpers ──────────────────────────────────────────────────────
 
   function invoke(channel) {
     var args = Array.prototype.slice.call(arguments, 1);
-    return postBridgeJson('/bridge/ipc/' + encodeURIComponent(channel), args).then(function(data) {
-      return data.result;
+    return postBridgeJson('/bridge/ipc/' + encodeURIComponent(channel), args, channel).then(function(data) {
+      return reviveBridgeBinary(data.result);
     });
   }
 
   function fire(channel) {
     var args = Array.prototype.slice.call(arguments, 1);
-    postBridgeVoid('/bridge/ipc/' + encodeURIComponent(channel), args);
+    postBridgeVoid('/bridge/ipc/' + encodeURIComponent(channel), args, channel);
   }
 
   // ── WebSocket ─────────────────────────────────────────────────────────
@@ -164,8 +240,9 @@ export function generateShimScript(
         if (msg.type === 'event' && msg.channel) {
           var listeners = subscriptions.get(msg.channel);
           if (listeners) {
+            var eventData = reviveBridgeBinary(msg.data);
             listeners.forEach(function(cb) {
-              try { cb(msg.data); } catch(e) { console.error('[bridge] Listener error:', e); }
+              try { cb(eventData); } catch(e) { console.error('[bridge] Listener error:', e); }
             });
           }
         }
@@ -174,7 +251,7 @@ export function generateShimScript(
           if (cb) {
             responseCallbacks.delete(msg.id);
             if (msg.error) cb.reject(new Error(msg.error));
-            else cb.resolve(msg.result);
+            else cb.resolve(reviveBridgeBinary(msg.result));
           }
         }
       } catch(e) {}
@@ -224,6 +301,24 @@ export function generateShimScript(
     return null;
   }
 
+  // ── Loud degradation ──────────────────────────────────────────────────
+  // Desktop-only capabilities must never fail silently. Callers that swallow
+  // a rejection (a caught error becoming an empty list) would otherwise render
+  // a false "nothing here" state that looks identical to real emptiness. Every
+  // such refusal is reported once to the native shell, which shows a visible
+  // "some things need your computer" notice above the mirrored UI.
+
+  // Matches REMOTE_VIEW_DENIAL_PREFIX in desktop display-handlers.ts.
+  var REMOTE_VIEW_DENIAL_PREFIX = 'Not available in phone view: ';
+  var reportedUnavailable = new Set();
+
+  function reportUnavailable(label, detail) {
+    if (reportedUnavailable.has(label)) return;
+    reportedUnavailable.add(label);
+    console.warn('[stella-bridge] Unavailable in phone view: ' + label + (detail ? ' (' + detail + ')' : ''));
+    postNativeMessage({ type: 'capabilityUnavailable', capability: label });
+  }
+
   function unsupportedCapabilityError(path) {
     var capability = null;
     for (var i = 0; i < bridgeCapabilities.length; i++) {
@@ -244,6 +339,7 @@ export function generateShimScript(
       channel = fallbackChannel;
     }
     if (!channel) {
+      reportUnavailable(path);
       return Promise.reject(unsupportedCapabilityError(path));
     }
     return invoke.apply(null, [channel].concat(args));
@@ -257,7 +353,7 @@ export function generateShimScript(
       channel = fallbackChannel;
     }
     if (!channel) {
-      console.warn(unsupportedCapabilityError(path).message);
+      reportUnavailable(path);
       return;
     }
     if (capability && capability.transport === 'invoke') {
@@ -276,7 +372,7 @@ export function generateShimScript(
       channel = fallbackChannel;
     }
     if (!channel) {
-      console.warn(unsupportedCapabilityError(path).message);
+      reportUnavailable(path);
       return noop;
     }
     return subscribe(channel, cb);
@@ -445,9 +541,13 @@ export function generateShimScript(
       resumeConversationExecution: function(p) { return invokeCapability('agent.resumeConversationExecution', 'agent:resume', p); },
       onStream: function(cb) { return subscribe('agent:event', cb); },
       onSelfModHmrState: function(cb) { return subscribe('agent:selfModHmrState', cb); },
-      selfModRevert: function(fid, steps) { return invoke('selfmod:revert', { featureId: fid, steps: steps }); },
-      getLastSelfModFeature: function() { return invoke('selfmod:lastFeature'); },
-      listSelfModFeatures: function(limit) { return invoke('selfmod:recentFeatures', { limit: limit }); },
+      // Self-mod is commit-scoped on the desktop; the handlers read
+      // payload.commitHash off channels named ":lastCommit"/":recentCommits".
+      // The older featureId/feature-channel spelling silently reverted by step
+      // count and subscribed to channels that do not exist.
+      selfModRevert: function(commitHash, steps) { return invoke('selfmod:revert', { commitHash: commitHash, steps: steps }); },
+      getLastSelfModFeature: function() { return invoke('selfmod:lastCommit'); },
+      listSelfModFeatures: function(limit) { return invoke('selfmod:recentCommits', { limit: limit }); },
       triggerViteError: function() { return resolved({ ok: false }); },
       fixViteError: function() { return resolved({ ok: false }); },
     },
@@ -489,7 +589,7 @@ export function generateShimScript(
       syncLocalModelPreferences: function(p) { return invokeCapability('system.syncLocalModelPreferences', 'preferences:setLocalModelPreferences', p); },
       listLlmCredentials: function() { return invokeCapability('system.listLlmCredentials', 'llmCredentials:list'); },
       saveLlmCredential: function(p) { return invokeCapability('system.saveLlmCredential', 'llmCredentials:save', p); },
-      deleteLlmCredential: function(p) { return invokeCapability('system.deleteLlmCredential', 'llmCredentials:delete', p); },
+      deleteLlmCredential: function(provider) { return invokeCapability('system.deleteLlmCredential', 'llmCredentials:delete', { provider: provider }); },
       resetMessages: function() { return invoke('app:resetLocalMessages'); },
       onCredentialRequest: function(cb) {
         return subscribe('credential:request', function(data) { cb(null, data); });
@@ -512,7 +612,7 @@ export function generateShimScript(
       collectData: function(o) { return invoke('discovery:collectBrowserData', o); },
       detectPreferred: function() { return invoke('discovery:detectPreferredBrowser'); },
       listProfiles: function(b) { return invoke('discovery:listBrowserProfiles', b); },
-      writeCoreMemory: function(c) { return invoke('discovery:writeCoreMemory', c); },
+      writeCoreMemory: function(content, options) { return invoke('discovery:writeCoreMemory', { content: content, includeLocation: !!(options && options.includeLocation) }); },
       writeKnowledge: function(p) { return invoke('discovery:writeKnowledge', p); },
       collectAllSignals: function(o) { return invoke('discovery:collectAllSignals', o); },
     },
@@ -521,8 +621,12 @@ export function generateShimScript(
 
     browser: {
       onBridgeStatus: function(cb) { return subscribe('browser:bridgeStatus', cb); },
-      fetchJson: function(url, init) { return invoke('browser:fetchJson', url, init); },
-      fetchText: function(url, init) { return invoke('browser:fetchText', url, init); },
+      // The desktop handlers destructure a single { url, init } payload (see
+      // preload.ts \`invokeBrowserFetch\`). Passing url/init positionally made
+      // payload.url undefined, which surfaced in apps as
+      // "Cannot read properties of undefined (reading 'trim')".
+      fetchJson: function(url, init) { return invoke('browser:fetchJson', { url: url, init: init }); },
+      fetchText: function(url, init) { return invoke('browser:fetchText', { url: url, init: init }); },
     },
 
     // ── Office preview ──────────────────────────────────────────────────
@@ -578,7 +682,7 @@ export function generateShimScript(
     // ── Media ────────────────────────────────────────────────────────────
 
     media: {
-      saveOutput: function(url, fn) { return invoke('media:saveOutput', url, fn); },
+      saveOutput: function(url, fn, kind) { return invoke('media:saveOutput', { url: url, fileName: fn, kind: kind }); },
       getStellaMediaDir: function() { return invoke('media:getStellaMediaDir'); },
     },
 

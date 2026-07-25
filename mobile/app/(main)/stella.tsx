@@ -72,7 +72,8 @@ type ScreenState =
 
 type ShimMessage =
   | { type: "openExternal"; url: string }
-  | { type: "connectionState"; connected: boolean };
+  | { type: "connectionState"; connected: boolean }
+  | { type: "capabilityUnavailable"; capability: string };
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -118,6 +119,12 @@ function readShimMessage(data: string): ShimMessage {
         "WebView connected flag is required.",
       );
       return { type: "connectionState", connected: value.connected };
+    case "capabilityUnavailable":
+      assert(
+        typeof value.capability === "string",
+        "WebView capability name is required.",
+      );
+      return { type: "capabilityUnavailable", capability: value.capability };
   }
   throw new Error(`Unknown WebView message type: ${value.type}`);
 }
@@ -195,6 +202,9 @@ function AuthenticatedStellaScreen() {
   }, []);
   const [canGoBack, setCanGoBack] = useState(false);
   const [bridgeConnected, setBridgeConnected] = useState(true);
+  // Desktop capabilities the mirrored UI asked for and could not have here.
+  // Tracked so the refusal is visible even when the caller swallowed it.
+  const [limitedCapabilities, setLimitedCapabilities] = useState<string[]>([]);
   const [preferredAccess, setPreferredAccess] =
     useState<StoredPhoneAccess | null>(null);
   const [isPairing, setIsPairing] = useState(false);
@@ -415,6 +425,13 @@ function AuthenticatedStellaScreen() {
     if (message.type === "connectionState") {
       setBridgeConnected(message.connected);
     }
+    if (message.type === "capabilityUnavailable") {
+      setLimitedCapabilities((current) =>
+        current.includes(message.capability)
+          ? current
+          : [...current, message.capability],
+      );
+    }
   };
 
   if (screenState.type === "loading") {
@@ -521,11 +538,17 @@ function AuthenticatedStellaScreen() {
             />
           </Pressable>
           <View style={styles.stellaBarStatus} pointerEvents="none">
-            {!bridgeConnected && (
+            {!bridgeConnected ? (
               <>
                 <ActivityIndicator size="small" color={colors.textMuted} />
                 <Text style={styles.reconnectText}>Reconnecting...</Text>
               </>
+            ) : (
+              limitedCapabilities.length > 0 && (
+                <Text style={styles.reconnectText} numberOfLines={1}>
+                  Some things need your computer
+                </Text>
+              )
             )}
           </View>
           <View style={styles.stellaBarBtn} />

@@ -37,6 +37,8 @@ const STREAM_FRAME_FALLBACK_MS = 50;
  * is settling, so queue progress never depends on UI frame delivery.
  */
 const STREAM_DRAIN_SAFETY_MS = 1200;
+/** Consumed code points tolerated at the head of the buffer before compaction. */
+const BUFFER_COMPACT_THRESHOLD = 4096;
 
 type StreamTextSmootherOptions = {
   appendText: (text: string) => void;
@@ -53,8 +55,26 @@ export function createStreamTextSmoother({
   appendText,
 }: StreamTextSmootherOptions): StreamTextSmoother {
   // Buffered code points awaiting reveal. Kept as an array so we never re-scan
-  // the whole pending string for surrogate pairs every frame.
+  // the whole pending string for surrogate pairs every frame. Consumed through
+  // a moving head index rather than by re-slicing: a reveal takes a small
+  // fraction of the buffer, so `pending.slice(take)` copied the entire
+  // remaining backlog every frame, which is worst exactly when the stream is
+  // furthest behind. The dead prefix is compacted away once it dominates.
   let pending: string[] = [];
+  let head = 0;
+  const remaining = () => pending.length - head;
+  const compact = () => {
+    if (head === 0) return;
+    // Drop the consumed prefix once it's most of the array, so a long reply
+    // can't grow `pending` without bound while `remaining()` stays small.
+    if (head === pending.length) {
+      pending = [];
+      head = 0;
+    } else if (head >= BUFFER_COMPACT_THRESHOLD && head * 2 >= pending.length) {
+      pending = pending.slice(head);
+      head = 0;
+    }
+  };
   let frame: ReturnType<typeof requestAnimationFrame> | null = null;
   let frameFallback: ReturnType<typeof setTimeout> | null = null;
   let scheduledFrameToken = 0;
@@ -83,7 +103,7 @@ export function createStreamTextSmoother({
   };
 
   const resolveDrainWaiters = () => {
-    if (pending.length > 0 || frame !== null || frameFallback !== null) return;
+    if (remaining() > 0 || frame !== null || frameFallback !== null) return;
     clearDrainGuard();
     const waiters = Array.from(drainWaiters);
     drainWaiters.clear();
@@ -94,9 +114,10 @@ export function createStreamTextSmoother({
   // Used by the drain safety timer when rAF is starved.
   const forceFlush = () => {
     clearFrame();
-    if (!cancelled && pending.length > 0) {
-      const rest = pending.join("");
+    if (!cancelled && remaining() > 0) {
+      const rest = pending.slice(head).join("");
       pending = [];
+      head = 0;
       appendText(rest);
     }
     resolveDrainWaiters();
@@ -107,7 +128,7 @@ export function createStreamTextSmoother({
       cancelled ||
       frame !== null ||
       frameFallback !== null ||
-      pending.length === 0
+      remaining() === 0
     ) {
       return;
     }
@@ -121,19 +142,23 @@ export function createStreamTextSmoother({
     // first invalidates the other so a single schedule can never append twice.
     if (token !== scheduledFrameToken) return;
     clearFrame();
-    if (cancelled || pending.length === 0) {
+    if (cancelled || remaining() === 0) {
       resolveDrainWaiters();
       return;
     }
 
     // Steady floor, scaling up so the current backlog clears within
     // STREAM_CATCH_UP_FRAMES — bursts catch up fast, trickles stay gentle.
-    const take = Math.max(
-      STREAM_MIN_CHARS_PER_FRAME,
-      Math.ceil(pending.length / STREAM_CATCH_UP_FRAMES),
+    const take = Math.min(
+      remaining(),
+      Math.max(
+        STREAM_MIN_CHARS_PER_FRAME,
+        Math.ceil(remaining() / STREAM_CATCH_UP_FRAMES),
+      ),
     );
-    const next = pending.slice(0, take).join("");
-    pending = pending.slice(take);
+    const next = pending.slice(head, head + take).join("");
+    head += take;
+    compact();
     appendText(next);
     schedule();
     resolveDrainWaiters();
@@ -147,7 +172,7 @@ export function createStreamTextSmoother({
       schedule();
     },
     drain() {
-      if (cancelled || pending.length === 0) {
+      if (cancelled || remaining() === 0) {
         clearFrame();
         clearDrainGuard();
         return Promise.resolve();
@@ -165,18 +190,20 @@ export function createStreamTextSmoother({
     },
     flushNow() {
       clearFrame();
-      if (cancelled || pending.length === 0) {
+      if (cancelled || remaining() === 0) {
         resolveDrainWaiters();
         return;
       }
-      const next = pending.join("");
+      const next = pending.slice(head).join("");
       pending = [];
+      head = 0;
       appendText(next);
       resolveDrainWaiters();
     },
     cancel() {
       cancelled = true;
       pending = [];
+      head = 0;
       clearFrame();
       resolveDrainWaiters();
     },

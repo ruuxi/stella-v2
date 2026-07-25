@@ -31,6 +31,19 @@ export const IDLE_WORKING_ACTIVITY: WorkingActivity = {
   hasToolActivity: false,
 };
 
+/**
+ * Every field of `WorkingActivity`, for callers that adopt a whole snapshot and
+ * need to compare it field-by-field against the live one. Declared alongside
+ * the type so adding a field here is the same edit as adding it there.
+ */
+export const WORKING_ACTIVITY_KEYS = [
+  "toolName",
+  "toolCallId",
+  "statusText",
+  "isStreamingText",
+  "hasToolActivity",
+] as const satisfies readonly (keyof WorkingActivity)[];
+
 export type WorkingIndicatorState = {
   /** Whether the indicator should be visible and animating. */
   active: boolean;

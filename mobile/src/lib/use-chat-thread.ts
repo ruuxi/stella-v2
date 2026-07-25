@@ -35,6 +35,7 @@ import {
 import {
   buildWorkingIndicatorState,
   IDLE_WORKING_ACTIVITY,
+  WORKING_ACTIVITY_KEYS,
   type WorkingActivity,
   type WorkingIndicatorState,
 } from "../components/working-indicator-state";
@@ -127,6 +128,9 @@ const OFFLINE_ARTIFACT_CONVERSATION_ID = "offline-chat";
  * bounded (there is no server-side agent loop for the offline responder).
  */
 const MAX_OFFLINE_TOOL_ROUNDS = 2;
+
+/** Quiet period after the last `messages` change before the transcript is written. */
+const PERSIST_DEBOUNCE_MS = 500;
 
 let lastLocalIdOrder = 0;
 const createId = () => {
@@ -307,6 +311,24 @@ export function useChatThread(opts: {
     });
   }, []);
 
+  // Adopt a whole activity snapshot. `patchActivity` only merges the fields a
+  // caller owns, so it can't clear one the snapshot dropped (a tool ending
+  // would leave its label pinned); this replaces every field instead.
+  //
+  // It carries the same bail-out, and needs it more: the desktop bridge
+  // re-emits a settled snapshot on EVERY streamed chunk, so committing a fresh
+  // object here re-rendered the whole chat surface at provider token rate —
+  // on top of the smoother's own per-frame text commit — for a value that
+  // stops changing after the first chunk of a run.
+  const replaceActivity = useCallback((next: WorkingActivity) => {
+    setWorkingActivity((current) => {
+      for (const key of WORKING_ACTIVITY_KEYS) {
+        if (!Object.is(current[key], next[key])) return next;
+      }
+      return current;
+    });
+  }, []);
+
   const queueRef = useRef<QueuedSend[]>([]);
   const acceptedDesktopSendIdsRef = useRef<Set<string>>(new Set());
   const stoppedDispatchIdsRef = useRef<Set<string>>(new Set());
@@ -412,16 +434,47 @@ export function useChatThread(opts: {
   // offline (cloud) chat also mirrors its messages into the SQLite FTS index
   // that backs recall (upserts are no-ops for unchanged rows).
   const pendingSaveRef = useRef<ChatMessage[] | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastMessageChangeAtRef = useRef(0);
   useEffect(() => {
     if (!storageLoaded) return;
     pendingSaveRef.current = messages;
-    const handle = setTimeout(() => {
-      pendingSaveRef.current = null;
-      void saveChatMessages(threadId, messages);
-      if (threadId === "cloud") void indexMessages(messages);
-    }, 500);
-    return () => clearTimeout(handle);
+    lastMessageChangeAtRef.current = Date.now();
+    // Still a trailing debounce — the write must stay off the hot path, since
+    // `saveChatMessages` JSON-stringifies the whole transcript — but armed
+    // once instead of re-armed per change. `messages` gets a new identity on
+    // every revealed frame, so the old clear/re-arm pair ran ~60x a second.
+    // If more text lands while the timer is out, it re-sleeps the remainder
+    // rather than writing early.
+    if (saveTimerRef.current !== null) return;
+    const arm = (delayMs: number) => {
+      saveTimerRef.current = setTimeout(() => {
+        const idleMs = Date.now() - lastMessageChangeAtRef.current;
+        if (idleMs < PERSIST_DEBOUNCE_MS) {
+          arm(PERSIST_DEBOUNCE_MS - idleMs);
+          return;
+        }
+        saveTimerRef.current = null;
+        const snapshot = pendingSaveRef.current;
+        if (!snapshot) return;
+        pendingSaveRef.current = null;
+        void saveChatMessages(threadId, snapshot);
+        if (threadId === "cloud") void indexMessages(snapshot);
+      }, delayMs);
+    };
+    arm(PERSIST_DEBOUNCE_MS);
   }, [messages, storageLoaded, threadId]);
+
+  // Drop the armed timer when the thread changes or the hook unmounts. The
+  // effect below flushes whatever it was going to write, so cancelling here
+  // loses nothing.
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current === null) return;
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    };
+  }, [threadId]);
 
   // Open the SQLite recall index once for the offline chat and backfill any
   // pre-existing AsyncStorage transcript so old messages are searchable.
@@ -1358,14 +1411,12 @@ export function useChatThread(opts: {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
             // The bridge already folded the tool/stream events into a settled
             // snapshot; adopt it wholesale so the indicator tracks the run.
-            setWorkingActivity({
-              ...(activity.toolName ? { toolName: activity.toolName } : {}),
-              ...(activity.toolCallId
-                ? { toolCallId: activity.toolCallId }
-                : {}),
-              ...(activity.statusText
-                ? { statusText: activity.statusText }
-                : {}),
+            // Falsy fields collapse to `undefined` so an absent tool compares
+            // equal across snapshots and the bail-out can hold.
+            replaceActivity({
+              toolName: activity.toolName || undefined,
+              toolCallId: activity.toolCallId || undefined,
+              statusText: activity.statusText || undefined,
               isStreamingText: activity.isStreamingText,
               hasToolActivity: activity.hasToolActivity,
             });
@@ -1568,6 +1619,7 @@ export function useChatThread(opts: {
       finishDispatch,
       markSending,
       patchActivity,
+      replaceActivity,
       persistSyncState,
       runDesktopSync,
     ],

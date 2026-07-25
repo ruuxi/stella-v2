@@ -106,3 +106,59 @@ describe("stream text smoother drain", () => {
     );
   });
 });
+
+describe("stream text smoother buffer", () => {
+  test("reveals a long backlog in order and exactly once", async () => {
+    // The buffer is consumed through a moving head index with periodic
+    // compaction rather than by re-slicing. Guards the off-by-one hazards that
+    // introduces: text must come out in order, whole, and without repeats,
+    // across enough frames to cross the compaction threshold.
+    await withRaf(
+      (cb) => setTimeout(() => cb(Date.now()), 0) as unknown as number,
+      (handle) =>
+        clearTimeout(handle as unknown as ReturnType<typeof setTimeout>),
+      async () => {
+        const input = Array.from({ length: 20000 }, (_, i) =>
+          String.fromCharCode(97 + (i % 26)),
+        ).join("");
+        let out = "";
+        const smoother = createStreamTextSmoother({
+          appendText: (t) => {
+            out += t;
+          },
+        });
+        // Push in bursts, as a provider would, so pushes interleave with
+        // reveals and the head index advances against a growing array.
+        for (let i = 0; i < input.length; i += 250) {
+          smoother.push(input.slice(i, i + 250));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        await smoother.drain();
+        expect(out).toBe(input);
+      },
+    );
+  });
+
+  test("splits surrogate pairs across frames without corrupting them", async () => {
+    await withRaf(
+      (cb) => setTimeout(() => cb(Date.now()), 0) as unknown as number,
+      (handle) =>
+        clearTimeout(handle as unknown as ReturnType<typeof setTimeout>),
+      async () => {
+        // Astral-plane glyphs are two code units each; the pacer reveals two
+        // code POINTS per frame, so a naive index would tear them.
+        const input = "🌊🔥🌱🪐✨🛰️🌗".repeat(40);
+        let out = "";
+        const smoother = createStreamTextSmoother({
+          appendText: (t) => {
+            out += t;
+          },
+        });
+        smoother.push(input);
+        await smoother.drain();
+        expect(out).toBe(input);
+        expect(out.includes("�")).toBe(false);
+      },
+    );
+  });
+});

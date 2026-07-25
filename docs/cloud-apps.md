@@ -12,12 +12,179 @@ storage, billing-plan lookup, quota enforcement, and failure alerts. Desktop,
 the standalone web interior, iOS, Android, and CarPlay all submit through the
 same `cloud_apps:startCloudChat` mutation and subscribe to the same tables.
 
-`stella-v2-cloud-builder-dev` is the authenticated execution plane. A
-`BuildSession` Durable Object owns each turn, starts a Cloudflare Sandbox
-container, invokes the headless Effect runtime, streams ordered callbacks to
-Convex, checkpoints/restores the workspace, uploads the production build to R2,
-and always writes one terminal event. Sandboxes receive a short-lived turn
-token, never provider or account credentials.
+`stella-v2-cloud-builder-dev` is the authenticated execution plane, with two
+Durable Object classes:
+
+- An `OrchestratorSession` DO per conversation runs the cloud orchestrator —
+  the real `packages/runtime` agent-core loop, delegation-only, no sandbox
+  ever. Every plain-chat turn costs tokens only. Its tool set is pinned in
+  code (`spawn_agent`, `send_input`, `pause_agent`, `web`); model calls go
+  through the managed relay authenticated by the per-turn token, so plan
+  gating and metering bill the owner with no new billing code.
+- A `BuildSession` DO owns sandbox turns. Legacy app-build turns keep the
+  M0–M6 pipeline. `kind: "agent"` turns run a spawned general agent: restore
+  the workspace checkpoint, run the real runtime headless via
+  `executor-cloud --agent-turn` (pinned tool list: exec_command, write_stdin,
+  node_repl, apply_patch, web, view_image), checkpoint, report. Sandboxes
+  receive a short-lived turn token, never provider or account credentials.
+
+## Cloud chat (orchestrator plane)
+
+`startCloudChat` routes by target: an app with registered operations enters
+the ops lane, an explicit/inferred app target or a "make/build/create an app"
+prompt enters the legacy build lane, and **everything else is plain chat** —
+a `kind: "chat"` turn dispatched to
+`POST /conversations/:conversationId/turns` on the builder.
+
+Canonical state is Convex, always:
+
+- `cloud_messages` — the conversation transcript, one row per AgentMessage,
+  ordered by `seq`. Spawned-agent threads keep their own transcript in the
+  same table with `conversationId = threadId`. The DO reloads history from
+  `GET /api/cloud/context` at every turn start and writes produced messages
+  back at turn end; the DO is an in-flight buffer, never canonical.
+- `cloud_turn_tokens` — SHA-256 hashes of per-turn tokens (30-minute TTL,
+  purged by cron). The raw token authenticates (a) relay model calls via the
+  `x-stella-turn-token` header (the relay resolves it to the owner and bills
+  them — `stella_provider/authorization.ts`), and (b) `/api/cloud/events`,
+  `/api/cloud/messages`, `/api/cloud/threads/complete`, and
+  `/api/cloud/web-search`, scoped to the token's turn.
+- `cloud_agent_threads` — one row per spawned agent. On terminal state,
+  `completeAgentThreadInternal` wakes the orchestrator with a **visible**
+  `lane: "wake"` turn carrying the agent's report as a lifecycle message.
+  The wake turn is the only place the orchestrator's relay of the result
+  exists, so the UI renders it (assistant side only — its prompt is
+  lifecycle plumbing, and `CloudChatTail` skips the user bubble for lane
+  `"wake"`); spawned-agent turns themselves stay `hidden`. Thread status is
+  also the concurrency source of truth: `spawnCloudAgentInternal` counts
+  running threads against the plan's concurrent-agent quota and rejects a
+  spawn into a workspace that already has a running agent — checkpoints are
+  last-writer-wins per (owner, workspace), so same-workspace concurrency
+  would silently lose work.
+
+Spawn placement is the `workspace` argument (`drive`, `computer`,
+`project:<name>`, `stella`, `app:<slug>`). Honest v1 limits, enforced with
+readable errors: only `drive` is dispatchable; `computer` from cloud chat
+explains the machine is not reachable; the rest answer "coming next".
+Workspace persistence is a Sandbox backup per (owner, workspace) whose
+descriptor lives in KV under `ws:<sha256(owner:workspace)>` — sandbox disk is
+a cache, the checkpoint is truth. A failed checkpoint is retried once, then
+surfaced: a `checkpoint_failed` event plus an explicit warning appended to
+the agent's report, never a silent "completed". Chat-turn events stream with
+`seq: "auto"` (Convex assigns max+1); build-lane turns keep explicit DO-side
+seqs, but **terminal** cancel/timeout events always use `seq: "auto"` —
+fixed sentinels collide with auto-seq streams and Convex would drop the
+terminal patch. Idempotency comes from Convex rejecting events after the
+first terminal one.
+
+Operational contracts (hardened 2026-07-24 after adversarial review):
+
+- **Async dispatch.** Chat and agent turns are accepted with `202` and run
+  detached in the DO. Convex's dispatch action only fails a turn when the
+  dispatch itself fails; outcomes travel exclusively through event/thread
+  callbacks, so a mid-turn transport blip can no longer mark a running turn
+  failed and swallow its result. Accepted turns are durable before the 202:
+  BuildSession persists turn + watchdog alarm first; OrchestratorSession
+  persists queued turns under `queued:*` (its constructor re-enqueues them
+  after an isolate restart, an alarm is always pending as the wake signal,
+  and a turn interrupted mid-run gets a failed terminal on recovery). The
+  detached agent turn fences every shared-state mutation on stored-turnId
+  ownership, so a stale unwind can never fail a successor's thread, kill its
+  alarm, or wipe its state.
+- **Watchdogs abort — and terminal delivery retries.** Both DO alarms mark
+  the turn terminal *and* abort the in-flight loop / destroy the sandbox —
+  no post-timeout token burn (the orchestrator also re-checks the terminal
+  flag right before starting the loop, covering an alarm that fires during
+  setup). Terminal event + thread completion are retried via re-armed alarms
+  (5×30 s) rather than fired once and forgotten, with a reconcile pass so
+  the timeout backstop never races a turn that completed in the same
+  instant; cancel paths arm the same retry on delivery failure, and the
+  spawn gate ignores running threads older than 1 h as a bounded-lockout
+  backstop.
+- **Context budget.** Both loops prune loaded history to a ~48k-token newest
+  window cut at a `user`-message boundary
+  (`@stella/executor-cloud/prune-history`), so a long conversation degrades
+  gracefully instead of bricking on context overflow. Real compaction stays
+  a named seam.
+- **Transcript writes are lane-scoped.** A turn token appends only to its
+  own transcript: spawned-agent turns to their thread
+  (`conversationId = threadId`), orchestrator turns to their conversation —
+  a sandbox can never forge rows into the parent user conversation. The same
+  binding applies to `/api/cloud/threads/complete`: a token completes only
+  the thread its turn belongs to. Appends are batched ≤ 50 rows per request
+  on both writers, each batch retried once (multi-batch persist is retried,
+  not transactional).
+- **Relay model pin.** Turn-token-authenticated relay requests may pin
+  exactly the ids in `CLOUD_EXECUTOR_PINNED_MODEL_IDS`
+  (`convex/agent/model.ts`) for every audience — free/go included — because
+  the pin comes from platform code and the executor's anthropic-messages
+  adapter cannot follow an audience coercion; limits and metering still
+  bill the owner.
+- **Quota lanes.** Build-lane daily/concurrency gates count only lanes
+  `build`/`auto`/legacy-unset, read through the per-lane index
+  `by_ownerId_and_lane_and_createdAt` (a mixed-lane window is defeatable:
+  chat rows outnumber builds up to 20× and crowd them out of any fixed
+  `take()`); chat, wake, and agent turns draw from their own budgets.
+  Metering: the pinned executor model is listed in
+  `ADDITIONAL_MANAGED_MODEL_IDS` so price sync covers it, and the turn token
+  is stripped from headers forwarded upstream.
+
+### Cloud engines (user subscriptions)
+
+Desktop's engine choice (Stella runtime / Claude Code / Codex, backed by
+keychain-stored OAuth tokens) now has a cloud counterpart. Credentials live
+in `cloud_llm_credentials` — AES-256-GCM encrypted with the server-held
+`CLOUD_LLM_CREDENTIALS_KEY` env var — and are the durable login that
+survives across sandbox instances. Tokens are never returned to clients,
+never enter a DO or sandbox, and refresh server-side (`cloud_engines.ts`
+`resolveEngineAccess`, called by the relay, persists rotated tokens).
+
+- **Connect (web-friendly, paste-based):** `startEngineConnect` mints PKCE
+  server-side and returns only the authorize URL; the user approves in their
+  browser and pastes the code (Claude) or the full localhost redirect URL
+  (ChatGPT — the page won't load, the address bar still carries the code)
+  into `finishEngineConnect`, which exchanges and stores it. UI:
+  `CloudEnginesCard` on the Settings → Account tab (works in the web/mobile
+  interior — no Electron needed).
+- **Selection:** per-owner `cloud_engine_settings.chatEngine`
+  (`stella` | `anthropic`), resolved once at dispatch
+  (`resolveOwnerEngine` in `cloud_apps.ts`) for chat, wake, and agent
+  turns; the cloud `spawn_agent` also takes a per-spawn
+  `model: "claude" | "claude/<model>"` override, validated at spawn time
+  with readable errors when no credential is connected.
+- **Relay user-credential mode:** the DO/executor adds
+  `x-stella-llm-credential: anthropic` (flag only) next to the turn token;
+  the relay resolves the owner's stored token, forwards with Bearer auth
+  plus the Claude Code identity headers/system block Anthropic requires for
+  subscription tokens, and **skips managed gating and metering** — the
+  spend is the user's subscription. The header is stripped before any
+  upstream forward on the managed path.
+- **Honest limits:** `openai-codex` credentials can be connected and stored
+  (login persistence is ready), but Codex-backed cloud turns and the actual
+  external CLI harnesses (Claude Code / Codex binaries in the sandbox image,
+  brokered via the outbound proxy) are named follow-ups — selection is
+  refused with readable errors until then.
+
+Engine dev probes: `cloud_engines:connectProbeInternal` (key + authorize URL
+construction), `seedEngineProbeInternal` / `resolveEngineProbeInternal` /
+`clearEngineProbeInternal` (fake-credential pipeline exercise; booleans only,
+never token material).
+
+Dev probes (no signed-in client needed):
+
+```sh
+cd convex
+bunx convex run cloud_apps:startChatProbeInternal '{"prompt":"...","ownerId":"<owner tokenIdentifier>"}'
+bunx convex run cloud_apps:getTurnProbeInternal '{"turnId":"<turnId>"}'
+```
+
+Verified 2026-07-24 end to end on dev (post-hardening): plain chat replies
+in ~2.3 s for a **free-audience** owner (pinned relay model honored); a
+spawn turn wrote a drive file, checkpointed, and woke the orchestrator with
+a **visible** wake turn carrying the relay; a 75 s agent turn completed
+through the detached 202 dispatch; a concurrent same-workspace spawn and a
+continuation into a running thread were both rejected with the readable
+errors above.
 
 `stella-v2-apps-host-dev` is the app data plane. A KV record maps an app slug to
 an immutable R2 artifact prefix. `index.html` is served without caching; hashed

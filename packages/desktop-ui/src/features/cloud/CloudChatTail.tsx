@@ -74,6 +74,8 @@ const workingLabel = (kind?: string): string => {
       return "Finishing up…";
     case "op_selected":
       return "Making the change…";
+    case "tool_call":
+      return "Working on it…";
     default:
       return "Thinking…";
   }
@@ -269,20 +271,47 @@ function CloudTurnRows({ turns, apps }: { turns: CloudTurn[]; apps: CloudApp[] }
           typeof completed?.payload.buildId === "string"
             ? completed.payload.buildId
             : null;
-        const app = appById.get(turn.appId);
+        const app = turn.appId ? appById.get(turn.appId) : undefined;
+        // Chat-lane turns stream assistant text as events and finish with the
+        // final reply in the completed payload.
+        const latestAssistantText = [...turn.events]
+          .reverse()
+          .find(
+            (event) =>
+              event.kind === "assistant_message" &&
+              typeof event.payload.text === "string",
+          )?.payload.text as string | undefined;
+        const chatReply =
+          typeof completed?.payload.text === "string"
+            ? (completed.payload.text as string)
+            : latestAssistantText;
+        // Wake turns carry the orchestrator's relay of a finished agent's
+        // report; their prompt is the lifecycle message, not something the
+        // user typed — render the assistant side only.
+        const isWake = turn.lane === "wake";
         return (
           <div className="cloud-tail__turn" key={turn.turnId}>
-            <div className="event-row">
-              <div className="event-item user">
-                <span className="cloud-tail__text">{turn.prompt}</span>
+            {isWake ? null : (
+              <div className="event-row">
+                <div className="event-item user">
+                  <span className="cloud-tail__text">{turn.prompt}</span>
+                </div>
               </div>
-            </div>
+            )}
             <div className="event-row">
               <div className="event-item assistant">
                 {turn.status === "running" ? (
-                  <span className="cloud-tail__working">
-                    {workingLabel(latest?.kind)}
-                  </span>
+                  latestAssistantText ? (
+                    <span className="cloud-tail__text">
+                      {latestAssistantText}
+                    </span>
+                  ) : (
+                    <span className="cloud-tail__working">
+                      {workingLabel(latest?.kind)}
+                    </span>
+                  )
+                ) : turn.status === "completed" && chatReply ? (
+                  <span className="cloud-tail__text">{chatReply}</span>
                 ) : operation ? (
                   <div className="cloud-tail__outcome">
                     <span>{operationOutcome(operation)}</span>
@@ -369,11 +398,20 @@ export function useCloudChat(base: ChatColumnComposer): {
     const terminal = turns.findLast(
       (turn) =>
         turn.status === "completed" &&
+        turn.hidden !== true &&
         !spokenTerminalTurns.current.has(turn.turnId),
     );
     if (!terminal) return;
     spokenTerminalTurns.current.add(terminal.turnId);
-    speakCarPlayReply("All set. Your app is ready.");
+    const completedEvent = terminal.events.find(
+      (event) => event.kind === "completed",
+    );
+    const reply =
+      terminal.kind === "chat" &&
+      typeof completedEvent?.payload.text === "string"
+        ? (completedEvent.payload.text as string).slice(0, 400)
+        : "All set. Your app is ready.";
+    speakCarPlayReply(reply);
   }, [turns]);
 
   const composer = useMemo<ChatColumnComposer>(() => {
@@ -392,9 +430,12 @@ export function useCloudChat(base: ChatColumnComposer): {
 
   const visibleTurns = useMemo(() => {
     if (!turns?.length) return [] as CloudTurn[];
-    if (cloudComposer) return turns.slice(-10);
+    // Spawned-agent turns are context, not chat; wake turns stay visible —
+    // they are the only turns carrying a finished agent's report.
+    const visible = turns.filter((turn) => turn.hidden !== true);
+    if (cloudComposer) return visible.slice(-10);
     const cutoff = Date.now() - RECENT_WINDOW_MS;
-    return turns
+    return visible
       .filter((turn) => turn.status === "running" || turn.updatedAt >= cutoff)
       .slice(-10);
   }, [turns, cloudComposer]);

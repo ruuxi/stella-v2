@@ -1280,8 +1280,11 @@ function extractAccountId(token: string): string {
 }
 
 function createCodexRequestId(): string {
-	if (typeof globalThis.crypto?.randomUUID === "function") {
-		return globalThis.crypto.randomUUID();
+	// Property access via a cast: workers-types declares `crypto` as a global
+	// `const`, which never appears on `typeof globalThis`.
+	const webCrypto = (globalThis as { crypto?: Crypto }).crypto;
+	if (typeof webCrypto?.randomUUID === "function") {
+		return webCrypto.randomUUID();
 	}
 	return `codex_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }

@@ -38,7 +38,7 @@ const isManagedStellaRelayBaseUrl = (baseUrl: string): boolean => {
 
 const newRelayRequestId = (): string =>
 	`stella-relay-${
-		globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+		(globalThis as { crypto?: Crypto }).crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 	}`;
 
 /**
@@ -123,7 +123,7 @@ export const streamOpenAIResponses: StreamFunction<"openai-responses", OpenAIRes
 			// closures and their independent deadline can exceed Stella's bounded
 			// reconnect window. The resilience wrapper below owns both phases.
 			const idempotencyKey = `stella-response-${
-				globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+				(globalThis as { crypto?: Crypto }).crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 			}`;
 			const proposedRelayRequestId = isManagedStellaRelayBaseUrl(model.baseUrl) ? newRelayRequestId() : undefined;
 			const requestOptions = (signal?: AbortSignal, initializeRelay = false) => ({

@@ -73,7 +73,8 @@ type ScreenState =
 type ShimMessage =
   | { type: "openExternal"; url: string }
   | { type: "connectionState"; connected: boolean }
-  | { type: "capabilityUnavailable"; capability: string };
+  | { type: "capabilityUnavailable"; capability: string }
+  | { type: "bridgeContractMismatch"; channel: string };
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -125,6 +126,12 @@ function readShimMessage(data: string): ShimMessage {
         "WebView capability name is required.",
       );
       return { type: "capabilityUnavailable", capability: value.capability };
+    case "bridgeContractMismatch":
+      assert(
+        typeof value.channel === "string",
+        "WebView channel name is required.",
+      );
+      return { type: "bridgeContractMismatch", channel: value.channel };
   }
   throw new Error(`Unknown WebView message type: ${value.type}`);
 }
@@ -424,6 +431,15 @@ function AuthenticatedStellaScreen() {
     }
     if (message.type === "connectionState") {
       setBridgeConnected(message.connected);
+    }
+    if (message.type === "bridgeContractMismatch") {
+      // The shim and the desktop disagree about a channel's payload. The call
+      // still went out, so this is a defect signal rather than something to
+      // put in front of the user; the parity tests are what should have caught
+      // it, and this is the net underneath them.
+      console.error(
+        `[stella-bridge] Payload contract mismatch on ${message.channel}`,
+      );
     }
     if (message.type === "capabilityUnavailable") {
       setLimitedCapabilities((current) =>

@@ -3,7 +3,6 @@ import { hashSha256Hex } from "./lib/crypto_utils";
 export const STELLA_PROMPT_SCHEMA_VERSION = 2 as const;
 export const STELLA_PROMPT_IDS = [
   "agents/orchestrator.md",
-  "agents/manager.md",
   "agents/general.md",
   "agents/schedule.md",
   "agents/fashion.md",

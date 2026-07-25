@@ -104,17 +104,28 @@ describe("Stella prompt defaults", () => {
     expect(agentPrompts).toContain("Vite + React");
   });
 
-  it("teaches the Manager to use report as its only upward channel", () => {
-    const manager = STELLA_PROMPT_DEFAULTS.prompts.find(
-      (prompt) => prompt.id === "agents/manager.md",
+  it("no longer publishes the retired Manager prompt", () => {
+    expect(
+      STELLA_PROMPT_DEFAULTS.prompts.some(
+        (prompt) => prompt.id === "agents/manager.md",
+      ),
+    ).toBe(false);
+    // Routing sends iterative multi-round work to a General agent that runs
+    // its own subagents, so no prompt may still reach for spawn_manager.
+    const orchestrator = STELLA_PROMPT_DEFAULTS.prompts.find(
+      (prompt) => prompt.id === "agents/orchestrator.md",
     )?.content;
-    expect(manager).toBeDefined();
-    expect(manager).toMatch(/`report` is your only upward channel/);
-    expect(manager).toMatch(/final: false.*sparingly/s);
-    expect(manager).toMatch(/blockers, questions.*progress updates/s);
-    expect(manager).toMatch(/assistant responses.*private.*never reach/s);
-    expect(manager).toMatch(/final: true.*exactly once/s);
-    expect(manager).toMatch(/complete terminal deliverable.*message/s);
+    expect(orchestrator).toBeDefined();
+    expect(orchestrator).not.toContain("spawn_manager");
+    expect(orchestrator).toMatch(
+      /a General agent can run its own subagents/,
+    );
+    expect(orchestrator).toMatch(
+      /subagents' reports route to it, not to you/,
+    );
+    for (const prompt of STELLA_PROMPT_DEFAULTS.prompts) {
+      expect(prompt.content).not.toContain("spawn_manager");
+    }
   });
 
   it("validates the publish set all-or-nothing and derives its revision", async () => {

@@ -1,6 +1,7 @@
 import {
   AGENT_MODELS,
   canOverrideStellaModel,
+  CLOUD_EXECUTOR_PINNED_MODEL_IDS,
   getModeConfig,
   getModelConfig,
   isModelMode,
@@ -292,6 +293,16 @@ export const resolveStellaModelConfigForSelection = (
   selection: string | null | undefined,
   agentType: string,
   audience: ManagedModelAudience = "free",
+  options?: {
+    /**
+     * The request was authenticated by a cloud turn token, i.e. the pin was
+     * chosen by Stella's own executor code, not a user client. Honors the
+     * ids in `CLOUD_EXECUTOR_PINNED_MODEL_IDS` for every audience —
+     * restricted tiers included — because the executor's adapter cannot
+     * follow an audience coercion to a different provider's request shape.
+     */
+    trustedExecutorPin?: boolean;
+  },
 ): { config: ModelConfig; applied: boolean } => {
   const trimmed = selection?.trim();
   const parsed =
@@ -303,7 +314,9 @@ export const resolveStellaModelConfigForSelection = (
     parsed !== null &&
     parsed.kind !== "default" &&
     !LOCKED_AGENT_TYPES.has(agentType) &&
-    isStellaModelAllowedForAudience(trimmed, audience);
+    (isStellaModelAllowedForAudience(trimmed, audience) ||
+      (options?.trustedExecutorPin === true &&
+        CLOUD_EXECUTOR_PINNED_MODEL_IDS.has(trimmed)));
 
   if (allowed && parsed?.kind === "mode") {
     return { config: getModeConfig(parsed.mode, audience), applied: true };

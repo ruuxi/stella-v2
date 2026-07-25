@@ -178,6 +178,11 @@ const cloneForwardHeaders = (
       lower === "x-stella-relay" ||
       lower.startsWith("x-stella-relay-") ||
       lower === "x-stella-agent-type" ||
+      // The live turn token grants owner-billed relay calls and transcript
+      // appends until its TTL — it must never reach an upstream provider.
+      lower === "x-stella-turn-token" ||
+      // Internal engine-credential selector; meaningless (and leaky) upstream.
+      lower === "x-stella-llm-credential" ||
       lower === "host" ||
       lower === "content-length"
     ) {
@@ -201,6 +206,63 @@ const cloneForwardHeaders = (
   }
 
   return headers;
+};
+
+/**
+ * Headers for a turn running on the owner's Claude subscription: Bearer OAuth
+ * auth plus the Claude Code identity headers Anthropic requires for
+ * subscription tokens (mirrors packages/runtime/ai/providers/anthropic.ts,
+ * OAuth branch — including its pinned claude-cli version).
+ */
+const userCredentialForwardHeaders = (
+  request: Request,
+  authorized: AuthorizedStellaRequest,
+): Headers => {
+  const headers = cloneForwardHeaders(request, "anthropic", "");
+  headers.delete("x-api-key");
+  headers.set(
+    "authorization",
+    `Bearer ${authorized.userCredential!.accessToken}`,
+  );
+  const incomingBetas = request.headers
+    .get("anthropic-beta")
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const betas = new Set([
+    "claude-code-20250219",
+    "oauth-2025-04-20",
+    ...(incomingBetas ?? []),
+  ]);
+  headers.set("anthropic-beta", Array.from(betas).join(","));
+  headers.set("user-agent", "claude-cli/2.1.75");
+  headers.set("x-app", "cli");
+  return headers;
+};
+
+/**
+ * Subscription (OAuth) tokens require the Claude Code identity as the first
+ * system block; without it Anthropic rejects the request. The cloud runtime
+ * builds relay-shaped bodies with Stella's own system prompt, so the relay
+ * prepends the identity when forwarding in user-credential mode.
+ */
+const CLAUDE_CODE_IDENTITY =
+  "You are Claude Code, Anthropic's official CLI for Claude.";
+
+const withClaudeCodeIdentity = (
+  body: Record<string, unknown>,
+): Record<string, unknown> => {
+  const identityBlock = { type: "text", text: CLAUDE_CODE_IDENTITY };
+  const system = body.system;
+  if (typeof system === "string") {
+    return { ...body, system: [identityBlock, { type: "text", text: system }] };
+  }
+  if (Array.isArray(system)) {
+    const first = system[0] as { text?: unknown } | undefined;
+    if (first && first.text === CLAUDE_CODE_IDENTITY) return body;
+    return { ...body, system: [identityBlock, ...system] };
+  }
+  return { ...body, system: [identityBlock] };
 };
 
 export const upstreamUrl = (
@@ -595,6 +657,10 @@ export const bodyForUpstream = (
       ...streamOptions,
       include_usage: true,
     };
+  }
+
+  if (authorized.userCredential?.provider === "anthropic") {
+    return JSON.stringify(withClaudeCodeIdentity(body));
   }
 
   return JSON.stringify(body);
@@ -1245,11 +1311,9 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
         upstreamUrl(relayProvider, request, authorized.upstreamModel),
         {
           method: "POST",
-          headers: cloneForwardHeaders(
-            request,
-            relayProvider,
-            authorized.apiKey,
-          ),
+          headers: authorized.userCredential
+            ? userCredentialForwardHeaders(request, authorized)
+            : cloneForwardHeaders(request, relayProvider, authorized.apiKey),
           body: bodyForUpstream(authorized, relayProvider, request),
           ...(upstreamController ? { signal: upstreamController.signal } : {}),
         },
@@ -1262,15 +1326,19 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
           )
         : "not_found";
       console.error("[stella-provider] Relay fetch failed:", error);
-      await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
-        ownerId: authorized.ownerId,
-        agentType: authorized.agentType,
-        model: authorized.resolvedModel,
-        durationMs: Date.now() - startedAt,
-        success: false,
-        inputTokens: authorized.tokenEstimate.inputTokens,
-        outputTokens: authorized.tokenEstimate.outputTokens,
-      });
+      // User-credential turns spend the owner's subscription, not managed
+      // gateway budget — never meter them.
+      if (!authorized.userCredential) {
+        await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
+          ownerId: authorized.ownerId,
+          agentType: authorized.agentType,
+          model: authorized.resolvedModel,
+          durationMs: Date.now() - startedAt,
+          success: false,
+          inputTokens: authorized.tokenEstimate.inputTokens,
+          outputTokens: authorized.tokenEstimate.outputTokens,
+        });
+      }
       if (relayStatus === "canceled") {
         return stellaProviderErrorResponse(
           499,
@@ -1329,15 +1397,17 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
           },
         );
       }
-      await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
-        ownerId: authorized.ownerId,
-        agentType: authorized.agentType,
-        model: authorized.resolvedModel,
-        durationMs: Date.now() - startedAt,
-        success: upstreamResponse.ok,
-        inputTokens: authorized.tokenEstimate.inputTokens,
-        outputTokens: authorized.tokenEstimate.outputTokens,
-      });
+      if (!authorized.userCredential) {
+        await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
+          ownerId: authorized.ownerId,
+          agentType: authorized.agentType,
+          model: authorized.resolvedModel,
+          durationMs: Date.now() - startedAt,
+          success: upstreamResponse.ok,
+          inputTokens: authorized.tokenEstimate.inputTokens,
+          outputTokens: authorized.tokenEstimate.outputTokens,
+        });
+      }
       return new Response(null, {
         status: upstreamResponse.status,
         statusText: upstreamResponse.statusText,
@@ -1599,27 +1669,34 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
                 })
               : undefined;
             const finalRelayStatus: string = relayStatus;
-            await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
-              ownerId: authorized.ownerId,
-              agentType: authorized.agentType,
-              model,
-              durationMs: Date.now() - startedAt,
-              success:
-                upstreamResponse.ok &&
-                (!relayRequestId ||
-                  !["upstream_eof", "truncated", "canceled"].includes(
-                    finalRelayStatus,
-                  )),
-              inputTokens:
-                usage?.inputTokens ?? authorized.tokenEstimate.inputTokens,
-              outputTokens:
-                usage?.outputTokens ?? authorized.tokenEstimate.outputTokens,
-              totalTokens: usage?.totalTokens,
-              cachedInputTokens: usage?.cachedInputTokens,
-              cacheWriteInputTokens: usage?.cacheWriteInputTokens,
-              reasoningTokens: usage?.reasoningTokens,
-              costMicroCents,
-            });
+            if (!authorized.userCredential) {
+              await ctx.scheduler.runAfter(
+                0,
+                internal.billing.logManagedUsage,
+                {
+                  ownerId: authorized.ownerId,
+                  agentType: authorized.agentType,
+                  model,
+                  durationMs: Date.now() - startedAt,
+                  success:
+                    upstreamResponse.ok &&
+                    (!relayRequestId ||
+                      !["upstream_eof", "truncated", "canceled"].includes(
+                        finalRelayStatus,
+                      )),
+                  inputTokens:
+                    usage?.inputTokens ?? authorized.tokenEstimate.inputTokens,
+                  outputTokens:
+                    usage?.outputTokens ??
+                    authorized.tokenEstimate.outputTokens,
+                  totalTokens: usage?.totalTokens,
+                  cachedInputTokens: usage?.cachedInputTokens,
+                  cacheWriteInputTokens: usage?.cacheWriteInputTokens,
+                  reasoningTokens: usage?.reasoningTokens,
+                  costMicroCents,
+                },
+              );
+            }
           } catch (error) {
             console.error("[stella-provider] Relay stream failed:", {
               relayRequestId,
@@ -1634,15 +1711,21 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
                 ? "truncated"
                 : "upstream_eof",
             ).catch(() => undefined);
-            await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
-              ownerId: authorized.ownerId,
-              agentType: authorized.agentType,
-              model: authorized.resolvedModel,
-              durationMs: Date.now() - startedAt,
-              success: false,
-              inputTokens: authorized.tokenEstimate.inputTokens,
-              outputTokens: authorized.tokenEstimate.outputTokens,
-            });
+            if (!authorized.userCredential) {
+              await ctx.scheduler.runAfter(
+                0,
+                internal.billing.logManagedUsage,
+                {
+                  ownerId: authorized.ownerId,
+                  agentType: authorized.agentType,
+                  model: authorized.resolvedModel,
+                  durationMs: Date.now() - startedAt,
+                  success: false,
+                  inputTokens: authorized.tokenEstimate.inputTokens,
+                  outputTokens: authorized.tokenEstimate.outputTokens,
+                },
+              );
+            }
           } finally {
             if (downstreamOpen) {
               try {

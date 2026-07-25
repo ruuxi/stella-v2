@@ -21,6 +21,7 @@ import { canvasSharesSchema } from "./schema/canvas_shares";
 import { promptsSchema } from "./schema/prompts";
 import { relayResumeSchema } from "./schema/relay_resume";
 import { cloudAppsSchema } from "./schema/cloud_apps";
+import { cloudEnginesSchema } from "./schema/cloud_engines";
 
 export default defineSchema({
   ...conversationsSchema,
@@ -45,4 +46,5 @@ export default defineSchema({
   ...promptsSchema,
   ...relayResumeSchema,
   ...cloudAppsSchema,
+  ...cloudEnginesSchema,
 });

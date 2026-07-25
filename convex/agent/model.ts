@@ -383,6 +383,18 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
   new Set<string>(["stella/standard", "stella/light"]);
 
+/**
+ * Model ids Stella's own cloud executors pin (the orchestrator DO and the
+ * sandbox agent — see `packages/executor-cloud/src/relay-model.ts`). Their
+ * loops speak anthropic-messages only, so an audience coercion to a
+ * non-Anthropic default would break every restricted-tier (free/go) chat
+ * turn. Requests authenticated by a turn token may pin exactly these ids
+ * regardless of audience: the pin comes from platform code, not a user
+ * client, and usage limits + metering still bill the resolved owner.
+ */
+export const CLOUD_EXECUTOR_PINNED_MODEL_IDS: ReadonlySet<string> =
+  new Set<string>(["stella/anthropic/claude-sonnet-4.6"]);
+
 export const isStellaModelAllowedForAudience = (
   modelId: string,
   audience: ManagedModelAudience,
@@ -666,7 +678,14 @@ export function isModelMode(value: string): value is ModelMode {
 // currently the default for any mode or agent task. Prefer putting models
 // behind a mode/task selection when they are catalog defaults (e.g. Muse is
 // Standard); use this list only for extras that have no mode of their own.
-export const ADDITIONAL_MANAGED_MODEL_IDS = [] as const;
+//
+// anthropic/claude-sonnet-4.6 is the cloud executors' pinned relay model
+// (CLOUD_EXECUTOR_PINNED_MODEL_IDS below): without a synced price row, cost
+// estimation and metering fall back to DEFAULT_TOKEN_PRICE and underbill
+// every cloud chat/agent turn ~5x.
+export const ADDITIONAL_MANAGED_MODEL_IDS = [
+  "anthropic/claude-sonnet-4.6",
+] as const;
 
 export function listManagedModelIds(): string[] {
   const modelIds = new Set<string>();

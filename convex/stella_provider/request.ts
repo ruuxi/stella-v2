@@ -32,6 +32,7 @@ export function resolveRequestedStellaModel(
   agentType: string,
   requestBody: StellaRequestBody,
   audience: ManagedModelAudience,
+  options?: { trustedExecutorPin?: boolean },
 ): ResolvedStellaModelSelection {
   const trimmed =
     typeof requestBody.model === "string" ? requestBody.model.trim() : "";
@@ -39,6 +40,7 @@ export function resolveRequestedStellaModel(
     trimmed,
     agentType,
     audience,
+    options,
   );
   return {
     // The relay echoes the honored override id back, or the opaque sentinel

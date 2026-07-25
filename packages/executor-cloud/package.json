@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./relay-model": "./src/relay-model.ts",
+    "./prune-history": "./src/prune-history.ts"
   },
   "scripts": {
     "stub": "bun src/cli.ts --stub",
     "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit"
   },
   "dependencies": {
+    "@sinclair/typebox": "0.34.49",
     "@stella/contracts": "workspace:*",
     "@stella/runtime": "workspace:*",
     "effect": "4.0.0-beta.83"

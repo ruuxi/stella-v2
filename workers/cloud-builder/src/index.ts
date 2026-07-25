@@ -4,13 +4,15 @@ import {
   type DirectoryBackup,
   type Sandbox as SandboxType,
 } from "@cloudflare/sandbox";
-import { Effect } from "effect";
+import { OrchestratorSession } from "./orchestrator-session.js";
 
 export { Sandbox } from "@cloudflare/sandbox";
+export { OrchestratorSession };
 
 type Env = {
   Sandbox: DurableObjectNamespace<SandboxType>;
   BUILD_SESSIONS: DurableObjectNamespace<BuildSession>;
+  ORCHESTRATOR_SESSIONS: DurableObjectNamespace<OrchestratorSession>;
   APP_BUILDS: R2Bucket;
   APP_ROUTES: KVNamespace;
   BACKUP_BUCKET: R2Bucket;
@@ -28,6 +30,9 @@ type Execution = {
 };
 
 type TurnRequest = {
+  // "agent" runs a spawned general agent against a persistent workspace;
+  // absent/anything else is the legacy app-build turn.
+  kind?: string;
   ownerId: string;
   appId: string;
   turnId: string;
@@ -37,6 +42,19 @@ type TurnRequest = {
   autoActivate?: boolean;
   preflightDelayMs?: number;
   watchdogMs?: number;
+  conversationId?: string;
+  threadId?: string;
+  workspace?: string;
+  // Resolved by Convex at dispatch: run the agent's model calls on the
+  // owner's connected engine subscription (flag only — never a credential).
+  engine?: { provider: string; model: string };
+};
+
+type AgentExecutorResult = {
+  ok: boolean;
+  finalText?: string;
+  error?: string;
+  usage?: Record<string, unknown>;
 };
 
 type ExecutorResult = {
@@ -126,7 +144,7 @@ export class BuildSession extends DurableObject<Env> {
     turn: TurnRequest,
     path: string,
     body: unknown,
-  ): Promise<void> {
+  ): Promise<Record<string, unknown>> {
     const response = await fetch(
       `${turn.convexCallbackBase.replace(/\/+$/, "")}${path}`,
       {
@@ -136,6 +154,7 @@ export class BuildSession extends DurableObject<Env> {
           "content-type": "application/json",
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
       },
     );
     if (!response.ok) {
@@ -143,18 +162,28 @@ export class BuildSession extends DurableObject<Env> {
         `Convex callback ${path} failed with ${response.status}.`,
       );
     }
+    return response
+      .json<Record<string, unknown>>()
+      .catch(() => ({}) as Record<string, unknown>);
+  }
+
+  // The detached agent-turn promise and the alarm share this DO's storage;
+  // a stale turn (superseded by a send_input continuation on the same
+  // thread) must never mutate the successor's state or complete its thread.
+  private async ownsTurn(turnId: string): Promise<boolean> {
+    return (await this.ctx.storage.get<string>("turnId")) === turnId;
   }
 
   private event(
     turn: TurnRequest,
-    seq: number,
+    seq: number | "auto",
     kind: string,
     payload: unknown,
     terminal = false,
   ) {
     return this.callback(turn, "/api/cloud/events", {
       turnId: turn.turnId,
-      sessionId: this.ctx.id.toString(),
+      sessionId: turn.threadId ?? this.ctx.id.toString(),
       seq,
       kind,
       payload,
@@ -162,9 +191,26 @@ export class BuildSession extends DurableObject<Env> {
     });
   }
 
+  // Best-effort thread-state sync for agent turns; the mutation is a no-op
+  // once the thread is already terminal, so double reports are harmless.
+  private completeThread(
+    turn: TurnRequest,
+    status: "completed" | "failed" | "canceled",
+    body: { resultJson?: string; errorMessage?: string },
+  ): Promise<unknown> {
+    if (turn.kind !== "agent" || !turn.threadId) return Promise.resolve();
+    return this.callback(turn, "/api/cloud/threads/complete", {
+      threadId: turn.threadId,
+      turnId: turn.turnId,
+      status,
+      ...body,
+    }).catch(() => undefined);
+  }
+
   async alarm(): Promise<void> {
     const turn = await this.ctx.storage.get<TurnRequest>("turn");
-    if (!turn || (await this.ctx.storage.get<boolean>("terminal"))) return;
+    if (!turn || (await this.ctx.storage.get<boolean>("terminalDelivered")))
+      return;
     await this.ctx.storage.put("terminal", true);
     const sandboxId = await this.ctx.storage.get<string>("sandboxId");
     if (sandboxId)
@@ -176,15 +222,58 @@ export class BuildSession extends DurableObject<Env> {
       appId: turn.appId,
       sandboxId,
     });
-    await this.event(
-      turn,
-      99,
-      "timeout",
-      {
-        message: "This took longer than expected, so Stella stopped. Try again.",
-      },
-      true,
-    ).catch(() => undefined);
+    // Auto-seq: agent turns stream unbounded auto-seq events, so any fixed
+    // sentinel eventually collides and Convex drops the terminal patch,
+    // leaving the turn "running" forever. Idempotency comes from Convex
+    // rejecting events after the first terminal one, not from the seq —
+    // and delivery is retried via re-armed alarms, single-shot fire-and-
+    // forget would strand the turn (and its thread) "running" on one
+    // transient Convex failure.
+    try {
+      const result = await this.event(
+        turn,
+        "auto",
+        "timeout",
+        {
+          message:
+            "This took longer than expected, so Stella stopped. Try again.",
+        },
+        true,
+      );
+      if (
+        result.terminalAccepted === false &&
+        !(await this.ctx.storage.get<boolean>("alarmReconcile"))
+      ) {
+        // The turn reached terminal on its own in the same instant; give its
+        // completeThread a beat to land before the failed backstop below —
+        // racing it would mark a genuinely completed thread failed.
+        await this.ctx.storage.put("alarmReconcile", true);
+        await this.ctx.storage.setAlarm(Date.now() + 15_000);
+        return;
+      }
+      if (turn.kind === "agent" && turn.threadId) {
+        await this.callback(turn, "/api/cloud/threads/complete", {
+          threadId: turn.threadId,
+          turnId: turn.turnId,
+          status: "failed",
+          errorMessage: "The agent ran out of time and was stopped.",
+        });
+      }
+      await this.ctx.storage.put("terminalDelivered", true);
+    } catch (error) {
+      const attempts =
+        ((await this.ctx.storage.get<number>("alarmAttempts")) ?? 0) + 1;
+      if (attempts <= 5) {
+        await this.ctx.storage.put("alarmAttempts", attempts);
+        await this.ctx.storage.setAlarm(Date.now() + 30_000);
+      } else {
+        await this.ctx.storage.put("terminalDelivered", true);
+        log("error", "terminal_delivery_abandoned", {
+          turnId: turn.turnId,
+          message: errorMessage(error),
+        });
+      }
+    }
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -201,26 +290,66 @@ export class BuildSession extends DurableObject<Env> {
       const turn = await this.ctx.storage.get<TurnRequest>("turn");
       if (turn && !(await this.ctx.storage.get<boolean>("terminal"))) {
         await this.ctx.storage.put("terminal", true);
-        await this.event(
-          turn,
-          98,
-          "canceled",
-          {
-            message: "Stopped. Nothing was changed.",
-          },
-          true,
-        ).catch(() => undefined);
         log("info", "turn_canceled", {
           turnId: turn.turnId,
           appId: turn.appId,
           sandboxId,
         });
+        try {
+          await this.event(
+            turn,
+            "auto",
+            "canceled",
+            {
+              message: "Stopped. Nothing was changed.",
+            },
+            true,
+          );
+          if (turn.kind === "agent" && turn.threadId) {
+            await this.callback(turn, "/api/cloud/threads/complete", {
+              threadId: turn.threadId,
+              turnId: turn.turnId,
+              status: "canceled",
+              errorMessage: "The agent was stopped.",
+            });
+          }
+          await this.ctx.storage.put("terminalDelivered", true);
+        } catch {
+          // Delivery failed; the re-armed alarm retries so the turn and
+          // thread cannot stay "running" forever.
+          await this.ctx.storage.setAlarm(Date.now() + 30_000);
+        }
       }
       return json({ canceled: true });
     }
     if (url.pathname === "/echo") return this.runEcho();
     if (url.pathname !== "/turn") return json({ error: "Not found." }, 404);
-    return this.runTurn((await request.json()) as TurnRequest);
+    const turn = (await request.json()) as TurnRequest;
+    if (turn.kind === "agent") return this.acceptAgentTurn(turn);
+    return this.runTurn(turn);
+  }
+
+  // Accept the dispatch immediately and run the turn in the background: a
+  // sandbox turn takes minutes, and holding the POST open that long means a
+  // mid-turn transport failure makes Convex mark a still-running turn (and
+  // its thread) failed while the agent goes on to finish. Outcomes reach
+  // Convex only through events/threads-complete callbacks.
+  private async acceptAgentTurn(turn: TurnRequest): Promise<Response> {
+    const sandboxId = sessionName(`agent-${turn.turnId}`);
+    await this.ctx.storage.put({
+      sandboxId,
+      turn,
+      turnId: turn.turnId,
+      terminal: false,
+      terminalDelivered: false,
+      alarmAttempts: 0,
+      alarmReconcile: false,
+    });
+    await this.ctx.storage.setAlarm(
+      Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000),
+    );
+    void this.runAgentTurn(turn, sandboxId).catch(() => undefined);
+    return json({ accepted: true }, 202);
   }
 
   private async runEcho(): Promise<Response> {
@@ -258,6 +387,259 @@ export class BuildSession extends DurableObject<Env> {
     } finally {
       await sandbox.destroy().catch(() => undefined);
       await this.ctx.storage.deleteAll();
+    }
+  }
+
+  // A spawned general agent's turn: restore its workspace, run the real
+  // runtime headless in the sandbox, checkpoint, report. The executor
+  // streams its own progress events with the turn token; this method owns
+  // workspace persistence and the terminal event. Runs detached from the
+  // dispatch request (see acceptAgentTurn).
+  private async runAgentTurn(
+    turn: TurnRequest,
+    sandboxId: string,
+  ): Promise<void> {
+    const commandTimeoutMs = Number(this.env.TURN_TIMEOUT_MS);
+    const sandbox = this.sandbox(sandboxId);
+    const workspace = turn.workspace ?? "drive";
+    const workspaceRoot = "/workspace/drive";
+    const workspaceKey = `ws:${await digest(`${turn.ownerId}:${workspace}`)}`;
+    const requestStarted = performance.now();
+    log("info", "agent_turn_started", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      workspace,
+      sessionId: this.ctx.id.toString(),
+    });
+    try {
+      await this.event(turn, "auto", "started", {
+        threadId: turn.threadId,
+        workspace,
+      });
+      const coldStarted = performance.now();
+      const session = await sandbox.createSession({
+        id: sessionName(`agent-run-${turn.turnId}`),
+        cwd: "/opt/stella",
+        commandTimeoutMs,
+        env: {
+          STELLA_TURN_TOKEN: turn.turnToken,
+          STELLA_CLOUD_WORKSPACE_ROOT: workspaceRoot,
+        },
+      });
+      const coldContainerStartMs = Math.round(performance.now() - coldStarted);
+
+      // Sandbox disk is a cache: restore the workspace's last checkpoint, or
+      // start it empty on first use.
+      const descriptor = await this.env.APP_ROUTES.get<DirectoryBackup>(
+        workspaceKey,
+        "json",
+      );
+      let restoreMs = 0;
+      if (descriptor) {
+        const restoreStarted = performance.now();
+        await sandbox.restoreBackup(descriptor);
+        restoreMs = Math.round(performance.now() - restoreStarted);
+      } else {
+        await session.exec(`mkdir -p ${workspaceRoot}`);
+      }
+      await this.event(turn, "auto", "sandbox_ready", {
+        coldContainerStartMs,
+        restoreMs,
+        restored: Boolean(descriptor),
+      });
+
+      // Thread transcript for send_input continuations: the DO fetches it
+      // (service secret) and hands it to the executor, which holds only the
+      // turn token.
+      let history: unknown[] = [];
+      if (turn.threadId) {
+        const contextResponse = await fetch(
+          `${turn.convexCallbackBase.replace(/\/+$/, "")}/api/cloud/context?conversationId=${encodeURIComponent(turn.threadId)}`,
+          {
+            headers: {
+              authorization: `Bearer ${this.env.BUILDER_SERVICE_SECRET}`,
+            },
+          },
+        );
+        if (contextResponse.ok) {
+          const payload = (await contextResponse.json()) as {
+            messages?: unknown[];
+          };
+          history = payload.messages ?? [];
+        }
+      }
+
+      await session.writeFile(
+        "/workspace/turn-input.json",
+        JSON.stringify({
+          kind: "agent",
+          ownerId: turn.ownerId,
+          conversationId: turn.conversationId,
+          threadId: turn.threadId,
+          turnId: turn.turnId,
+          prompt: turn.prompt,
+          workspace,
+          convexCallbackBase: turn.convexCallbackBase,
+          history,
+          ...(turn.engine ? { engine: turn.engine } : {}),
+        }),
+      );
+      const execution = (await session.exec(
+        "bun packages/executor-cloud/src/cli.ts --agent-turn",
+        { timeout: commandTimeoutMs },
+      )) as Execution;
+      let result: AgentExecutorResult;
+      if (execution.success) {
+        try {
+          result = JSON.parse(
+            execution.stdout.trim().split("\n").at(-1) ?? "{}",
+          ) as AgentExecutorResult;
+        } catch {
+          result = { ok: false, error: "The agent's report was unreadable." };
+        }
+      } else {
+        log("error", "agent_executor_failed", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+          stderr: execution.stderr.slice(-4_000),
+        });
+        result = {
+          ok: false,
+          error: "The agent hit a problem and stopped. Try again.",
+        };
+      }
+
+      // A stale turn (alarm fired, or a successor continuation took over
+      // this thread's DO) must not checkpoint over the successor's restore
+      // or report on the shared thread.
+      if (
+        !(await this.ownsTurn(turn.turnId)) ||
+        (await this.ctx.storage.get<boolean>("terminal"))
+      ) {
+        await sandbox.destroy().catch(() => undefined);
+        log("info", "agent_turn_superseded", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+        });
+        return;
+      }
+
+      // Checkpoint even after a failed loop — partial work in the workspace
+      // is still the user's work.
+      let checkpointMs = 0;
+      let checkpointError: string | undefined;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const checkpointStarted = performance.now();
+          const backup = await sandbox.createBackup({
+            dir: workspaceRoot,
+            name: `stella-${workspaceKey.slice(3, 27)}`,
+            ttl: 30 * 86_400,
+            localBucket: true,
+            compression: { format: "zstd", threads: 2 },
+          });
+          checkpointMs = Math.round(performance.now() - checkpointStarted);
+          await this.env.APP_ROUTES.put(workspaceKey, JSON.stringify(backup));
+          checkpointError = undefined;
+          break;
+        } catch (error) {
+          checkpointError = errorMessage(error);
+        }
+      }
+      if (checkpointError) {
+        // The snapshot is the only durable copy of the workspace; losing it
+        // must be visible in the report the orchestrator relays, not just a
+        // log line next to a "completed" turn.
+        log("error", "agent_checkpoint_failed", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+          message: checkpointError,
+        });
+        await this.event(turn, "auto", "checkpoint_failed", {
+          message:
+            "Saving the workspace after this turn failed; file changes may not persist.",
+        }).catch(() => undefined);
+        if (result.ok) {
+          result = {
+            ...result,
+            finalText: `${result.finalText ?? ""}\n\nHeads up: saving the workspace after this turn failed, so file changes from this turn may not persist. Anything important should be recreated or the task retried.`.trim(),
+          };
+        }
+      }
+
+      const wallClockMs = Math.round(performance.now() - requestStarted);
+      if (result.ok) {
+        await this.event(
+          turn,
+          "auto",
+          "completed",
+          {
+            finalText: result.finalText ?? "",
+            usage: result.usage,
+            coldContainerStartMs,
+            restoreMs,
+            checkpointMs,
+            wallClockMs,
+          },
+          true,
+        );
+        await this.completeThread(turn, "completed", {
+          resultJson: JSON.stringify({ finalText: result.finalText ?? "" }),
+        });
+      } else {
+        let message = result.error ?? "The agent failed.";
+        if (checkpointError) {
+          message = `${message} Files changed in the workspace during this attempt may not have been saved.`;
+        }
+        await this.event(turn, "auto", "failed", { message }, true);
+        await this.completeThread(turn, "failed", { errorMessage: message });
+      }
+      await sandbox.destroy().catch(() => undefined);
+      if (await this.ownsTurn(turn.turnId)) {
+        await this.ctx.storage.put("terminal", true);
+        await this.ctx.storage.deleteAlarm().catch(() => undefined);
+        await this.ctx.storage.deleteAll();
+      }
+      log("info", "agent_turn_finished", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        ok: result.ok,
+        wallClockMs,
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      await sandbox.destroy().catch(() => undefined);
+      log("error", "agent_turn_failed", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message,
+      });
+      // Fencing: a stale unwind (successor accepted on this thread's DO, or
+      // the alarm already owns terminal delivery) must not fail the thread,
+      // kill the successor's watchdog, or wipe shared storage.
+      if (!(await this.ownsTurn(turn.turnId))) return;
+      if (await this.ctx.storage.get<boolean>("terminal")) return;
+      await this.ctx.storage.put("terminal", true);
+      try {
+        // Raw infrastructure errors stay in logs; the thread and event get a
+        // readable sentence.
+        await this.event(
+          turn,
+          "auto",
+          "failed",
+          { message: "The agent hit a problem and stopped. Try again." },
+          true,
+        );
+        await this.completeThread(turn, "failed", {
+          errorMessage: "The agent hit a problem and stopped. Try again.",
+        });
+        await this.ctx.storage.deleteAlarm().catch(() => undefined);
+        await this.ctx.storage.deleteAll();
+      } catch {
+        // Terminal delivery failed; leave storage intact and let the
+        // re-armed alarm retry so the turn cannot stay "running" forever.
+        await this.ctx.storage.setAlarm(Date.now() + 30_000);
+      }
     }
   }
 
@@ -514,9 +896,18 @@ export class BuildSession extends DurableObject<Env> {
       const message = errorMessage(error);
       if (!(await this.ctx.storage.get<boolean>("terminal"))) {
         await this.ctx.storage.put("terminal", true);
-        await this.event(turn, seq++, "failed", { message }, true).catch(
-          () => undefined,
-        );
+        // Only deliberately-written messages ("Stella …") reach the chat
+        // bubble; raw provider/infra errors stay in the log line below.
+        const friendly = message.startsWith("Stella")
+          ? message
+          : "Stella hit a problem while building. Try again.";
+        await this.event(
+          turn,
+          seq++,
+          "failed",
+          { message: friendly },
+          true,
+        ).catch(() => undefined);
       }
       const sandboxId = await this.ctx.storage.get<string>("sandboxId");
       if (sandboxId)
@@ -565,6 +956,29 @@ export default {
           headers: { "content-type": "application/json" },
           body: await request.text(),
         },
+      );
+    }
+    // The orchestrator loop: one DO per conversation, no sandbox.
+    const chatTurnMatch = url.pathname.match(
+      /^\/conversations\/([^/]+)\/turns$/,
+    );
+    if (request.method === "POST" && chatTurnMatch) {
+      return env.ORCHESTRATOR_SESSIONS.getByName(chatTurnMatch[1]!).fetch(
+        "https://orchestrator-session/turn",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: await request.text(),
+        },
+      );
+    }
+    const chatCancelMatch = url.pathname.match(
+      /^\/conversations\/([^/]+)\/cancel$/,
+    );
+    if (request.method === "POST" && chatCancelMatch) {
+      return env.ORCHESTRATOR_SESSIONS.getByName(chatCancelMatch[1]!).fetch(
+        "https://orchestrator-session/cancel",
+        { method: "POST" },
       );
     }
     const cancelMatch = url.pathname.match(/^\/sessions\/([^/]+)\/cancel$/);

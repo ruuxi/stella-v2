@@ -471,15 +471,20 @@ export const handleSpawnAgent = async (
         "workspace must be one of computer, drive, stella, project:<name>, app:<slug>.",
     };
   }
-  // This handler only runs in the local runtime today, so any non-computer
-  // placement is undispatchable by construction — reject it before the agent
-  // exists rather than letting LocalAgentManager run it in the wrong place.
-  // The value still flows through AgentToolRequest so a future cloud
-  // AgentToolApi implementation can route the other placements.
-  if (workspace && workspace !== "computer") {
+  // Non-computer placements name a subject that does not live on this
+  // machine, so they leave the device instead of running through
+  // LocalAgentManager. Without a dispatch capability there is nowhere honest
+  // to put the work — refuse rather than silently run it in the wrong place.
+  const cloudWorkspace =
+    workspace && workspace !== "computer" ? workspace : undefined;
+  if (cloudWorkspace && !ctx.agentApi?.cloudDispatch) {
     return {
-      error:
-        'Cloud workspaces (drive, project:*, stella, app:*) aren\'t dispatchable from this device yet — the cloud orchestrator handles those. Omit workspace or use "computer" to run it on this machine.',
+      error: `The ${cloudWorkspace} workspace runs in Stella's cloud, and this runtime has no cloud connection. Use workspace "computer" to run it on this machine instead.`,
+    };
+  }
+  if (cloudWorkspace && toOptionalString(args.model)) {
+    return {
+      error: `The ${cloudWorkspace} workspace runs in Stella's cloud, which picks its own model. Drop the model parameter, or use workspace "computer" to run it here on a specific model.`,
     };
   }
 
@@ -535,6 +540,42 @@ export const handleSpawnAgent = async (
     return { error: "description is required" };
   }
   const description = deriveAgentDescription(rawDescription, prompt);
+  if (cloudWorkspace) {
+    // Re-read the capability rather than falling through: a cloud placement
+    // that reached the local branch would run off-device work on the user's
+    // machine, which is the one outcome worse than refusing.
+    const cloudDispatch = ctx.agentApi?.cloudDispatch;
+    if (!cloudDispatch) {
+      return {
+        error: `The ${cloudWorkspace} workspace runs in Stella's cloud, and this runtime has no cloud connection. Use workspace "computer" to run it on this machine instead.`,
+      };
+    }
+    let dispatched: Awaited<ReturnType<typeof cloudDispatch>>;
+    try {
+      dispatched = await cloudDispatch({
+        workspace: cloudWorkspace,
+        conversationId: context.conversationId,
+        description,
+        prompt,
+      });
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+    return {
+      result: {
+        thread_id: dispatched.threadId,
+        created: true,
+        running_in_background: true,
+        workspace: cloudWorkspace,
+        placement: "cloud",
+        cloud_conversation_id: dispatched.conversationId,
+        // Cloud threads report into their cloud conversation; this device
+        // gets no completion event for them yet. Saying otherwise would have
+        // the orchestrator wait forever, or claim a finish that never came.
+        note: "Running in Stella's cloud, not on this device. No completion event arrives here yet, and send_input/pause_agent cannot reach it — tell the user it is running in the cloud and move on.",
+      },
+    };
+  }
   if (ctx.agentApi) {
     logWorkingIndicatorTrace("[stella:working-indicator:spawn_agent]", {
       conversationId: context.conversationId,

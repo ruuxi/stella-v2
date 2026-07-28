@@ -275,6 +275,14 @@ export type RunnerState = {
   convexClientUrl: string | null;
   hasConnectedAccount: boolean;
   cloudSyncEnabled: boolean;
+  /**
+   * The cloud conversation this device's local turns are written into, when
+   * the product ever asks for that. Null, and nothing sets it today: a local
+   * turn has no binding to a cloud conversation, and inventing one would make
+   * this machine's SQLite a second authority for a transcript the Durable
+   * Object owns. See `cloud-transcript-write.ts`.
+   */
+  cloudConversationId: string | null;
   modelCatalogUpdatedAt: number | null;
   isRunning: boolean;
   isInitialized: boolean;
@@ -380,6 +388,8 @@ export type RunnerContext = {
   appendLocalChatEvent?: StellaHostRunnerOptions["appendLocalChatEvent"];
   notifyThreadActivityUpdated?: StellaHostRunnerOptions["notifyThreadActivityUpdated"];
   getDefaultConversationId?: StellaHostRunnerOptions["getDefaultConversationId"];
+  /** Desktop's writer into a cloud conversation's DO-resident transcript. */
+  cloudTranscript: import("./cloud-transcript-write.js").CloudTranscriptWriter;
   paths: RunnerPaths;
   state: RunnerState;
   hookEmitter: HookEmitter;
@@ -406,10 +416,14 @@ export type RunnerContext = {
      * Drain completed-but-unreported produced files from background/
      * long-running shell sessions so late deliverables reach the
      * agent-completed rollup. Optionally scoped to specific session ids.
+     *
+     * `omitted` is set when the per-command cap withheld a session's whole
+     * batch: the files are absent, and only this says so.
      */
-    drainCompletedShellProducedFiles: (
-      sessionIds?: string[],
-    ) => Promise<import("@stella/contracts/file-changes").ProducedFileRecord[]>;
+    drainCompletedShellProducedFiles: (sessionIds?: string[]) => Promise<{
+      files: import("@stella/contracts/file-changes").ProducedFileRecord[];
+      omitted?: import("../tools/types").ProducedFilesOmission;
+    }>;
     killAllShells: () => void;
     killShell: (sessionId: string) => Promise<void> | void;
     killShellsByPort: (port: number) => void;

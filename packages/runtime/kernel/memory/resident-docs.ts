@@ -41,7 +41,10 @@ export const LIFE_CORE_MEMORY_DISPLAY_PATH = "~/.stella/core-memory.md";
 export const LIFE_USER_PROFILE_DISPLAY_PATH = "~/.stella/memories/profile.md";
 export const LIFE_MEMORY_MAP_DISPLAY_PATH = "~/.stella/memories/memory_map.md";
 export const LIFE_PERSONALITY_DISPLAY_PATH = "~/.stella/PERSONALITY.md";
-export const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
+// Canonical definition lives in the workerd-safe run-shared module so the
+// cloud loop hosts can pin startup docs without importing this file (fs).
+import { BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE } from "../agent-runtime/run-shared.js";
+export { BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE } from "../agent-runtime/run-shared.js";
 
 export const RETIRED_STARTUP_DOC_DISPLAY_PATHS: ReadonlySet<string> = new Set([
   "~/.stella/memories/memory_summary.md",

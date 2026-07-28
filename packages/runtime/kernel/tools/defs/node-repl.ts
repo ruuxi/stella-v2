@@ -7,7 +7,8 @@ import type {
   ProducedFileRecord,
 } from "@stella/contracts/file-changes";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import type { ToolDefinition } from "../types.js";
+import type { ProducedFilesOmission, ToolDefinition } from "../types.js";
+import { mergeProducedFilesOmissions } from "../utils.js";
 
 export type NodeReplToolOptions = NodeReplKernelManagerOptions & {
   registry?: NodeReplKernelRegistry;
@@ -51,6 +52,7 @@ export const createNodeReplTool = (
       try {
         const fileChanges: FileChangeRecord[] = [];
         const producedFiles: ProducedFileRecord[] = [];
+        let producedFilesOmitted: ProducedFilesOmission | undefined;
         const result = await registry.evaluate(args.code, context, {
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
           ...(extras?.signal ? { signal: extras.signal } : {}),
@@ -59,12 +61,17 @@ export const createNodeReplTool = (
             if (nested.fileChanges) fileChanges.push(...nested.fileChanges);
             if (nested.producedFiles)
               producedFiles.push(...nested.producedFiles);
+            producedFilesOmitted = mergeProducedFilesOmissions(
+              producedFilesOmitted,
+              nested.producedFilesOmitted,
+            );
           },
         });
         return {
           result,
           ...(fileChanges.length > 0 ? { fileChanges } : {}),
           ...(producedFiles.length > 0 ? { producedFiles } : {}),
+          ...(producedFilesOmitted ? { producedFilesOmitted } : {}),
         };
       } catch (error) {
         return {

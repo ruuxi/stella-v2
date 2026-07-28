@@ -16,7 +16,11 @@ import {
 } from "./provider-abort-containment.js";
 import { createRuntimeAgent, resolveAgentThinkingLevel } from "./shared.js";
 import { buildHistorySource } from "./thread-memory.js";
-import type { AgentRunFailureClassification } from "./run-retry.js";
+import {
+  popEmptyCompletionTailForResume,
+  popErroredTailForResume,
+  type AgentRunFailureClassification,
+} from "./run-retry.js";
 
 type CreateRuntimeAgentArgs = Parameters<typeof createRuntimeAgent>[0];
 
@@ -246,50 +250,13 @@ export class PiSessionCore {
     return true;
   }
 
+  // Tail-pop logic lives in run-retry.ts so cloud loop hosts share it.
   private popEmptyCompletionTailForResume(agent: Agent): boolean {
-    const messages = agent.state.messages;
-    const last = messages[messages.length - 1];
-    if (!last || last.role !== "assistant") return false;
-    if (last.stopReason !== "stop" && last.stopReason !== "length") {
-      return false;
-    }
-    const hasUsableOutput = last.content.some(
-      (block) =>
-        block.type === "toolCall" ||
-        (block.type === "text" && block.text.trim().length > 0),
-    );
-    if (hasUsableOutput) return false;
-    const tailAfterPop = messages[messages.length - 2];
-    if (tailAfterPop?.role === "assistant") return false;
-    messages.pop();
-    return true;
+    return popEmptyCompletionTailForResume(agent.state.messages);
   }
 
-  /**
-   * Pop the errored assistant tail so `continue()` resumes from the prompt
-   * instead of refusing on a trailing assistant message. Inspects the tail
-   * WITHOUT mutating it first: only commits to the pop once the retry is
-   * definitely happening — bailing after a pop would corrupt the
-   * appended-messages slice that failure classification reads, silently
-   * resetting the deterministic-abort streak. Returns false when the tail
-   * shape is unexpected (e.g. failure mid-tool-loop) and resuming would
-   * throw.
-   */
   private popErroredTailForResume(agent: Agent): boolean {
-    const messages = agent.state.messages;
-    const last = messages[messages.length - 1];
-    const popErroredTail =
-      last?.role === "assistant" &&
-      (last.stopReason === "error" || last.stopReason === "aborted");
-    const tailAfterPop = popErroredTail ? messages[messages.length - 2] : last;
-    if (tailAfterPop?.role === "assistant") {
-      return false;
-    }
-    if (popErroredTail) {
-      // Drop the aborted stream's partial output.
-      messages.pop();
-    }
-    return true;
+    return popErroredTailForResume(agent.state.messages);
   }
 
   protected noteAbortContainmentSuccess(): void {

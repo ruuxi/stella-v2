@@ -1,5 +1,7 @@
 import { isTransientProviderStreamAnomalyMessage } from "../../ai/utils/provider-stop.js";
 import { isTransientTransportError } from "../../ai/utils/retry.js";
+import type { AgentMessage } from "../agent-core/types.js";
+import { assistantMessageHasUsableOutput } from "./run-shared.js";
 
 export const AGENT_RUN_MAX_RETRIES = 3;
 export const AGENT_RUN_MAX_ATTEMPTS = AGENT_RUN_MAX_RETRIES + 1;
@@ -175,6 +177,61 @@ export const classifyAgentRunFailure = (
 
   return { retryable: false, category: "unknown" };
 };
+
+export const popEmptyCompletionTailForResume = (
+  messages: AgentMessage[],
+): boolean => {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "assistant") return false;
+  if (last.stopReason !== "stop" && last.stopReason !== "length") {
+    return false;
+  }
+  if (assistantMessageHasUsableOutput(last)) return false;
+  const tailAfterPop = messages[messages.length - 2];
+  if (tailAfterPop?.role === "assistant") return false;
+  messages.pop();
+  return true;
+};
+
+/**
+ * Pop the errored assistant tail so `continue()` resumes from the prompt
+ * instead of refusing on a trailing assistant message. Inspects the tail
+ * WITHOUT mutating it first: only commits to the pop once the retry is
+ * definitely happening — bailing after a pop would corrupt the
+ * appended-messages slice that failure classification reads, silently
+ * resetting the deterministic-abort streak. Returns false when the tail
+ * shape is unexpected (e.g. failure mid-tool-loop) and resuming would
+ * throw.
+ */
+export const popErroredTailForResume = (messages: AgentMessage[]): boolean => {
+  const last = messages[messages.length - 1];
+  const popErroredTail =
+    last?.role === "assistant" &&
+    (last.stopReason === "error" || last.stopReason === "aborted");
+  const tailAfterPop = popErroredTail ? messages[messages.length - 2] : last;
+  if (tailAfterPop?.role === "assistant") {
+    return false;
+  }
+  if (popErroredTail) {
+    // Drop the aborted stream's partial output.
+    messages.pop();
+  }
+  return true;
+};
+
+/**
+ * Prepare a retryable failure for `Agent.continue()`: remove only the failed
+ * assistant tail, leaving the prompt and completed tool state in place. The
+ * category dispatch matches the desktop session's — an empty completion has a
+ * *successful-looking* tail that must satisfy the stricter empty-shape check.
+ */
+export const prepareTransientResumeTail = (
+  messages: AgentMessage[],
+  classification: AgentRunFailureClassification,
+): boolean =>
+  classification.category === "empty-completion"
+    ? popEmptyCompletionTailForResume(messages)
+    : popErroredTailForResume(messages);
 
 const sleepWithAbort = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {

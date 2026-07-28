@@ -61,77 +61,14 @@ export const buildRunThreadKey = ({
     threadId,
   });
 
-// Retention budget for tool-result images in model history, newest first.
-// The old policy kept exactly ONE image-bearing message, which made
-// multi-image work impossible: viewing 5 reference images left 4 as
-// "re-run the tool" placeholders on the very next LLM call, and every
-// re-view evicted the previous image. Budgets are accounted per image
-// block (a batched view counts each image), sized so screenshot loops
-// stay cheap while a set of downscaled reference images survives across
-// turns without busting the managed relay's ~20MiB request cap.
-const MAX_IMAGES_IN_HISTORY = 8;
-const IMAGE_HISTORY_BASE64_BUDGET = 12 * 1024 * 1024;
-
-export const stripStaleImageBlocks = <T extends { role: string }>(
-  messages: T[],
-): T[] => {
-  let imagesKept = 0;
-  let imageBytesKept = 0;
-  let rewroteAny = false;
-  const out: T[] = [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role !== "toolResult") {
-      out.push(message);
-      continue;
-    }
-    const toolResult = message as unknown as {
-      content: Array<{ type: string; data?: string; mimeType?: string }>;
-    };
-    const hasImage = toolResult.content.some((block) => block.type === "image");
-    if (!hasImage) {
-      out.push(message);
-      continue;
-    }
-    let rewroteThisMessage = false;
-    // Within a message, newest-last ordering doesn't matter much; account
-    // blocks in reverse so the budget favors the same blocks the loop
-    // direction favors across messages.
-    const compactContent = [...toolResult.content]
-      .reverse()
-      .map((block) => {
-        if (block.type !== "image") {
-          return block;
-        }
-        const base64Bytes = block.data?.length ?? 0;
-        if (
-          imagesKept < MAX_IMAGES_IN_HISTORY &&
-          imageBytesKept + base64Bytes <= IMAGE_HISTORY_BASE64_BUDGET
-        ) {
-          imagesKept += 1;
-          imageBytesKept += base64Bytes;
-          return block;
-        }
-        rewroteThisMessage = true;
-        const sizeKb = Math.round((base64Bytes * 0.75) / 1024);
-        return {
-          type: "text",
-          text: `[Older ${block.mimeType ?? "image/png"} screenshot omitted from history (~${sizeKb}KB). Re-run the tool to see it again.]`,
-        };
-      })
-      .reverse();
-    if (!rewroteThisMessage) {
-      out.push(message);
-      continue;
-    }
-    rewroteAny = true;
-    out.push({
-      ...(message as object),
-      content: compactContent,
-    } as unknown as T);
-  }
-  return rewroteAny ? out.reverse() : messages;
-};
+// stripStaleImageBlocks/isBootstrapStartupDocMessage moved to the
+// workerd-safe `run-shared.ts` (the cloud loop hosts need them);
+// re-exported here for existing desktop-side importers.
+import { stripStaleImageBlocks } from "./run-shared.js";
+export {
+  isBootstrapStartupDocMessage,
+  stripStaleImageBlocks,
+} from "./run-shared.js";
 
 export const buildHistorySource = (
   context: LocalAgentContext,
@@ -420,12 +357,6 @@ export const buildSystemPrompt = (context: LocalAgentContext): string => {
 
   return sections.filter(Boolean).join("\n\n");
 };
-
-export const isBootstrapStartupDocMessage = (
-  message: Pick<AgentMessage, "role"> & { customType?: string },
-): boolean =>
-  message.role === "runtimeInternal" &&
-  message.customType === BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE;
 
 const customMessageContentText = (
   content: RuntimeThreadCustomMessageEntry["content"],

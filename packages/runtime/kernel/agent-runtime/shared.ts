@@ -11,25 +11,30 @@ import type {
 } from "../agent-core/types.js";
 import type { Message } from "../../ai/types.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
-import { selectRecentByTokenBudget } from "../local-history.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
-import { estimateRuntimeTokens } from "../runtime-threads.js";
 import {
   getAgentFollowUpMode,
   getAgentSteeringMode,
   getLocalCliWorkingDirectory,
 } from "@stella/contracts/agent-runtime";
 import {
-  isBootstrapStartupDocMessage,
-  stripStaleImageBlocks,
-} from "./thread-memory.js";
+  buildDefaultTransformContext,
+  resolveAgentThinkingLevel,
+} from "./run-shared.js";
 import { AGENT_RUN_MAX_ATTEMPTS } from "./run-retry.js";
 
+// Loop-adjacent helpers now live in the workerd-safe `run-shared.ts` so the
+// cloud DO and sandbox executor run the same code; re-exported here for the
+// desktop-side callers that always imported them from this module.
+export {
+  assistantMessageHasToolCall,
+  buildDefaultTransformContext,
+  extractAssistantText,
+  getAgentCompletion,
+  resolveAgentThinkingLevel,
+} from "./run-shared.js";
+
 const MAX_RESULT_PREVIEW = 200;
-const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
-const CONTEXT_PRUNE_RESERVE_TOKENS = 16_384;
-const MIN_CONTEXT_PRUNE_TOKENS = 8_000;
-const ESTIMATED_IMAGE_TOKENS = 2_000;
 
 export const DEFAULT_MAX_TURNS = 40;
 
@@ -185,254 +190,6 @@ export const toAgentMessages = (
     });
 };
 
-const estimateUnknownTokens = (value: unknown): number => {
-  if (typeof value === "string") {
-    return estimateRuntimeTokens(value);
-  }
-  if (value == null) {
-    return 0;
-  }
-  try {
-    return estimateRuntimeTokens(JSON.stringify(value));
-  } catch {
-    return estimateRuntimeTokens(String(value));
-  }
-};
-
-const estimateContentTokens = (content: unknown): number => {
-  if (typeof content === "string") {
-    return estimateRuntimeTokens(content);
-  }
-  if (!Array.isArray(content)) {
-    return estimateUnknownTokens(content);
-  }
-  return content.reduce((sum, block) => {
-    if (!block || typeof block !== "object") {
-      return sum + estimateUnknownTokens(block);
-    }
-    const candidate = block as Record<string, unknown>;
-    switch (candidate.type) {
-      case "text":
-        return (
-          sum +
-          estimateRuntimeTokens(
-            typeof candidate.text === "string" ? candidate.text : "",
-          )
-        );
-      case "thinking":
-        return (
-          sum +
-          estimateRuntimeTokens(
-            typeof candidate.thinking === "string" ? candidate.thinking : "",
-          )
-        );
-      case "image":
-        return sum + ESTIMATED_IMAGE_TOKENS;
-      case "toolCall":
-        return (
-          sum +
-          estimateUnknownTokens({
-            name: candidate.name,
-            arguments: candidate.arguments,
-          })
-        );
-      default:
-        return sum + estimateUnknownTokens(candidate);
-    }
-  }, 0);
-};
-
-const estimateAgentMessageTokens = (message: AgentMessage): number => {
-  const baseTokens = 8;
-  if (message.role === "toolResult") {
-    return Math.max(
-      1,
-      baseTokens +
-        estimateRuntimeTokens(message.toolName) +
-        estimateContentTokens(message.content),
-    );
-  }
-  return Math.max(1, baseTokens + estimateContentTokens(message.content));
-};
-
-const getContextPruneBudget = (resolvedLlm: ResolvedLlmRoute): number => {
-  const contextWindow = Number(resolvedLlm.model.contextWindow);
-  const safeContextWindow =
-    Number.isFinite(contextWindow) && contextWindow > 0
-      ? Math.floor(contextWindow)
-      : DEFAULT_CONTEXT_WINDOW_TOKENS;
-  return Math.max(
-    MIN_CONTEXT_PRUNE_TOKENS,
-    safeContextWindow - CONTEXT_PRUNE_RESERVE_TOKENS,
-  );
-};
-
-export const buildDefaultTransformContext = (
-  resolvedLlm: ResolvedLlmRoute,
-): ((
-  messages: AgentMessage[],
-  signal?: AbortSignal,
-) => Promise<AgentMessage[]>) => {
-  const maxTokens = getContextPruneBudget(resolvedLlm);
-  return async (messages, signal) => {
-    if (signal?.aborted) {
-      throw new Error("Aborted");
-    }
-    // Strip on every per-turn call. `buildHistorySource` already runs this
-    // once at run start, but the agent loop appends fresh tool results
-    // (each carrying a base64 PNG) into the live messages array between
-    // LLM calls. Without re-stripping, all those screenshots stack up in
-    // the prompt every subsequent turn, and a 4-step stella-computer task
-    // overflows the managed runtime's payload budget.
-    const stripped = stripStaleImageBlocks(messages);
-    const totalTokens = stripped.reduce(
-      (sum, message) => sum + estimateAgentMessageTokens(message),
-      0,
-    );
-    if (totalTokens <= maxTokens) {
-      return stripped;
-    }
-    const pinnedStartupDocs = stripped.filter(isBootstrapStartupDocMessage);
-    if (pinnedStartupDocs.length > 0) {
-      const pinnedDocSet = new Set<AgentMessage>(pinnedStartupDocs);
-      const pinnedTokens = pinnedStartupDocs.reduce(
-        (sum, message) => sum + estimateAgentMessageTokens(message),
-        0,
-      );
-      const remainingBudget = maxTokens - pinnedTokens;
-      if (remainingBudget > 0) {
-        const recentUnpinned = selectRecentByTokenBudget({
-          itemsNewestFirst: stripped
-            .filter((message) => !pinnedDocSet.has(message))
-            .reverse(),
-          maxTokens: remainingBudget,
-          estimateTokens: estimateAgentMessageTokens,
-        });
-        const recentSet = new Set<AgentMessage>(recentUnpinned);
-        return stripped.filter(
-          (message) => pinnedDocSet.has(message) || recentSet.has(message),
-        );
-      }
-    }
-    const selected = selectRecentByTokenBudget({
-      itemsNewestFirst: [...stripped].reverse(),
-      maxTokens,
-      estimateTokens: estimateAgentMessageTokens,
-    });
-    return [...selected].reverse();
-  };
-};
-
-export const extractAssistantText = (
-  message: AgentMessage | undefined,
-): string => {
-  if (!message || message.role !== "assistant") return "";
-  const blocks = Array.isArray(message.content) ? message.content : [];
-  return blocks
-    .filter(
-      (block): block is { type: "text"; text: string } => block.type === "text",
-    )
-    .map((block) => block.text)
-    .join("");
-};
-
-/**
- * True when an assistant message carries at least one tool call. Such a
- * message is *interim* — the agent loop runs the tools and then produces a
- * further message — so any visible preamble text it contains is not the
- * final answer. The working indicator uses this to avoid handing off (and
- * disappearing) between a preamble and the tool call it precedes.
- */
-export const assistantMessageHasToolCall = (
-  message: AgentMessage | undefined,
-): boolean => {
-  if (!message || message.role !== "assistant") return false;
-  const blocks = Array.isArray(message.content) ? message.content : [];
-  return blocks.some((block) => block.type === "toolCall");
-};
-
-const getLatestAssistantMessage = (
-  messages: AgentMessage[],
-): AgentMessage | undefined =>
-  [...messages].reverse().find((message) => message.role === "assistant");
-
-type AgentCompletionSource = {
-  state: Pick<Agent["state"], "messages" | "error">;
-};
-
-/**
- * True when the run's final assistant message is a truncated reasoning
- * trace: `stopReason: "length"` with neither visible text nor a tool call
- * (typically thinking-only). The provider hit its output-token cap while
- * the model was still reasoning, so no reply was ever produced. This is a
- * failure, not a success — without this check the run would finalize as
- * "success" with an empty result and surface only the generic
- * empty-result sentinel to the caller.
- */
-const isTruncatedReasoningCompletion = (
-  message: AgentMessage | undefined,
-): message is Extract<AgentMessage, { role: "assistant" }> => {
-  if (!message || message.role !== "assistant") return false;
-  if (message.stopReason !== "length") return false;
-  const blocks = Array.isArray(message.content) ? message.content : [];
-  return !blocks.some(
-    (block) =>
-      block.type === "toolCall" ||
-      (block.type === "text" && block.text.trim().length > 0),
-  );
-};
-
-export const getAgentCompletion = (
-  agent: AgentCompletionSource,
-): { finalText: string; errorMessage?: string } => {
-  const latestAssistant = getLatestAssistantMessage(agent.state.messages);
-  const finalText = extractAssistantText(latestAssistant);
-
-  if (latestAssistant?.role === "assistant") {
-    const assistantError = latestAssistant.errorMessage?.trim();
-    if (
-      latestAssistant.stopReason === "error" ||
-      latestAssistant.stopReason === "aborted"
-    ) {
-      return {
-        finalText,
-        errorMessage:
-          assistantError ||
-          agent.state.error ||
-          (latestAssistant.stopReason === "aborted"
-            ? "Request was aborted"
-            : "Agent failed"),
-      };
-    }
-
-    if (assistantError) {
-      return {
-        finalText,
-        errorMessage: assistantError,
-      };
-    }
-
-    if (isTruncatedReasoningCompletion(latestAssistant)) {
-      const outputTokens = latestAssistant.usage?.output;
-      return {
-        finalText,
-        errorMessage: `Run truncated: model hit the output-token cap${
-          outputTokens ? ` (${outputTokens} tokens)` : ""
-        } while reasoning; no visible reply was produced.`,
-      };
-    }
-  }
-
-  if (agent.state.error && !finalText.trim()) {
-    return {
-      finalText,
-      errorMessage: agent.state.error,
-    };
-  }
-
-  return { finalText };
-};
-
 export const createBeforeProviderPayloadTransform = (
   hookEmitter: HookEmitter | undefined,
   agentType: string,
@@ -550,21 +307,3 @@ export const createRuntimeAgent = (args: {
   });
 };
 
-/**
- * Resolve the `thinkingLevel` an Agent should run with for a given turn.
- *
- * Long-lived sessions refresh this between turns when the user changes
- * reasoning-effort preferences or model routes.
- */
-export const resolveAgentThinkingLevel = (args: {
-  resolvedLlm: ResolvedLlmRoute;
-  agentContextReasoningEffort?: Exclude<ThinkingLevel, "off"> | "default";
-}): ThinkingLevel => {
-  if (
-    args.agentContextReasoningEffort &&
-    args.agentContextReasoningEffort !== "default"
-  ) {
-    return args.agentContextReasoningEffort;
-  }
-  return args.resolvedLlm.model.reasoning ? "medium" : "off";
-};

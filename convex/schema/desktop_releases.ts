@@ -34,12 +34,6 @@ export const desktop_release_asset_validator = v.object({
   tag: v.string(),
   /** Exact upstream GitHub commit cloned by fresh installs. */
   commit: v.string(),
-  sourcePackUrl: v.optional(v.string()),
-  sourcePackSha256: v.optional(v.string()),
-  sourcePackSize: v.optional(v.number()),
-  sourceHistoryUrl: v.optional(v.string()),
-  sourceHistorySha256: v.optional(v.string()),
-  sourceHistorySize: v.optional(v.number()),
   artifactRefs: v.optional(v.array(desktop_release_artifact_ref_validator)),
   publishedAt: v.number(),
 });
@@ -48,12 +42,6 @@ const desktopReleaseFields = {
   platform: v.string(),
   tag: v.string(),
   commit: v.string(),
-  sourcePackUrl: v.optional(v.string()),
-  sourcePackSha256: v.optional(v.string()),
-  sourcePackSize: v.optional(v.number()),
-  sourceHistoryUrl: v.optional(v.string()),
-  sourceHistorySha256: v.optional(v.string()),
-  sourceHistorySize: v.optional(v.number()),
   artifactRefs: v.optional(v.array(desktop_release_artifact_ref_validator)),
   publishedAt: v.number(),
 };

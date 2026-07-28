@@ -9,7 +9,7 @@ const DESKTOP_RELEASE_PUBLISH_PATH = "/api/desktop-releases/publish";
  * Shared CI secret. Set in Convex deployment env via
  * `bunx convex env set DESKTOP_RELEASE_PUBLISH_SECRET <random>`. The CI
  * workflow passes the same value as `Authorization: Bearer <secret>`
- * after uploading the clone-install manifest and source metadata to R2.
+ * after uploading the clone-install manifest to R2.
  */
 const getPublishSecret = () =>
   process.env.DESKTOP_RELEASE_PUBLISH_SECRET?.trim() ?? "";
@@ -19,16 +19,6 @@ type PublishRequestBody = {
   tag?: string;
   commit?: string;
   publishedAt?: number | string;
-  sourcePack?: {
-    url?: string;
-    sha256?: string;
-    size?: number;
-  };
-  sourceHistory?: {
-    url?: string;
-    sha256?: string;
-    size?: number;
-  };
   platforms?: Record<
     string,
     {
@@ -75,25 +65,6 @@ const normalizePublishedAt = (
     if (!Number.isNaN(parsed)) return parsed;
   }
   return null;
-};
-
-const normalizeSourcePack = (
-  value: PublishRequestBody["sourcePack"],
-): { url: string; sha256: string; size: number } | null => {
-  if (!value) return null;
-  if (
-    typeof value.url !== "string" ||
-    typeof value.sha256 !== "string" ||
-    typeof value.size !== "number"
-  ) {
-    return null;
-  }
-  const url = value.url.trim();
-  const sha256 = value.sha256.trim().toLowerCase();
-  if (!/^https:\/\//i.test(url)) return null;
-  if (!/^sha256:[0-9a-f]{64}$/.test(sha256)) return null;
-  if (!Number.isFinite(value.size) || value.size <= 0) return null;
-  return { url, sha256, size: value.size };
 };
 
 export const normalizeArtifactRefs = (
@@ -187,20 +158,6 @@ export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
         );
       }
       const publishedAt = normalizePublishedAt(body.publishedAt) ?? Date.now();
-      const sourcePack = normalizeSourcePack(body.sourcePack);
-      if (body.sourcePack && !sourcePack) {
-        return errorResponse(
-          400,
-          "sourcePack must include https url, sha256, and size.",
-        );
-      }
-      const sourceHistory = normalizeSourcePack(body.sourceHistory);
-      if (body.sourceHistory && !sourceHistory) {
-        return errorResponse(
-          400,
-          "sourceHistory must include https url, sha256, and size.",
-        );
-      }
       const platformEntries = body.platforms ?? {};
       const platforms = Object.keys(platformEntries);
       if (platforms.length === 0) {
@@ -232,20 +189,6 @@ export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
             platform,
             tag: body.tag,
             commit: body.commit,
-            ...(sourcePack
-              ? {
-                  sourcePackUrl: sourcePack.url,
-                  sourcePackSha256: sourcePack.sha256,
-                  sourcePackSize: sourcePack.size,
-                }
-              : {}),
-            ...(sourceHistory
-              ? {
-                  sourceHistoryUrl: sourceHistory.url,
-                  sourceHistorySha256: sourceHistory.sha256,
-                  sourceHistorySize: sourceHistory.size,
-                }
-              : {}),
             artifactRefs,
             publishedAt,
           },

@@ -24,12 +24,6 @@ export const currentDesktopRelease = query({
       platform: v.string(),
       tag: v.string(),
       commit: v.string(),
-      sourcePackUrl: v.optional(v.string()),
-      sourcePackSha256: v.optional(v.string()),
-      sourcePackSize: v.optional(v.number()),
-      sourceHistoryUrl: v.optional(v.string()),
-      sourceHistorySha256: v.optional(v.string()),
-      sourceHistorySize: v.optional(v.number()),
       artifactRefs: v.optional(v.array(desktop_release_artifact_ref_validator)),
       publishedAt: v.number(),
     }),
@@ -44,22 +38,6 @@ export const currentDesktopRelease = query({
       platform: row.platform,
       tag: row.tag,
       commit: row.commit,
-      ...(row.sourcePackUrl ? { sourcePackUrl: row.sourcePackUrl } : {}),
-      ...(row.sourcePackSha256
-        ? { sourcePackSha256: row.sourcePackSha256 }
-        : {}),
-      ...(typeof row.sourcePackSize === "number"
-        ? { sourcePackSize: row.sourcePackSize }
-        : {}),
-      ...(row.sourceHistoryUrl
-        ? { sourceHistoryUrl: row.sourceHistoryUrl }
-        : {}),
-      ...(row.sourceHistorySha256
-        ? { sourceHistorySha256: row.sourceHistorySha256 }
-        : {}),
-      ...(typeof row.sourceHistorySize === "number"
-        ? { sourceHistorySize: row.sourceHistorySize }
-        : {}),
       ...(row.artifactRefs ? { artifactRefs: row.artifactRefs } : {}),
       publishedAt: row.publishedAt,
     };
@@ -71,12 +49,6 @@ export const publishDesktopRelease = internalMutation({
     platform: platformValidator,
     tag: v.string(),
     commit: v.string(),
-    sourcePackUrl: v.optional(v.string()),
-    sourcePackSha256: v.optional(v.string()),
-    sourcePackSize: v.optional(v.number()),
-    sourceHistoryUrl: v.optional(v.string()),
-    sourceHistorySha256: v.optional(v.string()),
-    sourceHistorySize: v.optional(v.number()),
     artifactRefs: v.optional(v.array(desktop_release_artifact_ref_validator)),
     publishedAt: v.number(),
   },
@@ -90,22 +62,6 @@ export const publishDesktopRelease = internalMutation({
       platform: args.platform,
       tag: args.tag,
       commit: args.commit,
-      ...(args.sourcePackUrl ? { sourcePackUrl: args.sourcePackUrl } : {}),
-      ...(args.sourcePackSha256
-        ? { sourcePackSha256: args.sourcePackSha256 }
-        : {}),
-      ...(typeof args.sourcePackSize === "number"
-        ? { sourcePackSize: args.sourcePackSize }
-        : {}),
-      ...(args.sourceHistoryUrl
-        ? { sourceHistoryUrl: args.sourceHistoryUrl }
-        : {}),
-      ...(args.sourceHistorySha256
-        ? { sourceHistorySha256: args.sourceHistorySha256 }
-        : {}),
-      ...(typeof args.sourceHistorySize === "number"
-        ? { sourceHistorySize: args.sourceHistorySize }
-        : {}),
       ...(args.artifactRefs ? { artifactRefs: args.artifactRefs } : {}),
       publishedAt: args.publishedAt,
     };

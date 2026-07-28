@@ -1,12 +1,22 @@
 /**
- * Transcript pruning shared by the orchestrator DO and the sandbox executor.
+ * Transcript token accounting and pruning for the cloud loops.
  *
- * The canonical transcript in Convex only grows; the loop's context window
- * does not. Without a cut, a long conversation eventually overflows the
- * relay model's window and every subsequent turn fails the same way — the
- * conversation bricks. Until real compaction lands (the desktop runtime's
- * compaction scheduler is the model), the cloud loops keep the newest suffix
- * of history that fits a token budget.
+ * A conversation's transcript only grows; the loop's context window does not.
+ * Without a cut, a long conversation eventually overflows the relay model's
+ * window and every subsequent turn fails the same way — the conversation
+ * bricks. Until real compaction lands (the desktop runtime's compaction
+ * scheduler is the model), the cloud loops keep the newest suffix of history
+ * that fits a token budget.
+ *
+ * Who uses what, since the two callers diverged:
+ *
+ *  - The orchestrator DO owns its conversation in its own SQLite and picks the
+ *    window from indexed `tokens` columns, so it imports `estimateTokens` and
+ *    the budget only — it never materializes a full history to prune.
+ *  - The sandbox executor still writes SPAWNED-AGENT THREAD transcripts to
+ *    Convex (`cloud_thread_messages`), which is private job state rather than
+ *    conversation content, so `pruneAgentHistory`, `chunkForAppend` and
+ *    `MESSAGE_APPEND_BATCH_LIMIT` continue to serve that path unchanged.
  */
 
 /**
@@ -18,10 +28,16 @@
  */
 export const CLOUD_HISTORY_TOKEN_BUDGET = 48_000;
 
-// ~4 chars/token holds for ASCII text, but CJK and most non-Latin scripts
-// tokenize near 1 token/char — counting them at 1/4 would let a CJK-dense
-// transcript blow the real window 4x past the budget.
-const estimateTokens = (message: unknown): number => {
+/**
+ * ~4 chars/token holds for ASCII text, but CJK and most non-Latin scripts
+ * tokenize near 1 token/char — counting them at 1/4 would let a CJK-dense
+ * transcript blow the real window 4x past the budget.
+ *
+ * Exported because the orchestrator DO stores the estimate on the row at
+ * append time: the same number, computed once, so choosing a context window
+ * reads three small columns instead of every payload in the conversation.
+ */
+export const estimateTokens = (message: unknown): number => {
   const serialized = JSON.stringify(message);
   let nonAscii = 0;
   for (let index = 0; index < serialized.length; index += 1) {

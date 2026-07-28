@@ -2645,6 +2645,14 @@ export class StellaRuntimeHost {
     return this.schedulerService;
   }
 
+  /**
+   * `conversationId` here is always a LOCAL conversation id; cloud
+   * conversation ids never enter this table. A cloud conversation's transcript
+   * is owned by its Durable Object, and a writable copy on this machine would
+   * be a second authority for it. Desktop's cloud rows are read from the
+   * conversation socket and held in renderer memory only; writes go out
+   * through `kernel/runner/cloud-transcript-write.ts`.
+   */
   private async appendLocalChatEvent(payload: {
     conversationId: string;
     type: string;

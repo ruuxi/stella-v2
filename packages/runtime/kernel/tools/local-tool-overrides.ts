@@ -9,127 +9,27 @@
 
 import { normalizeSafeExternalUrl } from "./network-guards.js";
 import { containsSecretLikeToken, sanitizeToolVisibleText } from "./safety.js";
-
-const MAX_FETCH_BODY_CHARS = 80_000;
-const FETCH_TIMEOUT_MS = 30_000;
-const MAX_FETCH_REDIRECTS = 5;
+import { fetchReadableText } from "./web-fetch-core.js";
 
 const safeUrlOptions = () => ({
   skipResolvedAddressCheck: process.env.NODE_ENV === "development",
 });
 
-// WebFetch
-
-/**
- * Minimal HTML-to-text conversion. Strips tags and decodes common entities.
- * No external dependency needed for this basic extraction.
- */
-const htmlToText = (html: string): string => {
-  let text = html.replace(/<script[\s\S]*?<\/script>/gi, "");
-  text = text.replace(/<style[\s\S]*?<\/style>/gi, "");
-  text = text.replace(/<(?:br|p|div|li|h[1-6]|tr)[^>]*>/gi, "\n");
-  text = text.replace(/<[^>]+>/g, "");
-  text = text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
-  text = text.replace(/[ \t]+/g, " ");
-  text = text.replace(/\n{3,}/g, "\n\n");
-  return text.trim();
-};
+// WebFetch — the pipeline itself lives in the workerd-safe
+// `web-fetch-core.ts` (the cloud DO runs the same one); this wrapper binds
+// the desktop capabilities: the DNS-checking URL guard and the
+// secret-redacting sanitizer.
 
 export const localWebFetch = async (args: {
   url: string;
   prompt?: string;
-}): Promise<string> => {
-  if (!args.url) return "Error: URL is required.";
-  if (containsSecretLikeToken(args.url)) {
-    return "Error: URL contains what appears to be an API key or token. Secrets must not be sent in URLs.";
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  try {
-    let targetUrl = await normalizeSafeExternalUrl(args.url, safeUrlOptions());
-
-    let response: Response | null = null;
-    for (
-      let redirectCount = 0;
-      redirectCount <= MAX_FETCH_REDIRECTS;
-      redirectCount += 1
-    ) {
-      response = await fetch(targetUrl, {
-        signal: controller.signal,
-        redirect: "manual",
-        headers: {
-          "User-Agent": "Stella/1.0 (Desktop Assistant)",
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7",
-        },
-      });
-
-      const location = response.headers.get("location");
-      if (response.status >= 300 && response.status < 400 && location) {
-        targetUrl = await normalizeSafeExternalUrl(
-          new URL(location, targetUrl).toString(),
-          safeUrlOptions(),
-        );
-        continue;
-      }
-
-      break;
-    }
-    if (!response) {
-      return "Error: No response received.";
-    }
-    if (
-      response.status >= 300 &&
-      response.status < 400 &&
-      response.headers.get("location")
-    ) {
-      return `Error: Too many redirects (limit ${MAX_FETCH_REDIRECTS})`;
-    }
-
-    if (!response.ok) {
-      return `Error: HTTP ${response.status} ${response.statusText}`;
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-    const rawBody = await response.text();
-
-    let text: string;
-    if (
-      contentType.includes("text/html") ||
-      contentType.includes("application/xhtml")
-    ) {
-      text = htmlToText(rawBody);
-    } else {
-      text = rawBody;
-    }
-
-    if (text.length > MAX_FETCH_BODY_CHARS) {
-      text = text.slice(0, MAX_FETCH_BODY_CHARS) + "\n\n[Content truncated]";
-    }
-
-    if (!text.trim()) {
-      return "The page returned no readable text content.";
-    }
-
-    return sanitizeToolVisibleText(text);
-  } catch (error) {
-    const msg = (error as Error).message ?? "Unknown error";
-    if (msg.includes("abort")) {
-      return `Error: Request timed out after ${FETCH_TIMEOUT_MS / 1000}s`;
-    }
-    return `Error fetching URL: ${sanitizeToolVisibleText(msg)}`;
-  } finally {
-    clearTimeout(timeout);
-  }
-};
+}): Promise<string> =>
+  fetchReadableText(args, {
+    guardUrl: (url) => normalizeSafeExternalUrl(url, safeUrlOptions()),
+    checkSecretLikeToken: containsSecretLikeToken,
+    sanitize: sanitizeToolVisibleText,
+    userAgent: "Stella/1.0 (Desktop Assistant)",
+  });
 
 // NoResponse
 

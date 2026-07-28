@@ -8,7 +8,7 @@
 import path from "path";
 import os from "os";
 import { getDangerousCommandReason } from "./schemas.js";
-import { resolveHomeRelative } from "./safety.js";
+import { resolveHomeRelative } from "./home-path.js";
 
 // ---------------------------------------------------------------------------
 // 1. Dangerous Command Blocklist

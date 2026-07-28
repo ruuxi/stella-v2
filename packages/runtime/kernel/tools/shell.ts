@@ -16,6 +16,7 @@ import {
   type ProducedFileRecord,
 } from "@stella/contracts/file-changes";
 import type {
+  ProducedFilesOmission,
   ToolContext,
   ToolResult,
   ShellRecord,
@@ -105,6 +106,8 @@ type ManagedShellRecord = ShellRecord & {
   startSnapshot?: FileSnapshot | null;
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   producedFilesReported?: boolean;
+  /** Cap resolved from the host's ToolContext when the shell was started. */
+  producedFileLimit: number;
 };
 
 type FileSnapshotEntry = {
@@ -402,6 +405,28 @@ const diffExternalCandidateSnapshots = async (
 };
 
 /**
+ * The `producedFiles` / `producedFilesOmitted` slice of a `ToolResult`, so
+ * every shell handler can spread one object instead of rebuilding the pair.
+ */
+type ProducedFilesOutcome = {
+  producedFiles?: ProducedFileRecord[];
+  producedFilesOmitted?: ProducedFilesOmission;
+};
+
+/**
+ * Per-command cap on snapshot-detected produced files. Belongs to the host,
+ * not to the runtime: the desktop default assumes an over-cap batch reaches
+ * the user unfiltered, while a host that re-filters every file downstream can
+ * afford a larger deliberate batch.
+ */
+const resolveProducedFileLimit = (context?: ToolContext): number => {
+  const requested = context?.maxProducedFilesPerCommand;
+  return typeof requested === "number" && Number.isFinite(requested)
+    ? Math.max(0, Math.floor(requested))
+    : MAX_PRODUCED_FILES_PER_COMMAND;
+};
+
+/**
  * Merge + sanitize snapshot-detected produced files. Every shell
  * `producedFiles` emission (foreground exec, background completion via
  * `takeCompletedProducedFiles`, `write_stdin` / shell-status drains) funnels
@@ -411,16 +436,24 @@ const diffExternalCandidateSnapshots = async (
  *  2. Drop noise paths (`isNoiseProducedPath`: hidden/profile/cache dirs,
  *     logs, locks) so they never persist into `tool_result` payloads.
  *  3. Bulk-churn guard: if a single command still "produced" more than
- *     `MAX_PRODUCED_FILES_PER_COMMAND` files, the diff is environment churn
- *     (spawned app bootstrap seeding its data dir, git checkout/worktree
- *     mtime rewrites, dependency installs) — not deliverables. Drop the
- *     whole batch; deliberate writes still surface via explicit
+ *     `limit` files, the diff is most likely environment churn (spawned app
+ *     bootstrap seeding its data dir, git checkout/worktree mtime rewrites,
+ *     dependency installs) — not deliverables. Withhold the whole batch,
+ *     since no per-path signal separates the churn from the three files the
+ *     user asked for; deliberate writes still surface via explicit
  *     `fileChanges` from Write/Edit/apply_patch, which never pass through
  *     snapshot detection.
+ *
+ * The withholding is *reported*, never silent: a genuinely large deliberate
+ * batch (a loop writing 31 charts) also trips the guard, and a caller that
+ * sees neither files nor a count cannot tell "produced nothing" from
+ * "produced 31 and I dropped them". Hosts that can afford the batch raise
+ * `limit` via `ToolContext.maxProducedFilesPerCommand` instead.
  */
 const mergeProducedFiles = (
+  limit: number,
   ...groups: Array<ProducedFileRecord[] | undefined>
-): ProducedFileRecord[] | undefined => {
+): ProducedFilesOutcome => {
   const out: ProducedFileRecord[] = [];
   const seen = new Set<string>();
   for (const group of groups) {
@@ -433,9 +466,14 @@ const mergeProducedFiles = (
       out.push(file);
     }
   }
-  if (out.length > MAX_PRODUCED_FILES_PER_COMMAND) return undefined;
-  return out.length > 0 ? out : undefined;
+  if (out.length > limit) {
+    return { producedFilesOmitted: { count: out.length, limit } };
+  }
+  return out.length > 0 ? { producedFiles: out } : {};
 };
+
+const producedFilesOmittedNotice = (omission: ProducedFilesOmission): string =>
+  `Note: ${omission.count} produced files were detected for this command, above the per-command delivery limit of ${omission.limit}, so none were attached to this result.`;
 
 const snapshotShellSideEffects = async (
   args: Record<string, unknown>,
@@ -458,10 +496,11 @@ const shouldSnapshotShellSideEffects = (command: string): boolean =>
 
 const takeCompletedProducedFiles = async (
   record: ManagedShellRecord,
-): Promise<ProducedFileRecord[] | undefined> => {
-  if (record.running || record.producedFilesReported) return undefined;
+): Promise<ProducedFilesOutcome> => {
+  if (record.running || record.producedFilesReported) return {};
   record.producedFilesReported = true;
   const produced = mergeProducedFiles(
+    record.producedFileLimit,
     diffFileSnapshots(
       record.startSnapshot ?? null,
       await snapshotFiles(record.startSnapshot?.root ?? record.cwd),
@@ -494,24 +533,40 @@ const takeCompletedProducedFiles = async (
  * Scope with `sessionIds` to the sessions a run actually touched (omit to
  * sweep every session). Delegates to `takeCompletedProducedFiles`, so the
  * one-shot `producedFilesReported` flag, `isNoiseProducedPath` guards,
- * per-command dedup, and the `MAX_PRODUCED_FILES_PER_COMMAND` cap all still
- * apply, and a session already drained inline yields nothing here.
+ * per-command dedup, and the per-command cap all still apply, and a session
+ * already drained inline yields nothing here.
+ *
+ * The withholding travels with the files, for the same reason it does on the
+ * inline drains: a session whose batch the cap held back contributes no files
+ * at all, and a rollup that sees an empty list cannot tell that from a
+ * background command that wrote nothing. `omitted` sums the withheld counts
+ * across the swept sessions and carries the largest limit that did the
+ * withholding, so the rollup can say how many files are still on disk.
  */
 export const drainCompletedProducedFiles = async (
   state: ShellState,
   sessionIds?: Iterable<string>,
-): Promise<ProducedFileRecord[]> => {
+): Promise<{
+  files: ProducedFileRecord[];
+  omitted?: ProducedFilesOmission;
+}> => {
   const records = sessionIds
     ? [...new Set(sessionIds)]
         .map((id) => state.shells.get(id))
         .filter((record): record is ManagedShellRecord => Boolean(record))
     : [...state.shells.values()];
-  const drained: ProducedFileRecord[] = [];
+  const files: ProducedFileRecord[] = [];
+  let count = 0;
+  let limit = 0;
   for (const record of records) {
     const produced = await takeCompletedProducedFiles(record);
-    if (produced) drained.push(...produced);
+    if (produced.producedFiles) files.push(...produced.producedFiles);
+    if (produced.producedFilesOmitted) {
+      count += produced.producedFilesOmitted.count;
+      limit = Math.max(limit, produced.producedFilesOmitted.limit);
+    }
   }
-  return drained;
+  return { files, ...(count > 0 ? { omitted: { count, limit } } : {}) };
 };
 
 export const extractOfficePreviewRef = (
@@ -1259,6 +1314,7 @@ export const startShell = (
   startSnapshot?: FileSnapshot | null,
   externalCandidateSnapshots?: ExternalCandidateSnapshot[],
   onActivity?: (record: ManagedShellRecord) => void,
+  producedFileLimit: number = MAX_PRODUCED_FILES_PER_COMMAND,
 ) => {
   maybeSweepDeferredDeletes(state);
   const id = crypto.randomUUID();
@@ -1282,6 +1338,7 @@ export const startShell = (
       stdinOpen: false,
       startSnapshot,
       externalCandidateSnapshots,
+      producedFileLimit,
       kill: () => {},
     };
     state.shells.set(id, record);
@@ -1311,6 +1368,7 @@ export const startShell = (
     stdinOpen: Boolean(child.stdin),
     startSnapshot,
     externalCandidateSnapshots,
+    producedFileLimit,
     kill: () => {
       terminateShellProcess(child);
     },
@@ -1618,6 +1676,7 @@ export const handleExecCommand = async (
     beforeSideEffects.rootSnapshot,
     beforeSideEffects.externalCandidateSnapshots,
     emitUpdate,
+    resolveProducedFileLimit(context),
   );
   const observedVersion = record.outputVersion;
   try {
@@ -1649,13 +1708,19 @@ export const handleExecCommand = async (
 
   const drained = drainUnreadOutput(record, maxOutputChars);
   const payload = buildExecToolPayload(record, drained, callStartedAt);
-  const producedFiles = !record.running
+  const produced = !record.running
     ? await takeCompletedProducedFiles(record)
-    : undefined;
+    : {};
+  // Also on the model-visible payload, not just the structured side channel:
+  // the agent is the one that can tell the user its 31 charts are sitting in
+  // the workspace undelivered.
+  if (produced.producedFilesOmitted) {
+    payload.produced_files_omitted = produced.producedFilesOmitted;
+  }
   return {
     result: payload,
     details: payload,
-    ...(producedFiles ? { producedFiles } : {}),
+    ...produced,
   };
 };
 
@@ -1702,11 +1767,14 @@ export const handleWriteStdin = async (
     outputCharBudgetFromTokens(args.max_output_tokens),
   );
   const payload = buildExecToolPayload(record, drained, callStartedAt);
-  const producedFiles = await takeCompletedProducedFiles(record);
+  const produced = await takeCompletedProducedFiles(record);
+  if (produced.producedFilesOmitted) {
+    payload.produced_files_omitted = produced.producedFilesOmitted;
+  }
   return {
     result: payload,
     details: payload,
-    ...(producedFiles ? { producedFiles } : {}),
+    ...produced,
   };
 };
 
@@ -1758,6 +1826,8 @@ export const handleBash = async (
       undefined,
       beforeSideEffects.rootSnapshot,
       beforeSideEffects.externalCandidateSnapshots,
+      undefined,
+      resolveProducedFileLimit(context),
     );
     const extracted = extractOfficePreviewRef(record.output || "");
     return {
@@ -1790,9 +1860,10 @@ export const handleBash = async (
         )
       : { rootSnapshot: null };
   const output = await runShell(state, command, cwd, timeout, envOverrides);
-  const producedFiles =
+  const produced =
     shouldSnapshotSideEffects && snapshotRoot
       ? mergeProducedFiles(
+          resolveProducedFileLimit(context),
           diffFileSnapshots(
             beforeSideEffects.rootSnapshot,
             await snapshotFiles(snapshotRoot),
@@ -1801,15 +1872,18 @@ export const handleBash = async (
             beforeSideEffects.externalCandidateSnapshots,
           ),
         )
-      : undefined;
+      : {};
   const extracted = extractOfficePreviewRef(sanitizeToolVisibleText(output));
+  const text = produced.producedFilesOmitted
+    ? `${truncate(extracted.cleanedOutput)}\n\n${producedFilesOmittedNotice(produced.producedFilesOmitted)}`
+    : truncate(extracted.cleanedOutput);
   return {
-    result: truncate(extracted.cleanedOutput),
-    ...(producedFiles ? { producedFiles } : {}),
+    result: text,
+    ...produced,
     ...(extracted.officePreviewRef
       ? {
           details: {
-            text: truncate(extracted.cleanedOutput),
+            text,
             officePreviewRef: extracted.officePreviewRef,
           },
         }
@@ -1858,10 +1932,13 @@ export const handleShellStatus = async (
   result += `\nCommand: ${record.command.slice(0, 200)}`;
   result += `\n\n--- Output (last ${Math.min(tail_lines, lines.length)} lines) ---\n${tail}`;
 
-  const producedFiles = await takeCompletedProducedFiles(record);
+  const produced = await takeCompletedProducedFiles(record);
+  if (produced.producedFilesOmitted) {
+    result += `\n\n${producedFilesOmittedNotice(produced.producedFilesOmitted)}`;
+  }
   return {
     result,
-    ...(producedFiles ? { producedFiles } : {}),
+    ...produced,
   };
 };
 

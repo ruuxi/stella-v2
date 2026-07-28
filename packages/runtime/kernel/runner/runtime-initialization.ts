@@ -454,6 +454,11 @@ export const createRuntimeInitialization = (
     // instead of observing the previous generation as already open.
     context.state.initializationStarted.reset();
     deps.disposeConvexClient();
+    // The cloud journal writer holds a retry timer and an in-memory queue.
+    // Stopping it before the Convex client is gone would be pointless (it
+    // needs a token to flush) and leaving it running keeps a timer alive past
+    // shutdown, so it is dropped here alongside the client it depends on.
+    context.cloudTranscript.stop();
     // Cancel every live orchestrator turn cooperatively first, then cancel
     // agent tasks (awaited: lifecycle events + managed-child cascades), then
     // interrupt the whole supervised fiber tree — root turn fibers and

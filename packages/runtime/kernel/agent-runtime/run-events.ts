@@ -17,6 +17,7 @@ import type {
 } from "../extensions/types.js";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
+import { assistantMessageHasUsableOutput } from "./run-shared.js";
 import {
   assistantMessageHasToolCall,
   extractAssistantText,
@@ -739,7 +740,18 @@ const toPersistedThreadPayload = (
         trimmedContent.push({ ...block, text: trimmed });
       }
     }
-    if (trimmedContent.length === 0) {
+    // The retry ladder pops a no-usable-output assistant tail from the live
+    // context before resuming, and nothing removes rows from the durable
+    // transcript — so persisting one here orphans it: the store keeps a reply
+    // the model no longer has, and the next rebuild (compaction, an external
+    // writer, app restart) hands the provider two consecutive assistant
+    // messages. Checking emptiness alone missed the thinking-only message a
+    // reasoning model produces when it exhausts the output cap while
+    // reasoning; this is the ladder's own predicate, so the two cannot drift.
+    if (
+      trimmedContent.length === 0 ||
+      !assistantMessageHasUsableOutput({ ...message, content: trimmedContent })
+    ) {
       return null;
     }
     return {

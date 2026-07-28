@@ -110,16 +110,22 @@ const mergeToolSideEffectsIntoDetails = (
   details: unknown,
   fileChanges: ToolResult["fileChanges"],
   producedFiles: ToolResult["producedFiles"],
+  // Carried alongside `producedFiles` because it is the *absence* of them
+  // that needs explaining: a surface reading only the two lists above cannot
+  // tell a command that produced nothing from one whose batch was withheld.
+  producedFilesOmitted: ToolResult["producedFilesOmitted"],
 ): unknown => {
   if (
     (!fileChanges || fileChanges.length === 0) &&
-    (!producedFiles || producedFiles.length === 0)
+    (!producedFiles || producedFiles.length === 0) &&
+    !producedFilesOmitted
   ) {
     return details;
   }
   const sideEffects = {
     ...(fileChanges && fileChanges.length > 0 ? { fileChanges } : {}),
     ...(producedFiles && producedFiles.length > 0 ? { producedFiles } : {}),
+    ...(producedFilesOmitted ? { producedFilesOmitted } : {}),
   };
   if (details && typeof details === "object" && !Array.isArray(details)) {
     return { ...(details as Record<string, unknown>), ...sideEffects };
@@ -142,6 +148,7 @@ const formatToolResult = (
         sanitizeToolResult(toolResult.details ?? { error }),
         toolResult.fileChanges,
         toolResult.producedFiles,
+        toolResult.producedFilesOmitted,
       ),
     };
   }
@@ -153,6 +160,7 @@ const formatToolResult = (
       sanitizeToolResult(toolResult.details ?? result),
       toolResult.fileChanges,
       toolResult.producedFiles,
+      toolResult.producedFilesOmitted,
     ),
   };
 };

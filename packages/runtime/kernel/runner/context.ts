@@ -1,5 +1,7 @@
 import path from "path";
 import { createFashionApi } from "./fashion-api.js";
+import { createCloudSpawnDispatcher } from "./cloud-spawn-dispatch.js";
+import { createCloudTranscriptWriter } from "./cloud-transcript-write.js";
 import { createToolHost } from "../tools/host.js";
 import { HookEmitter } from "../extensions/hook-emitter.js";
 import {
@@ -448,7 +450,8 @@ export const createRunnerContext = ({
   const hookEmitter = new HookEmitter();
   const recallRunCache = new RecallRunCache();
 
-  const convexAction = async (
+  const convexCall = async (
+    kind: "action" | "mutation" | "query",
     ref: unknown,
     args: unknown,
   ): Promise<unknown> => {
@@ -463,10 +466,11 @@ export const createRunnerContext = ({
     const existingClient = context.state?.convexClient;
     if (existingClient && context.state?.convexClientUrl === deploymentUrl) {
       return await (
-        existingClient as {
-          action: (tool: unknown, params: unknown) => Promise<unknown>;
-        }
-      ).action(ref, args);
+        existingClient as Record<
+          typeof kind,
+          (tool: unknown, params: unknown) => Promise<unknown>
+        >
+      )[kind](ref, args);
     }
 
     const client = new ConvexClient(deploymentUrl, {
@@ -476,14 +480,68 @@ export const createRunnerContext = ({
     client.setAuth(async () => authToken);
     try {
       return await (
-        client as {
-          action: (tool: unknown, params: unknown) => Promise<unknown>;
-        }
-      ).action(ref, args);
+        client as Record<
+          typeof kind,
+          (tool: unknown, params: unknown) => Promise<unknown>
+        >
+      )[kind](ref, args);
     } finally {
       void client.close().catch(() => undefined);
     }
   };
+
+  const convexAction = async (ref: unknown, args: unknown): Promise<unknown> =>
+    await convexCall("action", ref, args);
+
+  const cloudDispatch = createCloudSpawnDispatcher({
+    convexApi: anyApi,
+    mutation: async (ref, args) => await convexCall("mutation", ref, args),
+    query: async (ref, args) => await convexCall("query", ref, args),
+    isSignedIn: () =>
+      Boolean(
+        sanitizeConvexDeploymentUrl(
+          context.state?.convexDeploymentUrl ?? envConvexDeploymentUrl,
+        ) && (context.state?.authToken ?? envAuthToken ?? "").trim(),
+      ),
+  });
+
+  /**
+   * Where the conversation Durable Objects live. Convex resolves it from
+   * `CLOUD_BUILDER_URL` and hands it out to authenticated callers, so the
+   * origin never has to be a second build-time variable on every client.
+   */
+  let cloudRealtime: { baseUrl: string | null; atMs: number } | null = null;
+  const cloudRealtimeBaseUrl = async (): Promise<string | null> => {
+    const ttlMs = cloudRealtime?.baseUrl ? 5 * 60_000 : 30_000;
+    if (cloudRealtime && Date.now() - cloudRealtime.atMs < ttlMs) {
+      return cloudRealtime.baseUrl;
+    }
+    let baseUrl: string | null = null;
+    try {
+      const config = await convexCall(
+        "query",
+        (anyApi as { cloud_apps: { getCloudRealtimeConfig: unknown } })
+          .cloud_apps.getCloudRealtimeConfig,
+        {},
+      );
+      // `httpOrigin`, not `socketOrigin`: the journal append is a POST.
+      const value = (config as { httpOrigin?: unknown } | null)?.httpOrigin;
+      baseUrl = typeof value === "string" && value ? value : null;
+    } catch {
+      // Signed out, offline, or a deployment without the function. The writer
+      // treats a missing origin as "retry later", never as a failure to show.
+      baseUrl = null;
+    }
+    cloudRealtime = { baseUrl, atMs: Date.now() };
+    return baseUrl;
+  };
+
+  const cloudTranscript = createCloudTranscriptWriter({
+    deviceId,
+    getAuthToken: () =>
+      (context.state?.authToken ?? envAuthToken ?? "").trim() || null,
+    getBaseUrl: cloudRealtimeBaseUrl,
+  });
 
   const resolvedFashionApi =
     fashionApi ?? createFashionApi({ convexAction, convexApi: anyApi });
@@ -680,6 +738,9 @@ export const createRunnerContext = ({
       ? { dreamInboxStore: runtimeStore.dreamInboxStore }
       : {}),
     agentApi: {
+      // Cloud placements never touch LocalAgentManager: the subject lives off
+      // this machine, so the spawn leaves the device entirely.
+      cloudDispatch,
       createAgent: async (request) => {
         if (!context.state.localAgentManager) {
           throw new Error("Local task manager not initialized");
@@ -768,6 +829,7 @@ export const createRunnerContext = ({
     appendLocalChatEvent,
     notifyThreadActivityUpdated,
     getDefaultConversationId,
+    cloudTranscript,
     paths: {
       extensionsPath: path.join(stellaDataDir, "extensions"),
     },
@@ -779,6 +841,7 @@ export const createRunnerContext = ({
       convexClientUrl: null,
       hasConnectedAccount: false,
       cloudSyncEnabled: false,
+      cloudConversationId: null,
       modelCatalogUpdatedAt: null,
       isRunning: false,
       isInitialized: false,

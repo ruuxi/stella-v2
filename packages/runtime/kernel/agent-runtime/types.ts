@@ -10,6 +10,7 @@ import type { SubagentSession } from "./subagent-session.js";
 import type { BackgroundCompactionScheduler } from "./compaction-scheduler.js";
 import type {
   AgentToolRequest,
+  ProducedFilesOmission,
   ToolContext,
   ToolMetadata,
   ToolResult,
@@ -307,4 +308,10 @@ export type SubagentRunResult = {
   error?: string;
   fileChanges?: FileChangeRecord[];
   producedFiles?: ProducedFileRecord[];
+  /**
+   * Set when the per-command cap withheld a background shell session's whole
+   * produced-file batch. Those files are on disk and in no list, so this
+   * count is the only thing that can say they exist.
+   */
+  producedFilesOmitted?: ProducedFilesOmission;
 };

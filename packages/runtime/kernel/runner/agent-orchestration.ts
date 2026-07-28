@@ -819,16 +819,20 @@ export const createAgentOrchestration = (
       // rollup assembles off `result.producedFiles`.
       if (touchedShellSessions.size > 0) {
         try {
-          const lateProducedFiles =
-            await context.toolHost.drainCompletedShellProducedFiles([
-              ...touchedShellSessions,
-            ]);
-          if (lateProducedFiles.length > 0) {
+          const late = await context.toolHost.drainCompletedShellProducedFiles([
+            ...touchedShellSessions,
+          ]);
+          if (late.files.length > 0) {
             collectProducedFiles(
               subagentProducedFiles,
               subagentProducedFileKeys,
-              { producedFiles: lateProducedFiles },
+              { producedFiles: late.files },
             );
+          }
+          // The cap withheld a background batch. It reaches the rollup as a
+          // count rather than as files, because there is nothing to attach.
+          if (late.omitted) {
+            result.producedFilesOmitted = late.omitted;
           }
         } catch (error) {
           console.warn(

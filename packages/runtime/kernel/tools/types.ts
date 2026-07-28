@@ -46,6 +46,15 @@ export type ToolContext = {
   allowedToolNames?: string[];
   /** External engines acknowledge image delivery after their protocol write. */
   deferImageDeliveryAck?: boolean;
+  /**
+   * Per-command ceiling on snapshot-detected `producedFiles`. The default
+   * (`MAX_PRODUCED_FILES_PER_COMMAND`) is tuned for the desktop, where a batch
+   * over the cap is almost always environment churn and reaches the user
+   * unfiltered. Hosts that re-filter every produced file downstream — the
+   * cloud drive re-checks path, size and quota per file — can raise it so a
+   * deliberate large batch survives collection.
+   */
+  maxProducedFilesPerCommand?: number;
   connectorDeliveryTarget?: {
     requestId: string;
     conversationId: string;
@@ -77,6 +86,21 @@ export type ToolResult = {
    * shell/CLI work rather than an explicit file-edit tool.
    */
   producedFiles?: ProducedFileRecord[];
+  /**
+   * Set when the per-command cap withheld a snapshot-detected batch instead
+   * of delivering it. `producedFiles` is then absent, and this says how much
+   * was withheld — so a surface can report "31 files produced, none shown"
+   * rather than showing nothing and implying the command produced nothing.
+   */
+  producedFilesOmitted?: ProducedFilesOmission;
+};
+
+/** See `ToolResult.producedFilesOmitted`. */
+export type ProducedFilesOmission = {
+  /** Files withheld, counted after noise filtering and dedup. */
+  count: number;
+  /** The per-command cap that withheld them. */
+  limit: number;
 };
 
 export type ToolUpdateCallback = (update: ToolResult) => void;
@@ -165,6 +189,29 @@ export type AgentToolRequest = {
   storageMode: "cloud" | "local";
 };
 
+/**
+ * A spawn whose subject lives off this device. `computer` and an omitted
+ * workspace never produce one of these: those stay local by construction.
+ */
+export type CloudDispatchRequest = {
+  /** `drive`, `stella`, `project:<name>`, or `app:<slug>`. */
+  workspace: string;
+  /** Local conversation the spawn came from, used to keep cloud threads together. */
+  conversationId: string;
+  description: string;
+  prompt: string;
+};
+
+export type CloudDispatchResult = {
+  /**
+   * Cloud thread id. It is not a local thread record, so `send_input` and
+   * `pause_agent` on this device cannot reach it.
+   */
+  threadId: string;
+  /** Cloud conversation the agent reports into. */
+  conversationId: string;
+};
+
 export type AgentToolSnapshot = {
   id: string;
   status: TaskLifecycleStatus;
@@ -236,6 +283,16 @@ export type AgentToolApi = {
     threadId: string,
     recipient: "orchestrator" | "subagent",
   ) => Promise<string[]>;
+  /**
+   * Hands a cloud-placed spawn to Stella's cloud runtime and returns the
+   * cloud thread it created. Injected only by hosts that can reach the
+   * backend as the signed-in user; when it is missing, `spawn_agent` refuses
+   * cloud placements outright rather than running cloud-subject work on this
+   * machine.
+   */
+  cloudDispatch?: (
+    request: CloudDispatchRequest,
+  ) => Promise<CloudDispatchResult>;
   /** Manager-only upward reporting channel. */
   reportManager?: (request: {
     threadId: string;

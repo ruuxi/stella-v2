@@ -708,6 +708,8 @@ const recordInstallation = async (
     ownerId: string;
     accountLogin: string;
     accountType: string;
+    githubLogin?: string;
+    githubUserId?: number;
     now: number;
   },
 ): Promise<{ ok: boolean; reason?: string }> => {
@@ -734,6 +736,11 @@ const recordInstallation = async (
     await ctx.db.patch(existing._id, {
       accountLogin: args.accountLogin || existing.accountLogin,
       accountType: args.accountType || existing.accountType,
+      // A reconnect refreshes the author identity; a reconnect that failed to
+      // resolve one keeps whatever an earlier connect proved.
+      ...(args.githubLogin !== undefined && args.githubUserId !== undefined
+        ? { githubLogin: args.githubLogin, githubUserId: args.githubUserId }
+        : {}),
       status: "active",
       updatedAt: args.now,
     });
@@ -744,6 +751,9 @@ const recordInstallation = async (
     ownerId: args.ownerId,
     accountLogin: args.accountLogin,
     accountType: args.accountType,
+    ...(args.githubLogin !== undefined && args.githubUserId !== undefined
+      ? { githubLogin: args.githubLogin, githubUserId: args.githubUserId }
+      : {}),
     status: "active",
     createdAt: args.now,
     updatedAt: args.now,
@@ -1237,6 +1247,9 @@ export const finishGithubConnect = mutation({
       ownerId,
       accountLogin: row.accountLogin ?? "",
       accountType: row.accountType ?? "",
+      ...(row.githubLogin !== undefined && row.githubUserId !== undefined
+        ? { githubLogin: row.githubLogin, githubUserId: row.githubUserId }
+        : {}),
       now,
     });
     if (!result.ok) {
@@ -1447,11 +1460,19 @@ export const mintInstallationTokenInternal = internalAction({
     token: v.string(),
     expiresAt: v.number(),
     remoteUrl: v.string(),
+    authorName: v.optional(v.string()),
+    authorEmail: v.optional(v.string()),
   }),
   handler: async (
     ctx,
     args,
-  ): Promise<{ token: string; expiresAt: number; remoteUrl: string }> => {
+  ): Promise<{
+    token: string;
+    expiresAt: number;
+    remoteUrl: string;
+    authorName?: string;
+    authorEmail?: string;
+  }> => {
     const project = (await ctx.runQuery(
       internal.cloud_projects.getProjectInternal,
       { projectId: args.projectId },
@@ -1474,7 +1495,45 @@ export const mintInstallationTokenInternal = internalAction({
       installationId: project.installationId,
       repo,
     });
-    return { token, expiresAt, remoteUrl: project.remoteUrl };
+    // Commit authorship: the user who connected this installation, as their
+    // GitHub noreply address — account-associated (avatar, contribution graph)
+    // without ever handling a real email. Absent for pre-identity rows until
+    // the owner reconnects.
+    const identity = (await ctx.runQuery(
+      internal.cloud_projects.getInstallationIdentityInternal,
+      { ownerId: args.ownerId, installationId: project.installationId },
+    )) as { githubLogin: string; githubUserId: number } | null;
+    return {
+      token,
+      expiresAt,
+      remoteUrl: project.remoteUrl,
+      ...(identity
+        ? {
+            authorName: identity.githubLogin,
+            authorEmail: `${identity.githubUserId}+${identity.githubLogin}@users.noreply.github.com`,
+          }
+        : {}),
+    };
+  },
+});
+
+export const getInstallationIdentityInternal = internalQuery({
+  args: { ownerId: v.string(), installationId: v.string() },
+  returns: v.union(
+    v.object({ githubLogin: v.string(), githubUserId: v.number() }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("cloud_github_installations")
+      .withIndex("by_installationId", (q) =>
+        q.eq("installationId", args.installationId),
+      )
+      .unique();
+    if (!row || row.ownerId !== args.ownerId) return null;
+    return row.githubLogin && typeof row.githubUserId === "number"
+      ? { githubLogin: row.githubLogin, githubUserId: row.githubUserId }
+      : null;
   },
 });
 
@@ -1572,6 +1631,8 @@ export const parkGithubConnectClaimInternal = internalMutation({
     installationId: v.string(),
     accountLogin: v.string(),
     accountType: v.string(),
+    githubLogin: v.optional(v.string()),
+    githubUserId: v.optional(v.number()),
     now: v.number(),
   },
   returns: v.object({ connectCode: v.string() }),
@@ -1584,6 +1645,12 @@ export const parkGithubConnectClaimInternal = internalMutation({
       installationId: args.installationId,
       accountLogin: args.accountLogin,
       accountType: args.accountType,
+      ...(args.githubLogin !== undefined
+        ? { githubLogin: args.githubLogin }
+        : {}),
+      ...(args.githubUserId !== undefined
+        ? { githubUserId: args.githubUserId }
+        : {}),
       createdAt: args.now,
       expiresAt: args.now + CLAIM_STATE_TTL_MS,
     });
@@ -1780,6 +1847,15 @@ export const completeGithubConnectInternal = internalAction({
       verified.account.accountLogin || verified.account.accountType
         ? verified.account
         : ((await fetchInstallationAccount(installationId)) ?? EMPTY_ACCOUNT);
+    // The connecting user, for commit authorship. Best-effort: a connect that
+    // proved installation reachability but can't name the user still binds —
+    // agent commits just fall back to the bot identity until reconnect.
+    let connector: { login: string; id: number } | undefined;
+    try {
+      connector = await fetchOAuthUser(userToken);
+    } catch {
+      connector = undefined;
+    }
     const { connectCode } = (await ctx.runMutation(
       internal.cloud_projects.parkGithubConnectClaimInternal,
       {
@@ -1787,6 +1863,9 @@ export const completeGithubConnectInternal = internalAction({
         installationId,
         accountLogin: account.accountLogin,
         accountType: account.accountType,
+        ...(connector
+          ? { githubLogin: connector.login, githubUserId: connector.id }
+          : {}),
         now: Date.now(),
       },
     )) as { connectCode: string };

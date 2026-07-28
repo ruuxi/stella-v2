@@ -36,6 +36,13 @@ export type ProjectTurnInput = {
   branch: string;
   setupScript?: string;
   /**
+   * Commit identity: the GitHub user who connected the installation, as their
+   * noreply address. Absent (older connects) means commits fall back to the
+   * container's default identity.
+   */
+  authorName?: string;
+  authorEmail?: string;
+  /**
    * Path to the one-shot `{ token }` file the DO wrote outside the
    * checkpointed root. The path is not a secret; what it points at is, and it
    * exists only until {@link takeProjectCredentials} runs.
@@ -74,6 +81,13 @@ export type ProjectWorkspaceResult = {
   setupExitCode?: number;
   /** Human-readable, token-free notes folded into the agent's system prompt. */
   notes: string[];
+  /**
+   * Env that authenticates git for this repository (see
+   * {@link createGitCredentialEnv}). The caller merges it into the agent's
+   * shell environment so the agent can fetch, pull, and push — the whole
+   * point of a connected project.
+   */
+  gitEnv?: GitCredentialEnv;
 };
 
 // The setup marker has to survive to the next turn, so it lives inside the
@@ -150,36 +164,34 @@ const childEnv = (): NodeJS.ProcessEnv => {
 };
 
 /**
- * Credentials reach git through an askpass helper whose *contents* carry no
- * secret — it prints whatever the child's environment holds. The token
- * therefore exists only in the memory of the git process tree, never in the
- * script, the repo config, or the command line (which `ps` would expose to
- * the agent's own shells).
+ * The env additions that make git authenticate: an askpass helper carrying
+ * the installation token in its own body (mode 0700, under the container's
+ * tmpdir — outside the checkpointed root, so it never reaches a durable
+ * backup and dies with the per-turn container).
+ *
+ * The token lives in the script rather than an env var on purpose: these
+ * variables are ALSO handed to the agent's shells so the agent can push
+ * (that's the feature), and a script keeps the token out of `env` output,
+ * `/proc/<pid>/environ`, and accidental env dumps in logs or reports. The
+ * agent can still read the script — same-user, same trust domain — but the
+ * credential no longer travels anywhere by default. It is repo-scoped and
+ * expires in about an hour either way.
  */
-const withGitCredentials = async <T>(
-  token: string | undefined,
-  body: (env: NodeJS.ProcessEnv) => Promise<T>,
-): Promise<T> => {
-  const env = childEnv();
-  if (!token) return body(env);
+export type GitCredentialEnv = Record<string, string>;
+
+const createGitCredentialEnv = async (
+  token: string,
+): Promise<GitCredentialEnv> => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "stella-gitauth-"));
   const askpass = path.join(dir, "askpass.sh");
+  const quoted = token.replace(/'/g, "'\\''");
   await writeFile(
     askpass,
-    '#!/bin/sh\ncase "$1" in\n  Username*) printf %s "$STELLA_GIT_USERNAME" ;;\n  *) printf %s "$STELLA_GIT_TOKEN" ;;\nesac\n',
+    `#!/bin/sh\ncase "$1" in\n  Username*) printf %s "x-access-token" ;;\n  *) printf %s '${quoted}' ;;\nesac\n`,
     "utf8",
   );
   await chmod(askpass, 0o700);
-  try {
-    return await body({
-      ...env,
-      GIT_ASKPASS: askpass,
-      STELLA_GIT_USERNAME: "x-access-token",
-      STELLA_GIT_TOKEN: token,
-    });
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  return { GIT_ASKPASS: askpass, GIT_TERMINAL_PROMPT: "0" };
 };
 
 // An empty `credential.helper` resets the helper list, so no helper can cache
@@ -274,7 +286,9 @@ export const prepareProjectWorkspace = async (
   const notes: string[] = [];
   const cold = !(await exists(path.join(root, ".git")));
 
-  await withGitCredentials(token, async (env) => {
+  const gitEnv = token ? await createGitCredentialEnv(token) : undefined;
+  {
+    const env = { ...childEnv(), ...gitEnv };
     const git = (args: string[], cwd = root) =>
       run("git", [...GIT_SAFE_ARGS, ...args], {
         cwd,
@@ -282,41 +296,52 @@ export const prepareProjectWorkspace = async (
         timeoutMs: GIT_TIMEOUT_MS,
       });
 
-    if (cold) {
-      emit("Cloning the project repository.");
-      const clone = await git(
-        ["clone", "--branch", defaultBranch, remoteUrl, root],
-        "/",
-      );
-      if (clone.code !== 0) throw gitFailure("git clone", clone);
-      const checkout = await git(["checkout", "-B", branch]);
-      if (checkout.code !== 0) throw gitFailure("git checkout", checkout);
-      return;
-    }
-
-    emit("Fetching the project repository.");
-    const fetched = await git(["fetch", "--prune", "origin"]);
-    if (fetched.code !== 0) {
-      // A restored workspace is still usable offline; the agent works on the
-      // checkpointed tree and the report says the fetch did not land.
-      notes.push(
-        "The fetch from the remote failed; this workspace is at its last checkpointed state.",
-      );
-    }
-    const current = await git(["rev-parse", "--abbrev-ref", "HEAD"]);
-    if (current.stdout.trim() !== branch) {
-      const checkout = await git(["checkout", branch]);
-      if (checkout.code !== 0) {
-        const created = await git([
-          "checkout",
-          "-B",
-          branch,
-          `origin/${defaultBranch}`,
-        ]);
-        if (created.code !== 0) throw gitFailure("git checkout", created);
+    const syncToBranch = async () => {
+      if (cold) {
+        emit("Cloning the project repository.");
+        const clone = await git(
+          ["clone", "--branch", defaultBranch, remoteUrl, root],
+          "/",
+        );
+        if (clone.code !== 0) throw gitFailure("git clone", clone);
+        const checkout = await git(["checkout", "-B", branch]);
+        if (checkout.code !== 0) throw gitFailure("git checkout", checkout);
+        return;
       }
+
+      emit("Fetching the project repository.");
+      const fetched = await git(["fetch", "--prune", "origin"]);
+      if (fetched.code !== 0) {
+        // A restored workspace is still usable offline; the agent works on the
+        // checkpointed tree and the report says the fetch did not land.
+        notes.push(
+          "The fetch from the remote failed; this workspace is at its last checkpointed state.",
+        );
+      }
+      const current = await git(["rev-parse", "--abbrev-ref", "HEAD"]);
+      if (current.stdout.trim() !== branch) {
+        const checkout = await git(["checkout", branch]);
+        if (checkout.code !== 0) {
+          const created = await git([
+            "checkout",
+            "-B",
+            branch,
+            `origin/${defaultBranch}`,
+          ]);
+          if (created.code !== 0) throw gitFailure("git checkout", created);
+        }
+      }
+    };
+    await syncToBranch();
+
+    // Commit identity, written to the clone's local config so the agent's own
+    // `git commit` picks it up. Re-run every turn: a checkpoint restored from
+    // before this existed has no identity, and a reconnect can change it.
+    if (project.authorName && project.authorEmail) {
+      await git(["config", "user.name", project.authorName]);
+      await git(["config", "user.email", project.authorEmail]);
     }
-  });
+  }
 
   await excludeStellaState(root).catch(() => undefined);
 
@@ -388,5 +413,6 @@ export const prepareProjectWorkspace = async (
     setupRan,
     ...(setupExitCode === undefined ? {} : { setupExitCode }),
     notes,
+    ...(gitEnv ? { gitEnv } : {}),
   };
 };

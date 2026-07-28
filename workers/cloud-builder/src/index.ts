@@ -12,7 +12,6 @@ import {
   checkpointKey,
   instanceSizeKey,
   resolveWorkspace,
-  threadBranch,
 } from "./workspace.js";
 import {
   INSTANCE_TIERS,
@@ -94,6 +93,9 @@ type ProjectHandoff = {
   defaultBranch: string;
   branch: string;
   setupScript?: string;
+  /** Commit identity: the GitHub user who connected the installation. */
+  authorName?: string;
+  authorEmail?: string;
 };
 
 /**
@@ -1275,7 +1277,6 @@ export class BuildSession extends DurableObject<Env> {
     turn: TurnRequest,
     slug: string,
   ): Promise<{ handoff?: ProjectHandoff; instanceSize?: string }> {
-    const branch = threadBranch(turn.threadId ?? turn.turnId);
     let payload: {
       provider?: string;
       remoteUrl?: string | null;
@@ -1283,6 +1284,8 @@ export class BuildSession extends DurableObject<Env> {
       defaultBranch?: string;
       setupScript?: string;
       instanceSize?: string;
+      authorName?: string;
+      authorEmail?: string;
       error?: string;
     };
     try {
@@ -1298,7 +1301,6 @@ export class BuildSession extends DurableObject<Env> {
             ownerId: turn.ownerId,
             slug,
             threadId: turn.threadId,
-            branch,
           }),
           signal: AbortSignal.timeout(30_000),
         },
@@ -1331,13 +1333,23 @@ export class BuildSession extends DurableObject<Env> {
         "That project's repository isn't connected to Stella's GitHub app yet, so the agent can't reach it.",
       );
     }
+    const defaultBranch = payload.defaultBranch?.trim() || "main";
     return {
       handoff: {
         remoteUrl: payload.remoteUrl,
         token: payload.token,
-        defaultBranch: payload.defaultBranch?.trim() || "main",
-        branch,
+        defaultBranch,
+        // Agents work directly on the default branch, like a person at a
+        // clone: each turn's sandbox is its own working copy, and the remote
+        // reconciles concurrent work through ordinary fetch/rebase/push.
+        branch: defaultBranch,
         ...(payload.setupScript ? { setupScript: payload.setupScript } : {}),
+        ...(payload.authorName && payload.authorEmail
+          ? {
+              authorName: payload.authorName,
+              authorEmail: payload.authorEmail,
+            }
+          : {}),
       },
       ...(instanceSize ? { instanceSize } : {}),
     };

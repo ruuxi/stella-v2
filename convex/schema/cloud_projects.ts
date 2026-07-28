@@ -48,6 +48,12 @@ export const cloudProjectsSchema = {
     accountLogin: v.string(),
     // "User" | "Organization" as reported by GitHub.
     accountType: v.string(),
+    // The GitHub user who performed the connect handshake — distinct from
+    // accountLogin, which for an org installation names the org. This is the
+    // identity agent commits are authored as (via the noreply address), so it
+    // must be a person, never the installation account.
+    githubLogin: v.optional(v.string()),
+    githubUserId: v.optional(v.number()),
     // "active" | "suspended".
     status: v.string(),
     createdAt: v.number(),
@@ -84,6 +90,10 @@ export const cloudProjectsSchema = {
     // the bind needs no further round trip to GitHub.
     accountLogin: v.optional(v.string()),
     accountType: v.optional(v.string()),
+    // Also claim-row: the connecting GitHub *user* (see the installations
+    // table for why this is not the same thing as accountLogin).
+    githubLogin: v.optional(v.string()),
+    githubUserId: v.optional(v.number()),
     createdAt: v.number(),
     expiresAt: v.number(),
   })

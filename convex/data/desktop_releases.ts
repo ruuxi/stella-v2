@@ -7,7 +7,7 @@ import { desktop_release_artifact_ref_validator } from "../schema/desktop_releas
  *
  * The CI publish job calls `publishDesktopRelease` (via an HTTP route
  * gated by a CI shared secret) once per platform after uploading the
- * tarball to R2. Installed desktops subscribe to
+ * clone-install manifest to R2. Installed desktops subscribe to
  * `currentDesktopRelease` via `useQuery` and react to a new commit
  * pointer the moment CI finishes — no polling required.
  */
@@ -24,9 +24,6 @@ export const currentDesktopRelease = query({
       platform: v.string(),
       tag: v.string(),
       commit: v.string(),
-      archiveUrl: v.string(),
-      archiveSha256: v.string(),
-      archiveSize: v.number(),
       sourcePackUrl: v.optional(v.string()),
       sourcePackSha256: v.optional(v.string()),
       sourcePackSize: v.optional(v.number()),
@@ -47,9 +44,6 @@ export const currentDesktopRelease = query({
       platform: row.platform,
       tag: row.tag,
       commit: row.commit,
-      archiveUrl: row.archiveUrl,
-      archiveSha256: row.archiveSha256,
-      archiveSize: row.archiveSize,
       ...(row.sourcePackUrl ? { sourcePackUrl: row.sourcePackUrl } : {}),
       ...(row.sourcePackSha256
         ? { sourcePackSha256: row.sourcePackSha256 }
@@ -77,9 +71,6 @@ export const publishDesktopRelease = internalMutation({
     platform: platformValidator,
     tag: v.string(),
     commit: v.string(),
-    archiveUrl: v.string(),
-    archiveSha256: v.string(),
-    archiveSize: v.number(),
     sourcePackUrl: v.optional(v.string()),
     sourcePackSha256: v.optional(v.string()),
     sourcePackSize: v.optional(v.number()),
@@ -99,9 +90,6 @@ export const publishDesktopRelease = internalMutation({
       platform: args.platform,
       tag: args.tag,
       commit: args.commit,
-      archiveUrl: args.archiveUrl,
-      archiveSha256: args.archiveSha256,
-      archiveSize: args.archiveSize,
       ...(args.sourcePackUrl ? { sourcePackUrl: args.sourcePackUrl } : {}),
       ...(args.sourcePackSha256
         ? { sourcePackSha256: args.sourcePackSha256 }

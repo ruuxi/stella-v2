@@ -32,12 +32,8 @@ export const desktop_release_artifact_ref_validator = v.union(
 export const desktop_release_asset_validator = v.object({
   platform: v.string(),
   tag: v.string(),
-  /** Upstream GitHub commit SHA the tarball was built from. */
+  /** Exact upstream GitHub commit cloned by fresh installs. */
   commit: v.string(),
-  /** R2 download URL for the platform-specific tarball. */
-  archiveUrl: v.string(),
-  archiveSha256: v.string(),
-  archiveSize: v.number(),
   sourcePackUrl: v.optional(v.string()),
   sourcePackSha256: v.optional(v.string()),
   sourcePackSize: v.optional(v.number()),
@@ -52,9 +48,6 @@ const desktopReleaseFields = {
   platform: v.string(),
   tag: v.string(),
   commit: v.string(),
-  archiveUrl: v.string(),
-  archiveSha256: v.string(),
-  archiveSize: v.number(),
   sourcePackUrl: v.optional(v.string()),
   sourcePackSha256: v.optional(v.string()),
   sourcePackSize: v.optional(v.number()),

@@ -9,12 +9,13 @@ const DESKTOP_RELEASE_PUBLISH_PATH = "/api/desktop-releases/publish";
  * Shared CI secret. Set in Convex deployment env via
  * `bunx convex env set DESKTOP_RELEASE_PUBLISH_SECRET <random>`. The CI
  * workflow passes the same value as `Authorization: Bearer <secret>`
- * after uploading the desktop tarball + R2 manifest.
+ * after uploading the clone-install manifest and source metadata to R2.
  */
 const getPublishSecret = () =>
   process.env.DESKTOP_RELEASE_PUBLISH_SECRET?.trim() ?? "";
 
 type PublishRequestBody = {
+  schemaVersion?: number;
   tag?: string;
   commit?: string;
   publishedAt?: number | string;
@@ -28,12 +29,9 @@ type PublishRequestBody = {
     sha256?: string;
     size?: number;
   };
-  assets?: Record<
+  platforms?: Record<
     string,
     {
-      url?: string;
-      sha256?: string;
-      size?: number;
       artifactRefs?: Array<{
         kind?: string;
         platform?: string;
@@ -99,7 +97,7 @@ const normalizeSourcePack = (
 };
 
 export const normalizeArtifactRefs = (
-  value: NonNullable<PublishRequestBody["assets"]>[string]["artifactRefs"],
+  value: NonNullable<PublishRequestBody["platforms"]>[string]["artifactRefs"],
 ) => {
   if (!value) return null;
   if (!Array.isArray(value) || value.length > 8) return null;
@@ -179,10 +177,14 @@ export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
       const body = await parseRequestJson(request);
       if (
         !body ||
+        body.schemaVersion !== 2 ||
         typeof body.tag !== "string" ||
         typeof body.commit !== "string"
       ) {
-        return errorResponse(400, "Missing tag/commit in request body.");
+        return errorResponse(
+          400,
+          "Expected a schema v2 release manifest with tag and commit.",
+        );
       }
       const publishedAt = normalizePublishedAt(body.publishedAt) ?? Date.now();
       const sourcePack = normalizeSourcePack(body.sourcePack);
@@ -199,30 +201,29 @@ export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
           "sourceHistory must include https url, sha256, and size.",
         );
       }
-      const assets = body.assets ?? {};
-      const platforms = Object.keys(assets);
+      const platformEntries = body.platforms ?? {};
+      const platforms = Object.keys(platformEntries);
       if (platforms.length === 0) {
-        return errorResponse(400, "Missing assets map.");
+        return errorResponse(400, "Missing platforms map.");
       }
       const written: string[] = [];
       for (const platform of platforms) {
-        const asset = assets[platform];
+        const platformRelease = platformEntries[platform];
+        if (!platformRelease) {
+          return errorResponse(400, `Missing release entry for ${platform}.`);
+        }
+        const artifactRefs = normalizeArtifactRefs(
+          platformRelease.artifactRefs,
+        );
         if (
-          !asset ||
-          typeof asset.url !== "string" ||
-          typeof asset.sha256 !== "string" ||
-          typeof asset.size !== "number"
+          !artifactRefs ||
+          artifactRefs.some((ref) => ref.platform !== platform) ||
+          !artifactRefs.some((ref) => ref.kind === "native-helpers") ||
+          !artifactRefs.some((ref) => ref.kind === "stella-browser")
         ) {
           return errorResponse(
             400,
-            `Asset entry for ${platform} is missing url/sha256/size.`,
-          );
-        }
-        const artifactRefs = normalizeArtifactRefs(asset.artifactRefs);
-        if (asset.artifactRefs && !artifactRefs) {
-          return errorResponse(
-            400,
-            `Asset entry for ${platform} has invalid artifactRefs.`,
+            `Platform entry for ${platform} must pin native-helpers and stella-browser.`,
           );
         }
         await ctx.runMutation(
@@ -231,9 +232,6 @@ export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
             platform,
             tag: body.tag,
             commit: body.commit,
-            archiveUrl: asset.url,
-            archiveSha256: asset.sha256,
-            archiveSize: asset.size,
             ...(sourcePack
               ? {
                   sourcePackUrl: sourcePack.url,
@@ -248,9 +246,7 @@ export const registerDesktopReleaseRoutes = (http: HttpRouter) => {
                   sourceHistorySize: sourceHistory.size,
                 }
               : {}),
-            ...(artifactRefs && artifactRefs.length > 0
-              ? { artifactRefs }
-              : {}),
+            artifactRefs,
             publishedAt,
           },
         );

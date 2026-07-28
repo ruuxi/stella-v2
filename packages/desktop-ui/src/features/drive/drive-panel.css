@@ -1,0 +1,54 @@
+/* Drive browser chrome. File rows reuse the shared `.cloud-file-card`. */
+
+.drive-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.drive-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drive-panel__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
+
+.drive-panel__head .cloud-file-card__action {
+  gap: 6px;
+}
+
+.drive-panel__state {
+  margin: 0;
+  color: var(--text-weak);
+  line-height: 1.5;
+}
+
+.drive-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drive-panel__confirm {
+  margin: 6px 0 0;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+}
+
+.drive-panel__file-input {
+  display: none;
+}

@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { StellaLogoIcon } from "@/ui/stella-logo-icon";
 import { showToast } from "@/ui/toast";
@@ -15,22 +15,45 @@ import {
   isMobileShell,
   speakCarPlayReply,
 } from "@/platform/mobile/mobile-shell";
-import { cloudApi, type CloudApp, type CloudTurn } from "./cloud-api";
+import { cloudApi, type CloudApp } from "./cloud-api";
 import { openCloudAppPanel } from "./open-cloud-app-panel";
+import {
+  cloudAttachmentsStore,
+  isWebShell,
+  useCloudAttachments,
+  withAttachmentPreamble,
+} from "./cloud-composer-store";
+import {
+  useActiveCloudConversationId,
+  useCloudActivity,
+} from "./use-cloud-activity";
+import { useConversation } from "./use-conversation";
+import type { LiveStream, PendingPrompt } from "./conversation-store";
+import {
+  messageText,
+  type JournalCard,
+  type JournalFile,
+  type JournalRecord,
+  type TurnPhase,
+} from "./conversation-protocol";
+import { DriveFileCard } from "@/features/drive/DriveFileCard";
+import { useDriveFileActions } from "@/features/drive/drive-files";
 import "./cloud-inline.css";
 
 /**
- * Cloud app turns rendered INSIDE the normal chat surface. This file adds
- * exactly one visual element to the product: the inline app card (v1's
- * apply-card pattern — one row, one action per state). Everything else uses
- * the chat's own bubble classes; there is no separate cloud surface.
+ * Cloud turns rendered INSIDE the normal chat surface. This file adds exactly
+ * one visual element to the product: the inline app card (v1's apply-card
+ * pattern — one row, one action per state). Everything else uses the chat's
+ * own bubble classes; there is no separate cloud surface.
+ *
+ * The rows come from the conversation's Durable Object over a WebSocket, not
+ * from a Convex subscription: the DO owns the transcript. What arrives is a
+ * gapless stream of journal records, which this file groups back into turns
+ * for rendering. Nothing here is persisted — on desktop in particular, the
+ * local SQLite store never sees a cloud conversation.
  */
 
 const RECENT_WINDOW_MS = 15 * 60_000;
-
-const isWebShell = () =>
-  typeof window !== "undefined" &&
-  !(window as { electronAPI?: unknown }).electronAPI;
 
 // Users see the message we wrote, never Convex's server-error wrapper.
 const friendlyError = (error: unknown): string => {
@@ -48,51 +71,30 @@ const friendlyError = (error: unknown): string => {
   return "That didn't work. Try again.";
 };
 
-const errorText = (value?: string): string => {
-  if (!value) return "That didn't finish. Try again.";
-  try {
-    const parsed = JSON.parse(value) as { message?: string };
-    return parsed.message ?? value;
-  } catch {
-    return value;
-  }
+/** What the orchestrator is doing, described the way a person would say it. */
+const TOOL_LABELS: Record<string, string> = {
+  spawn_agent: "Getting an agent on it…",
+  send_input: "Passing that along…",
+  pause_agent: "Pausing that agent…",
+  web: "Looking it up…",
+  Recall: "Checking what I know…",
+  Remember: "Making a note…",
+  Schedule: "Setting that up…",
 };
 
-// While Stella works, describe progress like a person would.
-const workingLabel = (kind?: string): string => {
-  switch (kind) {
-    case "sandbox_ready":
-      return "Getting set up…";
-    case "model_completed":
-      return "Designing…";
-    case "app_built":
-      return "Putting it together…";
-    case "live_preview":
-      return "Almost there…";
-    case "checkpointed":
-    case "workspace_restored":
-      return "Finishing up…";
-    case "op_selected":
-      return "Making the change…";
-    case "tool_call":
-      return "Working on it…";
-    default:
-      return "Thinking…";
-  }
+const workingLabel = (live: LiveStream | null): string => {
+  if (!live?.toolName) return "Thinking…";
+  return TOOL_LABELS[live.toolName] ?? live.toolLabel ?? "Working on it…";
 };
 
-type OperationPayload = {
-  operation: string;
-  args?: Record<string, unknown>;
-  result?: Record<string, unknown> | null;
-};
+type OperationCard = Extract<JournalCard, { type: "operation" }>;
 
-const operationOutcome = (payload: OperationPayload): string => {
-  const args = payload.args ?? {};
-  const result = (payload.result ?? {}) as Record<string, unknown>;
+const operationOutcome = (card: OperationCard): string => {
+  const args = card.args ?? {};
+  const result = card.result ?? {};
   const text = (value: unknown): string =>
     typeof value === "string" || typeof value === "number" ? String(value) : "";
-  switch (payload.operation) {
+  switch (card.operation) {
     case "complete-habit":
       return `Done — marked ${text(args.habit)} complete.`;
     case "set-habit-progress":
@@ -109,7 +111,7 @@ const operationOutcome = (payload: OperationPayload): string => {
           (value) => typeof value === "string" || typeof value === "number",
         )
         .join(", ");
-      return `Done — ${payload.operation.replaceAll("-", " ")}${
+      return `Done — ${card.operation.replaceAll("-", " ")}${
         detail ? `: ${detail}` : ""
       }.`;
     }
@@ -120,9 +122,14 @@ const operationOutcome = (payload: OperationPayload): string => {
 const CONFIRM_TIMEOUT_MS = 4000;
 
 /**
- * The inline card for a finished app build. Mirrors v1's apply card exactly:
- * one row, one primary action per state — Apply, then a quiet Rollback on
- * the same card once applied; a brand-new app gets a single Open.
+ * The inline card for a finished app build.
+ *
+ * An app is live the moment its build finishes, so this card never asks for
+ * approval — the work is done and hosted, and the card's job is to take you
+ * to it. (v1's Apply existed because a change could not take effect until
+ * something was triggered; that was a mechanical necessity, not a review
+ * step, and it does not apply to a hosted artifact.) Rollback stays as the
+ * quiet second action, for the times a change was not what you wanted.
  */
 function CloudBuildCard({
   app,
@@ -137,7 +144,7 @@ function CloudBuildCard({
     app ? { appId: app.appId } : "skip",
   );
   const [state, setState] = useState<
-    "idle" | "applying" | "confirming" | "reverting" | "reverted"
+    "idle" | "confirming" | "reverting" | "reverted"
   >("idle");
   const [actionError, setActionError] = useState<string | null>(null);
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -151,7 +158,6 @@ function CloudBuildCard({
 
   if (!app) return null;
   const thisBuild = builds?.find((build) => build.buildId === buildId);
-  const isActive = app.activeBuildId === buildId;
   const previousBuild = builds?.find(
     (build) =>
       build.buildId !== buildId &&
@@ -160,16 +166,12 @@ function CloudBuildCard({
   );
   const isFirstVersion = !previousBuild;
 
-  const run = async (
-    nextState: "applying" | "reverting",
-    targetBuildId: string,
-    doneState: "idle" | "reverted",
-  ) => {
+  const rollback = async (targetBuildId: string) => {
     setActionError(null);
-    setState(nextState);
+    setState("reverting");
     try {
       await applyBuild({ buildId: targetBuildId });
-      setState(doneState);
+      setState("reverted");
     } catch (error) {
       setActionError(friendlyError(error));
       setState("idle");
@@ -179,17 +181,13 @@ function CloudBuildCard({
   const label =
     state === "reverted"
       ? "Change rolled back"
-      : state === "applying"
-        ? `Updating ${app.title}…`
-        : state === "reverting"
-          ? "Rolling back…"
-          : state === "confirming"
-            ? "Roll this back?"
-            : isActive && isFirstVersion
-              ? `${app.title} is ready`
-              : isActive
-                ? `${app.title} was updated`
-                : `${app.title} has an update ready`;
+      : state === "reverting"
+        ? "Rolling back…"
+        : state === "confirming"
+          ? "Roll this back?"
+          : isFirstVersion
+            ? `${app.title} is ready`
+            : `${app.title} was updated`;
 
   return (
     <div className="cloud-build-card" data-state={state}>
@@ -200,144 +198,360 @@ function CloudBuildCard({
       {actionError ? (
         <span className="cloud-build-card__error">{actionError}</span>
       ) : null}
-      {state === "applying" || state === "reverting" ? (
+      {state === "reverting" ? (
         <button type="button" className="cloud-build-card__action" disabled>
           <span className="cloud-build-card__spinner" />
         </button>
-      ) : state === "reverted" ? null : isActive && isFirstVersion ? (
-        <button
-          type="button"
-          className="cloud-build-card__action"
-          onClick={() => openCloudAppPanel(app)}
-        >
-          Open
-        </button>
-      ) : isActive ? (
-        <button
-          type="button"
-          className={`cloud-build-card__action${
-            state === "confirming" ? " cloud-build-card__action--confirm" : ""
-          }`}
-          onClick={() => {
-            if (state === "idle") {
-              setState("confirming");
-              clearConfirmTimer();
-              confirmTimerRef.current = setTimeout(() => {
-                confirmTimerRef.current = null;
-                setState((current) =>
-                  current === "confirming" ? "idle" : current,
-                );
-              }, CONFIRM_TIMEOUT_MS);
-              return;
-            }
-            if (state !== "confirming" || !previousBuild) return;
-            clearConfirmTimer();
-            void run("reverting", previousBuild.buildId, "reverted");
-          }}
-        >
-          {state === "confirming" ? "Confirm" : "Rollback"}
-        </button>
-      ) : (
-        <button
-          type="button"
-          className="cloud-build-card__action"
-          onClick={() => void run("applying", buildId, "idle")}
-        >
-          Apply
-        </button>
+      ) : state === "reverted" ? null : (
+        <>
+          {previousBuild ? (
+            <button
+              type="button"
+              className={`cloud-build-card__action cloud-build-card__action--quiet${
+                state === "confirming"
+                  ? " cloud-build-card__action--confirm"
+                  : ""
+              }`}
+              onClick={() => {
+                if (state === "idle") {
+                  setState("confirming");
+                  clearConfirmTimer();
+                  confirmTimerRef.current = setTimeout(() => {
+                    confirmTimerRef.current = null;
+                    setState((current) =>
+                      current === "confirming" ? "idle" : current,
+                    );
+                  }, CONFIRM_TIMEOUT_MS);
+                  return;
+                }
+                if (state !== "confirming") return;
+                clearConfirmTimer();
+                void rollback(previousBuild.buildId);
+              }}
+            >
+              {state === "confirming" ? "Confirm" : "Rollback"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="cloud-build-card__action"
+            onClick={() => openCloudAppPanel(app)}
+          >
+            Open app
+          </button>
+        </>
       )}
     </div>
   );
 }
 
-function CloudTurnRows({ turns, apps }: { turns: CloudTurn[]; apps: CloudApp[] }) {
-  const appById = useMemo(
-    () => new Map(apps.map((app) => [app.appId, app])),
-    [apps],
-  );
-  if (!turns.length) return null;
+/** Files a cloud turn produced, as drive cards under the assistant's reply. */
+function CloudOutputFiles({ files }: { files: JournalFile[] }) {
+  const notify = useCallback((message: string) => {
+    showToast({ title: message, variant: "error" });
+  }, []);
+  const actions = useDriveFileActions(notify);
+  if (!files.length) return null;
   return (
-    <div className="cloud-tail">
-      {turns.map((turn) => {
-        const latest = turn.events.at(-1);
-        const completed = turn.events.find(
-          (event) => event.kind === "completed",
-        );
-        const operation =
-          typeof completed?.payload.operation === "string"
-            ? (completed.payload as OperationPayload)
-            : null;
-        const buildId =
-          typeof completed?.payload.buildId === "string"
-            ? completed.payload.buildId
-            : null;
-        const app = turn.appId ? appById.get(turn.appId) : undefined;
-        // Chat-lane turns stream assistant text as events and finish with the
-        // final reply in the completed payload.
-        const latestAssistantText = [...turn.events]
-          .reverse()
-          .find(
-            (event) =>
-              event.kind === "assistant_message" &&
-              typeof event.payload.text === "string",
-          )?.payload.text as string | undefined;
-        const chatReply =
-          typeof completed?.payload.text === "string"
-            ? (completed.payload.text as string)
-            : latestAssistantText;
-        // Wake turns carry the orchestrator's relay of a finished agent's
-        // report; their prompt is the lifecycle message, not something the
-        // user typed — render the assistant side only.
-        const isWake = turn.lane === "wake";
-        return (
-          <div className="cloud-tail__turn" key={turn.turnId}>
-            {isWake ? null : (
-              <div className="event-row">
-                <div className="event-item user">
-                  <span className="cloud-tail__text">{turn.prompt}</span>
-                </div>
-              </div>
-            )}
-            <div className="event-row">
-              <div className="event-item assistant">
-                {turn.status === "running" ? (
-                  latestAssistantText ? (
-                    <span className="cloud-tail__text">
-                      {latestAssistantText}
-                    </span>
-                  ) : (
-                    <span className="cloud-tail__working">
-                      {workingLabel(latest?.kind)}
-                    </span>
-                  )
-                ) : turn.status === "completed" && chatReply ? (
-                  <span className="cloud-tail__text">{chatReply}</span>
-                ) : operation ? (
-                  <div className="cloud-tail__outcome">
-                    <span>{operationOutcome(operation)}</span>
-                    <details className="cloud-tail__details">
-                      <summary>Details</summary>
-                      <pre>{JSON.stringify(operation, null, 2)}</pre>
-                    </details>
-                  </div>
-                ) : turn.status === "completed" && buildId ? (
-                  <CloudBuildCard app={app} buildId={buildId} />
-                ) : (
-                  <span className="cloud-tail__problem">
-                    {errorText(turn.errorMessage)}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
+    <div className="cloud-output-files">
+      {files.map((file) => (
+        <DriveFileCard
+          key={file.path}
+          path={file.path}
+          name={file.name}
+          sizeBytes={file.sizeBytes}
+          actions={actions}
+          stored={file.stored !== false}
+        />
+      ))}
     </div>
   );
 }
 
 /**
- * Bridges cloud app turns into the normal chat surface without changing it:
+ * One turn, rebuilt from its journal records.
+ *
+ * The journal is a flat ordered stream; turns are how a person reads it. The
+ * grouping is by `turnId` in first-seen order, which is the same order the
+ * seq counter produced — there is no sorting and no ambiguity.
+ */
+type TurnGroup = {
+  turnId: string;
+  firstSeq: number;
+  lane: string | null;
+  source: string | null;
+  phase: TurnPhase | null;
+  notice: string | null;
+  promptText: string | null;
+  promptHidden: boolean;
+  assistantTexts: string[];
+  cards: JournalCard[];
+  updatedAtMs: number;
+};
+
+const groupRecords = (records: readonly JournalRecord[]): TurnGroup[] => {
+  const groups = new Map<string, TurnGroup>();
+  for (const record of records) {
+    let group = groups.get(record.turnId);
+    if (!group) {
+      group = {
+        turnId: record.turnId,
+        firstSeq: record.seq,
+        lane: null,
+        source: null,
+        phase: null,
+        notice: null,
+        promptText: null,
+        promptHidden: false,
+        assistantTexts: [],
+        cards: [],
+        updatedAtMs: record.createdAtMs,
+      };
+      groups.set(record.turnId, group);
+    }
+    group.updatedAtMs = Math.max(group.updatedAtMs, record.createdAtMs);
+    if (record.kind === "turn") {
+      group.phase = record.phase;
+      group.lane = record.lane ?? group.lane;
+      group.source = record.source ?? group.source;
+      group.notice = record.notice ?? group.notice;
+      continue;
+    }
+    if (record.kind === "card") {
+      group.cards.push(record.card);
+      continue;
+    }
+    if (record.role === "user" && group.promptText === null) {
+      group.promptText = messageText(record.payload);
+      group.promptHidden = record.hidden;
+      continue;
+    }
+    if (record.role === "assistant" && !record.hidden) {
+      const text = messageText(record.payload);
+      if (text) group.assistantTexts.push(text);
+    }
+    // `toolResult` rows are model context; they never render.
+  }
+  return [...groups.values()];
+};
+
+/** The prompt side of a turn: a bubble, a scheduled announcement, or nothing. */
+function TurnPrompt({ group }: { group: TurnGroup }) {
+  if (!group.promptText) return null;
+  if (!group.promptHidden) {
+    return (
+      <div className="event-row">
+        <div className="event-item user">
+          <span className="cloud-tail__text">{group.promptText}</span>
+        </div>
+      </div>
+    );
+  }
+  // A scheduled fire's prompt was written by the model when the schedule was
+  // created, so a user bubble would put words in the user's mouth every time
+  // it runs. The run is announced instead, with the instruction shown as what
+  // fired. Every other hidden prompt (wake turns, lifecycle relays) is pure
+  // plumbing and renders nothing at all.
+  if (group.source !== "schedule") return null;
+  return (
+    <div className="event-row">
+      <div className="cloud-tail__scheduled">
+        <span className="cloud-tail__scheduled-label">Scheduled run</span>
+        <span className="cloud-tail__scheduled-prompt">{group.promptText}</span>
+      </div>
+    </div>
+  );
+}
+
+function TurnCard({
+  card,
+  appById,
+}: {
+  card: JournalCard;
+  appById: ReadonlyMap<string, CloudApp>;
+}) {
+  if (card.type === "build") {
+    return (
+      <CloudBuildCard
+        app={card.appId ? appById.get(card.appId) : undefined}
+        buildId={card.buildId}
+      />
+    );
+  }
+  if (card.type === "files") return <CloudOutputFiles files={card.files} />;
+  return (
+    <div className="cloud-tail__outcome">
+      <span>{operationOutcome(card)}</span>
+      <details className="cloud-tail__details">
+        <summary>Details</summary>
+        <pre>
+          {JSON.stringify(
+            { operation: card.operation, args: card.args, result: card.result },
+            null,
+            2,
+          )}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
+function CloudTurnRows({
+  groups,
+  apps,
+  live,
+  onCancel,
+}: {
+  groups: TurnGroup[];
+  apps: CloudApp[];
+  live: LiveStream | null;
+  onCancel: (turnId: string) => boolean;
+}) {
+  const appById = useMemo(
+    () => new Map(apps.map((app) => [app.appId, app])),
+    [apps],
+  );
+  return (
+    <>
+      {groups.map((group) => {
+        // Only a `started` record makes a turn running. A group assembled from
+        // a card alone — Convex posts build and files cards under the turn that
+        // produced them, which may have no lifecycle rows in this journal —
+        // must not render a working line that never resolves.
+        const running = group.phase === "started";
+        const liveHere = live && live.turnId === group.turnId ? live : null;
+        const failed =
+          group.phase !== null &&
+          group.phase !== "started" &&
+          group.phase !== "completed";
+        return (
+          <div className="cloud-tail__turn" key={group.turnId}>
+            <TurnPrompt group={group} />
+            {group.assistantTexts.map((text, index) => (
+              <div className="event-row" key={`${group.turnId}:t${index}`}>
+                <div className="event-item assistant">
+                  <span className="cloud-tail__text">{text}</span>
+                </div>
+              </div>
+            ))}
+            {running ? (
+              <div className="event-row">
+                <div className="event-item assistant">
+                  {liveHere?.text ? (
+                    <span className="cloud-tail__text">{liveHere.text}</span>
+                  ) : (
+                    <span className="cloud-tail__working">
+                      {workingLabel(liveHere)}
+                    </span>
+                  )}
+                  {liveHere?.dropped ? (
+                    // The server stopped streaming this reply to stay inside
+                    // its per-turn delta budget. The committed row still
+                    // carries the whole thing.
+                    <span className="cloud-tail__working">
+                      Still writing — the rest lands when it's done.
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="cloud-tail__stop"
+                    onClick={() => {
+                      if (onCancel(group.turnId)) return;
+                      showToast({
+                        title:
+                          "Couldn't reach Stella to stop this. Try again once you're back online.",
+                        variant: "error",
+                      });
+                    }}
+                  >
+                    Stop
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {group.cards.length ? (
+              <div className="event-row">
+                <div className="event-item assistant">
+                  {group.cards.map((card, index) => (
+                    <TurnCard
+                      key={`${group.turnId}:c${index}`}
+                      card={card}
+                      appById={appById}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {failed ? (
+              <div className="event-row">
+                <div className="event-item assistant">
+                  <span className="cloud-tail__problem">
+                    {group.notice ?? "That didn't finish. Try again."}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/** Prompts this client has sent that the journal has not echoed back yet. */
+function PendingRows({
+  pending,
+  onRetry,
+  onDismiss,
+}: {
+  pending: readonly PendingPrompt[];
+  onRetry: (clientMsgId: string) => void;
+  onDismiss: (clientMsgId: string) => void;
+}) {
+  if (!pending.length) return null;
+  return (
+    <>
+      {pending.map((entry) => (
+        <div className="cloud-tail__turn" key={entry.clientMsgId}>
+          <div className="event-row">
+            <div
+              className="event-item user"
+              data-pending={entry.error ? "failed" : "true"}
+            >
+              <span className="cloud-tail__text">{entry.text}</span>
+            </div>
+          </div>
+          {entry.error ? (
+            <div className="event-row">
+              <div className="cloud-tail__send-error">
+                <span className="cloud-tail__problem">{entry.error}</span>
+                <span className="cloud-tail__send-error-actions">
+                  <button
+                    type="button"
+                    className="cloud-tail__link-button"
+                    onClick={() => onRetry(entry.clientMsgId)}
+                  >
+                    Retry
+                  </button>
+                  <button
+                    type="button"
+                    className="cloud-tail__link-button"
+                    onClick={() => onDismiss(entry.clientMsgId)}
+                  >
+                    Discard
+                  </button>
+                </span>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Bridges cloud turns into the normal chat surface without changing it:
  *  - renders recent cloud turns as ordinary chat rows via `extraTail`;
  *  - in the web/mobile interior (no local runtime), routes composer sends to
  *    the cloud chat mutation. On desktop the composer is untouched.
@@ -345,40 +559,35 @@ function CloudTurnRows({ turns, apps }: { turns: CloudTurn[]; apps: CloudApp[] }
 export function useCloudChat(base: ChatColumnComposer): {
   composer: ChatColumnComposer;
   extraTail: ReactNode;
+  /** True while the owner has cloud agent threads worth a sidebar. */
+  hasCloudActivity: boolean;
 } {
   const { isAuthenticated } = useConvexAuth();
-  const startTurn = useMutation(cloudApi.startCloudChat);
-  const conversations = useQuery(
-    cloudApi.listMyConversations,
-    isAuthenticated ? {} : "skip",
-  );
   const apps = useQuery(cloudApi.listMyApps, isAuthenticated ? {} : "skip");
-  const conversationId = conversations?.[0]?.conversationId ?? null;
-  const turns = useQuery(
-    cloudApi.listMyCloudTurns,
-    conversationId ? { conversationId } : "skip",
-  ) as CloudTurn[] | undefined;
-  const [isSending, setIsSending] = useState(false);
-  const spokenTerminalTurns = useRef(new Set<string>());
-  const cloudComposer = isWebShell();
+  const conversationId = useActiveCloudConversationId();
+  const cloudActivity = useCloudActivity();
+  const attachments = useCloudAttachments();
+  // The web/mobile interior has no local runtime, so its composer sends to
+  // the cloud. Desktop keeps its local runtime and reaches cloud workspaces
+  // through spawn placement, not through a composer setting.
+  const webShell = isWebShell();
 
-  const submitCloud = useCallback(
-    async (message: string) => {
-      setIsSending(true);
-      try {
-        await startTurn({
-          prompt: message,
-          ...(conversationId ? { conversationId } : {}),
-        });
-      } catch (error) {
-        showToast({ title: friendlyError(error), variant: "error" });
-        base.setMessage((current) => (current ? current : message));
-      } finally {
-        setIsSending(false);
-      }
-    },
-    [startTurn, conversationId, base.setMessage],
+  const decoratePrompt = useCallback(
+    (prompt: string) => withAttachmentPreamble(prompt, attachments),
+    [attachments],
   );
+  const onSent = useCallback(() => cloudAttachmentsStore.clear(), []);
+  const conversation = useConversation(conversationId, decoratePrompt, onSent);
+  const {
+    state,
+    pending,
+    send,
+    retrySend,
+    dismissSend,
+    cancelTurn,
+    loadOlder,
+    retryConnection,
+  } = conversation;
 
   // CarPlay dictation lands in the same cloud path.
   useEffect(() => {
@@ -386,36 +595,37 @@ export function useCloudChat(base: ChatColumnComposer): {
       const message = (
         event as CustomEvent<{ prompt?: string }>
       ).detail?.prompt?.trim();
-      if (message) void submitCloud(message);
+      if (message) void send(message);
     };
     window.addEventListener("stella:carplay-prompt", onCarPlayPrompt);
     return () =>
       window.removeEventListener("stella:carplay-prompt", onCarPlayPrompt);
-  }, [submitCloud]);
+  }, [send]);
 
+  const groups = useMemo(() => groupRecords(state.records), [state.records]);
+
+  const spokenTurns = useRef(new Set<string>());
   useEffect(() => {
-    if (!isMobileShell() || !turns) return;
-    const terminal = turns.findLast(
-      (turn) =>
-        turn.status === "completed" &&
-        turn.hidden !== true &&
-        !spokenTerminalTurns.current.has(turn.turnId),
+    if (!isMobileShell()) return;
+    const finished = groups.findLast(
+      (group) =>
+        group.phase === "completed" && !spokenTurns.current.has(group.turnId),
     );
-    if (!terminal) return;
-    spokenTerminalTurns.current.add(terminal.turnId);
-    const completedEvent = terminal.events.find(
-      (event) => event.kind === "completed",
+    if (!finished) return;
+    spokenTurns.current.add(finished.turnId);
+    const reply = finished.assistantTexts.at(-1);
+    speakCarPlayReply(
+      reply ? reply.slice(0, 400) : "All set. Your app is ready.",
     );
-    const reply =
-      terminal.kind === "chat" &&
-      typeof completedEvent?.payload.text === "string"
-        ? (completedEvent.payload.text as string).slice(0, 400)
-        : "All set. Your app is ready.";
-    speakCarPlayReply(reply);
-  }, [turns]);
+  }, [groups]);
+
+  // One send at a time: the composer unlocks as soon as the mutation answers,
+  // not when the turn finishes. Queued turns are durable in the DO, but a
+  // double-tap should still not fire the same prompt twice.
+  const isSending = pending.some((entry) => entry.turnId === null && !entry.error);
 
   const composer = useMemo<ChatColumnComposer>(() => {
-    if (!cloudComposer) return base;
+    if (!webShell) return base;
     return {
       ...base,
       canSubmit: base.message.trim().length > 0 && !isSending,
@@ -423,30 +633,103 @@ export function useCloudChat(base: ChatColumnComposer): {
         const message = base.message.trim();
         if (!message || isSending) return;
         base.setMessage("");
-        void submitCloud(message);
+        void send(message);
       },
     };
-  }, [base, cloudComposer, isSending, submitCloud]);
+  }, [base, webShell, isSending, send]);
 
-  const visibleTurns = useMemo(() => {
-    if (!turns?.length) return [] as CloudTurn[];
-    // Spawned-agent turns are context, not chat; wake turns stay visible —
-    // they are the only turns carrying a finished agent's report.
-    const visible = turns.filter((turn) => turn.hidden !== true);
-    if (cloudComposer) return visible.slice(-10);
+  const visibleGroups = useMemo(() => {
+    if (!groups.length) return groups;
+    // Only the web interior is a pure cloud chat. On desktop the cloud tail
+    // trails the local timeline, so it stays a recency window even while the
+    // composer is pointed at the cloud — picking the destination must not
+    // dump old cloud turns into the local conversation.
+    if (webShell) return groups;
     const cutoff = Date.now() - RECENT_WINDOW_MS;
-    return visible
-      .filter((turn) => turn.status === "running" || turn.updatedAt >= cutoff)
+    return groups
+      .filter(
+        (group) =>
+          group.phase === null ||
+          group.phase === "started" ||
+          group.updatedAtMs >= cutoff,
+      )
       .slice(-10);
-  }, [turns, cloudComposer]);
+  }, [groups, webShell]);
 
-  const extraTail = useMemo<ReactNode>(
-    () =>
-      visibleTurns.length ? (
-        <CloudTurnRows turns={visibleTurns} apps={apps ?? []} />
-      ) : null,
-    [visibleTurns, apps],
-  );
+  const hasRows = visibleGroups.length > 0 || pending.length > 0;
+  const showStatus =
+    state.status === "blocked" ||
+    (state.status === "offline" && state.statusMessage !== null);
 
-  return { composer, extraTail };
+  const extraTail = useMemo<ReactNode>(() => {
+    if (!hasRows && !showStatus) return null;
+    return (
+      <div className="cloud-tail">
+        {showStatus ? (
+          <div className="cloud-tail__status" data-status={state.status}>
+            <span>
+              {state.statusMessage ?? "Reconnecting to Stella's cloud…"}
+            </span>
+            {state.statusRetryable && state.status === "blocked" ? (
+              <button
+                type="button"
+                className="cloud-tail__link-button"
+                onClick={retryConnection}
+              >
+                Retry
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {webShell && state.hasOlder ? (
+          <button
+            type="button"
+            className="cloud-tail__load-older"
+            onClick={loadOlder}
+            disabled={state.loadingOlder}
+          >
+            {state.loadingOlder ? "Loading…" : "Show earlier messages"}
+          </button>
+        ) : webShell && state.olderNotice ? (
+          <span className="cloud-tail__older-notice">{state.olderNotice}</span>
+        ) : null}
+        <CloudTurnRows
+          groups={visibleGroups}
+          apps={apps ?? []}
+          live={state.live}
+          onCancel={cancelTurn}
+        />
+        <PendingRows
+          pending={pending}
+          onRetry={(id) => void retrySend(id)}
+          onDismiss={dismissSend}
+        />
+      </div>
+    );
+  }, [
+    hasRows,
+    showStatus,
+    state.status,
+    state.statusMessage,
+    state.statusRetryable,
+    state.hasOlder,
+    state.loadingOlder,
+    state.olderNotice,
+    state.live,
+    visibleGroups,
+    apps,
+    pending,
+    webShell,
+    cancelTurn,
+    loadOlder,
+    retryConnection,
+    retrySend,
+    dismissSend,
+  ]);
+
+  return {
+    composer,
+    extraTail,
+    hasCloudActivity: cloudActivity.tasks.length > 0,
+  };
 }

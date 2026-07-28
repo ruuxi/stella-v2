@@ -174,7 +174,11 @@ function ComposerImpl({
 
   return (
     <div className="composer">
-      <ComposerLeadRow replyPeek={replyPeek} showActivityPill />
+      <ComposerLeadRow
+        replyPeek={replyPeek}
+        showActivityPill
+        showCloudAttachments
+      />
       <div
         ref={shellRef}
         className={`composer-shell composer-surface${isDragOver ? " composer-shell--drag-over" : ""}`}

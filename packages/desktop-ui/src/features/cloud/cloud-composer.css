@@ -1,0 +1,91 @@
+/* Composer lead-row controls for cloud turns: the drive attach button and
+ * attachment chips. Shares the activity pill's panel-surface fill so the row
+ * reads as one band. */
+
+.cloud-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.cloud-composer-bar__attach {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 11px;
+  appearance: none;
+  border-radius: 999px;
+  border: 1px solid var(--panel-surface-border);
+  background: var(--panel-surface-bg-gradient);
+  box-shadow: var(--panel-surface-highlight);
+  color: var(--text-weak);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: default;
+  white-space: nowrap;
+  transition:
+    border-color 160ms ease,
+    color 120ms ease;
+}
+
+.cloud-composer-bar__attach:hover:not(:disabled) {
+  border-color: var(--panel-surface-border-hover);
+  color: var(--text-strong);
+}
+
+.cloud-composer-bar__attach:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.cloud-composer-bar__attach:disabled {
+  opacity: 0.7;
+}
+
+.cloud-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 12rem;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-surface-border);
+  background: var(--panel-surface-bg-gradient);
+  color: var(--text-base);
+  font-size: var(--font-size-sm);
+}
+
+.cloud-attachment-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-attachment-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  appearance: none;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-weaker);
+  cursor: default;
+}
+
+.cloud-attachment-chip__remove:hover {
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+  color: var(--text-strong);
+}
+
+.cloud-composer-bar__file-input {
+  display: none;
+}

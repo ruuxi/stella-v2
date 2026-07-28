@@ -15,12 +15,22 @@ import {
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
-import { History, ChevronDown, Eye, AppWindowMac, Trash2 } from "@/ui/icons";
+import {
+  History,
+  ChevronDown,
+  Eye,
+  AppWindowMac,
+  FolderOpen,
+  Trash2,
+} from "@/ui/icons";
+import { openDrivePanel } from "@/features/drive/open-drive-panel";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import {
   closeCloudAppPanel,
   openCloudAppPanel,
 } from "@/features/cloud/open-cloud-app-panel";
+import { openCloudThreadPanel } from "@/features/cloud/CloudThreadPanel";
+import { useCloudActivity } from "@/features/cloud/use-cloud-activity";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
@@ -88,6 +98,7 @@ import {
 import { AgentAssistantUpdates } from "@/shell/AgentAssistantUpdates";
 import { selectLatestAgentAssistantMessage } from "@/features/chat/lib/agent-assistant-summary";
 import "@/app/chat/chat-workspace-strip.css";
+import "@/features/cloud/cloud-inline.css";
 
 // Default per-section caps. The compact strip shows a small preview; the
 // group overview shows more. An active search ignores caps entirely
@@ -101,6 +112,7 @@ const SECTION_CAPS = {
 // remain the escape hatch for longer result sets.
 const SEARCH_CAPS = { activity: 40, files: 40, schedule: 30 };
 const EMPTY_FILES: ReadonlyArray<ConversationFileEntry> = [];
+const EMPTY_PLACEMENTS: ReadonlyMap<string, string> = new Map();
 /** Most-recent agent-authored messages shown under an expanded agent. */
 const AGENT_UPDATE_CAP = 3;
 /** File rows shown under an expanded agent before "View all (N)" kicks in. */
@@ -341,6 +353,7 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   onOpenFile,
   orderIndex,
   metaText,
+  placement,
   childContent,
   compactChildren,
   isTopLevel,
@@ -356,6 +369,8 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
   orderIndex: number;
   /** Stable supporting text, used by Manager ownership headers. */
   metaText?: string;
+  /** Where this thread ran, when that is not "on this Mac" (C10). */
+  placement?: string;
   /** Persisted child ownership hierarchy, rendered before files. */
   childContent?: ReactNode;
   /** Owned agents collapsed into the Manager's cell-grid summary. */
@@ -456,6 +471,18 @@ export const ActivityTaskRow = memo(function ActivityTaskRow({
                   ownsAnimation={ownsAnimation}
                 />
               </span>
+              {placement ? (
+                <span
+                  className="cloud-placement-badge"
+                  title={`Ran in the cloud — ${placement}`}
+                >
+                  <span
+                    className="cloud-placement-badge__dot"
+                    aria-hidden="true"
+                  />
+                  {placement}
+                </span>
+              ) : null}
               {metaText ? (
                 <span className="chat-workspace-strip__row-meta chat-workspace-strip__group-status">
                   {metaText}
@@ -565,6 +592,7 @@ const GroupRow = memo(function GroupRow({
   onOpenFile,
   orderIndex,
   isTopLevel,
+  placements,
 }: {
   group: TaskGroup;
   expanded: boolean;
@@ -577,6 +605,7 @@ const GroupRow = memo(function GroupRow({
   /** Position in the host list; drives reorder FLIP measurement. */
   orderIndex: number;
   isTopLevel: boolean;
+  placements: ReadonlyMap<string, string>;
 }) {
   const motionProps = useActivityRowMotionProps(orderIndex);
   const rowRef = useRef<HTMLLIElement>(null);
@@ -641,6 +670,7 @@ const GroupRow = memo(function GroupRow({
                   onOpenFile={onOpenFile}
                   orderIndex={index}
                   isTopLevel={false}
+                  placement={placements.get(task.id)}
                 />
               ))}
             </AnimatePresence>
@@ -662,6 +692,7 @@ const TasksList = memo(function TasksList({
   agentFiles,
   onOpenFile,
   nested = false,
+  placements = EMPTY_PLACEMENTS,
 }: {
   rows: ReadonlyArray<ActivityRow>;
   isTaskExpanded: (task: TaskItem) => boolean;
@@ -673,6 +704,8 @@ const TasksList = memo(function TasksList({
   agentFiles: ReadonlyMap<string, ConversationFileEntry[]>;
   onOpenFile: (entry: ConversationFileEntry) => void;
   nested?: boolean;
+  /** taskId → where it ran; empty for the all-local case. */
+  placements?: ReadonlyMap<string, string>;
 }) {
   return (
     <ul
@@ -695,6 +728,7 @@ const TasksList = memo(function TasksList({
               onOpenFile={onOpenFile}
               orderIndex={index}
               isTopLevel={!nested}
+              placement={placements.get(row.task.id)}
             />
           ) : row.kind === "group" ? (
             <GroupRow
@@ -709,6 +743,7 @@ const TasksList = memo(function TasksList({
               onOpenFile={onOpenFile}
               orderIndex={index}
               isTopLevel={!nested}
+              placements={placements}
             />
           ) : (
             <ActivityTaskRow
@@ -725,6 +760,7 @@ const TasksList = memo(function TasksList({
               onOpenFile={onOpenFile}
               orderIndex={index}
               isTopLevel={!nested}
+              placement={placements.get(row.hierarchy.owner.id)}
               compactChildren={row.hierarchy.children}
               childContent={
                 <TasksList
@@ -744,6 +780,7 @@ const TasksList = memo(function TasksList({
                   agentFiles={agentFiles}
                   onOpenFile={onOpenFile}
                   nested
+                  placements={placements}
                 />
               }
             />
@@ -792,8 +829,20 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
 
   const conversationId = state.conversationId;
   const activity = chat.conversation.activity;
-  const allTasks = chat.conversation.tasks;
+  const localTasks = chat.conversation.tasks;
   const filesFeed = chat.conversation.files;
+  // C10: cloud agent threads are ordinary Activity rows. They join the local
+  // task list here — before grouping, ordering, expansion, and search — so
+  // every downstream behavior treats them identically; `placements` is the
+  // only thing that distinguishes them, and only as a badge.
+  const cloudActivity = useCloudActivity();
+  const allTasks = useMemo(
+    () =>
+      cloudActivity.tasks.length
+        ? [...localTasks, ...cloudActivity.tasks]
+        : localTasks,
+    [localTasks, cloudActivity.tasks],
+  );
   const {
     hasOlder: activityHasOlder,
     isLoadingOlder: activityIsLoadingOlder,
@@ -1153,12 +1202,36 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
 
   const handleSelectTask = useCallback(
     (task: TaskItem) => {
+      const cloudThread = cloudActivity.threadsById.get(task.id);
+      if (cloudThread) {
+        openCloudThreadPanel({
+          threadId: cloudThread.threadId,
+          title: cloudThread.description,
+        });
+        onNavigate?.();
+        return;
+      }
       openActivityTaskChat(task, onNavigate);
     },
-    [onNavigate],
+    [cloudActivity.threadsById, onNavigate],
   );
 
-  if (!visibleCloudApps.length && !hasActivity && !hasFiles && !hasSchedule) {
+  // The drive is the cloud's default workspace, so its entry point rides
+  // along with the rest of the cloud surface instead of announcing itself to
+  // users who have never run anything there. The browser itself is a
+  // workspace panel, not a sidebar page.
+  const showDrive =
+    !searching &&
+    isAuthenticated &&
+    (visibleCloudApps.length > 0 || cloudActivity.tasks.length > 0);
+
+  if (
+    !visibleCloudApps.length &&
+    !showDrive &&
+    !hasActivity &&
+    !hasFiles &&
+    !hasSchedule
+  ) {
     return renderEmpty ? <>{renderEmpty()}</> : null;
   }
 
@@ -1209,6 +1282,27 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
             </ul>
           </WorkspaceSection>
         ) : null}
+        {showDrive ? (
+          <WorkspaceSection title="Drive" sectionId="cloud-drive">
+            <ul className="chat-workspace-strip__list">
+              <li className="chat-workspace-strip__row">
+                <button
+                  type="button"
+                  className="chat-workspace-strip__file-button"
+                  onClick={() => {
+                    openDrivePanel();
+                    onNavigate?.();
+                  }}
+                >
+                  <FolderOpen size={15} strokeWidth={1.7} aria-hidden="true" />
+                  <span className="chat-workspace-strip__file-name">
+                    Open drive
+                  </span>
+                </button>
+              </li>
+            </ul>
+          </WorkspaceSection>
+        ) : null}
         {hasActivity && (
           <WorkspaceSection
             title="Activity"
@@ -1228,6 +1322,7 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
               onToggleGroup={toggleGroup}
               agentFiles={agentFiles}
               onOpenFile={handleOpenFile}
+              placements={cloudActivity.placements}
             />
           </WorkspaceSection>
         )}

@@ -17,23 +17,28 @@ import {
   type AssistantReplyPeekProps,
 } from "@/app/chat/AssistantReplyPeek";
 import { ComposerActivityPill } from "@/app/chat/ComposerActivityPill";
+import { CloudComposerBar } from "@/features/cloud/CloudComposerBar";
 
 type ComposerLeadRowProps = {
   /** When present, the assistant reply peek renders flush above the row. */
   replyPeek?: AssistantReplyPeekProps | null;
   /** Pill is gated off where there's no chat runtime (the mini window). */
   showActivityPill?: boolean;
+  /** Only the main chat surface offers drive attachments. */
+  showCloudAttachments?: boolean;
 };
 
 export function ComposerLeadRow({
   replyPeek,
   showActivityPill = false,
+  showCloudAttachments = false,
 }: ComposerLeadRowProps) {
   return (
     <div className="composer-context-peek-anchor">
       {replyPeek ? <AssistantReplyPeek {...replyPeek} /> : null}
       <div className="composer-context-lead-row">
         {showActivityPill ? <ComposerActivityPill /> : null}
+        {showCloudAttachments ? <CloudComposerBar /> : null}
       </div>
     </div>
   );

@@ -185,11 +185,14 @@ function RootChrome() {
     cloudApi.listMyApps,
     isAuthenticated ? {} : "skip",
   );
+  // Cloud apps and cloud agent threads are both reasons the sidebar has
+  // something to show, independent of local activity presence.
   const hasCloudApps = Boolean(
     cloudApps?.some((app) => app.status !== "suspended"),
   );
+  const hasCloudSidebarContent = hasCloudApps || cloudChat.hasCloudActivity;
   const sidebarHasContent =
-    hasCloudApps || activityPresenceAllowsSidebar(activityPresence);
+    hasCloudSidebarContent || activityPresenceAllowsSidebar(activityPresence);
   const panelOpen = useDisplayPanelOpen();
   const panelExpanded = useDisplayPanelExpanded();
   const [leftSidebarVisible, setLeftSidebarVisible] = useState<boolean>(
@@ -226,7 +229,7 @@ function RootChrome() {
   const platform = getPlatform();
   const isMac = platform === "darwin";
   const isWin = platform === "win32";
-  const dockedLeftSidebarVisible = hasCloudApps
+  const dockedLeftSidebarVisible = hasCloudSidebarContent
     ? leftSidebarVisible && isFullWindow && !shellBreakpoints.hideLeftSidebar
     : isActivitySidebarDocked({
         presence: activityPresence,

@@ -22,6 +22,10 @@ import { promptsSchema } from "./schema/prompts";
 import { relayResumeSchema } from "./schema/relay_resume";
 import { cloudAppsSchema } from "./schema/cloud_apps";
 import { cloudEnginesSchema } from "./schema/cloud_engines";
+import { cloudAgentHomeSchema } from "./schema/cloud_agent_home";
+import { cloudDriveSchema } from "./schema/cloud_drive";
+import { cloudProjectsSchema } from "./schema/cloud_projects";
+import { cloudScheduleSchema } from "./schema/cloud_schedule";
 
 export default defineSchema({
   ...conversationsSchema,
@@ -47,4 +51,8 @@ export default defineSchema({
   ...relayResumeSchema,
   ...cloudAppsSchema,
   ...cloudEnginesSchema,
+  ...cloudAgentHomeSchema,
+  ...cloudDriveSchema,
+  ...cloudProjectsSchema,
+  ...cloudScheduleSchema,
 });

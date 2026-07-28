@@ -20,6 +20,9 @@ import { registerVoiceRoutes } from "./http_routes/voice";
 import { registerDictationRoutes } from "./http_routes/dictation";
 import { registerXRoutes } from "./http_routes/x";
 import { registerCloudAppRoutes } from "./http_routes/cloud_apps";
+import { registerCloudAgentRoutes } from "./http_routes/cloud_agent";
+import { registerCloudDriveRoutes } from "./http_routes/cloud_drive";
+import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
 import { registerAppsSdkRoutes } from "./http_routes/apps_sdk";
 import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
 
@@ -68,6 +71,9 @@ registerVoiceRoutes(http);
 registerDictationRoutes(http);
 registerXRoutes(http);
 registerCloudAppRoutes(http);
+registerCloudAgentRoutes(http);
+registerCloudDriveRoutes(http);
+registerCloudProjectRoutes(http);
 registerAppsSdkRoutes(http);
 
 registerStripeRoutes(http);

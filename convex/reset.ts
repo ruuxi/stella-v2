@@ -8,6 +8,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type Infer, v } from "convex/values";
 import { requireUserId } from "./auth";
+import { stopOwnerSchedules } from "./cloud_purge";
 import { enforceActionRateLimit, RATE_SENSITIVE } from "./lib/rate_limits";
 
 /**
@@ -67,6 +68,12 @@ export const resetAllUserData = action({
       RATE_SENSITIVE,
       "Too many account reset attempts. Please wait a minute and try again.",
     );
+
+    // 0. Stop the cloud schedules first. Reset deletes conversations, and a
+    //    schedule that fires while it runs starts a turn that creates a fresh
+    //    one — so a reset with an active schedule can finish with a
+    //    conversation in it. `purgeOwnerCloudStack` (step 3) drains the rows.
+    await stopOwnerSchedules(ctx, ownerId);
 
     // 1. Drain conversations one page at a time. We don't store all ids in
     //    memory because a long-lived account could have up to
@@ -140,6 +147,15 @@ export const resetAllUserData = action({
         );
       })(),
     ]);
+
+    // 3. The cloud stack: conversations (whose transcripts live in a Durable
+    //    Object, not here), turns, agent threads, apps, projects, the drive,
+    //    engine credentials, schedules, and the search index — the full list
+    //    is `cloud_purge.OWNER_STORES`. Not `strict`: reset keeps the account,
+    //    so a conversation whose DO is briefly unreachable stays tombstoned —
+    //    invisible and unwritable — and the purge sweep finishes it, rather
+    //    than failing the whole reset.
+    await ctx.runAction(internal.cloud_purge.purgeOwnerCloudStack, { ownerId });
 
     return null;
   },

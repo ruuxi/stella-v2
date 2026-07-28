@@ -37,7 +37,11 @@ export const cloudEnginesSchema = {
     expiresAt: v.number(),
   })
     .index("by_connectId", ["connectId"])
-    .index("by_expiresAt", ["expiresAt"]),
+    .index("by_expiresAt", ["expiresAt"])
+    // Account deletion drains by owner. A pending flow holds the PKCE verifier
+    // for a connect the user started, and expiry is a floor on how long that
+    // survives, never a deletion path.
+    .index("by_ownerId", ["ownerId"]),
 
   // Per-owner engine choice for cloud chat/agent turns.
   cloud_engine_settings: defineTable({

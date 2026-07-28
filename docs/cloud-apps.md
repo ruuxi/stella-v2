@@ -36,13 +36,40 @@ prompt enters the legacy build lane, and **everything else is plain chat** —
 a `kind: "chat"` turn dispatched to
 `POST /conversations/:conversationId/turns` on the builder.
 
-Canonical state is Convex, always:
+**The conversation transcript is the one exception to "Convex is the
+database".** It lives in the conversation's `OrchestratorSession` Durable
+Object, in that object's SQLite, as a single ordered `journal` (one gapless
+`seq` covering messages, turn lifecycle records, and UI cards). The DO is
+already one per conversation, so desktop and phone writing to the same
+conversation are serialized by construction rather than by discipline, and the
+per-turn HTTP round trip to reload history is gone. Clients read the journal
+over a hibernatable WebSocket at
+`GET /conversations/:conversationId/socket`, authenticated by the user's Better
+Auth JWT (verified in the worker, before the DO is addressed). Turn *starts*
+never touch the socket — they stay on `startCloudChat` so quota, engine
+resolution, and turn-token minting cannot be bypassed. Older journal rows roll
+into gzipped R2 segments in `CONVERSATION_ARCHIVE`, with the DO holding the
+manifest.
 
-- `cloud_messages` — the conversation transcript, one row per AgentMessage,
-  ordered by `seq`. Spawned-agent threads keep their own transcript in the
-  same table with `conversationId = threadId`. The DO reloads history from
-  `GET /api/cloud/context` at every turn start and writes produced messages
-  back at turn end; the DO is an in-flight buffer, never canonical.
+Convex keeps two DERIVED projections of that transcript. Both are written only
+by the DO, fenced on `(epoch, lastSeq)`, and regenerable from it — nothing in
+Convex may read a DO-owned field and act on it as truth:
+
+- `cloud_conversations` — the conversation index (id, owner, title,
+  `updatedAt`, last-message preview). A per-conversation DO cannot answer "list
+  my conversations", so this slice stays relational. `{conversationId, ownerId,
+  createdAt}` is Convex-authoritative and DO-mirrored; the rest is projection.
+- `cloud_message_excerpts` — one compact, full-text-indexed row per turn,
+  backing cross-conversation Recall. An index, not a second copy of truth.
+
+Everything else is canonically Convex, as before:
+
+- `cloud_thread_messages` — spawned-agent **thread** transcripts only
+  (`conversationId = threadId`), read back by `BuildSession` for `send_input`
+  continuations over `GET /api/cloud/context`. Private job state, not
+  conversation content: nothing subscribes to it, so the reactive-fan-out
+  argument that moved the conversation does not apply here. Both HTTP routes
+  refuse anything that is not a `kind: "agent"` turn's own thread.
 - `cloud_turn_tokens` — SHA-256 hashes of per-turn tokens (30-minute TTL,
   purged by cron). The raw token authenticates (a) relay model calls via the
   `x-stella-turn-token` header (the relay resolves it to the owner and bills
@@ -128,6 +155,51 @@ Operational contracts (hardened 2026-07-24 after adversarial review):
   Metering: the pinned executor model is listed in
   `ADDITIONAL_MANAGED_MODEL_IDS` so price sync covers it, and the turn token
   is stripped from headers forwarded upstream.
+
+### Orchestrator parity with desktop (2026-07-27)
+
+The cloud orchestrator runs the same loop *configuration* as the desktop
+runtime, not just the same loop:
+
+- **Persona.** The DO builds its system prompt from the canonical
+  `agents/orchestrator.md` body served by `/api/stella/prompts` (ETag-cached
+  in DO storage, refreshed ≤ every 5 min), plus a cloud overlay
+  (`cloud-prompt.ts`) that overrides only what is physically different:
+  tool surface, no local machine, app/Stella apply semantics, no local file
+  links. A cold DO that cannot reach Convex degrades to the compact fallback
+  prompt. Personality: the user's `PERSONALITY.md` from their R2 agent home
+  when present (nothing syncs it yet — the slot exists), else the canonical
+  `prompts/personality-stella.md`, injected with desktop's `startup_doc`
+  framing. Reply language: the composer sends the UI locale; the DO persists
+  it per conversation and injects desktop's locale directive.
+- **Loop config.** `thinkingLevel` resolves from the model's reasoning flag
+  exactly as desktop does (medium on reasoning models); desktop's
+  `transformContext` re-prunes and strips stale images before every provider
+  call; `degenerateResponseRetries: 0` + `providerRequestLimit` match
+  desktop because the outer ladder owns retries.
+- **Transient retry ladder.** Both cloud loops (DO + sandbox executor) wrap
+  the loop in desktop's `executeAgentRunWithRetry` — 4 attempts over
+  retryable provider/transport/empty-completion failures, resuming the same
+  in-memory context after popping the errored tail. The DO wires the ladder's
+  abort signal to its cancel/timeout paths so a terminal turn never retries;
+  the watchdog contract is unchanged (full backoff adds ~10 s worst case).
+- **`web` tool.** The DO exposes the desktop tool's exact surface
+  (`kernel/tools/defs/web-def.ts`) and fetch pipeline
+  (`kernel/tools/web-fetch-core.ts`): readable-text extraction, manual
+  redirects with per-hop SSRF re-validation through the shared guard
+  (`kernel/tools/url-guard.ts` — literal + encoded IPv4, IPv4-mapped/NAT64
+  IPv6, private/CGNAT/link-local/reserved ranges). Desktop adds a DNS
+  resolution check on top; workerd has no resolver hook and leans on
+  platform egress policy for rebinding names.
+- **Attachments.** Drive images attached in the composer ride the turn as
+  real image blocks: `startCloudChat` carries drive paths (≤ 4), the DO
+  hydrates them via the turn-token-scoped `/api/cloud/drive/attachments`
+  route (images only, ≤ 3 MB each, 120 s signed GETs) and passes them to the
+  prompt. The prompt text still names the paths, so later turns reach the
+  files through the drive.
+- **Deliberately absent tools** (each blocked on a concrete constraint, listed
+  in the DO tool catalog and the persona overlay): `Read`, `html`,
+  `image_gen`, `view_image`, `map`, `tool_search`, `spawn_manager`.
 
 ### Cloud engines (user subscriptions)
 
@@ -243,6 +315,27 @@ These are the shipping guardrails for the development phase. Product/finance
 must confirm the plan-to-build mapping before production cutover. Changes belong
 in the single `CLOUD_PLAN_QUOTAS` table in `convex/cloud_apps.ts`.
 
+`POST /conversations/:id/journal` is the one live user-authenticated write path
+that is **not** a turn, so none of the above reaches it: it mirrors a desktop
+transcript into a cloud conversation without ever running the loop. It is bound
+in the Durable Object instead, where the storage actually is and where the check
+costs nothing:
+
+- a fixed append window per conversation — `APPEND_WINDOW_MAX_REQUESTS` /
+  `APPEND_WINDOW_MAX_BYTES` per `APPEND_WINDOW_MS`, answered `429` with
+  `retryAfterMs`, and charged only when rows are actually committed so a `409`
+  against a running turn does not eat the client's allowance;
+- a lifetime ceiling, `CONVERSATION_MAX_STORED_BYTES`, measured over resident
+  rows **plus** committed segments so rolling bytes into R2 does not reset it,
+  answered `413 conversation_full`;
+- rollover on the route itself. `afterTerminal` used to be its only trigger, so
+  a conversation written only through this route (or `/cards`) never evaluated
+  `HOT_MAX_ROWS`.
+
+All three live in `workers/cloud-builder/src/conversation-types.ts`. Making the
+ceiling a per-plan number is the open product decision — the enforcement point
+is one constant, but what Free may mirror is not an engineering call.
+
 ## Deploy
 
 Never deploy from either v1 repository. Run commands from the v2 worktree, and
@@ -289,18 +382,28 @@ Framing contract: the interior worker's CSP must carry
 `frame-ancestors` must include the interior origin, or embedded apps silently
 render as a blocked frame.
 
-## Apply and rollback
+## Activation and rollback
 
-A non-initial turn creates a pending build. Activation is an explicit user
-action:
+Every finished app build activates immediately — first build or update alike.
+An app is live when its build completes; the chat card's action is "Open app",
+not "Apply". There is no pending state for apps to sit in.
+
+Activation is the same three steps whether it runs automatically at build
+completion or from a rollback:
 
 1. validate ownership of app and build in Convex;
 2. write the new KV route through builder `/routes/activate`;
 3. atomically mark the build active in Convex.
 
-Rollback is the same operation pointed at any of the five retained builds. Do
-not copy artifacts or mutate an existing prefix. Confirm the deployed URL
-returns 200 and the expected UI, then confirm Convex's `activeBuildId`.
+Rollback points that operation at any of the five retained builds, and is the
+one user-initiated case. Do not copy artifacts or mutate an existing prefix.
+Confirm the deployed URL returns 200 and the expected UI, then confirm
+Convex's `activeBuildId`.
+
+Stella's own interior is the exception: its build does not switch the running
+interior on its own. That card keeps an Apply action, which performs the
+switch — not an approval, but a moment the user picks rather than being pulled
+into a new interior mid-conversation.
 
 If activation succeeds in KV but the Convex mutation fails, repeat the same
 idempotent activation. If Convex succeeds but KV fails, the action returns a
@@ -328,11 +431,57 @@ events after the first terminal event and deduplicates `(turnId, seq)`.
 
 For a stuck turn:
 
-1. inspect Convex `agent_turns` and ordered `agent_events`;
+1. inspect Convex `agent_turns` and ordered `agent_events`. For a **chat**
+   turn the transcript is not in Convex — read the DO's journal directly with
+   the dev probe (`GET /conversations/:id/journal?limit=&beforeSeq=`, service
+   secret, or `cloud_apps:getConversationProbeInternal`). There are no tests by
+   owner decision, so this probe is the verification tool: it also reports
+   `headSeq`, `indexSyncedSeq`, `pendingExcerpts` (turns still owed to the
+   Convex search projection), hot-tier stats, inbox depth, `databaseBytes`,
+   `storedBytes` (resident plus archived — what the per-conversation ceiling
+   is measured against), `spillObjects`, purge-queue depth, and the object's
+   wake state — `alarmAt`, the turn ids still durable under `queued:`, and
+   `sealed`. The invariant to check there: an accepted turn always has a
+   pending alarm, so `queued` non-empty with `alarmAt: null` is a stranded
+   turn that nothing will ever wake;
 2. inspect builder structured logs by `turnId`;
 3. call the authenticated cancel path if the DO is still alive;
 4. confirm the sandbox is destroyed and the turn is terminal;
 5. retry as a new turn—never rewrite the old event stream.
+
+## Search projection and conversation deletion
+
+`cloud_message_excerpts` is derived and regenerable. To rebuild it for one
+conversation, POST `/conversations/:id/reindex` (service secret). It replays
+**every** turn excerpt from the DO's own `turn_excerpts` mirror, in batches, and
+its status is the answer: `200 {complete:true}` means the projection is whole,
+`202 {complete:false, pendingExcerpts:N}` means the call ran out of budget with
+`N` turns still owed — run it again. A lagging projection also drains itself at
+every turn end and every socket connect, so a live conversation converges
+without an operator.
+
+Per-conversation deletion is a two-party handshake and the DO's **body** is the
+verdict, not its status. `POST /conversations/:id/purge` answers `202
+{purged:false, pending:N}` when it could not delete `N` R2 objects; in that case
+it deliberately keeps its SQLite — the segment manifest is the only record of
+those keys — and Convex leaves `purgedAt` unset so `sweepDeletedConversations`
+retries. Account deletion's durable gate stays open for the same reason. If a
+conversation is stuck unpurged, check builder logs for
+`conversation_purge_delete_failed` before assuming Convex is at fault.
+
+A finished purge leaves a row in `cloud_conversation_tombstones`, and it is the
+fence that keeps the deletion permanent: an index flush that a resident DO
+started before the purge can land minutes later, and without the fence
+`upsertConversationIndexInternal` would treat the missing row as a lost one and
+rebuild it — with the conversation's transcript excerpts — from the DO's own
+`meta`. It cannot be the index row itself, because account deletion has to
+delete that row: it carries `ownerId`. The tombstone carries a random
+conversation UUID and the instant the DO confirmed its storage was gone,
+nothing else, so it survives the owner without retaining anything about them;
+`sweepConversationTombstonesInternal` retires it after 30 days, far beyond the
+lifetime of any in-flight flush. A refused flush answers `{accepted:false,
+excerptsAccepted:false, reason:"purged"}`, and the DO seals itself on that
+reply (`conversation_sealed_after_purge`) rather than retrying.
 
 ## Operations layer (two-speed agents)
 

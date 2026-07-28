@@ -78,15 +78,3 @@ export const instanceSizeKey = (workspaceKey: string): string =>
 /** Backup name derived from the checkpoint key; stable across turns. */
 export const checkpointBackupName = (key: string): string =>
   `stella-${key.slice(3, 27)}`;
-
-/**
- * One branch per agent thread so two threads working the same project cannot
- * write over each other, and so a human can see which branch an agent owns.
- */
-export const threadBranch = (threadId: string): string => {
-  const suffix = threadId
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .slice(-12)
-    .toLowerCase();
-  return `stella/${suffix || "work"}`;
-};

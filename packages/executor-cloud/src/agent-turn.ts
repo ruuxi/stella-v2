@@ -228,8 +228,10 @@ sandbox — do not plan around them.`;
   const projectLines = project
     ? `\n\nThis workspace is the repository ${project.remoteUrl}, \
 ${project.result.mode === "cloned" ? "freshly cloned" : "restored from its last checkpoint"} \
-on branch ${project.result.branch}. Commit your work on that branch; you have \
-no credentials to push, and nothing you do reaches the remote.${
+on branch ${project.result.branch}. git is authenticated for this repository: \
+fetch, pull, commit, and push work like they would for a person at a clone. \
+Commit and push the work the user asked for; if a push is rejected because the \
+remote moved, fetch and rebase, resolve, and push again.${
         project.result.notes.length > 0
           ? `\n${project.result.notes.map((note) => `- ${note}`).join("\n")}`
           : ""
@@ -333,6 +335,14 @@ export const runAgentTurn = (
             ),
           catch: asError,
         });
+        // Give the agent's shells the same git credentials workspace prep
+        // used: every `exec_command` inherits this process's env, so from here
+        // on plain `git fetch/pull/push` in the workspace just works. The
+        // askpass helper holds the repo-scoped, ~1h token in its body — this
+        // env carries only its path (see createGitCredentialEnv).
+        if (project.gitEnv) {
+          Object.assign(process.env, project.gitEnv);
+        }
       }
 
       // Created before hydration, not after: the hydration ledger lives here,

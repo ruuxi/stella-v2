@@ -101,7 +101,13 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
         const credential = (await ctx.runAction(
           internal.cloud_projects.mintInstallationTokenInternal,
           { ownerId: body.ownerId, projectId: project.projectId },
-        )) as { token: string; expiresAt: number; remoteUrl: string };
+        )) as {
+          token: string;
+          expiresAt: number;
+          remoteUrl: string;
+          authorName?: string;
+          authorEmail?: string;
+        };
         return json({
           ...base,
           remoteUrl: credential.remoteUrl,
@@ -109,6 +115,14 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
           tokenExpiresAt: credential.expiresAt,
           // git wants the token as the password of the x-access-token user.
           tokenUsername: "x-access-token",
+          // Commit identity for the workspace clone; absent until the owner's
+          // connect handshake has proven a GitHub user.
+          ...(credential.authorName && credential.authorEmail
+            ? {
+                authorName: credential.authorName,
+                authorEmail: credential.authorEmail,
+              }
+            : {}),
         });
       } catch (error) {
         const message =

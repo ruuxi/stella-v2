@@ -86,9 +86,144 @@
   overflow-x: auto;
 }
 
+/* A scheduled fire, announced rather than spoken: the instruction is the
+ * model's, so it must not wear the user bubble. */
+.cloud-tail__scheduled {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-self: flex-start;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.cloud-tail__scheduled-label {
+  color: var(--text-weaker);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--font-size-xs);
+}
+
+.cloud-tail__scheduled-prompt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .cloud-tail__problem {
   color: var(--text-error);
   line-height: 1.5;
+}
+
+/* Transport state. Only rendered when there is something true to say: a
+ * healthy socket says nothing at all. */
+.cloud-tail__status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-start;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.cloud-tail__status[data-status="blocked"] {
+  color: var(--text-error);
+}
+
+/* Text-weight actions: retry, discard, stop, load older. They sit inside
+ * chat rows and must never read as primary buttons. */
+.cloud-tail__link-button,
+.cloud-tail__stop {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-weak);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+}
+
+.cloud-tail__link-button:hover,
+.cloud-tail__stop:hover {
+  color: var(--text-strong);
+}
+
+.cloud-tail__link-button:focus-visible,
+.cloud-tail__stop:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+/* `.event-item` is a flex column with its own gap; alignment is all this
+ * needs so the action never stretches to the bubble's width. */
+.cloud-tail__stop {
+  align-self: flex-start;
+}
+
+.cloud-tail__send-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-start;
+  font-size: var(--font-size-sm);
+}
+
+.cloud-tail__send-error-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* An echoed prompt the journal has not confirmed yet. */
+.event-item.user[data-pending="true"] {
+  opacity: 0.6;
+}
+
+.event-item.user[data-pending="failed"] {
+  opacity: 0.6;
+  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
+}
+
+.cloud-tail__load-older {
+  align-self: center;
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 5px 12px;
+  background: transparent;
+  color: var(--text-weak);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: default;
+}
+
+.cloud-tail__load-older:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+}
+
+.cloud-tail__load-older:disabled {
+  opacity: 0.6;
+}
+
+.cloud-tail__load-older:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.cloud-tail__older-notice {
+  align-self: center;
+  color: var(--text-weaker);
+  font-size: var(--font-size-sm);
 }
 
 /* Inline app update card — v1's apply-card pattern: icon, label, one action. */
@@ -178,6 +313,19 @@
   opacity: 0.7;
 }
 
+/* Rollback sits beside "Open app" and must not compete with it. */
+.cloud-build-card__action--quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted-foreground);
+}
+
+.cloud-build-card__action--quiet:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
 .cloud-build-card__action--confirm {
   border-color: color-mix(in srgb, var(--destructive) 55%, var(--border));
   background: color-mix(in srgb, var(--destructive) 16%, var(--card));
@@ -203,4 +351,194 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Placement badge — the only thing that marks an Activity row as having run
+ * in the cloud rather than on this Mac (C10). Same row, same affordances. */
+.cloud-placement-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 7px 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  color: var(--text-weak);
+  font-size: var(--font-size-xs, 11px);
+  line-height: 1.5;
+}
+
+.cloud-placement-badge__dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-weaker);
+}
+
+/* Read-only cloud agent thread view, opened from an Activity row's eye. */
+.cloud-thread-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.cloud-thread-panel--state {
+  color: var(--text-weak);
+}
+
+.cloud-thread-panel__head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cloud-thread-panel__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+  line-height: 1.35;
+}
+
+.cloud-thread-panel__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cloud-thread-panel__status {
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+}
+
+.cloud-thread-panel__status[data-status="failed"] {
+  color: var(--text-error);
+}
+
+.cloud-thread-panel__report {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  color: var(--text-base);
+}
+
+.cloud-thread-panel__report--empty {
+  color: var(--text-weak);
+}
+
+/* Output-file cards (C4) and composer attachment chips. The card follows the
+ * apply card's idiom: icon, label, one action. */
+.cloud-output-files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.cloud-file-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px 8px 14px;
+  min-height: 48px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--panel-surface-border);
+  background: var(--panel-surface-bg-gradient);
+  box-shadow: var(--panel-surface-highlight);
+  color: var(--text-base);
+  font-size: var(--font-size-base);
+  line-height: 1.35;
+}
+
+.cloud-file-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  color: var(--text-weak);
+}
+
+.cloud-file-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cloud-file-card__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-medium);
+  color: var(--text-strong);
+}
+
+.cloud-file-card__meta {
+  color: var(--text-weaker);
+  font-size: var(--font-size-sm);
+}
+
+.cloud-file-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cloud-file-card__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--foreground) 6%, var(--card));
+  color: var(--text-strong);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  cursor: default;
+  white-space: nowrap;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.cloud-file-card__action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 10%, var(--card));
+  border-color: var(--border-strong);
+}
+
+.cloud-file-card__action:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.cloud-file-card__action:disabled {
+  opacity: 0.6;
+}
+
+.cloud-file-card__action--danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--destructive) 55%, var(--border));
+  background: color-mix(in srgb, var(--destructive) 16%, var(--card));
+  color: var(--destructive);
 }

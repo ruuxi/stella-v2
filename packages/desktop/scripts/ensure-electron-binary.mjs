@@ -4,6 +4,7 @@ import {
   mkdirSync,
   promises as fsPromises,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
 } from "node:fs";
@@ -166,7 +167,15 @@ export async function ensureElectronBinary() {
 
   log("Electron binary is missing or incomplete; repairing...");
 
-  const require = createRequire(import.meta.url);
+  // Resolve from electron's own real directory, not this script's: `@electron/get`
+  // is electron's dependency, so under bun's isolated workspace layout it is only
+  // visible from there (a hoisted layout would find it either way). `electronDir`
+  // is a symlink into bun's store, so it has to be realpath'd first -- module
+  // resolution walks the literal path, and the symlink's parents have no
+  // `@electron/get`.
+  const require = createRequire(
+    path.join(realpathSync(electronDir), "package.json"),
+  );
   const { downloadArtifact } = require("@electron/get");
 
   const version = readElectronVersion();

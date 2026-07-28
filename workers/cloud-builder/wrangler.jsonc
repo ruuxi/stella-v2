@@ -15,7 +15,11 @@
     "SANDBOX_TRANSPORT": "rpc",
     "TURN_TIMEOUT_MS": "900000",
     "SANDBOX_IDLE_TIMEOUT_MS": "600000",
-    "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev"
+    "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+    // Pinned issuer for the conversation socket's JWT verification, and the
+    // fallback Convex origin for index flushes that happen outside a turn.
+    // Never the JWKS env var: that is the PRIVATE key set and stays in Convex.
+    "STELLA_CONVEX_SITE_URL": "https://flexible-panther-999.convex.site"
   },
   "r2_buckets": [
     {
@@ -25,6 +29,17 @@
     {
       "binding": "BACKUP_BUCKET",
       "bucket_name": "stella-v2-app-builds-dev"
+    },
+    {
+      "binding": "AGENT_HOME",
+      "bucket_name": "stella-v2-agent-home-dev"
+    },
+    {
+      // Rolled-over conversation segments and oversize-row spills.
+      // Deliberately NOT AGENT_HOME: different retention, and a prefix delete
+      // during account deletion must not be able to reach memory documents.
+      "binding": "CONVERSATION_ARCHIVE",
+      "bucket_name": "stella-v2-conversation-archive-dev"
     }
   ],
   "kv_namespaces": [
@@ -39,6 +54,12 @@
       "image": "./Dockerfile",
       "instance_type": "standard-4",
       "max_instances": 1
+    },
+    {
+      "class_name": "SandboxSmall",
+      "image": "./Dockerfile",
+      "instance_type": "standard-2",
+      "max_instances": 1
     }
   ],
   "durable_objects": {
@@ -46,6 +67,10 @@
       {
         "name": "Sandbox",
         "class_name": "Sandbox"
+      },
+      {
+        "name": "SANDBOX_SMALL",
+        "class_name": "SandboxSmall"
       },
       {
         "name": "BUILD_SESSIONS",
@@ -65,6 +90,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["OrchestratorSession"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["SandboxSmall"]
     }
   ]
 }

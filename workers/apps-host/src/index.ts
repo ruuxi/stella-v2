@@ -7,6 +7,11 @@ type Env = {
   APPS_HOST_ORIGIN: string;
   INTERIOR_ORIGIN: string;
   EMBED_APPS_ORIGIN?: string;
+  // The cloud builder's origin, needed in connect-src so the interior can open
+  // its conversation WebSocket. Optional: a deployment without it keeps every
+  // existing behaviour and simply cannot stream — which is a visible, debuggable
+  // failure, unlike an `undefined` spliced into the policy string.
+  CLOUD_BUILDER_ORIGIN?: string;
 };
 
 type RouteRecord = {
@@ -169,11 +174,24 @@ const proxyFetch = async (request: Request, env: Env): Promise<Response> => {
   );
 };
 
+/**
+ * The conversation socket's `connect-src` entries. Both forms are required:
+ * `https:` covers the authenticated config fetch and any HTTP journal append,
+ * and `wss:` covers the socket itself — a policy listing only the origin
+ * blocks the upgrade, which fails in the shipped interior while working
+ * everywhere a policy is not applied.
+ */
+const builderConnectSources = (env: Env): string => {
+  const origin = env.CLOUD_BUILDER_ORIGIN?.trim().replace(/\/+$/, "");
+  if (!origin) return "";
+  return ` ${origin} ${origin.replace(/^https:/, "wss:")}`;
+};
+
 const securityHeaders = (env: Env) => ({
   // The interior deployment sets EMBED_APPS_ORIGIN to the apps host so the
   // in-shell app page can frame published apps; without an explicit
   // frame-src, default-src 'self' silently blocks every embedded app.
-  "content-security-policy": `default-src 'self'; script-src 'self' ${env.APPS_HOST_ORIGIN}; style-src 'self' ${env.APPS_HOST_ORIGIN} 'unsafe-inline'; img-src 'self' ${env.APPS_HOST_ORIGIN} data: blob:; font-src 'self' ${env.APPS_HOST_ORIGIN}; connect-src 'self' ${env.CONVEX_SITE_URL} ${env.CONVEX_CLOUD_URL} ${env.CONVEX_CLOUD_URL.replace("https://", "wss://")}; frame-src 'self'${env.EMBED_APPS_ORIGIN ? ` ${env.EMBED_APPS_ORIGIN}` : ""}; object-src 'none'; base-uri 'none'; frame-ancestors 'self' ${env.INTERIOR_ORIGIN} file: http://localhost:* http://127.0.0.1:* https://stella.sh; form-action 'self'`,
+  "content-security-policy": `default-src 'self'; script-src 'self' ${env.APPS_HOST_ORIGIN}; style-src 'self' ${env.APPS_HOST_ORIGIN} 'unsafe-inline'; img-src 'self' ${env.APPS_HOST_ORIGIN} data: blob:; font-src 'self' ${env.APPS_HOST_ORIGIN}; connect-src 'self' ${env.CONVEX_SITE_URL} ${env.CONVEX_CLOUD_URL} ${env.CONVEX_CLOUD_URL.replace("https://", "wss://")}${builderConnectSources(env)}; frame-src 'self'${env.EMBED_APPS_ORIGIN ? ` ${env.EMBED_APPS_ORIGIN}` : ""}; object-src 'none'; base-uri 'none'; frame-ancestors 'self' ${env.INTERIOR_ORIGIN} file: http://localhost:* http://127.0.0.1:* https://stella.sh; form-action 'self'`,
   "cross-origin-opener-policy": "same-origin",
   // Embedded apps run in sandboxed opaque origins. CSP + the shell bridge
   // enforce capability boundaries; assets must remain loadable in that sandbox.

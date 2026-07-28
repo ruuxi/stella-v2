@@ -9,6 +9,7 @@ import { internal } from "./_generated/api";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { v, type VLiteral } from "convex/values";
 import { syncTagMembership } from "./data/emoji_packs";
+import { stopOwnerSchedules } from "./cloud_purge";
 import { r2 } from "./r2_files";
 
 const OWNER_TABLES = [
@@ -951,6 +952,12 @@ export const purgeOwnerCloudData = internalAction({
       ownerId,
       startedAt: Date.now(),
     });
+    // Then stop the schedules, before anything long-running. Every other store
+    // is inert while it waits to be drained; a cloud schedule fires once a
+    // minute, spends model tokens, and creates a fresh conversation for the
+    // account being deleted. The drain that removes the rows is in
+    // `purgeOwnerCloudStack` at the end of this action — minutes away.
+    await stopOwnerSchedules(ctx, ownerId);
     let cursor: string | null = null;
     while (true) {
       const page: { ids: Id<"conversations">[]; nextCursor: string | null } =
@@ -1023,6 +1030,16 @@ export const purgeOwnerCloudData = internalAction({
         ownerUserId: ownerId,
       }),
     ]);
+
+    // The cloud stack is drained on its own rather than inside the parallel
+    // block above: purging a conversation is a handshake with its Durable
+    // Object, and it throws when storage survives so the durable purge gate
+    // stays open and the sweep cron retries. `cloud_purge.OWNER_STORES` is the
+    // list of everything it covers.
+    await ctx.runAction(internal.cloud_purge.purgeOwnerCloudStack, {
+      ownerId,
+      strict: true,
+    });
 
     const privateBlobDrain = await ctx.runAction(
       internal.media_image_submission.drainOwnerPrivateBlobCleanup,

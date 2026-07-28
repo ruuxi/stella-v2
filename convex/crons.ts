@@ -170,4 +170,58 @@ crons.interval(
   {},
 );
 
+// Retries the storage half of a conversation delete. Convex tombstones
+// synchronously, but the transcript and its R2 segments live in the DO, and a
+// DO that was unreachable when the user pressed delete must not be the reason
+// their data survives.
+crons.interval(
+  "purge tombstoned cloud conversations",
+  { minutes: 5 },
+  internal.cloud_apps.sweepDeletedConversationsInternal,
+  { limit: 10 },
+);
+
+// Retires the resurrection fences left by finished purges. They are a random
+// conversation id and a timestamp — no owner, no content — and they only have
+// to outlive an index flush that was in flight when the purge ran.
+crons.interval(
+  "retire purged cloud conversation tombstones",
+  { hours: 6 },
+  internal.cloud_apps.sweepConversationTombstonesInternal,
+  { limit: 500 },
+);
+
+// Index rows whose DO never flushed anything — a dispatch that failed before
+// the builder saw it. Left alone they are permanent empty sidebar entries.
+crons.interval(
+  "sweep orphaned cloud conversations",
+  { hours: 6 },
+  internal.cloud_apps.sweepOrphanConversationsInternal,
+  { limit: 25 },
+);
+
+// One-shot in practice: drains the pre-DO transcript table. Remove this cron,
+// `drainLegacyCloudMessagesInternal`, and the `cloud_messages` table once every
+// deployment reports zero remaining rows.
+crons.interval(
+  "drain legacy cloud transcript rows",
+  { hours: 1 },
+  internal.cloud_apps.drainLegacyCloudMessagesInternal,
+  { limit: 200 },
+);
+
+crons.interval(
+  "dispatch due cloud schedules",
+  { minutes: 1 },
+  internal.cloud_schedule.dispatchDueSchedulesInternal,
+  {},
+);
+
+crons.interval(
+  "reclaim abandoned drive uploads",
+  { hours: 1 },
+  internal.cloud_drive.sweepStaleDriveUploadsInternal,
+  { limit: 100 },
+);
+
 export default crons;

@@ -2,15 +2,89 @@ import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export const cloudAppsSchema = {
+  // The conversation INDEX, not the conversation. Message content lives in the
+  // OrchestratorSession Durable Object's SQLite and nowhere else; this table
+  // exists because a per-conversation DO cannot answer "list my conversations".
+  //
+  // The rule: everything below the marker is a DO-owned projection. Nothing in
+  // Convex may read a DO-owned field and act on it as truth — they exist to
+  // order and label a sidebar row, and a stale one costs a stale label.
+  // `upsertConversationIndexInternal` is the only writer, fenced on
+  // (epoch, lastSeq).
+  //
+  // Honest limit: conversation IDENTITY is not rebuildable from the DO tier —
+  // Cloudflare has no "list the DOs in a namespace" API. So
+  // {conversationId, ownerId, createdAt} is Convex-authoritative and mirrored
+  // into the DO's `meta` on first contact; a total loss of this table is
+  // recoverable only from a Convex backup, not from the DOs.
   cloud_conversations: defineTable({
     conversationId: v.string(),
     ownerId: v.string(),
     title: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    // ---- DO-owned below. Convex code must never patch these. ----
+    /** Highest journal seq the DO has flushed. Absent until the first flush. */
+    lastSeq: v.optional(v.number()),
+    lastPreview: v.optional(v.string()),
+    lastRole: v.optional(v.string()),
+    /** "idle" | "running" — sidebar affordance only, never a lifecycle fact. */
+    activity: v.optional(v.string()),
+    /** Bumped when a DO's storage is reset; older flushes are stale. */
+    epoch: v.optional(v.number()),
+    /**
+     * Purge tombstone. Set before the DO is asked to purge, so a failed purge
+     * retries instead of orphaning R2 segments. A tombstoned conversation is
+     * invisible and unwritable, and its title/preview are cleared on the spot.
+     */
+    deletedAt: v.optional(v.number()),
+    /**
+     * When the DO confirmed its storage and segments were gone. The row stays
+     * after a per-conversation delete so the sweep can tell a finished purge
+     * from an unfinished one.
+     *
+     * It is NOT the resurrection fence. That is
+     * `cloud_conversation_tombstones` below, which outlives this row —
+     * account deletion has to delete this one (it carries `ownerId`), and the
+     * fence has to survive that.
+     */
+    purgedAt: v.optional(v.number()),
   })
     .index("by_conversationId", ["conversationId"])
-    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
+    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"])
+    // Tombstones still awaiting a purge. Missing fields index as `undefined`,
+    // which sorts below every number, so `eq(purgedAt, undefined)` selects
+    // exactly the unfinished ones and `gte(deletedAt, 1)` skips live rows.
+    .index("by_purgedAt_and_deletedAt", ["purgedAt", "deletedAt"])
+    // Orphan sweep: rows the DO never flushed (`lastSeq` undefined) group at
+    // the front of this index, ordered by age.
+    .index("by_lastSeq_and_createdAt", ["lastSeq", "createdAt"]),
+
+  // The resurrection fence, and nothing else.
+  //
+  // A purged conversation's index row cannot do this job. It is the entry the
+  // user sees and it carries `ownerId`, so account deletion must delete it —
+  // and deleting it is precisely what re-opens `upsertConversationIndexInternal`'s
+  // `!row` self-heal branch to an index flush that a still-resident DO started
+  // before the purge and retried after it, re-inserting the deleted owner's
+  // conversation row and their transcript excerpts. So the fence lives here,
+  // with its own lifetime: written in the same transaction that deletes the
+  // index row (and at `finishConversationPurgeInternal` for the ordinary
+  // per-conversation delete), read by the self-heal branch before it inserts.
+  //
+  // What it retains, exhaustively: a randomly minted conversation UUID and the
+  // instant the DO confirmed its storage was gone. No owner, no title, no
+  // preview, no text, nothing derived from any of them. Once the index row is
+  // deleted there is no row anywhere in this deployment that maps the id back
+  // to a person, which is what makes retaining it defensible for an account
+  // that no longer exists — it is a "this id is dead" marker, not a record of
+  // anyone. Swept after `CONVERSATION_TOMBSTONE_RETENTION_MS`.
+  cloud_conversation_tombstones: defineTable({
+    conversationId: v.string(),
+    purgedAt: v.number(),
+  })
+    .index("by_conversationId", ["conversationId"])
+    .index("by_purgedAt", ["purgedAt"]),
 
   cloud_apps: defineTable({
     appId: v.string(),
@@ -66,10 +140,18 @@ export const cloudAppsSchema = {
     parentTurnId: v.optional(v.string()),
     // Wake/lifecycle turns the UI must not render as user messages.
     hidden: v.optional(v.boolean()),
+    // Who started this turn: "schedule" | "desktop" | "agent-thread" |
+    // "probe". Absent for the signed-in composer.
+    source: v.optional(v.string()),
+    // Client-minted id for the message that started this turn. Threads through
+    // to the DO so an optimistic bubble can be resolved against the journal
+    // row, and makes a retried start idempotent instead of double-charged.
+    clientMsgId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_turnId", ["turnId"])
+    .index("by_clientMsgId", ["clientMsgId"])
     .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"])
     .index("by_createdAt", ["createdAt"])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
@@ -79,10 +161,41 @@ export const cloudAppsSchema = {
     .index("by_conversationId_and_createdAt", ["conversationId", "createdAt"])
     .index("by_threadId_and_createdAt", ["threadId", "createdAt"]),
 
-  // Canonical conversation transcript for cloud-executed chat. One row per
-  // AgentMessage (user/assistant/toolResult), ordered by seq within a
-  // conversation. The orchestrator DO reconstructs its loop context from
-  // these rows — Convex is the source of truth, the DO only buffers.
+  // Spawned-agent THREAD transcripts — private job state, never conversation
+  // content. One row per AgentMessage produced inside a sandbox turn, keyed by
+  // `conversationId = threadId`, and read back only to continue that thread
+  // (`send_input`). The user-facing conversation transcript is not here: it
+  // lives in the OrchestratorSession DO (see cloud_conversations above).
+  //
+  // The invariant this table's NAME now carries, and which
+  // `appendThreadMessagesInternal` enforces: a spawned agent's turn token can
+  // only ever write its own thread. It must never reach the parent user
+  // conversation, where a hijacked sandbox could forge history the
+  // orchestrator would reload as genuine context.
+  cloud_thread_messages: defineTable({
+    conversationId: v.string(),
+    ownerId: v.string(),
+    seq: v.number(),
+    role: v.string(),
+    payloadJson: v.string(),
+    turnId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_conversationId_and_seq", ["conversationId", "seq"])
+    .index("by_turnId", ["turnId"])
+    // Account deletion drains by owner; without this the table could only be
+    // reached through its threads, and a thread row lost to an earlier partial
+    // purge would strand transcript rows forever.
+    .index("by_ownerId", ["ownerId"]),
+
+  // LEGACY, write-never, read-only by `drainLegacyCloudMessagesInternal`.
+  //
+  // This is the pre-DO conversation transcript. It is declared solely so its
+  // rows stay typed and reachable long enough to be deleted: an undeclared
+  // table keeps its documents, and abandoning user transcripts in a table no
+  // code can name is exactly the failure this migration exists to stop.
+  // Delete the table, the drain mutation, and its cron once every deployment
+  // reports zero remaining rows.
   cloud_messages: defineTable({
     conversationId: v.string(),
     ownerId: v.string(),
@@ -96,6 +209,30 @@ export const cloudAppsSchema = {
     .index("by_conversationId_and_seq", ["conversationId", "seq"])
     .index("by_turnId", ["turnId"]),
 
+  // Recall's cross-conversation index: one compact, searchable excerpt per
+  // turn. Derived from the DO's journal and regenerable from it
+  // (POST /conversations/:id/reindex) — never a second copy of truth, and
+  // never read back into model context as history.
+  cloud_message_excerpts: defineTable({
+    ownerId: v.string(),
+    conversationId: v.string(),
+    turnId: v.string(),
+    seqStart: v.number(),
+    seqEnd: v.number(),
+    searchText: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_turnId", ["turnId"])
+    .index("by_conversationId_and_seqStart", ["conversationId", "seqStart"])
+    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
+    // `filterFields: ["ownerId"]` IS the authorization: the owner equality is
+    // applied inside the search predicate, so there is no code path that can
+    // rank or return another owner's excerpts.
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["ownerId"],
+    }),
+
   // Short-lived per-turn credentials. Only the SHA-256 hash is stored; the
   // raw token travels to the executor and authenticates relay model calls
   // and event/message callbacks for exactly one turn.
@@ -108,7 +245,10 @@ export const cloudAppsSchema = {
     expiresAt: v.number(),
   })
     .index("by_tokenHash", ["tokenHash"])
-    .index("by_expiresAt", ["expiresAt"]),
+    .index("by_expiresAt", ["expiresAt"])
+    // Deleting an account must not leave live credentials behind for up to the
+    // token TTL; the expiry cron is a floor, not a deletion path.
+    .index("by_ownerId", ["ownerId"]),
 
   // Durable spawned-agent threads (cloud analog of the desktop runtime's
   // agent threads). One row per spawn_agent call from the cloud orchestrator.
@@ -116,7 +256,9 @@ export const cloudAppsSchema = {
     threadId: v.string(),
     ownerId: v.string(),
     conversationId: v.string(),
-    parentTurnId: v.string(),
+    // Absent when the desktop dispatched the agent: there is no cloud turn
+    // above it, only the local chat that asked for it.
+    parentTurnId: v.optional(v.string()),
     description: v.string(),
     workspace: v.string(),
     agentType: v.string(),

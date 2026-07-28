@@ -1,4 +1,5 @@
 import type { HttpRouter } from "convex/server";
+import { ConvexError } from "convex/values";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { enforceActionRateLimit } from "../lib/rate_limits";
@@ -84,28 +85,45 @@ export function registerCloudAppRoutes(http: HttpRouter) {
     }),
   });
 
-  // The orchestrator DO reconstructs its loop context from the canonical
-  // transcript. Service-secret only: the DO fetches before it holds a token
-  // audience of its own, and history is never exposed to sandboxes directly.
+  // A spawned agent's THREAD transcript, for `send_input` continuations.
+  //
+  // Narrowed with the DO-resident transcript migration: `conversationId` here
+  // names a `cloud_agent_threads` row, never a user conversation. User
+  // conversation history is not readable over HTTP at all any more — it lives
+  // in the OrchestratorSession DO, which is the only thing that reads it.
+  // Service-secret only, as before: the fetching DO holds no turn token yet,
+  // and history is never handed to a sandbox directly.
   http.route({
     path: "/api/cloud/context",
     method: "GET",
     handler: httpAction(async (ctx, request) => {
       if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
       const url = new URL(request.url);
-      const conversationId = url.searchParams.get("conversationId")?.trim();
-      if (!conversationId) return json({ error: "conversationId required" }, 400);
-      const messages = await ctx.runQuery(
-        internal.cloud_apps.listConversationMessagesInternal,
-        {
-          conversationId,
-          excludeTurnId: url.searchParams.get("excludeTurnId") ?? undefined,
-        },
-      );
-      return json({ messages });
+      const threadId = url.searchParams.get("conversationId")?.trim();
+      if (!threadId) return json({ error: "conversationId required" }, 400);
+      try {
+        const messages = await ctx.runQuery(
+          internal.cloud_apps.listThreadMessagesInternal,
+          {
+            threadId,
+            excludeTurnId: url.searchParams.get("excludeTurnId") ?? undefined,
+          },
+        );
+        return json({ messages });
+      } catch {
+        // An id that is not a thread is simply not here. Saying which is which
+        // would confirm the existence of conversations to a caller that only
+        // has the service secret's thread audience.
+        return json({ error: "Unknown agent thread." }, 404);
+      }
     }),
   });
 
+  // The write half of the same surface. The check that a turn token can only
+  // ever write its OWN thread lives in `appendThreadMessagesInternal`; it is
+  // half of the guarantee that a hijacked sandbox cannot forge history the
+  // orchestrator would reload as genuine context. The other half is the
+  // `x-stella-owner` compare on the DO's journal-append route.
   http.route({
     path: "/api/cloud/messages",
     method: "POST",
@@ -116,7 +134,7 @@ export function registerCloudAppRoutes(http: HttpRouter) {
       const body = (await request.json()) as {
         conversationId: string;
         turnId: string;
-        messages: Array<{ role: string; payloadJson: string; hidden?: boolean }>;
+        messages: Array<{ role: string; payloadJson: string }>;
       };
       if (token && token.turnId !== body.turnId) {
         return json({ error: "Forbidden" }, 403);
@@ -128,19 +146,136 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         return json({ error: "Too many messages in one append." }, 400);
       }
       const result = await ctx.runMutation(
-        internal.cloud_apps.appendConversationMessagesInternal,
+        internal.cloud_apps.appendThreadMessagesInternal,
         {
-          conversationId: body.conversationId,
+          threadId: body.conversationId,
           turnId: body.turnId,
           messages: body.messages.map((message) => ({
             role: message.role,
             payloadJson: message.payloadJson,
-            hidden: message.hidden === true ? true : undefined,
           })),
           now: Date.now(),
         },
       );
       return json(result);
+    }),
+  });
+
+  // Who owns a conversation. One call per OrchestratorSession lifetime: a DO
+  // that has never been bound asks here rather than adopting whoever connects
+  // to it first, which would make a conversation id a bearer token.
+  http.route({
+    path: "/api/cloud/conversation-owner",
+    method: "GET",
+    handler: httpAction(async (ctx, request) => {
+      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      const url = new URL(request.url);
+      const conversationId = url.searchParams.get("conversationId")?.trim();
+      if (!conversationId) return json({ error: "conversationId required" }, 400);
+      const owner = await ctx.runQuery(
+        internal.cloud_apps.getConversationOwnerInternal,
+        { conversationId },
+      );
+      if (!owner) return json({ error: "Conversation not found." }, 404);
+      return json(owner);
+    }),
+  });
+
+  // The DO's index flush: the sidebar row plus this turn's search excerpts.
+  // Fenced on (epoch, lastSeq) inside the mutation, so a retried or reordered
+  // flush is dropped as stale rather than moving the row backwards. The reply
+  // always carries the row's current (lastSeq, epoch) so a DO that lost track
+  // of what it synced converges without a second call.
+  http.route({
+    path: "/api/cloud/index",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      const body = (await request.json()) as {
+        conversationId?: string;
+        ownerId?: string;
+        epoch?: number;
+        lastSeq?: number;
+        updatedAt?: number;
+        createdAt?: number;
+        title?: string;
+        lastPreview?: string;
+        lastRole?: string;
+        activity?: string;
+        excerpts?: Array<{
+          turnId?: string;
+          seqStart?: number;
+          seqEnd?: number;
+          text?: string;
+          createdAt?: number;
+        }>;
+        force?: boolean;
+      };
+      const conversationId = body.conversationId?.trim();
+      const ownerId = body.ownerId?.trim();
+      if (!conversationId || !ownerId) {
+        return json({ error: "conversationId and ownerId required" }, 400);
+      }
+      if (
+        !Number.isFinite(body.epoch) ||
+        !Number.isFinite(body.lastSeq) ||
+        !Number.isFinite(body.updatedAt)
+      ) {
+        return json({ error: "epoch, lastSeq, updatedAt required" }, 400);
+      }
+      const excerpts = (body.excerpts ?? []).flatMap((entry) =>
+        entry.turnId && typeof entry.text === "string"
+          ? [
+              {
+                turnId: entry.turnId,
+                seqStart: Math.floor(entry.seqStart ?? 0),
+                seqEnd: Math.floor(entry.seqEnd ?? 0),
+                text: entry.text,
+                createdAt: Math.floor(entry.createdAt ?? Date.now()),
+              },
+            ]
+          : [],
+      );
+      try {
+        const result = await ctx.runMutation(
+          internal.cloud_apps.upsertConversationIndexInternal,
+          {
+            conversationId,
+            ownerId,
+            epoch: Math.floor(body.epoch as number),
+            lastSeq: Math.floor(body.lastSeq as number),
+            updatedAt: Math.floor(body.updatedAt as number),
+            ...(Number.isFinite(body.createdAt)
+              ? { createdAt: Math.floor(body.createdAt as number) }
+              : {}),
+            ...(typeof body.title === "string" ? { title: body.title } : {}),
+            ...(typeof body.lastPreview === "string"
+              ? { lastPreview: body.lastPreview }
+              : {}),
+            ...(typeof body.lastRole === "string"
+              ? { lastRole: body.lastRole }
+              : {}),
+            ...(typeof body.activity === "string"
+              ? { activity: body.activity }
+              : {}),
+            ...(excerpts.length > 0 ? { excerpts } : {}),
+            ...(body.force === true ? { force: true } : {}),
+          },
+        );
+        return json(result);
+      } catch (error) {
+        // Over-sized excerpt batches are the only throw here, and they are a
+        // caller bug, not a transient failure — say so rather than 500ing.
+        return json(
+          {
+            error:
+              error instanceof ConvexError
+                ? String(error.data)
+                : "Index flush rejected.",
+          },
+          400,
+        );
+      }
     }),
   });
 
@@ -221,6 +356,9 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         errorMessage: body.errorMessage,
         wake: body.wake,
         callerTurnId: token?.turnId,
+        ...(token?.turnId ?? body.turnId
+          ? { completingTurnId: token?.turnId ?? body.turnId }
+          : {}),
         now: Date.now(),
       });
       return json({ ok: true });

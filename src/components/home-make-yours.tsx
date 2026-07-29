@@ -24,6 +24,8 @@ type Tile = {
   span: 1 | 2;
 };
 
+type TilePhase = "pending" | "typing" | "revealed";
+
 // The four transformations in reading order, each with its own permanent
 // spot: narrow + wide on the first row, wide + narrow on the second.
 // (The untouched app lives in the hero above — no tile needed.)
@@ -39,6 +41,10 @@ const TILES: Tile[] = (
   return { id, request: skin.request, vars: skin.vars, span };
 });
 
+/* The gap between one mock appearing and the next. This is the pace of
+   the whole sequence and nothing else derives from it — each tile runs
+   its own typing/reveal at the speeds below, overlapping freely. */
+const APPEAR_STAGGER_MS = 400;
 const TILE_IN_MS = 420;
 const CHAR_MS = 30;
 const TYPED_BEAT_MS = 260;
@@ -90,10 +96,14 @@ export function HomeMakeYours() {
   const sectionRef = useRef<HTMLElement>(null);
   const tileRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [zooms, setZooms] = useState<string[]>([]);
-  // Tiles before `typingIndex` are revealed, the tile at it is typing,
-  // tiles after it are pending. TILES.length = everything revealed.
-  const [typingIndex, setTypingIndex] = useState(-1);
-  const [typed, setTyped] = useState("");
+  // Every tile advances through its own pending → typing → revealed
+  // timeline; tiles overlap, so each carries its own typed text too.
+  const [phases, setPhases] = useState<TilePhase[]>(() =>
+    TILES.map(() => "pending"),
+  );
+  const [typedByTile, setTypedByTile] = useState<string[]>(() =>
+    TILES.map(() => ""),
+  );
   const [running, setRunning] = useState(false);
 
   const measure = useCallback(() => {
@@ -110,7 +120,9 @@ export function HomeMakeYours() {
     if (!el) return;
     // Under reduced motion skip the loop and show every tile transformed.
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      const raf = requestAnimationFrame(() => setTypingIndex(TILES.length));
+      const raf = requestAnimationFrame(() =>
+        setPhases(TILES.map(() => "revealed")),
+      );
       return () => cancelAnimationFrame(raf);
     }
     measure();
@@ -128,36 +140,49 @@ export function HomeMakeYours() {
     };
   }, [measure]);
 
-  // The pipeline: as soon as one tile finishes typing, the next tile starts —
-  // the finished tile zooms out into its full design while its neighbor types.
+  // Mocks appear a fixed beat apart (APPEAR_STAGGER_MS) — the gap is not
+  // tied to any animation finishing. Once a tile appears it types its
+  // request and reveals its design on its own clock, so several tiles
+  // can be mid-flight at once.
   useEffect(() => {
     if (!running) return;
     let cancelled = false;
     const sleep = (ms: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const setPhase = (index: number, phase: TilePhase) =>
+      setPhases((prev) => prev.map((p, i) => (i === index ? phase : p)));
+    const setTypedFor = (index: number, text: string) =>
+      setTypedByTile((prev) => prev.map((t, i) => (i === index ? text : t)));
+    const resetAll = () => {
+      setPhases(TILES.map(() => "pending"));
+      setTypedByTile(TILES.map(() => ""));
+    };
 
     (async () => {
       await sleep(500);
       while (!cancelled) {
-        for (let k = 0; k < TILES.length; k += 1) {
-          setTypingIndex(k);
-          setTyped("");
-          await sleep(TILE_IN_MS);
-          if (cancelled) return;
-          const text = TILES[k].request;
-          for (let i = 1; i <= text.length; i += 1) {
-            setTyped(text.slice(0, i));
-            await sleep(CHAR_MS);
+        await Promise.all(
+          TILES.map(async (tile, k) => {
+            await sleep(k * APPEAR_STAGGER_MS);
             if (cancelled) return;
-          }
-          await sleep(TYPED_BEAT_MS);
-          if (cancelled) return;
-        }
-        setTypingIndex(TILES.length);
-        setTyped("");
+            setPhase(k, "typing");
+            await sleep(TILE_IN_MS);
+            if (cancelled) return;
+            for (let i = 1; i <= tile.request.length; i += 1) {
+              setTypedFor(k, tile.request.slice(0, i));
+              await sleep(CHAR_MS);
+              if (cancelled) return;
+            }
+            await sleep(TYPED_BEAT_MS);
+            if (cancelled) return;
+            setPhase(k, "revealed");
+            setTypedFor(k, "");
+          }),
+        );
+        if (cancelled) return;
         await sleep(ALL_REVEALED_HOLD_MS);
         if (cancelled) return;
-        setTypingIndex(-1);
+        resetAll();
         await sleep(RESET_GAP_MS);
         if (cancelled) return;
       }
@@ -165,8 +190,8 @@ export function HomeMakeYours() {
 
     return () => {
       cancelled = true;
-      setTypingIndex(-1);
-      setTyped("");
+      setPhases(TILES.map(() => "pending"));
+      setTypedByTile(TILES.map(() => ""));
     };
   }, [running]);
 
@@ -191,12 +216,7 @@ export function HomeMakeYours() {
         style={{ ["--reveal-index" as string]: 1 }}
       >
         {TILES.map((tile, i) => {
-          const state =
-            i < typingIndex
-              ? "revealed"
-              : i === typingIndex
-                ? "typing"
-                : "pending";
+          const state = phases[i];
           const revealed = state === "revealed";
           return (
             <div
@@ -220,7 +240,7 @@ export function HomeMakeYours() {
               >
                 <MorphScene
                   id={tile.id}
-                  typed={state === "typing" ? typed : ""}
+                  typed={state === "typing" ? typedByTile[i] : ""}
                   revealed={revealed}
                   compact
                 />

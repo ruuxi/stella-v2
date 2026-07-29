@@ -108,6 +108,7 @@ const PLAN_ORDER: BillingPlan[] = [
   "ultra",
   "max",
 ];
+const VISIBLE_PLAN_ORDER = PLAN_ORDER.filter((plan) => plan !== "max");
 const RECOMMENDED_PLAN: BillingPlan = "pro";
 
 const STATIC_PLAN_DISPLAY: Record<
@@ -145,16 +146,11 @@ const PRIORITY_PLAN_FEATURE = "Higher priority, increased speeds";
 // to your username on Store posts. Free doesn't get it.
 const VERIFIED_BADGE_FEATURE = "Verified creator badge on the Store";
 
-// The Stella Max plan makes the flagship Stella Max model mode (Claude
-// Fable 5) its default. Called out at the top of the Max card.
-const MAX_MODEL_FEATURE = "Stella Max model (Claude Fable 5) by default";
-
 const PRIORITY_PLANS = new Set<BillingPlan>(["pro", "plus", "ultra", "max"]);
 const PAID_PLANS = new Set<BillingPlan>(["go", "pro", "plus", "ultra", "max"]);
 
 const getPlanFeatures = (plan: BillingPlan): readonly string[] => {
   const features: string[] = [];
-  if (plan === "max") features.push(MAX_MODEL_FEATURE);
   if (PRIORITY_PLANS.has(plan)) features.push(PRIORITY_PLAN_FEATURE);
   features.push(...BASE_PLAN_FEATURES);
   if (PAID_PLANS.has(plan)) features.push(VERIFIED_BADGE_FEATURE);
@@ -582,7 +578,7 @@ function BillingInteractive() {
 
         <section className="billing-plans-section" aria-label="Plans">
           <div className="billing-plans-grid">
-            {PLAN_ORDER.map((plan) => {
+            {VISIBLE_PLAN_ORDER.map((plan) => {
               const display = getPlanDisplay(plan);
               const isCurrentPlan = plan === currentPlan;
               const introCents =

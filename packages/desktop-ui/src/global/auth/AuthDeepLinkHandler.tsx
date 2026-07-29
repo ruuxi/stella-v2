@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 import { refreshAuthSession } from "@/global/auth/services/auth-session";
 import { configurePiRuntime } from "@/platform/electron/device";
-
-const AUTH_TOKEN_PATTERN = /^[A-Za-z0-9._~-]{8,2048}$/;
+import { AUTH_HANDOFF_TOKEN_PATTERN } from "./browser-auth-handoff";
 
 const STELLA_PROTOCOL = (
   (import.meta.env.VITE_STELLA_PROTOCOL as string | undefined)
@@ -30,7 +29,7 @@ const extractTrustedOtt = (value: string): string | null => {
     return null;
   }
   const token = parsed.searchParams.get("ott");
-  if (!token || !AUTH_TOKEN_PATTERN.test(token)) {
+  if (!token || !AUTH_HANDOFF_TOKEN_PATTERN.test(token)) {
     return null;
   }
   return token;
@@ -51,7 +50,7 @@ const handleBrowserAuthCallback = () => {
   if (window.location.pathname !== "/auth/callback") return;
 
   const ott = params.get("ott");
-  if (!ott || !AUTH_TOKEN_PATTERN.test(ott)) return;
+  if (!ott || !AUTH_HANDOFF_TOKEN_PATTERN.test(ott)) return;
 
   window.location.href = `${STELLA_PROTOCOL}://auth/callback?ott=${encodeURIComponent(ott)}`;
 };

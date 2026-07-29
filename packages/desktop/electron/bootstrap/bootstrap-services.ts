@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
 import path from "path";
 import { AuthService } from "../services/auth-service.js";
 import { BackupService } from "../services/backup-service.js";
@@ -17,11 +17,9 @@ import { isCanvasShareUrl } from "@stella/contracts/canvas-share";
 import { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { SecurityPolicyService } from "../services/security-policy-service.js";
 import { SelectionWatcherService } from "../services/selection-watcher-service.js";
+import { RendererArtifactService } from "../services/renderer-artifact-service.js";
 import { UiStateService } from "../services/ui-state-service.js";
-import {
-  getDevServerUrl,
-  resolveRendererRoot,
-} from "../renderer-location.js";
+import { getDevServerUrl, resolveRendererRoot } from "../renderer-location.js";
 import { hasMacPermission } from "../utils/macos-permissions.js";
 import { loadLocalPreferences } from "@stella/runtime/kernel/preferences/local-preferences";
 import { DEFAULT_RADIAL_TRIGGER_CODE } from "@stella/contracts/radial-trigger";
@@ -47,6 +45,13 @@ export const createBootstrapServices = (options: {
 
   const uiStateService = new UiStateService();
   const externalLinkService = new ExternalLinkService();
+  const bundledRendererRoot = resolveRendererRoot(config.electronDir);
+  const rendererArtifactService = new RendererArtifactService({
+    userDataDir: app.getPath("userData"),
+    bundledRendererRoot,
+    shellVersion: app.getVersion(),
+    supportedBridgeAbi: 1,
+  });
   const localChatHistoryService = new LocalChatHistoryService({
     stellaAppDir: config.stellaDataDirPath,
     onUpdated: (payload) => {
@@ -60,16 +65,17 @@ export const createBootstrapServices = (options: {
     // Mobile-only: desktop windows maintain their own decoration stores from
     // the live stream; the bridge snapshot exists for the phone's benefit.
     onTaskDecorationUpdated: (payload) => {
-      options.getMobileBroadcast()?.("localChat:taskDecorationUpdated", payload);
+      options.getMobileBroadcast()?.(
+        "localChat:taskDecorationUpdated",
+        payload,
+      );
     },
   });
   externalLinkService.setDevBuild(config.useDevServer);
   if (config.useDevServer) {
     externalLinkService.trustDevServerBaseUrl(getDevServerUrl());
   } else {
-    externalLinkService.trustFileRendererRoot(
-      resolveRendererRoot(config.electronDir),
-    );
+    externalLinkService.trustFileRendererRoot(bundledRendererRoot);
   }
   // A canvas-share link (`<CANVAS_SHARE_BASE_URL>/c/<slug>`) clicked/opened
   // inside Stella is fetched + materialized in main and pushed to the Canvas
@@ -319,5 +325,6 @@ export const createBootstrapServices = (options: {
     securityPolicyService,
     selectionWatcherService,
     uiStateService,
+    rendererArtifactService,
   };
 };

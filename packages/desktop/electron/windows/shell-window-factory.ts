@@ -1,7 +1,11 @@
 import { BrowserWindow, type RenderProcessGoneDetails } from 'electron'
 import fs from 'fs'
 import path from 'path'
-import { loadWindow, type WindowLoadMode } from './window-load.js'
+import {
+  loadWindow,
+  type PackagedRendererEntrypointResolver,
+  type WindowLoadMode,
+} from './window-load.js'
 
 export type ShellWindowMode = Extract<WindowLoadMode, 'full' | 'mini'>
 
@@ -17,11 +21,15 @@ type ShellWindowFactoryOptions = {
   electronDir: string
   isDev: boolean
   getDevServerUrl: () => string
+  resolvePackagedEntrypoint?: PackagedRendererEntrypointResolver
   createWindow: () => BrowserWindow
   setupExternalLinkHandlers: (window: BrowserWindow) => void
   onDidStartLoading?: () => void
   onDidFinishLoad?: () => void
-  onRenderProcessGone?: (details: RenderProcessGoneDetails, window: BrowserWindow) => void
+  onRenderProcessGone?: (
+    details: RenderProcessGoneDetails,
+    window: BrowserWindow,
+  ) => void
   onDidFailLoad?: (
     details: ShellWindowDidFailLoadDetails,
     window: BrowserWindow,
@@ -40,8 +48,12 @@ type ShellWindowFactoryOptions = {
 
 type ShellWindowLoadOptions = Pick<
   ShellWindowFactoryOptions,
-  'electronDir' | 'isDev' | 'mode' | 'getDevServerUrl'
->
+  | 'electronDir'
+  | 'isDev'
+  | 'mode'
+  | 'getDevServerUrl'
+  | 'resolvePackagedEntrypoint'
+> & { rendererReadinessToken?: string }
 
 const shouldOpenDevTools = process.env.STELLA_OPEN_DEVTOOLS === '1'
 
@@ -54,6 +66,8 @@ const loadShellMainWindow = (
     isDev: options.isDev,
     mode: options.mode,
     getDevServerUrl: options.getDevServerUrl,
+    resolvePackagedEntrypoint: options.resolvePackagedEntrypoint,
+    rendererReadinessToken: options.rendererReadinessToken,
   })
 }
 
@@ -80,13 +94,7 @@ export const createShellWindow = (options: ShellWindowFactoryOptions) => {
 
   window.webContents.on(
     'did-fail-load',
-    (
-      _event,
-      errorCode,
-      errorDescription,
-      validatedURL,
-      isMainFrame,
-    ) => {
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       options.onDidFailLoad?.(
         {
           errorCode,

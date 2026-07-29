@@ -6,16 +6,24 @@ import {
   type ShellWindowDidFailLoadDetails,
   type ShellWindowMode,
 } from './shell-window-factory.js'
+import type { PackagedRendererEntrypointResolver } from './window-load.js'
 
 export type ShellWindowControllerOptions = {
   electronDir: string
   isDev: boolean
   getDevServerUrl: () => string
+  resolvePackagedEntrypoint?: PackagedRendererEntrypointResolver
   setupExternalLinkHandlers: (window: BrowserWindow) => void
   onDidStartLoading?: () => void
   onDidFinishLoad?: () => void
-  onRenderProcessGone?: (details: RenderProcessGoneDetails, window: BrowserWindow) => void
-  onDidFailLoad?: (details: ShellWindowDidFailLoadDetails, window: BrowserWindow) => void
+  onRenderProcessGone?: (
+    details: RenderProcessGoneDetails,
+    window: BrowserWindow,
+  ) => void
+  onDidFailLoad?: (
+    details: ShellWindowDidFailLoadDetails,
+    window: BrowserWindow,
+  ) => void
   onUnresponsive?: (window: BrowserWindow) => void
   onResponsive?: (window: BrowserWindow) => void
   onClosed?: () => void
@@ -49,6 +57,7 @@ export class ShellWindowController {
       electronDir: this.options.electronDir,
       isDev: this.options.isDev,
       getDevServerUrl: this.options.getDevServerUrl,
+      resolvePackagedEntrypoint: this.options.resolvePackagedEntrypoint,
       createWindow: this.config.createWindow,
       setupExternalLinkHandlers: this.options.setupExternalLinkHandlers,
       onDidStartLoading: this.options.onDidStartLoading,
@@ -73,12 +82,14 @@ export class ShellWindowController {
     loadShellRecoveryPage(this.window, this.options.electronDir)
   }
 
-  reloadMainWindow() {
+  reloadMainWindow(rendererReadinessToken?: string) {
     reloadShellMainWindow(this.window, {
       electronDir: this.options.electronDir,
       isDev: this.options.isDev,
       mode: this.config.mode,
       getDevServerUrl: this.options.getDevServerUrl,
+      resolvePackagedEntrypoint: this.options.resolvePackagedEntrypoint,
+      rendererReadinessToken,
     })
   }
 

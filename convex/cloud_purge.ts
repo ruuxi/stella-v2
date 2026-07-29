@@ -124,6 +124,11 @@ const OWNER_STORES = {
   cloud_apps: "external-ref",
   cloud_app_builds: "child",
   cloud_app_operations: "child",
+  // Per-owner Stella interior routing plus immutable candidates. Both name
+  // R2 build prefixes, and the deployable also implies the owner's `stella`
+  // sandbox checkpoint. External bytes go before either row.
+  cloud_interior_deployables: "external-ref",
+  cloud_interior_builds: "external-ref",
   // Recurring and one-shot turns. Stopped before anything else is touched.
   cloud_scheduled_turns: "stopped",
   // The per-user drive. Bytes are in the bucket bound to the Convex R2
@@ -504,6 +509,88 @@ export const deleteOwnerAppBatch = internalMutation({
   },
 });
 
+// ─── Stella interior deployments ────────────────────────────────────────────
+
+/**
+ * The exact external state named by one owner's interior deployment. Build
+ * prefixes are read from their immutable rows. The owner-level purge later in
+ * this action independently removes the `stella` source-workspace checkpoint.
+ */
+export const listOwnerInteriorPurgeManifestInternal = internalQuery({
+  args: { ownerId: v.string() },
+  returns: v.object({
+    hasRows: v.boolean(),
+    buildPrefixes: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const deployment = await ctx.db
+      .query("cloud_interior_deployables")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .unique();
+    const builds = await ctx.db
+      .query("cloud_interior_builds")
+      .withIndex("by_ownerId_and_createdAt", (q) =>
+        q.eq("ownerId", args.ownerId),
+      )
+      .take(BATCH);
+    const hasRows = Boolean(deployment) || builds.length > 0;
+    return {
+      hasRows,
+      buildPrefixes: [...new Set(builds.map((build) => build.artifactPrefix))],
+    };
+  },
+});
+
+/**
+ * Deletes only candidates whose artifact prefixes the builder just confirmed
+ * gone. A candidate inserted after the manifest read is held for the next
+ * pass, preserving the same row-last fencing used by mini-app builds.
+ */
+export const deleteOwnerInteriorDeploymentBatch = internalMutation({
+  args: { ownerId: v.string(), purgedPrefixes: v.array(v.string()) },
+  returns: v.object({ hasMore: v.boolean(), deleted: v.number() }),
+  handler: async (ctx, args) => {
+    const purged = new Set(args.purgedPrefixes);
+    const builds = await ctx.db
+      .query("cloud_interior_builds")
+      .withIndex("by_ownerId_and_createdAt", (q) =>
+        q.eq("ownerId", args.ownerId),
+      )
+      .take(BATCH);
+    let deleted = 0;
+    let heldBack = 0;
+    for (const build of builds) {
+      if (!purged.has(build.artifactPrefix)) {
+        heldBack += 1;
+        continue;
+      }
+      await ctx.db.delete(build._id);
+      deleted += 1;
+    }
+    if (builds.length === BATCH || heldBack > 0) {
+      return { hasMore: true, deleted };
+    }
+    const remainingBuild = await ctx.db
+      .query("cloud_interior_builds")
+      .withIndex("by_ownerId_and_createdAt", (q) =>
+        q.eq("ownerId", args.ownerId),
+      )
+      .take(1);
+    if (remainingBuild.length > 0) {
+      return { hasMore: true, deleted };
+    }
+    const deployment = await ctx.db
+      .query("cloud_interior_deployables")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .unique();
+    if (deployment) {
+      await ctx.db.delete(deployment._id);
+      deleted += 1;
+    }
+    return { hasMore: false, deleted };
+  },
+});
+
 // ─── Projects ────────────────────────────────────────────────────────────────
 
 /**
@@ -788,6 +875,24 @@ export const remainingOwnerStoresInternal = internalQuery({
               .take(1),
           );
           break;
+        case "cloud_interior_deployables":
+          await check(store, () =>
+            ctx.db
+              .query("cloud_interior_deployables")
+              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+              .take(1),
+          );
+          break;
+        case "cloud_interior_builds":
+          await check(store, () =>
+            ctx.db
+              .query("cloud_interior_builds")
+              .withIndex("by_ownerId_and_createdAt", (q) =>
+                q.eq("ownerId", ownerId),
+              )
+              .take(1),
+          );
+          break;
         case "cloud_scheduled_turns":
           await check(store, () =>
             ctx.db
@@ -927,20 +1032,76 @@ type ExternalPurgeRequest = {
   buildPrefixes?: string[];
 };
 
+const requireBuilderEndpoint = (): BuilderEndpoint => {
+  const builder = builderEndpoint();
+  if (!builder) {
+    throw new Error(
+      "Cloud owner purge cannot be verified because CLOUD_BUILDER_URL or BUILDER_SERVICE_SECRET is missing.",
+    );
+  }
+  return builder;
+};
+
+const beginExternalOwnerPurge = async (
+  ownerId: string,
+  mode: "temporary" | "permanent",
+): Promise<string> => {
+  const builder = requireBuilderEndpoint();
+  const response = await fetch(`${builder.url}/owners/purge/begin`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${builder.secret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ ownerId, mode }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  const verdict = (await response.json().catch(() => null)) as {
+    generation?: string;
+  } | null;
+  if (!response.ok || !verdict?.generation) {
+    throw new Error(
+      `Cloud owner activity could not be quiesced before purge (${response.status}).`,
+    );
+  }
+  return verdict.generation;
+};
+
+const releaseExternalOwnerPurge = async (
+  ownerId: string,
+  purgeGeneration: string,
+): Promise<void> => {
+  const builder = requireBuilderEndpoint();
+  const response = await fetch(`${builder.url}/owners/purge/release`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${builder.secret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ ownerId, purgeGeneration }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Cloud owner activity remained fenced after reset (${response.status}).`,
+    );
+  }
+};
+
 /**
  * One pass of the worker-side purge. `pending` non-empty means the worker
  * could not finish, and the caller must keep the rows that name those bytes.
  *
- * A deployment with no builder configured has no external tier at all, which
- * is not the same as an external tier that failed: it reports done, exactly as
- * `purgeConversationInternal` treats a missing builder.
+ * Missing builder configuration is fail-closed. This action cannot prove that
+ * an older deployment never wrote external state, so absence of credentials
+ * is never evidence that the external tier is empty.
  */
 const purgeExternalStores = async (
   ownerId: string,
   request: ExternalPurgeRequest,
+  purgeGeneration: string,
 ): Promise<{ pending: string[] }> => {
-  const builder = builderEndpoint();
-  if (!builder) return { pending: [] };
+  const builder = requireBuilderEndpoint();
   try {
     const response = await fetch(`${builder.url}/owners/purge`, {
       method: "POST",
@@ -948,7 +1109,7 @@ const purgeExternalStores = async (
         authorization: `Bearer ${builder.secret}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ ownerId, ...request }),
+      body: JSON.stringify({ ownerId, purgeGeneration, ...request }),
       signal: AbortSignal.timeout(120_000),
     });
     if (!response.ok) {
@@ -1028,6 +1189,13 @@ export const purgeOwnerCloudStack = internalAction({
   handler: async (ctx, args) => {
     const { ownerId } = args;
     const pending: string[] = [];
+    // The worker fence is first. It rejects new owner turns and does not
+    // return until every already-running BuildSession has stopped, so no
+    // checkpoint/upload/callback can land after the final sweep.
+    const purgeGeneration = await beginExternalOwnerPurge(
+      ownerId,
+      args.strict === true ? "permanent" : "temporary",
+    );
 
     await stopOwnerSchedules(ctx, ownerId);
 
@@ -1094,11 +1262,15 @@ export const purgeOwnerCloudStack = internalAction({
         { ownerId },
       );
       if (manifest.slugs.length === 0) break;
-      const external = await purgeExternalStores(ownerId, {
-        appSlugs: manifest.slugs,
-        workspaces: manifest.workspaces,
-        buildPrefixes: manifest.buildPrefixes,
-      });
+      const external = await purgeExternalStores(
+        ownerId,
+        {
+          appSlugs: manifest.slugs,
+          workspaces: manifest.workspaces,
+          buildPrefixes: manifest.buildPrefixes,
+        },
+        purgeGeneration,
+      );
       if (external.pending.length > 0) {
         pending.push("cloud_apps");
         break;
@@ -1117,7 +1289,49 @@ export const purgeOwnerCloudStack = internalAction({
       }
     }
 
-    // 3. Projects. Same rule: the sandbox checkpoint holds a full checkout of
+    // 3. Stella interior builds. Their immutable rows are the only names of
+    //    their R2 prefixes, so the worker confirms each prefix gone first.
+    let barrenInteriorPasses = 0;
+    for (let interiorPass = 0; interiorPass < MAX_PASSES; interiorPass += 1) {
+      const manifest: { hasRows: boolean; buildPrefixes: string[] } =
+        await ctx.runQuery(
+          internal.cloud_purge.listOwnerInteriorPurgeManifestInternal,
+          { ownerId },
+        );
+      if (!manifest.hasRows) break;
+      const external =
+        manifest.buildPrefixes.length === 0
+          ? { pending: [] }
+          : await purgeExternalStores(
+              ownerId,
+              {
+                buildPrefixes: manifest.buildPrefixes,
+              },
+              purgeGeneration,
+            );
+      if (external.pending.length > 0) {
+        pending.push("cloud_interior_deployables");
+        break;
+      }
+      const drained: { hasMore: boolean; deleted: number } =
+        await ctx.runMutation(
+          internal.cloud_purge.deleteOwnerInteriorDeploymentBatch,
+          {
+            ownerId,
+            purgedPrefixes: manifest.buildPrefixes,
+          },
+        );
+      if (!drained.hasMore) break;
+      barrenInteriorPasses =
+        drained.deleted === 0 ? barrenInteriorPasses + 1 : 0;
+      if (barrenInteriorPasses >= 2) {
+        pending.push("cloud_interior_deployables");
+        logPurge("owner_interior_drain_stalled", { ownerId });
+        break;
+      }
+    }
+
+    // 4. Projects. Same rule: the sandbox checkpoint holds a full checkout of
     //    the user's repository and its KV key cannot be derived without the
     //    slug on the row.
     let barrenProjectPasses = 0;
@@ -1127,7 +1341,11 @@ export const purgeOwnerCloudStack = internalAction({
         { ownerId },
       );
       if (workspaces.length === 0) break;
-      const external = await purgeExternalStores(ownerId, { workspaces });
+      const external = await purgeExternalStores(
+        ownerId,
+        { workspaces },
+        purgeGeneration,
+      );
       if (external.pending.length > 0) {
         pending.push("cloud_projects");
         break;
@@ -1146,7 +1364,7 @@ export const purgeOwnerCloudStack = internalAction({
       }
     }
 
-    // 4. The drive: object first, row last.
+    // 5. The drive: object first, row last.
     for (let drivePass = 0; drivePass < MAX_PASSES; drivePass += 1) {
       const rows: Array<{
         id: Id<"cloud_drive_files"> | Id<"cloud_drive_uploads">;
@@ -1170,7 +1388,7 @@ export const purgeOwnerCloudStack = internalAction({
       });
     }
 
-    // 5. Owner-indexed tables with nothing hanging off them. Independent —
+    // 6. Owner-indexed tables with nothing hanging off them. Independent —
     //    drain them concurrently.
     await Promise.all(
       SIMPLE_TABLES.map(async (table) => {
@@ -1185,7 +1403,7 @@ export const purgeOwnerCloudStack = internalAction({
       }),
     );
 
-    // 6. Turns and their cascade.
+    // 7. Turns and their cascade.
     for (let turnPass = 0; turnPass < MAX_PASSES; turnPass += 1) {
       const result: { hasMore: boolean } = await ctx.runMutation(
         internal.cloud_purge.deleteOwnerTurnBatch,
@@ -1194,7 +1412,7 @@ export const purgeOwnerCloudStack = internalAction({
       if (!result.hasMore) break;
     }
 
-    // 7. Schedules: stopped in step 0, drained now that nothing can re-arm one.
+    // 8. Schedules: stopped in step 0, drained now that nothing can re-arm one.
     for (let schedulePass = 0; schedulePass < MAX_PASSES; schedulePass += 1) {
       const result: { deleted: number; hasMore: boolean } =
         await ctx.runMutation(
@@ -1204,18 +1422,20 @@ export const purgeOwnerCloudStack = internalAction({
       if (!result.hasMore) break;
     }
 
-    // 8. Owner-level object storage the per-row steps cannot see: the
+    // 9. Owner-level object storage the per-row steps cannot see: the
     //    agent-home memory prefix, any archive segment whose conversation row
     //    was already gone, and the checkpoints of the two workspaces that
     //    exist for every owner without a row anywhere naming them.
-    const external = await purgeExternalStores(ownerId, {
-      workspaces: ["drive", "stella"],
-    });
+    const external = await purgeExternalStores(
+      ownerId,
+      { workspaces: ["drive", "stella"] },
+      purgeGeneration,
+    );
     if (external.pending.length > 0) {
       pending.push(...external.pending.map((store) => `builder:${store}`));
     }
 
-    // 9. The claim, checked. Everything above reports what it believes; this
+    // 10. The claim, checked. Everything above reports what it believes; this
     //    reads the database back and says what is actually left.
     const remaining: string[] = await ctx.runQuery(
       internal.cloud_purge.remainingOwnerStoresInternal,
@@ -1226,10 +1446,13 @@ export const purgeOwnerCloudStack = internalAction({
     if (unfinished.length > 0) {
       logPurge("owner_cloud_purge_incomplete", { stores: unfinished });
     }
-    if (args.strict === true && unfinished.length > 0) {
+    if (unfinished.length > 0) {
       throw new Error(
-        `Account deletion is waiting for cloud storage to be purged (${unfinished.join(", ")}); the durable purge gate remains active.`,
+        `Cloud deletion is waiting for storage to be purged (${unfinished.join(", ")}); the owner activity fence remains active.`,
       );
+    }
+    if (args.strict !== true) {
+      await releaseExternalOwnerPurge(ownerId, purgeGeneration);
     }
     return { pending: unfinished };
   },

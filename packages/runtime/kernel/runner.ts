@@ -11,6 +11,7 @@ import { createOrchestratorController } from "./runner/orchestrator.js";
 import { createRuntimeInitialization } from "./runner/runtime-initialization.js";
 import { createStoreOperations } from "./runner/store-operations.js";
 import { createAgentOrchestration } from "./runner/agent-orchestration.js";
+import { createCloudAgentLifecycleMonitor } from "./runner/cloud-agent-lifecycle.js";
 import { buildRuntimeSystemPrompt } from "./agent-runtime/run-preparation.js";
 import { getRuntimeToolMetadata } from "./agent-runtime/tool-adapters.js";
 import { loadGoogleWorkspaceTools } from "./google-workspace/load-google-workspace-tools.js";
@@ -166,7 +167,10 @@ export const createStellaHostRunner = (
   options: StellaHostRunnerOptions,
 ): RunnerPublicApi => {
   const context = createRunnerContext(options);
-  const convexSession = createConvexSession(context);
+  let restartCloudAgentLifecycle = () => {};
+  const convexSession = createConvexSession(context, {
+    onAuthTokenSet: () => restartCloudAgentLifecycle(),
+  });
   if (options.requestRuntimeAuthRefresh) {
     context.requestRuntimeAuthRefresh = async (payload) => {
       const result = await options.requestRuntimeAuthRefresh?.(payload);
@@ -246,6 +250,26 @@ export const createStellaHostRunner = (
     },
     sendMessage: orchestratorController.sendMessage,
   });
+  const cloudAgentLifecycle = createCloudAgentLifecycleMonitor({
+    convexApi: context.convexApi,
+    deviceId: context.deviceId,
+    subscribeQuery: convexSession.subscribeQuery,
+    mutation: async (ref, args) => {
+      const client = convexSession.ensureStoreClient();
+      return await (
+        client as unknown as {
+          mutation: (query: unknown, args: unknown) => Promise<unknown>;
+        }
+      ).mutation(ref, args);
+    },
+    hasDurableLifecycleEvent:
+      taskOrchestration.hasDurableExternalLifecycleEvent,
+    onLifecycleEvent: taskOrchestration.handleExternalAgentLifecycleEvent,
+  });
+  restartCloudAgentLifecycle = () => {
+    queueMicrotask(() => cloudAgentLifecycle.start());
+  };
+  restartCloudAgentLifecycle();
   // Convert restart authorization and pre-cancel thread evidence before any
   // user prompt can be assembled. A previously converted, still-unclaimed
   // state is also eligible: that closes the crash window between the durable
@@ -321,14 +345,22 @@ export const createStellaHostRunner = (
   return {
     deviceId: context.deviceId,
     hookEmitter: context.hookEmitter,
-    setConvexUrl: convexSession.setConvexUrl,
+    setConvexUrl: (value) => {
+      convexSession.setConvexUrl(value);
+      queueMicrotask(() => cloudAgentLifecycle.start());
+    },
     setConvexSiteUrl: convexSession.setConvexSiteUrl,
-    setAuthToken: convexSession.setAuthToken,
+    setAuthToken: (value) => {
+      convexSession.setAuthToken(value);
+    },
     setHasConnectedAccount: convexSession.setHasConnectedAccount,
     setCloudSyncEnabled: convexSession.setCloudSyncEnabled,
     setModelCatalogUpdatedAt: convexSession.setModelCatalogUpdatedAt,
     start: runtimeInitialization.start,
-    stop: runtimeInitialization.stop,
+    stop: async () => {
+      cloudAgentLifecycle.stop();
+      await runtimeInitialization.stop();
+    },
     waitUntilInitialized: async () => {
       if (context.state.initializationPromise) {
         await context.state.initializationPromise;

@@ -54,8 +54,8 @@ connectors — are NOT available in this session; never call them, promise \
 their output, or refer the user to a canvas. Present dense information as \
 well-structured text instead.
 - You cannot reach the user's computer, local files, installed apps, or \
-signed-in browser from here. spawn_agent takes a \`workspace\`: "drive" \
-(the user's cloud drive — the default for new work), "stella" (Stella's \
+signed-in browser from here. spawn_agent takes a \`workspace\`: "cloud" \
+(the user's general Stella cloud workspace — the default for new work), "stella" (Stella's \
 own code), "project:<name>" (a connected repository), or "app:<name>" (an \
 app built in Stella). "computer" is their local machine and is not \
 reachable from cloud chat — say so honestly and point them at the desktop \
@@ -66,7 +66,7 @@ Changes to Stella itself still surface an Apply card, and clicking it \
 switches to the updated Stella.
 - Local file paths and \`stella://file/\` links do not exist here. Refer \
 to delivered files the way the agent's completion report names them; they \
-live in the user's cloud drive.
+live in the user's Stella cloud workspace.
 - Every user message carries the current UTC time in a <current-time> \
 tag. Use it for anything time-shaped instead of guessing, and name the \
 timezone whenever you state a time, since you only know the user's \
@@ -85,7 +85,7 @@ You never execute work yourself: you have no shell, no file access, and no \
 code execution. For anything beyond conversation, web lookups, and \
 delegation, spawn a background agent with spawn_agent and report back when \
 it finishes. Choose the agent's workspace by what the task operates on: \
-"drive" is the user's cloud drive (general files and documents — the default \
+"cloud" is the user's general cloud workspace (files and documents — the default \
 for new work); "computer" is their local machine, which is not reachable \
 from cloud chat yet — say so honestly instead of pretending. When a spawned \
 agent finishes you receive an [Agent completed] message with its report; \
@@ -127,16 +127,13 @@ export const refreshCanonicalPrompts = async (
     return cached;
   }
   try {
-    const response = await fetch(
-      `${convexSiteBase}/api/stella/prompts`,
-      {
-        headers: {
-          accept: "application/json",
-          ...(cached?.etag ? { "if-none-match": cached.etag } : {}),
-        },
-        signal: AbortSignal.timeout(PROMPT_FETCH_TIMEOUT_MS),
+    const response = await fetch(`${convexSiteBase}/api/stella/prompts`, {
+      headers: {
+        accept: "application/json",
+        ...(cached?.etag ? { "if-none-match": cached.etag } : {}),
       },
-    );
+      signal: AbortSignal.timeout(PROMPT_FETCH_TIMEOUT_MS),
+    });
     if (response.status === 304 && cached) {
       return { ...cached, fetchedAt: now };
     }

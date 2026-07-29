@@ -1,9 +1,14 @@
 import { useCallback, useState } from "react";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
+import type {
+  AgentModelReasoningEffort,
+  CloudExecutionSelection,
+} from "@stella/contracts/agent-engine";
 import { Button } from "@/ui/button";
 import { showToast } from "@/ui/toast";
 import { cloudApi } from "./cloud-api";
+import { publishCloudExecutionSelection } from "./cloud-execution-store";
 
 /**
  * "Cloud engines" settings card: connect a Claude (Pro/Max) or ChatGPT
@@ -35,7 +40,6 @@ type ProviderMeta = {
   provider: string;
   name: string;
   pasteHint: string;
-  selectable: boolean;
 };
 
 const PROVIDERS: ProviderMeta[] = [
@@ -43,14 +47,12 @@ const PROVIDERS: ProviderMeta[] = [
     provider: "anthropic",
     name: "Claude (Pro/Max)",
     pasteHint: "Paste the code shown after you approve access",
-    selectable: true,
   },
   {
     provider: "openai-codex",
     name: "ChatGPT",
     pasteHint:
       "After approving, the browser opens a localhost page that won't load — paste that page's full URL here",
-    selectable: false,
   },
 ];
 
@@ -121,9 +123,7 @@ function EngineConnectRow({
           <div className="settings-row-label">{meta.name}</div>
           <div className="settings-row-sublabel">
             {connected
-              ? meta.selectable
-                ? "Connected — can power cloud chat and agents."
-                : "Connected — cloud runs on this engine are coming next."
+              ? "Connected — can power cloud chat and agents."
               : "Use your subscription for cloud turns. Sign-in stays with the provider; Stella stores only an encrypted token."}
           </div>
         </div>
@@ -198,7 +198,7 @@ export function CloudEnginesCard() {
     cloudApi.listMyEngineConnections,
     isAuthenticated ? {} : "skip",
   );
-  const setEngine = useMutation(cloudApi.setMyCloudEngine);
+  const setExecution = useMutation(cloudApi.setMyCloudExecution);
   const [switching, setSwitching] = useState(false);
   // Convex queries are reactive; onChanged exists only for symmetry with
   // imperative flows and future non-reactive contexts.
@@ -211,11 +211,41 @@ export function CloudEnginesCard() {
   );
   const chatEngine = connections?.chatEngine ?? "stella";
 
-  const chooseEngine = async (engine: string) => {
+  const chooseEngine = async (engine: CloudExecutionSelection["engine"]) => {
     if (engine === chatEngine) return;
     setSwitching(true);
     try {
-      await setEngine({ engine });
+      const reasoningEffort: AgentModelReasoningEffort =
+        connections?.execution.reasoningEffort ?? "default";
+      const model =
+        engine === "stella"
+          ? "stella/anthropic/claude-sonnet-4.6"
+          : engine === "anthropic"
+            ? "claude-sonnet-4-6"
+            : "gpt-5.6-sol";
+      const execution =
+        engine === "stella"
+          ? ({
+              engine,
+              provider: engine,
+              model,
+              reasoningEffort,
+            } satisfies CloudExecutionSelection)
+          : engine === "anthropic"
+            ? ({
+                engine,
+                provider: engine,
+                model,
+                reasoningEffort,
+              } satisfies CloudExecutionSelection)
+            : ({
+                engine,
+                provider: engine,
+                model,
+                reasoningEffort,
+              } satisfies CloudExecutionSelection);
+      await setExecution({ execution });
+      publishCloudExecutionSelection(execution);
     } catch (error) {
       showToast({ title: friendlyError(error), variant: "error" });
     } finally {
@@ -234,7 +264,10 @@ export function CloudEnginesCard() {
             subscription bills the provider directly.
           </div>
         </div>
-        <div className="settings-row-control" style={{ display: "flex", gap: 6 }}>
+        <div
+          className="settings-row-control"
+          style={{ display: "flex", gap: 6 }}
+        >
           <Button
             type="button"
             variant="ghost"
@@ -257,6 +290,20 @@ export function CloudEnginesCard() {
             }
           >
             Claude
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className={`pill-btn${chatEngine === "openai-codex" ? " pill-btn--active" : ""}`}
+            onClick={() => void chooseEngine("openai-codex")}
+            disabled={switching || !connectedProviders.has("openai-codex")}
+            title={
+              connectedProviders.has("openai-codex")
+                ? undefined
+                : "Connect ChatGPT first"
+            }
+          >
+            ChatGPT
           </Button>
         </div>
       </div>

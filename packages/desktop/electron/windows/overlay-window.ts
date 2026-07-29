@@ -2,16 +2,24 @@ import {
   BrowserWindow,
   ipcMain,
   screen,
+  type Event as ElectronEvent,
   type RenderProcessGoneDetails,
 } from "electron";
 import { RADIAL_SIZE } from "../layout-constants.js";
 import type { MorphVisualTiming } from "@stella/contracts/desktop/morph-timing";
-import { loadWindow } from "./window-load.js";
+import {
+  loadWindow,
+  type PackagedRendererEntrypointResolver,
+} from "./window-load.js";
 import { createSharedWebPreferences } from "./shared-window-preferences.js";
 import {
   STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES,
   getWindowInfoAtPoint,
 } from "../window-capture.js";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import type { RendererReadinessWaiters } from "./renderer-readiness.js";
 
 const getAllDisplaysBounds = () => {
   const displays = screen.getAllDisplays();
@@ -34,6 +42,8 @@ type OverlayWindowControllerOptions = {
   electronDir: string;
   isDev: boolean;
   getDevServerUrl: () => string;
+  resolvePackagedEntrypoint?: PackagedRendererEntrypointResolver;
+  rendererReadiness: RendererReadinessWaiters;
 };
 
 // ─── OverlayWindow: Electron window lifecycle ───────────────────────────
@@ -225,6 +235,7 @@ class OverlayWindow {
       isDev: this.options.isDev,
       mode: "overlay",
       getDevServerUrl: this.options.getDevServerUrl,
+      resolvePackagedEntrypoint: this.options.resolvePackagedEntrypoint,
     });
 
     this.window.on("closed", () => {
@@ -347,6 +358,111 @@ class OverlayWindow {
     this.window?.webContents.send(channel, ...args);
   }
 
+  reloadRenderer(rendererReadinessToken?: string) {
+    this.clearReloadTimer();
+    if (!this.window || this.window.isDestroyed()) return;
+    this.ready = false;
+    loadWindow(this.window, {
+      electronDir: this.options.electronDir,
+      isDev: this.options.isDev,
+      mode: "overlay",
+      getDevServerUrl: this.options.getDevServerUrl,
+      resolvePackagedEntrypoint: this.options.resolvePackagedEntrypoint,
+      rendererReadinessToken,
+    });
+  }
+
+  reloadRendererAndWaitForHealth(
+    expectedPath: string,
+    timeoutMs = 20_000,
+    stabilizationMs = 3_000,
+  ): Promise<void> {
+    const window = this.create();
+    if (!window || window.isDestroyed()) {
+      return Promise.reject(
+        new Error("overlay renderer window is unavailable"),
+      );
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const readinessToken = randomUUID();
+      let loaded = false;
+      let mounted = false;
+      let stabilizationTimer: ReturnType<typeof setTimeout> | null = null;
+      let removeReadinessWaiter: (() => void) | null = null;
+      const timeout = setTimeout(
+        () => finish(new Error("overlay renderer artifact load timed out")),
+        timeoutMs,
+      );
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        if (stabilizationTimer) clearTimeout(stabilizationTimer);
+        removeReadinessWaiter?.();
+        window.webContents.removeListener("did-finish-load", onFinish);
+        window.webContents.removeListener("did-fail-load", onFail);
+        window.webContents.removeListener("render-process-gone", onGone);
+        window.removeListener("unresponsive", onUnresponsive);
+        if (error) reject(error);
+        else resolve();
+      };
+      const maybeStabilize = () => {
+        if (!loaded || !mounted || stabilizationTimer) return;
+        stabilizationTimer = setTimeout(() => finish(), stabilizationMs);
+      };
+      const onFinish = () => {
+        try {
+          const loadedPath = fileURLToPath(window.webContents.getURL());
+          if (path.resolve(loadedPath) !== path.resolve(expectedPath)) {
+            finish(
+              new Error("overlay loaded an unexpected renderer entrypoint"),
+            );
+            return;
+          }
+          loaded = true;
+          maybeStabilize();
+        } catch {
+          finish(new Error("overlay loaded a non-file renderer URL"));
+        }
+      };
+      const onFail = (
+        _event: ElectronEvent,
+        errorCode: number,
+        errorDescription: string,
+        _url: string,
+        isMainFrame: boolean,
+      ) => {
+        if (!isMainFrame || errorCode === -3) return;
+        finish(
+          new Error(
+            `overlay renderer failed to load (${errorCode}): ${errorDescription}`,
+          ),
+        );
+      };
+      const onGone = (
+        _event: ElectronEvent,
+        details: RenderProcessGoneDetails,
+      ) => finish(new Error(`overlay renderer exited: ${details.reason}`));
+      const onUnresponsive = () =>
+        finish(new Error("overlay renderer became unresponsive"));
+      removeReadinessWaiter = this.options.rendererReadiness.register({
+        senderId: window.webContents.id,
+        mode: "overlay",
+        token: readinessToken,
+        onMounted: () => {
+          mounted = true;
+          maybeStabilize();
+        },
+      });
+      window.webContents.on("did-finish-load", onFinish);
+      window.webContents.on("did-fail-load", onFail);
+      window.webContents.on("render-process-gone", onGone);
+      window.on("unresponsive", onUnresponsive);
+      this.reloadRenderer(readinessToken);
+    });
+  }
+
   private handleRenderProcessGone(details: RenderProcessGoneDetails) {
     console.error("Overlay renderer process gone:", details.reason);
     this.scheduleReload();
@@ -367,6 +483,7 @@ class OverlayWindow {
         isDev: this.options.isDev,
         mode: "overlay",
         getDevServerUrl: this.options.getDevServerUrl,
+        resolvePackagedEntrypoint: this.options.resolvePackagedEntrypoint,
       });
     }, delayMs);
   }
@@ -485,6 +602,14 @@ export class OverlayWindowController {
     this.activeRadial = false;
     this.hideOverlayIfIdle();
   };
+
+  reloadRenderer() {
+    this.overlayWindow.reloadRenderer();
+  }
+
+  reloadRendererAndWaitForHealth(expectedPath: string) {
+    return this.overlayWindow.reloadRendererAndWaitForHealth(expectedPath);
+  }
 
   private readonly handleOverlaySetInteractive = (
     _event: unknown,

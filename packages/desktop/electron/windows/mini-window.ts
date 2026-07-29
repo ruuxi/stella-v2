@@ -8,6 +8,7 @@ import {
 import { createSharedWebPreferences } from './shared-window-preferences.js'
 import type { ShellWindowDidFailLoadDetails } from './shell-window-factory.js'
 import { ShellWindowController } from './shell-window-controller.js'
+import type { PackagedRendererEntrypointResolver } from './window-load.js'
 
 type MiniWindowControllerOptions = {
   electronDir: string
@@ -15,11 +16,18 @@ type MiniWindowControllerOptions = {
   sessionPartition: string
   isDev: boolean
   getDevServerUrl: () => string
+  resolvePackagedEntrypoint?: PackagedRendererEntrypointResolver
   setupExternalLinkHandlers: (window: BrowserWindow) => void
   onDidStartLoading?: () => void
   onDidFinishLoad?: () => void
-  onRenderProcessGone?: (details: RenderProcessGoneDetails, window: BrowserWindow) => void
-  onDidFailLoad?: (details: ShellWindowDidFailLoadDetails, window: BrowserWindow) => void
+  onRenderProcessGone?: (
+    details: RenderProcessGoneDetails,
+    window: BrowserWindow,
+  ) => void
+  onDidFailLoad?: (
+    details: ShellWindowDidFailLoadDetails,
+    window: BrowserWindow,
+  ) => void
   onUnresponsive?: (window: BrowserWindow) => void
   onResponsive?: (window: BrowserWindow) => void
   onClosed?: () => void
@@ -50,7 +58,9 @@ export class MiniWindowController {
       createWindow: () => {
         const isMac = process.platform === 'darwin'
         const useNativeVibrancy = isMac
-        const windowIcon = !isMac ? resolveAppIconPath(this.options.electronDir) : undefined
+        const windowIcon = !isMac
+          ? resolveAppIconPath(this.options.electronDir)
+          : undefined
         const initial = this.nextInitialBounds
 
         return new BrowserWindow({
@@ -125,8 +135,8 @@ export class MiniWindowController {
     }
   }
 
-  reloadMainWindow() {
-    this.controller.reloadMainWindow()
+  reloadMainWindow(rendererReadinessToken?: string) {
+    this.controller.reloadMainWindow(rendererReadinessToken)
   }
 
   loadRecoveryPage() {

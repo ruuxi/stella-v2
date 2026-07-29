@@ -25,8 +25,15 @@ import {
 } from "./stella_provider/billing";
 import {
   authorizeStellaRelayRequest,
+  resolveCloudManagedModelForTurn,
   toProviderNativeModel,
 } from "./stella_provider/authorization";
+import {
+  connectedCredentialForwardHeaders,
+  connectedCredentialUpstreamUrl,
+  isInternalRelayRequestHeader,
+  nativeCredentialBody,
+} from "./stella_provider/native_relay";
 import { downgradeUnsupportedRequestImages } from "./stella_provider/request";
 import { createRelayUsageParser } from "./stella_provider/relay_usage";
 import {
@@ -54,6 +61,7 @@ import {
 import {
   STELLA_ANTHROPIC_MESSAGES_PATH,
   STELLA_API_BASE_PATH,
+  STELLA_CLOUD_MODEL_PATH,
   STELLA_FIREWORKS_RESPONSES_PATH,
   STELLA_GOOGLE_MODELS_PATH_PREFIX,
   STELLA_MODELS_PATH,
@@ -69,6 +77,7 @@ import {
 export {
   STELLA_ANTHROPIC_MESSAGES_PATH,
   STELLA_API_BASE_PATH,
+  STELLA_CLOUD_MODEL_PATH,
   STELLA_FIREWORKS_RESPONSES_PATH,
   STELLA_GOOGLE_MODELS_PATH_PREFIX,
   STELLA_MODELS_PATH,
@@ -163,6 +172,36 @@ export const stellaProviderModels = httpAction(async (ctx, request) =>
   }),
 );
 
+export const stellaProviderCloudModel = httpAction(async (ctx, request) => {
+  let body: { model?: unknown };
+  try {
+    body = (await request.json()) as { model?: unknown };
+  } catch {
+    return stellaProviderErrorResponse(
+      400,
+      "Cloud model request must be valid JSON",
+      request,
+    );
+  }
+  const model = typeof body.model === "string" ? body.model.trim() : "";
+  if (!model || model.length > 192) {
+    return stellaProviderErrorResponse(
+      400,
+      "A canonical managed model is required",
+      request,
+    );
+  }
+  const resolution = await resolveCloudManagedModelForTurn({
+    ctx,
+    request,
+    model,
+  });
+  if (resolution instanceof Response) return resolution;
+  return Response.json(resolution, {
+    headers: { "cache-control": "no-store" },
+  });
+});
+
 const cloneForwardHeaders = (
   request: Request,
   provider: ManagedGatewayProvider,
@@ -171,23 +210,7 @@ const cloneForwardHeaders = (
   const headers = new Headers();
   request.headers.forEach((value, key) => {
     const lower = key.toLowerCase();
-    if (
-      lower === "authorization" ||
-      lower === "x-api-key" ||
-      lower === "x-goog-api-key" ||
-      lower === "x-stella-relay" ||
-      lower.startsWith("x-stella-relay-") ||
-      lower === "x-stella-agent-type" ||
-      // The live turn token grants owner-billed relay calls and transcript
-      // appends until its TTL — it must never reach an upstream provider.
-      lower === "x-stella-turn-token" ||
-      // Internal engine-credential selector; meaningless (and leaky) upstream.
-      lower === "x-stella-llm-credential" ||
-      lower === "host" ||
-      lower === "content-length"
-    ) {
-      return;
-    }
+    if (isInternalRelayRequestHeader(lower)) return;
     headers.set(key, value);
   });
   headers.set("content-type", "application/json");
@@ -208,61 +231,29 @@ const cloneForwardHeaders = (
   return headers;
 };
 
-/**
- * Headers for a turn running on the owner's Claude subscription: Bearer OAuth
- * auth plus the Claude Code identity headers Anthropic requires for
- * subscription tokens (mirrors packages/runtime/ai/providers/anthropic.ts,
- * OAuth branch — including its pinned claude-cli version).
- */
 const userCredentialForwardHeaders = (
   request: Request,
   authorized: AuthorizedStellaRequest,
-): Headers => {
-  const headers = cloneForwardHeaders(request, "anthropic", "");
-  headers.delete("x-api-key");
-  headers.set(
-    "authorization",
-    `Bearer ${authorized.userCredential!.accessToken}`,
-  );
-  const incomingBetas = request.headers
-    .get("anthropic-beta")
-    ?.split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const betas = new Set([
-    "claude-code-20250219",
-    "oauth-2025-04-20",
-    ...(incomingBetas ?? []),
-  ]);
-  headers.set("anthropic-beta", Array.from(betas).join(","));
-  headers.set("user-agent", "claude-cli/2.1.75");
-  headers.set("x-app", "cli");
-  return headers;
-};
+): Headers =>
+  connectedCredentialForwardHeaders(request, authorized.userCredential!);
 
-/**
- * Subscription (OAuth) tokens require the Claude Code identity as the first
- * system block; without it Anthropic rejects the request. The cloud runtime
- * builds relay-shaped bodies with Stella's own system prompt, so the relay
- * prepends the identity when forwarding in user-credential mode.
- */
-const CLAUDE_CODE_IDENTITY =
-  "You are Claude Code, Anthropic's official CLI for Claude.";
-
-const withClaudeCodeIdentity = (
-  body: Record<string, unknown>,
-): Record<string, unknown> => {
-  const identityBlock = { type: "text", text: CLAUDE_CODE_IDENTITY };
-  const system = body.system;
-  if (typeof system === "string") {
-    return { ...body, system: [identityBlock, { type: "text", text: system }] };
+const credentialUpstreamUrl = (
+  authorized: AuthorizedStellaRequest,
+  provider: ManagedGatewayProvider,
+  request: Request,
+): string => {
+  if (authorized.userCredential) {
+    const credentialUrl = connectedCredentialUpstreamUrl(
+      authorized,
+      request,
+      getManagedGatewayConfig("anthropic").baseURL,
+    );
+    if (!credentialUrl) {
+      throw new Error("Unsupported connected-engine relay path.");
+    }
+    return credentialUrl;
   }
-  if (Array.isArray(system)) {
-    const first = system[0] as { text?: unknown } | undefined;
-    if (first && first.text === CLAUDE_CODE_IDENTITY) return body;
-    return { ...body, system: [identityBlock, ...system] };
-  }
-  return { ...body, system: [identityBlock] };
+  return upstreamUrl(provider, request, authorized.upstreamModel);
 };
 
 export const upstreamUrl = (
@@ -602,6 +593,9 @@ export const bodyForUpstream = (
   provider: ManagedGatewayProvider,
   request: Request,
 ): string => {
+  if (authorized.userCredential) {
+    return nativeCredentialBody(authorized);
+  }
   const requestJson = downgradeUnsupportedRequestImages(
     authorized.requestJson,
     authorized.resolvedModel,
@@ -657,10 +651,6 @@ export const bodyForUpstream = (
       ...streamOptions,
       include_usage: true,
     };
-  }
-
-  if (authorized.userCredential?.provider === "anthropic") {
-    return JSON.stringify(withClaudeCodeIdentity(body));
   }
 
   return JSON.stringify(body);
@@ -1152,6 +1142,7 @@ const relayResumeEligibleRequest = (
   request: Request,
 ): boolean =>
   authorized.relayProvider === "openai" &&
+  authorized.userCredential?.provider !== "openai-codex" &&
   authorized.ownerId !== "probe:stella-relay" &&
   isResponsesRequest(authorized.relayProvider, request) &&
   authorized.requestJson.stream === true &&
@@ -1259,9 +1250,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
     }
 
     let upstreamResponse: Response;
-    const upstreamController = relayRequestId
-      ? new AbortController()
-      : undefined;
+    const upstreamController = new AbortController();
     let stopCancellationMonitor = false;
     let lastPreHeaderTouchAt = Date.now();
     const cancellationMonitor = relayRequestId
@@ -1274,7 +1263,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
                 { relayRequestId, ownerId: authorized.ownerId },
               );
               if (status === "canceled") {
-                upstreamController?.abort(new Error("Relay response canceled"));
+                upstreamController.abort(new Error("Relay response canceled"));
                 return;
               }
               const nowMs = Date.now();
@@ -1300,7 +1289,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
                 error: error instanceof Error ? error.name : "unknown",
               },
             );
-            upstreamController?.abort(
+            upstreamController.abort(
               new Error("Relay cancellation state became unavailable"),
             );
           }
@@ -1308,14 +1297,14 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
       : undefined;
     try {
       upstreamResponse = await fetch(
-        upstreamUrl(relayProvider, request, authorized.upstreamModel),
+        credentialUpstreamUrl(authorized, relayProvider, request),
         {
           method: "POST",
           headers: authorized.userCredential
             ? userCredentialForwardHeaders(request, authorized)
             : cloneForwardHeaders(request, relayProvider, authorized.apiKey),
           body: bodyForUpstream(authorized, relayProvider, request),
-          ...(upstreamController ? { signal: upstreamController.signal } : {}),
+          signal: upstreamController.signal,
         },
       );
     } catch (error) {
@@ -1374,6 +1363,8 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
     );
     responseHeaders.set("Vary", "Origin");
     responseHeaders.delete("content-length");
+    responseHeaders.delete("set-cookie");
+    responseHeaders.delete("proxy-authenticate");
 
     if (!upstreamResponse.ok) {
       console.error("[stella-provider] Upstream request failed", {
@@ -1465,12 +1456,23 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
     }
 
     let downstreamOpen = true;
+    let upstreamReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     const stream = new ReadableStream<Uint8Array>({
-      cancel() {
+      cancel(reason) {
         downstreamOpen = false;
+        // Resumable managed streams must continue consuming the upstream into
+        // durable replay storage after a client disconnects. Every other
+        // stream — especially a native Claude/Codex subscription request —
+        // should stop upstream work as soon as its CLI process is gone.
+        if (relayRequestId) return;
+        upstreamController.abort(
+          reason ?? new Error("Relay downstream disconnected"),
+        );
+        return upstreamReader?.cancel(reason).catch(() => undefined);
       },
       start(controller) {
         const reader = upstreamBody.getReader();
+        upstreamReader = reader;
         const usageDecoder = new TextDecoder();
         const resumeDecoder = relayRequestId ? new TextDecoder() : undefined;
         const resumeParser = relayRequestId
@@ -1698,14 +1700,16 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
               );
             }
           } catch (error) {
-            console.error("[stella-provider] Relay stream failed:", {
-              relayRequestId,
-              upstreamRequestId: safeUpstreamRequestId(
-                upstreamResponse.headers,
-              ),
-              lastStatus: relayStatus,
-              error: error instanceof Error ? error.message : String(error),
-            });
+            if (downstreamOpen) {
+              console.error("[stella-provider] Relay stream failed:", {
+                relayRequestId,
+                upstreamRequestId: safeUpstreamRequestId(
+                  upstreamResponse.headers,
+                ),
+                lastStatus: relayStatus,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
             await markUnrecoverable(
               error instanceof RelayResumeFrameTooLargeError
                 ? "truncated"
@@ -1727,6 +1731,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
               );
             }
           } finally {
+            upstreamReader = undefined;
             if (downstreamOpen) {
               try {
                 controller.close();

@@ -29,6 +29,7 @@ import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
 // Stella provider endpoints
 import {
   STELLA_ANTHROPIC_MESSAGES_PATH,
+  STELLA_CLOUD_MODEL_PATH,
   STELLA_FIREWORKS_RESPONSES_PATH,
   STELLA_GOOGLE_MODELS_PATH_PREFIX,
   STELLA_MODELS_PATH,
@@ -39,6 +40,7 @@ import {
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
   STELLA_RELAY_PATH_PREFIX,
   stellaProviderModels,
+  stellaProviderCloudModel,
   stellaProviderCancel,
   stellaProviderOptions,
   stellaProviderRelay,
@@ -132,6 +134,11 @@ http.route({
   path: STELLA_MODELS_PATH,
   method: "GET",
   handler: stellaProviderModels,
+});
+http.route({
+  path: STELLA_CLOUD_MODEL_PATH,
+  method: "POST",
+  handler: stellaProviderCloudModel,
 });
 
 for (const [path, provider] of [

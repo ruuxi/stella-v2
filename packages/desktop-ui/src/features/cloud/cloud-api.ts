@@ -1,4 +1,5 @@
 import { makeFunctionReference } from "convex/server";
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 
 export type CloudConversation = {
   conversationId: string;
@@ -33,11 +34,39 @@ export type CloudBuild = {
 
 export type CloudEngineConnections = {
   chatEngine: string;
+  execution: CloudExecutionSelection;
   connections: Array<{
     provider: string;
     label: string;
     updatedAt: number;
   }>;
+};
+
+export type StellaInteriorBuild = {
+  buildId: string;
+  deployableId: string;
+  turnId: string;
+  threadId: string;
+  sourceRevision: string | null;
+  baseRevision: string | null;
+  artifactPrefix: string;
+  manifestSha256: string;
+  artifactDigest: string;
+  artifactSizeBytes: number;
+  bridgeAbi: number;
+  minShellVersion: string;
+  createdAt: number;
+  isActive: boolean;
+  isPrevious: boolean;
+};
+
+export type StellaInteriorDeployment = {
+  deployableId: string | null;
+  stableRouteId: string | null;
+  activeBuildId: string | null;
+  previousBuildId: string | null;
+  routeRevision: number;
+  builds: StellaInteriorBuild[];
 };
 
 /** One spawned cloud agent. Mirrors the `cloud_agent_threads` row. */
@@ -85,9 +114,11 @@ export type CloudProject = {
 };
 
 export const cloudApi = {
-  listMyConversations: makeFunctionReference<"query", Record<string, never>, CloudConversation[]>(
-    "cloud_apps:listMyConversations",
-  ),
+  listMyConversations: makeFunctionReference<
+    "query",
+    Record<string, never>,
+    CloudConversation[]
+  >("cloud_apps:listMyConversations"),
   listMyApps: makeFunctionReference<"query", Record<string, never>, CloudApp[]>(
     "cloud_apps:listMyApps",
   ),
@@ -131,6 +162,9 @@ export const cloudApi = {
       locale?: string;
       // Drive paths of attached images the turn should see as image blocks.
       attachments?: string[];
+      // Exact cloud route selected in the browser. Sending it on every turn
+      // also makes model changes apply to an already-open conversation.
+      execution?: CloudExecutionSelection;
     },
     // appId is absent for chat-lane turns (plain conversation, no app).
     { conversationId: string; appId?: string; turnId: string }
@@ -198,6 +232,11 @@ export const cloudApi = {
   setMyCloudEngine: makeFunctionReference<"mutation", { engine: string }, null>(
     "cloud_engines:setMyCloudEngine",
   ),
+  setMyCloudExecution: makeFunctionReference<
+    "mutation",
+    { execution: CloudExecutionSelection },
+    null
+  >("cloud_engines:setMyCloudExecution"),
   listMyAgentThreads: makeFunctionReference<
     "query",
     { conversationId: string },
@@ -211,6 +250,41 @@ export const cloudApi = {
     { limit?: number },
     CloudAgentThread[]
   >("cloud_apps:listMyRecentAgentThreads"),
+  listMyInteriorBuilds: makeFunctionReference<
+    "query",
+    { limit?: number },
+    StellaInteriorDeployment
+  >("cloud_deployments:listMyInteriorBuilds"),
+  ensureMyInteriorStableRoute: makeFunctionReference<
+    "mutation",
+    Record<string, never>,
+    { stableRouteId: string }
+  >("cloud_deployments:ensureMyInteriorStableRoute"),
+  rotateMyInteriorStableRoute: makeFunctionReference<
+    "mutation",
+    Record<string, never>,
+    { stableRouteId: string }
+  >("cloud_deployments:rotateMyInteriorStableRoute"),
+  promoteMyInteriorBuild: makeFunctionReference<
+    "mutation",
+    { buildId: string; expectedRouteRevision: number },
+    {
+      deployableId: string;
+      activeBuildId: string | null;
+      previousBuildId: string | null;
+      routeRevision: number;
+    }
+  >("cloud_deployments:promoteMyInteriorBuild"),
+  rollbackMyInteriorBuild: makeFunctionReference<
+    "mutation",
+    { expectedRouteRevision: number },
+    {
+      deployableId: string;
+      activeBuildId: string | null;
+      previousBuildId: string | null;
+      routeRevision: number;
+    }
+  >("cloud_deployments:rollbackMyInteriorBuild"),
 };
 
 /**
@@ -266,9 +340,11 @@ export type CloudGithubInstallations = {
 };
 
 export const projectsApi = {
-  listMyProjects: makeFunctionReference<"query", Record<string, never>, CloudProject[]>(
-    "cloud_projects:listMyProjects",
-  ),
+  listMyProjects: makeFunctionReference<
+    "query",
+    Record<string, never>,
+    CloudProject[]
+  >("cloud_projects:listMyProjects"),
   listMyGithubInstallations: makeFunctionReference<
     "query",
     Record<string, never>,

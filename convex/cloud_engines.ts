@@ -21,8 +21,18 @@ import {
   mutation,
   query,
   type ActionCtx,
+  type MutationCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import {
+  cloudExecutionSelectionValidator,
+  DEFAULT_CLOUD_EXECUTION,
+  defaultCloudExecutionForEngine,
+  normalizeCloudExecutionSelection,
+  type CloudExecutionEngine,
+  type CloudExecutionSelection,
+} from "./lib/cloud_execution";
 
 export type CloudEngineProvider = "anthropic" | "openai-codex";
 
@@ -36,10 +46,11 @@ const PROVIDER_LABELS: Record<CloudEngineProvider, string> = {
   "openai-codex": "ChatGPT (Codex)",
 };
 
-// Engines selectable for cloud chat today. openai-codex credentials can be
-// connected/stored, but relay inference for the Codex backend is a named
-// follow-up — keep it out of the selectable set until it works.
-export const SELECTABLE_CLOUD_ENGINES = new Set(["stella", "anthropic"]);
+export const SELECTABLE_CLOUD_ENGINES = new Set<CloudExecutionEngine>([
+  "stella",
+  "anthropic",
+  "openai-codex",
+]);
 
 const CONNECT_TTL_MS = 15 * 60_000;
 
@@ -152,6 +163,46 @@ const assertProvider = (value: string): CloudEngineProvider => {
     return value as CloudEngineProvider;
   }
   throw new ConvexError("Unknown engine provider.");
+};
+
+const executionFromSettings = (
+  settings: {
+    chatEngine: string;
+    execution?: CloudExecutionSelection;
+  } | null,
+): CloudExecutionSelection => {
+  if (settings?.execution) {
+    return normalizeCloudExecutionSelection(settings.execution);
+  }
+  if (
+    SELECTABLE_CLOUD_ENGINES.has(settings?.chatEngine as CloudExecutionEngine)
+  ) {
+    return defaultCloudExecutionForEngine(
+      settings!.chatEngine as CloudExecutionEngine,
+    );
+  }
+  return DEFAULT_CLOUD_EXECUTION;
+};
+
+const requireExecutionCredential = async (
+  ctx: Pick<MutationCtx, "db">,
+  ownerId: string,
+  execution: CloudExecutionSelection,
+): Promise<void> => {
+  if (execution.engine === "stella") return;
+  const credential = await ctx.db
+    .query("cloud_llm_credentials")
+    .withIndex("by_ownerId_and_provider", (q) =>
+      q.eq("ownerId", ownerId).eq("provider", execution.provider),
+    )
+    .unique();
+  if (!credential) {
+    throw new ConvexError(
+      execution.engine === "anthropic"
+        ? "Connect Claude first, then select it."
+        : "Connect ChatGPT first, then select it.",
+    );
+  }
 };
 
 const generatePkce = async (): Promise<{
@@ -298,7 +349,20 @@ export const createConnectInternal = internalMutation({
 
 export const getConnectInternal = internalQuery({
   args: { connectId: v.string() },
-  returns: v.any(),
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("cloud_engine_connects"),
+      _creationTime: v.number(),
+      connectId: v.string(),
+      ownerId: v.string(),
+      provider: v.string(),
+      verifier: v.string(),
+      state: v.string(),
+      createdAt: v.number(),
+      expiresAt: v.number(),
+    }),
+  ),
   handler: (ctx, args) =>
     ctx.db
       .query("cloud_engine_connects")
@@ -340,6 +404,8 @@ export const storeCredentialInternal = internalMutation({
         payloadEncrypted: args.payloadEncrypted,
         label: args.label,
         updatedAt: args.now,
+        refreshLeaseId: undefined,
+        refreshLeaseExpiresAt: undefined,
       });
     } else {
       await ctx.db.insert("cloud_llm_credentials", {
@@ -357,7 +423,21 @@ export const storeCredentialInternal = internalMutation({
 
 export const getCredentialInternal = internalQuery({
   args: { ownerId: v.string(), provider: v.string() },
-  returns: v.any(),
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("cloud_llm_credentials"),
+      _creationTime: v.number(),
+      ownerId: v.string(),
+      provider: v.string(),
+      payloadEncrypted: v.string(),
+      label: v.string(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      refreshLeaseId: v.optional(v.string()),
+      refreshLeaseExpiresAt: v.optional(v.number()),
+    }),
+  ),
   handler: (ctx, args) =>
     ctx.db
       .query("cloud_llm_credentials")
@@ -365,6 +445,117 @@ export const getCredentialInternal = internalQuery({
         q.eq("ownerId", args.ownerId).eq("provider", args.provider),
       )
       .unique(),
+});
+
+const CREDENTIAL_REFRESH_LEASE_MS = 45_000;
+
+export const claimCredentialRefreshInternal = internalMutation({
+  args: {
+    credentialId: v.id("cloud_llm_credentials"),
+    ownerId: v.string(),
+    provider: v.string(),
+    expectedPayloadEncrypted: v.string(),
+    leaseId: v.string(),
+    now: v.number(),
+  },
+  returns: v.union(
+    v.literal("claimed"),
+    v.literal("busy"),
+    v.literal("changed"),
+    v.literal("missing"),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.credentialId);
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      row.provider !== args.provider
+    ) {
+      return "missing";
+    }
+    if (row.payloadEncrypted !== args.expectedPayloadEncrypted) {
+      return "changed";
+    }
+    if (
+      row.refreshLeaseId &&
+      row.refreshLeaseId !== args.leaseId &&
+      (row.refreshLeaseExpiresAt ?? 0) > args.now
+    ) {
+      return "busy";
+    }
+    await ctx.db.patch(row._id, {
+      refreshLeaseId: args.leaseId,
+      refreshLeaseExpiresAt: args.now + CREDENTIAL_REFRESH_LEASE_MS,
+    });
+    return "claimed";
+  },
+});
+
+export const commitCredentialRefreshInternal = internalMutation({
+  args: {
+    credentialId: v.id("cloud_llm_credentials"),
+    ownerId: v.string(),
+    provider: v.string(),
+    expectedPayloadEncrypted: v.string(),
+    leaseId: v.string(),
+    payloadEncrypted: v.string(),
+    now: v.number(),
+  },
+  returns: v.union(
+    v.literal("updated"),
+    v.literal("conflict"),
+    v.literal("missing"),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.credentialId);
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      row.provider !== args.provider
+    ) {
+      return "missing";
+    }
+    if (
+      row.payloadEncrypted !== args.expectedPayloadEncrypted ||
+      row.refreshLeaseId !== args.leaseId
+    ) {
+      return "conflict";
+    }
+    await ctx.db.patch(row._id, {
+      payloadEncrypted: args.payloadEncrypted,
+      updatedAt: args.now,
+      refreshLeaseId: undefined,
+      refreshLeaseExpiresAt: undefined,
+    });
+    return "updated";
+  },
+});
+
+export const releaseCredentialRefreshInternal = internalMutation({
+  args: {
+    credentialId: v.id("cloud_llm_credentials"),
+    ownerId: v.string(),
+    provider: v.string(),
+    expectedPayloadEncrypted: v.string(),
+    leaseId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.credentialId);
+    if (
+      row &&
+      row.ownerId === args.ownerId &&
+      row.provider === args.provider &&
+      row.payloadEncrypted === args.expectedPayloadEncrypted &&
+      row.refreshLeaseId === args.leaseId
+    ) {
+      await ctx.db.patch(row._id, {
+        refreshLeaseId: undefined,
+        refreshLeaseExpiresAt: undefined,
+      });
+    }
+    return null;
+  },
 });
 
 const buildConnectAuthorization = async (
@@ -559,6 +750,7 @@ export const disconnectEngine = mutation({
     if (settings && settings.chatEngine === provider) {
       await ctx.db.patch(settings._id, {
         chatEngine: "stella",
+        execution: DEFAULT_CLOUD_EXECUTION,
         updatedAt: Date.now(),
       });
     }
@@ -568,7 +760,17 @@ export const disconnectEngine = mutation({
 
 export const listMyEngineConnections = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    chatEngine: v.string(),
+    execution: cloudExecutionSelectionValidator,
+    connections: v.array(
+      v.object({
+        provider: v.string(),
+        label: v.string(),
+        updatedAt: v.number(),
+      }),
+    ),
+  }),
   handler: async (ctx) => {
     const ownerId = await requireOwnerId(ctx);
     const rows = await ctx.db
@@ -581,6 +783,7 @@ export const listMyEngineConnections = query({
       .unique();
     return {
       chatEngine: settings?.chatEngine ?? "stella",
+      execution: executionFromSettings(settings),
       connections: rows.map((row) => ({
         provider: row.provider,
         label: row.label,
@@ -595,24 +798,13 @@ export const setMyCloudEngine = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const ownerId = await requireOwnerId(ctx);
-    if (!SELECTABLE_CLOUD_ENGINES.has(args.engine)) {
-      throw new ConvexError(
-        args.engine === "openai-codex"
-          ? "ChatGPT-powered cloud turns are coming next — the connection is saved, but it can't run cloud chat yet."
-          : "Unknown engine.",
-      );
+    if (!SELECTABLE_CLOUD_ENGINES.has(args.engine as CloudExecutionEngine)) {
+      throw new ConvexError("Unknown engine.");
     }
-    if (args.engine === "anthropic") {
-      const credential = await ctx.db
-        .query("cloud_llm_credentials")
-        .withIndex("by_ownerId_and_provider", (q) =>
-          q.eq("ownerId", ownerId).eq("provider", "anthropic"),
-        )
-        .unique();
-      if (!credential) {
-        throw new ConvexError("Connect Claude first, then select it.");
-      }
-    }
+    const execution = defaultCloudExecutionForEngine(
+      args.engine as CloudExecutionEngine,
+    );
+    await requireExecutionCredential(ctx, ownerId, execution);
     const now = Date.now();
     const settings = await ctx.db
       .query("cloud_engine_settings")
@@ -621,12 +813,44 @@ export const setMyCloudEngine = mutation({
     if (settings) {
       await ctx.db.patch(settings._id, {
         chatEngine: args.engine,
+        execution,
         updatedAt: now,
       });
     } else {
       await ctx.db.insert("cloud_engine_settings", {
         ownerId,
         chatEngine: args.engine,
+        execution,
+        updatedAt: now,
+      });
+    }
+    return null;
+  },
+});
+
+export const setMyCloudExecution = mutation({
+  args: { execution: cloudExecutionSelectionValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const execution = normalizeCloudExecutionSelection(args.execution);
+    await requireExecutionCredential(ctx, ownerId, execution);
+    const now = Date.now();
+    const settings = await ctx.db
+      .query("cloud_engine_settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .unique();
+    if (settings) {
+      await ctx.db.patch(settings._id, {
+        chatEngine: execution.engine,
+        execution,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("cloud_engine_settings", {
+        ownerId,
+        chatEngine: execution.engine,
+        execution,
         updatedAt: now,
       });
     }
@@ -636,7 +860,11 @@ export const setMyCloudEngine = mutation({
 
 export const getEngineSettingsInternal = internalQuery({
   args: { ownerId: v.string() },
-  returns: v.any(),
+  returns: v.object({
+    chatEngine: v.string(),
+    execution: cloudExecutionSelectionValidator,
+    connectedProviders: v.array(v.string()),
+  }),
   handler: async (ctx, args) => {
     const settings = await ctx.db
       .query("cloud_engine_settings")
@@ -648,28 +876,43 @@ export const getEngineSettingsInternal = internalQuery({
       .take(10);
     return {
       chatEngine: settings?.chatEngine ?? "stella",
+      execution: executionFromSettings(settings),
       connectedProviders: credentials.map((row) => row.provider),
     };
   },
 });
 
 export const setEngineSettingInternal = internalMutation({
-  args: { ownerId: v.string(), chatEngine: v.string(), now: v.number() },
+  args: {
+    ownerId: v.string(),
+    chatEngine: v.string(),
+    execution: v.optional(cloudExecutionSelectionValidator),
+    now: v.number(),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const settings = await ctx.db
       .query("cloud_engine_settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
       .unique();
+    const execution = args.execution
+      ? normalizeCloudExecutionSelection(args.execution)
+      : SELECTABLE_CLOUD_ENGINES.has(args.chatEngine as CloudExecutionEngine)
+        ? defaultCloudExecutionForEngine(
+            args.chatEngine as CloudExecutionEngine,
+          )
+        : DEFAULT_CLOUD_EXECUTION;
     if (settings) {
       await ctx.db.patch(settings._id, {
         chatEngine: args.chatEngine,
+        execution,
         updatedAt: args.now,
       });
     } else {
       await ctx.db.insert("cloud_engine_settings", {
         ownerId: args.ownerId,
         chatEngine: args.chatEngine,
+        execution,
         updatedAt: args.now,
       });
     }
@@ -755,52 +998,105 @@ export const resolveEngineAccess = async (
   ownerId: string,
   provider: CloudEngineProvider,
 ): Promise<{ accessToken: string; accountId?: string } | null> => {
-  const row = (await ctx.runQuery(
-    internal.cloud_engines.getCredentialInternal,
-    { ownerId, provider },
-  )) as { payloadEncrypted: string; label: string } | null;
-  if (!row) return null;
-  let payload: StoredEnginePayload;
-  try {
-    payload = await decryptEnginePayload(row.payloadEncrypted);
-  } catch {
-    return null;
-  }
-  if (payload.expires > Date.now()) {
-    return { accessToken: payload.access, accountId: payload.accountId };
-  }
-  // Refresh server-side so a new sandbox never sees a stale token and the
-  // rotated refresh token is durably persisted.
-  const tokenUrl =
-    provider === "anthropic" ? ANTHROPIC_TOKEN_URL : CODEX_TOKEN_URL;
-  const clientId =
-    provider === "anthropic" ? ANTHROPIC_CLIENT_ID : CODEX_CLIENT_ID;
-  let refreshed: TokenExchangeResult;
-  try {
-    refreshed = await exchangeToken(tokenUrl, {
-      grant_type: "refresh_token",
-      client_id: clientId,
-      refresh_token: payload.refresh,
-    });
-  } catch {
-    return null;
-  }
-  const nextPayload: StoredEnginePayload = {
-    ...refreshed,
-    accountId:
-      provider === "openai-codex"
-        ? (codexAccountIdFromAccessToken(refreshed.access) ?? payload.accountId)
-        : undefined,
+  type CredentialRow = {
+    _id: Id<"cloud_llm_credentials">;
+    payloadEncrypted: string;
+    label: string;
   };
-  await ctx.runMutation(internal.cloud_engines.storeCredentialInternal, {
-    ownerId,
-    provider,
-    payloadEncrypted: await encryptEnginePayload(nextPayload),
-    label: row.label,
-    now: Date.now(),
-  });
-  return {
-    accessToken: nextPayload.access,
-    accountId: nextPayload.accountId,
-  };
+  const readCredential = async (): Promise<CredentialRow | null> =>
+    (await ctx.runQuery(internal.cloud_engines.getCredentialInternal, {
+      ownerId,
+      provider,
+    })) as CredentialRow | null;
+
+  // A provider refresh can rotate and invalidate its input token. Serialize
+  // that remote side effect with a short row lease, then compare both the
+  // exact row and encrypted payload at commit. Disconnect/reconnect therefore
+  // wins over an in-flight refresh, and a refresh can never recreate a row.
+  const waitDeadline = Date.now() + CREDENTIAL_REFRESH_LEASE_MS + 5_000;
+  let row = await readCredential();
+  while (row) {
+    let payload: StoredEnginePayload;
+    try {
+      payload = await decryptEnginePayload(row.payloadEncrypted);
+    } catch {
+      return null;
+    }
+    if (payload.expires > Date.now()) {
+      return { accessToken: payload.access, accountId: payload.accountId };
+    }
+
+    const leaseId = crypto.randomUUID();
+    const claim = await ctx.runMutation(
+      internal.cloud_engines.claimCredentialRefreshInternal,
+      {
+        credentialId: row._id,
+        ownerId,
+        provider,
+        expectedPayloadEncrypted: row.payloadEncrypted,
+        leaseId,
+        now: Date.now(),
+      },
+    );
+    if (claim === "missing") return null;
+    if (claim === "busy" || claim === "changed") {
+      if (Date.now() >= waitDeadline) return null;
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      row = await readCredential();
+      continue;
+    }
+
+    const tokenUrl =
+      provider === "anthropic" ? ANTHROPIC_TOKEN_URL : CODEX_TOKEN_URL;
+    const clientId =
+      provider === "anthropic" ? ANTHROPIC_CLIENT_ID : CODEX_CLIENT_ID;
+    let refreshed: TokenExchangeResult;
+    try {
+      refreshed = await exchangeToken(tokenUrl, {
+        grant_type: "refresh_token",
+        client_id: clientId,
+        refresh_token: payload.refresh,
+      });
+    } catch {
+      await ctx.runMutation(
+        internal.cloud_engines.releaseCredentialRefreshInternal,
+        {
+          credentialId: row._id,
+          ownerId,
+          provider,
+          expectedPayloadEncrypted: row.payloadEncrypted,
+          leaseId,
+        },
+      );
+      return null;
+    }
+    const nextPayload: StoredEnginePayload = {
+      ...refreshed,
+      accountId:
+        provider === "openai-codex"
+          ? (codexAccountIdFromAccessToken(refreshed.access) ??
+            payload.accountId)
+          : undefined,
+    };
+    const commit = await ctx.runMutation(
+      internal.cloud_engines.commitCredentialRefreshInternal,
+      {
+        credentialId: row._id,
+        ownerId,
+        provider,
+        expectedPayloadEncrypted: row.payloadEncrypted,
+        leaseId,
+        payloadEncrypted: await encryptEnginePayload(nextPayload),
+        now: Date.now(),
+      },
+    );
+    if (commit === "updated") {
+      return {
+        accessToken: nextPayload.access,
+        accountId: nextPayload.accountId,
+      };
+    }
+    row = await readCredential();
+  }
+  return null;
 };

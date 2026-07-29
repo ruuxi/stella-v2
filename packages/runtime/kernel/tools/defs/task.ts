@@ -52,7 +52,7 @@ export const createAgentTools = (
         workspace: {
           type: "string",
           description:
-            "Optional. Choose by what the task operates on: `computer` = the user's local machine (files, apps, anything on this device); `drive` = the user's cloud drive (general file/document work with no local dependency); `project:<name>` = a connected dev repo; `stella` = Stella's own interior; `app:<slug>` = an existing mini app. Omit when the work has no file subject — it then runs wherever the orchestrator runs. Ambiguous new-file work defaults to `drive`. Every placement other than `computer` runs in Stella's cloud and reports there, so `model`, `send_input`, and `pause_agent` do not apply to it.",
+            "Optional. Choose by what the task operates on: `computer` = the user's local machine (files, apps, anything on this device); `cloud` = the user's general Stella cloud workspace; `project:<name>` = a connected dev repo; `stella` = Stella's own interior; `app:<slug>` = an existing mini app. Omit when the work has no file subject — it then runs wherever the orchestrator runs. Ambiguous new-file work defaults to `cloud`. Every placement other than `computer` runs in Stella's cloud and sends its terminal report back to this conversation, including after a desktop restart. Cloud threads can be stopped with `pause_agent` and continued with `send_input`; their model is selected by the cloud runtime.",
         },
       },
       required: ["description", "prompt"],

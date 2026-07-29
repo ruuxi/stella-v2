@@ -6,7 +6,7 @@ import {
   type Sandbox as SandboxType,
 } from "@cloudflare/sandbox";
 import { OrchestratorSession } from "./orchestrator-session.js";
-import { sha256Hex } from "./hash.js";
+import { sha256BytesHex, sha256Hex } from "./hash.js";
 import {
   checkpointBackupName,
   checkpointKey,
@@ -42,6 +42,7 @@ import {
   CLOSE_UNAUTHENTICATED,
 } from "./conversation-types.js";
 import { verifyConvexToken } from "./auth-jwt.js";
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 
 export { Sandbox } from "@cloudflare/sandbox";
 export { OrchestratorSession };
@@ -78,6 +79,7 @@ type Env = {
   // not set it fails closed on the socket routes instead of failing to boot —
   // but the socket surface is dead until it is present.
   STELLA_CONVEX_SITE_URL?: string;
+  STELLA_CONVEX_CLOUD_URL?: string;
 };
 
 /**
@@ -144,10 +146,37 @@ type TurnRequest = {
   conversationId?: string;
   threadId?: string;
   workspace?: string;
-  // Resolved by Convex at dispatch: run the agent's model calls on the
-  // owner's connected engine subscription (flag only — never a credential).
-  engine?: { provider: string; model: string };
+  /** Exact immutable route selected by Convex for this turn. */
+  execution?: CloudExecutionSelection;
+  /** Worker-issued lease. Callers cannot choose this value. */
+  ownerPurgeGeneration?: string;
+  ownerPurgeLeaseId?: string;
 };
+
+type OwnerPurgeMode = "temporary" | "permanent";
+type OwnerPurgeFence = {
+  generation: string;
+  state: "open" | "blocked";
+  mode?: OwnerPurgeMode;
+  active: Record<
+    string,
+    {
+      leaseId: string;
+      sessionId: string;
+      turnId: string;
+      namespace: "build" | "orchestrator" | "activity";
+      role: "run" | "aux" | "orchestrator" | "activity";
+      workspace?: string;
+    }
+  >;
+};
+
+class OwnerPurgeFenceError extends Error {
+  constructor() {
+    super("This owner's cloud activity is being purged.");
+    this.name = "OwnerPurgeFenceError";
+  }
+}
 
 type AgentExecutorResult = {
   ok: boolean;
@@ -164,6 +193,37 @@ type AgentExecutorResult = {
   };
 };
 
+type InteriorBuildOutput = {
+  schemaVersion: 1;
+  sourceRevision: string;
+  baseRevision?: string;
+  upstreamSeedRevision: string;
+  outputRoot: string;
+  entries: {
+    full: "index.html";
+    mini: "mini.html";
+    overlay: "overlay.html";
+    pet: "pet.html";
+  };
+  files: Array<{
+    path: string;
+    size: number;
+    sha256: string;
+    contentType: string;
+  }>;
+  artifactSha256: string;
+  size: number;
+};
+
+const INTERIOR_BRIDGE_ABI = 1;
+const INTERIOR_MIN_SHELL_VERSION = "0.0.0";
+const INTERIOR_MAX_FILES = 2_000;
+const INTERIOR_MAX_BYTES = 100 * 1024 * 1024;
+const INTERIOR_MAX_FILE_BYTES = 25 * 1024 * 1024;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const SAFE_ARTIFACT_PATH =
+  /^(?:[A-Za-z0-9][A-Za-z0-9._-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 /**
  * A terminal state that has been decided but may not have reached Convex yet.
  *
@@ -176,9 +236,23 @@ type PendingTerminal = {
   /** Fences a stale payload against a successor turn on the same DO. */
   turnId: string;
   kind: "completed" | "failed" | "canceled";
+  /** Optional turn-event kind when the thread status uses a coarser value. */
+  eventKind?: "timeout";
   payload: Record<string, unknown>;
   /** Message for the thread's final state; a completed turn sends its report. */
   threadError?: string;
+  /**
+   * Cancellation is not complete until the sandbox process is gone. This flag
+   * makes that requirement durable: if container teardown fails or the DO is
+   * evicted mid-cancel, the alarm retries teardown before it delivers the
+   * terminal state.
+   */
+  terminateSandbox?: boolean;
+};
+
+type PendingTurnCancel = {
+  turnId: string;
+  reason: string;
 };
 
 type ExecutorResult = {
@@ -400,16 +474,483 @@ const sessionName = (value: string): string =>
 
 const contentType = (path: string): string => {
   if (path.endsWith(".html")) return "text/html; charset=utf-8";
-  if (path.endsWith(".js")) return "text/javascript; charset=utf-8";
+  if (path.endsWith(".js") || path.endsWith(".mjs"))
+    return "text/javascript; charset=utf-8";
   if (path.endsWith(".css")) return "text/css; charset=utf-8";
   if (path.endsWith(".json")) return "application/json; charset=utf-8";
+  if (path.endsWith(".map")) return "application/json";
   if (path.endsWith(".svg")) return "image/svg+xml";
   if (path.endsWith(".png")) return "image/png";
   if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+  if (path.endsWith(".webp")) return "image/webp";
+  if (path.endsWith(".gif")) return "image/gif";
+  if (path.endsWith(".ico")) return "image/x-icon";
+  if (path.endsWith(".woff")) return "font/woff";
+  if (path.endsWith(".woff2")) return "font/woff2";
+  if (path.endsWith(".ttf")) return "font/ttf";
+  if (path.endsWith(".wasm")) return "application/wasm";
+  if (path.endsWith(".webmanifest")) return "application/manifest+json";
+  if (path.endsWith(".txt")) return "text/plain; charset=utf-8";
+  if (path.endsWith(".mp3")) return "audio/mpeg";
+  if (path.endsWith(".wav")) return "audio/wav";
   return "application/octet-stream";
 };
 
+const requirePublicOrigin = (
+  value: string | undefined,
+  label: string,
+): string => {
+  try {
+    const parsed = new URL(value?.trim() ?? "");
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error("not an HTTPS origin");
+    }
+    return parsed.origin;
+  } catch {
+    throw new Error(`${label} must be configured as an HTTPS origin.`);
+  }
+};
+
+// Stella's editable source is product state, not an ephemeral task cache.
+// Cloudflare backups require a positive TTL and default to only three days;
+// refresh a ten-year retention window on every successful checkpoint.
+const STELLA_SOURCE_BACKUP_TTL_SECONDS = 10 * 365 * 86_400;
+const ORDINARY_WORKSPACE_BACKUP_TTL_SECONDS = 30 * 86_400;
+/** Longer than the 30s callback timeout; covers an evicted isolate's last send. */
+const OWNER_PURGE_STALE_LEASE_GRACE_MS = 35_000;
+const backupDebtKey = (workspaceKey: string): string =>
+  `${workspaceKey}:backup-debt`;
+type WorkspaceBackupDebt = { backupIds: string[] };
+
 export class BuildSession extends DurableObject<Env> {
+  private readonly runningTurns = new Map<string, Set<Promise<unknown>>>();
+
+  private trackTurn<T>(turnId: string, work: Promise<T>): Promise<T> {
+    const active = this.runningTurns.get(turnId) ?? new Set<Promise<unknown>>();
+    const tracked = work.finally(() => {
+      active.delete(tracked);
+      if (active.size === 0) {
+        this.runningTurns.delete(turnId);
+      }
+    });
+    active.add(tracked);
+    this.runningTurns.set(turnId, active);
+    return tracked;
+  }
+
+  private async ownerFence(ownerId: string) {
+    const ownerHash = await sha256Hex(ownerId);
+    return this.env.BUILD_SESSIONS.getByName(`owner-purge-${ownerHash}`);
+  }
+
+  private async callOwnerFence(
+    ownerId: string,
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<Response> {
+    return (await this.ownerFence(ownerId)).fetch(
+      `https://build-session/owner-fence/${path}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  }
+
+  private async registerTurn(
+    turn: TurnRequest,
+    freshLease = false,
+  ): Promise<string> {
+    if (freshLease || !turn.ownerPurgeLeaseId) {
+      turn.ownerPurgeLeaseId = crypto.randomUUID();
+    }
+    const leasedWorkspace =
+      !freshLease && turn.kind === "agent"
+        ? resolveWorkspace(turn.workspace)?.canonical
+        : undefined;
+    const response = await this.callOwnerFence(turn.ownerId, "register", {
+      leaseId: turn.ownerPurgeLeaseId,
+      sessionId: this.ctx.id.toString(),
+      turnId: turn.turnId,
+      role: freshLease ? "aux" : "run",
+      ...(leasedWorkspace ? { workspace: leasedWorkspace } : {}),
+      ...(turn.ownerPurgeGeneration
+        ? { generation: turn.ownerPurgeGeneration }
+        : {}),
+    });
+    if (!response.ok) throw new OwnerPurgeFenceError();
+    const body = (await response.json()) as { generation?: string };
+    if (!body.generation) throw new OwnerPurgeFenceError();
+    return body.generation;
+  }
+
+  private async unregisterTurn(turn: TurnRequest): Promise<void> {
+    if (!turn.ownerPurgeGeneration || !turn.ownerPurgeLeaseId) return;
+    const hasTransientWrites =
+      Boolean(
+        await this.ctx.storage.get<string>(`transientBackup:${turn.turnId}`),
+      ) ||
+      Boolean(
+        await this.ctx.storage.get<string>(`transientBuild:${turn.turnId}`),
+      );
+    if (hasTransientWrites) {
+      try {
+        // A callback whose response was lost may already have committed the
+        // row that names a build. Preserve it during ordinary operation. Once
+        // purge changes the generation, the turn's lease stays active until
+        // these otherwise-unnameable bytes are verifiably gone.
+        await this.assertTurnWritable(turn);
+        return;
+      } catch (error) {
+        if (!(error instanceof OwnerPurgeFenceError)) return;
+        try {
+          await this.cleanupTransientWrites(turn);
+        } catch (cleanupError) {
+          log("error", "owner_purge_transient_cleanup_failed", {
+            turnId: turn.turnId,
+            message: errorMessage(cleanupError),
+          });
+          return;
+        }
+      }
+    }
+    await this.unregisterTurnLease(
+      turn,
+      turn.ownerPurgeLeaseId,
+      turn.ownerPurgeGeneration,
+    );
+  }
+
+  private async unregisterTurnLease(
+    turn: TurnRequest,
+    leaseId: string,
+    generation: string,
+  ): Promise<void> {
+    await this.callOwnerFence(turn.ownerId, "unregister", {
+      leaseId,
+      sessionId: this.ctx.id.toString(),
+      turnId: turn.turnId,
+      generation,
+    }).catch(() => undefined);
+  }
+
+  private async appendWorkspaceBackupDebt(
+    workspaceKey: string,
+    backupId: string,
+  ): Promise<void> {
+    if (!BACKUP_ID_PATTERN.test(backupId)) {
+      throw new Error("Invalid transient workspace backup id.");
+    }
+    const debtKey = backupDebtKey(workspaceKey);
+    const existing = (await this.env.APP_ROUTES.get<WorkspaceBackupDebt>(
+      debtKey,
+      "json",
+    )) ?? { backupIds: [] };
+    const backupIds = [...new Set([...existing.backupIds, backupId])];
+    if (backupIds.length > 100) {
+      throw new Error("Workspace backup cleanup debt is too large.");
+    }
+    await this.env.APP_ROUTES.put(
+      debtKey,
+      JSON.stringify({ backupIds } satisfies WorkspaceBackupDebt),
+    );
+  }
+
+  /**
+   * Move the only random identifier for an unswept attempt backup out of DO
+   * storage before terminal deleteAll(). The workspace debt is durable and is
+   * retried by the normal checkpoint/purge sweep paths.
+   */
+  private async settleAgentTransientBackup(
+    turn: TurnRequest,
+  ): Promise<boolean> {
+    const backupKey = `transientBackup:${turn.turnId}`;
+    const workspaceKeyKey = `transientBackupWorkspace:${turn.turnId}`;
+    const backupId = await this.ctx.storage.get<string>(backupKey);
+    if (!backupId) {
+      await this.ctx.storage.delete(workspaceKeyKey);
+      return true;
+    }
+    const workspaceKey = await this.ctx.storage.get<string>(workspaceKeyKey);
+    if (!workspaceKey) {
+      log("error", "transient_backup_debt_workspace_missing", {
+        turnId: turn.turnId,
+        backupId,
+      });
+      return false;
+    }
+    try {
+      await this.appendWorkspaceBackupDebt(workspaceKey, backupId);
+      await this.ctx.storage.delete([backupKey, workspaceKeyKey]);
+      return true;
+    } catch (error) {
+      log("error", "transient_backup_debt_persist_failed", {
+        turnId: turn.turnId,
+        backupId,
+        message: errorMessage(error),
+      });
+      return false;
+    }
+  }
+
+  private async cleanupTransientWrites(turn: TurnRequest): Promise<void> {
+    const backupKey = `transientBackup:${turn.turnId}`;
+    const buildKey = `transientBuild:${turn.turnId}`;
+    const backupId = await this.ctx.storage.get<string>(backupKey);
+    const buildPrefix = await this.ctx.storage.get<string>(buildKey);
+    if (backupId) {
+      const swept = await sweepR2Prefix(
+        this.env.BACKUP_BUCKET,
+        `backups/${backupId}/`,
+      );
+      if (!swept.done)
+        throw new Error("Transient backup cleanup was truncated.");
+      await this.ctx.storage.delete([
+        backupKey,
+        `transientBackupWorkspace:${turn.turnId}`,
+      ]);
+    }
+    if (buildPrefix) {
+      const swept = await sweepR2Prefix(this.env.APP_BUILDS, `${buildPrefix}/`);
+      if (!swept.done)
+        throw new Error("Transient build cleanup was truncated.");
+      await this.ctx.storage.delete(buildKey);
+    }
+  }
+
+  private async cancelForOwnerPurge(request: Request): Promise<Response> {
+    const body = (await request.json().catch(() => ({}))) as {
+      ownerId?: string;
+      turnId?: string;
+      generation?: string;
+      leaseId?: string;
+    };
+    const stored = await this.ctx.storage.get<TurnRequest>("turn");
+    const turnId = body.turnId ?? stored?.turnId;
+    const ownerId = body.ownerId ?? stored?.ownerId;
+    const generation = body.generation ?? stored?.ownerPurgeGeneration;
+    const leaseId = body.leaseId ?? stored?.ownerPurgeLeaseId;
+    if (!turnId || !ownerId || !generation || !leaseId) {
+      return json({ error: "Owner purge lease identity required." }, 400);
+    }
+    const turn =
+      stored?.turnId === turnId
+        ? stored
+        : ({
+            ownerId,
+            turnId,
+            ownerPurgeGeneration: generation,
+            ownerPurgeLeaseId: leaseId,
+          } as TurnRequest);
+    turn.ownerPurgeGeneration = generation;
+    turn.ownerPurgeLeaseId = leaseId;
+
+    await this.ctx.storage.put("terminal", true);
+    await this.ctx.storage.deleteAlarm().catch(() => undefined);
+    await (await this.currentSandbox())?.destroy().catch(() => undefined);
+
+    const running = [...(this.runningTurns.get(turnId) ?? [])];
+    if (running.length > 0) {
+      const settled = await Promise.race([
+        Promise.allSettled(running).then(() => true),
+        scheduler.wait(OWNER_PURGE_STALE_LEASE_GRACE_MS).then(() => false),
+      ]);
+      if (!settled) {
+        return json({ error: "Owner turn is still unwinding." }, 409);
+      }
+    } else {
+      // No promise means this lease was recovered after isolate loss (or the
+      // turn ended before clearing its durable registration). An outbound
+      // callback dispatched by the old isolate may still be completing.
+      const key = `ownerPurgeCancelAt:${leaseId}`;
+      const startedAt = (await this.ctx.storage.get<number>(key)) ?? Date.now();
+      await this.ctx.storage.put(key, startedAt);
+      if (Date.now() - startedAt < OWNER_PURGE_STALE_LEASE_GRACE_MS) {
+        return json({ error: "Reconciling stale owner turn lease." }, 409);
+      }
+      await this.ctx.storage.delete(key);
+    }
+
+    await this.cleanupTransientWrites(turn);
+    // Do not depend on a vanished run's `finally`: remove the exact durable
+    // lease idempotently from the owner fence here.
+    await this.callOwnerFence(ownerId, "unregister", {
+      leaseId,
+      sessionId: this.ctx.id.toString(),
+      turnId,
+      generation,
+    });
+    return json({ canceled: true, turnId, unregistered: true });
+  }
+
+  private async redeliverOrphan(
+    turn: TurnRequest,
+    pending: PendingTerminal,
+  ): Promise<void> {
+    try {
+      turn.ownerPurgeGeneration = await this.registerTurn(turn, true);
+      await this.assertTurnWritable(turn);
+      await this.deliverTerminal(turn, pending);
+    } catch (error) {
+      if (!(error instanceof OwnerPurgeFenceError)) throw error;
+    } finally {
+      await this.unregisterTurn(turn);
+    }
+  }
+
+  private async assertTurnWritable(turn: TurnRequest): Promise<void> {
+    if (!turn.ownerPurgeGeneration || !turn.ownerPurgeLeaseId) {
+      throw new OwnerPurgeFenceError();
+    }
+    const response = await this.callOwnerFence(turn.ownerId, "assert", {
+      generation: turn.ownerPurgeGeneration,
+      leaseId: turn.ownerPurgeLeaseId,
+    });
+    if (!response.ok) throw new OwnerPurgeFenceError();
+  }
+
+  private async assertAgentTurnActive(turn: TurnRequest): Promise<void> {
+    await this.assertTurnWritable(turn);
+    if (
+      !(await this.ownsTurn(turn.turnId)) ||
+      (await this.ctx.storage.get<boolean>("terminal"))
+    ) {
+      throw new Error("The agent turn is no longer active.");
+    }
+  }
+
+  private async ownerFenceFetch(
+    path: string,
+    request: Request,
+  ): Promise<Response> {
+    const body = (await request.json()) as {
+      generation?: string;
+      leaseId?: string;
+      mode?: OwnerPurgeMode;
+      sessionId?: string;
+      turnId?: string;
+      namespace?: "build" | "orchestrator" | "activity";
+      role?: "run" | "aux" | "orchestrator" | "activity";
+      workspace?: string;
+    };
+    const current = (await this.ctx.storage.get<OwnerPurgeFence>(
+      "ownerPurgeFence",
+    )) ?? {
+      generation: crypto.randomUUID(),
+      state: "open",
+      active: {},
+    };
+    if (path === "register") {
+      const workspaceBusy =
+        body.role === "run" &&
+        body.workspace &&
+        Object.values(current.active).some(
+          (lease) =>
+            lease.role === "run" &&
+            lease.workspace === body.workspace &&
+            lease.leaseId !== body.leaseId,
+        );
+      if (
+        current.state !== "open" ||
+        (body.generation !== undefined &&
+          body.generation !== current.generation) ||
+        !body.leaseId ||
+        !body.sessionId ||
+        !body.turnId ||
+        workspaceBusy
+      ) {
+        return json({ error: "Owner purge is active." }, 409);
+      }
+      current.active[body.leaseId] = {
+        leaseId: body.leaseId,
+        sessionId: body.sessionId,
+        turnId: body.turnId,
+        namespace:
+          body.namespace === "orchestrator"
+            ? "orchestrator"
+            : body.namespace === "activity"
+              ? "activity"
+              : "build",
+        role:
+          body.role === "run"
+            ? "run"
+            : body.role === "orchestrator"
+              ? "orchestrator"
+              : body.role === "activity"
+                ? "activity"
+                : "aux",
+        ...(body.workspace ? { workspace: body.workspace } : {}),
+      };
+      await this.ctx.storage.put("ownerPurgeFence", current);
+      return json({ generation: current.generation });
+    }
+    if (path === "unregister") {
+      if (
+        body.leaseId &&
+        body.sessionId &&
+        body.turnId &&
+        current.active[body.leaseId]?.sessionId === body.sessionId &&
+        current.active[body.leaseId]?.turnId === body.turnId
+      ) {
+        delete current.active[body.leaseId];
+        await this.ctx.storage.put("ownerPurgeFence", current);
+      }
+      return json({ ok: true });
+    }
+    if (path === "assert") {
+      return current.state === "open" &&
+        body.generation === current.generation &&
+        Boolean(body.leaseId && current.active[body.leaseId])
+        ? json({ ok: true })
+        : json({ error: "Owner purge fence changed." }, 409);
+    }
+    if (path === "assert-blocked") {
+      return current.state === "blocked" &&
+        body.generation === current.generation
+        ? json({ ok: true, active: current.active })
+        : json({ error: "Owner purge generation is not active." }, 409);
+    }
+    if (path === "begin") {
+      if (current.state === "open") {
+        current.generation = crypto.randomUUID();
+        current.state = "blocked";
+        current.mode = body.mode === "permanent" ? "permanent" : "temporary";
+      } else if (body.mode === "permanent") {
+        current.mode = "permanent";
+      }
+      await this.ctx.storage.put("ownerPurgeFence", current);
+      return json({
+        generation: current.generation,
+        mode: current.mode,
+        active: current.active,
+      });
+    }
+    if (path === "release") {
+      if (
+        current.state !== "blocked" ||
+        current.mode !== "temporary" ||
+        body.generation !== current.generation ||
+        Object.keys(current.active).length > 0
+      ) {
+        return json({ error: "Owner purge fence cannot be released." }, 409);
+      }
+      current.generation = crypto.randomUUID();
+      current.state = "open";
+      delete current.mode;
+      await this.ctx.storage.put("ownerPurgeFence", current);
+      return json({ ok: true, generation: current.generation });
+    }
+    return json({ error: "Not found." }, 404);
+  }
+
   private sandbox(id: string, size: InstanceSize = "large") {
     const namespace =
       size === "small" && this.env.SANDBOX_SMALL
@@ -441,11 +982,374 @@ export class BuildSession extends DurableObject<Env> {
     return this.sandbox(sandboxId, size);
   }
 
+  /**
+   * Stop the command session first, then destroy its container. `destroy()` is
+   * the authoritative boundary, while the explicit process kill makes a
+   * native Claude Code/Codex child stop promptly instead of waiting for the
+   * container teardown handshake.
+   */
+  private async terminateCurrentAgentSandbox(
+    turn?: TurnRequest,
+  ): Promise<void> {
+    const sandbox = await this.currentSandbox();
+    if (!sandbox) return;
+    if (turn?.kind === "agent") {
+      const size =
+        (await this.ctx.storage.get<InstanceSize>("sandboxSize")) ?? "large";
+      const executionSessionId = sessionName(
+        `agent-run-${turn.turnId}-${size}`,
+      );
+      await sandbox.killAllProcesses(executionSessionId).catch((error) => {
+        log("error", "agent_process_kill_failed", {
+          turnId: turn.turnId,
+          sessionId: executionSessionId,
+          message: errorMessage(error),
+        });
+      });
+    }
+    await sandbox.destroy();
+  }
+
+  /**
+   * Build and publish an immutable Stella-interior candidate.
+   *
+   * The source tree is agent-controlled, so the immutable executor script
+   * applies the first set of bounds and this Worker repeats all trust-boundary
+   * checks while reading the output. The callback records a candidate only;
+   * activation remains an authenticated user/control-plane operation.
+   */
+  private async publishInteriorCandidate(
+    turn: TurnRequest,
+    sandbox: ReturnType<BuildSession["sandbox"]>,
+    workspaceRoot: string,
+    commandTimeoutMs: number,
+  ): Promise<{
+    buildId: string;
+    artifactPrefix: string;
+    previewUrl: string;
+    digest: string;
+    size: number;
+    sourceRevision: string;
+    baseRevision?: string;
+  }> {
+    await this.assertAgentTurnActive(turn);
+    if (workspaceRoot !== "/workspace/stella" || !turn.threadId) {
+      throw new Error("Invalid Stella interior build context.");
+    }
+    let unrecordedArtifactPrefix: string | undefined;
+    let callbackAttempted = false;
+    const buildRoot = `/workspace/.stella-interior-build/${sessionName(turn.turnId)}`;
+    const outputRoot = `${buildRoot}/dist`;
+    const session = await sandbox.createSession({
+      id: sessionName(`interior-build-${turn.turnId}`),
+      cwd: "/opt/stella",
+      commandTimeoutMs,
+      env: {
+        STELLA_INTERIOR_SOURCE_ROOT: workspaceRoot,
+        STELLA_INTERIOR_OUTPUT_ROOT: outputRoot,
+        VITE_CONVEX_URL: requirePublicOrigin(
+          this.env.STELLA_CONVEX_CLOUD_URL,
+          "STELLA_CONVEX_CLOUD_URL",
+        ),
+        VITE_CONVEX_SITE_URL: requirePublicOrigin(
+          this.env.STELLA_CONVEX_SITE_URL,
+          "STELLA_CONVEX_SITE_URL",
+        ),
+        VITE_STELLA_APPS_HOST: requirePublicOrigin(
+          this.env.APPS_HOST_BASE_URL,
+          "APPS_HOST_BASE_URL",
+        ),
+        VITE_STELLA_PROTOCOL: "stella",
+      },
+    });
+    try {
+      const execution = (await session.exec(
+        "bun packages/executor-cloud/src/interior-build.ts",
+        { timeout: commandTimeoutMs },
+      )) as Execution;
+      if (!execution.success) {
+        log("error", "interior_build_command_failed", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+          stderr: execution.stderr.slice(-4_000),
+        });
+        throw new Error("The Stella interior production build failed.");
+      }
+      const output = JSON.parse(
+        execution.stdout.trim().split("\n").at(-1) ?? "{}",
+      ) as InteriorBuildOutput;
+      if (
+        output.schemaVersion !== 1 ||
+        output.outputRoot !== outputRoot ||
+        !/^sha256:[0-9a-f]{64}$/.test(output.sourceRevision) ||
+        !/^sha256:[0-9a-f]{64}$/.test(output.upstreamSeedRevision) ||
+        (output.baseRevision !== undefined &&
+          !/^sha256:[0-9a-f]{64}$/.test(output.baseRevision)) ||
+        !SHA256_HEX.test(output.artifactSha256) ||
+        !Number.isSafeInteger(output.size) ||
+        output.size < 0 ||
+        output.size > INTERIOR_MAX_BYTES ||
+        !Array.isArray(output.files) ||
+        output.files.length === 0 ||
+        output.files.length > INTERIOR_MAX_FILES ||
+        output.entries?.full !== "index.html" ||
+        output.entries?.mini !== "mini.html" ||
+        output.entries?.overlay !== "overlay.html" ||
+        output.entries?.pet !== "pet.html"
+      ) {
+        throw new Error(
+          "The Stella interior builder returned invalid metadata.",
+        );
+      }
+
+      const paths = new Set<string>();
+      const portablePaths = new Set<string>();
+      let declaredBytes = 0;
+      for (const file of output.files) {
+        if (
+          typeof file.path !== "string" ||
+          !SAFE_ARTIFACT_PATH.test(file.path) ||
+          file.path.length > 1_024 ||
+          paths.has(file.path) ||
+          portablePaths.has(file.path.toLowerCase()) ||
+          !Number.isSafeInteger(file.size) ||
+          file.size < 0 ||
+          file.size > INTERIOR_MAX_FILE_BYTES ||
+          !SHA256_HEX.test(file.sha256)
+        ) {
+          throw new Error(
+            "The Stella interior contains invalid artifact metadata.",
+          );
+        }
+        paths.add(file.path);
+        portablePaths.add(file.path.toLowerCase());
+        declaredBytes += file.size;
+        if (declaredBytes > INTERIOR_MAX_BYTES) {
+          throw new Error("The Stella interior artifact is too large.");
+        }
+        const expectedContentType = contentType(file.path);
+        if (file.contentType !== expectedContentType) {
+          throw new Error(
+            "The Stella interior content type manifest is invalid.",
+          );
+        }
+      }
+      const aggregateSource = JSON.stringify(
+        output.files.map((file) => ({
+          path: file.path,
+          size: file.size,
+          sha256: file.sha256,
+        })),
+      );
+      if (
+        declaredBytes !== output.size ||
+        (await sha256Hex(aggregateSource)) !== output.artifactSha256 ||
+        !Object.values(output.entries).every((entry) => paths.has(entry)) ||
+        !output.files.some((file) => file.path.startsWith("assets/"))
+      ) {
+        throw new Error("The Stella interior artifact digest is invalid.");
+      }
+
+      const ownerHash = await sha256Hex(turn.ownerId);
+      const buildId = `interior-${(
+        await sha256Hex(
+          `${turn.ownerId}\0${turn.turnId}\0${output.artifactSha256}`,
+        )
+      ).slice(0, 48)}`;
+      const artifactPrefix = `interiors/${ownerHash}/${buildId}`;
+      unrecordedArtifactPrefix = artifactPrefix;
+      await this.ctx.storage.put(
+        `transientBuild:${turn.turnId}`,
+        artifactPrefix,
+      );
+      let appsHost: URL;
+      try {
+        appsHost = new URL(this.env.APPS_HOST_BASE_URL);
+      } catch {
+        throw new Error("The Stella apps host URL is invalid.");
+      }
+      if (
+        appsHost.protocol !== "https:" ||
+        appsHost.username ||
+        appsHost.password ||
+        appsHost.search ||
+        appsHost.hash ||
+        appsHost.pathname !== "/"
+      ) {
+        throw new Error("The Stella apps host URL is invalid.");
+      }
+      const assetBaseUrl = `${appsHost.origin}/interior-builds/${ownerHash}/${buildId}/`;
+      const files = output.files.map((file) => ({
+        path: file.path,
+        url: `${assetBaseUrl}${file.path
+          .split("/")
+          .map(encodeURIComponent)
+          .join("/")}`,
+        size: file.size,
+        sha256: file.sha256,
+        contentType: file.contentType,
+      }));
+      const manifest = {
+        schemaVersion: 1,
+        buildId,
+        version: buildId,
+        artifactPrefix,
+        entries: output.entries,
+        files,
+        artifactSha256: output.artifactSha256,
+        size: output.size,
+        bridgeAbi: INTERIOR_BRIDGE_ABI,
+        minShellVersion: INTERIOR_MIN_SHELL_VERSION,
+      };
+      const manifestJson = JSON.stringify(manifest);
+      if (new TextEncoder().encode(manifestJson).byteLength > 240 * 1024) {
+        throw new Error("The Stella interior artifact manifest is too large.");
+      }
+      const digest = `sha256:${output.artifactSha256}`;
+      const manifestSha256 = `sha256:${await sha256Hex(manifestJson)}`;
+      for (const file of output.files) {
+        const read = await session.readFile(`${outputRoot}/${file.path}`, {
+          encoding: "base64",
+        });
+        const bytes = Uint8Array.from(atob(read.content), (char) =>
+          char.charCodeAt(0),
+        );
+        if (
+          bytes.byteLength !== file.size ||
+          (await sha256BytesHex(bytes)) !== file.sha256
+        ) {
+          throw new Error(
+            `Interior artifact changed while reading ${file.path}.`,
+          );
+        }
+        await this.assertAgentTurnActive(turn);
+        const objectKey = `${artifactPrefix}/${file.path}`;
+        await this.env.APP_BUILDS.put(objectKey, bytes, {
+          httpMetadata: {
+            contentType: file.contentType,
+            cacheControl: "public, max-age=31536000, immutable",
+          },
+          customMetadata: {
+            buildId,
+            ownerHash,
+            kind: "stella-interior",
+          },
+        });
+        try {
+          await this.assertAgentTurnActive(turn);
+        } catch (error) {
+          await this.env.APP_BUILDS.delete(objectKey).catch(() => undefined);
+          throw error;
+        }
+      }
+
+      // Re-check the DO fence after the expensive build/upload and before the
+      // only durable control-plane effect. Uploaded bytes are immutable and
+      // harmless if a successor won; no candidate row points to them.
+      if (
+        !(await this.ownsTurn(turn.turnId)) ||
+        (await this.ctx.storage.get<boolean>("terminal"))
+      ) {
+        throw new Error("The Stella interior turn was superseded.");
+      }
+      // Once the callback starts, a transport error is ambiguous: Convex may
+      // have committed the immutable row before the response was lost. Keep
+      // those bytes for bounded idempotent callback retries. Before this point
+      // (partial upload, validation failure, or superseded turn), no row can
+      // exist, so the prefix is safe to remove immediately.
+      const callbackBody = {
+        ownerId: turn.ownerId,
+        buildId,
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        ...(output.baseRevision ? { baseRevision: output.baseRevision } : {}),
+        sourceRevision: output.sourceRevision,
+        artifactPrefix,
+        manifestJson,
+        manifestSha256,
+        digest,
+        size: output.size,
+        bridgeAbi: INTERIOR_BRIDGE_ABI,
+        minShellVersion: INTERIOR_MIN_SHELL_VERSION,
+      };
+      callbackAttempted = true;
+      let callbackSucceeded = false;
+      let callbackError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await this.callback(turn, "/api/cloud/interior-builds", callbackBody);
+          callbackSucceeded = true;
+          break;
+        } catch (error) {
+          callbackError = error;
+          if (attempt < 2) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, 500 * 2 ** attempt),
+            );
+          }
+        }
+      }
+      if (!callbackSucceeded) {
+        throw callbackError instanceof Error
+          ? callbackError
+          : new Error("Stella interior candidate callback failed.");
+      }
+      await this.ctx.storage.delete(`transientBuild:${turn.turnId}`);
+
+      // This builder-owned state is checkpointed with the source but excluded
+      // from the next source digest. It supplies the next candidate's explicit
+      // baseRevision, including across sandbox destruction/restoration.
+      await session.writeFile(
+        `${workspaceRoot}/.stella/interior-source.json`,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          sourceRevision: output.sourceRevision,
+          upstreamSeedRevision: output.upstreamSeedRevision,
+          buildId,
+        })}\n`,
+      );
+      return {
+        buildId,
+        artifactPrefix,
+        previewUrl: assetBaseUrl,
+        digest,
+        size: output.size,
+        sourceRevision: output.sourceRevision,
+        ...(output.baseRevision ? { baseRevision: output.baseRevision } : {}),
+      };
+    } catch (error) {
+      if (unrecordedArtifactPrefix && !callbackAttempted) {
+        const cleaned = await sweepR2Prefix(
+          this.env.APP_BUILDS,
+          `${unrecordedArtifactPrefix}/`,
+        ).catch((cleanupError) => {
+          log("error", "interior_orphan_cleanup_failed", {
+            turnId: turn.turnId,
+            threadId: turn.threadId,
+            artifactPrefix: unrecordedArtifactPrefix,
+            message: errorMessage(cleanupError),
+          });
+          return undefined;
+        });
+        if (cleaned?.done) {
+          await this.ctx.storage.delete(`transientBuild:${turn.turnId}`);
+        }
+      }
+      throw error;
+    } finally {
+      await session
+        .exec("rm -rf /workspace/.stella-interior-build")
+        .catch(() => undefined);
+      await sandbox.deleteSession(session.id).catch(() => undefined);
+    }
+  }
+
   private async callback(
     turn: TurnRequest,
     path: string,
     body: unknown,
   ): Promise<Record<string, unknown>> {
+    await this.assertTurnWritable(turn);
     const response = await fetch(
       `${turn.convexCallbackBase.replace(/\/+$/, "")}${path}`,
       {
@@ -463,6 +1367,7 @@ export class BuildSession extends DurableObject<Env> {
         `Convex callback ${path} failed with ${response.status}.`,
       );
     }
+    await this.assertTurnWritable(turn);
     return response
       .json<Record<string, unknown>>()
       .catch(() => ({}) as Record<string, unknown>);
@@ -489,6 +1394,41 @@ export class BuildSession extends DurableObject<Env> {
       kind,
       payload,
       terminal,
+    });
+  }
+
+  /**
+   * Atomically claim this DO's one terminal decision. Cancel, timeout and the
+   * normal process unwind are separate async paths; a read-then-write fence
+   * lets the loser overwrite the winner between awaits.
+   */
+  private async claimTerminalDecision(
+    turn: TurnRequest,
+    pending: PendingTerminal,
+  ): Promise<boolean> {
+    return await this.ctx.storage.transaction(async (txn) => {
+      const [currentTurnId, terminalAlreadyDecided, decided] =
+        await Promise.all([
+          txn.get<string>("turnId"),
+          txn.get<boolean>("terminal"),
+          txn.get<PendingTerminal>("pendingTerminal"),
+        ]);
+      if (currentTurnId !== turn.turnId) return false;
+      if (
+        terminalAlreadyDecided &&
+        (!decided ||
+          decided.turnId !== pending.turnId ||
+          decided.kind !== pending.kind ||
+          decided.eventKind !== pending.eventKind)
+      ) {
+        return false;
+      }
+      await txn.put({
+        terminal: true,
+        pendingTerminal: pending,
+        alarmAttempts: 0,
+      });
+      return true;
     });
   }
 
@@ -534,22 +1474,27 @@ export class BuildSession extends DurableObject<Env> {
       successor.turnId !== turn.turnId &&
       successor.threadId === turn.threadId;
     if (owns) {
-      // `terminal` first and alone: it is what fences every other path in this
-      // DO, and it has to be set even when the payload is too large to store.
-      await this.ctx.storage.put("terminal", true);
-      await this.ctx.storage
-        .put({ pendingTerminal: pending, alarmAttempts: 0 })
-        .catch((error: unknown) =>
-          log("error", "terminal_persist_failed", {
-            turnId: turn.turnId,
-            message: errorMessage(error),
-          }),
-        );
+      if (!(await this.claimTerminalDecision(turn, pending))) {
+        const decided =
+          await this.ctx.storage.get<PendingTerminal>("pendingTerminal");
+        log("info", "terminal_decision_superseded", {
+          turnId: turn.turnId,
+          attemptedKind: pending.kind,
+          decidedKind: decided?.kind,
+        });
+        return false;
+      }
     }
     try {
       // Turn-scoped and unconditional: this is what gives the turn — orphaned
       // or not — its one terminal state, and Convex rejects a second one.
-      await this.event(turn, "auto", pending.kind, pending.payload, true);
+      await this.event(
+        turn,
+        "auto",
+        pending.eventKind ?? pending.kind,
+        pending.payload,
+        true,
+      );
       if (turn.kind === "agent" && turn.threadId) {
         if (supersededThread) {
           log("info", "terminal_thread_completion_skipped", {
@@ -587,24 +1532,103 @@ export class BuildSession extends DurableObject<Env> {
       if (!owns) return false;
       const attempts =
         ((await this.ctx.storage.get<number>("alarmAttempts")) ?? 0) + 1;
-      if (attempts > 5) {
-        await this.ctx.storage.put("terminalDelivered", true);
-        log("error", "terminal_delivery_abandoned", {
+      await this.ctx.storage.put("alarmAttempts", attempts);
+      const retryDelayMs = Math.min(
+        15 * 60_000,
+        30_000 * 2 ** Math.min(attempts - 1, 5),
+      );
+      await this.ctx.storage.setAlarm(Date.now() + retryDelayMs);
+      if (attempts === 6 || attempts % 20 === 0) {
+        log("error", "terminal_delivery_still_retrying", {
           turnId: turn.turnId,
+          attempts,
+          retryDelayMs,
           message: errorMessage(error),
         });
-        return false;
       }
-      await this.ctx.storage.put("alarmAttempts", attempts);
-      await this.ctx.storage.setAlarm(Date.now() + 30_000);
       return false;
     }
   }
 
   async alarm(): Promise<void> {
     const turn = await this.ctx.storage.get<TurnRequest>("turn");
-    if (!turn || (await this.ctx.storage.get<boolean>("terminalDelivered")))
+    if (!turn) return;
+    if (
+      (await this.ctx.storage.get<boolean>("terminalDelivered")) &&
+      turn.kind !== "agent"
+    )
       return;
+    const alarmTurn = { ...turn };
+    await this.trackTurn(turn.turnId, this.runAlarmWithLease(alarmTurn));
+  }
+
+  private async runAlarmWithLease(turn: TurnRequest): Promise<void> {
+    const originalLeaseId = turn.ownerPurgeLeaseId;
+    const originalGeneration = turn.ownerPurgeGeneration;
+    let auxiliaryLeaseId: string | undefined;
+    let auxiliaryGeneration: string | undefined;
+    let retireOriginalLease = false;
+    try {
+      turn.ownerPurgeGeneration = await this.registerTurn(turn, true);
+      auxiliaryLeaseId = turn.ownerPurgeLeaseId;
+      auxiliaryGeneration = turn.ownerPurgeGeneration;
+      await this.assertTurnWritable(turn);
+      await this.runAlarm(turn);
+      retireOriginalLease = !(await this.ctx.storage.get<TurnRequest>("turn"));
+    } catch (error) {
+      if (error instanceof OwnerPurgeFenceError) {
+        await (await this.currentSandbox())?.destroy().catch(() => undefined);
+        try {
+          await this.cleanupTransientWrites(turn);
+          await this.ctx.storage.deleteAll();
+          retireOriginalLease = true;
+        } catch (cleanupError) {
+          log("error", "owner_purge_alarm_cleanup_failed", {
+            turnId: turn.turnId,
+            message: errorMessage(cleanupError),
+          });
+        }
+        return;
+      }
+      throw error;
+    } finally {
+      if (auxiliaryLeaseId && auxiliaryGeneration) {
+        // An auxiliary alarm lease never owns transient bytes. Release it
+        // directly even when the original run lease must remain as the fence
+        // for backup-debt persistence.
+        await this.unregisterTurnLease(
+          turn,
+          auxiliaryLeaseId,
+          auxiliaryGeneration,
+        );
+      }
+      if (
+        retireOriginalLease &&
+        originalLeaseId &&
+        originalGeneration &&
+        originalLeaseId !== turn.ownerPurgeLeaseId
+      ) {
+        await this.unregisterTurnLease(
+          turn,
+          originalLeaseId,
+          originalGeneration,
+        );
+      }
+    }
+  }
+
+  private async runAlarm(turn: TurnRequest): Promise<void> {
+    if (await this.ctx.storage.get<boolean>("terminalDelivered")) {
+      if (
+        turn.kind === "agent" &&
+        !(await this.settleAgentTransientBackup(turn))
+      ) {
+        await this.ctx.storage.setAlarm(Date.now() + 30_000);
+        return;
+      }
+      await this.ctx.storage.deleteAll();
+      return;
+    }
     // A terminal state already decided is not a timeout: the run finished, its
     // workspace is checkpointed, and the only thing left is getting the result
     // to Convex. Redelivering that is the whole point of the alarm here.
@@ -614,73 +1638,82 @@ export class BuildSession extends DurableObject<Env> {
       if (pending.turnId !== turn.turnId) {
         await this.ctx.storage.delete("pendingTerminal");
       } else {
+        let deliverable = pending;
+        if (pending.terminateSandbox) {
+          try {
+            await this.terminateCurrentAgentSandbox(turn);
+          } catch (error) {
+            log("error", "pending_terminal_sandbox_termination_failed", {
+              turnId: turn.turnId,
+              message: errorMessage(error),
+            });
+            await this.ctx.storage.setAlarm(Date.now() + 30_000);
+            return;
+          }
+          deliverable = { ...pending, terminateSandbox: false };
+          await this.ctx.storage.put("pendingTerminal", deliverable);
+        }
         if (
-          (await this.deliverTerminal(turn, pending)) &&
+          (await this.deliverTerminal(turn, deliverable)) &&
           (await this.ownsTurn(turn.turnId))
         ) {
-          await this.ctx.storage.deleteAll();
+          if (
+            turn.kind !== "agent" ||
+            (await this.settleAgentTransientBackup(turn))
+          ) {
+            await this.ctx.storage.deleteAll();
+          } else {
+            await this.ctx.storage.setAlarm(Date.now() + 30_000);
+          }
         }
         return;
       }
     }
-    await this.ctx.storage.put("terminal", true);
     const sandboxId = await this.ctx.storage.get<string>("sandboxId");
-    await (await this.currentSandbox())?.destroy().catch(() => undefined);
+    let timeoutPending: PendingTerminal = {
+      turnId: turn.turnId,
+      kind: "failed",
+      eventKind: "timeout",
+      payload: {
+        message:
+          "This took longer than expected, so Stella stopped. Try again.",
+      },
+      threadError: "The agent ran out of time and was stopped.",
+      terminateSandbox: true,
+    };
+    if (!(await this.claimTerminalDecision(turn, timeoutPending))) {
+      // A normal completion or cancellation claimed the same instant. Let its
+      // durable payload, rather than this timeout fallback, own the next alarm.
+      await this.ctx.storage.setAlarm(Date.now() + 1_000);
+      return;
+    }
+    try {
+      await this.terminateCurrentAgentSandbox(turn);
+      timeoutPending = { ...timeoutPending, terminateSandbox: false };
+      await this.ctx.storage.put("pendingTerminal", timeoutPending);
+    } catch (error) {
+      log("error", "timeout_sandbox_termination_failed", {
+        turnId: turn.turnId,
+        sandboxId,
+        message: errorMessage(error),
+      });
+      await this.ctx.storage.setAlarm(Date.now() + 30_000);
+      return;
+    }
     log("error", "turn_timed_out", {
       turnId: turn.turnId,
       appId: turn.appId,
       sandboxId,
     });
-    // Auto-seq: agent turns stream unbounded auto-seq events, so any fixed
-    // sentinel eventually collides and Convex drops the terminal patch,
-    // leaving the turn "running" forever. Idempotency comes from Convex
-    // rejecting events after the first terminal one, not from the seq —
-    // and delivery is retried via re-armed alarms, single-shot fire-and-
-    // forget would strand the turn (and its thread) "running" on one
-    // transient Convex failure.
-    try {
-      const result = await this.event(
-        turn,
-        "auto",
-        "timeout",
-        {
-          message:
-            "This took longer than expected, so Stella stopped. Try again.",
-        },
-        true,
-      );
+    const delivered = await this.deliverTerminal(turn, timeoutPending);
+    if (delivered && (await this.ownsTurn(turn.turnId))) {
       if (
-        result.terminalAccepted === false &&
-        !(await this.ctx.storage.get<boolean>("alarmReconcile"))
+        turn.kind !== "agent" ||
+        (await this.settleAgentTransientBackup(turn))
       ) {
-        // The turn reached terminal on its own in the same instant; give its
-        // thread completion a beat to land before the failed backstop below —
-        // racing it would mark a genuinely completed thread failed.
-        await this.ctx.storage.put("alarmReconcile", true);
-        await this.ctx.storage.setAlarm(Date.now() + 15_000);
-        return;
-      }
-      if (turn.kind === "agent" && turn.threadId) {
-        await this.callback(turn, "/api/cloud/threads/complete", {
-          threadId: turn.threadId,
-          turnId: turn.turnId,
-          status: "failed",
-          errorMessage: "The agent ran out of time and was stopped.",
-        });
-      }
-      await this.ctx.storage.put("terminalDelivered", true);
-    } catch (error) {
-      const attempts =
-        ((await this.ctx.storage.get<number>("alarmAttempts")) ?? 0) + 1;
-      if (attempts <= 5) {
-        await this.ctx.storage.put("alarmAttempts", attempts);
-        await this.ctx.storage.setAlarm(Date.now() + 30_000);
+        await this.ctx.storage.deleteAll();
       } else {
-        await this.ctx.storage.put("terminalDelivered", true);
-        log("error", "terminal_delivery_abandoned", {
-          turnId: turn.turnId,
-          message: errorMessage(error),
-        });
+        await this.ctx.storage.setAlarm(Date.now() + 30_000);
       }
     }
   }
@@ -690,32 +1723,174 @@ export class BuildSession extends DurableObject<Env> {
     if (request.method !== "POST") {
       return json({ error: "Method not allowed." }, 405);
     }
+    if (url.pathname.startsWith("/owner-fence/")) {
+      return this.ownerFenceFetch(
+        url.pathname.slice("/owner-fence/".length),
+        request,
+      );
+    }
+    if (url.pathname === "/owner-purge-cancel") {
+      return this.cancelForOwnerPurge(request);
+    }
     if (url.pathname === "/cancel") {
+      const control = (await request.json().catch(() => ({}))) as {
+        turnId?: string;
+        reason?: string;
+      };
+      const stored = await this.ctx.storage.get<TurnRequest>("turn");
+      if (control.turnId && !stored) {
+        const pending =
+          (await this.ctx.storage.get<PendingTurnCancel[]>(
+            "pendingTurnCancels",
+          )) ?? [];
+        await this.ctx.storage.put<PendingTurnCancel[]>(
+          "pendingTurnCancels",
+          [
+            ...pending.filter((entry) => entry.turnId !== control.turnId),
+            {
+              turnId: control.turnId,
+              reason:
+                control.reason === "Paused by orchestrator."
+                  ? control.reason
+                  : "The agent was stopped.",
+            },
+          ].slice(-10),
+        );
+        return json(
+          {
+            canceled: true,
+            pending: true,
+            currentTurnId: null,
+          },
+          202,
+        );
+      }
+      if (control.turnId && stored?.turnId !== control.turnId) {
+        return json(
+          {
+            canceled: false,
+            reason: "stale_turn",
+            currentTurnId: stored?.turnId ?? null,
+          },
+          409,
+        );
+      }
       const sandboxId = await this.ctx.storage.get<string>("sandboxId");
-      await (await this.currentSandbox())?.destroy().catch(() => undefined);
-      const turn = await this.ctx.storage.get<TurnRequest>("turn");
-      if (turn && !(await this.ctx.storage.get<boolean>("terminal"))) {
-        log("info", "turn_canceled", {
-          turnId: turn.turnId,
-          appId: turn.appId,
-          sandboxId,
-        });
-        // Delivery failure here re-arms the alarm rather than stranding the
-        // turn and its thread "running" forever.
-        await this.deliverTerminal(turn, {
+      if (stored && (await this.ctx.storage.get<boolean>("terminal"))) {
+        const pending =
+          await this.ctx.storage.get<PendingTerminal>("pendingTerminal");
+        if (pending?.turnId === stored.turnId && pending.kind === "canceled") {
+          return json(
+            {
+              canceled: true,
+              pending: true,
+              currentTurnId: stored.turnId,
+            },
+            202,
+          );
+        }
+        return json(
+          {
+            canceled: false,
+            reason: "terminal_already_decided",
+            currentTurnId: stored.turnId,
+          },
+          409,
+        );
+      }
+      if (stored) {
+        const turn = { ...stored };
+        let pending: PendingTerminal = {
           turnId: turn.turnId,
           kind: "canceled",
           payload: { message: "Stopped. Nothing was changed." },
-          threadError: "The agent was stopped.",
-        });
+          threadError:
+            control.reason === "Paused by orchestrator."
+              ? control.reason
+              : "The agent was stopped.",
+          terminateSandbox: true,
+        };
+        // Claim the terminal state before touching the process. This fences a
+        // native CLI that exits while cancellation is in flight from
+        // checkpointing or reporting completion over the cancel.
+        if (!(await this.claimTerminalDecision(turn, pending))) {
+          return json(
+            {
+              canceled: false,
+              reason: "terminal_already_decided",
+              currentTurnId: turn.turnId,
+            },
+            409,
+          );
+        }
+        try {
+          await this.terminateCurrentAgentSandbox(turn);
+          pending = { ...pending, terminateSandbox: false };
+          await this.ctx.storage.put("pendingTerminal", pending);
+        } catch (error) {
+          log("error", "cancel_sandbox_termination_failed", {
+            turnId: turn.turnId,
+            sandboxId,
+            message: errorMessage(error),
+          });
+          // The pending terminal tells the alarm to retry process teardown
+          // before it delivers the cancellation.
+          await this.ctx.storage.setAlarm(Date.now() + 30_000);
+          return json(
+            {
+              canceled: false,
+              reason: "sandbox_termination_failed",
+              currentTurnId: turn.turnId,
+            },
+            502,
+          );
+        }
+        let auxiliaryLeaseId: string | undefined;
+        let auxiliaryGeneration: string | undefined;
+        try {
+          turn.ownerPurgeGeneration = await this.registerTurn(turn, true);
+          auxiliaryLeaseId = turn.ownerPurgeLeaseId;
+          auxiliaryGeneration = turn.ownerPurgeGeneration;
+          await this.assertTurnWritable(turn);
+          log("info", "turn_canceled", {
+            turnId: turn.turnId,
+            appId: turn.appId,
+            sandboxId,
+          });
+          // Delivery failure here re-arms the alarm rather than stranding the
+          // turn and its thread "running" forever.
+          await this.deliverTerminal(turn, pending);
+        } catch (error) {
+          if (!(error instanceof OwnerPurgeFenceError)) throw error;
+        } finally {
+          if (auxiliaryLeaseId && auxiliaryGeneration) {
+            await this.unregisterTurnLease(
+              turn,
+              auxiliaryLeaseId,
+              auxiliaryGeneration,
+            );
+          }
+        }
       }
       return json({ canceled: true });
     }
     if (url.pathname === "/echo") return this.runEcho();
     if (url.pathname !== "/turn") return json({ error: "Not found." }, 404);
     const turn = (await request.json()) as TurnRequest;
-    if (turn.kind === "agent") return this.acceptAgentTurn(turn);
-    return this.runTurn(turn);
+    try {
+      delete turn.ownerPurgeGeneration;
+      delete turn.ownerPurgeLeaseId;
+      turn.ownerPurgeGeneration = await this.registerTurn(turn);
+      await this.assertTurnWritable(turn);
+      if (turn.kind === "agent") return this.acceptAgentTurn(turn);
+      return this.trackTurn(turn.turnId, this.runTurn(turn));
+    } catch (error) {
+      await this.unregisterTurn(turn);
+      if (error instanceof OwnerPurgeFenceError) {
+        return json({ error: "Owner cloud activity is being purged." }, 409);
+      }
+      throw error;
+    }
   }
 
   // Accept the dispatch immediately and run the turn in the background: a
@@ -724,6 +1899,50 @@ export class BuildSession extends DurableObject<Env> {
   // its thread) failed while the agent goes on to finish. Outcomes reach
   // Convex only through events/threads-complete callbacks.
   private async acceptAgentTurn(turn: TurnRequest): Promise<Response> {
+    const pendingCancels =
+      (await this.ctx.storage.get<PendingTurnCancel[]>("pendingTurnCancels")) ??
+      [];
+    const pendingCancel = pendingCancels.find(
+      (entry) => entry.turnId === turn.turnId,
+    );
+    if (pendingCancel?.turnId === turn.turnId) {
+      const remaining = pendingCancels.filter(
+        (entry) => entry.turnId !== turn.turnId,
+      );
+      if (remaining.length > 0) {
+        await this.ctx.storage.put("pendingTurnCancels", remaining);
+      } else {
+        await this.ctx.storage.delete("pendingTurnCancels");
+      }
+      const current = await this.ctx.storage.get<TurnRequest>("turn");
+      if (current && current.turnId !== turn.turnId) {
+        // The canceled dispatch arrived after a continuation had already
+        // taken over this thread's DO. Convex has terminalized this exact
+        // turn, so acknowledge it without touching the successor's storage.
+        await this.unregisterTurn(turn);
+        return json({ accepted: true, canceled: true }, 202);
+      }
+      await this.ctx.storage.put({
+        turn,
+        turnId: turn.turnId,
+        terminal: false,
+        terminalDelivered: false,
+        alarmAttempts: 0,
+        alarmReconcile: false,
+      });
+      const delivered = await this.deliverTerminal(turn, {
+        turnId: turn.turnId,
+        kind: "canceled",
+        payload: { message: "Stopped. Nothing was changed." },
+        threadError: pendingCancel.reason,
+      });
+      if (delivered && (await this.ownsTurn(turn.turnId))) {
+        await this.ctx.storage.deleteAlarm().catch(() => undefined);
+        await this.ctx.storage.deleteAll();
+      }
+      await this.unregisterTurn(turn);
+      return json({ accepted: true, canceled: true }, 202);
+    }
     const sandboxId = sessionName(`agent-${turn.turnId}`);
     // A predecessor whose terminal state never reached Convex left it here.
     // Taking over the DO takes the alarm with it, so this is its last chance:
@@ -754,12 +1973,21 @@ export class BuildSession extends DurableObject<Env> {
       orphan.turnId === orphanTurn.turnId &&
       orphan.turnId !== turn.turnId
     ) {
-      void this.deliverTerminal(orphanTurn, orphan).catch(() => undefined);
+      this.ctx.waitUntil(
+        this.trackTurn(
+          orphanTurn.turnId,
+          this.redeliverOrphan(orphanTurn, orphan),
+        ).catch(() => undefined),
+      );
     }
     await this.ctx.storage.setAlarm(
       Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000),
     );
-    void this.runAgentTurn(turn, sandboxId).catch(() => undefined);
+    this.ctx.waitUntil(
+      this.trackTurn(turn.turnId, this.runAgentTurn(turn, sandboxId)).catch(
+        () => undefined,
+      ),
+    );
     return json({ accepted: true }, 202);
   }
 
@@ -821,6 +2049,7 @@ export class BuildSession extends DurableObject<Env> {
       sessionId: this.ctx.id.toString(),
     });
     try {
+      await this.assertTurnWritable(turn);
       if (!workspace || !workspace.mountPath) {
         throw new AgentTurnError(
           workspace?.kind === "computer"
@@ -931,9 +2160,17 @@ export class BuildSession extends DurableObject<Env> {
         // rung. Every workspace kind learns here — `project:` additionally
         // records it in Convex below, where the user can see it. The TTL lets
         // a workspace that has since become light drift back down.
-        await this.env.APP_ROUTES.put(instanceSizeKey(workspaceKey), size, {
+        await this.assertTurnWritable(turn);
+        const sizeKey = instanceSizeKey(workspaceKey);
+        await this.env.APP_ROUTES.put(sizeKey, size, {
           expirationTtl: 30 * 86_400,
         }).catch(() => undefined);
+        try {
+          await this.assertAgentTurnActive(turn);
+        } catch (error) {
+          await this.env.APP_ROUTES.delete(sizeKey).catch(() => undefined);
+          throw error;
+        }
         // The watchdog budget was spent on the attempt that died; without a
         // fresh one the retry is guaranteed to be cut off mid-run and the
         // escalation buys nothing.
@@ -963,6 +2200,9 @@ export class BuildSession extends DurableObject<Env> {
       }
       const { coldContainerStartMs, restoreMs } = attempt;
       let result = attempt.result;
+      let interiorCandidate:
+        | Awaited<ReturnType<BuildSession["publishInteriorCandidate"]>>
+        | undefined;
 
       // A stale turn (alarm fired, or a successor continuation took over
       // this thread's DO) must not checkpoint over the successor's restore
@@ -979,27 +2219,220 @@ export class BuildSession extends DurableObject<Env> {
         return;
       }
 
+      if (result.ok && workspace.kind === "stella") {
+        await this.event(turn, "auto", "interior_build_started", {
+          sourceWorkspace: workspace.canonical,
+        }).catch(() => undefined);
+        try {
+          interiorCandidate = await this.publishInteriorCandidate(
+            turn,
+            sandbox,
+            workspaceRoot,
+            commandTimeoutMs,
+          );
+          await this.event(turn, "auto", "interior_candidate_created", {
+            buildId: interiorCandidate.buildId,
+            previewUrl: interiorCandidate.previewUrl,
+            digest: interiorCandidate.digest,
+            size: interiorCandidate.size,
+            sourceRevision: interiorCandidate.sourceRevision,
+            baseRevision: interiorCandidate.baseRevision,
+            activated: false,
+          }).catch(() => undefined);
+        } catch (error) {
+          if (
+            !(await this.ownsTurn(turn.turnId)) ||
+            (await this.ctx.storage.get<boolean>("terminal"))
+          ) {
+            await sandbox.destroy().catch(() => undefined);
+            return;
+          }
+          const buildError = errorMessage(error);
+          log("error", "interior_candidate_failed", {
+            turnId: turn.turnId,
+            threadId: turn.threadId,
+            message: buildError,
+          });
+          await this.event(turn, "auto", "interior_build_failed", {
+            message:
+              "The updated Stella interior did not pass its production build.",
+          }).catch(() => undefined);
+          result = {
+            ...result,
+            ok: false,
+            error:
+              "The agent's source changes were kept, but the updated Stella interior did not pass its production build, so no candidate was created.",
+          };
+        }
+      }
+
       // Checkpoint even after a failed loop — partial work in the workspace
       // is still the user's work.
       let checkpointMs = 0;
       let checkpointError: string | undefined;
       for (let retry = 0; retry < 2; retry += 1) {
+        let pointerCommitted = false;
+        let createdBackupId: string | undefined;
         try {
+          await this.assertAgentTurnActive(turn);
           const checkpointStarted = performance.now();
           const backup = await sandbox.createBackup({
             dir: workspaceRoot,
             name: checkpointBackupName(workspaceKey),
-            ttl: 30 * 86_400,
+            ttl:
+              workspace.kind === "stella"
+                ? STELLA_SOURCE_BACKUP_TTL_SECONDS
+                : ORDINARY_WORKSPACE_BACKUP_TTL_SECONDS,
             localBucket: true,
             compression: { format: "zstd", threads: 2 },
           });
+          createdBackupId = backup.id;
+          await this.ctx.storage.put(
+            `transientBackup:${turn.turnId}`,
+            backup.id,
+          );
+          await this.ctx.storage.put(
+            `transientBackupWorkspace:${turn.turnId}`,
+            workspaceKey,
+          );
           checkpointMs = Math.round(performance.now() - checkpointStarted);
+          try {
+            await this.assertAgentTurnActive(turn);
+          } catch (error) {
+            await sweepR2Prefix(
+              this.env.BACKUP_BUCKET,
+              `backups/${backup.id}/`,
+            ).catch(() => undefined);
+            throw error;
+          }
+          const priorBackupId =
+            descriptor?.id &&
+            BACKUP_ID_PATTERN.test(descriptor.id) &&
+            descriptor.id !== backup.id
+              ? descriptor.id
+              : undefined;
+          const debtKey = backupDebtKey(workspaceKey);
+          if (priorBackupId) {
+            const existingDebt =
+              (await this.env.APP_ROUTES.get<WorkspaceBackupDebt>(
+                debtKey,
+                "json",
+              )) ?? { backupIds: [] };
+            const backupIds = [
+              ...new Set([...existingDebt.backupIds, priorBackupId]),
+            ];
+            if (backupIds.length > 100) {
+              throw new Error("Workspace backup cleanup debt is too large.");
+            }
+            await this.env.APP_ROUTES.put(
+              debtKey,
+              JSON.stringify({ backupIds } satisfies WorkspaceBackupDebt),
+            );
+            await this.assertAgentTurnActive(turn);
+          }
           await this.env.APP_ROUTES.put(workspaceKey, JSON.stringify(backup));
+          pointerCommitted = true;
+          try {
+            await this.assertAgentTurnActive(turn);
+          } catch (error) {
+            if (descriptor) {
+              await this.env.APP_ROUTES.put(
+                workspaceKey,
+                JSON.stringify(descriptor),
+              );
+            } else {
+              await this.env.APP_ROUTES.delete(workspaceKey);
+            }
+            await sweepR2Prefix(
+              this.env.BACKUP_BUCKET,
+              `backups/${backup.id}/`,
+            ).catch(() => undefined);
+            throw error;
+          }
+          await this.ctx.storage.delete([
+            `transientBackup:${turn.turnId}`,
+            `transientBackupWorkspace:${turn.turnId}`,
+          ]);
+          const cleanupDebt =
+            (await this.env.APP_ROUTES.get<WorkspaceBackupDebt>(
+              debtKey,
+              "json",
+            )) ?? { backupIds: [] };
+          const remainingDebt: string[] = [];
+          for (const backupId of cleanupDebt.backupIds) {
+            if (!BACKUP_ID_PATTERN.test(backupId)) {
+              remainingDebt.push(backupId);
+              continue;
+            }
+            try {
+              const swept = await sweepR2Prefix(
+                this.env.BACKUP_BUCKET,
+                `backups/${backupId}/`,
+              );
+              if (!swept.done) remainingDebt.push(backupId);
+            } catch {
+              remainingDebt.push(backupId);
+            }
+          }
+          if (remainingDebt.length > 0) {
+            await this.env.APP_ROUTES.put(
+              debtKey,
+              JSON.stringify({
+                backupIds: remainingDebt,
+              } satisfies WorkspaceBackupDebt),
+            );
+            throw new Error("Prior workspace backup cleanup remains pending.");
+          } else if (cleanupDebt.backupIds.length > 0) {
+            await this.env.APP_ROUTES.delete(debtKey);
+          }
           checkpointError = undefined;
           break;
         } catch (error) {
           checkpointError = errorMessage(error);
+          if (pointerCommitted) break;
+          if (createdBackupId) {
+            try {
+              const swept = await sweepR2Prefix(
+                this.env.BACKUP_BUCKET,
+                `backups/${createdBackupId}/`,
+              );
+              if (!swept.done) {
+                throw new Error("Transient backup cleanup was truncated.");
+              }
+              const tracked = await this.ctx.storage.get<string>(
+                `transientBackup:${turn.turnId}`,
+              );
+              if (tracked === createdBackupId) {
+                await this.ctx.storage.delete([
+                  `transientBackup:${turn.turnId}`,
+                  `transientBackupWorkspace:${turn.turnId}`,
+                ]);
+              }
+            } catch (cleanupError) {
+              checkpointError = `${checkpointError} Cleanup also failed: ${errorMessage(cleanupError)}`;
+              try {
+                await this.appendWorkspaceBackupDebt(
+                  workspaceKey,
+                  createdBackupId,
+                );
+                await this.ctx.storage.delete([
+                  `transientBackup:${turn.turnId}`,
+                  `transientBackupWorkspace:${turn.turnId}`,
+                ]);
+              } catch (debtError) {
+                checkpointError = `${checkpointError} Cleanup debt persistence also failed: ${errorMessage(debtError)}`;
+              }
+              break;
+            }
+          }
         }
+      }
+      if (
+        !(await this.ownsTurn(turn.turnId)) ||
+        (await this.ctx.storage.get<boolean>("terminal"))
+      ) {
+        await sandbox.destroy().catch(() => undefined);
+        return;
       }
       if (checkpointError) {
         // The snapshot is the only durable copy of the workspace; losing it
@@ -1037,6 +2470,7 @@ export class BuildSession extends DurableObject<Env> {
             checkpointMs,
             wallClockMs,
             instanceType: INSTANCE_TIERS[size].instanceType,
+            ...(interiorCandidate ? { interiorCandidate } : {}),
           },
         };
       } else {
@@ -1076,8 +2510,12 @@ export class BuildSession extends DurableObject<Env> {
       // state is in Convex, and leave it — with the alarm deliverTerminal
       // re-armed — when it is not.
       if (delivered && (await this.ownsTurn(turn.turnId))) {
-        await this.ctx.storage.deleteAlarm().catch(() => undefined);
-        await this.ctx.storage.deleteAll();
+        if (await this.settleAgentTransientBackup(turn)) {
+          await this.ctx.storage.deleteAlarm().catch(() => undefined);
+          await this.ctx.storage.deleteAll();
+        } else {
+          await this.ctx.storage.setAlarm(Date.now() + 30_000);
+        }
       }
       log("info", "agent_turn_finished", {
         turnId: turn.turnId,
@@ -1098,6 +2536,19 @@ export class BuildSession extends DurableObject<Env> {
       // kill the successor's watchdog, or wipe shared storage.
       if (!(await this.ownsTurn(turn.turnId))) return;
       if (await this.ctx.storage.get<boolean>("terminal")) return;
+      if (error instanceof OwnerPurgeFenceError) {
+        try {
+          await this.cleanupTransientWrites(turn);
+          await this.ctx.storage.deleteAlarm().catch(() => undefined);
+          await this.ctx.storage.deleteAll();
+        } catch (cleanupError) {
+          log("error", "owner_purge_agent_cleanup_failed", {
+            turnId: turn.turnId,
+            message: errorMessage(cleanupError),
+          });
+        }
+        return;
+      }
       // Raw infrastructure errors stay in logs; only messages written for a
       // person reach the thread and the event.
       const friendly =
@@ -1113,9 +2564,15 @@ export class BuildSession extends DurableObject<Env> {
       // Undelivered leaves storage and the re-armed alarm in place, so the
       // turn cannot stay "running" forever.
       if (delivered && (await this.ownsTurn(turn.turnId))) {
-        await this.ctx.storage.deleteAlarm().catch(() => undefined);
-        await this.ctx.storage.deleteAll();
+        if (await this.settleAgentTransientBackup(turn)) {
+          await this.ctx.storage.deleteAlarm().catch(() => undefined);
+          await this.ctx.storage.deleteAll();
+        } else {
+          await this.ctx.storage.setAlarm(Date.now() + 30_000);
+        }
       }
+    } finally {
+      await this.unregisterTurn(turn);
     }
   }
 
@@ -1161,6 +2618,47 @@ export class BuildSession extends DurableObject<Env> {
       const restoreStarted = performance.now();
       await sandbox.restoreBackup(descriptor);
       restoreMs = Math.round(performance.now() - restoreStarted);
+      if (workspaceRoot === "/workspace/stella") {
+        const readJson = async (filePath: string) => {
+          const read = await session.readFile(filePath, {
+            encoding: "base64",
+          });
+          return JSON.parse(atob(read.content)) as Record<string, unknown>;
+        };
+        const [workspaceState, imageSeed] = await Promise.all([
+          readJson("/workspace/stella/.stella/interior-source.json"),
+          readJson("/opt/stella/interior-seed.json"),
+        ]);
+        const workspaceSeedRevision =
+          typeof workspaceState.upstreamSeedRevision === "string"
+            ? workspaceState.upstreamSeedRevision
+            : workspaceState.buildId === undefined &&
+                typeof workspaceState.sourceRevision === "string"
+              ? workspaceState.sourceRevision
+              : null;
+        if (
+          !workspaceSeedRevision ||
+          typeof imageSeed.sourceRevision !== "string" ||
+          workspaceSeedRevision !== imageSeed.sourceRevision
+        ) {
+          throw new AgentTurnError(
+            "Stella's packaged renderer changed since this cloud workspace was created. Its existing customizations need an upstream migration before another self-update can be built.",
+          );
+        }
+      }
+    } else if (workspaceRoot === "/workspace/stella") {
+      // A first Stella workspace is a real, buildable renderer checkout from
+      // the immutable image—not an empty directory the model has to invent.
+      // All paths are fixed image/mount contract constants; no user value is
+      // interpolated into this seeding command.
+      const seeded = await session.exec(
+        "set -eu; mkdir -p /workspace/stella; cp -a /opt/stella/packages/desktop-ui/. /workspace/stella/; ln -s /opt/stella/node_modules /workspace/stella/node_modules; mkdir -p /workspace/stella/.stella; cp /opt/stella/interior-seed.json /workspace/stella/.stella/interior-source.json",
+      );
+      if (!seeded.success) {
+        throw new Error(
+          "The Stella interior source seed could not be created.",
+        );
+      }
     } else {
       await session.exec(`mkdir -p ${workspaceRoot}`);
     }
@@ -1205,11 +2703,11 @@ export class BuildSession extends DurableObject<Env> {
           threadId: turn.threadId,
           turnId: turn.turnId,
           prompt: turn.prompt,
-          workspace: turn.workspace ?? "drive",
+          workspace: turn.workspace ?? "cloud",
           convexCallbackBase: turn.convexCallbackBase,
           history: args.history,
           ...(projectInput ? { project: projectInput } : {}),
-          ...(turn.engine ? { engine: turn.engine } : {}),
+          ...(turn.execution ? { execution: turn.execution } : {}),
         }),
       );
       execution = (await session.exec(
@@ -1371,6 +2869,7 @@ export class BuildSession extends DurableObject<Env> {
       Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000),
     );
     let seq = 0;
+    let transientBackupId: string | undefined;
     const requestStarted = performance.now();
     log("info", "turn_started", {
       turnId: turn.turnId,
@@ -1379,6 +2878,7 @@ export class BuildSession extends DurableObject<Env> {
       autoActivate: turn.autoActivate !== false,
     });
     try {
+      await this.assertTurnWritable(turn);
       await this.event(turn, seq++, "started", { appId: turn.appId });
       if (turn.preflightDelayMs) {
         await scheduler.wait(turn.preflightDelayMs);
@@ -1473,6 +2973,7 @@ export class BuildSession extends DurableObject<Env> {
       });
 
       const checkpointStarted = performance.now();
+      await this.assertTurnWritable(turn);
       const backup = await first.createBackup({
         dir: "/workspace/app",
         name: `stella-${turn.appId}`,
@@ -1480,6 +2981,17 @@ export class BuildSession extends DurableObject<Env> {
         localBucket: true,
         compression: { format: "zstd", threads: 2 },
       });
+      transientBackupId = backup.id;
+      await this.ctx.storage.put(`transientBackup:${turn.turnId}`, backup.id);
+      try {
+        await this.assertTurnWritable(turn);
+      } catch (error) {
+        await sweepR2Prefix(
+          this.env.BACKUP_BUCKET,
+          `backups/${backup.id}/`,
+        ).catch(() => undefined);
+        throw error;
+      }
       const checkpointMs = Math.round(performance.now() - checkpointStarted);
       await this.event(turn, seq++, "checkpointed", {
         checkpointMs,
@@ -1511,6 +3023,10 @@ export class BuildSession extends DurableObject<Env> {
       });
       const buildId = crypto.randomUUID();
       const artifactPrefix = `builds/${buildId}`;
+      await this.ctx.storage.put(
+        `transientBuild:${turn.turnId}`,
+        artifactPrefix,
+      );
       const slug = `orbit-${turn.appId.slice(-8)}`;
       let uploadedBytes = 0;
       for (const file of files.files.filter((entry) => entry.type === "file")) {
@@ -1524,10 +3040,18 @@ export class BuildSession extends DurableObject<Env> {
           char.charCodeAt(0),
         );
         uploadedBytes += bytes.byteLength;
-        await this.env.APP_BUILDS.put(`${artifactPrefix}/${relative}`, bytes, {
+        await this.assertTurnWritable(turn);
+        const objectKey = `${artifactPrefix}/${relative}`;
+        await this.env.APP_BUILDS.put(objectKey, bytes, {
           httpMetadata: { contentType: contentType(relative) },
           customMetadata: { buildId, appId: turn.appId },
         });
+        try {
+          await this.assertTurnWritable(turn);
+        } catch (error) {
+          await this.env.APP_BUILDS.delete(objectKey).catch(() => undefined);
+          throw error;
+        }
       }
       const contextSource = `window.__STELLA_APP_CONTEXT__={...${JSON.stringify(
         {
@@ -1536,16 +3060,23 @@ export class BuildSession extends DurableObject<Env> {
         },
       )},bridge:window.parent!==window};\n`;
       uploadedBytes += new TextEncoder().encode(contextSource).byteLength;
-      await this.env.APP_BUILDS.put(
-        `${artifactPrefix}/stella-context.js`,
-        contextSource,
-        {
-          httpMetadata: { contentType: "text/javascript; charset=utf-8" },
-          customMetadata: { buildId, appId: turn.appId },
-        },
-      );
+      await this.assertTurnWritable(turn);
+      const contextObjectKey = `${artifactPrefix}/stella-context.js`;
+      await this.env.APP_BUILDS.put(contextObjectKey, contextSource, {
+        httpMetadata: { contentType: "text/javascript; charset=utf-8" },
+        customMetadata: { buildId, appId: turn.appId },
+      });
+      try {
+        await this.assertTurnWritable(turn);
+      } catch (error) {
+        await this.env.APP_BUILDS.delete(contextObjectKey).catch(
+          () => undefined,
+        );
+        throw error;
+      }
       const previewUrl = `${this.env.APPS_HOST_BASE_URL.replace(/\/+$/, "")}/apps/${slug}/`;
       if (turn.autoActivate !== false) {
+        await this.assertTurnWritable(turn);
         await this.env.APP_ROUTES.put(
           `app:${slug}`,
           JSON.stringify({
@@ -1557,6 +3088,14 @@ export class BuildSession extends DurableObject<Env> {
             updatedAt: Date.now(),
           }),
         );
+        try {
+          await this.assertTurnWritable(turn);
+        } catch (error) {
+          await this.env.APP_ROUTES.delete(`app:${slug}`).catch(
+            () => undefined,
+          );
+          throw error;
+        }
       }
       const metrics = {
         coldContainerStartMs,
@@ -1585,6 +3124,7 @@ export class BuildSession extends DurableObject<Env> {
         autoActivate: turn.autoActivate !== false,
         title: appTitle,
       });
+      await this.ctx.storage.delete(`transientBuild:${turn.turnId}`);
       const result = {
         turnId: turn.turnId,
         appId: turn.appId,
@@ -1607,7 +3147,10 @@ export class BuildSession extends DurableObject<Env> {
       return json({ ok: true, ...result });
     } catch (error) {
       const message = errorMessage(error);
-      if (!(await this.ctx.storage.get<boolean>("terminal"))) {
+      if (
+        !(error instanceof OwnerPurgeFenceError) &&
+        !(await this.ctx.storage.get<boolean>("terminal"))
+      ) {
         await this.ctx.storage.put("terminal", true);
         // Only deliberately-written messages ("Stella …") reach the chat
         // bubble; raw provider/infra errors stay in the log line below.
@@ -1635,6 +3178,15 @@ export class BuildSession extends DurableObject<Env> {
         message,
       });
       return json({ error: "Cloud app turn failed.", detail: message }, 502);
+    } finally {
+      if (transientBackupId) {
+        await sweepR2Prefix(
+          this.env.BACKUP_BUCKET,
+          `backups/${transientBackupId}/`,
+        ).catch(() => undefined);
+        await this.ctx.storage.delete(`transientBackup:${turn.turnId}`);
+      }
+      await this.unregisterTurn(turn);
     }
   }
 }
@@ -1651,10 +3203,13 @@ export class BuildSession extends DurableObject<Env> {
  *  ------------------|--------------------------|--------------------------------
  *  agent-home        | R2 AGENT_HOME            | `agent-home/<sha256(owner)>/`
  *  conversations     | R2 CONVERSATION_ARCHIVE  | `conversations/<sha256(owner)>/`
+ *  interiors         | R2 APP_BUILDS            | `interiors/<sha256(owner)>/`
+ *                    |                          | (also catches orphan uploads)
  *  backups           | R2 BACKUP_BUCKET         | `backups/<backupId>/` — the id
  *                    |                          | is only in the KV descriptor
- *  builds            | R2 APP_BUILDS            | `<artifactPrefix>/`, keyed by
- *                    |                          | build id, not by owner
+ *  builds            | R2 APP_BUILDS            | app `builds/<buildId>/` or
+ *                    |                          | interior
+ *                    |                          | `interiors/<ownerHash>/<buildId>/`
  *  checkpoints       | KV APP_ROUTES            | `ws:<sha256(owner:workspace)>`
  *                    |                          | and `…:size`
  *  routes            | KV APP_ROUTES            | `app:<slug>`, owner in the value
@@ -1679,12 +3234,124 @@ export class BuildSession extends DurableObject<Env> {
  */
 type OwnerPurgeRequest = {
   ownerId?: string;
+  /** Issued by `/owners/purge/begin`; proves this owner is quiesced. */
+  purgeGeneration?: string;
   /** Canonical workspace strings whose checkpoint + learned size must go. */
   workspaces?: string[];
   /** App slugs whose hosted route row must go. */
   appSlugs?: string[];
-  /** `cloud_app_builds.artifactPrefix` values in APP_BUILDS. */
+  /** App/interior build artifactPrefix values in APP_BUILDS. */
   buildPrefixes?: string[];
+};
+
+const ownerFenceStub = async (env: Env, ownerId: string) =>
+  env.BUILD_SESSIONS.getByName(`owner-purge-${await sha256Hex(ownerId)}`);
+
+const callOwnerFence = async (
+  env: Env,
+  ownerId: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<Response> =>
+  (await ownerFenceStub(env, ownerId)).fetch(
+    `https://build-session/owner-fence/${path}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+
+const withOwnerActivityLease = async <T>(
+  env: Env,
+  ownerId: string,
+  activityId: string,
+  operation: (generation: string, leaseId: string) => Promise<T>,
+  workspace?: string,
+): Promise<T> => {
+  const sessionId = `activity-${activityId}`;
+  const turnId = activityId;
+  const leaseId = crypto.randomUUID();
+  const registered = await callOwnerFence(env, ownerId, "register", {
+    leaseId,
+    sessionId,
+    turnId,
+    namespace: "activity",
+    role: workspace ? "run" : "activity",
+    ...(workspace ? { workspace } : {}),
+  });
+  const registration = (await registered.json().catch(() => null)) as {
+    generation?: string;
+  } | null;
+  if (!registered.ok || !registration?.generation) {
+    throw new OwnerPurgeFenceError();
+  }
+  try {
+    return await operation(registration.generation, leaseId);
+  } finally {
+    await callOwnerFence(env, ownerId, "unregister", {
+      leaseId,
+      sessionId,
+      turnId,
+      generation: registration.generation,
+    }).catch(() => undefined);
+  }
+};
+
+const beginOwnerPurge = async (
+  env: Env,
+  ownerId: string,
+  mode: OwnerPurgeMode,
+): Promise<{ generation: string }> => {
+  let response = await callOwnerFence(env, ownerId, "begin", { mode });
+  if (!response.ok) throw new Error("Owner purge fence could not be created.");
+  let state = (await response.json()) as {
+    generation?: string;
+    active?: OwnerPurgeFence["active"];
+  };
+  if (!state.generation) throw new Error("Owner purge fence was unreadable.");
+  const generation = state.generation;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const active = Object.values(state.active ?? {});
+    if (active.length === 0) return { generation };
+    await Promise.all(
+      active.map(async ({ leaseId, sessionId, turnId, namespace }) => {
+        if (namespace === "activity") return;
+        try {
+          const target =
+            namespace === "orchestrator"
+              ? env.ORCHESTRATOR_SESSIONS
+              : env.BUILD_SESSIONS;
+          const id = target.idFromString(sessionId);
+          await target
+            .get(id)
+            .fetch("https://build-session/owner-purge-cancel", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                ownerId,
+                turnId,
+                generation,
+                leaseId,
+              }),
+            });
+        } catch (error) {
+          log("error", "owner_purge_turn_cancel_failed", {
+            sessionId,
+            message: errorMessage(error),
+          });
+        }
+      }),
+    );
+    await scheduler.wait(250);
+    response = await callOwnerFence(env, ownerId, "assert-blocked", {
+      generation,
+    });
+    if (!response.ok)
+      throw new Error("Owner purge fence changed unexpectedly.");
+    state = (await response.json()) as typeof state;
+  }
+  throw new Error("Owner cloud turns did not quiesce before purge.");
 };
 
 type OwnerPurgeReport = {
@@ -1702,11 +3369,13 @@ const BACKUP_ID_PATTERN = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const APP_SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 /**
  * A caller-supplied R2 prefix is a bucket-wipe primitive, so it is matched
- * against the one shape this worker ever writes (`artifactPrefix` at the app
- * build step, `builds/<crypto.randomUUID()>`) rather than merely checked for
- * non-emptiness.
+ * against the two shapes this worker writes rather than merely checked for
+ * non-emptiness. The interior form embeds a one-way owner hash and a
+ * content-derived build id, so another owner's prefix cannot be smuggled in
+ * through a path segment.
  */
-const BUILD_PREFIX_PATTERN = /^builds\/[A-Za-z0-9_-]{1,64}$/;
+const BUILD_PREFIX_PATTERN =
+  /^(?:builds\/[A-Za-z0-9_-]{1,64}|interiors\/[0-9a-f]{64}\/interior-[0-9a-f]{48})$/;
 
 /**
  * Delete every object under `prefix`. Bounded: `list` is cursor-paged at 1000
@@ -1735,6 +3404,48 @@ const sweepR2Prefix = async (
     cursor = listing.cursor;
   }
   return { deleted, done: false };
+};
+
+/**
+ * Backfill for checkpoints written before cleanup debt existed. The sandbox
+ * SDK stores `{name}` in `backups/<uuid>/meta.json`; our name is derived from
+ * the owner/workspace checkpoint key, so a full metadata scan can attribute
+ * old random backup ids without guessing or deleting another owner's data.
+ */
+const sweepBackupsByName = async (
+  bucket: R2Bucket,
+  name: string,
+): Promise<{ deleted: number; done: boolean }> => {
+  const backupIds = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < R2_SWEEP_MAX_PAGES; page += 1) {
+    const listing = await bucket.list({
+      prefix: "backups/",
+      limit: 1000,
+      ...(cursor ? { cursor } : {}),
+    });
+    for (const object of listing.objects) {
+      const match = object.key.match(/^backups\/([0-9a-f-]{36})\/meta\.json$/i);
+      if (!match || !BACKUP_ID_PATTERN.test(match[1]!)) continue;
+      const metadata = await bucket.get(object.key);
+      if (!metadata) continue;
+      const parsed = (await metadata.json().catch(() => null)) as {
+        name?: string | null;
+      } | null;
+      if (parsed?.name === name) backupIds.add(match[1]!);
+    }
+    if (!listing.truncated) {
+      let deleted = 0;
+      for (const backupId of backupIds) {
+        const swept = await sweepR2Prefix(bucket, `backups/${backupId}/`);
+        deleted += swept.deleted;
+        if (!swept.done) return { deleted, done: false };
+      }
+      return { deleted, done: true };
+    }
+    cursor = listing.cursor;
+  }
+  return { deleted: 0, done: false };
 };
 
 const purgeOwnerStorage = async (
@@ -1767,6 +3478,15 @@ const purgeOwnerStorage = async (
       store: "conversations",
       bucket: env.CONVERSATION_ARCHIVE,
       prefix: `conversations/${ownerHash}/`,
+    },
+    {
+      // Unlike app builds, every interior prefix is owner-addressable. Sweep
+      // the whole namespace so uploads stranded before an idempotent candidate
+      // callback cannot survive account deletion merely because no Convex row
+      // ever got to name them.
+      store: "interiors",
+      bucket: env.APP_BUILDS,
+      prefix: `interiors/${ownerHash}/`,
     },
   ];
   for (const target of prefixTargets) {
@@ -1801,18 +3521,43 @@ const purgeOwnerStorage = async (
     try {
       const key = await checkpointKey(ownerId, workspace.canonical);
       const descriptor = await env.APP_ROUTES.get<DirectoryBackup>(key, "json");
-      if (descriptor?.id && BACKUP_ID_PATTERN.test(descriptor.id)) {
+      const debtKey = backupDebtKey(key);
+      const debt = await env.APP_ROUTES.get<WorkspaceBackupDebt>(
+        debtKey,
+        "json",
+      );
+      const backupIds = new Set<string>();
+      if (descriptor?.id) backupIds.add(descriptor.id);
+      for (const backupId of debt?.backupIds ?? []) backupIds.add(backupId);
+      let backupSweepFailed = false;
+      for (const backupId of backupIds) {
+        if (!BACKUP_ID_PATTERN.test(backupId)) {
+          pending.push(`${store}:invalid-backup`);
+          backupSweepFailed = true;
+          continue;
+        }
         const swept = await sweepR2Prefix(
           env.BACKUP_BUCKET,
-          `backups/${descriptor.id}/`,
+          `backups/${backupId}/`,
         );
         deleted += swept.deleted;
         if (!swept.done) {
           pending.push(store);
-          continue;
+          backupSweepFailed = true;
         }
       }
+      if (backupSweepFailed) continue;
+      const historical = await sweepBackupsByName(
+        env.BACKUP_BUCKET,
+        checkpointBackupName(key),
+      );
+      deleted += historical.deleted;
+      if (!historical.done) {
+        pending.push(`${store}:historical-backups`);
+        continue;
+      }
       await env.APP_ROUTES.delete(key);
+      await env.APP_ROUTES.delete(debtKey);
       // The learned instance size describes the deleted workspace's work, not
       // whatever reuses the slug next.
       await env.APP_ROUTES.delete(instanceSizeKey(key));
@@ -1849,8 +3594,14 @@ const purgeOwnerStorage = async (
 
   // Build artifacts: the owner's app code and assets, still served by the
   // apps host until they are gone.
+  const interiorOwnerPrefix = `interiors/${ownerHash}/`;
   for (const prefix of request.buildPrefixes ?? []) {
-    if (typeof prefix !== "string" || !BUILD_PREFIX_PATTERN.test(prefix)) {
+    if (
+      typeof prefix !== "string" ||
+      !BUILD_PREFIX_PATTERN.test(prefix) ||
+      (prefix.startsWith("interiors/") &&
+        !prefix.startsWith(interiorOwnerPrefix))
+    ) {
       pending.push("build:unparseable");
       continue;
     }
@@ -2007,6 +3758,8 @@ export default {
         "https://build-session/cancel",
         {
           method: "POST",
+          headers: { "content-type": "application/json" },
+          body: await request.text(),
         },
       );
     }
@@ -2023,10 +3776,65 @@ export default {
         return json({ error: "ownerId and a cloud workspace required." }, 400);
       }
       const key = await checkpointKey(body.ownerId, workspace.canonical);
-      await env.APP_ROUTES.delete(key);
-      // The learned instance size describes the deleted workspace's work, not
-      // whatever reuses the slug next.
-      await env.APP_ROUTES.delete(instanceSizeKey(key));
+      try {
+        await withOwnerActivityLease(
+          env,
+          body.ownerId,
+          requestId,
+          async () => {
+            const descriptor = await env.APP_ROUTES.get<DirectoryBackup>(
+              key,
+              "json",
+            );
+            const debtKey = backupDebtKey(key);
+            const debt = await env.APP_ROUTES.get<WorkspaceBackupDebt>(
+              debtKey,
+              "json",
+            );
+            const backupIds = new Set<string>();
+            if (descriptor?.id) backupIds.add(descriptor.id);
+            for (const backupId of debt?.backupIds ?? []) {
+              backupIds.add(backupId);
+            }
+            for (const backupId of backupIds) {
+              if (!BACKUP_ID_PATTERN.test(backupId)) {
+                throw new Error("Workspace backup descriptor is invalid.");
+              }
+              const swept = await sweepR2Prefix(
+                env.BACKUP_BUCKET,
+                `backups/${backupId}/`,
+              );
+              if (!swept.done) {
+                throw new Error("Workspace backup purge was truncated.");
+              }
+            }
+            const historical = await sweepBackupsByName(
+              env.BACKUP_BUCKET,
+              checkpointBackupName(key),
+            );
+            if (!historical.done) {
+              throw new Error(
+                "Historical workspace backup scan was truncated.",
+              );
+            }
+            // Bytes first; these keys are the only recovery names.
+            await env.APP_ROUTES.delete(key);
+            await env.APP_ROUTES.delete(debtKey);
+            await env.APP_ROUTES.delete(instanceSizeKey(key));
+          },
+          workspace.canonical,
+        );
+      } catch (error) {
+        if (error instanceof OwnerPurgeFenceError) {
+          return json({ error: "Owner cloud activity is being purged." }, 409);
+        }
+        log("error", "workspace_checkpoint_purge_failed", {
+          requestId,
+          workspace: workspace.canonical,
+          message: errorMessage(error),
+        });
+        return json({ error: "Workspace checkpoint purge failed." }, 502);
+      }
       log("info", "workspace_checkpoint_purged", {
         requestId,
         workspace: workspace.canonical,
@@ -2049,10 +3857,57 @@ export default {
     //     `<owner>:<workspace>` and a build artifact prefix is keyed by build
     //     id — so Convex reads them off the rows and sends them here BEFORE
     //     deleting those rows. Bytes first, then the only name they had.
+    if (request.method === "POST" && url.pathname === "/owners/purge/begin") {
+      const body = (await request.json()) as {
+        ownerId?: string;
+        mode?: OwnerPurgeMode;
+      };
+      const ownerId = typeof body.ownerId === "string" ? body.ownerId : "";
+      if (!ownerId) return json({ error: "ownerId required." }, 400);
+      try {
+        return json(
+          await beginOwnerPurge(
+            env,
+            ownerId,
+            body.mode === "permanent" ? "permanent" : "temporary",
+          ),
+        );
+      } catch (error) {
+        return json({ error: errorMessage(error) }, 409);
+      }
+    }
+    if (request.method === "POST" && url.pathname === "/owners/purge/release") {
+      const body = (await request.json()) as {
+        ownerId?: string;
+        purgeGeneration?: string;
+      };
+      const ownerId = typeof body.ownerId === "string" ? body.ownerId : "";
+      if (!ownerId || !body.purgeGeneration) {
+        return json({ error: "ownerId and purgeGeneration required." }, 400);
+      }
+      const released = await callOwnerFence(env, ownerId, "release", {
+        generation: body.purgeGeneration,
+      });
+      return released;
+    }
     if (request.method === "POST" && url.pathname === "/owners/purge") {
       const body = (await request.json()) as OwnerPurgeRequest;
       const ownerId = typeof body.ownerId === "string" ? body.ownerId : "";
-      if (!ownerId) return json({ error: "ownerId required." }, 400);
+      if (!ownerId || !body.purgeGeneration) {
+        return json({ error: "ownerId and purgeGeneration required." }, 400);
+      }
+      const fenced = await callOwnerFence(env, ownerId, "assert-blocked", {
+        generation: body.purgeGeneration,
+      });
+      if (!fenced.ok) {
+        return json({ error: "Owner is not fenced for this purge." }, 409);
+      }
+      const fenceState = (await fenced.json()) as {
+        active?: OwnerPurgeFence["active"];
+      };
+      if (Object.keys(fenceState.active ?? {}).length > 0) {
+        return json({ error: "Owner cloud turns are still active." }, 409);
+      }
       const report = await purgeOwnerStorage(env, ownerId, body);
       log("info", "owner_storage_purged", {
         requestId,
@@ -2069,14 +3924,33 @@ export default {
         buildId: string;
         artifactPrefix: string;
       };
-      await env.APP_ROUTES.put(
-        `app:${body.slug}`,
-        JSON.stringify({
-          ...body,
-          suspended: false,
-          updatedAt: Date.now(),
-        }),
-      );
+      try {
+        await withOwnerActivityLease(
+          env,
+          body.ownerId,
+          requestId,
+          async (generation, leaseId) => {
+            await env.APP_ROUTES.put(
+              `app:${body.slug}`,
+              JSON.stringify({
+                ...body,
+                suspended: false,
+                updatedAt: Date.now(),
+              }),
+            );
+            const fenced = await callOwnerFence(env, body.ownerId, "assert", {
+              generation,
+              leaseId,
+            });
+            if (!fenced.ok) throw new OwnerPurgeFenceError();
+          },
+        );
+      } catch (error) {
+        if (error instanceof OwnerPurgeFenceError) {
+          return json({ error: "Owner cloud activity is being purged." }, 409);
+        }
+        throw error;
+      }
       log("info", "route_activated", {
         requestId,
         slug: body.slug,
@@ -2102,14 +3976,33 @@ export default {
       ) {
         return json({ error: "App route not found." }, 404);
       }
-      await env.APP_ROUTES.put(
-        `app:${body.slug}`,
-        JSON.stringify({
-          ...route,
-          suspended: true,
-          updatedAt: Date.now(),
-        }),
-      );
+      try {
+        await withOwnerActivityLease(
+          env,
+          body.ownerId,
+          requestId,
+          async (generation, leaseId) => {
+            await env.APP_ROUTES.put(
+              `app:${body.slug}`,
+              JSON.stringify({
+                ...route,
+                suspended: true,
+                updatedAt: Date.now(),
+              }),
+            );
+            const fenced = await callOwnerFence(env, body.ownerId, "assert", {
+              generation,
+              leaseId,
+            });
+            if (!fenced.ok) throw new OwnerPurgeFenceError();
+          },
+        );
+      } catch (error) {
+        if (error instanceof OwnerPurgeFenceError) {
+          return json({ error: "Owner cloud activity is being purged." }, 409);
+        }
+        throw error;
+      }
       log("info", "route_suspended", {
         requestId,
         slug: body.slug,

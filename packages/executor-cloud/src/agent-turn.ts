@@ -21,6 +21,7 @@ import type {
 } from "@stella/runtime/kernel/agent-core/types.js";
 import type { TSchema } from "@sinclair/typebox";
 import type { FileChangeRecord } from "@stella/contracts/file-changes";
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { createToolHost } from "@stella/runtime/kernel/tools/host.js";
 import type { ToolContext } from "@stella/runtime/kernel/tools/host.js";
 import {
@@ -32,12 +33,12 @@ import {
   buildDefaultTransformContext,
   extractAssistantText,
   getAgentCompletion,
-  resolveAgentThinkingLevel,
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
 import { turnToken } from "./env-secrets.js";
 import {
   CLOUD_TURN_TOKEN_HEADER,
   createCloudRelayModel,
+  resolveCloudThinkingLevel,
 } from "./relay-model.js";
 import { chunkForAppend, pruneAgentHistory } from "./prune-history.js";
 import {
@@ -64,6 +65,7 @@ import {
   toolStateDirFor,
   type WorkspaceIdentity,
 } from "./workspace-paths.js";
+import { runNativeAgentTurn } from "./native-agent-turn.js";
 
 /**
  * The turn input file sits above the workspace root and is readable by every
@@ -84,8 +86,8 @@ export type AgentTurnInput = {
   convexCallbackBase: string;
   /** Prior thread transcript rows, oldest first (send_input continuations). */
   history?: Array<{ role: string; payloadJson: string }>;
-  /** Owner's engine subscription for this turn's model calls (flag only). */
-  engine?: { provider: "anthropic"; model: string };
+  /** Canonical model route authorized for this turn at dispatch. */
+  execution: CloudExecutionSelection;
   /** Clone/checkout inputs for a `project:<slug>` workspace. */
   project?: ProjectTurnInput;
 };
@@ -237,6 +239,15 @@ remote moved, fetch and rebase, resolve, and push again.${
           : ""
       }`
     : "";
+  const stellaLines =
+    workspace.kind === "stella"
+      ? `\n\nThis workspace is the editable source tree for the user's Stella web interior. \
+Change the existing renderer source in place; do not replace it with a new app, \
+do not edit generated build output, and do not attempt to deploy it yourself. \
+After you finish, Stella automatically runs the immutable production builder \
+and records a candidate for review. A build failure prevents a candidate but \
+does not discard the source changes.`
+      : "";
   return `You are a Stella background agent running in a cloud sandbox. \
 Complete the task you were given, then stop — your final message is delivered \
 to the orchestrator as your report, so make it a concise, self-contained \
@@ -253,7 +264,7 @@ archive. You have bun, node, and git available via exec_command.
 
 ${documents}
 
-You cannot spawn other agents and you cannot reach the user directly.${driveLines}${projectLines}`;
+You cannot spawn other agents and you cannot reach the user directly.${driveLines}${projectLines}${stellaLines}`;
 };
 
 const asError = (error: unknown): Error =>
@@ -379,6 +390,19 @@ export const runAgentTurn = (
       }
 
       const officeBinPath = resolveOfficeBinPath();
+      const cloudSystemPrompt = CLOUD_GENERAL_PROMPT({
+        workspace,
+        office: Boolean(officeBinPath),
+        ...(workspace.kind === "drive" ? { drive: driveSync } : {}),
+        ...(project && projectHandoff
+          ? {
+              project: {
+                result: project,
+                remoteUrl: scrubRemoteUrl(projectHandoff.remoteUrl),
+              },
+            }
+          : {}),
+      });
       const toolHost = yield* Effect.acquireRelease(
         Effect.sync(() =>
           createToolHost({
@@ -515,126 +539,152 @@ export const runAgentTurn = (
       // continuations; keep the newest window that fits the model.
       const history = pruneAgentHistory(parsedHistory);
 
-      const model = createCloudRelayModel({
-        siteUrl: base,
-        turnToken: token,
-        agentType: "general",
-        engine: input.engine,
-      });
-      const agent = new Agent({
-        initialState: {
-          systemPrompt: CLOUD_GENERAL_PROMPT({
-            workspace,
-            office: Boolean(officeBinPath),
-            ...(workspace.kind === "drive" ? { drive: driveSync } : {}),
-            ...(project && projectHandoff
-              ? {
-                  project: {
-                    result: project,
-                    remoteUrl: scrubRemoteUrl(projectHandoff.remoteUrl),
-                  },
-                }
-              : {}),
-          }),
-          model,
-          thinkingLevel: resolveAgentThinkingLevel({ resolvedLlm: { model } }),
-          tools,
-          messages: history,
-        },
-        sessionId: input.threadId,
-        getApiKey: () => token,
-        toolExecution: "sequential",
-        toolInactivityTimeoutMs: 5 * 60_000,
-        // Same division of labor as the desktop runtime and the orchestrator
-        // DO: re-prune before every provider call, and let the outer ladder
-        // own empty completions and the physical-request ceiling.
-        transformContext: buildDefaultTransformContext({ model }),
-        degenerateResponseRetries: 0,
-        providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
-      });
-
       let llmCalls = 0;
       let inputTokens = 0;
       let outputTokens = 0;
-      const unsubscribe = agent.subscribe((event) => {
-        if (
-          event.type === "message_end" &&
-          event.message.role === "assistant"
-        ) {
-          llmCalls += 1;
-          const usage = (
-            event.message as {
-              usage?: {
-                input?: number;
-                output?: number;
-                inputTokens?: number;
-                outputTokens?: number;
-              };
-            }
-          ).usage;
-          inputTokens += usage?.inputTokens ?? usage?.input ?? 0;
-          outputTokens += usage?.outputTokens ?? usage?.output ?? 0;
-          const text = extractAssistantText(event.message).trim();
-          if (text)
-            emitEvent("assistant_message", { text: text.slice(0, 8_000) });
-        }
-        if (event.type === "tool_execution_start") {
-          emitEvent("tool_call", {
-            name: event.toolName,
-            args: JSON.stringify(event.args ?? {}).slice(0, 1_000),
-          });
-        }
-      });
+      let execution: { finalText: string; errorMessage?: string };
+      let produced: AgentMessage[];
+      if (input.execution.engine !== "stella") {
+        const nativeExecution = input.execution;
+        const native = yield* Effect.tryPromise({
+          try: () =>
+            runNativeAgentTurn({
+              prompt: input.prompt,
+              systemPrompt: cloudSystemPrompt,
+              execution: nativeExecution,
+              callbackBase: base,
+              turnToken: token,
+              workspace,
+              threadId: input.threadId,
+              emitEvent,
+            }),
+          catch: asError,
+        });
+        editedFiles.push(...native.editedFiles);
+        llmCalls = native.usage.llmCalls;
+        inputTokens = native.usage.inputTokens;
+        outputTokens = native.usage.outputTokens;
+        execution = {
+          finalText: native.finalText.trim(),
+          ...(native.error ? { errorMessage: native.error } : {}),
+        };
+        produced = native.messages;
+      } else {
+        const model = yield* Effect.tryPromise({
+          try: () =>
+            createCloudRelayModel({
+              siteUrl: base,
+              turnToken: token,
+              agentType: "general",
+              execution: input.execution,
+            }),
+          catch: asError,
+        });
+        const agent = new Agent({
+          initialState: {
+            systemPrompt: cloudSystemPrompt,
+            model,
+            thinkingLevel: resolveCloudThinkingLevel(
+              model,
+              input.execution.reasoningEffort,
+            ),
+            tools,
+            messages: history,
+          },
+          sessionId: input.threadId,
+          getApiKey: () => token,
+          toolExecution: "sequential",
+          toolInactivityTimeoutMs: 5 * 60_000,
+          // Same division of labor as the desktop runtime and the orchestrator
+          // DO: re-prune before every provider call, and let the outer ladder
+          // own empty completions and the physical-request ceiling.
+          transformContext: buildDefaultTransformContext({ model }),
+          degenerateResponseRetries: 0,
+          providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
+        });
+        const unsubscribe = agent.subscribe((event) => {
+          if (
+            event.type === "message_end" &&
+            event.message.role === "assistant"
+          ) {
+            llmCalls += 1;
+            const usage = (
+              event.message as {
+                usage?: {
+                  input?: number;
+                  output?: number;
+                  inputTokens?: number;
+                  outputTokens?: number;
+                };
+              }
+            ).usage;
+            inputTokens += usage?.inputTokens ?? usage?.input ?? 0;
+            outputTokens += usage?.outputTokens ?? usage?.output ?? 0;
+            const text = extractAssistantText(event.message).trim();
+            if (text)
+              emitEvent("assistant_message", { text: text.slice(0, 8_000) });
+          }
+          if (event.type === "tool_execution_start") {
+            emitEvent("tool_call", {
+              name: event.toolName,
+              args: JSON.stringify(event.args ?? {}).slice(0, 1_000),
+            });
+          }
+        });
 
-      const before = agent.state.messages.length;
-      // The desktop runtime's transient ladder: a retryable provider or
-      // transport failure resumes the same in-memory context instead of
-      // failing the whole turn. The DO's watchdog still bounds the turn; a
-      // full ladder adds at most ~10s of backoff.
-      const execution = yield* Effect.tryPromise({
-        try: () =>
-          executeAgentRunWithRetry({
-            state: { attemptsUsed: 0, retriesUsed: 0 },
-            execute: async (resume) => {
-              if (resume) {
-                await agent.continue();
-              } else {
-                await agent.prompt(input.prompt);
-              }
-              const completion = getAgentCompletion(agent);
-              return { ...completion, finalText: completion.finalText.trim() };
-            },
-            prepareResume: (reason, classification) => {
-              const prepared = prepareTransientResumeTail(
-                agent.state.messages,
-                classification,
-              );
-              if (prepared) {
-                console.error(
-                  `transient run retry (${classification.category}): ${reason}`,
+        const before = agent.state.messages.length;
+        // The desktop runtime's transient ladder: a retryable provider or
+        // transport failure resumes the same in-memory context instead of
+        // failing the whole turn. The DO's watchdog still bounds the turn; a
+        // full ladder adds at most ~10s of backoff.
+        execution = yield* Effect.tryPromise({
+          try: () =>
+            executeAgentRunWithRetry({
+              state: { attemptsUsed: 0, retriesUsed: 0 },
+              execute: async (resume) => {
+                if (resume) {
+                  await agent.continue();
+                } else {
+                  await agent.prompt(input.prompt);
+                }
+                const completion = getAgentCompletion(agent);
+                return {
+                  ...completion,
+                  finalText: completion.finalText.trim(),
+                };
+              },
+              prepareResume: (reason, classification) => {
+                const prepared = prepareTransientResumeTail(
+                  agent.state.messages,
+                  classification,
                 );
-              }
-              return prepared;
-            },
-          }),
-        catch: asError,
-      });
-      unsubscribe();
+                if (prepared) {
+                  console.error(
+                    `transient run retry (${classification.category}): ${reason}`,
+                  );
+                }
+                return prepared;
+              },
+            }),
+          catch: asError,
+        });
+        unsubscribe();
+        // Errored assistant messages have empty content; one empty assistant
+        // row poisons every future Anthropic request for this thread.
+        produced = agent.state.messages.slice(before).filter((message) => {
+          const record = message as { role?: string; content?: unknown };
+          return !(
+            record.role === "assistant" &&
+            Array.isArray(record.content) &&
+            record.content.length === 0
+          );
+        });
+      }
       yield* Effect.promise(() => eventChain.then(() => undefined));
 
       // Persist the thread transcript (conversationId = threadId) so
       // send_input continuations restore full conversational context, not
       // just the workspace.
-      // Errored assistant messages have empty content; one empty assistant
-      // row poisons every future Anthropic request for this thread.
-      const produced = agent.state.messages.slice(before).filter((message) => {
-        const record = message as { role?: string; content?: unknown };
-        return !(
-          record.role === "assistant" &&
-          Array.isArray(record.content) &&
-          record.content.length === 0
-        );
-      });
       if (produced.length > 0) {
         // The append route caps one request at 50 rows; a busy turn (each
         // tool call is an assistant + toolResult pair) easily exceeds that,

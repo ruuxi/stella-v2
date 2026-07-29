@@ -354,6 +354,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("ui:setState", partial),
     onState: onIpc<Record<string, unknown>>("ui:state"),
     onOpenChatSidebar: onIpcSignal("chat:openSidebar"),
+    setRendererMounted: (
+      mode: "full" | "mini" | "overlay" | "pet",
+      token: string,
+    ) => ipcRenderer.send("app:rendererMounted", mode, token),
     setAppReady: (ready: boolean) => ipcRenderer.send("app:setReady", ready),
     reload: () => ipcRenderer.send("app:reload"),
     relaunch: () => ipcRenderer.send("app:relaunch"),

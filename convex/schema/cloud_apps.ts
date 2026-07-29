@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { cloudExecutionSelectionValidator } from "../lib/cloud_execution";
 
 export const cloudAppsSchema = {
   // The conversation INDEX, not the conversation. Message content lives in the
@@ -20,6 +21,12 @@ export const cloudAppsSchema = {
   cloud_conversations: defineTable({
     conversationId: v.string(),
     ownerId: v.string(),
+    /**
+     * Durable model route for every turn in this conversation. Optional only
+     * for rows created before execution snapshots existed; the next turn
+     * resolves and backfills it before dispatch.
+     */
+    execution: v.optional(cloudExecutionSelectionValidator),
     title: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -115,6 +122,64 @@ export const cloudAppsSchema = {
     .index("by_buildId", ["buildId"])
     .index("by_appId_and_createdAt", ["appId", "createdAt"]),
 
+  // Stella's web interior is a per-owner deployable. Build rows below are
+  // immutable candidates; this small row is the only mutable routing state.
+  // `routeRevision` is a compare-and-swap fence used by every promotion and
+  // rollback so two clients can never silently overwrite each other.
+  cloud_interior_deployables: defineTable({
+    deployableId: v.string(),
+    ownerId: v.string(),
+    /**
+     * Migration-only artifact namespace from the first routing design. It is
+     * deliberately never returned to clients or accepted as a route key.
+     */
+    ownerHash: v.optional(v.string()),
+    /**
+     * Opaque capability for the owner's stable web URL. Optional while rows
+     * created by the pre-capability schema are lazily backfilled.
+     */
+    stableRouteId: v.optional(v.string()),
+    kind: v.literal("stella-interior"),
+    activeBuildId: v.optional(v.string()),
+    previousBuildId: v.optional(v.string()),
+    routeRevision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_deployableId", ["deployableId"])
+    .index("by_ownerId", ["ownerId"])
+    .index("by_stableRouteId", ["stableRouteId"]),
+
+  // Immutable build candidates for an owner's Stella interior. Activation is
+  // represented exclusively by `cloud_interior_deployables`; a candidate is
+  // never patched after insertion, even when it becomes active or previous.
+  cloud_interior_builds: defineTable({
+    buildId: v.string(),
+    deployableId: v.string(),
+    ownerId: v.string(),
+    turnId: v.string(),
+    threadId: v.string(),
+    // Source revisions can be absent for the initial unversioned seed.
+    sourceRevision: v.optional(v.string()),
+    baseRevision: v.optional(v.string()),
+    artifactPrefix: v.string(),
+    artifactManifestJson: v.string(),
+    // SHA-256 of the exact UTF-8 manifest JSON, independently recomputed by
+    // Convex when the candidate is recorded.
+    manifestSha256: v.string(),
+    artifactDigest: v.string(),
+    artifactSizeBytes: v.number(),
+    bridgeAbi: v.number(),
+    minShellVersion: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_deployableId_and_createdAt", ["deployableId", "createdAt"])
+    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
+    .index("by_ownerId_and_sourceRevision", ["ownerId", "sourceRevision"])
+    .index("by_turnId", ["turnId"])
+    .index("by_threadId_and_createdAt", ["threadId", "createdAt"]),
+
   agent_turns: defineTable({
     turnId: v.string(),
     sessionId: v.string(),
@@ -133,7 +198,7 @@ export const cloudAppsSchema = {
     // "agent" (spawned general agent in a sandbox). Absent on legacy rows.
     kind: v.optional(v.string()),
     agentType: v.optional(v.string()),
-    // Spawn placement for kind "agent" turns: drive | app:<slug> |
+    // Spawn placement for kind "agent" turns: cloud | app:<slug> |
     // project:<name> | stella | computer.
     workspace: v.optional(v.string()),
     threadId: v.optional(v.string()),
@@ -147,6 +212,14 @@ export const cloudAppsSchema = {
     // to the DO so an optimistic bubble can be resolved against the journal
     // row, and makes a retried start idempotent instead of double-charged.
     clientMsgId: v.optional(v.string()),
+    /**
+     * Immutable effective model route for this exact turn. This is what retry,
+     * restart, token authorization, and executor dispatch consume.
+     */
+    execution: v.optional(cloudExecutionSelectionValidator),
+    // Idempotency fence for a desktop pause control. A retry of the same
+    // tool call must not stop a successor turn on this long-lived thread.
+    cancelRequestId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -157,7 +230,11 @@ export const cloudAppsSchema = {
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
     // Quota gates count per-lane: chat rows outnumber build rows by up to
     // 20x, so a mixed-lane window can't bound a per-lane count.
-    .index("by_ownerId_and_lane_and_createdAt", ["ownerId", "lane", "createdAt"])
+    .index("by_ownerId_and_lane_and_createdAt", [
+      "ownerId",
+      "lane",
+      "createdAt",
+    ])
     .index("by_conversationId_and_createdAt", ["conversationId", "createdAt"])
     .index("by_threadId_and_createdAt", ["threadId", "createdAt"]),
 
@@ -241,6 +318,11 @@ export const cloudAppsSchema = {
     ownerId: v.string(),
     turnId: v.string(),
     agentType: v.string(),
+    /**
+     * The only model route this capability authorizes. Optional solely for
+     * tokens minted by a rolling deployment before route binding existed.
+     */
+    execution: v.optional(cloudExecutionSelectionValidator),
     createdAt: v.number(),
     expiresAt: v.number(),
   })
@@ -259,9 +341,23 @@ export const cloudAppsSchema = {
     // Absent when the desktop dispatched the agent: there is no cloud turn
     // above it, only the local chat that asked for it.
     parentTurnId: v.optional(v.string()),
+    // Durable origin metadata for desktop-dispatched threads. Optional for
+    // rolling compatibility with rows and installed clients from before local
+    // completion recovery existed.
+    originDeviceId: v.optional(v.string()),
+    originConversationId: v.optional(v.string()),
+    // Set only after the originating desktop has durably persisted the
+    // terminal lifecycle result. Until then the thread stays in that device's
+    // reactive recovery query across disconnects and process restarts.
+    originDeliveryAckAt: v.optional(v.number()),
     description: v.string(),
     workspace: v.string(),
     agentType: v.string(),
+    /**
+     * Thread-level inheritance snapshot. Continuations keep this exact route;
+     * a deliberate per-spawn override replaces it for that new turn.
+     */
+    execution: v.optional(cloudExecutionSelectionValidator),
     status: v.string(),
     resultJson: v.optional(v.string()),
     errorMessage: v.optional(v.string()),
@@ -270,7 +366,18 @@ export const cloudAppsSchema = {
   })
     .index("by_threadId", ["threadId"])
     .index("by_conversationId_and_updatedAt", ["conversationId", "updatedAt"])
-    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
+    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"])
+    .index("by_ownerId_and_originDeviceId_and_updatedAt", [
+      "ownerId",
+      "originDeviceId",
+      "updatedAt",
+    ])
+    .index("by_ownerId_originDeviceId_ackAt_updatedAt", [
+      "ownerId",
+      "originDeviceId",
+      "originDeliveryAckAt",
+      "updatedAt",
+    ]),
 
   agent_events: defineTable({
     turnId: v.string(),
@@ -319,7 +426,11 @@ export const cloudAppsSchema = {
     updatedAt: v.number(),
   })
     .index("by_invocationId", ["invocationId"])
-    .index("by_appId_and_status_and_createdAt", ["appId", "status", "createdAt"])
+    .index("by_appId_and_status_and_createdAt", [
+      "appId",
+      "status",
+      "createdAt",
+    ])
     .index("by_turnId", ["turnId"]),
 
   cloud_failure_alerts: defineTable({

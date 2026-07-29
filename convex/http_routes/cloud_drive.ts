@@ -54,7 +54,7 @@ const verifyTurnToken = async (
   if (!token) return null;
   const row = await ctx.runQuery(
     internal.cloud_apps.getTurnTokenByHashInternal,
-    { tokenHash: await hashToken(token) },
+    { tokenHash: await hashToken(token), now: Date.now() },
   );
   return (row as TurnTokenRow | null) ?? null;
 };

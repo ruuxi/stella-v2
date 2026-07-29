@@ -1,6 +1,9 @@
 import path from "path";
 import { createFashionApi } from "./fashion-api.js";
-import { createCloudSpawnDispatcher } from "./cloud-spawn-dispatch.js";
+import {
+  createCloudSpawnDispatcher,
+  createCloudThreadController,
+} from "./cloud-spawn-dispatch.js";
 import { createCloudTranscriptWriter } from "./cloud-transcript-write.js";
 import { createToolHost } from "../tools/host.js";
 import { HookEmitter } from "../extensions/hook-emitter.js";
@@ -44,6 +47,7 @@ import {
 } from "@stella/contracts/agent-runtime";
 import type {
   AgentModelConfigSnapshot,
+  CloudExecutionSelection,
   SpawnEngineSelection,
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
@@ -90,6 +94,7 @@ import {
   captureEffectiveModelConfig,
   resolveAgentEngineForRun,
   restoreSpawnEngineFromModelConfig,
+  toCloudExecutionSelection,
 } from "./agent-model-config.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import { getResponseLanguageSystemPrompt } from "./locale-prompt.js";
@@ -495,7 +500,22 @@ export const createRunnerContext = ({
 
   const cloudDispatch = createCloudSpawnDispatcher({
     convexApi: anyApi,
+    deviceId,
     mutation: async (ref, args) => await convexCall("mutation", ref, args),
+    action: async (ref, args) => await convexCall("action", ref, args),
+    query: async (ref, args) => await convexCall("query", ref, args),
+    isSignedIn: () =>
+      Boolean(
+        sanitizeConvexDeploymentUrl(
+          context.state?.convexDeploymentUrl ?? envConvexDeploymentUrl,
+        ) && (context.state?.authToken ?? envAuthToken ?? "").trim(),
+      ),
+  });
+  const cloudThreadController = createCloudThreadController({
+    convexApi: anyApi,
+    deviceId,
+    mutation: async (ref, args) => await convexCall("mutation", ref, args),
+    action: async (ref, args) => await convexCall("action", ref, args),
     query: async (ref, args) => await convexCall("query", ref, args),
     isSignedIn: () =>
       Boolean(
@@ -575,6 +595,41 @@ export const createRunnerContext = ({
         modelName,
         reasoningEffort,
       );
+    },
+    resolveCloudExecutionSelection: async ({
+      model: modelOverride,
+      spawnEngine,
+      reasoningEffort,
+    }): Promise<CloudExecutionSelection> => {
+      const agent = resolveAgent(context, AGENT_IDS.GENERAL);
+      const configuredModel = getConfiguredModel(
+        context,
+        AGENT_IDS.GENERAL,
+        agent,
+      );
+      const model = modelOverride ?? configuredModel;
+      const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
+        context,
+        AGENT_IDS.GENERAL,
+        model,
+        reasoningEffort,
+      );
+      const { modelConfigSnapshot } = resolveEffectiveAgentExecutionConfig(
+        context,
+        {
+          agentType: AGENT_IDS.GENERAL,
+          model,
+          resolvedLlm,
+          ...(spawnEngine ? { spawnEngine } : {}),
+          ...(reasoningEffort
+            ? { spawnReasoningEffort: reasoningEffort }
+            : {}),
+        },
+      );
+      if (!modelConfigSnapshot) {
+        throw new Error("Could not resolve the General agent's cloud model.");
+      }
+      return toCloudExecutionSelection(modelConfigSnapshot);
     },
     scheduleApi,
 
@@ -741,6 +796,8 @@ export const createRunnerContext = ({
       // Cloud placements never touch LocalAgentManager: the subject lives off
       // this machine, so the spawn leaves the device entirely.
       cloudDispatch,
+      cloudContinue: cloudThreadController.continueThread,
+      cloudCancel: cloudThreadController.cancelThread,
       createAgent: async (request) => {
         if (!context.state.localAgentManager) {
           throw new Error("Local task manager not initialized");

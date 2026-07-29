@@ -101,6 +101,7 @@ export class AuthService {
   // (avoids a redundant network round-trip). Reset on any external mutation.
   private lastRevalidatedResult: unknown | null = null;
   private hasRevalidatedResult = false;
+  private readonly hostConfigurationListeners = new Set<() => void>();
 
   constructor(private readonly options: AuthServiceOptions) {}
 
@@ -628,6 +629,7 @@ export class AuthService {
     runner?.setHasConnectedAccount(false);
     this.hostAuthToken = null;
     runner?.setAuthToken(null);
+    this.notifyHostConfigurationChanged();
   }
 
   registerAuthProtocol() {
@@ -739,6 +741,7 @@ export class AuthService {
     if (this.hostHasConnectedAccount !== previousHasConnectedAccount) {
       runner?.setHasConnectedAccount(this.hostHasConnectedAccount);
     }
+    this.notifyHostConfigurationChanged();
   }
 
   getHostAuthAuthenticated() {
@@ -761,10 +764,28 @@ export class AuthService {
       runner?.setAuthToken(this.hostAuthToken);
     }
     runner?.setHasConnectedAccount(this.hostHasConnectedAccount);
+    this.notifyHostConfigurationChanged();
   }
 
   getPendingConvexUrl() {
     return this.pendingConvexUrl;
+  }
+
+  onHostConfigurationChanged(listener: () => void) {
+    this.hostConfigurationListeners.add(listener);
+    return () => {
+      this.hostConfigurationListeners.delete(listener);
+    };
+  }
+
+  private notifyHostConfigurationChanged() {
+    for (const listener of this.hostConfigurationListeners) {
+      try {
+        listener();
+      } catch {
+        // Configuration observers are best-effort and must not break auth.
+      }
+    }
   }
 
   getConvexSiteUrl(): string | null {

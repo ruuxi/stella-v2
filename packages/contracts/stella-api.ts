@@ -1,5 +1,6 @@
 const STELLA_API_BASE_PATH = "/api/stella";
 export const STELLA_MODELS_PATH = `${STELLA_API_BASE_PATH}/models`;
+export const STELLA_CLOUD_MODEL_PATH = `${STELLA_API_BASE_PATH}/cloud-model`;
 export const STELLA_PROMPTS_PATH = `${STELLA_API_BASE_PATH}/prompts`;
 export const STELLA_RELAY_PATH_PREFIX = `${STELLA_API_BASE_PATH}/relay`;
 export const STELLA_CHAT_COMPLETIONS_PATH = `${STELLA_RELAY_PATH_PREFIX}/chat/completions`;
@@ -38,6 +39,9 @@ export const stellaApiBaseUrlFromSiteUrl = (siteUrl: string): string =>
 
 export const stellaPromptEndpointFromSiteUrl = (siteUrl: string): string =>
   stellaUrlFromSiteUrl(siteUrl, STELLA_PROMPTS_PATH);
+
+export const stellaCloudModelEndpointFromSiteUrl = (siteUrl: string): string =>
+  stellaUrlFromSiteUrl(siteUrl, STELLA_CLOUD_MODEL_PATH);
 
 export const stellaManagedRelayBaseUrlFromSiteUrl = (siteUrl: string): string =>
   stellaUrlFromSiteUrl(siteUrl, STELLA_RELAY_PATH_PREFIX);

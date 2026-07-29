@@ -429,6 +429,36 @@ export const createAgentOrchestration = (
       recipient: isManagerOwned ? "manager" : "orchestrator",
     });
     if (!userPrompt) {
+      // Desktop-originated cloud pauses deliberately suppress a synthetic
+      // orchestrator follow-up so it cannot overwrite the user's visible
+      // pause response. The Convex lifecycle monitor still needs a durable
+      // event marker before it may ACK the terminal row; otherwise that row
+      // remains subscribed forever and is replayed on every restart.
+      if (
+        event.type === "agent-canceled" &&
+        event.audience === "orchestrator-only" &&
+        event.eventId
+      ) {
+        const orchestratorThreadId = resolveOrchestratorThreadKey(
+          event.conversationId,
+        );
+        if (
+          !hasPersistedThreadEvent(context, orchestratorThreadId, event.eventId)
+        ) {
+          persistThreadCustomMessage(context.runtimeStore, {
+            threadKey: orchestratorThreadId,
+            customType: "runtime.task_lifecycle",
+            content: [],
+            display: false,
+            timestamp: Date.now(),
+            eventId: event.eventId,
+            lifecycleEvent: {
+              type: event.type,
+              payload: buildLifecycleEventPayload(event),
+            },
+          });
+        }
+      }
       return;
     }
     if (managerParentId) {
@@ -468,7 +498,13 @@ export const createAgentOrchestration = (
     const orchestratorThreadId = resolveOrchestratorThreadKey(
       event.conversationId,
     );
-    const requiresStableReminder = isInterimMessage || isRootManagerCompletion;
+    const requiresStableReminder =
+      Boolean(event.eventId) &&
+      (isInterimMessage ||
+        isRootManagerCompletion ||
+        event.type === "agent-completed" ||
+        event.type === "agent-failed" ||
+        event.type === "agent-canceled");
     if (
       requiresStableReminder &&
       hasPersistedThreadEvent(context, orchestratorThreadId, event.eventId)
@@ -981,6 +1017,33 @@ export const createAgentOrchestration = (
     runBlockingLocalAgent,
     createBackgroundAgent,
     cancelLocalAgent,
+    handleExternalAgentLifecycleEvent: handleAgentLifecycleEvent,
+    hasDurableExternalLifecycleEvent: (event: AgentLifecycleEvent) => {
+      if (!event.eventId) return false;
+      if (event.audience === "orchestrator-only") {
+        return hasPersistedThreadEvent(
+          context,
+          resolveOrchestratorThreadKey(event.conversationId),
+          event.eventId,
+        );
+      }
+      const hasActivityEvent = context.runtimeStore.hasEvent(
+        event.conversationId,
+        event.eventId,
+        event.type,
+      );
+      if (event.type === "agent-started") {
+        return hasActivityEvent;
+      }
+      return (
+        hasActivityEvent &&
+        hasPersistedThreadEvent(
+          context,
+          resolveOrchestratorThreadKey(event.conversationId),
+          event.eventId,
+        )
+      );
+    },
     shutdown,
   };
 };

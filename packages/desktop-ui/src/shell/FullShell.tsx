@@ -185,6 +185,17 @@ export const FullShell = () => {
   // background bootstraps only unlock cloud state, chat history, sends, and
   // local tools once their own state arrives.
   useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get(
+      "rendererReadiness",
+    );
+    if (!token) return;
+    window.electronAPI?.ui.setRendererMounted?.(
+      isMiniWindow ? "mini" : "full",
+      token,
+    );
+  }, [isMiniWindow]);
+
+  useEffect(() => {
     if (isMiniWindow) return;
     window.electronAPI?.ui.setAppReady?.(appReady);
   }, [appReady, isMiniWindow]);

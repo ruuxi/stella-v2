@@ -37,6 +37,13 @@ export function PetWindowRoot() {
   const [status, setStatus] = useState<PetOverlayStatus>(IDLE_PET_STATUS);
 
   useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get(
+      "rendererReadiness",
+    );
+    if (token) window.electronAPI?.ui.setRendererMounted?.("pet", token);
+  }, []);
+
+  useEffect(() => {
     const cleanups: Array<() => void> = [];
     void window.electronAPI?.pet?.getState?.().then((snapshot) => {
       setOpen(snapshot.open);
@@ -74,7 +81,10 @@ export function PetWindowRoot() {
 
 createRoot(document.getElementById("root")!).render(
   <ErrorBoundary>
-    <ConvexProviderWithAuth client={convexClient} useAuth={useDesktopConvexAuth}>
+    <ConvexProviderWithAuth
+      client={convexClient}
+      useAuth={useDesktopConvexAuth}
+    >
       <ThemeProvider>
         <ToastProvider>
           <PetWindowRoot />

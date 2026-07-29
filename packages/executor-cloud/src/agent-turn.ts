@@ -25,6 +25,15 @@ import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { createToolHost } from "@stella/runtime/kernel/tools/host.js";
 import type { ToolContext } from "@stella/runtime/kernel/tools/host.js";
 import {
+  createClaudeCodeToolMcpHost,
+  type ClaudeCodeToolMcpHost,
+} from "@stella/runtime/kernel/integrations/claude-code-tool-mcp-host.js";
+import type {
+  ToolMetadata,
+  ToolResult,
+  ToolUpdateCallback,
+} from "@stella/runtime/kernel/tools/types.js";
+import {
   AGENT_RUN_MAX_ATTEMPTS,
   executeAgentRunWithRetry,
   prepareTransientResumeTail,
@@ -480,51 +489,95 @@ export const runAgentTurn = (
 
       const catalog = toolHost.getToolCatalog("general", {});
       const byName = new Map(catalog.map((tool) => [tool.name, tool]));
-      const tools: AgentTool[] = [];
-      for (const name of CLOUD_GENERAL_TOOLS) {
-        const meta = byName.get(name);
-        if (!meta) continue;
-        tools.push({
+      const cloudToolMetadata = CLOUD_GENERAL_TOOLS.map((name) =>
+        byName.get(name),
+      ).filter((tool): tool is ToolMetadata => Boolean(tool));
+      const recordToolResult = (result: ToolResult): void => {
+        if (result.fileChanges) editedFiles.push(...result.fileChanges);
+        if (result.producedFiles?.length) {
+          detectedFiles.push(result.producedFiles);
+        }
+        if (result.producedFilesOmitted) {
+          runtimeWithheldFiles += result.producedFilesOmitted.count;
+        }
+      };
+      const executeCloudTool = async (
+        name: string,
+        params: Record<string, unknown>,
+        signal?: AbortSignal,
+        onUpdate?: ToolUpdateCallback,
+      ): Promise<ToolResult> => {
+        const result = await toolHost.executeTool(
           name,
-          label: meta.label ?? name,
-          ...(meta.workingText ? { workingText: meta.workingText } : {}),
-          description: meta.description,
-          parameters: meta.parameters as unknown as TSchema,
-          execute: async (_toolCallId, params, signal) => {
-            const result = await toolHost.executeTool(
-              name,
-              (params ?? {}) as Record<string, unknown>,
-              context,
-              signal,
-            );
-            if (result.fileChanges) editedFiles.push(...result.fileChanges);
-            if (result.producedFiles?.length) {
-              detectedFiles.push(result.producedFiles);
-            }
-            if (result.producedFilesOmitted) {
-              runtimeWithheldFiles += result.producedFilesOmitted.count;
-            }
-            if (result.error) throw new Error(result.error);
-            const text =
-              typeof result.result === "string"
-                ? result.result
-                : result.result === undefined
-                  ? ""
-                  : JSON.stringify(result.result, null, 2);
-            return {
-              content: [
-                {
-                  type: "text",
-                  text:
-                    text.length > 30_000
-                      ? `${text.slice(0, 15_000)}\n…[truncated]…\n${text.slice(-15_000)}`
-                      : text || "(no output)",
-                },
-              ],
-              details: result.details ?? null,
-            };
-          },
-        });
+          params,
+          context,
+          signal,
+          onUpdate,
+        );
+        recordToolResult(result);
+        return result;
+      };
+      const tools: AgentTool[] = cloudToolMetadata.map((meta) => ({
+        name: meta.name,
+        label: meta.label ?? meta.name,
+        ...(meta.workingText ? { workingText: meta.workingText } : {}),
+        description: meta.description,
+        parameters: meta.parameters as unknown as TSchema,
+        execute: async (_toolCallId, params, signal) => {
+          const result = await executeCloudTool(
+            meta.name,
+            (params ?? {}) as Record<string, unknown>,
+            signal,
+          );
+          if (result.error) throw new Error(result.error);
+          const text =
+            typeof result.result === "string"
+              ? result.result
+              : result.result === undefined
+                ? ""
+                : JSON.stringify(result.result, null, 2);
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  text.length > 30_000
+                    ? `${text.slice(0, 15_000)}\n…[truncated]…\n${text.slice(-15_000)}`
+                    : text || "(no output)",
+              },
+            ],
+            details: result.details ?? null,
+          };
+        },
+      }));
+
+      let claudeToolMcpHost: ClaudeCodeToolMcpHost | undefined;
+      if (input.execution.engine === "anthropic") {
+        claudeToolMcpHost = yield* Effect.acquireRelease(
+          Effect.tryPromise({
+            try: () =>
+              createClaudeCodeToolMcpHost({
+                tools: cloudToolMetadata,
+                identityScope: `${input.threadId}:${input.turnId}`,
+                getActiveTurn: () => ({
+                  identityScope: `${input.threadId}:${input.turnId}`,
+                  executeTool: (
+                    _toolCallId,
+                    toolName,
+                    args,
+                    signal,
+                    onUpdate,
+                  ) => executeCloudTool(toolName, args, signal, onUpdate),
+                }),
+              }),
+            catch: asError,
+          }),
+          (host) =>
+            Effect.tryPromise({
+              try: () => host.close(),
+              catch: asError,
+            }).pipe(Effect.orDie),
+        );
       }
 
       const parsedHistory: AgentMessage[] = [];
@@ -556,10 +609,24 @@ export const runAgentTurn = (
               turnToken: token,
               workspace,
               threadId: input.threadId,
+              ...(claudeToolMcpHost
+                ? {
+                    claudeMcpServerConfig: claudeToolMcpHost.mcpServerConfig,
+                  }
+                : {}),
               emitEvent,
             }),
           catch: asError,
         });
+        if (!native.error && claudeToolMcpHost) {
+          yield* Effect.tryPromise({
+            // A successful Claude process must have initialized the immutable
+            // Stella catalog. Native errors remain authoritative and are not
+            // replaced by a secondary readiness failure.
+            try: () => claudeToolMcpHost.waitForClientReady(undefined, 1_000),
+            catch: asError,
+          });
+        }
         editedFiles.push(...native.editedFiles);
         llmCalls = native.usage.llmCalls;
         inputTokens = native.usage.inputTokens;

@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import type { FileChangeRecord } from "@stella/contracts/file-changes";
 import type {
@@ -22,6 +32,37 @@ export type NativeAgentTurnResult = {
 };
 
 type NativeEvent = (kind: string, payload: unknown) => void;
+
+export type CloudClaudeMcpServerConfig = {
+  type: "http";
+  url: string;
+  headers: { Authorization: string };
+};
+
+export const createCloudClaudeMcpConfig = async (
+  serverConfig: CloudClaudeMcpServerConfig,
+): Promise<{ path: string; cleanup: () => Promise<void> }> => {
+  const directory = await mkdtemp(
+    path.join(tmpdir(), "stella-cloud-claude-mcp-"),
+  );
+  try {
+    await chmod(directory, 0o700);
+    const configPath = path.join(directory, "mcp.json");
+    await writeFile(
+      configPath,
+      JSON.stringify({ mcpServers: { stella: serverConfig } }),
+      { mode: 0o600 },
+    );
+    await chmod(configPath, 0o600);
+    return {
+      path: configPath,
+      cleanup: () => rm(directory, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+};
 
 const INTERNAL_DIRS = new Set([
   ".git",
@@ -247,6 +288,51 @@ export const buildClaudeChildEnv = (options: {
   return childEnv;
 };
 
+export const buildCloudClaudeTakeoverArgs = (options: {
+  model: string;
+  reasoningEffort: AgentModelReasoningEffort;
+  systemPrompt: string;
+  mcpConfigPath: string;
+  resume: boolean;
+  sessionId: string;
+  inputPrompt: string;
+}): string[] => [
+  "-p",
+  "--verbose",
+  "--output-format",
+  "stream-json",
+  ...resolveClaudeModelArgs(options.model),
+  ...resolveClaudeReasoningArgs(options.reasoningEffort),
+  "--dangerously-skip-permissions",
+  // Match the desktop's configured Claude engine takeover: Claude owns the
+  // native loop, but Stella owns its entire capability and instruction
+  // surface. Ambient MCP servers, built-ins, and slash commands stay out.
+  "--strict-mcp-config",
+  "--mcp-config",
+  options.mcpConfigPath,
+  "--disable-slash-commands",
+  "--tools",
+  "",
+  // CLAUDE_CONFIG_DIR persists only conversation state. Never let a prior
+  // turn or project file turn that persistence into executable hooks,
+  // plugins, permissions, or other settings outside Stella's ToolHost.
+  "--setting-sources",
+  "",
+  "--settings",
+  JSON.stringify({
+    // Match the configured desktop engine: keyword-triggered workflows must
+    // not hijack an ordinary Stella task after slash commands are removed.
+    workflowKeywordTriggerEnabled: false,
+    disableWorkflows: true,
+  }),
+  "--system-prompt",
+  options.systemPrompt,
+  ...(options.resume
+    ? ["--resume", options.sessionId]
+    : ["--session-id", options.sessionId]),
+  options.inputPrompt,
+];
+
 const tomlString = (value: string): string => JSON.stringify(value);
 
 const transcript = (prompt: string, finalText: string): AgentMessage[] =>
@@ -263,6 +349,7 @@ const runClaude = async (options: {
   turnToken: string;
   workspace: WorkspaceIdentity;
   threadId: string;
+  mcpServerConfig: CloudClaudeMcpServerConfig;
   emitEvent: NativeEvent;
 }): Promise<Omit<NativeAgentTurnResult, "editedFiles" | "messages">> => {
   const stateRoot = engineStateRoot(
@@ -279,112 +366,113 @@ const runClaude = async (options: {
     () => true,
     () => false,
   );
-  const args = [
-    "-p",
-    "--verbose",
-    "--output-format",
-    "stream-json",
-    ...resolveClaudeModelArgs(options.execution.model),
-    ...resolveClaudeReasoningArgs(options.execution.reasoningEffort),
-    "--dangerously-skip-permissions",
-    "--strict-mcp-config",
-    "--mcp-config",
-    '{"mcpServers":{}}',
-    "--append-system-prompt",
-    options.systemPrompt,
-    ...(resume ? ["--resume", sessionId] : ["--session-id", sessionId]),
-    options.inputPrompt,
-  ];
-  let finalText = "";
-  let error: string | undefined;
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let llmCalls = 0;
-  let initialized = resume;
-  const childEnv = buildClaudeChildEnv({
-    initialEnv: process.env,
-    callbackBase: options.callbackBase,
-    stateRoot,
-    turnToken: options.turnToken,
-    reasoningEffort: options.execution.reasoningEffort,
-  });
-  const result = await runJsonLines({
-    command: "claude",
-    args,
-    cwd: options.workspace.root,
-    env: childEnv,
-    onJson: (event) => {
-      const type = event.type;
-      if (type === "system" && event.subtype === "init") {
-        initialized = true;
-        void writeFile(markerPath, `${sessionId}\n`, { mode: 0o600 });
-        return;
-      }
-      if (type === "assistant") {
-        llmCalls += 1;
-        const message = event.message as
-          | { content?: unknown; usage?: Record<string, unknown> }
-          | undefined;
-        const texts = textBlocks(message?.content);
-        for (const text of texts) {
-          finalText = text;
-          options.emitEvent("assistant_message", {
-            text: text.slice(0, 8_000),
-          });
+  const mcpConfig = await createCloudClaudeMcpConfig(options.mcpServerConfig);
+  try {
+    const args = buildCloudClaudeTakeoverArgs({
+      model: options.execution.model,
+      reasoningEffort: options.execution.reasoningEffort,
+      systemPrompt: options.systemPrompt,
+      mcpConfigPath: mcpConfig.path,
+      resume,
+      sessionId,
+      inputPrompt: options.inputPrompt,
+    });
+    let finalText = "";
+    let error: string | undefined;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let llmCalls = 0;
+    let initialized = resume;
+    const childEnv = buildClaudeChildEnv({
+      initialEnv: process.env,
+      callbackBase: options.callbackBase,
+      stateRoot,
+      turnToken: options.turnToken,
+      reasoningEffort: options.execution.reasoningEffort,
+    });
+    const result = await runJsonLines({
+      command: "claude",
+      args,
+      cwd: options.workspace.root,
+      env: childEnv,
+      onJson: (event) => {
+        const type = event.type;
+        if (type === "system" && event.subtype === "init") {
+          initialized = true;
+          void writeFile(markerPath, `${sessionId}\n`, { mode: 0o600 });
+          return;
         }
-        if (Array.isArray(message?.content)) {
-          for (const block of message.content) {
-            if (
-              block &&
-              typeof block === "object" &&
-              (block as { type?: unknown }).type === "tool_use"
-            ) {
-              const tool = block as {
-                name?: unknown;
-                input?: unknown;
-              };
-              options.emitEvent("tool_call", {
-                name: typeof tool.name === "string" ? tool.name : "Claude tool",
-                args: JSON.stringify(tool.input ?? {}).slice(0, 1_000),
-              });
+        if (type === "assistant") {
+          llmCalls += 1;
+          const message = event.message as
+            | { content?: unknown; usage?: Record<string, unknown> }
+            | undefined;
+          const texts = textBlocks(message?.content);
+          for (const text of texts) {
+            finalText = text;
+            options.emitEvent("assistant_message", {
+              text: text.slice(0, 8_000),
+            });
+          }
+          if (Array.isArray(message?.content)) {
+            for (const block of message.content) {
+              if (
+                block &&
+                typeof block === "object" &&
+                (block as { type?: unknown }).type === "tool_use"
+              ) {
+                const tool = block as {
+                  name?: unknown;
+                  input?: unknown;
+                };
+                options.emitEvent("tool_call", {
+                  name:
+                    typeof tool.name === "string" ? tool.name : "Claude tool",
+                  args: JSON.stringify(tool.input ?? {}).slice(0, 1_000),
+                });
+              }
             }
           }
+          return;
         }
-        return;
-      }
-      if (type === "result") {
-        const resultText =
-          typeof event.result === "string" ? event.result.trim() : "";
-        if (resultText) finalText = resultText;
-        const usage =
-          event.usage && typeof event.usage === "object"
-            ? (event.usage as Record<string, unknown>)
-            : {};
-        inputTokens =
-          numberAt(usage.input_tokens) +
-          numberAt(usage.cache_creation_input_tokens) +
-          numberAt(usage.cache_read_input_tokens);
-        outputTokens = numberAt(usage.output_tokens);
-        if (typeof event.num_turns === "number") llmCalls = event.num_turns;
-        if (event.is_error === true) {
-          error = resultText || "Claude Code reported an unsuccessful turn.";
+        if (type === "result") {
+          const resultText =
+            typeof event.result === "string" ? event.result.trim() : "";
+          if (resultText) finalText = resultText;
+          const usage =
+            event.usage && typeof event.usage === "object"
+              ? (event.usage as Record<string, unknown>)
+              : {};
+          inputTokens =
+            numberAt(usage.input_tokens) +
+            numberAt(usage.cache_creation_input_tokens) +
+            numberAt(usage.cache_read_input_tokens);
+          outputTokens = numberAt(usage.output_tokens);
+          if (typeof event.num_turns === "number") llmCalls = event.num_turns;
+          if (event.is_error === true) {
+            error = resultText || "Claude Code reported an unsuccessful turn.";
+          }
         }
-      }
-    },
-  });
-  if (initialized) {
-    await writeFile(markerPath, `${sessionId}\n`, { mode: 0o600 });
+      },
+    });
+    if (initialized) {
+      await writeFile(markerPath, `${sessionId}\n`, { mode: 0o600 });
+    }
+    if (result.exitCode !== 0 && !error) {
+      error =
+        result.stderr.trim().slice(-4_000) ||
+        `Claude Code exited with status ${result.exitCode ?? "unknown"}.`;
+    }
+    return {
+      finalText,
+      ...(error ? { error } : {}),
+      usage: { inputTokens, outputTokens, llmCalls },
+    };
+  } finally {
+    // This directory contains the private loopback MCP bearer. It lives
+    // outside every checkpoint root and exists only while Claude is alive.
+    await mcpConfig.cleanup();
   }
-  if (result.exitCode !== 0 && !error) {
-    error =
-      result.stderr.trim().slice(-4_000) ||
-      `Claude Code exited with status ${result.exitCode ?? "unknown"}.`;
-  }
-  return {
-    finalText,
-    ...(error ? { error } : {}),
-    usage: { inputTokens, outputTokens, llmCalls },
-  };
 };
 
 const runCodex = async (options: {
@@ -569,31 +657,49 @@ export const runNativeAgentTurn = async (options: {
   turnToken: string;
   workspace: WorkspaceIdentity;
   threadId: string;
+  claudeMcpServerConfig?: CloudClaudeMcpServerConfig;
   emitEvent: NativeEvent;
 }): Promise<NativeAgentTurnResult> => {
+  if (options.execution.engine === "anthropic") {
+    const mcpServerConfig = options.claudeMcpServerConfig;
+    if (!mcpServerConfig) {
+      throw new Error("Stella's Claude tool bridge is unavailable.");
+    }
+    const result = await runClaude({
+      inputPrompt: options.prompt,
+      systemPrompt: options.systemPrompt,
+      execution: options.execution,
+      callbackBase: options.callbackBase,
+      turnToken: options.turnToken,
+      workspace: options.workspace,
+      threadId: options.threadId,
+      mcpServerConfig,
+      emitEvent: options.emitEvent,
+    });
+    return {
+      ...result,
+      messages: transcript(
+        options.prompt,
+        result.finalText || result.error || "",
+      ),
+      // Claude can mutate the workspace only through Stella's MCP ToolHost,
+      // which already reports precise file changes and produced files.
+      editedFiles: [],
+    };
+  }
+  // Native Codex keeps its normal tool surface, so a workspace snapshot is
+  // still the authoritative way to discover changes made by that process.
   const before = await snapshotFiles(options.workspace.root);
-  const result =
-    options.execution.engine === "anthropic"
-      ? await runClaude({
-          inputPrompt: options.prompt,
-          systemPrompt: options.systemPrompt,
-          execution: options.execution,
-          callbackBase: options.callbackBase,
-          turnToken: options.turnToken,
-          workspace: options.workspace,
-          threadId: options.threadId,
-          emitEvent: options.emitEvent,
-        })
-      : await runCodex({
-          inputPrompt: options.prompt,
-          systemPrompt: options.systemPrompt,
-          execution: options.execution,
-          callbackBase: options.callbackBase,
-          turnToken: options.turnToken,
-          workspace: options.workspace,
-          threadId: options.threadId,
-          emitEvent: options.emitEvent,
-        });
+  const result = await runCodex({
+    inputPrompt: options.prompt,
+    systemPrompt: options.systemPrompt,
+    execution: options.execution,
+    callbackBase: options.callbackBase,
+    turnToken: options.turnToken,
+    workspace: options.workspace,
+    threadId: options.threadId,
+    emitEvent: options.emitEvent,
+  });
   const after = await snapshotFiles(options.workspace.root);
   return {
     ...result,

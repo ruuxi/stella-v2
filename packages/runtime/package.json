@@ -13,6 +13,7 @@
     "./*": "./*.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@stella/contracts": "workspace:*",
     "effect": "4.0.0-beta.83",
     "json5": "^2.2.3"

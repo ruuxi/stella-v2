@@ -25,7 +25,7 @@ Durable Object classes:
   M0–M6 pipeline. `kind: "agent"` turns run a spawned general agent: restore
   the workspace checkpoint, run the real runtime headless via
   `executor-cloud --agent-turn` (pinned tool list: exec_command, write_stdin,
-  node_repl, apply_patch, web, view_image), checkpoint, report. Sandboxes
+  node_repl, apply_patch, web, view_image, Read), checkpoint, report. Sandboxes
   receive a short-lived turn token, never provider or account credentials.
 
 ## Cloud chat (orchestrator plane)
@@ -45,7 +45,7 @@ conversation are serialized by construction rather than by discipline, and the
 per-turn HTTP round trip to reload history is gone. Clients read the journal
 over a hibernatable WebSocket at
 `GET /conversations/:conversationId/socket`, authenticated by the user's Better
-Auth JWT (verified in the worker, before the DO is addressed). Turn *starts*
+Auth JWT (verified in the worker, before the DO is addressed). Turn _starts_
 never touch the socket — they stay on `startCloudChat` so quota, engine
 resolution, and turn-token minting cannot be bypassed. Older journal rows roll
 into gzipped R2 segments in `CONVERSATION_ARCHIVE`, with the DO holding the
@@ -58,7 +58,7 @@ Convex may read a DO-owned field and act on it as truth:
 - `cloud_conversations` — the conversation index (id, owner, title,
   `updatedAt`, last-message preview). A per-conversation DO cannot answer "list
   my conversations", so this slice stays relational. `{conversationId, ownerId,
-  createdAt}` is Convex-authoritative and DO-mirrored; the rest is projection.
+createdAt}` is Convex-authoritative and DO-mirrored; the rest is projection.
 - `cloud_message_excerpts` — one compact, full-text-indexed row per turn,
   backing cross-conversation Recall. An index, not a second copy of truth.
 
@@ -126,7 +126,7 @@ Operational contracts (hardened 2026-07-24 after adversarial review):
   ownership, so a stale unwind can never fail a successor's thread, kill its
   alarm, or wipe its state.
 - **Watchdogs abort — and terminal delivery retries.** Both DO alarms mark
-  the turn terminal *and* abort the in-flight loop / destroy the sandbox —
+  the turn terminal _and_ abort the in-flight loop / destroy the sandbox —
   no post-timeout token burn (the orchestrator also re-checks the terminal
   flag right before starting the loop, covering an alarm that fires during
   setup). Terminal event + thread completion are retried via re-armed alarms
@@ -165,7 +165,7 @@ Operational contracts (hardened 2026-07-24 after adversarial review):
 
 ### Orchestrator parity with desktop (2026-07-27)
 
-The cloud orchestrator runs the same loop *configuration* as the desktop
+The cloud orchestrator runs the same loop _configuration_ as the desktop
 runtime, not just the same loop:
 
 - **Persona.** The DO builds its system prompt from the canonical
@@ -225,24 +225,26 @@ never enter a DO or sandbox, and refresh server-side (`cloud_engines.ts`
   into `finishEngineConnect`, which exchanges and stores it. UI:
   `CloudEnginesCard` on the Settings → Account tab (works in the web/mobile
   interior — no Electron needed).
-- **Selection:** per-owner `cloud_engine_settings.chatEngine`
-  (`stella` | `anthropic`), resolved once at dispatch
-  (`resolveOwnerEngine` in `cloud_apps.ts`) for chat, wake, and agent
-  turns; the cloud `spawn_agent` also takes a per-spawn
-  `model: "claude" | "claude/<model>"` override, validated at spawn time
-  with readable errors when no credential is connected.
-- **Relay user-credential mode:** the DO/executor adds
-  `x-stella-llm-credential: anthropic` (flag only) next to the turn token;
-  the relay resolves the owner's stored token, forwards with Bearer auth
-  plus the Claude Code identity headers/system block Anthropic requires for
-  subscription tokens, and **skips managed gating and metering** — the
-  spend is the user's subscription. The header is stripped before any
-  upstream forward on the managed path.
-- **Honest limits:** `openai-codex` credentials can be connected and stored
-  (login persistence is ready), but Codex-backed cloud turns and the actual
-  external CLI harnesses (Claude Code / Codex binaries in the sandbox image,
-  brokered via the outbound proxy) are named follow-ups — selection is
-  refused with readable errors until then.
+- **Selection:** `cloud_engine_settings.execution` persists the exact engine,
+  provider, native model, and reasoning effort (`stella`, `anthropic`, or
+  `openai-codex`). Dispatch copies that immutable selection onto every turn.
+  Cloud `spawn_agent` can override one child with
+  `claude[/model]:<effort>`, `codex[/model]:<effort>`, or a canonical
+  `stella/...` route.
+- **Relay user-credential mode:** the executor sends only a short-lived,
+  turn-bound capability. The relay validates its exact engine/model/reasoning
+  and native endpoint, resolves the encrypted owner credential server-side,
+  and injects OAuth only for the upstream request. Native request bodies and
+  SSE streams pass through without Stella-shaped rewriting; owner-subscription
+  calls skip managed billing.
+- **Native execution:** the sandbox image pins and runs the real Claude Code
+  and Codex CLIs. Codex keeps its normal native tool surface. Claude matches
+  Stella's desktop configured-engine takeover: Claude owns the native loop,
+  while `--tools ""`, disabled slash commands, and a private authenticated
+  loopback MCP host replace its built-ins with the same pinned Stella cloud
+  tools used by the in-process engine. Ambient/user MCP servers and persisted
+  user/project/local settings (including hooks and plugins) are excluded, and
+  Stella's cloud General-agent prompt replaces Claude's default prompt.
 
 Engine dev probes: `cloud_engines:connectProbeInternal` (key + authorize URL
 construction), `seedEngineProbeInternal` / `resolveEngineProbeInternal` /
@@ -316,15 +318,15 @@ public-HTTPS fetch. Apps never receive Convex credentials or Stella secrets.
 
 ## Development resources
 
-| Resource | Development value |
-| --- | --- |
-| Convex | `flexible-panther-999` |
-| Builder | `stella-v2-cloud-builder-dev.lolruuxi.workers.dev` |
-| Apps host | `stella-v2-apps-host-dev.lolruuxi.workers.dev` |
-| Interior | `stella-v2-interior-dev.lolruuxi.workers.dev` |
-| R2 | `stella-v2-app-builds-dev` |
-| KV | `dc5c7bac2bd04ec7bbd6a89f18a04ee7` |
-| Desktop renderer | `http://127.0.0.1:57315` |
+| Resource         | Development value                                  |
+| ---------------- | -------------------------------------------------- |
+| Convex           | `flexible-panther-999`                             |
+| Builder          | `stella-v2-cloud-builder-dev.lolruuxi.workers.dev` |
+| Apps host        | `stella-v2-apps-host-dev.lolruuxi.workers.dev`     |
+| Interior         | `stella-v2-interior-dev.lolruuxi.workers.dev`      |
+| R2               | `stella-v2-app-builds-dev`                         |
+| KV               | `dc5c7bac2bd04ec7bbd6a89f18a04ee7`                 |
+| Desktop renderer | `http://127.0.0.1:57315`                           |
 
 Only development-tier resources are automated. Production domains, DNS,
 cutover, and store submission require the owner.
@@ -337,14 +339,14 @@ falls back to Free for inactive subscriptions, and treats the existing
 rolling 24-hour turn quota, and active-turn concurrency before creating any
 turn or scheduling the builder.
 
-| Plan | Turns / rolling 24 h | Concurrent turns | Starts / 10 min |
-| --- | ---: | ---: | ---: |
-| Free | 3 | 1 | 4 |
-| Go | 10 | 1 | 6 |
-| Pro | 25 | 2 | 10 |
-| Plus | 50 | 3 | 16 |
-| Ultra | 100 | 4 | 24 |
-| Stella Max | 200 | 6 | 40 |
+| Plan       | Turns / rolling 24 h | Concurrent turns | Starts / 10 min |
+| ---------- | -------------------: | ---------------: | --------------: |
+| Free       |                    3 |                1 |               4 |
+| Go         |                   10 |                1 |               6 |
+| Pro        |                   25 |                2 |              10 |
+| Plus       |                   50 |                3 |              16 |
+| Ultra      |                  100 |                4 |              24 |
+| Stella Max |                  200 |                6 |              40 |
 
 These are the shipping guardrails for the development phase. Product/finance
 must confirm the plan-to-build mapping before production cutover. Changes belong
@@ -527,7 +529,7 @@ reply (`conversation_sealed_after_purge`) rather than retrying.
 
 Mini apps expose two agent lanes over one document of state. The build lane is
 the existing source-edit → sandbox → immutable artifact → apply-card path. The
-operations lane lets the agent act as a *user* of the running app: the app
+operations lane lets the agent act as a _user_ of the running app: the app
 declares named, deterministic operations, the model only picks a verb and
 arguments, and ordinary in-app code applies the change. The app's own UI
 controls and the agent invoke the same functions — one implementation, no
@@ -546,10 +548,15 @@ Apps register operations through the SDK only:
 
 ```ts
 await stella.operations.register([
-  { name: "set-habit-progress", description: "…",
-    args: [{ name: "habit", type: "string", required: true },
-           { name: "progress", type: "number", required: true }],
-    handler: (args) => fns.setHabitProgress(args) },
+  {
+    name: "set-habit-progress",
+    description: "…",
+    args: [
+      { name: "habit", type: "string", required: true },
+      { name: "progress", type: "number", required: true },
+    ],
+    handler: (args) => fns.setHabitProgress(args),
+  },
 ]);
 ```
 

@@ -24,6 +24,77 @@ export type ChangelogEntry = {
 
 export const changelogEntries: ChangelogEntry[] = [
   {
+    release: "v0.0.447 – v0.0.448",
+    date: "July 28, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "A new shell layout — the left sidebar is gone, the top bar spans the main window, and the right panel is now the home for Tasks, Search, Files, and Apps.",
+      "Right-click the dial again to jump between those sections, or search your workspace from it.",
+      "Settings and Models live in the right sidebar now, with account and settings kept as separate controls.",
+    ],
+    more: [
+      "Canvas and Media are combined into one Files section.",
+      "User apps open inside the Apps section of the right panel.",
+      "On a narrow window, the workspace panel can take the full view.",
+      "Desktop updates now pull from Git instead of source packs.",
+      "Better text contrast in Solstice dark, and clearer user-message bubbles.",
+      "The model picker remembers catalogs between opens, and shows clearer errors.",
+      "Long chats stay snappy with a cap on how much history stays loaded.",
+    ],
+  },
+  {
+    release: "v0.0.440 – v0.0.446",
+    date: "July 24, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "Select multiple areas of your screen — each one becomes its own chip on your message.",
+      "The Media tab is now a place to browse what Stella made, not a generation studio.",
+      "Stella can wait for long background work and wake herself when it finishes.",
+    ],
+    more: [
+      "Apps you build stay open as you move around, and Apps takes you back to the last one.",
+      "Non-image attachments show as tidy document chips.",
+      "Activity files tuck behind a disclosure, so busy tasks stay readable.",
+      "Image generation is more durable — it can survive restarts and recover cleanly.",
+      "Auto-scroll follows the whole live reply, not just the bottom edge.",
+      "Composer and sent-message context chips look and behave the same.",
+    ],
+  },
+  {
+    release: "v0.0.431 – v0.0.439",
+    date: "July 17, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "Stella can spin up helper agents that report back — Activity shows them nested under the work that started them.",
+      "Open a task's own chat to follow along, without interrupting the main conversation.",
+      "Memory recall got a big upgrade, so Stella finds the right past context faster.",
+    ],
+    more: [
+      "Agents write their own progress updates instead of auto-generated blurbs.",
+      "The model list can refresh live from providers, including xAI sign-in.",
+      "Model catalogs recover more reliably after a restart.",
+      "Interrupted work can restart and continue from where it left off.",
+      { text: "Desktop shell and Store adapt better inside the phone app, with simpler Social navigation.", product: "Mobile" },
+    ],
+  },
+  {
+    release: "v0.0.398 – v0.0.430",
+    date: "July 11, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "The model picker got a brand-icon rail, so finding OpenAI, Anthropic, Grok, and friends is faster.",
+      "Search past chats and transcripts with full-text search.",
+      "Hover an Activity row to attach that task as context for your next message.",
+    ],
+    more: [
+      "Grok 4.5 shows up in the provider picker.",
+      "Connectors are safer — Stella brokers actions without exposing your session credentials.",
+      "Chat scrolling follows along more reliably again.",
+      "Activity rows stay accurate when work resumes, with cleaner completion cards.",
+      { text: "Mid-run task decorations sync to Stella on your phone.", product: "Mobile" },
+    ],
+  },
+  {
     release: "v0.0.385 – v0.0.397",
     date: "July 6, 2026",
     tags: ["New", "Polish"],

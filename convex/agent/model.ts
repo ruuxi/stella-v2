@@ -120,7 +120,6 @@ const GPT_5_6_LUNA_MODEL_CONFIG: ModeConfig = {
   },
 };
 
-
 // Kimi K2.6 on Fireworks. Kept as an internal config for compatibility with
 // existing tests/fixtures and any explicit backend use, but no longer used as
 // the orchestrator default.
@@ -178,18 +177,19 @@ const isInternalModelConfigKey = (
 // Anthropic's Messages API requires `max_tokens`, so `designer`
 // keeps its value as a protocol requirement, not a policy choice.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
-  // Stella Standard: Muse Spark 1.1 on Meta Model API. Default for
-  // orchestrator + general (non-Ultra / non-Max audiences). Always reasons —
-  // the Meta relay coerces `reasoning_effort: none` to `low`.
+  // Stella Standard: Grok 4.5 via OpenRouter. Default for orchestrator +
+  // general across every audience. Missing or disabled reasoning is normalized
+  // to low at the relay boundary.
   standard: {
-    model: "meta/muse-spark-1.1",
+    model: "x-ai/grok-4.5",
     fallbackMode: "light",
-    managedGatewayProvider: "meta",
+    managedGatewayProvider: "openrouter",
     temperature: 1.0,
     providerOptions: {
       openai: {
         reasoningEffort: "low",
       },
+      ...gatewayOptions("openrouter"),
     },
   },
 
@@ -257,8 +257,8 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
 
   // Stella Max: the premium branded mode powered by Anthropic's Claude
   // Fable 5. Selectable by any paid-plan user and the backend default for
-  // the Stella Max ($1000/mo) plan (see `MAX_AGENT_OVERRIDES`). Falls back to
-  // the Designer mode (Opus) if the upstream Fable 5 model is unavailable.
+  // the Stella Max mode. Falls back to the Designer mode (Opus) if the
+  // upstream Fable 5 model is unavailable.
   max: {
     model: "anthropic/claude-fable-5",
     fallbackMode: "designer",
@@ -297,26 +297,11 @@ const AUDIENCE_MODE_OVERRIDES: Record<
 // agents that share the underlying modes. Values are a mode or an internal
 // model config key.
 //
-// Every managed audience except the Ultra and Max baselines runs the
-// orchestrator and general agent on the Standard mode (Muse Spark 1.1). Ultra keeps
-// Designer (Claude Opus 4.8); Max keeps the Stella Max mode.
+// Every managed audience runs the orchestrator and general agent on Standard.
+// Premium branded modes remain available as explicit user selections.
 const STANDARD_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
   [AGENT_IDS.ORCHESTRATOR]: "standard",
   [AGENT_IDS.GENERAL]: "standard",
-};
-
-const ULTRA_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
-  [AGENT_IDS.ORCHESTRATOR]: "designer",
-  [AGENT_IDS.GENERAL]: "designer",
-};
-
-// Stella Max ($1000/mo) plan baseline: the orchestrator and general agent both
-// run on the Stella Max mode (Claude Fable 5), making it the plan's default
-// model. `max_fallback` (an over-cap Max user) drops to the Standard/Muse
-// default like every other fallback tier.
-const MAX_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
-  [AGENT_IDS.ORCHESTRATOR]: "max",
-  [AGENT_IDS.GENERAL]: "max",
 };
 
 const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
@@ -327,8 +312,8 @@ const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
   go: STANDARD_AGENT_OVERRIDES,
   pro: STANDARD_AGENT_OVERRIDES,
   plus: STANDARD_AGENT_OVERRIDES,
-  ultra: ULTRA_AGENT_OVERRIDES,
-  max: MAX_AGENT_OVERRIDES,
+  ultra: STANDARD_AGENT_OVERRIDES,
+  max: STANDARD_AGENT_OVERRIDES,
   go_fallback: STANDARD_AGENT_OVERRIDES,
   pro_fallback: STANDARD_AGENT_OVERRIDES,
   plus_fallback: STANDARD_AGENT_OVERRIDES,
@@ -664,9 +649,9 @@ export function isModelMode(value: string): value is ModelMode {
 
 // Managed model ids that are pinnable / price-synced even when they are not
 // currently the default for any mode or agent task. Prefer putting models
-// behind a mode/task selection when they are catalog defaults (e.g. Muse is
-// Standard); use this list only for extras that have no mode of their own.
-export const ADDITIONAL_MANAGED_MODEL_IDS = [] as const;
+// behind a mode/task selection when they are catalog defaults; use this list
+// only for extras that have no mode of their own.
+export const ADDITIONAL_MANAGED_MODEL_IDS = ["meta/muse-spark-1.1"] as const;
 
 export function listManagedModelIds(): string[] {
   const modelIds = new Set<string>();

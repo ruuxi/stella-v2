@@ -29,12 +29,11 @@ export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 export const STELLA_BUILDER_MODEL = `${STELLA_PROVIDER}/builder`;
 export const STELLA_DESIGNER_MODEL = `${STELLA_PROVIDER}/designer`;
 export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
-// Stella Max: the premium branded mode (Claude Fable 5). Paid-only; default for
-// the Stella Max plan.
+// Stella Max: the premium branded mode (Claude Fable 5). Paid-only.
 export const STELLA_MAX_MODEL = `${STELLA_PROVIDER}/max`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 6, 9, 18, 50);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 6, 29, 12, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -143,7 +142,7 @@ const STELLA_ALIAS_MODES: ReadonlyArray<StellaAliasMode> = [
     id: STELLA_STANDARD_MODEL,
     name: "Stella Standard",
     mode: "standard",
-    type: "language" as const,
+    type: "multimodal" as const,
   },
   {
     id: STELLA_PRIORITY_MODEL,
@@ -341,12 +340,14 @@ export const listStellaCatalogModels = (
     name: deriveDisplayName(upstreamModel),
     provider: STELLA_PROVIDER,
     upstreamModel,
-    // Muse Spark is natively multimodal (images / video / PDFs); everything
-    // else remains language-only in the static catalog until models.dev rows
-    // or an explicit override say otherwise.
-    type: upstreamModel.startsWith("meta/muse-spark")
-      ? "multimodal"
-      : "language",
+    // Muse Spark and Grok 4.5 are natively multimodal; everything else remains
+    // language-only in the static catalog until models.dev rows or an explicit
+    // override say otherwise.
+    type:
+      upstreamModel.startsWith("meta/muse-spark") ||
+      upstreamModel === "x-ai/grok-4.5"
+        ? "multimodal"
+        : "language",
     // Restricted tiers (anonymous / free / go) can't override the
     // backend-chosen default at all, so every pinnable model is disabled
     // for them; pro+ may pin any managed model.

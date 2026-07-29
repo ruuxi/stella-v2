@@ -53,45 +53,32 @@ describe("managed model config", () => {
     }
   });
 
-  it("routes orchestrator and general to Muse Spark on fallback/default audiences", () => {
-    for (const audience of [
-      "anonymous",
-      "free",
-      "go",
-      "pro",
-      "plus",
-      "ultra_fallback",
-      "max_fallback",
-    ] as const) {
+  it("routes orchestrator and general to low-reasoning Grok 4.5 for every audience", () => {
+    for (const audience of MANAGED_MODEL_AUDIENCES) {
       expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).model).toBe(
-        "meta/muse-spark-1.1",
+        "x-ai/grok-4.5",
       );
       expect(
-        getModelConfig(AGENT_IDS.ORCHESTRATOR, audience)
-          .managedGatewayProvider,
-      ).toBe("meta");
+        getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).managedGatewayProvider,
+      ).toBe("openrouter");
+      expect(
+        getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).providerOptions?.openai
+          ?.reasoningEffort,
+      ).toBe("low");
       expect(getModelConfig(AGENT_IDS.GENERAL, audience).model).toBe(
-        "meta/muse-spark-1.1",
+        "x-ai/grok-4.5",
       );
       expect(
         getModelConfig(AGENT_IDS.GENERAL, audience).managedGatewayProvider,
-      ).toBe("meta");
+      ).toBe("openrouter");
     }
   });
 
-  it("keeps the Max baseline on the Max mode", () => {
-    expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "max").model).toBe(
-      "anthropic/claude-fable-5",
-    );
-    expect(getModelConfig(AGENT_IDS.GENERAL, "max").model).toBe(
-      "anthropic/claude-fable-5",
-    );
-  });
-
-  it("routes Standard through Meta Muse Spark 1.1", () => {
+  it("routes Standard through OpenRouter Grok 4.5", () => {
     const standard = getModeConfig("standard");
-    expect(standard.model).toBe("meta/muse-spark-1.1");
-    expect(standard.managedGatewayProvider).toBe("meta");
+    expect(standard.model).toBe("x-ai/grok-4.5");
+    expect(standard.managedGatewayProvider).toBe("openrouter");
+    expect(standard.providerOptions?.gateway?.order).toEqual(["openrouter"]);
     expect(standard.providerOptions?.openai?.reasoningEffort).toBe("low");
   });
 
@@ -99,15 +86,6 @@ describe("managed model config", () => {
     const builder = getModeConfig("builder");
     expect(builder.model).toBe("openai/gpt-5.6-sol");
     expect(builder.managedGatewayProvider).toBe("openai");
-  });
-
-  it("runs Ultra orchestrator and general on the Designer model (Opus)", () => {
-    expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, "ultra").model).toBe(
-      "anthropic/claude-opus-4.8",
-    );
-    expect(getModelConfig(AGENT_IDS.GENERAL, "ultra").model).toBe(
-      "anthropic/claude-opus-4.8",
-    );
   });
 
   it("publishes branded tier modes and real managed models in the catalog", () => {
@@ -196,7 +174,7 @@ describe("managed model config", () => {
       defaults.find((entry) => entry.agentType === "orchestrator"),
     ).toMatchObject({
       model: "stella/default",
-      resolvedModel: "meta/muse-spark-1.1",
+      resolvedModel: "openrouter/x-ai/grok-4.5",
     });
     expect(
       defaults.find((entry) => entry.agentType === "chronicle"),

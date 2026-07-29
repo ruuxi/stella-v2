@@ -202,9 +202,7 @@ describe("downgradeUnsupportedRequestImages", () => {
     expect(downgradeUnsupportedRequestImages(body, "openai/gpt-5.5")).toBe(
       body,
     );
-    expect(downgradeUnsupportedRequestImages(body, "x-ai/grok-4.5")).toBe(
-      body,
-    );
+    expect(downgradeUnsupportedRequestImages(body, "x-ai/grok-4.5")).toBe(body);
     expect(
       downgradeUnsupportedRequestImages(body, "google/gemini-3-flash-preview"),
     ).toBe(body);
@@ -221,7 +219,7 @@ describe("resolveRequestedStellaModel", () => {
     expect(resolved.resolvedModel).toBe(
       getModelConfig("orchestrator", "pro").model,
     );
-    expect(resolved.config.managedGatewayProvider).toBe("meta");
+    expect(resolved.config.managedGatewayProvider).toBe("openrouter");
     expect(resolved.config.fallback).toBeUndefined();
   });
 

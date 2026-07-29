@@ -4,6 +4,7 @@ import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE } from "@stella/contracts/desktop/ipc-channels";
 import type { UiState } from "../types.js";
 import type { WindowManager } from "../windows/window-manager.js";
+import type { RendererWindowMode } from "../windows/renderer-readiness.js";
 
 // IPC authorization policy:
 //   Privileged (assertPrivilegedSender):  ui:setState, window:show, app:reload, app:setReady
@@ -15,7 +16,12 @@ type UiHandlersOptions = {
   windowManager: WindowManager;
   updateUiState: (partial: Partial<UiState>) => void;
   broadcastUiState: () => void;
-  setAppReady: (ready: boolean) => void;
+  rendererMounted: (
+    senderId: number,
+    mode: RendererWindowMode,
+    token: string,
+  ) => void;
+  setAppReady: (ready: boolean, senderId: number) => void;
   deactivateVoiceModes: () => boolean;
   syncNativeRadialGesture: () => void;
   assertPrivilegedSender: (
@@ -25,8 +31,26 @@ type UiHandlersOptions = {
 };
 
 export const registerUiHandlers = (options: UiHandlersOptions) => {
-  ipcMain.on("app:setReady", (_event, ready: boolean) => {
-    options.setAppReady(!!ready);
+  ipcMain.on("app:rendererMounted", (event, mode: unknown, token: unknown) => {
+    if (!options.assertPrivilegedSender(event, "app:rendererMounted")) return;
+    if (
+      (mode !== "full" &&
+        mode !== "mini" &&
+        mode !== "overlay" &&
+        mode !== "pet") ||
+      typeof token !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        token,
+      )
+    ) {
+      return;
+    }
+    options.rendererMounted(event.sender.id, mode, token);
+  });
+
+  ipcMain.on("app:setReady", (event, ready: boolean) => {
+    if (!options.assertPrivilegedSender(event, "app:setReady")) return;
+    options.setAppReady(!!ready, event.sender.id);
   });
 
   ipcMain.on("window:minimize", (event) => {
@@ -70,11 +94,14 @@ export const registerUiHandlers = (options: UiHandlersOptions) => {
     return options.windowManager.isMiniAlwaysOnTop();
   });
 
-  ipcMain.on(IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE, (event, visible: boolean) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win || process.platform !== "darwin") return;
-    win.setWindowButtonVisibility(Boolean(visible));
-  });
+  ipcMain.on(
+    IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE,
+    (event, visible: boolean) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win || process.platform !== "darwin") return;
+      win.setWindowButtonVisibility(Boolean(visible));
+    },
+  );
 
   // Onboarding presentation: while onboarding is active we expand the
   // (transparent + frameless) main window to cover the current display so
@@ -142,11 +169,7 @@ export const registerUiHandlers = (options: UiHandlersOptions) => {
       return options.uiState;
     const previousSuppression =
       options.uiState.suppressNativeRadialDuringOnboarding;
-    const {
-      window: nextWindow,
-      isVoiceRtcActive,
-      ...rest
-    } = partial;
+    const { window: nextWindow, isVoiceRtcActive, ...rest } = partial;
     if (nextWindow === "mini" || nextWindow === "full") {
       options.windowManager.showWindow(nextWindow);
     }

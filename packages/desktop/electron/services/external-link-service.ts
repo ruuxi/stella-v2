@@ -1,4 +1,9 @@
-import { BrowserWindow, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
+import {
+  BrowserWindow,
+  shell,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+} from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -17,7 +22,8 @@ export class ExternalLinkService {
 
   /** When set (dev: Vite on LAN), renderer at this origin may use privileged IPC. */
   private trustedDevOrigin: string | null = null
-  private trustedFileRendererRoot: string | null = null
+  private readonly trustedFileRendererRoots = new Set<string>()
+  private readonly trustedFileRendererEntrypoints = new Set<string>()
 
   /** Dev-only: allow privileged IPC when sender URL is missing (Electron edge cases). */
   private isDevBuild = false
@@ -50,16 +56,34 @@ export class ExternalLinkService {
   }
 
   private isTrustedFileRendererUrl(parsed: URL) {
-    if (parsed.protocol !== 'file:' || !this.trustedFileRendererRoot) {
+    if (parsed.protocol !== 'file:') return false
+    try {
+      return this.trustedFileRendererEntrypoints.has(
+        path.resolve(fileURLToPath(parsed)),
+      )
+    } catch {
+      return false
+    }
+  }
+
+  isTrustedFileRendererResourceUrl(value: string) {
+    const parsed = this.parseUrl(value)
+    if (
+      !parsed ||
+      parsed.protocol !== 'file:' ||
+      this.trustedFileRendererRoots.size === 0
+    ) {
       return false
     }
     try {
       const filePath = path.resolve(fileURLToPath(parsed))
-      const relativePath = path.relative(this.trustedFileRendererRoot, filePath)
-      return (
-        relativePath === '' ||
-        (!relativePath.startsWith('..') && !path.isAbsolute(relativePath))
-      )
+      return [...this.trustedFileRendererRoots].some((root) => {
+        const relativePath = path.relative(root, filePath)
+        return (
+          relativePath === '' ||
+          (!relativePath.startsWith('..') && !path.isAbsolute(relativePath))
+        )
+      })
     } catch {
       return false
     }
@@ -68,7 +92,8 @@ export class ExternalLinkService {
   isAppUrl(url: string) {
     const parsed = this.parseUrl(url)
     if (!parsed) return false
-    if (parsed.protocol === 'about:' && parsed.href === 'about:blank') return true
+    if (parsed.protocol === 'about:' && parsed.href === 'about:blank')
+      return true
     if (this.trustedDevOrigin && parsed.origin === this.trustedDevOrigin) {
       return true
     }
@@ -84,15 +109,48 @@ export class ExternalLinkService {
   trustDevServerBaseUrl(baseUrl: string) {
     const trimmed = baseUrl.trim()
     if (!trimmed) return
-    const parsed = this.parseUrl(trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed)
-    if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) return
+    const parsed = this.parseUrl(
+      trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed,
+    )
+    if (
+      !parsed ||
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+    )
+      return
     this.trustedDevOrigin = parsed.origin
   }
 
   trustFileRendererRoot(rootPath: string) {
     const trimmed = rootPath.trim()
     if (!trimmed) return
-    this.trustedFileRendererRoot = path.resolve(trimmed)
+    const resolved = path.resolve(trimmed)
+    this.trustedFileRendererRoots.add(resolved)
+    // The bundled root plus active/previous/last-known-good immutable roots is
+    // enough for rolling activation. Bound the set so obsolete artifacts do
+    // not retain privileged IPC trust indefinitely.
+    while (this.trustedFileRendererRoots.size > 4) {
+      const oldest = this.trustedFileRendererRoots.values().next().value
+      if (typeof oldest !== 'string') break
+      this.trustedFileRendererRoots.delete(oldest)
+    }
+  }
+
+  setTrustedFileRendererRoots(rootPaths: readonly string[]) {
+    this.trustedFileRendererRoots.clear()
+    for (const rootPath of rootPaths) {
+      const trimmed = rootPath.trim()
+      if (!trimmed) continue
+      this.trustedFileRendererRoots.add(path.resolve(trimmed))
+    }
+  }
+
+  setTrustedFileRendererEntrypoints(entryPaths: readonly string[]) {
+    this.trustedFileRendererEntrypoints.clear()
+    for (const entryPath of entryPaths) {
+      const trimmed = entryPath.trim()
+      if (!trimmed) continue
+      this.trustedFileRendererEntrypoints.add(path.resolve(trimmed))
+    }
   }
 
   setDevBuild(isDev: boolean) {
@@ -102,7 +160,10 @@ export class ExternalLinkService {
   isTrustedRendererUrl(url: string) {
     const parsed = this.parseUrl(url)
     if (!parsed) return false
-    if (parsed.protocol === MOBILE_BRIDGE_PROTOCOL && parsed.href === MOBILE_BRIDGE_SENDER_URL) {
+    if (
+      parsed.protocol === MOBILE_BRIDGE_PROTOCOL &&
+      parsed.href === MOBILE_BRIDGE_SENDER_URL
+    ) {
       return true
     }
     if (this.trustedDevOrigin && parsed.origin === this.trustedDevOrigin) {
@@ -171,7 +232,10 @@ export class ExternalLinkService {
     return event.senderFrame?.url || event.sender.getURL() || ''
   }
 
-  assertPrivilegedSender(event: IpcMainEvent | IpcMainInvokeEvent, channel: string) {
+  assertPrivilegedSender(
+    event: IpcMainEvent | IpcMainInvokeEvent,
+    channel: string,
+  ) {
     const senderUrl = this.getSenderUrl(event)
     if (this.isTrustedRendererUrl(senderUrl)) {
       return true
@@ -182,7 +246,9 @@ export class ExternalLinkService {
       )
       return true
     }
-    console.warn(`[security] Blocked untrusted IPC call to ${channel} from ${senderUrl}`)
+    console.warn(
+      `[security] Blocked untrusted IPC call to ${channel} from ${senderUrl}`,
+    )
     return false
   }
 

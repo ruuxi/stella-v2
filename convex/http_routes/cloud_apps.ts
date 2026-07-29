@@ -42,12 +42,39 @@ const verifyTurnToken = async (
   if (!token) return null;
   const row = await ctx.runQuery(
     internal.cloud_apps.getTurnTokenByHashInternal,
-    { tokenHash: await hashToken(token) },
+    { tokenHash: await hashToken(token), now: Date.now() },
   );
   return (row as TurnTokenRow | null) ?? null;
 };
 
 export function registerCloudAppRoutes(http: HttpRouter) {
+  http.route({
+    path: "/api/cloud/interior-active-route",
+    method: "GET",
+    handler: httpAction(async (ctx, request) => {
+      if (!serviceAuthorized(request))
+        return json({ error: "Unauthorized" }, 401);
+      const stableRouteId = new URL(request.url).searchParams
+        .get("stableRouteId")
+        ?.trim();
+      if (
+        !stableRouteId ||
+        !/^sr_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+          stableRouteId,
+        )
+      ) {
+        return json({ error: "stableRouteId required" }, 400);
+      }
+      const route = await ctx.runQuery(
+        internal.cloud_deployments.getInteriorRouteByStableRouteIdInternal,
+        { stableRouteId },
+      );
+      return route
+        ? json(route)
+        : json({ error: "Stella interior route not found." }, 404);
+    }),
+  });
+
   http.route({
     path: "/api/cloud/events",
     method: "POST",
@@ -97,7 +124,8 @@ export function registerCloudAppRoutes(http: HttpRouter) {
     path: "/api/cloud/context",
     method: "GET",
     handler: httpAction(async (ctx, request) => {
-      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      if (!serviceAuthorized(request))
+        return json({ error: "Unauthorized" }, 401);
       const url = new URL(request.url);
       const threadId = url.searchParams.get("conversationId")?.trim();
       if (!threadId) return json({ error: "conversationId required" }, 400);
@@ -168,10 +196,12 @@ export function registerCloudAppRoutes(http: HttpRouter) {
     path: "/api/cloud/conversation-owner",
     method: "GET",
     handler: httpAction(async (ctx, request) => {
-      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      if (!serviceAuthorized(request))
+        return json({ error: "Unauthorized" }, 401);
       const url = new URL(request.url);
       const conversationId = url.searchParams.get("conversationId")?.trim();
-      if (!conversationId) return json({ error: "conversationId required" }, 400);
+      if (!conversationId)
+        return json({ error: "conversationId required" }, 400);
       const owner = await ctx.runQuery(
         internal.cloud_apps.getConversationOwnerInternal,
         { conversationId },
@@ -190,7 +220,8 @@ export function registerCloudAppRoutes(http: HttpRouter) {
     path: "/api/cloud/index",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      if (!serviceAuthorized(request))
+        return json({ error: "Unauthorized" }, 401);
       const body = (await request.json()) as {
         conversationId?: string;
         ownerId?: string;
@@ -285,7 +316,8 @@ export function registerCloudAppRoutes(http: HttpRouter) {
     path: "/api/cloud/spawn",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      if (!serviceAuthorized(request))
+        return json({ error: "Unauthorized" }, 401);
       const body = (await request.json()) as {
         action?: "spawn" | "cancel";
         ownerId: string;
@@ -296,20 +328,56 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         workspace?: string;
         threadId?: string;
         model?: string;
+        execution?: {
+          engine: "stella" | "anthropic" | "openai-codex";
+          provider: "stella" | "anthropic" | "openai-codex";
+          model: string;
+          reasoningEffort:
+            | "default"
+            | "none"
+            | "minimal"
+            | "low"
+            | "medium"
+            | "high"
+            | "xhigh";
+        };
       };
       if (body.action === "cancel") {
         if (!body.threadId) return json({ error: "threadId required" }, 400);
-        await ctx.runMutation(internal.cloud_apps.completeAgentThreadInternal, {
+        const control = await ctx.runQuery(
+          internal.cloud_apps.getCloudAgentThreadControlInternal,
+          {
+            ownerId: body.ownerId,
+            threadId: body.threadId,
+          },
+        );
+        if (!control) return json({ error: "Thread not found." }, 404);
+        if (control.status !== "running") {
+          return json({
+            ok: true,
+            threadId: body.threadId,
+            status: control.status,
+          });
+        }
+        if (!control.runningTurnId) {
+          return json({ error: "Thread has no active turn." }, 409);
+        }
+        // This endpoint only resolves the exact active turn. The BuildSession
+        // Durable Object owns the terminal decision and sandbox teardown. If
+        // dispatch has not reached it yet, /cancel records a durable pending
+        // cancellation that is consumed when the turn arrives.
+        return json({
+          ok: true,
           threadId: body.threadId,
-          status: "canceled",
-          errorMessage: "Paused by the orchestrator.",
-          wake: false,
-          now: Date.now(),
+          status: "running",
+          turnId: control.runningTurnId,
         });
-        return json({ ok: true, threadId: body.threadId });
       }
       if (!body.parentTurnId || !body.prompt || !body.description) {
-        return json({ error: "description, prompt, parentTurnId required" }, 400);
+        return json(
+          { error: "description, prompt, parentTurnId required" },
+          400,
+        );
       }
       const result = await ctx.runMutation(
         internal.cloud_apps.spawnCloudAgentInternal,
@@ -319,9 +387,10 @@ export function registerCloudAppRoutes(http: HttpRouter) {
           parentTurnId: body.parentTurnId,
           description: body.description,
           prompt: body.prompt,
-          workspace: body.workspace ?? "drive",
+          workspace: body.workspace ?? "cloud",
           threadId: body.threadId,
           model: body.model,
+          execution: body.execution,
           now: Date.now(),
         },
       );
@@ -356,7 +425,7 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         errorMessage: body.errorMessage,
         wake: body.wake,
         callerTurnId: token?.turnId,
-        ...(token?.turnId ?? body.turnId
+        ...((token?.turnId ?? body.turnId)
           ? { completingTurnId: token?.turnId ?? body.turnId }
           : {}),
         now: Date.now(),
@@ -400,7 +469,8 @@ export function registerCloudAppRoutes(http: HttpRouter) {
     path: "/api/cloud/builds",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      if (!serviceAuthorized(request))
+        return json({ error: "Unauthorized" }, 401);
       const body = (await request.json()) as {
         buildId: string;
         appId: string;
@@ -428,13 +498,129 @@ export function registerCloudAppRoutes(http: HttpRouter) {
     }),
   });
 
+  // Immutable Stella-interior build candidate callback. Activation remains a
+  // signed-in user operation in `cloud_deployments`; the builder may publish
+  // bytes and record metadata, but it cannot move an owner's active route.
+  http.route({
+    path: "/api/cloud/interior-builds",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      if (!serviceAuthorized(request)) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "A JSON request body is required." }, 400);
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return json({ error: "A JSON object is required." }, 400);
+      }
+      const candidate = body as Record<string, unknown>;
+      const requiredString = (field: string): string | null => {
+        const value = candidate[field];
+        return typeof value === "string" && value.trim() ? value : null;
+      };
+      const buildId = requiredString("buildId");
+      const ownerId = requiredString("ownerId");
+      const turnId = requiredString("turnId");
+      const threadId = requiredString("threadId");
+      const sourceRevision =
+        candidate.sourceRevision === undefined ||
+        candidate.sourceRevision === null
+          ? undefined
+          : typeof candidate.sourceRevision === "string" &&
+              candidate.sourceRevision.trim()
+            ? candidate.sourceRevision
+            : null;
+      const artifactPrefix = requiredString("artifactPrefix");
+      const artifactDigest = requiredString("digest");
+      const manifestSha256 =
+        candidate.manifestSha256 === undefined ||
+        candidate.manifestSha256 === null
+          ? undefined
+          : typeof candidate.manifestSha256 === "string" &&
+              candidate.manifestSha256.trim()
+            ? candidate.manifestSha256
+            : null;
+      const minShellVersion = requiredString("minShellVersion");
+      const baseRevision =
+        candidate.baseRevision === undefined || candidate.baseRevision === null
+          ? undefined
+          : typeof candidate.baseRevision === "string" &&
+              candidate.baseRevision.trim()
+            ? candidate.baseRevision
+            : null;
+      const artifactManifestJson = requiredString("manifestJson");
+      const artifactSizeBytes = candidate.size;
+      const bridgeAbi = candidate.bridgeAbi;
+      if (
+        !buildId ||
+        !ownerId ||
+        !turnId ||
+        !threadId ||
+        sourceRevision === null ||
+        !artifactPrefix ||
+        !artifactDigest ||
+        manifestSha256 === null ||
+        !minShellVersion ||
+        baseRevision === null ||
+        !artifactManifestJson ||
+        !Number.isSafeInteger(artifactSizeBytes) ||
+        (artifactSizeBytes as number) < 0 ||
+        !Number.isSafeInteger(bridgeAbi) ||
+        (bridgeAbi as number) < 1
+      ) {
+        return json({ error: "Invalid interior build candidate." }, 400);
+      }
+      try {
+        const parsed = JSON.parse(artifactManifestJson) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return json({ error: "manifestJson must encode an object." }, 400);
+        }
+      } catch {
+        return json({ error: "manifestJson must be valid JSON." }, 400);
+      }
+      try {
+        const result = await ctx.runMutation(
+          internal.cloud_deployments.recordInteriorBuildInternal,
+          {
+            buildId,
+            ownerId,
+            turnId,
+            threadId,
+            ...(sourceRevision === undefined ? {} : { sourceRevision }),
+            ...(baseRevision === undefined ? {} : { baseRevision }),
+            artifactPrefix,
+            artifactManifestJson,
+            ...(manifestSha256 === undefined ? {} : { manifestSha256 }),
+            artifactDigest,
+            artifactSizeBytes: artifactSizeBytes as number,
+            bridgeAbi: bridgeAbi as number,
+            minShellVersion,
+            now: Date.now(),
+          },
+        );
+        return json({ ok: true, ...result });
+      } catch (error) {
+        if (error instanceof ConvexError) {
+          return json({ error: String(error.data) }, 409);
+        }
+        throw error;
+      }
+    }),
+  });
+
   http.route({
     path: "/api/cloud/model",
     method: "POST",
     handler: httpAction(async (_ctx, request) => {
-      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      if (!serviceAuthorized(request))
+        return json({ error: "Unauthorized" }, 401);
       const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-      if (!apiKey) return json({ error: "Anthropic relay is not configured" }, 503);
+      if (!apiKey)
+        return json({ error: "Anthropic relay is not configured" }, 503);
       const body = (await request.json()) as { prompt?: string };
       const startedAt = Date.now();
       const upstream = await fetch("https://api.anthropic.com/v1/messages", {
@@ -459,9 +645,13 @@ export function registerCloudAppRoutes(http: HttpRouter) {
         error?: { message?: string };
       };
       if (!upstream.ok) {
-        return json({ error: payload.error?.message ?? "Provider request failed" }, upstream.status);
+        return json(
+          { error: payload.error?.message ?? "Provider request failed" },
+          upstream.status,
+        );
       }
-      const text = payload.content?.find((item) => item.type === "text")?.text ?? "";
+      const text =
+        payload.content?.find((item) => item.type === "text")?.text ?? "";
       const parsed = JSON.parse(text.replace(/^```json\s*|\s*```$/g, ""));
       const inputTokens = payload.usage?.input_tokens ?? 0;
       const outputTokens = payload.usage?.output_tokens ?? 0;
@@ -471,7 +661,8 @@ export function registerCloudAppRoutes(http: HttpRouter) {
           model: payload.model ?? "claude-haiku-4-5-20251001",
           inputTokens,
           outputTokens,
-          estimatedCostUsd: inputTokens / 1_000_000 + (outputTokens * 5) / 1_000_000,
+          estimatedCostUsd:
+            inputTokens / 1_000_000 + (outputTokens * 5) / 1_000_000,
           durationMs: Date.now() - startedAt,
         },
       });

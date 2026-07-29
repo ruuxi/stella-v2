@@ -186,6 +186,10 @@ export type ElectronUiApi = {
   setState: (partial: Partial<UiState>) => Promise<UiState>;
   onState: (callback: (state: UiState) => void) => () => void;
   onOpenChatSidebar: (callback: () => void) => () => void;
+  setRendererMounted: (
+    mode: "full" | "mini" | "overlay" | "pet",
+    token: string,
+  ) => void;
   setAppReady: (ready: boolean) => void;
   reload: () => void;
   relaunch: () => void;

@@ -16,9 +16,15 @@ import {
   useConvexAuth,
   useMutation,
   useQueries,
+  useQuery,
   type RequestForQueries,
 } from "convex/react";
 import { cloudApi } from "./cloud-api";
+import {
+  getCloudExecutionSelectionSnapshot,
+  reconcileCloudExecutionSelection,
+  subscribeCloudExecutionSelection,
+} from "./cloud-execution-store";
 import { useI18n } from "../../shared/i18n/I18nProvider";
 import { cloudAttachmentsStore } from "./cloud-composer-store";
 import { PROTOCOL_VERSION } from "./conversation-protocol";
@@ -98,6 +104,7 @@ const IDLE_STATE: ConversationState = {
 
 const noopSubscribe = (): (() => void) => () => {};
 const idleSnapshot = (): ConversationState => IDLE_STATE;
+const noLocalExecution = (): null => null;
 
 export type CloudConversationView = {
   state: ConversationState;
@@ -127,7 +134,21 @@ export const useConversation = (
   const config = useCloudRealtimeConfig();
   const { locale } = useI18n();
   const startTurn = useMutation(cloudApi.startCloudChat);
+  const { isAuthenticated } = useConvexAuth();
+  const cloudEngine = useQuery(
+    cloudApi.listMyEngineConnections,
+    isAuthenticated ? {} : "skip",
+  );
+  const localExecution = useSyncExternalStore(
+    subscribeCloudExecutionSelection,
+    getCloudExecutionSelectionSnapshot,
+    noLocalExecution,
+  );
   const store = conversationId ? conversationStore(conversationId) : null;
+
+  useEffect(() => {
+    reconcileCloudExecutionSelection(cloudEngine?.execution);
+  }, [cloudEngine?.execution, localExecution]);
 
   useEffect(() => {
     store?.setConfig(config.socketBaseUrl, config.resolved);
@@ -183,6 +204,8 @@ export const useConversation = (
         .filter((entry) => /\.(png|jpe?g|gif|webp)$/i.test(entry.path))
         .slice(0, 4)
         .map((entry) => entry.path);
+      const selectedExecution =
+        getCloudExecutionSelectionSnapshot() ?? cloudEngine?.execution;
       try {
         const result = await startTurn({
           prompt,
@@ -191,6 +214,9 @@ export const useConversation = (
           // The reply-language hint; English sends nothing (default behavior).
           ...(locale !== "en" ? { locale } : {}),
           ...(imagePaths.length ? { attachments: imagePaths } : {}),
+          // An explicit selection makes a picker change apply to the next
+          // message even when this conversation already has a durable route.
+          ...(selectedExecution ? { execution: selectedExecution } : {}),
         });
         pendingPrompts.bind(clientMsgId, result.conversationId, result.turnId);
         onSent();
@@ -198,7 +224,7 @@ export const useConversation = (
         pendingPrompts.fail(clientMsgId, friendlySendError(error));
       }
     },
-    [startTurn, conversationId, onSent, locale],
+    [startTurn, conversationId, onSent, locale, cloudEngine?.execution],
   );
 
   const send = useCallback(

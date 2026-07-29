@@ -68,7 +68,8 @@ export const resolveWorkspace = (
   workspace: string | undefined,
   fallbackRoot: string,
 ): WorkspaceIdentity => {
-  const value = (workspace ?? "").trim();
+  const requested = (workspace ?? "").trim();
+  const value = requested === "cloud" ? "drive" : requested;
   if (value === "computer") {
     throw new Error("The computer workspace cannot run in the cloud.");
   }

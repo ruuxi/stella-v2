@@ -17,6 +17,8 @@ import type { LocalChatHistoryService } from "../services/local-chat-history-ser
 import type { SecurityPolicyService } from "../services/security-policy-service.js";
 import type { SelectionWatcherService } from "../services/selection-watcher-service.js";
 import type { UiStateService } from "../services/ui-state-service.js";
+import type { RendererArtifactService } from "../services/renderer-artifact-service.js";
+import type { RendererReadinessWaiters } from "../windows/renderer-readiness.js";
 import type { UiStateStore } from "@stella/runtime/kernel/ui-state/store";
 import { WindowManager } from "../windows/window-manager.js";
 import type {
@@ -83,6 +85,7 @@ export type BootstrapState = {
   /** Shared renderer KV state backed by ~/.stella/ui-state.json. */
   uiStateKvStore: UiStateStore | null;
   windowManager: WindowManager | null;
+  rendererReadiness: RendererReadinessWaiters | null;
   trayController: TrayController | null;
 };
 
@@ -99,6 +102,7 @@ export type BootstrapServices = {
   securityPolicyService: SecurityPolicyService;
   selectionWatcherService: SelectionWatcherService;
   uiStateService: UiStateService;
+  rendererArtifactService: RendererArtifactService;
 };
 
 export type BootstrapContext = {
@@ -222,6 +226,7 @@ export const createBootstrapContext = (
   const processRuntime = new ProcessRuntime();
   const state: BootstrapState = {
     appReady: false,
+    rendererReadiness: null,
     appSessionStartedAt: Date.now(),
     deferredStartupSequence: null,
     startHostRunner: null,

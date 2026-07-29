@@ -11,6 +11,7 @@ import {
   type ReactElement,
 } from "react";
 import { preloadModelsPicker } from "@/shell/topbar/nav-surface-preloads";
+import { isWebShell } from "@/features/cloud/cloud-composer-store";
 import {
   Popover,
   PopoverBody,
@@ -22,6 +23,12 @@ import "./ModelsPicker.css";
 const AgentModelPicker = lazy(() =>
   import("@/global/settings/AgentModelPicker").then((m) => ({
     default: m.AgentModelPicker,
+  })),
+);
+
+const CloudModelPicker = lazy(() =>
+  import("@/global/settings/CloudModelPicker").then((m) => ({
+    default: m.CloudModelPicker,
   })),
 );
 
@@ -63,25 +70,26 @@ export function ModelsPicker({
   onOpenChange: controlledOnOpenChange,
   hideTrigger = false,
 }: ModelsPickerProps) {
+  const webShell = isWebShell();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setOpen = useCallback(
     (nextOpen: boolean) => {
-      if (nextOpen) preloadModelsPicker();
+      if (nextOpen && !webShell) preloadModelsPicker();
       (controlledOnOpenChange ?? setInternalOpen)(nextOpen);
     },
-    [controlledOnOpenChange],
+    [controlledOnOpenChange, webShell],
   );
   const triggerElement =
     trigger && isValidElement<ModelsPickerTriggerProps>(trigger)
       ? cloneElement(trigger, {
           "data-slot": "models-picker-trigger",
           onFocus: (event: FocusEvent<HTMLElement>) => {
-            preloadModelsPicker();
+            if (!webShell) preloadModelsPicker();
             trigger.props.onFocus?.(event);
           },
           onMouseEnter: (event: MouseEvent<HTMLElement>) => {
-            preloadModelsPicker();
+            if (!webShell) preloadModelsPicker();
             trigger.props.onMouseEnter?.(event);
           },
           ...(hideTrigger
@@ -123,7 +131,7 @@ export function ModelsPicker({
               </div>
             }
           >
-            <AgentModelPicker />
+            {webShell ? <CloudModelPicker /> : <AgentModelPicker />}
           </Suspense>
         </PopoverBody>
       </PopoverContent>

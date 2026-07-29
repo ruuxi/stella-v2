@@ -2,7 +2,7 @@
  * Host-side implementation of the tool host's `cloudDispatch` capability.
  *
  * A `spawn_agent` call whose `workspace` names a subject that does not live on
- * this machine (drive, project, app, stella) is handed to Stella's cloud
+ * this machine (cloud, project, app, stella) is handed to Stella's cloud
  * runtime instead of LocalAgentManager. The call goes out over the signed-in
  * user's own Convex identity — the same JWT the runtime already uses for its
  * other backend calls — so the cloud bills and authorizes the person who asked.
@@ -24,6 +24,7 @@ export type CloudSpawnDispatcherOptions = {
   /** Convex `anyApi` handle used to reference the backend mutation. */
   convexApi: unknown;
   mutation: (ref: unknown, args: unknown) => Promise<unknown>;
+  action: (ref: unknown, args: unknown) => Promise<unknown>;
   /**
    * Reads a Convex query over the same identity as `mutation`. Used to find
    * the cloud conversation the owner is actually chatting in; without it the
@@ -32,6 +33,8 @@ export type CloudSpawnDispatcherOptions = {
   query?: (ref: unknown, args: unknown) => Promise<unknown>;
   /** True when this device has both a deployment URL and a user token. */
   isSignedIn: () => boolean;
+  /** Stable installation id used to recover completion after a restart. */
+  deviceId: string;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -72,6 +75,29 @@ const withTimeout = async <T>(
           reject(
             new Error(
               `Stella's cloud did not accept the ${workspace} agent within 30s — this device may be offline. Check the running agents before retrying so the same work does not start twice.`,
+            ),
+          );
+        }, CLOUD_SPAWN_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
+const withControlTimeout = async <T>(
+  promise: Promise<T>,
+  operation: string,
+): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new Error(
+              `Stella's cloud did not ${operation} within 30s. Check the thread before retrying so the same control is not applied twice.`,
             ),
           );
         }, CLOUD_SPAWN_TIMEOUT_MS);
@@ -140,6 +166,9 @@ export const createCloudSpawnDispatcher = (
           workspace: request.workspace,
           description: request.description,
           prompt: request.prompt,
+          originDeviceId: options.deviceId,
+          originConversationId: request.conversationId,
+          execution: request.execution,
           ...(cloudConversationId
             ? { conversationId: cloudConversationId }
             : {}),
@@ -185,3 +214,93 @@ export const createCloudSpawnDispatcher = (
     }
   };
 };
+
+export const createCloudThreadController = (
+  options: CloudSpawnDispatcherOptions,
+) => ({
+  continueThread: async (request: {
+    threadId: string;
+    description: string;
+    message: string;
+    conversationId: string;
+    requestId: string;
+  }): Promise<{ delivered: boolean; reason?: string }> => {
+    if (!options.isSignedIn()) {
+      return {
+        delivered: false,
+        reason:
+          "This cloud thread cannot be continued while this device is signed out.",
+      };
+    }
+    const ref = (
+      options.convexApi as {
+        cloud_apps: { continueMyCloudAgentFromDesktop: unknown };
+      }
+    ).cloud_apps.continueMyCloudAgentFromDesktop;
+    try {
+      const raw = await withControlTimeout(
+        options.mutation(ref, {
+          threadId: request.threadId,
+          description: request.description,
+          prompt: request.message,
+          originDeviceId: options.deviceId,
+          originConversationId: request.conversationId,
+          controlRequestId: request.requestId,
+        }),
+        "continue that agent",
+      );
+      const result = asRecord(raw);
+      return typeof result?.threadId === "string"
+        ? { delivered: true }
+        : {
+            delivered: false,
+            reason:
+              "Stella's cloud accepted the continuation but returned no thread id.",
+          };
+    } catch (error) {
+      return { delivered: false, reason: readConvexErrorText(error) };
+    }
+  },
+
+  cancelThread: async (request: {
+    threadId: string;
+    conversationId: string;
+    requestId: string;
+  }): Promise<{ canceled: boolean; reason?: string }> => {
+    if (!options.isSignedIn()) {
+      return {
+        canceled: false,
+        reason:
+          "This cloud thread cannot be paused while this device is signed out.",
+      };
+    }
+    const ref = (
+      options.convexApi as {
+        cloud_apps: { cancelMyCloudAgentThread: unknown };
+      }
+    ).cloud_apps.cancelMyCloudAgentThread;
+    try {
+      const raw = await withControlTimeout(
+        options.action(ref, {
+          threadId: request.threadId,
+          originDeviceId: options.deviceId,
+          originConversationId: request.conversationId,
+          controlRequestId: request.requestId,
+        }),
+        "pause that agent",
+      );
+      const result = asRecord(raw);
+      return result?.canceled === true
+        ? { canceled: true }
+        : {
+            canceled: false,
+            reason:
+              typeof result?.reason === "string"
+                ? result.reason
+                : "The cloud thread was not paused.",
+          };
+    } catch (error) {
+      return { canceled: false, reason: readConvexErrorText(error) };
+    }
+  },
+});

@@ -44,7 +44,6 @@ import {
   assistantMessageHasUsableOutput,
   buildDefaultTransformContext,
   getAgentCompletion,
-  resolveAgentThinkingLevel,
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
 import { normalizeSafePublicUrl } from "@stella/runtime/kernel/tools/url-guard.js";
 import { fetchReadableText } from "@stella/runtime/kernel/tools/web-fetch-core.js";
@@ -60,12 +59,13 @@ import {
 import type { TSchema } from "@sinclair/typebox";
 import {
   createCloudRelayModel,
-  type CloudEngineSelection,
+  resolveCloudThinkingLevel,
 } from "@stella/executor-cloud/relay-model";
-import {
-  CLOUD_HISTORY_TOKEN_BUDGET,
-} from "@stella/executor-cloud/prune-history";
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import { CLOUD_HISTORY_TOKEN_BUDGET } from "@stella/executor-cloud/prune-history";
 import { AgentHome, buildResidentMemorySection } from "./agent-home.js";
+import { isValidCloudSpawnModel } from "./cloud-spawn-model.js";
+import { sha256Hex } from "./hash.js";
 import {
   buildCloudSystemPrompt,
   CLOUD_PROMPT_SNAPSHOT_STORAGE_KEY,
@@ -140,9 +140,9 @@ export type ChatTurnRequest = {
   turnToken: string;
   convexCallbackBase: string;
   watchdogMs?: number;
-  // Resolved by Convex at dispatch (owner's engine setting + a verified
-  // connected credential); absent = the managed Stella relay.
-  engine?: CloudEngineSelection;
+  // Resolved and persisted by Convex. Optional only while an older queued
+  // dispatch drains during rolling deployment.
+  execution?: CloudExecutionSelection;
   // Transcript metadata Convex holds and the journal needs. All optional so a
   // dispatch from an older Convex deployment still runs, just with a plainer
   // rendered record.
@@ -164,9 +164,22 @@ export type ChatTurnRequest = {
   // the prompt text separately names the paths (the composer's preamble), so
   // later turns can still reach the files through the drive.
   attachments?: string[];
+  /** Worker-issued owner purge lease generation. */
+  ownerPurgeGeneration?: string;
+  ownerPurgeLeaseId?: string;
 };
 
+const DEFAULT_CLOUD_EXECUTION: CloudExecutionSelection = {
+  engine: "stella",
+  provider: "stella",
+  model: "stella/anthropic/claude-sonnet-4.6",
+  reasoningEffort: "default",
+};
+
+class OwnerPurgeFenceError extends Error {}
+
 const CHAT_WATCHDOG_MS = 5 * 60_000;
+const OWNER_PURGE_STALE_LEASE_GRACE_MS = 35_000;
 
 const json = (body: unknown, status = 200): Response =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -216,7 +229,10 @@ const base64FromBytes = (bytes: Uint8Array): string => {
  * sink is fire-and-forget, so an `await` there would silently drop the row.
  * The async append paths spill to R2 instead and keep the full bytes.
  */
-const truncateMessage = (message: AgentMessage, limit: number): AgentMessage => {
+const truncateMessage = (
+  message: AgentMessage,
+  limit: number,
+): AgentMessage => {
   const record = message as { role?: string; content?: unknown };
   if (!Array.isArray(record.content)) return message;
   const budget = Math.max(1_000, Math.floor(limit / 2));
@@ -304,12 +320,12 @@ const SPAWN_AGENT_PARAMETERS = {
     workspace: {
       type: "string",
       description:
-        'Where the work runs, chosen by what the task operates on: "drive" (the user\'s cloud drive — the default), "computer" (their local machine), "project:<name>", "stella", or "app:<slug>". Omit for work with no file subject.',
+        'Where the work runs, chosen by what the task operates on: "cloud" (the user\'s general Stella cloud workspace — the default), "computer" (their local machine), "project:<name>", "stella", or "app:<slug>". Omit for work with no file subject.',
     },
     model: {
       type: "string",
       description:
-        'Optional engine for this one spawn. Omit for the user\'s configured setup. "claude" runs the agent on the user\'s connected Claude subscription; "claude/<model>" pins an engine-native model (e.g. "claude/claude-opus-4-8"). Use ONLY when the user explicitly asked for it.',
+        'Optional route for this one spawn. Omit to inherit this conversation exactly. Use "claude[/model]", "codex[/model]", or a canonical "stella/..." model. Append :low, :medium, :high, or :xhigh to preserve an explicitly requested reasoning effort.',
     },
   },
   required: ["description", "prompt"],
@@ -399,7 +415,9 @@ export class OrchestratorSession extends DurableObject<Env> {
     // setting it on every cold start makes the question moot. This is what
     // keeps an idle conversation free — a JSON heartbeat would wake the object
     // on every beat and bill the incoming frame at 20:1.
-    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+    ctx.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair("ping", "pong"),
+    );
     // Accepted turns are persisted under queued:* before the 202 goes out;
     // an isolate restart wipes the in-memory queue, so re-enqueue whatever
     // survived — otherwise an accepted turn (and its Convex "running" row)
@@ -423,6 +441,67 @@ export class OrchestratorSession extends DurableObject<Env> {
 
   private conversationId(): string {
     return this.journal.meta().conversation_id || this.ctx.id.name || "";
+  }
+
+  private async callOwnerFence(
+    ownerId: string,
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<Response> {
+    const ownerHash = await sha256Hex(ownerId);
+    return this.env.BUILD_SESSIONS.getByName(`owner-purge-${ownerHash}`).fetch(
+      `https://build-session/owner-fence/${path}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  }
+
+  private async registerOwnerTurn(
+    turn: ChatTurnRequest,
+    freshLease = false,
+  ): Promise<string> {
+    if (freshLease || !turn.ownerPurgeLeaseId) {
+      turn.ownerPurgeLeaseId = crypto.randomUUID();
+    }
+    const response = await this.callOwnerFence(turn.ownerId, "register", {
+      leaseId: turn.ownerPurgeLeaseId,
+      sessionId: this.ctx.id.toString(),
+      turnId: turn.turnId,
+      namespace: "orchestrator",
+      role: "orchestrator",
+      ...(turn.ownerPurgeGeneration
+        ? { generation: turn.ownerPurgeGeneration }
+        : {}),
+    });
+    const body = (await response.json().catch(() => null)) as {
+      generation?: string;
+    } | null;
+    if (!response.ok || !body?.generation) throw new OwnerPurgeFenceError();
+    return body.generation;
+  }
+
+  private async assertOwnerTurn(turn: ChatTurnRequest): Promise<void> {
+    if (!turn.ownerPurgeGeneration || !turn.ownerPurgeLeaseId) {
+      throw new OwnerPurgeFenceError();
+    }
+    const response = await this.callOwnerFence(turn.ownerId, "assert", {
+      generation: turn.ownerPurgeGeneration,
+      leaseId: turn.ownerPurgeLeaseId,
+    });
+    if (!response.ok) throw new OwnerPurgeFenceError();
+  }
+
+  private async unregisterOwnerTurn(turn: ChatTurnRequest): Promise<void> {
+    if (!turn.ownerPurgeGeneration || !turn.ownerPurgeLeaseId) return;
+    await this.callOwnerFence(turn.ownerId, "unregister", {
+      leaseId: turn.ownerPurgeLeaseId,
+      sessionId: this.ctx.id.toString(),
+      turnId: turn.turnId,
+      generation: turn.ownerPurgeGeneration,
+    }).catch(() => undefined);
   }
 
   private convexEndpoint(): { base: string; secret: string } | null {
@@ -474,7 +553,9 @@ export class OrchestratorSession extends DurableObject<Env> {
         return null;
       }
       if (!response.ok) {
-        throw new Error(`Conversation owner lookup failed (${response.status}).`);
+        throw new Error(
+          `Conversation owner lookup failed (${response.status}).`,
+        );
       }
       const payload = (await response.json()) as ConversationOwnerRecord;
       if (!payload?.ownerId) return null;
@@ -518,9 +599,16 @@ export class OrchestratorSession extends DurableObject<Env> {
         this.journal.head(this.live ? "running" : "idle"),
       ownerId: () => this.journal.ownerId(),
       bindOwner: (record) =>
-        this.journal.bindOwner({ ...record, conversationId: this.conversationId() }),
+        this.journal.bindOwner({
+          ...record,
+          conversationId: this.conversationId(),
+        }),
       readRange: (fromSeq, toSeq, limit): Promise<JournalRange> =>
-        this.archive.readRange(fromSeq, toSeq, Math.min(limit, BACKFILL_BATCH_RECORDS)),
+        this.archive.readRange(
+          fromSeq,
+          toSeq,
+          Math.min(limit, BACKFILL_BATCH_RECORDS),
+        ),
       newest: (limit): JournalRecord[] =>
         this.journal.newest(Math.min(limit, INITIAL_WINDOW_RECORDS)),
       liveTurn: () => this.live,
@@ -530,7 +618,10 @@ export class OrchestratorSession extends DurableObject<Env> {
   private flushIndexIfLagging(): void {
     if (!this.index.lagging()) return;
     void this.index
-      .flush({ activity: this.live ? "running" : "idle", updatedAt: Date.now() })
+      .flush({
+        activity: this.live ? "running" : "idle",
+        updatedAt: Date.now(),
+      })
       .catch(() => undefined);
   }
 
@@ -565,6 +656,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     this.queue = this.queue
       .then(() => this.runTurn(turn))
       .catch(() => undefined);
+    this.ctx.waitUntil(this.queue);
   }
 
   private convexPost(
@@ -617,7 +709,9 @@ export class OrchestratorSession extends DurableObject<Env> {
   private async owedTerminal(
     turn: ChatTurnRequest,
   ): Promise<OwedTerminal | null> {
-    const owed = await this.ctx.storage.get<OwedTerminal | null>("terminalOwed");
+    const owed = await this.ctx.storage.get<OwedTerminal | null>(
+      "terminalOwed",
+    );
     if (owed) return owed;
     if (!(await this.ctx.storage.get<boolean>("terminal"))) return null;
     const recorded = this.journal.turnState(turn.turnId);
@@ -678,6 +772,27 @@ export class OrchestratorSession extends DurableObject<Env> {
       await this.ensureQueueAlarm();
       return;
     }
+    const alarmTurn = { ...turn };
+    try {
+      alarmTurn.ownerPurgeGeneration = await this.registerOwnerTurn(
+        alarmTurn,
+        true,
+      );
+      await this.assertOwnerTurn(alarmTurn);
+      await this.runAlarm(alarmTurn);
+    } catch (error) {
+      if (error instanceof OwnerPurgeFenceError) {
+        this.currentTurnAbort?.abort();
+        this.currentAgent?.abort();
+        return;
+      }
+      throw error;
+    } finally {
+      await this.unregisterOwnerTurn(alarmTurn);
+    }
+  }
+
+  private async runAlarm(turn: ChatTurnRequest): Promise<void> {
     // The alarm is two jobs sharing one wake-up: the watchdog, and the retry
     // ladder every other terminal path re-arms when its Convex delivery fails.
     // Only the first job may terminate a turn. Running the timeout path over a
@@ -762,50 +877,114 @@ export class OrchestratorSession extends DurableObject<Env> {
     if (url.pathname === "/cards") return this.handleCard(request);
     if (url.pathname === "/purge") return this.handlePurge();
     if (url.pathname === "/reindex") return this.handleReindex();
+    if (url.pathname === "/owner-purge-cancel") {
+      const body = (await request.json().catch(() => ({}))) as {
+        ownerId?: string;
+        turnId?: string;
+        generation?: string;
+        leaseId?: string;
+      };
+      const current = await this.ctx.storage.get<ChatTurnRequest>("turn");
+      await this.ctx.storage.put("terminal", true);
+      this.currentTurnAbort?.abort();
+      this.currentAgent?.abort();
+      const queued = await this.ctx.storage.list<ChatTurnRequest>({
+        prefix: "queued:",
+      });
+      for (const [key, queuedTurn] of queued) {
+        await this.ctx.storage.delete(key);
+        await this.unregisterOwnerTurn(queuedTurn);
+      }
+      const turnId = body.turnId ?? current?.turnId;
+      const ownerId = body.ownerId ?? current?.ownerId;
+      const generation = body.generation ?? current?.ownerPurgeGeneration;
+      const leaseId = body.leaseId ?? current?.ownerPurgeLeaseId;
+      if (!turnId || !ownerId || !generation || !leaseId) {
+        return json({ error: "Owner purge lease identity required." }, 400);
+      }
+      if (this.activeTurnId === turnId) {
+        return json({ error: "Owner turn is still unwinding." }, 409);
+      }
+      const key = `ownerPurgeCancelAt:${leaseId}`;
+      const startedAt = (await this.ctx.storage.get<number>(key)) ?? Date.now();
+      await this.ctx.storage.put(key, startedAt);
+      if (Date.now() - startedAt < OWNER_PURGE_STALE_LEASE_GRACE_MS) {
+        return json({ error: "Reconciling stale owner turn lease." }, 409);
+      }
+      await this.ctx.storage.delete(key);
+      await this.callOwnerFence(ownerId, "unregister", {
+        leaseId,
+        sessionId: this.ctx.id.toString(),
+        turnId,
+        generation,
+      });
+      return json({ canceled: true, turnId, unregistered: true });
+    }
     if (url.pathname === "/cancel") {
-      const turn = await this.ctx.storage.get<ChatTurnRequest>("turn");
-      if (turn && !(await this.ctx.storage.get<boolean>("terminal"))) {
-        // `terminalOwed` travels with `terminal` in one put: it is what tells
-        // the re-armed alarm below that a cancel — not a timeout — is the
-        // terminal this turn reached.
-        await this.ctx.storage.put({
-          terminal: true,
-          terminalOwed: {
-            kind: "canceled",
-            message: TERMINAL_NOTICE.canceled,
-          } satisfies OwedTerminal,
-        });
-        this.currentTurnAbort?.abort();
-        this.currentAgent?.abort();
-        // Additive, for the same reason as in alarm(): the terminal journal
-        // row is what stops a connected client's spinner, and it is
-        // independent of whether the Convex event below is delivered.
-        this.recordTerminal(turn, "canceled", TERMINAL_NOTICE.canceled);
+      const stored = await this.ctx.storage.get<ChatTurnRequest>("turn");
+      if (stored && !(await this.ctx.storage.get<boolean>("terminal"))) {
+        const turn = { ...stored };
         try {
-          await this.event(
-            turn,
-            "auto",
-            "canceled",
-            { message: TERMINAL_NOTICE.canceled },
-            true,
-          );
-          await this.ctx.storage.put("terminalDelivered", true);
-        } catch {
-          // Delivery failed; the re-armed alarm retries so the turn cannot
-          // stay "running" forever.
-          await this.ctx.storage.setAlarm(Date.now() + 30_000);
+          turn.ownerPurgeGeneration = await this.registerOwnerTurn(turn, true);
+          await this.assertOwnerTurn(turn);
+          // `terminalOwed` travels with `terminal` in one put: it is what tells
+          // the re-armed alarm below that a cancel — not a timeout — is the
+          // terminal this turn reached.
+          await this.ctx.storage.put({
+            terminal: true,
+            terminalOwed: {
+              kind: "canceled",
+              message: TERMINAL_NOTICE.canceled,
+            } satisfies OwedTerminal,
+          });
+          this.currentTurnAbort?.abort();
+          this.currentAgent?.abort();
+          // Additive, for the same reason as in alarm(): the terminal journal
+          // row is what stops a connected client's spinner, and it is
+          // independent of whether the Convex event below is delivered.
+          this.recordTerminal(turn, "canceled", TERMINAL_NOTICE.canceled);
+          try {
+            await this.event(
+              turn,
+              "auto",
+              "canceled",
+              { message: TERMINAL_NOTICE.canceled },
+              true,
+            );
+            await this.ctx.storage.put("terminalDelivered", true);
+          } catch {
+            // Delivery failed; the re-armed alarm retries so the turn cannot
+            // stay "running" forever.
+            await this.ctx.storage.setAlarm(Date.now() + 30_000);
+          }
+          // Same debt as the watchdog path, and last for the same reason. A
+          // stopped turn is still a turn the user had: it owes an excerpt and an
+          // inbox drain. When the loop is still alive it does this itself on its
+          // way out; this covers a cancel that arrives after an eviction, where
+          // nothing else ever would.
+          await this.finalizeTerminalTurn(turn);
+        } catch (error) {
+          if (!(error instanceof OwnerPurgeFenceError)) throw error;
+        } finally {
+          await this.unregisterOwnerTurn(turn);
         }
-        // Same debt as the watchdog path, and last for the same reason. A
-        // stopped turn is still a turn the user had: it owes an excerpt and an
-        // inbox drain. When the loop is still alive it does this itself on its
-        // way out; this covers a cancel that arrives after an eviction, where
-        // nothing else ever would.
-        await this.finalizeTerminalTurn(turn);
       }
       return json({ canceled: true });
     }
     if (url.pathname !== "/turn") return json({ error: "Not found." }, 404);
     const turn = (await request.json()) as ChatTurnRequest;
+    try {
+      delete turn.ownerPurgeGeneration;
+      delete turn.ownerPurgeLeaseId;
+      turn.ownerPurgeGeneration = await this.registerOwnerTurn(turn);
+      await this.assertOwnerTurn(turn);
+    } catch (error) {
+      await this.unregisterOwnerTurn(turn);
+      if (error instanceof OwnerPurgeFenceError) {
+        return json({ error: "Owner cloud activity is being purged." }, 409);
+      }
+      throw error;
+    }
     // Accept immediately and run in the background: holding the dispatch
     // POST open for the whole turn means a mid-turn transport failure makes
     // Convex mark a still-running turn failed. The turn is durable before
@@ -838,11 +1017,31 @@ export class OrchestratorSession extends DurableObject<Env> {
   private currentTurnAbort?: AbortController;
 
   private async runTurn(turn: ChatTurnRequest): Promise<Response> {
+    // Queued turns survive DO eviction and may predate the worker generation
+    // that introduced owner leases. Acquire (or re-acquire) before touching
+    // the journal; a blocked owner drops the queued turn without callbacks,
+    // because the reset/account purge is about to delete its Convex row too.
+    try {
+      turn.ownerPurgeGeneration = await this.registerOwnerTurn(turn);
+      await this.assertOwnerTurn(turn);
+    } catch (error) {
+      await this.ctx.storage.delete(`queued:${turn.turnId}`);
+      await this.unregisterOwnerTurn(turn);
+      if (error instanceof OwnerPurgeFenceError) {
+        log("info", "chat_turn_dropped_owner_purge", {
+          turnId: turn.turnId,
+          ownerId: turn.ownerId,
+        });
+        return json({ ok: false, purging: true });
+      }
+      throw error;
+    }
     // A dispatch that raced the deletion of its own conversation. Running it
     // would rebuild the transcript the purge just destroyed, in an object no
     // later purge will visit.
     if (this.purged()) {
       await this.ctx.storage.delete(`queued:${turn.turnId}`);
+      await this.unregisterOwnerTurn(turn);
       log("info", "chat_turn_dropped_deleted", { turnId: turn.turnId });
       return json({ ok: false, deleted: true });
     }
@@ -855,6 +1054,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     if (this.journal.turnState(turn.turnId)?.state === "terminal") {
       log("info", "chat_turn_duplicate_ignored", { turnId: turn.turnId });
       await this.ctx.storage.delete(`queued:${turn.turnId}`);
+      await this.unregisterOwnerTurn(turn);
       return json({ ok: false, duplicate: true });
     }
     // A prior turn that never delivered its terminal event (isolate restart
@@ -925,6 +1125,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     // Claimed inside the try so the matching `finally` always releases it: a
     // turn id stuck here would stop the watchdog from ever finalizing a turn.
     try {
+      await this.assertOwnerTurn(turn);
       this.activeTurnId = turn.turnId;
       // Binding is safe from a turn dispatch and only from a turn dispatch:
       // Convex resolved the conversation and checked ownership before it minted
@@ -979,7 +1180,12 @@ export class OrchestratorSession extends DurableObject<Env> {
       });
       this.journal.setTurnSpan(turn.turnId, startedRow.seq);
       this.publish(startedRow.record);
-      this.live = { turnId: turn.turnId, streamId: null, partialText: "", tools: [] };
+      this.live = {
+        turnId: turn.turnId,
+        streamId: null,
+        partialText: "",
+        tools: [],
+      };
 
       // The window is chosen from resident rows only, and rollover guarantees
       // the resident floor sits below the last turn's context start — so a
@@ -1032,12 +1238,13 @@ export class OrchestratorSession extends DurableObject<Env> {
         return json({ ok: false, canceled: true });
       }
 
-      const model = createCloudRelayModel({
+      const model = await createCloudRelayModel({
         siteUrl: base,
         turnToken: turn.turnToken,
         agentType: "orchestrator",
-        engine: turn.engine,
+        execution: turn.execution ?? DEFAULT_CLOUD_EXECUTION,
       });
+      const executionSelection = turn.execution ?? DEFAULT_CLOUD_EXECUTION;
       const agent: Agent = new Agent({
         initialState: {
           systemPrompt: buildCloudSystemPrompt({
@@ -1050,7 +1257,10 @@ export class OrchestratorSession extends DurableObject<Env> {
             residentSection: buildResidentMemorySection(memoryDocuments),
           }),
           model,
-          thinkingLevel: resolveAgentThinkingLevel({ resolvedLlm: { model } }),
+          thinkingLevel: resolveCloudThinkingLevel(
+            model,
+            executionSelection.reasoningEffort,
+          ),
           tools: this.createTools(turn, agentHome),
           messages: history,
         },
@@ -1279,6 +1489,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       this.live = null;
       this.hub.endTurn(turn.turnId);
       if (this.activeTurnId === turn.turnId) this.activeTurnId = null;
+      await this.unregisterOwnerTurn(turn);
     }
   }
 
@@ -1431,7 +1642,8 @@ export class OrchestratorSession extends DurableObject<Env> {
       }
       case "message_update": {
         const delta = event.assistantMessageEvent;
-        if (delta.type !== "text_delta" && delta.type !== "thinking_delta") break;
+        if (delta.type !== "text_delta" && delta.type !== "thinking_delta")
+          break;
         let id = cursor.streamId();
         if (!id) {
           id = newStreamId();
@@ -1512,7 +1724,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     streamId: string | null,
   ): void {
     const role = (message as { role?: string }).role;
-    if (role !== "user" && role !== "assistant" && role !== "toolResult") return;
+    if (role !== "user" && role !== "assistant" && role !== "toolResult")
+      return;
     // The loop's first produced message is the prompt's clock-stamped copy.
     // The durable prompt row is already written and deliberately clock-free,
     // so replayed history stays byte-stable and cacheable.
@@ -1927,7 +2140,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
     const bound = this.journal.ownerId() || (await this.lookupOwner())?.ownerId;
     if (!bound) return json({ error: "Conversation not found." }, 404);
-    if (bound !== ownerId) return json({ error: "Conversation not found." }, 404);
+    if (bound !== ownerId)
+      return json({ error: "Conversation not found." }, 404);
 
     let body: {
       deviceId?: string;
@@ -1950,10 +2164,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     const localTurnId = body.localTurnId?.trim();
     const records = body.records ?? [];
     if (!deviceId || !localTurnId || records.length === 0) {
-      return json(
-        { code: "bad_request", message: "Malformed request." },
-        400,
-      );
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
     if (records.length > APPEND_MAX_ROWS) {
       return json(
@@ -1965,7 +2176,8 @@ export class OrchestratorSession extends DurableObject<Env> {
       );
     }
     let totalBytes = 0;
-    for (const record of records) totalBytes += utf8Length(record.payloadJson ?? "");
+    for (const record of records)
+      totalBytes += utf8Length(record.payloadJson ?? "");
     if (totalBytes > APPEND_MAX_BYTES) {
       return json(
         {
@@ -2014,7 +2226,8 @@ export class OrchestratorSession extends DurableObject<Env> {
       return json(
         {
           code: "rate_limited",
-          message: "That's more history than this conversation can take right now.",
+          message:
+            "That's more history than this conversation can take right now.",
           retryAfterMs: probe.retryAfterMs,
         },
         429,
@@ -2069,14 +2282,20 @@ export class OrchestratorSession extends DurableObject<Env> {
       }
       const role = record.role;
       if (role !== "user" && role !== "assistant" && role !== "toolResult") {
-        return json({ code: "bad_request", message: "Malformed request." }, 400);
+        return json(
+          { code: "bad_request", message: "Malformed request." },
+          400,
+        );
       }
       const payloadJson = record.payloadJson ?? "";
       let message: AgentMessage;
       try {
         message = JSON.parse(payloadJson) as AgentMessage;
       } catch {
-        return json({ code: "bad_request", message: "Malformed request." }, 400);
+        return json(
+          { code: "bad_request", message: "Malformed request." },
+          400,
+        );
       }
       const sized = await this.prepareOversize(
         role,
@@ -2220,7 +2439,11 @@ export class OrchestratorSession extends DurableObject<Env> {
     message: AgentMessage,
     payloadJson: string,
     writerKey: string,
-  ): Promise<{ message: AgentMessage; payloadJson: string; spillKey?: string }> {
+  ): Promise<{
+    message: AgentMessage;
+    payloadJson: string;
+    spillKey?: string;
+  }> {
     if (utf8Length(payloadJson) <= MAX_ROW_BYTES) {
       return { message, payloadJson };
     }
@@ -2481,7 +2704,10 @@ export class OrchestratorSession extends DurableObject<Env> {
    * - `spawn_manager`: the manager runtime coordinates local threads; cloud
    *   equivalents need a manager loop over BuildSessions first.
    */
-  private createTools(turn: ChatTurnRequest, agentHome: AgentHome): AgentTool[] {
+  private createTools(
+    turn: ChatTurnRequest,
+    agentHome: AgentHome,
+  ): AgentTool[] {
     const base = turn.convexCallbackBase;
     const toolContext = {
       ownerId: turn.ownerId,
@@ -2521,16 +2747,18 @@ export class OrchestratorSession extends DurableObject<Env> {
             workspace?: string;
             model?: string;
           };
-          const workspace = args.workspace?.trim() || "drive";
+          const requestedWorkspace = args.workspace?.trim() || "cloud";
+          const workspace =
+            requestedWorkspace === "drive" ? "cloud" : requestedWorkspace;
           if (workspace === "computer") {
             throw new Error(
-              "The user's computer isn't reachable from cloud chat yet. Run this on their machine from the desktop app, or use workspace \"drive\" for cloud work.",
+              "The user's computer isn't reachable from cloud chat yet. Run this on their machine from the desktop app, or use workspace \"cloud\" for hosted work.",
             );
           }
           const model = args.model?.trim();
-          if (model && model !== "default" && !/^claude(\/|$)/.test(model)) {
+          if (model && model !== "default" && !isValidCloudSpawnModel(model)) {
             throw new Error(
-              'Only "claude" (the user\'s connected Claude subscription) or "claude/<model>" can be selected for cloud spawns right now. Omit model for the default.',
+              'Cloud spawn model must be "claude[/model]", "codex[/model]", or a canonical "stella/..." model, optionally followed by :low, :medium, :high, or :xhigh.',
             );
           }
           const threadId = await spawn({
@@ -2586,7 +2814,7 @@ export class OrchestratorSession extends DurableObject<Env> {
             threadId: args.thread_id,
             description: args.description,
             prompt: args.message,
-            workspace: "drive",
+            workspace: "cloud",
           });
           return {
             content: [
@@ -2620,9 +2848,10 @@ export class OrchestratorSession extends DurableObject<Env> {
         } as unknown as TSchema,
         execute: async (_id, params) => {
           const args = params as { thread_id: string };
-          // Order matters: mark the thread canceled first (wake suppressed),
-          // then tear down the sandbox — the BuildSession's own canceled
-          // callback becomes a no-op against the already-terminal thread.
+          // Resolve the exact active turn first, then let its BuildSession DO
+          // atomically claim cancellation, stop the process, and deliver the
+          // terminal event. A pre-dispatch pause is persisted by that DO and
+          // consumed as soon as the delayed turn arrives.
           const response = await this.convexPost(base, "/api/cloud/spawn", {
             action: "cancel",
             ownerId: turn.ownerId,
@@ -2632,14 +2861,56 @@ export class OrchestratorSession extends DurableObject<Env> {
           if (!response.ok) {
             throw new Error(`Thread not found: ${args.thread_id}`);
           }
-          await this.env.BUILD_SESSIONS.getByName(args.thread_id)
-            .fetch("https://build-session/cancel", { method: "POST" })
-            .catch(() => undefined);
+          const canceled = (await response.json()) as {
+            status?: string;
+            turnId?: string;
+          };
+          let alreadyTerminal =
+            !canceled.turnId &&
+            canceled.status !== undefined &&
+            canceled.status !== "running";
+          let cancellationPending = false;
+          if (canceled.turnId) {
+            const teardown = await this.env.BUILD_SESSIONS.getByName(
+              args.thread_id,
+            ).fetch("https://build-session/cancel", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                turnId: canceled.turnId,
+                reason: "Paused by orchestrator.",
+              }),
+            });
+            const teardownResult = (await teardown
+              .json()
+              .catch(() => ({}))) as {
+              pending?: boolean;
+              reason?: string;
+            };
+            cancellationPending =
+              teardown.status === 202 && teardownResult.pending === true;
+            if (teardown.status === 409) {
+              if (teardownResult.reason === "terminal_already_decided") {
+                alreadyTerminal = true;
+              } else {
+                throw new Error(
+                  `${args.thread_id} was continued while it was being paused. Try again if the newer turn should also stop.`,
+                );
+              }
+            }
+            if (!teardown.ok && !alreadyTerminal) {
+              throw new Error(`Could not pause ${args.thread_id}. Try again.`);
+            }
+          }
           return {
             content: [
               {
                 type: "text",
-                text: `Paused ${args.thread_id}. Resume it later with send_input.`,
+                text: cancellationPending
+                  ? `Pause requested for ${args.thread_id}. It is stopping now and can be resumed later with send_input.`
+                  : alreadyTerminal
+                    ? `${args.thread_id} had already stopped. Resume it later with send_input.`
+                    : `Paused ${args.thread_id}. Resume it later with send_input.`,
               },
             ],
             details: { thread_id: args.thread_id, canceled: true },

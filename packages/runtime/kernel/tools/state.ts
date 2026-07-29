@@ -18,6 +18,7 @@ import {
 import { AGENT_PAUSE_CANCEL_REASON } from "../agents/local-agent-manager.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type {
+  CloudExecutionSelection,
   AgentRuntimeEngine,
   SpawnEngineSelection,
   SpawnReasoningEffort,
@@ -42,6 +43,11 @@ export type StateContext = {
     modelName: string,
     reasoningEffort?: SpawnReasoningEffort,
   ) => Promise<void>;
+  resolveCloudExecutionSelection?: (request: {
+    model?: string;
+    spawnEngine?: SpawnEngineSelection;
+    reasoningEffort?: SpawnReasoningEffort;
+  }) => Promise<CloudExecutionSelection>;
 };
 
 const toOptionalString = (value: unknown): string | undefined => {
@@ -225,12 +231,14 @@ export const createStateContext = (
   agentApi?: AgentToolApi,
   validateSpawnModel?: (modelName: string) => void,
   validateSpawnModelWithMetadata?: StateContext["validateSpawnModelWithMetadata"],
+  resolveCloudExecutionSelection?: StateContext["resolveCloudExecutionSelection"],
 ): StateContext => ({
   stateRoot,
   tasks: new Map(),
   agentApi,
   validateSpawnModel,
   validateSpawnModelWithMetadata,
+  resolveCloudExecutionSelection,
 });
 
 export const handleSendInput = async (
@@ -285,6 +293,33 @@ export const handleSendInput = async (
     },
   );
   if (!delivered.delivered) {
+    if (
+      !isManager &&
+      context.agentType === AGENT_IDS.ORCHESTRATOR &&
+      ctx.agentApi.cloudContinue
+    ) {
+      const continued = await ctx.agentApi.cloudContinue({
+        threadId,
+        description,
+        message,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+      });
+      if (continued.delivered) {
+        return {
+          result: {
+            thread_id: threadId,
+            status: "updated",
+            delivered: true,
+            placement: "cloud",
+            note: "The cloud thread is running again. Its terminal report will return to this conversation, including after a desktop restart.",
+          },
+        };
+      }
+      return {
+        error: continued.reason ?? `Thread not found: ${threadId}`,
+      };
+    }
     return { error: delivered.reason ?? `Thread not found: ${threadId}` };
   }
   return {
@@ -399,6 +434,30 @@ export const handleSpawnAgent = async (
         AGENT_PAUSE_CANCEL_REASON,
       );
       if (!canceled.canceled) {
+        if (
+          context.agentType === AGENT_IDS.ORCHESTRATOR &&
+          ctx.agentApi.cloudCancel
+        ) {
+          const cloudCanceled = await ctx.agentApi.cloudCancel({
+            threadId: explicitThreadId,
+            conversationId: context.conversationId,
+            requestId: context.requestId,
+          });
+          if (cloudCanceled.canceled) {
+            return {
+              result: {
+                thread_id: explicitThreadId,
+                status: "canceled",
+                canceled: true,
+                placement: "cloud",
+              },
+            };
+          }
+          return {
+            error:
+              cloudCanceled.reason ?? `Thread not found: ${explicitThreadId}`,
+          };
+        }
         return { error: `Thread not found: ${explicitThreadId}` };
       }
       return {
@@ -459,18 +518,22 @@ export const handleSpawnAgent = async (
     };
   }
 
-  const workspace = toOptionalString(args.workspace);
+  const requestedWorkspace = toOptionalString(args.workspace);
   if (
-    workspace &&
-    !/^(computer|drive|stella|project:[A-Za-z0-9._-]{1,64}|app:[a-z0-9-]{1,64})$/.test(
-      workspace,
+    requestedWorkspace &&
+    !/^(computer|cloud|drive|stella|project:[A-Za-z0-9._-]{1,64}|app:[a-z0-9-]{1,64})$/.test(
+      requestedWorkspace,
     )
   ) {
     return {
       error:
-        "workspace must be one of computer, drive, stella, project:<name>, app:<slug>.",
+        "workspace must be one of computer, cloud, stella, project:<name>, app:<slug>.",
     };
   }
+  // `drive` is a rolling-client compatibility alias. New calls, dispatch
+  // results, and model-facing text use `cloud`.
+  const workspace =
+    requestedWorkspace === "drive" ? "cloud" : requestedWorkspace;
   // Non-computer placements name a subject that does not live on this
   // machine, so they leave the device instead of running through
   // LocalAgentManager. Without a dispatch capability there is nowhere honest
@@ -482,12 +545,6 @@ export const handleSpawnAgent = async (
       error: `The ${cloudWorkspace} workspace runs in Stella's cloud, and this runtime has no cloud connection. Use workspace "computer" to run it on this machine instead.`,
     };
   }
-  if (cloudWorkspace && toOptionalString(args.model)) {
-    return {
-      error: `The ${cloudWorkspace} workspace runs in Stella's cloud, which picks its own model. Drop the model parameter, or use workspace "computer" to run it here on a specific model.`,
-    };
-  }
-
   let modelSelection: SpawnModelSelection;
   try {
     modelSelection = parseSpawnAgentModel(args.model, (modelName) => {
@@ -550,6 +607,31 @@ export const handleSpawnAgent = async (
         error: `The ${cloudWorkspace} workspace runs in Stella's cloud, and this runtime has no cloud connection. Use workspace "computer" to run it on this machine instead.`,
       };
     }
+    const resolveExecution = ctx.resolveCloudExecutionSelection;
+    if (!resolveExecution) {
+      return {
+        error: `The ${cloudWorkspace} workspace cannot resolve this agent's cloud model selection in the current runtime.`,
+      };
+    }
+    let execution: CloudExecutionSelection;
+    try {
+      execution = await resolveExecution({
+        ...(modelSelection.kind === "model"
+          ? {
+              model: modelSelection.model,
+              spawnEngine: { engine: "default" } as const,
+            }
+          : {}),
+        ...(modelSelection.kind === "engine"
+          ? { spawnEngine: modelSelection.engine }
+          : {}),
+        ...(modelSelection.reasoningEffort
+          ? { reasoningEffort: modelSelection.reasoningEffort }
+          : {}),
+      });
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
     let dispatched: Awaited<ReturnType<typeof cloudDispatch>>;
     try {
       dispatched = await cloudDispatch({
@@ -557,6 +639,7 @@ export const handleSpawnAgent = async (
         conversationId: context.conversationId,
         description,
         prompt,
+        execution,
       });
     } catch (error) {
       return { error: (error as Error).message };
@@ -569,10 +652,7 @@ export const handleSpawnAgent = async (
         workspace: cloudWorkspace,
         placement: "cloud",
         cloud_conversation_id: dispatched.conversationId,
-        // Cloud threads report into their cloud conversation; this device
-        // gets no completion event for them yet. Saying otherwise would have
-        // the orchestrator wait forever, or claim a finish that never came.
-        note: "Running in Stella's cloud, not on this device. No completion event arrives here yet, and send_input/pause_agent cannot reach it — tell the user it is running in the cloud and move on.",
+        note: "Running in Stella's cloud. Its completion will return to this conversation, including after a desktop restart. Use send_input to continue this thread or pause_agent to stop its current turn.",
       },
     };
   }

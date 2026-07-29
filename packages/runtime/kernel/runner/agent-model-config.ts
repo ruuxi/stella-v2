@@ -3,6 +3,7 @@ import type {
   AgentModelConfigSnapshot,
   AgentModelReasoningEffort,
   AgentRuntimeEngine,
+  CloudExecutionSelection,
   SpawnEngineSelection,
 } from "@stella/contracts/agent-engine";
 import { getCodexRuntimePreferences } from "../integrations/codex-agent-runtime.js";
@@ -129,6 +130,56 @@ export const restoreSpawnEngineFromModelConfig = (
   return {
     engine: snapshot.engine,
     ...(snapshot.engineModel ? { model: snapshot.engineModel } : {}),
+  };
+};
+
+export const toCloudExecutionSelection = (
+  snapshot: AgentModelConfigSnapshot,
+): CloudExecutionSelection => {
+  const reasoningEffort = snapshot.reasoningEffort ?? "default";
+  if (snapshot.engine === "default") {
+    const model = snapshot.routeModel.trim();
+    const localOnlyManagedPrefix = [
+      "stella/local/",
+      "stella/ollama/",
+      "stella/lmstudio/",
+      "stella/openai-codex/",
+    ].find((prefix) => model.startsWith(prefix));
+    if (
+      !model.startsWith("stella/") ||
+      model.length === "stella/".length ||
+      localOnlyManagedPrefix
+    ) {
+      throw new Error(
+        `Cloud agents cannot use the desktop-only model route "${model || "unknown"}". Select a Stella-managed model, Claude, or Codex for this cloud task.`,
+      );
+    }
+    return {
+      engine: "stella",
+      provider: "stella",
+      model,
+      reasoningEffort,
+    };
+  }
+  const model = snapshot.engineModel?.trim();
+  if (!model) {
+    throw new Error(
+      `Cloud agents cannot use ${snapshot.engine} without an exact engine model.`,
+    );
+  }
+  if (snapshot.engine === "claude_code_local") {
+    return {
+      engine: "anthropic",
+      provider: "anthropic",
+      model,
+      reasoningEffort,
+    };
+  }
+  return {
+    engine: "openai-codex",
+    provider: "openai-codex",
+    model,
+    reasoningEffort,
   };
 };
 

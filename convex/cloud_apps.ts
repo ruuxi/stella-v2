@@ -11,11 +11,20 @@ import {
 } from "./_generated/server";
 import { makeFunctionReference } from "convex/server";
 import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   enforceActionRateLimit,
   enforceMutationRateLimit,
 } from "./lib/rate_limits";
 import type { SubscriptionPlan } from "./lib/billing_plans";
+import {
+  cloudExecutionSelectionValidator,
+  DEFAULT_CLOUD_ANTHROPIC_EXECUTION,
+  DEFAULT_CLOUD_CODEX_EXECUTION,
+  DEFAULT_CLOUD_EXECUTION,
+  normalizeCloudExecutionSelection,
+  type CloudExecutionSelection,
+} from "./lib/cloud_execution";
 
 type CloudPlanQuota = {
   dailyTurns: number;
@@ -99,6 +108,22 @@ const expireOpInvocationRef = makeFunctionReference<"mutation", any, any>(
 const runOrchestratorTurnRef = makeFunctionReference<"action", any, any>(
   "cloud_apps:runOrchestratorTurnInternal",
 );
+type CloudAgentThreadControl = {
+  status: string;
+  runningTurnId: string | null;
+  alreadyCanceled: boolean;
+};
+const getCloudAgentThreadControlRef = makeFunctionReference<
+  "query",
+  {
+    ownerId: string;
+    threadId: string;
+    originDeviceId?: string;
+    originConversationId?: string;
+    controlRequestId?: string;
+  },
+  CloudAgentThreadControl | null
+>("cloud_apps:getCloudAgentThreadControlInternal");
 const runCloudAgentTurnRef = makeFunctionReference<"action", any, any>(
   "cloud_apps:runCloudAgentTurnInternal",
 );
@@ -108,63 +133,141 @@ const storeTurnTokenRef = makeFunctionReference<"mutation", any, any>(
 const completeAgentThreadRef = makeFunctionReference<"mutation", any, any>(
   "cloud_apps:completeAgentThreadInternal",
 );
+const cancelCloudAgentTurnRef = makeFunctionReference<"mutation", any, any>(
+  "cloud_apps:cancelCloudAgentTurnInternal",
+);
+const isCloudAgentTurnDispatchableRef = makeFunctionReference<
+  "query",
+  { ownerId: string; threadId: string; turnId: string },
+  boolean
+>("cloud_apps:isCloudAgentTurnDispatchableInternal");
 const getEngineSettingsRef = makeFunctionReference<
   "query",
   { ownerId: string },
-  { chatEngine: string; connectedProviders: string[] }
+  {
+    chatEngine: string;
+    execution: CloudExecutionSelection;
+    connectedProviders: string[];
+  }
 >("cloud_engines:getEngineSettingsInternal");
 
-// Engine-native default when a cloud turn runs on the owner's Claude
-// subscription (mirrors DEFAULT_CLOUD_ANTHROPIC_ENGINE_MODEL in
-// packages/executor-cloud/src/relay-model.ts).
-const CLOUD_ANTHROPIC_ENGINE_DEFAULT_MODEL = "claude-sonnet-4.6";
-
-type CloudEngineSelection = { provider: "anthropic"; model: string };
-
-// Resolve which engine a cloud turn runs on: the owner's setting, honored
-// only while the matching credential is still connected.
-const resolveOwnerEngine = async (
+const resolveOwnerExecution = async (
   ctx: { runQuery: (ref: any, args: any) => Promise<any> },
   ownerId: string,
-): Promise<CloudEngineSelection | undefined> => {
+): Promise<CloudExecutionSelection> => {
   const settings = (await ctx.runQuery(getEngineSettingsRef, { ownerId })) as {
     chatEngine: string;
+    execution: CloudExecutionSelection;
     connectedProviders: string[];
   };
+  const execution = normalizeCloudExecutionSelection(settings.execution);
   if (
-    settings.chatEngine === "anthropic" &&
-    settings.connectedProviders.includes("anthropic")
+    execution.engine !== "stella" &&
+    !settings.connectedProviders.includes(execution.provider)
   ) {
-    return {
-      provider: "anthropic",
-      model: CLOUD_ANTHROPIC_ENGINE_DEFAULT_MODEL,
-    };
+    throw new ConvexError(
+      execution.engine === "anthropic"
+        ? "The selected Claude connection is unavailable. Reconnect it or choose another cloud engine."
+        : "The selected ChatGPT connection is unavailable. Reconnect it or choose another cloud engine.",
+    );
   }
-  return undefined;
+  return execution;
 };
 
 /**
- * Parse spawn_agent's cloud `model` override: "claude" | "claude/<model>".
- * Returns undefined for absent/default; throws readable errors otherwise.
+ * Rolling compatibility for cloud orchestrators that still send the old
+ * string-only spawn override. New clients send the full `execution` object.
  */
-const parseSpawnEngineModel = (
+const parseLegacySpawnExecution = (
   value: string | undefined,
-): CloudEngineSelection | undefined => {
+): CloudExecutionSelection | undefined => {
   const trimmed = value?.trim();
   if (!trimmed || trimmed === "default") return undefined;
-  if (trimmed === "claude") {
+  const effortMatch = /:(default|none|minimal|low|medium|high|xhigh)$/.exec(
+    trimmed,
+  );
+  const reasoningEffort =
+    (effortMatch?.[1] as CloudExecutionSelection["reasoningEffort"]) ??
+    "default";
+  const route = effortMatch
+    ? trimmed.slice(0, -effortMatch[0].length)
+    : trimmed;
+  if (route === "claude") {
+    return { ...DEFAULT_CLOUD_ANTHROPIC_EXECUTION, reasoningEffort };
+  }
+  const pinned =
+    /^claude\/((?:[A-Za-z0-9][A-Za-z0-9._-]{0,191}|[A-Za-z0-9][A-Za-z0-9._-]{0,187}\[1m\]))$/.exec(
+      route,
+    );
+  if (pinned) {
     return {
-      provider: "anthropic",
-      model: CLOUD_ANTHROPIC_ENGINE_DEFAULT_MODEL,
+      ...DEFAULT_CLOUD_ANTHROPIC_EXECUTION,
+      model: pinned[1]!,
+      reasoningEffort,
     };
   }
-  const pinned = /^claude\/([A-Za-z0-9._-]{1,64})$/.exec(trimmed);
-  if (pinned) {
-    return { provider: "anthropic", model: pinned[1]! };
+  if (route === "codex") {
+    return { ...DEFAULT_CLOUD_CODEX_EXECUTION, reasoningEffort };
+  }
+  const codexPinned = /^codex\/([A-Za-z0-9][A-Za-z0-9._-]{0,191})$/.exec(route);
+  if (codexPinned) {
+    return {
+      ...DEFAULT_CLOUD_CODEX_EXECUTION,
+      model: codexPinned[1]!,
+      reasoningEffort,
+    };
+  }
+  if (route.startsWith("stella/")) {
+    return normalizeCloudExecutionSelection({
+      ...DEFAULT_CLOUD_EXECUTION,
+      model: route,
+      reasoningEffort,
+    });
   }
   throw new ConvexError(
-    'Only "claude" or "claude/<model>" engines are available for cloud spawns right now.',
+    'Cloud spawn model must be "claude[/model]", "codex[/model]", or a canonical "stella/..." model.',
   );
+};
+
+const assertExecutionAvailable = async (
+  ctx: Pick<MutationCtx, "db">,
+  ownerId: string,
+  selection: CloudExecutionSelection,
+): Promise<CloudExecutionSelection> => {
+  const execution = normalizeCloudExecutionSelection(selection);
+  if (execution.engine === "stella") return execution;
+  const credential = await ctx.db
+    .query("cloud_llm_credentials")
+    .withIndex("by_ownerId_and_provider", (q) =>
+      q.eq("ownerId", ownerId).eq("provider", execution.provider),
+    )
+    .unique();
+  if (!credential) {
+    throw new ConvexError(
+      execution.engine === "anthropic"
+        ? "Connect Claude before using that cloud execution route."
+        : "Connect ChatGPT before using that cloud execution route.",
+    );
+  }
+  return execution;
+};
+
+const resolveOwnerExecutionInMutation = async (
+  ctx: Pick<MutationCtx, "db">,
+  ownerId: string,
+): Promise<CloudExecutionSelection> => {
+  const settings = await ctx.db
+    .query("cloud_engine_settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  const execution = settings?.execution
+    ? normalizeCloudExecutionSelection(settings.execution)
+    : settings?.chatEngine === "anthropic"
+      ? DEFAULT_CLOUD_ANTHROPIC_EXECUTION
+      : settings?.chatEngine === "openai-codex"
+        ? DEFAULT_CLOUD_CODEX_EXECUTION
+        : DEFAULT_CLOUD_EXECUTION;
+  return await assertExecutionAvailable(ctx, ownerId, execution);
 };
 
 const TURN_TOKEN_TTL_MS = 30 * 60_000;
@@ -260,9 +363,16 @@ const resolveConversationId = async (
     ownerId: string;
     conversationId?: string;
     title: string;
+    execution?: CloudExecutionSelection;
     now: number;
   },
-): Promise<{ conversationId: string; title: string; createdAt: number }> => {
+): Promise<{
+  documentId: Id<"cloud_conversations">;
+  conversationId: string;
+  title: string;
+  createdAt: number;
+  execution?: CloudExecutionSelection;
+}> => {
   if (args.conversationId) {
     const requestedConversationId = args.conversationId;
     const conversation = await ctx.db
@@ -285,11 +395,16 @@ const resolveConversationId = async (
     // a brand-new conversation has to sort to the top of the sidebar before
     // its first journal flush. The DO's index flush takes max() on it, so this
     // patch can never move the row backwards.
-    await ctx.db.patch(conversation._id, { updatedAt: args.now });
+    await ctx.db.patch(conversation._id, {
+      updatedAt: args.now,
+      ...(args.execution ? { execution: args.execution } : {}),
+    });
     return {
+      documentId: conversation._id,
       conversationId: requestedConversationId,
       title: conversation.title,
       createdAt: conversation.createdAt,
+      execution: args.execution ?? conversation.execution,
     };
   }
   const conversationId = crypto.randomUUID();
@@ -297,14 +412,21 @@ const resolveConversationId = async (
     args.title.length > CHAT_TITLE_MAX
       ? `${args.title.slice(0, CHAT_TITLE_MAX - 3)}…`
       : args.title;
-  await ctx.db.insert("cloud_conversations", {
+  const documentId = await ctx.db.insert("cloud_conversations", {
     conversationId,
     ownerId: args.ownerId,
+    ...(args.execution ? { execution: args.execution } : {}),
     title,
     createdAt: args.now,
     updatedAt: args.now,
   });
-  return { conversationId, title, createdAt: args.now };
+  return {
+    documentId,
+    conversationId,
+    title,
+    createdAt: args.now,
+    execution: args.execution,
+  };
 };
 
 /**
@@ -360,15 +482,32 @@ const startChatTurn = async (
     clientMsgId?: string;
     locale?: string;
     attachments?: string[];
+    execution?: CloudExecutionSelection;
     now: number;
   },
 ): Promise<{ conversationId: string; turnId: string }> => {
+  const explicitExecution = args.execution
+    ? await assertExecutionAvailable(ctx, args.ownerId, args.execution)
+    : undefined;
   const conversation = await resolveConversationId(ctx, {
     ownerId: args.ownerId,
     conversationId: args.conversationId,
     title: args.title ?? args.prompt,
+    ...(explicitExecution ? { execution: explicitExecution } : {}),
     now: args.now,
   });
+  const execution = explicitExecution
+    ? explicitExecution
+    : conversation.execution
+      ? await assertExecutionAvailable(
+          ctx,
+          args.ownerId,
+          conversation.execution,
+        )
+      : await resolveOwnerExecutionInMutation(ctx, args.ownerId);
+  if (!conversation.execution) {
+    await ctx.db.patch(conversation.documentId, { execution });
+  }
   const conversationId = conversation.conversationId;
   const turnId = crypto.randomUUID();
   const sessionId = `chat-${conversationId.slice(0, 8)}`;
@@ -385,6 +524,7 @@ const startChatTurn = async (
     ...(args.source ? { source: args.source } : {}),
     ...(args.hiddenTurn ? { hidden: true } : {}),
     ...(args.clientMsgId ? { clientMsgId: args.clientMsgId } : {}),
+    execution,
     createdAt: args.now,
     updatedAt: args.now,
   });
@@ -401,6 +541,7 @@ const startChatTurn = async (
     sessionId,
     prompt: args.prompt,
     turnToken,
+    execution,
     // The DO writes the prompt row; these are the flags it needs to write it
     // the way the old Convex insert did.
     ...(args.hiddenMessage ? { hiddenMessage: true } : {}),
@@ -424,7 +565,9 @@ const startChatTurn = async (
 // used as a dedupe key.
 const CLIENT_MSG_ID_PATTERN = /^[A-Za-z0-9._:-]{8,64}$/;
 
-const normalizeClientMsgId = (value: string | undefined): string | undefined => {
+const normalizeClientMsgId = (
+  value: string | undefined,
+): string | undefined => {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
   if (!CLIENT_MSG_ID_PATTERN.test(trimmed)) {
@@ -472,6 +615,7 @@ export const startCloudChatTurnInternal = internalMutation({
     hiddenTurn: v.optional(v.boolean()),
     source: v.optional(v.string()),
     clientMsgId: v.optional(v.string()),
+    execution: v.optional(cloudExecutionSelectionValidator),
     now: v.number(),
   },
   returns: v.object({ conversationId: v.string(), turnId: v.string() }),
@@ -484,7 +628,11 @@ export const startCloudChatTurnInternal = internalMutation({
     }
     const clientMsgId = normalizeClientMsgId(args.clientMsgId);
     if (clientMsgId) {
-      const replayed = await findTurnByClientMsgId(ctx, args.ownerId, clientMsgId);
+      const replayed = await findTurnByClientMsgId(
+        ctx,
+        args.ownerId,
+        clientMsgId,
+      );
       if (replayed) return replayed;
     }
     // Scheduled fires already passed their own per-owner daily budget in
@@ -516,6 +664,7 @@ export const startCloudChatTurnInternal = internalMutation({
       hiddenMessage: args.hiddenMessage ?? args.hidden === true,
       hiddenTurn: args.hiddenTurn ?? args.hidden === true,
       ...(clientMsgId ? { clientMsgId } : {}),
+      ...(args.execution ? { execution: args.execution } : {}),
       now: args.now,
     });
   },
@@ -632,9 +781,7 @@ export const listMyConversations = query({
       .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
       .order("desc")
       .take(50);
-    return rows
-      .filter((row) => row.deletedAt === undefined)
-      .slice(0, 25);
+    return rows.filter((row) => row.deletedAt === undefined).slice(0, 25);
   },
 });
 
@@ -726,6 +873,8 @@ export const startCloudChat = mutation({
     locale: v.optional(v.string()),
     /** Drive paths of attached images the turn should see as image blocks. */
     attachments: v.optional(v.array(v.string())),
+    /** Exact route for this conversation from this turn forward. */
+    execution: v.optional(cloudExecutionSelectionValidator),
   },
   returns: v.object({
     conversationId: v.string(),
@@ -881,16 +1030,30 @@ export const startCloudChat = mutation({
         ...(args.attachments?.length
           ? { attachments: normalizeChatAttachments(args.attachments) }
           : {}),
+        ...(args.execution ? { execution: args.execution } : {}),
         now,
       });
     }
 
-    const { conversationId } = await resolveConversationId(ctx, {
+    const explicitExecution = args.execution
+      ? await assertExecutionAvailable(ctx, ownerId, args.execution)
+      : undefined;
+    const conversation = await resolveConversationId(ctx, {
       ownerId,
       conversationId: args.conversationId,
       title: prompt,
+      ...(explicitExecution ? { execution: explicitExecution } : {}),
       now,
     });
+    const execution = explicitExecution
+      ? explicitExecution
+      : conversation.execution
+        ? await assertExecutionAvailable(ctx, ownerId, conversation.execution)
+        : await resolveOwnerExecutionInMutation(ctx, ownerId);
+    if (!conversation.execution) {
+      await ctx.db.patch(conversation.documentId, { execution });
+    }
+    const { conversationId } = conversation;
     const turnId = crypto.randomUUID();
     const turnToken =
       crypto.randomUUID().replaceAll("-", "") +
@@ -930,6 +1093,7 @@ export const startCloudChat = mutation({
       lane: routed ? "auto" : "build",
       kind: "build",
       ...(clientMsgId ? { clientMsgId } : {}),
+      execution,
       createdAt: now,
       updatedAt: now,
     });
@@ -944,6 +1108,7 @@ export const startCloudChat = mutation({
         sessionId,
         prompt,
         turnToken,
+        execution,
         // Apps go live the moment their build finishes — new or updated.
         // There is nothing to approve: the artifact is built and hosted, so
         // a pending state would only hide working software behind a click.
@@ -993,6 +1158,7 @@ export const runCloudTurnInternal = internalAction({
     sessionId: v.string(),
     prompt: v.string(),
     turnToken: v.string(),
+    execution: v.optional(cloudExecutionSelectionValidator),
     autoActivate: v.boolean(),
   },
   returns: v.null(),
@@ -1002,6 +1168,16 @@ export const runCloudTurnInternal = internalAction({
     let failure = "Stella couldn't start on this. Try again in a moment.";
     try {
       if (!builderUrl || !builderSecret) throw new Error(failure);
+      const execution =
+        args.execution ?? (await resolveOwnerExecution(ctx, args.ownerId));
+      await ctx.runMutation(storeTurnTokenRef, {
+        tokenHash: await hashToken(args.turnToken),
+        ownerId: args.ownerId,
+        turnId: args.turnId,
+        agentType: "general",
+        execution,
+        now: Date.now(),
+      });
       const response = await fetch(
         `${builderUrl.replace(/\/+$/, "")}/sessions/${args.sessionId}/turns`,
         {
@@ -1018,6 +1194,7 @@ export const runCloudTurnInternal = internalAction({
             turnToken: args.turnToken,
             convexCallbackBase: process.env.CONVEX_SITE_URL,
             autoActivate: args.autoActivate,
+            execution,
           }),
         },
       );
@@ -1058,15 +1235,20 @@ export const storeTurnTokenInternal = internalMutation({
     ownerId: v.string(),
     turnId: v.string(),
     agentType: v.string(),
+    execution: v.optional(cloudExecutionSelectionValidator),
     now: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const execution = args.execution
+      ? normalizeCloudExecutionSelection(args.execution)
+      : undefined;
     await ctx.db.insert("cloud_turn_tokens", {
       tokenHash: args.tokenHash,
       ownerId: args.ownerId,
       turnId: args.turnId,
       agentType: args.agentType,
+      ...(execution ? { execution } : {}),
       createdAt: args.now,
       expiresAt: args.now + TURN_TOKEN_TTL_MS,
     });
@@ -1075,14 +1257,40 @@ export const storeTurnTokenInternal = internalMutation({
 });
 
 export const getTurnTokenByHashInternal = internalQuery({
-  args: { tokenHash: v.string() },
-  returns: v.any(),
+  args: {
+    tokenHash: v.string(),
+    now: v.number(),
+    requireActive: v.optional(v.boolean()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("cloud_turn_tokens"),
+      _creationTime: v.number(),
+      tokenHash: v.string(),
+      ownerId: v.string(),
+      turnId: v.string(),
+      agentType: v.string(),
+      execution: v.optional(cloudExecutionSelectionValidator),
+      createdAt: v.number(),
+      expiresAt: v.number(),
+    }),
+  ),
   handler: async (ctx, args) => {
     const row = await ctx.db
       .query("cloud_turn_tokens")
       .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
       .unique();
-    if (!row || row.expiresAt <= Date.now()) return null;
+    if (!row || row.expiresAt <= args.now) return null;
+    if (args.requireActive) {
+      const turn = await ctx.db
+        .query("agent_turns")
+        .withIndex("by_turnId", (q) => q.eq("turnId", row.turnId))
+        .unique();
+      if (!turn || turn.ownerId !== row.ownerId || turn.status !== "running") {
+        return null;
+      }
+    }
     return row;
   },
 });
@@ -1583,7 +1791,9 @@ export const postConversationCardInternal = internalAction({
         );
         if (response.status !== 429 && response.status < 500) break;
         if (attempt < 2) {
-          await new Promise((resolve) => setTimeout(resolve, 2_000 * (attempt + 1)));
+          await new Promise((resolve) =>
+            setTimeout(resolve, 2_000 * (attempt + 1)),
+          );
         }
       }
       if (response && !response.ok) {
@@ -1679,7 +1889,8 @@ export const getConversationProbeInternal = internalAction({
       },
     );
     const text = await response.text();
-    if (!response.ok) return { error: `journal ${response.status}`, body: text };
+    if (!response.ok)
+      return { error: `journal ${response.status}`, body: text };
     try {
       return JSON.parse(text);
     } catch {
@@ -1911,10 +2122,10 @@ export const purgeConversationInternal = internalAction({
         return { purged: false };
       }
     }
-    await ctx.runMutation(
-      internal.cloud_apps.finishConversationPurgeInternal,
-      { conversationId: args.conversationId, now: Date.now() },
-    );
+    await ctx.runMutation(internal.cloud_apps.finishConversationPurgeInternal, {
+      conversationId: args.conversationId,
+      now: Date.now(),
+    });
     return { purged: true };
   },
 });
@@ -1957,7 +2168,10 @@ export const listUnpurgedConversationsInternal = internalQuery({
     const rows = await ctx.db
       .query("cloud_conversations")
       .withIndex("by_purgedAt_and_deletedAt", (q) =>
-        q.eq("purgedAt", undefined).gte("deletedAt", 1).lte("deletedAt", args.before),
+        q
+          .eq("purgedAt", undefined)
+          .gte("deletedAt", 1)
+          .lte("deletedAt", args.before),
       )
       .take(Math.min(50, Math.max(1, args.limit)));
     return rows.map((row) => ({ conversationId: row.conversationId }));
@@ -2073,6 +2287,7 @@ export const runOrchestratorTurnInternal = internalAction({
     sessionId: v.string(),
     prompt: v.string(),
     turnToken: v.string(),
+    execution: v.optional(cloudExecutionSelectionValidator),
     // Prompt-row metadata. The DO appends the user message to its journal as
     // the turn's first record, so the flags that used to shape the Convex
     // transcript insert travel with the dispatch instead.
@@ -2097,6 +2312,8 @@ export const runOrchestratorTurnInternal = internalAction({
     let failure = "Stella couldn't start on this. Try again in a moment.";
     try {
       if (!builderUrl || !builderSecret) throw new Error(failure);
+      const execution =
+        args.execution ?? (await resolveOwnerExecution(ctx, args.ownerId));
       // The hash must exist before the DO can present the raw token to the
       // relay or the callback routes, so store it before dispatching.
       await ctx.runMutation(storeTurnTokenRef, {
@@ -2104,11 +2321,9 @@ export const runOrchestratorTurnInternal = internalAction({
         ownerId: args.ownerId,
         turnId: args.turnId,
         agentType: "orchestrator",
+        execution,
         now: Date.now(),
       });
-      // Engine is resolved here (one place covers user and wake turns): the
-      // DO gets only a provider flag, never a credential.
-      const engine = await resolveOwnerEngine(ctx, args.ownerId);
       const response = await fetch(
         `${builderUrl.replace(/\/+$/, "")}/conversations/${args.conversationId}/turns`,
         {
@@ -2126,7 +2341,7 @@ export const runOrchestratorTurnInternal = internalAction({
             prompt: args.prompt,
             turnToken: args.turnToken,
             convexCallbackBase: process.env.CONVEX_SITE_URL,
-            ...(engine ? { engine } : {}),
+            execution,
             ...(args.hiddenMessage ? { hiddenMessage: true } : {}),
             ...(args.source ? { source: args.source } : {}),
             ...(args.clientMsgId ? { clientMsgId: args.clientMsgId } : {}),
@@ -2166,7 +2381,7 @@ export const runOrchestratorTurnInternal = internalAction({
 // Contract C2. "computer" is a real workspace on the desktop but is never
 // dispatchable from the cloud, so it is deliberately absent here.
 const CLOUD_WORKSPACE_PATTERN =
-  /^(drive|stella|project:[A-Za-z0-9._-]{1,64}|app:[a-z0-9-]{1,64})$/;
+  /^(cloud|drive|stella|project:[A-Za-z0-9._-]{1,64}|app:[a-z0-9-]{1,64})$/;
 
 const getProjectBySlugRef = makeFunctionReference<
   "query",
@@ -2190,6 +2405,9 @@ const checkWorkspaceProvisioned = async (
   ownerId: string,
   workspace: string,
 ): Promise<{ error?: string; workspace: string }> => {
+  // Keep the original `drive` checkpoint namespace during the public
+  // `cloud` rename so existing owner workspaces restore in place.
+  if (workspace === "cloud") return { workspace: "drive" };
   if (workspace === "drive" || workspace === "stella") return { workspace };
   if (workspace.startsWith("app:")) {
     const slug = workspace.slice("app:".length);
@@ -2218,7 +2436,7 @@ const checkWorkspaceProvisioned = async (
     return {
       workspace,
       error:
-        'Project workspaces are not available on this deployment yet. Use workspace "drive".',
+        'Project workspaces are not available on this deployment yet. Use workspace "cloud".',
     };
   }
   if (!project) {
@@ -2255,11 +2473,29 @@ const spawnCloudAgent = async (
     prompt: string;
     workspace: string;
     threadId?: string;
+    execution?: CloudExecutionSelection;
     model?: string;
     source?: string;
+    clientMsgId?: string;
+    originDeviceId?: string;
+    originConversationId?: string;
     now: number;
   },
 ): Promise<SpawnCloudAgentResult> => {
+  const originDeviceId = args.originDeviceId?.trim();
+  const originConversationId = args.originConversationId?.trim();
+  if (
+    Boolean(originDeviceId) !== Boolean(originConversationId) ||
+    (originDeviceId?.length ?? 0) > 256 ||
+    (originConversationId?.length ?? 0) > 256
+  ) {
+    return {
+      ok: false,
+      error:
+        "originDeviceId and originConversationId must be valid and provided together.",
+    };
+  }
+  let parentExecution: CloudExecutionSelection | undefined;
   if (args.parentTurnId) {
     const parentTurnId = args.parentTurnId;
     const parent = await ctx.db
@@ -2269,20 +2505,32 @@ const spawnCloudAgent = async (
     if (!parent || parent.ownerId !== args.ownerId) {
       return { ok: false, error: "Parent turn not found." };
     }
+    parentExecution = parent.execution
+      ? normalizeCloudExecutionSelection(parent.execution)
+      : undefined;
   }
   if (!CLOUD_WORKSPACE_PATTERN.test(args.workspace)) {
     return {
       ok: false,
       error:
-        "workspace must be drive, stella, project:<name>, or app:<slug> for cloud spawns.",
+        "workspace must be cloud, stella, project:<name>, or app:<slug> for cloud spawns.",
     };
   }
-  // Validate an explicit engine override up front so the orchestrator gets
-  // an immediate readable error instead of an async turn failure.
-  let engineOverride: CloudEngineSelection | undefined;
-  if (args.model) {
+  // A full execution object is the canonical override. The string parser
+  // remains only for already-running cloud orchestrators during rollout.
+  let executionOverride: CloudExecutionSelection | undefined;
+  if (args.execution || args.model) {
     try {
-      engineOverride = parseSpawnEngineModel(args.model);
+      executionOverride = args.execution
+        ? normalizeCloudExecutionSelection(args.execution)
+        : parseLegacySpawnExecution(args.model);
+      if (executionOverride) {
+        executionOverride = await assertExecutionAvailable(
+          ctx,
+          args.ownerId,
+          executionOverride,
+        );
+      }
     } catch (error) {
       return {
         ok: false,
@@ -2292,25 +2540,10 @@ const spawnCloudAgent = async (
             : "That engine selection isn't available.",
       };
     }
-    if (engineOverride) {
-      const credential = await ctx.db
-        .query("cloud_llm_credentials")
-        .withIndex("by_ownerId_and_provider", (q) =>
-          q.eq("ownerId", args.ownerId).eq("provider", "anthropic"),
-        )
-        .unique();
-      if (!credential) {
-        return {
-          ok: false,
-          error:
-            "No connected Claude subscription for this account. Connect Claude in Settings first, or omit the model.",
-        };
-      }
-    }
   }
   let threadId = args.threadId;
   let workspace = args.workspace;
-  let continuedThread: { _id: any } | null = null;
+  let continuedThread: Doc<"cloud_agent_threads"> | null = null;
   if (threadId) {
     const requestedThreadId = threadId;
     const thread = await ctx.db
@@ -2330,6 +2563,76 @@ const spawnCloudAgent = async (
     // Continuations stay in the thread's own workspace.
     workspace = thread.workspace;
     continuedThread = thread;
+  }
+  let execution = executionOverride;
+  if (!execution && continuedThread?.execution) {
+    try {
+      execution = await assertExecutionAvailable(
+        ctx,
+        args.ownerId,
+        normalizeCloudExecutionSelection(continuedThread.execution),
+      );
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof ConvexError
+            ? String(error.data)
+            : "That cloud execution route is unavailable.",
+      };
+    }
+  }
+  if (!execution && parentExecution) {
+    try {
+      execution = await assertExecutionAvailable(
+        ctx,
+        args.ownerId,
+        parentExecution,
+      );
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof ConvexError
+            ? String(error.data)
+            : "That cloud execution route is unavailable.",
+      };
+    }
+  }
+  if (!execution) {
+    const conversation = await ctx.db
+      .query("cloud_conversations")
+      .withIndex("by_conversationId", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
+      .unique();
+    if (
+      !conversation ||
+      conversation.ownerId !== args.ownerId ||
+      conversation.deletedAt !== undefined
+    ) {
+      return { ok: false, error: "Conversation not found." };
+    }
+    try {
+      execution = conversation.execution
+        ? await assertExecutionAvailable(
+            ctx,
+            args.ownerId,
+            normalizeCloudExecutionSelection(conversation.execution),
+          )
+        : await resolveOwnerExecutionInMutation(ctx, args.ownerId);
+      if (!conversation.execution) {
+        await ctx.db.patch(conversation._id, { execution });
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof ConvexError
+            ? String(error.data)
+            : "That cloud execution route is unavailable.",
+      };
+    }
   }
   // Provisioning is judged on the RESOLVED workspace, so a continuation
   // into a project that has since been removed fails the same way a fresh
@@ -2386,6 +2689,15 @@ const spawnCloudAgent = async (
     await ctx.db.patch(continuedThread._id, {
       status: "running",
       description: args.description,
+      // A continuation is a new lifecycle delivery. If this was originally a
+      // desktop thread, keep it visible to that device until the new terminal
+      // result is persisted and acknowledged.
+      originDeliveryAckAt: undefined,
+      resultJson: undefined,
+      errorMessage: undefined,
+      ...(originDeviceId ? { originDeviceId } : {}),
+      ...(originConversationId ? { originConversationId } : {}),
+      execution,
       updatedAt: args.now,
     });
   }
@@ -2396,9 +2708,12 @@ const spawnCloudAgent = async (
       ownerId: args.ownerId,
       conversationId: args.conversationId,
       ...(args.parentTurnId ? { parentTurnId: args.parentTurnId } : {}),
+      ...(originDeviceId ? { originDeviceId } : {}),
+      ...(originConversationId ? { originConversationId } : {}),
       description: args.description,
       workspace,
       agentType: "general",
+      execution,
       status: "running",
       createdAt: args.now,
       updatedAt: args.now,
@@ -2419,6 +2734,8 @@ const spawnCloudAgent = async (
     threadId,
     ...(args.parentTurnId ? { parentTurnId: args.parentTurnId } : {}),
     ...(args.source ? { source: args.source } : {}),
+    ...(args.clientMsgId ? { clientMsgId: args.clientMsgId } : {}),
+    execution,
     hidden: true,
     createdAt: args.now,
     updatedAt: args.now,
@@ -2434,7 +2751,7 @@ const spawnCloudAgent = async (
     prompt: args.prompt,
     workspace,
     turnToken,
-    ...(engineOverride ? { engine: engineOverride } : {}),
+    execution,
   });
   return { ok: true, threadId, turnId };
 };
@@ -2448,9 +2765,13 @@ export const spawnCloudAgentInternal = internalMutation({
     prompt: v.string(),
     workspace: v.string(),
     threadId: v.optional(v.string()),
+    execution: v.optional(cloudExecutionSelectionValidator),
     // spawn_agent's per-spawn engine override ("claude" | "claude/<model>").
     model: v.optional(v.string()),
     source: v.optional(v.string()),
+    clientMsgId: v.optional(v.string()),
+    originDeviceId: v.optional(v.string()),
+    originConversationId: v.optional(v.string()),
     now: v.number(),
   },
   returns: v.object({
@@ -2475,6 +2796,11 @@ export const spawnCloudAgentFromDesktop = mutation({
     description: v.string(),
     prompt: v.string(),
     conversationId: v.optional(v.string()),
+    execution: v.optional(cloudExecutionSelectionValidator),
+    // Optional during the rolling-client migration. Updated desktop runtimes
+    // send both so a restart can recover terminal cloud-agent completions.
+    originDeviceId: v.optional(v.string()),
+    originConversationId: v.optional(v.string()),
   },
   returns: v.object({ threadId: v.string(), conversationId: v.string() }),
   handler: async (ctx, args) => {
@@ -2488,6 +2814,21 @@ export const spawnCloudAgentFromDesktop = mutation({
     }
     if (!description) {
       throw new ConvexError("A cloud agent needs a description.");
+    }
+    const originDeviceId = args.originDeviceId?.trim();
+    const originConversationId = args.originConversationId?.trim();
+    if (
+      (args.originDeviceId !== undefined &&
+        (!originDeviceId || originDeviceId.length > 256)) ||
+      (args.originConversationId !== undefined &&
+        (!originConversationId || originConversationId.length > 256))
+    ) {
+      throw new ConvexError("Invalid desktop cloud-agent origin.");
+    }
+    if (Boolean(originDeviceId) !== Boolean(originConversationId)) {
+      throw new ConvexError(
+        "originDeviceId and originConversationId must be provided together.",
+      );
     }
     const now = Date.now();
     const { quota } = await resolveCloudPlan(ctx, ownerId);
@@ -2526,7 +2867,10 @@ export const spawnCloudAgentFromDesktop = mutation({
       description,
       prompt,
       workspace: args.workspace,
+      ...(args.execution ? { execution: args.execution } : {}),
       source: "desktop",
+      ...(originDeviceId ? { originDeviceId } : {}),
+      ...(originConversationId ? { originConversationId } : {}),
       now,
     });
     if (!spawned.ok || !spawned.threadId) {
@@ -2535,6 +2879,401 @@ export const spawnCloudAgentFromDesktop = mutation({
       );
     }
     return { threadId: spawned.threadId, conversationId };
+  },
+});
+
+export const continueMyCloudAgentFromDesktop = mutation({
+  args: {
+    threadId: v.string(),
+    description: v.string(),
+    prompt: v.string(),
+    originDeviceId: v.string(),
+    originConversationId: v.string(),
+    controlRequestId: v.string(),
+  },
+  returns: v.object({ threadId: v.string(), conversationId: v.string() }),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const threadId = args.threadId.trim();
+    const description = args.description.trim();
+    const prompt = args.prompt.trim();
+    const originDeviceId = args.originDeviceId.trim();
+    const originConversationId = args.originConversationId.trim();
+    const controlRequestId = normalizeClientMsgId(args.controlRequestId);
+    if (!threadId) throw new ConvexError("threadId is required.");
+    if (!description) {
+      throw new ConvexError("A cloud agent needs a description.");
+    }
+    if (!prompt || prompt.length > MAX_DISPATCHED_PROMPT_CHARS) {
+      throw new ConvexError(
+        `A cloud agent needs a prompt of 1–${MAX_DISPATCHED_PROMPT_CHARS} characters.`,
+      );
+    }
+    if (
+      !originDeviceId ||
+      originDeviceId.length > 256 ||
+      !originConversationId ||
+      originConversationId.length > 256
+    ) {
+      throw new ConvexError("Invalid desktop cloud-agent origin.");
+    }
+    if (!controlRequestId) {
+      throw new ConvexError("A cloud continuation needs a request id.");
+    }
+    const thread = await ctx.db
+      .query("cloud_agent_threads")
+      .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
+      .unique();
+    if (
+      !thread ||
+      thread.ownerId !== ownerId ||
+      thread.originDeviceId !== originDeviceId ||
+      thread.originConversationId !== originConversationId
+    ) {
+      throw new ConvexError(`Thread not found: ${threadId}`);
+    }
+    const replayedTurns = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_clientMsgId", (q) => q.eq("clientMsgId", controlRequestId))
+      .take(4);
+    const replayed = replayedTurns.find(
+      (turn) =>
+        turn.ownerId === ownerId &&
+        turn.threadId === threadId &&
+        turn.kind === "agent" &&
+        turn.source === "desktop",
+    );
+    if (replayed) {
+      return {
+        threadId,
+        conversationId: thread.conversationId,
+      };
+    }
+    const { quota } = await resolveCloudPlan(ctx, ownerId);
+    await enforceMutationRateLimit(
+      ctx,
+      "cloud_chat_start",
+      ownerId,
+      { rate: quota.burstStarts * 5, periodMs: 10 * 60_000 },
+      "Too many cloud turns in a row. Wait a moment and try again.",
+    );
+    const spawned = await spawnCloudAgent(ctx, {
+      ownerId,
+      conversationId: thread.conversationId,
+      threadId,
+      description,
+      prompt,
+      workspace: thread.workspace,
+      source: "desktop",
+      clientMsgId: controlRequestId,
+      originDeviceId,
+      originConversationId,
+      now: Date.now(),
+    });
+    if (!spawned.ok || !spawned.threadId) {
+      throw new ConvexError(
+        spawned.error ?? "Stella's cloud could not continue that agent.",
+      );
+    }
+    return {
+      threadId: spawned.threadId,
+      conversationId: thread.conversationId,
+    };
+  },
+});
+
+export const getCloudAgentThreadControlInternal = internalQuery({
+  args: {
+    ownerId: v.string(),
+    threadId: v.string(),
+    originDeviceId: v.optional(v.string()),
+    originConversationId: v.optional(v.string()),
+    controlRequestId: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      status: v.string(),
+      runningTurnId: v.union(v.string(), v.null()),
+      alreadyCanceled: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const thread = await ctx.db
+      .query("cloud_agent_threads")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .unique();
+    if (!thread || thread.ownerId !== args.ownerId) return null;
+    const hasOrigin =
+      args.originDeviceId !== undefined ||
+      args.originConversationId !== undefined;
+    if (
+      hasOrigin &&
+      (thread.originDeviceId !== args.originDeviceId ||
+        thread.originConversationId !== args.originConversationId)
+    ) {
+      return null;
+    }
+    const turns = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_threadId_and_createdAt", (q) =>
+        q.eq("threadId", args.threadId),
+      )
+      .order("desc")
+      .take(10);
+    const alreadyCanceled = Boolean(
+      args.controlRequestId &&
+        turns.some((turn) => turn.cancelRequestId === args.controlRequestId),
+    );
+    if (thread.status !== "running") {
+      return {
+        status: thread.status,
+        runningTurnId: null,
+        alreadyCanceled,
+      };
+    }
+    const running = turns.find((turn) => turn.status === "running");
+    return {
+      status: thread.status,
+      runningTurnId: running?.turnId ?? null,
+      alreadyCanceled,
+    };
+  },
+});
+
+export const isCloudAgentTurnDispatchableInternal = internalQuery({
+  args: {
+    ownerId: v.string(),
+    threadId: v.string(),
+    turnId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const thread = await ctx.db
+      .query("cloud_agent_threads")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .unique();
+    const turn = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
+      .unique();
+    return Boolean(
+      thread &&
+        thread.ownerId === args.ownerId &&
+        thread.status === "running" &&
+        turn &&
+        turn.ownerId === args.ownerId &&
+        turn.threadId === args.threadId &&
+        turn.status === "running",
+    );
+  },
+});
+
+export const cancelCloudAgentTurnInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    threadId: v.string(),
+    turnId: v.string(),
+    controlRequestId: v.string(),
+    now: v.number(),
+  },
+  returns: v.object({
+    canceled: v.boolean(),
+    status: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const thread = await ctx.db
+      .query("cloud_agent_threads")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .unique();
+    const turn = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
+      .unique();
+    if (
+      !thread ||
+      thread.ownerId !== args.ownerId ||
+      !turn ||
+      turn.ownerId !== args.ownerId ||
+      turn.threadId !== args.threadId
+    ) {
+      throw new ConvexError("Thread not found.");
+    }
+    if (turn.cancelRequestId === args.controlRequestId) {
+      return { canceled: true, status: thread.status };
+    }
+    const newerTurns = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_threadId_and_createdAt", (q) =>
+        q.eq("threadId", args.threadId),
+      )
+      .order("desc")
+      .take(10);
+    if (
+      newerTurns.some(
+        (candidate) => candidate._creationTime > turn._creationTime,
+      )
+    ) {
+      // The cancel request did stop its exact turn, but a continuation won
+      // before this bookkeeping mutation arrived. Record the request for
+      // retry idempotency and never project the old cancel onto the successor.
+      await ctx.db.patch(turn._id, {
+        cancelRequestId: args.controlRequestId,
+      });
+      return { canceled: true, status: thread.status };
+    }
+    if (turn.status === "canceled" || turn.terminalKind === "canceled") {
+      await ctx.db.patch(turn._id, {
+        cancelRequestId: args.controlRequestId,
+      });
+      if (thread.status === "running") {
+        await ctx.db.patch(thread._id, {
+          status: "canceled",
+          resultJson: undefined,
+          errorMessage: "Paused by orchestrator.",
+          updatedAt: args.now,
+        });
+      }
+      return { canceled: true, status: "canceled" };
+    }
+    if (thread.status !== "running") {
+      await ctx.db.patch(turn._id, {
+        cancelRequestId: args.controlRequestId,
+      });
+      return { canceled: true, status: thread.status };
+    }
+    if (turn.status !== "running") {
+      return { canceled: false, status: thread.status };
+    }
+    const payloadJson = JSON.stringify({
+      message: "Stopped. Nothing was changed.",
+    });
+    const seq = await nextEventSeq(ctx, turn.turnId);
+    await ctx.db.insert("agent_events", {
+      turnId: turn.turnId,
+      sessionId: turn.sessionId,
+      seq,
+      kind: "canceled",
+      payloadJson,
+      createdAt: args.now,
+    });
+    await ctx.db.patch(turn._id, {
+      status: "canceled",
+      terminalKind: "canceled",
+      errorMessage: payloadJson,
+      cancelRequestId: args.controlRequestId,
+      updatedAt: args.now,
+    });
+    await ctx.db.patch(thread._id, {
+      status: "canceled",
+      resultJson: undefined,
+      errorMessage: "Paused by orchestrator.",
+      updatedAt: args.now,
+    });
+    return { canceled: true, status: "canceled" };
+  },
+});
+
+export const cancelMyCloudAgentThread = action({
+  args: {
+    threadId: v.string(),
+    originDeviceId: v.string(),
+    originConversationId: v.string(),
+    controlRequestId: v.string(),
+  },
+  returns: v.object({
+    canceled: v.boolean(),
+    status: v.string(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ canceled: boolean; status: string }> => {
+    const ownerId = await requireOwnerId(ctx);
+    const threadId = args.threadId.trim();
+    const originDeviceId = args.originDeviceId.trim();
+    const originConversationId = args.originConversationId.trim();
+    const controlRequestId = normalizeClientMsgId(args.controlRequestId);
+    if (!threadId) throw new ConvexError("threadId is required.");
+    if (
+      !originDeviceId ||
+      originDeviceId.length > 256 ||
+      !originConversationId ||
+      originConversationId.length > 256
+    ) {
+      throw new ConvexError("Invalid desktop cloud-agent origin.");
+    }
+    if (!controlRequestId) {
+      throw new ConvexError("A cloud pause needs a request id.");
+    }
+    await enforceActionRateLimit(
+      ctx,
+      "cloud_agent_cancel",
+      ownerId,
+      { rate: 30, periodMs: 10 * 60_000 },
+      "Too many cloud agents paused at once. Wait a moment and try again.",
+    );
+    const control: CloudAgentThreadControl | null = await ctx.runQuery(
+      getCloudAgentThreadControlRef,
+      {
+        ownerId,
+        threadId,
+        originDeviceId,
+        originConversationId,
+        controlRequestId,
+      },
+    );
+    if (!control) throw new ConvexError(`Thread not found: ${threadId}`);
+    if (control.alreadyCanceled) {
+      return { canceled: true, status: control.status };
+    }
+    if (control.status !== "running") {
+      return { canceled: true, status: control.status };
+    }
+    if (!control.runningTurnId) {
+      throw new ConvexError(
+        "The cloud thread has no active turn to pause. Try again in a moment.",
+      );
+    }
+    const builder = builderEndpoint();
+    if (!builder) throw new ConvexError("Cloud builder is not configured.");
+    const response = await fetch(
+      `${builder.url}/sessions/${encodeURIComponent(threadId)}/cancel`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${builder.secret}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          turnId: control.runningTurnId,
+          reason: "Paused by orchestrator.",
+        }),
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+    if (response.status === 409) {
+      throw new ConvexError(
+        "The cloud thread changed while it was being paused. Try again.",
+      );
+    }
+    if (!response.ok) {
+      throw new ConvexError("The cloud agent could not be paused. Try again.");
+    }
+    const canceled: { canceled: boolean; status: string } =
+      await ctx.runMutation(cancelCloudAgentTurnRef, {
+        ownerId,
+        threadId,
+        turnId: control.runningTurnId,
+        controlRequestId,
+        now: Date.now(),
+      });
+    if (!canceled.canceled) {
+      throw new ConvexError(
+        "The cloud thread changed while it was being paused. Try again.",
+      );
+    }
+    return canceled;
   },
 });
 
@@ -2547,7 +3286,7 @@ export const runCloudAgentTurnInternal = internalAction({
     prompt: v.string(),
     workspace: v.string(),
     turnToken: v.string(),
-    engine: v.optional(v.object({ provider: v.string(), model: v.string() })),
+    execution: v.optional(cloudExecutionSelectionValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -2556,17 +3295,34 @@ export const runCloudAgentTurnInternal = internalAction({
     let failure = "Stella couldn't start that agent. Try again in a moment.";
     try {
       if (!builderUrl || !builderSecret) throw new Error(failure);
+      const initiallyDispatchable = await ctx.runQuery(
+        isCloudAgentTurnDispatchableRef,
+        {
+          ownerId: args.ownerId,
+          threadId: args.threadId,
+          turnId: args.turnId,
+        },
+      );
+      if (!initiallyDispatchable) return null;
+      const execution =
+        args.execution ?? (await resolveOwnerExecution(ctx, args.ownerId));
       await ctx.runMutation(storeTurnTokenRef, {
         tokenHash: await hashToken(args.turnToken),
         ownerId: args.ownerId,
         turnId: args.turnId,
         agentType: "general",
+        execution,
         now: Date.now(),
       });
-      // Explicit spawn override wins; otherwise follow the owner's engine
-      // setting, same as chat turns.
-      const engine =
-        args.engine ?? (await resolveOwnerEngine(ctx, args.ownerId));
+      const stillDispatchable = await ctx.runQuery(
+        isCloudAgentTurnDispatchableRef,
+        {
+          ownerId: args.ownerId,
+          threadId: args.threadId,
+          turnId: args.turnId,
+        },
+      );
+      if (!stillDispatchable) return null;
       const response = await fetch(
         `${builderUrl.replace(/\/+$/, "")}/sessions/${args.threadId}/turns`,
         {
@@ -2585,7 +3341,7 @@ export const runCloudAgentTurnInternal = internalAction({
             workspace: args.workspace,
             turnToken: args.turnToken,
             convexCallbackBase: process.env.CONVEX_SITE_URL,
-            ...(engine ? { engine } : {}),
+            execution,
           }),
         },
       );
@@ -2665,7 +3421,9 @@ export const completeAgentThreadInternal = internalMutation({
         const newer = await ctx.db
           .query("agent_turns")
           .withIndex("by_threadId_and_createdAt", (q) =>
-            q.eq("threadId", args.threadId).gt("createdAt", completing.createdAt),
+            q
+              .eq("threadId", args.threadId)
+              .gt("createdAt", completing.createdAt),
           )
           .take(10);
         const successor = newer.find(
@@ -2700,6 +3458,13 @@ export const completeAgentThreadInternal = internalMutation({
       updatedAt: args.now,
     });
     if (args.wake === false) return null;
+    // Desktop-originated threads have exactly one terminal-delivery owner:
+    // the originating device's reactive subscription. Waking the cloud
+    // conversation as well would duplicate the agent report in two
+    // orchestrators. The desktop ACKs only after durable local persistence.
+    if (thread.originDeviceId && thread.originConversationId) {
+      return null;
+    }
 
     // Wake the orchestrator with a lifecycle turn, mirroring the desktop
     // runtime's follow-up delivery for task lifecycle events. The turn itself
@@ -2939,6 +3704,143 @@ export const listMyRecentAgentThreads = query({
       .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
       .order("desc")
       .take(Math.min(Math.max(args.limit ?? 30, 1), 100));
+  },
+});
+
+/**
+ * Restart-safe subscription surface for one desktop installation. The owner
+ * and device are both in the index prefix, so a device cannot observe another
+ * account or make Convex scan unrelated threads. Running and terminal threads
+ * both remain here until the device ACKs durable local persistence; the ACK
+ * moves them out of this index range. `sinceUpdatedAt` is an optional cursor
+ * for a live process, while omitting it is the restart recovery path.
+ */
+export const listMyDeviceAgentThreads = query({
+  args: {
+    originDeviceId: v.string(),
+    sinceUpdatedAt: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      threadId: v.string(),
+      cloudConversationId: v.string(),
+      originDeviceId: v.string(),
+      originConversationId: v.string(),
+      parentTurnId: v.union(v.string(), v.null()),
+      description: v.string(),
+      workspace: v.string(),
+      agentType: v.string(),
+      status: v.string(),
+      resultJson: v.union(v.string(), v.null()),
+      errorMessage: v.union(v.string(), v.null()),
+      originDeliveryAckAt: v.null(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const originDeviceId = args.originDeviceId.trim();
+    if (!originDeviceId || originDeviceId.length > 256) {
+      throw new ConvexError("Invalid originDeviceId.");
+    }
+    const requestedLimit = args.limit ?? 50;
+    if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1) {
+      throw new ConvexError("limit must be a positive integer.");
+    }
+    if (
+      args.sinceUpdatedAt !== undefined &&
+      (!Number.isFinite(args.sinceUpdatedAt) || args.sinceUpdatedAt < 0)
+    ) {
+      throw new ConvexError("sinceUpdatedAt must be a non-negative number.");
+    }
+    const rows = await ctx.db
+      .query("cloud_agent_threads")
+      .withIndex("by_ownerId_originDeviceId_ackAt_updatedAt", (q) => {
+        const deviceRows = q
+          .eq("ownerId", ownerId)
+          .eq("originDeviceId", originDeviceId)
+          .eq("originDeliveryAckAt", undefined);
+        return args.sinceUpdatedAt === undefined
+          ? deviceRows
+          : deviceRows.gte("updatedAt", args.sinceUpdatedAt);
+      })
+      .order("desc")
+      .take(Math.min(requestedLimit, 100));
+    return rows.flatMap((row) =>
+      row.originDeviceId && row.originConversationId
+        ? [
+            {
+              threadId: row.threadId,
+              cloudConversationId: row.conversationId,
+              originDeviceId: row.originDeviceId,
+              originConversationId: row.originConversationId,
+              parentTurnId: row.parentTurnId ?? null,
+              description: row.description,
+              workspace: row.workspace,
+              agentType: row.agentType,
+              status: row.status,
+              resultJson: row.resultJson ?? null,
+              errorMessage: row.errorMessage ?? null,
+              originDeliveryAckAt: null,
+              createdAt: row.createdAt,
+              updatedAt: row.updatedAt,
+            },
+          ]
+        : [],
+    );
+  },
+});
+
+/**
+ * Removes a terminal thread from a desktop's recovery subscription only after
+ * that desktop has durably stored the lifecycle event. Idempotent for retrying
+ * the ACK request after an uncertain network response.
+ */
+export const acknowledgeMyDeviceAgentThreadDelivery = mutation({
+  args: {
+    threadId: v.string(),
+    originDeviceId: v.string(),
+  },
+  returns: v.object({
+    acknowledged: v.boolean(),
+    acknowledgedAt: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const originDeviceId = args.originDeviceId.trim();
+    if (!originDeviceId || originDeviceId.length > 256) {
+      throw new ConvexError("Invalid originDeviceId.");
+    }
+    const thread = await ctx.db
+      .query("cloud_agent_threads")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .unique();
+    if (
+      !thread ||
+      thread.ownerId !== ownerId ||
+      thread.originDeviceId !== originDeviceId ||
+      !thread.originConversationId
+    ) {
+      throw new ConvexError("Agent thread not found.");
+    }
+    if (!["completed", "failed", "canceled"].includes(thread.status)) {
+      throw new ConvexError(
+        "Only a terminal agent thread delivery can be acknowledged.",
+      );
+    }
+    if (thread.originDeliveryAckAt !== undefined) {
+      return {
+        acknowledged: false,
+        acknowledgedAt: thread.originDeliveryAckAt,
+      };
+    }
+    const acknowledgedAt = Date.now();
+    await ctx.db.patch(thread._id, {
+      originDeliveryAckAt: acknowledgedAt,
+    });
+    return { acknowledged: true, acknowledgedAt };
   },
 });
 
@@ -4280,6 +5182,7 @@ export const routeCloudTurnInternal = internalAction({
     sessionId: v.string(),
     prompt: v.string(),
     turnToken: v.string(),
+    execution: v.optional(cloudExecutionSelectionValidator),
     autoActivate: v.boolean(),
   },
   returns: v.null(),
@@ -4304,6 +5207,7 @@ export const routeCloudTurnInternal = internalAction({
         sessionId: args.sessionId,
         prompt: args.prompt,
         turnToken: args.turnToken,
+        ...(args.execution ? { execution: args.execution } : {}),
         // Same rule as the direct build lane: a finished app build is live.
         autoActivate: true,
       });

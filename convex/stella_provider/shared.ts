@@ -40,13 +40,18 @@ export type AuthorizedStellaRequest = {
    * is on the user's subscription, not Stella's gateway.
    */
   userCredential?: {
-    provider: "anthropic";
+    provider: "anthropic" | "openai-codex";
     accessToken: string;
+    /** Required by ChatGPT's Codex backend; absent for Anthropic. */
+    accountId?: string;
+    /** Compatibility only for Stella-shaped legacy Claude relay bodies. */
+    injectClaudeCodeIdentity?: boolean;
   };
 };
 
 export const STELLA_API_BASE_PATH = "/api/stella";
 export const STELLA_MODELS_PATH = `${STELLA_API_BASE_PATH}/models`;
+export const STELLA_CLOUD_MODEL_PATH = `${STELLA_API_BASE_PATH}/cloud-model`;
 export const STELLA_RELAY_PATH_PREFIX = `${STELLA_API_BASE_PATH}/relay/`;
 export const STELLA_ANTHROPIC_MESSAGES_PATH = `${STELLA_API_BASE_PATH}/anthropic/v1/messages`;
 export const STELLA_OPENAI_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/openai/v1/chat/completions`;
@@ -97,9 +102,7 @@ export async function parseRequestJson(
   }
 }
 
-export function toUpstreamHttpError(
-  error: unknown,
-): UpstreamHttpError | null {
+export function toUpstreamHttpError(error: unknown): UpstreamHttpError | null {
   if (!error || typeof error !== "object") {
     return null;
   }

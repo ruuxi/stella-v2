@@ -37,7 +37,8 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 export const resolveWorkspace = (
   raw: string | undefined,
 ): ResolvedWorkspace | null => {
-  const value = (raw ?? "drive").trim().toLowerCase();
+  const requested = (raw ?? "cloud").trim().toLowerCase();
+  const value = requested === "cloud" ? "drive" : requested;
   if (!value) return null;
   if (value === "drive" || value === "stella") {
     return { kind: value, canonical: value, mountPath: MOUNT_PATHS[value] };

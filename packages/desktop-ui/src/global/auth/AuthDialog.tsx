@@ -12,6 +12,7 @@ import { MagicLinkAuthFlow } from "./MagicLinkAuthFlow";
 import { authClient } from "./lib/auth-client";
 import { useAuthSessionState } from "./hooks/use-auth-session-state";
 import { refreshAuthSession } from "./services/auth-session";
+import { applyBrowserAuthSessionCookie } from "./services/auth-storage";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import "./AuthDialog.css";
@@ -92,9 +93,13 @@ const pollDesktopSocialAuth = async (
       sessionCookie?: string;
     } | null;
     if (data?.status === "completed" && data.sessionCookie) {
-      await window.electronAPI?.system.applyAuthSessionCookie?.(
-        data.sessionCookie,
-      );
+      if (window.electronAPI) {
+        await window.electronAPI.system.applyAuthSessionCookie?.(
+          data.sessionCookie,
+        );
+      } else {
+        applyBrowserAuthSessionCookie(data.sessionCookie);
+      }
       await refreshAuthSession();
       return;
     }

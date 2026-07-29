@@ -12,6 +12,7 @@ type Env = {
   // existing behaviour and simply cannot stream — which is a visible, debuggable
   // failure, unlike an `undefined` spliced into the policy string.
   CLOUD_BUILDER_ORIGIN?: string;
+  BUILDER_SERVICE_SECRET?: string;
 };
 
 type RouteRecord = {
@@ -200,6 +201,460 @@ const securityHeaders = (env: Env) => ({
   "x-content-type-options": "nosniff",
 });
 
+const BROWSER_AUTH_HANDOFF_SCRIPT_PATH =
+  "/_stella/browser-auth-handoff.js" as const;
+
+const authHandoffSecurityHeaders = (env: Env) => ({
+  "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src ${new URL(env.CONVEX_SITE_URL).origin}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
+  "cross-origin-opener-policy": "same-origin",
+  "cross-origin-resource-policy": "same-origin",
+  "referrer-policy": "no-referrer",
+  "x-content-type-options": "nosniff",
+  "cache-control": "no-store",
+});
+
+export const browserAuthHandoffHtml = (): string => `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Opening Stella</title>
+  <style>
+    :root{color-scheme:light}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#f4f1e8;color:#182019;font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    main{width:min(100%,480px);padding:40px;background:#fff;border:1px solid #dedbd1;border-radius:22px;box-shadow:0 18px 60px rgba(24,32,25,.09)}
+    h1{margin:0 0 12px;font:42px/1.05 Georgia,serif;letter-spacing:-.025em}
+    p{margin:0;color:#536057}
+    nav{display:none;gap:12px;align-items:center;margin-top:24px}
+    button,a{border:0;border-radius:999px;padding:11px 17px;font:600 14px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-decoration:none;cursor:pointer}
+    button{background:#182019;color:#fff}
+    a{color:#304337;background:#eef0eb}
+    main[data-state="error"] nav{display:flex}
+  </style>
+</head>
+<body>
+  <main id="handoff" aria-live="polite">
+    <h1 id="title">Opening Stella</h1>
+    <p id="message">Finishing your secure sign-in…</p>
+    <nav>
+      <button id="retry" type="button">Retry</button>
+      <a href="https://stella.sh/chat" rel="noreferrer">Back to Stella</a>
+    </nav>
+  </main>
+  <script src="${BROWSER_AUTH_HANDOFF_SCRIPT_PATH}"></script>
+</body>
+</html>`;
+
+export const browserAuthHandoffScript = (env: Env): string => {
+  const verifyUrl = new URL(
+    "/api/auth/cross-domain/one-time-token/verify",
+    env.CONVEX_SITE_URL,
+  ).toString();
+  return `(() => {
+  "use strict";
+
+  const VERIFY_URL = ${JSON.stringify(verifyUrl)};
+  const TOKEN_PATTERN = /^[A-Za-z0-9._~-]{8,2048}$/;
+  const COOKIE_KEY = "better-auth_cookie";
+  const SESSION_DATA_KEY = "better-auth_session_data";
+  const COOKIE_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+\\-.^_|~]+$/;
+  const root = document.getElementById("handoff");
+  const title = document.getElementById("title");
+  const message = document.getElementById("message");
+  const retry = document.getElementById("retry");
+  let token = null;
+  let verifying = false;
+
+  const showError = (text, canRetry) => {
+    root.dataset.state = "error";
+    title.textContent = "Sign-in didn’t finish";
+    message.textContent = text;
+    retry.hidden = !canRetry;
+  };
+
+  const readStoredCookies = () => {
+    const raw = localStorage.getItem(COOKIE_KEY);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const cookieHeader = (cookies) => {
+    const now = Date.now();
+    return Object.entries(cookies)
+      .filter(([, record]) => {
+        if (!record || typeof record !== "object") return false;
+        if (typeof record.value !== "string") return false;
+        if (!record.expires) return true;
+        const expiry = Date.parse(record.expires);
+        return Number.isFinite(expiry) && expiry >= now;
+      })
+      .filter(([name]) => COOKIE_NAME_PATTERN.test(name))
+      .map(([name, record]) => name + "=" + record.value)
+      .join("; ");
+  };
+
+  const mergeSetCookie = (header, previous) => {
+    const next = { ...previous };
+    const cookies = header.split(
+      /,(?=\\s*[A-Za-z0-9!#$%&'*+\\-.^_|~]+=)/g,
+    );
+    for (const cookie of cookies) {
+      const parts = cookie.split(";").map((part) => part.trim());
+      const first = parts.shift() || "";
+      const separator = first.indexOf("=");
+      if (separator <= 0) continue;
+      const name = first.slice(0, separator).trim();
+      if (!COOKIE_NAME_PATTERN.test(name)) continue;
+      const value = first.slice(separator + 1);
+      let expiresAt = null;
+      let maxAgeSeconds = null;
+      for (const attribute of parts) {
+        const attributeSeparator = attribute.indexOf("=");
+        const attributeName = (
+          attributeSeparator < 0
+            ? attribute
+            : attribute.slice(0, attributeSeparator)
+        ).trim().toLowerCase();
+        const attributeValue =
+          attributeSeparator < 0
+            ? ""
+            : attribute.slice(attributeSeparator + 1).trim();
+        if (attributeName === "max-age") {
+          const seconds = Number(attributeValue);
+          if (Number.isFinite(seconds)) {
+            maxAgeSeconds = seconds;
+          }
+        } else if (attributeName === "expires") {
+          const timestamp = Date.parse(attributeValue);
+          if (Number.isFinite(timestamp)) {
+            expiresAt = timestamp;
+          }
+        }
+      }
+      const expires =
+        expiresAt === null
+          ? maxAgeSeconds === null
+            ? null
+            : new Date(Date.now() + maxAgeSeconds * 1000).toISOString()
+          : new Date(expiresAt).toISOString();
+      next[name] = { value, expires };
+    }
+    return next;
+  };
+
+  const hasLiveSessionToken = (cookies) => {
+    const now = Date.now();
+    return Object.entries(cookies).some(([name, record]) => {
+      if (!name.includes("session_token")) return false;
+      if (!record || typeof record.value !== "string" || !record.value) {
+        return false;
+      }
+      if (!record.expires) return true;
+      const expiry = Date.parse(record.expires);
+      return Number.isFinite(expiry) && expiry >= now;
+    });
+  };
+
+  const verify = async () => {
+    if (!token || verifying) return;
+    verifying = true;
+    root.dataset.state = "loading";
+    title.textContent = "Opening Stella";
+    message.textContent = "Finishing your secure sign-in…";
+    try {
+      const stored = readStoredCookies();
+      stored.stella_auth_bootstrap = { value: "1", expires: null };
+      localStorage.setItem(COOKIE_KEY, JSON.stringify(stored));
+      const response = await fetch(VERIFY_URL, {
+        method: "POST",
+        credentials: "omit",
+        headers: {
+          "accept": "application/json",
+          "content-type": "application/json",
+          "Better-Auth-Cookie": cookieHeader(stored),
+        },
+        body: JSON.stringify({ token }),
+      });
+      if (!response.ok) {
+        throw new Error("verification rejected");
+      }
+      const setCookie = response.headers.get("set-better-auth-cookie");
+      if (!setCookie) {
+        throw new Error("session cookie missing");
+      }
+      const mirrored = mergeSetCookie(setCookie, stored);
+      if (!hasLiveSessionToken(mirrored)) {
+        throw new Error("session cookie invalid");
+      }
+      localStorage.setItem(COOKIE_KEY, JSON.stringify(mirrored));
+      localStorage.removeItem(SESSION_DATA_KEY);
+      const destination = location.pathname.replace(/\\/auth\\/?$/, "/");
+      location.replace(destination);
+    } catch {
+      showError(
+        "We couldn’t complete the secure handoff. Retry, or return to stella.sh/chat for a new link.",
+        true,
+      );
+    } finally {
+      verifying = false;
+    }
+  };
+
+  retry.addEventListener("click", () => void verify());
+
+  const rawFragment = location.hash.replace(/^#\\??/, "");
+  if (location.hash) {
+    history.replaceState(
+      history.state,
+      "",
+      location.pathname + location.search,
+    );
+  }
+  const params = new URLSearchParams(rawFragment);
+  const tokens = params.getAll("ott");
+  if (tokens.length !== 1 || !TOKEN_PATTERN.test(tokens[0] || "")) {
+    showError(
+      "This sign-in link is missing or invalid. Return to stella.sh/chat and try again.",
+      false,
+    );
+    return;
+  }
+  token = tokens[0];
+  void verify();
+})();`;
+};
+
+const browserAuthHandoffResponse = (
+  request: Request,
+  env: Env,
+): Response => {
+  const headers = {
+    ...authHandoffSecurityHeaders(env),
+    "content-type": "text/html; charset=utf-8",
+  };
+  return new Response(
+    request.method === "HEAD" ? null : browserAuthHandoffHtml(),
+    { headers },
+  );
+};
+
+const browserAuthHandoffScriptResponse = (
+  request: Request,
+  env: Env,
+): Response => {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("Method not allowed", {
+      status: 405,
+      headers: { allow: "GET, HEAD" },
+    });
+  }
+  return new Response(
+    request.method === "HEAD" ? null : browserAuthHandoffScript(env),
+    {
+      headers: {
+        ...authHandoffSecurityHeaders(env),
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    },
+  );
+};
+
+const immutableInteriorAsset = async (
+  requestId: string,
+  env: Env,
+  ownerHash: string,
+  buildId: string,
+  rawAssetPath: string | undefined,
+  headOnly: boolean,
+): Promise<Response> => {
+  let assetPath: string;
+  try {
+    assetPath = decodeURIComponent(rawAssetPath ?? "").replace(/^\/+/, "");
+  } catch {
+    return new Response("Not found", { status: 404 });
+  }
+  if (!assetPath || assetPath.endsWith("/")) assetPath += "index.html";
+  if (
+    assetPath.length > 1_024 ||
+    assetPath.includes("\\") ||
+    assetPath.includes("\0") ||
+    assetPath
+      .split("/")
+      .some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    log("error", "interior_asset_path_rejected", {
+      requestId,
+      ownerHash,
+      buildId,
+    });
+    return new Response("Not found", { status: 404 });
+  }
+  const artifactPrefix = `interiors/${ownerHash}/${buildId}`;
+  const load = (relative: string) =>
+    env.APP_BUILDS.get(`${artifactPrefix}/${relative}`);
+  let object = await load(assetPath);
+  // A build URL is exact and immutable, but the renderer remains an SPA:
+  // browser refreshes on a client route resolve to that same build's full
+  // entrypoint, never to a mutable owner/app pointer.
+  if (!object && !pathHasExtension(assetPath)) {
+    object = await load("index.html");
+  }
+  if (!object) {
+    log("error", "interior_asset_not_found", {
+      requestId,
+      ownerHash,
+      buildId,
+      assetPath,
+    });
+    return new Response("Not found", { status: 404 });
+  }
+  const headers = new Headers(securityHeaders(env));
+  object.writeHttpMetadata(headers);
+  headers.set("cache-control", "public, max-age=31536000, immutable");
+  headers.set("etag", object.httpEtag);
+  return new Response(headOnly ? null : object.body, { headers });
+};
+
+const pathHasExtension = (assetPath: string): boolean => {
+  const name = assetPath.slice(assetPath.lastIndexOf("/") + 1);
+  return name.includes(".");
+};
+
+const publishedDefaultInteriorAsset = async (
+  env: Env,
+  requestId: string,
+  rawPath: string | undefined,
+  headOnly: boolean,
+): Promise<Response> => {
+  const route = await env.APP_ROUTES.get<RouteRecord>(
+    "app:stella-interior",
+    "json",
+  );
+  if (!route || route.suspended) {
+    log("error", "default_interior_unavailable", { requestId });
+    return new Response("The packaged Stella interior is unavailable.", {
+      status: 503,
+    });
+  }
+  let assetPath: string;
+  try {
+    assetPath = decodeURIComponent(rawPath ?? "").replace(/^\/+/, "");
+  } catch {
+    return new Response("Not found", { status: 404 });
+  }
+  if (!assetPath || assetPath.endsWith("/")) assetPath += "index.html";
+  if (
+    assetPath.length > 1_024 ||
+    assetPath.includes("\\") ||
+    assetPath.includes("\0") ||
+    assetPath
+      .split("/")
+      .some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    return new Response("Not found", { status: 404 });
+  }
+  const load = (relative: string) =>
+    env.APP_BUILDS.get(`${route.artifactPrefix}/${relative}`);
+  let object = await load(assetPath);
+  if (!object && !pathHasExtension(assetPath)) {
+    object = await load("index.html");
+  }
+  if (!object) {
+    log("error", "default_interior_asset_not_found", {
+      requestId,
+      assetPath,
+    });
+    return new Response("Not found", { status: 404 });
+  }
+  const headers = new Headers(securityHeaders(env));
+  object.writeHttpMetadata(headers);
+  headers.set("cache-control", "no-store");
+  headers.set("etag", object.httpEtag);
+  return new Response(headOnly ? null : object.body, { headers });
+};
+
+const activeInteriorAsset = async (
+  env: Env,
+  requestId: string,
+  stableRouteId: string,
+  rawPath: string | undefined,
+  headOnly: boolean,
+): Promise<Response> => {
+  const secret = env.BUILDER_SERVICE_SECRET?.trim();
+  if (!secret) {
+    return new Response("The active Stella route is not configured.", {
+      status: 503,
+    });
+  }
+  // Resolve every request so rotating the opaque route revokes the old URL
+  // immediately; a process-local cache would leave a retired capability live.
+  const response = await fetch(
+    `${env.CONVEX_SITE_URL.replace(/\/+$/, "")}/api/cloud/interior-active-route?stableRouteId=${encodeURIComponent(stableRouteId)}`,
+    {
+      headers: { authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  if (!response.ok) {
+    return new Response(
+      response.status === 404
+        ? "Stella interior route not found."
+        : "The active Stella route is unavailable.",
+      { status: response.status === 404 ? 404 : 503 },
+    );
+  }
+  const route = (await response.json()) as {
+    mode?: unknown;
+    ownerHash?: unknown;
+    buildId?: unknown;
+    artifactPrefix?: unknown;
+  };
+  if (route.mode === "default") {
+    return await publishedDefaultInteriorAsset(
+      env,
+      requestId,
+      rawPath,
+      headOnly,
+    );
+  }
+  const ownerHash = typeof route.ownerHash === "string" ? route.ownerHash : "";
+  const buildId = typeof route.buildId === "string" ? route.buildId : "";
+  if (
+    route.mode !== "custom" ||
+    !/^[0-9a-f]{64}$/.test(ownerHash) ||
+    !/^interior-[0-9a-f]{48}$/.test(buildId) ||
+    route.artifactPrefix !== `interiors/${ownerHash}/${buildId}`
+  ) {
+    return new Response("The active Stella route is invalid.", {
+      status: 502,
+    });
+  }
+  const assetResponse = await immutableInteriorAsset(
+    requestId,
+    env,
+    ownerHash,
+    buildId!,
+    rawPath,
+    headOnly,
+  );
+  const headers = new Headers(assetResponse.headers);
+  headers.set("cache-control", "no-store");
+  return new Response(assetResponse.body, {
+    status: assetResponse.status,
+    statusText: assetResponse.statusText,
+    headers,
+  });
+};
+
 const notice = (env: Env, title: string, message: string, status: number) =>
   new Response(
     `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title><style>body{font:16px system-ui;display:grid;min-height:100vh;place-content:center;background:#f4f1e8;color:#182019}main{max-width:520px;padding:42px;background:white;border-radius:20px}h1{font:42px Georgia,serif;margin:0 0 14px}p{line-height:1.6}</style><main><h1>${title}</h1><p>${message}</p></main>`,
@@ -224,6 +679,9 @@ export default {
     });
     if (url.pathname === "/healthz") {
       return Response.json({ ok: true, service: "stella-v2-apps-host" });
+    }
+    if (url.pathname === BROWSER_AUTH_HANDOFF_SCRIPT_PATH) {
+      return browserAuthHandoffScriptResponse(request, env);
     }
     if (url.pathname === "/api/interior/manifest") {
       const route = await env.APP_ROUTES.get<RouteRecord>(
@@ -265,6 +723,46 @@ export default {
           { status: 502 },
         );
       }
+    }
+    const interiorBuild = url.pathname.match(
+      /^\/interior-builds\/([0-9a-f]{64})\/(interior-[0-9a-f]{48})(\/.*)?$/,
+    );
+    if (interiorBuild) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed", {
+          status: 405,
+          headers: { allow: "GET, HEAD" },
+        });
+      }
+      return await immutableInteriorAsset(
+        requestId,
+        env,
+        interiorBuild[1],
+        interiorBuild[2],
+        interiorBuild[3],
+        request.method === "HEAD",
+      );
+    }
+    const activeInterior = url.pathname.match(
+      /^\/stella\/(sr_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(\/.*)?$/,
+    );
+    if (activeInterior) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed", {
+          status: 405,
+          headers: { allow: "GET, HEAD" },
+        });
+      }
+      if (activeInterior[2] === "/auth" || activeInterior[2] === "/auth/") {
+        return browserAuthHandoffResponse(request, env);
+      }
+      return await activeInteriorAsset(
+        env,
+        requestId,
+        activeInterior[1],
+        activeInterior[2],
+        request.method === "HEAD",
+      );
     }
     if (env.SHARES_DISABLED === "true") {
       log("error", "global_kill_switch_served", { requestId });

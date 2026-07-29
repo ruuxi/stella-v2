@@ -169,18 +169,24 @@ export const registerBootstrapIpcHandlers = (
     windowManager: state.windowManager!,
     updateUiState: (partial) => services.uiStateService.update(partial),
     broadcastUiState: () => services.uiStateService.broadcast(),
-    setAppReady: (ready) => {
-      state.appReady = ready;
-      if (ready) {
-        // Apply the preventComputerSleep power toggle here rather than during
-        // synchronous bootstrap — it's not needed for the window to appear and
-        // forces the first preferences.json read off the pre-paint path.
-        setPreventComputerSleep(
-          loadLocalPreferences(config.stellaDataDirPath).preventComputerSleep,
-        );
-        scheduleGlobalInputHooksAfterAppReady(context);
-        schedulePostReadyNativeServices();
-      }
+    rendererMounted: (senderId, mode, token) => {
+      state.rendererReadiness?.signal({ senderId, mode, token });
+    },
+    setAppReady: (ready, _senderId) => {
+      // Renderer readiness is monotonic for the lifetime of this main process.
+      // A newly reloaded renderer starts with `appReady = false`; allowing that
+      // transient value to clear the main-process latch disables shell actions
+      // until the renderer's background bootstrap happens to complete again.
+      if (!ready || state.appReady) return;
+      state.appReady = true;
+      // Apply the preventComputerSleep power toggle here rather than during
+      // synchronous bootstrap — it's not needed for the window to appear and
+      // forces the first preferences.json read off the pre-paint path.
+      setPreventComputerSleep(
+        loadLocalPreferences(config.stellaDataDirPath).preventComputerSleep,
+      );
+      scheduleGlobalInputHooksAfterAppReady(context);
+      schedulePostReadyNativeServices();
     },
     deactivateVoiceModes: () => services.uiStateService.deactivateVoiceModes(),
     syncNativeRadialGesture: () =>

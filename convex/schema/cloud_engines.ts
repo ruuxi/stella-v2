@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { cloudExecutionSelectionValidator } from "../lib/cloud_execution";
 
 /**
  * Cloud engine credentials: the cloud analog of the desktop's
@@ -21,6 +22,11 @@ export const cloudEnginesSchema = {
     label: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    // Short lease serializing rotating OAuth refresh tokens. Refresh commits
+    // compare both this lease and the exact encrypted payload, so disconnect
+    // or reconnect can never be undone by an in-flight action.
+    refreshLeaseId: v.optional(v.string()),
+    refreshLeaseExpiresAt: v.optional(v.number()),
   })
     .index("by_ownerId_and_provider", ["ownerId", "provider"])
     .index("by_ownerId", ["ownerId"]),
@@ -46,8 +52,13 @@ export const cloudEnginesSchema = {
   // Per-owner engine choice for cloud chat/agent turns.
   cloud_engine_settings: defineTable({
     ownerId: v.string(),
-    // "stella" (managed relay, default) | "anthropic" (Claude subscription).
+    // Legacy coarse selector: "stella" | "anthropic" | "openai-codex".
     chatEngine: v.string(),
+    /**
+     * Exact default route for new cloud conversations. Optional during the
+     * migration from the coarse `chatEngine` field above.
+     */
+    execution: v.optional(cloudExecutionSelectionValidator),
     updatedAt: v.number(),
   }).index("by_ownerId", ["ownerId"]),
 };

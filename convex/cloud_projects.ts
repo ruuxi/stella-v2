@@ -522,7 +522,10 @@ const fetchOAuthUser = async (
 const listUserInstallations = async (
   userToken: string,
 ): Promise<
-  Array<{ id: number; account?: { login?: string; type?: string; id?: number } }>
+  Array<{
+    id: number;
+    account?: { login?: string; type?: string; id?: number };
+  }>
 > => {
   const collected: Array<{
     id: number;
@@ -1021,17 +1024,44 @@ export const setMyProjectRemote = mutation({
  * builder can drop the matching sandbox checkpoint — otherwise a later project
  * reusing the slug would restore the deleted one's files.
  */
-export const deleteMyProject = mutation({
+export const deleteMyProject = action({
   args: { projectId: v.string() },
   returns: v.object({ ok: v.boolean(), workspace: v.string() }),
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ ok: boolean; workspace: string }> => {
     const ownerId = await requireOwnerId(ctx);
-    const project = await requireOwnedProject(ctx, ownerId, args.projectId);
+    const deletion: { workspace: string } = await ctx.runMutation(
+      internal.cloud_projects.beginProjectDeletionInternal,
+      { ownerId, projectId: args.projectId },
+    );
+    const { workspace } = deletion;
+    await ctx.runAction(
+      internal.cloud_projects.purgeProjectCheckpointInternal,
+      { ownerId, workspace },
+    );
+    await ctx.runMutation(
+      internal.cloud_projects.finishProjectDeletionInternal,
+      { ownerId, projectId: args.projectId, workspace },
+    );
+    return { ok: true, workspace };
+  },
+});
+
+export const beginProjectDeletionInternal = internalMutation({
+  args: { ownerId: v.string(), projectId: v.string() },
+  returns: v.object({ workspace: v.string() }),
+  handler: async (ctx, args) => {
+    const project = await requireOwnedProject(
+      ctx,
+      args.ownerId,
+      args.projectId,
+    );
     const workspace = projectWorkspace(project.slug);
     const running = (
       await ctx.db
         .query("cloud_agent_threads")
-        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
+        .withIndex("by_ownerId_and_updatedAt", (q) =>
+          q.eq("ownerId", args.ownerId),
+        )
         .order("desc")
         .take(50)
     ).some(
@@ -1042,65 +1072,68 @@ export const deleteMyProject = mutation({
         "An agent is still working in that project. Wait for it to finish, then delete it.",
       );
     }
-    await ctx.db.delete(project._id);
-    // The workspace checkpoint is keyed on (owner, workspace), and the slug
-    // is free to be reused the moment this row is gone — so a new project of
-    // the same name would restore the deleted one's files on its first turn.
-    await ctx.scheduler.runAfter(
-      0,
-      internal.cloud_projects.purgeProjectCheckpointInternal,
-      {
-        ownerId,
-        workspace,
-      },
-    );
-    return { ok: true, workspace };
+    if (project.status !== "deleting") {
+      await ctx.db.patch(project._id, {
+        status: "deleting",
+        updatedAt: Date.now(),
+      });
+    }
+    return { workspace };
   },
 });
 
-// Best-effort: the checkpoint descriptor lives in the builder worker's KV, so
-// only the worker can drop it. A failure here leaves stale bytes behind, which
-// is worth a log, not a failed delete the user has to retry.
+export const finishProjectDeletionInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    projectId: v.string(),
+    workspace: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const project = await requireOwnedProject(
+      ctx,
+      args.ownerId,
+      args.projectId,
+    );
+    if (
+      project.status !== "deleting" ||
+      projectWorkspace(project.slug) !== args.workspace
+    ) {
+      throw new ConvexError("Project deletion state changed. Try again.");
+    }
+    await ctx.db.delete(project._id);
+    return null;
+  },
+});
+
+// Bytes first, row last. Any failure leaves the `deleting` project row as the
+// retry key and prevents the slug/workspace from being reused.
 export const purgeProjectCheckpointInternal = internalAction({
   args: { ownerId: v.string(), workspace: v.string() },
   returns: v.null(),
   handler: async (_ctx, args) => {
     const builderUrl = process.env.CLOUD_BUILDER_URL?.trim();
     const secret = process.env.BUILDER_SERVICE_SECRET?.trim();
-    if (!builderUrl || !secret) return null;
-    try {
-      const response = await fetch(
-        `${builderUrl.replace(/\/+$/, "")}/workspaces/purge`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${secret}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            ownerId: args.ownerId,
-            workspace: args.workspace,
-          }),
+    if (!builderUrl || !secret) {
+      throw new Error("Cloud builder is not configured for project deletion.");
+    }
+    const response = await fetch(
+      `${builderUrl.replace(/\/+$/, "")}/workspaces/purge`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${secret}`,
+          "content-type": "application/json",
         },
-      );
-      if (!response.ok) {
-        console.error(
-          JSON.stringify({
-            service: "convex-cloud-projects",
-            event: "checkpoint_purge_failed",
-            workspace: args.workspace,
-            status: response.status,
-          }),
-        );
-      }
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          service: "convex-cloud-projects",
-          event: "checkpoint_purge_failed",
+        body: JSON.stringify({
+          ownerId: args.ownerId,
           workspace: args.workspace,
-          message: error instanceof Error ? error.message : String(error),
         }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Project checkpoint purge failed (${response.status}); the project remains retryable.`,
       );
     }
     return null;
@@ -1120,11 +1153,11 @@ export const listMyGithubInstallations = query({
     return {
       appConfigured: Boolean(
         process.env.GITHUB_APP_ID?.trim() &&
-          process.env.GITHUB_APP_PRIVATE_KEY?.trim() &&
-          // Without the OAuth pair the connect handshake cannot prove who is
-          // connecting, and a connection that can't be verified isn't offered.
-          process.env.GITHUB_APP_CLIENT_ID?.trim() &&
-          process.env.GITHUB_APP_CLIENT_SECRET?.trim(),
+        process.env.GITHUB_APP_PRIVATE_KEY?.trim() &&
+        // Without the OAuth pair the connect handshake cannot prove who is
+        // connecting, and a connection that can't be verified isn't offered.
+        process.env.GITHUB_APP_CLIENT_ID?.trim() &&
+        process.env.GITHUB_APP_CLIENT_SECRET?.trim(),
       ),
       connections: rows.map((row) => ({
         installationId: row.installationId,
@@ -1358,10 +1391,15 @@ export const getProjectBySlugInternal = internalQuery({
   handler: async (ctx, args) => {
     const raw = args.slug.trim();
     const exact = await findProjectBySlug(ctx, args.ownerId, raw);
-    if (exact) return exact;
+    if (exact) return exact.status !== "deleting" ? exact : null;
     const normalized = slugify(raw);
     if (!normalized || normalized === raw) return null;
-    return await findProjectBySlug(ctx, args.ownerId, normalized);
+    const normalizedProject = await findProjectBySlug(
+      ctx,
+      args.ownerId,
+      normalized,
+    );
+    return normalizedProject?.status !== "deleting" ? normalizedProject : null;
   },
 });
 
@@ -1390,17 +1428,26 @@ export const resolveProjectInternal = internalQuery({
         .query("cloud_projects")
         .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId!))
         .unique();
-      return project && project.ownerId === args.ownerId ? project : null;
+      return project &&
+        project.ownerId === args.ownerId &&
+        project.status !== "deleting"
+        ? project
+        : null;
     }
     const slug = (
       args.slug ?? args.workspace?.replace(/^project:/, "")
     )?.trim();
     if (!slug) return null;
     const exact = await findProjectBySlug(ctx, args.ownerId, slug);
-    if (exact) return exact;
+    if (exact) return exact.status !== "deleting" ? exact : null;
     const normalized = slugify(slug);
     if (!normalized || normalized === slug) return null;
-    return await findProjectBySlug(ctx, args.ownerId, normalized);
+    const normalizedProject = await findProjectBySlug(
+      ctx,
+      args.ownerId,
+      normalized,
+    );
+    return normalizedProject?.status !== "deleting" ? normalizedProject : null;
   },
 });
 
@@ -1423,7 +1470,7 @@ export const recordProjectSetupInternal = internalMutation({
       .query("cloud_projects")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .unique();
-    if (!project) return { ok: false };
+    if (!project || project.status === "deleting") return { ok: false };
     const patch: {
       updatedAt: number;
       setupScript?: string;
@@ -1479,6 +1526,9 @@ export const mintInstallationTokenInternal = internalAction({
     )) as CloudProjectRow | null;
     if (!project || project.ownerId !== args.ownerId) {
       throw new ConvexError("Project not found.");
+    }
+    if (project.status === "deleting") {
+      throw new ConvexError("That project is being deleted.");
     }
     if (project.provider !== "github" || !project.remoteUrl) {
       throw new ConvexError(
@@ -1896,7 +1946,7 @@ export const githubAppProbeInternal = internalAction({
       appSlugConfigured: Boolean(process.env.GITHUB_APP_SLUG?.trim()),
       oauthConfigured: Boolean(
         process.env.GITHUB_APP_CLIENT_ID?.trim() &&
-          process.env.GITHUB_APP_CLIENT_SECRET?.trim(),
+        process.env.GITHUB_APP_CLIENT_SECRET?.trim(),
       ),
     };
     try {

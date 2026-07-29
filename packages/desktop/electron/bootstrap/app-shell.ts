@@ -16,6 +16,8 @@ import {
 } from "./context.js";
 import { startDeferredStartup } from "./deferred-startup.js";
 import { getMainLogger } from "../observability/main-logger.js";
+import { RendererDeploymentSyncService } from "../services/renderer-deployment-sync-service.js";
+import { RendererReadinessWaiters } from "../windows/renderer-readiness.js";
 
 const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
 
@@ -73,10 +75,46 @@ const initializeWindowShell = (context: BootstrapContext) => {
   );
   const storeWebBaseUrl = readStellaWebBaseUrl();
   const allowedStoreWebOrigin = storeWebOrigin(storeWebBaseUrl);
+  const rendererReadiness = new RendererReadinessWaiters();
+  state.rendererReadiness = rendererReadiness;
+  const resolveTrustedRendererEntrypoints = async () => {
+    const [full, mini, overlay, pet] = await Promise.all([
+      services.rendererArtifactService.resolveEntrypoint("full"),
+      services.rendererArtifactService.resolveEntrypoint("mini"),
+      services.rendererArtifactService.resolveEntrypoint("overlay"),
+      services.rendererArtifactService.resolveEntrypoint("pet"),
+    ]);
+    services.externalLinkService.setTrustedFileRendererRoots([
+      ...new Set([
+        full.rendererRoot,
+        mini.rendererRoot,
+        overlay.rendererRoot,
+        pet.rendererRoot,
+      ]),
+    ]);
+    services.externalLinkService.setTrustedFileRendererEntrypoints([
+      full.filePath,
+      mini.filePath,
+      overlay.filePath,
+      pet.filePath,
+    ]);
+    return { full, mini, overlay, pet };
+  };
+  const resolvePackagedEntrypoint = config.useDevServer
+    ? undefined
+    : async (
+        mode: import("../services/renderer-artifact-service.js").RendererEntryName,
+      ) => {
+        // Replace, rather than accumulate, privileged roots so a quarantined
+        // renderer loses IPC authority before fallback navigation begins.
+        return (await resolveTrustedRendererEntrypoints())[mode];
+      };
   configureStellaSessionPermissions({
     appPartition: config.sessionPartition,
     isDev: config.useDevServer,
     getDevServerUrl,
+    isTrustedFileRendererResourceUrl: (url) =>
+      services.externalLinkService.isTrustedFileRendererResourceUrl(url),
   });
   configureNotificationActivationHandling(context);
 
@@ -86,6 +124,8 @@ const initializeWindowShell = (context: BootstrapContext) => {
     electronDir: config.electronDir,
     isDev: config.useDevServer,
     getDevServerUrl,
+    resolvePackagedEntrypoint,
+    rendererReadiness,
   });
   state.petController = new PetWindowController({
     preloadPath,
@@ -93,6 +133,8 @@ const initializeWindowShell = (context: BootstrapContext) => {
     electronDir: config.electronDir,
     isDev: config.useDevServer,
     getDevServerUrl,
+    resolvePackagedEntrypoint,
+    rendererReadiness,
   });
   state.overlayController.setSelectionChipClickHandler((requestId) => {
     services.selectionWatcherService.resolveClick(requestId);
@@ -112,6 +154,8 @@ const initializeWindowShell = (context: BootstrapContext) => {
       sessionPartition: config.sessionPartition,
       isDev: config.useDevServer,
       getDevServerUrl,
+      resolvePackagedEntrypoint,
+      rendererReadiness,
       isAppReady: () => state.appReady,
       externalLinkService: services.externalLinkService,
       onUpdateUiState: (partial) => services.uiStateService.update(partial),
@@ -120,6 +164,60 @@ const initializeWindowShell = (context: BootstrapContext) => {
       onMinimizeFullToTray: () => state.trayController?.notifyMinimizedToTray(),
     }),
   );
+
+  if (!config.useDevServer) {
+    const rendererDeploymentSync = new RendererDeploymentSyncService({
+      artifactService: services.rendererArtifactService,
+      getConvexUrl: () => services.authService.getPendingConvexUrl(),
+      getAuthToken: () => services.authService.getAuthToken(),
+      onArtifactActivated: async () => {
+        const { full, mini, overlay, pet } =
+          await resolveTrustedRendererEntrypoints();
+        await Promise.all([
+          state.windowManager!.reloadRendererAndWaitForHealth({
+            expectedEntrypoints: {
+              full: full.filePath,
+              mini: mini.filePath,
+            },
+          }),
+          state.overlayController?.reloadRendererAndWaitForHealth(
+            overlay.filePath,
+          ),
+          state.petController?.reloadRendererAndWaitForHealth(pet.filePath),
+        ]);
+      },
+      onArtifactRolledBack: async () => {
+        const { full, mini, overlay, pet } =
+          await resolveTrustedRendererEntrypoints();
+        await Promise.all([
+          state.windowManager!.reloadRendererAndWaitForHealth({
+            expectedEntrypoints: {
+              full: full.filePath,
+              mini: mini.filePath,
+            },
+            stabilizationMs: 1_000,
+          }),
+          state.overlayController?.reloadRendererAndWaitForHealth(
+            overlay.filePath,
+          ),
+          state.petController?.reloadRendererAndWaitForHealth(pet.filePath),
+        ]);
+      },
+    });
+    const unsubscribeAuthConfiguration =
+      services.authService.onHostConfigurationChanged(() => {
+        void rendererDeploymentSync.refreshConnection();
+      });
+    rendererDeploymentSync.start();
+    state.processRuntime.registerCleanup(
+      "before-quit",
+      "renderer-deployment-sync",
+      async () => {
+        unsubscribeAuthConfiguration();
+        await rendererDeploymentSync.stop();
+      },
+    );
+  }
 
   // Windows keeps Stella alive in the system tray after the user closes the
   // main window. macOS already keeps the app running via the dock, so the

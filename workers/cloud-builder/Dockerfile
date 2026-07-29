@@ -27,6 +27,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
 
 COPY .image/package.json ./
 COPY .image/packages ./packages
+COPY .image/interior-seed.json ./interior-seed.json
 RUN bun install --production
 
 # The checked-in stella-office binaries are macOS-only and are filtered out of
@@ -38,6 +39,8 @@ RUN mkdir -p /workspace \
   && ln -s /opt/stella/node_modules /opt/stella/packages/app-template/node_modules \
   && mkdir -p /opt/stella/node_modules/@stella \
   && ln -s /opt/stella/packages/apps-sdk /opt/stella/node_modules/@stella/apps-sdk \
-  && ln -s "$(find /opt/stella/node_modules/.bun -path '*/vite/bin/vite.js' -print -quit)" /usr/local/bin/vite
+  && ln -s /opt/stella/node_modules/vite/bin/vite.js /usr/local/bin/vite \
+  && ln -s /opt/stella/node_modules/.bin/claude /usr/local/bin/claude \
+  && ln -s /opt/stella/node_modules/.bin/codex /usr/local/bin/codex
 
 EXPOSE 5173

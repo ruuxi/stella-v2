@@ -2,6 +2,10 @@ import { useEffect, useSyncExternalStore } from "react";
 import { configurePiRuntime } from "@/platform/electron/device";
 import { authClient } from "@/global/auth/lib/auth-client";
 import { ensureBrowserAuthBootstrapCookie } from "./auth-storage";
+import {
+  consumeBrowserAuthHandoffToken,
+  type BrowserAuthHandoffResult,
+} from "../browser-auth-handoff";
 
 type AuthSessionResult = {
   data: unknown | null;
@@ -123,6 +127,59 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
   await inFlightRefresh;
 };
 
+const consumePendingBrowserAuthHandoffToken = (): string | null => {
+  if (typeof window === "undefined" || window.electronAPI) return null;
+  const params = new URLSearchParams(window.location.search);
+  if (
+    window.location.pathname === "/auth/callback" &&
+    params.get("client") === "desktop"
+  ) {
+    return null;
+  }
+  return consumeBrowserAuthHandoffToken(window.location, window.history);
+};
+
+const redeemPendingBrowserAuthHandoff =
+  async (): Promise<BrowserAuthHandoffResult> => {
+    const token = consumePendingBrowserAuthHandoffToken();
+    if (!token) {
+      return "none";
+    }
+
+    try {
+      ensureBrowserAuthBootstrapCookie();
+      const result = await authClient.crossDomain.oneTimeToken.verify({
+        token,
+      });
+      if (result.error) {
+        throw new Error("Browser auth handoff verification failed.");
+      }
+      if (!authClient.getCookie().includes("session_token=")) {
+        throw new Error("Browser auth handoff did not establish a session.");
+      }
+      authClient.updateSession();
+      await refreshAuthSession();
+      if (!currentSession.data) {
+        throw new Error("Browser auth handoff session could not be verified.");
+      }
+      return "redeemed";
+    } catch {
+      // The credential has already been removed from the URL. Do not log it,
+      // retry it implicitly, or fall through to anonymous-session creation:
+      // an ambiguous POST failure may still have redeemed it server-side.
+      console.error("Failed to finish browser sign-in.");
+      return "failed";
+    }
+  };
+
+// Module initialization starts this before React mounts. Automatic anonymous
+// bootstrap awaits the same promise, so it cannot race or overwrite a valid
+// cross-domain session handoff.
+const browserAuthHandoffPromise = redeemPendingBrowserAuthHandoff();
+
+export const waitForBrowserAuthHandoff =
+  (): Promise<BrowserAuthHandoffResult> => browserAuthHandoffPromise;
+
 export const signInAnonymous = async () => {
   if (!window.electronAPI?.system.signInAnonymous) {
     ensureBrowserAuthBootstrapCookie();
@@ -200,11 +257,16 @@ export function useDesktopAuthSession() {
   );
 
   // Kick off a cold-start refresh when we mount still pending. The guard keeps
-  // this from stacking on an in-flight refresh; behavior matches the old
-  // mount-effect fallback.
+  // this from stacking on an in-flight refresh. Browser session discovery also
+  // waits for an OTT handoff to settle so an older cached/anonymous identity is
+  // never surfaced while the intended account exchange is still in flight.
   useEffect(() => {
     if (currentSession.isPending && !inFlightRefresh) {
-      void refreshAuthSession({ allowCached: true });
+      void waitForBrowserAuthHandoff().then(() => {
+        if (currentSession.isPending && !inFlightRefresh) {
+          void refreshAuthSession({ allowCached: true });
+        }
+      });
     }
   }, []);
 

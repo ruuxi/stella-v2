@@ -15,8 +15,10 @@ import {
   clearCachedToken,
 } from "@/global/auth/services/auth-token";
 import {
+  getAuthSessionSnapshot,
   signInAnonymous,
   useDesktopAuthSession,
+  waitForBrowserAuthHandoff,
 } from "@/global/auth/services/auth-session";
 import { convexClient } from "@/platform/convex/convex-client";
 import { getJwtExpMs } from "@/shared/lib/jwt";
@@ -25,6 +27,7 @@ import {
   isMobileShell,
   requestMobileConvexToken,
 } from "@/platform/mobile/mobile-shell";
+import { decideAutomaticAnonymousBootstrap } from "./browser-auth-handoff";
 
 const TOKEN_BOOTSTRAP_RETRY_BASE_MS = 3_000;
 const TOKEN_BOOTSTRAP_RETRY_MAX_MS = 60_000;
@@ -176,21 +179,45 @@ function DesktopAuthRuntimeEffects({
 
     if (attemptedAnonAuthRef.current) return;
     attemptedAnonAuthRef.current = true;
-    setAuthBootstrapState({
-      status: "creating_anonymous_session",
-      error: null,
+    let cancelled = false;
+    void decideAutomaticAnonymousBootstrap(waitForBrowserAuthHandoff(), () =>
+      Boolean(getAuthSessionSnapshot().data),
+    ).then(async (decision) => {
+      if (cancelled) return;
+      if (decision === "handoff_failed") {
+        setAuthBootstrapState({
+          status: "failed",
+          error: "Stella could not finish browser sign-in. Please try again.",
+        });
+        return;
+      }
+      if (decision === "session_exists") {
+        attemptedAnonAuthRef.current = false;
+        return;
+      }
+
+      setAuthBootstrapState({
+        status: "creating_anonymous_session",
+        error: null,
+      });
+      try {
+        await signInAnonymous();
+      } catch (error) {
+        if (cancelled) return;
+        attemptedAnonAuthRef.current = false;
+        setAuthBootstrapState({
+          status: "failed",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Stella could not create a local sign-in session.",
+        });
+      }
     });
 
-    void signInAnonymous().catch((error) => {
-      attemptedAnonAuthRef.current = false;
-      setAuthBootstrapState({
-        status: "failed",
-        error:
-          error instanceof Error
-            ? error.message
-            : "Stella could not create a local sign-in session.",
-      });
-    });
+    return () => {
+      cancelled = true;
+    };
   }, [session.data, session.isPending, setAuthBootstrapState]);
 
   useEffect(() => {

@@ -89,15 +89,22 @@ Everything else is canonically Convex, as before:
   last-writer-wins per (owner, workspace), so same-workspace concurrency
   would silently lose work.
 
-Spawn placement is the `workspace` argument (`drive`, `computer`,
-`project:<name>`, `stella`, `app:<slug>`). Honest v1 limits, enforced with
-readable errors: only `drive` is dispatchable; `computer` from cloud chat
-explains the machine is not reachable; the rest answer "coming next".
+Spawn placement is the `workspace` argument (`cloud`, `computer`,
+`project:<name>`, `stella`, `app:<slug>`). `computer` is the one local
+placement and is available only when the desktop orchestrator can reach the
+machine. Every other explicit workspace runs in Stella's cloud. A desktop
+spawn records its origin device and conversation; a device-scoped lifecycle
+subscription persists the terminal report into the local orchestrator thread
+before acknowledging it, so a cloud child can finish while the desktop is
+closed and still report after restart. Running cloud rows are not replayed into
+the local activity feed because Convex already projects that activity.
 Workspace persistence is a Sandbox backup per (owner, workspace) whose
 descriptor lives in KV under `ws:<sha256(owner:workspace)>` — sandbox disk is
-a cache, the checkpoint is truth. A failed checkpoint is retried once, then
-surfaced: a `checkpoint_failed` event plus an explicit warning appended to
-the agent's report, never a silent "completed". Chat-turn events stream with
+a cache, the checkpoint is truth. The owner fence serializes primary agents in
+the same canonical workspace while unrelated workspaces remain parallel.
+Checkpoint rotation records cleanup debt before changing the pointer, deletes
+failed-attempt and superseded backup bytes, and surfaces cleanup/checkpoint
+failure rather than silently reporting completion. Chat-turn events stream with
 `seq: "auto"` (Convex assigns max+1); build-lane turns keep explicit DO-side
 seqs, but **terminal** cancel/timeout events always use `seq: "auto"` —
 fixed sentinels collide with auto-seq streams and Convex would drop the
@@ -271,6 +278,34 @@ versioned ZIP manifest, expands it into app-private storage, keeps the current
 version available offline, downloads updates in the background, and swaps on
 the next foreground.
 
+### Stella interior self-modification
+
+The packaged desktop is now a stable shell; Stella's renderer is a separately
+versioned artifact. A cloud child spawned with `workspace: "stella"` restores
+the owner's long-lived renderer source checkpoint, edits the existing source,
+and runs the pinned production Vite builder. The builder requires all four
+entry documents (`index.html`, `mini.html`, `overlay.html`, `pet.html`),
+injects the canonical renderer CSP before hashing, validates bounded paths,
+symlinks, counts, and sizes, then uploads files under the immutable R2 prefix
+`interiors/<ownerHash>/<buildId>/`. Convex independently verifies the callback
+manifest and records a candidate; it never auto-selects one.
+
+The user selects or rolls back candidates in Settings. The mutable Convex row
+is only a compare-and-swap pointer (`activeBuildId`, `previousBuildId`,
+`routeRevision`). A packaged shell downloads every file over HTTPS, rejects
+redirects and manifest/hash/size/ABI/version drift, stages atomically, and
+promotes only after exact-path React readiness and stabilization in full, mini,
+overlay, and pet windows. Failed trials are quarantined and restore the last
+known good artifact or packaged renderer.
+
+The standalone web URL is `/stella/<stableRouteId>/`. `stableRouteId` is a
+random, user-rotatable capability rather than a derivation of account identity;
+the host resolves it through the service-authenticated Convex route on every
+request so rotation revokes the old URL immediately. It serves the selected
+immutable candidate with `no-store`, or the published default interior when no
+candidate is selected. The renderer then establishes its own Better Auth
+browser session; the capability selects presentation, not account authority.
+
 The apps SDK selects one of two transports without changing its API:
 
 - inside Stella, `postMessage` reaches the shell bridge;
@@ -369,6 +404,11 @@ bunx wrangler deploy --config wrangler.interior.jsonc
 unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
 ```
 
+Before deploying the apps host, configure its `BUILDER_SERVICE_SECRET` to the
+same service credential used by the Convex interior-route HTTP endpoint. The
+stable `/stella/<stableRouteId>/` surface fails closed with 503 when that
+credential is absent.
+
 Publish an interior by building the renderer with `NODE_ENV=production` set
 explicitly (a leaked `NODE_ENV=development` makes Vite emit a dev-flagged
 bundle), zipping the dist as `interior-bundle.zip`, then running
@@ -400,14 +440,14 @@ one user-initiated case. Do not copy artifacts or mutate an existing prefix.
 Confirm the deployed URL returns 200 and the expected UI, then confirm
 Convex's `activeBuildId`.
 
-Stella's own interior is the exception: its build does not switch the running
-interior on its own. That card keeps an Apply action, which performs the
-switch — not an approval, but a moment the user picks rather than being pulled
-into a new interior mid-conversation.
-
-If activation succeeds in KV but the Convex mutation fails, repeat the same
-idempotent activation. If Convex succeeds but KV fails, the action returns a
-readable error and leaves the prior route serving.
+Stella's own interior is the exception: its build does not switch any client on
+its own. The Settings card selects the immutable candidate through Convex CAS.
+The standalone web capability resolves that pointer on each request. Each
+packaged desktop independently downloads and verifies the candidate, runs its
+four-surface readiness trial, and only then records it as locally healthy.
+Selecting “Use packaged” clears the active pointer; the same stable web URL
+falls back to the published default interior. A rejected desktop candidate
+requests a control-plane rollback and remains quarantined locally.
 
 ## Suspend and restore
 

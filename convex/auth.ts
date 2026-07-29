@@ -3,6 +3,9 @@ import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
 import { requireActionCtx } from "@convex-dev/better-auth/utils";
 import { Resend } from "@convex-dev/resend";
 import { expo } from "@better-auth/expo";
+import type { BetterAuthPlugin } from "better-auth";
+import { createAuthEndpoint, sessionMiddleware } from "better-auth/api";
+import { generateRandomString } from "better-auth/crypto";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
 import { anonymous, magicLink } from "better-auth/plugins";
 import {
@@ -39,6 +42,29 @@ const getOptionalEnv = (name: string) => {
   const value = process.env[name]?.trim();
   return value ? value : undefined;
 };
+
+const browserHandoff = () =>
+  ({
+    id: "stella-browser-handoff",
+    endpoints: {
+      generateBrowserHandoffToken: createAuthEndpoint(
+        "/browser-handoff/generate",
+        {
+          method: "POST",
+          use: [sessionMiddleware],
+        },
+        async (ctx) => {
+          const token = generateRandomString(32);
+          await ctx.context.internalAdapter.createVerificationValue({
+            value: ctx.context.session.session.token,
+            identifier: `one-time-token:${token}`,
+            expiresAt: new Date(Date.now() + 3 * 60_000),
+          });
+          return ctx.json({ token });
+        },
+      ),
+    },
+  }) satisfies BetterAuthPlugin;
 
 /**
  * The issuer (`iss`) the Convex Better Auth plugin stamps on every JWT. It is
@@ -371,6 +397,11 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     plugins: [
       expo(),
       crossDomain({ siteUrl }),
+      // stella.sh/chat transfers an already-authenticated browser session to
+      // the standalone renderer with a short-lived, single-use token. Keep a
+      // distinct endpoint name: crossDomain already owns the one-time-token
+      // verification endpoint that mirrors the destination cookie.
+      browserHandoff(),
       anonymous({
         emailDomainName: "anon.stella.local",
         disableDeleteAnonymousUser: true,

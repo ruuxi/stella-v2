@@ -1,4 +1,11 @@
-import { app, BrowserWindow, screen, type Display } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  screen,
+  type Display,
+  type Event as ElectronEvent,
+  type RenderProcessGoneDetails,
+} from 'electron'
 import {
   MINI_SHELL_MIN_SIZE,
   MINI_SHELL_MAX_SIZE,
@@ -10,7 +17,9 @@ import {
   moveResizeWindowAtPoint,
   type WindowInfo,
 } from '../window-capture.js'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { FullWindowController } from './full-window.js'
 import { MiniWindowController } from './mini-window.js'
 import {
@@ -21,6 +30,8 @@ import { getMainLogger } from '../observability/main-logger.js'
 import type { UiState } from '../types.js'
 import type { ExternalLinkService } from '../services/external-link-service.js'
 import { isLowMemoryWindowsDevice } from '../resource-profile.js'
+import type { PackagedRendererEntrypointResolver } from './window-load.js'
+import type { RendererReadinessWaiters } from './renderer-readiness.js'
 
 type WindowManagerOptions = {
   electronDir: string
@@ -31,6 +42,8 @@ type WindowManagerOptions = {
   sessionPartition: string
   isDev: boolean
   getDevServerUrl: () => string
+  resolvePackagedEntrypoint?: PackagedRendererEntrypointResolver
+  rendererReadiness: RendererReadinessWaiters
   isAppReady: () => boolean
   externalLinkService: ExternalLinkService
   onUpdateUiState: (partial: Partial<UiState>) => void
@@ -178,7 +191,6 @@ export class WindowManager {
     ShellWindowMode,
     ReturnType<typeof setTimeout>
   >()
-
   constructor(private readonly options: WindowManagerOptions) {
     this.fullWindowController = new FullWindowController({
       electronDir: options.electronDir,
@@ -186,6 +198,7 @@ export class WindowManager {
       sessionPartition: options.sessionPartition,
       isDev: options.isDev,
       getDevServerUrl: options.getDevServerUrl,
+      resolvePackagedEntrypoint: options.resolvePackagedEntrypoint,
       setupExternalLinkHandlers: (window) =>
         options.externalLinkService.setupExternalLinkHandlers(window),
       onDidFinishLoad: () => {
@@ -231,6 +244,7 @@ export class WindowManager {
       sessionPartition: options.sessionPartition,
       isDev: options.isDev,
       getDevServerUrl: options.getDevServerUrl,
+      resolvePackagedEntrypoint: options.resolvePackagedEntrypoint,
       setupExternalLinkHandlers: (window) =>
         options.externalLinkService.setupExternalLinkHandlers(window),
       onDidFinishLoad: () => {
@@ -1337,6 +1351,167 @@ export class WindowManager {
   reloadFullWindow() {
     this.fullWindowController.reloadMainWindow()
     this.miniWindowController.reloadMainWindow()
+  }
+
+  /**
+   * Reloads shell windows onto the newly activated verified artifact and only
+   * resolves after both shell renderers load their exact entrypoints, emit a
+   * token-bound post-React mounted signal, and remain alive for a short
+   * stabilization window.
+   */
+  reloadRendererAndWaitForHealth(options: {
+    expectedEntrypoints: { full: string; mini: string }
+    loadTimeoutMs?: number
+    stabilizationMs?: number
+  }) {
+    const fullWindow =
+      this.fullWindowController.getWindow() ?? this.createFullWindow()
+    const miniWindow =
+      this.miniWindowController.getWindow() ??
+      this.createMiniWindow(this.getPreferredMiniBounds())
+    const loadTimeoutMs = options.loadTimeoutMs ?? 20_000
+    const stabilizationMs = options.stabilizationMs ?? 3_000
+    const fullReadinessToken = randomUUID()
+    const miniReadinessToken = randomUUID()
+
+    return new Promise<void>((resolve, reject) => {
+      let settled = false
+      let fullLoaded = false
+      let miniLoaded = false
+      let fullMounted = false
+      let miniMounted = false
+      let removeFullReadinessWaiter: (() => void) | null = null
+      let removeMiniReadinessWaiter: (() => void) | null = null
+      let stabilizationTimer: ReturnType<typeof setTimeout> | null = null
+      const loadTimer = setTimeout(() => {
+        fail(new Error('renderer artifact load timed out'))
+      }, loadTimeoutMs)
+
+      const cleanup = () => {
+        clearTimeout(loadTimer)
+        if (stabilizationTimer) clearTimeout(stabilizationTimer)
+        fullWindow.webContents.removeListener('did-finish-load', onFinish)
+        fullWindow.webContents.removeListener('did-fail-load', onFailLoad)
+        fullWindow.webContents.removeListener(
+          'render-process-gone',
+          onRenderProcessGone,
+        )
+        fullWindow.removeListener('unresponsive', onUnresponsive)
+        miniWindow.webContents.removeListener('did-finish-load', onMiniFinish)
+        miniWindow.webContents.removeListener('did-fail-load', onFailLoad)
+        miniWindow.webContents.removeListener(
+          'render-process-gone',
+          onRenderProcessGone,
+        )
+        miniWindow.removeListener('unresponsive', onUnresponsive)
+        removeFullReadinessWaiter?.()
+        removeMiniReadinessWaiter?.()
+      }
+      const succeed = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve()
+      }
+      const fail = (error: Error) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(error)
+      }
+      const maybeStabilize = () => {
+        if (!fullLoaded || !miniLoaded || !fullMounted || !miniMounted) return
+        if (stabilizationTimer) clearTimeout(stabilizationTimer)
+        stabilizationTimer = setTimeout(succeed, stabilizationMs)
+      }
+      const assertLoadedPath = (
+        window: BrowserWindow,
+        expectedPath: string,
+      ) => {
+        let actualPath: string
+        try {
+          actualPath = fileURLToPath(window.webContents.getURL())
+        } catch {
+          throw new Error('renderer artifact loaded a non-file URL')
+        }
+        if (path.resolve(actualPath) !== path.resolve(expectedPath)) {
+          throw new Error('renderer artifact loaded an unexpected entrypoint')
+        }
+      }
+      const onFinish = () => {
+        try {
+          assertLoadedPath(fullWindow, options.expectedEntrypoints.full)
+          fullLoaded = true
+          maybeStabilize()
+        } catch (error) {
+          fail(error as Error)
+        }
+      }
+      const onMiniFinish = () => {
+        try {
+          assertLoadedPath(miniWindow, options.expectedEntrypoints.mini)
+          miniLoaded = true
+          maybeStabilize()
+        } catch (error) {
+          fail(error as Error)
+        }
+      }
+      const onFullMounted = () => {
+        fullMounted = true
+        maybeStabilize()
+      }
+      const onMiniMounted = () => {
+        miniMounted = true
+        maybeStabilize()
+      }
+      const onFailLoad = (
+        _event: ElectronEvent,
+        errorCode: number,
+        errorDescription: string,
+        _validatedUrl: string,
+        isMainFrame: boolean,
+      ) => {
+        if (!isMainFrame || errorCode === -3) return
+        fail(
+          new Error(
+            `renderer artifact failed to load (${errorCode}): ${errorDescription}`,
+          ),
+        )
+      }
+      const onRenderProcessGone = (
+        _event: ElectronEvent,
+        details: RenderProcessGoneDetails,
+      ) => {
+        fail(new Error(`renderer artifact process exited: ${details.reason}`))
+      }
+      const onUnresponsive = () => {
+        fail(new Error('renderer artifact became unresponsive'))
+      }
+
+      fullWindow.webContents.on('did-finish-load', onFinish)
+      fullWindow.webContents.on('did-fail-load', onFailLoad)
+      fullWindow.webContents.on('render-process-gone', onRenderProcessGone)
+      fullWindow.on('unresponsive', onUnresponsive)
+      removeFullReadinessWaiter = this.options.rendererReadiness.register({
+        senderId: fullWindow.webContents.id,
+        mode: 'full',
+        token: fullReadinessToken,
+        onMounted: onFullMounted,
+      })
+      miniWindow.webContents.on('did-finish-load', onMiniFinish)
+      miniWindow.webContents.on('did-fail-load', onFailLoad)
+      miniWindow.webContents.on('render-process-gone', onRenderProcessGone)
+      miniWindow.on('unresponsive', onUnresponsive)
+      removeMiniReadinessWaiter = this.options.rendererReadiness.register({
+        senderId: miniWindow.webContents.id,
+        mode: 'mini',
+        token: miniReadinessToken,
+        onMounted: onMiniMounted,
+      })
+
+      this.fullWindowController.reloadMainWindow(fullReadinessToken)
+      this.miniWindowController.reloadMainWindow(miniReadinessToken)
+    })
   }
 
   onActivate() {

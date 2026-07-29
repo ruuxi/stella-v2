@@ -4,6 +4,7 @@ import { FULL_SHELL_MIN_SIZE } from '../layout-constants.js'
 import { createSharedWebPreferences } from './shared-window-preferences.js'
 import type { ShellWindowDidFailLoadDetails } from './shell-window-factory.js'
 import { ShellWindowController } from './shell-window-controller.js'
+import type { PackagedRendererEntrypointResolver } from './window-load.js'
 
 const FULL_SHELL_DEFAULT_SIZE = { width: 1400, height: 940 } as const
 
@@ -54,11 +55,18 @@ type FullWindowControllerOptions = {
   sessionPartition: string
   isDev: boolean
   getDevServerUrl: () => string
+  resolvePackagedEntrypoint?: PackagedRendererEntrypointResolver
   setupExternalLinkHandlers: (window: BrowserWindow) => void
   onDidStartLoading?: () => void
   onDidFinishLoad?: () => void
-  onRenderProcessGone?: (details: RenderProcessGoneDetails, window: BrowserWindow) => void
-  onDidFailLoad?: (details: ShellWindowDidFailLoadDetails, window: BrowserWindow) => void
+  onRenderProcessGone?: (
+    details: RenderProcessGoneDetails,
+    window: BrowserWindow,
+  ) => void
+  onDidFailLoad?: (
+    details: ShellWindowDidFailLoadDetails,
+    window: BrowserWindow,
+  ) => void
   onUnresponsive?: (window: BrowserWindow) => void
   onResponsive?: (window: BrowserWindow) => void
   onClosed?: () => void
@@ -73,7 +81,9 @@ export class FullWindowController {
       createWindow: () => {
         const isMac = process.platform === 'darwin'
         const useNativeVibrancy = isMac
-        const windowIcon = !isMac ? resolveAppIconPath(this.options.electronDir) : undefined
+        const windowIcon = !isMac
+          ? resolveAppIconPath(this.options.electronDir)
+          : undefined
         const initialBounds = resolveFullWindowInitialBounds()
 
         return new BrowserWindow({
@@ -121,7 +131,7 @@ export class FullWindowController {
     this.controller.loadRecoveryPage()
   }
 
-  reloadMainWindow() {
-    this.controller.reloadMainWindow()
+  reloadMainWindow(rendererReadinessToken?: string) {
+    this.controller.reloadMainWindow(rendererReadinessToken)
   }
 }

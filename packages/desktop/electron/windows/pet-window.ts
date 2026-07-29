@@ -1,6 +1,18 @@
-import { BrowserWindow, screen } from 'electron'
-import { loadWindow } from './window-load.js'
+import {
+  BrowserWindow,
+  screen,
+  type Event as ElectronEvent,
+  type RenderProcessGoneDetails,
+} from 'electron'
+import {
+  loadWindow,
+  type PackagedRendererEntrypointResolver,
+} from './window-load.js'
 import { createSharedWebPreferences } from './shared-window-preferences.js'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
+import type { RendererReadinessWaiters } from './renderer-readiness.js'
 
 type PetWindowControllerOptions = {
   preloadPath: string
@@ -8,6 +20,8 @@ type PetWindowControllerOptions = {
   electronDir: string
   isDev: boolean
   getDevServerUrl: () => string
+  resolvePackagedEntrypoint?: PackagedRendererEntrypointResolver
+  rendererReadiness: RendererReadinessWaiters
 }
 
 /**
@@ -193,6 +207,7 @@ class PetWindow {
       isDev: this.options.isDev,
       mode: 'pet',
       getDevServerUrl: this.options.getDevServerUrl,
+      resolvePackagedEntrypoint: this.options.resolvePackagedEntrypoint,
     })
 
     return window
@@ -361,6 +376,106 @@ class PetWindow {
     }
   }
 
+  reloadRenderer(rendererReadinessToken?: string) {
+    if (!this.window || this.window.isDestroyed()) return
+    this.ready = false
+    loadWindow(this.window, {
+      electronDir: this.options.electronDir,
+      isDev: this.options.isDev,
+      mode: 'pet',
+      getDevServerUrl: this.options.getDevServerUrl,
+      resolvePackagedEntrypoint: this.options.resolvePackagedEntrypoint,
+      rendererReadinessToken,
+    })
+  }
+
+  reloadRendererAndWaitForHealth(
+    expectedPath: string,
+    timeoutMs = 20_000,
+    stabilizationMs = 3_000,
+  ): Promise<void> {
+    const window = this.ensure()
+    if (!window || window.isDestroyed()) {
+      return Promise.reject(new Error('pet renderer window is unavailable'))
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const readinessToken = randomUUID()
+      let loaded = false
+      let mounted = false
+      let stabilizationTimer: ReturnType<typeof setTimeout> | null = null
+      let removeReadinessWaiter: (() => void) | null = null
+      const timeout = setTimeout(
+        () => finish(new Error('pet renderer artifact load timed out')),
+        timeoutMs,
+      )
+      const finish = (error?: Error) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        if (stabilizationTimer) clearTimeout(stabilizationTimer)
+        removeReadinessWaiter?.()
+        window.webContents.removeListener('did-finish-load', onFinish)
+        window.webContents.removeListener('did-fail-load', onFail)
+        window.webContents.removeListener('render-process-gone', onGone)
+        window.removeListener('unresponsive', onUnresponsive)
+        if (error) reject(error)
+        else resolve()
+      }
+      const maybeStabilize = () => {
+        if (!loaded || !mounted || stabilizationTimer) return
+        stabilizationTimer = setTimeout(() => finish(), stabilizationMs)
+      }
+      const onFinish = () => {
+        try {
+          const loadedPath = fileURLToPath(window.webContents.getURL())
+          if (path.resolve(loadedPath) !== path.resolve(expectedPath)) {
+            finish(new Error('pet loaded an unexpected renderer entrypoint'))
+            return
+          }
+          loaded = true
+          maybeStabilize()
+        } catch {
+          finish(new Error('pet loaded a non-file renderer URL'))
+        }
+      }
+      const onFail = (
+        _event: ElectronEvent,
+        errorCode: number,
+        errorDescription: string,
+        _url: string,
+        isMainFrame: boolean,
+      ) => {
+        if (!isMainFrame || errorCode === -3) return
+        finish(
+          new Error(
+            `pet renderer failed to load (${errorCode}): ${errorDescription}`,
+          ),
+        )
+      }
+      const onGone = (
+        _event: ElectronEvent,
+        details: RenderProcessGoneDetails,
+      ) => finish(new Error(`pet renderer exited: ${details.reason}`))
+      const onUnresponsive = () =>
+        finish(new Error('pet renderer became unresponsive'))
+      removeReadinessWaiter = this.options.rendererReadiness.register({
+        senderId: window.webContents.id,
+        mode: 'pet',
+        token: readinessToken,
+        onMounted: () => {
+          mounted = true
+          maybeStabilize()
+        },
+      })
+      window.webContents.on('did-finish-load', onFinish)
+      window.webContents.on('did-fail-load', onFail)
+      window.webContents.on('render-process-gone', onGone)
+      window.on('unresponsive', onUnresponsive)
+      this.reloadRenderer(readinessToken)
+    })
+  }
+
   /** Tear down the pet window. Idempotent — safe to call more than
    *  once. After this returns, `ensure()` will refuse to recreate the
    *  window (the controller is treated as dead). */
@@ -415,6 +530,14 @@ export class PetWindowController {
     } else {
       this.petWindow.hide()
     }
+  }
+
+  reloadRenderer() {
+    this.petWindow.reloadRenderer()
+  }
+
+  reloadRendererAndWaitForHealth(expectedPath: string) {
+    return this.petWindow.reloadRendererAndWaitForHealth(expectedPath)
   }
 
   isVisible() {

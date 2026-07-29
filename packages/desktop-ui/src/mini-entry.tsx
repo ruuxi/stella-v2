@@ -423,6 +423,13 @@ function MiniChatSurface() {
 }
 
 function MiniRoot() {
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get(
+      "rendererReadiness",
+    );
+    if (token) window.electronAPI?.ui.setRendererMounted?.("mini", token);
+  }, []);
+
   return (
     <ErrorBoundary>
       <LocalI18nProvider>

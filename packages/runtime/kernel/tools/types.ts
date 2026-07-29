@@ -5,6 +5,7 @@
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 import type {
   AgentModelConfigSnapshot,
+  CloudExecutionSelection,
   SpawnEngineSelection,
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
@@ -173,7 +174,7 @@ export type AgentToolRequest = {
   spawnReasoningEffort?: SpawnReasoningEffort;
   /**
    * Subject-shaped placement from spawn_agent's `workspace` parameter:
-   * `computer`, `drive`, `stella`, `project:<name>`, or `app:<slug>`.
+   * `computer`, `cloud`, `stella`, `project:<name>`, or `app:<slug>`.
    * The local runtime only ever forwards `computer` (or nothing); a cloud
    * AgentToolApi implementation routes the remaining placements.
    */
@@ -194,19 +195,18 @@ export type AgentToolRequest = {
  * workspace never produce one of these: those stay local by construction.
  */
 export type CloudDispatchRequest = {
-  /** `drive`, `stella`, `project:<name>`, or `app:<slug>`. */
+  /** `cloud`, `stella`, `project:<name>`, or `app:<slug>`. */
   workspace: string;
   /** Local conversation the spawn came from, used to keep cloud threads together. */
   conversationId: string;
   description: string;
   prompt: string;
+  /** Exact route selected on desktop; the cloud validates it without fallback. */
+  execution: CloudExecutionSelection;
 };
 
 export type CloudDispatchResult = {
-  /**
-   * Cloud thread id. It is not a local thread record, so `send_input` and
-   * `pause_agent` on this device cannot reach it.
-   */
+  /** Cloud thread id, addressable by desktop send_input and pause_agent. */
   threadId: string;
   /** Cloud conversation the agent reports into. */
   conversationId: string;
@@ -293,6 +293,20 @@ export type AgentToolApi = {
   cloudDispatch?: (
     request: CloudDispatchRequest,
   ) => Promise<CloudDispatchResult>;
+  /** Continue an owned cloud thread from the current desktop conversation. */
+  cloudContinue?: (request: {
+    threadId: string;
+    description: string;
+    message: string;
+    conversationId: string;
+    requestId: string;
+  }) => Promise<{ delivered: boolean; reason?: string }>;
+  /** Stop the current turn of an owned cloud thread. */
+  cloudCancel?: (request: {
+    threadId: string;
+    conversationId: string;
+    requestId: string;
+  }) => Promise<{ canceled: boolean; reason?: string }>;
   /** Manager-only upward reporting channel. */
   reportManager?: (request: {
     threadId: string;
@@ -327,6 +341,16 @@ export type ToolHostOptions = {
     modelName: string,
     reasoningEffort?: SpawnReasoningEffort,
   ) => Promise<void>;
+  /**
+   * Resolves a cloud spawn against the current General-agent preferences.
+   * Explicit spawn pins are applied before serialization. Local-only routes
+   * throw instead of being mapped to a different cloud credential.
+   */
+  resolveCloudExecutionSelection?: (request: {
+    model?: string;
+    spawnEngine?: SpawnEngineSelection;
+    reasoningEffort?: SpawnReasoningEffort;
+  }) => Promise<CloudExecutionSelection>;
   scheduleApi?: ScheduleToolApi;
   fashionApi?: FashionToolApi;
   extensionTools?: import("../extensions/types.js").ToolDefinition[];

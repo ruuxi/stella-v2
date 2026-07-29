@@ -1,3 +1,8 @@
+import {
+  getCookie,
+  getSetCookie,
+} from "@convex-dev/better-auth/client/plugins";
+
 const LEGACY_STORAGE_KEYS = new Set([
   "better-auth_cookie",
   "better-auth_session_data",
@@ -74,4 +79,18 @@ export const ensureBrowserAuthBootstrapCookie = (): void => {
       stella_auth_bootstrap: { value: "1", expires: null },
     }),
   );
+};
+
+export const applyBrowserAuthSessionCookie = (sessionCookie: string): void => {
+  if (window.electronAPI) {
+    throw new Error("Browser auth storage is unavailable in Electron.");
+  }
+  const key = "better-auth_cookie";
+  const previous = desktopAuthStorage.getItem(key) ?? undefined;
+  const next = getSetCookie(sessionCookie, previous);
+  if (!getCookie(next).includes("session_token=")) {
+    throw new Error("The auth service did not return a session cookie.");
+  }
+  desktopAuthStorage.setItem(key, next);
+  desktopAuthStorage.removeItem("better-auth_session_data");
 };

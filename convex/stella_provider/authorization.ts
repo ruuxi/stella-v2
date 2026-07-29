@@ -1,17 +1,31 @@
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { ManagedModelAudience } from "../agent/model";
+import {
+  CLOUD_EXECUTOR_PINNED_MODEL_IDS,
+  type ManagedModelAudience,
+} from "../agent/model";
 import { errorResponse } from "../http_shared/cors";
 import { getClientAddressKey } from "../lib/http_utils";
 import {
   resolveManagedGatewayApiKey,
   resolveManagedGatewayConfig,
   resolveManagedGatewayProvider,
+  inferManagedGatewayProviderFromModel,
   type ManagedGatewayProvider,
 } from "../lib/managed_gateway";
 import { resolveManagedModelAccess } from "../lib/managed_billing";
 import { resolveEngineAccess } from "../cloud_engines";
+import type { CloudExecutionSelection } from "../lib/cloud_execution";
 import { computeUsageCostMicroCents } from "../lib/billing_money";
+import {
+  listStellaCatalogModels,
+  STELLA_DEFAULT_MODEL,
+} from "../stella_models";
+import {
+  validateConnectedCloudBinding,
+  validateManagedCloudBinding,
+} from "./cloud_binding";
+import { cloudTurnTokenFromRequest } from "./native_relay";
 import {
   consumeAnonymousIpAllowance,
   consumeAnonymousRequestAllowance,
@@ -51,13 +65,13 @@ const FIREWORKS_KIMI_K2P6_SERVICE_TIERS = new Set([
   "priority",
   "fast",
 ]);
-
 export function toProviderNativeModel(
   model: string,
   provider: ManagedGatewayProvider,
 ): string {
   const prefix = providerModelPrefix[provider];
-  const stripped = prefix && model.startsWith(prefix) ? model.slice(prefix.length) : model;
+  const stripped =
+    prefix && model.startsWith(prefix) ? model.slice(prefix.length) : model;
   if (provider === "anthropic") return stripped.replace(/\./g, "-");
   return stripped;
 }
@@ -69,6 +83,125 @@ const sha256Hex = async (value: string): Promise<string> => {
   return Array.from(new Uint8Array(bytes), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
+};
+
+export type CloudManagedModelResolution = {
+  requestedModel: string;
+  resolvedModel: string;
+  relayProvider: ManagedGatewayProvider;
+};
+
+/**
+ * Resolve a cloud executor's canonical managed selection against current
+ * server catalog/audience rules. The response contains routing metadata only;
+ * upstream keys and connected-engine credentials never leave Convex.
+ */
+export const resolveCloudManagedModelForTurn = async (args: {
+  ctx: ActionCtx;
+  request: Request;
+  model: string;
+}): Promise<CloudManagedModelResolution | Response> => {
+  const tokenResult = cloudTurnTokenFromRequest(args.request);
+  if (!tokenResult.ok) {
+    return stellaProviderErrorResponse(
+      401,
+      "Conflicting cloud turn credentials",
+      args.request,
+    );
+  }
+  const token = tokenResult.token;
+  const tokenRow = token
+    ? ((await args.ctx.runQuery(
+        internal.cloud_apps.getTurnTokenByHashInternal,
+        {
+          tokenHash: await sha256Hex(token),
+          now: Date.now(),
+          requireActive: true,
+        },
+      )) as {
+        ownerId: string;
+        agentType: string;
+        execution?: CloudExecutionSelection;
+      } | null)
+    : null;
+  if (!tokenRow) {
+    return stellaProviderErrorResponse(401, "Unauthorized", args.request);
+  }
+  const execution = tokenRow.execution;
+  if (
+    !execution ||
+    execution.engine !== "stella" ||
+    execution.provider !== "stella" ||
+    execution.model !== args.model
+  ) {
+    return stellaProviderErrorResponse(
+      403,
+      "This turn token is not authorized for the requested managed model",
+      args.request,
+    );
+  }
+
+  const access = await resolveManagedModelAccess(args.ctx, tokenRow.ownerId);
+  if (!access.allowed) {
+    const response = stellaProviderErrorResponse(
+      429,
+      access.message,
+      args.request,
+    );
+    response.headers.set(
+      "Retry-After",
+      String(Math.ceil((access.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS) / 1000)),
+    );
+    return response;
+  }
+
+  if (args.model !== STELLA_DEFAULT_MODEL) {
+    const catalogModel = listStellaCatalogModels(access.modelAudience).find(
+      (candidate) => candidate.id === args.model,
+    );
+    if (
+      !catalogModel ||
+      (!catalogModel.allowedForAudience &&
+        !CLOUD_EXECUTOR_PINNED_MODEL_IDS.has(args.model))
+    ) {
+      return stellaProviderErrorResponse(
+        403,
+        `Managed model "${args.model}" is not available for this account`,
+        args.request,
+      );
+    }
+    return {
+      requestedModel: catalogModel.id,
+      resolvedModel: catalogModel.upstreamModel,
+      relayProvider: resolveManagedGatewayProvider({
+        model: catalogModel.upstreamModel,
+      }),
+    };
+  }
+
+  let selection: ReturnType<typeof resolveRequestedStellaModel>;
+  try {
+    selection = resolveRequestedStellaModel(
+      tokenRow.agentType,
+      { model: args.model },
+      access.modelAudience,
+      { trustedExecutorPin: true },
+    );
+  } catch (error) {
+    return stellaProviderErrorResponse(
+      400,
+      error instanceof Error ? error.message : "Invalid Stella model selection",
+      args.request,
+    );
+  }
+  return {
+    requestedModel: selection.requestedModel,
+    resolvedModel: selection.resolvedModel,
+    relayProvider: resolveManagedGatewayProvider({
+      model: selection.resolvedModel,
+      configuredProvider: selection.config.managedGatewayProvider,
+    }),
+  };
 };
 
 const estimatedCostMicroCents = async (
@@ -202,6 +335,7 @@ export async function authorizeStellaRelayRequest(args: {
   let ownerId: string;
   let isAnonymous = false;
   let viaTurnToken = false;
+  let turnExecution: CloudExecutionSelection | undefined;
   if (identity) {
     ownerId = identity.tokenIdentifier;
     isAnonymous = (identity as Record<string, unknown>).isAnonymous === true;
@@ -210,29 +344,44 @@ export async function authorizeStellaRelayRequest(args: {
     // JWT — only an opaque per-turn token whose hash Convex stored at
     // dispatch. Resolving it to its owner reuses every downstream gate
     // unchanged: plan access, usage limits, and metering all bill the owner.
-    const turnToken = request.headers.get("x-stella-turn-token")?.trim();
+    const tokenResult = cloudTurnTokenFromRequest(request);
+    if (!tokenResult.ok) {
+      return stellaProviderErrorResponse(
+        401,
+        "Conflicting cloud turn credentials",
+        request,
+      );
+    }
+    const turnToken = tokenResult.token;
     const tokenRow = turnToken
-      ? ((await ctx.runQuery(
-          internal.cloud_apps.getTurnTokenByHashInternal,
-          { tokenHash: await sha256Hex(turnToken) },
-        )) as { ownerId: string; turnId: string } | null)
+      ? ((await ctx.runQuery(internal.cloud_apps.getTurnTokenByHashInternal, {
+          tokenHash: await sha256Hex(turnToken),
+          now: Date.now(),
+          requireActive: true,
+        })) as {
+          ownerId: string;
+          turnId: string;
+          agentType: string;
+          execution?: CloudExecutionSelection;
+        } | null)
       : null;
     if (!tokenRow) {
       return stellaProviderErrorResponse(401, "Unauthorized", request);
     }
     ownerId = tokenRow.ownerId;
+    turnExecution = tokenRow.execution;
     viaTurnToken = true;
   }
 
-  // Cloud turns can run on the owner's own connected engine subscription
-  // (Claude Pro/Max). This is a turn-token-only mode: the header names the
-  // provider, the relay resolves the owner's stored OAuth token server-side
-  // (refreshing if needed), and no managed gating/metering applies — the
-  // spend is the user's subscription. Sandboxes never see the token; they
-  // only carry this flag.
-  const credentialHeader = request.headers
-    .get("x-stella-llm-credential")
-    ?.trim();
+  // Cloud turns can run on the owner's connected Claude or ChatGPT
+  // subscription. The relay resolves and refreshes the encrypted OAuth token
+  // server-side; sandboxes carry only the scoped turn capability and provider
+  // selector. Connected-engine spend stays on the user's subscription.
+  const credentialHeader =
+    request.headers.get("x-stella-llm-credential")?.trim() ||
+    (viaTurnToken && turnExecution?.engine !== "stella"
+      ? turnExecution?.engine
+      : undefined);
   if (credentialHeader) {
     if (!viaTurnToken) {
       return stellaProviderErrorResponse(
@@ -241,22 +390,13 @@ export async function authorizeStellaRelayRequest(args: {
         request,
       );
     }
-    if (credentialHeader !== "anthropic") {
+    if (
+      credentialHeader !== "anthropic" &&
+      credentialHeader !== "openai-codex"
+    ) {
       return stellaProviderErrorResponse(
         403,
         `Engine "${credentialHeader}" can't run cloud turns yet`,
-        request,
-      );
-    }
-    const engineAccess = await resolveEngineAccess(
-      ctx,
-      ownerId,
-      credentialHeader,
-    );
-    if (!engineAccess) {
-      return stellaProviderErrorResponse(
-        403,
-        "No connected Claude subscription for this account. Connect it in Settings, then try again.",
         request,
       );
     }
@@ -274,37 +414,82 @@ export async function authorizeStellaRelayRequest(args: {
       typeof credentialRequestJson.model === "string"
         ? credentialRequestJson.model.trim()
         : "";
-    // Model ids arrive as stella/anthropic/<model>; the subscription decides
-    // entitlement upstream, so no audience gate applies here.
-    const modelMatch = /^stella\/(anthropic\/[A-Za-z0-9._-]+)$/.exec(
+    // Native CLIs send their engine-native model id unchanged. The legacy
+    // executor adapter's stella/<provider>/<model> wrapper is accepted only
+    // when it resolves to the same immutable model stored with the token.
+    const binding = validateConnectedCloudBinding({
+      execution: turnExecution,
+      credentialProvider: credentialHeader,
       requestedModel,
-    );
-    if (!modelMatch) {
+      requestPathname: new URL(request.url).pathname,
+      requestJson: credentialRequestJson,
+      anthropicBeta: request.headers.get("anthropic-beta") ?? undefined,
+    });
+    if (!binding.ok) {
       return stellaProviderErrorResponse(
-        400,
-        "Engine-credential turns must pin a stella/anthropic/<model> id",
+        binding.error.status,
+        binding.error.message,
         request,
       );
     }
-    const resolvedModel = modelMatch[1]!;
+    const nativeModel = binding.nativeModel;
+    const engineAccess = await resolveEngineAccess(
+      ctx,
+      ownerId,
+      credentialHeader,
+    );
+    if (!engineAccess) {
+      return stellaProviderErrorResponse(
+        403,
+        credentialHeader === "anthropic"
+          ? "No connected Claude subscription for this account. Connect it in Settings, then try again."
+          : "No connected ChatGPT subscription for this account. Connect it in Settings, then try again.",
+        request,
+      );
+    }
+    if (credentialHeader === "openai-codex" && !engineAccess.accountId) {
+      return stellaProviderErrorResponse(
+        403,
+        "The ChatGPT connection is missing its account identity. Reconnect ChatGPT, then try again.",
+        request,
+      );
+    }
+    const resolvedModel =
+      credentialHeader === "anthropic"
+        ? `anthropic/${nativeModel}`
+        : nativeModel;
     console.log(
-      `[stella-provider] agent=${credentialAgentType} | engine-credential=anthropic | resolvedModel=${resolvedModel}`,
+      `[stella-provider] agent=${credentialAgentType} | engine-credential=${credentialHeader} | resolvedModel=${resolvedModel}`,
     );
     return {
       ownerId,
       agentType: credentialAgentType,
-      relayProvider: "anthropic",
+      relayProvider: credentialHeader === "anthropic" ? "anthropic" : "openai",
       requestJson: credentialRequestJson as StellaRequestBody,
       requestedModel,
       resolvedModel,
-      upstreamModel: toProviderNativeModel(resolvedModel, "anthropic"),
+      upstreamModel: nativeModel,
       apiKey: "",
       tokenEstimate: estimateRequestTokens(credentialRequestJson),
       userCredential: {
-        provider: "anthropic",
+        provider: credentialHeader,
         accessToken: engineAccess.accessToken,
+        ...(credentialHeader === "anthropic" &&
+        requestedModel.startsWith("stella/anthropic/")
+          ? { injectClaudeCodeIdentity: true }
+          : {}),
+        ...(credentialHeader === "openai-codex"
+          ? { accountId: engineAccess.accountId }
+          : {}),
       },
     };
+  }
+  if (turnExecution && turnExecution.engine !== "stella") {
+    return stellaProviderErrorResponse(
+      403,
+      "This cloud turn requires its connected-engine relay route",
+      request,
+    );
   }
   let modelAudience: ManagedModelAudience = isAnonymous ? "anonymous" : "free";
 
@@ -357,13 +542,24 @@ export async function authorizeStellaRelayRequest(args: {
       request,
     );
   }
-
   const url = new URL(request.url);
   if (typeof requestJson.model !== "string") {
     const pathModel = requestedModelFromGooglePath(url.pathname);
     if (pathModel) {
       requestJson.model = pathModel;
     }
+  }
+  const managedBindingError = validateManagedCloudBinding({
+    execution: turnExecution,
+    viaTurnToken,
+    requestedModel: requestJson.model,
+  });
+  if (managedBindingError) {
+    return stellaProviderErrorResponse(
+      managedBindingError.status,
+      managedBindingError.message,
+      request,
+    );
   }
 
   const headerAgentType = request.headers.get("X-Stella-Agent-Type")?.trim();
@@ -373,6 +569,26 @@ export async function authorizeStellaRelayRequest(args: {
       ? requestJson.agentType.trim()
       : undefined;
   const agentType = headerAgentType || bodyAgentType || "general";
+  const tokenCatalogModel =
+    turnExecution?.engine === "stella" &&
+    turnExecution.model !== STELLA_DEFAULT_MODEL
+      ? listStellaCatalogModels(modelAudience).find(
+          (candidate) => candidate.id === turnExecution!.model,
+        )
+      : undefined;
+  if (
+    turnExecution?.engine === "stella" &&
+    turnExecution.model !== STELLA_DEFAULT_MODEL &&
+    (!tokenCatalogModel ||
+      (!tokenCatalogModel.allowedForAudience &&
+        !CLOUD_EXECUTOR_PINNED_MODEL_IDS.has(turnExecution.model)))
+  ) {
+    return stellaProviderErrorResponse(
+      403,
+      `Managed model "${turnExecution.model}" is not available for this account`,
+      request,
+    );
+  }
 
   let selection: ReturnType<typeof resolveRequestedStellaModel>;
   try {
@@ -394,7 +610,18 @@ export async function authorizeStellaRelayRequest(args: {
     );
   }
 
-  const { requestedModel, resolvedModel, config } = selection;
+  const requestedModel = tokenCatalogModel?.id ?? selection.requestedModel;
+  const resolvedModel =
+    tokenCatalogModel?.upstreamModel ?? selection.resolvedModel;
+  const config = tokenCatalogModel
+    ? {
+        ...selection.config,
+        model: tokenCatalogModel.upstreamModel,
+        managedGatewayProvider: inferManagedGatewayProviderFromModel(
+          tokenCatalogModel.upstreamModel,
+        ),
+      }
+    : selection.config;
   const resolvedProvider = resolveManagedGatewayProvider({
     model: resolvedModel,
     configuredProvider: config.managedGatewayProvider,
@@ -435,14 +662,12 @@ export async function authorizeStellaRelayRequest(args: {
       },
     );
     if (!limit.allowed) {
-      const response = stellaProviderErrorResponse(
-        429,
-        limit.message,
-        request,
-      );
+      const response = stellaProviderErrorResponse(429, limit.message, request);
       response.headers.set(
         "Retry-After",
-        String(Math.ceil((limit.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS) / 1000)),
+        String(
+          Math.ceil((limit.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS) / 1000),
+        ),
       );
       return response;
     }

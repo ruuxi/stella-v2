@@ -28,12 +28,14 @@ type ConfigureStellaSessionPermissionsOptions = {
   appPartition: string;
   isDev: boolean;
   getDevServerUrl: () => string;
+  isTrustedFileRendererResourceUrl: (url: string) => boolean;
 };
 
 export const configureStellaSessionPermissions = ({
   appPartition,
   isDev,
   getDevServerUrl,
+  isTrustedFileRendererResourceUrl,
 }: ConfigureStellaSessionPermissionsOptions) => {
   const devOrigin = isDev ? originFromUrl(getDevServerUrl()) : null;
   const isTrustedAppContents = (
@@ -44,6 +46,17 @@ export const configureStellaSessionPermissions = ({
   };
   const appSession = session.fromPartition(appPartition);
   const storeSession = session.fromPartition(`${appPartition}:store`);
+
+  if (!isDev) {
+    appSession.webRequest.onBeforeRequest(
+      { urls: ["file://*/*"] },
+      (details, callback) => {
+        callback({
+          cancel: !isTrustedFileRendererResourceUrl(details.url),
+        });
+      },
+    );
+  }
 
   appSession.setPermissionRequestHandler(
     (webContents, permission, callback) => {

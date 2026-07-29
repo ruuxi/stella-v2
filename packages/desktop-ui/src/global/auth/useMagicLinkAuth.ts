@@ -10,6 +10,7 @@ import {
   type SetStateAction,
 } from "react";
 import { refreshAuthSession } from "@/global/auth/services/auth-session";
+import { applyBrowserAuthSessionCookie } from "@/global/auth/services/auth-storage";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 
 type Status = "idle" | "sending" | "sent" | "verifying" | "error";
@@ -183,9 +184,13 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
             if (cancelled) return;
             setStatus("verifying");
             try {
-              await window.electronAPI?.system.applyAuthSessionCookie?.(
-                data.sessionCookie,
-              );
+              if (window.electronAPI) {
+                await window.electronAPI.system.applyAuthSessionCookie?.(
+                  data.sessionCookie,
+                );
+              } else {
+                applyBrowserAuthSessionCookie(data.sessionCookie);
+              }
               await refreshAuthSession();
             } catch {
               setStatus("error");

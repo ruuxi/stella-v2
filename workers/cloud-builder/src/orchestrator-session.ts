@@ -83,6 +83,7 @@ import {
   BACKFILL_BATCH_RECORDS,
   CONVERSATION_MAX_STORED_BYTES,
   CLOSE_DELETED,
+  CLOSE_UNAUTHENTICATED,
   CONTEXT_MAX_SPILL_HYDRATIONS,
   EXCERPT_TEXT_MAX,
   EXCERPT_USER_HALF_MAX,
@@ -118,13 +119,24 @@ import {
   LOCAL_CLIENT_MSG_ID_PATTERN,
   LOCAL_DEVICE_ID_PATTERN,
   LOCAL_TURN_ID_PATTERN,
+  classifyLocalClientMessageReplay,
+  localTurnLeaseAllowsIdentityTransition,
+  localClientMessageFingerprintSource,
   localTurnId as makeLocalTurnId,
   parseLocalTurnRenewal,
   parseLocalFinishRecords,
   parseLocalTerminalPhase,
+  type LocalClientMessageReceipt,
   type ParsedLocalTurnRenewal,
   type LocalTerminalPhase,
 } from "./local-turn-protocol.js";
+import {
+  conversationArchivePrefix,
+  parseOwnerTransferRequest,
+  retainedTurnBlocksOwnerTransfer,
+  type OwnerTransferRequest,
+} from "./owner-transfer.js";
+import { parseVoiceJournalRecords } from "./journal-append-protocol.js";
 
 type Env = {
   BUILD_SESSIONS: DurableObjectNamespace;
@@ -213,6 +225,8 @@ type LocalTurnFinishReceipt = {
   externallyCanceled?: boolean;
 };
 
+const OWNER_TRANSFER_KEY = "conversationOwnerTransfer";
+
 const DEFAULT_CLOUD_EXECUTION: CloudExecutionSelection = {
   engine: "stella",
   provider: "stella",
@@ -231,8 +245,11 @@ const LOCAL_TURN_FINISH_MAX_ROWS = 1_024;
 const LOCAL_TURN_FINISH_MAX_BYTES = APPEND_WINDOW_MAX_BYTES;
 const LOCAL_TURN_LEASE_KEY = "localTurnLease";
 const LOCAL_TURN_RECEIPT_PREFIX = "localTurnReceipt:";
+const LOCAL_CLIENT_MESSAGE_PREFIX = "localClientMessage:";
 const localTurnReceiptKey = (turnId: string): string =>
   `${LOCAL_TURN_RECEIPT_PREFIX}${turnId}`;
+const localClientMessageKey = (clientMsgId: string): string =>
+  `${LOCAL_CLIENT_MESSAGE_PREFIX}${clientMsgId}`;
 
 const json = (body: unknown, status = 200): Response =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -436,6 +453,8 @@ export class OrchestratorSession extends DurableObject<Env> {
   private sealed = false;
 
   private ownerLookup: Promise<ConversationOwnerRecord | null> | null = null;
+  private ownerTransferWork: Promise<Response> | null = null;
+  private ownerTransferRequest: OwnerTransferRequest | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -751,6 +770,24 @@ export class OrchestratorSession extends DurableObject<Env> {
     });
   }
 
+  private async storeLocalTurnReceipt(
+    lease: LocalTurnLease,
+    receipt: LocalTurnFinishReceipt,
+  ): Promise<void> {
+    const records: Record<string, unknown> = {
+      [localTurnReceiptKey(lease.turnId)]: receipt,
+    };
+    if (lease.clientMsgId) {
+      records[localClientMessageKey(lease.clientMsgId)] = {
+        clientMsgId: lease.clientMsgId,
+        beginFingerprint: lease.beginFingerprint,
+        turnId: lease.turnId,
+        phase: receipt.phase,
+      } satisfies LocalClientMessageReceipt;
+    }
+    await this.ctx.storage.put(records);
+  }
+
   private async cancelLocalTurn(
     lease: LocalTurnLease,
     forceRelease = false,
@@ -817,7 +854,7 @@ export class OrchestratorSession extends DurableObject<Env> {
             ? { finishFingerprint: current.finishFingerprint }
             : {}),
       };
-      await this.ctx.storage.put(localTurnReceiptKey(current.turnId), receipt);
+      await this.storeLocalTurnReceipt(current, receipt);
       claimed = current;
     });
     if (!claimed) return false;
@@ -1038,7 +1075,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       lastSeq: terminalSeq,
       epoch: this.journal.meta().epoch,
     };
-    await this.ctx.storage.put(localTurnReceiptKey(lease.turnId), receipt);
+    await this.storeLocalTurnReceipt(lease, receipt);
     await this.unregisterOwnerTurn(lease);
     await this.releaseLocalLeaseAndResume(lease, resumeQueued);
     this.live = null;
@@ -1181,8 +1218,28 @@ export class OrchestratorSession extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (
+      request.method === "POST" &&
+      url.pathname === "/internal/transfer-owner"
+    ) {
+      return this.handleOwnerTransfer(request);
+    }
+    const ownerTransfer =
+      await this.ctx.storage.get<OwnerTransferRequest>(OWNER_TRANSFER_KEY);
+    if (ownerTransfer) {
+      return json(
+        {
+          code: "owner_transfer_in_progress",
+          message: "Conversation ownership is being updated.",
+        },
+        409,
+      );
+    }
     if (url.pathname === "/socket") return this.handleSocket(request);
     if (request.method === "GET") {
+      if (url.pathname === "/history") {
+        return this.handleCanonicalHistory(request);
+      }
       if (url.pathname === "/journal") return this.handleJournalProbe(url);
       return json({ error: "Not found." }, 404);
     }
@@ -1386,6 +1443,156 @@ export class OrchestratorSession extends DurableObject<Env> {
     });
     if (!heldForLocalTurn) this.enqueue(turn);
     return json({ accepted: true }, 202);
+  }
+
+  private async handleOwnerTransfer(request: Request): Promise<Response> {
+    const body = parseOwnerTransferRequest(
+      await request.json().catch(() => null),
+    );
+    if (!body) {
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
+    }
+    if (this.ownerTransferWork) {
+      if (
+        this.ownerTransferRequest?.fromOwnerId !== body.fromOwnerId ||
+        this.ownerTransferRequest?.toOwnerId !== body.toOwnerId
+      ) {
+        return json(
+          {
+            code: "owner_transfer_conflict",
+            message: "A different ownership update is already in progress.",
+          },
+          409,
+        );
+      }
+      return await this.ownerTransferWork;
+    }
+    this.ownerTransferRequest = body;
+    const work = this.runOwnerTransfer(body).finally(() => {
+      if (this.ownerTransferWork === work) {
+        this.ownerTransferWork = null;
+        this.ownerTransferRequest = null;
+      }
+    });
+    this.ownerTransferWork = work;
+    return await work;
+  }
+
+  private async runOwnerTransfer(
+    body: OwnerTransferRequest,
+  ): Promise<Response> {
+    const admission = await this.ctx.blockConcurrencyWhile(async () => {
+      const pending =
+        await this.ctx.storage.get<OwnerTransferRequest>(OWNER_TRANSFER_KEY);
+      if (
+        pending &&
+        (pending.fromOwnerId !== body.fromOwnerId ||
+          pending.toOwnerId !== body.toOwnerId)
+      ) {
+        return {
+          response: json(
+            {
+              code: "owner_transfer_conflict",
+              message: "A different ownership update is already in progress.",
+            },
+            409,
+          ),
+          pending: false,
+        };
+      }
+      const currentOwnerId = this.journal.ownerId();
+      if (currentOwnerId === body.toOwnerId) {
+        await this.ctx.storage.delete(OWNER_TRANSFER_KEY);
+        return {
+          response: json({ transferred: true, replayed: true }),
+          pending: false,
+        };
+      }
+      if (currentOwnerId && currentOwnerId !== body.fromOwnerId) {
+        return {
+          response: json(
+            {
+              code: "owner_mismatch",
+              message: "The conversation belongs to a different owner.",
+            },
+            409,
+          ),
+          pending: false,
+        };
+      }
+      if (!pending) {
+        const [turn, terminal, localLease, queued] = await Promise.all([
+          this.ctx.storage.get<ChatTurnRequest>("turn"),
+          this.ctx.storage.get<boolean>("terminal"),
+          this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY),
+          this.ctx.storage.list({ prefix: "queued:", limit: 1 }),
+        ]);
+        if (
+          retainedTurnBlocksOwnerTransfer(turn !== undefined, terminal) ||
+          localLease ||
+          queued.size > 0 ||
+          this.live ||
+          this.activeTurnId ||
+          this.currentAgent ||
+          this.currentTurnAbort ||
+          this.journal.inboxSize().rows > 0
+        ) {
+          return {
+            response: json(
+              {
+                code: "turn_in_progress",
+                message: "A conversation turn is still running.",
+                retryAfterMs: 5_000,
+              },
+              409,
+            ),
+            pending: false,
+          };
+        }
+        await this.ctx.storage.put(OWNER_TRANSFER_KEY, body);
+        this.hub.closeAll(CLOSE_UNAUTHENTICATED);
+      }
+      return { response: null, pending: true };
+    });
+    if (admission.response) return admission.response;
+
+    const conversationId = this.conversationId();
+    if (!conversationId) {
+      await this.ctx.storage.delete(OWNER_TRANSFER_KEY);
+      return json(
+        { code: "conversation_missing", message: "Conversation not found." },
+        404,
+      );
+    }
+    const [fromPrefix, toPrefix] = await Promise.all([
+      conversationArchivePrefix(body.fromOwnerId, conversationId),
+      conversationArchivePrefix(body.toOwnerId, conversationId),
+    ]);
+    const archive = await this.archive.transferOwner(
+      fromPrefix,
+      toPrefix,
+      body.toOwnerId,
+    );
+    if (!archive.complete) {
+      return json({ transferred: false, pendingObjects: archive.pending }, 202);
+    }
+    if (!this.journal.transferOwner(body.fromOwnerId, body.toOwnerId)) {
+      return json(
+        {
+          code: "owner_mismatch",
+          message: "The conversation belongs to a different owner.",
+        },
+        409,
+      );
+    }
+    this.ownerLookup = null;
+    await this.ctx.storage.delete(OWNER_TRANSFER_KEY);
+    log("info", "conversation_owner_transferred", {
+      conversationId,
+      fromOwnerId: body.fromOwnerId,
+      toOwnerId: body.toOwnerId,
+    });
+    return json({ transferred: true, replayed: false });
   }
 
   // The in-flight loop, exposed so /cancel and the alarm can actually stop
@@ -2355,7 +2562,14 @@ export class OrchestratorSession extends DurableObject<Env> {
     const localLease =
       await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
     if (localLease) return true;
-    const turn = await this.ctx.storage.get<ChatTurnRequest>("turn");
+    const [turn, queued] = await Promise.all([
+      this.ctx.storage.get<ChatTurnRequest>("turn"),
+      this.ctx.storage.list<ChatTurnRequest>({
+        prefix: "queued:",
+        limit: 1,
+      }),
+    ]);
+    if (queued.size > 0) return true;
     if (!turn) return false;
     return !(await this.ctx.storage.get<boolean>("terminal"));
   }
@@ -2518,6 +2732,7 @@ export class OrchestratorSession extends DurableObject<Env> {
 
   private async localTurnOwner(
     request: Request,
+    suppliedLeaseToken?: string,
   ): Promise<{ ownerId: string } | Response> {
     const identity = parseSocketIdentity(request);
     if (!identity) return json({ error: "Unauthorized." }, 401);
@@ -2528,7 +2743,18 @@ export class OrchestratorSession extends DurableObject<Env> {
       );
     }
     const bound = this.journal.ownerId() || (await this.lookupOwner())?.ownerId;
-    if (!bound || bound !== identity.ownerId) {
+    const activeLease = suppliedLeaseToken
+      ? await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY)
+      : undefined;
+    if (
+      !bound ||
+      !localTurnLeaseAllowsIdentityTransition({
+        boundOwnerId: bound,
+        callerOwnerId: identity.ownerId,
+        suppliedLeaseToken,
+        activeLease,
+      })
+    ) {
       return json({ error: "Conversation not found." }, 404);
     }
     return { ownerId: bound };
@@ -2549,6 +2775,15 @@ export class OrchestratorSession extends DurableObject<Env> {
       contextStartSeq: selection.startSeq,
       contextEndSeq: selection.endSeq,
     };
+  }
+
+  private async handleCanonicalHistory(request: Request): Promise<Response> {
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
+    // No lease is acquired and no journal state is mutated. The empty
+    // exclusion key cannot match a real turn id, so this is the same bounded,
+    // spill-hydrated canonical window used to seed a local cloud turn.
+    return json(await this.localTurnHistory(""));
   }
 
   /**
@@ -2771,8 +3006,6 @@ export class OrchestratorSession extends DurableObject<Env> {
   }
 
   private async handleLocalTurnBegin(request: Request): Promise<Response> {
-    const owner = await this.localTurnOwner(request);
-    if (owner instanceof Response) return owner;
     let body: {
       deviceId?: string;
       localTurnId?: string;
@@ -2794,6 +3027,8 @@ export class OrchestratorSession extends DurableObject<Env> {
           400,
         );
       }
+      const owner = await this.localTurnOwner(request, renewal.leaseToken);
+      if (owner instanceof Response) return owner;
       return this.handleLocalTurnRenewal(renewal, owner.ownerId);
     }
     const deviceId = body.deviceId?.trim() ?? "";
@@ -2808,6 +3043,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     ) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
     const userMessageJson = body.userMessageJson ?? "";
     if (
       !userMessageJson ||
@@ -2833,8 +3070,41 @@ export class OrchestratorSession extends DurableObject<Env> {
 
     const turnId = makeLocalTurnId(deviceId, localTurnId);
     const beginFingerprint = await sha256Hex(
-      `${clientMsgId ?? ""}\u0000${userMessageJson}`,
+      localClientMessageFingerprintSource(clientMsgId ?? "", userMessage),
     );
+    const clientReceipt = clientMsgId
+      ? await this.ctx.storage.get<LocalClientMessageReceipt>(
+          localClientMessageKey(clientMsgId),
+        )
+      : undefined;
+    const clientReplay = clientMsgId
+      ? classifyLocalClientMessageReplay(clientReceipt, {
+          clientMsgId,
+          beginFingerprint,
+          turnId,
+        })
+      : "new";
+    if (clientReplay === "conflict") {
+      return json(
+        {
+          code: "idempotency_conflict",
+          message:
+            "That client message id was already used for a different message.",
+        },
+        409,
+      );
+    }
+    if (clientReplay === "duplicate") {
+      return json(
+        {
+          code: "turn_finished",
+          message: "That client message was already admitted.",
+          turnId: clientReceipt?.turnId,
+          ...(clientReceipt?.phase ? { phase: clientReceipt.phase } : {}),
+        },
+        409,
+      );
+    }
     const previous = await this.ctx.storage.get<LocalTurnFinishReceipt>(
       localTurnReceiptKey(turnId),
     );
@@ -2994,24 +3264,64 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
 
     let acquired = false;
+    let racedClientReplay: "duplicate" | "conflict" | null = null;
     await this.ctx.blockConcurrencyWhile(async () => {
-      const [local, cloudTurn, terminal, terminalDelivered, queued] =
-        await Promise.all([
-          this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY),
-          this.ctx.storage.get<ChatTurnRequest>("turn"),
-          this.ctx.storage.get<boolean>("terminal"),
-          this.ctx.storage.get<boolean>("terminalDelivered"),
-          this.ctx.storage.list<ChatTurnRequest>({
-            prefix: "queued:",
-            limit: 1,
-          }),
-        ]);
+      const [
+        local,
+        concurrentClientReceipt,
+        cloudTurn,
+        terminal,
+        terminalDelivered,
+        queued,
+      ] = await Promise.all([
+        this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY),
+        clientMsgId
+          ? this.ctx.storage.get<LocalClientMessageReceipt>(
+              localClientMessageKey(clientMsgId),
+            )
+          : Promise.resolve(undefined),
+        this.ctx.storage.get<ChatTurnRequest>("turn"),
+        this.ctx.storage.get<boolean>("terminal"),
+        this.ctx.storage.get<boolean>("terminalDelivered"),
+        this.ctx.storage.list<ChatTurnRequest>({
+          prefix: "queued:",
+          limit: 1,
+        }),
+      ]);
       const cloudBusy =
         Boolean(cloudTurn && terminal !== true) ||
         Boolean(cloudTurn && terminalDelivered !== true) ||
         queued.size > 0;
       if (local || cloudBusy || this.purged()) return;
-      await this.ctx.storage.put(LOCAL_TURN_LEASE_KEY, lease);
+      if (clientMsgId) {
+        const replay = classifyLocalClientMessageReplay(
+          concurrentClientReceipt,
+          {
+            clientMsgId,
+            beginFingerprint,
+            turnId,
+          },
+        );
+        if (replay === "conflict") {
+          racedClientReplay = "conflict";
+          return;
+        }
+        if (replay !== "new") {
+          racedClientReplay = "duplicate";
+          return;
+        }
+      }
+      const records: Record<string, unknown> = {
+        [LOCAL_TURN_LEASE_KEY]: lease,
+      };
+      if (clientMsgId) {
+        records[localClientMessageKey(clientMsgId)] = {
+          clientMsgId,
+          beginFingerprint,
+          turnId,
+        } satisfies LocalClientMessageReceipt;
+      }
+      await this.ctx.storage.put(records);
       const alarmAt = await this.ctx.storage.getAlarm();
       if (alarmAt === null || alarmAt > lease.expiresAt) {
         await this.ctx.storage.setAlarm(lease.expiresAt);
@@ -3020,6 +3330,25 @@ export class OrchestratorSession extends DurableObject<Env> {
     });
     if (!acquired) {
       await this.unregisterOwnerTurn(lease);
+      if (racedClientReplay === "conflict") {
+        return json(
+          {
+            code: "idempotency_conflict",
+            message:
+              "That client message id was already used for a different message.",
+          },
+          409,
+        );
+      }
+      if (racedClientReplay === "duplicate") {
+        return json(
+          {
+            code: "turn_finished",
+            message: "That client message was already admitted.",
+          },
+          409,
+        );
+      }
       return json(
         {
           code: "turn_in_progress",
@@ -3059,8 +3388,6 @@ export class OrchestratorSession extends DurableObject<Env> {
   }
 
   private async handleLocalTurnFinish(request: Request): Promise<Response> {
-    const owner = await this.localTurnOwner(request);
-    if (owner instanceof Response) return owner;
     let body: {
       deviceId?: string;
       localTurnId?: string;
@@ -3095,6 +3422,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     ) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
+    const owner = await this.localTurnOwner(request, leaseToken);
+    if (owner instanceof Response) return owner;
     const turnId = makeLocalTurnId(deviceId, localTurnId);
     const { records: parsed, totalBytes } = parsedRecords;
     const finishFingerprint = await sha256Hex(
@@ -3406,7 +3735,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       epoch: this.journal.meta().epoch,
       finishFingerprint,
     };
-    await this.ctx.storage.put(localTurnReceiptKey(turnId), receipt);
+    await this.storeLocalTurnReceipt(lease, receipt);
     this.live = null;
     this.hub.endTurn(turnId);
     await this.unregisterOwnerTurn(lease);
@@ -3433,15 +3762,10 @@ export class OrchestratorSession extends DurableObject<Env> {
   }
 
   /**
-   * Desktop's local turns, written into the cloud conversation like any other
-   * writer. Desktop's own SQLite is never a second authority for a cloud
-   * conversation: this is the only way its rows get here.
-   *
-   * The lane-scoping property the old Convex append check enforced — a turn
-   * token must never reach the parent user conversation — survives as the
-   * owner compare below plus the `kind === "agent"` guard on Convex's
-   * remaining thread-transcript routes. Both sites say so; losing either one
-   * loses the property.
+   * Realtime voice records, written into the cloud conversation without
+   * pretending the voice provider owns the text-turn lease. The authenticated
+   * owner comparison preserves lane scope, and the strict parser below accepts
+   * message records only — no caller can manufacture turn lifecycle rows.
    */
   private async handleJournalAppend(request: Request): Promise<Response> {
     const ownerId = request.headers.get("x-stella-owner") ?? "";
@@ -3460,14 +3784,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     let body: {
       deviceId?: string;
       localTurnId?: string;
-      records?: Array<{
-        kind?: string;
-        role?: string;
-        payloadJson?: string;
-        hidden?: boolean;
-        phase?: string;
-        notice?: string;
-      }>;
+      source?: unknown;
+      records?: unknown;
     };
     try {
       body = (await request.json()) as typeof body;
@@ -3476,8 +3794,16 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
     const deviceId = body.deviceId?.trim();
     const localTurnId = body.localTurnId?.trim();
-    const records = body.records ?? [];
-    if (!deviceId || !localTurnId || records.length === 0) {
+    const records = body.records;
+    if (
+      !deviceId ||
+      !LOCAL_DEVICE_ID_PATTERN.test(deviceId) ||
+      !localTurnId ||
+      !LOCAL_TURN_ID_PATTERN.test(localTurnId) ||
+      body.source !== "voice" ||
+      !Array.isArray(records) ||
+      records.length === 0
+    ) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
     if (records.length > APPEND_MAX_ROWS) {
@@ -3489,9 +3815,13 @@ export class OrchestratorSession extends DurableObject<Env> {
         413,
       );
     }
+    const parsedRecords = parseVoiceJournalRecords(records);
+    if (!parsedRecords) {
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
+    }
     let totalBytes = 0;
-    for (const record of records)
-      totalBytes += utf8Length(record.payloadJson ?? "");
+    for (const record of parsedRecords)
+      totalBytes += utf8Length(record.payloadJson);
     if (totalBytes > APPEND_MAX_BYTES) {
       return json(
         {
@@ -3501,6 +3831,32 @@ export class OrchestratorSession extends DurableObject<Env> {
         413,
       );
     }
+    const source = "voice" as const;
+    const receiptKey = `${source}:${deviceId}:${localTurnId}`;
+    const fingerprint = await sha256Hex(
+      JSON.stringify({ deviceId, localTurnId, source, records }),
+    );
+    const receiptResponse = (): Response | null => {
+      const receipt = this.journal.appendReceipt(receiptKey);
+      if (!receipt) return null;
+      if (receipt.fingerprint !== fingerprint) {
+        return json(
+          {
+            code: "idempotency_conflict",
+            message: "That append id was already used for different history.",
+          },
+          409,
+        );
+      }
+      return json({
+        firstSeq: receipt.first_seq,
+        lastSeq: receipt.last_seq,
+        epoch: receipt.epoch,
+        replayed: true,
+      });
+    };
+    const replay = receiptResponse();
+    if (replay) return replay;
     // The lifetime ceiling. Resident bytes alone would not bound this —
     // rollover moves them to R2, and an oversize row spills there directly —
     // so `storedBytes` counts archived segments and spill objects too, and a
@@ -3568,143 +3924,135 @@ export class OrchestratorSession extends DurableObject<Env> {
     // uninterrupted block. An await between them would reopen the input gate
     // and let a turn start in the gap, which is the one ordering that can
     // splice a foreign row between a tool call and its result.
-    const turnId = `desktop:${deviceId}:${localTurnId}`;
+    const turnId = `${source}:${deviceId}:${localTurnId}`;
     const now = Date.now();
-    const prepared: Array<
-      | { kind: "turn"; writerKey: string; phase: TurnPhase; notice?: string }
-      | {
-          kind: "message";
-          writerKey: string;
-          role: MessageRole;
-          hidden: boolean;
-          message: AgentMessage;
-          payloadJson: string;
-          spillKey?: string;
-        }
-    > = [];
-    for (let ordinal = 0; ordinal < records.length; ordinal += 1) {
-      const record = records[ordinal]!;
-      const writerKey = `desktop:${deviceId}:${localTurnId}:${ordinal}`;
-      if (record.kind === "turn") {
-        prepared.push({
-          kind: "turn",
-          writerKey,
-          phase: (record.phase ?? "completed") as TurnPhase,
-          notice: record.notice,
-        });
-        continue;
-      }
-      const role = record.role;
-      if (role !== "user" && role !== "assistant" && role !== "toolResult") {
-        return json(
-          { code: "bad_request", message: "Malformed request." },
-          400,
-        );
-      }
-      const payloadJson = record.payloadJson ?? "";
-      let message: AgentMessage;
-      try {
-        message = JSON.parse(payloadJson) as AgentMessage;
-      } catch {
-        return json(
-          { code: "bad_request", message: "Malformed request." },
-          400,
-        );
-      }
+    const prepared: Array<{
+      kind: "message";
+      writerKey: string;
+      role: MessageRole;
+      hidden: boolean;
+      message: AgentMessage;
+      payloadJson: string;
+      spillKey?: string;
+    }> = [];
+    for (let ordinal = 0; ordinal < parsedRecords.length; ordinal += 1) {
+      const record = parsedRecords[ordinal]!;
+      const writerKey = `${source}:${deviceId}:${localTurnId}:${ordinal}`;
       const sized = await this.prepareOversize(
-        role,
-        message,
-        payloadJson,
+        record.role,
+        record.message,
+        record.payloadJson,
         writerKey,
       );
       prepared.push({
         kind: "message",
         writerKey,
-        role,
-        hidden: record.hidden === true,
+        role: record.role,
+        hidden: record.hidden,
         message: sized.message,
         payloadJson: sized.payloadJson,
         ...(sized.spillKey ? { spillKey: sized.spillKey } : {}),
       });
     }
 
-    // Refuse rather than splice, and re-check because the spilling above
-    // yields. Desktop holds its own socket and sees the turn records, so it can
-    // retry precisely — and refusing cannot produce a history the provider
-    // rejects, which splicing can.
-    if (await this.turnRunning()) {
-      return json(
-        {
-          code: "turn_in_progress",
-          message: "Stella is mid-reply — try again in a moment.",
-          retryAfterMs: 3_000,
-        },
-        409,
-      );
-    }
-
-    // Deletion is re-checked here for the same reason the running turn is: the
-    // spilling above yields, and a purge that landed during it has already
-    // taken its snapshot. Committing rows now would rebuild a conversation the
-    // user deleted, in an object nothing will ever purge again.
-    if (this.purged()) {
-      return json(
-        { code: "deleted", message: "This conversation was deleted." },
-        410,
-      );
-    }
-
     let firstSeq: number | null = null;
     let lastSeq = -1;
-    try {
-      // Synchronous, and inside the same uninterrupted block as the appends:
-      // this is the request the window is actually paying for.
-      this.journal.appendBudget({ ...budgetArgs, now, commit: true });
-      const writer = `desktop:${deviceId}`;
-      // Registered in the projection so a desktop turn is also a legal
-      // rollover boundary; without it a chatty desktop could wedge every cut
-      // point behind rows no cut is allowed to land on.
-      this.journal.upsertTurn({
-        turnId,
-        sessionId: `desktop-${deviceId}`.slice(0, 64),
-        ownerId: bound,
-        lane: "chat",
-        source: "desktop",
-        state: "terminal",
-        now,
-      });
-      for (const entry of prepared) {
-        const appended =
-          entry.kind === "turn"
-            ? this.journal.appendTurn({
-                turnId,
-                writer,
-                writerKey: entry.writerKey,
-                phase: entry.phase,
-                lane: "chat",
-                source: "desktop",
-                notice: entry.notice,
-                createdAt: now,
-              })
-            : this.journal.appendMessage({
-                turnId,
-                writer,
-                writerKey: entry.writerKey,
-                role: entry.role,
-                hidden: entry.hidden,
-                message: entry.message,
-                payloadJson: entry.payloadJson,
-                ...(entry.spillKey ? { spillKey: entry.spillKey } : {}),
-                createdAt: now,
-              });
-        if (firstSeq === null) firstSeq = appended.seq;
-        lastSeq = appended.seq;
-        this.journal.setTurnSpan(turnId, appended.seq);
-        this.publish(appended.record);
+    const publishAfterCommit: JournalRecord[] = [];
+    let finalResponse: Response | null = null;
+    let appendFailure: unknown;
+    // Everything below is one input-gate critical section. The storage reads
+    // may yield, but `blockConcurrencyWhile` prevents a queued text turn or an
+    // owner transfer from being admitted between the final checks and the
+    // synchronous journal transaction.
+    await this.ctx.blockConcurrencyWhile(async () => {
+      if (
+        await this.ctx.storage.get<OwnerTransferRequest>(OWNER_TRANSFER_KEY)
+      ) {
+        finalResponse = json(
+          {
+            code: "owner_transfer_in_progress",
+            message: "Conversation ownership is being updated.",
+            retryAfterMs: 3_000,
+          },
+          409,
+        );
+        return;
       }
-      this.journal.setTurnTerminal(turnId, "completed", now);
-    } catch (error) {
-      if (error instanceof ConversationDeletedError) {
+      if (await this.turnRunning()) {
+        finalResponse = json(
+          {
+            code: "turn_in_progress",
+            message: "Stella is mid-reply — try again in a moment.",
+            retryAfterMs: 3_000,
+          },
+          409,
+        );
+        return;
+      }
+      if (this.purged()) {
+        finalResponse = json(
+          { code: "deleted", message: "This conversation was deleted." },
+          410,
+        );
+        return;
+      }
+      const racedReplay = receiptResponse();
+      if (racedReplay) {
+        finalResponse = racedReplay;
+        return;
+      }
+      try {
+        // Synchronous, and inside the same uninterrupted block as the appends:
+        // this is the request the window is actually paying for.
+        this.journal.appendBudget({ ...budgetArgs, now, commit: true });
+        const writer = `${source}:${deviceId}`;
+        // Registered in the projection so a foreign turn is also a legal
+        // rollover boundary; without it a chatty desktop could wedge every cut
+        // point behind rows no cut is allowed to land on.
+        this.journal.transactionSync(() => {
+          this.journal.upsertTurn({
+            turnId,
+            sessionId: `${source}-${deviceId}`.slice(0, 64),
+            ownerId: bound,
+            lane: "chat",
+            source,
+            state: "terminal",
+            now,
+          });
+          for (const entry of prepared) {
+            const appended = this.journal.appendMessage({
+              turnId,
+              writer,
+              writerKey: entry.writerKey,
+              role: entry.role,
+              hidden: entry.hidden,
+              message: entry.message,
+              payloadJson: entry.payloadJson,
+              ...(entry.spillKey ? { spillKey: entry.spillKey } : {}),
+              createdAt: now,
+            });
+            if (firstSeq === null) firstSeq = appended.seq;
+            lastSeq = appended.seq;
+            this.journal.setTurnSpan(turnId, appended.seq);
+            if (appended.inserted) publishAfterCommit.push(appended.record);
+          }
+          this.journal.setTurnTerminal(turnId, "completed", now);
+          this.journal.putAppendReceipt({
+            writerKey: receiptKey,
+            fingerprint,
+            firstSeq: firstSeq ?? lastSeq,
+            lastSeq,
+            epoch: this.journal.meta().epoch,
+            createdAt: now,
+          });
+        });
+      } catch (error) {
+        appendFailure = error;
+      }
+    });
+    if (finalResponse) return finalResponse;
+    if (appendFailure) {
+      if (appendFailure instanceof ConversationDeletedError) {
         return json(
           { code: "deleted", message: "This conversation was deleted." },
           410,
@@ -3713,7 +4061,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       log("error", "conversation_desktop_append_failed", {
         deviceId,
         localTurnId,
-        message: errorMessage(error),
+        message: errorMessage(appendFailure),
       });
       return json(
         {
@@ -3723,6 +4071,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         503,
       );
     }
+    for (const record of publishAfterCommit) this.publish(record);
     void this.index
       .flush({ activity: "idle", updatedAt: now })
       .catch(() => undefined);
@@ -3739,6 +4088,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       firstSeq: firstSeq ?? lastSeq,
       lastSeq,
       epoch: this.journal.meta().epoch,
+      replayed: false,
     });
   }
 

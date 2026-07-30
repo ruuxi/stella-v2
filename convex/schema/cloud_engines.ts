@@ -27,8 +27,16 @@ export const cloudEnginesSchema = {
     // or reconnect can never be undone by an in-flight action.
     refreshLeaseId: v.optional(v.string()),
     refreshLeaseExpiresAt: v.optional(v.number()),
+    // Set only on a lossless account-link import that is not the active
+    // credential for this provider. The encrypted copy remains recoverable.
+    importedFromOwnerId: v.optional(v.string()),
   })
     .index("by_ownerId_and_provider", ["ownerId", "provider"])
+    .index("by_ownerId_and_provider_and_importedFromOwnerId", [
+      "ownerId",
+      "provider",
+      "importedFromOwnerId",
+    ])
     .index("by_ownerId", ["ownerId"]),
 
   // Pending PKCE connect flows (verifier stays server-side; the client only
@@ -59,6 +67,14 @@ export const cloudEnginesSchema = {
      * migration from the coarse `chatEngine` field above.
      */
     execution: v.optional(cloudExecutionSelectionValidator),
+    // Imported settings are preserved as an inactive alternative. The row
+    // with this field absent remains the active singleton.
+    importedFromOwnerId: v.optional(v.string()),
     updatedAt: v.number(),
-  }).index("by_ownerId", ["ownerId"]),
+  })
+    .index("by_ownerId", ["ownerId"])
+    .index("by_ownerId_and_importedFromOwnerId", [
+      "ownerId",
+      "importedFromOwnerId",
+    ]),
 };

@@ -26,6 +26,7 @@ import {
   resolveManagedModelAccess,
   scheduleManagedUsage,
 } from "../lib/managed_billing";
+import { getUserIdentityOrNullAction } from "../auth";
 import {
   assistantText,
   completeManagedChat,
@@ -176,7 +177,7 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
+        const identity = await getUserIdentityOrNullAction(ctx);
         const anonDeviceId = getAnonDeviceId(request);
         if (!identity && !anonDeviceId) {
           return errorResponse(401, "Unauthorized", origin);
@@ -497,7 +498,7 @@ export const registerSynthesisRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
+        const identity = await getUserIdentityOrNullAction(ctx);
         const anonDeviceId = getAnonDeviceId(request);
         if (!identity && !anonDeviceId) {
           return errorResponse(401, "Unauthorized", origin);

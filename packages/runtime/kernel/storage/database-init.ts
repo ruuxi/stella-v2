@@ -588,6 +588,18 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     );
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS legacy_chat_cloud_import (
+      local_conversation_id TEXT PRIMARY KEY,
+      cloud_conversation_id TEXT,
+      next_turn_index INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      detail TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY(local_conversation_id) REFERENCES session(id) ON DELETE CASCADE
+    );
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS message (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -761,6 +773,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     CREATE TABLE IF NOT EXISTS runtime_agents (
       thread_id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
+      storage_mode TEXT NOT NULL DEFAULT 'local',
       agent_type TEXT NOT NULL,
       description TEXT NOT NULL,
       agent_depth INTEGER NOT NULL,
@@ -783,6 +796,13 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   `);
   try {
     db.exec("ALTER TABLE runtime_agents ADD COLUMN root_run_id TEXT;");
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec(
+      "ALTER TABLE runtime_agents ADD COLUMN storage_mode TEXT NOT NULL DEFAULT 'local';",
+    );
   } catch {
     // Column already exists.
   }
@@ -926,6 +946,170 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       created_at,
       id
     );
+  `);
+
+  // Ordered, durable foreign journal appends (currently realtime voice).
+  // `sequence` is the local admission order. The delivery loop never skips a
+  // retryable row, so provider transcripts and tool pairs cannot overtake one
+  // another while a cloud/text turn owns the conversation.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cloud_journal_outbox (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL UNIQUE,
+      conversation_id TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      append_id TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      dead_lettered_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cloud_journal_outbox_delivery
+    ON cloud_journal_outbox(
+      dead_lettered_at,
+      sequence
+    );
+  `);
+
+  // Computer agents execute locally while their canonical lifecycle row lives
+  // in Convex. Admit start/terminal/cancel transitions here before attempting
+  // the network so auth loss, an offline desktop, or a worker restart cannot
+  // leave browser Activity permanently divergent from the local executor.
+  // Sequence order is the causal fence: a terminal from generation N can
+  // never overtake its start, and generation N+1 cannot overtake generation N.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS computer_agent_cloud_outbox (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL CHECK (kind IN ('start', 'terminal', 'cancel')),
+      thread_id TEXT NOT NULL,
+      attempt_generation INTEGER NOT NULL,
+      owner_scope TEXT,
+      payload_json TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER NOT NULL,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  try {
+    db.exec(
+      "ALTER TABLE computer_agent_cloud_outbox ADD COLUMN owner_scope TEXT;",
+    );
+  } catch {
+    // Column already exists. NULL rows are legacy and intentionally never
+    // attach themselves to whichever account happens to sign in next.
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_computer_agent_cloud_outbox_delivery
+    ON computer_agent_cloud_outbox(next_attempt_at, sequence);
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_computer_agent_cloud_outbox_owner_delivery
+    ON computer_agent_cloud_outbox(owner_scope, next_attempt_at, sequence);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS computer_agent_cloud_thread_owners (
+      thread_id TEXT PRIMARY KEY,
+      owner_scope TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_computer_agent_cloud_thread_owners_scope
+    ON computer_agent_cloud_thread_owners(owner_scope, updated_at);
+  `);
+
+  // Local admission receipts outlive successful outbox deletion so an IPC
+  // response lost after commit still replays as the same voice event instead
+  // of duplicating the operational thread mirror. They are not transcript
+  // content and expire after the renderer retry/restart horizon.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cloud_journal_admission_receipts (
+      id TEXT PRIMARY KEY,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cloud_journal_admission_receipts_created
+    ON cloud_journal_admission_receipts(created_at, id);
+  `);
+
+  // Connector routing and follow-up delivery are operational state, not chat
+  // history. Keeping them in SQLite lets a terminal spawned-agent notice
+  // survive host/auth/network restarts without reintroducing a local
+  // conversation transcript.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS connector_followup_targets (
+      conversation_id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL,
+      backend_conversation_id TEXT NOT NULL,
+      initial_turn_completed INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_connector_followup_targets_request
+    ON connector_followup_targets(request_id);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS connector_followup_outbox (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      delivery_id TEXT NOT NULL UNIQUE,
+      request_id TEXT NOT NULL,
+      backend_conversation_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      eligible_at INTEGER,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER NOT NULL,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_connector_followup_outbox_delivery
+    ON connector_followup_outbox(eligible_at, next_attempt_at, sequence);
+  `);
+  // Renderer-to-main pre-admission for realtime voice. Main inserts here
+  // synchronously before awaiting the runtime worker; successful worker
+  // admission deletes the row. This is operational delivery state only.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS voice_transcript_inbox (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id TEXT NOT NULL UNIQUE,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+  `);
+  // Operational idempotency ledger for side-effecting realtime voice tools.
+  // A pending row fails closed after a worker crash; completed rows cache the
+  // exact cloud append and IPC result so an invoke replay never executes the
+  // tool twice or changes the journal payload.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS voice_tool_call_receipts (
+      conversation_id TEXT NOT NULL,
+      call_id TEXT NOT NULL,
+      request_fingerprint TEXT NOT NULL,
+      operation_id TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      completion_json TEXT,
+      completed_at INTEGER,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (conversation_id, call_id)
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_voice_tool_call_receipts_completed
+    ON voice_tool_call_receipts(completed_at, updated_at);
   `);
 
   db.exec(`

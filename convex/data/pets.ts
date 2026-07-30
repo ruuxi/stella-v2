@@ -10,6 +10,7 @@ import {
   enforceMutationRateLimit,
 } from "../lib/rate_limits";
 import { filterDisplayableTags, isBlockedContentTag } from "../lib/content_tags";
+import { getUserIdentityOrNull } from "../auth";
 
 /** Public catalog rows always carry these display-safe fields. */
 const publicPetValidator = v.object({
@@ -236,7 +237,7 @@ export const incrementDownloads = mutation({
   args: { id: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
+    const identity = await getUserIdentityOrNull(ctx);
     const rateKey = identity?.tokenIdentifier ?? `anon:${args.id}`;
     await enforceMutationRateLimit(
       ctx,

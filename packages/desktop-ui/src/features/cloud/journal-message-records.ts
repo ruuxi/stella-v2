@@ -31,17 +31,22 @@ const textPayload = (
   record: Extract<JournalRecord, { kind: "message" }>,
   text: string,
   userMessageId?: string,
-): Record<string, unknown> => ({
-  text,
-  ...(userMessageId ? { userMessageId } : {}),
-  ...(record.hidden
-    ? { metadata: { ui: { visibility: "hidden" as const } } }
-    : {}),
-  ...(typeof record.payload.source === "string"
-    ? { source: record.payload.source }
-    : {}),
-  ...(asRecord(record.payload.usage) ? { usage: record.payload.usage } : {}),
-});
+): Record<string, unknown> => {
+  const voiceSession = asRecord(record.payload.voiceSession);
+  const metadata = {
+    ...(record.hidden ? { ui: { visibility: "hidden" as const } } : {}),
+    ...(voiceSession ? { voiceSession } : {}),
+  };
+  return {
+    text,
+    ...(userMessageId ? { userMessageId } : {}),
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    ...(typeof record.payload.source === "string"
+      ? { source: record.payload.source }
+      : {}),
+    ...(asRecord(record.payload.usage) ? { usage: record.payload.usage } : {}),
+  };
+};
 
 /**
  * Raw socket windows are record-count bounded and can therefore begin in the

@@ -2,6 +2,7 @@ import { makeFunctionReference, type HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { ConvexError } from "convex/values";
 import { getCorsHeaders } from "../http_shared/cors";
+import { getUserIdentityOrNullAction } from "../auth";
 
 type AppToken = {
   appId: string;
@@ -84,8 +85,11 @@ const verifyToken = async (request: Request): Promise<AppToken> => {
     encoder.encode(body),
   );
   if (!valid) throw new ConvexError("Invalid app session.");
-  const payload = JSON.parse(new TextDecoder().decode(fromBase64url(body))) as AppToken;
-  if (payload.exp < Date.now()) throw new ConvexError("App session expired. Reload the app.");
+  const payload = JSON.parse(
+    new TextDecoder().decode(fromBase64url(body)),
+  ) as AppToken;
+  if (payload.exp < Date.now())
+    throw new ConvexError("App session expired. Reload the app.");
   if (request.headers.get("origin") !== payload.origin) {
     throw new ConvexError("App origin does not match the session.");
   }
@@ -101,9 +105,7 @@ const response = (request: Request, body: unknown, status = 200) => {
   return new Response(JSON.stringify(body), { status, headers });
 };
 
-const handle = (
-  fn: (ctx: any, request: Request) => Promise<unknown>,
-) =>
+const handle = (fn: (ctx: any, request: Request) => Promise<unknown>) =>
   httpAction(async (ctx, request) => {
     try {
       return response(request, await fn(ctx, request));
@@ -128,8 +130,12 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
     http.route({
       path,
       method: "OPTIONS",
-      handler: httpAction(async (_ctx, request) =>
-        new Response(null, { status: 204, headers: getCorsHeaders(request.headers.get("origin")) }),
+      handler: httpAction(
+        async (_ctx, request) =>
+          new Response(null, {
+            status: 204,
+            headers: getCorsHeaders(request.headers.get("origin")),
+          }),
       ),
     });
   }
@@ -143,10 +149,12 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
       const body = (await request.json()) as { appId?: string };
       if (!body.appId) throw new ConvexError("appId is required.");
       const app = await ctx.runQuery(getAppRef, { appId: body.appId });
-      if (!app || app.status !== "active") throw new ConvexError("App is unavailable.");
-      const identity = await ctx.auth.getUserIdentity();
+      if (!app || app.status !== "active")
+        throw new ConvexError("App is unavailable.");
+      const identity = await getUserIdentityOrNullAction(ctx);
       const anonymous = !identity;
-      const userId = identity?.tokenIdentifier ?? `anonymous:${crypto.randomUUID()}`;
+      const userId =
+        identity?.tokenIdentifier ?? `anonymous:${crypto.randomUUID()}`;
       const username = identity?.name ?? "Guest";
       const payload: AppToken = {
         appId: app.appId,
@@ -173,6 +181,7 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
       const { key } = (await request.json()) as { key: string };
       const row = await ctx.runQuery(getStorageRef, {
         appId: token.appId,
+        ownerId: token.ownerId,
         userId: token.userId,
         key,
       });
@@ -186,6 +195,7 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
       const token = await verifyToken(request);
       const rows = await ctx.runQuery(listStorageRef, {
         appId: token.appId,
+        ownerId: token.ownerId,
         userId: token.userId,
       });
       return {
@@ -201,7 +211,10 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
     method: "POST",
     handler: handle(async (ctx, request) => {
       const token = await verifyToken(request);
-      const { key, value } = (await request.json()) as { key: string; value: unknown };
+      const { key, value } = (await request.json()) as {
+        key: string;
+        value: unknown;
+      };
       const valueJson = JSON.stringify(value);
       await ctx.runMutation(setStorageRef, {
         appId: token.appId,
@@ -229,6 +242,7 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
       const { operations } = (await request.json()) as { operations: unknown };
       const result = await ctx.runMutation(upsertOpsManifestRef, {
         appId: token.appId,
+        ownerId: token.ownerId,
         userId: token.userId,
         manifestJson: JSON.stringify(operations ?? []),
         now: Date.now(),
@@ -246,6 +260,7 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
       }
       const invocations = await ctx.runMutation(claimOpInvocationsRef, {
         appId: token.appId,
+        ownerId: token.ownerId,
         userId: token.userId,
       });
       return { eligible: true, invocations };
@@ -266,6 +281,8 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
         errorMessage?: string;
       };
       await ctx.runMutation(completeOpInvocationRef, {
+        appId: token.appId,
+        ownerId: token.ownerId,
         invocationId: body.invocationId,
         userId: token.userId,
         ok: body.ok === true,
@@ -284,6 +301,7 @@ export function registerAppsSdkRoutes(http: HttpRouter) {
       const { key } = (await request.json()) as { key: string };
       await ctx.runMutation(deleteStorageRef, {
         appId: token.appId,
+        ownerId: token.ownerId,
         userId: token.userId,
         key,
       });

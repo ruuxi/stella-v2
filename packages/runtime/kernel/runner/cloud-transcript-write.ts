@@ -1,4 +1,5 @@
 import type {
+  CloudJournalOutboxRecord,
   CloudTranscriptOutboxRecord,
   RuntimeStore,
 } from "../storage/runtime-store.js";
@@ -13,8 +14,15 @@ export type CloudTranscriptBeginRequest = {
   userMessageJson: string;
   /** Local-only data used to reconstruct persisted output after a crash. */
   recovery?: {
-    threadKey: string;
-    afterInsertionSequence: number;
+    /**
+     * A historical import has no provider process to reconstruct. Persist
+     * its exact terminal records with the begin so crash recovery can
+     * finish the admitted turn without inventing a canceled response.
+     */
+    kind: "precomputed-finish";
+    records: CloudTranscriptFinishRecord[];
+    phase: CloudTranscriptFinishRequest["phase"];
+    notice?: string;
   };
   /** Abort the provider if a renewal proves this process lost the cloud lease. */
   onLeaseLost?: (reason: string) => void;
@@ -28,6 +36,24 @@ export type CloudTranscriptBeginAck = {
   /** Canonical pre-prompt serialized `AgentMessage`s. */
   history: string[];
 };
+
+export type CloudTranscriptHistory = {
+  history: string[];
+  contextStartSeq: number;
+  contextEndSeq: number;
+};
+
+/**
+ * The same stable client message was already admitted by the cloud journal.
+ * Callers must stop the replacement local run quietly: the canonical turn is
+ * already running or terminal and will reconcile through the cloud feed.
+ */
+export class CloudTranscriptAlreadyAdmittedError extends Error {
+  constructor() {
+    super("The cloud conversation already admitted this message.");
+    this.name = "CloudTranscriptAlreadyAdmittedError";
+  }
+}
 
 export type CloudTranscriptFinishRecord = {
   ordinal: number;
@@ -61,6 +87,20 @@ export type CloudTranscriptFinishStatus =
       reason: "finish_record_limit_exceeded" | "finish_byte_limit_exceeded";
     };
 
+export type CloudJournalAppendRecord = {
+  kind: "message";
+  role: "user" | "assistant" | "toolResult";
+  payloadJson: string;
+  hidden?: boolean;
+};
+
+export type CloudJournalAppendRequest = {
+  conversationId: string;
+  /** Stable id for the complete atomic append batch. */
+  appendId: string;
+  records: CloudJournalAppendRecord[];
+};
+
 export type CloudTranscriptWriterOptions = {
   deviceId: string;
   store: RuntimeStore;
@@ -89,6 +129,8 @@ export type CloudTranscriptWriterOptions = {
 };
 
 export type CloudTranscriptWriter = {
+  /** Reads the canonical bounded DO history without acquiring a turn lease. */
+  history: (conversationId: string) => Promise<CloudTranscriptHistory>;
   /**
    * Persists the admission request, then waits for the Durable Object to grant
    * the single-writer lease. A local provider must not start before this
@@ -104,6 +146,14 @@ export type CloudTranscriptWriter = {
   finish: (
     request: CloudTranscriptFinishRequest,
   ) => Promise<CloudTranscriptFinishStatus>;
+  /**
+   * Durably queues an ordered, idempotent append that does not own the text
+   * turn lease. Delivery remains FIFO per conversation and retries while a
+   * text turn or owner transfer holds the Durable Object.
+   */
+  append: (
+    request: CloudJournalAppendRequest,
+  ) => Promise<{ queued: true; replayed: boolean }>;
   pending: () => number;
   /** Retry immediately after startup, connectivity recovery, or auth refresh. */
   resume: () => void;
@@ -144,6 +194,13 @@ type FinishPayload = {
   notice?: string;
 };
 
+type JournalAppendPayload = {
+  deviceId: string;
+  localTurnId: string;
+  source: "voice";
+  records: CloudJournalAppendRecord[];
+};
+
 type AttemptResult =
   | { kind: "ack"; begin?: CloudTranscriptBeginAck }
   | { kind: "dead_letter"; reason: string; userMessage?: string }
@@ -154,8 +211,14 @@ type AttemptResult =
         | "lease_mismatch"
         | "turn_expired"
         | "turn_finished"
-        | "turn_canceled";
+        | "turn_canceled"
+        | "idempotency_conflict";
     }
+  | { kind: "retry"; delayMs: number; reason: string };
+
+type JournalAttemptResult =
+  | { kind: "ack" }
+  | { kind: "dead_letter"; reason: string }
   | { kind: "retry"; delayMs: number; reason: string };
 
 type BeginWaiter = {
@@ -180,6 +243,13 @@ const outboxId = (
     conversationId,
     localTurnId,
   ])}`;
+
+const journalOutboxId = (
+  deviceId: string,
+  conversationId: string,
+  appendId: string,
+): string =>
+  `cloud-journal:${JSON.stringify([deviceId, conversationId, appendId])}`;
 
 const parseBeginAck = (value: unknown): CloudTranscriptBeginAck | null => {
   if (!value || typeof value !== "object") return null;
@@ -267,9 +337,11 @@ export const createCloudTranscriptWriter = (
     options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
   );
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let journalRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeating = false;
   let draining = false;
+  let journalDraining = false;
   let stopped = false;
 
   const attempt = async (
@@ -346,7 +418,8 @@ export const createCloudTranscriptWriter = (
         body?.code === "lease_mismatch" ||
         body?.code === "turn_expired" ||
         body?.code === "turn_finished" ||
-        body?.code === "turn_canceled"
+        body?.code === "turn_canceled" ||
+        body?.code === "idempotency_conflict"
       ) {
         return { kind: "terminal", reason: body.code };
       }
@@ -381,61 +454,168 @@ export const createCloudTranscriptWriter = (
     };
   };
 
-  const reconstructInterruptedRecords = (
+  const attemptJournal = async (
+    entry: CloudJournalOutboxRecord,
+  ): Promise<JournalAttemptResult> => {
+    const token = options.getAuthToken();
+    if (!token) {
+      return {
+        kind: "retry",
+        delayMs: NO_AUTH_RETRY_MS,
+        reason: "signed_out",
+      };
+    }
+    const baseUrl = await options.getBaseUrl();
+    if (!baseUrl) {
+      return {
+        kind: "retry",
+        delayMs: NO_AUTH_RETRY_MS,
+        reason: "realtime_unconfigured",
+      };
+    }
+    let response: Response;
+    try {
+      response = await doFetch(
+        `${baseUrl.replace(
+          /\/+$/,
+          "",
+        )}/conversations/${encodeURIComponent(entry.conversationId)}/journal`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: entry.payloadJson,
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        },
+      );
+    } catch {
+      return {
+        kind: "retry",
+        delayMs: retryDelay(entry.attempts),
+        reason: "network",
+      };
+    }
+    if (response.ok) return { kind: "ack" };
+    if (response.status === 409) {
+      const body = (await response.json().catch(() => null)) as {
+        code?: unknown;
+      } | null;
+      if (body?.code === "idempotency_conflict") {
+        return { kind: "dead_letter", reason: "idempotency_conflict" };
+      }
+      return {
+        kind: "retry",
+        delayMs: TURN_BUSY_RETRY_MS,
+        reason:
+          typeof body?.code === "string" ? body.code : "conversation_busy",
+      };
+    }
+    if (response.status === 400 || response.status === 413) {
+      const parsed = await parseDeadLetterResponse(response);
+      return { kind: "dead_letter", reason: parsed.reason };
+    }
+    if (response.status === 410) {
+      return { kind: "dead_letter", reason: "conversation_deleted" };
+    }
+    return {
+      kind: "retry",
+      delayMs:
+        response.status === 429 || response.status >= 500
+          ? retryDelay(entry.attempts)
+          : MAX_RETRY_MS,
+      reason: `http_${response.status}`,
+    };
+  };
+
+  const reconstructInterruptedFinish = (
     entry: CloudTranscriptOutboxRecord,
-  ): CloudTranscriptFinishRecord[] => {
-    if (!entry.recoveryJson) return [];
+  ): Pick<FinishPayload, "records" | "phase" | "notice"> => {
+    const canceled = {
+      records: [] as CloudTranscriptFinishRecord[],
+      phase: "canceled" as const,
+      notice: "The local turn was interrupted before it could finish.",
+    };
+    if (!entry.recoveryJson) return canceled;
     let parsed: unknown;
     try {
       parsed = JSON.parse(entry.recoveryJson);
     } catch {
       parsed = null;
     }
-    const candidate = parsed as {
-      threadKey?: unknown;
-      afterInsertionSequence?: unknown;
+    const precomputed = parsed as {
+      kind?: unknown;
+      records?: unknown;
+      phase?: unknown;
+      notice?: unknown;
     } | null;
-    if (
-      typeof candidate?.threadKey !== "string" ||
-      typeof candidate.afterInsertionSequence !== "number" ||
-      !Number.isFinite(candidate.afterInsertionSequence) ||
-      candidate.afterInsertionSequence < 0
-    ) {
-      log("error", "cloud_transcript_recovery_metadata_invalid", {
+    if (precomputed?.kind === "precomputed-finish") {
+      const records = Array.isArray(precomputed.records)
+        ? (precomputed.records as CloudTranscriptFinishRecord[])
+        : [];
+      const phase =
+        precomputed.phase === "completed" ||
+        precomputed.phase === "failed" ||
+        precomputed.phase === "canceled" ||
+        precomputed.phase === "timeout"
+          ? precomputed.phase
+          : null;
+      const structurallyValid =
+        phase !== null &&
+        records.length <= FINISH_MAX_ROWS &&
+        records.every(
+          (record, ordinal) =>
+            record?.ordinal === ordinal &&
+            (record.role === "assistant" || record.role === "toolResult") &&
+            typeof record.payloadJson === "string",
+        );
+      if (
+        structurallyValid &&
+        jsonBytes({
+          deviceId: entry.deviceId,
+          localTurnId: entry.localTurnId,
+          leaseToken: "",
+          records,
+          phase,
+          ...(typeof precomputed.notice === "string" &&
+          precomputed.notice.trim()
+            ? { notice: precomputed.notice.trim() }
+            : {}),
+        }) <= FINISH_MAX_BYTES
+      ) {
+        return {
+          records,
+          phase,
+          ...(typeof precomputed.notice === "string" &&
+          precomputed.notice.trim()
+            ? { notice: precomputed.notice.trim() }
+            : {}),
+        };
+      }
+      log("error", "cloud_transcript_precomputed_recovery_invalid", {
         conversationId: entry.conversationId,
         localTurnId: entry.localTurnId,
       });
-      return [];
+      return canceled;
     }
-    return options.store
-      .loadRawThreadMessagesAfterInsertionSequence(
-        candidate.threadKey,
-        candidate.afterInsertionSequence,
-      )
-      .filter(
-        (message) =>
-          message.payload !== undefined &&
-          (message.payload.role === "assistant" ||
-            message.payload.role === "toolResult"),
-      )
-      .map((message, ordinal) => ({
-        ordinal,
-        role: message.payload!.role as "assistant" | "toolResult",
-        payloadJson: JSON.stringify(message.payload),
-      }));
+    log("error", "cloud_transcript_recovery_metadata_invalid", {
+      conversationId: entry.conversationId,
+      localTurnId: entry.localTurnId,
+    });
+    return canceled;
   };
 
   const persistInterruptedRecovery = (
     entry: CloudTranscriptOutboxRecord,
     ack: CloudTranscriptBeginAck,
   ): void => {
+    const recovered = reconstructInterruptedFinish(entry);
     const payload: FinishPayload = {
       deviceId: entry.deviceId,
       localTurnId: entry.localTurnId,
       leaseToken: ack.leaseToken,
-      records: reconstructInterruptedRecords(entry),
-      phase: "canceled",
-      notice: "The local turn was interrupted before it could finish.",
+      ...recovered,
     };
     options.store.replaceCloudTranscriptOutbox(entry.id, {
       id: outboxId(
@@ -464,6 +644,18 @@ export const createCloudTranscriptWriter = (
       () => {
         retryTimer = null;
         void drain();
+      },
+      Math.max(0, delayMs),
+    );
+  };
+
+  const scheduleJournalDrain = (delayMs = 0): void => {
+    if (stopped) return;
+    if (journalRetryTimer) clearTimeout(journalRetryTimer);
+    journalRetryTimer = setTimeout(
+      () => {
+        journalRetryTimer = null;
+        void drainJournal();
       },
       Math.max(0, delayMs),
     );
@@ -644,11 +836,14 @@ export const createCloudTranscriptWriter = (
           activeBegins.delete(entry.id);
           const waiters = beginWaiters.get(entry.id);
           if (waiters?.length) {
-            const error = new Error(
-              result.reason === "conversation_deleted"
-                ? "The cloud conversation was deleted before the local turn could start."
-                : "The cloud local turn no longer owns the conversation.",
-            );
+            const error =
+              result.reason === "turn_finished"
+                ? new CloudTranscriptAlreadyAdmittedError()
+                : new Error(
+                    result.reason === "conversation_deleted"
+                      ? "The cloud conversation was deleted before the local turn could start."
+                      : "The cloud local turn no longer owns the conversation.",
+                  );
             for (const waiter of waiters) {
               waiter.cleanup();
               waiter.reject(error);
@@ -731,9 +926,63 @@ export const createCloudTranscriptWriter = (
     }
   };
 
+  const drainJournal = async (): Promise<void> => {
+    if (journalDraining || stopped) return;
+    journalDraining = true;
+    let nextRetryMs: number | null = null;
+    const blockedConversations = new Set<string>();
+    try {
+      for (const entry of options.store.listCloudJournalOutbox()) {
+        if (stopped) break;
+        if (blockedConversations.has(entry.conversationId)) continue;
+        options.store.markCloudJournalOutboxAttempt(entry.id);
+        const result = await attemptJournal({
+          ...entry,
+          attempts: entry.attempts + 1,
+        });
+        if (result.kind === "ack") {
+          options.store.deleteCloudJournalOutbox(entry.id);
+          continue;
+        }
+        if (result.kind === "dead_letter") {
+          options.store.deadLetterCloudJournalOutbox(entry.id, result.reason);
+          log("error", "cloud_journal_delivery_dead_lettered", {
+            conversationId: entry.conversationId,
+            appendId: entry.appendId,
+            reason: result.reason,
+          });
+          continue;
+        }
+        // Never let a later append in the same conversation overtake this
+        // one. Other conversations remain independent and may still drain.
+        blockedConversations.add(entry.conversationId);
+        nextRetryMs =
+          nextRetryMs === null
+            ? result.delayMs
+            : Math.min(nextRetryMs, result.delayMs);
+        log(
+          result.reason.startsWith("http_") ? "error" : "info",
+          "cloud_journal_delivery_retry",
+          {
+            conversationId: entry.conversationId,
+            appendId: entry.appendId,
+            reason: result.reason,
+          },
+        );
+      }
+    } finally {
+      journalDraining = false;
+    }
+    if (stopped) return;
+    if (options.store.countCloudJournalOutbox() > 0) {
+      scheduleJournalDrain(nextRetryMs ?? 0);
+    }
+  };
+
   const resume = (): void => {
     if (stopped) return;
     scheduleDrain(0);
+    scheduleJournalDrain(0);
     scheduleHeartbeat(0);
   };
 
@@ -743,6 +992,50 @@ export const createCloudTranscriptWriter = (
   resume();
 
   return {
+    history: async (conversationId) => {
+      if (stopped) {
+        throw new Error("Cloud transcript writer is stopped.");
+      }
+      const token = options.getAuthToken();
+      if (!token)
+        throw new Error("Sign in to load cloud conversation history.");
+      const baseUrl = await options.getBaseUrl();
+      if (!baseUrl) {
+        throw new Error("Cloud conversation history is unavailable.");
+      }
+      const response = await doFetch(
+        `${baseUrl.replace(
+          /\/+$/,
+          "",
+        )}/conversations/${encodeURIComponent(conversationId)}/history`,
+        {
+          method: "GET",
+          headers: { authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(
+          response.status === 404
+            ? "Cloud conversation was not found."
+            : "Cloud conversation history could not be loaded.",
+        );
+      }
+      const body = (await response.json()) as Partial<CloudTranscriptHistory>;
+      if (
+        !Array.isArray(body.history) ||
+        !body.history.every((entry) => typeof entry === "string") ||
+        typeof body.contextStartSeq !== "number" ||
+        typeof body.contextEndSeq !== "number"
+      ) {
+        throw new Error("Cloud conversation history response is malformed.");
+      }
+      return {
+        history: body.history,
+        contextStartSeq: body.contextStartSeq,
+        contextEndSeq: body.contextEndSeq,
+      };
+    },
     begin: (request) => {
       if (stopped) {
         return Promise.reject(new Error("Cloud transcript writer is stopped."));
@@ -878,7 +1171,33 @@ export const createCloudTranscriptWriter = (
       resume();
       return { queued: true };
     },
-    pending: () => options.store.countCloudTranscriptOutbox(),
+    append: async (request) => {
+      if (stopped) {
+        throw new Error("Cloud transcript writer is stopped.");
+      }
+      const appendId = request.appendId.trim();
+      if (!appendId || request.records.length === 0) {
+        throw new Error("Cloud journal append requires an id and records.");
+      }
+      const payload: JournalAppendPayload = {
+        deviceId: options.deviceId,
+        localTurnId: appendId,
+        source: "voice",
+        records: request.records,
+      };
+      const { replayed } = options.store.putCloudJournalOutbox({
+        id: journalOutboxId(options.deviceId, request.conversationId, appendId),
+        conversationId: request.conversationId,
+        deviceId: options.deviceId,
+        appendId,
+        payloadJson: JSON.stringify(payload),
+      });
+      scheduleJournalDrain(0);
+      return { queued: true, replayed };
+    },
+    pending: () =>
+      options.store.countCloudTranscriptOutbox() +
+      options.store.countCloudJournalOutbox(),
     resume,
     stop: () => {
       if (stopped) return;
@@ -886,6 +1205,10 @@ export const createCloudTranscriptWriter = (
       if (retryTimer) {
         clearTimeout(retryTimer);
         retryTimer = null;
+      }
+      if (journalRetryTimer) {
+        clearTimeout(journalRetryTimer);
+        journalRetryTimer = null;
       }
       if (heartbeatTimer) {
         clearTimeout(heartbeatTimer);

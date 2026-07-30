@@ -43,6 +43,22 @@ import {
 } from "./conversation-types.js";
 import { verifyConvexToken } from "./auth-jwt.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import { parseOwnerTransferRequest } from "./owner-transfer.js";
+import {
+  OWNER_PRODUCT_TRANSFER_LEASE_MS,
+  collectCheckpointRecoveryReferences,
+  createOwnerTransferBudget,
+  ownerTransferLeaseConflicts,
+  parseOwnerProductTransferRequest,
+  replaceOwnerPrefix,
+  resolveWorkspaceTransfer,
+  takeOwnerTransferBatch,
+  transferredBackupId,
+  type OwnerProductTransferRequest,
+  type OwnerTransferBudget,
+  type OwnerWorkspaceTransfer,
+  type WorkspaceTransferResolution,
+} from "./owner-product-transfer.js";
 
 export { Sandbox } from "@cloudflare/sandbox";
 export { OrchestratorSession };
@@ -165,8 +181,10 @@ type OwnerPurgeFence = {
       sessionId: string;
       turnId: string;
       namespace: "build" | "orchestrator" | "activity";
-      role: "run" | "aux" | "orchestrator" | "activity";
+      role: "run" | "aux" | "orchestrator" | "activity" | "transfer";
       workspace?: string;
+      /** Optional bounded lease used by cross-service control-plane work. */
+      expiresAt?: number;
     }
   >;
 };
@@ -528,6 +546,39 @@ const OWNER_PURGE_STALE_LEASE_GRACE_MS = 35_000;
 const backupDebtKey = (workspaceKey: string): string =>
   `${workspaceKey}:backup-debt`;
 type WorkspaceBackupDebt = { backupIds: string[] };
+const checkpointImportsKey = (workspaceKey: string): string =>
+  `${workspaceKey}:checkpoint-imports`;
+type WorkspaceCheckpointImport = {
+  sourceWorkspaceKey: string;
+  sourceWorkspace: string;
+  descriptor?: DirectoryBackup;
+  backupIds: string[];
+  /** Finds pre-cleanup-debt backups during eventual account/workspace purge. */
+  historicalBackupName: string;
+  instanceSize?: string;
+};
+type WorkspaceCheckpointImports = {
+  schemaVersion: 1;
+  imports: WorkspaceCheckpointImport[];
+};
+type WorkspaceTransferReceipt = {
+  sourceWorkspaceKey: string;
+  resolution: WorkspaceTransferResolution;
+  sourceDescriptorId?: string;
+  /**
+   * A plan is persisted before the first destination write. This prevents a
+   * crash after writing the destination descriptor from being rediscovered as
+   * a new collision and forked into a second imported project on retry.
+   * Receipts written before this field existed are complete.
+   */
+  status?: "planned" | "complete";
+};
+type WorkspaceTransferReceipts = {
+  schemaVersion: 1;
+  receipts: WorkspaceTransferReceipt[];
+};
+const workspaceTransferReceiptsKey = (workspaceKey: string): string =>
+  `${workspaceKey}:owner-transfer-receipts`;
 
 export class BuildSession extends DurableObject<Env> {
   private readonly runningTurns = new Map<string, Set<Promise<unknown>>>();
@@ -838,8 +889,9 @@ export class BuildSession extends DurableObject<Env> {
       sessionId?: string;
       turnId?: string;
       namespace?: "build" | "orchestrator" | "activity";
-      role?: "run" | "aux" | "orchestrator" | "activity";
+      role?: "run" | "aux" | "orchestrator" | "activity" | "transfer";
       workspace?: string;
+      expiresAt?: number;
     };
     const current = (await this.ctx.storage.get<OwnerPurgeFence>(
       "ownerPurgeFence",
@@ -848,16 +900,49 @@ export class BuildSession extends DurableObject<Env> {
       state: "open",
       active: {},
     };
+    let prunedExpiredLease = false;
+    const now = Date.now();
+    for (const [leaseId, lease] of Object.entries(current.active)) {
+      if (lease.expiresAt !== undefined && lease.expiresAt <= now) {
+        delete current.active[leaseId];
+        prunedExpiredLease = true;
+      }
+    }
+    if (prunedExpiredLease) {
+      await this.ctx.storage.put("ownerPurgeFence", current);
+    }
     if (path === "register") {
+      const activeLeases = Object.values(current.active);
       const workspaceBusy =
         body.role === "run" &&
         body.workspace &&
-        Object.values(current.active).some(
+        activeLeases.some(
           (lease) =>
             lease.role === "run" &&
             lease.workspace === body.workspace &&
             lease.leaseId !== body.leaseId,
         );
+      const isTransferControlActivity =
+        body.role === "activity" &&
+        body.turnId?.startsWith("owner-product-transfer:");
+      const transferBusy =
+        body.role === "transfer"
+          ? activeLeases.some((lease) =>
+              lease.role === "transfer"
+                ? ownerTransferLeaseConflicts(lease, body)
+                : !(
+                    lease.role === "activity" &&
+                    lease.turnId.startsWith("owner-product-transfer:")
+                  ),
+            )
+          : activeLeases.some((lease) => lease.role === "transfer") &&
+            !isTransferControlActivity;
+      const invalidTransferExpiry =
+        body.role === "transfer" &&
+        (typeof body.expiresAt !== "number" ||
+          !Number.isFinite(body.expiresAt) ||
+          body.expiresAt <= now ||
+          body.expiresAt > now + OWNER_PRODUCT_TRANSFER_LEASE_MS);
       if (
         current.state !== "open" ||
         (body.generation !== undefined &&
@@ -865,7 +950,9 @@ export class BuildSession extends DurableObject<Env> {
         !body.leaseId ||
         !body.sessionId ||
         !body.turnId ||
-        workspaceBusy
+        workspaceBusy ||
+        transferBusy ||
+        invalidTransferExpiry
       ) {
         return json({ error: "Owner purge is active." }, 409);
       }
@@ -884,10 +971,17 @@ export class BuildSession extends DurableObject<Env> {
             ? "run"
             : body.role === "orchestrator"
               ? "orchestrator"
-              : body.role === "activity"
-                ? "activity"
-                : "aux",
+              : body.role === "transfer"
+                ? "transfer"
+                : body.role === "activity"
+                  ? "activity"
+                  : "aux",
         ...(body.workspace ? { workspace: body.workspace } : {}),
+        ...(typeof body.expiresAt === "number" &&
+        Number.isFinite(body.expiresAt) &&
+        body.expiresAt > now
+          ? { expiresAt: body.expiresAt }
+          : {}),
       };
       await this.ctx.storage.put("ownerPurgeFence", current);
       return json({ generation: current.generation });
@@ -3272,12 +3366,17 @@ const withOwnerActivityLease = async <T>(
   const sessionId = `activity-${activityId}`;
   const turnId = activityId;
   const leaseId = crypto.randomUUID();
+  // Activity leases cannot be canceled by owner purge, so every one needs a
+  // durable crash expiry. Thirty minutes leaves ample room for large workspace
+  // operations while guaranteeing an evicted isolate cannot wedge the owner.
+  const expiresAt = Date.now() + 30 * 60_000;
   const registered = await callOwnerFence(env, ownerId, "register", {
     leaseId,
     sessionId,
     turnId,
     namespace: "activity",
     role: workspace ? "run" : "activity",
+    expiresAt,
     ...(workspace ? { workspace } : {}),
   });
   const registration = (await registered.json().catch(() => null)) as {
@@ -3288,6 +3387,51 @@ const withOwnerActivityLease = async <T>(
   }
   try {
     return await operation(registration.generation, leaseId);
+  } finally {
+    await callOwnerFence(env, ownerId, "unregister", {
+      leaseId,
+      sessionId,
+      turnId,
+      generation: registration.generation,
+    }).catch(() => undefined);
+  }
+};
+
+/**
+ * Exclusive product-state rekey lease. It coexists with the Convex
+ * control-plane lease that keeps account purge out, but only starts after
+ * ordinary turns/activity are idle and rejects new worker writes until the
+ * external copy and Convex acknowledgement boundary has been reached.
+ */
+const withOwnerTransferLease = async <T>(
+  env: Env,
+  ownerId: string,
+  activityId: string,
+  operation: () => Promise<T>,
+): Promise<T> => {
+  const sessionId = `transfer-${activityId}`;
+  const turnId = `owner-product-transfer:${activityId}`;
+  const leaseId = crypto.randomUUID();
+  const expiresAt = Date.now() + OWNER_PRODUCT_TRANSFER_LEASE_MS;
+  const registered = await callOwnerFence(env, ownerId, "register", {
+    leaseId,
+    sessionId,
+    turnId,
+    namespace: "activity",
+    role: "transfer",
+    // An isolate can disappear without running finally. The owner-fence read
+    // path prunes this bounded lease, so transfer can never block turns or
+    // account purge permanently after a crash.
+    expiresAt,
+  });
+  const registration = (await registered.json().catch(() => null)) as {
+    generation?: string;
+  } | null;
+  if (!registered.ok || !registration?.generation) {
+    throw new OwnerPurgeFenceError();
+  }
+  try {
+    return await operation();
   } finally {
     await callOwnerFence(env, ownerId, "unregister", {
       leaseId,
@@ -3448,6 +3592,380 @@ const sweepBackupsByName = async (
   return { deleted: 0, done: false };
 };
 
+class OwnerProductTransferConflictError extends Error {}
+
+const OWNER_TRANSFER_SOURCE_METADATA = "stellaTransferSource";
+
+const transferSourceMarker = async (
+  sourceKey: string,
+  sourceEtag: string,
+): Promise<string> =>
+  await sha256Hex(`owner-transfer-source:${sourceKey}:${sourceEtag}`);
+
+const isTransferredSource = (
+  destination: R2Object | null,
+  marker: string,
+): boolean =>
+  destination?.customMetadata?.[OWNER_TRANSFER_SOURCE_METADATA] === marker;
+
+/**
+ * Move one bounded page. Each source object is deleted only after R2 confirms
+ * its deterministic destination carries this exact source object's marker.
+ * Callers choose a product-visible imported namespace before this mover runs;
+ * a second per-object fallback would no longer match the Convex metadata or
+ * checkpoint manifest, so an unexpected collision fails closed with both
+ * objects untouched.
+ */
+const moveR2PrefixPreservingDestination = async (
+  bucket: R2Bucket,
+  sourcePrefix: string,
+  destinationPrefix: string,
+  budget: OwnerTransferBudget,
+  transform?: (
+    source: R2ObjectBody,
+    destinationKey: string,
+  ) => Promise<
+    | { body: ReadableStream | ArrayBuffer | string; contentType?: string }
+    | undefined
+  >,
+): Promise<boolean> => {
+  if (budget.remaining <= 0) return false;
+  const listing = await bucket.list({
+    prefix: sourcePrefix,
+    limit: budget.remaining,
+  });
+  const batch = takeOwnerTransferBatch(listing.objects, budget);
+  for (const listed of batch) {
+    const canonicalKey = replaceOwnerPrefix(
+      listed.key,
+      sourcePrefix,
+      destinationPrefix,
+    );
+    if (!canonicalKey) {
+      throw new Error("Owner transfer prefix mapping failed.");
+    }
+    const source = await bucket.get(listed.key);
+    if (!source) continue;
+    const marker = await transferSourceMarker(listed.key, source.etag);
+    const replacement = transform
+      ? await transform(source, canonicalKey)
+      : undefined;
+    const body = replacement?.body ?? (await source.arrayBuffer());
+    const options: R2PutOptions = {
+      onlyIf: { etagDoesNotMatch: "*" },
+      httpMetadata: replacement?.contentType
+        ? { contentType: replacement.contentType }
+        : source.httpMetadata,
+      customMetadata: {
+        ...(source.customMetadata ?? {}),
+        [OWNER_TRANSFER_SOURCE_METADATA]: marker,
+      },
+    };
+
+    const ensureCopy = async (destinationKey: string): Promise<boolean> => {
+      const existing = await bucket.head(destinationKey);
+      if (isTransferredSource(existing, marker)) return true;
+      if (existing) return false;
+      await bucket.put(destinationKey, body, options);
+      return isTransferredSource(await bucket.head(destinationKey), marker);
+    };
+
+    const copied = await ensureCopy(canonicalKey);
+    if (!copied) {
+      throw new OwnerProductTransferConflictError(
+        `The resolved owner transfer destination already contains unrelated data for "${listed.key}".`,
+      );
+    }
+    await bucket.delete(listed.key);
+  }
+  return !listing.truncated;
+};
+
+const moveWorkspaceCheckpoint = async (
+  env: Env,
+  fromOwnerId: string,
+  toOwnerId: string,
+  transfer: OwnerWorkspaceTransfer,
+  budget: OwnerTransferBudget,
+): Promise<{
+  complete: boolean;
+  resolution?: WorkspaceTransferResolution;
+}> => {
+  const fromKey = await checkpointKey(fromOwnerId, transfer.from);
+  const toKey = await checkpointKey(toOwnerId, transfer.to);
+  const receiptsKey = workspaceTransferReceiptsKey(toKey);
+  const receipts = (await env.APP_ROUTES.get<WorkspaceTransferReceipts>(
+    receiptsKey,
+    "json",
+  )) ?? { schemaVersion: 1, receipts: [] };
+  const receipt = receipts.receipts.find(
+    (entry) => entry.sourceWorkspaceKey === fromKey,
+  );
+  if (receipt && receipt.status !== "planned") {
+    return { complete: true, resolution: receipt.resolution };
+  }
+  const fromDescriptor = await env.APP_ROUTES.get<DirectoryBackup>(
+    fromKey,
+    "json",
+  );
+  const fromDebt =
+    (await env.APP_ROUTES.get<WorkspaceBackupDebt>(
+      backupDebtKey(fromKey),
+      "json",
+    )) ?? undefined;
+  const toDescriptor = await env.APP_ROUTES.get<DirectoryBackup>(toKey, "json");
+  const sourceSize = await env.APP_ROUTES.get(instanceSizeKey(fromKey));
+  const sourceIds = new Set<string>();
+  if (fromDescriptor?.id) sourceIds.add(fromDescriptor.id);
+  for (const id of fromDebt?.backupIds ?? []) sourceIds.add(id);
+  const hasSourceState =
+    Boolean(fromDescriptor) || sourceIds.size > 0 || sourceSize !== null;
+  const resolution =
+    receipt?.resolution ??
+    resolveWorkspaceTransfer(transfer, Boolean(toDescriptor && hasSourceState));
+  if (!resolution) {
+    throw new OwnerProductTransferConflictError(
+      `Workspace "${transfer.to}" already has a checkpoint and no product-visible imported project was supplied.`,
+    );
+  }
+  const resolvedKey = await checkpointKey(toOwnerId, resolution.resolvedTo);
+  const destinationName = checkpointBackupName(resolvedKey);
+  const resolvedDescriptor =
+    resolvedKey === toKey
+      ? toDescriptor
+      : await env.APP_ROUTES.get<DirectoryBackup>(resolvedKey, "json");
+
+  if (!receipt) {
+    // Persist the selected canonical/imported workspace before writing any
+    // destination state. A retry after an isolate crash must resume this exact
+    // plan rather than reinterpret its own partial copy as user data.
+    await env.APP_ROUTES.put(
+      receiptsKey,
+      JSON.stringify({
+        schemaVersion: 1,
+        receipts: [
+          ...receipts.receipts.filter(
+            (entry) => entry.sourceWorkspaceKey !== fromKey,
+          ),
+          {
+            sourceWorkspaceKey: fromKey,
+            resolution,
+            ...(fromDescriptor?.id
+              ? { sourceDescriptorId: fromDescriptor.id }
+              : {}),
+            status: "planned",
+          },
+        ],
+      } satisfies WorkspaceTransferReceipts),
+    );
+  }
+
+  if (resolution.imported && resolvedDescriptor) {
+    const sourceDescriptorId =
+      fromDescriptor?.id ?? receipt?.sourceDescriptorId;
+    const expectedId = sourceDescriptorId
+      ? await transferredBackupId(fromKey, resolvedKey, sourceDescriptorId)
+      : undefined;
+    if (!expectedId || resolvedDescriptor.id !== expectedId) {
+      throw new OwnerProductTransferConflictError(
+        `Imported workspace "${resolution.resolvedTo}" already contains unrelated checkpoint data.`,
+      );
+    }
+  }
+
+  const copiedIds = new Map<string, string>();
+  for (const sourceId of sourceIds) {
+    if (!BACKUP_ID_PATTERN.test(sourceId)) {
+      throw new Error("Workspace backup descriptor is invalid.");
+    }
+    const destinationId = await transferredBackupId(
+      fromKey,
+      resolvedKey,
+      sourceId,
+    );
+    copiedIds.set(sourceId, destinationId);
+    const complete = await moveR2PrefixPreservingDestination(
+      env.BACKUP_BUCKET,
+      `backups/${sourceId}/`,
+      `backups/${destinationId}/`,
+      budget,
+      async (source, destinationKey) => {
+        if (!destinationKey.endsWith("/meta.json")) return undefined;
+        const metadata = (await source.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        return {
+          body: JSON.stringify({
+            ...(metadata ?? {}),
+            name: destinationName,
+          }),
+          contentType: "application/json",
+        };
+      },
+    );
+    if (!complete) return { complete: false };
+  }
+
+  if (fromDescriptor?.id) {
+    const destinationId = copiedIds.get(fromDescriptor.id);
+    if (!destinationId) {
+      throw new Error("Workspace backup transfer was not recoverable.");
+    }
+    await env.APP_ROUTES.put(
+      resolvedKey,
+      JSON.stringify({
+        ...fromDescriptor,
+        id: destinationId,
+        name: destinationName,
+      }),
+    );
+  }
+  const destinationDebt = (await env.APP_ROUTES.get<WorkspaceBackupDebt>(
+    backupDebtKey(resolvedKey),
+    "json",
+  )) ?? { backupIds: [] };
+  const transferredDebt = (fromDebt?.backupIds ?? []).map(
+    (id) => copiedIds.get(id) ?? id,
+  );
+  if (transferredDebt.length > 0 || destinationDebt.backupIds.length > 0) {
+    await env.APP_ROUTES.put(
+      backupDebtKey(resolvedKey),
+      JSON.stringify({
+        backupIds: [
+          ...new Set([...destinationDebt.backupIds, ...transferredDebt]),
+        ],
+      } satisfies WorkspaceBackupDebt),
+    );
+  }
+  const destinationSize = await env.APP_ROUTES.get(
+    instanceSizeKey(resolvedKey),
+  );
+  if (sourceSize !== null && destinationSize === null) {
+    await env.APP_ROUTES.put(instanceSizeKey(resolvedKey), sourceSize);
+  }
+
+  await env.APP_ROUTES.delete(fromKey);
+  await env.APP_ROUTES.delete(backupDebtKey(fromKey));
+  await env.APP_ROUTES.delete(instanceSizeKey(fromKey));
+  // Mark complete only after the source KV state is retired. If the isolate
+  // dies between deletion and this write, the planned receipt still carries
+  // the exact resolution and the empty source makes the replay finish safely.
+  const latestReceipts =
+    (await env.APP_ROUTES.get<WorkspaceTransferReceipts>(
+      receiptsKey,
+      "json",
+    )) ?? receipts;
+  await env.APP_ROUTES.put(
+    receiptsKey,
+    JSON.stringify({
+      schemaVersion: 1,
+      receipts: [
+        ...latestReceipts.receipts.filter(
+          (entry) => entry.sourceWorkspaceKey !== fromKey,
+        ),
+        { sourceWorkspaceKey: fromKey, resolution, status: "complete" },
+      ],
+    } satisfies WorkspaceTransferReceipts),
+  );
+  return { complete: true, resolution };
+};
+
+const transferOwnerProductStorage = async (
+  env: Env,
+  request: OwnerProductTransferRequest,
+): Promise<
+  | {
+      complete: true;
+      fromOwnerHash: string;
+      toOwnerHash: string;
+      workspaceResolutions: WorkspaceTransferResolution[];
+    }
+  | { complete: false }
+> => {
+  const budget = createOwnerTransferBudget();
+  const fromOwnerHash = await sha256Hex(request.fromOwnerId);
+  const toOwnerHash = await sha256Hex(request.toOwnerId);
+  // Validate globally keyed routes before moving any checkpoint/object state.
+  // A corrupt slug collision is permanent; discovering it after the source
+  // workspace was retired would turn a clean failure into a partial move.
+  for (const slug of request.appSlugs) {
+    const route = await env.APP_ROUTES.get<Record<string, unknown>>(
+      `app:${slug}`,
+      "json",
+    );
+    if (
+      route &&
+      route.ownerId !== request.fromOwnerId &&
+      route.ownerId !== request.toOwnerId
+    ) {
+      throw new OwnerProductTransferConflictError(
+        `Hosted route "${slug}" belongs to another owner.`,
+      );
+    }
+  }
+  if (request.agentHome && env.AGENT_HOME) {
+    // Anonymous memory remains a separate imported document set. The
+    // orchestrator reads this owner-scoped subtree as startup context, while
+    // the connected account's canonical MEMORY/profile files stay untouched.
+    const complete = await moveR2PrefixPreservingDestination(
+      env.AGENT_HOME,
+      `agent-home/${fromOwnerHash}/`,
+      `agent-home/${toOwnerHash}/__stella_imported__/${fromOwnerHash}/`,
+      budget,
+    );
+    if (!complete) return { complete: false };
+  }
+  if (request.interiors) {
+    // Build manifests are rewritten to this deterministic imported namespace
+    // by Convex after the object copy. Keeping the entire source tree separate
+    // avoids per-object collision fallbacks that no build row can address.
+    const complete = await moveR2PrefixPreservingDestination(
+      env.APP_BUILDS,
+      `interiors/${fromOwnerHash}/`,
+      `interiors/${toOwnerHash}/__stella_imported__/${fromOwnerHash}/`,
+      budget,
+    );
+    if (!complete) return { complete: false };
+  }
+  const workspaceResolutions: WorkspaceTransferResolution[] = [];
+  for (const workspace of request.workspaces) {
+    const result = await moveWorkspaceCheckpoint(
+      env,
+      request.fromOwnerId,
+      request.toOwnerId,
+      workspace,
+      budget,
+    );
+    if (!result.complete) return { complete: false };
+    if (result.resolution) workspaceResolutions.push(result.resolution);
+  }
+  for (const slug of request.appSlugs) {
+    const key = `app:${slug}`;
+    const route = await env.APP_ROUTES.get<Record<string, unknown>>(
+      key,
+      "json",
+    );
+    if (!route) continue;
+    if (route.ownerId === request.fromOwnerId) {
+      await env.APP_ROUTES.put(
+        key,
+        JSON.stringify({
+          ...route,
+          ownerId: request.toOwnerId,
+          updatedAt: Date.now(),
+        }),
+      );
+    }
+  }
+  return {
+    complete: true,
+    fromOwnerHash,
+    toOwnerHash,
+    workspaceResolutions,
+  };
+};
+
 const purgeOwnerStorage = async (
   env: Env,
   ownerId: string,
@@ -3526,11 +4044,25 @@ const purgeOwnerStorage = async (
         debtKey,
         "json",
       );
-      const backupIds = new Set<string>();
-      if (descriptor?.id) backupIds.add(descriptor.id);
-      for (const backupId of debt?.backupIds ?? []) backupIds.add(backupId);
+      const importsKey = checkpointImportsKey(key);
+      const imports = await env.APP_ROUTES.get<WorkspaceCheckpointImports>(
+        importsKey,
+        "json",
+      );
+      const recovery = collectCheckpointRecoveryReferences({
+        ...(descriptor?.id ? { descriptorId: descriptor.id } : {}),
+        debtBackupIds: debt?.backupIds,
+        historicalBackupName: checkpointBackupName(key),
+        imports: (imports?.imports ?? []).map((imported) => ({
+          ...(imported.descriptor?.id
+            ? { descriptorId: imported.descriptor.id }
+            : {}),
+          backupIds: imported.backupIds,
+          historicalBackupName: imported.historicalBackupName,
+        })),
+      });
       let backupSweepFailed = false;
-      for (const backupId of backupIds) {
+      for (const backupId of recovery.backupIds) {
         if (!BACKUP_ID_PATTERN.test(backupId)) {
           pending.push(`${store}:invalid-backup`);
           backupSweepFailed = true;
@@ -3547,17 +4079,23 @@ const purgeOwnerStorage = async (
         }
       }
       if (backupSweepFailed) continue;
-      const historical = await sweepBackupsByName(
-        env.BACKUP_BUCKET,
-        checkpointBackupName(key),
-      );
-      deleted += historical.deleted;
-      if (!historical.done) {
-        pending.push(`${store}:historical-backups`);
-        continue;
+      let historicalSweepFailed = false;
+      for (const historicalName of recovery.historicalBackupNames) {
+        const historical = await sweepBackupsByName(
+          env.BACKUP_BUCKET,
+          historicalName,
+        );
+        deleted += historical.deleted;
+        if (!historical.done) {
+          pending.push(`${store}:historical-backups`);
+          historicalSweepFailed = true;
+        }
       }
+      if (historicalSweepFailed) continue;
       await env.APP_ROUTES.delete(key);
       await env.APP_ROUTES.delete(debtKey);
+      await env.APP_ROUTES.delete(importsKey);
+      await env.APP_ROUTES.delete(workspaceTransferReceiptsKey(key));
       // The learned instance size describes the deleted workspace's work, not
       // whatever reuses the slug next.
       await env.APP_ROUTES.delete(instanceSizeKey(key));
@@ -3659,6 +4197,25 @@ export default {
         auth.caller,
       );
     }
+    const historyMatch = url.pathname.match(
+      /^\/conversations\/([^/]+)\/history$/,
+    );
+    if (request.method === "GET" && historyMatch) {
+      const auth = await authenticateConversationCaller(
+        request,
+        env,
+        false,
+        requestId,
+      );
+      if (!auth.ok) return auth.response;
+      return await forwardToConversation(
+        request,
+        env,
+        conversationName(historyMatch[1]!),
+        "/history",
+        auth.caller,
+      );
+    }
     const journalAppendMatch = url.pathname.match(
       /^\/conversations\/([^/]+)\/journal$/,
     );
@@ -3703,6 +4260,227 @@ export default {
     // above it without its own authentication: falling through this check is
     // how a route silently inherits "no auth at all".
     if (!authorized(request, env)) return json({ error: "Unauthorized." }, 401);
+    if (
+      request.method === "POST" &&
+      url.pathname === "/internal/owners/activity/register"
+    ) {
+      const body = (await request.json().catch(() => null)) as {
+        ownerId?: unknown;
+        activityId?: unknown;
+      } | null;
+      const ownerId =
+        typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
+      const activityId =
+        typeof body?.activityId === "string" ? body.activityId.trim() : "";
+      if (
+        !ownerId ||
+        ownerId.length > 512 ||
+        !activityId ||
+        activityId.length > 512
+      ) {
+        return json(
+          { code: "bad_request", message: "Malformed request." },
+          400,
+        );
+      }
+      const leaseId = crypto.randomUUID();
+      const sessionId = `control-plane:${activityId}`;
+      const turnId = activityId;
+      const expiresAt = Date.now() + 9 * 60_000;
+      const registered = await callOwnerFence(env, ownerId, "register", {
+        leaseId,
+        sessionId,
+        turnId,
+        namespace: "activity",
+        role: "activity",
+        expiresAt,
+      });
+      const registration = (await registered.json().catch(() => null)) as {
+        generation?: string;
+      } | null;
+      if (!registered.ok || !registration?.generation) {
+        return json(
+          {
+            code: "owner_purge",
+            message: "Account data is being deleted or reset.",
+          },
+          409,
+        );
+      }
+      return json({
+        ownerId,
+        generation: registration.generation,
+        leaseId,
+        sessionId,
+        turnId,
+        expiresAt,
+      });
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/internal/owners/activity/unregister"
+    ) {
+      const body = (await request.json().catch(() => null)) as {
+        ownerId?: unknown;
+        generation?: unknown;
+        leaseId?: unknown;
+        sessionId?: unknown;
+        turnId?: unknown;
+      } | null;
+      const ownerId =
+        typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
+      const generation =
+        typeof body?.generation === "string" ? body.generation.trim() : "";
+      const leaseId =
+        typeof body?.leaseId === "string" ? body.leaseId.trim() : "";
+      const sessionId =
+        typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
+      const turnId = typeof body?.turnId === "string" ? body.turnId.trim() : "";
+      if (!ownerId || !generation || !leaseId || !sessionId || !turnId) {
+        return json(
+          { code: "bad_request", message: "Malformed request." },
+          400,
+        );
+      }
+      const unregistered = await callOwnerFence(env, ownerId, "unregister", {
+        generation,
+        leaseId,
+        sessionId,
+        turnId,
+      });
+      return unregistered.ok
+        ? json({ unregistered: true })
+        : json(
+            {
+              code: "owner_purge",
+              message: "Account activity lease could not be released.",
+            },
+            409,
+          );
+    }
+    const ownerTransferMatch = url.pathname.match(
+      /^\/internal\/conversations\/([^/]+)\/transfer-owner$/,
+    );
+    if (request.method === "POST" && ownerTransferMatch) {
+      const conversationId = ownerTransferMatch[1]!;
+      const rawBody = await request.text();
+      const transfer = parseOwnerTransferRequest(
+        await new Response(rawBody).json().catch(() => null),
+      );
+      if (!transfer) {
+        return json(
+          { code: "bad_request", message: "Malformed request." },
+          400,
+        );
+      }
+      try {
+        return await withOwnerActivityLease(
+          env,
+          transfer.fromOwnerId,
+          `owner-transfer:${conversationId}:source`,
+          async () =>
+            await withOwnerActivityLease(
+              env,
+              transfer.toOwnerId,
+              `owner-transfer:${conversationId}:destination`,
+              async () =>
+                await env.ORCHESTRATOR_SESSIONS.getByName(
+                  conversationName(conversationId),
+                ).fetch(
+                  "https://orchestrator-session/internal/transfer-owner",
+                  {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: rawBody,
+                  },
+                ),
+            ),
+        );
+      } catch (error) {
+        if (error instanceof OwnerPurgeFenceError) {
+          return json(
+            {
+              code: "owner_purge",
+              message: "Account data is being deleted or reset.",
+              retryAfterMs: 60_000,
+            },
+            409,
+          );
+        }
+        throw error;
+      }
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/internal/owners/transfer-product-state"
+    ) {
+      const transfer = parseOwnerProductTransferRequest(
+        await request.json().catch(() => null),
+      );
+      if (!transfer) {
+        return json(
+          { code: "bad_request", message: "Malformed request." },
+          400,
+        );
+      }
+      try {
+        const result = await withOwnerTransferLease(
+          env,
+          transfer.fromOwnerId,
+          `${requestId}:source`,
+          async () =>
+            await withOwnerTransferLease(
+              env,
+              transfer.toOwnerId,
+              `${requestId}:destination`,
+              async () => await transferOwnerProductStorage(env, transfer),
+            ),
+        );
+        return result.complete
+          ? json({ transferred: true, ...result })
+          : json(
+              {
+                transferred: false,
+                code: "copy_in_progress",
+                message: "Owner product state copy is still in progress.",
+                retryAfterMs: 1_000,
+              },
+              202,
+            );
+      } catch (error) {
+        if (error instanceof OwnerPurgeFenceError) {
+          return json(
+            {
+              code: "owner_purge",
+              message: "Account data is being deleted or reset.",
+              retryAfterMs: 60_000,
+            },
+            409,
+          );
+        }
+        if (error instanceof OwnerProductTransferConflictError) {
+          return json(
+            {
+              code: "owner_transfer_conflict",
+              message: error.message,
+            },
+            409,
+          );
+        }
+        log("error", "owner_product_transfer_failed", {
+          requestId,
+          message: errorMessage(error),
+        });
+        return json(
+          {
+            code: "owner_transfer_failed",
+            message: "Owner product state transfer failed.",
+            retryAfterMs: 5_000,
+          },
+          502,
+        );
+      }
+    }
     if (request.method === "POST" && url.pathname === "/m0/echo") {
       return env.BUILD_SESSIONS.getByName("m0-echo").fetch(
         "https://build-session/echo",
@@ -3810,12 +4588,25 @@ export default {
               debtKey,
               "json",
             );
-            const backupIds = new Set<string>();
-            if (descriptor?.id) backupIds.add(descriptor.id);
-            for (const backupId of debt?.backupIds ?? []) {
-              backupIds.add(backupId);
-            }
-            for (const backupId of backupIds) {
+            const importsKey = checkpointImportsKey(key);
+            const imports =
+              await env.APP_ROUTES.get<WorkspaceCheckpointImports>(
+                importsKey,
+                "json",
+              );
+            const recovery = collectCheckpointRecoveryReferences({
+              ...(descriptor?.id ? { descriptorId: descriptor.id } : {}),
+              debtBackupIds: debt?.backupIds,
+              historicalBackupName: checkpointBackupName(key),
+              imports: (imports?.imports ?? []).map((imported) => ({
+                ...(imported.descriptor?.id
+                  ? { descriptorId: imported.descriptor.id }
+                  : {}),
+                backupIds: imported.backupIds,
+                historicalBackupName: imported.historicalBackupName,
+              })),
+            });
+            for (const backupId of recovery.backupIds) {
               if (!BACKUP_ID_PATTERN.test(backupId)) {
                 throw new Error("Workspace backup descriptor is invalid.");
               }
@@ -3827,18 +4618,22 @@ export default {
                 throw new Error("Workspace backup purge was truncated.");
               }
             }
-            const historical = await sweepBackupsByName(
-              env.BACKUP_BUCKET,
-              checkpointBackupName(key),
-            );
-            if (!historical.done) {
-              throw new Error(
-                "Historical workspace backup scan was truncated.",
+            for (const historicalName of recovery.historicalBackupNames) {
+              const historical = await sweepBackupsByName(
+                env.BACKUP_BUCKET,
+                historicalName,
               );
+              if (!historical.done) {
+                throw new Error(
+                  "Historical workspace backup scan was truncated.",
+                );
+              }
             }
             // Bytes first; these keys are the only recovery names.
             await env.APP_ROUTES.delete(key);
             await env.APP_ROUTES.delete(debtKey);
+            await env.APP_ROUTES.delete(importsKey);
+            await env.APP_ROUTES.delete(workspaceTransferReceiptsKey(key));
             await env.APP_ROUTES.delete(instanceSizeKey(key));
           },
           workspace.canonical,

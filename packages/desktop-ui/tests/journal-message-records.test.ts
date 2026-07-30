@@ -71,6 +71,32 @@ describe("journalRecordsToMessageRecords", () => {
     ]);
   });
 
+  test("projects canonical voice-session metadata into the existing card contract", () => {
+    const projected = journalRecordsToMessageRecords([
+      {
+        kind: "message",
+        seq: 4,
+        turnId: "voice:mac:summary",
+        createdAtMs: 13,
+        role: "assistant",
+        hidden: false,
+        payload: {
+          role: "assistant",
+          content: [{ type: "text", text: "Voice session" }],
+          source: "voice",
+          voiceSession: { durationMs: 12_000 },
+          timestamp: 13,
+        },
+      },
+    ]);
+
+    expect(projected[0]?.payload).toMatchObject({
+      text: "Voice session",
+      source: "voice",
+      metadata: { voiceSession: { durationMs: 12_000 } },
+    });
+  });
+
   test("withholds a record-count-truncated leading turn until its prompt is backfilled", () => {
     const assistantTail = Array.from({ length: 120 }, (_, index) => ({
       kind: "message" as const,

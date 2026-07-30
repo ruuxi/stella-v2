@@ -23,6 +23,7 @@ import type {
 } from "@stella/contracts/protocol";
 import { agentHasCapability } from "@stella/contracts/agent-runtime";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
+import { CloudTranscriptAlreadyAdmittedError } from "./cloud-transcript-write.js";
 
 type BuildAgentContext = (
   args: BuildAgentContextArgs,
@@ -61,7 +62,7 @@ const buildCloudUserMessage = (
   return message;
 };
 
-const parseCanonicalCloudHistory = (
+export const parseCanonicalCloudHistory = (
   serializedHistory: string[],
 ): NonNullable<LocalAgentContext["threadHistory"]> =>
   serializedHistory.map((serialized, index) => {
@@ -296,12 +297,8 @@ export const launchPreparedOrchestratorRun = (args: {
   // shutdown deterministically finalize the turn and everything beneath it.
   const settled = (async () => {
     const isCloudTurn = prepared.storageMode === "cloud";
-    const afterInsertionSequence = isCloudTurn
-      ? context.runtimeStore.getThreadEntryInsertionSequenceWatermark(
-          orchestratorSession.threadKey,
-        )
-      : null;
     let leaseToken: string | null = null;
+    let ephemeralCaptureStarted = false;
     let deferredTerminal: DeferredTerminalCallback | null = null;
     let runError: unknown;
     const callbacks: RuntimeRunCallbacks = isCloudTurn
@@ -331,10 +328,6 @@ export const launchPreparedOrchestratorRun = (args: {
           localTurnId: prepared.runId,
           clientMsgId: args.userMessageId,
           userMessageJson: JSON.stringify(userMessage),
-          recovery: {
-            threadKey: orchestratorSession.threadKey,
-            afterInsertionSequence: afterInsertionSequence!,
-          },
           onLeaseLost: (reason) => {
             prepared.abortController.abort(
               `Cloud conversation lease ended (${reason}).`,
@@ -343,10 +336,17 @@ export const launchPreparedOrchestratorRun = (args: {
           signal: prepared.abortController.signal,
         });
         leaseToken = begin.leaseToken;
+        const canonicalHistory = parseCanonicalCloudHistory(begin.history);
         prepared.agentContext = {
           ...prepared.agentContext,
-          threadHistory: parseCanonicalCloudHistory(begin.history),
+          threadHistory: canonicalHistory,
         };
+        context.runtimeStore.beginEphemeralThreadCapture({
+          threadKey: orchestratorSession.threadKey,
+          captureId: prepared.runId,
+          seedMessages: canonicalHistory,
+        });
+        ephemeralCaptureStarted = true;
         // The same long-lived native session may previously have been seeded
         // from local SQLite. Force its next turn to replace that state with
         // the Durable Object's canonical history. External engines read the
@@ -368,6 +368,7 @@ export const launchPreparedOrchestratorRun = (args: {
       await runOrchestratorTurn({
         runId: prepared.runId,
         conversationId: prepared.conversationId,
+        storageMode: prepared.storageMode,
         userMessageId: args.userMessageId,
         agentType: prepared.agentType,
         userPrompt: prepared.userPrompt,
@@ -444,53 +445,68 @@ export const launchPreparedOrchestratorRun = (args: {
       runError = error;
     }
 
-    if (isCloudTurn && leaseToken && afterInsertionSequence !== null) {
-      const records = context.runtimeStore
-        .loadRawThreadMessagesAfterInsertionSequence(
-          orchestratorSession.threadKey,
-          afterInsertionSequence,
-        )
-        .filter(
-          (message) =>
-            message.payload !== undefined &&
-            (message.payload.role === "assistant" ||
-              message.payload.role === "toolResult"),
-        )
-        .map((message, ordinal) => ({
-          ordinal,
-          role: message.payload!.role as "assistant" | "toolResult",
-          payloadJson: JSON.stringify(message.payload),
-        }));
-      const reportCloudSyncFailure = (message: string): void => {
-        args.runtimeCallbacks.onError({
-          runId: prepared.runId,
-          agentType: prepared.agentType,
-          seq: Date.now(),
-          error: message,
-          fatal: false,
-          ...(prepared.uiVisibility
-            ? { uiVisibility: prepared.uiVisibility }
-            : {}),
+    if (isCloudTurn && leaseToken && ephemeralCaptureStarted) {
+      try {
+        const records = context.runtimeStore
+          .readEphemeralThreadCapture({
+            threadKey: orchestratorSession.threadKey,
+            captureId: prepared.runId,
+          })
+          .filter(
+            (message) =>
+              message.payload !== undefined &&
+              (message.payload.role === "assistant" ||
+                message.payload.role === "toolResult"),
+          )
+          .map((message, ordinal) => ({
+            ordinal,
+            role: message.payload!.role as "assistant" | "toolResult",
+            payloadJson: JSON.stringify(message.payload),
+          }));
+        const reportCloudSyncFailure = (message: string): void => {
+          args.runtimeCallbacks.onError({
+            runId: prepared.runId,
+            agentType: prepared.agentType,
+            seq: Date.now(),
+            error: message,
+            fatal: false,
+            ...(prepared.uiVisibility
+              ? { uiVisibility: prepared.uiVisibility }
+              : {}),
+          });
+        };
+        const finishStatus = await context.cloudTranscript.finish({
+          conversationId: prepared.conversationId,
+          localTurnId: prepared.runId,
+          leaseToken,
+          records,
+          ...cloudFinishPhase(deferredTerminal, runError),
+          failureNotificationUserMessageId: args.userMessageId,
+          onDeliveryFailure: reportCloudSyncFailure,
         });
-      };
-      const finishStatus = await context.cloudTranscript.finish({
-        conversationId: prepared.conversationId,
-        localTurnId: prepared.runId,
-        leaseToken,
-        records,
-        ...cloudFinishPhase(deferredTerminal, runError),
-        failureNotificationUserMessageId: args.userMessageId,
-        onDeliveryFailure: reportCloudSyncFailure,
-      });
-      if (!finishStatus.queued) {
-        reportCloudSyncFailure(
-          "This response finished on this device but was too large to sync to your cloud conversation.",
-        );
+        if (!finishStatus.queued) {
+          reportCloudSyncFailure(
+            "This response finished on this device but was too large to sync to your cloud conversation.",
+          );
+        }
+        flushDeferredTerminal(args.runtimeCallbacks, deferredTerminal);
+      } finally {
+        context.runtimeStore.endEphemeralThreadCapture({
+          threadKey: orchestratorSession.threadKey,
+          captureId: prepared.runId,
+        });
       }
-      flushDeferredTerminal(args.runtimeCallbacks, deferredTerminal);
     }
     if (runError !== undefined) throw runError;
   })().catch((error) => {
+    if (error instanceof CloudTranscriptAlreadyAdmittedError) {
+      // The cloud journal has already accepted this stable client message,
+      // usually after an IPC response was lost across a desktop restart. The
+      // canonical cloud feed owns reconciliation; emitting a fatal local error
+      // here would turn successful deduplication into a false failure card.
+      args.cleanupRun(prepared.runId);
+      return;
+    }
     if (isReportedOrchestratorError(error)) {
       return;
     }

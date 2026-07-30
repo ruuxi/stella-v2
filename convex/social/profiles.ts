@@ -229,11 +229,8 @@ export const getMyProfile = query({
   args: {},
   returns: optionalProfileValidator,
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity || (identity as Record<string, unknown>).isAnonymous === true) {
-      return null;
-    }
-    return await getSocialProfileByOwnerId(ctx, identity.tokenIdentifier);
+    const ownerId = await getConnectedUserIdOrNull(ctx);
+    return ownerId ? await getSocialProfileByOwnerId(ctx, ownerId) : null;
   },
 });
 

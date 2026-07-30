@@ -157,6 +157,7 @@ export class OrchestratorSession extends PiSessionCore {
       rootRunId: opts.rootRunId ?? runId,
       agentId: opts.agentId,
       conversationId: opts.conversationId,
+      storageMode: opts.storageMode,
       agentType: opts.agentType,
       deviceId: opts.deviceId,
       stellaAppDir: opts.stellaAppDir,

@@ -161,10 +161,7 @@ const assertValidSchedule = (schedule: unknown): LocalCronSchedule => {
   throw new Error('schedule.kind must be "at", "every", or "cron".')
 }
 
-const assertValidScriptPath = (
-  value: unknown,
-  scriptsDir: string,
-): string => {
+const assertValidScriptPath = (value: unknown, scriptsDir: string): string => {
   const raw = asTrimmedString(value)
   if (!raw) {
     throw new Error('payload.kind="script" requires scriptPath.')
@@ -458,7 +455,8 @@ const isScheduledConversationEvent = (
   )
 }
 
-const buildCronJobRecordValidator = (scriptsDir: string) =>
+const buildCronJobRecordValidator =
+  (scriptsDir: string) =>
   (value: unknown): value is LocalCronJobRecord => {
     if (!value || typeof value !== 'object') {
       return false
@@ -1068,7 +1066,9 @@ export class LocalSchedulerService {
         }
 
         const needsRunner = this.requiresRunner(dueItem)
-        const runner = needsRunner ? this.options.runnerTarget.getRunner() : null
+        const runner = needsRunner
+          ? this.options.runnerTarget.getRunner()
+          : null
         if (needsRunner && !runner) {
           // Worker isn't ready yet; back off and retry. notify/script
           // fires don't need the runner so they continue to drain.
@@ -1317,6 +1317,7 @@ export class LocalSchedulerService {
     const runResult = await runner.runAutomationTurn({
       conversationId: active.conversationId,
       userPrompt: active.payload.prompt,
+      storageMode: 'local',
       agentType: active.payload.agentType ?? 'general',
     })
 
@@ -1348,7 +1349,9 @@ export class LocalSchedulerService {
     const deliver = active.deliver !== false
     active.lastStatus = finalText ? 'ok' : 'no-response'
     active.lastError = undefined
-    active.lastOutputPreview = finalText ? truncatePreview(finalText) : undefined
+    active.lastOutputPreview = finalText
+      ? truncatePreview(finalText)
+      : undefined
 
     if (deliver && finalText) {
       this.appendGeneratedAssistantMessage(active.conversationId, {
@@ -1419,6 +1422,7 @@ export class LocalSchedulerService {
         prompt: active.prompt,
         checklist: active.checklist,
       }),
+      storageMode: 'local',
       agentType: active.agentType ?? 'orchestrator',
     })
 

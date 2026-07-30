@@ -39,7 +39,16 @@ import {
   type JournalRecord,
 } from "./conversation-types.js";
 import { sha256Hex } from "./hash.js";
-import type { Journal, JournalRow, SegmentRow } from "./journal.js";
+import {
+  rewriteSegmentOwnership,
+  transferArchiveKey,
+} from "./owner-transfer.js";
+import type {
+  Journal,
+  JournalRow,
+  OwnerTransferObjectRow,
+  SegmentRow,
+} from "./journal.js";
 
 /**
  * One cut is bounded independently of the residency target so a single
@@ -50,6 +59,7 @@ const SEGMENT_MAX_ROWS = 1_000;
 const SEGMENT_MAX_BYTES = 8 * 1024 * 1024;
 const ARCHIVE_READ_ROWS = 500;
 const PURGE_BATCH = 200;
+const OWNER_TRANSFER_BATCH = 4;
 /**
  * How many delete batches may fail before this pass gives up and lets Convex's
  * sweep retry. Bounded rather than "until it works": the caller is holding an
@@ -155,6 +165,119 @@ export class ConversationArchive {
     for (let pass = 0; pass < 4 && this.inFlight.size > 0; pass += 1) {
       await Promise.allSettled([...this.inFlight]);
     }
+  }
+
+  async transferOwner(
+    fromPrefix: string,
+    toPrefix: string,
+    toOwnerId: string,
+  ): Promise<{ complete: boolean; pending: number }> {
+    await this.quiesce();
+    // A crash during rollover can leave a durable uploading row whose source
+    // object was never put. Recover it under the old owner prefix before the
+    // transfer enumerates archive keys, otherwise that missing source would
+    // make every transfer retry fail at the same row.
+    await this.finishPendingSegment();
+    let copying = this.journal.ownerTransferObjects(
+      "copying",
+      OWNER_TRANSFER_BATCH,
+    );
+    if (copying.length === 0) {
+      const sources = this.journal.ownerTransferSourceKeys(
+        fromPrefix,
+        OWNER_TRANSFER_BATCH,
+      );
+      for (const source of sources) {
+        const target = transferArchiveKey(source.key, fromPrefix, toPrefix);
+        if (!target) continue;
+        this.journal.enqueueOwnerTransferObject(
+          source.key,
+          target,
+          source.kind,
+        );
+      }
+      copying = this.journal.ownerTransferObjects(
+        "copying",
+        OWNER_TRANSFER_BATCH,
+      );
+    }
+
+    for (const row of copying) {
+      await this.copyOwnerTransferObject(row, toOwnerId, fromPrefix, toPrefix);
+      this.journal.rewriteOwnerTransferObject(row);
+    }
+    if (copying.length > 0) {
+      return {
+        complete: false,
+        pending:
+          this.journal.ownerTransferPending() +
+          this.journal.ownerTransferSourceKeys(fromPrefix, 1).length,
+      };
+    }
+    if (this.journal.ownerTransferSourceKeys(fromPrefix, 1).length > 0) {
+      return {
+        complete: false,
+        pending: this.journal.ownerTransferPending() + 1,
+      };
+    }
+
+    const cleanup = this.journal.ownerTransferObjects(
+      "cleanup",
+      OWNER_TRANSFER_BATCH,
+    );
+    if (cleanup.length > 0) {
+      if (!this.bucket) {
+        throw new Error("Conversation archive storage is unavailable.");
+      }
+      await withTimeout(
+        this.bucket.delete(cleanup.map((row) => row.old_key)),
+        R2_TIMEOUT_MS,
+      );
+      for (const row of cleanup) {
+        this.journal.completeOwnerTransferObject(row.old_key);
+      }
+    }
+    const pending = this.journal.ownerTransferPending();
+    return { complete: pending === 0, pending };
+  }
+
+  private async copyOwnerTransferObject(
+    row: OwnerTransferObjectRow,
+    toOwnerId: string,
+    fromPrefix: string,
+    toPrefix: string,
+  ): Promise<void> {
+    if (!this.bucket) {
+      throw new Error("Conversation archive storage is unavailable.");
+    }
+    const existing = await withTimeout(
+      this.bucket.head(row.new_key),
+      R2_TIMEOUT_MS,
+    );
+    if (existing) return;
+    const source = await withTimeout(
+      this.bucket.get(row.old_key),
+      R2_TIMEOUT_MS,
+    );
+    if (!source) {
+      throw new Error(`Conversation archive object is missing: ${row.old_key}`);
+    }
+    const body =
+      row.kind === "segment"
+        ? await rewriteSegmentOwnership(
+            await source.arrayBuffer(),
+            toOwnerId,
+            fromPrefix,
+            toPrefix,
+          )
+        : source.body;
+    await withTimeout(
+      this.bucket.put(row.new_key, body, {
+        httpMetadata: source.httpMetadata,
+        customMetadata: source.customMetadata,
+      }),
+      R2_TIMEOUT_MS,
+    );
   }
 
   private async prefix(): Promise<string | null> {
@@ -325,7 +448,11 @@ export class ConversationArchive {
     if (this.sealed || this.journal.isDeleted()) return;
     const firstSeq = meta.hot_min_seq;
     if (cutSeq < firstSeq) return;
-    const rows = this.journal.rowsForArchive(firstSeq, cutSeq, SEGMENT_MAX_ROWS);
+    const rows = this.journal.rowsForArchive(
+      firstSeq,
+      cutSeq,
+      SEGMENT_MAX_ROWS,
+    );
     if (rows.length === 0) return;
     let bytes = 0;
     let lastSeq = rows[0]!.seq;
@@ -421,10 +548,16 @@ export class ConversationArchive {
   ): Promise<void> {
     if (!this.bucket) throw new Error("No conversation archive bucket bound.");
     const encoder = new TextEncoder();
-    const chunks: Uint8Array[] = [encoder.encode(`${JSON.stringify(header)}\n`)];
+    const chunks: Uint8Array[] = [
+      encoder.encode(`${JSON.stringify(header)}\n`),
+    ];
     let cursor = firstSeq;
     for (;;) {
-      const batch = this.journal.rowsForArchive(cursor, lastSeq, ARCHIVE_READ_ROWS);
+      const batch = this.journal.rowsForArchive(
+        cursor,
+        lastSeq,
+        ARCHIVE_READ_ROWS,
+      );
       if (batch.length === 0) break;
       let text = "";
       for (const row of batch) text += `${JSON.stringify(row)}\n`;

@@ -146,7 +146,12 @@ export const cloudAppsSchema = {
     updatedAt: v.number(),
   })
     .index("by_buildId", ["buildId"])
-    .index("by_appId_and_createdAt", ["appId", "createdAt"]),
+    .index("by_appId_and_createdAt", ["appId", "createdAt"])
+    .index("by_ownerId_and_appId_and_createdAt", [
+      "ownerId",
+      "appId",
+      "createdAt",
+    ]),
 
   // Stella's web interior is a per-owner deployable. Build rows below are
   // immutable candidates; this small row is the only mutable routing state.
@@ -262,6 +267,11 @@ export const cloudAppsSchema = {
       "createdAt",
     ])
     .index("by_conversationId_and_createdAt", ["conversationId", "createdAt"])
+    .index("by_conversationId_and_ownerId_and_createdAt", [
+      "conversationId",
+      "ownerId",
+      "createdAt",
+    ])
     .index("by_threadId_and_createdAt", ["threadId", "createdAt"]),
 
   // Spawned-agent THREAD transcripts — private job state, never conversation
@@ -285,6 +295,11 @@ export const cloudAppsSchema = {
     createdAt: v.number(),
   })
     .index("by_conversationId_and_seq", ["conversationId", "seq"])
+    .index("by_conversationId_and_ownerId_and_seq", [
+      "conversationId",
+      "ownerId",
+      "seq",
+    ])
     .index("by_turnId", ["turnId"])
     // Account deletion drains by owner; without this the table could only be
     // reached through its threads, and a thread row lost to an earlier partial
@@ -310,6 +325,12 @@ export const cloudAppsSchema = {
     createdAt: v.number(),
   })
     .index("by_conversationId_and_seq", ["conversationId", "seq"])
+    .index("by_ownerId_and_seq", ["ownerId", "seq"])
+    .index("by_conversationId_and_ownerId_and_seq", [
+      "conversationId",
+      "ownerId",
+      "seq",
+    ])
     .index("by_turnId", ["turnId"]),
 
   // Recall's cross-conversation index: one compact, searchable excerpt per
@@ -327,6 +348,11 @@ export const cloudAppsSchema = {
   })
     .index("by_turnId", ["turnId"])
     .index("by_conversationId_and_seqStart", ["conversationId", "seqStart"])
+    .index("by_conversationId_and_ownerId_and_seqStart", [
+      "conversationId",
+      "ownerId",
+      "seqStart",
+    ])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
     // `filterFields: ["ownerId"]` IS the authorization: the owner equality is
     // applied inside the search predicate, so there is no code path that can
@@ -354,6 +380,7 @@ export const cloudAppsSchema = {
   })
     .index("by_tokenHash", ["tokenHash"])
     .index("by_expiresAt", ["expiresAt"])
+    .index("by_turnId_and_ownerId", ["turnId", "ownerId"])
     // Deleting an account must not leave live credentials behind for up to the
     // token TTL; the expiry cron is a floor, not a deletion path.
     .index("by_ownerId", ["ownerId"]),
@@ -384,6 +411,18 @@ export const cloudAppsSchema = {
      * a deliberate per-spawn override replaces it for that new turn.
      */
     execution: v.optional(cloudExecutionSelectionValidator),
+    /**
+     * Desktop-computer attempts reuse one thread row across follow-ups. The
+     * generation fences late completion/cancel mutations from an older local
+     * attempt after a newer attempt has made the row running again.
+     */
+    attemptGeneration: v.optional(v.number()),
+    /**
+     * Expiring admission lease for a real cloud sandbox. Desktop-computer rows
+     * store the explicit marker `0`; missing is reserved for rolling-deploy
+     * rows created before lease-backed admission existed.
+     */
+    sandboxLeaseExpiresAt: v.optional(v.number()),
     status: v.string(),
     resultJson: v.optional(v.string()),
     errorMessage: v.optional(v.string()),
@@ -392,7 +431,18 @@ export const cloudAppsSchema = {
   })
     .index("by_threadId", ["threadId"])
     .index("by_conversationId_and_updatedAt", ["conversationId", "updatedAt"])
+    .index("by_conversationId_and_ownerId_and_updatedAt", [
+      "conversationId",
+      "ownerId",
+      "updatedAt",
+    ])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"])
+    .index("by_owner_status_lease_updatedAt", [
+      "ownerId",
+      "status",
+      "sandboxLeaseExpiresAt",
+      "updatedAt",
+    ])
     .index("by_ownerId_and_originDeviceId_and_updatedAt", [
       "ownerId",
       "originDeviceId",
@@ -427,7 +477,12 @@ export const cloudAppsSchema = {
   })
     .index("by_appId_and_userId_and_key", ["appId", "userId", "key"])
     .index("by_appId_and_userId", ["appId", "userId"])
-    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
+    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"])
+    .index("by_ownerId_and_appId_and_updatedAt", [
+      "ownerId",
+      "appId",
+      "updatedAt",
+    ]),
 
   cloud_app_operations: defineTable({
     appId: v.string(),
@@ -435,7 +490,9 @@ export const cloudAppsSchema = {
     manifestJson: v.string(),
     sizeBytes: v.number(),
     updatedAt: v.number(),
-  }).index("by_appId", ["appId"]),
+  })
+    .index("by_appId", ["appId"])
+    .index("by_ownerId_and_appId", ["ownerId", "appId"]),
 
   cloud_app_op_invocations: defineTable({
     invocationId: v.string(),
@@ -457,7 +514,17 @@ export const cloudAppsSchema = {
       "status",
       "createdAt",
     ])
-    .index("by_turnId", ["turnId"]),
+    .index("by_turnId", ["turnId"])
+    .index("by_ownerId_and_appId_and_createdAt", [
+      "ownerId",
+      "appId",
+      "createdAt",
+    ])
+    .index("by_ownerId_and_turnId_and_createdAt", [
+      "ownerId",
+      "turnId",
+      "createdAt",
+    ]),
 
   cloud_failure_alerts: defineTable({
     windowStartedAt: v.number(),

@@ -7,6 +7,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { requireUserId } from "./auth";
 
 const INTERIOR_KIND = "stella-interior" as const;
 const MAX_MANIFEST_BYTES = 256 * 1024;
@@ -31,15 +32,7 @@ const REQUIRED_ENTRIES = {
   pet: "pet.html",
 } as const;
 
-const requireOwnerId = async (ctx: {
-  auth: { getUserIdentity: () => Promise<{ tokenIdentifier: string } | null> };
-}): Promise<string> => {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new ConvexError("Sign in to manage Stella deployments.");
-  }
-  return identity.tokenIdentifier;
-};
+const requireOwnerId = requireUserId;
 
 const deployableIdForOwner = (ownerId: string): string =>
   `stella-interior:${ownerId}`;

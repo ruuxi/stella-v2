@@ -50,7 +50,7 @@ export const useConversationFiles = (
   conversationId?: string,
 ): ConversationFilesFeed => {
   const { storageMode, isLocalStorage } = useChatStore();
-  const isLocalMode = isLocalStorage;
+  const hasLocalCache = isLocalStorage;
 
   const visitKey = `${storageMode}:${isLocalStorage ? "cache" : "none"}:${conversationId ?? ""}`;
   const visitToken = useMemo(() => Symbol(visitKey), [visitKey]);
@@ -74,7 +74,7 @@ export const useConversationFiles = (
   const [localRetryTick, setLocalRetryTick] = useState(0);
 
   useEffect(() => {
-    if (!isLocalMode || !conversationId) {
+    if (!hasLocalCache || !conversationId) {
       setSnapshotState({
         visitToken,
         snapshot: {
@@ -127,7 +127,7 @@ export const useConversationFiles = (
       }
       unsubscribe();
     };
-  }, [conversationId, isLocalMode, limit, localRetryTick, visitToken]);
+  }, [conversationId, hasLocalCache, limit, localRetryTick, visitToken]);
 
   const activeSnapshot =
     snapshotState.visitToken === visitToken
@@ -152,7 +152,7 @@ export const useConversationFiles = (
   }, [activeSnapshot.hasLoaded, files.length, hasOlderFiles, pendingLimit]);
 
   const loadOlder = useCallback(() => {
-    if (!conversationId || !isLocalMode) return;
+    if (!conversationId || !hasLocalCache) return;
     if (!hasOlderFiles) return;
     if (pendingLimit !== null) return;
     const next = limit + FILES_PAGE_SIZE;
@@ -160,11 +160,11 @@ export const useConversationFiles = (
     startTransition(() => {
       setLimit(next);
     });
-  }, [conversationId, hasOlderFiles, isLocalMode, limit, pendingLimit]);
+  }, [conversationId, hasLocalCache, hasOlderFiles, limit, pendingLimit]);
 
   const isInitialLoading =
     Boolean(conversationId) &&
-    isLocalMode &&
+    hasLocalCache &&
     !activeSnapshot.hasLoaded &&
     files.length === 0;
 

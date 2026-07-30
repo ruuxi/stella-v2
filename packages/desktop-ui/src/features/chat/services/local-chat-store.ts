@@ -4,8 +4,8 @@
  * from `local-message-store.ts` / `local-activity-store.ts` /
  * `local-files-store.ts` — this module is intentionally tiny:
  *
- *   - `getOrCreateLocalConversationId` — bootstrap helper used before
- *     any conversation context exists.
+ *   - Legacy local-conversation helpers remain available for explicit
+ *     recovery tooling, but the shell never selects them automatically.
  *   - `listLocalEvents` — used by onboarding (`WelcomeDialog` reads the
  *     welcome `assistant_message`) and a few auxiliary event readers that
  *     aren't part of the message/activity/files streams.
@@ -39,9 +39,8 @@ const getLocalChatApi = () => {
   return api;
 };
 
-// UiState survives account changes and may still contain the last cloud UUID.
-// Only ids returned by the local persistence API in this renderer lifetime are
-// eligible to become signed-out routes.
+// Legacy recovery helpers only. Cloud routing never consults this set or
+// promotes one of these ids into `/chat?c=`.
 const knownLocalConversationIds = new Set<string>();
 
 export const isKnownLocalConversationId = (conversationId: string): boolean =>

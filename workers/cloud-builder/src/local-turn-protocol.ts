@@ -14,11 +14,62 @@ export type ParsedLocalTurnRenewal = {
   leaseToken: string;
 };
 
+export type LocalClientMessageReceipt = {
+  clientMsgId: string;
+  beginFingerprint: string;
+  turnId: string;
+  phase?: LocalTerminalPhase;
+};
+
+export type LocalClientMessageReplay =
+  | "new"
+  | "same_turn"
+  | "duplicate"
+  | "conflict";
+
+export const localTurnLeaseAllowsIdentityTransition = (args: {
+  boundOwnerId: string;
+  callerOwnerId: string;
+  suppliedLeaseToken?: string;
+  activeLease?: { ownerId: string; leaseToken: string };
+}): boolean =>
+  args.callerOwnerId === args.boundOwnerId ||
+  Boolean(
+    args.suppliedLeaseToken &&
+    args.activeLease?.ownerId === args.boundOwnerId &&
+    args.activeLease.leaseToken === args.suppliedLeaseToken,
+  );
+
 export type ParsedLocalFinishRecord = {
   ordinal: number;
   role: "assistant" | "toolResult";
   message: AgentMessage;
   payloadJson: string;
+};
+
+const canonicalizeJson = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonicalizeJson);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, canonicalizeJson(nested)]),
+  );
+};
+
+/**
+ * The desktop reconstructs the same logical AgentMessage after a restart, and
+ * that construction gives it a fresh top-level timestamp. The timestamp is
+ * delivery metadata, not message identity, so exclude it while retaining and
+ * canonically ordering every other field used by the model.
+ */
+export const localClientMessageFingerprintSource = (
+  clientMsgId: string,
+  message: AgentMessage,
+): string => {
+  const logicalMessage = { ...(message as unknown as Record<string, unknown>) };
+  delete logicalMessage.timestamp;
+  return `${clientMsgId}\u0000${JSON.stringify(canonicalizeJson(logicalMessage))}`;
 };
 
 const TERMINAL_PHASES = new Set<string>([
@@ -53,6 +104,24 @@ export const parseLocalTurnRenewal = (
     return null;
   }
   return { deviceId, localTurnId: localId, leaseToken };
+};
+
+export const classifyLocalClientMessageReplay = (
+  receipt: LocalClientMessageReceipt | undefined,
+  candidate: {
+    clientMsgId: string;
+    beginFingerprint: string;
+    turnId: string;
+  },
+): LocalClientMessageReplay => {
+  if (!receipt) return "new";
+  if (
+    receipt.clientMsgId !== candidate.clientMsgId ||
+    receipt.beginFingerprint !== candidate.beginFingerprint
+  ) {
+    return "conflict";
+  }
+  return receipt.turnId === candidate.turnId ? "same_turn" : "duplicate";
 };
 
 export const parseLocalTerminalPhase = (

@@ -58,12 +58,14 @@ type AuthBootstrapState = {
 
 type AuthBootstrapContextValue = AuthBootstrapState & {
   runtimeAuthReady: boolean;
+  retryAuthBootstrap: () => void;
 };
 
 const AuthBootstrapContext = createContext<AuthBootstrapContextValue>({
   status: "loading_session",
   error: null,
   runtimeAuthReady: false,
+  retryAuthBootstrap: () => {},
 });
 
 export function useAuthBootstrapState() {
@@ -136,12 +138,15 @@ export function useDesktopConvexAuth() {
 }
 
 function DesktopAuthRuntimeEffects({
+  retryAttempt,
   setAuthBootstrapState,
 }: {
+  retryAttempt: number;
   setAuthBootstrapState: (state: AuthBootstrapState) => void;
 }) {
   const session = useDesktopAuthSession();
   const attemptedAnonAuthRef = useRef(false);
+  const lastRetryAttemptRef = useRef(retryAttempt);
   const runtimeIdentityKeyRef = useRef<string | null>(null);
   const runtimeAuthRefreshHandlerRef = useRef<
     | ((args?: {
@@ -163,6 +168,10 @@ function DesktopAuthRuntimeEffects({
   const isSessionPending = Boolean(session.isPending);
 
   useEffect(() => {
+    if (lastRetryAttemptRef.current !== retryAttempt) {
+      lastRetryAttemptRef.current = retryAttempt;
+      attemptedAnonAuthRef.current = false;
+    }
     if (isMobileShell()) {
       setAuthBootstrapState({ status: "ready", error: null });
       return;
@@ -210,7 +219,7 @@ function DesktopAuthRuntimeEffects({
           error:
             error instanceof Error
               ? error.message
-              : "Stella could not create a local sign-in session.",
+              : "Stella could not create an anonymous cloud session.",
         });
       }
     });
@@ -218,7 +227,7 @@ function DesktopAuthRuntimeEffects({
     return () => {
       cancelled = true;
     };
-  }, [session.data, session.isPending, setAuthBootstrapState]);
+  }, [retryAttempt, session.data, session.isPending, setAuthBootstrapState]);
 
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
@@ -226,12 +235,9 @@ function DesktopAuthRuntimeEffects({
       return;
     }
 
-    // Cloud sync stays intentionally disabled; auth sessions are local-only for now.
-    void systemApi.setCloudSyncEnabled({ enabled: false });
-
-    return () => {
-      void systemApi.setCloudSyncEnabled({ enabled: false });
-    };
+    // Conversations are cloud-owned for anonymous and connected identities.
+    // Older desktop hosts still consume this compatibility flag.
+    void systemApi.setCloudSyncEnabled({ enabled: true });
   }, []);
 
   useEffect(() => {
@@ -264,7 +270,17 @@ function DesktopAuthRuntimeEffects({
       // Browser and mobile shells authenticate Convex directly. They have no
       // desktop runtime process to synchronize, so absence of this IPC method
       // is expected rather than an auth bootstrap failure.
-      if (!window.electronAPI) return;
+      if (isMobileShell()) return;
+      if (!window.electronAPI) {
+        setAuthBootstrapState(
+          isSessionPending
+            ? { status: "loading_session", error: null }
+            : hasSession
+              ? { status: "ready", error: null }
+              : { status: "creating_anonymous_session", error: null },
+        );
+        return;
+      }
       setAuthBootstrapState({
         status: "failed",
         error: "Stella could not connect auth to the desktop runtime.",
@@ -427,6 +443,7 @@ function DesktopAuthRuntimeEffects({
     sessionIsAnonymous,
     sessionUserId,
     setAuthBootstrapState,
+    retryAttempt,
   ]);
 
   useEffect(() => {
@@ -465,12 +482,19 @@ export function DesktopConvexAuthProvider({
             error: null,
           },
     );
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const retryAuthBootstrap = useCallback(() => {
+    clearCachedToken();
+    setAuthBootstrapState({ status: "loading_session", error: null });
+    setRetryAttempt((attempt) => attempt + 1);
+  }, []);
   const authBootstrapValue = useMemo(
     () => ({
       ...authBootstrapState,
       runtimeAuthReady: authBootstrapState.status === "ready",
+      retryAuthBootstrap,
     }),
-    [authBootstrapState],
+    [authBootstrapState, retryAuthBootstrap],
   );
 
   return (
@@ -482,6 +506,7 @@ export function DesktopConvexAuthProvider({
         <MagicLinkAuthProvider>
           {enableRuntimeEffects ? (
             <DesktopAuthRuntimeEffects
+              retryAttempt={retryAttempt}
               setAuthBootstrapState={setAuthBootstrapState}
             />
           ) : null}

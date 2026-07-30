@@ -32,5 +32,10 @@ export const cloudScheduleSchema = {
   })
     .index("by_scheduleId", ["scheduleId"])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"])
+    .index("by_conversationId_and_ownerId_and_updatedAt", [
+      "conversationId",
+      "ownerId",
+      "updatedAt",
+    ])
     .index("by_status_and_nextRunAt", ["status", "nextRunAt"]),
 };

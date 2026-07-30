@@ -29,6 +29,19 @@ import {
   normalizeCloudExecutionSelection,
   type CloudExecutionSelection,
 } from "./lib/cloud_execution";
+import {
+  assertOwnerMigrationWriteAllowed,
+  getUserIdentityOrNull,
+  hasOwnerMigrationSourceFence,
+  requireUserId,
+} from "./auth";
+import { appSdkSessionOwnsCurrentApp } from "./lib/app_sdk_session";
+import { sessionIdentityMatchesExpectedSubject } from "./lib/session_identity";
+import {
+  CLOUD_SANDBOX_LEASE_MS,
+  cloudAgentSandboxLeaseExpiresAt,
+  cloudSandboxThreadIsActive,
+} from "./lib/computer_agent_thread";
 
 type CloudPlanQuota = {
   dailyTurns: number;
@@ -242,8 +255,11 @@ const assertExecutionAvailable = async (
   if (execution.engine === "stella") return execution;
   const credential = await ctx.db
     .query("cloud_llm_credentials")
-    .withIndex("by_ownerId_and_provider", (q) =>
-      q.eq("ownerId", ownerId).eq("provider", execution.provider),
+    .withIndex("by_ownerId_and_provider_and_importedFromOwnerId", (q) =>
+      q
+        .eq("ownerId", ownerId)
+        .eq("provider", execution.provider)
+        .eq("importedFromOwnerId", undefined),
     )
     .unique();
   if (!credential) {
@@ -262,7 +278,9 @@ const resolveOwnerExecutionInMutation = async (
 ): Promise<CloudExecutionSelection> => {
   const settings = await ctx.db
     .query("cloud_engine_settings")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .withIndex("by_ownerId_and_importedFromOwnerId", (q) =>
+      q.eq("ownerId", ownerId).eq("importedFromOwnerId", undefined),
+    )
     .unique();
   const execution = settings?.execution
     ? normalizeCloudExecutionSelection(settings.execution)
@@ -675,6 +693,7 @@ const findTurnByClientMsgId = async (
 };
 
 const MAX_DISPATCHED_PROMPT_CHARS = 8_000;
+const LEGACY_SANDBOX_ADMISSION_SCAN_LIMIT = 256;
 
 /**
  * Contract C1: the shared chat-turn entry for non-composer callers
@@ -696,6 +715,7 @@ export const startCloudChatTurnInternal = internalMutation({
   },
   returns: v.object({ conversationId: v.string(), turnId: v.string() }),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     const prompt = args.prompt.trim();
     if (!prompt || prompt.length > MAX_DISPATCHED_PROMPT_CHARS) {
       throw new ConvexError(
@@ -710,6 +730,23 @@ export const startCloudChatTurnInternal = internalMutation({
         clientMsgId,
       );
       if (replayed) return replayed;
+    }
+    // Account linking creates this fence synchronously before the authenticated
+    // session changes owners. Refuse every new source-owner turn while the
+    // transfer is unresolved so a stale scheduled fire or already-running
+    // caller cannot recreate anonymous conversations after the migration's
+    // final residue check.
+    const ownerMigrations = await ctx.db
+      .query("auth_owner_migrations")
+      .withIndex("by_fromOwnerId_and_updatedAt", (q) =>
+        q.eq("fromOwnerId", args.ownerId),
+      )
+      .order("desc")
+      .take(8);
+    if (ownerMigrations.length > 0) {
+      throw new ConvexError(
+        "This identity is being linked to an account. Retry the turn after the transfer finishes.",
+      );
     }
     // Scheduled fires already passed their own per-owner daily budget in
     // cloud_schedule.ts; charging them here too would let a robot caller
@@ -837,13 +874,30 @@ export const checkQuotaInternal = internalQuery({
   },
 });
 
-const requireOwnerId = async (ctx: {
-  auth: { getUserIdentity: () => Promise<{ tokenIdentifier: string } | null> };
-}): Promise<string> => {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new ConvexError("Sign in to build apps with Stella.");
-  return identity.tokenIdentifier;
-};
+const requireOwnerId = requireUserId;
+
+/**
+ * Prove that the Convex connection has switched to the same immutable Better
+ * Auth owner currently visible to the renderer. The expected subject is part
+ * of the query key, so an account transition cannot reuse the prior owner's
+ * conversation-list snapshot while the socket is still authenticating.
+ */
+export const confirmMySessionIdentity = query({
+  args: {
+    expectedSubject: v.string(),
+    identityRevision: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    if (!Number.isSafeInteger(args.identityRevision)) return false;
+    const identity = await getUserIdentityOrNull(ctx);
+    if (!identity) return false;
+    return sessionIdentityMatchesExpectedSubject(
+      identity.subject,
+      args.expectedSubject,
+    );
+  },
+});
 
 /**
  * Creates the durable identity for a conversation without starting a model
@@ -871,6 +925,18 @@ export const createMyConversation = mutation({
         throw new ConvexError("Conversation not found.");
       }
       return projectCloudConversation(existing);
+    }
+    const ownerMigrations = await ctx.db
+      .query("auth_owner_migrations")
+      .withIndex("by_fromOwnerId_and_updatedAt", (q) =>
+        q.eq("fromOwnerId", ownerId),
+      )
+      .order("desc")
+      .take(8);
+    if (ownerMigrations.length > 0) {
+      throw new ConvexError(
+        "This identity is being linked to an account. Retry after the transfer finishes.",
+      );
     }
 
     await enforceMutationRateLimit(
@@ -2843,27 +2909,54 @@ const spawnCloudAgent = async (
   if (provisioning.error) return { ok: false, error: provisioning.error };
   workspace = provisioning.workspace;
   const { quota } = await resolveCloudPlan(ctx, args.ownerId);
-  // Concurrency is judged from thread status, not agent_turns rows: a
-  // running thread's updatedAt is always fresh (patched at spawn), so the
-  // newest-first window reliably contains every live agent, where an
-  // oldest-first turns scan could miss them behind a day of chat rows.
-  const runningThreads = (
-    await ctx.db
-      .query("cloud_agent_threads")
-      .withIndex("by_ownerId_and_updatedAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .order("desc")
-      .take(50)
-  ).filter(
-    (thread) =>
-      thread.status === "running" &&
-      thread.threadId !== threadId &&
-      // Defense in depth: the 15-min watchdog (with retried terminal
-      // delivery) should terminalize every thread, but a thread stuck
-      // "running" must degrade to a bounded lockout, not a permanent one.
-      thread.updatedAt > args.now - 60 * 60_000,
-  );
+  // Fresh cloud threads carry an explicit expiring lease. The index range is
+  // the admission authority: computer rows use lease marker 0 and terminal
+  // rows leave the exact "running" prefix, so neither can shadow capacity.
+  const leasedThreads = await ctx.db
+    .query("cloud_agent_threads")
+    .withIndex("by_owner_status_lease_updatedAt", (q) =>
+      q
+        .eq("ownerId", args.ownerId)
+        .eq("status", "running")
+        .gt("sandboxLeaseExpiresAt", args.now),
+    )
+    .take(quota.concurrentTurns);
+
+  // Rolling compatibility for threads created before the lease field existed.
+  // New computer rows use an explicit 0 marker, so only pre-deploy rows can
+  // enter this slice. The one-hour updatedAt bound preserves the old watchdog
+  // grace. If a pathological legacy slice exceeds the bound, fail closed
+  // instead of letting a fixed mixed window hide an active cloud sandbox.
+  const legacyLeaseRows = await ctx.db
+    .query("cloud_agent_threads")
+    .withIndex("by_owner_status_lease_updatedAt", (q) =>
+      q
+        .eq("ownerId", args.ownerId)
+        .eq("status", "running")
+        .eq("sandboxLeaseExpiresAt", undefined)
+        .gt("updatedAt", args.now - CLOUD_SANDBOX_LEASE_MS),
+    )
+    .order("desc")
+    .take(LEGACY_SANDBOX_ADMISSION_SCAN_LIMIT + 1);
+  if (legacyLeaseRows.length > LEGACY_SANDBOX_ADMISSION_SCAN_LIMIT) {
+    return {
+      ok: false,
+      error:
+        "Stella is reconciling active agents from an earlier version. Wait a moment, then try again.",
+    };
+  }
+  const runningThreads = [
+    ...leasedThreads,
+    ...legacyLeaseRows.filter((candidate) =>
+      cloudSandboxThreadIsActive({
+        workspace: candidate.workspace,
+        status: candidate.status,
+        sandboxLeaseExpiresAt: candidate.sandboxLeaseExpiresAt,
+        updatedAt: candidate.updatedAt,
+        now: args.now,
+      }),
+    ),
+  ].filter((candidate) => candidate.threadId !== threadId);
   if (runningThreads.length >= quota.concurrentTurns) {
     return {
       ok: false,
@@ -2896,6 +2989,10 @@ const spawnCloudAgent = async (
       ...(originDeviceId ? { originDeviceId } : {}),
       ...(originConversationId ? { originConversationId } : {}),
       execution,
+      sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt(
+        workspace,
+        args.now,
+      ),
       updatedAt: args.now,
     });
   }
@@ -2912,6 +3009,10 @@ const spawnCloudAgent = async (
       workspace,
       agentType: "general",
       execution,
+      sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt(
+        workspace,
+        args.now,
+      ),
       status: "running",
       createdAt: args.now,
       updatedAt: args.now,
@@ -4042,28 +4143,64 @@ export const acknowledgeMyDeviceAgentThreadDelivery = mutation({
   },
 });
 
-export const getStorageInternal = internalQuery({
-  args: { appId: v.string(), userId: v.string(), key: v.string() },
-  returns: v.any(),
-  handler: (ctx, args) =>
+const assertCurrentAppSdkOwner = async (
+  ctx: QueryCtx | MutationCtx,
+  appId: string,
+  ownerId: string,
+): Promise<void> => {
+  const [app, sourceOwnerFenced] = await Promise.all([
     ctx.db
+      .query("cloud_apps")
+      .withIndex("by_appId", (q) => q.eq("appId", appId))
+      .unique(),
+    hasOwnerMigrationSourceFence(ctx, ownerId),
+  ]);
+  if (
+    !appSdkSessionOwnsCurrentApp({
+      tokenOwnerId: ownerId,
+      currentAppOwnerId: app?.ownerId ?? null,
+      sourceOwnerFenced,
+    })
+  ) {
+    throw new ConvexError("App session expired. Reload the app.");
+  }
+};
+
+export const getStorageInternal = internalQuery({
+  args: {
+    appId: v.string(),
+    ownerId: v.string(),
+    userId: v.string(),
+    key: v.string(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    await assertCurrentAppSdkOwner(ctx, args.appId, args.ownerId);
+    return await ctx.db
       .query("cloud_app_storage")
       .withIndex("by_appId_and_userId_and_key", (q) =>
         q.eq("appId", args.appId).eq("userId", args.userId).eq("key", args.key),
       )
-      .unique(),
+      .unique();
+  },
 });
 
 export const listStorageInternal = internalQuery({
-  args: { appId: v.string(), userId: v.string() },
+  args: {
+    appId: v.string(),
+    ownerId: v.string(),
+    userId: v.string(),
+  },
   returns: v.any(),
-  handler: (ctx, args) =>
-    ctx.db
+  handler: async (ctx, args) => {
+    await assertCurrentAppSdkOwner(ctx, args.appId, args.ownerId);
+    return await ctx.db
       .query("cloud_app_storage")
       .withIndex("by_appId_and_userId", (q) =>
         q.eq("appId", args.appId).eq("userId", args.userId),
       )
-      .take(101),
+      .take(101);
+  },
 });
 
 export const setStorageInternal = internalMutation({
@@ -4078,6 +4215,7 @@ export const setStorageInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertCurrentAppSdkOwner(ctx, args.appId, args.ownerId);
     if (args.key.length < 1 || args.key.length > 128) {
       throw new ConvexError("Storage keys must be 1–128 characters.");
     }
@@ -4123,9 +4261,15 @@ export const setStorageInternal = internalMutation({
 });
 
 export const deleteStorageInternal = internalMutation({
-  args: { appId: v.string(), userId: v.string(), key: v.string() },
+  args: {
+    appId: v.string(),
+    ownerId: v.string(),
+    userId: v.string(),
+    key: v.string(),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertCurrentAppSdkOwner(ctx, args.appId, args.ownerId);
     const row = await ctx.db
       .query("cloud_app_storage")
       .withIndex("by_appId_and_userId_and_key", (q) =>
@@ -5034,24 +5178,22 @@ export const getOperationsManifestInternal = internalQuery({
 export const upsertOperationsManifestInternal = internalMutation({
   args: {
     appId: v.string(),
+    ownerId: v.string(),
     userId: v.string(),
     manifestJson: v.string(),
     now: v.number(),
   },
   returns: v.object({ operationCount: v.number() }),
   handler: async (ctx, args) => {
-    const app = await ctx.db
-      .query("cloud_apps")
-      .withIndex("by_appId", (q) => q.eq("appId", args.appId))
-      .unique();
-    if (!app || app.ownerId !== args.userId) {
+    await assertCurrentAppSdkOwner(ctx, args.appId, args.ownerId);
+    if (args.userId !== args.ownerId) {
       throw new ConvexError(
         "Only the app owner's session can register operations.",
       );
     }
     return await upsertOperationsManifest(ctx, {
-      appId: app.appId,
-      ownerId: app.ownerId,
+      appId: args.appId,
+      ownerId: args.ownerId,
       manifestJson: args.manifestJson,
       now: args.now,
     });
@@ -5314,9 +5456,19 @@ export const completeOpInvocation = mutation({
 });
 
 export const claimOpInvocationsInternal = internalMutation({
-  args: { appId: v.string(), userId: v.string() },
+  args: {
+    appId: v.string(),
+    ownerId: v.string(),
+    userId: v.string(),
+  },
   returns: v.any(),
   handler: async (ctx, args) => {
+    await assertCurrentAppSdkOwner(ctx, args.appId, args.ownerId);
+    if (args.userId !== args.ownerId) {
+      throw new ConvexError(
+        "Only the app owner can receive operation requests.",
+      );
+    }
     const rows = await ctx.db
       .query("cloud_app_op_invocations")
       .withIndex("by_appId_and_status_and_createdAt", (q) =>
@@ -5326,7 +5478,7 @@ export const claimOpInvocationsInternal = internalMutation({
     const claimed = [];
     const now = Date.now();
     for (const row of rows) {
-      if (row.ownerId !== args.userId) continue;
+      if (row.ownerId !== args.ownerId) continue;
       await ctx.db.patch(row._id, { status: "delivered", updatedAt: now });
       claimed.push({
         invocationId: row.invocationId,
@@ -5340,6 +5492,8 @@ export const claimOpInvocationsInternal = internalMutation({
 
 export const completeOpInvocationInternal = internalMutation({
   args: {
+    appId: v.string(),
+    ownerId: v.string(),
     invocationId: v.string(),
     userId: v.string(),
     ok: v.boolean(),
@@ -5348,13 +5502,17 @@ export const completeOpInvocationInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertCurrentAppSdkOwner(ctx, args.appId, args.ownerId);
+    if (args.userId !== args.ownerId) {
+      throw new ConvexError("Only the app owner can report results.");
+    }
     const row = await ctx.db
       .query("cloud_app_op_invocations")
       .withIndex("by_invocationId", (q) =>
         q.eq("invocationId", args.invocationId),
       )
       .unique();
-    if (!row || row.ownerId !== args.userId) {
+    if (!row || row.appId !== args.appId || row.ownerId !== args.ownerId) {
       throw new ConvexError("Operation request not found.");
     }
     await completeOpInvocationRow(

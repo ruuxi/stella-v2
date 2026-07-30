@@ -11,6 +11,7 @@ import { internal } from "../_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, Infer, v } from "convex/values";
 import {
+  getUserIdentityOrNull,
   getUserIdOrNull,
   requireSensitiveUserIdAction,
   requireUserId,
@@ -1025,7 +1026,7 @@ export const getPublicPackage = query({
     const record = await getPackageByPackageId(ctx, normalizedPackageId);
     if (!record) return null;
     if (isDirectLinkAccessible(record.visibility)) return record;
-    const callerId = await ctx.auth.getUserIdentity();
+    const callerId = await getUserIdentityOrNull(ctx);
     if (callerId && record.ownerId === callerId.tokenIdentifier) {
       return record;
     }
@@ -1044,7 +1045,7 @@ export const getPublicPackagesByIds = query({
     const records = await Promise.all(
       uniqueIds.map((id) => getPackageByPackageId(ctx, id)),
     );
-    const callerIdentity = await ctx.auth.getUserIdentity();
+    const callerIdentity = await getUserIdentityOrNull(ctx);
     const callerOwnerId = callerIdentity?.tokenIdentifier;
     return records
       .filter((record): record is NonNullable<typeof record> => record !== null)
@@ -1063,7 +1064,7 @@ export const listPublicReleases = query({
     const normalizedPackageId = normalizePackageId(args.packageId);
     const pkg = await getPackageByPackageId(ctx, normalizedPackageId);
     if (!pkg) return [];
-    const callerId = await ctx.auth.getUserIdentity();
+    const callerId = await getUserIdentityOrNull(ctx);
     const isOwner = callerId?.tokenIdentifier === pkg.ownerId;
     if (!isDirectLinkAccessible(pkg.visibility) && !isOwner) {
       return [];
@@ -1088,7 +1089,7 @@ export const getPublicRelease = query({
     const releaseNumber = normalizeReleaseNumber(args.releaseNumber);
     const pkg = await getPackageByPackageId(ctx, normalizedPackageId);
     if (!pkg) return null;
-    const callerId = await ctx.auth.getUserIdentity();
+    const callerId = await getUserIdentityOrNull(ctx);
     const isOwner = callerId?.tokenIdentifier === pkg.ownerId;
     if (!isDirectLinkAccessible(pkg.visibility) && !isOwner) {
       return null;

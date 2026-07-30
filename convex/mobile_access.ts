@@ -9,6 +9,7 @@ import {
 } from "./_generated/server";
 import {
   assertSensitiveSessionPolicy,
+  getUserIdentityOrNull,
   isAnonymousIdentity,
   requireConnectedUserId,
   requireSensitiveUserId,
@@ -217,7 +218,7 @@ export const getPhoneAccessState = query({
   },
   returns: phoneAccessStateValidator,
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
+    const identity = await getUserIdentityOrNull(ctx);
     if (!identity || isAnonymousIdentity(identity)) {
       return { activePairing: null, pairedDevices: [] };
     }
@@ -380,7 +381,7 @@ export const watchIncomingConnectIntent = query({
   },
   returns: connectIntentValidator,
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
+    const identity = await getUserIdentityOrNull(ctx);
     if (!identity || isAnonymousIdentity(identity)) {
       return null;
     }

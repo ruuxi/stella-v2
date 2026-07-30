@@ -5,10 +5,13 @@ import { internal } from "../_generated/api";
 import {
   assertSensitiveSessionPolicyAction,
   createAuth,
+  getUserIdentityOrNullAction,
   getAuthBaseUrl,
   isAnonymousIdentity,
+  tokenIdentifierForBetterAuthUserId,
 } from "../auth";
 import { getAppReviewEmail } from "../lib/app_review_auth";
+import { decideAnonymousLinkBinding } from "../lib/mobile_auth_link";
 import { AGENT_IDS } from "../lib/agent_constants";
 import { MANAGED_GATEWAY } from "../agent/model";
 import {
@@ -139,6 +142,73 @@ type AuthenticatedOwnerResult =
   | { ownerId: string; name?: string; isAnonymous: boolean }
   | { response: Response };
 
+type AnonymousLinkOwnerBinding =
+  | { fromOwnerId?: string }
+  | { response: Response };
+
+const resolveAnonymousLinkOwnerBinding = async (
+  ctx: ActionCtx,
+  request: Request,
+  origin: string | null,
+  requireAnonymousOwner: boolean,
+): Promise<AnonymousLinkOwnerBinding> => {
+  const authorization = request.headers.get("authorization")?.trim() ?? "";
+  const identity = await getUserIdentityOrNullAction(ctx);
+  const decision = decideAnonymousLinkBinding({
+    hasAuthorizationHeader: authorization.length > 0,
+    ...(identity ? { identityOwnerId: identity.tokenIdentifier } : {}),
+    identityIsAnonymous: identity ? isAnonymousIdentity(identity) : false,
+    requireAnonymousOwner,
+  });
+  if (!decision.ok) {
+    return {
+      response: errorResponse(
+        401,
+        decision.reason === "invalid_authorization"
+          ? "The anonymous session could not be verified."
+          : "An authenticated anonymous session is required to preserve this conversation.",
+        origin,
+      ),
+    };
+  }
+  return decision.fromOwnerId ? { fromOwnerId: decision.fromOwnerId } : {};
+};
+
+const readBetterAuthResponseHeader = (
+  result: unknown,
+  wantedName: string,
+): string => {
+  if (!result || typeof result !== "object") return "";
+  const headers = (result as { headers?: unknown }).headers;
+  if (headers instanceof Headers) {
+    return headers.get(wantedName)?.trim() ?? "";
+  }
+  const headersList = (
+    headers as { _headersList?: Array<[string, string]> } | null | undefined
+  )?._headersList;
+  if (!Array.isArray(headersList)) return "";
+  const normalizedWantedName = wantedName.toLowerCase();
+  return (
+    headersList
+      .find(([name]) => name.toLowerCase() === normalizedWantedName)?.[1]
+      ?.trim() ?? ""
+  );
+};
+
+const readBetterAuthSessionCookie = (result: unknown): string =>
+  readBetterAuthResponseHeader(result, "set-better-auth-cookie") ||
+  readBetterAuthResponseHeader(result, "set-cookie");
+
+const readBetterAuthResponseUserId = (result: unknown): string => {
+  if (!result || typeof result !== "object") return "";
+  const response = (result as { response?: unknown }).response;
+  if (!response || typeof response !== "object") return "";
+  const user = (response as { user?: unknown }).user;
+  if (!user || typeof user !== "object") return "";
+  const id = (user as { id?: unknown }).id;
+  return typeof id === "string" ? id.trim() : "";
+};
+
 const readConvexErrorCode = (error: unknown) => {
   if (!(error instanceof ConvexError)) {
     return null;
@@ -175,7 +245,7 @@ const requireMobileAccountOwner = async (
   ctx: ActionCtx,
   origin: string | null,
 ): Promise<AuthenticatedOwnerResult> => {
-  const identity = await ctx.auth.getUserIdentity();
+  const identity = await getUserIdentityOrNullAction(ctx);
   if (!identity) {
     return { response: errorResponse(401, "Unauthorized", origin) };
   }
@@ -235,7 +305,7 @@ const resolveMobileOwnerOrGuest = async (
     isAnonymous: true,
   } as const;
 
-  const identity = await ctx.auth.getUserIdentity();
+  const identity = await getUserIdentityOrNullAction(ctx);
   if (identity && !isAnonymousIdentity(identity)) {
     try {
       await assertSensitiveSessionPolicyAction(ctx, identity);
@@ -1809,9 +1879,15 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        let body: { email?: unknown } | null = null;
+        let body: {
+          email?: unknown;
+          requireAnonymousOwner?: unknown;
+        } | null = null;
         try {
-          body = (await request.json()) as { email?: unknown };
+          body = (await request.json()) as {
+            email?: unknown;
+            requireAnonymousOwner?: unknown;
+          };
         } catch {
           return errorResponse(400, "Invalid JSON body", origin);
         }
@@ -1822,6 +1898,26 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             : "";
         if (!email || !EMAIL_PATTERN.test(email)) {
           return errorResponse(400, "A valid email is required.", origin);
+        }
+        if (
+          body?.requireAnonymousOwner !== undefined &&
+          typeof body.requireAnonymousOwner !== "boolean"
+        ) {
+          return errorResponse(
+            400,
+            "requireAnonymousOwner must be a boolean.",
+            origin,
+          );
+        }
+
+        const ownerBinding = await resolveAnonymousLinkOwnerBinding(
+          ctx,
+          request,
+          origin,
+          body?.requireAnonymousOwner === true,
+        );
+        if ("response" in ownerBinding) {
+          return ownerBinding.response;
         }
 
         const rateLimit = await ctx.runMutation(
@@ -1848,7 +1944,10 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             blockMs: MAGIC_LINK_RATE_WINDOW_MS,
           });
           if (!ipRateLimit.allowed) {
-            return withCors(rateLimitResponse(ipRateLimit.retryAfterMs), origin);
+            return withCors(
+              rateLimitResponse(ipRateLimit.retryAfterMs),
+              origin,
+            );
           }
         }
 
@@ -1865,6 +1964,9 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         await ctx.runMutation(internal.mobile_auth.createPendingLinkRequest, {
           email,
           requestId,
+          ...(ownerBinding.fromOwnerId
+            ? { fromOwnerId: ownerBinding.fromOwnerId }
+            : {}),
           expiresAt: now + MAGIC_LINK_EXPIRY_MS,
           createdAt: now,
         });
@@ -1886,7 +1988,10 @@ export const registerMobileRoutes = (http: HttpRouter) => {
                   body: { email: string };
                   headers: Headers;
                   returnHeaders: true;
-                }): Promise<unknown>;
+                }): Promise<{
+                  headers: Headers;
+                  response: { user: { id: string } };
+                }>;
               }
             ).signInAppReview;
             const signInResult = await signInAppReview({
@@ -1895,30 +2000,26 @@ export const registerMobileRoutes = (http: HttpRouter) => {
               returnHeaders: true,
             });
 
-            let sessionCookie = "";
-            const headersList = (signInResult as Record<string, unknown>)
-              ?.headers as { _headersList?: [string, string][] } | undefined;
-            if (Array.isArray(headersList?._headersList)) {
-              for (const [name, value] of headersList._headersList) {
-                if (
-                  name === "set-better-auth-cookie" ||
-                  name === "set-cookie"
-                ) {
-                  sessionCookie = value;
-                  break;
-                }
-              }
+            const sessionCookie = readBetterAuthSessionCookie(signInResult);
+            const connectedUserId = readBetterAuthResponseUserId(signInResult);
+            if (!sessionCookie || !connectedUserId) {
+              throw new Error("Missing verified session identity");
             }
 
-            if (!sessionCookie) {
-              throw new Error("Missing session cookie");
+            const completion = await ctx.runMutation(
+              internal.mobile_auth.completeLinkRequest,
+              {
+                requestId,
+                ott: "app-review",
+                sessionCookie,
+                toOwnerId: tokenIdentifierForBetterAuthUserId(connectedUserId),
+              },
+            );
+            if (!completion.ok) {
+              throw new Error(
+                `Link request could not complete: ${completion.reason}`,
+              );
             }
-
-            await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
-              requestId,
-              ott: "app-review",
-              sessionCookie,
-            });
           } else {
             const callbackURL = `${authBaseUrl}/api/auth/link/verify?requestId=${encodeURIComponent(requestId)}`;
             await auth.api.signInMagicLink({
@@ -1986,6 +2087,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
       if (requestId && ott) {
         let sessionCookie = "";
+        let connectedUserId = "";
         try {
           const auth = createAuth(ctx);
           const verifyRes = await auth.api.verifyOneTimeToken({
@@ -1993,24 +2095,19 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             headers: new Headers(),
             returnHeaders: true,
           });
-          const headersList = (verifyRes as Record<string, unknown>)
-            ?.headers as { _headersList?: [string, string][] } | undefined;
-          if (Array.isArray(headersList?._headersList)) {
-            for (const [name, value] of headersList._headersList) {
-              if (name === "set-better-auth-cookie" || name === "set-cookie") {
-                sessionCookie = value;
-                break;
-              }
-            }
-          }
+          sessionCookie = readBetterAuthSessionCookie(verifyRes);
+          connectedUserId = readBetterAuthResponseUserId(verifyRes);
         } catch (err) {
           console.error("[desktop/auth] Server-side OTT verify failed:", err);
         }
-        await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
-          requestId,
-          ott,
-          ...(sessionCookie ? { sessionCookie } : {}),
-        });
+        if (sessionCookie && connectedUserId) {
+          await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
+            requestId,
+            ott,
+            sessionCookie,
+            toOwnerId: tokenIdentifierForBetterAuthUserId(connectedUserId),
+          });
+        }
       }
 
       const websiteUrl =
@@ -2038,6 +2135,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
       if (requestId && ott) {
         let sessionCookie = "";
+        let connectedUserId = "";
         try {
           const auth = createAuth(ctx);
           const verifyRes = await auth.api.verifyOneTimeToken({
@@ -2045,24 +2143,27 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             headers: new Headers(),
             returnHeaders: true,
           });
-          const headersList = (verifyRes as Record<string, unknown>)
-            ?.headers as { _headersList?: [string, string][] } | undefined;
-          if (Array.isArray(headersList?._headersList)) {
-            for (const [name, value] of headersList._headersList) {
-              if (name === "set-better-auth-cookie" || name === "set-cookie") {
-                sessionCookie = value;
-                break;
-              }
-            }
-          }
+          sessionCookie = readBetterAuthSessionCookie(verifyRes);
+          connectedUserId = readBetterAuthResponseUserId(verifyRes);
         } catch (err) {
           console.error("[mobile/auth] Server-side OTT verify failed:", err);
         }
-        await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
-          requestId,
-          ott,
-          ...(sessionCookie ? { sessionCookie } : {}),
-        });
+        if (sessionCookie && connectedUserId) {
+          const completion = await ctx.runMutation(
+            internal.mobile_auth.completeLinkRequest,
+            {
+              requestId,
+              ott,
+              sessionCookie,
+              toOwnerId: tokenIdentifierForBetterAuthUserId(connectedUserId),
+            },
+          );
+          if (!completion.ok) {
+            console.error(
+              `[mobile/auth] Link request completion rejected: ${completion.reason}`,
+            );
+          }
+        }
       }
 
       const websiteUrl =

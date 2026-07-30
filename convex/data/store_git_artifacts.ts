@@ -5,7 +5,10 @@ import { inflateSync } from "node:zlib";
 import { ConvexError, Infer, v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { requireSensitiveUserIdAction } from "../auth";
+import {
+  getUserIdentityOrNullAction,
+  requireSensitiveUserIdAction,
+} from "../auth";
 import { r2 } from "../r2_files";
 import { enforceActionRateLimit, RATE_STANDARD } from "../lib/rate_limits";
 import {
@@ -250,7 +253,7 @@ const getReadableGitArtifactRelease = async (
     releaseNumber: number;
   },
 ) => {
-  const identity = await ctx.auth.getUserIdentity();
+  const identity = await getUserIdentityOrNullAction(ctx);
   return await ctx.runQuery(
     internal.data.store_packages.getReadableReleaseForArtifactInternal,
     {

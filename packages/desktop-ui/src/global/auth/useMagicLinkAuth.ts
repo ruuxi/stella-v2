@@ -11,6 +11,7 @@ import {
 } from "react";
 import { refreshAuthSession } from "@/global/auth/services/auth-session";
 import { applyBrowserAuthSessionCookie } from "@/global/auth/services/auth-storage";
+import { getAuthHeaders } from "@/global/auth/services/auth-token";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 
 type Status = "idle" | "sending" | "sent" | "verifying" | "error";
@@ -78,8 +79,14 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
       const convexSiteUrl = getConvexSiteUrl();
       const response = await fetch(`${convexSiteUrl}/api/auth/link/send`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: targetEmail }),
+        headers: await getAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          email: targetEmail,
+          // Stella always bootstraps an anonymous cloud identity before this
+          // flow. Fail closed if its JWT is unavailable rather than silently
+          // signing in and stranding the anonymous conversation.
+          requireAnonymousOwner: true,
+        }),
       });
 
       if (response.status === 429) {
@@ -178,6 +185,7 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
             status: string;
             ott?: string;
             sessionCookie?: string;
+            migrationStatus?: "pending" | "running" | "failed" | "complete";
           };
 
           if (data.status === "completed" && data.sessionCookie) {

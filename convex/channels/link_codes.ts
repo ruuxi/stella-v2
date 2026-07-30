@@ -4,7 +4,7 @@ import {
   mutation,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { v, ConvexError } from "convex/values";
+import { v } from "convex/values";
 import type { ActionCtx, MutationCtx } from "../_generated/server";
 import { hashSha256Hex } from "../lib/crypto_utils";
 import {
@@ -12,11 +12,9 @@ import {
   RATE_SENSITIVE,
   RATE_VERY_EXPENSIVE,
 } from "../lib/rate_limits";
-import {
-  SIGN_IN_REQUIRED_ERROR,
-  evaluateLinkingDmPolicy,
-} from "./routing_flow";
+import { evaluateLinkingDmPolicy } from "./routing_flow";
 import { hashLinqPhone } from "./linq_phone_hash";
+import { requireConnectedUserIdentity } from "../auth";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -211,13 +209,7 @@ export const generateLinkCode = mutation({
   args: { provider: v.string() },
   returns: v.object({ code: v.string()  }),
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new ConvexError(SIGN_IN_REQUIRED_ERROR);
-    }
-    if ((identity as Record<string, unknown>).isAnonymous === true) {
-      throw new ConvexError(SIGN_IN_REQUIRED_ERROR);
-    }
+    const identity = await requireConnectedUserIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
 
     await enforceMutationRateLimit(
@@ -253,11 +245,7 @@ export const verifyLinqLinkCode = mutation({
     ),
   }),
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError(SIGN_IN_REQUIRED_ERROR);
-    if ((identity as Record<string, unknown>).isAnonymous === true) {
-      throw new ConvexError(SIGN_IN_REQUIRED_ERROR);
-    }
+    const identity = await requireConnectedUserIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
 
     // Tight per-owner cap: this is the brute-force surface for link codes,

@@ -10,7 +10,6 @@ import {
   attachComposerAppSelectionContext,
   deriveComposerState,
 } from "@/features/chat/composer-context";
-import { createNewLocalConversationId } from "@/features/chat/services/local-chat-store";
 import { useConversationActivity } from "@/features/chat/hooks/use-conversation-activity";
 import { useConversationDisplayMessages } from "@/features/chat/hooks/use-conversation-display-messages";
 import { useConversationFiles } from "@/features/chat/hooks/use-conversation-files";
@@ -18,6 +17,7 @@ import { useConversationMessages } from "@/features/chat/hooks/use-conversation-
 import { useComposerMessageState } from "@/features/chat/hooks/use-composer-message-state";
 import { useStreamingChat } from "@/features/chat/hooks/use-streaming-chat";
 import { useActivityTaskState } from "@/features/chat/hooks/use-thread-activity";
+import { getActivityPresence } from "@/features/chat/lib/activity-presence";
 import {
   useTraceEventMonitor,
   useTraceIpcListener,
@@ -41,6 +41,16 @@ import {
   journalRecordsToMessageRecords,
   mergeCanonicalMessagesWithLocalCache,
 } from "@/features/cloud/journal-message-records";
+import {
+  journalRecordsToCloudActivityEvents,
+  journalRecordsToCloudFileEvents,
+  mergeCanonicalCloudEventsWithLocalOverlay,
+  nextLocalCloudEventOverlayExpiry,
+} from "@/features/cloud/journal-activity-files";
+import {
+  mergeCloudConversationTasks,
+  useCloudConversationActivity,
+} from "@/features/cloud/use-cloud-activity";
 import { useConversation } from "@/features/cloud/use-conversation";
 import { useCapturedChatContext } from "./use-captured-chat-context";
 import { useChatScrollManagement } from "./use-chat-scroll-management";
@@ -114,13 +124,9 @@ export function useFullShellChat({
     useCapturedChatContext();
   const restoredConversationScrollRef = useRef<string | null>(null);
 
-  const {
-    messages: localPersistedMessages,
-    hasOlderMessages: hasOlderLocalMessages,
-    isLoadingOlder: isLoadingOlderLocalMessages,
-    isInitialLoading: isInitialLoadingLocalMessages,
-    loadOlder: loadOlderLocalMessages,
-  } = useConversationMessages(activeConversationId ?? undefined);
+  const { messages: localPersistedMessages } = useConversationMessages(
+    activeConversationId ?? undefined,
+  );
 
   const hasIncompleteCloudLeadingTurn =
     cloudFeaturesEnabled &&
@@ -158,35 +164,26 @@ export function useFullShellChat({
   );
   const persistedMessages = useMemo(
     () =>
-      cloudFeaturesEnabled
-        ? mergeCanonicalMessagesWithLocalCache(
-            canonicalMessages,
-            localPersistedMessages,
-            activeCanonicalUserMessageIds,
-          )
-        : localPersistedMessages,
-    [
-      activeCanonicalUserMessageIds,
-      canonicalMessages,
-      cloudFeaturesEnabled,
-      localPersistedMessages,
-    ],
+      mergeCanonicalMessagesWithLocalCache(
+        canonicalMessages,
+        localPersistedMessages,
+        activeCanonicalUserMessageIds,
+      ),
+    [activeCanonicalUserMessageIds, canonicalMessages, localPersistedMessages],
   );
-  const hasOlderMessages = cloudFeaturesEnabled
-    ? cloudConversation.state.hasOlder
-    : hasOlderLocalMessages;
-  const isLoadingOlderMessages = cloudFeaturesEnabled
-    ? cloudConversation.state.loadingOlder
-    : isLoadingOlderLocalMessages;
-  const isInitialLoadingMessages = cloudFeaturesEnabled
-    ? Boolean(
-        activeConversationId &&
-          canonicalMessages.length === 0 &&
-          (hasIncompleteCloudLeadingTurn ||
-            cloudConversation.status === "idle" ||
-            cloudConversation.status === "connecting"),
-      )
-    : isInitialLoadingLocalMessages;
+  const hasOlderMessages =
+    cloudFeaturesEnabled && cloudConversation.state.hasOlder;
+  const isLoadingOlderMessages =
+    cloudFeaturesEnabled && cloudConversation.state.loadingOlder;
+  const isInitialLoadingMessages =
+    !cloudFeaturesEnabled ||
+    Boolean(
+      activeConversationId &&
+        canonicalMessages.length === 0 &&
+        (hasIncompleteCloudLeadingTurn ||
+          cloudConversation.status === "idle" ||
+          cloudConversation.status === "connecting"),
+    );
   const loadOlderCloudMessages = cloudConversation.loadOlder;
   useEffect(() => {
     if (
@@ -202,26 +199,92 @@ export function useFullShellChat({
     loadOlderCloudMessages,
   ]);
   const loadOlderMessages = useCallback(() => {
-    if (cloudFeaturesEnabled) {
-      loadOlderCloudMessages();
-      return true;
+    if (!cloudFeaturesEnabled) return false;
+    loadOlderCloudMessages();
+    return true;
+  }, [cloudFeaturesEnabled, loadOlderCloudMessages]);
+
+  const { activities: localActivities } = useConversationActivity(
+    activeConversationId ?? undefined,
+  );
+
+  const { files: localFiles } = useConversationFiles(
+    activeConversationId ?? undefined,
+  );
+  const [localOverlayNowMs, setLocalOverlayNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const wallNow = Date.now();
+    // The clock otherwise sleeps when there are no overlay rows. Refresh it
+    // before evaluating newly arrived rows so a perfectly current event is not
+    // mistaken for a future-dated legacy record after a long idle period.
+    if (Math.abs(wallNow - localOverlayNowMs) > 1_000) {
+      setLocalOverlayNowMs(wallNow);
+      return;
     }
-    return loadOlderLocalMessages();
-  }, [cloudFeaturesEnabled, loadOlderCloudMessages, loadOlderLocalMessages]);
+    const nextActivityExpiry = nextLocalCloudEventOverlayExpiry(
+      localActivities,
+      localOverlayNowMs,
+    );
+    const nextFileExpiry = nextLocalCloudEventOverlayExpiry(
+      localFiles,
+      localOverlayNowMs,
+    );
+    const expiries = [nextActivityExpiry, nextFileExpiry].filter(
+      (expiry): expiry is number => expiry !== null,
+    );
+    if (expiries.length === 0) return;
+    const nextExpiry = Math.min(...expiries);
+    if (nextExpiry <= wallNow) {
+      setLocalOverlayNowMs(wallNow);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setLocalOverlayNowMs(Date.now()),
+      Math.min(2_147_483_647, nextExpiry - wallNow + 1),
+    );
+    return () => window.clearTimeout(timer);
+  }, [localActivities, localFiles, localOverlayNowMs]);
 
-  const {
-    activities,
-    hasOlderActivity,
-    isLoadingOlder: isLoadingOlderActivity,
-    loadOlder: loadOlderActivity,
-  } = useConversationActivity(activeConversationId ?? undefined);
-
-  const {
-    files: persistedFiles,
-    hasOlderFiles,
-    isLoadingOlder: isLoadingOlderFiles,
-    loadOlder: loadOlderFiles,
-  } = useConversationFiles(activeConversationId ?? undefined);
+  const canonicalActivities = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? journalRecordsToCloudActivityEvents(completeCloudRecords)
+        : [],
+    [cloudFeaturesEnabled, completeCloudRecords],
+  );
+  const canonicalFiles = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? journalRecordsToCloudFileEvents(completeCloudRecords)
+        : [],
+    [cloudFeaturesEnabled, completeCloudRecords],
+  );
+  const activities = useMemo(
+    () =>
+      mergeCanonicalCloudEventsWithLocalOverlay(
+        canonicalActivities,
+        localActivities,
+        { nowMs: localOverlayNowMs },
+      ),
+    [canonicalActivities, localActivities, localOverlayNowMs],
+  );
+  const persistedFiles = useMemo(
+    () =>
+      mergeCanonicalCloudEventsWithLocalOverlay(canonicalFiles, localFiles, {
+        nowMs: localOverlayNowMs,
+      }),
+    [canonicalFiles, localFiles, localOverlayNowMs],
+  );
+  const hasOlderActivity =
+    cloudFeaturesEnabled && cloudConversation.state.hasOlder;
+  const hasOlderFiles =
+    cloudFeaturesEnabled && cloudConversation.state.hasOlder;
+  const isLoadingOlderActivity =
+    cloudFeaturesEnabled && cloudConversation.state.loadingOlder;
+  const isLoadingOlderFiles =
+    cloudFeaturesEnabled && cloudConversation.state.loadingOlder;
+  const loadOlderActivity = loadOlderCloudMessages;
+  const loadOlderFiles = loadOlderCloudMessages;
 
   const {
     taskDecorations,
@@ -242,9 +305,9 @@ export function useFullShellChat({
     cancelCurrentStream,
   } = useStreamingChat({
     conversationId: activeConversationId,
-    // Local persistence is the acknowledgement source for the IPC stream
-    // machinery. The visible history below is instead canonical-first.
-    persistedMessages: localPersistedMessages,
+    // Canonical cloud rows acknowledge optimistic sends. Local rows remain in
+    // this merged window only for unacknowledged recovery overlays.
+    persistedMessages,
   });
 
   // Visible chat timeline: SQLite-backed `persistedMessages` plus the
@@ -304,34 +367,29 @@ export function useFullShellChat({
   }, [isOnChatRoute, activeConversationId]);
 
   const startNewChat = useCallback(async () => {
-    const nextConversationId = cloudFeaturesEnabled
-      ? (
-          await createCloudConversation({
-            clientCreateId: crypto.randomUUID(),
-          })
-        ).conversationId
-      : await createNewLocalConversationId();
-    if (cloudFeaturesEnabled) {
-      markCloudConversationCreated(nextConversationId, accountScope);
-    }
+    // Auth bootstrap withholds the conversation surface until this becomes
+    // true. Never turn that transient state into a desktop-only conversation.
+    if (!cloudFeaturesEnabled) return;
+    const nextConversationId = (
+      await createCloudConversation({
+        clientCreateId: crypto.randomUUID(),
+      })
+    ).conversationId;
+    markCloudConversationCreated(nextConversationId, accountScope);
     setMessage("");
     setSelectedText(null);
     setChatContext(null);
     setConversationId(nextConversationId);
     showHome();
 
-    // A cloud conversation is globally addressable, so every "New chat"
-    // entry point must land on its exact route even when invoked elsewhere in
-    // the shell. Preserve the legacy local behavior outside the chat route.
-    if (cloudFeaturesEnabled || isOnChatRoute) {
-      await router.navigate({
-        to: "/chat",
-        search: { c: nextConversationId },
-        replace: true,
-      });
-    }
+    // Every conversation is globally addressable, so every "New chat" entry
+    // point lands on its exact route even when invoked elsewhere in the shell.
+    await router.navigate({
+      to: "/chat",
+      search: { c: nextConversationId },
+      replace: true,
+    });
   }, [
-    isOnChatRoute,
     accountScope,
     cloudFeaturesEnabled,
     createCloudConversation,
@@ -530,9 +588,18 @@ export function useFullShellChat({
 
   // The single task list every activity surface renders: authoritative
   // thread rows overlaid with live stream decoration. No event folding.
-  const { tasks, presence: activityPresence } = useActivityTaskState(
+  const { tasks: localTasks } = useActivityTaskState(
     activeConversationId ?? undefined,
     taskDecorations,
+  );
+  const cloudActivity = useCloudConversationActivity(activeConversationId);
+  const tasks = useMemo(
+    () => mergeCloudConversationTasks(cloudActivity.tasks, localTasks),
+    [cloudActivity.tasks, localTasks],
+  );
+  const activityPresence = useMemo(
+    () => getActivityPresence(tasks, cloudActivity.hasLoaded),
+    [cloudActivity.hasLoaded, tasks],
   );
 
   const chatColumnConversation = useMemo<ChatColumnConversation>(

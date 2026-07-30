@@ -1,7 +1,9 @@
-import { createElement } from "react";
+import { createElement, useCallback } from "react";
 import { ChatPanelTab, type ChatPanelOpenRequest } from "@/shell/ChatSidebar";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useChatMessages } from "@/context/use-chat-messages";
+import { isWebShell } from "@/features/cloud/cloud-composer-store";
+import type { ChatContext } from "@/shared/types/electron";
 import { TrashTabContent } from "./TrashTabContent";
 import { HomeOverviewTab } from "./HomeOverviewTab";
 import { ThreadChatTab } from "./ThreadChatTab";
@@ -45,12 +47,30 @@ function ChatDisplayTab({
   const panelExpanded = useDisplayPanelExpanded();
   const chat = useChatRuntime();
   const messages = useChatMessages();
+  const webShell = isWebShell();
+  const sendCloudMessage = chat.cloudConversation.send;
+  const sendLocalMessage = chat.conversation.sendMessageWithContext;
+  const sendMessage = useCallback(
+    (
+      text: string,
+      chatContext?: ChatContext | null,
+      selectedText?: string | null,
+    ) => {
+      if (webShell) {
+        void sendCloudMessage(text);
+        return;
+      }
+      sendLocalMessage(text, chatContext, selectedText);
+    },
+    [sendCloudMessage, sendLocalMessage, webShell],
+  );
 
   return (
     <ChatPanelTab
       openRequest={openRequest}
       wideLayout={panelExpanded}
       messages={messages}
+      conversationId={chat.cloudConversation.state.conversationId}
       isStreaming={chat.conversation.isStreaming}
       isStreamingResponseText={
         chat.conversation.streaming.isStreamingResponseText
@@ -69,7 +89,7 @@ function ChatDisplayTab({
       isLoadingOlder={chat.conversation.isLoadingOlder}
       isInitialLoading={chat.conversation.isInitialLoading}
       onLoadOlder={chat.conversation.loadOlderMessages}
-      onSend={chat.conversation.sendMessageWithContext}
+      onSend={sendMessage}
       onStop={chat.conversation.cancelCurrentStream}
       onNewChat={chat.conversation.startNewChat}
     />

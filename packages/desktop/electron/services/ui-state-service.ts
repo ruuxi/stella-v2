@@ -67,11 +67,11 @@ export class UiStateService {
     return true
   }
 
-  activateVoiceRtc(conversationId: string | null) {
+  activateVoiceRtc(conversationId: string) {
     const wasActive = this.state.isVoiceRtcActive
     this.state.isVoiceRtcActive = true
     this.state.mode = 'voice'
-    this.state.conversationId = conversationId ?? this.state.conversationId
+    this.state.conversationId = conversationId
     this.broadcast()
     if (!wasActive) this.notifyVoiceActive()
   }

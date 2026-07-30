@@ -548,7 +548,8 @@ export class SocialSessionService {
         void this.createSession({
           roomId: summary.room._id,
           workspaceLabel:
-            summary.session.workspaceFolderName || summary.session.workspaceSlug,
+            summary.session.workspaceFolderName ||
+            summary.session.workspaceSlug,
         }).catch((error) => {
           this.reattachingHostSessions.delete(summary.session._id);
           this.handleSyncError(error);
@@ -608,9 +609,7 @@ export class SocialSessionService {
         this.activeSessions.delete(sessionId);
         this.templateInitializedSessions.delete(sessionId);
         this.displayedSessions.delete(sessionId);
-        void this.previewManager
-          .stopSession(sessionId)
-          .catch(() => undefined);
+        void this.previewManager.stopSession(sessionId).catch(() => undefined);
       }
     }
   }
@@ -745,6 +744,7 @@ export class SocialSessionService {
       const result = await runner.runAutomationTurn({
         conversationId: nextTurn.session.conversationId,
         userPrompt: nextTurn.turn.prompt,
+        storageMode: "local",
         agentType: "social_session",
         toolWorkspaceRoot: sessionRuntime.localFolderPath,
       });
@@ -890,7 +890,9 @@ export class SocialSessionService {
     );
   }
 
-  private async ensurePreviewForSession(session: SessionRuntime): Promise<void> {
+  private async ensurePreviewForSession(
+    session: SessionRuntime,
+  ): Promise<void> {
     try {
       await fs.access(path.join(session.localFolderPath, "package.json"));
     } catch {

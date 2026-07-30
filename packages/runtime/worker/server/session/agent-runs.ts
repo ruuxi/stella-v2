@@ -16,6 +16,10 @@ import {
 } from "@stella/contracts/agent-runtime";
 import type { ImageCapTarget } from "../../../ai/utils/image-caps.js";
 import { prepareStoredLocalChatPayload } from "../../../kernel/storage/local-chat-payload.js";
+import {
+  resolveConversationStorageMode,
+  shouldPersistLocalChatTranscript,
+} from "../../../kernel/runner/conversation-storage-mode.js";
 import { createRuntimeLogger } from "../../../kernel/debug.js";
 import {
   approximateDataUrlBytes,
@@ -170,6 +174,9 @@ export const layer = Layer.effect(
     };
 
     const startChat: Interface["startChat"] = async (payload) => {
+      const storageMode = resolveConversationStorageMode(payload.storageMode);
+      const persistLocalTranscript =
+        shouldPersistLocalChatTranscript(storageMode);
       const requestId =
         asTrimmedString(
           (payload as RuntimeChatPayload & { requestId?: string }).requestId,
@@ -252,7 +259,7 @@ export const layer = Layer.effect(
         payload.userMessageEventId ?? `local:${crypto.randomUUID()}`;
       let userMessageEventAppended = false;
       const appendUserMessageEvent = (timestamp = userMessageTimestamp) => {
-        if (userMessageEventAppended) {
+        if (!persistLocalTranscript || userMessageEventAppended) {
           return;
         }
         userMessageEventAppended = true;
@@ -338,7 +345,7 @@ export const layer = Layer.effect(
           }),
         });
       };
-      if (payload.mode !== "follow_up") {
+      if (persistLocalTranscript && payload.mode !== "follow_up") {
         appendUserMessageEvent();
       }
 
@@ -415,7 +422,7 @@ export const layer = Layer.effect(
           attachments:
             mergedAttachments.length > 0 ? mergedAttachments : undefined,
           agentType: payload.agentType,
-          storageMode: payload.storageMode,
+          storageMode,
         },
         {
           onAssistantMessage: (ev) => {
@@ -429,16 +436,20 @@ export const layer = Layer.effect(
               ev.runId,
             );
             segmentFirstChunkAtMsByRunId.delete(ev.runId);
-            const assistantEventId = appendAssistantMessageForTurn({
-              conversationId: payload.conversationId,
-              text: ev.text,
-              userMessageId: ev.userMessageId,
-              runId: ev.runId,
-              seq: ev.seq,
-              timezone: payload.timezone,
-              responseTarget: ev.responseTarget,
-              ...(streamStartedAtMs !== undefined ? { streamStartedAtMs } : {}),
-            });
+            const assistantEventId = persistLocalTranscript
+              ? appendAssistantMessageForTurn({
+                  conversationId: payload.conversationId,
+                  text: ev.text,
+                  userMessageId: ev.userMessageId,
+                  runId: ev.runId,
+                  seq: ev.seq,
+                  timezone: payload.timezone,
+                  responseTarget: ev.responseTarget,
+                  ...(streamStartedAtMs !== undefined
+                    ? { streamStartedAtMs }
+                    : {}),
+                })
+              : null;
             if (assistantEventId) {
               lastAssistantMessageEventId = assistantEventId;
             }
@@ -522,7 +533,7 @@ export const layer = Layer.effect(
             });
           },
           onUserMessage: (ev) => {
-            if (ev.uiVisibility === "hidden") {
+            if (!persistLocalTranscript || ev.uiVisibility === "hidden") {
               return;
             }
             storage.appendChatEventAndNotify({
@@ -598,16 +609,18 @@ export const layer = Layer.effect(
             if (hiddenSystemRunIds.has(ev.runId)) {
               return;
             }
-            storage.appendChatEventAndNotify({
-              conversationId: payload.conversationId,
-              type: "tool_request",
-              requestId: ev.toolCallId,
-              payload: {
-                toolName: ev.toolName,
-                ...(ev.args ? { args: ev.args } : {}),
-                ...(ev.agentType ? { agentType: ev.agentType } : {}),
-              },
-            });
+            if (persistLocalTranscript) {
+              storage.appendChatEventAndNotify({
+                conversationId: payload.conversationId,
+                type: "tool_request",
+                requestId: ev.toolCallId,
+                payload: {
+                  toolName: ev.toolName,
+                  ...(ev.args ? { args: ev.args } : {}),
+                  ...(ev.agentType ? { agentType: ev.agentType } : {}),
+                },
+              });
+            }
             emitRunEvent({
               ...ev,
               type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
@@ -623,28 +636,30 @@ export const layer = Layer.effect(
               ev.details && typeof ev.details === "object"
                 ? (ev.details as Record<string, unknown>)
                 : undefined;
-            storage.appendChatEventAndNotify({
-              conversationId: payload.conversationId,
-              type: "tool_result",
-              requestId: ev.toolCallId,
-              payload: {
-                toolName: ev.toolName,
-                result: details ?? ev.resultPreview,
-                resultPreview: ev.resultPreview,
-                ...(details ? details : {}),
-                ...(ev.fileChanges?.length
-                  ? { fileChanges: ev.fileChanges }
-                  : {}),
-                ...(ev.producedFiles?.length
-                  ? { producedFiles: ev.producedFiles }
-                  : {}),
-                ...(ev.agentType ? { agentType: ev.agentType } : {}),
-                // Attributes the tool result to a spawned agent's thread so
-                // per-agent file lists (left sidebar Activity tray) can pick
-                // up file changes live, before `agent-completed` rolls up.
-                ...(ev.agentId ? { agentId: ev.agentId } : {}),
-              },
-            });
+            if (persistLocalTranscript) {
+              storage.appendChatEventAndNotify({
+                conversationId: payload.conversationId,
+                type: "tool_result",
+                requestId: ev.toolCallId,
+                payload: {
+                  toolName: ev.toolName,
+                  result: details ?? ev.resultPreview,
+                  resultPreview: ev.resultPreview,
+                  ...(details ? details : {}),
+                  ...(ev.fileChanges?.length
+                    ? { fileChanges: ev.fileChanges }
+                    : {}),
+                  ...(ev.producedFiles?.length
+                    ? { producedFiles: ev.producedFiles }
+                    : {}),
+                  ...(ev.agentType ? { agentType: ev.agentType } : {}),
+                  // Attributes the tool result to a spawned agent's thread so
+                  // per-agent file lists (left sidebar Activity tray) can pick
+                  // up file changes live, before `agent-completed` rolls up.
+                  ...(ev.agentId ? { agentId: ev.agentId } : {}),
+                },
+              });
+            }
             emitRunEvent({
               ...ev,
               type: AGENT_STREAM_EVENT_TYPES.TOOL_END,
@@ -842,54 +857,27 @@ export const layer = Layer.effect(
 
     const sendAgentInput: Interface["sendAgentInput"] = async (payload) => {
       const { conversationId, threadId, message } = payload;
+      const requestId = `agent-input:${crypto.randomUUID()}`;
       const delivered = await (
         await runnerHandle.ensureInitialized()
       ).executeTool(
         "send_input",
         {
           thread_id: threadId,
+          description: message,
           message,
         },
         {
           conversationId,
           deviceId: config.deviceId || "local",
-          requestId: `agent-input:${crypto.randomUUID()}`,
+          requestId,
           agentType: AGENT_IDS.ORCHESTRATOR,
-          storageMode: "local",
+          storageMode: "cloud",
         },
       );
       if (delivered.error) {
         throw new Error(delivered.error);
       }
-
-      const metadata =
-        payload.metadata && typeof payload.metadata === "object"
-          ? payload.metadata
-          : {};
-      const uiMetadata =
-        metadata.ui && typeof metadata.ui === "object"
-          ? (metadata.ui as Record<string, unknown>)
-          : {};
-      const timestamp = Date.now();
-      storage.appendChatEventAndNotify({
-        conversationId,
-        type: "user_message",
-        timestamp,
-        payload: prepareStoredLocalChatPayload({
-          type: "user_message",
-          payload: {
-            text: message,
-            metadata: {
-              ...metadata,
-              ui: {
-                ...uiMetadata,
-                visibility: "hidden",
-              },
-            },
-          },
-          timestamp,
-        }),
-      });
       return { delivered: true };
     };
 

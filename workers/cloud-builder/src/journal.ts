@@ -154,6 +154,12 @@ const DDL = [
      created_at INTEGER NOT NULL,
      bytes      INTEGER NOT NULL DEFAULT 0
    )`,
+  `CREATE TABLE IF NOT EXISTS owner_transfer_objects (
+     old_key    TEXT PRIMARY KEY,
+     new_key    TEXT NOT NULL,
+     kind       TEXT NOT NULL CHECK (kind IN ('segment', 'spill')),
+     state      TEXT NOT NULL CHECK (state IN ('copying', 'cleanup'))
+   )`,
   // Fixed-window append budget. In SQLite rather than in memory because an
   // eviction between two requests must not hand out a fresh allowance.
   `CREATE TABLE IF NOT EXISTS append_window (
@@ -161,6 +167,14 @@ const DDL = [
      started_at INTEGER NOT NULL DEFAULT 0,
      requests   INTEGER NOT NULL DEFAULT 0,
      bytes      INTEGER NOT NULL DEFAULT 0
+   )`,
+  `CREATE TABLE IF NOT EXISTS append_receipts (
+     writer_key  TEXT PRIMARY KEY,
+     fingerprint TEXT NOT NULL,
+     first_seq   INTEGER NOT NULL,
+     last_seq    INTEGER NOT NULL,
+     epoch       INTEGER NOT NULL,
+     created_at  INTEGER NOT NULL
    )`,
 ];
 
@@ -177,6 +191,30 @@ const MIGRATIONS: Array<{ to: number; statements: string[] }> = [
     to: 2,
     statements: [
       `ALTER TABLE spills ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    to: 3,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS owner_transfer_objects (
+         old_key TEXT PRIMARY KEY,
+         new_key TEXT NOT NULL,
+         kind TEXT NOT NULL CHECK (kind IN ('segment', 'spill')),
+         state TEXT NOT NULL CHECK (state IN ('copying', 'cleanup'))
+      )`,
+    ],
+  },
+  {
+    to: 4,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS append_receipts (
+         writer_key TEXT PRIMARY KEY,
+         fingerprint TEXT NOT NULL,
+         first_seq INTEGER NOT NULL,
+         last_seq INTEGER NOT NULL,
+         epoch INTEGER NOT NULL,
+         created_at INTEGER NOT NULL
+       )`,
     ],
   },
 ];
@@ -226,6 +264,15 @@ export type AppendResult = {
   /** False when `writer_key` already existed — the caller's retry was a no-op. */
   inserted: boolean;
   record: JournalRecord;
+};
+
+export type AppendReceipt = {
+  writer_key: string;
+  fingerprint: string;
+  first_seq: number;
+  last_seq: number;
+  epoch: number;
+  created_at: number;
 };
 
 export type AppendMessageInput = {
@@ -286,6 +333,13 @@ export type SegmentRow = {
   r2_key: string;
   state: string;
   created_at: number;
+};
+
+export type OwnerTransferObjectRow = {
+  old_key: string;
+  new_key: string;
+  kind: "segment" | "spill";
+  state: "copying" | "cleanup";
 };
 
 export type ExcerptRow = {
@@ -376,6 +430,7 @@ const PURGED_META: MetaRow = Object.freeze({
 
 export class Journal {
   private readonly sql: SqlStorage;
+  private transactionDepth = 0;
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -522,7 +577,9 @@ export class Journal {
     const floor = this.sql
       .exec<{
         floor: number | null;
-      }>(`SELECT MIN(first_seq) AS floor FROM segments WHERE state = 'committed'`)
+      }>(
+        `SELECT MIN(first_seq) AS floor FROM segments WHERE state = 'committed'`,
+      )
       .one().floor;
     return {
       headSeq: meta.next_seq - 1,
@@ -540,6 +597,23 @@ export class Journal {
   // -------------------------------------------------------------------------
 
   /**
+   * A foreign append is a logical batch: its rows and rollover-surviving
+   * receipt either commit together or not at all. Individual append methods
+   * reuse this boundary and avoid nesting `transactionSync`.
+   */
+  transactionSync<T>(operation: () => T): T {
+    if (this.transactionDepth > 0) return operation();
+    return this.ctx.storage.transactionSync(() => {
+      this.transactionDepth += 1;
+      try {
+        return operation();
+      } finally {
+        this.transactionDepth -= 1;
+      }
+    });
+  }
+
+  /**
    * The one seq allocator. Both the allocation and the insert happen inside a
    * single `transactionSync`: a consumed seq not backed by a row is a
    * permanent hole that no client can ever close and that `backfill` would
@@ -549,7 +623,7 @@ export class Journal {
     columns: Record<string, string | number | null>,
     writerKey: string,
   ): { seq: number; inserted: boolean } {
-    return this.ctx.storage.transactionSync(() => {
+    return this.transactionSync(() => {
       const existing = this.sql
         .exec<{
           seq: number;
@@ -575,6 +649,40 @@ export class Journal {
       this.sql.exec(`UPDATE meta SET next_seq = ? WHERE id = 0`, seq + 1);
       return { seq, inserted: true };
     });
+  }
+
+  appendReceipt(writerKey: string): AppendReceipt | null {
+    return (
+      this.sql
+        .exec<AppendReceipt>(
+          `SELECT writer_key, fingerprint, first_seq, last_seq, epoch, created_at
+             FROM append_receipts WHERE writer_key = ?`,
+          writerKey,
+        )
+        .toArray()[0] ?? null
+    );
+  }
+
+  putAppendReceipt(input: {
+    writerKey: string;
+    fingerprint: string;
+    firstSeq: number;
+    lastSeq: number;
+    epoch: number;
+    createdAt: number;
+  }): void {
+    this.sql.exec(
+      `INSERT INTO append_receipts (
+         writer_key, fingerprint, first_seq, last_seq, epoch, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(writer_key) DO NOTHING`,
+      input.writerKey,
+      input.fingerprint,
+      input.firstSeq,
+      input.lastSeq,
+      input.epoch,
+      input.createdAt,
+    );
   }
 
   private assertWritable(): void {
@@ -1229,7 +1337,10 @@ export class Journal {
       .exec<{
         role: string | null;
         kind: string;
-      }>(`SELECT role, kind FROM journal WHERE seq > ? ORDER BY seq ASC LIMIT 1`, seq)
+      }>(
+        `SELECT role, kind FROM journal WHERE seq > ? ORDER BY seq ASC LIMIT 1`,
+        seq,
+      )
       .toArray();
     const next = rows[0];
     return (
@@ -1495,7 +1606,10 @@ export class Journal {
       .exec<{
         seq: number;
         bytes: number;
-      }>(`SELECT seq, bytes FROM journal ORDER BY seq DESC LIMIT ?`, Math.max(targetRows, 1) + 1)
+      }>(
+        `SELECT seq, bytes FROM journal ORDER BY seq DESC LIMIT ?`,
+        Math.max(targetRows, 1) + 1,
+      )
       .toArray();
     const total = this.hotStats();
     if (total.rows <= targetRows && total.bytes <= targetBytes) return null;
@@ -1620,6 +1734,120 @@ export class Journal {
       .exec<{ r2_key: string }>(`SELECT r2_key FROM spills`)
       .toArray()
       .map((row) => row.r2_key);
+  }
+
+  ownerTransferSourceKeys(
+    sourcePrefix: string,
+    limit: number,
+  ): Array<{ key: string; kind: "segment" | "spill" }> {
+    const prefix = `${sourcePrefix}/%`;
+    return this.sql
+      .exec<{ key: string; kind: "segment" | "spill" }>(
+        `SELECT key, kind FROM (
+           SELECT r2_key AS key, 'spill' AS kind, 0 AS priority
+             FROM spills WHERE r2_key LIKE ?
+           UNION ALL
+           SELECT r2_key AS key, 'segment' AS kind, 1 AS priority
+             FROM segments WHERE r2_key LIKE ?
+         ) ORDER BY priority ASC, key ASC LIMIT ?`,
+        prefix,
+        prefix,
+        Math.max(1, Math.trunc(limit)),
+      )
+      .toArray();
+  }
+
+  enqueueOwnerTransferObject(
+    oldKey: string,
+    newKey: string,
+    kind: "segment" | "spill",
+  ): void {
+    this.sql.exec(
+      `INSERT OR IGNORE INTO owner_transfer_objects
+         (old_key, new_key, kind, state) VALUES (?, ?, ?, 'copying')`,
+      oldKey,
+      newKey,
+      kind,
+    );
+  }
+
+  ownerTransferObjects(
+    state: "copying" | "cleanup",
+    limit: number,
+  ): OwnerTransferObjectRow[] {
+    return this.sql
+      .exec<OwnerTransferObjectRow>(
+        `SELECT old_key, new_key, kind, state
+           FROM owner_transfer_objects
+          WHERE state = ? ORDER BY old_key ASC LIMIT ?`,
+        state,
+        Math.max(1, Math.trunc(limit)),
+      )
+      .toArray();
+  }
+
+  rewriteOwnerTransferObject(row: OwnerTransferObjectRow): void {
+    this.ctx.storage.transactionSync(() => {
+      if (row.kind === "spill") {
+        this.sql.exec(
+          `UPDATE spills SET r2_key = ? WHERE r2_key = ?`,
+          row.new_key,
+          row.old_key,
+        );
+        this.sql.exec(
+          `UPDATE journal SET spill_key = ? WHERE spill_key = ?`,
+          row.new_key,
+          row.old_key,
+        );
+      } else {
+        this.sql.exec(
+          `UPDATE segments SET r2_key = ? WHERE r2_key = ?`,
+          row.new_key,
+          row.old_key,
+        );
+      }
+      this.sql.exec(
+        `UPDATE owner_transfer_objects SET state = 'cleanup'
+          WHERE old_key = ?`,
+        row.old_key,
+      );
+    });
+  }
+
+  completeOwnerTransferObject(oldKey: string): void {
+    this.sql.exec(
+      `DELETE FROM owner_transfer_objects WHERE old_key = ?`,
+      oldKey,
+    );
+  }
+
+  ownerTransferPending(): number {
+    return this.sql
+      .exec<{
+        count: number;
+      }>(`SELECT COUNT(*) AS count FROM owner_transfer_objects`)
+      .one().count;
+  }
+
+  transferOwner(fromOwnerId: string, toOwnerId: string): boolean {
+    let transferred = false;
+    this.ctx.storage.transactionSync(() => {
+      const meta = this.meta();
+      if (meta.owner_id === toOwnerId) {
+        transferred = true;
+        return;
+      }
+      if (meta.owner_id !== "" && meta.owner_id !== fromOwnerId) return;
+      if (this.ownerTransferPending() > 0) return;
+      this.sql.exec(`UPDATE meta SET owner_id = ? WHERE id = 0`, toOwnerId);
+      this.sql.exec(
+        `UPDATE turns SET owner_id = ? WHERE owner_id = ?`,
+        toOwnerId,
+        fromOwnerId,
+      );
+      transferred = true;
+    });
+    return transferred;
   }
 
   /**

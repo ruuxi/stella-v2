@@ -5,6 +5,10 @@ import {
   type VoiceSessionState,
 } from "@/features/voice/services/realtime-voice";
 import type { VoiceRuntimeSnapshot } from "@/shared/types/electron";
+import {
+  VoiceTranscriptPersistenceQueue,
+  type VoiceTranscriptPersistencePayload,
+} from "@/features/voice/runtime/voice-transcript-persistence";
 
 interface UseRealtimeVoiceResult {
   isConnected: boolean;
@@ -83,6 +87,11 @@ export class VoiceSessionManager {
   private aborted = false;
   private startInFlight = false;
   private activeVoiceStartedAt: number | null = null;
+  private readonly transcriptSessionId = crypto.randomUUID();
+  private transcriptEventSequence = 0;
+  /** Serialize durable transcript admissions so realtime callbacks cannot reorder. */
+  private readonly transcriptPersistenceQueue =
+    new VoiceTranscriptPersistenceQueue();
 
   constructor(deps: VoiceSessionManagerDeps) {
     this.deps = deps;
@@ -223,21 +232,34 @@ export class VoiceSessionManager {
   ): void {
     const cid = this.deps.conversationIdRef.current;
     if (!cid) return;
-
-    try {
-      window.electronAPI?.voice.persistTranscript?.({
-        conversationId: cid,
-        role,
-        text,
-        uiVisibility,
-        ...(voiceSession ? { voiceSession } : {}),
+    const persist = window.electronAPI?.voice.persistTranscript;
+    if (!persist) return;
+    const payload: VoiceTranscriptPersistencePayload = {
+      conversationId: cid,
+      eventId: `${this.transcriptSessionId}:${++this.transcriptEventSequence}`,
+      timestamp: Date.now(),
+      role,
+      text,
+      uiVisibility,
+      ...(voiceSession ? { voiceSession } : {}),
+    };
+    void this.transcriptPersistenceQueue
+      .enqueue(persist, payload, {
+        onRetry: (error, attempt) => {
+          console.debug(
+            `[VoiceSessionManager] Voice persistence retry ${attempt}:`,
+            error instanceof Error ? error.message : String(error),
+          );
+        },
+      })
+      .catch((error) => {
+        // Production retries indefinitely; this is a last-resort guard for a
+        // future bounded policy or unexpected persistence implementation.
+        console.error(
+          "[VoiceSessionManager] Voice persistence stopped:",
+          error instanceof Error ? error.message : String(error),
+        );
       });
-    } catch (err) {
-      console.debug(
-        "[VoiceSessionManager] Voice persistence failed:",
-        (err as Error).message,
-      );
-    }
   }
 
   private persistHiddenVoiceTranscript(

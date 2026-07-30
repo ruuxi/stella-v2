@@ -20,4 +20,11 @@ describe("mini cloud conversation create ids", () => {
       getMiniCloudConversationCreateId(`account:b:${suffix}`),
     );
   });
+
+  test("does not share bootstrap idempotency keys across anonymous sessions", () => {
+    const suffix = crypto.randomUUID();
+    expect(getMiniCloudConversationCreateId(`anonymous:a:${suffix}`)).not.toBe(
+      getMiniCloudConversationCreateId(`anonymous:b:${suffix}`),
+    );
+  });
 });

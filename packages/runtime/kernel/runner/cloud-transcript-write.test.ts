@@ -6,7 +6,10 @@ import type {
   PersistedRuntimeThreadPayload,
   SqliteDatabase,
 } from "../storage/shared.js";
-import { createCloudTranscriptWriter } from "./cloud-transcript-write.js";
+import {
+  CloudTranscriptAlreadyAdmittedError,
+  createCloudTranscriptWriter,
+} from "./cloud-transcript-write.js";
 
 const openStore = () => {
   const database = new Database(":memory:");
@@ -42,6 +45,53 @@ afterEach(() => {
 });
 
 describe("cloud transcript writer", () => {
+  test("reads authenticated canonical history without opening a turn", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    let requestedMethod = "";
+    let requestedUrl = "";
+    let requestedAuthorization = "";
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
+        requestedMethod =
+          init?.method ?? (input instanceof Request ? input.method : "GET");
+        requestedUrl =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        requestedAuthorization =
+          new Headers(init?.headers).get("authorization") ??
+          (input instanceof Request
+            ? input.headers.get("authorization")
+            : null) ??
+          "";
+        return Response.json({
+          history: ['{"role":"user","content":[],"timestamp":1}'],
+          contextStartSeq: 1,
+          contextEndSeq: 1,
+        });
+      }) as unknown as typeof fetch,
+    });
+
+    await expect(writer.history("conversation-1")).resolves.toEqual({
+      history: ['{"role":"user","content":[],"timestamp":1}'],
+      contextStartSeq: 1,
+      contextEndSeq: 1,
+    });
+    expect(requestedMethod).toBe("GET");
+    expect(requestedUrl).toBe(
+      "https://builder.example/conversations/conversation-1/history",
+    );
+    expect(requestedAuthorization).toBe("Bearer token");
+    writer.stop();
+  });
+
   test("persists begin before delivery and resolves only after lease ACK", async () => {
     const opened = openStore();
     stores.push(opened);
@@ -174,6 +224,62 @@ describe("cloud transcript writer", () => {
       }),
     ).rejects.toThrow("rejected as malformed");
     expect(requests).toBe(1);
+    expect(writer.pending()).toBe(0);
+    writer.stop();
+  });
+
+  test("client message conflicts terminate instead of retrying forever", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    let requests = 0;
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async () => {
+        requests += 1;
+        return Response.json({ code: "idempotency_conflict" }, { status: 409 });
+      }) as unknown as typeof fetch,
+    });
+
+    await expect(
+      writer.begin({
+        conversationId: "conversation-1",
+        localTurnId: "replacement-local-turn",
+        clientMsgId: "message-1",
+        userMessageJson: '{"role":"user","content":[],"timestamp":2}',
+      }),
+    ).rejects.toThrow("no longer owns");
+    expect(requests).toBe(1);
+    expect(writer.pending()).toBe(0);
+    writer.stop();
+  });
+
+  test("an already-admitted message stops a replacement run quietly", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async () =>
+        Response.json(
+          { code: "turn_finished" },
+          { status: 409 },
+        )) as unknown as typeof fetch,
+    });
+
+    const result = writer.begin({
+      conversationId: "conversation-1",
+      localTurnId: "replacement-local-turn",
+      clientMsgId: "message-1",
+      userMessageJson: '{"role":"user","content":[],"timestamp":2}',
+    });
+    await expect(result).rejects.toBeInstanceOf(
+      CloudTranscriptAlreadyAdmittedError,
+    );
     expect(writer.pending()).toBe(0);
     writer.stop();
   });
@@ -409,7 +515,78 @@ describe("cloud transcript writer", () => {
     recoveredWriter.stop();
   });
 
-  test("post-output crash recovery includes exact persisted assistant and tool rows", async () => {
+  test("recovers a historical import with its exact precomputed finish", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    const records = [
+      {
+        ordinal: 0,
+        role: "assistant" as const,
+        payloadJson: JSON.stringify({
+          role: "assistant",
+          content: [{ type: "text", text: "Historical answer" }],
+          timestamp: 2,
+        }),
+      },
+    ];
+    const firstWriter = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async () =>
+        Response.json({
+          turnId: "turn-1",
+          leaseToken: "lease-1",
+          history: [],
+        })) as unknown as typeof fetch,
+    });
+    await firstWriter.begin({
+      conversationId: "conversation-1",
+      localTurnId: "legacy-turn-1",
+      clientMsgId: "legacy-message-1",
+      userMessageJson: '{"role":"user","content":[],"timestamp":1}',
+      recovery: {
+        kind: "precomputed-finish",
+        records,
+        phase: "completed",
+      },
+    });
+    firstWriter.stop();
+
+    const finishBodies: Array<Record<string, unknown>> = [];
+    const recoveredWriter = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).endsWith("/begin")) {
+          return Response.json({
+            turnId: "turn-1",
+            leaseToken: "lease-1",
+            history: [],
+          });
+        }
+        finishBodies.push(JSON.parse(String(init?.body)));
+        return new Response(null, { status: 204 });
+      }) as unknown as typeof fetch,
+    });
+
+    await waitFor(() => recoveredWriter.pending() === 0);
+    expect(finishBodies).toEqual([
+      {
+        deviceId: "device-1",
+        localTurnId: "legacy-turn-1",
+        leaseToken: "lease-1",
+        records,
+        phase: "completed",
+      },
+    ]);
+    recoveredWriter.stop();
+  });
+
+  test("post-output crash recovery never rereads local transcript rows", async () => {
     const opened = openStore();
     stores.push(opened);
     const threadKey = "conversation-1";
@@ -425,9 +602,6 @@ describe("cloud transcript writer", () => {
       timestamp: historical.timestamp,
       payload: historical,
     });
-    const afterInsertionSequence =
-      opened.store.getThreadEntryInsertionSequenceWatermark(threadKey);
-
     const firstWriter = createCloudTranscriptWriter({
       deviceId: "device-1",
       store: opened.store,
@@ -445,7 +619,6 @@ describe("cloud transcript writer", () => {
       localTurnId: "local-turn-1",
       clientMsgId: "message-1",
       userMessageJson: '{"role":"user","content":[],"timestamp":2}',
-      recovery: { threadKey, afterInsertionSequence },
     });
     const recoveryRow = opened.database
       .query(
@@ -456,11 +629,8 @@ describe("cloud transcript writer", () => {
         LIMIT 1
       `,
       )
-      .get() as { recoveryJson: string };
-    expect(JSON.parse(recoveryRow.recoveryJson)).toEqual({
-      threadKey,
-      afterInsertionSequence,
-    });
+      .get() as { recoveryJson: string | null };
+    expect(recoveryRow.recoveryJson).toBeNull();
 
     const assistant: PersistedRuntimeThreadPayload = {
       role: "assistant",
@@ -530,19 +700,11 @@ describe("cloud transcript writer", () => {
     });
 
     await waitFor(() => recoveredWriter.pending() === 0);
-    const records = finishBodies[0]?.records as Array<{
-      ordinal: number;
-      role: string;
-      payloadJson: string;
-    }>;
-    expect(records.map(({ ordinal, role }) => ({ ordinal, role }))).toEqual([
-      { ordinal: 0, role: "assistant" },
-      { ordinal: 1, role: "toolResult" },
-    ]);
-    expect(records.map((record) => JSON.parse(record.payloadJson))).toEqual([
-      assistant,
-      toolResult,
-    ]);
+    expect(finishBodies[0]?.records).toEqual([]);
+    expect(finishBodies[0]).toMatchObject({
+      phase: "canceled",
+      notice: "The local turn was interrupted before it could finish.",
+    });
     recoveredWriter.stop();
   });
 
@@ -847,5 +1009,246 @@ describe("cloud transcript writer", () => {
       }),
     );
     recoveredWriter.stop();
+  });
+
+  test("keeps journal appends FIFO per conversation across a busy text turn", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    const delivered: string[] = [];
+    let busy = true;
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async (
+        _input: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        const body = JSON.parse(String(init?.body)) as {
+          localTurnId: string;
+        };
+        delivered.push(body.localTurnId);
+        if (busy) {
+          return Response.json(
+            { code: "turn_in_progress", retryAfterMs: 3_000 },
+            { status: 409 },
+          );
+        }
+        return Response.json({ firstSeq: 1, lastSeq: 1, epoch: 1 });
+      }) as unknown as typeof fetch,
+    });
+
+    await writer.append({
+      conversationId: "conversation-1",
+      appendId: "voice-event-1",
+      records: [
+        {
+          kind: "message",
+          role: "user",
+          payloadJson: '{"role":"user","content":"one","timestamp":1}',
+        },
+      ],
+    });
+    await writer.append({
+      conversationId: "conversation-1",
+      appendId: "voice-event-2",
+      records: [
+        {
+          kind: "message",
+          role: "assistant",
+          payloadJson: '{"role":"assistant","content":[],"timestamp":2}',
+        },
+      ],
+    });
+
+    await waitFor(() => delivered.length === 1);
+    expect(delivered).toEqual(["voice-event-1"]);
+    expect(writer.pending()).toBe(2);
+
+    busy = false;
+    writer.resume();
+    await waitFor(() => writer.pending() === 0);
+    expect(delivered).toEqual([
+      "voice-event-1",
+      "voice-event-1",
+      "voice-event-2",
+    ]);
+    writer.stop();
+  });
+
+  test("recovers a durable journal append after worker restart", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    const firstWriter = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => null,
+      getBaseUrl: async () => "https://builder.example",
+    });
+    await firstWriter.append({
+      conversationId: "conversation-1",
+      appendId: "voice-event-1",
+      records: [
+        {
+          kind: "message",
+          role: "user",
+          payloadJson: '{"role":"user","content":"hello","timestamp":1}',
+        },
+      ],
+    });
+    expect(firstWriter.pending()).toBe(1);
+    firstWriter.stop();
+
+    const payloads: Array<Record<string, unknown>> = [];
+    const recoveredWriter = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async (
+        _input: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        payloads.push(JSON.parse(String(init?.body)));
+        return Response.json({ firstSeq: 1, lastSeq: 1, epoch: 1 });
+      }) as unknown as typeof fetch,
+    });
+
+    await waitFor(() => recoveredWriter.pending() === 0);
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        deviceId: "device-1",
+        localTurnId: "voice-event-1",
+        source: "voice",
+      }),
+    ]);
+    recoveredWriter.stop();
+  });
+
+  test("deduplicates identical journal enqueue and rejects payload reuse", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => null,
+      getBaseUrl: async () => "https://builder.example",
+    });
+    const request = {
+      conversationId: "conversation-1",
+      appendId: "voice-event-1",
+      records: [
+        {
+          kind: "message" as const,
+          role: "user" as const,
+          payloadJson: '{"role":"user","content":"hello","timestamp":1}',
+        },
+      ],
+    };
+
+    await expect(writer.append(request)).resolves.toEqual({
+      queued: true,
+      replayed: false,
+    });
+    await expect(writer.append(request)).resolves.toEqual({
+      queued: true,
+      replayed: true,
+    });
+    expect(writer.pending()).toBe(1);
+    await expect(
+      writer.append({
+        ...request,
+        records: [
+          {
+            ...request.records[0]!,
+            payloadJson: '{"role":"user","content":"different","timestamp":1}',
+          },
+        ],
+      }),
+    ).rejects.toThrow("reused with new payload");
+    writer.stop();
+  });
+
+  test("retains local admission identity after successful delivery", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async () =>
+        Response.json({
+          firstSeq: 1,
+          lastSeq: 1,
+          epoch: 1,
+        })) as unknown as typeof fetch,
+    });
+    const request = {
+      conversationId: "conversation-1",
+      appendId: "voice-event-after-ack",
+      records: [
+        {
+          kind: "message" as const,
+          role: "assistant" as const,
+          payloadJson: '{"role":"assistant","content":"hello","timestamp":1}',
+        },
+      ],
+    };
+
+    await expect(writer.append(request)).resolves.toEqual({
+      queued: true,
+      replayed: false,
+    });
+    await waitFor(() => writer.pending() === 0);
+    await expect(writer.append(request)).resolves.toEqual({
+      queued: true,
+      replayed: true,
+    });
+    expect(writer.pending()).toBe(0);
+    writer.stop();
+  });
+
+  test("dead-letters a server idempotency conflict without retrying", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    let requests = 0;
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async () => {
+        requests += 1;
+        return Response.json({ code: "idempotency_conflict" }, { status: 409 });
+      }) as unknown as typeof fetch,
+    });
+
+    await writer.append({
+      conversationId: "conversation-1",
+      appendId: "voice-event-1",
+      records: [
+        {
+          kind: "message",
+          role: "user",
+          payloadJson: '{"role":"user","content":"hello","timestamp":1}',
+        },
+      ],
+    });
+    await waitFor(() => writer.pending() === 0);
+    expect(requests).toBe(1);
+    expect(
+      opened.database
+        .query(
+          `SELECT payload_json AS payloadJson, last_error AS lastError
+             FROM cloud_journal_outbox LIMIT 1`,
+        )
+        .get(),
+    ).toEqual({
+      payloadJson: "{}",
+      lastError: "idempotency_conflict",
+    });
+    writer.stop();
   });
 });

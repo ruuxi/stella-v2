@@ -9,7 +9,6 @@ import { internal } from "../_generated/api";
 import { v, ConvexError } from "convex/values";
 import { handleConnectorIncomingMessage } from "./message_pipeline";
 import { formatLinkCodeResultMessage, processLinkCode } from "./link_codes";
-import { SIGN_IN_REQUIRED_ERROR } from "./routing_flow";
 import { retryFetch } from "../lib/retry_fetch";
 import { enforceActionRateLimit, RATE_VERY_EXPENSIVE } from "../lib/rate_limits";
 import { hashLinqPhone } from "./linq_phone_hash";
@@ -18,6 +17,9 @@ import {
   jsonValueValidator,
   optionalChannelEnvelopeValidator,
 } from "../shared_validators";
+import {
+  requireConnectedUserIdentityAction,
+} from "../auth";
 
 // ---------------------------------------------------------------------------
 // Linq API Helpers
@@ -586,10 +588,7 @@ export const executeLinqConnectorTool = action({
     payload: jsonValueValidator,
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity || (identity as Record<string, unknown>).isAnonymous === true) {
-      throw new ConvexError(SIGN_IN_REQUIRED_ERROR);
-    }
+    const identity = await requireConnectedUserIdentityAction(ctx);
 
     const target = (await ctx.runQuery(
       internal.channels.linq.getAuthorizedLinqRemoteTurnTarget,
@@ -736,11 +735,7 @@ export const sendLinqLinkSms = action({
   args: { phoneNumber: v.string() },
   returns: v.object({ success: v.boolean() }),
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError(SIGN_IN_REQUIRED_ERROR);
-    if ((identity as Record<string, unknown>).isAnonymous === true) {
-      throw new ConvexError(SIGN_IN_REQUIRED_ERROR);
-    }
+    const identity = await requireConnectedUserIdentityAction(ctx);
 
     const phone = args.phoneNumber.replace(/[\s\-().]/g, "");
     if (!E164_REGEX.test(phone)) {

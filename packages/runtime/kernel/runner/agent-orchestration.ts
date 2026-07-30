@@ -35,6 +35,7 @@ import {
 import type { RunnerContext } from "./types.js";
 import { buildAgentEventPrompt } from "./shared.js";
 import { RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE } from "../storage/shared.js";
+import type { ComputerAgentCloudRecords } from "./computer-agent-cloud-records.js";
 
 const collectFileChanges = (
   target: FileChangeRecord[],
@@ -263,11 +264,20 @@ const buildLifecycleEventPayload = (
   }
 };
 
-const appendAgentLifecycleChatEvent = (
+export const appendAgentLifecycleChatEvent = (
   context: RunnerContext,
   event: AgentLifecycleEvent,
 ) => {
   if (!context.appendLocalChatEvent) {
+    return;
+  }
+  // runtime_agents remains the local operational ledger for both placements,
+  // but a cloud-owned conversation's lifecycle transcript belongs only to the
+  // canonical cloud journal/agent-thread rows.
+  if (
+    context.runtimeStore.getAgentRecord?.(event.agentId)?.storageMode ===
+    "cloud"
+  ) {
     return;
   }
   context.appendLocalChatEvent({
@@ -310,6 +320,7 @@ export const createAgentOrchestration = (
       customType?: string;
       display?: boolean;
     }) => Promise<void>;
+    cloudAgentRecords: ComputerAgentCloudRecords;
   },
 ) => {
   const handleAgentLifecycleEvent = (rawEvent: AgentLifecycleEvent) => {
@@ -595,6 +606,7 @@ export const createAgentOrchestration = (
       agentContext,
       taskDescription,
       taskPrompt,
+      persistToConvex,
       abortSignal,
       subagentSession,
       onProgress,
@@ -709,6 +721,7 @@ export const createAgentOrchestration = (
       };
       const result = await runSubagentTask({
         conversationId,
+        storageMode: persistToConvex ? "cloud" : "local",
         userMessageId,
         runId,
         agentId,
@@ -893,12 +906,10 @@ export const createAgentOrchestration = (
         signal,
         onUpdate,
       ),
-    createCloudAgentRecord: async () => ({
-      agentId: `cloud-stub-${crypto.randomUUID().slice(0, 8)}`,
-    }),
-    completeCloudAgentRecord: async () => {},
-    getCloudAgentRecord: async () => null,
-    cancelCloudAgentRecord: async () => ({ canceled: false }),
+    createCloudAgentRecord: deps.cloudAgentRecords.create,
+    completeCloudAgentRecord: deps.cloudAgentRecords.complete,
+    getCloudAgentRecord: deps.cloudAgentRecords.get,
+    cancelCloudAgentRecord: deps.cloudAgentRecords.cancel,
     saveAgentRecord: (record) => {
       context.runtimeStore.saveAgentRecord?.(record);
       // Every thread transition funnels through here — this push is what

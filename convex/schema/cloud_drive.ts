@@ -35,7 +35,10 @@ export const cloudDriveSchema = {
     createdAt: v.number(),
   })
     .index("by_ownerId_and_path", ["ownerId", "path"])
-    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
+    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"])
+    // Replacement cleanup must prove an immutable object key is no longer
+    // named by any row before deleting its bytes.
+    .index("by_r2Key", ["r2Key"]),
 
   // Running per-owner totals so a quota check costs one document read instead
   // of a scan over every file row. Written in the same transaction as every

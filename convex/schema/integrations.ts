@@ -65,6 +65,7 @@ export const integrationsSchema = {
     expiresAt: v.number(),
   })
     .index("by_batchKey", ["batchKey"])
+    .index("by_ownerId_and_batchKey", ["ownerId", "batchKey"])
     .index("by_expiresAt", ["expiresAt"])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"]),
 

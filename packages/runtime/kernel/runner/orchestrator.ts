@@ -38,6 +38,7 @@ import {
   normalizeAutomationRunInput,
   normalizeChatRunInput,
 } from "./orchestrator-policy.js";
+import { shouldPersistLocalChatTranscript } from "./conversation-storage-mode.js";
 
 const logger = createRuntimeLogger("runner.orchestrator");
 const UI_VISIBILITY_HIDDEN = "hidden" as const;
@@ -576,7 +577,14 @@ export const createOrchestratorController = (
             },
           }
         : undefined;
-    if (uiVisibility !== UI_VISIBILITY_HIDDEN) {
+    const liveSession = getLiveOrchestratorSession(
+      input.conversationId,
+      input.agentType,
+    );
+    if (
+      shouldPersistLocalChatTranscript(liveSession?.storageMode) &&
+      uiVisibility !== UI_VISIBILITY_HIDDEN
+    ) {
       context.appendLocalChatEvent?.({
         conversationId: input.conversationId,
         type: "user_message",
@@ -588,10 +596,6 @@ export const createOrchestratorController = (
         },
       });
     }
-    const liveSession = getLiveOrchestratorSession(
-      input.conversationId,
-      input.agentType,
-    );
     if (liveSession) {
       liveSession.queueUserMessageId(userMessageId, () => {
         liveSession.queueCallbackSwitch(callbacks);
@@ -724,6 +728,8 @@ export const createOrchestratorController = (
     payload: {
       conversationId: string;
       userPrompt: string;
+      storageMode?: "cloud" | "local";
+      userMessageId?: string;
       agentType?: string;
       modelOverride?: string;
       toolWorkspaceRoot?: string;
@@ -745,6 +751,8 @@ export const createOrchestratorController = (
         toolWorkspaceRoot,
         attachments,
         connectorDeliveryTarget,
+        storageMode,
+        userMessageId,
       } = normalizeAutomationRunInput(payload);
       if (!conversationId) {
         resolveResult(createAutomationErrorResult("Missing conversationId"));
@@ -757,7 +765,7 @@ export const createOrchestratorController = (
 
       const runId = `local:auto:${crypto.randomUUID()}`;
       const appendConnectorTerminalNotice = (event: RuntimeEndEvent) => {
-        if (!connectorDeliveryTarget) {
+        if (!connectorDeliveryTarget || storageMode !== "local") {
           return;
         }
         if (event.responseTarget?.type !== "agent_terminal_notice") {
@@ -782,10 +790,11 @@ export const createOrchestratorController = (
         userPrompt,
         ...(modelOverride ? { modelOverride } : {}),
         ...(toolWorkspaceRoot ? { toolWorkspaceRoot } : {}),
+        storageMode,
         uiVisibility: "hidden",
         attachments,
         ...(connectorDeliveryTarget ? { connectorDeliveryTarget } : {}),
-        userMessageId: `automation:${crypto.randomUUID()}`,
+        userMessageId: userMessageId ?? `automation:${crypto.randomUUID()}`,
         createRuntimeCallbacks: ({ runId }) =>
           createRuntimeCallbacks(
             runId,
@@ -813,6 +822,8 @@ export const createOrchestratorController = (
   const runAutomationTurn = async (payload: {
     conversationId: string;
     userPrompt: string;
+    storageMode?: "cloud" | "local";
+    userMessageId?: string;
     agentType?: string;
     modelOverride?: string;
     toolWorkspaceRoot?: string;

@@ -40,20 +40,8 @@ import {
   IPC_DISPLAY_TRASH_LIST,
   IPC_DISPLAY_UPDATE,
   IPC_HOST_CONFIGURE_RUNTIME,
-  IPC_LOCAL_CHAT_CREATE_NEW_DEFAULT_ID,
-  IPC_LOCAL_CHAT_GET_EVENT_COUNT,
-  IPC_LOCAL_CHAT_GET_OR_CREATE_ID,
-  IPC_LOCAL_CHAT_GET_SYNC_CHECKPOINT,
   IPC_LOCAL_CHAT_LIST_ACTIVITY,
-  IPC_LOCAL_CHAT_LIST_EVENTS,
   IPC_LOCAL_CHAT_LIST_FILES,
-  IPC_LOCAL_CHAT_LIST_MESSAGES,
-  IPC_LOCAL_CHAT_LIST_MESSAGES_BEFORE,
-  IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES,
-  IPC_LOCAL_CHAT_PERSIST_WELCOME,
-  IPC_LOCAL_CHAT_SET_SYNC_CHECKPOINT,
-  IPC_LOCAL_CHAT_SYNC_MESSAGES,
-  IPC_LOCAL_CHAT_UPDATED,
   IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED,
   IPC_LOCAL_CHAT_TASK_DECORATION_UPDATED,
   IPC_LOCAL_CHAT_LIST_THREAD_ACTIVITY,
@@ -110,7 +98,6 @@ import {
   BRIDGE_FEATURE_BINARY_UPLOAD,
   BRIDGE_FEATURE_DEFLATE,
   BRIDGE_FEATURE_HELLO,
-  BRIDGE_FEATURE_LOCAL_CHAT_PUSH,
 } from "./crypto.js";
 
 export type MobileBridgeCapabilityMode =
@@ -269,7 +256,7 @@ export const MOBILE_BRIDGE_CAPABILITIES = [
   send("uiState.clear", IPC_UI_STATE_KV_CLEAR),
   event("uiState.onChanged", IPC_UI_STATE_KV_CHANGED),
 
-  send("voice.persistTranscript", IPC_VOICE_PERSIST_TRANSCRIPT),
+  invoke("voice.persistTranscript", IPC_VOICE_PERSIST_TRANSCRIPT),
   invoke("voice.orchestratorChat", IPC_VOICE_ORCHESTRATOR_CHAT),
   invoke("voice.webSearch", IPC_VOICE_WEB_SEARCH),
   invoke("voice.getRuntimeState", IPC_VOICE_GET_RUNTIME_STATE),
@@ -366,31 +353,16 @@ export const MOBILE_BRIDGE_CAPABILITIES = [
   // baseUrl from this config; partition/preloadUrl are ignored.
   invoke("storeWeb.getEmbedConfig", "storeWeb:getEmbedConfig"),
 
-  // One-RTT connect: conversation id + developer flag + message delta +
-  // feature list in a single invoke (see registerMobileHelloHandlers).
+  // One-RTT negotiation: cloud conversation id + developer flag + feature
+  // list. Canonical messages are read from the cloud, never desktop SQLite.
   invoke("mobile.hello", "mobile:hello"),
 
-  invoke(
-    "localChat.getOrCreateDefaultConversationId",
-    IPC_LOCAL_CHAT_GET_OR_CREATE_ID,
-  ),
-  invoke(
-    "localChat.createNewDefaultConversationId",
-    IPC_LOCAL_CHAT_CREATE_NEW_DEFAULT_ID,
-  ),
-  invoke("localChat.listEvents", IPC_LOCAL_CHAT_LIST_EVENTS),
-  invoke("localChat.listMessages", IPC_LOCAL_CHAT_LIST_MESSAGES),
-  invoke("localChat.listMessagesBefore", IPC_LOCAL_CHAT_LIST_MESSAGES_BEFORE),
+  // Local operational projections remain useful for active task/file UI. The
+  // transcript/id/sync/checkpoint lanes are intentionally absent so a mobile
+  // client cannot mistake a stale SQLite cache for canonical cloud history.
   invoke("localChat.listActivity", IPC_LOCAL_CHAT_LIST_ACTIVITY),
   invoke("localChat.listThreadActivity", IPC_LOCAL_CHAT_LIST_THREAD_ACTIVITY),
   invoke("localChat.listFiles", IPC_LOCAL_CHAT_LIST_FILES),
-  invoke("localChat.getEventCount", IPC_LOCAL_CHAT_GET_EVENT_COUNT),
-  invoke("localChat.persistDiscoveryWelcome", IPC_LOCAL_CHAT_PERSIST_WELCOME),
-  invoke("localChat.listSyncMessages", IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES),
-  invoke("localChat.syncMessages", IPC_LOCAL_CHAT_SYNC_MESSAGES),
-  invoke("localChat.getSyncCheckpoint", IPC_LOCAL_CHAT_GET_SYNC_CHECKPOINT),
-  invoke("localChat.setSyncCheckpoint", IPC_LOCAL_CHAT_SET_SYNC_CHECKPOINT),
-  event("localChat.onUpdated", IPC_LOCAL_CHAT_UPDATED),
   event(
     "localChat.onThreadActivityUpdated",
     IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED,
@@ -441,5 +413,4 @@ export const MOBILE_BRIDGE_FEATURES = [
   BRIDGE_FEATURE_DEFLATE,
   BRIDGE_FEATURE_BINARY_FILE,
   BRIDGE_FEATURE_BINARY_UPLOAD,
-  BRIDGE_FEATURE_LOCAL_CHAT_PUSH,
 ] as const;

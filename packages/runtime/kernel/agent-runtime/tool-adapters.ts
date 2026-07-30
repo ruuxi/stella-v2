@@ -498,6 +498,7 @@ type RuntimeToolContextArgs = {
   rootRunId?: string;
   agentId?: string;
   conversationId: string;
+  storageMode?: "cloud" | "local";
   agentType: string;
   deviceId: string;
   stellaAppDir?: string;
@@ -537,7 +538,7 @@ export const buildRuntimeToolContext = (
     ...(args.toolWorkspaceRoot
       ? { toolWorkspaceRoot: args.toolWorkspaceRoot }
       : {}),
-    storageMode: "local",
+    storageMode: args.storageMode ?? "local",
     ...(args.agentId ? { agentId: args.agentId } : {}),
     ...(typeof args.agentDepth === "number"
       ? { agentDepth: args.agentDepth }
@@ -641,6 +642,7 @@ export const createPiTools = (opts: {
   rootRunId?: string;
   agentId?: string;
   conversationId: string;
+  storageMode?: "cloud" | "local";
   agentType: string;
   deviceId: string;
   stellaAppDir?: string;
@@ -704,147 +706,146 @@ export const createPiTools = (opts: {
       signal: AbortSignal | undefined,
       onUpdate: AgentToolUpdateCallback | undefined,
     ): Promise<AgentToolResult<unknown>> => {
-        const args = (params as Record<string, unknown>) ?? {};
-        if (toolName === TOOL_SEARCH_TOOL_NAME) {
-          const query = typeof args.query === "string" ? args.query.trim() : "";
-          if (!query) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: "Error: tool_search requires a non-empty query.",
-                },
-              ],
-              details: { error: "missing_query" },
-            };
-          }
-          const queryTokens = tokenizeToolSearch(query);
-          const connectorProvider = opts.connectorDeliveryTarget?.provider;
-          const matches = deferredTools
-            .filter((tool) => {
-              const requiredProvider = tool.deferred?.requiredConnectorProvider;
-              return (
-                !requiredProvider || requiredProvider === connectorProvider
-              );
-            })
-            .map((tool) => ({
-              tool,
-              score: scoreDeferredTool(tool, queryTokens),
-            }))
-            .filter((entry) => entry.score > 0)
-            .sort((left, right) => {
-              if (right.score !== left.score) return right.score - left.score;
-              return left.tool.name.localeCompare(right.tool.name);
-            })
-            .slice(0, clampToolSearchLimit(args.limit));
-
-          for (const { tool } of matches) {
-            if (activeToolNames.has(tool.name)) continue;
-            activeToolNames.add(tool.name);
-            activeTools.push(registerTool(tool.name));
-          }
-
-          const toolNames = matches.map(({ tool }) => tool.name);
-          onUpdate?.({
-            content: [
-              {
-                type: "text",
-                text:
-                  toolNames.length > 0
-                    ? `Found ${toolNames.length} matching tool${toolNames.length === 1 ? "" : "s"}.`
-                    : "No matching tools found.",
-              },
-            ],
-            details: {
-              statusText:
-                toolNames.length > 0
-                  ? `Found ${toolNames.length} matching tool${toolNames.length === 1 ? "" : "s"}`
-                  : "No matching tools found",
-            },
-          });
-          const unavailableHint =
-            connectorProvider === "linq"
-              ? ""
-              : " Linq/iMessage tools are only available while replying to a Linq connector conversation.";
+      const args = (params as Record<string, unknown>) ?? {};
+      if (toolName === TOOL_SEARCH_TOOL_NAME) {
+        const query = typeof args.query === "string" ? args.query.trim() : "";
+        if (!query) {
           return {
             content: [
               {
                 type: "text" as const,
-                text:
-                  toolNames.length > 0
-                    ? `Exposed deferred tools for the next call: ${toolNames.join(", ")}.`
-                    : `No deferred tools matched "${query}".${unavailableHint}`,
+                text: "Error: tool_search requires a non-empty query.",
               },
             ],
-            details: {
-              query,
-              exposedTools: toolNames,
-            },
+            details: { error: "missing_query" },
           };
         }
-        const toolResult = await executeRuntimeToolCall({
-          toolCallId,
-          toolName,
-          args,
-          runId: opts.runId,
-          rootRunId: opts.rootRunId,
-          agentId: opts.agentId,
-          conversationId: opts.conversationId,
-          agentType: opts.agentType,
-          deviceId: opts.deviceId,
-          stellaAppDir: opts.stellaAppDir,
-          stellaDataDir: opts.stellaDataDir,
-          toolWorkspaceRoot: opts.toolWorkspaceRoot,
-          agentDepth: opts.agentDepth,
-          maxAgentDepth: opts.maxAgentDepth,
-          modelConfigSnapshot: opts.modelConfigSnapshot,
-          connectorDeliveryTarget: opts.connectorDeliveryTarget,
-          allowedToolNames: [...activeToolNames],
-          store: opts.store,
-          toolExecutor: opts.toolExecutor,
-          hookEmitter: opts.hookEmitter,
-          signal,
-          onUpdate: onUpdate
-            ? (partialResult: ToolResult) => {
-                const formattedPartial = formatToolResult(partialResult);
-                const truncatedPartial = truncateModelVisibleToolText(
-                  formattedPartial.text,
-                );
-                onUpdate({
-                  content: [{ type: "text", text: truncatedPartial.text }],
-                  details: formattedPartial.details,
-                });
-              }
-            : undefined,
-        });
-        const formatted = formatToolResult(toolResult);
-        // Detect [stella-attach-image] markers in diagnostic tool output and
-        // read the referenced PNG(s) into image content blocks. The model sees
-        // the screenshot on the very next turn with no extra Read step.
-        const { text: forwardedText, images: legacyImages } =
-          await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
-        const truncatedText = truncateModelVisibleToolText(forwardedText);
-        const content: Array<TextContent | ImageBlock> = [];
-        const screenshotNote =
-          legacyImages.length > 0
-            ? "\n\n[Screenshot attached below. If the accessibility tree is sparse or missing the visible control, inspect this image directly and use screenshot x/y coordinates.]"
-            : "";
-        if (truncatedText.text || legacyImages.length === 0) {
-          content.push({
-            type: "text" as const,
-            text: `${truncatedText.text}${screenshotNote}`,
-          });
-        } else if (screenshotNote) {
-          content.push({
-            type: "text" as const,
-            text: screenshotNote.trim(),
-          });
+        const queryTokens = tokenizeToolSearch(query);
+        const connectorProvider = opts.connectorDeliveryTarget?.provider;
+        const matches = deferredTools
+          .filter((tool) => {
+            const requiredProvider = tool.deferred?.requiredConnectorProvider;
+            return !requiredProvider || requiredProvider === connectorProvider;
+          })
+          .map((tool) => ({
+            tool,
+            score: scoreDeferredTool(tool, queryTokens),
+          }))
+          .filter((entry) => entry.score > 0)
+          .sort((left, right) => {
+            if (right.score !== left.score) return right.score - left.score;
+            return left.tool.name.localeCompare(right.tool.name);
+          })
+          .slice(0, clampToolSearchLimit(args.limit));
+
+        for (const { tool } of matches) {
+          if (activeToolNames.has(tool.name)) continue;
+          activeToolNames.add(tool.name);
+          activeTools.push(registerTool(tool.name));
         }
-        content.push(...legacyImages);
+
+        const toolNames = matches.map(({ tool }) => tool.name);
+        onUpdate?.({
+          content: [
+            {
+              type: "text",
+              text:
+                toolNames.length > 0
+                  ? `Found ${toolNames.length} matching tool${toolNames.length === 1 ? "" : "s"}.`
+                  : "No matching tools found.",
+            },
+          ],
+          details: {
+            statusText:
+              toolNames.length > 0
+                ? `Found ${toolNames.length} matching tool${toolNames.length === 1 ? "" : "s"}`
+                : "No matching tools found",
+          },
+        });
+        const unavailableHint =
+          connectorProvider === "linq"
+            ? ""
+            : " Linq/iMessage tools are only available while replying to a Linq connector conversation.";
         return {
-          content,
-          details: formatted.details,
+          content: [
+            {
+              type: "text" as const,
+              text:
+                toolNames.length > 0
+                  ? `Exposed deferred tools for the next call: ${toolNames.join(", ")}.`
+                  : `No deferred tools matched "${query}".${unavailableHint}`,
+            },
+          ],
+          details: {
+            query,
+            exposedTools: toolNames,
+          },
         };
+      }
+      const toolResult = await executeRuntimeToolCall({
+        toolCallId,
+        toolName,
+        args,
+        runId: opts.runId,
+        rootRunId: opts.rootRunId,
+        agentId: opts.agentId,
+        conversationId: opts.conversationId,
+        storageMode: opts.storageMode,
+        agentType: opts.agentType,
+        deviceId: opts.deviceId,
+        stellaAppDir: opts.stellaAppDir,
+        stellaDataDir: opts.stellaDataDir,
+        toolWorkspaceRoot: opts.toolWorkspaceRoot,
+        agentDepth: opts.agentDepth,
+        maxAgentDepth: opts.maxAgentDepth,
+        modelConfigSnapshot: opts.modelConfigSnapshot,
+        connectorDeliveryTarget: opts.connectorDeliveryTarget,
+        allowedToolNames: [...activeToolNames],
+        store: opts.store,
+        toolExecutor: opts.toolExecutor,
+        hookEmitter: opts.hookEmitter,
+        signal,
+        onUpdate: onUpdate
+          ? (partialResult: ToolResult) => {
+              const formattedPartial = formatToolResult(partialResult);
+              const truncatedPartial = truncateModelVisibleToolText(
+                formattedPartial.text,
+              );
+              onUpdate({
+                content: [{ type: "text", text: truncatedPartial.text }],
+                details: formattedPartial.details,
+              });
+            }
+          : undefined,
+      });
+      const formatted = formatToolResult(toolResult);
+      // Detect [stella-attach-image] markers in diagnostic tool output and
+      // read the referenced PNG(s) into image content blocks. The model sees
+      // the screenshot on the very next turn with no extra Read step.
+      const { text: forwardedText, images: legacyImages } =
+        await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
+      const truncatedText = truncateModelVisibleToolText(forwardedText);
+      const content: Array<TextContent | ImageBlock> = [];
+      const screenshotNote =
+        legacyImages.length > 0
+          ? "\n\n[Screenshot attached below. If the accessibility tree is sparse or missing the visible control, inspect this image directly and use screenshot x/y coordinates.]"
+          : "";
+      if (truncatedText.text || legacyImages.length === 0) {
+        content.push({
+          type: "text" as const,
+          text: `${truncatedText.text}${screenshotNote}`,
+        });
+      } else if (screenshotNote) {
+        content.push({
+          type: "text" as const,
+          text: screenshotNote.trim(),
+        });
+      }
+      content.push(...legacyImages);
+      return {
+        content,
+        details: formatted.details,
+      };
     };
     const tool: AgentTool = {
       name: toolName,

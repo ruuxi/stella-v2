@@ -5,7 +5,7 @@ import {
   query,
 } from "../_generated/server";
 import { v } from "convex/values";
-import { requireUserId } from "../auth";
+import { getConnectedUserIdOrNull, requireUserId } from "../auth";
 import {
   ensureOwnerConnection,
   type DmPolicy,
@@ -276,10 +276,8 @@ export const getConnection = query({
   args: { provider: v.string() },
   returns: v.union(v.null(), channelConnectionDocValidator),
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return null;
-    if ((identity as Record<string, unknown>).isAnonymous === true) return null;
-    const ownerId = identity.tokenIdentifier;
+    const ownerId = await getConnectedUserIdOrNull(ctx);
+    if (!ownerId) return null;
 
     // Group chats create extra `group:*` connections under the same
     // owner+provider, so this lookup cannot assume a unique row.

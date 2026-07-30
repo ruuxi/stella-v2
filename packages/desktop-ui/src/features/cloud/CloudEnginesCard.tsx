@@ -199,7 +199,16 @@ export function CloudEnginesCard() {
     isAuthenticated ? {} : "skip",
   );
   const setExecution = useMutation(cloudApi.setMyCloudExecution);
+  const activateImportedCredential = useMutation(
+    cloudApi.activateImportedCredential,
+  );
+  const activateImportedSettings = useMutation(
+    cloudApi.activateImportedEngineSettings,
+  );
   const [switching, setSwitching] = useState(false);
+  const [activatingImportId, setActivatingImportId] = useState<string | null>(
+    null,
+  );
   // Convex queries are reactive; onChanged exists only for symmetry with
   // imperative flows and future non-reactive contexts.
   const noopRefresh = useCallback(() => {}, []);
@@ -250,6 +259,50 @@ export function CloudEnginesCard() {
       showToast({ title: friendlyError(error), variant: "error" });
     } finally {
       setSwitching(false);
+    }
+  };
+
+  const activateCredentialImport = async (
+    credentialId: string,
+    provider: string,
+  ) => {
+    const name =
+      PROVIDERS.find((candidate) => candidate.provider === provider)?.name ??
+      provider;
+    if (
+      !window.confirm(
+        `Use the ${name} connection imported from your anonymous session? Your current connection will be kept as the imported alternative.`,
+      )
+    ) {
+      return;
+    }
+    setActivatingImportId(credentialId);
+    try {
+      await activateImportedCredential({ credentialId });
+      showToast({ title: `Imported ${name} connection is now active.` });
+    } catch (error) {
+      showToast({ title: friendlyError(error), variant: "error" });
+    } finally {
+      setActivatingImportId(null);
+    }
+  };
+
+  const activateSettingsImport = async (settingsId: string) => {
+    if (
+      !window.confirm(
+        "Use the cloud engine selection imported from your anonymous session? Your current selection will be kept as the imported alternative.",
+      )
+    ) {
+      return;
+    }
+    setActivatingImportId(settingsId);
+    try {
+      await activateImportedSettings({ settingsId });
+      showToast({ title: "Imported cloud engine selection is now active." });
+    } catch (error) {
+      showToast({ title: friendlyError(error), variant: "error" });
+    } finally {
+      setActivatingImportId(null);
     }
   };
 
@@ -316,6 +369,59 @@ export function CloudEnginesCard() {
           onChanged={noopRefresh}
         />
       ))}
+      {(connections?.importedConnections.length ?? 0) > 0 ||
+      (connections?.importedSettings.length ?? 0) > 0 ? (
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <div className="settings-row-label">
+              Imported anonymous engine setup
+            </div>
+            <div className="settings-row-sublabel">
+              Stella kept both setups during sign-in. Nothing changes unless you
+              explicitly choose an imported copy.
+            </div>
+          </div>
+          <div
+            className="settings-row-control"
+            style={{ display: "flex", flexDirection: "column", gap: 6 }}
+          >
+            {(connections?.importedConnections ?? []).map((row) => (
+              <Button
+                key={row.credentialId}
+                type="button"
+                variant="ghost"
+                className="pill-btn"
+                disabled={activatingImportId !== null}
+                onClick={() =>
+                  void activateCredentialImport(row.credentialId, row.provider)
+                }
+              >
+                {activatingImportId === row.credentialId
+                  ? "Switching…"
+                  : `Use imported ${
+                      PROVIDERS.find(
+                        (candidate) => candidate.provider === row.provider,
+                      )?.name ?? row.provider
+                    }`}
+              </Button>
+            ))}
+            {(connections?.importedSettings ?? []).map((row) => (
+              <Button
+                key={row.settingsId}
+                type="button"
+                variant="ghost"
+                className="pill-btn"
+                disabled={activatingImportId !== null}
+                onClick={() => void activateSettingsImport(row.settingsId)}
+              >
+                {activatingImportId === row.settingsId
+                  ? "Switching…"
+                  : "Use imported engine selection"}
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

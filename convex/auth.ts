@@ -29,6 +29,7 @@ import {
 import { appReviewAuth } from "./lib/app_review_auth";
 import { enforceMutationRateLimit, RATE_SENSITIVE } from "./lib/rate_limits";
 import { importPKCS8, SignJWT } from "jose";
+import { ownerMigrationSourceFenceActive } from "./lib/auth_migration_paths";
 
 const getRequiredEnv = (name: string) => {
   const value = process.env[name];
@@ -407,15 +408,19 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         disableDeleteAnonymousUser: true,
         onLinkAccount: async ({ anonymousUser, newUser }) => {
           const actionCtx = requireActionCtx(ctx);
-          await actionCtx.scheduler.runAfter(
-            0,
-            internal.auth_migration.migrateOwnership,
-            {
-              fromOwnerId: tokenIdentifierForBetterAuthUserId(
-                anonymousUser.user.id,
-              ),
-              toOwnerId: tokenIdentifierForBetterAuthUserId(newUser.user.id),
-            },
+          const migration = {
+            fromOwnerId: tokenIdentifierForBetterAuthUserId(
+              anonymousUser.user.id,
+            ),
+            toOwnerId: tokenIdentifierForBetterAuthUserId(newUser.user.id),
+          };
+          // Publish a durable pending marker before Better Auth exposes the
+          // connected session. The renderer can then preserve the anonymous
+          // route until its ownership transfer becomes visible instead of
+          // jumping to a blank account conversation.
+          await actionCtx.runMutation(
+            internal.auth_migration.prepareOwnershipMigration,
+            migration,
           );
         },
       }),
@@ -578,6 +583,68 @@ export const revokeActiveSessions = mutation({
   },
 });
 
+export const isAnonymousIdentity = (identity: unknown): boolean =>
+  Boolean(
+    identity &&
+    typeof identity === "object" &&
+    (identity as Record<string, unknown>).isAnonymous === true,
+  );
+
+/**
+ * A source-owner migration row is a permanent revocation tombstone for the
+ * anonymous identity that was linked. Status is deliberately irrelevant:
+ * pending/running/failed fence partial transfers, and complete fences still
+ * valid anonymous JWTs from recreating source-owned state after residue audit.
+ */
+export const hasOwnerMigrationSourceFence = async (
+  ctx: QueryCtx | MutationCtx,
+  ownerId: string,
+): Promise<boolean> => {
+  const rows = await ctx.db
+    .query("auth_owner_migrations")
+    .withIndex("by_fromOwnerId_and_updatedAt", (q) =>
+      q.eq("fromOwnerId", ownerId),
+    )
+    .take(1);
+  return ownerMigrationSourceFenceActive(ownerId, rows);
+};
+
+export const hasOwnerMigrationSourceFenceInternal = internalQuery({
+  args: { ownerId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) =>
+    await hasOwnerMigrationSourceFence(ctx, args.ownerId),
+});
+
+const throwMigratedAnonymousIdentity = (): never => {
+  throw new ConvexError({
+    code: "OWNERSHIP_MIGRATED",
+    message:
+      "This anonymous session was linked to an account. Refresh authentication and retry.",
+  });
+};
+
+type ActionIdentityCtx = Pick<ActionCtx, "auth" | "runQuery">;
+
+const identityHasSourceFence = async (
+  ctx: QueryCtx | MutationCtx | ActionIdentityCtx,
+  identity: NonNullable<
+    Awaited<ReturnType<QueryCtx["auth"]["getUserIdentity"]>>
+  >,
+): Promise<boolean> => {
+  if (!isAnonymousIdentity(identity)) return false;
+  if ("db" in ctx) {
+    return await hasOwnerMigrationSourceFence(
+      ctx as QueryCtx | MutationCtx,
+      identity.tokenIdentifier,
+    );
+  }
+  return await (ctx as ActionIdentityCtx).runQuery(
+    internal.auth.hasOwnerMigrationSourceFenceInternal,
+    { ownerId: identity.tokenIdentifier },
+  );
+};
+
 export const requireUserIdentity = async (
   ctx: QueryCtx | MutationCtx | ActionCtx,
 ) => {
@@ -587,6 +654,9 @@ export const requireUserIdentity = async (
       code: "UNAUTHENTICATED",
       message: "Authentication required",
     });
+  }
+  if (await identityHasSourceFence(ctx, identity)) {
+    throwMigratedAnonymousIdentity();
   }
   return identity;
 };
@@ -598,12 +668,36 @@ export const requireUserId = async (
   return identity.tokenIdentifier;
 };
 
-export const isAnonymousIdentity = (identity: unknown): boolean =>
-  Boolean(
-    identity &&
-      typeof identity === "object" &&
-      (identity as Record<string, unknown>).isAnonymous === true,
-  );
+/**
+ * Atomic mutation-side guard for internal writers that receive an owner id
+ * rather than authenticating directly. The indexed read participates in the
+ * same transaction as the caller's writes, so marker insertion races retry
+ * instead of committing source-owned rows after the migration audit.
+ */
+export const assertOwnerMigrationWriteAllowed = async (
+  ctx: QueryCtx | MutationCtx,
+  ownerId: string,
+): Promise<void> => {
+  if (await hasOwnerMigrationSourceFence(ctx, ownerId)) {
+    throwMigratedAnonymousIdentity();
+  }
+};
+
+export const getUserIdentityOrNull = async (ctx: QueryCtx | MutationCtx) => {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity || (await identityHasSourceFence(ctx, identity))) {
+    return null;
+  }
+  return identity;
+};
+
+export const getUserIdentityOrNullAction = async (ctx: ActionIdentityCtx) => {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity || (await identityHasSourceFence(ctx, identity))) {
+    return null;
+  }
+  return identity;
+};
 
 export const requireConnectedUserIdentity = async (
   ctx: QueryCtx | MutationCtx,
@@ -635,7 +729,7 @@ export const requireConnectedUserId = async (ctx: QueryCtx | MutationCtx) => {
 };
 
 export const getConnectedUserIdOrNull = async (ctx: QueryCtx | MutationCtx) => {
-  const identity = await ctx.auth.getUserIdentity();
+  const identity = await getUserIdentityOrNull(ctx);
   if (!identity || isAnonymousIdentity(identity)) {
     return null;
   }
@@ -651,7 +745,7 @@ export const getConnectedUserIdOrNull = async (ctx: QueryCtx | MutationCtx) => {
  * `requireUserId` / `requireConnectedUserId` to enforce auth strictly.
  */
 export const getUserIdOrNull = async (ctx: QueryCtx | MutationCtx) => {
-  const identity = await ctx.auth.getUserIdentity();
+  const identity = await getUserIdentityOrNull(ctx);
   return identity?.tokenIdentifier ?? null;
 };
 

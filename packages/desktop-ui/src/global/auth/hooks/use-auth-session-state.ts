@@ -1,18 +1,23 @@
 import { useMemo } from "react";
 import { useDesktopAuthSession } from "@/global/auth/services/auth-session";
+import { resolveAuthSessionCacheScope } from "@/global/auth/lib/auth-session-scope";
 
 type AuthSessionUser = {
+  id?: string | null;
   email?: string | null;
   name?: string | null;
   isAnonymous?: boolean | null;
 } | null;
 
-type AuthSessionData = {
-  user?: AuthSessionUser;
-  session?: {
-    id?: string | null;
-  } | null;
-} | null | undefined;
+type AuthSessionData =
+  | {
+      user?: AuthSessionUser;
+      session?: {
+        id?: string | null;
+      } | null;
+    }
+  | null
+  | undefined;
 
 export function useAuthSessionState() {
   const session = useDesktopAuthSession();
@@ -21,11 +26,7 @@ export function useAuthSessionState() {
   const hasSession = Boolean(sessionData);
   const isAnonymous = user?.isAnonymous === true;
   const hasConnectedAccount = hasSession && !isAnonymous;
-  const cacheScope = !hasSession
-    ? "signed-out"
-    : isAnonymous
-      ? `anonymous:${sessionData?.session?.id ?? "unknown"}`
-      : `account:${user?.email ?? user?.name ?? sessionData?.session?.id ?? "unknown"}`;
+  const cacheScope = resolveAuthSessionCacheScope(sessionData);
 
   return useMemo(
     () => ({
@@ -35,12 +36,14 @@ export function useAuthSessionState() {
       hasConnectedAccount,
       isLoading: Boolean(session.isPending),
       cacheScope,
+      identityRevision: session.identityRevision,
     }),
     [
       cacheScope,
       hasConnectedAccount,
       hasSession,
       isAnonymous,
+      session.identityRevision,
       session.isPending,
       user,
     ],

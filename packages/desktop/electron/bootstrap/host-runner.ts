@@ -310,6 +310,7 @@ const connectHostRunner = async (context: BootstrapContext) => {
     runner.setConvexUrl(pendingConvexUrl);
   }
   runner.setConvexSiteUrl(services.authService.getConvexSiteUrl());
+  runner.setCloudSyncEnabled(true);
   runner.setHasConnectedAccount(
     services.authService.getHostHasConnectedAccount(),
   );

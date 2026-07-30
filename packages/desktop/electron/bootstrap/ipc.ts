@@ -416,8 +416,8 @@ export const registerBootstrapIpcHandlers = (
     getAppSessionStartedAt: () => state.appSessionStartedAt,
     isHostAuthAuthenticated: () =>
       services.authService.getHostAuthAuthenticated(),
+    uiState: services.uiStateService.state,
     stellaAppDir: config.stellaAppDir,
-    localChatHistoryService: services.localChatHistoryService,
     assertPrivilegedSender: (event, channel) =>
       services.externalLinkService.assertPrivilegedSender(event, channel),
     getBroadcastToMobile: lazyMobileBroadcast,
@@ -435,7 +435,6 @@ export const registerBootstrapIpcHandlers = (
   });
 
   registerMobileHelloHandlers({
-    localChatHistoryService: services.localChatHistoryService,
     getActiveConversationId: () => services.uiStateService.state.conversationId,
     getUiStateSnapshot: () => state.uiStateKvStore?.snapshot() ?? {},
     assertPrivilegedSender: (event, channel) =>
@@ -530,6 +529,7 @@ export const registerBootstrapIpcHandlers = (
     broadcastUiState: () => services.uiStateService.broadcast(),
     togglePetVoice: togglePetVoiceImpl,
     getStellaHostRunner: lifecycle.getRunner,
+    localChatHistoryService: services.localChatHistoryService,
     onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
     getBroadcastToMobile: lazyMobileBroadcast,
     getOverlayController: () => state.overlayController ?? null,

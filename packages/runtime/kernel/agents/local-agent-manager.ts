@@ -546,15 +546,18 @@ type LocalAgentManagerOpts = {
     onUpdate?: ToolUpdateCallback,
   ) => Promise<ToolResult>;
   createCloudAgentRecord: (args: {
+    agentId: string;
     conversationId: string;
     description: string;
     prompt: string;
     agentType: string;
+    attemptGeneration: number;
     parentAgentId?: string;
     maxAgentDepth?: number;
   }) => Promise<{ agentId: string }>;
   completeCloudAgentRecord: (args: {
     agentId: string;
+    attemptGeneration: number;
     status: TerminalTaskLifecycleStatus;
     result?: string;
     error?: string;
@@ -563,6 +566,7 @@ type LocalAgentManagerOpts = {
   cancelCloudAgentRecord: (
     agentId: string,
     reason?: string,
+    attemptGeneration?: number,
   ) => Promise<{ canceled: boolean }>;
   saveAgentRecord?: (record: PersistedAgentRecord) => void;
   getAgentRecord?: (threadId: string) => PersistedAgentRecord | null;
@@ -901,6 +905,16 @@ export class LocalAgentManager implements AgentToolApi {
           error: undefined,
           updatedAt: now,
         });
+        if (record.storageMode === "cloud") {
+          void this.opts
+            .completeCloudAgentRecord({
+              agentId: record.threadId,
+              attemptGeneration: record.attemptGeneration,
+              status: "completed",
+              result,
+            })
+            .catch(() => undefined);
+        }
         continue;
       }
       const error = AGENT_ORPHANED_RESTART_CANCEL_REASON;
@@ -929,6 +943,16 @@ export class LocalAgentManager implements AgentToolApi {
         attemptGeneration: record.attemptGeneration,
         audience: "display-only",
       });
+      if (record.storageMode === "cloud") {
+        void this.opts
+          .completeCloudAgentRecord({
+            agentId: record.threadId,
+            attemptGeneration: record.attemptGeneration,
+            status: "canceled",
+            error,
+          })
+          .catch(() => undefined);
+      }
     }
   }
 
@@ -1037,6 +1061,7 @@ export class LocalAgentManager implements AgentToolApi {
     this.opts.saveAgentRecord?.({
       threadId: task.threadId,
       conversationId: task.conversationId,
+      storageMode: task.storageMode,
       agentType: task.agentType,
       description: task.description,
       agentDepth: task.agentDepth,
@@ -1406,7 +1431,7 @@ export class LocalAgentManager implements AgentToolApi {
       startedAt: Date.now(),
       completedAt: null,
       controller: new AbortController(),
-      storageMode: "local",
+      storageMode: record.storageMode ?? "local",
       parentAgentId: record.parentAgentId,
       modelConfigSnapshot: record.modelConfigSnapshot,
       recentActivity: [`Continuing thread: ${truncate(prompt, 200)}`],
@@ -1603,6 +1628,35 @@ export class LocalAgentManager implements AgentToolApi {
       task.pendingStartAudience = undefined;
       task.managerIntermediateReportInTurn = false;
       this.persistTask(task);
+      if (task.storageMode === "cloud") {
+        // The local thread id is also the canonical cloud Activity id. Publish
+        // every attempt (including send_input continuations) with its
+        // generation so a late terminal from the prior attempt cannot close
+        // the newly-running row.
+        task.cloudAgentId = task.threadId;
+        task.cloudCreatePromise = this.opts
+          .createCloudAgentRecord({
+            agentId: task.threadId,
+            conversationId: task.conversationId,
+            description: task.description,
+            prompt: task.prompt,
+            agentType: task.agentType,
+            attemptGeneration: generation,
+            ...(task.parentAgentId
+              ? { parentAgentId: task.parentAgentId }
+              : {}),
+            ...(typeof task.maxAgentDepth === "number"
+              ? { maxAgentDepth: task.maxAgentDepth }
+              : {}),
+          })
+          .then((created) => {
+            task.cloudAgentId = created.agentId;
+          })
+          .catch(() => {
+            // The agent still runs on this computer. A later attempt republishes
+            // the row; terminal sync below remains best-effort for this one.
+          });
+      }
       this.opts.onAgentEvent?.({
         type: "agent-started",
         conversationId: task.conversationId,
@@ -2165,6 +2219,7 @@ export class LocalAgentManager implements AgentToolApi {
         await this.opts
           .completeCloudAgentRecord({
             agentId: task.cloudAgentId,
+            attemptGeneration: attempt.generation,
             status,
             result: task.result ? truncate(task.result, 30_000) : undefined,
             error: task.error ? truncate(task.error, 10_000) : undefined,
@@ -2250,30 +2305,6 @@ export class LocalAgentManager implements AgentToolApi {
       agentType: request.agentType,
       parentAgentId: request.parentAgentId,
     });
-
-    // Create cloud record in background (non-blocking)
-    // Store the promise so completion can await it before syncing status.
-    if (request.storageMode === "cloud") {
-      const cloudParentTaskId =
-        request.parentAgentId && !this.tasks.has(request.parentAgentId)
-          ? request.parentAgentId
-          : undefined;
-      task.cloudCreatePromise = this.opts
-        .createCloudAgentRecord({
-          conversationId: request.conversationId,
-          description: request.description,
-          prompt: request.prompt,
-          agentType: request.agentType,
-          parentAgentId: cloudParentTaskId,
-          maxAgentDepth: task.maxAgentDepth,
-        })
-        .then((created) => {
-          task.cloudAgentId = created.agentId;
-        })
-        .catch(() => {
-          // Cloud record creation failed — task runs locally only
-        });
-    }
 
     // Re-check immediately before publication. Today the setup above is
     // synchronous, but keeping the invariant at the commit point closes the
@@ -2568,6 +2599,16 @@ export class LocalAgentManager implements AgentToolApi {
         task.terminalEventEmitted = true;
         task.controller = new AbortController();
         this.persistTask(task);
+        if (task.storageMode === "cloud") {
+          void this.opts
+            .completeCloudAgentRecord({
+              agentId: task.threadId,
+              attemptGeneration: task.attemptGeneration,
+              status: "completed",
+              result: task.managerFinalReport,
+            })
+            .catch(() => undefined);
+        }
         activeController.abort(new Error(reason));
         continue;
       }
@@ -2658,7 +2699,14 @@ export class LocalAgentManager implements AgentToolApi {
         await this.cascadeCancelManagedChildren(agentId, local.error);
       }
       if (local.storageMode === "cloud" && local.cloudAgentId) {
-        await this.opts.cancelCloudAgentRecord(local.cloudAgentId, local.error);
+        if (local.cloudCreatePromise) {
+          await local.cloudCreatePromise.catch(() => undefined);
+        }
+        await this.opts.cancelCloudAgentRecord(
+          local.cloudAgentId,
+          local.error,
+          local.attemptGeneration,
+        );
       }
       return { canceled: true };
     }
@@ -2689,6 +2737,13 @@ export class LocalAgentManager implements AgentToolApi {
       }
       if (persisted.agentType === AGENT_IDS.MANAGER) {
         await this.cascadeCancelManagedChildren(agentId, reason ?? "Canceled");
+      }
+      if (persisted.storageMode === "cloud" && wasActive) {
+        await this.opts.cancelCloudAgentRecord(
+          persisted.threadId,
+          reason ?? "Canceled",
+          persisted.attemptGeneration,
+        );
       }
       return { canceled: true };
     }

@@ -25,6 +25,7 @@ import {
 import { internal } from "./_generated/api";
 import { cronScheduleValidator } from "./schema/scheduling";
 import type { SubscriptionPlan } from "./lib/billing_plans";
+import { scheduleOwnershipClaimAllowed } from "./lib/auth_migration_paths";
 
 /** ConvexError carries its readable text in `data`, not in `message`. */
 const readableError = (error: unknown): string => {
@@ -572,6 +573,7 @@ export const listDueSchedulesInternal = internalQuery({
 export const markScheduleRanInternal = internalMutation({
   args: {
     scheduleId: v.string(),
+    ownerId: v.string(),
     lastRunAt: v.number(),
     nextRunAt: v.number(),
     status: v.string(),
@@ -582,7 +584,25 @@ export const markScheduleRanInternal = internalMutation({
       .query("cloud_scheduled_turns")
       .withIndex("by_scheduleId", (q) => q.eq("scheduleId", args.scheduleId))
       .unique();
-    if (!row || row.status !== "active") return { claimed: false };
+    if (!row || row.status !== "active") {
+      return { claimed: false };
+    }
+    const ownerMigrations = await ctx.db
+      .query("auth_owner_migrations")
+      .withIndex("by_fromOwnerId_and_updatedAt", (q) =>
+        q.eq("fromOwnerId", args.ownerId),
+      )
+      .order("desc")
+      .take(8);
+    if (
+      !scheduleOwnershipClaimAllowed(
+        row.ownerId,
+        args.ownerId,
+        ownerMigrations.map((migration) => migration.status),
+      )
+    ) {
+      return { claimed: false };
+    }
     await ctx.db.patch(row._id, {
       lastRunAt: args.lastRunAt,
       nextRunAt: args.nextRunAt,
@@ -724,6 +744,7 @@ export const dispatchDueSchedulesInternal = internalAction({
       try {
         const claim = (await ctx.runMutation(markScheduleRanRef, {
           scheduleId: row.scheduleId,
+          ownerId: row.ownerId,
           lastRunAt: now,
           nextRunAt: oneShot
             ? row.nextRunAt

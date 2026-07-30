@@ -3,7 +3,7 @@ import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import {
   assertSensitiveSessionPolicyAction,
-  isAnonymousIdentity,
+  requireConnectedUserIdentityAction,
 } from "./auth";
 import {
   enforceActionRateLimit,
@@ -37,13 +37,7 @@ export const sendChat = action({
     v.object({ kind: v.literal("unavailable"), text: v.string() }),
   ),
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity || isAnonymousIdentity(identity)) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Sign in with an account to message your computer.",
-      });
-    }
+    const identity = await requireConnectedUserIdentityAction(ctx);
     await assertSensitiveSessionPolicyAction(ctx, identity);
 
     const ownerId = identity.tokenIdentifier;
@@ -125,13 +119,7 @@ export const cancelChat = action({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity || isAnonymousIdentity(identity)) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Sign in with an account to message your computer.",
-      });
-    }
+    const identity = await requireConnectedUserIdentityAction(ctx);
     await assertSensitiveSessionPolicyAction(ctx, identity);
 
     const ownerId = identity.tokenIdentifier;

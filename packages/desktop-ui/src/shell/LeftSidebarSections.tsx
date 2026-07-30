@@ -25,6 +25,7 @@ import {
   Trash2,
 } from "@/ui/icons";
 import { openDrivePanel } from "@/features/drive/open-drive-panel";
+import { useDriveFileActions } from "@/features/drive/drive-files";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import { filterCloudConversationHistory } from "@/features/cloud/cloud-conversation-list";
 import {
@@ -101,6 +102,7 @@ import {
 } from "@/shell/ActivityTaskShimmer";
 import { AgentAssistantUpdates } from "@/shell/AgentAssistantUpdates";
 import { selectLatestAgentAssistantMessage } from "@/features/chat/lib/agent-assistant-summary";
+import { showToast } from "@/ui/toast";
 import "@/app/chat/chat-workspace-strip.css";
 import "@/features/cloud/cloud-inline.css";
 
@@ -841,13 +843,18 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
   // every downstream behavior treats them identically; `placements` is the
   // only thing that distinguishes them, and only as a badge.
   const cloudActivity = useCloudActivity();
-  const allTasks = useMemo(
-    () =>
-      cloudActivity.tasks.length
-        ? [...localTasks, ...cloudActivity.tasks]
-        : localTasks,
-    [localTasks, cloudActivity.tasks],
-  );
+  const allTasks = useMemo(() => {
+    if (!cloudActivity.tasks.length) return localTasks;
+    const seen = new Set(localTasks.map((task) => task.id));
+    return [
+      ...localTasks,
+      ...cloudActivity.tasks.filter((task) => !seen.has(task.id)),
+    ];
+  }, [localTasks, cloudActivity.tasks]);
+  const notifyDriveError = useCallback((message: string) => {
+    showToast({ title: message, variant: "error" });
+  }, []);
+  const { open: openDriveFile } = useDriveFileActions(notifyDriveError);
   const {
     hasOlder: activityHasOlder,
     isLoadingOlder: activityIsLoadingOlder,
@@ -1219,10 +1226,21 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
 
   const handleOpenFile = useCallback(
     (entry: ConversationFileEntry) => {
+      if (entry.cloudDriveFile) {
+        if (entry.cloudDriveFile.stored === false) {
+          notifyDriveError(
+            "That file is still in the agent workspace and was too large to deliver.",
+          );
+        } else {
+          void openDriveFile(entry.cloudDriveFile.path);
+        }
+        onNavigate?.();
+        return;
+      }
       openDisplayPayloadTab(entry.payload);
       onNavigate?.();
     },
-    [onNavigate],
+    [notifyDriveError, onNavigate, openDriveFile],
   );
 
   const handleSelectTask = useCallback(

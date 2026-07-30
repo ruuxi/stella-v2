@@ -23,6 +23,7 @@ import type {
   ThreadActivityRecord,
   ThreadTranscript,
 } from "@stella/contracts/local-chat";
+import type { RuntimeVoiceTranscriptPayload } from "@stella/contracts/protocol";
 import {
   buildMobileSyncMessagesPage,
   buildMobileSyncMessages,
@@ -30,6 +31,7 @@ import {
   type LocalChatMobileSyncResult,
   type LocalChatSyncMessageWithArtifacts,
 } from "./local-chat-artifacts.js";
+import { VoiceTranscriptInbox } from "./voice-transcript-inbox.js";
 
 type LocalChatHistoryServiceOptions = {
   stellaAppDir: string;
@@ -181,6 +183,17 @@ export class LocalChatHistoryService {
     return this.store;
   }
 
+  private getDatabase(): SqliteDatabase {
+    // Keep operational inbox writes on the same lifecycle boundary as the
+    // history store. In particular, never turn a closed/reset database into a
+    // false durability ACK via optional chaining.
+    this.getStore();
+    if (!this.db) {
+      throw new Error("Local chat history database is unavailable.");
+    }
+    return this.db;
+  }
+
   private getAssistantMessagesByAgent(
     conversationId: string,
   ): Map<string, string[]> {
@@ -212,6 +225,20 @@ export class LocalChatHistoryService {
 
   getOrCreateDefaultConversationId(): string {
     return this.getStore().getOrCreateDefaultConversationId();
+  }
+
+  admitVoiceTranscript(payload: RuntimeVoiceTranscriptPayload): {
+    replayed: boolean;
+  } {
+    return new VoiceTranscriptInbox(this.getDatabase()).admit(payload);
+  }
+
+  listVoiceTranscriptInbox(limit = 100): RuntimeVoiceTranscriptPayload[] {
+    return new VoiceTranscriptInbox(this.getDatabase()).list(limit);
+  }
+
+  deleteVoiceTranscriptInbox(eventId: string): void {
+    new VoiceTranscriptInbox(this.getDatabase()).delete(eventId);
   }
 
   createNewDefaultConversationId(): string {

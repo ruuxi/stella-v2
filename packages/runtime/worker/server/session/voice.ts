@@ -3,7 +3,6 @@ import { NOTIFICATION_NAMES } from "@stella/contracts/protocol";
 import { VoiceRuntimeService } from "../../voice/service.js";
 import * as HostBus from "../host-bus.js";
 import * as SessionConfig from "./config.js";
-import * as SessionStorage from "./storage.js";
 import * as RunnerCell from "./runner-cell.js";
 
 /**
@@ -23,16 +22,11 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const hostBus = yield* HostBus.Service;
     const config = yield* SessionConfig.Service;
-    const storage = yield* SessionStorage.Service;
     const runnerCell = yield* RunnerCell.Service;
 
     const service = new VoiceRuntimeService({
       getRunner: () => runnerCell.get(),
-      getChatStore: () => storage.chatStore,
       getDeviceId: () => config.deviceId,
-      onLocalChatUpdated: () => {
-        storage.notifyLocalChatUpdated();
-      },
       emitAgentEvent: (payload) => {
         hostBus.notify(NOTIFICATION_NAMES.VOICE_AGENT_EVENT, payload);
       },

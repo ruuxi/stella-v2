@@ -6,23 +6,46 @@ import {
   consumeBrowserAuthHandoffToken,
   type BrowserAuthHandoffResult,
 } from "../browser-auth-handoff";
+import {
+  advanceAuthIdentityRevision,
+  resolveAuthSessionCacheScope,
+  type AuthSessionScopeData,
+} from "../lib/auth-session-scope";
 
 type AuthSessionResult = {
   data: unknown | null;
   isPending: boolean;
   error: Error | null;
+  /** Monotonic nonce that changes whenever the durable owner identity changes. */
+  identityRevision: number;
 };
 
+let identityRevision = 0;
+let currentIdentityScope = resolveAuthSessionCacheScope(null);
 let currentSession: AuthSessionResult = {
   data: null,
   isPending: true,
   error: null,
+  identityRevision,
 };
 const listeners = new Set<() => void>();
 let inFlightRefresh: Promise<void> | null = null;
 // Monotonic guard so a slow optimistic-then-revalidate sequence can never
 // clobber the result of a newer refresh (e.g. a sign-in fired mid-revalidation).
 let refreshVersion = 0;
+
+const setCurrentSession = (
+  next: Omit<AuthSessionResult, "identityRevision">,
+): void => {
+  const nextIdentity = advanceAuthIdentityRevision({
+    currentScope: currentIdentityScope,
+    currentRevision: identityRevision,
+    nextSessionData: next.data as AuthSessionScopeData,
+  });
+  currentIdentityScope = nextIdentity.scope;
+  identityRevision = nextIdentity.revision;
+  currentSession = { ...next, identityRevision };
+};
 
 const emit = () => {
   for (const listener of listeners) {
@@ -53,12 +76,16 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
   const systemApi = window.electronAPI?.system;
   if (!systemApi?.getAuthSession) {
     const version = ++refreshVersion;
-    currentSession = { ...currentSession, isPending: true, error: null };
+    setCurrentSession({
+      data: currentSession.data,
+      isPending: true,
+      error: null,
+    });
     emit();
     try {
       const result = await authClient.getSession();
       if (version !== refreshVersion) return;
-      currentSession = {
+      setCurrentSession({
         data: result.data ?? null,
         isPending: false,
         error: result.error
@@ -66,20 +93,24 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
               result.error.message ?? "Could not read the browser session.",
             )
           : null,
-      };
+      });
     } catch (error) {
       if (version !== refreshVersion) return;
-      currentSession = {
+      setCurrentSession({
         data: null,
         isPending: false,
         error: error instanceof Error ? error : new Error(String(error)),
-      };
+      });
     }
     emit();
     return;
   }
   const version = ++refreshVersion;
-  currentSession = { ...currentSession, isPending: true, error: null };
+  setCurrentSession({
+    data: currentSession.data,
+    isPending: true,
+    error: null,
+  });
   emit();
   inFlightRefresh = configurePiRuntime()
     .then(async () => {
@@ -93,7 +124,7 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
         // Surface the cached session right away (isPending:false) so Convex sees
         // isAuthenticated && !isLoading and starts fetching the access token /
         // running authenticated queries before get-session revalidation settles.
-        currentSession = { data: first, isPending: false, error: null };
+        setCurrentSession({ data: first, isPending: false, error: null });
         emit();
       }
       // Authoritative follow-up read. The host returns the revalidated session
@@ -106,17 +137,21 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
       if (version !== refreshVersion) {
         return;
       }
-      currentSession = { data: revalidated, isPending: false, error: null };
+      setCurrentSession({
+        data: revalidated,
+        isPending: false,
+        error: null,
+      });
     })
     .catch((error) => {
       if (version !== refreshVersion) {
         return;
       }
-      currentSession = {
+      setCurrentSession({
         data: null,
         isPending: false,
         error: error instanceof Error ? error : new Error(String(error)),
-      };
+      });
     })
     .finally(() => {
       inFlightRefresh = null;
@@ -217,7 +252,7 @@ export const signOutAuthSession = async () => {
   // Invalidate any in-flight optimistic refresh so a late revalidated emit
   // can't resurrect the signed-out session.
   refreshVersion += 1;
-  currentSession = { data: null, isPending: false, error: null };
+  setCurrentSession({ data: null, isPending: false, error: null });
   emit();
 };
 
@@ -228,7 +263,7 @@ export const deleteAuthUser = async () => {
     await authClient.deleteUser();
   }
   refreshVersion += 1;
-  currentSession = { data: null, isPending: false, error: null };
+  setCurrentSession({ data: null, isPending: false, error: null });
   emit();
 };
 

@@ -47,11 +47,18 @@ import {
   extractDeliveryMediaFromOutput,
   type ConnectorMediaRef,
 } from "./connector_media_types";
+import {
+  connectorFollowupDisposition,
+  type ConnectorRequestState,
+} from "../lib/connector_followup_policy";
 
 const BACKEND_FALLBACK_AGENT_TYPE = "offline_responder";
 const EMPTY_RESPONSE_TEXT = "(Stella had nothing to say.)";
 const RELAYED_MEDIA_DELETE_DELAY_MS = 10 * 60_000;
 const CONNECTOR_STREAM_STATE_TTL_MS = 2 * 60 * 60_000;
+const CONNECTOR_FOLLOWUP_DEDUP_TTL_MS = 7 * 24 * 60 * 60_000;
+const CONNECTOR_FOLLOWUP_WAIT_FOR_INITIAL_MS = 3_000;
+const CONNECTOR_FOLLOWUP_MAX_RETRY_MS = 60_000;
 
 type ConnectorStreamState = {
   requestId: string;
@@ -411,6 +418,7 @@ export const sendConnectorFollowup = mutation({
   args: {
     requestId: v.string(),
     conversationId: v.id("conversations"),
+    deliveryId: v.string(),
     text: v.string(),
     deviceId: v.optional(v.string()),
   },
@@ -429,6 +437,35 @@ export const sendConnectorFollowup = mutation({
 
     const trimmed = args.text.trim();
     if (!trimmed) return null;
+    const deliveryId = args.deliveryId.trim();
+    if (!deliveryId || deliveryId.length > 200) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Invalid connector follow-up delivery id",
+      });
+    }
+    const batchKey = `connector-followup:${deliveryId}`;
+    const existing = await ctx.db
+      .query("transient_channel_events")
+      .withIndex("by_ownerId_and_batchKey", (q) =>
+        q.eq("ownerId", conversation.ownerId).eq("batchKey", batchKey),
+      )
+      .first();
+    if (existing) {
+      if (existing.conversationId !== args.conversationId) {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: "Connector follow-up delivery id collision",
+        });
+      }
+      const metadata =
+        existing.metadata &&
+        typeof existing.metadata === "object" &&
+        !Array.isArray(existing.metadata)
+          ? (existing.metadata as Record<string, unknown>)
+          : {};
+      if (metadata.state !== "failed") return null;
+    }
 
     const request = await findRemoteTurnRequest(ctx, args.requestId);
     if (!request || request.type !== "remote_turn_request") {
@@ -447,14 +484,48 @@ export const sendConnectorFollowup = mutation({
     const reqPayload = request.payload as Record<string, unknown>;
     const provider = reqPayload.provider as string;
     const deliveryMeta = reqPayload.deliveryMeta as Record<string, unknown>;
+    const now = Date.now();
+    const markerId =
+      existing?._id ??
+      (await ctx.db.insert("transient_channel_events", {
+        ownerId: conversation.ownerId,
+        conversationId: args.conversationId,
+        provider,
+        direction: "outbound",
+        text: "",
+        batchKey,
+        runId: deliveryId,
+        metadata: {
+          kind: "connector_followup_delivery",
+          state: "queued",
+          attempts: 0,
+          requestId: args.requestId,
+        },
+        createdAt: now,
+        expiresAt: now + CONNECTOR_FOLLOWUP_DEDUP_TTL_MS,
+      }));
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        metadata: {
+          kind: "connector_followup_delivery",
+          state: "queued",
+          attempts: 0,
+          requestId: args.requestId,
+        },
+        expiresAt: now + CONNECTOR_FOLLOWUP_DEDUP_TTL_MS,
+      });
+    }
 
     await ctx.scheduler.runAfter(
       0,
       internal.channels.connector_delivery.deliverConnectorFollowup,
       {
+        markerId,
+        requestId: args.requestId,
         provider,
         deliveryMeta: JSON.parse(JSON.stringify(deliveryMeta ?? {})),
         text: trimmed,
+        attempt: 0,
       },
     );
 
@@ -905,11 +976,47 @@ export const rescueSingleTurn = internalAction({
 // ─── Internal Action (delivers a follow-up message — no lifecycle update) ───
 export const deliverConnectorFollowup = internalAction({
   args: {
+    markerId: v.id("transient_channel_events"),
+    requestId: v.string(),
     provider: v.string(),
     deliveryMeta: jsonValueValidator,
     text: v.string(),
+    attempt: v.number(),
   },
+  returns: v.null(),
   handler: async (ctx, args) => {
+    const requestState = (await ctx.runQuery(
+      internal.channels.connector_delivery.getRemoteTurnState,
+      { requestId: args.requestId },
+    )) as ConnectorRequestState;
+    const disposition = connectorFollowupDisposition(requestState);
+    if (disposition !== "deliver") {
+      if (disposition === "suppress") {
+        await ctx.runMutation(
+          internal.channels.connector_delivery.markConnectorFollowupDelivery,
+          {
+            markerId: args.markerId,
+            state: "suppressed",
+            attempts: args.attempt,
+          },
+        );
+        return null;
+      }
+      await ctx.runMutation(
+        internal.channels.connector_delivery.markConnectorFollowupDelivery,
+        {
+          markerId: args.markerId,
+          state: "queued",
+          attempts: args.attempt,
+        },
+      );
+      await ctx.scheduler.runAfter(
+        CONNECTOR_FOLLOWUP_WAIT_FOR_INITIAL_MS,
+        internal.channels.connector_delivery.deliverConnectorFollowup,
+        args,
+      );
+      return null;
+    }
     try {
       await dispatchConnectorDelivery(ctx, {
         provider: args.provider,
@@ -917,11 +1024,86 @@ export const deliverConnectorFollowup = internalAction({
         text: args.text,
       });
     } catch (error) {
+      const attempts = args.attempt + 1;
+      const message =
+        error instanceof Error ? error.message : String(error ?? "Unknown");
       console.error(
         `[connector_delivery] Follow-up delivery failed for ${args.provider}:`,
         error,
       );
+      await ctx.runMutation(
+        internal.channels.connector_delivery.markConnectorFollowupDelivery,
+        {
+          markerId: args.markerId,
+          state: "queued",
+          attempts,
+          error: message,
+        },
+      );
+      await ctx.scheduler.runAfter(
+        Math.min(
+          CONNECTOR_FOLLOWUP_MAX_RETRY_MS,
+          1_000 * 2 ** Math.min(attempts - 1, 8),
+        ),
+        internal.channels.connector_delivery.deliverConnectorFollowup,
+        {
+          markerId: args.markerId,
+          requestId: args.requestId,
+          provider: args.provider,
+          deliveryMeta: args.deliveryMeta,
+          text: args.text,
+          attempt: attempts,
+        },
+      );
+      return null;
     }
+    // The connector POST has already succeeded. A bookkeeping failure is
+    // intentionally not retried through the external delivery path: doing so
+    // would turn a lost Convex acknowledgement into a duplicate phone message.
+    try {
+      await ctx.runMutation(
+        internal.channels.connector_delivery.markConnectorFollowupDelivery,
+        {
+          markerId: args.markerId,
+          state: "delivered",
+          attempts: args.attempt + 1,
+        },
+      );
+    } catch (error) {
+      console.error(
+        "[connector_delivery] Follow-up delivered but marker update failed:",
+        error,
+      );
+    }
+    return null;
+  },
+});
+
+export const markConnectorFollowupDelivery = internalMutation({
+  args: {
+    markerId: v.id("transient_channel_events"),
+    state: v.union(
+      v.literal("queued"),
+      v.literal("delivered"),
+      v.literal("failed"),
+      v.literal("suppressed"),
+    ),
+    attempts: v.number(),
+    error: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const marker = await ctx.db.get(args.markerId);
+    if (!marker) return null;
+    await ctx.db.patch(args.markerId, {
+      metadata: {
+        kind: "connector_followup_delivery",
+        state: args.state,
+        attempts: args.attempts,
+        ...(args.error ? { error: args.error.slice(0, 500) } : {}),
+      },
+      expiresAt: Date.now() + CONNECTOR_FOLLOWUP_DEDUP_TTL_MS,
+    });
     return null;
   },
 });

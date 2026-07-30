@@ -15,10 +15,12 @@ import { GlassToggle } from "../../src/components/glass";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { authClient } from "../../src/lib/auth-client";
 import { clearAiConsent } from "../../src/lib/ai-consent";
-import { clearCachedToken } from "../../src/lib/auth-token";
+import { clearAccountBoundMobileState } from "../../src/lib/account-bound-state";
 import { clearCachedDesktopBridge } from "../../src/lib/desktop-bridge-chat";
-import { isGuest } from "../../src/lib/guest-mode";
-import { clearAllChatStorage } from "../../src/lib/offline-chat-storage";
+import {
+  isAnonymousAuthUser,
+  isConnectedAccountUser,
+} from "../../src/lib/auth-identity";
 import { userFacingError } from "../../src/lib/user-facing-error";
 import { tapLight } from "../../src/lib/haptics";
 import {
@@ -39,7 +41,6 @@ import {
   subscribeVoiceTargetPreference,
   type VoiceTargetPreference,
 } from "../../src/lib/voice-target";
-import { unregisterForPushNotifications } from "../../src/lib/notifications";
 import { type Colors } from "../../src/theme/colors";
 import {
   useColors,
@@ -105,7 +106,6 @@ export default function AccountScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const session = authClient.useSession();
-  const guest = isGuest();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>([]);
@@ -134,6 +134,7 @@ export default function AccountScreen() {
   };
 
   const user = session.data?.user;
+  const anonymous = isAnonymousAuthUser(user);
   const email = user?.email ?? "";
   const userName = user?.name?.trim() ?? "";
 
@@ -145,8 +146,8 @@ export default function AccountScreen() {
   // real session. Settings, appearance, notifications, and legal all work
   // without one, so we render the page either way and just hide the bits
   // that need an identity.
-  const isSignedIn = Boolean(user) && !guest;
-  const showLoadingHeader = !guest && session.isPending && !user;
+  const isSignedIn = isConnectedAccountUser(user);
+  const showLoadingHeader = session.isPending && !user;
 
   const refreshPaired = useCallback(async () => {
     const next = await listStoredPairedPhoneAccess();
@@ -157,31 +158,24 @@ export default function AccountScreen() {
     void refreshPaired();
   }, [refreshPaired]);
 
-  // Local state carries the departing account's data — chat transcripts in
-  // AsyncStorage and desktop pairing secrets in SecureStore. Wipe it so the
-  // next sign-in on this device can't inherit (or re-send as chat history)
-  // the previous user's messages or reconnect with their computers.
-  const clearLocalAccountState = async () => {
-    const paired = await listStoredPairedPhoneAccess().catch(
-      () => [] as StoredPhoneAccess[],
-    );
-    await Promise.all(
-      paired.map((access) =>
-        clearStoredPhoneAccess(access.desktopDeviceId).catch(() => {}),
-      ),
-    );
-    await clearAllChatStorage();
+  // Pairing credentials belong to the connected account and must not cross an
+  // account boundary. Legacy local chat stores are deliberately retained
+  // untouched as inert recovery data while conversation ownership moves to
+  // the cloud.
+  const clearLocalAccountBridgeState = async () => {
+    await clearAccountBoundMobileState();
     await refreshPaired();
   };
 
   const signOut = async () => {
     setIsSigningOut(true);
     try {
-      await unregisterForPushNotifications();
+      await clearLocalAccountBridgeState();
       await authClient.signOut();
-      clearCachedToken();
-      clearCachedDesktopBridge();
-      await clearLocalAccountState();
+      // Move to the deliberate sign-in route before any slower local cleanup,
+      // so root anonymous bootstrap cannot interpret this as an expired
+      // session on a main-app route.
+      router.replace("/login");
     } finally {
       setIsSigningOut(false);
     }
@@ -196,12 +190,10 @@ export default function AccountScreen() {
       if (typeof client.deleteUser !== "function") {
         throw new Error("Account deletion is not available in this build.");
       }
-      await unregisterForPushNotifications();
       await client.deleteUser({});
-      clearCachedToken();
-      clearCachedDesktopBridge();
+      await clearLocalAccountBridgeState();
       await authClient.signOut();
-      await clearLocalAccountState();
+      router.replace("/login");
       clearAiConsent();
     } catch (e) {
       Alert.alert("Could not delete account", userFacingError(e));
@@ -316,7 +308,9 @@ export default function AccountScreen() {
         <Text style={styles.body}>Loading session…</Text>
       ) : (
         <View style={styles.signInBlock}>
-          <Text style={styles.signInTitle}>Sign in to Stella</Text>
+          <Text style={styles.signInTitle}>
+            {anonymous ? "Connect your Stella account" : "Sign in to Stella"}
+          </Text>
           <PrimaryButton
             label="Sign in"
             onPress={() => router.replace("/login")}

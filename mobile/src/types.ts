@@ -229,6 +229,10 @@ export type ChatMessage = {
    * while your computer was offline" caption.
    */
   cloudFallback?: boolean;
+  /** Ephemeral delivery failure for an optimistic cloud prompt. */
+  sendError?: boolean;
+  /** Stable idempotency key to reuse when retrying `sendError`. */
+  clientMsgId?: string;
 };
 
 /**

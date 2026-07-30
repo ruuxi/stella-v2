@@ -256,6 +256,17 @@ export type ChatThread = {
    * which the offline affordances own).
    */
   catchingUp: boolean;
+  /** Older DO transcript records exist below the current in-memory window. */
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  olderNotice: string | null;
+  loadOlder: () => void;
+  startupIssue: {
+    message: string;
+    actionLabel?: string;
+    onAction?: () => void;
+  } | null;
+  retrySend: (clientMsgId: string) => void;
 };
 
 /**
@@ -1906,5 +1917,11 @@ export function useChatThread(opts: {
     runDesktopSync,
     catchingUp,
     livePushConnected,
+    hasOlder: false,
+    loadingOlder: false,
+    olderNotice: null,
+    loadOlder: () => undefined,
+    startupIssue: null,
+    retrySend: () => undefined,
   };
 }

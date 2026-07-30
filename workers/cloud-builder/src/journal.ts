@@ -343,7 +343,11 @@ export const extractMessageText = (message: unknown): string => {
   const parts: string[] = [];
   for (const item of content) {
     if (!item || typeof item !== "object") continue;
-    const record = item as { type?: unknown; text?: unknown; content?: unknown };
+    const record = item as {
+      type?: unknown;
+      text?: unknown;
+      content?: unknown;
+    };
     // Tool call arguments and tool result bodies are excluded on purpose: they
     // are the reason the old Convex scan had to budget in bytes.
     if (record.type === "toolCall") continue;
@@ -463,7 +467,9 @@ export class Journal {
    * connector's self-asserted identity: `conversationId` would otherwise be a
    * bearer token, and anyone who guessed a UUID would own the object.
    */
-  bindOwner(record: ConversationOwnerRecord & { conversationId?: string }): void {
+  bindOwner(
+    record: ConversationOwnerRecord & { conversationId?: string },
+  ): void {
     const meta = this.meta();
     if (meta.owner_id !== "" && meta.owner_id !== record.ownerId) {
       throw new Error("Conversation is already bound to a different owner.");
@@ -514,9 +520,9 @@ export class Journal {
   head(activity: "idle" | "running" = "idle"): JournalHead {
     const meta = this.meta();
     const floor = this.sql
-      .exec<{ floor: number | null }>(
-        `SELECT MIN(first_seq) AS floor FROM segments WHERE state = 'committed'`,
-      )
+      .exec<{
+        floor: number | null;
+      }>(`SELECT MIN(first_seq) AS floor FROM segments WHERE state = 'committed'`)
       .one().floor;
     return {
       headSeq: meta.next_seq - 1,
@@ -545,10 +551,9 @@ export class Journal {
   ): { seq: number; inserted: boolean } {
     return this.ctx.storage.transactionSync(() => {
       const existing = this.sql
-        .exec<{ seq: number }>(
-          `SELECT seq FROM journal WHERE writer_key = ?`,
-          writerKey,
-        )
+        .exec<{
+          seq: number;
+        }>(`SELECT seq FROM journal WHERE writer_key = ?`, writerKey)
         .toArray();
       if (existing.length > 0) {
         return { seq: existing[0]!.seq, inserted: false };
@@ -586,14 +591,40 @@ export class Journal {
     // A spilled row stores the stub, never the bytes: writing both would put
     // the oversize payload back in SQLite, which is the exact thing the spill
     // exists to avoid (and would breach the 2 MB platform row cap).
-    const stub: SpillStub = { $spill: true, role: input.role, bytes: fullBytes };
+    const messageRecord = input.message as {
+      timestamp?: unknown;
+      toolCallId?: unknown;
+      toolName?: unknown;
+      isError?: unknown;
+    };
+    const previewText = extractMessageText(input.message).slice(0, 64 * 1024);
+    const stub: SpillStub = {
+      $spill: true,
+      role: input.role,
+      bytes: fullBytes,
+      ...(previewText
+        ? { content: [{ type: "text" as const, text: previewText }] }
+        : {}),
+      ...(typeof messageRecord.timestamp === "number"
+        ? { timestamp: messageRecord.timestamp }
+        : {}),
+      ...(typeof messageRecord.toolCallId === "string"
+        ? { toolCallId: messageRecord.toolCallId }
+        : {}),
+      ...(typeof messageRecord.toolName === "string"
+        ? { toolName: messageRecord.toolName }
+        : {}),
+      ...(typeof messageRecord.isError === "boolean"
+        ? { isError: messageRecord.isError }
+        : {}),
+    };
     const payloadJson = input.spillKey ? JSON.stringify(stub) : full;
     const bytes = utf8Length(payloadJson);
     const toolCallId =
       input.role === "toolResult"
-        ? ((input.message as { toolCallId?: unknown }).toolCallId as
+        ? (((input.message as { toolCallId?: unknown }).toolCallId as
             | string
-            | undefined) ?? null
+            | undefined) ?? null)
         : null;
     const { seq, inserted } = this.insert(
       {
@@ -607,7 +638,8 @@ export class Journal {
         hidden: input.hidden ? 1 : 0,
         model_skip: input.modelSkip ? 1 : 0,
         tool_call_id: toolCallId,
-        open_calls: input.role === "assistant" ? countOpenCalls(input.message) : 0,
+        open_calls:
+          input.role === "assistant" ? countOpenCalls(input.message) : 0,
         tokens: estimateTokens(input.message),
         stream_id: input.streamId ?? null,
         client_msg_id: input.clientMsgId ?? null,
@@ -681,7 +713,9 @@ export class Journal {
         ...(input.lane ? { lane: input.lane } : {}),
         ...(input.source ? { source: input.source } : {}),
         ...(input.notice ? { notice: input.notice } : {}),
-        ...(input.promptSeq !== undefined ? { promptSeq: input.promptSeq } : {}),
+        ...(input.promptSeq !== undefined
+          ? { promptSeq: input.promptSeq }
+          : {}),
         ...(input.wallClockMs !== undefined
           ? { wallClockMs: input.wallClockMs }
           : {}),
@@ -736,7 +770,12 @@ export class Journal {
    * concurrent read sees either the inline bytes or the stub, never a stub
    * whose object does not exist yet.
    */
-  attachSpill(seq: number, spillKey: string, role: string, bytes: number): void {
+  attachSpill(
+    seq: number,
+    spillKey: string,
+    role: string,
+    bytes: number,
+  ): void {
     this.recordSpill(spillKey, bytes, Date.now());
     this.sql.exec(
       `UPDATE journal SET payload_json = ?, spill_key = ? WHERE seq = ? AND spill_key IS NULL`,
@@ -801,7 +840,8 @@ export class Journal {
         continue;
       }
       for (const id of toolCallIds(parsed)) {
-        if (!answered.has(id)) open.push({ turnId: row.turn_id, toolCallId: id });
+        if (!answered.has(id))
+          open.push({ turnId: row.turn_id, toolCallId: id });
       }
     }
     if (open.length === 0) return [];
@@ -832,7 +872,9 @@ export class Journal {
         }),
       );
     }
-    this.log("info", "conversation_tail_repaired", { repaired: appended.length });
+    this.log("info", "conversation_tail_repaired", {
+      repaired: appended.length,
+    });
     return appended;
   }
 
@@ -859,7 +901,12 @@ export class Journal {
       )
       .toArray();
     if (scan.length === 0) {
-      return { messages: [], startSeq: meta.next_seq, endSeq: meta.next_seq - 1, spilled: [] };
+      return {
+        messages: [],
+        startSeq: meta.next_seq,
+        endSeq: meta.next_seq - 1,
+        spilled: [],
+      };
     }
     scan.reverse(); // oldest-first
     let used = 0;
@@ -873,7 +920,12 @@ export class Journal {
     // result with no preceding call. Same rule pruneAgentHistory applies.
     while (start < scan.length && scan[start]!.role !== "user") start += 1;
     if (start >= scan.length) {
-      return { messages: [], startSeq: meta.next_seq, endSeq: meta.next_seq - 1, spilled: [] };
+      return {
+        messages: [],
+        startSeq: meta.next_seq,
+        endSeq: meta.next_seq - 1,
+        spilled: [],
+      };
     }
     const startSeq = scan[start]!.seq;
     const rows = this.sql
@@ -977,7 +1029,9 @@ export class Journal {
         ...(row.lane ? { lane: row.lane } : {}),
         ...(row.source ? { source: row.source } : {}),
         ...(row.notice ? { notice: row.notice } : {}),
-        ...(detail.promptSeq !== undefined ? { promptSeq: detail.promptSeq } : {}),
+        ...(detail.promptSeq !== undefined
+          ? { promptSeq: detail.promptSeq }
+          : {}),
         ...(detail.wallClockMs !== undefined
           ? { wallClockMs: detail.wallClockMs }
           : {}),
@@ -989,7 +1043,10 @@ export class Journal {
         kind: "card",
         turnId: row.turn_id,
         createdAtMs: row.created_at,
-        card: (parse() ?? { type: "operation", operation: "unknown" }) as ConversationCard,
+        card: (parse() ?? {
+          type: "operation",
+          operation: "unknown",
+        }) as ConversationCard,
       };
     }
     return {
@@ -1124,12 +1181,14 @@ export class Journal {
     );
   }
 
-  turnState(turnId: string): { state: string; terminal_kind: string | null } | null {
+  turnState(
+    turnId: string,
+  ): { state: string; terminal_kind: string | null } | null {
     const rows = this.sql
-      .exec<{ state: string; terminal_kind: string | null }>(
-        `SELECT state, terminal_kind FROM turns WHERE turn_id = ?`,
-        turnId,
-      )
+      .exec<{
+        state: string;
+        terminal_kind: string | null;
+      }>(`SELECT state, terminal_kind FROM turns WHERE turn_id = ?`, turnId)
       .toArray();
     return rows[0] ?? null;
   }
@@ -1167,17 +1226,22 @@ export class Journal {
   /** True when `seq + 1` is a plain user message — a safe history boundary. */
   isCutBoundary(seq: number): boolean {
     const rows = this.sql
-      .exec<{ role: string | null; kind: string }>(
-        `SELECT role, kind FROM journal WHERE seq > ? ORDER BY seq ASC LIMIT 1`,
-        seq,
-      )
+      .exec<{
+        role: string | null;
+        kind: string;
+      }>(`SELECT role, kind FROM journal WHERE seq > ? ORDER BY seq ASC LIMIT 1`, seq)
       .toArray();
     const next = rows[0];
-    return next !== undefined && next.kind === "message" && next.role === "user";
+    return (
+      next !== undefined && next.kind === "message" && next.role === "user"
+    );
   }
 
   deleteTurnsBelow(seq: number): void {
-    this.sql.exec(`DELETE FROM turns WHERE last_seq IS NOT NULL AND last_seq < ?`, seq);
+    this.sql.exec(
+      `DELETE FROM turns WHERE last_seq IS NOT NULL AND last_seq < ?`,
+      seq,
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -1218,9 +1282,10 @@ export class Journal {
 
   inboxSize(): { rows: number; bytes: number } {
     const row = this.sql
-      .exec<{ rows: number; bytes: number | null }>(
-        `SELECT COUNT(*) AS rows, SUM(bytes) AS bytes FROM inbox`,
-      )
+      .exec<{
+        rows: number;
+        bytes: number | null;
+      }>(`SELECT COUNT(*) AS rows, SUM(bytes) AS bytes FROM inbox`)
       .one();
     return { rows: row.rows, bytes: row.bytes ?? 0 };
   }
@@ -1288,9 +1353,9 @@ export class Journal {
    */
   unsyncedExcerptCount(): number {
     return this.sql
-      .exec<{ count: number }>(
-        `SELECT COUNT(*) AS count FROM turn_excerpts WHERE synced = 0`,
-      )
+      .exec<{
+        count: number;
+      }>(`SELECT COUNT(*) AS count FROM turn_excerpts WHERE synced = 0`)
       .one().count;
   }
 
@@ -1351,7 +1416,10 @@ export class Journal {
       if (row.role === "user") {
         if (row.hidden === 1) continue;
         if (userText.length < userHalfMax) {
-          userText = collapseWhitespace(`${userText} ${text}`).slice(0, userHalfMax);
+          userText = collapseWhitespace(`${userText} ${text}`).slice(
+            0,
+            userHalfMax,
+          );
         }
       } else if (assistantText.length < totalMax) {
         assistantText = collapseWhitespace(`${assistantText} ${text}`);
@@ -1374,7 +1442,11 @@ export class Journal {
   /** Last rendered text of the conversation, for the Convex index preview. */
   lastPreview(maxChars: number): { text: string; role: string } | null {
     const rows = this.sql
-      .exec<{ role: string | null; payload_json: string; spill_key: string | null }>(
+      .exec<{
+        role: string | null;
+        payload_json: string;
+        spill_key: string | null;
+      }>(
         `SELECT role, payload_json, spill_key FROM journal
           WHERE kind = 'message' AND hidden = 0 AND role IN ('user','assistant')
           ORDER BY seq DESC LIMIT 8`,
@@ -1400,9 +1472,10 @@ export class Journal {
 
   hotStats(): { rows: number; bytes: number } {
     const row = this.sql
-      .exec<{ rows: number; bytes: number | null }>(
-        `SELECT COUNT(*) AS rows, SUM(bytes) AS bytes FROM journal`,
-      )
+      .exec<{
+        rows: number;
+        bytes: number | null;
+      }>(`SELECT COUNT(*) AS rows, SUM(bytes) AS bytes FROM journal`)
       .one();
     return { rows: row.rows, bytes: row.bytes ?? 0 };
   }
@@ -1419,10 +1492,10 @@ export class Journal {
    */
   desiredCutSeq(targetRows: number, targetBytes: number): number | null {
     const rows = this.sql
-      .exec<{ seq: number; bytes: number }>(
-        `SELECT seq, bytes FROM journal ORDER BY seq DESC LIMIT ?`,
-        Math.max(targetRows, 1) + 1,
-      )
+      .exec<{
+        seq: number;
+        bytes: number;
+      }>(`SELECT seq, bytes FROM journal ORDER BY seq DESC LIMIT ?`, Math.max(targetRows, 1) + 1)
       .toArray();
     const total = this.hotStats();
     if (total.rows <= targetRows && total.bytes <= targetBytes) return null;
@@ -1495,7 +1568,11 @@ export class Journal {
     });
   }
 
-  segmentsCovering(fromSeq: number, toSeq: number, limit: number): SegmentRow[] {
+  segmentsCovering(
+    fromSeq: number,
+    toSeq: number,
+    limit: number,
+  ): SegmentRow[] {
     return this.sql
       .exec<SegmentRow>(
         `SELECT first_seq, last_seq, rows, bytes, r2_key, state, created_at
@@ -1557,9 +1634,9 @@ export class Journal {
    */
   storedBytes(): number {
     const archived = this.sql
-      .exec<{ bytes: number | null }>(
-        `SELECT SUM(bytes) AS bytes FROM segments WHERE state = 'committed'`,
-      )
+      .exec<{
+        bytes: number | null;
+      }>(`SELECT SUM(bytes) AS bytes FROM segments WHERE state = 'committed'`)
       .one().bytes;
     const spilled = this.sql
       .exec<{ bytes: number | null }>(`SELECT SUM(bytes) AS bytes FROM spills`)
@@ -1589,13 +1666,16 @@ export class Journal {
   }): { allowed: boolean; retryAfterMs: number } {
     return this.ctx.storage.transactionSync(() => {
       const rows = this.sql
-        .exec<{ started_at: number; requests: number; bytes: number }>(
-          `SELECT started_at, requests, bytes FROM append_window WHERE id = 0`,
-        )
+        .exec<{
+          started_at: number;
+          requests: number;
+          bytes: number;
+        }>(`SELECT started_at, requests, bytes FROM append_window WHERE id = 0`)
         .toArray();
       const current = rows[0];
       const expired =
-        current === undefined || input.now - current.started_at >= input.windowMs;
+        current === undefined ||
+        input.now - current.started_at >= input.windowMs;
       const startedAt = expired ? input.now : current!.started_at;
       const requests = (expired ? 0 : current!.requests) + 1;
       const bytes = (expired ? 0 : current!.bytes) + input.bytes;

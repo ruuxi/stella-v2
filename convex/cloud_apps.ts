@@ -9,7 +9,11 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { makeFunctionReference } from "convex/server";
+import {
+  makeFunctionReference,
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -395,14 +399,24 @@ const resolveConversationId = async (
     // a brand-new conversation has to sort to the top of the sidebar before
     // its first journal flush. The DO's index flush takes max() on it, so this
     // patch can never move the row backwards.
+    const firstTurnTitle =
+      conversation.title.trim() === "" && args.title.trim() !== ""
+        ? args.title.length > CHAT_TITLE_MAX
+          ? `${args.title.slice(0, CHAT_TITLE_MAX - 3)}…`
+          : args.title
+        : conversation.title;
     await ctx.db.patch(conversation._id, {
       updatedAt: args.now,
+      ...(firstTurnTitle !== conversation.title
+        ? { title: firstTurnTitle }
+        : {}),
+      ...(conversation.allowEmpty === true ? { allowEmpty: undefined } : {}),
       ...(args.execution ? { execution: args.execution } : {}),
     });
     return {
       documentId: conversation._id,
       conversationId: requestedConversationId,
-      title: conversation.title,
+      title: firstTurnTitle,
       createdAt: conversation.createdAt,
       execution: args.execution ?? conversation.execution,
     };
@@ -564,6 +578,7 @@ const startChatTurn = async (
 // Client-minted, so it is validated like any other client string before it is
 // used as a dedupe key.
 const CLIENT_MSG_ID_PATTERN = /^[A-Za-z0-9._:-]{8,64}$/;
+const CLIENT_CREATE_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 
 const normalizeClientMsgId = (
   value: string | undefined,
@@ -575,6 +590,67 @@ const normalizeClientMsgId = (
   }
   return trimmed;
 };
+
+const normalizeClientCreateId = (value: string): string => {
+  const trimmed = value.trim();
+  if (!CLIENT_CREATE_ID_PATTERN.test(trimmed)) {
+    throw new ConvexError("That conversation could not be created. Try again.");
+  }
+  return trimmed;
+};
+
+const cloudConversationProjectionValidator = v.object({
+  conversationId: v.string(),
+  ownerId: v.string(),
+  title: v.string(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+
+const cloudConversationListProjectionValidator = v.object({
+  conversationId: v.string(),
+  ownerId: v.string(),
+  title: v.string(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  lastPreview: v.optional(v.string()),
+  lastRole: v.optional(v.string()),
+  activity: v.optional(v.string()),
+});
+
+const cloudConversationPageValidator = paginationResultValidator(
+  cloudConversationListProjectionValidator,
+);
+
+const projectCloudConversation = (row: {
+  conversationId: string;
+  ownerId: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}) => ({
+  conversationId: row.conversationId,
+  ownerId: row.ownerId,
+  title: row.title,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+const projectCloudConversationListItem = (row: {
+  conversationId: string;
+  ownerId: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  lastPreview?: string;
+  lastRole?: string;
+  activity?: string;
+}) => ({
+  ...projectCloudConversation(row),
+  ...(row.lastPreview !== undefined ? { lastPreview: row.lastPreview } : {}),
+  ...(row.lastRole !== undefined ? { lastRole: row.lastRole } : {}),
+  ...(row.activity !== undefined ? { activity: row.activity } : {}),
+});
 
 /**
  * A retried send must not become a second turn. The composer mints one id per
@@ -769,19 +845,132 @@ const requireOwnerId = async (ctx: {
   return identity.tokenIdentifier;
 };
 
+/**
+ * Creates the durable identity for a conversation without starting a model
+ * turn. The client key makes a lost mutation response safe to retry; the
+ * server-generated UUID remains the only identity used to address the DO.
+ */
+export const createMyConversation = mutation({
+  args: {
+    clientCreateId: v.string(),
+    title: v.optional(v.string()),
+    execution: v.optional(cloudExecutionSelectionValidator),
+  },
+  returns: cloudConversationProjectionValidator,
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const clientCreateId = normalizeClientCreateId(args.clientCreateId);
+    const existing = await ctx.db
+      .query("cloud_conversations")
+      .withIndex("by_ownerId_and_clientCreateId", (q) =>
+        q.eq("ownerId", ownerId).eq("clientCreateId", clientCreateId),
+      )
+      .unique();
+    if (existing) {
+      if (existing.deletedAt !== undefined) {
+        throw new ConvexError("Conversation not found.");
+      }
+      return projectCloudConversation(existing);
+    }
+
+    await enforceMutationRateLimit(
+      ctx,
+      "cloud_conversation_create",
+      ownerId,
+      { rate: 30, periodMs: 10 * 60_000 },
+      "Too many conversations created at once. Wait a moment and try again.",
+    );
+    const execution = args.execution
+      ? await assertExecutionAvailable(ctx, ownerId, args.execution)
+      : undefined;
+    const now = Date.now();
+    const rawTitle = args.title?.trim() ?? "";
+    const title =
+      rawTitle.length > CHAT_TITLE_MAX
+        ? `${rawTitle.slice(0, CHAT_TITLE_MAX - 3)}…`
+        : rawTitle;
+    const conversation = {
+      conversationId: crypto.randomUUID(),
+      ownerId,
+      clientCreateId,
+      allowEmpty: true,
+      ...(execution ? { execution } : {}),
+      title,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await ctx.db.insert("cloud_conversations", conversation);
+    return projectCloudConversation(conversation);
+  },
+});
+
+export const getMyConversation = query({
+  args: { conversationId: v.string() },
+  returns: v.union(cloudConversationProjectionValidator, v.null()),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const row = await ctx.db
+      .query("cloud_conversations")
+      .withIndex("by_conversationId", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
+      .unique();
+    if (!row || row.ownerId !== ownerId || row.deletedAt !== undefined) {
+      return null;
+    }
+    return projectCloudConversation(row);
+  },
+});
+
 export const listMyConversations = query({
   args: {},
-  returns: v.any(),
+  returns: v.array(cloudConversationListProjectionValidator),
   handler: async (ctx) => {
     const ownerId = await requireOwnerId(ctx);
-    // Over-read by the tombstone allowance rather than filtering after the
-    // take: a purge in flight must not silently shorten the sidebar.
     const rows = await ctx.db
       .query("cloud_conversations")
-      .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
+      .withIndex("by_ownerId_and_deletedAt_and_updatedAt", (q) =>
+        q.eq("ownerId", ownerId).eq("deletedAt", undefined),
+      )
       .order("desc")
-      .take(50);
-    return rows.filter((row) => row.deletedAt === undefined).slice(0, 25);
+      .take(25);
+    return rows.map(projectCloudConversationListItem);
+  },
+});
+
+const MAX_CONVERSATIONS_PER_PAGE = 50;
+
+/**
+ * Owner-scoped sidebar history. The first page is the newest conversations;
+ * each cursor fetches the next-older slice without ever scanning tombstones.
+ *
+ * `listMyConversations` intentionally remains as the small reactive boot
+ * snapshot used by root/mini selection. This query is the discoverability
+ * path: a user can keep paging until every live conversation is reopenable.
+ */
+export const listMyConversationsPage = query({
+  args: { paginationOpts: paginationOptsValidator },
+  returns: cloudConversationPageValidator,
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const numItems = Math.min(
+      Math.max(args.paginationOpts.numItems, 1),
+      MAX_CONVERSATIONS_PER_PAGE,
+    );
+    const result = await ctx.db
+      .query("cloud_conversations")
+      .withIndex("by_ownerId_and_deletedAt_and_updatedAt", (q) =>
+        q.eq("ownerId", ownerId).eq("deletedAt", undefined),
+      )
+      .order("desc")
+      .paginate({
+        cursor: args.paginationOpts.cursor,
+        numItems,
+      });
+    return {
+      ...result,
+      page: result.page.map(projectCloudConversationListItem),
+    };
   },
 });
 
@@ -1643,6 +1832,12 @@ export const upsertConversationIndexInternal = internalMutation({
       epoch: args.epoch,
       lastSeq: args.lastSeq,
       updatedAt: Math.max(row.updatedAt, args.updatedAt),
+      // A desktop-local turn reaches the DO directly rather than passing
+      // through resolveConversationId. Its first accepted index flush is the
+      // corresponding proof that this is no longer an intentional empty.
+      ...(row.allowEmpty === true && args.lastSeq >= 0
+        ? { allowEmpty: undefined }
+        : {}),
       ...(args.lastPreview !== undefined
         ? { lastPreview: clip(args.lastPreview, PREVIEW_MAX_CHARS) }
         : {}),
@@ -2216,8 +2411,11 @@ export const sweepOrphanConversationsInternal = internalMutation({
     const cutoff = Date.now() - 24 * 60 * 60_000;
     const rows = await ctx.db
       .query("cloud_conversations")
-      .withIndex("by_lastSeq_and_createdAt", (q) =>
-        q.eq("lastSeq", undefined).lt("createdAt", cutoff),
+      .withIndex("by_allowEmpty_and_lastSeq_and_createdAt", (q) =>
+        q
+          .eq("allowEmpty", undefined)
+          .eq("lastSeq", undefined)
+          .lt("createdAt", cutoff),
       )
       .take(Math.min(100, Math.max(1, args.limit ?? 25)));
     let tombstoned = 0;

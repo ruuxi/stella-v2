@@ -39,11 +39,27 @@ const getLocalChatApi = () => {
   return api;
 };
 
-export const getOrCreateLocalConversationId = async (): Promise<string> =>
-  getLocalChatApi().getOrCreateDefaultConversationId();
+// UiState survives account changes and may still contain the last cloud UUID.
+// Only ids returned by the local persistence API in this renderer lifetime are
+// eligible to become signed-out routes.
+const knownLocalConversationIds = new Set<string>();
 
-export const createNewLocalConversationId = async (): Promise<string> =>
-  getLocalChatApi().createNewDefaultConversationId();
+export const isKnownLocalConversationId = (conversationId: string): boolean =>
+  knownLocalConversationIds.has(conversationId);
+
+export const getOrCreateLocalConversationId = async (): Promise<string> => {
+  const conversationId =
+    await getLocalChatApi().getOrCreateDefaultConversationId();
+  knownLocalConversationIds.add(conversationId);
+  return conversationId;
+};
+
+export const createNewLocalConversationId = async (): Promise<string> => {
+  const conversationId =
+    await getLocalChatApi().createNewDefaultConversationId();
+  knownLocalConversationIds.add(conversationId);
+  return conversationId;
+};
 
 /**
  * Record `conversationId` as the durable active-conversation pointer. This
@@ -56,6 +72,7 @@ export const setActiveLocalConversationId = async (
   if (!conversationId) return;
   const api = window.electronAPI?.localChat;
   if (!api) return;
+  knownLocalConversationIds.add(conversationId);
   await api.setActiveConversationId({ conversationId });
 };
 

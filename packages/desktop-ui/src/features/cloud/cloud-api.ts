@@ -1,4 +1,8 @@
-import { makeFunctionReference } from "convex/server";
+import {
+  makeFunctionReference,
+  type PaginationOptions,
+  type PaginationResult,
+} from "convex/server";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 
 export type CloudConversation = {
@@ -7,6 +11,9 @@ export type CloudConversation = {
   title: string;
   createdAt: number;
   updatedAt: number;
+  lastPreview?: string;
+  lastRole?: string;
+  activity?: string;
 };
 
 export type CloudApp = {
@@ -119,6 +126,21 @@ export const cloudApi = {
     Record<string, never>,
     CloudConversation[]
   >("cloud_apps:listMyConversations"),
+  listMyConversationsPage: makeFunctionReference<
+    "query",
+    { paginationOpts: PaginationOptions },
+    PaginationResult<CloudConversation>
+  >("cloud_apps:listMyConversationsPage"),
+  createMyConversation: makeFunctionReference<
+    "mutation",
+    { clientCreateId: string; title?: string },
+    CloudConversation
+  >("cloud_apps:createMyConversation"),
+  getMyConversation: makeFunctionReference<
+    "query",
+    { conversationId: string },
+    CloudConversation | null
+  >("cloud_apps:getMyConversation"),
   listMyApps: makeFunctionReference<"query", Record<string, never>, CloudApp[]>(
     "cloud_apps:listMyApps",
   ),

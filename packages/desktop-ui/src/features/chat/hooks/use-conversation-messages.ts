@@ -102,10 +102,10 @@ export type ConversationMessagesFeed = {
 export const useConversationMessages = (
   conversationId?: string,
 ): ConversationMessagesFeed => {
-  const { storageMode } = useChatStore();
-  const isLocalMode = storageMode === "local";
+  const { storageMode, isLocalStorage } = useChatStore();
+  const isLocalMode = isLocalStorage;
 
-  const visitKey = `${storageMode}:${conversationId ?? ""}`;
+  const visitKey = `${storageMode}:${isLocalStorage ? "cache" : "none"}:${conversationId ?? ""}`;
   const visitToken = useMemo(() => Symbol(visitKey), [visitKey]);
 
   const [maxVisibleMessages, setMaxVisibleMessages] =

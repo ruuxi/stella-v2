@@ -49,10 +49,10 @@ export type ConversationFilesFeed = {
 export const useConversationFiles = (
   conversationId?: string,
 ): ConversationFilesFeed => {
-  const { storageMode } = useChatStore();
-  const isLocalMode = storageMode === "local";
+  const { storageMode, isLocalStorage } = useChatStore();
+  const isLocalMode = isLocalStorage;
 
-  const visitKey = `${storageMode}:${conversationId ?? ""}`;
+  const visitKey = `${storageMode}:${isLocalStorage ? "cache" : "none"}:${conversationId ?? ""}`;
   const visitToken = useMemo(() => Symbol(visitKey), [visitKey]);
 
   const [limit, setLimit] = useState(FILES_PAGE_SIZE);

@@ -12,6 +12,9 @@ import { createRuntimeInitialization } from "./runner/runtime-initialization.js"
 import { createStoreOperations } from "./runner/store-operations.js";
 import { createAgentOrchestration } from "./runner/agent-orchestration.js";
 import { createCloudAgentLifecycleMonitor } from "./runner/cloud-agent-lifecycle.js";
+import { createComputerAgentCloudRecords } from "./runner/computer-agent-cloud-records.js";
+import { createLegacyChatCloudImporter } from "./runner/legacy-chat-cloud-import.js";
+import { parseCanonicalCloudHistory } from "./runner/orchestrator-launch.js";
 import { buildRuntimeSystemPrompt } from "./agent-runtime/run-preparation.js";
 import { getRuntimeToolMetadata } from "./agent-runtime/tool-adapters.js";
 import { loadGoogleWorkspaceTools } from "./google-workspace/load-google-workspace-tools.js";
@@ -168,8 +171,14 @@ export const createStellaHostRunner = (
 ): RunnerPublicApi => {
   const context = createRunnerContext(options);
   let restartCloudAgentLifecycle = () => {};
+  let resumeLegacyChatCloudImport = () => {};
+  let resumeComputerAgentCloudRecords = () => {};
   const convexSession = createConvexSession(context, {
-    onAuthTokenSet: () => restartCloudAgentLifecycle(),
+    onAuthTokenSet: () => {
+      restartCloudAgentLifecycle();
+      resumeLegacyChatCloudImport();
+      resumeComputerAgentCloudRecords();
+    },
   });
   if (options.requestRuntimeAuthRefresh) {
     context.requestRuntimeAuthRefresh = async (payload) => {
@@ -191,9 +200,89 @@ export const createStellaHostRunner = (
   }
   context.state.webSearch = convexSession.webSearch;
 
+  const requireConvexClient = () => {
+    const client = convexSession.ensureConvexClient();
+    if (!client) {
+      throw new Error("Cloud conversation migration is not configured.");
+    }
+    return client;
+  };
+  const legacyChatCloudImporter = createLegacyChatCloudImporter({
+    deviceId: context.deviceId,
+    store: context.runtimeStore,
+    cloudTranscript: context.cloudTranscript,
+    hasAuthToken: () => Boolean(context.state.authToken?.trim()),
+    cloud: {
+      getOwnershipMigrationStatus: async () =>
+        (await (requireConvexClient() as any).query(
+          (
+            context.convexApi as {
+              auth_migration: {
+                getMyOwnershipMigrationStatus: unknown;
+              };
+            }
+          ).auth_migration.getMyOwnershipMigrationStatus,
+          {},
+        )) as {
+          status: "pending" | "running" | "failed" | "complete";
+        } | null,
+      getConversation: async (conversationId) =>
+        (await (requireConvexClient() as any).query(
+          (
+            context.convexApi as {
+              cloud_apps: { getMyConversation: unknown };
+            }
+          ).cloud_apps.getMyConversation,
+          { conversationId },
+        )) as { conversationId: string } | null,
+      createConversation: async ({ clientCreateId, title }) =>
+        (await (requireConvexClient() as any).mutation(
+          (
+            context.convexApi as {
+              cloud_apps: { createMyConversation: unknown };
+            }
+          ).cloud_apps.createMyConversation,
+          {
+            clientCreateId,
+            ...(title ? { title } : {}),
+          },
+        )) as { conversationId: string },
+    },
+    onLog: (level, event, fields) => {
+      const message = `[runner] ${event}`;
+      if (level === "error") console.warn(message, fields);
+      else console.info(message, fields);
+    },
+  });
+  resumeLegacyChatCloudImport = legacyChatCloudImporter.resume;
+  legacyChatCloudImporter.resume();
+
   const storeOperations = createStoreOperations(context, {
     ensureStoreClient: convexSession.ensureStoreClient,
   });
+  const computerAgentCloudRecords = createComputerAgentCloudRecords({
+    convexApi: context.convexApi,
+    deviceId: context.deviceId,
+    store: context.runtimeStore,
+    getAuthToken: () => context.state.authToken?.trim() || null,
+    mutation: async (ref, args) => {
+      const client = convexSession.ensureStoreClient();
+      return await (
+        client as unknown as {
+          mutation: (query: unknown, args: unknown) => Promise<unknown>;
+        }
+      ).mutation(ref, args);
+    },
+    query: async (ref, args) => {
+      const client = convexSession.ensureStoreClient();
+      return await (
+        client as unknown as {
+          query: (query: unknown, args: unknown) => Promise<unknown>;
+        }
+      ).query(ref, args);
+    },
+  });
+  resumeComputerAgentCloudRecords = computerAgentCloudRecords.resume;
   const buildAgentContextWithResolvedRoute = async (
     args:
       | Parameters<typeof buildAgentContext>[1]
@@ -249,6 +338,7 @@ export const createStellaHostRunner = (
       return snapshot;
     },
     sendMessage: orchestratorController.sendMessage,
+    cloudAgentRecords: computerAgentCloudRecords,
   });
   const cloudAgentLifecycle = createCloudAgentLifecycleMonitor({
     convexApi: context.convexApi,
@@ -339,7 +429,14 @@ export const createStellaHostRunner = (
 
   const runtimeInitialization = createRuntimeInitialization(context, {
     disposeConvexClient: convexSession.disposeConvexClient,
-    shutdownTasks: taskOrchestration.shutdown,
+    shutdownTasks: async () => {
+      // Stop network delivery first: shutdown still admits every resulting
+      // cancel/terminal row synchronously, but it must not wait on a Convex
+      // client that runtime teardown has already disposed. The next worker
+      // resumes those durable rows before constructing its agent manager.
+      computerAgentCloudRecords.stop();
+      await taskOrchestration.shutdown();
+    },
   });
 
   return {
@@ -348,6 +445,7 @@ export const createStellaHostRunner = (
     setConvexUrl: (value) => {
       convexSession.setConvexUrl(value);
       queueMicrotask(() => cloudAgentLifecycle.start());
+      computerAgentCloudRecords.resume();
     },
     setConvexSiteUrl: convexSession.setConvexSiteUrl,
     setAuthToken: (value) => {
@@ -359,6 +457,7 @@ export const createStellaHostRunner = (
     start: runtimeInitialization.start,
     stop: async () => {
       cloudAgentLifecycle.stop();
+      legacyChatCloudImporter.stop();
       await runtimeInitialization.stop();
     },
     waitUntilInitialized: async () => {
@@ -429,6 +528,11 @@ export const createStellaHostRunner = (
         timestamp: Date.now(),
       });
     },
+    appendCloudJournal: (request) => context.cloudTranscript.append(request),
+    beginVoiceToolCallReceipt: (request) =>
+      context.runtimeStore.beginVoiceToolCallReceipt(request),
+    completeVoiceToolCallReceipt: (request) =>
+      context.runtimeStore.completeVoiceToolCallReceipt(request),
     notifyOrchestratorHistoryChanged: (conversationId: string) => {
       context.state.orchestratorSessions
         .get(conversationId)
@@ -438,12 +542,17 @@ export const createStellaHostRunner = (
       const agentType = AGENT_IDS.ORCHESTRATOR;
       const runId = `voice-session:${Date.now()}`;
       const resolved = await resolveAgentModelRoute(context, agentType);
-      const agentContext = await buildAgentContext(context, {
-        conversationId,
-        agentType,
-        runId,
-        ...resolved,
-      });
+      const cloudHistory =
+        await context.cloudTranscript.history(conversationId);
+      const agentContext = {
+        ...(await buildAgentContext(context, {
+          conversationId,
+          agentType,
+          runId,
+          ...resolved,
+        })),
+        threadHistory: parseCanonicalCloudHistory(cloudHistory.history),
+      };
       const instructions = await buildRuntimeSystemPrompt({
         runId,
         conversationId,
@@ -531,10 +640,12 @@ export const createStellaHostRunner = (
 
     triggerDreamNow: async (trigger = "manual") => {
       try {
-        const { maybeSpawnDreamRun } =
-          await import("./agent-runtime/dream-scheduler.js");
-        const { resolveRunnerLlmRoute } =
-          await import("./runner/model-selection.js");
+        const { maybeSpawnDreamRun } = await import(
+          "./agent-runtime/dream-scheduler.js"
+        );
+        const { resolveRunnerLlmRoute } = await import(
+          "./runner/model-selection.js"
+        );
         const { AGENT_IDS } = await import("@stella/contracts/agent-runtime");
         const pendingItems =
           context.runtimeStore.dreamInboxStore.countUnprocessed();
@@ -575,10 +686,12 @@ export const createStellaHostRunner = (
 
     runChronicleSummaryTick: async (window) => {
       try {
-        const { runChronicleSummary } =
-          await import("./memory/chronicle-summarizer.js");
-        const { resolveRunnerLlmRoute } =
-          await import("./runner/model-selection.js");
+        const { runChronicleSummary } = await import(
+          "./memory/chronicle-summarizer.js"
+        );
+        const { resolveRunnerLlmRoute } = await import(
+          "./runner/model-selection.js"
+        );
         const { AGENT_IDS } = await import("@stella/contracts/agent-runtime");
         const chronicleAgent = resolveAgent(context, AGENT_IDS.CHRONICLE);
         const chronicleModel = getConfiguredModel(

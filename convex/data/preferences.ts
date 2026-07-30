@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
 import { v, ConvexError } from "convex/values";
-import { requireUserId } from "../auth";
+import { getUserIdOrNull, requireUserId } from "../auth";
 import {
   enforceMutationRateLimit,
   RATE_SETTINGS,
@@ -156,9 +156,8 @@ export const getAccountMode = query({
   args: {},
   returns: accountModeValidator,
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return "private_local";
-    const ownerId = identity.tokenIdentifier;
+    const ownerId = await getUserIdOrNull(ctx);
+    if (!ownerId) return "private_local";
     const record = await ctx.db
       .query("user_preferences")
       .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId).eq("key", ACCOUNT_MODE_KEY))
@@ -184,9 +183,8 @@ export const getSyncMode = query({
   args: {},
   returns: syncModeValidator,
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return "off";
-    const ownerId = identity.tokenIdentifier;
+    const ownerId = await getUserIdOrNull(ctx);
+    if (!ownerId) return "off";
     const record = await ctx.db
       .query("user_preferences")
       .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId).eq("key", SYNC_MODE_KEY))
@@ -291,9 +289,8 @@ export const getLocale = query({
   args: {},
   returns: v.union(localeValidator, v.null()),
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return null;
-    const ownerId = identity.tokenIdentifier;
+    const ownerId = await getUserIdOrNull(ctx);
+    if (!ownerId) return null;
     const record = await ctx.db
       .query("user_preferences")
       .withIndex("by_ownerId_and_key", (q) =>

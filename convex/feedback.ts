@@ -4,6 +4,7 @@ import {
   enforceMutationRateLimit,
   RATE_VERY_EXPENSIVE,
 } from "./lib/rate_limits";
+import { getUserIdentityOrNull } from "./auth";
 
 const FEEDBACK_MIN_LENGTH = 1;
 const FEEDBACK_MAX_LENGTH = 4000;
@@ -37,7 +38,7 @@ export const submitFeedback = mutation({
       });
     }
 
-    const identity = await ctx.auth.getUserIdentity();
+    const identity = await getUserIdentityOrNull(ctx);
     const rateKey = identity?.tokenIdentifier ?? "anonymous";
     await enforceMutationRateLimit(
       ctx,

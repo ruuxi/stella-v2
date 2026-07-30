@@ -15,7 +15,7 @@ const ChatSearch = z.object({
 export const Route = createFileRoute("/chat")({
   validateSearch: ChatSearch,
   // Auth-aware route repair lives in the root after the account scope is
-  // known. A global synchronous cache cannot safely decide whether its id is
-  // a local conversation or belongs to the account that just signed out.
+  // known. A global synchronous cache cannot safely decide whether its id
+  // belongs to the anonymous/connected identity that is active now.
   component: ChatApp,
 });

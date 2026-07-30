@@ -9,6 +9,7 @@ import {
   withCors,
 } from "../http_shared/cors";
 import { requireAdminRequest } from "../http_shared/admin";
+import { getUserIdentityOrNullAction } from "../auth";
 
 type NativeOAuthExchangeBody = {
   provider?: unknown;
@@ -505,7 +506,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
+        const identity = await getUserIdentityOrNullAction(ctx);
         if (!identity) return errorResponse(401, "Unauthorized", origin);
         const body = (await parseUnknownBody(request)) as
           | NativeIntegrationRequestBody
@@ -555,7 +556,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "GET",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
+        const identity = await getUserIdentityOrNullAction(ctx);
         if (!identity) return errorResponse(401, "Unauthorized", origin);
         const id = readString(
           new URL(request.url).searchParams.get("id"),
@@ -615,7 +616,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
+        const identity = await getUserIdentityOrNullAction(ctx);
         if (!identity) return errorResponse(401, "Unauthorized", origin);
         const body = (await parseUnknownBody(request)) as
           | NativeIntegrationRequestBody
@@ -670,7 +671,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "GET",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
+        const identity = await getUserIdentityOrNullAction(ctx);
         if (!identity) return errorResponse(401, "Unauthorized", origin);
         const providers = await loadProviders(ctx);
         return jsonResponse(
@@ -695,7 +696,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
+        const identity = await getUserIdentityOrNullAction(ctx);
         if (!identity) return errorResponse(401, "Unauthorized", origin);
         const body = await parseBody(request);
         const providerId = readString(body?.provider)?.toLowerCase();

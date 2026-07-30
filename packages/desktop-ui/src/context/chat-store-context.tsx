@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 
-export type ChatStorageMode = "cloud" | "local";
+export type ChatStorageMode = "cloud";
 
 export type ChatStoreContextValue = {
   storageMode: ChatStorageMode;
@@ -12,13 +12,6 @@ export type ChatStoreContextValue = {
 
 const ChatStoreContext = createContext<ChatStoreContextValue | null>(null);
 
-const LOCAL_CHAT_STORE_VALUE: ChatStoreContextValue = {
-  storageMode: "local",
-  isLocalStorage: true,
-  cloudFeaturesEnabled: false,
-  isAuthenticated: false,
-};
-
 export const ChatStoreContextProvider = ({
   children,
   value,
@@ -26,13 +19,9 @@ export const ChatStoreContextProvider = ({
   children: ReactNode;
   value: ChatStoreContextValue;
 }) => (
-  <ChatStoreContext.Provider value={value}>{children}</ChatStoreContext.Provider>
-);
-
-export const LocalChatStoreProvider = ({ children }: { children: ReactNode }) => (
-  <ChatStoreContextProvider value={LOCAL_CHAT_STORE_VALUE}>
+  <ChatStoreContext.Provider value={value}>
     {children}
-  </ChatStoreContextProvider>
+  </ChatStoreContext.Provider>
 );
 
 export const useChatStore = () => {

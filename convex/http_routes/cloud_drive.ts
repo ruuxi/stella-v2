@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import {
   DRIVE_INLINE_FILE_LIMIT_BYTES,
   buildDriveSyncManifest,
+  deleteReplacedDriveObjectKeys,
   driveObjectKey,
   driveRevisionPath,
   driveWritePrefixForWorkspace,
@@ -531,8 +532,12 @@ export function registerCloudDriveRoutes(http: HttpRouter) {
             })) as {
               files: Array<Record<string, unknown>>;
               skipped: DriveSkip[];
+              replacedR2Keys: string[];
             })
-          : { files: [], skipped: [] };
+          : { files: [], skipped: [], replacedR2Keys: [] };
+      // The mutation has committed the new row keys. Only now is it safe to
+      // retire any immutable pre-link objects the rows stopped naming.
+      await deleteReplacedDriveObjectKeys(ctx, result.replacedR2Keys);
       skipped.push(...result.skipped);
       // A file the transactional re-check turned away has already had its
       // bytes PUT; leaving them would charge the platform for storage no row

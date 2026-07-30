@@ -47,6 +47,18 @@ export type CloudEngineConnections = {
     label: string;
     updatedAt: number;
   }>;
+  importedConnections: Array<{
+    credentialId: string;
+    provider: string;
+    label: string;
+    updatedAt: number;
+  }>;
+  importedSettings: Array<{
+    settingsId: string;
+    chatEngine: string;
+    execution?: CloudExecutionSelection;
+    updatedAt: number;
+  }>;
 };
 
 export type StellaInteriorBuild = {
@@ -121,6 +133,25 @@ export type CloudProject = {
 };
 
 export const cloudApi = {
+  confirmMySessionIdentity: makeFunctionReference<
+    "query",
+    { expectedSubject: string; identityRevision: number },
+    boolean
+  >("cloud_apps:confirmMySessionIdentity"),
+  getMyOwnershipMigrationStatus: makeFunctionReference<
+    "query",
+    Record<string, never>,
+    {
+      status: "pending" | "running" | "failed" | "complete";
+      updatedAt: number;
+      error?: string;
+    } | null
+  >("auth_migration:getMyOwnershipMigrationStatus"),
+  retryMyLatestFailedOwnershipMigration: makeFunctionReference<
+    "mutation",
+    Record<string, never>,
+    { scheduled: boolean }
+  >("auth_migration:retryMyLatestFailedOwnershipMigration"),
   listMyConversations: makeFunctionReference<
     "query",
     Record<string, never>,
@@ -251,6 +282,16 @@ export const cloudApi = {
     { provider: string },
     null
   >("cloud_engines:disconnectEngine"),
+  activateImportedCredential: makeFunctionReference<
+    "mutation",
+    { credentialId: string },
+    { activated: boolean }
+  >("cloud_engines:activateImportedCredential"),
+  activateImportedEngineSettings: makeFunctionReference<
+    "mutation",
+    { settingsId: string },
+    { activated: boolean }
+  >("cloud_engines:activateImportedEngineSettings"),
   setMyCloudEngine: makeFunctionReference<"mutation", { engine: string }, null>(
     "cloud_engines:setMyCloudEngine",
   ),

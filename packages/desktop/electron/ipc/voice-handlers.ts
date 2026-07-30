@@ -27,6 +27,7 @@ import { redactMemoryText } from "@stella/runtime/kernel/memory/redaction";
 import type {
   RuntimeVoiceToolCallPayload,
   RuntimeVoiceToolCallResult,
+  RuntimeVoiceTranscriptPayload,
 } from "@stella/contracts/protocol";
 import {
   IPC_VOICE_CREATE_OPENAI_SESSION,
@@ -37,6 +38,8 @@ import {
   IPC_VOICE_REPORT_SESSION_ERROR,
   IPC_VOICE_SESSION_ERROR,
 } from "@stella/contracts/desktop/ipc-channels";
+import { requireMatchingCloudConversationId } from "../cloud-conversation-mode.js";
+import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 
 type VoiceHandlersOptions = {
   uiState: UiState;
@@ -51,6 +54,7 @@ type VoiceHandlersOptions = {
    *  dial wedge, and the pet's own mic action button. */
   togglePetVoice: () => void;
   getStellaHostRunner: () => StellaHostRunner | null;
+  localChatHistoryService: LocalChatHistoryService;
   onStellaHostRunnerChanged?: (
     listener: (runner: StellaHostRunner | null) => void,
   ) => () => void;
@@ -128,6 +132,9 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
   let currentVoiceRtcShortcut = "";
   let runtimeState: VoiceRuntimeSnapshot = DEFAULT_RUNTIME_STATE;
   const nextTaskEventSeq = createMonotonicSeqGenerator();
+  let transcriptInboxDrain: Promise<void> | null = null;
+  let transcriptInboxRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let transcriptInboxRetryAttempt = 0;
 
   const ts = () => {
     const d = new Date();
@@ -157,6 +164,67 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
 
   const errorMessage = (value: unknown): string =>
     value instanceof Error ? value.message : String(value ?? "Unknown error");
+
+  const requireCurrentVoiceConversation = (value: unknown): string =>
+    requireMatchingCloudConversationId(value, options.uiState.conversationId);
+
+  const drainTranscriptInbox = (): Promise<void> => {
+    if (transcriptInboxDrain) return transcriptInboxDrain;
+    const work = (async () => {
+      while (true) {
+        const [payload] =
+          options.localChatHistoryService.listVoiceTranscriptInbox(1);
+        if (!payload) return;
+        const stellaHostRunner = options.getStellaHostRunner();
+        if (!stellaHostRunner) {
+          throw new Error("Stella runtime not initialized");
+        }
+        // The worker has its own stable-event admission receipt and cloud
+        // journal outbox. Delete the main-process inbox row only after that
+        // boundary acknowledges this exact payload.
+        await stellaHostRunner.persistVoiceTranscript(payload);
+        options.localChatHistoryService.deleteVoiceTranscriptInbox(
+          payload.eventId,
+        );
+      }
+    })().finally(() => {
+      if (transcriptInboxDrain === work) transcriptInboxDrain = null;
+    });
+    transcriptInboxDrain = work;
+    return work;
+  };
+
+  const resumeTranscriptInbox = (immediate = false) => {
+    if (immediate && transcriptInboxRetryTimer) {
+      clearTimeout(transcriptInboxRetryTimer);
+      transcriptInboxRetryTimer = null;
+    }
+    if (transcriptInboxRetryTimer) return;
+    const delayMs = immediate
+      ? 0
+      : Math.min(60_000, 500 * 2 ** Math.min(transcriptInboxRetryAttempt, 7));
+    transcriptInboxRetryTimer = setTimeout(() => {
+      transcriptInboxRetryTimer = null;
+      void drainTranscriptInbox()
+        .then(() => {
+          transcriptInboxRetryAttempt = 0;
+        })
+        .catch((error) => {
+          transcriptInboxRetryAttempt += 1;
+          console.warn(
+            "[voice] Transcript inbox drain paused:",
+            errorMessage(error),
+          );
+          resumeTranscriptInbox();
+        });
+    }, delayMs);
+    transcriptInboxRetryTimer.unref?.();
+  };
+
+  options.onStellaHostRunnerChanged?.((runner) => {
+    if (runner) resumeTranscriptInbox(true);
+  });
+  queueMicrotask(() => resumeTranscriptInbox(true));
 
   const htmlDisplayPayloadFromVoiceTool = (
     payload: RuntimeVoiceToolCallPayload,
@@ -596,31 +664,33 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
     },
   );
 
-  ipcMain.on(
+  ipcMain.handle(
     "voice:persistTranscript",
-    (
-      _event,
-      payload: {
-        conversationId: string;
-        role: "user" | "assistant";
-        text: string;
-        uiVisibility?: "visible" | "hidden";
-        voiceSession?: { durationMs: number };
-      },
-    ) => {
+    async (_event, payload: RuntimeVoiceTranscriptPayload) => {
+      let conversationId: string;
+      try {
+        conversationId = requireCurrentVoiceConversation(
+          payload.conversationId,
+        );
+      } catch (error) {
+        throw new Error(`Voice transcript rejected: ${errorMessage(error)}`);
+      }
       console.log(
         `[${ts()}] [Voice RTC] ${payload.role.toUpperCase()}: ${payload.text}`,
       );
-      const stellaHostRunner = options.getStellaHostRunner();
-      if (!stellaHostRunner) {
-        return;
-      }
-      stellaHostRunner.persistVoiceTranscript(payload).catch((err) => {
-        console.debug(
-          "[voice] transcript persistence failed (best-effort):",
-          (err as Error).message,
-        );
-      });
+      const currentPayload = {
+        ...payload,
+        conversationId,
+      };
+      // This synchronous SQLite admission happens before the handler returns,
+      // so the renderer receives no success response until the event is
+      // recoverable after a main-process crash.
+      options.localChatHistoryService.admitVoiceTranscript(currentPayload);
+      // Worker/cloud delivery continues from this durable row. The renderer
+      // ACK is intentionally independent so later realtime callbacks can be
+      // admitted even while the worker is restarting.
+      resumeTranscriptInbox(true);
+      return { ok: true as const };
     },
   );
 
@@ -634,54 +704,65 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
       if (!options.uiState.isVoiceRtcActive) {
         throw new Error("Voice mode is no longer active.");
       }
+      const conversationId = requireCurrentVoiceConversation(
+        payload.conversationId,
+      );
       const stellaHostRunner = options.getStellaHostRunner();
       if (!stellaHostRunner) {
         throw new Error("Stella runtime not initialized");
       }
 
-      return await stellaHostRunner.handleVoiceChat(payload, {
-        onStream: () => {},
-        onToolStart: (event) => {
-          emitVoiceAgentEvent({ ...event, type: "tool-start" });
+      return await stellaHostRunner.handleVoiceChat(
+        { ...payload, conversationId },
+        {
+          onStream: () => {},
+          onToolStart: (event) => {
+            emitVoiceAgentEvent({ ...event, type: "tool-start" });
+          },
+          onToolEnd: (event) => {
+            emitVoiceAgentEvent({ ...event, type: "tool-end" });
+          },
+          onAgentEvent: (event) => {
+            emitVoiceAgentEvent({
+              type: event.type,
+              runId: event.rootRunId ?? "voice",
+              seq: nextTaskEventSeq(),
+              agentId: event.agentId,
+              agentType: event.agentType,
+              description: event.description,
+              parentAgentId: event.parentAgentId,
+              result: event.result,
+              error: event.error,
+              statusText: event.statusText,
+            });
+          },
+          onRunFinished: (event) => {
+            if (event.outcome === "error") {
+              console.error(
+                `[${ts()}] [Voice] orchestratorChat error:`,
+                event.error ?? event.reason,
+              );
+            }
+            emitVoiceAgentEvent({ ...event, type: "run-finished" });
+          },
         },
-        onToolEnd: (event) => {
-          emitVoiceAgentEvent({ ...event, type: "tool-end" });
-        },
-        onAgentEvent: (event) => {
-          emitVoiceAgentEvent({
-            type: event.type,
-            runId: event.rootRunId ?? "voice",
-            seq: nextTaskEventSeq(),
-            agentId: event.agentId,
-            agentType: event.agentType,
-            description: event.description,
-            parentAgentId: event.parentAgentId,
-            result: event.result,
-            error: event.error,
-            statusText: event.statusText,
-          });
-        },
-        onRunFinished: (event) => {
-          if (event.outcome === "error") {
-            console.error(
-              `[${ts()}] [Voice] orchestratorChat error:`,
-              event.error ?? event.reason,
-            );
-          }
-          emitVoiceAgentEvent({ ...event, type: "run-finished" });
-        },
-      });
+      );
     },
   );
 
   ipcMain.handle(
     IPC_VOICE_ORCHESTRATOR_CONFIG,
     async (_event, payload: { conversationId: string }) => {
+      const conversationId = requireCurrentVoiceConversation(
+        payload.conversationId,
+      );
       const stellaHostRunner = options.getStellaHostRunner();
       if (!stellaHostRunner) {
         throw new Error("Stella runtime not initialized");
       }
-      return await stellaHostRunner.getVoiceOrchestratorConfig(payload);
+      return await stellaHostRunner.getVoiceOrchestratorConfig({
+        conversationId,
+      });
     },
   );
 
@@ -691,22 +772,29 @@ export const registerVoiceHandlers = (options: VoiceHandlersOptions) => {
       if (!options.uiState.isVoiceRtcActive) {
         throw new Error("Voice mode is no longer active.");
       }
+      const conversationId = requireCurrentVoiceConversation(
+        payload.conversationId,
+      );
+      const currentPayload = { ...payload, conversationId };
       const stellaHostRunner = options.getStellaHostRunner();
       if (!stellaHostRunner) {
         throw new Error("Stella runtime not initialized");
       }
-      emitVoiceToolStart(payload);
+      emitVoiceToolStart(currentPayload);
       try {
-        const result = await stellaHostRunner.executeVoiceTool(payload);
-        emitVoiceToolEnd(payload, result);
-        const displayPayload = htmlDisplayPayloadFromVoiceTool(payload, result);
+        const result = await stellaHostRunner.executeVoiceTool(currentPayload);
+        emitVoiceToolEnd(currentPayload, result);
+        const displayPayload = htmlDisplayPayloadFromVoiceTool(
+          currentPayload,
+          result,
+        );
         if (displayPayload) {
           emitVoiceDisplayPayload(displayPayload);
         }
         return result;
       } catch (error) {
         const message = errorMessage(error);
-        emitVoiceToolEnd(payload, {
+        emitVoiceToolEnd(currentPayload, {
           output: `Error: ${message}`,
           error: message,
         });

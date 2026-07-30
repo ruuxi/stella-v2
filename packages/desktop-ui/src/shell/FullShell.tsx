@@ -12,7 +12,6 @@ import {
   readLocalOnboardingCompleted,
   useOnboardingState,
 } from "@/global/onboarding/use-onboarding-state";
-import { useBootstrapState } from "@/bootstrap/bootstrap-state";
 import { useWindowType } from "@/shared/hooks/use-window-type";
 import { router } from "@/router";
 import { ShiftingGradient } from "./background/ShiftingGradient";
@@ -166,8 +165,6 @@ export const FullShell = () => {
   const [hasEnteredApp, setHasEnteredApp] = useState(
     () => !isMiniWindow && readLocalOnboardingCompleted(),
   );
-  const { runtimeStatus, retryRuntimeBootstrap } = useBootstrapState();
-
   const onboardingResolved = onboardingHydrated || onboardingDone;
   const appReady =
     onboardingResolved && onboardingDone && (isMiniWindow || hasEnteredApp);
@@ -214,19 +211,6 @@ export const FullShell = () => {
       dismissLaunchSplash();
     }
   }, [appReady]);
-
-  useEffect(() => {
-    if (!appReady) return;
-    if (activeConversationId) return;
-    if (runtimeStatus !== "ready") return;
-
-    // Bootstrap can finish while RouterProvider is still unmounted during
-    // onboarding. If the handoff ever loses the conversation id, kick the
-    // light bootstrap loop once more after the real app tree mounts instead
-    // of leaving the chat runtime stuck in its initial loading state until a
-    // process relaunch.
-    retryRuntimeBootstrap();
-  }, [activeConversationId, appReady, retryRuntimeBootstrap, runtimeStatus]);
 
   return (
     <div

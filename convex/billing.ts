@@ -11,6 +11,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
+  getUserIdentityOrNull,
   getUserIdOrNull,
   requireSensitiveUserIdentityAction,
 } from "./auth";
@@ -2070,7 +2071,7 @@ export const getSubscriptionStatus = query({
   },
   returns: subscriptionStatusReturnValidator,
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
+    const identity = await getUserIdentityOrNull(ctx);
     const planCatalog = getPlanCatalog();
 
     const plans = {
@@ -2343,7 +2344,7 @@ export const getUsageCreditStatus = query({
     totalConsumedUsd: v.number(),
   }),
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
+    const identity = await getUserIdentityOrNull(ctx);
     if (!identity || isAnonymousIdentity(identity)) {
       return {
         authenticated: false,

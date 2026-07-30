@@ -27,17 +27,12 @@ import { ErrorBoundary } from "./shell/ErrorBoundary";
 import { ChatPanelTab, type ChatPanelOpenRequest } from "./shell/ChatSidebar";
 import { ToastProvider } from "./ui/toast";
 import { LocalI18nProvider, useLocale } from "./shared/i18n/I18nProvider";
-import { writeActiveConversationIdCache } from "./features/chat/services/active-conversation-cache";
-import {
-  createNewLocalConversationId,
-  getOrCreateLocalConversationId,
-  setActiveLocalConversationId,
-} from "./features/chat/services/local-chat-store";
 import { useConversationDisplayMessages } from "./features/chat/hooks/use-conversation-display-messages";
 import { useConversationMessages } from "./features/chat/hooks/use-conversation-messages";
 import { useStreamingChatCore } from "./features/chat/hooks/use-streaming-chat-core";
 import { DesktopConvexAuthProvider } from "./global/auth/DesktopConvexAuthProvider";
 import { useCloudMode } from "./global/auth/hooks/use-cloud-mode";
+import { resolveOwnershipMigrationGate } from "./global/auth/lib/cloud-session-mode";
 import { cloudApi } from "./features/cloud/cloud-api";
 import {
   markCloudConversationCreated,
@@ -58,6 +53,7 @@ import {
 } from "./features/cloud/journal-message-records";
 import { useConversation } from "./features/cloud/use-conversation";
 import { useOwnDeviceRemoteCancel } from "./features/cloud/use-own-device-remote-cancel";
+import "./shell/error-boundary.css";
 
 applyLowPowerDocumentFlag();
 document.documentElement.dataset.stellaWindow = "mini";
@@ -164,6 +160,19 @@ function MiniWindowTopBar({
 
 function useMiniActiveConversationId() {
   const { cloudMode, isLoading, accountScope } = useCloudMode();
+  const ownershipMigration = useQuery(
+    cloudApi.getMyOwnershipMigrationStatus,
+    cloudMode ? {} : "skip",
+  );
+  const ownershipMigrationGate = resolveOwnershipMigrationGate(
+    ownershipMigration === undefined
+      ? undefined
+      : (ownershipMigration?.status ?? null),
+    cloudMode,
+  );
+  const ownershipMigrationIsLoading = ownershipMigrationGate.isLoading;
+  const ownershipMigrationPending = ownershipMigrationGate.isPending;
+  const ownershipMigrationFailed = ownershipMigrationGate.isFailed;
   const conversations = useQuery(
     cloudApi.listMyConversations,
     cloudMode ? {} : "skip",
@@ -173,10 +182,10 @@ function useMiniActiveConversationId() {
     : null;
   const cachedConversationIsListed = Boolean(
     cachedCloudConversationId &&
-      conversations?.some(
-        (conversation) =>
-          conversation.conversationId === cachedCloudConversationId,
-      ),
+    conversations?.some(
+      (conversation) =>
+        conversation.conversationId === cachedCloudConversationId,
+    ),
   );
   const exactCachedCloudConversation = useQuery(
     cloudApi.getMyConversation,
@@ -186,16 +195,17 @@ function useMiniActiveConversationId() {
   );
   const cachedOwnershipIsLoading = Boolean(
     cloudMode &&
-      cachedCloudConversationId &&
-      !cachedConversationIsListed &&
-      exactCachedCloudConversation === undefined,
+    cachedCloudConversationId &&
+    !cachedConversationIsListed &&
+    exactCachedCloudConversation === undefined,
   );
   const createCloudConversation = useMutation(cloudApi.createMyConversation);
-  const selectionKey = isLoading
-    ? null
-    : cloudMode
-      ? `cloud:${accountScope}`
-      : "local";
+  const retryOwnershipMigrationMutation = useMutation(
+    cloudApi.retryMyLatestFailedOwnershipMigration,
+  );
+  const [ownershipMigrationRetryFailure, setOwnershipMigrationRetryFailure] =
+    useState<string | null>(null);
+  const selectionKey = isLoading || !cloudMode ? null : `cloud:${accountScope}`;
   const selectionKeyRef = useRef(selectionKey);
   selectionKeyRef.current = selectionKey;
   const [selection, setSelection] = useState<{
@@ -208,29 +218,12 @@ function useMiniActiveConversationId() {
   const [, retryCloudCreate] = useState(0);
 
   useEffect(() => {
-    if (selectionKey !== "local") return;
-    let cancelled = false;
-    void getOrCreateLocalConversationId()
-      .then((activeConversationId) => {
-        if (cancelled || !activeConversationId) return;
-        setSelection({
-          key: "local",
-          conversationId: activeConversationId,
-        });
-        writeActiveConversationIdCache(activeConversationId);
-        void setActiveLocalConversationId(activeConversationId);
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectionKey]);
-
-  useEffect(() => {
     if (
       !cloudMode ||
       !selectionKey ||
+      ownershipMigrationIsLoading ||
+      ownershipMigrationPending ||
+      ownershipMigrationFailed ||
       conversations === undefined ||
       cachedOwnershipIsLoading
     ) {
@@ -291,21 +284,42 @@ function useMiniActiveConversationId() {
     conversations,
     createCloudConversation,
     exactCachedCloudConversation,
+    ownershipMigrationFailed,
+    ownershipMigrationIsLoading,
+    ownershipMigrationPending,
     selection,
     selectionKey,
   ]);
 
+  useEffect(() => {
+    setOwnershipMigrationRetryFailure(null);
+  }, [accountScope]);
+
+  const retryOwnershipMigration = useCallback(() => {
+    setOwnershipMigrationRetryFailure(null);
+    void retryOwnershipMigrationMutation({})
+      .then(({ scheduled }) => {
+        if (!scheduled) {
+          setOwnershipMigrationRetryFailure(
+            "Stella couldn't find the failed account-link transfer to retry.",
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        setOwnershipMigrationRetryFailure(
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : "Stella couldn't retry the account-link transfer.",
+        );
+      });
+  }, [retryOwnershipMigrationMutation]);
+
   const setConversationId = useCallback(
     (conversationId: string) => {
-      if (!selectionKey) return;
+      if (!selectionKey || !cloudMode) return;
       setSelection({ key: selectionKey, conversationId });
-      if (cloudMode) {
-        markCloudConversationCreated(conversationId, accountScope);
-        writeActiveCloudConversationIdCache(accountScope, conversationId);
-        return;
-      }
-      writeActiveConversationIdCache(conversationId);
-      void setActiveLocalConversationId(conversationId);
+      markCloudConversationCreated(conversationId, accountScope);
+      writeActiveCloudConversationIdCache(accountScope, conversationId);
     },
     [accountScope, cloudMode, selectionKey],
   );
@@ -319,7 +333,40 @@ function useMiniActiveConversationId() {
     cloudMode,
     accountScope,
     createCloudConversation,
+    ownershipMigrationPending,
+    ownershipMigrationFailed,
+    ownershipMigrationIsLoading,
+    ownershipMigrationError:
+      ownershipMigrationRetryFailure ?? ownershipMigration?.error ?? null,
+    retryOwnershipMigration,
   };
+}
+
+function MiniCloudStartupFailure({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="error-boundary" role="alert">
+      <div className="error-boundary-gradient" />
+      <div className="error-boundary-content">
+        <h2>Stella couldn&apos;t start chat</h2>
+        <p>{message}</p>
+        <div className="error-boundary-actions">
+          <button
+            className="error-boundary-btn error-boundary-btn--fix"
+            onClick={onRetry}
+            type="button"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function MiniChatSurface() {
@@ -332,6 +379,11 @@ function MiniChatSurface() {
     cloudMode,
     accountScope,
     createCloudConversation,
+    ownershipMigrationPending,
+    ownershipMigrationFailed,
+    ownershipMigrationIsLoading,
+    ownershipMigrationError,
+    retryOwnershipMigration,
   } = useMiniActiveConversationId();
   const cloudConversation = useConversation(
     cloudFeaturesEnabled ? conversationId : null,
@@ -452,13 +504,9 @@ function MiniChatSurface() {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  const {
-    messages: localPersistedMessages,
-    hasOlderMessages: hasOlderLocalMessages,
-    isLoadingOlder: isLoadingOlderLocalMessages,
-    isInitialLoading: isInitialLoadingLocalMessages,
-    loadOlder: loadOlderLocalMessages,
-  } = useConversationMessages(conversationId ?? undefined);
+  const { messages: localPersistedMessages } = useConversationMessages(
+    conversationId ?? undefined,
+  );
   const hasIncompleteCloudLeadingTurn =
     cloudFeaturesEnabled &&
     hasIncompleteLeadingJournalTurn(
@@ -495,35 +543,26 @@ function MiniChatSurface() {
   );
   const persistedMessages = useMemo(
     () =>
-      cloudFeaturesEnabled
-        ? mergeCanonicalMessagesWithLocalCache(
-            canonicalMessages,
-            localPersistedMessages,
-            activeCanonicalUserMessageIds,
-          )
-        : localPersistedMessages,
-    [
-      activeCanonicalUserMessageIds,
-      canonicalMessages,
-      cloudFeaturesEnabled,
-      localPersistedMessages,
-    ],
+      mergeCanonicalMessagesWithLocalCache(
+        canonicalMessages,
+        localPersistedMessages,
+        activeCanonicalUserMessageIds,
+      ),
+    [activeCanonicalUserMessageIds, canonicalMessages, localPersistedMessages],
   );
-  const hasOlderMessages = cloudFeaturesEnabled
-    ? cloudConversation.state.hasOlder
-    : hasOlderLocalMessages;
-  const isLoadingOlderMessages = cloudFeaturesEnabled
-    ? cloudConversation.state.loadingOlder
-    : isLoadingOlderLocalMessages;
-  const isInitialLoadingMessages = cloudFeaturesEnabled
-    ? Boolean(
-        conversationId &&
-          canonicalMessages.length === 0 &&
-          (hasIncompleteCloudLeadingTurn ||
-            cloudConversation.status === "idle" ||
-            cloudConversation.status === "connecting"),
-      )
-    : isInitialLoadingLocalMessages;
+  const hasOlderMessages =
+    cloudFeaturesEnabled && cloudConversation.state.hasOlder;
+  const isLoadingOlderMessages =
+    cloudFeaturesEnabled && cloudConversation.state.loadingOlder;
+  const isInitialLoadingMessages =
+    !cloudFeaturesEnabled ||
+    Boolean(
+      conversationId &&
+      canonicalMessages.length === 0 &&
+      (hasIncompleteCloudLeadingTurn ||
+        cloudConversation.status === "idle" ||
+        cloudConversation.status === "connecting"),
+    );
   const loadOlderCloudMessages = cloudConversation.loadOlder;
   useEffect(() => {
     if (
@@ -539,12 +578,9 @@ function MiniChatSurface() {
     loadOlderCloudMessages,
   ]);
   const loadOlderMessages = useCallback(() => {
-    if (cloudFeaturesEnabled) {
-      loadOlderCloudMessages();
-      return;
-    }
-    loadOlderLocalMessages();
-  }, [cloudFeaturesEnabled, loadOlderCloudMessages, loadOlderLocalMessages]);
+    if (!cloudFeaturesEnabled) return;
+    loadOlderCloudMessages();
+  }, [cloudFeaturesEnabled, loadOlderCloudMessages]);
 
   const {
     optimisticEvents,
@@ -565,7 +601,9 @@ function MiniChatSurface() {
     conversationId,
     locale,
     notifyTierRestrictedModel: noopNotifyTierRestrictedModel,
-    persistedMessages: localPersistedMessages,
+    // The DO journal, not SQLite, acknowledges ordinary conversation rows.
+    // The merged list still carries any unacknowledged recovery overlays.
+    persistedMessages,
   });
 
   useOwnDeviceRemoteCancel({
@@ -583,16 +621,13 @@ function MiniChatSurface() {
   });
 
   const startNewChat = useCallback(async () => {
-    const nextConversationId = cloudMode
-      ? (
-          await createCloudConversation({
-            clientCreateId: crypto.randomUUID(),
-          })
-        ).conversationId
-      : await createNewLocalConversationId();
-    if (cloudMode) {
-      markCloudConversationCreated(nextConversationId, accountScope);
-    }
+    if (!cloudMode) return;
+    const nextConversationId = (
+      await createCloudConversation({
+        clientCreateId: crypto.randomUUID(),
+      })
+    ).conversationId;
+    markCloudConversationCreated(nextConversationId, accountScope);
     setConversationId(nextConversationId);
   }, [accountScope, cloudMode, createCloudConversation, setConversationId]);
 
@@ -632,6 +667,38 @@ function MiniChatSurface() {
     });
   }, [ensureMiniDisplayModule]);
   const MiniDisplayPanelHost = miniDisplayModule?.MiniDisplayPanelHost;
+
+  if (ownershipMigrationFailed) {
+    return (
+      <MiniCloudStartupFailure
+        message={
+          ownershipMigrationError ??
+          "Stella couldn't finish moving your anonymous cloud data to this account."
+        }
+        onRetry={retryOwnershipMigration}
+      />
+    );
+  }
+
+  if (ownershipMigrationIsLoading || ownershipMigrationPending) {
+    return (
+      <div className="error-boundary" role="status">
+        <div className="error-boundary-gradient" />
+        <div className="error-boundary-content">
+          <h2>
+            {ownershipMigrationPending
+              ? "Moving your conversations…"
+              : "Loading your conversations…"}
+          </h2>
+          <p>
+            {ownershipMigrationPending
+              ? "Stella will open chat when your anonymous cloud data is ready."
+              : "Stella is checking your cloud conversation history."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mini-chat-app">

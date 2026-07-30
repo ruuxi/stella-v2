@@ -22,6 +22,7 @@ import {
   query,
   type ActionCtx,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -33,6 +34,7 @@ import {
   type CloudExecutionEngine,
   type CloudExecutionSelection,
 } from "./lib/cloud_execution";
+import { assertOwnerMigrationWriteAllowed, requireUserId } from "./auth";
 
 export type CloudEngineProvider = "anthropic" | "openai-codex";
 
@@ -150,13 +152,33 @@ export const decryptEnginePayload = async (
 
 // --- Helpers ---------------------------------------------------------------
 
-const requireOwnerId = async (ctx: {
-  auth: { getUserIdentity: () => Promise<{ tokenIdentifier: string } | null> };
-}): Promise<string> => {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new ConvexError("Sign in to connect an engine.");
-  return identity.tokenIdentifier;
-};
+const requireOwnerId = requireUserId;
+
+const activeCredential = (
+  ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
+  ownerId: string,
+  provider: string,
+) =>
+  ctx.db
+    .query("cloud_llm_credentials")
+    .withIndex("by_ownerId_and_provider_and_importedFromOwnerId", (q) =>
+      q
+        .eq("ownerId", ownerId)
+        .eq("provider", provider)
+        .eq("importedFromOwnerId", undefined),
+    )
+    .unique();
+
+const activeEngineSettings = (
+  ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
+  ownerId: string,
+) =>
+  ctx.db
+    .query("cloud_engine_settings")
+    .withIndex("by_ownerId_and_importedFromOwnerId", (q) =>
+      q.eq("ownerId", ownerId).eq("importedFromOwnerId", undefined),
+    )
+    .unique();
 
 const assertProvider = (value: string): CloudEngineProvider => {
   if ((CLOUD_ENGINE_PROVIDERS as readonly string[]).includes(value)) {
@@ -190,12 +212,7 @@ const requireExecutionCredential = async (
   execution: CloudExecutionSelection,
 ): Promise<void> => {
   if (execution.engine === "stella") return;
-  const credential = await ctx.db
-    .query("cloud_llm_credentials")
-    .withIndex("by_ownerId_and_provider", (q) =>
-      q.eq("ownerId", ownerId).eq("provider", execution.provider),
-    )
-    .unique();
+  const credential = await activeCredential(ctx, ownerId, execution.provider);
   if (!credential) {
     throw new ConvexError(
       execution.engine === "anthropic"
@@ -328,6 +345,7 @@ export const createConnectInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     // Opportunistic purge keeps the table tiny without a cron.
     const expired = await ctx.db
       .query("cloud_engine_connects")
@@ -393,12 +411,8 @@ export const storeCredentialInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("cloud_llm_credentials")
-      .withIndex("by_ownerId_and_provider", (q) =>
-        q.eq("ownerId", args.ownerId).eq("provider", args.provider),
-      )
-      .unique();
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
+    const existing = await activeCredential(ctx, args.ownerId, args.provider);
     if (existing) {
       await ctx.db.patch(existing._id, {
         payloadEncrypted: args.payloadEncrypted,
@@ -436,15 +450,11 @@ export const getCredentialInternal = internalQuery({
       updatedAt: v.number(),
       refreshLeaseId: v.optional(v.string()),
       refreshLeaseExpiresAt: v.optional(v.number()),
+      importedFromOwnerId: v.optional(v.string()),
     }),
   ),
-  handler: (ctx, args) =>
-    ctx.db
-      .query("cloud_llm_credentials")
-      .withIndex("by_ownerId_and_provider", (q) =>
-        q.eq("ownerId", args.ownerId).eq("provider", args.provider),
-      )
-      .unique(),
+  handler: async (ctx, args) =>
+    await activeCredential(ctx, args.ownerId, args.provider),
 });
 
 const CREDENTIAL_REFRESH_LEASE_MS = 45_000;
@@ -465,6 +475,7 @@ export const claimCredentialRefreshInternal = internalMutation({
     v.literal("missing"),
   ),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     const row = await ctx.db.get(args.credentialId);
     if (
       !row ||
@@ -507,6 +518,7 @@ export const commitCredentialRefreshInternal = internalMutation({
     v.literal("missing"),
   ),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     const row = await ctx.db.get(args.credentialId);
     if (
       !row ||
@@ -541,6 +553,7 @@ export const releaseCredentialRefreshInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     const row = await ctx.db.get(args.credentialId);
     if (
       row &&
@@ -735,18 +748,10 @@ export const disconnectEngine = mutation({
   handler: async (ctx, args) => {
     const ownerId = await requireOwnerId(ctx);
     const provider = assertProvider(args.provider);
-    const row = await ctx.db
-      .query("cloud_llm_credentials")
-      .withIndex("by_ownerId_and_provider", (q) =>
-        q.eq("ownerId", ownerId).eq("provider", provider),
-      )
-      .unique();
+    const row = await activeCredential(ctx, ownerId, provider);
     if (row) await ctx.db.delete(row._id);
     // Fall back to the managed engine if the disconnected one was selected.
-    const settings = await ctx.db
-      .query("cloud_engine_settings")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
+    const settings = await activeEngineSettings(ctx, ownerId);
     if (settings && settings.chatEngine === provider) {
       await ctx.db.patch(settings._id, {
         chatEngine: "stella",
@@ -770,17 +775,45 @@ export const listMyEngineConnections = query({
         updatedAt: v.number(),
       }),
     ),
+    importedConnections: v.array(
+      v.object({
+        credentialId: v.id("cloud_llm_credentials"),
+        provider: v.string(),
+        label: v.string(),
+        updatedAt: v.number(),
+      }),
+    ),
+    importedSettings: v.array(
+      v.object({
+        settingsId: v.id("cloud_engine_settings"),
+        chatEngine: v.string(),
+        execution: v.optional(cloudExecutionSelectionValidator),
+        updatedAt: v.number(),
+      }),
+    ),
   }),
   handler: async (ctx) => {
     const ownerId = await requireOwnerId(ctx);
-    const rows = await ctx.db
-      .query("cloud_llm_credentials")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .take(10);
-    const settings = await ctx.db
-      .query("cloud_engine_settings")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
+    const rows = (
+      await Promise.all(
+        CLOUD_ENGINE_PROVIDERS.map((provider) =>
+          activeCredential(ctx, ownerId, provider),
+        ),
+      )
+    ).filter((row) => row !== null);
+    const importedConnections = (
+      await ctx.db
+        .query("cloud_llm_credentials")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .take(32)
+    ).filter((row) => row.importedFromOwnerId !== undefined);
+    const settings = await activeEngineSettings(ctx, ownerId);
+    const importedSettings = (
+      await ctx.db
+        .query("cloud_engine_settings")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .take(32)
+    ).filter((row) => row.importedFromOwnerId !== undefined);
     return {
       chatEngine: settings?.chatEngine ?? "stella",
       execution: executionFromSettings(settings),
@@ -789,7 +822,106 @@ export const listMyEngineConnections = query({
         label: row.label,
         updatedAt: row.updatedAt,
       })),
+      importedConnections: importedConnections.map((row) => ({
+        credentialId: row._id,
+        provider: row.provider,
+        label: row.label,
+        updatedAt: row.updatedAt,
+      })),
+      importedSettings: importedSettings.map((row) => ({
+        settingsId: row._id,
+        chatEngine: row.chatEngine,
+        execution: row.execution,
+        updatedAt: row.updatedAt,
+      })),
     };
+  },
+});
+
+export const activateImportedCredential = mutation({
+  args: { credentialId: v.id("cloud_llm_credentials") },
+  returns: v.object({ activated: v.boolean() }),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const imported = await ctx.db.get(args.credentialId);
+    if (
+      !imported ||
+      imported.ownerId !== ownerId ||
+      imported.importedFromOwnerId === undefined
+    ) {
+      throw new ConvexError("Imported engine connection not found.");
+    }
+    const active = await activeCredential(ctx, ownerId, imported.provider);
+    const now = Date.now();
+    if (!active) {
+      await ctx.db.patch(imported._id, {
+        importedFromOwnerId: undefined,
+        label: imported.label.replace(/ \(imported from anonymous\)$/, ""),
+        refreshLeaseId: undefined,
+        refreshLeaseExpiresAt: undefined,
+        updatedAt: now,
+      });
+      return { activated: true };
+    }
+    const importedPayload = {
+      payloadEncrypted: imported.payloadEncrypted,
+      label: imported.label.replace(/ \(imported from anonymous\)$/, ""),
+    };
+    await ctx.db.patch(imported._id, {
+      payloadEncrypted: active.payloadEncrypted,
+      label: `${active.label} (imported from anonymous)`,
+      refreshLeaseId: undefined,
+      refreshLeaseExpiresAt: undefined,
+      updatedAt: now,
+    });
+    await ctx.db.patch(active._id, {
+      ...importedPayload,
+      refreshLeaseId: undefined,
+      refreshLeaseExpiresAt: undefined,
+      updatedAt: now,
+    });
+    return { activated: true };
+  },
+});
+
+export const activateImportedEngineSettings = mutation({
+  args: { settingsId: v.id("cloud_engine_settings") },
+  returns: v.object({ activated: v.boolean() }),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const imported = await ctx.db.get(args.settingsId);
+    if (
+      !imported ||
+      imported.ownerId !== ownerId ||
+      imported.importedFromOwnerId === undefined
+    ) {
+      throw new ConvexError("Imported engine settings not found.");
+    }
+    const active = await activeEngineSettings(ctx, ownerId);
+    const now = Date.now();
+    const importedExecution = executionFromSettings(imported);
+    await requireExecutionCredential(ctx, ownerId, importedExecution);
+    if (!active) {
+      await ctx.db.patch(imported._id, {
+        importedFromOwnerId: undefined,
+        updatedAt: now,
+      });
+      return { activated: true };
+    }
+    const importedSelection = {
+      chatEngine: importedExecution.engine,
+      execution: importedExecution,
+    };
+    await ctx.db.patch(imported._id, {
+      chatEngine: active.chatEngine,
+      execution: active.execution,
+      updatedAt: now,
+    });
+    await ctx.db.patch(active._id, {
+      ...importedSelection,
+      updatedAt: now,
+    });
+    return { activated: true };
   },
 });
 
@@ -798,6 +930,7 @@ export const setMyCloudEngine = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const ownerId = await requireOwnerId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     if (!SELECTABLE_CLOUD_ENGINES.has(args.engine as CloudExecutionEngine)) {
       throw new ConvexError("Unknown engine.");
     }
@@ -806,10 +939,7 @@ export const setMyCloudEngine = mutation({
     );
     await requireExecutionCredential(ctx, ownerId, execution);
     const now = Date.now();
-    const settings = await ctx.db
-      .query("cloud_engine_settings")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
+    const settings = await activeEngineSettings(ctx, ownerId);
     if (settings) {
       await ctx.db.patch(settings._id, {
         chatEngine: args.engine,
@@ -833,13 +963,11 @@ export const setMyCloudExecution = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const ownerId = await requireOwnerId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     const execution = normalizeCloudExecutionSelection(args.execution);
     await requireExecutionCredential(ctx, ownerId, execution);
     const now = Date.now();
-    const settings = await ctx.db
-      .query("cloud_engine_settings")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
+    const settings = await activeEngineSettings(ctx, ownerId);
     if (settings) {
       await ctx.db.patch(settings._id, {
         chatEngine: execution.engine,
@@ -866,14 +994,14 @@ export const getEngineSettingsInternal = internalQuery({
     connectedProviders: v.array(v.string()),
   }),
   handler: async (ctx, args) => {
-    const settings = await ctx.db
-      .query("cloud_engine_settings")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
-      .unique();
-    const credentials = await ctx.db
-      .query("cloud_llm_credentials")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
-      .take(10);
+    const settings = await activeEngineSettings(ctx, args.ownerId);
+    const credentials = (
+      await Promise.all(
+        CLOUD_ENGINE_PROVIDERS.map((provider) =>
+          activeCredential(ctx, args.ownerId, provider),
+        ),
+      )
+    ).filter((row) => row !== null);
     return {
       chatEngine: settings?.chatEngine ?? "stella",
       execution: executionFromSettings(settings),
@@ -891,10 +1019,8 @@ export const setEngineSettingInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const settings = await ctx.db
-      .query("cloud_engine_settings")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
-      .unique();
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
+    const settings = await activeEngineSettings(ctx, args.ownerId);
     const execution = args.execution
       ? normalizeCloudExecutionSelection(args.execution)
       : SELECTABLE_CLOUD_ENGINES.has(args.chatEngine as CloudExecutionEngine)
@@ -932,8 +1058,8 @@ export const clearEngineProbeInternal = internalMutation({
     const settings = await ctx.db
       .query("cloud_engine_settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
-      .unique();
-    if (settings) await ctx.db.delete(settings._id);
+      .take(20);
+    for (const row of settings) await ctx.db.delete(row._id);
     return null;
   },
 });

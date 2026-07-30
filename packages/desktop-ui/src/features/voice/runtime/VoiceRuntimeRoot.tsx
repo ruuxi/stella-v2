@@ -46,9 +46,6 @@ const runtimeStateEquals = (a: RuntimeVoiceState, b: RuntimeVoiceState) =>
 
 export function VoiceRuntimeRoot() {
   const { state } = useUiState();
-  const [bootConversationId, setBootConversationId] = useState<string | null>(
-    state.conversationId,
-  );
   /**
    * Pre-warm: when the wake word is enabled we keep a Realtime WebRTC
    * session open with the mic gated off (`inputActive=false`). OpenAI
@@ -62,10 +59,13 @@ export function VoiceRuntimeRoot() {
    * tearing down the connection.
    */
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
-  const sessionShouldRun = state.isVoiceRtcActive || wakeWordEnabled;
+  const selectedConversationId = state.conversationId?.trim() || null;
+  const sessionShouldRun =
+    Boolean(selectedConversationId) &&
+    (state.isVoiceRtcActive || wakeWordEnabled);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const outputAnalyserRef = useRef<AnalyserNode | null>(null);
-  const conversationIdRef = useRef<string>(state.conversationId ?? "voice-rtc");
+  const conversationIdRef = useRef<string>(selectedConversationId ?? "");
   const inputActiveRef = useRef<boolean>(state.isVoiceRtcActive);
   const managerRef = useRef<VoiceSessionManager | null>(null);
   const warmMicLeaseRef = useRef<SharedMicrophoneLease | null>(null);
@@ -78,7 +78,7 @@ export function VoiceRuntimeRoot() {
   // every retry tick, so only toast once per distinct error message until the
   // session recovers (leaves the error state).
   const lastVoiceErrorToastRef = useRef<string | null>(null);
-  const resolvedConversationId = state.conversationId ?? bootConversationId;
+  const resolvedConversationId = selectedConversationId;
 
   const publishRuntimeState = (patch: Partial<RuntimeVoiceState>) => {
     const next: RuntimeVoiceState = {
@@ -91,54 +91,6 @@ export function VoiceRuntimeRoot() {
     publishedStateRef.current = next;
     window.electronAPI?.voice.pushRuntimeState(next);
   };
-
-  useEffect(() => {
-    if (!state.conversationId || state.conversationId === bootConversationId) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setBootConversationId(state.conversationId);
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [bootConversationId, state.conversationId]);
-
-  useEffect(() => {
-    if (!sessionShouldRun || state.conversationId || bootConversationId) {
-      return;
-    }
-
-    const getDefaultConversationId =
-      window.electronAPI?.localChat.getOrCreateDefaultConversationId;
-    if (!getDefaultConversationId) {
-      const timer = window.setTimeout(() => {
-        setBootConversationId("voice-rtc");
-      }, 0);
-      return () => {
-        window.clearTimeout(timer);
-      };
-    }
-
-    let cancelled = false;
-    void getDefaultConversationId()
-      .then((conversationId) => {
-        if (!cancelled) {
-          setBootConversationId(conversationId);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setBootConversationId("voice-rtc");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [bootConversationId, state.conversationId, sessionShouldRun]);
 
   useEffect(() => {
     inputActiveRef.current = state.isVoiceRtcActive;
@@ -249,7 +201,10 @@ export function VoiceRuntimeRoot() {
           // the silent auto-retry. Dedupe per distinct message so retries
           // don't restack the toast.
           const toast = resolveVoiceErrorToast(errorMessage);
-          if (toast && lastVoiceErrorToastRef.current !== (errorMessage ?? "")) {
+          if (
+            toast &&
+            lastVoiceErrorToastRef.current !== (errorMessage ?? "")
+          ) {
             lastVoiceErrorToastRef.current = errorMessage ?? "";
             window.electronAPI?.voice.reportSessionError(errorMessage ?? "");
           }

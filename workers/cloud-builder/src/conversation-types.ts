@@ -12,8 +12,12 @@
  * import it, so an edit here is an edit to both.
  */
 
-/** 2 adds `spills.bytes`, so the storage ceiling can see R2 payloads. */
-export const JOURNAL_SCHEMA_VERSION = 2;
+/**
+ * 2 adds `spills.bytes`; 3 adds owner-transfer object tracking; 4 adds durable
+ * append receipts so an acknowledged foreign write remains idempotent after
+ * its hot journal rows roll into R2.
+ */
+export const JOURNAL_SCHEMA_VERSION = 4;
 export const PROTOCOL_VERSION = 1;
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CloudConversation } from "../src/features/cloud/cloud-api";
 import {
   markCloudConversationCreated,
+  resolveCloudConversationForShell,
   resolveCloudConversationRoute,
 } from "../src/features/cloud/cloud-conversation-selection";
 
@@ -67,6 +68,18 @@ describe("resolveCloudConversationRoute", () => {
     ).toBe("created-now");
   });
 
+  test("allows a just-created cached conversation until the live query catches up", () => {
+    markCloudConversationCreated("cached-created-now", "account:a");
+    expect(
+      resolveCloudConversationRoute({
+        conversations,
+        routeConversationId: null,
+        cachedConversationId: "cached-created-now",
+        accountScope: "account:a",
+      }),
+    ).toBe("cached-created-now");
+  });
+
   test("does not carry a pending route across accounts", () => {
     markCloudConversationCreated("account-a-only", "account:a");
     expect(
@@ -77,5 +90,57 @@ describe("resolveCloudConversationRoute", () => {
         accountScope: "account:b",
       }),
     ).toBe("newest");
+  });
+
+  test("does not carry a pending route across anonymous sessions", () => {
+    markCloudConversationCreated("anonymous-a-only", "anonymous:session-a");
+    expect(
+      resolveCloudConversationRoute({
+        conversations,
+        routeConversationId: "anonymous-a-only",
+        cachedConversationId: null,
+        accountScope: "anonymous:session-b",
+      }),
+    ).toBe("newest");
+  });
+});
+
+describe("resolveCloudConversationForShell", () => {
+  const conversations = [conversation("newest", 2), conversation("older", 1)];
+
+  test("keeps the validated cached conversation on non-chat routes", () => {
+    expect(
+      resolveCloudConversationForShell({
+        isOnChatRoute: false,
+        conversations,
+        routeConversationId: null,
+        cachedConversationId: "older",
+        accountScope: "account:a",
+      }),
+    ).toBe("older");
+  });
+
+  test("does not let an off-route URL override account-scoped selection", () => {
+    expect(
+      resolveCloudConversationForShell({
+        isOnChatRoute: false,
+        conversations,
+        routeConversationId: "foreign-route",
+        cachedConversationId: "older",
+        accountScope: "account:a",
+      }),
+    ).toBe("older");
+  });
+
+  test("requires an owned route while chat is visible", () => {
+    expect(
+      resolveCloudConversationForShell({
+        isOnChatRoute: true,
+        conversations,
+        routeConversationId: "foreign-route",
+        cachedConversationId: "older",
+        accountScope: "account:a",
+      }),
+    ).toBeNull();
   });
 });

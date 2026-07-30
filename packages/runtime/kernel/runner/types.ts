@@ -532,6 +532,9 @@ export type RunnerPublicApi = {
     role: "user" | "assistant";
     content: string;
   }) => void;
+  appendCloudJournal: import("./cloud-transcript-write.js").CloudTranscriptWriter["append"];
+  beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
+  completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];
   notifyOrchestratorHistoryChanged: (conversationId: string) => void;
   getVoiceOrchestratorConfig: (
     payload: RuntimeVoiceOrchestratorConfigRequest,

@@ -21,6 +21,11 @@ import { r2 } from "./r2_files";
 import { enforceActionRateLimit } from "./lib/rate_limits";
 import { hashSha256Hex } from "./lib/crypto_utils";
 import type { SubscriptionPlan } from "./lib/billing_plans";
+import {
+  priorDriveObjectKeyForCleanup,
+  shouldDeleteReplacedDriveObjectKey,
+} from "./lib/cloud_drive_replacement";
+import { assertOwnerMigrationWriteAllowed, requireUserId } from "./auth";
 
 const MB = 1024 * 1024;
 
@@ -124,13 +129,7 @@ const PENDING_UPLOAD_TTL_MS = 6 * 60 * 60_000;
 const invalid = (message: string) =>
   new ConvexError({ code: "INVALID_ARGUMENT", message });
 
-const requireOwnerId = async (ctx: {
-  auth: { getUserIdentity: () => Promise<{ tokenIdentifier: string } | null> };
-}): Promise<string> => {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new ConvexError("Sign in to use your Stella drive.");
-  return identity.tokenIdentifier;
-};
+const requireOwnerId = requireUserId;
 
 /**
  * Normalize a drive-relative path (C3). Rejects absolute paths, Windows drive
@@ -471,8 +470,10 @@ export const recordDriveFilesInternal = internalMutation({
       }),
     ),
     skipped: v.array(v.object({ path: v.string(), reason: v.string() })),
+    replacedR2Keys: v.array(v.string()),
   }),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     // Re-check inside the transaction: the pre-check that gated the upload
     // raced against every other write this owner had in flight. Still per
     // file, so a race costs the file that no longer fits, not the batch.
@@ -481,6 +482,7 @@ export const recordDriveFilesInternal = internalMutation({
     const skipped = [...verdict.skipped];
     const files = args.files.filter((file) => admitted.has(file.path));
     const written: typeof files = [];
+    const replacedR2Keys = new Set<string>();
     let fileCountDelta = 0;
     let byteDelta = 0;
     for (const file of files) {
@@ -497,6 +499,11 @@ export const recordDriveFilesInternal = internalMutation({
           });
           continue;
         }
+        const priorR2Key = priorDriveObjectKeyForCleanup({
+          priorR2Key: existing.r2Key,
+          priorSource: existing.source,
+          nextR2Key: file.r2Key,
+        });
         byteDelta += file.sizeBytes - existing.sizeBytes;
         await ctx.db.patch(existing._id, {
           r2Key: file.r2Key,
@@ -521,6 +528,7 @@ export const recordDriveFilesInternal = internalMutation({
           writeKey: args.writeKey,
           updatedAt: args.now,
         });
+        if (priorR2Key) replacedR2Keys.add(priorR2Key);
         written.push(file);
       } else {
         fileCountDelta += 1;
@@ -557,8 +565,23 @@ export const recordDriveFilesInternal = internalMutation({
         updatedAt: args.now,
       })),
       skipped,
+      replacedR2Keys: [...replacedR2Keys],
     };
   },
+});
+
+export const isDriveObjectKeyReferencedInternal = internalQuery({
+  args: {
+    r2Key: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) =>
+    Boolean(
+      await ctx.db
+        .query("cloud_drive_files")
+        .withIndex("by_r2Key", (q) => q.eq("r2Key", args.r2Key))
+        .first(),
+    ),
 });
 
 export const getDriveFileInternal = internalQuery({
@@ -729,6 +752,7 @@ export const deleteDriveFileRowInternal = internalMutation({
   args: { ownerId: v.string(), path: v.string(), now: v.number() },
   returns: v.object({ deleted: v.boolean() }),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     const row = await getDriveRow(ctx, args.ownerId, args.path);
     if (!row) return { deleted: false };
     await ctx.db.delete(row._id);
@@ -843,6 +867,7 @@ export const resyncDriveRowSizeInternal = internalMutation({
     }),
   ),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     const row = await getDriveRow(ctx, args.ownerId, args.path);
     if (!row || row.r2Key !== args.r2Key) return null;
     // Already describes these bytes: patching would only churn `updatedAt`,
@@ -909,6 +934,7 @@ export const recordPendingUploadInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     const expiresAt = args.now + PENDING_UPLOAD_TTL_MS;
     const existing = await getPendingUploadRow(ctx, args.ownerId, args.path);
     if (existing) {
@@ -1064,6 +1090,16 @@ const checkDriveWriteRef = makeFunctionReference<
 const recordDriveFilesRef = makeFunctionReference<"mutation", any, any>(
   "cloud_drive:recordDriveFilesInternal",
 );
+const isDriveObjectKeyReferencedRef = makeFunctionReference<
+  "query",
+  { r2Key: string },
+  boolean
+>("cloud_drive:isDriveObjectKeyReferencedInternal");
+const hasOwnerMigrationSourceFenceRef = makeFunctionReference<
+  "query",
+  { ownerId: string },
+  boolean
+>("auth:hasOwnerMigrationSourceFenceInternal");
 const recordPendingUploadRef = makeFunctionReference<
   "mutation",
   {
@@ -1262,10 +1298,32 @@ export const reconcileDriveObject = async (
   },
 ): Promise<DriveReconciliation> => {
   const { ownerId, path, r2Key } = args;
+  const sourceOwnerIsFenced = await ctx.runQuery(
+    hasOwnerMigrationSourceFenceRef,
+    { ownerId },
+  );
+  if (sourceOwnerIsFenced) {
+    const isStillReferenced = await ctx.runQuery(
+      isDriveObjectKeyReferencedRef,
+      { r2Key },
+    );
+    if (!shouldDeleteReplacedDriveObjectKey(isStillReferenced)) {
+      return { outcome: "untouched" };
+    }
+    await r2.deleteObject(ctx, r2Key);
+    return { outcome: "orphaned" };
+  }
   const row = (await ctx.runQuery(getDriveFileRef, { ownerId, path })) as {
     r2Key: string;
   } | null;
   if (row?.r2Key !== r2Key) {
+    const isStillReferenced = await ctx.runQuery(
+      isDriveObjectKeyReferencedRef,
+      { r2Key },
+    );
+    if (!shouldDeleteReplacedDriveObjectKey(isStillReferenced)) {
+      return { outcome: "untouched" };
+    }
     await r2.deleteObject(ctx, r2Key);
     return { outcome: "orphaned" };
   }
@@ -1406,6 +1464,7 @@ const finalizeDriveUploadFor = async (
       })) as {
       files: DriveFileRecord[];
       skipped: Array<{ path: string; reason: string }>;
+      replacedR2Keys: string[];
     };
     if (!result.files[0]) {
       const settled = await reconcileDriveObject(ctx, {
@@ -1426,6 +1485,7 @@ const finalizeDriveUploadFor = async (
         message: result.skipped[0]?.reason ?? "Drive quota exceeded.",
       });
     }
+    await deleteReplacedDriveObjectKeys(ctx, result.replacedR2Keys);
     await ctx.runMutation(clearPendingUploadRef, { ownerId, path });
     return result.files[0];
   }
@@ -1812,6 +1872,48 @@ export const putDriveObject = async (
   return r2Key;
 };
 
+/**
+ * Delete only keys returned by the successful row-update mutation, and only
+ * after an indexed read proves no Drive row still names the key. Calling this
+ * before that commit could strand a row on missing bytes; callers must keep
+ * this post-commit ordering.
+ */
+export const deleteReplacedDriveObjectKeys = async (
+  ctx: ActionCtx,
+  keys: readonly string[],
+): Promise<void> => {
+  for (const key of new Set(keys)) {
+    const isStillReferenced = await ctx.runQuery(
+      isDriveObjectKeyReferencedRef,
+      { r2Key: key },
+    );
+    if (!shouldDeleteReplacedDriveObjectKey(isStillReferenced)) continue;
+    await r2.deleteObject(ctx, key);
+  }
+};
+
+/**
+ * Account linking cancels incomplete source-owner upload claims. The signed
+ * URL itself cannot be revoked, so auth_migration schedules this both after
+ * the cancellation commit and after URL expiry. Never delete a key that a
+ * finalized Drive row (including one already re-owned) still references.
+ */
+export const cleanupCanceledPendingUploadInternal = internalAction({
+  args: { r2Key: v.string() },
+  returns: v.object({ deleted: v.boolean() }),
+  handler: async (ctx, args) => {
+    const isStillReferenced = await ctx.runQuery(
+      isDriveObjectKeyReferencedRef,
+      { r2Key: args.r2Key },
+    );
+    if (!shouldDeleteReplacedDriveObjectKey(isStillReferenced)) {
+      return { deleted: false };
+    }
+    await r2.deleteObject(ctx, args.r2Key);
+    return { deleted: true };
+  },
+});
+
 // --- Workspace hydration (C2 <-> C3) ---------------------------------------
 //
 // The drive and the sandbox checkpoint used to be two disjoint stores: bytes
@@ -2145,7 +2247,8 @@ export const driveProbeInternal = internalAction({
         },
       ],
       now: Date.now(),
-    })) as { files: unknown[] };
+    })) as { files: unknown[]; replacedR2Keys: string[] };
+    await deleteReplacedDriveObjectKeys(ctx, recorded.replacedR2Keys);
     const listed = (await ctx.runQuery(listDriveFilesRef, {
       ownerId: args.ownerId,
       prefix: path,

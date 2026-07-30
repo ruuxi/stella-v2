@@ -83,10 +83,41 @@ export const resolveCloudConversationRoute = (args: {
   ) {
     return args.routeConversationId;
   }
-  const cached = args.conversations.find(
-    (conversation) => conversation.conversationId === args.cachedConversationId,
-  );
-  return (
-    cached?.conversationId ?? args.conversations[0]?.conversationId ?? null
-  );
+  const cached = isOwnedCloudConversation(
+    args.conversations,
+    args.cachedConversationId,
+    args.accountScope,
+  )
+    ? args.cachedConversationId
+    : null;
+  return cached ?? args.conversations[0]?.conversationId ?? null;
+};
+
+/**
+ * The URL owns selection while the chat route is visible. Elsewhere the
+ * account-scoped cache (or newest owned conversation) keeps the persistent
+ * workspace Chat panel attached without manufacturing a chat-route redirect.
+ */
+export const resolveCloudConversationForShell = (args: {
+  isOnChatRoute: boolean;
+  conversations: readonly CloudConversation[];
+  routeConversationId: string | null;
+  cachedConversationId: string | null;
+  accountScope: string;
+}): string | null => {
+  if (args.isOnChatRoute) {
+    return isOwnedCloudConversation(
+      args.conversations,
+      args.routeConversationId,
+      args.accountScope,
+    )
+      ? args.routeConversationId
+      : null;
+  }
+  return resolveCloudConversationRoute({
+    conversations: args.conversations,
+    routeConversationId: null,
+    cachedConversationId: args.cachedConversationId,
+    accountScope: args.accountScope,
+  });
 };

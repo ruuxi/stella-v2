@@ -188,6 +188,7 @@ export const billingSchema = {
     processedAt: v.number(),
   })
     .index("by_eventId", ["eventId"])
+    .index("by_ownerId", ["ownerId"])
     .index("by_processedAt", ["processedAt"]),
 
   billing_invoice_payments: defineTable({

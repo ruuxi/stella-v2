@@ -2,7 +2,10 @@ import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { ConvexError } from "convex/values";
-import { isAnonymousIdentity } from "../auth";
+import {
+  isAnonymousIdentity,
+  requireUserIdentity,
+} from "../auth";
 import {
   errorResponse,
   handleCorsRequest,
@@ -40,13 +43,7 @@ const parseRouteJson = async <T>(request: Request): Promise<T | null> => {
 const getOwnerIdFromRequest = async (
   ctx: Parameters<Parameters<typeof httpAction>[0]>[0],
 ) => {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new ConvexError({
-      code: "UNAUTHENTICATED",
-      message: "Authentication required.",
-    });
-  }
+  const identity = await requireUserIdentity(ctx);
   if (isAnonymousIdentity(identity)) {
     throw new ConvexError({
       code: "UNAUTHORIZED",

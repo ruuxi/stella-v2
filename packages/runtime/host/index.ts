@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import { promises as fs, watch, type FSWatcher } from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { ConvexClient } from "convex/browser";
@@ -32,7 +34,21 @@ import type {
 } from "@stella/contracts/local-chat";
 import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
-import { resolveConnectorFollowupAction } from "./connector-followup.js";
+import {
+  connectorLocalFollowupDeliveryId,
+  resolveConnectorFollowupAction,
+  resolveConnectorTerminalFollowup,
+  type ConnectorFollowupDelivery,
+} from "./connector-followup.js";
+import {
+  ConnectorFollowupOutbox,
+  type DurableConnectorFollowupTarget,
+} from "./connector-followup-outbox.js";
+import {
+  getDesktopDatabasePath,
+  initializeDesktopDatabase,
+} from "../kernel/storage/database-init.js";
+import type { SqliteDatabase } from "../kernel/storage/shared.js";
 import {
   METHOD_NAMES,
   NOTIFICATION_NAMES,
@@ -108,6 +124,26 @@ import {
  */
 const hostStalenessRuntime = ManagedRuntime.make(Layer.empty);
 
+type PortableSqliteDatabaseCtor = new (filePath: string) => SqliteDatabase;
+const requireRuntime = createRequire(import.meta.url);
+
+const loadSqliteDatabaseCtorSync = (): PortableSqliteDatabaseCtor => {
+  if (process.versions.bun) {
+    const bunSqlite = requireRuntime("bun:sqlite") as {
+      Database?: PortableSqliteDatabaseCtor;
+    };
+    if (typeof bunSqlite.Database === "function") return bunSqlite.Database;
+  } else {
+    const nodeSqlite = requireRuntime("node:sqlite") as {
+      DatabaseSync?: PortableSqliteDatabaseCtor;
+    };
+    if (typeof nodeSqlite.DatabaseSync === "function") {
+      return nodeSqlite.DatabaseSync;
+    }
+  }
+  throw new Error("No compatible SQLite builtin is available.");
+};
+
 type RuntimeHostEvents = {
   "runtime-connected": void;
   "runtime-disconnected": { reason: string };
@@ -123,12 +159,7 @@ type RuntimeHostEvents = {
   "model-catalog-updated": RuntimeModelCatalogSnapshot;
 };
 
-type ConnectorFollowupTarget = {
-  requestId: string;
-  backendConversationId: string;
-  initialTurnCompleted: boolean;
-  pendingFollowupTexts: string[];
-};
+type ConnectorFollowupTarget = DurableConnectorFollowupTarget;
 
 type ConnectorStreamBuffer = {
   requestId: string;
@@ -494,6 +525,8 @@ export class StellaRuntimeHost {
     string,
     ConnectorFollowupTarget
   >();
+  private connectorFollowupOutbox: ConnectorFollowupOutbox | null = null;
+  private connectorFollowupDatabase: SqliteDatabase | null = null;
   private connectorStreamBuffersByRequestId = new Map<
     string,
     ConnectorStreamBuffer
@@ -1031,7 +1064,7 @@ export class StellaRuntimeHost {
           hasConnectedAccount: nextHasConnectedAccount,
         });
 
-        if (result?.authenticated && nextToken && nextHasConnectedAccount) {
+        if (result?.authenticated && nextToken) {
           this.noteHostRemoteTurnAuthHealthy();
           console.info(
             `[remote-turn] Recovered host auth after ${source} failure.`,
@@ -1149,7 +1182,7 @@ export class StellaRuntimeHost {
       return;
     }
     const authToken = this.getConfiguredHostAuthToken();
-    if (!authToken || !this.configCache.hasConnectedAccount) {
+    if (!authToken) {
       return;
     }
     const deviceId = this.deviceIdentity?.deviceId;
@@ -1233,7 +1266,7 @@ export class StellaRuntimeHost {
       return;
     }
     const authToken = this.getConfiguredHostAuthToken();
-    if (!authToken || !this.configCache.hasConnectedAccount) {
+    if (!authToken) {
       return;
     }
     const deviceId = this.deviceIdentity?.deviceId;
@@ -1397,38 +1430,52 @@ export class StellaRuntimeHost {
         externalMessageId,
         attachments,
       }) => {
-        const localConversationId = this.configCache.cloudSyncEnabled
-          ? conversationId || (await this.getOrCreateDefaultConversationId())
-          : await this.getActiveLocalConversationId();
+        const cloudConversationId = conversationId.trim();
+        if (!cloudConversationId) {
+          return {
+            status: "error" as const,
+            finalText: "" as const,
+            error:
+              "Connector turns require a cloud conversation id; local transcript fallback is disabled.",
+          };
+        }
+        const stableUserMessageId = `connector:${createHash("sha256")
+          .update(requestId)
+          .digest("hex")
+          .slice(0, 54)}`;
         // Arm follow-up routing before the orchestrator turn runs so any
         // assistant message the worker persists during this run already
         // routes back to the connector. The map entry is cleared by the
         // local-chat listener as soon as the user sends a non-connector
         // message in this conversation.
-        this.connectorTargetsByLocalConversation.set(localConversationId, {
+        const previousConnectorTarget =
+          this.resolveConnectorFollowupTarget(cloudConversationId);
+        const connectorTarget = this.connectorFollowupOutbox?.armTarget({
+          conversationId: cloudConversationId,
           requestId,
           backendConversationId: conversationId,
-          initialTurnCompleted: false,
-          pendingFollowupTexts: [],
         });
-        this.localConversationByRequestId.set(requestId, localConversationId);
+        if (
+          previousConnectorTarget &&
+          previousConnectorTarget.requestId !== requestId
+        ) {
+          this.localConversationByRequestId.delete(
+            previousConnectorTarget.requestId,
+          );
+        }
+        this.connectorTargetsByLocalConversation.set(
+          cloudConversationId,
+          connectorTarget ?? {
+            requestId,
+            backendConversationId: conversationId,
+            initialTurnCompleted: false,
+          },
+        );
+        this.localConversationByRequestId.set(requestId, cloudConversationId);
         this.armConnectorStreamBuffer({
           requestId,
           backendConversationId: conversationId,
           provider,
-        });
-        await this.appendLocalChatEvent({
-          conversationId: localConversationId,
-          type: "user_message",
-          payload: {
-            text: userPrompt,
-            source: "connector",
-            ...(provider ? { provider } : {}),
-            ...(provider === "linq" && externalMessageId
-              ? { linqMessageId: externalMessageId }
-              : {}),
-            ...(attachments?.length ? { attachments } : {}),
-          },
         });
         const isLinqTurn = provider === "linq";
         if (isLinqTurn) {
@@ -1449,8 +1496,10 @@ export class StellaRuntimeHost {
           const result = await this.requestWorker<RuntimeAutomationTurnResult>(
             METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION,
             {
-              conversationId: localConversationId,
+              conversationId: cloudConversationId,
               userPrompt,
+              storageMode: "cloud",
+              userMessageId: stableUserMessageId,
               ...(agentType ? { agentType } : {}),
               ...(modelOverride ? { modelOverride } : {}),
               ...(attachments?.length ? { attachments } : {}),
@@ -1467,13 +1516,6 @@ export class StellaRuntimeHost {
               retryOnceOnDisconnect: true,
             },
           );
-          if (result.status === "ok" && result.finalText) {
-            await this.appendLocalChatEvent({
-              conversationId: localConversationId,
-              type: "assistant_message",
-              payload: { text: result.finalText, source: "connector" },
-            });
-          }
           if (result.status !== "ok") {
             this.clearConnectorStreamBuffer(requestId);
           }
@@ -1519,10 +1561,6 @@ export class StellaRuntimeHost {
           ).channels.connector_delivery.completeRemoteTurn,
           { requestId, conversationId, text },
         );
-        this.markConnectorInitialTurnCompleted({
-          requestId,
-          backendConversationId: conversationId,
-        });
         this.clearConnectorStreamBuffer(requestId);
       },
       log: (level, message, error) => {
@@ -1571,33 +1609,26 @@ export class StellaRuntimeHost {
   private async sendConnectorFollowup(args: {
     requestId: string;
     backendConversationId: string;
+    deliveryId: string;
     text: string;
   }): Promise<void> {
     const client = this.ensureHostConvexClient();
-    if (!client) {
-      return;
-    }
-    try {
-      await (client as any).mutation(
-        (
-          anyApi as unknown as {
-            channels: {
-              connector_delivery: { sendConnectorFollowup: unknown };
-            };
-          }
-        ).channels.connector_delivery.sendConnectorFollowup,
-        {
-          requestId: args.requestId,
-          conversationId: args.backendConversationId,
-          text: args.text,
-        },
-      );
-    } catch (error) {
-      console.warn(
-        "[runtime-host] sendConnectorFollowup failed:",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+    if (!client) throw new Error("Missing Convex client configuration.");
+    await (client as any).mutation(
+      (
+        anyApi as unknown as {
+          channels: {
+            connector_delivery: { sendConnectorFollowup: unknown };
+          };
+        }
+      ).channels.connector_delivery.sendConnectorFollowup,
+      {
+        requestId: args.requestId,
+        conversationId: args.backendConversationId,
+        deliveryId: args.deliveryId,
+        text: args.text,
+      },
+    );
   }
 
   private armConnectorStreamBuffer(args: {
@@ -1745,49 +1776,53 @@ export class StellaRuntimeHost {
     await buffer.inFlight;
   }
 
-  private markConnectorInitialTurnCompleted(args: {
-    requestId: string;
-    backendConversationId: string;
-  }): void {
-    const localConversationId = this.localConversationByRequestId.get(
-      args.requestId,
-    );
-    if (!localConversationId) {
-      return;
+  private resolveConnectorFollowupTarget(
+    conversationId: string,
+  ): ConnectorFollowupTarget | null {
+    const cached =
+      this.connectorTargetsByLocalConversation.get(conversationId) ?? null;
+    if (cached) return cached;
+    const durable =
+      this.connectorFollowupOutbox?.targetForConversation(conversationId) ??
+      null;
+    if (durable) {
+      this.connectorTargetsByLocalConversation.set(conversationId, durable);
     }
-    const target =
-      this.connectorTargetsByLocalConversation.get(localConversationId);
-    if (
-      !target ||
-      target.requestId !== args.requestId ||
-      target.backendConversationId !== args.backendConversationId
-    ) {
-      return;
-    }
-    target.initialTurnCompleted = true;
-    const pendingTexts = target.pendingFollowupTexts.splice(0);
-    for (const text of pendingTexts) {
-      void this.sendConnectorFollowup({
-        requestId: target.requestId,
-        backendConversationId: target.backendConversationId,
-        text,
-      });
-    }
+    return durable;
   }
 
-  private queueOrSendConnectorFollowup(args: {
+  private resolveConnectorConversationForRequest(
+    requestId: string,
+  ): string | null {
+    const cached = this.localConversationByRequestId.get(requestId) ?? null;
+    if (cached) return cached;
+    const route = this.connectorFollowupOutbox?.routeForRequest(requestId);
+    if (!route) return null;
+    this.localConversationByRequestId.set(requestId, route.conversationId);
+    this.connectorTargetsByLocalConversation.set(route.conversationId, route);
+    return route.conversationId;
+  }
+
+  private enqueueConnectorFollowup(args: {
     target: ConnectorFollowupTarget;
-    text: string;
+    followup: ConnectorFollowupDelivery;
   }): void {
-    if (!args.target.initialTurnCompleted) {
-      args.target.pendingFollowupTexts.push(args.text);
-      return;
+    if (!this.connectorFollowupOutbox) {
+      throw new Error("Connector follow-up outbox is unavailable.");
     }
-    void this.sendConnectorFollowup({
-      requestId: args.target.requestId,
-      backendConversationId: args.target.backendConversationId,
-      text: args.text,
-    });
+    this.connectorFollowupOutbox.enqueue(args.target, args.followup);
+  }
+
+  private handleConnectorTerminalRunEvent(
+    event: RuntimeAgentEventPayload,
+  ): void {
+    const conversationId = event.conversationId?.trim();
+    if (!conversationId) return;
+    const target = this.resolveConnectorFollowupTarget(conversationId);
+    if (!target) return;
+    const followup = resolveConnectorTerminalFollowup(event, target.requestId);
+    if (!followup) return;
+    this.enqueueConnectorFollowup({ target, followup });
   }
 
   private handleLocalChatUpdateForConnectorFollowup(
@@ -1797,7 +1832,7 @@ export class StellaRuntimeHost {
     const conversationId = payload.conversationId;
     if (!conversationId || !payload.event) return;
 
-    const target = this.connectorTargetsByLocalConversation.get(conversationId);
+    const target = this.resolveConnectorFollowupTarget(conversationId);
     if (!target) return;
 
     const action = resolveConnectorFollowupAction(payload);
@@ -1809,15 +1844,23 @@ export class StellaRuntimeHost {
         const cleared =
           this.connectorTargetsByLocalConversation.get(conversationId);
         this.connectorTargetsByLocalConversation.delete(conversationId);
+        this.connectorFollowupOutbox?.clearTarget(conversationId);
         if (cleared) {
           this.localConversationByRequestId.delete(cleared.requestId);
         }
         return;
       }
       case "send":
-        this.queueOrSendConnectorFollowup({
+        this.enqueueConnectorFollowup({
           target,
-          text: action.text,
+          followup: {
+            deliveryId: connectorLocalFollowupDeliveryId(
+              target.requestId,
+              payload.event._id,
+              action.text,
+            ),
+            text: action.text,
+          },
         });
         return;
       case "ignore":
@@ -1849,17 +1892,6 @@ export class StellaRuntimeHost {
       this.disposeHostConvexClient();
       return;
     }
-    if (!this.configCache.hasConnectedAccount) {
-      this.stopHostHeartbeatLoop();
-      this.stopHostRemoteTurnCancelSubscription();
-      this.hostRemoteTurnBridge?.stop();
-      this.clearAllConnectorStreamBuffers();
-      void this.sendHostGoOffline().finally(() => {
-        this.disposeHostConvexClient();
-      });
-      return;
-    }
-
     this.ensureHostRemoteTurnBridge();
     if (!this.hostRemoteTurnBridge) {
       return;
@@ -1918,8 +1950,12 @@ export class StellaRuntimeHost {
           if (!requestId || this.cancelledRequestIds.has(requestId)) continue;
           this.cancelledRequestIds.add(requestId);
           const localConversationId =
-            this.localConversationByRequestId.get(requestId);
+            this.resolveConnectorConversationForRequest(requestId);
           if (!localConversationId) continue;
+          this.connectorTargetsByLocalConversation.delete(localConversationId);
+          this.localConversationByRequestId.delete(requestId);
+          this.connectorFollowupOutbox?.clearTarget(localConversationId);
+          this.clearConnectorStreamBuffer(requestId);
           void this.cancelChatByConversation(localConversationId).catch(
             (error: unknown) => {
               console.warn(
@@ -2013,6 +2049,9 @@ export class StellaRuntimeHost {
 
   async configure(params: RuntimeConfigureParams) {
     this.configCache = { ...this.configCache, ...params };
+    // Configuration/auth changes are a recovery edge: retry eligible durable
+    // connector rows now instead of waiting out an old offline backoff.
+    this.connectorFollowupOutbox?.resume(true);
     this.syncHostRemoteTurnBridge();
     const connection = this.workerController.getConnection();
     if (!connection?.peer) {
@@ -2099,6 +2138,14 @@ export class StellaRuntimeHost {
   }
 
   async startChat(payload: RuntimeChatPayload) {
+    const priorConnectorTarget = this.resolveConnectorFollowupTarget(
+      payload.conversationId,
+    );
+    if (priorConnectorTarget) {
+      this.connectorTargetsByLocalConversation.delete(payload.conversationId);
+      this.connectorFollowupOutbox?.clearTarget(payload.conversationId);
+      this.localConversationByRequestId.delete(priorConnectorTarget.requestId);
+    }
     return await this.requestWorker<{ runId: string; userMessageId: string }>(
       METHOD_NAMES.INTERNAL_WORKER_START_CHAT,
       payload,
@@ -2596,8 +2643,9 @@ export class StellaRuntimeHost {
   }
 
   async discoveryKnowledgeExists() {
-    const { discoveryKnowledgeExists } =
-      await import("../discovery/life-knowledge.js");
+    const { discoveryKnowledgeExists } = await import(
+      "../discovery/life-knowledge.js"
+    );
     return await discoveryKnowledgeExists(
       this.options.initializeParams.stellaDataDirPath,
     );
@@ -2616,8 +2664,9 @@ export class StellaRuntimeHost {
   }
 
   async writeDiscoveryKnowledge(payload: DiscoveryKnowledgeSeedPayload) {
-    const { writeDiscoveryKnowledge } =
-      await import("../discovery/life-knowledge.js");
+    const { writeDiscoveryKnowledge } = await import(
+      "../discovery/life-knowledge.js"
+    );
     await writeDiscoveryKnowledge(
       this.options.initializeParams.stellaDataDirPath,
       payload,
@@ -2625,14 +2674,16 @@ export class StellaRuntimeHost {
   }
 
   async detectPreferredBrowserProfile() {
-    const { detectPreferredBrowserProfile } =
-      await import("../discovery/browser-data.js");
+    const { detectPreferredBrowserProfile } = await import(
+      "../discovery/browser-data.js"
+    );
     return await detectPreferredBrowserProfile();
   }
 
   async listBrowserProfiles(browserType: string) {
-    const { listBrowserProfiles } =
-      await import("../discovery/browser-data.js");
+    const { listBrowserProfiles } = await import(
+      "../discovery/browser-data.js"
+    );
     return await listBrowserProfiles(
       browserType as import("../discovery/browser-data.js").BrowserType,
     );
@@ -2673,6 +2724,17 @@ export class StellaRuntimeHost {
   private async initializeHostServices() {
     await this.stopHostServices();
     this.deviceIdentity = await this.options.hostHandlers.getDeviceIdentity();
+    const ConnectorDatabase = loadSqliteDatabaseCtorSync();
+    const connectorDatabase = new ConnectorDatabase(
+      getDesktopDatabasePath(this.options.initializeParams.stellaAppDir),
+    );
+    initializeDesktopDatabase(connectorDatabase);
+    this.connectorFollowupDatabase = connectorDatabase;
+    this.connectorFollowupOutbox = new ConnectorFollowupOutbox({
+      database: connectorDatabase,
+      deliver: async (entry) => await this.sendConnectorFollowup(entry),
+    });
+    this.connectorFollowupOutbox.resume(true);
     this.ensureHostRemoteTurnBridge();
 
     const showNotificationHandler = this.options.hostHandlers.showNotification;
@@ -2713,6 +2775,12 @@ export class StellaRuntimeHost {
   }
 
   private async stopHostServices() {
+    await this.connectorFollowupOutbox?.stop();
+    this.connectorFollowupOutbox = null;
+    this.connectorFollowupDatabase?.close();
+    this.connectorFollowupDatabase = null;
+    this.connectorTargetsByLocalConversation.clear();
+    this.localConversationByRequestId.clear();
     this.stopHostRemoteTurnCancelSubscription();
     this.hostRemoteTurnBridge?.stop();
     await this.sendHostGoOffline().catch(() => undefined);
@@ -2845,7 +2913,7 @@ export class StellaRuntimeHost {
       convexUrl: this.configCache.convexUrl ?? null,
       convexSiteUrl: this.configCache.convexSiteUrl ?? null,
       hasConnectedAccount: this.configCache.hasConnectedAccount ?? false,
-      cloudSyncEnabled: this.configCache.cloudSyncEnabled ?? false,
+      cloudSyncEnabled: this.configCache.cloudSyncEnabled ?? true,
       modelCatalogUpdatedAt: this.configCache.modelCatalogUpdatedAt ?? null,
       localLlmCredentialsUpdatedAt:
         this.configCache.localLlmCredentialsUpdatedAt ?? null,
@@ -3240,6 +3308,7 @@ export class StellaRuntimeHost {
       bufferAgentEvent(this.agentEventBuffers, payload);
       pruneAgentEventBuffers(this.agentEventBuffers);
       this.handleConnectorStreamRunEvent(payload);
+      this.handleConnectorTerminalRunEvent(payload);
       this.events.emit("run-event", payload);
       // Ack only ordinary recorder events. Terminal events must remain
       // replayable until the retention sweep, otherwise an Electron

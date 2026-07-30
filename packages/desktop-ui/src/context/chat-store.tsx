@@ -3,22 +3,22 @@ import type { ReactNode } from "react";
 import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
 import {
   ChatStoreContextProvider,
-  LocalChatStoreProvider,
   useChatStore,
   type ChatStorageMode,
   type ChatStoreContextValue,
 } from "./chat-store-context";
 
-export { LocalChatStoreProvider, useChatStore };
+export { useChatStore };
 
 export const ChatStoreProvider = ({ children }: { children: ReactNode }) => {
   const { cloudMode } = useCloudMode();
 
-  // `storageMode` is the authority selected for NEW turns. A signed-in
-  // desktop still has a local SQLite cache and live IPC overlays, but those
-  // are not the transcript authority; passing "cloud" through startChat is
-  // what binds the local execution to the DO-owned conversation.
-  const storageMode: ChatStorageMode = cloudMode ? "cloud" : "local";
+  // Cloud is the only authority for new turns. While automatic anonymous auth
+  // is still bootstrapping, no conversation id is exposed and therefore no
+  // turn can start; we must not silently route that interval into SQLite.
+  const storageMode: ChatStorageMode = "cloud";
+  // SQLite remains available as a cache/recovery overlay for desktop
+  // execution. This is capability, not conversation ownership.
   const isLocalStorage = Boolean(window.electronAPI?.localChat);
   const cloudFeaturesEnabled = cloudMode;
 

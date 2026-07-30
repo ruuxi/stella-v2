@@ -1,5 +1,8 @@
 import type { ActionCtx } from "../_generated/server";
-import { isAnonymousIdentity } from "../auth";
+import {
+  getUserIdentityOrNullAction,
+  isAnonymousIdentity,
+} from "../auth";
 import { jsonResponse } from "./cors";
 
 const DEFAULT_SIGN_IN_MESSAGE = "Sign in to Stella to use this feature.";
@@ -48,7 +51,7 @@ export const requireSignedInAccountAction = async (
   origin: string | null,
   options?: AuthRequiredOptions,
 ): Promise<SignedInAccountResult> => {
-  const identity = await ctx.auth.getUserIdentity();
+  const identity = await getUserIdentityOrNullAction(ctx);
   if (!identity || isAnonymousIdentity(identity)) {
     return { ok: false, response: authRequiredResponse(origin, options) };
   }

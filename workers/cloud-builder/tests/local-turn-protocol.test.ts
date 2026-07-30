@@ -4,6 +4,9 @@ import {
   LOCAL_DEVICE_ID_PATTERN,
   LOCAL_LEASE_TOKEN_PATTERN,
   LOCAL_TURN_ID_PATTERN,
+  classifyLocalClientMessageReplay,
+  localTurnLeaseAllowsIdentityTransition,
+  localClientMessageFingerprintSource,
   localTurnId,
   parseLocalTurnRenewal,
   parseLocalFinishRecords,
@@ -56,6 +59,84 @@ describe("local turn protocol", () => {
         renewOnly: true,
       }),
     ).toBeNull();
+  });
+
+  test("deduplicates a stable client message across changed local turn ids", () => {
+    const firstFingerprint = localClientMessageFingerprintSource(
+      "message:stable",
+      {
+        role: "user",
+        content: [{ type: "text", text: "same logical message" }],
+        timestamp: 1,
+      },
+    );
+    const restartedFingerprint = localClientMessageFingerprintSource(
+      "message:stable",
+      {
+        timestamp: 2,
+        content: [{ text: "same logical message", type: "text" }],
+        role: "user",
+      },
+    );
+    const changedFingerprint = localClientMessageFingerprintSource(
+      "message:stable",
+      {
+        role: "user",
+        content: [{ type: "text", text: "changed logical message" }],
+        timestamp: 2,
+      },
+    );
+    expect(restartedFingerprint).toBe(firstFingerprint);
+    expect(changedFingerprint).not.toBe(firstFingerprint);
+
+    const receipt = {
+      clientMsgId: "message:stable",
+      beginFingerprint: firstFingerprint,
+      turnId: "desktop:device-1:old-local-turn",
+    };
+    expect(
+      classifyLocalClientMessageReplay(receipt, {
+        clientMsgId: "message:stable",
+        beginFingerprint: restartedFingerprint,
+        turnId: "desktop:device-1:new-local-turn",
+      }),
+    ).toBe("duplicate");
+    expect(
+      classifyLocalClientMessageReplay(receipt, {
+        clientMsgId: "message:stable",
+        beginFingerprint: changedFingerprint,
+        turnId: "desktop:device-1:new-local-turn",
+      }),
+    ).toBe("conflict");
+  });
+
+  test("a live turn lease survives anonymous-to-account identity rotation", () => {
+    const activeLease = {
+      ownerId: "anonymous-owner",
+      leaseToken: "a".repeat(64),
+    };
+    expect(
+      localTurnLeaseAllowsIdentityTransition({
+        boundOwnerId: "anonymous-owner",
+        callerOwnerId: "connected-owner",
+        suppliedLeaseToken: "a".repeat(64),
+        activeLease,
+      }),
+    ).toBe(true);
+    expect(
+      localTurnLeaseAllowsIdentityTransition({
+        boundOwnerId: "anonymous-owner",
+        callerOwnerId: "connected-owner",
+        suppliedLeaseToken: "b".repeat(64),
+        activeLease,
+      }),
+    ).toBe(false);
+    expect(
+      localTurnLeaseAllowsIdentityTransition({
+        boundOwnerId: "anonymous-owner",
+        callerOwnerId: "connected-owner",
+      }),
+    ).toBe(false);
   });
 
   test("accepts only terminal phases", () => {

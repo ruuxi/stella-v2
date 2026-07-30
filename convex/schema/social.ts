@@ -126,7 +126,10 @@ export const socialSchema = {
     latestMessageAt: v.optional(v.number()),
   })
     .index("by_roomKey", ["roomKey"])
-    .index("by_createdByOwnerId_and_updatedAt", ["createdByOwnerId", "updatedAt"])
+    .index("by_createdByOwnerId_and_updatedAt", [
+      "createdByOwnerId",
+      "updatedAt",
+    ])
     .index("by_stellaSessionId", ["stellaSessionId"])
     .index("by_inviteCode", ["inviteCode"]),
 
@@ -180,6 +183,10 @@ export const socialSchema = {
   })
     .index("by_roomId", ["roomId"])
     .index("by_hostOwnerId_and_status", ["hostOwnerId", "status"])
+    .index("by_createdByOwnerId_and_updatedAt", [
+      "createdByOwnerId",
+      "updatedAt",
+    ])
     // Lets `listPendingTurnsForHostDevice` look sessions up by the exact
     // host owner + device + status without a JS-side `.filter` over a
     // collected result set.
@@ -218,7 +225,15 @@ export const socialSchema = {
     updatedAt: v.number(),
   })
     .index("by_sessionId_and_ordinal", ["sessionId", "ordinal"])
-    .index("by_sessionId_and_status_and_createdAt", ["sessionId", "status", "createdAt"])
+    .index("by_sessionId_and_status_and_createdAt", [
+      "sessionId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_requestedByOwnerId_and_createdAt", [
+      "requestedByOwnerId",
+      "createdAt",
+    ])
     .index("by_requestId", ["requestId"]),
 
   stella_session_file_blobs: defineTable({
@@ -266,5 +281,6 @@ export const socialSchema = {
     createdAt: v.number(),
   })
     .index("by_sessionId_and_ordinal", ["sessionId", "ordinal"])
+    .index("by_actorOwnerId_and_createdAt", ["actorOwnerId", "createdAt"])
     .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"]),
 };

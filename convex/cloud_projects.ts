@@ -23,6 +23,7 @@ import {
 import { internal } from "./_generated/api";
 import { bytesToHex } from "./lib/crypto_utils";
 import { enforceMutationRateLimit } from "./lib/rate_limits";
+import { assertOwnerMigrationWriteAllowed, requireUserId } from "./auth";
 
 const GITHUB_API_BASE = "https://api.github.com";
 const GITHUB_WEB_BASE = "https://github.com";
@@ -72,13 +73,7 @@ export type CloudProjectRow = {
 
 // --- Identity helpers ------------------------------------------------------
 
-const requireOwnerId = async (ctx: {
-  auth: { getUserIdentity: () => Promise<{ tokenIdentifier: string } | null> };
-}): Promise<string> => {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new ConvexError("Sign in to use cloud projects.");
-  return identity.tokenIdentifier;
-};
+const requireOwnerId = requireUserId;
 
 const slugify = (value: string): string =>
   value
@@ -717,6 +712,7 @@ const recordInstallation = async (
   },
 ): Promise<{ ok: boolean; reason?: string }> => {
   if (!INSTALLATION_ID_PATTERN.test(args.installationId)) return { ok: false };
+  await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
   const existing = await ctx.db
     .query("cloud_github_installations")
     .withIndex("by_installationId", (q) =>
@@ -1615,6 +1611,7 @@ export const createInstallStateInternal = internalMutation({
   args: { stateId: v.string(), ownerId: v.string(), now: v.number() },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     // Minting handshake states is the cheap half of an installation-guessing
     // loop; cap it so no owner can churn callbacks.
     await enforceMutationRateLimit(
@@ -1663,6 +1660,7 @@ export const consumeVerifyStateInternal = internalMutation({
       .unique();
     if (!row) return null;
     if (statePhase(row) !== "verify" || !row.installationId) return null;
+    await assertOwnerMigrationWriteAllowed(ctx, row.ownerId);
     await ctx.db.delete(row._id);
     if (row.expiresAt <= args.now) return null;
     return { ownerId: row.ownerId, installationId: row.installationId };
@@ -1687,6 +1685,7 @@ export const parkGithubConnectClaimInternal = internalMutation({
   },
   returns: v.object({ connectCode: v.string() }),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     const connectCode = randomConnectCode();
     await ctx.db.insert("cloud_github_install_states", {
       stateId: connectCode,
@@ -1729,6 +1728,7 @@ export const beginGithubVerificationInternal = internalMutation({
     // A later-phase row is not an entry point for this leg — leave the
     // in-flight handshake it belongs to alone rather than consuming it.
     if (statePhase(row) !== "install") return { ok: false, verifyStateId: "" };
+    await assertOwnerMigrationWriteAllowed(ctx, row.ownerId);
     // Single-use, spent whether or not it was still valid.
     await ctx.db.delete(row._id);
     if (row.expiresAt <= args.now) return { ok: false, verifyStateId: "" };

@@ -276,9 +276,7 @@ export const createStellaRoute = (args: {
 }): ResolvedLlmRoute | null => {
   const siteBaseUrl = normalizeStellaBase(args.site.baseUrl);
   const authToken = args.site.getAuthToken()?.trim();
-  const canRefreshMissingToken =
-    Boolean(args.site.refreshAuthToken) &&
-    args.site.hasConnectedAccount?.() === true;
+  const canRefreshMissingToken = Boolean(args.site.refreshAuthToken);
   if (!siteBaseUrl || (!authToken && !canRefreshMissingToken)) {
     return null;
   }

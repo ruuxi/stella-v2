@@ -60,9 +60,33 @@ const PROFILE_HEADER = [
 ].join("\n");
 
 export type MemoryDocument = {
-  name: MemoryDocName;
+  name: string;
   displayPath: string;
   content: string;
+};
+
+export const importedMemoryDocumentFromKey = (
+  ownerRoot: string,
+  key: string,
+): { name: string; policyName: MemoryDocName; displayPath: string } | null => {
+  const importedPrefix = `${ownerRoot}__stella_imported__/`;
+  if (!key.startsWith(importedPrefix)) return null;
+  const relative = key.slice(importedPrefix.length);
+  const segments = relative.split("/");
+  const fileName = segments.at(-1);
+  if (
+    segments.length < 3 ||
+    segments.at(-2) !== "memories" ||
+    !MEMORY_DOC_NAMES.includes(fileName as MemoryDocName)
+  ) {
+    return null;
+  }
+  const source = segments.slice(0, -2).join("/");
+  return {
+    name: `${fileName} (imported ${source.slice(0, 12)})`,
+    policyName: fileName as MemoryDocName,
+    displayPath: `~/.stella/imported/${source}/${fileName}`,
+  };
 };
 
 export type ProfileAction = "add" | "replace" | "remove";
@@ -169,13 +193,19 @@ export class AgentHome {
     return `${await this.prefix()}${name}`;
   }
 
+  private async readKey(
+    key: string,
+  ): Promise<{ content: string; etag?: string } | null> {
+    if (!this.bucket) return null;
+    const object = await this.bucket.get(key);
+    if (!object) return null;
+    return { content: await object.text(), etag: object.etag };
+  }
+
   private async read(
     name: MemoryDocName,
   ): Promise<{ content: string; etag?: string } | null> {
-    if (!this.bucket) return null;
-    const object = await this.bucket.get(await this.key(name));
-    if (!object) return null;
-    return { content: await object.text(), etag: object.etag };
+    return await this.readKey(await this.key(name));
   }
 
   /**
@@ -185,30 +215,53 @@ export class AgentHome {
    */
   async readDocuments(): Promise<MemoryDocument[]> {
     if (!this.bucket) return [];
+    const canonicalPrefix = await this.prefix();
+    const ownerRoot = canonicalPrefix.replace(/memories\/$/, "");
+    const imported = await this.bucket
+      .list({
+        prefix: `${ownerRoot}__stella_imported__/`,
+        limit: 20,
+      })
+      .catch(() => ({ objects: [] as R2Object[] }));
+    const candidates = [
+      ...MEMORY_DOC_NAMES.map((name) => ({
+        name,
+        policyName: name,
+        displayPath: DISPLAY_PATHS[name],
+        key: `${canonicalPrefix}${name}`,
+      })),
+      ...imported.objects.flatMap((object) => {
+        const parsed = importedMemoryDocumentFromKey(ownerRoot, object.key);
+        return parsed ? [{ ...parsed, key: object.key }] : [];
+      }),
+    ];
     const settled = await Promise.all(
-      MEMORY_DOC_NAMES.map(async (name) => {
+      candidates.map(async (candidate) => {
         try {
-          return { name, stored: await this.read(name) };
+          return {
+            ...candidate,
+            stored: await this.readKey(candidate.key),
+          };
         } catch {
           // A memory read must never be the reason a turn fails.
-          return { name, stored: null };
+          return { ...candidate, stored: null };
         }
       }),
     );
     const documents: MemoryDocument[] = [];
     let budget = INJECTED_TOTAL_MAX_CHARS;
-    for (const { name, stored } of settled) {
+    for (const { name, policyName, displayPath, stored } of settled) {
       const raw = stored?.content?.trim();
       if (!raw) continue;
       const capped = truncateAtLineBoundary(
         redactMemoryText(raw),
-        Math.min(DOC_MAX_CHARS[name], budget),
+        Math.min(DOC_MAX_CHARS[policyName], budget),
       );
       if (!capped.trim()) continue;
       budget -= capped.length;
       documents.push({
         name,
-        displayPath: DISPLAY_PATHS[name],
+        displayPath,
         content: capped,
       });
       if (budget <= 0) break;

@@ -25,17 +25,14 @@ import { useCloudChat } from "@/features/cloud/CloudChatTail";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import { ComposerAreaSelectOverlay } from "@/app/chat/ComposerAreaSelectOverlay";
 import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
-import {
-  isKnownLocalConversationId,
-  setActiveLocalConversationId,
-} from "@/features/chat/services/local-chat-store";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
-import { writeActiveConversationIdCache } from "@/features/chat/services/active-conversation-cache";
+import { resolveOwnershipMigrationGate } from "@/global/auth/lib/cloud-session-mode";
 import {
   acknowledgeCloudConversation,
   isOwnedCloudConversation,
   markCloudConversationCreated,
+  resolveCloudConversationForShell,
   resolveCloudConversationRoute,
 } from "@/features/cloud/cloud-conversation-selection";
 import {
@@ -128,9 +125,50 @@ import {
   getShellBreakpointState,
   type ShellBreakpointState,
 } from "@/shell/shell-breakpoints";
+import "@/shell/error-boundary.css";
 
 /** Persisted left-sidebar visibility ("0" = hidden). */
 const LEFT_SIDEBAR_VISIBLE_KEY = "stella.leftSidebar.visible";
+const CLOUD_CONVERSATION_CREATE_MAX_ATTEMPTS = 4;
+const CLOUD_CONVERSATION_CREATE_RETRY_BASE_MS = 1_000;
+
+const getCloudConversationCreateRetryDelayMs = (attempt: number) =>
+  Math.min(
+    10_000,
+    CLOUD_CONVERSATION_CREATE_RETRY_BASE_MS * 2 ** Math.max(0, attempt - 1),
+  );
+
+const toCloudConversationCreateError = (error: unknown) =>
+  error instanceof Error && error.message.trim()
+    ? error.message
+    : "Stella couldn't create your cloud conversation.";
+
+function CloudStartupFailure({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="error-boundary" role="alert">
+      <div className="error-boundary-gradient" />
+      <div className="error-boundary-content">
+        <h2>Stella couldn&apos;t start chat</h2>
+        <p>{message}</p>
+        <div className="error-boundary-actions">
+          <button
+            className="error-boundary-btn error-boundary-btn--fix"
+            onClick={onRetry}
+            type="button"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /**
  * The root route owns the app chrome — top shell bar, workspace panel,
@@ -140,7 +178,13 @@ const LEFT_SIDEBAR_VISIBLE_KEY = "stella.leftSidebar.visible";
  */
 function RootLayout() {
   const { state, setConversationId } = useUiState();
-  const { cloudMode, isLoading: isAuthLoading, accountScope } = useCloudMode();
+  const {
+    cloudMode,
+    error: authBootstrapError,
+    isLoading: isAuthLoading,
+    accountScope,
+    retryAuthBootstrap,
+  } = useCloudMode();
   const matchRoute = useMatchRoute();
   const isOnChatRoute = Boolean(matchRoute({ to: "/chat" }));
   const routerConversationId = useRouterState({
@@ -154,11 +198,37 @@ function RootLayout() {
     cloudApi.listMyConversations,
     cloudMode ? {} : "skip",
   );
+  const ownershipMigration = useQuery(
+    cloudApi.getMyOwnershipMigrationStatus,
+    cloudMode ? {} : "skip",
+  );
+  const ownershipMigrationGate = resolveOwnershipMigrationGate(
+    ownershipMigration === undefined
+      ? undefined
+      : (ownershipMigration?.status ?? null),
+    cloudMode,
+  );
+  const ownershipMigrationIsLoading = ownershipMigrationGate.isLoading;
+  const ownershipMigrationPending = ownershipMigrationGate.isPending;
+  const ownershipMigrationFailed = ownershipMigrationGate.isFailed;
   const createCloudConversation = useMutation(cloudApi.createMyConversation);
+  const retryOwnershipMigrationMutation = useMutation(
+    cloudApi.retryMyLatestFailedOwnershipMigration,
+  );
   const cloudCreateRequestRef = useRef<{
     accountScope: string;
     clientCreateId: string;
+    attempt: number;
+    inFlight: boolean;
   } | null>(null);
+  const cloudCreateRetryTimerRef = useRef<number | null>(null);
+  const [cloudCreateRetrySignal, setCloudCreateRetrySignal] = useState(0);
+  const [cloudCreateFailure, setCloudCreateFailure] = useState<{
+    accountScope: string;
+    message: string;
+  } | null>(null);
+  const [ownershipMigrationRetryFailure, setOwnershipMigrationRetryFailure] =
+    useState<string | null>(null);
   const cachedCloudConversationId = cloudMode
     ? readActiveCloudConversationIdCache(accountScope)
     : null;
@@ -177,10 +247,10 @@ function RootLayout() {
   );
   const cachedConversationIsListed = Boolean(
     cachedCloudConversationId &&
-      cloudConversations?.some(
-        (conversation) =>
-          conversation.conversationId === cachedCloudConversationId,
-      ),
+    cloudConversations?.some(
+      (conversation) =>
+        conversation.conversationId === cachedCloudConversationId,
+    ),
   );
   const exactCachedCloudConversation = useQuery(
     cloudApi.getMyConversation,
@@ -193,35 +263,103 @@ function RootLayout() {
   );
   const routeOwnershipIsLoading = Boolean(
     cloudMode &&
-      routerConversationId &&
-      !routeIsListedOrPendingCloudConversation &&
-      exactCloudConversation === undefined,
+    routerConversationId &&
+    !routeIsListedOrPendingCloudConversation &&
+    exactCloudConversation === undefined,
   );
   const cachedOwnershipIsLoading = Boolean(
     cloudMode &&
-      cachedCloudConversationId &&
-      cachedCloudConversationId !== routerConversationId &&
-      !cachedConversationIsListed &&
-      exactCachedCloudConversation === undefined,
+    cachedCloudConversationId &&
+    cachedCloudConversationId !== routerConversationId &&
+    !cachedConversationIsListed &&
+    exactCachedCloudConversation === undefined,
   );
   const routeIsOwnedCloudConversation =
     routeIsListedOrPendingCloudConversation ||
     exactCloudConversation?.conversationId === routerConversationId;
-  const localRouteConversationId =
-    routerConversationId && isKnownLocalConversationId(routerConversationId)
-      ? routerConversationId
+  const ownedCloudConversationCandidates = [
+    ...(exactCloudConversation ? [exactCloudConversation] : []),
+    ...(exactCachedCloudConversation ? [exactCachedCloudConversation] : []),
+    ...(cloudConversations ?? []),
+  ];
+  const shellConversationSelectionIsLoading =
+    ownershipMigrationIsLoading ||
+    ownershipMigrationPending ||
+    ownershipMigrationFailed ||
+    cloudConversations === undefined ||
+    (isOnChatRoute ? routeOwnershipIsLoading : cachedOwnershipIsLoading);
+  const conversationId =
+    !isAuthLoading &&
+    ownershipMigrationGate.canSelectConversation &&
+    !shellConversationSelectionIsLoading
+      ? resolveCloudConversationForShell({
+          isOnChatRoute,
+          conversations: ownedCloudConversationCandidates,
+          routeConversationId: routerConversationId,
+          cachedConversationId: cachedCloudConversationId,
+          accountScope,
+        })
       : null;
-  const localStateConversationId =
-    state.conversationId && isKnownLocalConversationId(state.conversationId)
-      ? state.conversationId
-      : null;
-  const conversationId = isAuthLoading
-    ? null
-    : cloudMode
-      ? routeIsOwnedCloudConversation
-        ? routerConversationId
-        : null
-      : (localRouteConversationId ?? localStateConversationId);
+
+  const clearCloudCreateRetryTimer = useCallback(() => {
+    if (cloudCreateRetryTimerRef.current === null) return;
+    window.clearTimeout(cloudCreateRetryTimerRef.current);
+    cloudCreateRetryTimerRef.current = null;
+  }, []);
+
+  useEffect(
+    () => () => {
+      clearCloudCreateRetryTimer();
+    },
+    [clearCloudCreateRetryTimer],
+  );
+
+  useLayoutEffect(() => {
+    clearCloudCreateRetryTimer();
+    cloudCreateRequestRef.current = null;
+    setCloudCreateFailure(null);
+    setOwnershipMigrationRetryFailure(null);
+    // The previous owner's UUID must stop reaching Electron/mobile/voice
+    // before any query under the next identity resolves. A newly selected
+    // conversation is published only after the owner-checked cloud query
+    // below confirms it belongs to the current account scope.
+    setConversationId(null);
+  }, [accountScope, clearCloudCreateRetryTimer, setConversationId]);
+
+  useLayoutEffect(() => {
+    if (!isAuthLoading && cloudMode) return;
+    setConversationId(null);
+  }, [cloudMode, isAuthLoading, setConversationId]);
+
+  const retryCloudConversationCreate = useCallback(() => {
+    clearCloudCreateRetryTimer();
+    const current = cloudCreateRequestRef.current;
+    if (current?.accountScope === accountScope) {
+      current.attempt = 0;
+      current.inFlight = false;
+    }
+    setCloudCreateFailure(null);
+    setCloudCreateRetrySignal((signal) => signal + 1);
+  }, [accountScope, clearCloudCreateRetryTimer]);
+
+  const retryOwnershipMigration = useCallback(() => {
+    setOwnershipMigrationRetryFailure(null);
+    void retryOwnershipMigrationMutation({})
+      .then(({ scheduled }) => {
+        if (!scheduled) {
+          setOwnershipMigrationRetryFailure(
+            "Stella couldn't find the failed account-link transfer to retry.",
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        setOwnershipMigrationRetryFailure(
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : "Stella couldn't retry the account-link transfer.",
+        );
+      });
+  }, [retryOwnershipMigrationMutation]);
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -230,21 +368,20 @@ function RootLayout() {
     // absent `?c=` as a broken chat link would force every navigation back to
     // chat.
     if (!isOnChatRoute) return;
-    if (!cloudMode) {
-      // Signed-out desktop keeps the legacy local fallback. Bootstrap owns
-      // creating/restoring that id; once it arrives, put it in the route.
-      if (
-        localStateConversationId &&
-        localStateConversationId !== localRouteConversationId
-      ) {
-        void router.navigate({
-          to: "/chat",
-          search: { c: localStateConversationId },
-          replace: true,
-        });
-      }
-      return;
-    }
+    // Automatic anonymous auth is the fallback. Until it exists,
+    // `useCloudMode` remains loading and no local conversation is selected.
+    if (!cloudMode) return;
+    // Never create or route a destination conversation until the migration
+    // status query has proved there is no pending/failed account-link handoff.
+    if (ownershipMigrationIsLoading) return;
+    // Better Auth publishes this marker before switching identities. Preserve
+    // the exact anonymous route until its cloud ownership is visible under the
+    // connected account instead of navigating to or creating a blank chat.
+    if (ownershipMigrationPending) return;
+    // A failed transfer is recoverable and remains attached to the exact
+    // anonymous route. Falling through would replace it with a blank
+    // destination conversation and make the failed source look lost.
+    if (ownershipMigrationFailed) return;
 
     if (cloudConversations === undefined || routeOwnershipIsLoading) return;
     for (const item of cloudConversations) {
@@ -252,7 +389,9 @@ function RootLayout() {
     }
 
     if (routeIsOwnedCloudConversation && routerConversationId) {
+      clearCloudCreateRetryTimer();
       cloudCreateRequestRef.current = null;
+      setCloudCreateFailure(null);
       if (routerConversationId !== state.conversationId) {
         setConversationId(routerConversationId);
       }
@@ -269,7 +408,9 @@ function RootLayout() {
       accountScope,
     });
     if (fallbackConversationId) {
+      clearCloudCreateRetryTimer();
       cloudCreateRequestRef.current = null;
+      setCloudCreateFailure(null);
       void router.navigate({
         to: "/chat",
         search: { c: fallbackConversationId },
@@ -278,16 +419,32 @@ function RootLayout() {
       return;
     }
 
-    // A signed-in account with no history still needs an identity before a
-    // desktop-local turn can run. The client key makes StrictMode/remount
-    // retries converge on one blank conversation.
-    if (cloudCreateRequestRef.current?.accountScope === accountScope) {
+    // Every Better Auth identity, including an anonymous one, needs a cloud
+    // conversation before a turn can run. The client key makes
+    // StrictMode/remount retries converge on one blank conversation.
+    let request = cloudCreateRequestRef.current;
+    if (request?.accountScope !== accountScope) {
+      request = {
+        accountScope,
+        clientCreateId: crypto.randomUUID(),
+        attempt: 0,
+        inFlight: false,
+      };
+      cloudCreateRequestRef.current = request;
+    }
+    if (
+      request.inFlight ||
+      request.attempt >= CLOUD_CONVERSATION_CREATE_MAX_ATTEMPTS
+    ) {
       return;
     }
-    const clientCreateId = crypto.randomUUID();
-    cloudCreateRequestRef.current = { accountScope, clientCreateId };
+    request.inFlight = true;
+    request.attempt += 1;
+    const { attempt, clientCreateId } = request;
     void createCloudConversation({ clientCreateId })
       .then((created) => {
+        clearCloudCreateRetryTimer();
+        setCloudCreateFailure(null);
         markCloudConversationCreated(created.conversationId, accountScope);
         setConversationId(created.conversationId);
         return router.navigate({
@@ -296,18 +453,34 @@ function RootLayout() {
           replace: true,
         });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        const current = cloudCreateRequestRef.current;
         if (
-          cloudCreateRequestRef.current?.accountScope === accountScope &&
-          cloudCreateRequestRef.current.clientCreateId === clientCreateId
+          current?.accountScope !== accountScope ||
+          current.clientCreateId !== clientCreateId
         ) {
-          cloudCreateRequestRef.current = null;
+          return;
         }
+        current.inFlight = false;
+        if (attempt >= CLOUD_CONVERSATION_CREATE_MAX_ATTEMPTS) {
+          setCloudCreateFailure({
+            accountScope,
+            message: toCloudConversationCreateError(error),
+          });
+          return;
+        }
+        clearCloudCreateRetryTimer();
+        cloudCreateRetryTimerRef.current = window.setTimeout(() => {
+          cloudCreateRetryTimerRef.current = null;
+          setCloudCreateRetrySignal((signal) => signal + 1);
+        }, getCloudConversationCreateRetryDelayMs(attempt));
       });
   }, [
     cachedCloudConversationId,
     cachedOwnershipIsLoading,
     cloudConversations,
+    cloudCreateRetrySignal,
+    clearCloudCreateRetryTimer,
     createCloudConversation,
     accountScope,
     cloudMode,
@@ -315,41 +488,88 @@ function RootLayout() {
     exactCachedCloudConversation,
     isAuthLoading,
     isOnChatRoute,
+    ownershipMigrationFailed,
+    ownershipMigrationIsLoading,
+    ownershipMigrationPending,
     routeOwnershipIsLoading,
     routeIsOwnedCloudConversation,
     router,
     routerConversationId,
     setConversationId,
     state.conversationId,
-    localRouteConversationId,
-    localStateConversationId,
   ]);
 
-  // Single writer for the active-conversation pointer. The router
-  // (`/chat?c=<id>`) is the live source of truth. Cloud selection is mirrored
-  // into an account-scoped renderer cache; signed-out local selection keeps
-  // the legacy cache and SQLite pointer. A cloud UUID never becomes the local
-  // active-conversation pointer.
+  // Keep non-chat shell surfaces and the desktop/mobile bridge on the same
+  // validated cloud conversation. Route repair still belongs to `/chat`;
+  // this only mirrors an already-owned selection into shell state.
   useEffect(() => {
-    if (!routerConversationId || isAuthLoading) return;
-    if (cloudMode && !routeIsOwnedCloudConversation) return;
-    if (!cloudMode && !isKnownLocalConversationId(routerConversationId)) return;
-    if (cloudMode) {
-      writeActiveCloudConversationIdCache(accountScope, routerConversationId);
+    if (
+      isAuthLoading ||
+      !cloudMode ||
+      isOnChatRoute ||
+      !conversationId ||
+      conversationId === state.conversationId
+    ) {
       return;
     }
-    writeActiveConversationIdCache(routerConversationId);
-    void setActiveLocalConversationId(routerConversationId);
+    setConversationId(conversationId);
   }, [
-    accountScope,
     cloudMode,
+    conversationId,
     isAuthLoading,
-    routeIsOwnedCloudConversation,
-    routerConversationId,
+    isOnChatRoute,
+    setConversationId,
+    state.conversationId,
   ]);
+
+  // Single writer for the account-scoped active-conversation pointer. The
+  // `/chat?c=<id>` route wins on chat; an owned cached/newest conversation
+  // keeps the workspace panel attached on other routes. A cloud UUID never
+  // becomes the legacy SQLite active-conversation pointer.
+  useEffect(() => {
+    if (!conversationId || isAuthLoading || !cloudMode) {
+      return;
+    }
+    writeActiveCloudConversationIdCache(accountScope, conversationId);
+  }, [accountScope, cloudMode, conversationId, isAuthLoading]);
 
   useLastLocationRestore(router);
   usePersistLastLocation(router);
+
+  if (authBootstrapError) {
+    return (
+      <CloudStartupFailure
+        message={authBootstrapError}
+        onRetry={retryAuthBootstrap}
+      />
+    );
+  }
+
+  if (ownershipMigrationFailed) {
+    return (
+      <CloudStartupFailure
+        message={
+          ownershipMigrationRetryFailure ??
+          ownershipMigration?.error ??
+          "Stella couldn't finish moving your anonymous cloud data to this account."
+        }
+        onRetry={retryOwnershipMigration}
+      />
+    );
+  }
+
+  if (
+    isOnChatRoute &&
+    !conversationId &&
+    cloudCreateFailure?.accountScope === accountScope
+  ) {
+    return (
+      <CloudStartupFailure
+        message={cloudCreateFailure.message}
+        onRetry={retryCloudConversationCreate}
+      />
+    );
+  }
 
   return (
     <ModelCatalogUpdatedAtProvider>

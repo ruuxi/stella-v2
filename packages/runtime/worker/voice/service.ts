@@ -1,10 +1,9 @@
+import { createHash } from "node:crypto";
 import {
   AGENT_RUN_FINISH_OUTCOMES,
   AGENT_STREAM_EVENT_TYPES,
   type AgentStreamEventType,
 } from "@stella/contracts/agent-runtime";
-import { prepareStoredLocalChatPayload } from "../../kernel/storage/local-chat-payload.js";
-import type { MessageMetadata } from "@stella/contracts/local-chat";
 import type {
   RuntimeAgentEventPayload,
   RuntimePromptMessage,
@@ -25,7 +24,6 @@ import type {
   RuntimeToolStartEvent,
 } from "../../kernel/agent-runtime.js";
 import type { AgentLifecycleEvent } from "../../kernel/agents/local-agent-manager.js";
-import type { ChatStore } from "../../kernel/storage/chat-store.js";
 import type { ToolContext, ToolResult } from "../../kernel/tools/types.js";
 import { textFromUnknown } from "../../kernel/agent-runtime/shared.js";
 import {
@@ -33,6 +31,9 @@ import {
   sanitizeToolResult,
   sanitizeToolVisibleText,
 } from "../../kernel/tools/safety.js";
+import type { AgentMessage } from "../../kernel/agent-core/types.js";
+import type { CloudJournalAppendRecord } from "../../kernel/runner/cloud-transcript-write.js";
+import type { VoiceToolCallReceipt } from "../../kernel/storage/runtime-store.js";
 
 type VoiceRunner = {
   handleLocalChat: (
@@ -54,12 +55,24 @@ type VoiceRunner = {
       onAgentEvent?: (event: AgentLifecycleEvent) => void;
     },
   ) => Promise<{ runId: string }>;
-  appendThreadMessage: (args: {
-    threadKey: string;
-    role: "user" | "assistant";
-    content: string;
+  appendCloudJournal: (request: {
+    conversationId: string;
+    appendId: string;
+    records: CloudJournalAppendRecord[];
+  }) => Promise<{ queued: true; replayed: boolean }>;
+  beginVoiceToolCallReceipt: (args: {
+    conversationId: string;
+    callId: string;
+    requestFingerprint: string;
+    operationId: string;
+    startedAt: number;
+  }) => VoiceToolCallReceipt;
+  completeVoiceToolCallReceipt: (args: {
+    conversationId: string;
+    callId: string;
+    requestFingerprint: string;
+    completionJson: string;
   }) => void;
-  notifyOrchestratorHistoryChanged: (conversationId: string) => void;
   getVoiceOrchestratorConfig: (
     payload: RuntimeVoiceOrchestratorConfigRequest,
   ) => Promise<RuntimeVoiceOrchestratorConfig>;
@@ -87,9 +100,7 @@ type VoiceToolCatalogCacheEntry = {
 
 type VoiceRuntimeServiceOptions = {
   getRunner: () => VoiceRunner | null;
-  getChatStore: () => ChatStore | null;
   getDeviceId: () => string | null;
-  onLocalChatUpdated: () => void;
   emitAgentEvent: (payload: RuntimeVoiceAgentEventPayload) => void;
 };
 
@@ -101,6 +112,22 @@ const normalizeError = (error: unknown) =>
 const VOICE_TOOL_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
 const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = 30_000;
 const THREAD_VISIBLE_JSON_MAX_CHARS = 12_000;
+const EPHEMERAL_VOICE_CONTEXT_MAX_MESSAGES = 40;
+const EPHEMERAL_VOICE_CONTEXT_MAX_CHARS = 40_000;
+const ZERO_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  },
+} as const;
 
 const truncate = (value: string, maxChars: number): string =>
   value.length <= maxChars
@@ -116,6 +143,45 @@ const stringifyBounded = (value: unknown, maxChars: number): string => {
   }
 };
 
+const stableJsonValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, stableJsonValue(entry)]),
+    );
+  }
+  return value;
+};
+
+const voiceAppendId = (
+  kind: "transcript" | "tool" | "operation",
+  identity: string,
+): string =>
+  `voice-${kind}:${createHash("sha256")
+    .update(identity)
+    .digest("hex")
+    .slice(0, 40)}`;
+
+const voiceAssistantMessage = (
+  content: Array<Record<string, unknown>>,
+  timestamp: number,
+  extra: Record<string, unknown> = {},
+): AgentMessage =>
+  ({
+    role: "assistant",
+    content,
+    api: "openai-completions",
+    provider: "stella",
+    model: "voice",
+    usage: ZERO_USAGE,
+    stopReason: "stop",
+    timestamp,
+    source: "voice",
+    ...extra,
+  }) as unknown as AgentMessage;
+
 const formatModelVisibleToolOutput = (result: ToolResult): string => {
   if (result.error) {
     return `Error: ${sanitizeToolError(result.error)}`;
@@ -128,66 +194,104 @@ const formatModelVisibleToolOutput = (result: ToolResult): string => {
   );
 };
 
-const asObjectRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+type VoiceToolCompletion = {
+  response: RuntimeVoiceToolCallResult;
+  records: CloudJournalAppendRecord[];
+};
+
+const parseVoiceToolCompletion = (serialized: string): VoiceToolCompletion => {
+  const parsed = JSON.parse(serialized) as Partial<VoiceToolCompletion>;
+  if (
+    !parsed.response ||
+    typeof parsed.response.output !== "string" ||
+    !Array.isArray(parsed.records) ||
+    !parsed.records.every(
+      (record) =>
+        record?.kind === "message" &&
+        (record.role === "assistant" || record.role === "toolResult") &&
+        typeof record.payloadJson === "string",
+    )
+  ) {
+    throw new Error("Voice tool completion receipt is malformed.");
+  }
+  return {
+    response: parsed.response,
+    records: parsed.records,
+  };
+};
 
 export class VoiceRuntimeService {
   private pendingVoiceRequest: PendingVoiceRequest | null = null;
   private voiceRequestActive = false;
   private toolConfigCache = new Map<string, VoiceToolCatalogCacheEntry>();
+  /** Voice-only prompt bridge. Never written to runtime_thread_entries. */
+  private ephemeralContextByConversation = new Map<
+    string,
+    RuntimePromptMessage[]
+  >();
 
   constructor(private readonly options: VoiceRuntimeServiceOptions) {}
 
-  persistTranscript(payload: {
+  async persistTranscript(payload: {
     conversationId: string;
+    eventId: string;
+    timestamp: number;
     role: "user" | "assistant";
     text: string;
     uiVisibility?: "visible" | "hidden";
     voiceSession?: { durationMs: number };
   }) {
-    this.ensureRunner().appendThreadMessage({
-      threadKey: payload.conversationId,
-      role: payload.role,
-      content: payload.text,
-    });
-    this.ensureRunner().notifyOrchestratorHistoryChanged(
-      payload.conversationId,
-    );
-    const chatStore = this.options.getChatStore();
-    if (chatStore) {
-      const timestamp = Date.now();
-      const type =
-        payload.role === "user" ? "user_message" : "assistant_message";
-      const metadata: MessageMetadata = {};
-      if (payload.uiVisibility) {
-        metadata.ui = { visibility: payload.uiVisibility };
-      }
-      if (payload.voiceSession) {
-        metadata.voiceSession = { durationMs: payload.voiceSession.durationMs };
-      }
-      const hasMetadata = Object.keys(metadata).length > 0;
-      chatStore.appendEvent({
-        conversationId: payload.conversationId,
-        type,
-        ...(payload.role === "user" && this.options.getDeviceId()
-          ? { deviceId: this.options.getDeviceId() ?? undefined }
-          : {}),
-        timestamp,
-        payload: prepareStoredLocalChatPayload({
-          type,
-          payload: {
-            text: payload.text,
+    const runner = this.ensureRunner();
+    const eventId = payload.eventId.trim();
+    if (!eventId) {
+      throw new Error("Voice transcript eventId is required.");
+    }
+    if (
+      !Number.isFinite(payload.timestamp) ||
+      payload.timestamp < 0 ||
+      !Number.isSafeInteger(payload.timestamp)
+    ) {
+      throw new Error("Voice transcript timestamp is invalid.");
+    }
+    const timestamp = payload.timestamp;
+    const message =
+      payload.role === "user"
+        ? ({
+            role: "user",
+            content: [{ type: "text", text: payload.text }],
+            timestamp,
             source: "voice",
-            ...(hasMetadata ? { metadata } : {}),
-          },
-          timestamp,
-          timezone:
-            Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
-        }),
-      });
-      this.options.onLocalChatUpdated();
+            ...(payload.voiceSession
+              ? { voiceSession: payload.voiceSession }
+              : {}),
+          } as unknown as AgentMessage)
+        : voiceAssistantMessage(
+            [{ type: "text", text: payload.text }],
+            timestamp,
+            payload.voiceSession
+              ? { voiceSession: payload.voiceSession }
+              : undefined,
+          );
+    const queued = await runner.appendCloudJournal({
+      conversationId: payload.conversationId,
+      appendId: voiceAppendId("transcript", eventId),
+      records: [
+        {
+          kind: "message",
+          role: payload.role,
+          payloadJson: JSON.stringify(message),
+          hidden: payload.uiVisibility === "hidden",
+        },
+      ],
+    });
+    // The cloud outbox insertion is the acknowledgement boundary. Mirror the
+    // text into local operational context only for the first admission so an
+    // invoke retry whose response was lost cannot duplicate model history.
+    if (!queued.replayed) {
+      this.appendEphemeralContext(
+        payload.conversationId,
+        `${payload.role === "user" ? "Voice user" : "Voice assistant"}: ${payload.text}`,
+      );
     }
     return { ok: true as const };
   }
@@ -217,7 +321,43 @@ export class VoiceRuntimeService {
     const config = await this.resolveToolConfig(payload.conversationId);
     const allowedToolNames = config.tools.map((tool) => tool.name);
     const allowed = new Set(allowedToolNames);
-    const runId = payload.requestId || `voice:${payload.callId}`;
+    const callId = payload.callId.trim();
+    if (!callId) throw new Error("Voice tool callId is required.");
+    const requestFingerprint = createHash("sha256")
+      .update(
+        JSON.stringify(
+          stableJsonValue({
+            name: payload.name,
+            args: payload.args,
+          }),
+        ),
+      )
+      .digest("hex");
+    const receipt = runner.beginVoiceToolCallReceipt({
+      conversationId: payload.conversationId,
+      callId,
+      requestFingerprint,
+      operationId: voiceAppendId(
+        "operation",
+        `${payload.conversationId}\u0000${callId}`,
+      ),
+      startedAt: Date.now(),
+    });
+    if (receipt.status === "pending") {
+      throw new Error(
+        "This voice tool call was interrupted after it started and cannot be repeated safely.",
+      );
+    }
+    if (receipt.status === "completed") {
+      const completion = parseVoiceToolCompletion(receipt.completionJson);
+      await runner.appendCloudJournal({
+        conversationId: payload.conversationId,
+        appendId: voiceAppendId("tool", callId),
+        records: completion.records,
+      });
+      return completion.response;
+    }
+    const runId = receipt.operationId;
 
     this.recordVoiceToolRequest(payload);
 
@@ -230,11 +370,11 @@ export class VoiceRuntimeService {
       result = await runner.executeTool(payload.name, payload.args, {
         conversationId: payload.conversationId,
         deviceId: this.options.getDeviceId() ?? "unknown",
-        requestId: payload.callId,
+        requestId: receipt.operationId,
         runId,
         rootRunId: runId,
         agentType: "orchestrator",
-        storageMode: "local",
+        storageMode: "cloud",
         allowedToolNames,
       });
     }
@@ -242,9 +382,9 @@ export class VoiceRuntimeService {
     const output = formatModelVisibleToolOutput(result);
     this.recordVoiceToolResult(payload, result, output);
     const details = sanitizeToolResult(result.details ?? result.result);
-    return {
+    const response: RuntimeVoiceToolCallResult = {
       output,
-      details,
+      ...(details !== undefined ? { details } : {}),
       ...(result.fileChanges?.length
         ? { fileChanges: result.fileChanges }
         : {}),
@@ -253,6 +393,24 @@ export class VoiceRuntimeService {
         : {}),
       ...(result.error ? { error: sanitizeToolError(result.error) } : {}),
     };
+    const records = this.buildCloudVoiceToolExchange(
+      payload,
+      result,
+      output,
+      receipt.startedAt,
+    );
+    runner.completeVoiceToolCallReceipt({
+      conversationId: payload.conversationId,
+      callId,
+      requestFingerprint,
+      completionJson: JSON.stringify({ response, records }),
+    });
+    await runner.appendCloudJournal({
+      conversationId: payload.conversationId,
+      appendId: voiceAppendId("tool", callId),
+      records,
+    });
+    return response;
   }
 
   async orchestratorChat(payload: RuntimeVoiceChatPayload) {
@@ -304,49 +462,15 @@ export class VoiceRuntimeService {
     return await this.getOrchestratorConfig({ conversationId });
   }
 
-  private appendLocalToolEvent(args: {
-    conversationId: string;
-    type: "tool_request" | "tool_result";
-    requestId: string;
-    payload: Record<string, unknown>;
-  }) {
-    const chatStore = this.options.getChatStore();
-    if (!chatStore) return;
-    chatStore.appendEvent({
-      conversationId: args.conversationId,
-      type: args.type,
-      requestId: args.requestId,
-      timestamp: Date.now(),
-      payload: {
-        ...args.payload,
-        source: "voice",
-        requestId: args.requestId,
-      },
-    });
-    this.options.onLocalChatUpdated();
-  }
-
   private recordVoiceToolRequest(payload: RuntimeVoiceToolCallPayload) {
-    const runner = this.ensureRunner();
-    runner.appendThreadMessage({
-      threadKey: payload.conversationId,
-      role: "assistant",
-      content: [
+    this.appendEphemeralContext(
+      payload.conversationId,
+      [
         `[Tool call] ${payload.name}`,
         `request_id: ${payload.callId}`,
         `args: ${stringifyBounded(payload.args, THREAD_VISIBLE_JSON_MAX_CHARS)}`,
       ].join("\n"),
-    });
-    runner.notifyOrchestratorHistoryChanged(payload.conversationId);
-    this.appendLocalToolEvent({
-      conversationId: payload.conversationId,
-      type: "tool_request",
-      requestId: payload.callId,
-      payload: {
-        toolName: payload.name,
-        args: payload.args,
-      },
-    });
+    );
   }
 
   private recordVoiceToolResult(
@@ -354,9 +478,6 @@ export class VoiceRuntimeService {
     result: ToolResult,
     output: string,
   ) {
-    const runner = this.ensureRunner();
-    const details = sanitizeToolResult(result.details ?? result.result);
-    const detailRecord = asObjectRecord(details);
     const content = result.error
       ? [
           `[Tool result] ${payload.name}`,
@@ -368,31 +489,76 @@ export class VoiceRuntimeService {
           `request_id: ${payload.callId}`,
           `result: ${stringifyBounded(output, THREAD_VISIBLE_JSON_MAX_CHARS)}`,
         ].join("\n");
-    runner.appendThreadMessage({
-      threadKey: payload.conversationId,
-      role: "user",
-      content,
+    this.appendEphemeralContext(payload.conversationId, content);
+  }
+
+  private appendEphemeralContext(conversationId: string, text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const current =
+      this.ephemeralContextByConversation.get(conversationId) ?? [];
+    current.push({
+      text: trimmed.slice(0, EPHEMERAL_VOICE_CONTEXT_MAX_CHARS),
+      uiVisibility: "hidden",
+      messageType: "message",
+      display: false,
     });
-    runner.notifyOrchestratorHistoryChanged(payload.conversationId);
-    this.appendLocalToolEvent({
-      conversationId: payload.conversationId,
-      type: "tool_result",
-      requestId: payload.callId,
-      payload: {
-        toolName: payload.name,
-        result: detailRecord ?? details ?? output,
-        resultPreview: output,
-        ...(detailRecord ? { details: detailRecord, ...detailRecord } : {}),
-        ...(result.fileChanges?.length
-          ? { fileChanges: result.fileChanges }
-          : {}),
-        ...(result.producedFiles?.length
-          ? { producedFiles: result.producedFiles }
-          : {}),
-        agentType: "orchestrator",
-        ...(result.error ? { error: sanitizeToolError(result.error) } : {}),
+    while (
+      current.length > EPHEMERAL_VOICE_CONTEXT_MAX_MESSAGES ||
+      current.reduce((total, entry) => total + entry.text.length, 0) >
+        EPHEMERAL_VOICE_CONTEXT_MAX_CHARS
+    ) {
+      current.shift();
+    }
+    this.ephemeralContextByConversation.set(conversationId, current);
+  }
+
+  private buildCloudVoiceToolExchange(
+    payload: RuntimeVoiceToolCallPayload,
+    result: ToolResult,
+    output: string,
+    timestamp: number,
+  ): CloudJournalAppendRecord[] {
+    const request = voiceAssistantMessage(
+      [
+        {
+          type: "toolCall",
+          id: payload.callId,
+          name: payload.name,
+          arguments: payload.args,
+        },
+      ],
+      timestamp,
+      { stopReason: "toolUse" },
+    );
+    const response = {
+      role: "toolResult",
+      toolCallId: payload.callId,
+      toolName: payload.name,
+      content: [{ type: "text", text: output }],
+      details: sanitizeToolResult(result.details ?? result.result),
+      isError: Boolean(result.error),
+      timestamp: timestamp + 1,
+      source: "voice",
+      ...(result.fileChanges?.length
+        ? { fileChanges: result.fileChanges }
+        : {}),
+      ...(result.producedFiles?.length
+        ? { producedFiles: result.producedFiles }
+        : {}),
+    } as unknown as AgentMessage;
+    return [
+      {
+        kind: "message",
+        role: "assistant",
+        payloadJson: JSON.stringify(request),
       },
-    });
+      {
+        kind: "message",
+        role: "toolResult",
+        payloadJson: JSON.stringify(response),
+      },
+    ];
   }
 
   private async drainVoiceQueue() {
@@ -456,8 +622,13 @@ export class VoiceRuntimeService {
             conversationId: payload.conversationId,
             userMessageId: `voice-${Date.now()}`,
             userPrompt: payload.message,
+            promptMessages: [
+              ...(this.ephemeralContextByConversation.get(
+                payload.conversationId,
+              ) ?? []),
+            ],
             agentType: "orchestrator",
-            storageMode: "local",
+            storageMode: "cloud",
           },
           {
             onStream: (event) => {

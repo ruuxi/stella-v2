@@ -13,15 +13,19 @@ const voiceSession = WorkerSessions.sessionOrFail(
 
 export const voiceHandlers: WorkerRpcHandlers = {
   [METHOD_NAMES.INTERNAL_WORKER_VOICE_PERSIST_TRANSCRIPT]: (params) =>
-    Effect.map(voiceSession, (session) =>
-      session.voice.persistTranscript(
-        params as {
-          conversationId: string;
-          role: "user" | "assistant";
-          text: string;
-          uiVisibility?: "visible" | "hidden";
-          voiceSession?: { durationMs: number };
-        },
+    Effect.flatMap(voiceSession, (session) =>
+      fromPromise(() =>
+        session.voice.persistTranscript(
+          params as {
+            conversationId: string;
+            eventId: string;
+            timestamp: number;
+            role: "user" | "assistant";
+            text: string;
+            uiVisibility?: "visible" | "hidden";
+            voiceSession?: { durationMs: number };
+          },
+        ),
       ),
     ),
 

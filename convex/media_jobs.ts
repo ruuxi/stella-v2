@@ -30,6 +30,7 @@ import {
   MAX_PRIVATE_MEDIA_PAYLOAD_CHARS,
   PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
 } from "./media_image_limits";
+import { getUserIdentityOrNull } from "./auth";
 
 export const PUBLIC_MEDIA_TEST_OWNER_ID = "__public_media_test__";
 export {
@@ -892,7 +893,7 @@ const toViewerOwnerId = async (ctx: QueryCtx): Promise<string> => {
  * boundary during sign-in / sign-out transitions.
  */
 const toViewerOwnerIdOrNull = async (ctx: QueryCtx): Promise<string | null> => {
-  const identity = await ctx.auth.getUserIdentity();
+  const identity = await getUserIdentityOrNull(ctx);
   if (identity?.tokenIdentifier) {
     return identity.tokenIdentifier;
   }

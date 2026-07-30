@@ -4,6 +4,13 @@ export {
   type PersistedAgentRecord,
   type CloudTranscriptOutboxKind,
   type CloudTranscriptOutboxRecord,
+  type CloudJournalOutboxRecord,
+  type ComputerAgentCloudOutboxKind,
+  type ComputerAgentCloudOutboxRecord,
+  type LegacyChatCloudImportCandidate,
+  type LegacyChatCloudImportRecord,
+  type LegacyChatVisibleMessage,
   type RecallIndexThreadRow,
   type TranscriptSearchHit,
+  type VoiceToolCallReceipt,
 } from "./session-store.js";

@@ -49,8 +49,7 @@ export function deriveAgentFilesMap(
 }
 
 const eventAgentId = (event: EventRecord): string | null => {
-  const agentId = (event.payload as { agentId?: unknown } | undefined)
-    ?.agentId;
+  const agentId = (event.payload as { agentId?: unknown } | undefined)?.agentId;
   return typeof agentId === "string" && agentId.length > 0 ? agentId : null;
 };
 
@@ -120,6 +119,7 @@ export function eventContributesFiles(event: EventRecord): boolean {
         filePath?: unknown;
         fileChanges?: unknown;
         producedFiles?: unknown;
+        cloudDriveFiles?: unknown;
       }
     | undefined;
   if (!payload || typeof payload !== "object") return false;
@@ -134,7 +134,16 @@ export function eventContributesFiles(event: EventRecord): boolean {
   if (Array.isArray(payload.fileChanges) && payload.fileChanges.length > 0) {
     return true;
   }
-  if (Array.isArray(payload.producedFiles) && payload.producedFiles.length > 0) {
+  if (
+    Array.isArray(payload.producedFiles) &&
+    payload.producedFiles.length > 0
+  ) {
+    return true;
+  }
+  if (
+    Array.isArray(payload.cloudDriveFiles) &&
+    payload.cloudDriveFiles.length > 0
+  ) {
     return true;
   }
   return false;
@@ -166,10 +175,16 @@ export function agentFilesSignature(
     const payload = event.payload as {
       fileChanges?: unknown;
       producedFiles?: unknown;
+      cloudDriveFiles?: unknown;
     };
     const fileCount =
       (Array.isArray(payload.fileChanges) ? payload.fileChanges.length : 0) +
-      (Array.isArray(payload.producedFiles) ? payload.producedFiles.length : 0);
+      (Array.isArray(payload.producedFiles)
+        ? payload.producedFiles.length
+        : 0) +
+      (Array.isArray(payload.cloudDriveFiles)
+        ? payload.cloudDriveFiles.length
+        : 0);
     signature += `${agentId}\u001f${event._id}\u001f${event.timestamp}\u001f${fileCount}\u001e`;
   }
   return signature;

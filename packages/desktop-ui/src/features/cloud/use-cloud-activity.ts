@@ -88,6 +88,27 @@ const EMPTY_ACTIVITY: CloudActivity = {
 /** The deepest the sidebar ever renders (`SEARCH_CAPS.activity`). */
 const ACTIVITY_THREAD_LIMIT = 40;
 
+const projectCloudActivity = (
+  threads: readonly CloudAgentThread[] | undefined,
+): CloudActivity => {
+  if (!threads?.length) return EMPTY_ACTIVITY;
+  const tasks: TaskItem[] = [];
+  const placements = new Map<string, string>();
+  const threadsById = new Map<string, CloudAgentThread>();
+  for (const thread of threads) {
+    tasks.push(cloudThreadToTask(thread));
+    placements.set(thread.threadId, cloudWorkspaceLabel(thread.workspace));
+    threadsById.set(thread.threadId, thread);
+  }
+  return {
+    threads: [...threads],
+    tasks,
+    placements,
+    threadsById,
+    hasRunning: threads.some((thread) => thread.status === "running"),
+  };
+};
+
 /**
  * Every cloud thread the owner has, regardless of which cloud conversation it
  * hangs off. Desktop-dispatched agents, scheduled runs, and threads spawned
@@ -118,22 +139,74 @@ export const useCloudActivity = (): CloudActivity => {
   const threads = Array.isArray(results.threads)
     ? (results.threads as CloudAgentThread[])
     : undefined;
-  return useMemo(() => {
-    if (!threads?.length) return EMPTY_ACTIVITY;
-    const tasks: TaskItem[] = [];
-    const placements = new Map<string, string>();
-    const threadsById = new Map<string, CloudAgentThread>();
-    for (const thread of threads) {
-      tasks.push(cloudThreadToTask(thread));
-      placements.set(thread.threadId, cloudWorkspaceLabel(thread.workspace));
-      threadsById.set(thread.threadId, thread);
+  return useMemo(() => projectCloudActivity(threads), [threads]);
+};
+
+export type CloudConversationActivity = CloudActivity & {
+  /** False only while the authenticated conversation query is unresolved. */
+  hasLoaded: boolean;
+};
+
+/**
+ * Canonical agent-thread state for one conversation. Unlike the global
+ * sidebar query, this projection can drive every conversation-scoped Activity
+ * consumer (composer pill, mobile bridge, and presence) in a browser.
+ */
+export const useCloudConversationActivity = (
+  conversationId: string | null,
+): CloudConversationActivity => {
+  const { cloudMode } = useCloudMode();
+  const activityQueries = useMemo<RequestForQueries>(() => {
+    const queries: RequestForQueries = {};
+    if (cloudMode && conversationId) {
+      queries.threads = {
+        query: cloudApi.listMyAgentThreads,
+        args: { conversationId },
+      };
     }
+    return queries;
+  }, [cloudMode, conversationId]);
+  const results = useQueries(activityQueries);
+  const threads = Array.isArray(results.threads)
+    ? (results.threads as CloudAgentThread[])
+    : undefined;
+  const hasLoaded =
+    !cloudMode || !conversationId || results.threads !== undefined;
+  return useMemo(
+    () => ({ ...projectCloudActivity(threads), hasLoaded }),
+    [hasLoaded, threads],
+  );
+};
+
+/**
+ * Cloud rows own durable identity/status. Desktop runtime rows only decorate
+ * a matching running row with lower-latency operational detail, or bridge the
+ * brief interval before the cloud row becomes observable.
+ */
+export const mergeCloudConversationTasks = (
+  canonical: readonly TaskItem[],
+  operational: readonly TaskItem[],
+): TaskItem[] => {
+  if (canonical.length === 0) return [...operational];
+  const operationalById = new Map(
+    operational.map((task) => [task.id, task] as const),
+  );
+  const canonicalIds = new Set(canonical.map((task) => task.id));
+  const merged = canonical.map((task) => {
+    const overlay = operationalById.get(task.id);
+    if (!overlay || task.status !== "running") return task;
     return {
-      threads,
-      tasks,
-      placements,
-      threadsById,
-      hasRunning: threads.some((thread) => thread.status === "running"),
+      ...task,
+      ...(overlay.statusText ? { statusText: overlay.statusText } : {}),
+      ...(overlay.toolActivity ? { toolActivity: overlay.toolActivity } : {}),
+      ...(overlay.reasoningText
+        ? { reasoningText: overlay.reasoningText }
+        : {}),
+      ...(overlay.anchorTurnId ? { anchorTurnId: overlay.anchorTurnId } : {}),
     };
-  }, [threads]);
+  });
+  for (const task of operational) {
+    if (!canonicalIds.has(task.id)) merged.push(task);
+  }
+  return merged;
 };

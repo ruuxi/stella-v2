@@ -19,6 +19,7 @@ import {
   listStellaCatalogModels,
   listStellaDefaultSelections,
 } from "./stella_models";
+import { getUserIdentityOrNullAction } from "./auth";
 import {
   STELLA_MODELS_RATE_LIMIT,
   STELLA_MODELS_RATE_WINDOW_MS,
@@ -106,7 +107,7 @@ function stellaProviderErrorResponse(
 
 export const stellaProviderModels = httpAction(async (ctx, request) =>
   handleCorsRequest(request, async (origin) => {
-    const identity = await ctx.auth.getUserIdentity();
+    const identity = await getUserIdentityOrNullAction(ctx);
 
     let audience: ManagedModelAudience = identity
       ? (identity as Record<string, unknown>).isAnonymous === true
@@ -1026,7 +1027,7 @@ const makeRelayResumeResponse = async (args: {
 };
 
 export const stellaProviderResume = httpAction(async (ctx, request) => {
-  const identity = await ctx.auth.getUserIdentity();
+  const identity = await getUserIdentityOrNullAction(ctx);
   if (!identity)
     return stellaProviderErrorResponse(401, "Unauthorized", request);
   const relayRequestId = relayResumeIdFromRequest(request);
@@ -1049,7 +1050,7 @@ export const stellaProviderResume = httpAction(async (ctx, request) => {
 });
 
 export const stellaProviderCancel = httpAction(async (ctx, request) => {
-  const identity = await ctx.auth.getUserIdentity();
+  const identity = await getUserIdentityOrNullAction(ctx);
   if (!identity) {
     return stellaProviderErrorResponse(401, "Unauthorized", request);
   }

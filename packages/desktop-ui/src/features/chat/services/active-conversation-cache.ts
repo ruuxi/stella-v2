@@ -1,20 +1,9 @@
 /**
- * Synchronous renderer-side cache of the active conversation id.
+ * Legacy renderer-side cache of the active local conversation id.
  *
- * The durable source of truth lives in SQLite (written via
- * `setActiveLocalConversationId` from `__root`). That pointer is correct but
- * only reachable through an async IPC round-trip, which is too slow for the
- * boot path: on a renderer hard reload the memory-history router resets
- * `/chat?c=<id>` back to plain `/chat`, so the `/chat` route has to re-derive
- * `?c=` before the chat surface can render the previous conversation. Doing
- * that via IPC leaves the surface empty until the round-trip resolves — the
- * "it reloads the chat instead of preserving the previous one" flash.
- *
- * This cache mirrors the same id into the shared UI state store so the route can redirect
- * synchronously on reload. It is deliberately a dedicated key (not the
- * persisted route): we only ever write it from the *resolved*
- * `routerConversationId`, never from a stripped-`c` navigation, so it cannot
- * drift or be poisoned the way persisting `?c=` on the route would.
+ * Kept so explicit recovery tooling can still identify older SQLite data.
+ * Normal root and mini routing never read or write this key: anonymous and
+ * connected sessions both use the account-scoped cloud cache instead.
  */
 
 import { uiState } from "@/platform/ui-state";

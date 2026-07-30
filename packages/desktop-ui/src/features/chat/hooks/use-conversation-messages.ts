@@ -103,7 +103,7 @@ export const useConversationMessages = (
   conversationId?: string,
 ): ConversationMessagesFeed => {
   const { storageMode, isLocalStorage } = useChatStore();
-  const isLocalMode = isLocalStorage;
+  const hasLocalCache = isLocalStorage;
 
   const visitKey = `${storageMode}:${isLocalStorage ? "cache" : "none"}:${conversationId ?? ""}`;
   const visitToken = useMemo(() => Symbol(visitKey), [visitKey]);
@@ -136,7 +136,7 @@ export const useConversationMessages = (
   const [localRetryTick, setLocalRetryTick] = useState(0);
 
   useEffect(() => {
-    if (!isLocalMode || !conversationId) {
+    if (!hasLocalCache || !conversationId) {
       setSnapshotState({
         visitToken,
         snapshot: {
@@ -191,7 +191,7 @@ export const useConversationMessages = (
     };
   }, [
     conversationId,
-    isLocalMode,
+    hasLocalCache,
     localRetryTick,
     maxVisibleMessages,
     visitToken,
@@ -252,7 +252,7 @@ export const useConversationMessages = (
   ]);
 
   const loadOlder = useCallback(() => {
-    if (!conversationId || !isLocalMode) return false;
+    if (!conversationId || !hasLocalCache) return false;
     if (!hasOlderMessages) return false;
     if (pendingMaxVisibleMessagesRef.current !== null) return false;
     if (maxVisibleMessages >= MAX_VISIBLE_MESSAGES) return false;
@@ -266,7 +266,7 @@ export const useConversationMessages = (
       setMaxVisibleMessages(next);
     });
     return true;
-  }, [conversationId, hasOlderMessages, isLocalMode, maxVisibleMessages]);
+  }, [conversationId, hasLocalCache, hasOlderMessages, maxVisibleMessages]);
 
   // Decay the grown window back to one page once every chat surface has
   // been at the bottom continuously for the rest interval. At the bottom
@@ -276,7 +276,7 @@ export const useConversationMessages = (
   // sliced to the new cap, so there is no flash either.
   const windowGrown = maxVisibleMessages > MESSAGE_PAGE_SIZE;
   useEffect(() => {
-    if (!windowGrown || !isLocalMode || !conversationId) return;
+    if (!windowGrown || !hasLocalCache || !conversationId) return;
     if (pendingMaxVisibleMessages !== null) return;
     let atRestSince: number | null = null;
     const interval = window.setInterval(() => {
@@ -297,7 +297,7 @@ export const useConversationMessages = (
     };
   }, [
     conversationId,
-    isLocalMode,
+    hasLocalCache,
     pendingMaxVisibleMessages,
     visitToken,
     windowGrown,
@@ -305,7 +305,7 @@ export const useConversationMessages = (
 
   const isInitialLoading =
     Boolean(conversationId) &&
-    isLocalMode &&
+    hasLocalCache &&
     !activeSnapshot.hasLoaded &&
     activeSnapshot.window.messages.length === 0;
 

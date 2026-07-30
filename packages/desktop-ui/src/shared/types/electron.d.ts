@@ -467,11 +467,13 @@ export type ElectronUiStateKvApi = {
 export type ElectronVoiceApi = {
   persistTranscript: (payload: {
     conversationId: string;
+    eventId: string;
+    timestamp: number;
     role: "user" | "assistant";
     text: string;
     uiVisibility?: "visible" | "hidden";
     voiceSession?: { durationMs: number };
-  }) => void;
+  }) => Promise<{ ok: true }>;
   orchestratorChat: (payload: {
     conversationId: string;
     message: string;

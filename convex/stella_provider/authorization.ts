@@ -31,6 +31,7 @@ import {
   consumeAnonymousRequestAllowance,
   DEFAULT_RETRY_AFTER_MS,
 } from "./billing";
+import { getUserIdentityOrNullAction } from "../auth";
 import {
   estimateRequestTokens,
   requestedModelFromGooglePath,
@@ -328,7 +329,7 @@ export async function authorizeStellaRelayRequest(args: {
   // treat that as "no identity" so the turn-token branch below can run.
   let identity: Awaited<ReturnType<typeof ctx.auth.getUserIdentity>> = null;
   try {
-    identity = await ctx.auth.getUserIdentity();
+    identity = await getUserIdentityOrNullAction(ctx);
   } catch {
     identity = null;
   }

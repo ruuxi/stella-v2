@@ -6,14 +6,10 @@
  * badge says where it ran.
  */
 import { useMemo } from "react";
-import {
-  useConvexAuth,
-  useQueries,
-  useQuery,
-  type RequestForQueries,
-} from "convex/react";
+import { useQueries, type RequestForQueries } from "convex/react";
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 import type { TaskItem } from "@/features/chat/lib/event-transforms";
+import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
 import { cloudApi, type CloudAgentThread } from "./cloud-api";
 
 /** Human label for a C2 workspace identity. */
@@ -89,21 +85,6 @@ const EMPTY_ACTIVITY: CloudActivity = {
   hasRunning: false,
 };
 
-/**
- * The owner's newest cloud conversation is the one the interior chats in —
- * `startCloudChat` reuses it, so the composer and the rendered tail agree on
- * which conversation "the cloud chat" means. Activity does not use it: cloud
- * threads live across many conversations (see `useCloudActivity`).
- */
-export const useActiveCloudConversationId = (): string | null => {
-  const { isAuthenticated } = useConvexAuth();
-  const conversations = useQuery(
-    cloudApi.listMyConversations,
-    isAuthenticated ? {} : "skip",
-  );
-  return conversations?.[0]?.conversationId ?? null;
-};
-
 /** The deepest the sidebar ever renders (`SEARCH_CAPS.activity`). */
 const ACTIVITY_THREAD_LIMIT = 40;
 
@@ -115,7 +96,7 @@ const ACTIVITY_THREAD_LIMIT = 40;
  * touched last.
  */
 export const useCloudActivity = (): CloudActivity => {
-  const { isAuthenticated } = useConvexAuth();
+  const { cloudMode } = useCloudMode();
   // `useQueries`, not `useQuery`: this hook runs inside the left sidebar,
   // which is not wrapped in a CloudBoundary. A deployment that does not have
   // this function yet must cost the user their cloud rows, not the sidebar,
@@ -125,14 +106,14 @@ export const useCloudActivity = (): CloudActivity => {
   // stable or the sidebar re-renders forever while authenticated.
   const activityQueries = useMemo<RequestForQueries>(() => {
     const queries: RequestForQueries = {};
-    if (isAuthenticated) {
+    if (cloudMode) {
       queries.threads = {
         query: cloudApi.listMyRecentAgentThreads,
         args: { limit: ACTIVITY_THREAD_LIMIT },
       };
     }
     return queries;
-  }, [isAuthenticated]);
+  }, [cloudMode]);
   const results = useQueries(activityQueries);
   const threads = Array.isArray(results.threads)
     ? (results.threads as CloudAgentThread[])

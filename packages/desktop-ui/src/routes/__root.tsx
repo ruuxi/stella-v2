@@ -6,7 +6,7 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import { useConvexAuth, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
   lazy,
   Suspense,
@@ -25,8 +25,23 @@ import { useCloudChat } from "@/features/cloud/CloudChatTail";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import { ComposerAreaSelectOverlay } from "@/app/chat/ComposerAreaSelectOverlay";
 import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
-import { setActiveLocalConversationId } from "@/features/chat/services/local-chat-store";
+import {
+  isKnownLocalConversationId,
+  setActiveLocalConversationId,
+} from "@/features/chat/services/local-chat-store";
+import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
+import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
 import { writeActiveConversationIdCache } from "@/features/chat/services/active-conversation-cache";
+import {
+  acknowledgeCloudConversation,
+  isOwnedCloudConversation,
+  markCloudConversationCreated,
+  resolveCloudConversationRoute,
+} from "@/features/cloud/cloud-conversation-selection";
+import {
+  readActiveCloudConversationIdCache,
+  writeActiveCloudConversationIdCache,
+} from "@/features/cloud/cloud-conversation-cache";
 import type { RightSidebarHandle } from "@/shell/RightSidebar";
 // The workspace panel is a ~410-line surface not needed for first
 // interaction, so it is lazy-loaded to keep it out of the always-eager
@@ -109,7 +124,6 @@ import { useLastLocationRestore } from "@/shell/root-chrome/use-last-location-re
 import { useOnboardingMemoryPromotion } from "@/shell/root-chrome/use-onboarding-memory-promotion";
 import { usePersistLastLocation } from "@/shell/root-chrome/use-persist-last-location";
 import { useWorkspacePanelEvents } from "@/shell/root-chrome/use-workspace-panel-events";
-import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import {
   getShellBreakpointState,
   type ShellBreakpointState,
@@ -126,6 +140,7 @@ const LEFT_SIDEBAR_VISIBLE_KEY = "stella.leftSidebar.visible";
  */
 function RootLayout() {
   const { state, setConversationId } = useUiState();
+  const { cloudMode, isLoading: isAuthLoading, accountScope } = useCloudMode();
   const matchRoute = useMatchRoute();
   const isOnChatRoute = Boolean(matchRoute({ to: "/chat" }));
   const routerConversationId = useRouterState({
@@ -134,26 +149,204 @@ function RootLayout() {
         ? ((s.location.search as { c?: string }).c ?? null)
         : null,
   });
-  const conversationId = routerConversationId ?? state.conversationId;
   const router = useRouter();
+  const cloudConversations = useQuery(
+    cloudApi.listMyConversations,
+    cloudMode ? {} : "skip",
+  );
+  const createCloudConversation = useMutation(cloudApi.createMyConversation);
+  const cloudCreateRequestRef = useRef<{
+    accountScope: string;
+    clientCreateId: string;
+  } | null>(null);
+  const cachedCloudConversationId = cloudMode
+    ? readActiveCloudConversationIdCache(accountScope)
+    : null;
+  const routeIsListedOrPendingCloudConversation = isOwnedCloudConversation(
+    cloudConversations ?? [],
+    routerConversationId,
+    accountScope,
+  );
+  const exactCloudConversation = useQuery(
+    cloudApi.getMyConversation,
+    cloudMode &&
+      routerConversationId &&
+      !routeIsListedOrPendingCloudConversation
+      ? { conversationId: routerConversationId }
+      : "skip",
+  );
+  const cachedConversationIsListed = Boolean(
+    cachedCloudConversationId &&
+      cloudConversations?.some(
+        (conversation) =>
+          conversation.conversationId === cachedCloudConversationId,
+      ),
+  );
+  const exactCachedCloudConversation = useQuery(
+    cloudApi.getMyConversation,
+    cloudMode &&
+      cachedCloudConversationId &&
+      cachedCloudConversationId !== routerConversationId &&
+      !cachedConversationIsListed
+      ? { conversationId: cachedCloudConversationId }
+      : "skip",
+  );
+  const routeOwnershipIsLoading = Boolean(
+    cloudMode &&
+      routerConversationId &&
+      !routeIsListedOrPendingCloudConversation &&
+      exactCloudConversation === undefined,
+  );
+  const cachedOwnershipIsLoading = Boolean(
+    cloudMode &&
+      cachedCloudConversationId &&
+      cachedCloudConversationId !== routerConversationId &&
+      !cachedConversationIsListed &&
+      exactCachedCloudConversation === undefined,
+  );
+  const routeIsOwnedCloudConversation =
+    routeIsListedOrPendingCloudConversation ||
+    exactCloudConversation?.conversationId === routerConversationId;
+  const localRouteConversationId =
+    routerConversationId && isKnownLocalConversationId(routerConversationId)
+      ? routerConversationId
+      : null;
+  const localStateConversationId =
+    state.conversationId && isKnownLocalConversationId(state.conversationId)
+      ? state.conversationId
+      : null;
+  const conversationId = isAuthLoading
+    ? null
+    : cloudMode
+      ? routeIsOwnedCloudConversation
+        ? routerConversationId
+        : null
+      : (localRouteConversationId ?? localStateConversationId);
 
   useEffect(() => {
-    if (routerConversationId && routerConversationId !== state.conversationId) {
-      setConversationId(routerConversationId);
+    if (isAuthLoading) return;
+    // Conversation route repair belongs to `/chat` only. The shell stays
+    // mounted on apps/settings/drive routes; treating their intentionally
+    // absent `?c=` as a broken chat link would force every navigation back to
+    // chat.
+    if (!isOnChatRoute) return;
+    if (!cloudMode) {
+      // Signed-out desktop keeps the legacy local fallback. Bootstrap owns
+      // creating/restoring that id; once it arrives, put it in the route.
+      if (
+        localStateConversationId &&
+        localStateConversationId !== localRouteConversationId
+      ) {
+        void router.navigate({
+          to: "/chat",
+          search: { c: localStateConversationId },
+          replace: true,
+        });
+      }
+      return;
     }
-  }, [routerConversationId, setConversationId, state.conversationId]);
+
+    if (cloudConversations === undefined || routeOwnershipIsLoading) return;
+    for (const item of cloudConversations) {
+      acknowledgeCloudConversation(item.conversationId);
+    }
+
+    if (routeIsOwnedCloudConversation && routerConversationId) {
+      cloudCreateRequestRef.current = null;
+      if (routerConversationId !== state.conversationId) {
+        setConversationId(routerConversationId);
+      }
+      return;
+    }
+
+    if (cachedOwnershipIsLoading) return;
+    const fallbackConversationId = resolveCloudConversationRoute({
+      conversations: exactCachedCloudConversation
+        ? [exactCachedCloudConversation, ...cloudConversations]
+        : cloudConversations,
+      routeConversationId: routerConversationId,
+      cachedConversationId: cachedCloudConversationId,
+      accountScope,
+    });
+    if (fallbackConversationId) {
+      cloudCreateRequestRef.current = null;
+      void router.navigate({
+        to: "/chat",
+        search: { c: fallbackConversationId },
+        replace: true,
+      });
+      return;
+    }
+
+    // A signed-in account with no history still needs an identity before a
+    // desktop-local turn can run. The client key makes StrictMode/remount
+    // retries converge on one blank conversation.
+    if (cloudCreateRequestRef.current?.accountScope === accountScope) {
+      return;
+    }
+    const clientCreateId = crypto.randomUUID();
+    cloudCreateRequestRef.current = { accountScope, clientCreateId };
+    void createCloudConversation({ clientCreateId })
+      .then((created) => {
+        markCloudConversationCreated(created.conversationId, accountScope);
+        setConversationId(created.conversationId);
+        return router.navigate({
+          to: "/chat",
+          search: { c: created.conversationId },
+          replace: true,
+        });
+      })
+      .catch(() => {
+        if (
+          cloudCreateRequestRef.current?.accountScope === accountScope &&
+          cloudCreateRequestRef.current.clientCreateId === clientCreateId
+        ) {
+          cloudCreateRequestRef.current = null;
+        }
+      });
+  }, [
+    cachedCloudConversationId,
+    cachedOwnershipIsLoading,
+    cloudConversations,
+    createCloudConversation,
+    accountScope,
+    cloudMode,
+    exactCloudConversation,
+    exactCachedCloudConversation,
+    isAuthLoading,
+    isOnChatRoute,
+    routeOwnershipIsLoading,
+    routeIsOwnedCloudConversation,
+    router,
+    routerConversationId,
+    setConversationId,
+    state.conversationId,
+    localRouteConversationId,
+    localStateConversationId,
+  ]);
 
   // Single writer for the active-conversation pointer. The router
-  // (`/chat?c=<id>`) is the live source of truth; whenever it changes we
-  // mirror the id into SQLite (durable, cross-process) and a synchronous
-  // shared-UI-state cache (fast boot read). Together they let the next boot
-  // restore exactly this conversation — surviving both renderer hard reloads
-  // and full restarts — without the empty-state flash an IPC-only read causes.
+  // (`/chat?c=<id>`) is the live source of truth. Cloud selection is mirrored
+  // into an account-scoped renderer cache; signed-out local selection keeps
+  // the legacy cache and SQLite pointer. A cloud UUID never becomes the local
+  // active-conversation pointer.
   useEffect(() => {
-    if (!routerConversationId) return;
+    if (!routerConversationId || isAuthLoading) return;
+    if (cloudMode && !routeIsOwnedCloudConversation) return;
+    if (!cloudMode && !isKnownLocalConversationId(routerConversationId)) return;
+    if (cloudMode) {
+      writeActiveCloudConversationIdCache(accountScope, routerConversationId);
+      return;
+    }
     writeActiveConversationIdCache(routerConversationId);
     void setActiveLocalConversationId(routerConversationId);
-  }, [routerConversationId]);
+  }, [
+    accountScope,
+    cloudMode,
+    isAuthLoading,
+    routeIsOwnedCloudConversation,
+    routerConversationId,
+  ]);
 
   useLastLocationRestore(router);
   usePersistLastLocation(router);
@@ -164,33 +357,35 @@ function RootLayout() {
         activeConversationId={conversationId}
         isOnChatRoute={isOnChatRoute}
       >
-        <RootChrome />
+        <RootChrome conversationId={conversationId} />
       </ChatRuntimeProvider>
     </ModelCatalogUpdatedAtProvider>
   );
 }
 
-function RootChrome() {
+function RootChrome({ conversationId }: { conversationId: string | null }) {
   useRestrictedStellaModelReset();
 
   const navigate = useNavigate();
   const { dialog: activeDialog } = Route.useSearch();
-  const { state } = useUiState();
-  const conversationId = state.conversationId;
   const chat = useChatRuntime();
-  const cloudChat = useCloudChat(chat.composer);
+  const cloudChat = useCloudChat(chat.composer, chat.cloudConversation);
   const activityPresence = chat.conversation.activityPresence;
-  const { isAuthenticated } = useConvexAuth();
-  const cloudApps = useQuery(
-    cloudApi.listMyApps,
-    isAuthenticated ? {} : "skip",
+  const { cloudMode } = useCloudMode();
+  const cloudApps = useQuery(cloudApi.listMyApps, cloudMode ? {} : "skip");
+  const cloudConversations = useQuery(
+    cloudApi.listMyConversations,
+    cloudMode ? {} : "skip",
   );
   // Cloud apps and cloud agent threads are both reasons the sidebar has
   // something to show, independent of local activity presence.
   const hasCloudApps = Boolean(
     cloudApps?.some((app) => app.status !== "suspended"),
   );
-  const hasCloudSidebarContent = hasCloudApps || cloudChat.hasCloudActivity;
+  const hasCloudSidebarContent =
+    hasCloudApps ||
+    Boolean(cloudConversations?.length) ||
+    cloudChat.hasCloudActivity;
   const sidebarHasContent =
     hasCloudSidebarContent || activityPresenceAllowsSidebar(activityPresence);
   const panelOpen = useDisplayPanelOpen();

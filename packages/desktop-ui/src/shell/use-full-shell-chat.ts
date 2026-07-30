@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMutation } from "convex/react";
 import type {
   ChatColumnComposer,
   ChatColumnConversation,
@@ -23,7 +24,24 @@ import {
 } from "@/platform/diagnostics/use-trace-listener";
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import { useUiState } from "@/context/ui-state";
+import { useChatStore } from "@/context/chat-store-context";
+import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { router } from "@/router";
+import { cloudApi } from "@/features/cloud/cloud-api";
+import {
+  cloudAttachmentsStore,
+  useCloudAttachments,
+  withAttachmentPreamble,
+} from "@/features/cloud/cloud-composer-store";
+import { markCloudConversationCreated } from "@/features/cloud/cloud-conversation-selection";
+import {
+  activeCloudUserMessageIds,
+  completeJournalWindowRecords,
+  hasIncompleteLeadingJournalTurn,
+  journalRecordsToMessageRecords,
+  mergeCanonicalMessagesWithLocalCache,
+} from "@/features/cloud/journal-message-records";
+import { useConversation } from "@/features/cloud/use-conversation";
 import { useCapturedChatContext } from "./use-captured-chat-context";
 import { useChatScrollManagement } from "./use-chat-scroll-management";
 import { useChatHomeSurface } from "./use-chat-home-surface";
@@ -59,6 +77,23 @@ export function useFullShellChat({
   traceEnabled,
 }: UseFullShellChatOptions) {
   const { setConversationId } = useUiState();
+  const { cloudFeaturesEnabled } = useChatStore();
+  const { cacheScope: accountScope } = useAuthSessionState();
+  const createCloudConversation = useMutation(cloudApi.createMyConversation);
+  const cloudAttachments = useCloudAttachments();
+  const decorateCloudPrompt = useCallback(
+    (prompt: string) => withAttachmentPreamble(prompt, cloudAttachments),
+    [cloudAttachments],
+  );
+  const clearCloudAttachments = useCallback(
+    () => cloudAttachmentsStore.clear(),
+    [],
+  );
+  const cloudConversation = useConversation(
+    cloudFeaturesEnabled ? activeConversationId : null,
+    decorateCloudPrompt,
+    clearCloudAttachments,
+  );
   // Message state + always-current mirror ref, synced at WRITE time. The
   // dictate-and-submit commit is rAF-deferred and can fire before React
   // flushes the render that carries the appended transcript — a ref synced in
@@ -80,12 +115,99 @@ export function useFullShellChat({
   const restoredConversationScrollRef = useRef<string | null>(null);
 
   const {
-    messages: persistedMessages,
-    hasOlderMessages,
-    isLoadingOlder: isLoadingOlderMessages,
-    isInitialLoading: isInitialLoadingMessages,
-    loadOlder: loadOlderMessages,
+    messages: localPersistedMessages,
+    hasOlderMessages: hasOlderLocalMessages,
+    isLoadingOlder: isLoadingOlderLocalMessages,
+    isInitialLoading: isInitialLoadingLocalMessages,
+    loadOlder: loadOlderLocalMessages,
   } = useConversationMessages(activeConversationId ?? undefined);
+
+  const hasIncompleteCloudLeadingTurn =
+    cloudFeaturesEnabled &&
+    hasIncompleteLeadingJournalTurn(
+      cloudConversation.state.records,
+      cloudConversation.state.hasOlder,
+    );
+  const completeCloudRecords = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? completeJournalWindowRecords(
+            cloudConversation.state.records,
+            cloudConversation.state.hasOlder,
+          )
+        : [],
+    [
+      cloudConversation.state.hasOlder,
+      cloudConversation.state.records,
+      cloudFeaturesEnabled,
+    ],
+  );
+  const canonicalMessages = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? journalRecordsToMessageRecords(completeCloudRecords)
+        : [],
+    [cloudFeaturesEnabled, completeCloudRecords],
+  );
+  const activeCanonicalUserMessageIds = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? activeCloudUserMessageIds(cloudConversation.state.records)
+        : new Set<string>(),
+    [cloudConversation.state.records, cloudFeaturesEnabled],
+  );
+  const persistedMessages = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? mergeCanonicalMessagesWithLocalCache(
+            canonicalMessages,
+            localPersistedMessages,
+            activeCanonicalUserMessageIds,
+          )
+        : localPersistedMessages,
+    [
+      activeCanonicalUserMessageIds,
+      canonicalMessages,
+      cloudFeaturesEnabled,
+      localPersistedMessages,
+    ],
+  );
+  const hasOlderMessages = cloudFeaturesEnabled
+    ? cloudConversation.state.hasOlder
+    : hasOlderLocalMessages;
+  const isLoadingOlderMessages = cloudFeaturesEnabled
+    ? cloudConversation.state.loadingOlder
+    : isLoadingOlderLocalMessages;
+  const isInitialLoadingMessages = cloudFeaturesEnabled
+    ? Boolean(
+        activeConversationId &&
+          canonicalMessages.length === 0 &&
+          (hasIncompleteCloudLeadingTurn ||
+            cloudConversation.status === "idle" ||
+            cloudConversation.status === "connecting"),
+      )
+    : isInitialLoadingLocalMessages;
+  const loadOlderCloudMessages = cloudConversation.loadOlder;
+  useEffect(() => {
+    if (
+      !hasIncompleteCloudLeadingTurn ||
+      cloudConversation.state.loadingOlder
+    ) {
+      return;
+    }
+    loadOlderCloudMessages();
+  }, [
+    cloudConversation.state.loadingOlder,
+    hasIncompleteCloudLeadingTurn,
+    loadOlderCloudMessages,
+  ]);
+  const loadOlderMessages = useCallback(() => {
+    if (cloudFeaturesEnabled) {
+      loadOlderCloudMessages();
+      return true;
+    }
+    return loadOlderLocalMessages();
+  }, [cloudFeaturesEnabled, loadOlderCloudMessages, loadOlderLocalMessages]);
 
   const {
     activities,
@@ -120,7 +242,9 @@ export function useFullShellChat({
     cancelCurrentStream,
   } = useStreamingChat({
     conversationId: activeConversationId,
-    persistedMessages,
+    // Local persistence is the acknowledgement source for the IPC stream
+    // machinery. The visible history below is instead canonical-first.
+    persistedMessages: localPersistedMessages,
   });
 
   // Visible chat timeline: SQLite-backed `persistedMessages` plus the
@@ -180,25 +304,37 @@ export function useFullShellChat({
   }, [isOnChatRoute, activeConversationId]);
 
   const startNewChat = useCallback(async () => {
-    const nextConversationId = await createNewLocalConversationId();
+    const nextConversationId = cloudFeaturesEnabled
+      ? (
+          await createCloudConversation({
+            clientCreateId: crypto.randomUUID(),
+          })
+        ).conversationId
+      : await createNewLocalConversationId();
+    if (cloudFeaturesEnabled) {
+      markCloudConversationCreated(nextConversationId, accountScope);
+    }
     setMessage("");
     setSelectedText(null);
     setChatContext(null);
     setConversationId(nextConversationId);
     showHome();
 
-    if (isOnChatRoute) {
+    // A cloud conversation is globally addressable, so every "New chat"
+    // entry point must land on its exact route even when invoked elsewhere in
+    // the shell. Preserve the legacy local behavior outside the chat route.
+    if (cloudFeaturesEnabled || isOnChatRoute) {
       await router.navigate({
         to: "/chat",
-        search: (prev: { c?: string } | undefined) => ({
-          ...(prev ?? {}),
-          c: nextConversationId,
-        }),
+        search: { c: nextConversationId },
         replace: true,
       });
     }
   }, [
     isOnChatRoute,
+    accountScope,
+    cloudFeaturesEnabled,
+    createCloudConversation,
     setChatContext,
     setConversationId,
     setMessage,
@@ -588,6 +724,7 @@ export function useFullShellChat({
       composer,
       scroll: chatColumnScroll,
       annotation,
+      cloudConversation,
       showHomeContent,
       dismissHome,
       showHome,
@@ -597,6 +734,7 @@ export function useFullShellChat({
       composer,
       chatColumnScroll,
       annotation,
+      cloudConversation,
       showHomeContent,
       dismissHome,
       showHome,

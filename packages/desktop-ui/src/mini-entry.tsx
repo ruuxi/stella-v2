@@ -8,6 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type RefObject,
 } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { PanelRight, Pin } from "@/ui/icons";
 import "./index.css";
 import "./ui/register-styles";
@@ -16,7 +17,8 @@ import "./shared/i18n/rtl.css";
 import "./mini-entry.css";
 import { applyLowPowerDocumentFlag } from "./shared/lib/device-perf";
 
-import { LocalChatStoreProvider } from "./context/chat-store-context";
+import { ChatStoreProvider } from "./context/chat-store";
+import { useChatStore } from "./context/chat-store-context";
 import { ThemeProvider, useTheme } from "./context/theme-context";
 import { ShiftingGradient } from "./shell/background/ShiftingGradient";
 import { UiStateProvider } from "./context/ui-state";
@@ -25,17 +27,37 @@ import { ErrorBoundary } from "./shell/ErrorBoundary";
 import { ChatPanelTab, type ChatPanelOpenRequest } from "./shell/ChatSidebar";
 import { ToastProvider } from "./ui/toast";
 import { LocalI18nProvider, useLocale } from "./shared/i18n/I18nProvider";
-import {
-  readActiveConversationIdCache,
-  writeActiveConversationIdCache,
-} from "./features/chat/services/active-conversation-cache";
+import { writeActiveConversationIdCache } from "./features/chat/services/active-conversation-cache";
 import {
   createNewLocalConversationId,
+  getOrCreateLocalConversationId,
   setActiveLocalConversationId,
 } from "./features/chat/services/local-chat-store";
 import { useConversationDisplayMessages } from "./features/chat/hooks/use-conversation-display-messages";
 import { useConversationMessages } from "./features/chat/hooks/use-conversation-messages";
 import { useStreamingChatCore } from "./features/chat/hooks/use-streaming-chat-core";
+import { DesktopConvexAuthProvider } from "./global/auth/DesktopConvexAuthProvider";
+import { useCloudMode } from "./global/auth/hooks/use-cloud-mode";
+import { cloudApi } from "./features/cloud/cloud-api";
+import {
+  markCloudConversationCreated,
+  resolveCloudConversationRoute,
+} from "./features/cloud/cloud-conversation-selection";
+import {
+  getMiniCloudConversationCreateId,
+  readActiveCloudConversationIdCache,
+  rotateMiniCloudConversationCreateId,
+  writeActiveCloudConversationIdCache,
+} from "./features/cloud/cloud-conversation-cache";
+import {
+  activeCloudUserMessageIds,
+  completeJournalWindowRecords,
+  hasIncompleteLeadingJournalTurn,
+  journalRecordsToMessageRecords,
+  mergeCanonicalMessagesWithLocalCache,
+} from "./features/cloud/journal-message-records";
+import { useConversation } from "./features/cloud/use-conversation";
+import { useOwnDeviceRemoteCancel } from "./features/cloud/use-own-device-remote-cancel";
 
 applyLowPowerDocumentFlag();
 document.documentElement.dataset.stellaWindow = "mini";
@@ -141,43 +163,179 @@ function MiniWindowTopBar({
 }
 
 function useMiniActiveConversationId() {
-  const [conversationId, setConversationId] = useState<string | null>(() =>
-    readActiveConversationIdCache(),
+  const { cloudMode, isLoading, accountScope } = useCloudMode();
+  const conversations = useQuery(
+    cloudApi.listMyConversations,
+    cloudMode ? {} : "skip",
   );
+  const cachedCloudConversationId = cloudMode
+    ? readActiveCloudConversationIdCache(accountScope)
+    : null;
+  const cachedConversationIsListed = Boolean(
+    cachedCloudConversationId &&
+      conversations?.some(
+        (conversation) =>
+          conversation.conversationId === cachedCloudConversationId,
+      ),
+  );
+  const exactCachedCloudConversation = useQuery(
+    cloudApi.getMyConversation,
+    cloudMode && cachedCloudConversationId && !cachedConversationIsListed
+      ? { conversationId: cachedCloudConversationId }
+      : "skip",
+  );
+  const cachedOwnershipIsLoading = Boolean(
+    cloudMode &&
+      cachedCloudConversationId &&
+      !cachedConversationIsListed &&
+      exactCachedCloudConversation === undefined,
+  );
+  const createCloudConversation = useMutation(cloudApi.createMyConversation);
+  const selectionKey = isLoading
+    ? null
+    : cloudMode
+      ? `cloud:${accountScope}`
+      : "local";
+  const selectionKeyRef = useRef(selectionKey);
+  selectionKeyRef.current = selectionKey;
+  const [selection, setSelection] = useState<{
+    key: string;
+    conversationId: string;
+  } | null>(null);
+  const cloudCreateAttemptsRef = useRef(
+    new Map<string, Promise<{ conversationId: string }>>(),
+  );
+  const [, retryCloudCreate] = useState(0);
 
   useEffect(() => {
+    if (selectionKey !== "local") return;
     let cancelled = false;
-    const api = window.electronAPI?.localChat;
-    if (!api) return;
-
-    void api
-      .getOrCreateDefaultConversationId()
+    void getOrCreateLocalConversationId()
       .then((activeConversationId) => {
         if (cancelled || !activeConversationId) return;
-        setConversationId(activeConversationId);
+        setSelection({
+          key: "local",
+          conversationId: activeConversationId,
+        });
+        writeActiveConversationIdCache(activeConversationId);
+        void setActiveLocalConversationId(activeConversationId);
       })
-      .catch(() => {
-        if (!cancelled) setConversationId((current) => current ?? null);
-      });
+      .catch(() => {});
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectionKey]);
 
   useEffect(() => {
-    if (!conversationId) return;
-    writeActiveConversationIdCache(conversationId);
-    void setActiveLocalConversationId(conversationId);
-  }, [conversationId]);
+    if (
+      !cloudMode ||
+      !selectionKey ||
+      conversations === undefined ||
+      cachedOwnershipIsLoading
+    ) {
+      return;
+    }
+    const currentConversationId =
+      selection?.key === selectionKey ? selection.conversationId : null;
+    const resolved = resolveCloudConversationRoute({
+      conversations: exactCachedCloudConversation
+        ? [exactCachedCloudConversation, ...conversations]
+        : conversations,
+      routeConversationId: currentConversationId,
+      cachedConversationId: cachedCloudConversationId,
+      accountScope,
+    });
+    if (resolved) {
+      setSelection((current) =>
+        current?.key === selectionKey && current.conversationId === resolved
+          ? current
+          : { key: selectionKey, conversationId: resolved },
+      );
+      writeActiveCloudConversationIdCache(accountScope, resolved);
+      return;
+    }
 
-  return { conversationId, setConversationId };
+    if (cloudCreateAttemptsRef.current.has(accountScope)) return;
+    const clientCreateId = getMiniCloudConversationCreateId(accountScope);
+    const attempt = createCloudConversation({ clientCreateId });
+    cloudCreateAttemptsRef.current.set(accountScope, attempt);
+    void attempt
+      .then((created) => {
+        cloudCreateAttemptsRef.current.delete(accountScope);
+        rotateMiniCloudConversationCreateId(accountScope);
+        markCloudConversationCreated(created.conversationId, accountScope);
+        if (selectionKeyRef.current !== selectionKey) return;
+        writeActiveCloudConversationIdCache(
+          accountScope,
+          created.conversationId,
+        );
+        setSelection({
+          key: selectionKey,
+          conversationId: created.conversationId,
+        });
+      })
+      .catch(() => {
+        cloudCreateAttemptsRef.current.delete(accountScope);
+        window.setTimeout(() => {
+          if (selectionKeyRef.current === selectionKey) {
+            retryCloudCreate((current) => current + 1);
+          }
+        }, 1_000);
+      });
+  }, [
+    accountScope,
+    cachedCloudConversationId,
+    cachedOwnershipIsLoading,
+    cloudMode,
+    conversations,
+    createCloudConversation,
+    exactCachedCloudConversation,
+    selection,
+    selectionKey,
+  ]);
+
+  const setConversationId = useCallback(
+    (conversationId: string) => {
+      if (!selectionKey) return;
+      setSelection({ key: selectionKey, conversationId });
+      if (cloudMode) {
+        markCloudConversationCreated(conversationId, accountScope);
+        writeActiveCloudConversationIdCache(accountScope, conversationId);
+        return;
+      }
+      writeActiveConversationIdCache(conversationId);
+      void setActiveLocalConversationId(conversationId);
+    },
+    [accountScope, cloudMode, selectionKey],
+  );
+
+  return {
+    conversationId:
+      selectionKey && selection?.key === selectionKey
+        ? selection.conversationId
+        : null,
+    setConversationId,
+    cloudMode,
+    accountScope,
+    createCloudConversation,
+  };
 }
 
 function MiniChatSurface() {
   const locale = useLocale();
   const { gradientMode, gradientColor } = useTheme();
-  const { conversationId, setConversationId } = useMiniActiveConversationId();
+  const { cloudFeaturesEnabled } = useChatStore();
+  const {
+    conversationId,
+    setConversationId,
+    cloudMode,
+    accountScope,
+    createCloudConversation,
+  } = useMiniActiveConversationId();
+  const cloudConversation = useConversation(
+    cloudFeaturesEnabled ? conversationId : null,
+  );
   const [displayPortalTarget, setDisplayPortalTarget] =
     useState<HTMLDivElement | null>(null);
   const [miniDisplayModule, setMiniDisplayModule] =
@@ -295,12 +453,98 @@ function MiniChatSurface() {
   }, []);
 
   const {
-    messages: persistedMessages,
-    hasOlderMessages,
-    isLoadingOlder: isLoadingOlderMessages,
-    isInitialLoading: isInitialLoadingMessages,
-    loadOlder: loadOlderMessages,
+    messages: localPersistedMessages,
+    hasOlderMessages: hasOlderLocalMessages,
+    isLoadingOlder: isLoadingOlderLocalMessages,
+    isInitialLoading: isInitialLoadingLocalMessages,
+    loadOlder: loadOlderLocalMessages,
   } = useConversationMessages(conversationId ?? undefined);
+  const hasIncompleteCloudLeadingTurn =
+    cloudFeaturesEnabled &&
+    hasIncompleteLeadingJournalTurn(
+      cloudConversation.state.records,
+      cloudConversation.state.hasOlder,
+    );
+  const completeCloudRecords = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? completeJournalWindowRecords(
+            cloudConversation.state.records,
+            cloudConversation.state.hasOlder,
+          )
+        : [],
+    [
+      cloudConversation.state.hasOlder,
+      cloudConversation.state.records,
+      cloudFeaturesEnabled,
+    ],
+  );
+  const canonicalMessages = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? journalRecordsToMessageRecords(completeCloudRecords)
+        : [],
+    [cloudFeaturesEnabled, completeCloudRecords],
+  );
+  const activeCanonicalUserMessageIds = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? activeCloudUserMessageIds(cloudConversation.state.records)
+        : new Set<string>(),
+    [cloudConversation.state.records, cloudFeaturesEnabled],
+  );
+  const persistedMessages = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? mergeCanonicalMessagesWithLocalCache(
+            canonicalMessages,
+            localPersistedMessages,
+            activeCanonicalUserMessageIds,
+          )
+        : localPersistedMessages,
+    [
+      activeCanonicalUserMessageIds,
+      canonicalMessages,
+      cloudFeaturesEnabled,
+      localPersistedMessages,
+    ],
+  );
+  const hasOlderMessages = cloudFeaturesEnabled
+    ? cloudConversation.state.hasOlder
+    : hasOlderLocalMessages;
+  const isLoadingOlderMessages = cloudFeaturesEnabled
+    ? cloudConversation.state.loadingOlder
+    : isLoadingOlderLocalMessages;
+  const isInitialLoadingMessages = cloudFeaturesEnabled
+    ? Boolean(
+        conversationId &&
+          canonicalMessages.length === 0 &&
+          (hasIncompleteCloudLeadingTurn ||
+            cloudConversation.status === "idle" ||
+            cloudConversation.status === "connecting"),
+      )
+    : isInitialLoadingLocalMessages;
+  const loadOlderCloudMessages = cloudConversation.loadOlder;
+  useEffect(() => {
+    if (
+      !hasIncompleteCloudLeadingTurn ||
+      cloudConversation.state.loadingOlder
+    ) {
+      return;
+    }
+    loadOlderCloudMessages();
+  }, [
+    cloudConversation.state.loadingOlder,
+    hasIncompleteCloudLeadingTurn,
+    loadOlderCloudMessages,
+  ]);
+  const loadOlderMessages = useCallback(() => {
+    if (cloudFeaturesEnabled) {
+      loadOlderCloudMessages();
+      return;
+    }
+    loadOlderLocalMessages();
+  }, [cloudFeaturesEnabled, loadOlderCloudMessages, loadOlderLocalMessages]);
 
   const {
     optimisticEvents,
@@ -321,7 +565,14 @@ function MiniChatSurface() {
     conversationId,
     locale,
     notifyTierRestrictedModel: noopNotifyTierRestrictedModel,
-    persistedMessages,
+    persistedMessages: localPersistedMessages,
+  });
+
+  useOwnDeviceRemoteCancel({
+    conversationId: cloudConversation.state.conversationId,
+    records: cloudConversation.state.records,
+    enabled: cloudFeaturesEnabled,
+    onCancel: cancelCurrentStream,
   });
 
   const displayMessages = useConversationDisplayMessages({
@@ -332,9 +583,18 @@ function MiniChatSurface() {
   });
 
   const startNewChat = useCallback(async () => {
-    const nextConversationId = await createNewLocalConversationId();
+    const nextConversationId = cloudMode
+      ? (
+          await createCloudConversation({
+            clientCreateId: crypto.randomUUID(),
+          })
+        ).conversationId
+      : await createNewLocalConversationId();
+    if (cloudMode) {
+      markCloudConversationCreated(nextConversationId, accountScope);
+    }
     setConversationId(nextConversationId);
-  }, [setConversationId]);
+  }, [accountScope, cloudMode, createCloudConversation, setConversationId]);
 
   const handleSend = useCallback(
     (
@@ -432,19 +692,21 @@ function MiniRoot() {
 
   return (
     <ErrorBoundary>
-      <LocalI18nProvider>
-        <ThemeProvider>
-          <ToastProvider>
-            <BootstrapStateProvider>
-              <UiStateProvider>
-                <LocalChatStoreProvider>
-                  <MiniChatSurface />
-                </LocalChatStoreProvider>
-              </UiStateProvider>
-            </BootstrapStateProvider>
-          </ToastProvider>
-        </ThemeProvider>
-      </LocalI18nProvider>
+      <DesktopConvexAuthProvider enableRuntimeEffects={false}>
+        <LocalI18nProvider>
+          <ThemeProvider>
+            <ToastProvider>
+              <BootstrapStateProvider>
+                <UiStateProvider>
+                  <ChatStoreProvider>
+                    <MiniChatSurface />
+                  </ChatStoreProvider>
+                </UiStateProvider>
+              </BootstrapStateProvider>
+            </ToastProvider>
+          </ThemeProvider>
+        </LocalI18nProvider>
+      </DesktopConvexAuthProvider>
     </ErrorBoundary>
   );
 }

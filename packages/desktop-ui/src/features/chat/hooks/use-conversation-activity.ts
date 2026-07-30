@@ -54,10 +54,10 @@ export type ConversationActivityFeed = {
 export const useConversationActivity = (
   conversationId?: string,
 ): ConversationActivityFeed => {
-  const { storageMode } = useChatStore();
-  const isLocalMode = storageMode === "local";
+  const { storageMode, isLocalStorage } = useChatStore();
+  const isLocalMode = isLocalStorage;
 
-  const visitKey = `${storageMode}:${conversationId ?? ""}`;
+  const visitKey = `${storageMode}:${isLocalStorage ? "cache" : "none"}:${conversationId ?? ""}`;
   const visitToken = useMemo(() => Symbol(visitKey), [visitKey]);
 
   const [limit, setLimit] = useState(ACTIVITY_PAGE_SIZE);

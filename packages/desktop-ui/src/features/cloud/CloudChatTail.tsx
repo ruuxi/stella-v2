@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { StellaLogoIcon } from "@/ui/stella-logo-icon";
 import { showToast } from "@/ui/toast";
@@ -17,17 +17,9 @@ import {
 } from "@/platform/mobile/mobile-shell";
 import { cloudApi, type CloudApp } from "./cloud-api";
 import { openCloudAppPanel } from "./open-cloud-app-panel";
-import {
-  cloudAttachmentsStore,
-  isWebShell,
-  useCloudAttachments,
-  withAttachmentPreamble,
-} from "./cloud-composer-store";
-import {
-  useActiveCloudConversationId,
-  useCloudActivity,
-} from "./use-cloud-activity";
-import { useConversation } from "./use-conversation";
+import { isWebShell } from "./cloud-composer-store";
+import { useCloudActivity } from "./use-cloud-activity";
+import type { CloudConversationView } from "./use-conversation";
 import type { LiveStream, PendingPrompt } from "./conversation-store";
 import {
   messageText,
@@ -38,6 +30,8 @@ import {
 } from "./conversation-protocol";
 import { DriveFileCard } from "@/features/drive/DriveFileCard";
 import { useDriveFileActions } from "@/features/drive/drive-files";
+import { useChatStore } from "@/context/chat-store-context";
+import { useOwnDeviceRemoteCancel } from "./use-own-device-remote-cancel";
 import "./cloud-inline.css";
 
 /**
@@ -48,12 +42,11 @@ import "./cloud-inline.css";
  *
  * The rows come from the conversation's Durable Object over a WebSocket, not
  * from a Convex subscription: the DO owns the transcript. What arrives is a
- * gapless stream of journal records, which this file groups back into turns
- * for rendering. Nothing here is persisted — on desktop in particular, the
- * local SQLite store never sees a cloud conversation.
+ * gapless stream of journal records. The main timeline maps those records into
+ * normal message rows; this tail renders transient activity and result cards.
+ * Desktop SQLite may cache local execution rows, but the DO journal remains
+ * canonical and cross-device.
  */
-
-const RECENT_WINDOW_MS = 15 * 60_000;
 
 // Users see the message we wrote, never Convex's server-error wrapper.
 const friendlyError = (error: unknown): string => {
@@ -335,24 +328,11 @@ const groupRecords = (records: readonly JournalRecord[]): TurnGroup[] => {
   return [...groups.values()];
 };
 
-/** The prompt side of a turn: a bubble, a scheduled announcement, or nothing. */
-function TurnPrompt({ group }: { group: TurnGroup }) {
-  if (!group.promptText) return null;
-  if (!group.promptHidden) {
-    return (
-      <div className="event-row">
-        <div className="event-item user">
-          <span className="cloud-tail__text">{group.promptText}</span>
-        </div>
-      </div>
-    );
+/** Hidden scheduled prompts are announcements, not user-authored bubbles. */
+function ScheduledPrompt({ group }: { group: TurnGroup }) {
+  if (!group.promptHidden || group.source !== "schedule" || !group.promptText) {
+    return null;
   }
-  // A scheduled fire's prompt was written by the model when the schedule was
-  // created, so a user bubble would put words in the user's mouth every time
-  // it runs. The run is announced instead, with the instruction shown as what
-  // fired. Every other hidden prompt (wake turns, lifecycle relays) is pure
-  // plumbing and renders nothing at all.
-  if (group.source !== "schedule") return null;
   return (
     <div className="event-row">
       <div className="cloud-tail__scheduled">
@@ -426,14 +406,10 @@ function CloudTurnRows({
           group.phase !== "completed";
         return (
           <div className="cloud-tail__turn" key={group.turnId}>
-            <TurnPrompt group={group} />
-            {group.assistantTexts.map((text, index) => (
-              <div className="event-row" key={`${group.turnId}:t${index}`}>
-                <div className="event-item assistant">
-                  <span className="cloud-tail__text">{text}</span>
-                </div>
-              </div>
-            ))}
+            {/* Persisted user/assistant messages are projected into the
+                canonical ChatMessages timeline. This tail owns only live
+                cloud state, cards, and terminal notices. */}
+            <ScheduledPrompt group={group} />
             {running ? (
               <div className="event-row">
                 <div className="event-item assistant">
@@ -552,32 +528,30 @@ function PendingRows({
 
 /**
  * Bridges cloud turns into the normal chat surface without changing it:
- *  - renders recent cloud turns as ordinary chat rows via `extraTail`;
+ *  - adds transient turn state and result cards via `extraTail`;
  *  - in the web/mobile interior (no local runtime), routes composer sends to
- *    the cloud chat mutation. On desktop the composer is untouched.
+ *    the cloud chat mutation. Desktop keeps its local streaming composer,
+ *    whose signed-in runtime now journals the same conversation to the DO.
  */
-export function useCloudChat(base: ChatColumnComposer): {
+export function useCloudChat(
+  base: ChatColumnComposer,
+  conversation: CloudConversationView,
+): {
   composer: ChatColumnComposer;
   extraTail: ReactNode;
   /** True while the owner has cloud agent threads worth a sidebar. */
   hasCloudActivity: boolean;
 } {
-  const { isAuthenticated } = useConvexAuth();
-  const apps = useQuery(cloudApi.listMyApps, isAuthenticated ? {} : "skip");
-  const conversationId = useActiveCloudConversationId();
-  const cloudActivity = useCloudActivity();
-  const attachments = useCloudAttachments();
-  // The web/mobile interior has no local runtime, so its composer sends to
-  // the cloud. Desktop keeps its local runtime and reaches cloud workspaces
-  // through spawn placement, not through a composer setting.
-  const webShell = isWebShell();
-
-  const decoratePrompt = useCallback(
-    (prompt: string) => withAttachmentPreamble(prompt, attachments),
-    [attachments],
+  const { cloudFeaturesEnabled } = useChatStore();
+  const apps = useQuery(
+    cloudApi.listMyApps,
+    cloudFeaturesEnabled ? {} : "skip",
   );
-  const onSent = useCallback(() => cloudAttachmentsStore.clear(), []);
-  const conversation = useConversation(conversationId, decoratePrompt, onSent);
+  const cloudActivity = useCloudActivity();
+  // The web/mobile interior has no local runtime, so its composer sends to
+  // the cloud. Desktop keeps its local streaming composer; the runtime's
+  // signed-in storage mode binds that execution to this cloud conversation.
+  const webShell = isWebShell();
   const {
     state,
     pending,
@@ -591,6 +565,7 @@ export function useCloudChat(base: ChatColumnComposer): {
 
   // CarPlay dictation lands in the same cloud path.
   useEffect(() => {
+    if (!cloudFeaturesEnabled) return;
     const onCarPlayPrompt = (event: Event) => {
       const message = (
         event as CustomEvent<{ prompt?: string }>
@@ -600,9 +575,15 @@ export function useCloudChat(base: ChatColumnComposer): {
     window.addEventListener("stella:carplay-prompt", onCarPlayPrompt);
     return () =>
       window.removeEventListener("stella:carplay-prompt", onCarPlayPrompt);
-  }, [send]);
+  }, [cloudFeaturesEnabled, send]);
 
   const groups = useMemo(() => groupRecords(state.records), [state.records]);
+  const localDeviceId = useOwnDeviceRemoteCancel({
+    conversationId: state.conversationId,
+    records: state.records,
+    enabled: !webShell,
+    onCancel: base.onStop,
+  });
 
   const spokenTurns = useRef(new Set<string>());
   useEffect(() => {
@@ -622,10 +603,12 @@ export function useCloudChat(base: ChatColumnComposer): {
   // One send at a time: the composer unlocks as soon as the mutation answers,
   // not when the turn finishes. Queued turns are durable in the DO, but a
   // double-tap should still not fire the same prompt twice.
-  const isSending = pending.some((entry) => entry.turnId === null && !entry.error);
+  const isSending = pending.some(
+    (entry) => entry.turnId === null && !entry.error,
+  );
 
   const composer = useMemo<ChatColumnComposer>(() => {
-    if (!webShell) return base;
+    if (!webShell || !cloudFeaturesEnabled) return base;
     return {
       ...base,
       canSubmit: base.message.trim().length > 0 && !isSending,
@@ -636,25 +619,30 @@ export function useCloudChat(base: ChatColumnComposer): {
         void send(message);
       },
     };
-  }, [base, webShell, isSending, send]);
+  }, [base, cloudFeaturesEnabled, webShell, isSending, send]);
 
-  const visibleGroups = useMemo(() => {
-    if (!groups.length) return groups;
-    // Only the web interior is a pure cloud chat. On desktop the cloud tail
-    // trails the local timeline, so it stays a recency window even while the
-    // composer is pointed at the cloud — picking the destination must not
-    // dump old cloud turns into the local conversation.
-    if (webShell) return groups;
-    const cutoff = Date.now() - RECENT_WINDOW_MS;
-    return groups
-      .filter(
+  // Every shell consumes the same complete DO window. Persisted messages are
+  // projected into the main timeline; this tail keeps the matching live
+  // state/cards/notices without a desktop-only recency truncation.
+  const visibleGroups = useMemo(
+    () =>
+      groups.filter(
         (group) =>
-          group.phase === null ||
-          group.phase === "started" ||
-          group.updatedAtMs >= cutoff,
-      )
-      .slice(-10);
-  }, [groups, webShell]);
+          (group.phase === "started" &&
+            !(
+              localDeviceId &&
+              group.turnId.startsWith(`desktop:${localDeviceId}:`)
+            )) ||
+          (group.phase !== null &&
+            group.phase !== "started" &&
+            group.phase !== "completed") ||
+          group.cards.length > 0 ||
+          (group.promptHidden &&
+            group.source === "schedule" &&
+            Boolean(group.promptText)),
+      ),
+    [groups, localDeviceId],
+  );
 
   const hasRows = visibleGroups.length > 0 || pending.length > 0;
   const showStatus =

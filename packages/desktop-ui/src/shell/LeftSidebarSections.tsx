@@ -14,17 +14,19 @@ import {
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { useAction, usePaginatedQuery, useQuery } from "convex/react";
 import {
   History,
   ChevronDown,
   Eye,
   AppWindowMac,
   FolderOpen,
+  MessageSquare,
   Trash2,
 } from "@/ui/icons";
 import { openDrivePanel } from "@/features/drive/open-drive-panel";
 import { cloudApi } from "@/features/cloud/cloud-api";
+import { filterCloudConversationHistory } from "@/features/cloud/cloud-conversation-list";
 import {
   closeCloudAppPanel,
   openCloudAppPanel,
@@ -34,6 +36,8 @@ import { useCloudActivity } from "@/features/cloud/use-cloud-activity";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
+import { router } from "@/router";
+import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
 import {
   useConversationSchedules,
   type ScheduleEntry,
@@ -111,6 +115,7 @@ const SECTION_CAPS = {
 // set made a common query mount hundreds of rows at once. The history dialogs
 // remain the escape hatch for longer result sets.
 const SEARCH_CAPS = { activity: 40, files: 40, schedule: 30 };
+const CLOUD_CONVERSATIONS_PAGE_SIZE = 12;
 const EMPTY_FILES: ReadonlyArray<ConversationFileEntry> = [];
 const EMPTY_PLACEMENTS: ReadonlyMap<string, string> = new Map();
 /** Most-recent agent-authored messages shown under an expanded agent. */
@@ -854,12 +859,19 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
     loadOlder: loadOlderFiles,
   } = filesFeed;
   const schedules = useConversationSchedules(conversationId);
-  const { isAuthenticated } = useConvexAuth();
-  const cloudApps = useQuery(
-    cloudApi.listMyApps,
-    isAuthenticated ? {} : "skip",
+  const { cloudMode } = useCloudMode();
+  const cloudApps = useQuery(cloudApi.listMyApps, cloudMode ? {} : "skip");
+  const {
+    results: cloudConversations,
+    status: cloudConversationPagingStatus,
+    loadMore: loadMoreCloudConversations,
+  } = usePaginatedQuery(
+    cloudApi.listMyConversationsPage,
+    cloudMode ? {} : "skip",
+    { initialNumItems: CLOUD_CONVERSATIONS_PAGE_SIZE },
   );
   const deleteCloudApp = useAction(cloudApi.deleteMyApp);
+  const deleteCloudConversation = useAction(cloudApi.deleteMyConversation);
 
   const normalizedQuery = query.trim().toLowerCase();
   const searching = normalizedQuery.length > 0;
@@ -876,6 +888,14 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
         .slice(0, 12),
     [cloudApps, normalizedQuery, searching],
   );
+  const visibleCloudConversations = useMemo(
+    () => filterCloudConversationHistory(cloudConversations, normalizedQuery),
+    [cloudConversations, normalizedQuery],
+  );
+  const canLoadMoreCloudConversations =
+    cloudConversationPagingStatus === "CanLoadMore";
+  const isLoadingMoreCloudConversations =
+    cloudConversationPagingStatus === "LoadingMore";
 
   // While searching, page in the full dataset so the query matches every
   // item, not just what's already loaded. Each loader call updates
@@ -889,6 +909,11 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
     if (!searching) return;
     if (filesHaveOlder && !filesAreLoadingOlder) loadOlderFiles();
   }, [searching, filesHaveOlder, filesAreLoadingOlder, loadOlderFiles]);
+
+  useEffect(() => {
+    if (!searching || !canLoadMoreCloudConversations) return;
+    loadMoreCloudConversations(CLOUD_CONVERSATIONS_PAGE_SIZE);
+  }, [canLoadMoreCloudConversations, loadMoreCloudConversations, searching]);
 
   const [historySection, setHistorySection] =
     useState<ActivityHistorySection | null>(null);
@@ -1222,10 +1247,11 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
   // workspace panel, not a sidebar page.
   const showDrive =
     !searching &&
-    isAuthenticated &&
+    cloudMode &&
     (visibleCloudApps.length > 0 || cloudActivity.tasks.length > 0);
 
   if (
+    !visibleCloudConversations.length &&
     !visibleCloudApps.length &&
     !showDrive &&
     !hasActivity &&
@@ -1238,6 +1264,91 @@ export const LeftSidebarSections = memo(function LeftSidebarSections({
   return (
     <>
       <div className="chat-workspace-strip__panel">
+        {visibleCloudConversations.length ? (
+          <WorkspaceSection title="Conversations" sectionId="conversations">
+            <ul className="chat-workspace-strip__list">
+              {visibleCloudConversations.map((conversation) => (
+                <li
+                  key={conversation.conversationId}
+                  className="chat-workspace-strip__row cloud-sidebar-app__row"
+                  data-selected={
+                    conversation.conversationId === conversationId
+                      ? "true"
+                      : undefined
+                  }
+                >
+                  <button
+                    type="button"
+                    className="chat-workspace-strip__file-button cloud-sidebar-app"
+                    aria-current={
+                      conversation.conversationId === conversationId
+                        ? "page"
+                        : undefined
+                    }
+                    onClick={() => {
+                      void router.navigate({
+                        to: "/chat",
+                        search: { c: conversation.conversationId },
+                      });
+                      onNavigate?.();
+                    }}
+                  >
+                    <MessageSquare
+                      size={15}
+                      strokeWidth={1.7}
+                      aria-hidden="true"
+                    />
+                    <span className="chat-workspace-strip__file-name">
+                      {conversation.title || "New conversation"}
+                    </span>
+                    {conversation.activity === "running" ? (
+                      <span className="chat-workspace-strip__row-meta">
+                        Working
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="cloud-sidebar-app__delete"
+                    aria-label={`Delete ${conversation.title || "conversation"}`}
+                    title={`Delete ${conversation.title || "conversation"}`}
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          `Delete ${conversation.title || "this conversation"}?`,
+                        )
+                      ) {
+                        return;
+                      }
+                      void deleteCloudConversation({
+                        conversationId: conversation.conversationId,
+                      }).catch(() => undefined);
+                    }}
+                  >
+                    <Trash2 size={13} strokeWidth={1.7} aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+              {canLoadMoreCloudConversations ||
+              isLoadingMoreCloudConversations ? (
+                <li className="chat-workspace-strip__row">
+                  <button
+                    type="button"
+                    className="chat-workspace-strip__file-button cloud-sidebar-conversations__load-more"
+                    disabled={isLoadingMoreCloudConversations}
+                    onClick={() =>
+                      loadMoreCloudConversations(CLOUD_CONVERSATIONS_PAGE_SIZE)
+                    }
+                  >
+                    {isLoadingMoreCloudConversations
+                      ? "Loading more…"
+                      : "Load more"}
+                  </button>
+                </li>
+              ) : null}
+            </ul>
+          </WorkspaceSection>
+        ) : null}
         {visibleCloudApps.length ? (
           <WorkspaceSection title="Apps" sectionId="cloud-apps">
             <ul className="chat-workspace-strip__list">

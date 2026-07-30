@@ -13,12 +13,12 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
-  useConvexAuth,
   useMutation,
   useQueries,
   useQuery,
   type RequestForQueries,
 } from "convex/react";
+import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
 import { cloudApi } from "./cloud-api";
 import {
   getCloudExecutionSelectionSnapshot,
@@ -59,17 +59,17 @@ const UNSUPPORTED_CONFIG: CloudRealtimeConfig = {
  * cost the user their cloud tail, not the whole shell.
  */
 export const useCloudRealtimeConfig = (): CloudRealtimeConfig => {
-  const { isAuthenticated } = useConvexAuth();
+  const { cloudMode } = useCloudMode();
   const request = useMemo<RequestForQueries>(() => {
     const queries: RequestForQueries = {};
-    if (isAuthenticated) {
+    if (cloudMode) {
       queries.realtime = { query: cloudApi.getCloudRealtimeConfig, args: {} };
     }
     return queries;
-  }, [isAuthenticated]);
+  }, [cloudMode]);
   const results = useQueries(request);
   return useMemo(() => {
-    if (!isAuthenticated) return OFFLINE_CONFIG;
+    if (!cloudMode) return OFFLINE_CONFIG;
     const value = results.realtime;
     if (value === undefined) return OFFLINE_CONFIG;
     if (value instanceof Error) return UNSUPPORTED_CONFIG;
@@ -85,7 +85,7 @@ export const useCloudRealtimeConfig = (): CloudRealtimeConfig => {
           : null,
       resolved: true,
     };
-  }, [isAuthenticated, results.realtime]);
+  }, [cloudMode, results.realtime]);
 };
 
 const IDLE_STATE: ConversationState = {
@@ -134,10 +134,10 @@ export const useConversation = (
   const config = useCloudRealtimeConfig();
   const { locale } = useI18n();
   const startTurn = useMutation(cloudApi.startCloudChat);
-  const { isAuthenticated } = useConvexAuth();
+  const { cloudMode } = useCloudMode();
   const cloudEngine = useQuery(
     cloudApi.listMyEngineConnections,
-    isAuthenticated ? {} : "skip",
+    cloudMode ? {} : "skip",
   );
   const localExecution = useSyncExternalStore(
     subscribeCloudExecutionSelection,

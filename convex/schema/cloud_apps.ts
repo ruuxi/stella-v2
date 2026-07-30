@@ -22,6 +22,18 @@ export const cloudAppsSchema = {
     conversationId: v.string(),
     ownerId: v.string(),
     /**
+     * Client-minted idempotency key for creating a conversation before its
+     * first turn. Scoped by owner so two devices/accounts may use the same
+     * opaque key without sharing an identity.
+     */
+    clientCreateId: v.optional(v.string()),
+    /**
+     * True for an intentionally empty conversation created from a New chat
+     * action. The orphan sweep only owns failed turn-dispatch rows; it must not
+     * reap a valid empty conversation before the user types into it.
+     */
+    allowEmpty: v.optional(v.boolean()),
+    /**
      * Durable model route for every turn in this conversation. Optional only
      * for rows created before execution snapshots existed; the next turn
      * resolves and backfills it before dispatch.
@@ -58,14 +70,28 @@ export const cloudAppsSchema = {
     purgedAt: v.optional(v.number()),
   })
     .index("by_conversationId", ["conversationId"])
+    .index("by_ownerId_and_clientCreateId", ["ownerId", "clientCreateId"])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"])
+    .index("by_ownerId_and_deletedAt_and_updatedAt", [
+      "ownerId",
+      "deletedAt",
+      "updatedAt",
+    ])
     // Tombstones still awaiting a purge. Missing fields index as `undefined`,
     // which sorts below every number, so `eq(purgedAt, undefined)` selects
     // exactly the unfinished ones and `gte(deletedAt, 1)` skips live rows.
     .index("by_purgedAt_and_deletedAt", ["purgedAt", "deletedAt"])
     // Orphan sweep: rows the DO never flushed (`lastSeq` undefined) group at
     // the front of this index, ordered by age.
-    .index("by_lastSeq_and_createdAt", ["lastSeq", "createdAt"]),
+    .index("by_lastSeq_and_createdAt", ["lastSeq", "createdAt"])
+    // The sweep may address only dispatch-created rows. Legacy rows and
+    // ordinary dispatch rows have `allowEmpty` undefined; intentional empty
+    // conversations carry true and are excluded by the indexed equality.
+    .index("by_allowEmpty_and_lastSeq_and_createdAt", [
+      "allowEmpty",
+      "lastSeq",
+      "createdAt",
+    ]),
 
   // The resurrection fence, and nothing else.
   //

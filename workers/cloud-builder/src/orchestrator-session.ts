@@ -114,6 +114,17 @@ import {
   REINDEX_BUDGET_MS,
   REINDEX_MAX_BATCHES,
 } from "./index-flush.js";
+import {
+  LOCAL_CLIENT_MSG_ID_PATTERN,
+  LOCAL_DEVICE_ID_PATTERN,
+  LOCAL_TURN_ID_PATTERN,
+  localTurnId as makeLocalTurnId,
+  parseLocalTurnRenewal,
+  parseLocalFinishRecords,
+  parseLocalTerminalPhase,
+  type ParsedLocalTurnRenewal,
+  type LocalTerminalPhase,
+} from "./local-turn-protocol.js";
 
 type Env = {
   BUILD_SESSIONS: DurableObjectNamespace;
@@ -167,6 +178,39 @@ export type ChatTurnRequest = {
   /** Worker-issued owner purge lease generation. */
   ownerPurgeGeneration?: string;
   ownerPurgeLeaseId?: string;
+  /** Set by the DO when the dispatch is accepted; used to restore queue order. */
+  queuedAt?: number;
+};
+
+type OwnerFencedTurn = {
+  ownerId: string;
+  turnId: string;
+  ownerPurgeGeneration?: string;
+  ownerPurgeLeaseId?: string;
+};
+
+type LocalTurnLease = OwnerFencedTurn & {
+  deviceId: string;
+  localTurnId: string;
+  leaseToken: string;
+  expiresAt: number;
+  beginFingerprint: string;
+  finishFingerprint?: string;
+  cancelRequested?: boolean;
+  clientMsgId?: string;
+};
+
+type LocalTurnFinishReceipt = {
+  turnId: string;
+  deviceId: string;
+  localTurnId: string;
+  leaseToken: string;
+  phase: LocalTerminalPhase;
+  firstSeq: number;
+  lastSeq: number;
+  epoch: number;
+  finishFingerprint?: string;
+  externallyCanceled?: boolean;
 };
 
 const DEFAULT_CLOUD_EXECUTION: CloudExecutionSelection = {
@@ -180,6 +224,15 @@ class OwnerPurgeFenceError extends Error {}
 
 const CHAT_WATCHDOG_MS = 5 * 60_000;
 const OWNER_PURGE_STALE_LEASE_GRACE_MS = 35_000;
+const LOCAL_TURN_LEASE_MS = 30 * 60_000;
+const LOCAL_TURN_CANCEL_GRACE_MS = 45_000;
+const LOCAL_TURN_BEGIN_MAX_BYTES = 64 * 1024 * 1024;
+const LOCAL_TURN_FINISH_MAX_ROWS = 1_024;
+const LOCAL_TURN_FINISH_MAX_BYTES = APPEND_WINDOW_MAX_BYTES;
+const LOCAL_TURN_LEASE_KEY = "localTurnLease";
+const LOCAL_TURN_RECEIPT_PREFIX = "localTurnReceipt:";
+const localTurnReceiptKey = (turnId: string): string =>
+  `${LOCAL_TURN_RECEIPT_PREFIX}${turnId}`;
 
 const json = (body: unknown, status = 200): Response =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -428,10 +481,22 @@ export class OrchestratorSession extends DurableObject<Env> {
       if (this.journal.meta().conversation_id === "" && this.ctx.id.name) {
         this.journal.setConversationId(this.ctx.id.name);
       }
-      const queued = await this.ctx.storage.list<ChatTurnRequest>({
-        prefix: "queued:",
-      });
-      for (const turn of queued.values()) this.enqueue(turn);
+      const localLease =
+        await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+      if (localLease) {
+        this.live = {
+          turnId: localLease.turnId,
+          streamId: null,
+          partialText: "",
+          tools: [],
+        };
+        const alarmAt = await this.ctx.storage.getAlarm();
+        if (alarmAt === null || alarmAt > localLease.expiresAt) {
+          await this.ctx.storage.setAlarm(localLease.expiresAt);
+        }
+      } else {
+        for (const turn of await this.queuedTurns()) this.enqueue(turn);
+      }
     });
   }
 
@@ -460,7 +525,7 @@ export class OrchestratorSession extends DurableObject<Env> {
   }
 
   private async registerOwnerTurn(
-    turn: ChatTurnRequest,
+    turn: OwnerFencedTurn,
     freshLease = false,
   ): Promise<string> {
     if (freshLease || !turn.ownerPurgeLeaseId) {
@@ -483,7 +548,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     return body.generation;
   }
 
-  private async assertOwnerTurn(turn: ChatTurnRequest): Promise<void> {
+  private async assertOwnerTurn(turn: OwnerFencedTurn): Promise<void> {
     if (!turn.ownerPurgeGeneration || !turn.ownerPurgeLeaseId) {
       throw new OwnerPurgeFenceError();
     }
@@ -494,7 +559,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     if (!response.ok) throw new OwnerPurgeFenceError();
   }
 
-  private async unregisterOwnerTurn(turn: ChatTurnRequest): Promise<void> {
+  private async unregisterOwnerTurn(turn: OwnerFencedTurn): Promise<void> {
     if (!turn.ownerPurgeGeneration || !turn.ownerPurgeLeaseId) return;
     await this.callOwnerFence(turn.ownerId, "unregister", {
       leaseId: turn.ownerPurgeLeaseId,
@@ -643,6 +708,12 @@ export class OrchestratorSession extends DurableObject<Env> {
   }
 
   private async cancelTurn(turnId: string): Promise<void> {
+    const localLease =
+      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    if (localLease?.turnId === turnId) {
+      await this.cancelLocalTurn(localLease);
+      return;
+    }
     const turn = await this.ctx.storage.get<ChatTurnRequest>("turn");
     if (!turn || turn.turnId !== turnId) return;
     await this.fetch(
@@ -657,6 +728,159 @@ export class OrchestratorSession extends DurableObject<Env> {
       .then(() => this.runTurn(turn))
       .catch(() => undefined);
     this.ctx.waitUntil(this.queue);
+  }
+
+  private async queuedTurns(): Promise<ChatTurnRequest[]> {
+    const queued = await this.ctx.storage.list<ChatTurnRequest>({
+      prefix: "queued:",
+    });
+    return [...queued.values()].sort(
+      (left, right) =>
+        (left.queuedAt ?? Number.MAX_SAFE_INTEGER) -
+          (right.queuedAt ?? Number.MAX_SAFE_INTEGER) ||
+        left.turnId.localeCompare(right.turnId),
+    );
+  }
+
+  private async armLocalLeaseAlarm(expiresAt: number): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const current = await this.ctx.storage.getAlarm();
+      if (current === null || current > expiresAt) {
+        await this.ctx.storage.setAlarm(expiresAt);
+      }
+    });
+  }
+
+  private async cancelLocalTurn(
+    lease: LocalTurnLease,
+    forceRelease = false,
+  ): Promise<boolean> {
+    let claimed: LocalTurnLease | undefined;
+    let terminalRecord: JournalRecord | undefined;
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const current =
+        await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+      if (
+        !current ||
+        current.turnId !== lease.turnId ||
+        current.leaseToken !== lease.leaseToken
+      ) {
+        return;
+      }
+      const state = this.journal.turnState(current.turnId);
+      const wasExternallyCanceled = current.cancelRequested === true;
+      current.cancelRequested = true;
+      await this.ctx.storage.put(LOCAL_TURN_LEASE_KEY, current);
+      const retryAt = Date.now() + LOCAL_TURN_CANCEL_GRACE_MS;
+      const alarmAt = await this.ctx.storage.getAlarm();
+      if (alarmAt === null || alarmAt > retryAt) {
+        await this.ctx.storage.setAlarm(retryAt);
+      }
+
+      let phase =
+        state?.state === "terminal"
+          ? (parseLocalTerminalPhase(state.terminal_kind) ?? "canceled")
+          : "canceled";
+      let terminalSeq = this.journal.head("idle").headSeq;
+      let externallyCanceled = wasExternallyCanceled;
+      if (state?.state !== "terminal") {
+        const now = Date.now();
+        const terminal = this.journal.appendTurn({
+          turnId: current.turnId,
+          writer: `desktop:${current.deviceId}`,
+          writerKey: `turn:${current.turnId}:phase:canceled`,
+          phase: "canceled",
+          lane: "chat",
+          source: "desktop",
+          notice: TERMINAL_NOTICE.canceled,
+          createdAt: now,
+        });
+        terminalSeq = terminal.seq;
+        terminalRecord = terminal.record;
+        phase = "canceled";
+        externallyCanceled = true;
+        this.journal.setTurnSpan(current.turnId, terminal.seq);
+        this.journal.setTurnTerminal(current.turnId, "canceled", now);
+      }
+      const receipt: LocalTurnFinishReceipt = {
+        turnId: current.turnId,
+        deviceId: current.deviceId,
+        localTurnId: current.localTurnId,
+        leaseToken: current.leaseToken,
+        phase,
+        firstSeq: terminalSeq,
+        lastSeq: terminalSeq,
+        epoch: this.journal.meta().epoch,
+        ...(externallyCanceled
+          ? { externallyCanceled: true }
+          : current.finishFingerprint
+            ? { finishFingerprint: current.finishFingerprint }
+            : {}),
+      };
+      await this.ctx.storage.put(localTurnReceiptKey(current.turnId), receipt);
+      claimed = current;
+    });
+    if (!claimed) return false;
+    if (terminalRecord) this.publish(terminalRecord);
+    this.live = null;
+    this.hub.endTurn(claimed.turnId);
+    // Keep the single-writer fence during a short cancellation handshake.
+    // The desktop runtime's control heartbeat observes the terminal receipt,
+    // aborts its provider, and replays a canceled finish, whose receipt path
+    // releases immediately. If the desktop is gone, the alarm force-releases
+    // after the bounded grace instead of admitting conflicting work at the
+    // instant another client presses Stop.
+    if (forceRelease) {
+      await this.unregisterOwnerTurn(claimed);
+      await this.releaseLocalLeaseAndResume(claimed);
+    }
+    this.recordExcerpt(claimed.turnId);
+    const now = Date.now();
+    await this.index
+      .flush({ activity: "idle", updatedAt: now })
+      .catch(() => undefined);
+    try {
+      this.drainInbox();
+    } catch (error) {
+      log("error", "conversation_local_turn_cancel_drain_failed", {
+        turnId: claimed.turnId,
+        message: errorMessage(error),
+      });
+    }
+    await this.archive.maybeRollover(now).catch((error) => {
+      log("error", "conversation_local_turn_cancel_rollover_failed", {
+        turnId: claimed!.turnId,
+        message: errorMessage(error),
+      });
+    });
+    return true;
+  }
+
+  private async releaseLocalLeaseAndResume(
+    lease: LocalTurnLease,
+    resumeQueued = true,
+  ): Promise<void> {
+    let queued: ChatTurnRequest[] = [];
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const current =
+        await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+      if (
+        !current ||
+        current.turnId !== lease.turnId ||
+        current.leaseToken !== lease.leaseToken
+      ) {
+        return;
+      }
+      await this.ctx.storage.delete(LOCAL_TURN_LEASE_KEY);
+      if (resumeQueued) {
+        queued = await this.queuedTurns();
+        if (queued.length === 0) {
+          await this.ctx.storage.deleteAlarm().catch(() => undefined);
+        }
+      }
+    });
+    for (const turn of queued) this.enqueue(turn);
+    if (queued.length > 0) await this.ensureQueueAlarm();
   }
 
   private convexPost(
@@ -760,7 +984,99 @@ export class OrchestratorSession extends DurableObject<Env> {
     });
   }
 
+  private async expireLocalLease(
+    lease: LocalTurnLease,
+    resumeQueued: boolean,
+  ): Promise<void> {
+    const current =
+      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    if (
+      !current ||
+      current.turnId !== lease.turnId ||
+      current.leaseToken !== lease.leaseToken
+    ) {
+      return;
+    }
+    const priorState = this.journal.turnState(lease.turnId);
+    const phase =
+      priorState?.state === "terminal"
+        ? (parseLocalTerminalPhase(priorState.terminal_kind) ?? "timeout")
+        : "timeout";
+    let terminalSeq = this.journal.head("idle").headSeq;
+    try {
+      if (priorState?.state !== "terminal") {
+        const now = Date.now();
+        const row = this.journal.appendTurn({
+          turnId: lease.turnId,
+          writer: `desktop:${lease.deviceId}`,
+          writerKey: `turn:${lease.turnId}:phase:timeout`,
+          phase: "timeout",
+          lane: "chat",
+          source: "desktop",
+          notice: TERMINAL_NOTICE.timeout,
+          createdAt: now,
+        });
+        terminalSeq = row.seq;
+        this.journal.setTurnSpan(lease.turnId, row.seq);
+        this.journal.setTurnTerminal(lease.turnId, "timeout", now);
+        this.publish(row.record);
+      }
+    } catch (error) {
+      log("error", "conversation_local_turn_timeout_failed", {
+        turnId: lease.turnId,
+        message: errorMessage(error),
+      });
+      throw error;
+    }
+    const receipt: LocalTurnFinishReceipt = {
+      turnId: lease.turnId,
+      deviceId: lease.deviceId,
+      localTurnId: lease.localTurnId,
+      leaseToken: lease.leaseToken,
+      phase,
+      firstSeq: terminalSeq,
+      lastSeq: terminalSeq,
+      epoch: this.journal.meta().epoch,
+    };
+    await this.ctx.storage.put(localTurnReceiptKey(lease.turnId), receipt);
+    await this.unregisterOwnerTurn(lease);
+    await this.releaseLocalLeaseAndResume(lease, resumeQueued);
+    this.live = null;
+    this.hub.endTurn(lease.turnId);
+    this.recordExcerpt(lease.turnId);
+    const now = Date.now();
+    await this.index
+      .flush({ activity: "idle", updatedAt: now })
+      .catch(() => undefined);
+    try {
+      this.drainInbox();
+    } catch (error) {
+      log("error", "conversation_local_turn_timeout_drain_failed", {
+        turnId: lease.turnId,
+        message: errorMessage(error),
+      });
+    }
+    await this.archive.maybeRollover(now).catch((error) => {
+      log("error", "conversation_local_turn_timeout_rollover_failed", {
+        turnId: lease.turnId,
+        message: errorMessage(error),
+      });
+    });
+  }
+
   async alarm(): Promise<void> {
+    const localLease =
+      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    if (localLease) {
+      if (localLease.cancelRequested) {
+        await this.cancelLocalTurn(localLease, true);
+      } else if (localLease.expiresAt <= Date.now()) {
+        await this.expireLocalLease(localLease, true);
+      } else {
+        await this.armLocalLeaseAlarm(localLease.expiresAt);
+      }
+      return;
+    }
     const turn = await this.ctx.storage.get<ChatTurnRequest>("turn");
     if (!turn || (await this.ctx.storage.get<boolean>("terminalDelivered"))) {
       // Nothing owed for the turn under `turn` — but this firing still spent
@@ -873,6 +1189,12 @@ export class OrchestratorSession extends DurableObject<Env> {
     if (request.method !== "POST") {
       return json({ error: "Method not allowed." }, 405);
     }
+    if (url.pathname === "/local-turns/begin") {
+      return this.handleLocalTurnBegin(request);
+    }
+    if (url.pathname === "/local-turns/finish") {
+      return this.handleLocalTurnFinish(request);
+    }
     if (url.pathname === "/journal") return this.handleJournalAppend(request);
     if (url.pathname === "/cards") return this.handleCard(request);
     if (url.pathname === "/purge") return this.handlePurge();
@@ -885,6 +1207,8 @@ export class OrchestratorSession extends DurableObject<Env> {
         leaseId?: string;
       };
       const current = await this.ctx.storage.get<ChatTurnRequest>("turn");
+      const localLease =
+        await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
       await this.ctx.storage.put("terminal", true);
       this.currentTurnAbort?.abort();
       this.currentAgent?.abort();
@@ -895,12 +1219,58 @@ export class OrchestratorSession extends DurableObject<Env> {
         await this.ctx.storage.delete(key);
         await this.unregisterOwnerTurn(queuedTurn);
       }
-      const turnId = body.turnId ?? current?.turnId;
-      const ownerId = body.ownerId ?? current?.ownerId;
-      const generation = body.generation ?? current?.ownerPurgeGeneration;
-      const leaseId = body.leaseId ?? current?.ownerPurgeLeaseId;
+      const turnId = body.turnId ?? current?.turnId ?? localLease?.turnId;
+      const ownerId = body.ownerId ?? current?.ownerId ?? localLease?.ownerId;
+      const generation =
+        body.generation ??
+        current?.ownerPurgeGeneration ??
+        localLease?.ownerPurgeGeneration;
+      const leaseId =
+        body.leaseId ??
+        current?.ownerPurgeLeaseId ??
+        localLease?.ownerPurgeLeaseId;
       if (!turnId || !ownerId || !generation || !leaseId) {
         return json({ error: "Owner purge lease identity required." }, 400);
+      }
+      if (
+        localLease &&
+        localLease.turnId === turnId &&
+        localLease.ownerId === ownerId &&
+        localLease.ownerPurgeGeneration === generation &&
+        localLease.ownerPurgeLeaseId === leaseId
+      ) {
+        try {
+          if (this.journal.turnState(turnId)?.state !== "terminal") {
+            const now = Date.now();
+            const terminal = this.journal.appendTurn({
+              turnId,
+              writer: `desktop:${localLease.deviceId}`,
+              writerKey: `turn:${turnId}:phase:canceled`,
+              phase: "canceled",
+              lane: "chat",
+              source: "desktop",
+              notice: TERMINAL_NOTICE.canceled,
+              createdAt: now,
+            });
+            this.journal.setTurnSpan(turnId, terminal.seq);
+            this.journal.setTurnTerminal(turnId, "canceled", now);
+            this.publish(terminal.record);
+          }
+        } catch {
+          // The purge remains authoritative; a best-effort terminal row must
+          // never keep the owner's destructive operation blocked.
+        }
+        await this.ctx.storage.delete(LOCAL_TURN_LEASE_KEY);
+        await this.ctx.storage.deleteAlarm().catch(() => undefined);
+        this.live = null;
+        this.hub.endTurn(turnId);
+        await this.unregisterOwnerTurn(localLease);
+        return json({
+          canceled: true,
+          turnId,
+          unregistered: true,
+          local: true,
+        });
       }
       if (this.activeTurnId === turnId) {
         return json({ error: "Owner turn is still unwinding." }, 409);
@@ -973,6 +1343,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
     if (url.pathname !== "/turn") return json({ error: "Not found." }, 404);
     const turn = (await request.json()) as ChatTurnRequest;
+    turn.queuedAt ??= Date.now();
     try {
       delete turn.ownerPurgeGeneration;
       delete turn.ownerPurgeLeaseId;
@@ -996,15 +1367,24 @@ export class OrchestratorSession extends DurableObject<Env> {
     // and delete the alarm after this handler has already decided one exists —
     // leaving `queued:` durable with no wake signal, which is the same
     // stranding as a consumed alarm by another route.
+    let heldForLocalTurn = false;
     await this.ctx.blockConcurrencyWhile(async () => {
       await this.ctx.storage.put(`queued:${turn.turnId}`, turn);
-      if ((await this.ctx.storage.getAlarm()) === null) {
+      const localLease =
+        await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+      heldForLocalTurn = localLease !== undefined;
+      if (localLease) {
+        const alarmAt = await this.ctx.storage.getAlarm();
+        if (alarmAt === null || alarmAt > localLease.expiresAt) {
+          await this.ctx.storage.setAlarm(localLease.expiresAt);
+        }
+      } else if ((await this.ctx.storage.getAlarm()) === null) {
         await this.ctx.storage.setAlarm(
           Date.now() + Math.max(1_000, turn.watchdogMs ?? CHAT_WATCHDOG_MS),
         );
       }
     });
-    this.enqueue(turn);
+    if (!heldForLocalTurn) this.enqueue(turn);
     return json({ accepted: true }, 202);
   }
 
@@ -1017,6 +1397,21 @@ export class OrchestratorSession extends DurableObject<Env> {
   private currentTurnAbort?: AbortController;
 
   private async runTurn(turn: ChatTurnRequest): Promise<Response> {
+    const localLease =
+      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    if (localLease) {
+      if (localLease.expiresAt <= Date.now()) {
+        await this.expireLocalLease(localLease, false);
+      } else {
+        await this.armLocalLeaseAlarm(localLease.expiresAt);
+        log("info", "chat_turn_waiting_for_local_turn", {
+          turnId: turn.turnId,
+          localTurnId: localLease.turnId,
+          conversationId: turn.conversationId,
+        });
+        return json({ ok: false, queued: true }, 202);
+      }
+    }
     // Queued turns survive DO eviction and may predate the worker generation
     // that introduced owner leases. Acquire (or re-acquire) before touching
     // the journal; a blocked owner drops the queued turn without callbacks,
@@ -1957,6 +2352,9 @@ export class OrchestratorSession extends DurableObject<Env> {
   }
 
   private async turnRunning(): Promise<boolean> {
+    const localLease =
+      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    if (localLease) return true;
     const turn = await this.ctx.storage.get<ChatTurnRequest>("turn");
     if (!turn) return false;
     return !(await this.ctx.storage.get<boolean>("terminal"));
@@ -2116,6 +2514,922 @@ export class OrchestratorSession extends DurableObject<Env> {
       complete: range.complete,
       records: range.records,
     });
+  }
+
+  private async localTurnOwner(
+    request: Request,
+  ): Promise<{ ownerId: string } | Response> {
+    const identity = parseSocketIdentity(request);
+    if (!identity) return json({ error: "Unauthorized." }, 401);
+    if (this.purged()) {
+      return json(
+        { code: "deleted", message: "This conversation was deleted." },
+        410,
+      );
+    }
+    const bound = this.journal.ownerId() || (await this.lookupOwner())?.ownerId;
+    if (!bound || bound !== identity.ownerId) {
+      return json({ error: "Conversation not found." }, 404);
+    }
+    return { ownerId: bound };
+  }
+
+  private async localTurnHistory(turnId: string): Promise<{
+    history: string[];
+    contextStartSeq: number;
+    contextEndSeq: number;
+  }> {
+    const selection = this.journal.selectWindow(
+      turnId,
+      CLOUD_HISTORY_TOKEN_BUDGET,
+    );
+    const messages = await this.hydrateWindow(selection);
+    return {
+      history: messages.map((message) => JSON.stringify(message)),
+      contextStartSeq: selection.startSeq,
+      contextEndSeq: selection.endSeq,
+    };
+  }
+
+  /**
+   * Completes the durable half of begin. Every writer key is stable, so a
+   * retry after an isolate died between storing the lease and returning the
+   * response repairs the same rows instead of creating another prompt.
+   */
+  private async initializeLocalTurn(
+    lease: LocalTurnLease,
+    userMessage: AgentMessage,
+    userMessageJson: string,
+  ): Promise<{
+    history: string[];
+    contextStartSeq: number;
+    contextEndSeq: number;
+  }> {
+    for (const repaired of this.journal.repairTail(Date.now())) {
+      this.publish(repaired.record);
+    }
+    this.drainInbox();
+    const context = await this.localTurnHistory(lease.turnId);
+    const current =
+      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    if (
+      !current ||
+      current.turnId !== lease.turnId ||
+      current.leaseToken !== lease.leaseToken ||
+      current.cancelRequested ||
+      this.journal.turnState(lease.turnId)?.state === "terminal"
+    ) {
+      throw new Error("Local turn lease is no longer active.");
+    }
+    const now = Date.now();
+    this.journal.upsertTurn({
+      turnId: lease.turnId,
+      sessionId: `desktop-${lease.deviceId}`.slice(0, 64),
+      ownerId: lease.ownerId,
+      lane: "chat",
+      source: "desktop",
+      ...(lease.clientMsgId ? { clientMsgId: lease.clientMsgId } : {}),
+      state: "running",
+      now,
+    });
+    this.journal.setTurnContext(
+      lease.turnId,
+      context.contextStartSeq,
+      context.contextEndSeq,
+    );
+    const sizedPrompt = await this.prepareOversize(
+      "user",
+      userMessage,
+      userMessageJson,
+      `turn:${lease.turnId}:prompt`,
+    );
+    const promptRow = this.journal.appendMessage({
+      turnId: lease.turnId,
+      writer: `desktop:${lease.deviceId}`,
+      writerKey: `turn:${lease.turnId}:prompt`,
+      role: "user",
+      message: sizedPrompt.message,
+      payloadJson: sizedPrompt.payloadJson,
+      ...(sizedPrompt.spillKey ? { spillKey: sizedPrompt.spillKey } : {}),
+      ...(lease.clientMsgId ? { clientMsgId: lease.clientMsgId } : {}),
+      createdAt: now,
+    });
+    this.journal.setTurnSpan(lease.turnId, promptRow.seq);
+    if (promptRow.inserted) this.publish(promptRow.record);
+    const startedRow = this.journal.appendTurn({
+      turnId: lease.turnId,
+      writer: `desktop:${lease.deviceId}`,
+      writerKey: `turn:${lease.turnId}:phase:started`,
+      phase: "started",
+      lane: "chat",
+      source: "desktop",
+      promptSeq: promptRow.seq,
+      createdAt: now,
+    });
+    this.journal.setTurnSpan(lease.turnId, startedRow.seq);
+    if (startedRow.inserted) this.publish(startedRow.record);
+    if (this.journal.meta().title.trim() === "") {
+      const text = (
+        (userMessage as { content?: Array<{ type?: string; text?: string }> })
+          .content ?? []
+      )
+        .filter(
+          (block) => block.type === "text" && typeof block.text === "string",
+        )
+        .map((block) => block.text)
+        .join(" ")
+        .trim();
+      if (text) {
+        this.journal.setTitle(
+          text.length > 56 ? `${text.slice(0, 53)}…` : text,
+        );
+      }
+    }
+    this.live = {
+      turnId: lease.turnId,
+      streamId: null,
+      partialText: "",
+      tools: [],
+    };
+    void this.index
+      .flush({ activity: "running", updatedAt: now })
+      .catch(() => undefined);
+    return context;
+  }
+
+  private async handleLocalTurnRenewal(
+    renewal: ParsedLocalTurnRenewal,
+    ownerId: string,
+  ): Promise<Response> {
+    const { deviceId, localTurnId, leaseToken } = renewal;
+    const turnId = makeLocalTurnId(deviceId, localTurnId);
+    const previous = await this.ctx.storage.get<LocalTurnFinishReceipt>(
+      localTurnReceiptKey(turnId),
+    );
+    if (previous?.turnId === turnId) {
+      return json(
+        {
+          code: "turn_finished",
+          message: "That local turn has already finished.",
+          turnId,
+          phase: previous.phase,
+        },
+        409,
+      );
+    }
+
+    const existing =
+      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    if (!existing) {
+      return json(
+        {
+          code: "lease_mismatch",
+          message: "That local turn no longer owns this conversation.",
+        },
+        409,
+      );
+    }
+    if (existing.expiresAt <= Date.now()) {
+      await this.expireLocalLease(existing, true);
+      return json(
+        {
+          code: "turn_expired",
+          message: "That local turn lease expired.",
+          turnId: existing.turnId,
+        },
+        409,
+      );
+    }
+    if (
+      existing.turnId !== turnId ||
+      existing.deviceId !== deviceId ||
+      existing.localTurnId !== localTurnId ||
+      existing.ownerId !== ownerId ||
+      existing.leaseToken !== leaseToken
+    ) {
+      return json(
+        {
+          code: "lease_mismatch",
+          message: "That local turn no longer owns this conversation.",
+        },
+        409,
+      );
+    }
+
+    let renewed: LocalTurnLease | undefined;
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const current =
+        await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+      if (
+        !current ||
+        current.turnId !== turnId ||
+        current.deviceId !== deviceId ||
+        current.localTurnId !== localTurnId ||
+        current.ownerId !== ownerId ||
+        current.leaseToken !== leaseToken ||
+        current.cancelRequested ||
+        current.expiresAt <= Date.now() ||
+        this.journal.turnState(turnId)?.state === "terminal"
+      ) {
+        return;
+      }
+      current.expiresAt = Date.now() + LOCAL_TURN_LEASE_MS;
+      await this.ctx.storage.put(LOCAL_TURN_LEASE_KEY, current);
+      const alarmAt = await this.ctx.storage.getAlarm();
+      if (alarmAt === null || alarmAt > current.expiresAt) {
+        await this.ctx.storage.setAlarm(current.expiresAt);
+      }
+      renewed = current;
+    });
+    if (!renewed) {
+      return json(
+        {
+          code: "turn_finished",
+          message: "That local turn is no longer running.",
+          turnId,
+        },
+        409,
+      );
+    }
+    await this.armLocalLeaseAlarm(renewed.expiresAt);
+    try {
+      await this.assertOwnerTurn(renewed);
+    } catch {
+      return json(
+        { code: "owner_purge", message: "Cloud activity is being reset." },
+        409,
+      );
+    }
+    return json({
+      turnId,
+      leaseToken: renewed.leaseToken,
+      expiresAt: renewed.expiresAt,
+      replayed: true,
+      renewed: true,
+      history: [],
+    });
+  }
+
+  private async handleLocalTurnBegin(request: Request): Promise<Response> {
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
+    let body: {
+      deviceId?: string;
+      localTurnId?: string;
+      userMessageJson?: string;
+      clientMsgId?: string;
+      leaseToken?: string;
+      renewOnly?: boolean;
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
+    }
+    if (body.renewOnly === true) {
+      const renewal = parseLocalTurnRenewal(body);
+      if (!renewal) {
+        return json(
+          { code: "bad_request", message: "Malformed request." },
+          400,
+        );
+      }
+      return this.handleLocalTurnRenewal(renewal, owner.ownerId);
+    }
+    const deviceId = body.deviceId?.trim() ?? "";
+    const localTurnId = body.localTurnId?.trim() ?? "";
+    const clientMsgId = body.clientMsgId?.trim();
+    if (
+      !LOCAL_DEVICE_ID_PATTERN.test(deviceId) ||
+      !LOCAL_TURN_ID_PATTERN.test(localTurnId) ||
+      (body.renewOnly !== undefined && typeof body.renewOnly !== "boolean") ||
+      (clientMsgId !== undefined &&
+        !LOCAL_CLIENT_MSG_ID_PATTERN.test(clientMsgId))
+    ) {
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
+    }
+    const userMessageJson = body.userMessageJson ?? "";
+    if (
+      !userMessageJson ||
+      utf8Length(userMessageJson) > LOCAL_TURN_BEGIN_MAX_BYTES
+    ) {
+      return json(
+        { code: "too_large", message: "That message is too large." },
+        413,
+      );
+    }
+    let userMessage: AgentMessage;
+    try {
+      userMessage = JSON.parse(userMessageJson) as AgentMessage;
+    } catch {
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
+    }
+    if (
+      (userMessage as { role?: unknown }).role !== "user" ||
+      !Array.isArray((userMessage as { content?: unknown }).content)
+    ) {
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
+    }
+
+    const turnId = makeLocalTurnId(deviceId, localTurnId);
+    const beginFingerprint = await sha256Hex(
+      `${clientMsgId ?? ""}\u0000${userMessageJson}`,
+    );
+    const previous = await this.ctx.storage.get<LocalTurnFinishReceipt>(
+      localTurnReceiptKey(turnId),
+    );
+    if (previous?.turnId === turnId) {
+      return json(
+        {
+          code: "turn_finished",
+          message: "That local turn has already finished.",
+          turnId,
+          phase: previous.phase,
+        },
+        409,
+      );
+    }
+
+    const existing =
+      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    if (existing) {
+      if (existing.expiresAt <= Date.now()) {
+        await this.expireLocalLease(existing, true);
+        return json(
+          {
+            code: "turn_expired",
+            message: "That local turn lease expired.",
+            turnId: existing.turnId,
+          },
+          409,
+        );
+      }
+      if (
+        existing.turnId !== turnId ||
+        existing.deviceId !== deviceId ||
+        existing.localTurnId !== localTurnId
+      ) {
+        return json(
+          {
+            code: "turn_in_progress",
+            message: "Another turn is already running in this conversation.",
+            retryAfterMs: 3_000,
+          },
+          409,
+        );
+      }
+      if (existing.beginFingerprint !== beginFingerprint) {
+        return json(
+          {
+            code: "idempotency_conflict",
+            message:
+              "That local turn id was already used for a different message.",
+          },
+          409,
+        );
+      }
+      let renewed: LocalTurnLease | undefined;
+      await this.ctx.blockConcurrencyWhile(async () => {
+        const current =
+          await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+        if (
+          !current ||
+          current.turnId !== turnId ||
+          current.leaseToken !== existing.leaseToken ||
+          current.beginFingerprint !== beginFingerprint ||
+          current.cancelRequested ||
+          current.expiresAt <= Date.now() ||
+          this.journal.turnState(turnId)?.state === "terminal"
+        ) {
+          return;
+        }
+        current.expiresAt = Date.now() + LOCAL_TURN_LEASE_MS;
+        await this.ctx.storage.put(LOCAL_TURN_LEASE_KEY, current);
+        const alarmAt = await this.ctx.storage.getAlarm();
+        if (alarmAt === null || alarmAt > current.expiresAt) {
+          await this.ctx.storage.setAlarm(current.expiresAt);
+        }
+        renewed = current;
+      });
+      if (!renewed) {
+        return json(
+          {
+            code: "turn_finished",
+            message: "That local turn is no longer running.",
+            turnId,
+          },
+          409,
+        );
+      }
+      await this.armLocalLeaseAlarm(renewed.expiresAt);
+      try {
+        await this.assertOwnerTurn(renewed);
+      } catch {
+        return json(
+          { code: "owner_purge", message: "Cloud activity is being reset." },
+          409,
+        );
+      }
+      try {
+        const context = await this.initializeLocalTurn(
+          renewed,
+          userMessage,
+          userMessageJson,
+        );
+        return json({
+          turnId,
+          leaseToken: renewed.leaseToken,
+          expiresAt: renewed.expiresAt,
+          replayed: true,
+          ...context,
+        });
+      } catch (error) {
+        log("error", "conversation_local_turn_begin_replay_failed", {
+          turnId,
+          message: errorMessage(error),
+        });
+        return json(
+          {
+            code: "begin_failed",
+            message: "Starting that local turn failed. Try again.",
+          },
+          503,
+        );
+      }
+    }
+
+    if (
+      this.journal.storedBytes() + utf8Length(userMessageJson) >
+      CONVERSATION_MAX_STORED_BYTES
+    ) {
+      return json(
+        {
+          code: "conversation_full",
+          message:
+            "This conversation has reached its size limit. Start a new conversation to keep going.",
+        },
+        413,
+      );
+    }
+
+    const lease: LocalTurnLease = {
+      ownerId: owner.ownerId,
+      turnId,
+      deviceId,
+      localTurnId,
+      leaseToken:
+        crypto.randomUUID().replaceAll("-", "") +
+        crypto.randomUUID().replaceAll("-", ""),
+      expiresAt: Date.now() + LOCAL_TURN_LEASE_MS,
+      beginFingerprint,
+      ...(clientMsgId ? { clientMsgId } : {}),
+    };
+    try {
+      lease.ownerPurgeGeneration = await this.registerOwnerTurn(lease);
+    } catch {
+      return json(
+        { code: "owner_purge", message: "Cloud activity is being reset." },
+        409,
+      );
+    }
+
+    let acquired = false;
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const [local, cloudTurn, terminal, terminalDelivered, queued] =
+        await Promise.all([
+          this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY),
+          this.ctx.storage.get<ChatTurnRequest>("turn"),
+          this.ctx.storage.get<boolean>("terminal"),
+          this.ctx.storage.get<boolean>("terminalDelivered"),
+          this.ctx.storage.list<ChatTurnRequest>({
+            prefix: "queued:",
+            limit: 1,
+          }),
+        ]);
+      const cloudBusy =
+        Boolean(cloudTurn && terminal !== true) ||
+        Boolean(cloudTurn && terminalDelivered !== true) ||
+        queued.size > 0;
+      if (local || cloudBusy || this.purged()) return;
+      await this.ctx.storage.put(LOCAL_TURN_LEASE_KEY, lease);
+      const alarmAt = await this.ctx.storage.getAlarm();
+      if (alarmAt === null || alarmAt > lease.expiresAt) {
+        await this.ctx.storage.setAlarm(lease.expiresAt);
+      }
+      acquired = true;
+    });
+    if (!acquired) {
+      await this.unregisterOwnerTurn(lease);
+      return json(
+        {
+          code: "turn_in_progress",
+          message: "Another turn is already running in this conversation.",
+          retryAfterMs: 3_000,
+        },
+        409,
+      );
+    }
+
+    try {
+      const context = await this.initializeLocalTurn(
+        lease,
+        userMessage,
+        userMessageJson,
+      );
+      return json({
+        turnId,
+        leaseToken: lease.leaseToken,
+        expiresAt: lease.expiresAt,
+        replayed: false,
+        ...context,
+      });
+    } catch (error) {
+      log("error", "conversation_local_turn_begin_failed", {
+        turnId,
+        message: errorMessage(error),
+      });
+      return json(
+        {
+          code: "begin_failed",
+          message: "Starting that local turn failed. Try again.",
+        },
+        503,
+      );
+    }
+  }
+
+  private async handleLocalTurnFinish(request: Request): Promise<Response> {
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
+    let body: {
+      deviceId?: string;
+      localTurnId?: string;
+      leaseToken?: string;
+      records?: Array<{
+        ordinal?: number;
+        role?: string;
+        payloadJson?: string;
+      }>;
+      phase?: string;
+      notice?: string;
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
+    }
+    const deviceId = body.deviceId?.trim() ?? "";
+    const localTurnId = body.localTurnId?.trim() ?? "";
+    const leaseToken = body.leaseToken?.trim() ?? "";
+    const terminalPhase = parseLocalTerminalPhase(body.phase);
+    const parsedRecords = parseLocalFinishRecords(
+      body.records ?? [],
+      LOCAL_TURN_FINISH_MAX_ROWS,
+    );
+    if (
+      !LOCAL_DEVICE_ID_PATTERN.test(deviceId) ||
+      !LOCAL_TURN_ID_PATTERN.test(localTurnId) ||
+      !/^[a-f0-9]{64}$/.test(leaseToken) ||
+      !terminalPhase ||
+      !parsedRecords
+    ) {
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
+    }
+    const turnId = makeLocalTurnId(deviceId, localTurnId);
+    const { records: parsed, totalBytes } = parsedRecords;
+    const finishFingerprint = await sha256Hex(
+      JSON.stringify({
+        phase: terminalPhase,
+        notice: body.notice?.trim() ?? "",
+        records: parsed.map(({ ordinal, role, payloadJson }) => ({
+          ordinal,
+          role,
+          payloadJson,
+        })),
+      }),
+    );
+    const previous = await this.ctx.storage.get<LocalTurnFinishReceipt>(
+      localTurnReceiptKey(turnId),
+    );
+    if (
+      previous?.turnId === turnId &&
+      previous.deviceId === deviceId &&
+      previous.localTurnId === localTurnId &&
+      previous.leaseToken === leaseToken
+    ) {
+      if (previous.externallyCanceled) {
+        if (terminalPhase !== "canceled") {
+          return json(
+            {
+              code: "turn_canceled",
+              message: "That local turn was already canceled.",
+              turnId,
+            },
+            409,
+          );
+        }
+      } else if (!previous.finishFingerprint) {
+        return json(
+          {
+            code: "turn_expired",
+            message: "That local turn lease expired.",
+            turnId,
+          },
+          409,
+        );
+      } else if (previous.finishFingerprint !== finishFingerprint) {
+        return json(
+          {
+            code: "idempotency_conflict",
+            message:
+              "That local turn was already finished with different records.",
+          },
+          409,
+        );
+      }
+      const replayLease =
+        await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+      if (
+        replayLease?.turnId === turnId &&
+        replayLease.leaseToken === leaseToken
+      ) {
+        this.live = null;
+        this.hub.endTurn(turnId);
+        await this.unregisterOwnerTurn(replayLease);
+        await this.releaseLocalLeaseAndResume(replayLease);
+      }
+      return json({ ...previous, replayed: true });
+    }
+
+    if (totalBytes > LOCAL_TURN_FINISH_MAX_BYTES) {
+      return json(
+        {
+          code: "too_large",
+          message: "That's more history than one request can carry.",
+        },
+        413,
+      );
+    }
+    if (
+      this.journal.storedBytes() + totalBytes >
+      CONVERSATION_MAX_STORED_BYTES
+    ) {
+      return json(
+        {
+          code: "conversation_full",
+          message:
+            "This conversation has reached its size limit. Start a new conversation to keep going.",
+        },
+        413,
+      );
+    }
+
+    let lease =
+      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    if (
+      !lease ||
+      lease.ownerId !== owner.ownerId ||
+      lease.turnId !== turnId ||
+      lease.deviceId !== deviceId ||
+      lease.localTurnId !== localTurnId ||
+      lease.leaseToken !== leaseToken
+    ) {
+      return json(
+        {
+          code: "lease_mismatch",
+          message: "That local turn no longer owns this conversation.",
+        },
+        409,
+      );
+    }
+    if (lease.expiresAt <= Date.now()) {
+      await this.expireLocalLease(lease, true);
+      return json(
+        {
+          code: "turn_expired",
+          message: "That local turn lease expired.",
+          turnId,
+        },
+        409,
+      );
+    }
+    let claimedLease: LocalTurnLease | undefined;
+    let idempotencyConflict = false;
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const current =
+        await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+      if (
+        !current ||
+        current.ownerId !== owner.ownerId ||
+        current.turnId !== turnId ||
+        current.deviceId !== deviceId ||
+        current.localTurnId !== localTurnId ||
+        current.leaseToken !== leaseToken ||
+        current.expiresAt <= Date.now() ||
+        current.cancelRequested
+      ) {
+        return;
+      }
+      if (
+        current.finishFingerprint &&
+        current.finishFingerprint !== finishFingerprint
+      ) {
+        idempotencyConflict = true;
+        return;
+      }
+      current.finishFingerprint = finishFingerprint;
+      current.expiresAt = Date.now() + LOCAL_TURN_LEASE_MS;
+      await this.ctx.storage.put(LOCAL_TURN_LEASE_KEY, current);
+      const alarmAt = await this.ctx.storage.getAlarm();
+      if (alarmAt === null || alarmAt > current.expiresAt) {
+        await this.ctx.storage.setAlarm(current.expiresAt);
+      }
+      claimedLease = current;
+    });
+    if (idempotencyConflict) {
+      return json(
+        {
+          code: "idempotency_conflict",
+          message:
+            "That local turn was already finished with different records.",
+        },
+        409,
+      );
+    }
+    if (!claimedLease) {
+      return json(
+        {
+          code: "lease_mismatch",
+          message: "That local turn no longer owns this conversation.",
+        },
+        409,
+      );
+    }
+    lease = claimedLease;
+    try {
+      await this.assertOwnerTurn(lease);
+    } catch {
+      return json(
+        { code: "owner_purge", message: "Cloud activity is being reset." },
+        409,
+      );
+    }
+
+    const prepared: Array<{
+      ordinal: number;
+      role: "assistant" | "toolResult";
+      message: AgentMessage;
+      payloadJson: string;
+      spillKey?: string;
+    }> = [];
+    for (const record of parsed) {
+      const sized = await this.prepareOversize(
+        record.role,
+        record.message,
+        record.payloadJson,
+        `turn:${turnId}:msg:${record.ordinal}`,
+      );
+      prepared.push({
+        ...record,
+        message: sized.message,
+        payloadJson: sized.payloadJson,
+        ...(sized.spillKey ? { spillKey: sized.spillKey } : {}),
+      });
+    }
+
+    const current =
+      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+    if (
+      this.purged() ||
+      !current ||
+      current.turnId !== turnId ||
+      current.leaseToken !== leaseToken ||
+      current.cancelRequested ||
+      current.finishFingerprint !== finishFingerprint
+    ) {
+      return json(
+        {
+          code: "lease_mismatch",
+          message: "That local turn no longer owns this conversation.",
+        },
+        409,
+      );
+    }
+
+    const budgetArgs = {
+      bytes: totalBytes,
+      windowMs: APPEND_WINDOW_MS,
+      maxRequests: APPEND_WINDOW_MAX_REQUESTS,
+      maxBytes: APPEND_WINDOW_MAX_BYTES,
+    };
+    const budget = this.journal.appendBudget({
+      ...budgetArgs,
+      now: Date.now(),
+      commit: false,
+    });
+    if (!budget.allowed) {
+      return json(
+        {
+          code: "rate_limited",
+          message:
+            "That's more history than this conversation can take right now.",
+          retryAfterMs: budget.retryAfterMs,
+        },
+        429,
+      );
+    }
+
+    let firstSeq: number | null = null;
+    let lastSeq = -1;
+    const terminalAt = Date.now();
+    try {
+      this.journal.appendBudget({
+        ...budgetArgs,
+        now: terminalAt,
+        commit: true,
+      });
+      for (const record of prepared) {
+        const row = this.journal.appendMessage({
+          turnId,
+          writer: `desktop:${deviceId}`,
+          writerKey: `turn:${turnId}:msg:${record.ordinal}`,
+          role: record.role,
+          message: record.message,
+          payloadJson: record.payloadJson,
+          ...(record.spillKey ? { spillKey: record.spillKey } : {}),
+          createdAt: terminalAt,
+        });
+        if (firstSeq === null) firstSeq = row.seq;
+        lastSeq = row.seq;
+        this.journal.setTurnSpan(turnId, row.seq);
+        if (row.inserted) this.publish(row.record);
+      }
+      const terminal = this.journal.appendTurn({
+        turnId,
+        writer: `desktop:${deviceId}`,
+        writerKey: `turn:${turnId}:phase:${terminalPhase}`,
+        phase: terminalPhase,
+        lane: "chat",
+        source: "desktop",
+        ...(body.notice?.trim()
+          ? { notice: body.notice.trim().slice(0, 500) }
+          : {}),
+        createdAt: terminalAt,
+      });
+      if (firstSeq === null) firstSeq = terminal.seq;
+      lastSeq = terminal.seq;
+      this.journal.setTurnSpan(turnId, terminal.seq);
+      this.journal.setTurnTerminal(turnId, terminalPhase, terminalAt);
+      if (terminal.inserted) this.publish(terminal.record);
+    } catch (error) {
+      log("error", "conversation_local_turn_finish_failed", {
+        turnId,
+        message: errorMessage(error),
+      });
+      return json(
+        {
+          code: "finish_failed",
+          message: "Saving that local turn failed. Try again.",
+        },
+        503,
+      );
+    }
+
+    const receipt: LocalTurnFinishReceipt = {
+      turnId,
+      deviceId,
+      localTurnId,
+      leaseToken,
+      phase: terminalPhase,
+      firstSeq: firstSeq ?? lastSeq,
+      lastSeq,
+      epoch: this.journal.meta().epoch,
+      finishFingerprint,
+    };
+    await this.ctx.storage.put(localTurnReceiptKey(turnId), receipt);
+    this.live = null;
+    this.hub.endTurn(turnId);
+    await this.unregisterOwnerTurn(lease);
+    await this.releaseLocalLeaseAndResume(lease);
+    this.recordExcerpt(turnId);
+    await this.index
+      .flush({ activity: "idle", updatedAt: terminalAt })
+      .catch(() => undefined);
+    try {
+      this.drainInbox();
+    } catch (error) {
+      log("error", "conversation_local_turn_finish_drain_failed", {
+        turnId,
+        message: errorMessage(error),
+      });
+    }
+    await this.archive.maybeRollover(terminalAt).catch((error) => {
+      log("error", "conversation_local_turn_finish_rollover_failed", {
+        turnId,
+        message: errorMessage(error),
+      });
+    });
+    return json({ ...receipt, replayed: false });
   }
 
   /**
@@ -2454,7 +3768,11 @@ export class OrchestratorSession extends DurableObject<Env> {
       if (spillKey) return { message, payloadJson, spillKey };
     }
     const truncated = truncateMessage(message, MAX_ROW_BYTES);
-    return { message: truncated, payloadJson: JSON.stringify(truncated) };
+    const truncatedJson = JSON.stringify(truncated);
+    if (utf8Length(truncatedJson) > MAX_ROW_BYTES) {
+      throw new Error("Oversize message spill failed.");
+    }
+    return { message: truncated, payloadJson: truncatedJson };
   }
 
   /**

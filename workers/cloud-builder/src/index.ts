@@ -3678,6 +3678,25 @@ export default {
         auth.caller,
       );
     }
+    const localTurnMatch = url.pathname.match(
+      /^\/conversations\/([^/]+)\/local-turns\/(begin|finish)$/,
+    );
+    if (request.method === "POST" && localTurnMatch) {
+      const auth = await authenticateConversationCaller(
+        request,
+        env,
+        false,
+        requestId,
+      );
+      if (!auth.ok) return auth.response;
+      return await forwardToConversation(
+        request,
+        env,
+        conversationName(localTurnMatch[1]!),
+        `/local-turns/${localTurnMatch[2]!}`,
+        auth.caller,
+      );
+    }
 
     // ── Service-secret gate ───────────────────────────────────────────────
     // Everything past this line is server-to-server. Nothing may be added

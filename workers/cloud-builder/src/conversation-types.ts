@@ -466,6 +466,12 @@ export type SpillStub = {
   $spill: true;
   role: string;
   bytes: number;
+  /** UI-safe projection; full model payload remains at `spill_key`. */
+  content?: Array<{ type: "text"; text: string }>;
+  timestamp?: number;
+  toolCallId?: string;
+  toolName?: string;
+  isError?: boolean;
 };
 
 export const isSpillStub = (value: unknown): value is SpillStub =>

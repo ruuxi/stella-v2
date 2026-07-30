@@ -872,6 +872,62 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     // Column already exists.
   }
 
+  // Durable desktop-to-cloud transcript outbox. Cloud conversations use the
+  // Durable Object as their transcript authority, but a local provider turn
+  // still has two network boundaries (begin and finish). Both boundaries are
+  // committed here before any request is attempted so a worker restart or an
+  // offline finish cannot silently lose the turn.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cloud_transcript_outbox (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('begin', 'finish')),
+      conversation_id TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      local_turn_id TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      recovery_json TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      dead_lettered_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  for (const column of [
+    "recovery_json TEXT",
+    "last_error TEXT",
+    "dead_lettered_at INTEGER",
+  ]) {
+    try {
+      db.exec(`ALTER TABLE cloud_transcript_outbox ADD COLUMN ${column};`);
+    } catch {
+      // Column already exists.
+    }
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_transcript_outbox_turn_kind
+    ON cloud_transcript_outbox(
+      conversation_id,
+      device_id,
+      local_turn_id,
+      kind
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cloud_transcript_outbox_created
+    ON cloud_transcript_outbox(created_at, id);
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cloud_transcript_outbox_delivery
+    ON cloud_transcript_outbox(
+      dead_lettered_at,
+      attempts,
+      updated_at,
+      created_at,
+      id
+    );
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS social_session_sync_state (
       session_id TEXT PRIMARY KEY,

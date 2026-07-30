@@ -189,6 +189,7 @@ export type RuntimeSendUserMessageInput = RuntimeSendMessageInput & {
 export type ActiveOrchestratorSession = RuntimeExecutionSessionHandle & {
   conversationId: string;
   agentType: string;
+  storageMode?: "cloud" | "local";
   uiVisibility: "visible" | "hidden";
   queueCallbackSwitch: (callbacks: AgentCallbacks) => void;
   queueMessage: (message: AgentMessage, delivery: "steer" | "followUp") => void;
@@ -275,14 +276,6 @@ export type RunnerState = {
   convexClientUrl: string | null;
   hasConnectedAccount: boolean;
   cloudSyncEnabled: boolean;
-  /**
-   * The cloud conversation this device's local turns are written into, when
-   * the product ever asks for that. Null, and nothing sets it today: a local
-   * turn has no binding to a cloud conversation, and inventing one would make
-   * this machine's SQLite a second authority for a transcript the Durable
-   * Object owns. See `cloud-transcript-write.ts`.
-   */
-  cloudConversationId: string | null;
   modelCatalogUpdatedAt: number | null;
   isRunning: boolean;
   isInitialized: boolean;

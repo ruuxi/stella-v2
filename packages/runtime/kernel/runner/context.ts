@@ -558,9 +558,37 @@ export const createRunnerContext = ({
 
   const cloudTranscript = createCloudTranscriptWriter({
     deviceId,
+    store: runtimeStore,
     getAuthToken: () =>
       (context.state?.authToken ?? envAuthToken ?? "").trim() || null,
     getBaseUrl: cloudRealtimeBaseUrl,
+    ...(appendLocalChatEvent
+      ? {
+          onDurableDeliveryFailure: ({
+            conversationId,
+            localTurnId,
+            userMessageId,
+            message,
+          }: {
+            conversationId: string;
+            localTurnId: string;
+            userMessageId: string;
+            message: string;
+          }) => {
+            appendLocalChatEvent({
+              conversationId,
+              type: "assistant_message",
+              eventId: `cloud-sync-error:${deviceId}:${localTurnId}`,
+              timestamp: Date.now(),
+              payload: {
+                text: message,
+                userMessageId,
+                source: "cloud-sync-error",
+              },
+            });
+          },
+        }
+      : {}),
   });
 
   const resolvedFashionApi =
@@ -621,9 +649,7 @@ export const createRunnerContext = ({
           model,
           resolvedLlm,
           ...(spawnEngine ? { spawnEngine } : {}),
-          ...(reasoningEffort
-            ? { spawnReasoningEffort: reasoningEffort }
-            : {}),
+          ...(reasoningEffort ? { spawnReasoningEffort: reasoningEffort } : {}),
         },
       );
       if (!modelConfigSnapshot) {
@@ -898,7 +924,6 @@ export const createRunnerContext = ({
       convexClientUrl: null,
       hasConnectedAccount: false,
       cloudSyncEnabled: false,
-      cloudConversationId: null,
       modelCatalogUpdatedAt: null,
       isRunning: false,
       isInitialized: false,

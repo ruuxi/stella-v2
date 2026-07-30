@@ -21,6 +21,7 @@ export type NormalizedOrchestratorRunInput = {
   promptMessages?: RuntimePromptMessage[];
   attachments: RuntimeAttachmentRef[];
   agentType: string;
+  storageMode?: "cloud" | "local";
   modelOverride?: string;
   toolWorkspaceRoot?: string;
   connectorDeliveryTarget?: {
@@ -107,6 +108,7 @@ export const normalizeChatRunInput = (
     : undefined,
   attachments: normalizeAttachments(payload.attachments),
   agentType: payload.agentType ?? AGENT_IDS.ORCHESTRATOR,
+  ...(payload.storageMode ? { storageMode: payload.storageMode } : {}),
 });
 
 export const normalizeAutomationRunInput = (payload: {

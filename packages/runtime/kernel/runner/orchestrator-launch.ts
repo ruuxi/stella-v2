@@ -1,9 +1,14 @@
 import {
   runOrchestratorTurn,
+  type RuntimeEndEvent,
+  type RuntimeErrorEvent,
   type RuntimeRunCallbacks,
 } from "../agent-runtime.js";
+import type { RuntimeInterruptedEvent } from "../agent-runtime/types.js";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import { getOrCreateOrchestratorSession } from "../agent-runtime/orchestrator-session.js";
+import { createRuntimePromptAgentMessage } from "../agent-runtime/run-preparation.js";
+import { buildThreadMessagePreview } from "../agent-runtime/thread-memory.js";
 import {
   resolveAgentModelRoute,
   type BuildAgentContextArgs,
@@ -17,15 +22,122 @@ import type {
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
 import { agentHasCapability } from "@stella/contracts/agent-runtime";
+import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 
 type BuildAgentContext = (
   args: BuildAgentContextArgs,
 ) => Promise<LocalAgentContext>;
 
+type DeferredTerminalCallback =
+  | { kind: "end"; event: RuntimeEndEvent }
+  | { kind: "error"; event: RuntimeErrorEvent }
+  | { kind: "interrupted"; event: RuntimeInterruptedEvent };
+
+const buildCloudUserMessage = (
+  prepared: PreparedOrchestratorRun,
+): PersistedRuntimeThreadPayload => {
+  const promptMessages = prepared.promptMessages ?? [];
+  let promptInput: RuntimePromptMessage & {
+    attachments?: RuntimeAttachmentRef[];
+  } = {
+    text: prepared.userPrompt,
+    attachments: prepared.attachments,
+  };
+  for (let index = promptMessages.length - 1; index >= 0; index -= 1) {
+    const candidate = promptMessages[index]!;
+    if ((candidate.messageType ?? "user") !== "user") continue;
+    promptInput = {
+      ...candidate,
+      ...(index === promptMessages.length - 1 && prepared.attachments.length
+        ? { attachments: prepared.attachments }
+        : {}),
+    };
+    break;
+  }
+  const message = createRuntimePromptAgentMessage(promptInput, Date.now());
+  if (message.role !== "user") {
+    throw new Error("Cloud local turns require a user message.");
+  }
+  return message;
+};
+
+const parseCanonicalCloudHistory = (
+  serializedHistory: string[],
+): NonNullable<LocalAgentContext["threadHistory"]> =>
+  serializedHistory.map((serialized, index) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(serialized);
+    } catch {
+      throw new Error(`Cloud transcript history row ${index} is invalid JSON.`);
+    }
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error(`Cloud transcript history row ${index} is invalid.`);
+    }
+    const role = (parsed as { role?: unknown }).role;
+    if (role !== "user" && role !== "assistant" && role !== "toolResult") {
+      throw new Error(
+        `Cloud transcript history row ${index} has an invalid role.`,
+      );
+    }
+    const payload = parsed as PersistedRuntimeThreadPayload;
+    return {
+      timestamp:
+        typeof (payload as { timestamp?: unknown }).timestamp === "number"
+          ? (payload as { timestamp: number }).timestamp
+          : undefined,
+      role,
+      content: buildThreadMessagePreview(payload),
+      ...(payload.role === "toolResult"
+        ? { toolCallId: payload.toolCallId }
+        : {}),
+      payload,
+    };
+  });
+
+const cloudFinishPhase = (
+  terminal: DeferredTerminalCallback | null,
+  error: unknown,
+): {
+  phase: "completed" | "failed" | "canceled" | "timeout";
+  notice?: string;
+} => {
+  if (terminal?.kind === "interrupted") {
+    const timedOut = /time(?:d)?\s*out|timeout/i.test(terminal.event.reason);
+    return timedOut
+      ? { phase: "timeout", notice: "The local turn timed out." }
+      : { phase: "canceled", notice: "The local turn was canceled." };
+  }
+  if (terminal?.kind === "error" || error !== undefined) {
+    return {
+      phase: "failed",
+      notice: "The local turn did not finish.",
+    };
+  }
+  return { phase: "completed" };
+};
+
+const flushDeferredTerminal = (
+  callbacks: RuntimeRunCallbacks,
+  terminal: DeferredTerminalCallback | null,
+): void => {
+  if (!terminal) return;
+  if (terminal.kind === "end") {
+    callbacks.onEnd(terminal.event);
+    return;
+  }
+  if (terminal.kind === "error") {
+    callbacks.onError(terminal.event);
+    return;
+  }
+  callbacks.onInterrupted?.(terminal.event);
+};
+
 export type PreparedOrchestratorRun = {
   runId: string;
   conversationId: string;
   agentType: string;
+  storageMode?: "cloud" | "local";
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
   promptMessages?: RuntimePromptMessage[];
@@ -56,6 +168,7 @@ export const prepareOrchestratorRun = async (args: {
   runId: string;
   conversationId: string;
   agentType: string;
+  storageMode?: "cloud" | "local";
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
   promptMessages?: RuntimePromptMessage[];
@@ -131,6 +244,7 @@ export const prepareOrchestratorRun = async (args: {
       runId: args.runId,
       conversationId: args.conversationId,
       agentType: args.agentType,
+      ...(args.storageMode ? { storageMode: args.storageMode } : {}),
       userPrompt: args.userPrompt,
       ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
       promptMessages: args.promptMessages,
@@ -180,66 +294,203 @@ export const launchPreparedOrchestratorRun = (args: {
   // kernel supervisor forks a root fiber for it whose interruption aborts
   // the run's controller and joins this promise, so user-cancel and worker
   // shutdown deterministically finalize the turn and everything beneath it.
-  const settled = runOrchestratorTurn({
-    runId: prepared.runId,
-    conversationId: prepared.conversationId,
-    userMessageId: args.userMessageId,
-    agentType: prepared.agentType,
-    userPrompt: prepared.userPrompt,
-    ...(prepared.uiVisibility ? { uiVisibility: prepared.uiVisibility } : {}),
-    ...(prepared.promptMessages?.length
-      ? { promptMessages: prepared.promptMessages }
-      : {}),
-    ...(prepared.responseTarget
-      ? { responseTarget: prepared.responseTarget }
-      : {}),
-    attachments: prepared.attachments,
-    ...(prepared.connectorDeliveryTarget
-      ? { connectorDeliveryTarget: prepared.connectorDeliveryTarget }
-      : {}),
-    agentContext: prepared.agentContext,
-    callbacks: args.runtimeCallbacks,
-    toolCatalog: context.toolHost.getToolCatalog(prepared.agentType, {
-      model: prepared.resolvedLlm.toolPolicyModel ?? prepared.resolvedLlm.model,
-      agentEngine: prepared.agentContext.agentEngine,
-      includeDeferred: true,
-    }),
-    toolExecutor: async (toolName, toolArgs, toolContext, signal, onUpdate) =>
-      await context.toolHost.executeTool(
-        toolName,
-        toolArgs,
-        toolContext,
-        signal,
-        onUpdate,
-      ),
-    deviceId: context.deviceId,
-    stellaDataDir: context.stellaDataDir,
-    ...(context.cliBridgeSocketPath
-      ? { cliBridgeSocketPath: context.cliBridgeSocketPath }
-      : {}),
-    resolvedLlm: prepared.resolvedLlm,
-    store: context.runtimeStore,
-    abortSignal: prepared.abortController.signal,
-    stellaAppDir: context.stellaAppDir,
-    ...(prepared.toolWorkspaceRoot
-      ? { toolWorkspaceRoot: prepared.toolWorkspaceRoot }
-      : {}),
-    hookEmitter: context.hookEmitter,
-    onExecutionSessionCreated: args.onExecutionSessionCreated,
-    orchestratorSession,
-    // Provider streams and tool calls opened by this turn supervise as
-    // child fibers of the run's scope, so cancelRun/shutdown interrupts
-    // them and joins their teardown.
-    superviseRunResource: (resource) =>
-      context.state.supervisor.adoptResource(prepared.runId, resource.label, {
-        abort: resource.abort,
-        settled: resource.settled,
-      }),
-    compactionScheduler: context.state.compactionScheduler,
-    ...(prepared.userTurnsSinceMemoryReview != null
-      ? { userTurnsSinceMemoryReview: prepared.userTurnsSinceMemoryReview }
-      : {}),
-  }).catch((error) => {
+  const settled = (async () => {
+    const isCloudTurn = prepared.storageMode === "cloud";
+    const afterInsertionSequence = isCloudTurn
+      ? context.runtimeStore.getThreadEntryInsertionSequenceWatermark(
+          orchestratorSession.threadKey,
+        )
+      : null;
+    let leaseToken: string | null = null;
+    let deferredTerminal: DeferredTerminalCallback | null = null;
+    let runError: unknown;
+    const callbacks: RuntimeRunCallbacks = isCloudTurn
+      ? {
+          ...args.runtimeCallbacks,
+          onError: (event) => {
+            if (event.fatal) {
+              deferredTerminal = { kind: "error", event };
+              return;
+            }
+            args.runtimeCallbacks.onError(event);
+          },
+          onEnd: (event) => {
+            deferredTerminal = { kind: "end", event };
+          },
+          onInterrupted: (event) => {
+            deferredTerminal = { kind: "interrupted", event };
+          },
+        }
+      : args.runtimeCallbacks;
+
+    try {
+      if (isCloudTurn) {
+        const userMessage = buildCloudUserMessage(prepared);
+        const begin = await context.cloudTranscript.begin({
+          conversationId: prepared.conversationId,
+          localTurnId: prepared.runId,
+          clientMsgId: args.userMessageId,
+          userMessageJson: JSON.stringify(userMessage),
+          recovery: {
+            threadKey: orchestratorSession.threadKey,
+            afterInsertionSequence: afterInsertionSequence!,
+          },
+          onLeaseLost: (reason) => {
+            prepared.abortController.abort(
+              `Cloud conversation lease ended (${reason}).`,
+            );
+          },
+          signal: prepared.abortController.signal,
+        });
+        leaseToken = begin.leaseToken;
+        prepared.agentContext = {
+          ...prepared.agentContext,
+          threadHistory: parseCanonicalCloudHistory(begin.history),
+        };
+        // The same long-lived native session may previously have been seeded
+        // from local SQLite. Force its next turn to replace that state with
+        // the Durable Object's canonical history. External engines read the
+        // overwritten agentContext directly.
+        orchestratorSession.notifyHistoryChanged();
+        // Claude Code and Codex otherwise resume their own locally persisted
+        // CLI transcript and skip Stella's supplied history. A cloud turn must
+        // instead seed a fresh CLI session from the Durable Object window.
+        context.runtimeStore.setThreadExternalSessionId(
+          orchestratorSession.threadKey,
+          null,
+        );
+        context.runtimeStore.setThreadExternalDeliveredEntryId(
+          orchestratorSession.threadKey,
+          null,
+        );
+      }
+
+      await runOrchestratorTurn({
+        runId: prepared.runId,
+        conversationId: prepared.conversationId,
+        userMessageId: args.userMessageId,
+        agentType: prepared.agentType,
+        userPrompt: prepared.userPrompt,
+        ...(prepared.uiVisibility
+          ? { uiVisibility: prepared.uiVisibility }
+          : {}),
+        ...(prepared.promptMessages?.length
+          ? { promptMessages: prepared.promptMessages }
+          : {}),
+        ...(prepared.responseTarget
+          ? { responseTarget: prepared.responseTarget }
+          : {}),
+        attachments: prepared.attachments,
+        ...(prepared.connectorDeliveryTarget
+          ? { connectorDeliveryTarget: prepared.connectorDeliveryTarget }
+          : {}),
+        agentContext: prepared.agentContext,
+        callbacks,
+        toolCatalog: context.toolHost.getToolCatalog(prepared.agentType, {
+          model:
+            prepared.resolvedLlm.toolPolicyModel ?? prepared.resolvedLlm.model,
+          agentEngine: prepared.agentContext.agentEngine,
+          includeDeferred: true,
+        }),
+        toolExecutor: async (
+          toolName,
+          toolArgs,
+          toolContext,
+          signal,
+          onUpdate,
+        ) =>
+          await context.toolHost.executeTool(
+            toolName,
+            toolArgs,
+            toolContext,
+            signal,
+            onUpdate,
+          ),
+        deviceId: context.deviceId,
+        stellaDataDir: context.stellaDataDir,
+        ...(context.cliBridgeSocketPath
+          ? { cliBridgeSocketPath: context.cliBridgeSocketPath }
+          : {}),
+        resolvedLlm: prepared.resolvedLlm,
+        store: context.runtimeStore,
+        abortSignal: prepared.abortController.signal,
+        stellaAppDir: context.stellaAppDir,
+        ...(prepared.toolWorkspaceRoot
+          ? { toolWorkspaceRoot: prepared.toolWorkspaceRoot }
+          : {}),
+        hookEmitter: context.hookEmitter,
+        onExecutionSessionCreated: args.onExecutionSessionCreated,
+        orchestratorSession,
+        // Provider streams and tool calls opened by this turn supervise as
+        // child fibers of the run's scope, so cancelRun/shutdown interrupts
+        // them and joins their teardown.
+        superviseRunResource: (resource) =>
+          context.state.supervisor.adoptResource(
+            prepared.runId,
+            resource.label,
+            {
+              abort: resource.abort,
+              settled: resource.settled,
+            },
+          ),
+        compactionScheduler: context.state.compactionScheduler,
+        ...(prepared.userTurnsSinceMemoryReview != null
+          ? {
+              userTurnsSinceMemoryReview: prepared.userTurnsSinceMemoryReview,
+            }
+          : {}),
+      });
+    } catch (error) {
+      runError = error;
+    }
+
+    if (isCloudTurn && leaseToken && afterInsertionSequence !== null) {
+      const records = context.runtimeStore
+        .loadRawThreadMessagesAfterInsertionSequence(
+          orchestratorSession.threadKey,
+          afterInsertionSequence,
+        )
+        .filter(
+          (message) =>
+            message.payload !== undefined &&
+            (message.payload.role === "assistant" ||
+              message.payload.role === "toolResult"),
+        )
+        .map((message, ordinal) => ({
+          ordinal,
+          role: message.payload!.role as "assistant" | "toolResult",
+          payloadJson: JSON.stringify(message.payload),
+        }));
+      const reportCloudSyncFailure = (message: string): void => {
+        args.runtimeCallbacks.onError({
+          runId: prepared.runId,
+          agentType: prepared.agentType,
+          seq: Date.now(),
+          error: message,
+          fatal: false,
+          ...(prepared.uiVisibility
+            ? { uiVisibility: prepared.uiVisibility }
+            : {}),
+        });
+      };
+      const finishStatus = await context.cloudTranscript.finish({
+        conversationId: prepared.conversationId,
+        localTurnId: prepared.runId,
+        leaseToken,
+        records,
+        ...cloudFinishPhase(deferredTerminal, runError),
+        failureNotificationUserMessageId: args.userMessageId,
+        onDeliveryFailure: reportCloudSyncFailure,
+      });
+      if (!finishStatus.queued) {
+        reportCloudSyncFailure(
+          "This response finished on this device but was too large to sync to your cloud conversation.",
+        );
+      }
+      flushDeferredTerminal(args.runtimeCallbacks, deferredTerminal);
+    }
+    if (runError !== undefined) throw runError;
+  })().catch((error) => {
     if (isReportedOrchestratorError(error)) {
       return;
     }
@@ -263,6 +514,7 @@ export const startPreparedOrchestratorRun = async (args: {
   runId: string;
   conversationId: string;
   agentType: string;
+  storageMode?: "cloud" | "local";
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
   promptMessages?: RuntimePromptMessage[];
@@ -289,6 +541,7 @@ export const startPreparedOrchestratorRun = async (args: {
     runId: args.runId,
     conversationId: args.conversationId,
     agentType: args.agentType,
+    ...(args.storageMode ? { storageMode: args.storageMode } : {}),
     userPrompt: args.userPrompt,
     ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
     promptMessages: args.promptMessages,

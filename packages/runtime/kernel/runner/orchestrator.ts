@@ -106,6 +106,7 @@ export const createOrchestratorController = (
     alreadyRunningError: string;
     conversationId: string;
     agentType: string;
+    storageMode?: "cloud" | "local";
     userPrompt: string;
     uiVisibility?: "visible" | "hidden";
     promptMessages?: ChatPayload["promptMessages"];
@@ -149,6 +150,7 @@ export const createOrchestratorController = (
         runId,
         conversationId: args.conversationId,
         agentType: args.agentType,
+        ...(args.storageMode ? { storageMode: args.storageMode } : {}),
         userPrompt: args.userPrompt,
         ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
         ...(args.promptMessages?.length
@@ -171,6 +173,7 @@ export const createOrchestratorController = (
             ...session,
             conversationId: args.conversationId,
             agentType: args.agentType,
+            ...(args.storageMode ? { storageMode: args.storageMode } : {}),
             uiVisibility: args.uiVisibility ?? UI_VISIBILITY_VISIBLE,
             queueCallbackSwitch: (callbacks) => {
               steerableCallbacks.switchTo(callbacks);
@@ -223,6 +226,7 @@ export const createOrchestratorController = (
       userPrompt: string;
       promptMessages?: ChatPayload["promptMessages"];
       agentType: string;
+      storageMode?: "cloud" | "local";
       userMessageId: string;
       uiVisibility?: "visible" | "hidden";
       responseTarget?: StartPreparedRunArgs["responseTarget"];
@@ -244,6 +248,7 @@ export const createOrchestratorController = (
       alreadyRunningError: "The orchestrator is already running.",
       conversationId,
       agentType,
+      ...(startArgs.storageMode ? { storageMode: startArgs.storageMode } : {}),
       userPrompt,
       ...(startArgs.uiVisibility
         ? { uiVisibility: startArgs.uiVisibility }
@@ -641,6 +646,7 @@ export const createOrchestratorController = (
       userPrompt,
       promptMessages,
       attachments,
+      storageMode,
     } = normalizeChatRunInput(payload);
     const hasPromptMessages = Boolean(
       promptMessages?.some((message) => message.text.trim().length > 0),
@@ -650,7 +656,7 @@ export const createOrchestratorController = (
     }
 
     const liveSession = getLiveOrchestratorSession(conversationId, agentType);
-    if (liveSession) {
+    if (liveSession && storageMode !== "cloud") {
       persistAndQueueLiveChatMessages({
         session: liveSession,
         userMessageId: payload.userMessageId,
@@ -667,6 +673,7 @@ export const createOrchestratorController = (
         "The orchestrator is already running. Wait for it to finish before starting another run.",
       conversationId,
       agentType,
+      ...(storageMode ? { storageMode } : {}),
       userPrompt,
       ...(promptMessages?.length ? { promptMessages } : {}),
       attachments,
@@ -702,7 +709,7 @@ export const createOrchestratorController = (
       payload.conversationId,
       payload.agentType,
     );
-    if (liveSession) {
+    if (liveSession && payload.storageMode !== "cloud") {
       return await startLocalChatTurn(payload, callbacks);
     }
 

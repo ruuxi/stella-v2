@@ -180,6 +180,43 @@ export type PersistedAgentRecord = {
   updatedAt: number;
 };
 
+export type CloudTranscriptOutboxKind = "begin" | "finish";
+
+export type CloudTranscriptOutboxRecord = {
+  id: string;
+  kind: CloudTranscriptOutboxKind;
+  conversationId: string;
+  deviceId: string;
+  localTurnId: string;
+  payloadJson: string;
+  recoveryJson: string | null;
+  attempts: number;
+  lastError: string | null;
+  deadLetteredAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type CloudTranscriptOutboxRow = {
+  id: string;
+  kind: CloudTranscriptOutboxKind;
+  conversationId: string;
+  deviceId: string;
+  localTurnId: string;
+  payloadJson: string;
+  recoveryJson: string | null;
+  attempts: number;
+  lastError: string | null;
+  deadLetteredAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type CloudTranscriptOutboxWrite = Omit<
+  CloudTranscriptOutboxRecord,
+  "attempts" | "lastError" | "deadLetteredAt" | "createdAt" | "updatedAt"
+>;
+
 const parseJsonValue = <T>(value: string | null): T | undefined => {
   if (!value) return undefined;
   try {
@@ -1174,6 +1211,221 @@ export class SessionStore {
     `,
       )
       .run(key, value, Date.now());
+  }
+
+  putCloudTranscriptOutbox(record: CloudTranscriptOutboxWrite): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `
+      INSERT INTO cloud_transcript_outbox (
+        id,
+        kind,
+        conversation_id,
+        device_id,
+        local_turn_id,
+        payload_json,
+        recovery_json,
+        attempts,
+        last_error,
+        dead_lettered_at,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        payload_json = excluded.payload_json,
+        recovery_json = excluded.recovery_json,
+        last_error = NULL,
+        dead_lettered_at = NULL,
+        updated_at = excluded.updated_at
+    `,
+      )
+      .run(
+        record.id,
+        record.kind,
+        record.conversationId,
+        record.deviceId,
+        record.localTurnId,
+        record.payloadJson,
+        record.recoveryJson,
+        now,
+        now,
+      );
+  }
+
+  listCloudTranscriptOutbox(limit = 256): CloudTranscriptOutboxRecord[] {
+    const normalizedLimit = Math.max(1, Math.floor(limit));
+    return this.db
+      .prepare(
+        `
+      SELECT
+        id,
+        kind,
+        conversation_id AS conversationId,
+        device_id AS deviceId,
+        local_turn_id AS localTurnId,
+        payload_json AS payloadJson,
+        recovery_json AS recoveryJson,
+        attempts,
+        last_error AS lastError,
+        dead_lettered_at AS deadLetteredAt,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+      FROM cloud_transcript_outbox
+      WHERE dead_lettered_at IS NULL
+      ORDER BY attempts ASC, updated_at ASC, created_at ASC, id ASC
+      LIMIT ?
+    `,
+      )
+      .all(normalizedLimit) as CloudTranscriptOutboxRow[];
+  }
+
+  countCloudTranscriptOutbox(): number {
+    const row = this.db
+      .prepare(
+        `
+      SELECT COUNT(*) AS count
+      FROM cloud_transcript_outbox
+      WHERE dead_lettered_at IS NULL
+    `,
+      )
+      .get() as { count?: unknown } | undefined;
+    return typeof row?.count === "number" ? row.count : 0;
+  }
+
+  markCloudTranscriptOutboxAttempt(id: string): void {
+    this.db
+      .prepare(
+        `
+      UPDATE cloud_transcript_outbox
+      SET attempts = attempts + 1, updated_at = ?
+      WHERE id = ?
+    `,
+      )
+      .run(Date.now(), id);
+  }
+
+  deleteCloudTranscriptOutbox(id: string): void {
+    this.db.prepare("DELETE FROM cloud_transcript_outbox WHERE id = ?").run(id);
+  }
+
+  deadLetterCloudTranscriptOutbox(id: string, reason: string): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `
+      UPDATE cloud_transcript_outbox
+      SET
+        payload_json = '{}',
+        recovery_json = NULL,
+        last_error = ?,
+        dead_lettered_at = ?,
+        updated_at = ?
+      WHERE id = ?
+    `,
+      )
+      .run(reason, now, now, id);
+  }
+
+  /**
+   * Atomically redacts a rejected finish and persists the device-specific
+   * notice that explains the missing cloud output. A crash can therefore
+   * leave either the retryable finish or the notice, never a silent dead
+   * letter with its notification target already erased.
+   */
+  deadLetterCloudTranscriptOutboxWithFailureNotice(args: {
+    id: string;
+    reason: string;
+    conversationId: string;
+    deviceId: string;
+    localTurnId: string;
+    userMessageId: string;
+    message: string;
+  }): void {
+    const now = Date.now();
+    const conversationId = this.sanitizeConversationId(args.conversationId);
+    const eventId = `cloud-sync-error:${args.deviceId}:${args.localTurnId}`;
+    const payload = {
+      text: args.message.slice(0, 500),
+      userMessageId: args.userMessageId,
+      source: "cloud-sync-error",
+    };
+    this.withTransaction(() => {
+      this.db
+        .prepare(
+          `
+          UPDATE cloud_transcript_outbox
+          SET
+            payload_json = '{}',
+            recovery_json = NULL,
+            last_error = ?,
+            dead_lettered_at = ?,
+            updated_at = ?
+          WHERE id = ?
+        `,
+        )
+        .run(args.reason, now, now, args.id);
+      this.upsertSession(conversationId, now);
+      this.upsertEventMessage({
+        sessionId: conversationId,
+        eventId,
+        type: "assistant_message",
+        timestamp: now,
+        deviceId: args.deviceId,
+        requestId: args.userMessageId,
+        payload,
+      });
+    }, "immediate");
+  }
+
+  replaceCloudTranscriptOutbox(
+    acknowledgedId: string,
+    replacement: CloudTranscriptOutboxWrite,
+  ): void {
+    const now = Date.now();
+    this.withTransaction(() => {
+      this.db
+        .prepare(
+          `
+        INSERT INTO cloud_transcript_outbox (
+          id,
+          kind,
+          conversation_id,
+          device_id,
+          local_turn_id,
+          payload_json,
+          recovery_json,
+          attempts,
+          last_error,
+          dead_lettered_at,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          payload_json = excluded.payload_json,
+          recovery_json = excluded.recovery_json,
+          last_error = NULL,
+          dead_lettered_at = NULL,
+          updated_at = excluded.updated_at
+      `,
+        )
+        .run(
+          replacement.id,
+          replacement.kind,
+          replacement.conversationId,
+          replacement.deviceId,
+          replacement.localTurnId,
+          replacement.payloadJson,
+          replacement.recoveryJson,
+          now,
+          now,
+        );
+      this.db
+        .prepare("DELETE FROM cloud_transcript_outbox WHERE id = ?")
+        .run(acknowledgedId);
+    }, "immediate");
   }
 
   private sanitizeConversationId(value: unknown): string {
@@ -3066,6 +3318,59 @@ export class SessionStore {
         ? Math.max(1, Math.floor(limit))
         : undefined;
     return normalizedLimit ? raw.slice(-normalizedLimit) : raw;
+  }
+
+  getThreadEntryInsertionSequenceWatermark(threadKeyInput: string): number {
+    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+    if (!threadKey) throw new Error("threadKey is required.");
+    const row = this.db
+      .prepare(
+        `
+        SELECT MAX(insertion_sequence) AS watermark
+        FROM runtime_thread_entries
+        WHERE thread_key = ?
+      `,
+      )
+      .get(threadKey) as { watermark?: unknown } | undefined;
+    return typeof row?.watermark === "number" ? row.watermark : 0;
+  }
+
+  /**
+   * Reads only entries appended after a durable insertion boundary. Cloud
+   * transcript finalization uses this suffix instead of rescanning and
+   * serializing the entire local thread on every turn.
+   */
+  loadRawThreadMessagesAfterInsertionSequence(
+    threadKeyInput: string,
+    afterInsertionSequence: number,
+  ): Array<RuntimeThreadMessage & { entryId: string }> {
+    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+    if (!threadKey) throw new Error("threadKey is required.");
+    const normalizedBoundary =
+      Number.isFinite(afterInsertionSequence) && afterInsertionSequence >= 0
+        ? Math.floor(afterInsertionSequence)
+        : 0;
+    const rows = this.db
+      .prepare(
+        `
+        SELECT
+          entry_id AS entryId,
+          parent_entry_id AS parentEntryId,
+          entry_type AS entryType,
+          timestamp_iso AS timestampIso,
+          created_at AS createdAt,
+          data_json AS dataJson
+        FROM runtime_thread_entries
+        WHERE thread_key = ?
+          AND insertion_sequence > ?
+        ORDER BY insertion_sequence ASC, rowid ASC
+      `,
+      )
+      .all(threadKey, normalizedBoundary) as ThreadSessionEntryRow[];
+    const entries = rows
+      .map((row) => parseThreadSessionEntry(row))
+      .filter((entry): entry is RuntimeThreadSessionEntry => entry !== null);
+    return buildRawThreadMessages(entries);
   }
 
   /** Exact-thread UI reads the original typed entries, not the compaction

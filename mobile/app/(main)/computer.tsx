@@ -6,7 +6,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useIsFocused } from "expo-router";
+import { useIsFocused, useRouter } from "expo-router";
 import { authClient } from "../../src/lib/auth-client";
 import { isConnectedAccountUser } from "../../src/lib/auth-identity";
 import { SignInPrompt } from "../../src/components/SignInPrompt";
@@ -32,10 +32,11 @@ import type { ChatArtifact } from "../../src/types";
 import { ChatPane } from "../../src/components/ChatPane";
 import { ActivityHubSheet } from "../../src/components/ActivityHubSheet";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
-import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
+import { ComputerSettingsSheet } from "../../src/components/ComputerSettingsSheet";
 import { ConnectHeroAnimation } from "../../src/components/ConnectHeroAnimation";
 import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
+import { useComputerModelSettings } from "../../src/lib/use-computer-model-settings";
 
 const STATUS_POLL_MS = 20_000;
 /**
@@ -61,8 +62,8 @@ type DeviceStatus = {
 
 /**
  * The Computer tab hosts the conversation with the paired desktop's Stella
- * agent. Its device controls (status, wake, view-screen, artifacts, model
- * settings) live in a sheet opened from the composer's gear button.
+ * agent. Its device controls live in a compact menu opened from the composer's
+ * gear button; only model selection and pairing expand into sheets.
  */
 export default function ComputerScreen() {
   const session = authClient.useSession();
@@ -169,6 +170,8 @@ function ComputerChatSurface({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const offline = useIsOffline();
   const { setConnection: setTopBarConnection } = useTopBarStatus();
+  const router = useRouter();
+  const modelSettings = useComputerModelSettings();
 
   const execution = useMemo(
     () => ({ kind: "desktop" as const, access }),
@@ -182,7 +185,8 @@ function ComputerChatSurface({
       AppState.currentState !== "inactive",
   );
 
-  const [deviceSheetOpen, setDeviceSheetOpen] = useState(false);
+  const [modelSheetOpen, setModelSheetOpen] = useState(false);
+  const [pairSheetOpen, setPairSheetOpen] = useState(false);
   const [activityHubOpen, setActivityHubOpen] = useState(false);
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,
@@ -492,15 +496,6 @@ function ComputerChatSurface({
     runDesktopSync,
   ]);
 
-  const platformLabel = status.platform?.trim() || "Your computer";
-  const statusLabel = status.checking
-    ? "Checking…"
-    : waking
-      ? "Waking up…"
-      : status.available
-        ? "Connected"
-        : "Asleep";
-
   const canSubmit =
     thread.draft.trim().length > 0 &&
     !offline &&
@@ -529,7 +524,16 @@ function ComputerChatSurface({
         onChangeAttachments={thread.setAttachments}
         dictationAnonymous={false}
         onOpenArtifact={setSelectedArtifact}
-        onOpenDeviceSheet={() => setDeviceSheetOpen(true)}
+        computerMenu={{
+          selectedModelLabel: modelSettings.selectedModelLabel,
+          onViewScreen: () => router.push("/stella"),
+          onOpenModel: () => setModelSheetOpen(true),
+          onPairComputer: () => setPairSheetOpen(true),
+          onForceSync: forceSync,
+          forceSyncing: syncing,
+          showWake: !status.checking && !status.available && !waking,
+          onWake: wake,
+        }}
         activityTasks={thread.conversationTasks}
         onOpenActivityHub={() => setActivityHubOpen(true)}
         catchingUp={thread.catchingUp}
@@ -549,19 +553,21 @@ function ComputerChatSurface({
         conversationArtifacts={thread.conversationOwnedArtifacts}
         access={access}
       />
-      <ComputerDeviceSheet
-        visible={deviceSheetOpen}
-        onClose={() => setDeviceSheetOpen(false)}
+      <ComputerSettingsSheet
+        visible={modelSheetOpen}
+        onClose={() => setModelSheetOpen(false)}
         access={access}
-        platformLabel={platformLabel}
-        statusLabel={statusLabel}
-        statusAvailable={status.available}
-        connecting={status.checking || waking}
-        showWake={!status.checking && !status.available && !waking}
-        onWake={wake}
-        onForceSync={forceSync}
-        syncing={syncing}
-        onRepaired={onAccessChange}
+        catalog={modelSettings.catalog}
+        onApplied={modelSettings.syncFromSnapshot}
+      />
+      <PairPhoneSheet
+        visible={pairSheetOpen}
+        onClose={() => setPairSheetOpen(false)}
+        onPaired={(next) => {
+          setPairSheetOpen(false);
+          onAccessChange(next);
+        }}
+        preferredAccess={access}
       />
       <ArtifactViewer
         visible={Boolean(selectedArtifact)}

@@ -20,17 +20,11 @@ import { getSetCookie } from "@better-auth/expo/client";
 import { useRouter } from "expo-router";
 import Svg, { Path } from "react-native-svg";
 import { authClient } from "../../src/lib/auth-client";
-import { clearCachedToken, getConvexToken } from "../../src/lib/auth-token";
-import { buildMagicLinkRequest } from "../../src/lib/auth-link-request";
+import { clearCachedToken } from "../../src/lib/auth-token";
 import { clearCachedDesktopBridge } from "../../src/lib/desktop-bridge-chat";
-import { clearAccountBoundMobileState } from "../../src/lib/account-bound-state";
 import { env } from "../../src/config/env";
 import { userFacingError } from "../../src/lib/user-facing-error";
-import {
-  isAnonymousAuthUser,
-  isConnectedAccountUser,
-  requireResolvedAuthIdentity,
-} from "../../src/lib/auth-identity";
+import { setGuestMode } from "../../src/lib/guest-mode";
 import { type Colors } from "../../src/theme/colors";
 import { useColors, useTheme } from "../../src/theme/theme-context";
 import { fadeHex } from "../../src/theme/oklch";
@@ -68,37 +62,17 @@ export default function LoginScreen() {
   const [submitState, setSubmitState] = useState<SubmitState>({ type: "idle" });
   const [activeLegal, setActiveLegal] = useState<LegalDoc>(null);
   const [canResend, setCanResend] = useState(false);
-  const session = authClient.useSession();
 
   const continueAsGuest = async () => {
-    setSubmitState({ type: "sending" });
-    try {
-      requireResolvedAuthIdentity(session.isPending);
-      if (isConnectedAccountUser(session.data?.user)) {
-        router.replace(await loadLastMainTabHref());
-        return;
-      }
-      if (!isAnonymousAuthUser(session.data?.user)) {
-        await clearAccountBoundMobileState();
-        const result = await authClient.signIn.anonymous();
-        if (result.error) {
-          throw new Error(
-            result.error.message ?? "Could not start an anonymous session.",
-          );
-        }
-        clearCachedToken();
-        clearCachedDesktopBridge();
-        const store = (
-          authClient as unknown as {
-            $store?: { notify: (signal: string) => void };
-          }
-        ).$store;
-        store?.notify("$sessionSignal");
-      }
-      router.replace(await loadLastMainTabHref());
-    } catch (error) {
-      setSubmitState({ type: "error", message: userFacingError(error) });
-    }
+    await SecureStore.deleteItemAsync("stella-mobile_cookie");
+    clearCachedToken();
+    clearCachedDesktopBridge();
+    const store = (authClient as unknown as {
+      $store?: { notify: (signal: string) => void };
+    }).$store;
+    store?.notify("$sessionSignal");
+    await setGuestMode(true);
+    router.replace(await loadLastMainTabHref());
   };
 
   const sendMagicLink = async () => {
@@ -111,19 +85,12 @@ export default function LoginScreen() {
     setSubmitState({ type: "sending" });
 
     try {
-      requireResolvedAuthIdentity(session.isPending);
-      const request = await buildMagicLinkRequest({
-        email: trimmed,
-        anonymous: isAnonymousAuthUser(session.data?.user),
-        authResolved: !session.isPending,
-        getToken: getConvexToken,
-      });
       const response = await fetch(
         `${env.convexSiteUrl}/api/auth/link/send`,
         {
           method: "POST",
-          headers: request.headers,
-          body: request.body,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: trimmed }),
         },
       );
       const data = (await response.json()) as {
@@ -143,8 +110,6 @@ export default function LoginScreen() {
     setSubmitState({ type: "google" });
 
     try {
-      requireResolvedAuthIdentity(session.isPending);
-      if (!session.data?.user) await clearAccountBoundMobileState();
       const result = (await authClient.signIn.social({
         provider: "google",
         callbackURL: "/chat",
@@ -161,8 +126,6 @@ export default function LoginScreen() {
         return;
       }
 
-      clearCachedToken();
-      clearCachedDesktopBridge();
       router.replace(await loadLastMainTabHref());
     } catch (error) {
       setSubmitState({ type: "error", message: userFacingError(error) });
@@ -173,8 +136,6 @@ export default function LoginScreen() {
     setSubmitState({ type: "apple" });
 
     try {
-      requireResolvedAuthIdentity(session.isPending);
-      if (!session.data?.user) await clearAccountBoundMobileState();
       if (Platform.OS === "ios") {
         // Apple echoes whatever string is passed as `nonce` into the
         // identity token's `nonce` claim. better-auth verifies it with a
@@ -222,8 +183,6 @@ export default function LoginScreen() {
           return;
         }
 
-        clearCachedToken();
-        clearCachedDesktopBridge();
         router.replace(await loadLastMainTabHref());
         return;
       }
@@ -244,8 +203,6 @@ export default function LoginScreen() {
         return;
       }
 
-      clearCachedToken();
-      clearCachedDesktopBridge();
       router.replace(await loadLastMainTabHref());
     } catch (error) {
       // User cancels surface as ERR_REQUEST_CANCELED — return silently.
@@ -308,8 +265,6 @@ export default function LoginScreen() {
               const prev = await SecureStore.getItemAsync("stella-mobile_cookie");
               const parsed = getSetCookie(data.sessionCookie, prev ?? undefined);
               await SecureStore.setItemAsync("stella-mobile_cookie", parsed);
-              clearCachedToken();
-              clearCachedDesktopBridge();
               // Notify the session signal so useSession() re-fetches with the
               // newly-stored cookie. The expo plugin's init hook attaches it to
               // the request, and the server returns valid session data.
@@ -375,7 +330,6 @@ export default function LoginScreen() {
                 void signInWithApple();
               }}
               disabled={
-                session.isPending ||
                 submitState.type === "apple" ||
                 submitState.type === "google" ||
                 submitState.type === "sending" ||
@@ -405,7 +359,6 @@ export default function LoginScreen() {
               void signInWithGoogle();
             }}
             disabled={
-              session.isPending ||
               submitState.type === "apple" ||
               submitState.type === "google" ||
               submitState.type === "sending" ||
@@ -450,7 +403,6 @@ export default function LoginScreen() {
               void sendMagicLink();
             }}
             disabled={
-              session.isPending ||
               submitState.type === "sending" ||
               submitState.type === "sent" ||
               submitState.type === "verifying"
@@ -529,7 +481,6 @@ export default function LoginScreen() {
 
           <Pressable
             onPress={() => void continueAsGuest()}
-            disabled={session.isPending}
             style={({ pressed }) => [
               styles.guestButton,
               pressed && styles.guestButtonPressed,

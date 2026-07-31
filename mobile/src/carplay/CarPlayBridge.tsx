@@ -4,10 +4,14 @@
  * resolve) and stays mounted for the app's lifetime, but renders nothing.
  *
  * It deliberately reuses — never re-implements — the app's pipelines:
- *   • send + response  → {@link useCloudChatThread}. Phone execution starts a
- *     cloud turn; computer execution is dispatched through the paired desktop.
- *     Both project the selected cloud conversation's DO journal, so CarPlay
- *     never creates or persists a separate transcript.
+ *   • send + response  → {@link useChatThread}. The voice loop is
+ *     target-aware: on the `phone` target it uses the cloud transport (the
+ *     same `/api/mobile/offline-chat/stream` flow the Chat tab uses) on a
+ *     dedicated "carplay" transcript; on the `computer` target it uses the
+ *     desktop bridge transport (the same wake → sync → send flow the Computer
+ *     tab uses) into the SAME canonical desktop conversation, on its own
+ *     "carplay-computer" store so it never races the Computer tab's
+ *     persistence.
  *   • dictation        → {@link useDictation} (the same `/api/mobile/transcribe`
  *     push-to-talk recorder the composer mic uses).
  *   • text-to-speech   → {@link speakReply} from read-aloud (the same Inworld
@@ -27,12 +31,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
-import { authClient } from "../lib/auth-client";
-import {
-  isConnectedAccountUser,
-  resolveAccountBoundBridgeScope,
-} from "../lib/auth-identity";
-import { clearAccountBoundBridgeState } from "../lib/account-bound-state";
+import { isGuest } from "../lib/guest-mode";
 import {
   getDesktopBridgeStatus,
   getOrCreateMobileDeviceId,
@@ -50,7 +49,7 @@ import {
   type VoiceTarget,
   type VoiceTargetPreference,
 } from "../lib/voice-target";
-import { useCloudChatThread } from "../lib/use-cloud-chat-thread";
+import { useChatThread, type ChatTransport } from "../lib/use-chat-thread";
 import { useDictation } from "../lib/dictation";
 import { speakReply, stopReadAloud, useReadAloudState } from "../lib/read-aloud";
 import { carPlayLog, carPlaySession, type CarPlayPhase } from "./carplay-session";
@@ -85,16 +84,8 @@ export function CarPlayBridge() {
  * a clean loop (fresh refs, right transport) instead of mid-flight rewiring.
  */
 function CarPlayBridgeIOS() {
-  const session = authClient.useSession();
-  // Treat an unresolved session as anonymous so a previous connected
-  // account's pairing secret is never loaded during auth bootstrap.
-  const guest = !isConnectedAccountUser(session.data?.user);
-  const bridgeScope = resolveAccountBoundBridgeScope(
-    session.data,
-    session.isPending,
-  );
+  const guest = isGuest();
   const [access, setAccess] = useState<StoredPhoneAccess | null>(null);
-  const lastConnectedBridgeScopeRef = useRef<string | null>(null);
   const [preference, setPreferenceState] = useState<VoiceTargetPreference>(
     () => getVoiceTargetPreference(),
   );
@@ -115,28 +106,9 @@ function CarPlayBridgeIOS() {
   }, []);
 
   useEffect(() => {
-    setAccess(null);
-    if (!bridgeScope) return;
-
-    const previousScope = lastConnectedBridgeScopeRef.current;
-    lastConnectedBridgeScopeRef.current = bridgeScope;
-    let cancelled = false;
-    if (previousScope && previousScope !== bridgeScope) {
-      // A direct account replacement may not pass through the explicit
-      // sign-out screen. Purge the old account's pairing rather than loading
-      // it under the new identity.
-      void clearAccountBoundBridgeState();
-      return;
-    }
-    void getPreferredPhoneAccess().then((next) => {
-      if (!cancelled && lastConnectedBridgeScopeRef.current === bridgeScope) {
-        setAccess(next);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [bridgeScope]);
+    if (guest) return;
+    void getPreferredPhoneAccess().then(setAccess);
+  }, [guest]);
 
   useEffect(() => {
     const unsubscribe = subscribeVoiceTargetPreference(setPreferenceState);
@@ -205,9 +177,7 @@ function CarPlayBridgeIOS() {
   // voice loop is dormant otherwise, and this keeps the always-mounted bridge
   // from holding a live push socket to the computer around the clock.
   const effectiveTarget: VoiceTarget =
-    bridgeScope && target === "computer" && access && connected
-      ? "computer"
-      : "phone";
+    target === "computer" && access && connected ? "computer" : "phone";
 
   return (
     <CarPlayVoiceLoop
@@ -233,17 +203,17 @@ function CarPlayVoiceLoop({
 }) {
   const [mobileDeviceId, setMobileDeviceId] = useState<string | null>(null);
 
-  const execution = useMemo(
+  const transport = useMemo<ChatTransport>(
     () =>
       target === "computer" && access
         ? { kind: "desktop" as const, access }
-        : { kind: "cloud" as const },
-    [target, access],
+        : { kind: "cloud" as const, guest },
+    [target, access, guest],
   );
-  // Phone and computer execution both render the user's selected canonical
-  // cloud conversation. Switching the executor never creates another history.
-  const thread = useCloudChatThread(execution);
-  const { setDraft, send, messages, sending, storageLoaded } = thread;
+  const threadId = transport.kind === "desktop" ? "carplay-computer" : "carplay";
+  const thread = useChatThread({ threadId, transport });
+  const { setDraft, send, messages, sending, storageLoaded, runDesktopSync } =
+    thread;
 
   const readAloud = useReadAloudState();
 
@@ -455,6 +425,17 @@ function CarPlayVoiceLoop({
     goPhase("idle");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Computer target: hydrate from the canonical desktop transcript on mount
+  // (this loop only mounts while CarPlay is attached), so the recent-reply
+  // rows and turn reconciliation start from the real conversation.
+  useEffect(() => {
+    if (transport.kind !== "desktop") return;
+    if (!storageLoaded) return;
+    void runDesktopSync({ catchUp: true });
+    // Run once per loop mount, as soon as local storage has hydrated.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transport.kind, storageLoaded]);
 
   // Dispatch the parked transcript once the draft state reflects it.
   useEffect(() => {

@@ -7,8 +7,7 @@ import {
   View,
 } from "react-native";
 import { useIsFocused } from "expo-router";
-import { authClient } from "../../src/lib/auth-client";
-import { isConnectedAccountUser } from "../../src/lib/auth-identity";
+import { isGuest } from "../../src/lib/guest-mode";
 import { SignInPrompt } from "../../src/components/SignInPrompt";
 import {
   getDesktopBridgeStatus,
@@ -18,7 +17,7 @@ import {
 } from "../../src/lib/phone-access";
 import { updateStellaWidget } from "../../src/lib/home-widget";
 import { tapLight, notifySuccess, notifyError } from "../../src/lib/haptics";
-import { useCloudChatThread } from "../../src/lib/use-cloud-chat-thread";
+import { useChatThread } from "../../src/lib/use-chat-thread";
 import { shouldRunDesktopForegroundTimer } from "../../src/lib/desktop-sync-policy";
 import { useIsOffline } from "../../src/lib/use-network-status";
 import {
@@ -65,11 +64,7 @@ type DeviceStatus = {
  * settings) live in a sheet opened from the composer's gear button.
  */
 export default function ComputerScreen() {
-  const session = authClient.useSession();
-  if (session.isPending) {
-    return <View />;
-  }
-  if (!isConnectedAccountUser(session.data?.user)) {
+  if (isGuest()) {
     return <GuestComputerSurface />;
   }
   return <ComputerRouter />;
@@ -170,11 +165,11 @@ function ComputerChatSurface({
   const offline = useIsOffline();
   const { setConnection: setTopBarConnection } = useTopBarStatus();
 
-  const execution = useMemo(
+  const transport = useMemo(
     () => ({ kind: "desktop" as const, access }),
     [access],
   );
-  const thread = useCloudChatThread(execution);
+  const thread = useChatThread({ threadId: "computer", transport });
   const isFocused = useIsFocused();
   const [appActive, setAppActive] = useState(
     () =>
@@ -502,10 +497,9 @@ function ComputerChatSurface({
         : "Asleep";
 
   const canSubmit =
-    thread.draft.trim().length > 0 &&
+    (thread.draft.trim().length > 0 || thread.attachments.length > 0) &&
     !offline &&
-    thread.storageLoaded &&
-    !thread.startupIssue;
+    thread.storageLoaded;
 
   return (
     <View style={styles.screen}>
@@ -524,7 +518,7 @@ function ComputerChatSurface({
         onStop={thread.stop}
         placeholder="Message your computer"
         offline={offline}
-        enableAttachments={false}
+        enableAttachments
         attachments={thread.attachments}
         onChangeAttachments={thread.setAttachments}
         dictationAnonymous={false}
@@ -533,12 +527,6 @@ function ComputerChatSurface({
         activityTasks={thread.conversationTasks}
         onOpenActivityHub={() => setActivityHubOpen(true)}
         catchingUp={thread.catchingUp}
-        hasOlder={thread.hasOlder}
-        loadingOlder={thread.loadingOlder}
-        olderNotice={thread.olderNotice}
-        onLoadOlder={thread.loadOlder}
-        startupIssue={thread.startupIssue}
-        onRetryMessage={thread.retrySend}
       />
       <ActivityHubSheet
         visible={activityHubOpen}

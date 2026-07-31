@@ -905,7 +905,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onOpenArtifact,
   onOpenMessageMenu,
   onAskStella,
-  onRetryMessage,
 }: {
   item: ChatMessage;
   styles: ChatStyles;
@@ -916,7 +915,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onOpenMessageMenu: (request: MessageMenuRequest) => void;
   /** Puts a selected assistant snippet into the composer ("Ask Stella"). */
   onAskStella: (text: string) => void;
-  onRetryMessage?: (clientMsgId: string) => void;
 }) {
   // Assistant-only: press-and-hold enters native text selection with a custom
   // Copy / Ask Stella / Select All row (see the assistant branch below). The
@@ -1155,21 +1153,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
           Answered while your computer was offline
         </Text>
       ) : null}
-      {item.sendError && item.clientMsgId && onRetryMessage ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Retry message"
-          onPress={() => onRetryMessage(item.clientMsgId!)}
-          style={({ pressed }) => [
-            styles.retrySendButton,
-            pressed ? styles.loadOlderPressed : null,
-          ]}
-        >
-          <Icon name="refresh-cw" size={13} color={colors.textMuted} />
-          <Text style={styles.retrySendText}>Try again</Text>
-        </Pressable>
-      ) : null}
-      {!isStreaming && !item.sendError ? (
+      {!isStreaming ? (
         <AssistantActions
           text={item.text}
           messageId={item.id}
@@ -1955,16 +1939,6 @@ export type ChatPaneProps = {
    * during tab transitions before the real messages arrive.
    */
   historyLoading?: boolean;
-  /** Cloud transcript pagination, shown at the top of the loaded window. */
-  hasOlder?: boolean;
-  loadingOlder?: boolean;
-  olderNotice?: string | null;
-  onLoadOlder?: () => void;
-  startupIssue?: {
-    message: string;
-    actionLabel?: string;
-    onAction?: () => void;
-  } | null;
 
   /** Composer input value. */
   draft: string;
@@ -1986,8 +1960,6 @@ export type ChatPaneProps = {
    * stream and the computer-chat round trip.
    */
   onStop?: () => void;
-  /** Retry one failed optimistic cloud send with the same idempotency key. */
-  onRetryMessage?: (clientMsgId: string) => void;
 
   /** Show a small `+` menu entry for attaching photos. */
   enableAttachments: boolean;
@@ -2045,11 +2017,6 @@ export function ChatPane({
   offline = false,
   emptyContent,
   historyLoading = false,
-  hasOlder = false,
-  loadingOlder = false,
-  olderNotice = null,
-  onLoadOlder,
-  startupIssue = null,
   draft,
   onChangeDraft,
   composerEnabled = true,
@@ -2057,7 +2024,6 @@ export function ChatPane({
   canSubmit,
   onSubmit,
   onStop,
-  onRetryMessage,
   enableAttachments,
   attachments,
   onChangeAttachments,
@@ -2701,7 +2667,6 @@ export function ChatPane({
             onOpenArtifact={onOpenArtifact}
             onOpenMessageMenu={setMessageMenu}
             onAskStella={askStella}
-            onRetryMessage={onRetryMessage}
           />
         </FadeInMessage>
       );
@@ -2710,7 +2675,6 @@ export function ChatPane({
       styles,
       colors,
       onOpenArtifact,
-      onRetryMessage,
       askStella,
       scroll.onStreamingAssistantLayout,
       streamingAssistantId,
@@ -2854,65 +2818,6 @@ export function ChatPane({
     ],
     [styles.list, footerHeight, keyboardExtra],
   );
-  const historyHeader = useMemo(() => {
-    const startup = startupIssue ? (
-      <View style={styles.startupIssue}>
-        <Text style={styles.startupIssueText}>{startupIssue.message}</Text>
-        {startupIssue.actionLabel && startupIssue.onAction ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={startupIssue.onAction}
-            style={({ pressed }) => [
-              styles.startupIssueAction,
-              pressed ? styles.loadOlderPressed : null,
-            ]}
-          >
-            <Text style={styles.loadOlderText}>
-              {startupIssue.actionLabel}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
-    ) : null;
-    if (!hasOlder && !olderNotice) return startup;
-    if (hasOlder && onLoadOlder) {
-      return (
-        <>
-          {startup}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Load earlier messages"
-            disabled={loadingOlder}
-            onPress={onLoadOlder}
-            style={({ pressed }) => [
-              styles.loadOlderButton,
-              pressed && !loadingOlder ? styles.loadOlderPressed : null,
-            ]}
-          >
-            {loadingOlder ? (
-              <ActivityIndicator size="small" color={colors.textMuted} />
-            ) : (
-              <Text style={styles.loadOlderText}>Load earlier messages</Text>
-            )}
-          </Pressable>
-        </>
-      );
-    }
-    return (
-      <>
-        {startup}
-        <Text style={styles.olderNotice}>{olderNotice}</Text>
-      </>
-    );
-  }, [
-    colors.textMuted,
-    hasOlder,
-    loadingOlder,
-    olderNotice,
-    onLoadOlder,
-    startupIssue,
-    styles,
-  ]);
 
   return (
     <View ref={rootRef} collapsable={false} style={styles.screen}>
@@ -2926,29 +2831,7 @@ export function ChatPane({
             style={styles.emptyState}
             onPress={() => Keyboard.dismiss()}
           >
-            {startupIssue ? (
-              <View style={styles.startupIssue}>
-                <Text style={styles.startupIssueText}>
-                  {startupIssue.message}
-                </Text>
-                {startupIssue.actionLabel && startupIssue.onAction ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={startupIssue.onAction}
-                    style={({ pressed }) => [
-                      styles.startupIssueAction,
-                      pressed ? styles.loadOlderPressed : null,
-                    ]}
-                  >
-                    <Text style={styles.loadOlderText}>
-                      {startupIssue.actionLabel}
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            ) : (
-              emptyContent
-            )}
+            {emptyContent}
           </Pressable>
         ) : (
           <>
@@ -2961,7 +2844,6 @@ export function ChatPane({
               keyExtractor={keyExtractor}
               getItemType={getItemType}
               ItemSeparatorComponent={renderSeparator}
-              ListHeaderComponent={historyHeader}
               ListFooterComponent={listFooter}
               onScroll={handleListScroll}
               onScrollBeginDrag={scroll.onScrollBeginDrag}
@@ -3566,65 +3448,6 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: CHAT_HORIZONTAL_INSET,
       paddingTop: 80,
       paddingBottom: EDGE_FADE,
-    },
-    loadOlderButton: {
-      alignItems: "center",
-      alignSelf: "center",
-      height: 36,
-      justifyContent: "center",
-      marginBottom: 18,
-      paddingHorizontal: 14,
-    },
-    loadOlderPressed: { opacity: 0.55 },
-    loadOlderText: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 12,
-    },
-    olderNotice: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 12,
-      marginBottom: 18,
-      opacity: 0.7,
-      textAlign: "center",
-    },
-    startupIssue: {
-      alignItems: "center",
-      alignSelf: "center",
-      gap: 12,
-      maxWidth: 300,
-      paddingHorizontal: 18,
-      paddingVertical: 12,
-    },
-    startupIssueText: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      lineHeight: 20,
-      textAlign: "center",
-    },
-    startupIssueAction: {
-      alignItems: "center",
-      borderColor: fadeHex(colors.border, 0.8),
-      borderRadius: 16,
-      borderWidth: StyleSheet.hairlineWidth,
-      minHeight: 32,
-      justifyContent: "center",
-      paddingHorizontal: 14,
-    },
-    retrySendButton: {
-      alignItems: "center",
-      alignSelf: "flex-start",
-      flexDirection: "row",
-      gap: 6,
-      marginTop: 8,
-      minHeight: 30,
-    },
-    retrySendText: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 12,
     },
     itemSeparator: { height: MESSAGE_LIST_GAP },
     // Fixed-height tail below the last message. Hosts the inline working

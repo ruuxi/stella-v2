@@ -12,8 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppBackdrop } from "../src/components/AppBackdrop";
 import { ConnectHeroAnimation } from "../src/components/ConnectHeroAnimation";
 import { StellaAnimation } from "../src/components/stella-animation";
-import { authClient } from "../src/lib/auth-client";
-import { isAnonymousAuthUser } from "../src/lib/auth-identity";
+import { isGuest } from "../src/lib/guest-mode";
 import { markOnboardingSeen } from "../src/lib/onboarding";
 import { tapLight } from "../src/lib/haptics";
 import { type Colors } from "../src/theme/colors";
@@ -33,8 +32,7 @@ export default function OnboardingScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const session = authClient.useSession();
-  const guest = isAnonymousAuthUser(session.data?.user);
+  const guest = isGuest();
 
   const [step, setStep] = useState(0);
   const progress = useRef(new Animated.Value(1)).current;

@@ -1,11 +1,7 @@
 import { expoClient } from "@better-auth/expo/client";
 import { convexClient } from "@convex-dev/better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
-import {
-  anonymousClient,
-  jwtClient,
-  magicLinkClient,
-} from "better-auth/client/plugins";
+import { jwtClient, magicLinkClient } from "better-auth/client/plugins";
 import type { BetterFetchPlugin } from "@better-fetch/fetch";
 import * as SecureStore from "expo-secure-store";
 import { env } from "../config/env";
@@ -18,7 +14,6 @@ const plugins = [
     storagePrefix: "stella-mobile",
   }),
   convexClient(),
-  anonymousClient(),
   magicLinkClient(),
   jwtClient(),
   {

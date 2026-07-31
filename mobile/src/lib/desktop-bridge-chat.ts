@@ -142,8 +142,6 @@ type DesktopBridgeChatArgs = {
   access: StoredPhoneAccess;
   /** Reused only for a serialized queued-send batch. */
   batch?: DesktopBridgeSendBatch;
-  /** Cloud-owned conversations must never write or read localChat history. */
-  storageMode?: "cloud" | "local";
   message: string;
   /** Durable logical-send identity, persisted by mobile before transmission. */
   clientRequestId?: string;
@@ -189,14 +187,6 @@ export type DesktopBridgeChatSyncResult = {
   messages: ChatMessage[];
   /** Resolved bridge + conversation identity reusable by the send that follows. */
   preparedSend: DesktopBridgeSendBatch;
-};
-
-type DesktopBridgeCloudHello = {
-  conversationId?: unknown;
-  historyAuthority?: unknown;
-  historyAvailableFromDesktopBridge?: unknown;
-  developerArtifactsEnabled?: unknown;
-  features?: unknown;
 };
 
 type DesktopBridgeHelloRequest = {
@@ -1316,92 +1306,6 @@ export async function syncDesktopBridgeChatMessages({
   });
 }
 
-/**
- * Negotiate the desktop execution lane without asking it for transcript rows.
- * New mobile builds deliberately do not fall back to ui:getState/localChat:
- * an older desktop is not a second history authority.
- */
-export async function negotiateDesktopBridgeCloudChat({
-  access,
-  conversationId,
-  onStatus,
-}: {
-  access: StoredPhoneAccess;
-  conversationId: string;
-  onStatus?: (status: DesktopBridgeSendStatus) => void;
-}): Promise<DesktopBridgeSendBatch> {
-  const request: DesktopBridgeHelloRequest = {
-    expectedConversationId: conversationId,
-    negotiateOnly: true,
-  };
-  const perform = async (
-    bridge: DesktopBridgeConnection,
-  ): Promise<DesktopBridgeSendBatch> => {
-    let value: DesktopBridgeCloudHello | null = null;
-    if (bridge.pendingHello?.requestKey === JSON.stringify(request)) {
-      const pending = bridge.pendingHello;
-      delete bridge.pendingHello;
-      if (pending.error) throw pending.error;
-      value = pending.result ?? null;
-    } else {
-      if (!bridge.helloSupported) {
-        throw new Error(
-          "Update Stella on your desktop to use cloud-owned conversations.",
-        );
-      }
-      value = asRecord(
-        await invokeDesktopBridge(
-          bridge,
-          "mobile:hello",
-          [request],
-          BRIDGE_SYNC_TIMEOUT_MS,
-        ),
-      );
-    }
-    const selected = asString(value?.conversationId).trim();
-    if (
-      selected !== conversationId ||
-      value?.historyAuthority !== "cloud" ||
-      value?.historyAvailableFromDesktopBridge !== false
-    ) {
-      throw new Error(
-        selected && selected !== conversationId
-          ? "The active cloud conversation changed. Try again."
-          : "Your desktop has not enabled cloud conversation authority yet.",
-      );
-    }
-    bridge.includeDeveloperArtifacts =
-      value?.developerArtifactsEnabled === true;
-    if (Array.isArray(value?.features)) {
-      bridge.features = new Set(
-        value.features.filter(
-          (feature): feature is string => typeof feature === "string",
-        ),
-      );
-    }
-    return {
-      desktopDeviceId: access.desktopDeviceId,
-      bridge,
-      conversationId,
-      socket: null,
-      closed: false,
-    };
-  };
-
-  const bridge = await resolveDesktopBridge(access, onStatus, {
-    initialHello: request,
-  });
-  return runWithSingleBridgeRecovery({
-    initial: bridge,
-    operation: perform,
-    recover: async () =>
-      resolveDesktopBridge(access, onStatus, {
-        forceRefresh: true,
-        initialHello: request,
-      }),
-  });
-}
-
 type HeaderWebSocketConstructor = new (
   url: string,
   protocols?: string | string[] | null,
@@ -1707,7 +1611,6 @@ const isDisconnectError = (error: unknown) => {
 export async function sendDesktopBridgeChat({
   access,
   batch: suppliedBatch,
-  storageMode = "local",
   message,
   clientRequestId: suppliedClientRequestId,
   userMessageEventId,
@@ -1755,7 +1658,7 @@ export async function sendDesktopBridgeChat({
     deviceId: access.mobileDeviceId,
     platform: "mobile",
     mode: "computer",
-    storageMode,
+    storageMode: "local",
     clientRequestId,
     ...(userMessageEventId?.trim()
       ? { userMessageEventId: userMessageEventId.trim() }
@@ -1936,7 +1839,7 @@ export async function sendDesktopBridgeChat({
       return;
     }
     let finalText = asString(event.finalText).trim();
-    if (storageMode === "local" && (!finalText || artifactById.size === 0)) {
+    if (!finalText || artifactById.size === 0) {
       const latest = submittedUserMessageId
         ? await readAssistantMessageForTurn(
             activeBridge,
@@ -2072,7 +1975,6 @@ export async function sendDesktopBridgeChat({
   // and the desktop's event buffer no longer holds the terminal event.
   const recoverFinalFromDesktop = async (): Promise<boolean> => {
     if (settled) return true;
-    if (storageMode === "cloud") return false;
     if (!submittedUserMessageId) return false;
     const latest = await readAssistantMessageForTurn(
       activeBridge,

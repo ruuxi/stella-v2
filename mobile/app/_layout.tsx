@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -11,37 +11,39 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { loadAsync, useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
-import { ShareIntentProvider } from "expo-share-intent";
-import { ConvexProviderWithAuth } from "convex/react";
+import { useEffect } from "react";
+import {
+  ConvexBetterAuthProvider,
+  type AuthClient,
+} from "@convex-dev/better-auth/react";
 import { authClient } from "../src/lib/auth-client";
 import { getConvexClient } from "../src/lib/convex";
-import { useMobileConvexAuth } from "../src/lib/mobile-convex-auth";
 import { hasMobileConfig } from "../src/config/env";
 import {
   installNotificationCategoriesAndListeners,
   registerForPushNotifications,
 } from "../src/lib/notifications";
 import { installTextDefaults } from "../src/lib/setup-text-defaults";
-import {
-  allowsAutomaticAnonymousBootstrap,
-  isAnonymousAuthUser,
-} from "../src/lib/auth-identity";
-import { clearAccountBoundMobileState } from "../src/lib/account-bound-state";
-import { CloudConversationProvider } from "../src/lib/cloud-conversation-controller";
+
+installTextDefaults();
+import { loadGuestMode, isGuest, setGuestMode } from "../src/lib/guest-mode";
 import { loadAiConsent } from "../src/lib/ai-consent";
 import { loadNotificationsMuted } from "../src/lib/notifications-prefs";
-import { hasSeenOnboarding, loadOnboardingSeen } from "../src/lib/onboarding";
+import {
+  hasSeenOnboarding,
+  loadOnboardingSeen,
+} from "../src/lib/onboarding";
 import { loadLastMainTabHref } from "../src/lib/last-main-tab";
 import {
   criticalStellaFontAssets,
   deferredStellaFontAssets,
 } from "../src/theme/fonts";
+import { ShareIntentProvider } from "expo-share-intent";
 import { ThemeProvider } from "../src/theme/theme-context";
 import { ChatSearchProvider } from "../src/lib/chat-search";
 import { ShareIntentHandler } from "../src/lib/share-intent-handler";
 import { CarPlayBridge } from "../src/carplay/CarPlayBridge";
 
-installTextDefaults();
 void SplashScreen.preventAutoHideAsync();
 
 /** AsyncStorage key holding the last boot-crash breadcrumb (JSON). */
@@ -147,22 +149,20 @@ function AuthenticatedLayout() {
   const session = authClient.useSession();
   const router = useRouter();
   const pathname = usePathname();
-  const [startupReady, setStartupReady] = useState(false);
-  const [anonymousBootstrap, setAnonymousBootstrap] = useState<
-    "idle" | "pending" | "failed"
-  >("idle");
+  const [guestReady, setGuestReady] = useState(false);
   const [initialMainHref, setInitialMainHref] = useState<string | null>(null);
   const splashHiddenRef = useRef(false);
 
   useEffect(() => {
     void Promise.all([
+      loadGuestMode(),
       loadAiConsent(),
       loadNotificationsMuted(),
       loadOnboardingSeen(),
       loadLastMainTabHref(),
-    ]).then(([, , , href]) => {
+    ]).then(([, , , , href]) => {
       setInitialMainHref(href);
-      setStartupReady(true);
+      setGuestReady(true);
     });
   }, []);
 
@@ -183,58 +183,7 @@ function AuthenticatedLayout() {
   }, []);
 
   useEffect(() => {
-    if (
-      session.isPending ||
-      !startupReady ||
-      !initialMainHref ||
-      session.data
-    ) {
-      return;
-    }
-
-    if (
-      !allowsAutomaticAnonymousBootstrap(pathname) ||
-      anonymousBootstrap !== "idle"
-    ) {
-      return;
-    }
-
-    setAnonymousBootstrap("pending");
-    void clearAccountBoundMobileState()
-      .then(() => authClient.signIn.anonymous())
-      .then((result) => {
-        if (result.error) {
-          throw new Error(
-            result.error.message ?? "Could not start an anonymous session.",
-          );
-        }
-        const store = (
-          authClient as unknown as {
-            $store?: { notify: (signal: string) => void };
-          }
-        ).$store;
-        store?.notify("$sessionSignal");
-      })
-      .catch(() => {
-        setAnonymousBootstrap("failed");
-      });
-  }, [
-    anonymousBootstrap,
-    initialMainHref,
-    pathname,
-    session.data,
-    session.isPending,
-    startupReady,
-  ]);
-
-  useEffect(() => {
-    if (session.data && anonymousBootstrap !== "idle") {
-      setAnonymousBootstrap("idle");
-    }
-  }, [anonymousBootstrap, session.data]);
-
-  useEffect(() => {
-    if (session.isPending || !startupReady || !initialMainHref) {
+    if (session.isPending || !guestReady || !initialMainHref) {
       return;
     }
 
@@ -254,35 +203,37 @@ function AuthenticatedLayout() {
     }
 
     if (session.data) {
-      const anonymous = isAnonymousAuthUser(session.data.user);
-      if (!anonymous) {
-        void registerForPushNotifications();
-      }
+      if (isGuest()) void setGuestMode(false);
+      void registerForPushNotifications();
       if (!hasSeenOnboarding()) {
         router.replace("/onboarding");
         return;
       }
-      if (onIndex || (onLogin && !anonymous)) {
+      if (onLogin || onIndex) {
         router.replace(initialMainHref);
       }
       return;
     }
 
-    if (onLogin) {
+    if (isGuest()) {
+      // Guests may open /login from Sign in buttons — don't bounce them back to chat.
+      if (onLogin) {
+        return;
+      }
+      if (!hasSeenOnboarding()) {
+        router.replace("/onboarding");
+        return;
+      }
+      if (onIndex) {
+        router.replace(initialMainHref);
+      }
       return;
     }
-    if (anonymousBootstrap === "failed" && (onMain || onIndex)) {
+
+    if (onMain || onIndex) {
       router.replace("/login");
     }
-  }, [
-    anonymousBootstrap,
-    initialMainHref,
-    pathname,
-    router,
-    session.data,
-    session.isPending,
-    startupReady,
-  ]);
+  }, [pathname, router, session.data, session.isPending, guestReady, initialMainHref]);
 
   // Hold the native splash until auth + local startup state have resolved, so a
   // returning user goes straight from splash to their app — no flash of the
@@ -294,20 +245,7 @@ function AuthenticatedLayout() {
     if (splashHiddenRef.current) {
       return;
     }
-    const onLogin = pathname === "/login";
-    const onAuthCallback =
-      pathname === "/auth" || pathname.startsWith("/auth/");
-    const waitingForAnonymousSession =
-      !session.data &&
-      !onLogin &&
-      !onAuthCallback &&
-      anonymousBootstrap !== "failed";
-    if (
-      session.isPending ||
-      !startupReady ||
-      !initialMainHref ||
-      waitingForAnonymousSession
-    ) {
+    if (session.isPending || !guestReady || !initialMainHref) {
       return;
     }
     splashHiddenRef.current = true;
@@ -316,14 +254,7 @@ function AuthenticatedLayout() {
         void SplashScreen.hideAsync();
       });
     });
-  }, [
-    anonymousBootstrap,
-    initialMainHref,
-    pathname,
-    session.data,
-    session.isPending,
-    startupReady,
-  ]);
+  }, [session.isPending, guestReady, initialMainHref]);
 
   return (
     <>
@@ -351,15 +282,20 @@ function AppLayout() {
 
 function ConvexBoundLayout() {
   // Lazily create the Convex client once, after we've confirmed the
-  // mobile config is present. The identity-scoped auth hook clears the
-  // previous account's cached JWT before Convex installs a new auth config.
+  // mobile config is present. `ConvexBetterAuthProvider` wires the
+  // client's `setAuth` to Better Auth's JWT fetcher so authenticated
+  // queries/mutations/actions work out of the box.
   const convex = useMemo(() => getConvexClient(), []);
+  // `authClient` is a proxy whose generated type doesn't statically
+  // expose `convex.token()` — it's added at runtime by the
+  // `convexClient()` better-auth plugin. The provider just needs an
+  // object with `convex.token()`, which we already verified the proxy
+  // delegates correctly (see `src/lib/auth-token.ts`).
+  const providerAuthClient = authClient as unknown as AuthClient;
   return (
-    <ConvexProviderWithAuth client={convex} useAuth={useMobileConvexAuth}>
-      <CloudConversationProvider>
-        <AuthenticatedLayout />
-      </CloudConversationProvider>
-    </ConvexProviderWithAuth>
+    <ConvexBetterAuthProvider client={convex} authClient={providerAuthClient}>
+      <AuthenticatedLayout />
+    </ConvexBetterAuthProvider>
   );
 }
 

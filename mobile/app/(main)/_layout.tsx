@@ -8,7 +8,7 @@ import {
   subscribeAiConsentRequested,
 } from "../../src/lib/ai-consent";
 import { authClient } from "../../src/lib/auth-client";
-import { clearAccountBoundMobileState } from "../../src/lib/account-bound-state";
+import { setGuestMode } from "../../src/lib/guest-mode";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -183,12 +183,12 @@ export default function MainLayout() {
   const onConsentDecline = useCallback(() => {
     setConsentVisible(false);
     void (async () => {
-      await clearAccountBoundMobileState();
       try {
         await authClient.signOut();
       } catch {
-        /* ignore — routing still returns to sign in */
+        /* ignore — guests have nothing to sign out of */
       }
+      await setGuestMode(false);
       router.replace("/login");
     })();
   }, [router]);

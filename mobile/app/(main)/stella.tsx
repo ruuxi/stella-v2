@@ -13,8 +13,7 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "../../src/components/Icon";
 import { assert, assertObject } from "../../src/lib/assert";
-import { authClient } from "../../src/lib/auth-client";
-import { isConnectedAccountUser } from "../../src/lib/auth-identity";
+import { isGuest } from "../../src/lib/guest-mode";
 import {
   clearCachedDesktopBridge,
   createDesktopBridgeSession,
@@ -168,11 +167,7 @@ function GuestDesktopScreen() {
 }
 
 export default function StellaScreen() {
-  const session = authClient.useSession();
-  if (session.isPending) {
-    return null;
-  }
-  if (!isConnectedAccountUser(session.data?.user)) {
+  if (isGuest()) {
     return <GuestDesktopScreen />;
   }
 

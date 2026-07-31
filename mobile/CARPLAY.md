@@ -50,7 +50,7 @@ Wiring lives in:
 - `src/carplay/carplay-session.ts` — imperative controller that owns the list
   template, a small phase machine (`idle → listening → thinking → speaking`),
   the connect/takeover hardening (setRootTemplate retries, checkForConnection
-  polling), and attached-device lifecycle logging.
+  polling), and the `carPlayLog` diagnostics writer.
 - `src/carplay/CarPlayBridge.tsx` — headless component (mounted in
   `app/_layout.tsx`, inside the Convex/auth providers) that drives the loop with
   the hooks above and binds tap callbacks to the session.
@@ -152,6 +152,9 @@ CarPlay does **not** work in Expo Go — it needs a dev/prebuild build.
   `Template` constructor registers NativeEventEmitter listeners keyed by the
   fixed template id and never removes them; rebuilding on each connect would
   stack duplicate `onItemSelect` handlers.
-- The native scene delegate, patched `RNCarPlay.m`, and JS session write
-  attached-device Console logs with the `[carplay]` prefix for connect
-  lifecycle, takeover retries, row selects, dictation phases, and TTS starts.
+- The native scene delegate, the patched `RNCarPlay.m`, AND the JS session (via
+  RN `Settings`) all write breadcrumbs to the `StellaCarPlayDiagnostics`
+  user-defaults key and to device Console logs with the `[carplay]` prefix —
+  connect lifecycle, takeover retries, row selects, dictation phases, TTS
+  starts. If a TestFlight build still fails only in a real car, collect iPhone
+  logs in Console.app while launching Stella on CarPlay.

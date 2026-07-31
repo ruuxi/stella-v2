@@ -1294,13 +1294,10 @@ function CatchUpPill({
   visible,
   styles,
   colors,
-  bottomOffset,
 }: {
   visible: boolean;
   styles: ChatStyles;
   colors: Colors;
-  /** Distance from the viewport bottom, following the measured composer. */
-  bottomOffset: number;
 }) {
   // Stays mounted so the glass can run its native materialize/dissolve
   // transition; the JS anim fades the content along with it.
@@ -1320,7 +1317,6 @@ function CatchUpPill({
       style={[
         styles.catchUpPill,
         {
-          bottom: bottomOffset,
           // Opacity on a Liquid Glass ancestor makes iOS drop the glass
           // material, so only fade the wrapper on the (non-glass) fallback.
           opacity: liquidGlassSupported ? 1 : anim,
@@ -1939,17 +1935,6 @@ const SearchResultRow = memo(function SearchResultRow({
 // identically; the parent just owns message state and submission.
 // ---------------------------------------------------------------------------
 
-export type ComputerMenuActions = {
-  selectedModelLabel: string;
-  onViewScreen: () => void;
-  onOpenModel: () => void;
-  onPairComputer: () => void;
-  onForceSync: () => void;
-  forceSyncing: boolean;
-  showWake: boolean;
-  onWake: () => void;
-};
-
 export type ChatPaneProps = {
   /** Visible message list (parent-owned). */
   messages: ChatMessage[];
@@ -2017,11 +2002,11 @@ export type ChatPaneProps = {
   maxAttachments?: number;
 
   /**
-   * Actions for the computer settings popover. When provided, a floating gear
-   * button renders above the composer. Sheet-backed actions are opened by the
-   * parent only after their menu row is selected. The cloud chat omits it.
+   * Opens the computer device sheet (status, wake, view-screen,
+   * model settings). When provided, a floating gear button renders above the
+   * composer. The cloud chat omits it.
    */
-  computerMenu?: ComputerMenuActions;
+  onOpenDeviceSheet?: () => void;
 
   /** Headers passed to the dictation upload (e.g. mobile device id for guests). */
   dictationAnonymous: boolean;
@@ -2046,8 +2031,8 @@ export type ChatPaneProps = {
   /**
    * True while a catch-up sync is pulling turns the phone may have missed
    * (landing, foreground/refocus, Force Sync — see `useChatThread`). Renders a
-   * small transient "Catching up" pill just above the composer, debounced by
-   * `useCatchUpIndicatorVisible` so instant pulls never flash it.
+   * small transient "Catching up" pill at the top of the transcript, debounced
+   * by `useCatchUpIndicatorVisible` so instant pulls never flash it.
    * Steady-state polls and send-path pulls must not set this.
    */
   catchingUp?: boolean;
@@ -2077,7 +2062,7 @@ export function ChatPane({
   attachments,
   onChangeAttachments,
   maxAttachments,
-  computerMenu,
+  onOpenDeviceSheet,
   dictationAnonymous,
   dictationHeaders,
   onOpenArtifact,
@@ -2506,80 +2491,22 @@ export function ChatPane({
     return out;
   }, [enableAttachments, pickImage, readAloud, takePhoto]);
 
-  // Floating gear button (computer chat only): opens a compact action popover.
-  // Sheet-backed actions are owned by the parent and open only after selection.
+  // Floating gear button (computer chat only): opens the device sheet — status,
+  // wake, view-screen, model settings. The cloud chat passes no
+  // handler, so nothing renders.
   const floatingAnchorRef = useRef<View>(null);
-  const [computerMenuAnchor, setComputerMenuAnchor] =
-    useState<AnchorRect | null>(null);
-  const hasFloatingMenu = Boolean(computerMenu);
-  const computerMenuOptions = useMemo<PlusMenuOption[]>(() => {
-    if (!computerMenu) return [];
-    return [
-      ...(computerMenu.showWake
-        ? [
-            {
-              id: "wake",
-              icon: "monitor" as const,
-              label: "Wake up",
-              onSelect: computerMenu.onWake,
-            },
-          ]
-        : []),
-      {
-        id: "view-screen",
-        icon: "monitor",
-        label: "View screen",
-        onSelect: computerMenu.onViewScreen,
-      },
-      {
-        id: "model",
-        icon: "cpu",
-        label: "Model",
-        trailingLabel: computerMenu.selectedModelLabel,
-        onSelect: computerMenu.onOpenModel,
-      },
-      {
-        id: "pair-computer",
-        icon: "smartphone",
-        label: "Pair another computer",
-        onSelect: computerMenu.onPairComputer,
-      },
-      {
-        id: "force-sync",
-        icon: "refresh-cw",
-        label: computerMenu.forceSyncing ? "Syncing…" : "Force sync",
-        disabled: computerMenu.forceSyncing,
-        onSelect: computerMenu.onForceSync,
-      },
-    ];
-  }, [computerMenu]);
+  const hasFloatingMenu = Boolean(onOpenDeviceSheet);
 
   // Debounced catch-up indicator (show delay + minimum visible time), so
   // instant no-op pulls on every tab return never flash the pill.
   const catchUpVisible = useCatchUpIndicatorVisible(catchingUp);
 
   const onPressFloating = useCallback(() => {
-    if (!floatingAnchorRef.current || computerMenuOptions.length === 0) return;
+    if (!onOpenDeviceSheet) return;
     tapLight();
-    const measureAnchor = () => {
-      floatingAnchorRef.current?.measureInWindow((x, y, width, height) => {
-        setComputerMenuAnchor({ x, y, width, height });
-      });
-    };
-    if (Keyboard.isVisible()) {
-      const sub = Keyboard.addListener("keyboardDidHide", () => {
-        sub.remove();
-        measureAnchor();
-      });
-      Keyboard.dismiss();
-    } else {
-      measureAnchor();
-    }
-  }, [computerMenuOptions.length]);
-  const dismissComputerMenu = useCallback(
-    () => setComputerMenuAnchor(null),
-    [],
-  );
+    Keyboard.dismiss();
+    onOpenDeviceSheet();
+  }, [onOpenDeviceSheet]);
 
   // Floating activity pill (left of the gear): always present alongside it,
   // opens the activity hub sheet — tasks, files, and search.
@@ -3132,7 +3059,6 @@ export function ChatPane({
               visible={catchUpVisible}
               styles={styles}
               colors={colors}
-              bottomOffset={footerHeight + 12}
             />
           ) : null}
           {!historyLoading && !empty ? (
@@ -3483,14 +3409,6 @@ export function ChatPane({
         colors={colors}
         containerRef={rootRef}
       />
-      <PlusMenuPopover
-        visible={Boolean(computerMenuAnchor) && computerMenuOptions.length > 0}
-        anchor={computerMenuAnchor}
-        options={computerMenuOptions}
-        onDismiss={dismissComputerMenu}
-        colors={colors}
-        containerRef={rootRef}
-      />
     </View>
   );
 }
@@ -3597,7 +3515,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 20,
       borderWidth: StyleSheet.hairlineWidth,
     },
-    // "Catching up" pill — centered just above the measured composer.
+    // "Catching up" pill — top-center, overlaid (no layout participation).
     catchUpPill: {
       alignSelf: "center",
       elevation: 2,
@@ -3606,6 +3524,7 @@ const makeStyles = (colors: Colors) =>
       shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.06,
       shadowRadius: 5,
+      top: 10,
     },
     catchUpPillGlass: {
       alignItems: "center",

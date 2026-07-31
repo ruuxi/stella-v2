@@ -35,6 +35,7 @@ import {
 
 export type { CarPlayPhase } from "./carplay-home";
 
+const DIAGNOSTICS_KEY = "StellaCarPlayDiagnostics";
 /**
  * NSUserDefaults flag mirroring the CarPlay connection state. Persisted so
  * the NEXT launch (including a crash-relaunch with the car still attached)
@@ -54,9 +55,26 @@ export function readPersistedCarPlayConnected(): boolean {
   }
 }
 
-/** Quiet lifecycle logging for development and attached-device Console logs. */
+/**
+ * JS-side CarPlay breadcrumb: logs to the JS console AND appends to the same
+ * `StellaCarPlayDiagnostics` user-defaults array the native scene delegate and
+ * the patched RNCarPlay module write to (via the `Settings` bridge to
+ * NSUserDefaults). On a real head unit — where the Metro console doesn't exist
+ * — this makes the JS takeover steps visible right next to the native
+ * breadcrumbs when diagnosing from Console.app or a diagnostics dump.
+ */
 export function carPlayLog(message: string) {
   console.info(`[carplay] ${message}`);
+  if (Platform.OS !== "ios") return;
+  try {
+    const existing = Settings.get(DIAGNOSTICS_KEY) as unknown;
+    const lines = Array.isArray(existing) ? (existing as string[]) : [];
+    const next = [...lines, `${new Date().toISOString()} [js] ${message}`];
+    while (next.length > 80) next.shift();
+    Settings.set({ [DIAGNOSTICS_KEY]: next });
+  } catch {
+    // Diagnostics must never break the CarPlay flow.
+  }
 }
 
 /**

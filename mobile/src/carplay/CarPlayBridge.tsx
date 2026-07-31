@@ -102,6 +102,9 @@ function CarPlayBridgeIOS() {
   const [target, setTarget] = useState<VoiceTarget>("phone");
 
   useEffect(() => {
+    // First [js] breadcrumb of a healthy run. If a diagnostics dump has native
+    // lines but not this one, the React tree never mounted the bridge (env
+    // gating, provider crash, or JS never ran at all).
     carPlayLog("CarPlayBridge mounted");
     // Subscribe before register(): register can replay an already-connected
     // session synchronously, and we must not miss that first callback.

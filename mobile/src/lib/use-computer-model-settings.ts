@@ -36,11 +36,10 @@ const labelForSnapshot = (
 };
 
 /**
- * Backs the Computer chat's model row: fetches the Stella catalog for the model
- * sheet and keeps the floating menu label in sync with the desktop. The
+ * Backs the Computer chat's model row: fetches the Stella catalog for the tray
+ * and keeps the floating "Model" row's label in sync with the desktop. The
  * label is cached in AsyncStorage so the menu shows the current model instantly
- * without a desktop round-trip; the model sheet reconciles it via
- * `syncFromSnapshot`.
+ * without a desktop round-trip; the tray reconciles it via `syncFromSnapshot`.
  */
 export function useComputerModelSettings() {
   const [catalog, setCatalog] = useState<StellaCatalog>(EMPTY_CATALOG);

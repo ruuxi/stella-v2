@@ -5,15 +5,17 @@ diff --git a/node_modules/react-native-carplay/.bun-tag-8ecb6aa752be0cfb b/.bun-
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/ios/RNCarPlay.m b/ios/RNCarPlay.m
-index 672a032a2ab8214249c65229d5eccf9583e86c8c..d644cc1f3c7d03803d1ebd2062c9498d64136096 100644
+index 672a032a2ab8214249c65229d5eccf9583e86c8c..8d256e32e547f06b3afcd8f9f14e6dfc7706a0c9 100644
 --- a/ios/RNCarPlay.m
 +++ b/ios/RNCarPlay.m
-@@ -2,6 +2,17 @@
+@@ -2,6 +2,28 @@
  #import <React/RCTConvert.h>
  #import <React/RCTRootView.h>
  
-+// Stella logging for CarPlay bridge steps. These messages remain available
-+// in attached-device Console logs without persisting an in-app diagnostic log.
++// Stella diagnostics: mirror key CarPlay bridge steps into the same
++// user-defaults breadcrumb store the scene delegate writes
++// (StellaCarPlayDiagnostics), so on-unit failures of the JS root-template
++// takeover are visible in Console.app / the diagnostics dump.
 +static void RNCPStellaLog(NSString *format, ...) {
 +    va_list args;
 +    va_start(args, format);
@@ -21,12 +23,21 @@ index 672a032a2ab8214249c65229d5eccf9583e86c8c..d644cc1f3c7d03803d1ebd2062c9498d
 +    va_end(args);
 +
 +    NSLog(@"[carplay] %@", message);
++
++    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
++    NSArray<NSString *> *existing = [defaults stringArrayForKey:@"StellaCarPlayDiagnostics"] ?: @[];
++    NSMutableArray<NSString *> *next = [existing mutableCopy];
++    [next addObject:[NSString stringWithFormat:@"%@ %@", [NSDate date], message]];
++    while (next.count > 80) {
++        [next removeObjectAtIndex:0];
++    }
++    [defaults setObject:next forKey:@"StellaCarPlayDiagnostics"];
 +}
 +
  @implementation RNCarPlay
  
  @synthesize interfaceController;
-@@ -25,8 +36,21 @@ + (void) connectWithInterfaceController:(CPInterfaceController*)interfaceControl
+@@ -25,8 +47,21 @@ + (void) connectWithInterfaceController:(CPInterfaceController*)interfaceControl
      [store setConnected:true];
  
      RNCarPlay *cp = [RNCarPlay allocWithZone:nil];
@@ -49,7 +60,7 @@ index 672a032a2ab8214249c65229d5eccf9583e86c8c..d644cc1f3c7d03803d1ebd2062c9498d
      }
  }
  
-@@ -36,11 +60,35 @@ + (void) disconnect {
+@@ -36,11 +71,35 @@ + (void) disconnect {
      [store setConnected:false];
      [[store.window subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
  
@@ -86,7 +97,7 @@ index 672a032a2ab8214249c65229d5eccf9583e86c8c..d644cc1f3c7d03803d1ebd2062c9498d
  RCT_EXPORT_MODULE();
  
  + (id)allocWithZone:(NSZone *)zone {
-@@ -152,8 +200,10 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
+@@ -152,8 +211,10 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
  
  RCT_EXPORT_METHOD(checkForConnection) {
      RNCPStore *store = [RNCPStore sharedManager];
@@ -97,7 +108,7 @@ index 672a032a2ab8214249c65229d5eccf9583e86c8c..d644cc1f3c7d03803d1ebd2062c9498d
      }
  }
  
-@@ -458,13 +508,18 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
+@@ -458,13 +519,18 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
  
      store.interfaceController.delegate = self;
  

@@ -21,7 +21,6 @@ import {
 } from "../../src/components/AppBackdrop";
 import { StellaBrandMark } from "../../src/components/StellaBrandMark";
 import {
-  ActivityIndicator,
   Keyboard,
   Pressable,
   StyleSheet,
@@ -469,22 +468,19 @@ export default function MainLayout() {
                           />
                         </Pressable>
                       ) : null}
-                    </View>
-                    {onChatSurface && connection ? (
-                      <View style={styles.topBarBrand} pointerEvents="none">
-                        {connection === "connecting" ? (
-                          <ActivityIndicator
-                            size="small"
-                            color={colors.textMuted}
-                            accessibilityLabel="Connecting to your computer"
-                          />
-                        ) : (
+                      {onComputer && connection ? (
+                        <View
+                          style={styles.topBarAction}
+                          pointerEvents="none"
+                        >
                           <View
                             style={styles.connectionBadge}
                             accessibilityLabel={
-                              connection === "connected"
-                                ? "Computer connected"
-                                : "Computer disconnected"
+                              connection === "connecting"
+                                ? "Computer connecting"
+                                : connection === "connected"
+                                  ? "Computer connected"
+                                  : "Computer disconnected"
                             }
                           >
                             <Icon
@@ -500,14 +496,16 @@ export default function MainLayout() {
                                   backgroundColor:
                                     connection === "connected"
                                       ? colors.ok
-                                      : colors.danger,
+                                      : connection === "disconnected"
+                                        ? colors.danger
+                                        : colors.textMuted,
                                 },
                               ]}
                             />
                           </View>
-                        )}
-                      </View>
-                    ) : null}
+                        </View>
+                      ) : null}
+                    </View>
                   </>
                 )}
               </View>
@@ -581,17 +579,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: "row",
     height: 44,
   },
-  // Brand/sync indicator, absolutely centered across the whole bar so it stays
-  // screen-centered regardless of how many action buttons flank it.
-  topBarBrand: {
-    alignItems: "center",
-    bottom: 0,
-    height: 44,
-    justifyContent: "center",
-    left: 0,
-    position: "absolute",
-    right: 0,
-  },
   topBarAction: {
     alignItems: "center",
     height: 44,
@@ -643,8 +630,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: "center",
     width: 44,
   },
-  // Desktop connection badge in the bar center (computer chat): monitor glyph
-  // with a status dot pinned to its top-right.
+  // Desktop connection badge in the top-right (computer chat): monitor glyph
+  // with a status dot pinned to its lower-right.
   connectionBadge: {
     alignItems: "center",
     height: 28,

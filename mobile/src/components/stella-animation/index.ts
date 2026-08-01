@@ -2,6 +2,7 @@ export {
   StellaAnimation,
   type StellaAnimationHandle,
   type StellaAnimationProps,
+  type VoiceMode,
   STELLA_EDGE_SCALE,
   STELLA_GLYPH_PX,
   WORKING_INDICATOR_DISPLAY_PT,

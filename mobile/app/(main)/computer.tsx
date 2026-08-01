@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Alert,
-  AppState,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Alert, AppState, StyleSheet, Text, View } from "react-native";
 import { useIsFocused } from "expo-router";
 import { isGuest } from "../../src/lib/guest-mode";
 import { SignInPrompt } from "../../src/components/SignInPrompt";
@@ -516,6 +510,9 @@ function ComputerChatSurface({
         canSubmit={canSubmit}
         onSubmit={thread.send}
         onStop={thread.stop}
+        realtimeVoiceConversationId={thread.conversationId}
+        realtimeVoiceExecution="computer"
+        realtimeVoiceDesktopAccess={access}
         placeholder="Message your computer"
         offline={offline}
         enableAttachments

@@ -19,7 +19,10 @@ import {
 } from "./desktop-chat-outbox-state";
 import { postStream, postStreamAnonymous, StreamAbortError } from "./http";
 import { hasAiConsent, requestAiConsent } from "./ai-consent";
-import { getOrCreateMobileDeviceId, type StoredPhoneAccess } from "./phone-access";
+import {
+  getOrCreateMobileDeviceId,
+  type StoredPhoneAccess,
+} from "./phone-access";
 import {
   closeDesktopBridgeSendBatch,
   DesktopOfflineError,
@@ -198,6 +201,11 @@ export type ChatTransport =
   | { kind: "desktop"; access: StoredPhoneAccess };
 
 export type ChatThread = {
+  /**
+   * Stable attached-chat id. Computer chat exposes the paired desktop's
+   * canonical conversation id once its first sync resolves.
+   */
+  conversationId?: string | null;
   messages: ChatMessage[];
   draft: string;
   setDraft: React.Dispatch<React.SetStateAction<string>>;
@@ -224,6 +232,11 @@ export type ChatThread = {
    * no-oped (not hydrated, empty draft, or AI consent pending).
    */
   send: () => { userMessageId: string } | null;
+  /**
+   * Submit a supplied prompt without routing it through React draft state.
+   * Realtime voice uses this to hand an action to the exact active chat.
+   */
+  sendPrompt?: (prompt: string) => { userMessageId: string } | null;
   stop: () => void;
   /**
    * Coalesced wake + pull + merge against the canonical desktop rows. A no-op
@@ -274,6 +287,9 @@ export function useChatThread(opts: {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [storageLoaded, setStorageLoaded] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(
+    isDesktop ? null : threadId,
+  );
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<
     ImagePicker.ImagePickerAsset[]
@@ -377,6 +393,9 @@ export function useChatThread(opts: {
       loadDesktopChatOutbox(threadId),
     ]).then(([loaded, syncState, storedOutbox]) => {
       syncConversationIdRef.current = syncState.conversationId;
+      setConversationId(
+        isDesktop ? (syncState.conversationId ?? null) : threadId,
+      );
       syncCursorRef.current = syncState.cursor;
       // Heal any linked-row/unlinked-twin duplicates persisted by builds that
       // could pull mid-send (see `collapseLinkedDuplicates`) — the damaged
@@ -525,6 +544,7 @@ export function useChatThread(opts: {
       const conversationId = state.conversationId?.trim() || null;
       const cursor = state.cursor?.trim() || null;
       syncConversationIdRef.current = conversationId;
+      setConversationId(conversationId);
       syncCursorRef.current = cursor;
       void saveChatSyncState(threadId, { conversationId, cursor });
     },
@@ -1257,7 +1277,10 @@ export function useChatThread(opts: {
           setMessages((m) =>
             m.map((msg) => {
               if (msg.id !== replyId || msg.text.includes(note)) return msg;
-              return { ...msg, text: msg.text ? `${msg.text}\n\n${note}` : note };
+              return {
+                ...msg,
+                text: msg.text ? `${msg.text}\n\n${note}` : note,
+              };
             }),
           );
         }
@@ -1352,10 +1375,7 @@ export function useChatThread(opts: {
           synced.acceptedUserMessageIds?.includes(item.userMessageId) ||
           acceptedDesktopSendIdsRef.current.has(item.userMessageId)
         ) {
-          acknowledgeDesktopSendIds([
-            item.clientRequestId,
-            item.userMessageId,
-          ]);
+          acknowledgeDesktopSendIds([item.clientRequestId, item.userMessageId]);
           activeDispatchRef.current = null;
           setMessages((messages) =>
             messages
@@ -1429,7 +1449,9 @@ export function useChatThread(opts: {
           onArtifacts: (artifacts) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
             setMessages((m) =>
-              m.map((msg) => (msg.id === replyId ? { ...msg, artifacts } : msg)),
+              m.map((msg) =>
+                msg.id === replyId ? { ...msg, artifacts } : msg,
+              ),
             );
           },
         });
@@ -1660,6 +1682,7 @@ export function useChatThread(opts: {
         {
           id: replyId,
           role: "assistant" as const,
+          requestId: item.userMessageId,
           text: "",
           createdAt: dispatchedAt,
         },
@@ -1689,107 +1712,109 @@ export function useChatThread(opts: {
     drainQueueRef.current = drainQueue;
   }, [drainQueue]);
 
-  const send = useCallback((): { userMessageId: string } | null => {
-    // Don't dispatch until hydration has restored the persisted transcript and
-    // sync cursor: sending earlier lets the async load overwrite the optimistic
-    // bubble, and lets the landing sync fire mid-stream against a fresh cursor.
-    // The draft is left intact so the queued tap lands once we're loaded.
-    if (!storageLoaded) return null;
-    const text = draft.trim();
-    if (!text && attachments.length === 0) return null;
+  const submit = useCallback(
+    (suppliedPrompt?: string): { userMessageId: string } | null => {
+      // Don't dispatch until hydration has restored the persisted transcript and
+      // sync cursor: sending earlier lets the async load overwrite the optimistic
+      // bubble, and lets the landing sync fire mid-stream against a fresh cursor.
+      // The draft is left intact so the queued tap lands once we're loaded.
+      if (!storageLoaded) return null;
+      const supplied = suppliedPrompt !== undefined;
+      const text = (suppliedPrompt ?? draft).trim();
+      const assets = supplied ? [] : attachments.slice();
+      if (!text && assets.length === 0) return null;
 
-    if (!hasAiConsent()) {
-      requestAiConsent();
-      return null;
-    }
+      if (!hasAiConsent()) {
+        requestAiConsent();
+        return null;
+      }
 
-    const assets = attachments.slice();
-    setDraft("");
-    setAttachments([]);
+      if (!supplied) {
+        setDraft("");
+        setAttachments([]);
+      }
 
-    // Queue-vs-dispatch is decided on the synchronously-written ref, NOT the
-    // render-state `sending`: a second imperative send in the same
-    // render/effect gap would read a stale `sending === false` from the
-    // closure and dispatch a concurrent turn instead of queueing. `admitSend`
-    // claims the dispatch slot atomically (ref write) when it answers
-    // "dispatch"; `markSending` below mirrors the claim into render state.
-    const admission = admitSend(sendingRef);
+      // Queue-vs-dispatch is decided on the synchronously-written ref, NOT the
+      // render-state `sending`: a second imperative send in the same
+      // render/effect gap would read a stale `sending === false` from the
+      // closure and dispatch a concurrent turn instead of queueing. `admitSend`
+      // claims the dispatch slot atomically (ref write) when it answers
+      // "dispatch"; `markSending` below mirrors the claim into render state.
+      const admission = admitSend(sendingRef);
 
-    const userMessageId = createId();
-    const displayText = text || (assets.length ? "Photo" : "");
-    const thumbs = assets.slice(0, 3).map((a) => a.uri);
-    const createdAt = Date.now();
-    const userMsg: ChatMessage = {
-      id: userMessageId,
-      role: "user",
-      text: displayText,
-      createdAt,
-      hasImage: assets.length > 0,
-      ...(thumbs.length > 0 ? { thumbnailUris: thumbs } : {}),
-      ...(admission === "queue" ? { queued: true } : {}),
-    };
+      const userMessageId = createId();
+      const displayText = text || (assets.length ? "Photo" : "");
+      const thumbs = assets.slice(0, 3).map((a) => a.uri);
+      const createdAt = Date.now();
+      const userMsg: ChatMessage = {
+        id: userMessageId,
+        role: "user",
+        text: displayText,
+        createdAt,
+        hasImage: assets.length > 0,
+        ...(thumbs.length > 0 ? { thumbnailUris: thumbs } : {}),
+        ...(admission === "queue" ? { queued: true } : {}),
+      };
 
-    LayoutAnimation.configureNext({
-      duration: 350,
-      update: { type: LayoutAnimation.Types.spring, springDamping: 1 },
-    });
-    setMessages((m) => [...m, userMsg]);
-
-    const item: QueuedSend = {
-      dispatchId: userMessageId,
-      clientRequestId: userMessageId,
-      userMessageId,
-      text,
-      assets,
-    };
-    if (admission === "dispatch") markSending(true);
-    const durableRecord: Omit<DesktopChatOutboxRecord, "sequence"> = {
-      sendId: userMessageId,
-      userMessageId,
-      text,
-      displayText,
-      createdAt,
-      assets,
-    };
-    // Both transports gate transmission on this write. If iOS kills the
-    // process while AsyncStorage is committing, either no transport happened
-    // or hydration finds this exact stable identity and replays it, including
-    // the image bytes.
-    void enqueueDesktopChatOutbox(threadId, durableRecord)
-      .then((stored) => {
-        item.queueSequence = stored.sequence;
-        if (acceptedDesktopSendIdsRef.current.has(item.userMessageId)) return;
-        if (admission === "queue") {
-          queueRef.current.push(item);
-          queueRef.current.sort(
-            (a, b) =>
-              (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
-              (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
-          );
-          if (!sendingRef.current) drainQueueRef.current?.();
-          return;
-        }
-        void dispatch(item);
-      })
-      .catch(() => {
-        if (admission === "dispatch") markSending(false);
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === userMessageId
-              ? { ...message, queued: true }
-              : message,
-          ),
-        );
+      LayoutAnimation.configureNext({
+        duration: 350,
+        update: { type: LayoutAnimation.Types.spring, springDamping: 1 },
       });
-    return { userMessageId };
-  }, [
-    attachments,
-    dispatch,
-    draft,
-    markSending,
-    storageLoaded,
-    threadId,
-  ]);
+      setMessages((m) => [...m, userMsg]);
+
+      const item: QueuedSend = {
+        dispatchId: userMessageId,
+        clientRequestId: userMessageId,
+        userMessageId,
+        text,
+        assets,
+      };
+      if (admission === "dispatch") markSending(true);
+      const durableRecord: Omit<DesktopChatOutboxRecord, "sequence"> = {
+        sendId: userMessageId,
+        userMessageId,
+        text,
+        displayText,
+        createdAt,
+        assets,
+      };
+      // Both transports gate transmission on this write. If iOS kills the
+      // process while AsyncStorage is committing, either no transport happened
+      // or hydration finds this exact stable identity and replays it, including
+      // the image bytes.
+      void enqueueDesktopChatOutbox(threadId, durableRecord)
+        .then((stored) => {
+          item.queueSequence = stored.sequence;
+          if (acceptedDesktopSendIdsRef.current.has(item.userMessageId)) return;
+          if (admission === "queue") {
+            queueRef.current.push(item);
+            queueRef.current.sort(
+              (a, b) =>
+                (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
+                (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
+            );
+            if (!sendingRef.current) drainQueueRef.current?.();
+            return;
+          }
+          void dispatch(item);
+        })
+        .catch(() => {
+          if (admission === "dispatch") markSending(false);
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === userMessageId
+                ? { ...message, queued: true }
+                : message,
+            ),
+          );
+        });
+      return { userMessageId };
+    },
+    [attachments, dispatch, draft, markSending, storageLoaded, threadId],
+  );
+
+  const send = useCallback(() => submit(), [submit]);
+  const sendPrompt = useCallback((prompt: string) => submit(prompt), [submit]);
 
   const stop = useCallback(() => {
     // Drop queued follow-ups first so the in-flight finally-handler doesn't
@@ -1889,6 +1914,7 @@ export function useChatThread(opts: {
   ]);
 
   return {
+    conversationId,
     messages,
     draft,
     setDraft,
@@ -1902,6 +1928,7 @@ export function useChatThread(opts: {
     activityArtifactsByTaskId: activityArtifactGroups.byTaskId,
     conversationOwnedArtifacts: activityArtifactGroups.conversation,
     send,
+    sendPrompt,
     stop,
     runDesktopSync,
     catchingUp,

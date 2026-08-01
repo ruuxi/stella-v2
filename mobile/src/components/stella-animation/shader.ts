@@ -68,8 +68,11 @@ export const getFragmentShader = (): string => {
     uniform float u_listening;
     uniform float u_speaking;
     uniform float u_voiceEnergy;
+    uniform float u_showEyes;
     uniform float u_aspect;
     uniform vec3 u_phases;
+    uniform vec2 u_eyeOrigin;
+    uniform float u_eyeBlink;
     uniform sampler2D u_glyph;
     uniform vec3 u_colors[5];
   `;
@@ -104,6 +107,17 @@ export const getFragmentShader = (): string => {
     color *= 1.0 + waveIntensity * 2.0;
 
     gl_FragColor = vec4(color, glyphAlpha);
+
+    float eyeGap = 5.0 / u_gridSize.x;
+    vec2 eyeHalf = vec2(1.0 / u_gridSize.x, 1.5 / u_gridSize.y * u_eyeBlink);
+    float leftEye = step(abs(uv.x - u_eyeOrigin.x + eyeGap), eyeHalf.x)
+                  * step(abs(uv.y - u_eyeOrigin.y), eyeHalf.y);
+    float rightEye = step(abs(uv.x - u_eyeOrigin.x - eyeGap), eyeHalf.x)
+                   * step(abs(uv.y - u_eyeOrigin.y), eyeHalf.y);
+    float eyeMask = max(leftEye, rightEye)
+                  * smoothstep(0.3, 0.6, u_birth)
+                  * u_showEyes;
+    gl_FragColor = mix(gl_FragColor, vec4(u_colors[4], 1.0), eyeMask);
   `;
 
   const phaseFunction = `

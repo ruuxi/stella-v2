@@ -31,6 +31,8 @@ export function parseThreadActivityTasks(value: unknown): MobileTask[] {
       continue;
     }
     const title = asString(record.description).trim() || "Background work";
+    const resultText = asString(record.result).trim();
+    const errorMessage = asString(record.error).trim();
     const startedAt =
       typeof record.startedAt === "number" && Number.isFinite(record.startedAt)
         ? record.startedAt
@@ -40,13 +42,20 @@ export function parseThreadActivityTasks(value: unknown): MobileTask[] {
       Number.isFinite(record.completedAt)
         ? record.completedAt
         : undefined;
+    const updatedAt =
+      typeof record.updatedAt === "number" && Number.isFinite(record.updatedAt)
+        ? record.updatedAt
+        : undefined;
     tasks.push({
       id,
       title,
       agentType,
       ...(parentAgentId ? { parentAgentId } : {}),
       status: status as MobileTask["status"],
+      ...(resultText ? { resultText } : {}),
+      ...(errorMessage ? { errorMessage } : {}),
       createdAt: startedAt,
+      ...(updatedAt !== undefined ? { updatedAt } : {}),
       ...(status !== "running" && completedAt !== undefined
         ? { completedAt }
         : {}),

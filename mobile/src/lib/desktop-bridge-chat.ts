@@ -1032,6 +1032,8 @@ function parseTasks(value: unknown): MobileTask[] {
       continue;
     }
     const statusText = asString(record.statusText).trim();
+    const resultText = asString(record.result ?? record.resultText).trim();
+    const errorMessage = asString(record.error ?? record.errorMessage).trim();
     const agentType = asString(record.agentType).trim();
     const parentAgentId = asString(record.parentAgentId).trim();
     const reasoningSummaries = Array.isArray(record.reasoningSummaries)
@@ -1048,6 +1050,10 @@ function parseTasks(value: unknown): MobileTask[] {
       Number.isFinite(record.completedAt)
         ? record.completedAt
         : undefined;
+    const updatedAt =
+      typeof record.updatedAt === "number" && Number.isFinite(record.updatedAt)
+        ? record.updatedAt
+        : undefined;
     tasks.push({
       id,
       title,
@@ -1055,8 +1061,11 @@ function parseTasks(value: unknown): MobileTask[] {
       ...(parentAgentId ? { parentAgentId } : {}),
       status: status as MobileTask["status"],
       ...(statusText ? { statusText } : {}),
+      ...(resultText ? { resultText } : {}),
+      ...(errorMessage ? { errorMessage } : {}),
       ...(reasoningSummaries.length > 0 ? { reasoningSummaries } : {}),
       createdAt,
+      ...(updatedAt !== undefined ? { updatedAt } : {}),
       ...(completedAt !== undefined ? { completedAt } : {}),
     });
   }

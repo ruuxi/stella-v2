@@ -220,6 +220,22 @@ describe("downgradeUnsupportedRequestImages", () => {
 });
 
 describe("resolveRequestedStellaModel", () => {
+  it("routes missing free, anonymous, and Go General requests to DeepSeek Light", () => {
+    for (const audience of [
+      "anonymous",
+      "free",
+      "go",
+      "go_fallback",
+    ] as const) {
+      const resolved = resolveRequestedStellaModel("general", {}, audience);
+      expect(resolved.requestedModel).toBe("stella/default");
+      expect(resolved.resolvedModel).toBe(
+        "accounts/fireworks/models/deepseek-v4-flash-0731",
+      );
+      expect(resolved.config.managedGatewayProvider).toBe("fireworks");
+    }
+  });
+
   it("resolves a missing chat model through the agent's backend default", () => {
     const resolved = resolveRequestedStellaModel("orchestrator", {}, "pro");
     expect(resolved.requestedModel).toBe("stella/default");

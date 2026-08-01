@@ -294,24 +294,32 @@ const AUDIENCE_MODE_OVERRIDES: Record<
 // agents that share the underlying modes. Values are a mode or an internal
 // model config key.
 //
-// Every managed audience runs the orchestrator and general agent on Standard.
-// Premium branded modes remain available as explicit user selections.
+// Pro-and-higher audiences run the orchestrator and general agent on Standard.
+// Anonymous, signed-in free, and Go users keep the orchestrator on Standard
+// while the General agent uses Light (DeepSeek V4 Flash).
 const STANDARD_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
   [AGENT_IDS.ORCHESTRATOR]: "standard",
   [AGENT_IDS.GENERAL]: "standard",
 };
 
+const LIGHT_GENERAL_AGENT_OVERRIDES: Partial<
+  Record<string, TaskModelSelection>
+> = {
+  [AGENT_IDS.ORCHESTRATOR]: "standard",
+  [AGENT_IDS.GENERAL]: "light",
+};
+
 const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
   Record<ManagedModelAudience, Partial<Record<string, TaskModelSelection>>>
 > = {
-  anonymous: STANDARD_AGENT_OVERRIDES,
-  free: STANDARD_AGENT_OVERRIDES,
-  go: STANDARD_AGENT_OVERRIDES,
+  anonymous: LIGHT_GENERAL_AGENT_OVERRIDES,
+  free: LIGHT_GENERAL_AGENT_OVERRIDES,
+  go: LIGHT_GENERAL_AGENT_OVERRIDES,
   pro: STANDARD_AGENT_OVERRIDES,
   plus: STANDARD_AGENT_OVERRIDES,
   ultra: STANDARD_AGENT_OVERRIDES,
   max: STANDARD_AGENT_OVERRIDES,
-  go_fallback: STANDARD_AGENT_OVERRIDES,
+  go_fallback: LIGHT_GENERAL_AGENT_OVERRIDES,
   pro_fallback: STANDARD_AGENT_OVERRIDES,
   plus_fallback: STANDARD_AGENT_OVERRIDES,
   ultra_fallback: STANDARD_AGENT_OVERRIDES,

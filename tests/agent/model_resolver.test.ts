@@ -7,6 +7,26 @@ import { AGENT_IDS } from "../../convex/lib/agent_constants";
 const ctx = { runQuery: async () => null } as never;
 
 describe("resolveModelConfig overrides route through the override's own gateway", () => {
+  it("uses DeepSeek Light for free, anonymous, and Go General defaults", async () => {
+    for (const audience of [
+      "anonymous",
+      "free",
+      "go",
+      "go_fallback",
+    ] as const) {
+      const resolved = await resolveModelConfig(
+        ctx,
+        AGENT_IDS.GENERAL,
+        undefined,
+        { audience },
+      );
+      expect(resolved.model).toBe(
+        "accounts/fireworks/models/deepseek-v4-flash-0731",
+      );
+      expect(resolved.managedGatewayProvider).toBe("fireworks");
+    }
+  });
+
   it("routes a mode override through the mode's provider, not the agent default", async () => {
     // A designer override must resolve to Opus on Anthropic rather than using
     // the orchestrator's direct-xAI default provider.

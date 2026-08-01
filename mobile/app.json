@@ -120,6 +120,13 @@
           "microphonePermission": "Stella needs access to your microphone for voice input."
         }
       ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Stella uses the camera to scan the pairing QR code shown on your computer and to snap photos you attach to messages.",
+          "microphonePermission": "Stella needs access to your microphone for realtime voice conversations."
+        }
+      ],
       "./plugins/withStellaCarPlay",
       "expo-sqlite"
     ],

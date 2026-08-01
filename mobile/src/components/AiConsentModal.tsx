@@ -52,8 +52,9 @@ export function AiConsentModal({ visible, onAccept, onDecline }: Props) {
             <Text style={styles.body}>
               When you send a message, Stella transmits your message text,
               conversation history from the current session, and any images you
-              attach to an AI model for processing. If you use voice input, the
-              audio you record is also transmitted for transcription.
+              attach to an AI model for processing. If you use voice, Stella
+              also transmits either your recording for transcription or live
+              microphone audio for a realtime conversation.
             </Text>
           </View>
 
@@ -69,7 +70,8 @@ export function AiConsentModal({ visible, onAccept, onDecline }: Props) {
               <Text style={styles.bold}>Google</Text>. Voice recordings are
               transcribed by <Text style={styles.bold}>Mistral Voxtral</Text>{" "}
               via the same gateways. The exact provider path depends on the
-              model used for your request.
+              model used for your request. Realtime voice audio is processed
+              directly by <Text style={styles.bold}>OpenAI</Text>.
             </Text>
           </View>
 

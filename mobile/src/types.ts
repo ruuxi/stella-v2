@@ -244,8 +244,14 @@ export type MobileTask = {
   /** Durable owning-agent edge. An unresolved first parent is the Orchestrator. */
   parentAgentId?: string;
   status: "running" | "completed" | "error" | "canceled";
+  /** Last authoritative lifecycle update time, when exposed by the source. */
+  updatedAt?: number;
   /** Live narration while running ("Reading file…"). */
   statusText?: string;
+  /** Bounded terminal result text when the activity source exposes it. */
+  resultText?: string;
+  /** Bounded terminal failure detail when the activity source exposes it. */
+  errorMessage?: string;
   /**
    * Short reasoning summaries for this agent, ordered oldest→newest. Bridged
    * from the desktop and shown under the agent in the activity tray. May be

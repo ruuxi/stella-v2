@@ -25,12 +25,24 @@ import { getStellaRenderLayout } from "./layout";
 import { initRenderer, type StellaRenderer } from "./renderer";
 
 const TIME_RATE = 0.96;
+const NOISE_FLOOR_FAST_RATE = 0.1;
+const NOISE_FLOOR_SLOW_RATE = 0.005;
+const NOISE_FLOOR_SPEECH_RATIO = 3;
+const NOISE_FLOOR_MIN_THRESHOLD = 0.04;
+const LISTENING_ATTACK_LERP = 0.35;
+const LISTENING_RELEASE_LERP = 0.14;
+const SPEAKING_ATTACK_LERP = 0.18;
+const SPEAKING_RELEASE_LERP = 0.12;
+const VOICE_ENERGY_ATTACK_RATE = 0.24;
+const VOICE_ENERGY_RELEASE_RATE = 0.08;
 
 export interface StellaAnimationHandle {
   triggerFlash: () => void;
   startBirth: () => void;
   reset: (value?: number) => void;
 }
+
+export type VoiceMode = "idle" | "listening" | "speaking";
 
 export interface StellaAnimationProps {
   /** Character-grid width — matches desktop `StellaAnimation` `width`. */
@@ -49,6 +61,16 @@ export interface StellaAnimationProps {
   frameSkip?: number;
   initialBirthProgress?: number;
   paused?: boolean;
+  /** Audio-reactive state used by the realtime voice surface. */
+  voiceMode?: VoiceMode;
+  /** Server-side speech detection for the user's microphone. */
+  isUserSpeaking?: boolean;
+  /** Normalized microphone energy (0…1). */
+  micLevel?: number;
+  /** Normalized Stella output energy (0…1). */
+  outputLevel?: number;
+  /** Restores the original drifting/blinking creature eyes. */
+  showEyes?: boolean;
 }
 
 const colorsToFloat = (c: Colors): Float32Array =>
@@ -72,6 +94,11 @@ export const StellaAnimation = React.forwardRef<
     frameSkip = 0,
     initialBirthProgress = 1,
     paused = false,
+    voiceMode = "idle",
+    isUserSpeaking = false,
+    micLevel = 0,
+    outputLevel = 0,
+    showEyes = false,
   },
   ref,
 ) {
@@ -101,6 +128,15 @@ export const StellaAnimation = React.forwardRef<
   const frameCountRef = useRef(0);
   const birthRef = useRef(initialBirthProgress);
   const flashRef = useRef(0);
+  const listeningRef = useRef(0);
+  const speakingRef = useRef(0);
+  const voiceEnergyRef = useRef(0);
+  const noiseFloorRef = useRef(0);
+  const voiceModeRef = useRef<VoiceMode>(voiceMode);
+  const isUserSpeakingRef = useRef(isUserSpeaking);
+  const micLevelRef = useRef(micLevel);
+  const outputLevelRef = useRef(outputLevel);
+  const showEyesRef = useRef(showEyes);
   const birthAnimRef = useRef<{
     startMs: number;
     startValue: number;
@@ -113,6 +149,26 @@ export const StellaAnimation = React.forwardRef<
   useEffect(() => {
     frameSkipRef.current = frameSkip;
   }, [frameSkip]);
+
+  useEffect(() => {
+    voiceModeRef.current = voiceMode;
+  }, [voiceMode]);
+
+  useEffect(() => {
+    isUserSpeakingRef.current = isUserSpeaking;
+  }, [isUserSpeaking]);
+
+  useEffect(() => {
+    micLevelRef.current = micLevel;
+  }, [micLevel]);
+
+  useEffect(() => {
+    outputLevelRef.current = outputLevel;
+  }, [outputLevel]);
+
+  useEffect(() => {
+    showEyesRef.current = showEyes;
+  }, [showEyes]);
 
   useImperativeHandle(
     ref,
@@ -176,7 +232,15 @@ export const StellaAnimation = React.forwardRef<
       rendererRef.current = renderer;
       frameCountRef.current = 0;
 
-      renderer.render(timeRef.current, birthRef.current, flashRef.current);
+      renderer.render(
+        timeRef.current,
+        birthRef.current,
+        flashRef.current,
+        listeningRef.current,
+        speakingRef.current,
+        voiceEnergyRef.current,
+        showEyesRef.current,
+      );
 
       const tick = () => {
         if (pausedRef.current) {
@@ -222,7 +286,81 @@ export const StellaAnimation = React.forwardRef<
           }
         }
 
-        renderer.render(timeRef.current, birthRef.current, flashRef.current);
+        const micEnergy = Math.max(0, Math.min(1, micLevelRef.current));
+        const outputEnergy = Math.max(0, Math.min(1, outputLevelRef.current));
+        const isVoiceActive = voiceModeRef.current !== "idle";
+
+        // Match the legacy realtime creature: learn the ambient microphone
+        // floor slowly, then react only when actual speech clears it.
+        if (!isVoiceActive) {
+          noiseFloorRef.current = 0;
+        } else {
+          const floor = noiseFloorRef.current;
+          if (micEnergy <= floor || floor === 0) {
+            noiseFloorRef.current =
+              floor * (1 - NOISE_FLOOR_FAST_RATE) +
+              micEnergy * NOISE_FLOOR_FAST_RATE;
+          } else if (micEnergy < floor * NOISE_FLOOR_SPEECH_RATIO) {
+            noiseFloorRef.current =
+              floor * (1 - NOISE_FLOOR_SLOW_RATE) +
+              micEnergy * NOISE_FLOOR_SLOW_RATE;
+          }
+        }
+        const speechThreshold = Math.max(
+          noiseFloorRef.current * NOISE_FLOOR_SPEECH_RATIO,
+          NOISE_FLOOR_MIN_THRESHOLD,
+        );
+        const isSpeakingNow =
+          voiceModeRef.current === "speaking" || outputEnergy > 0.08;
+        const isListeningNow =
+          isVoiceActive &&
+          !isSpeakingNow &&
+          (isUserSpeakingRef.current || micEnergy > speechThreshold);
+
+        const targetListening = isListeningNow ? 1 : 0;
+        const targetSpeaking = isSpeakingNow ? 1 : 0;
+        const listeningLerp =
+          targetListening > listeningRef.current
+            ? LISTENING_ATTACK_LERP
+            : LISTENING_RELEASE_LERP;
+        const speakingLerp =
+          targetSpeaking > speakingRef.current
+            ? SPEAKING_ATTACK_LERP
+            : SPEAKING_RELEASE_LERP;
+        listeningRef.current +=
+          (targetListening - listeningRef.current) * listeningLerp;
+        speakingRef.current +=
+          (targetSpeaking - speakingRef.current) * speakingLerp;
+
+        const rawEnergy = isSpeakingNow
+          ? Math.min(outputEnergy * 2.5, 1)
+          : Math.min(micEnergy * 2.5, 1);
+        const energyRate =
+          rawEnergy > voiceEnergyRef.current
+            ? VOICE_ENERGY_ATTACK_RATE
+            : VOICE_ENERGY_RELEASE_RATE;
+        voiceEnergyRef.current +=
+          (rawEnergy - voiceEnergyRef.current) * energyRate;
+
+        if (targetListening === 0 && listeningRef.current < 0.005) {
+          listeningRef.current = 0;
+        }
+        if (targetSpeaking === 0 && speakingRef.current < 0.005) {
+          speakingRef.current = 0;
+        }
+        if (rawEnergy === 0 && voiceEnergyRef.current < 0.005) {
+          voiceEnergyRef.current = 0;
+        }
+
+        renderer.render(
+          timeRef.current,
+          birthRef.current,
+          flashRef.current,
+          listeningRef.current,
+          speakingRef.current,
+          voiceEnergyRef.current,
+          showEyesRef.current,
+        );
       };
 
       // Use setInterval rather than rAF: on React Native, rAF is coalesced

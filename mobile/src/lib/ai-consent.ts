@@ -2,7 +2,7 @@
  * Tracks whether the user has explicitly agreed to share data with the
  * third-party AI providers Stella routes through (OpenRouter / Fireworks
  * gateways → Anthropic / OpenAI / Google for text; Mistral Voxtral for
- * voice transcription).
+ * voice transcription; OpenAI for live realtime audio).
  *
  * Required by App Store Review Guideline 5.1.1(i) / 5.1.2(i): we must
  * disclose what is sent, who it is sent to, and get the user's permission
@@ -11,7 +11,9 @@
 
 import * as SecureStore from "expo-secure-store";
 
-const CONSENT_KEY = "stella-mobile_ai-data-consent";
+// Version 2 adds direct, continuous OpenAI realtime microphone processing.
+// Do not silently treat the narrower v1 disclosure as consent to that scope.
+const CONSENT_KEY = "stella-mobile_ai-data-consent-v2";
 
 let cached: boolean | null = null;
 

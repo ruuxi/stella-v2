@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { isGuest } from "../../src/lib/guest-mode";
 import { getOrCreateMobileDeviceId } from "../../src/lib/phone-access";
@@ -35,10 +35,7 @@ export default function ChatScreen() {
     null,
   );
 
-  const transport = useMemo(
-    () => ({ kind: "cloud" as const, guest }),
-    [guest],
-  );
+  const transport = useMemo(() => ({ kind: "cloud" as const, guest }), [guest]);
   const thread = useChatThread({ threadId: "cloud", transport });
   const { setDraft, setAttachments } = thread;
 
@@ -62,7 +59,7 @@ export default function ChatScreen() {
       if (!share) return;
       if (share.text) {
         setDraft((prev) =>
-          prev.trim() ? `${prev.trimEnd()} ${share.text}` : share.text ?? "",
+          prev.trim() ? `${prev.trimEnd()} ${share.text}` : (share.text ?? ""),
         );
       }
       if (share.assets?.length) {
@@ -97,6 +94,11 @@ export default function ChatScreen() {
     (thread.draft.trim().length > 0 || thread.attachments.length > 0) &&
     !offline &&
     thread.storageLoaded;
+  const sendRealtimePrompt = thread.sendPrompt;
+  const performRealtimeVoiceAction = useCallback(
+    async (request: string) => sendRealtimePrompt?.(request) ?? null,
+    [sendRealtimePrompt],
+  );
 
   return (
     <View style={styles.root}>
@@ -111,6 +113,10 @@ export default function ChatScreen() {
         canSubmit={canSubmit}
         onSubmit={thread.send}
         onStop={thread.stop}
+        realtimeVoiceConversationId={thread.conversationId}
+        realtimeVoiceExecution="phone"
+        realtimeVoiceSignInRequired={guest}
+        onRealtimeVoiceAction={performRealtimeVoiceAction}
         placeholder="Message Stella"
         offline={offline}
         enableAttachments
@@ -120,6 +126,7 @@ export default function ChatScreen() {
         dictationAnonymous={guest}
         dictationHeaders={dictationHeaders}
         onOpenArtifact={setSelectedArtifact}
+        activityTasks={thread.conversationTasks}
       />
       <ArtifactViewer
         visible={Boolean(selectedArtifact)}

@@ -72,12 +72,16 @@ import {
   consolidateRowArtifacts,
 } from "../lib/agent-artifact-consolidation";
 import { DictationRecordingBar } from "./DictationRecordingBar";
+import { RealtimeVoiceOverlay } from "./RealtimeVoiceOverlay";
 import {
   WorkingIndicator,
   WORKING_INDICATOR_SLOT_HEIGHT,
 } from "./WorkingIndicator";
 import type { WorkingIndicatorState } from "./working-indicator-state";
 import { useDictation } from "../lib/dictation";
+import { hasAiConsent, requestAiConsent } from "../lib/ai-consent";
+import type { RealtimeVoiceActionDispatch } from "../lib/realtime-voice-protocol";
+import type { StoredPhoneAccess } from "../lib/phone-access";
 import { useChatSearch } from "../lib/chat-search";
 import { notifySuccess, tapMedium, tapLight } from "../lib/haptics";
 import {
@@ -1961,6 +1965,19 @@ export type ChatPaneProps = {
    */
   onStop?: () => void;
 
+  /** Stable id of the text chat to which realtime voice is attached. */
+  realtimeVoiceConversationId?: string | null;
+  /** Where voice-request actions should execute. */
+  realtimeVoiceExecution?: "phone" | "computer";
+  /** Paired desktop credentials used only by Computer realtime voice. */
+  realtimeVoiceDesktopAccess?: StoredPhoneAccess | null;
+  /** Show sign-in before starting capture for an anonymous cloud user. */
+  realtimeVoiceSignInRequired?: boolean;
+  /** Dispatches one action request into the attached text chat. */
+  onRealtimeVoiceAction?: (
+    request: string,
+  ) => Promise<RealtimeVoiceActionDispatch>;
+
   /** Show a small `+` menu entry for attaching photos. */
   enableAttachments: boolean;
   /** Current attachments — only meaningful when `enableAttachments`. */
@@ -2024,6 +2041,11 @@ export function ChatPane({
   canSubmit,
   onSubmit,
   onStop,
+  realtimeVoiceConversationId = null,
+  realtimeVoiceExecution = "phone",
+  realtimeVoiceDesktopAccess = null,
+  realtimeVoiceSignInRequired = false,
+  onRealtimeVoiceAction,
   enableAttachments,
   attachments,
   onChangeAttachments,
@@ -2120,7 +2142,10 @@ export function ChatPane({
   const spokenAssistantIdsRef = useRef<Set<string>>(new Set());
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
 
-  const visibleMessages = useMemo(() => visibleChatMessages(messages), [messages]);
+  const visibleMessages = useMemo(
+    () => visibleChatMessages(messages),
+    [messages],
+  );
   const lastMessage = visibleMessages[visibleMessages.length - 1];
   if (lastMessage?.role === "assistant") {
     const isNewAssistant = lastMessage.id !== assistantIdRef.current;
@@ -2223,6 +2248,7 @@ export function ChatPane({
   }, [visibleMessages, readAloud.enabled, streaming]);
 
   const [expanded, setExpanded] = useState(false);
+  const [realtimeVoiceOpen, setRealtimeVoiceOpen] = useState(false);
 
   // When the parent clears draft after send, collapse back to pill shape.
   useEffect(() => {
@@ -2313,6 +2339,23 @@ export function ChatPane({
     if (dictation.status === "idle") tapLight();
     await dictation.toggle();
   }, [dictation]);
+
+  const openRealtimeVoice = useCallback(() => {
+    if (!realtimeVoiceSignInRequired && !hasAiConsent()) {
+      requestAiConsent();
+      return;
+    }
+    tapMedium();
+    stopReadAloud();
+    Keyboard.dismiss();
+    setRealtimeVoiceOpen(true);
+  }, [realtimeVoiceSignInRequired]);
+
+  const performRealtimeVoiceAction = useCallback(
+    async (request: string) =>
+      onRealtimeVoiceAction ? onRealtimeVoiceAction(request) : null,
+    [onRealtimeVoiceAction],
+  );
 
   // "Stop dictation and send": stop recording, then auto-submit once the
   // transcript has landed in the draft. `dictation.stop()` resolves after the
@@ -2638,7 +2681,9 @@ export function ChatPane({
       const snippet = selected.trim();
       if (!snippet) return;
       const current = draftRef.current;
-      onChangeDraft(current.trim() ? `${current.trimEnd()} ${snippet}` : snippet);
+      onChangeDraft(
+        current.trim() ? `${current.trimEnd()} ${snippet}` : snippet,
+      );
       setTimeout(() => inputRef.current?.focus(), 0);
     },
     [onChangeDraft],
@@ -2759,6 +2804,7 @@ export function ChatPane({
 
   const empty = visibleMessages.length === 0;
   const hasText = draft.trim().length > 0;
+  const composerHasContent = draft.length > 0 || (attachments?.length ?? 0) > 0;
   const dictationInline = isListening && !hasText;
   const dictationBelow = isListening && hasText;
   const isExpandedComposed = expanded || dictationBelow;
@@ -2808,6 +2854,30 @@ export function ChatPane({
     </Pressable>
   );
 
+  // Realtime voice is a distinct live-conversation mode, not dictation. Keep
+  // it immediately to the right of the mic only while the composer is empty;
+  // once text or an attachment exists, send remains the unambiguous action.
+  const realtimeVoiceButton =
+    realtimeVoiceConversationId &&
+    (onRealtimeVoiceAction || realtimeVoiceDesktopAccess) &&
+    composerEnabled &&
+    !offline &&
+    !composerHasContent &&
+    dictation.status === "idle" ? (
+      <Pressable
+        onPress={openRealtimeVoice}
+        accessibilityRole="button"
+        accessibilityLabel="Start realtime voice conversation"
+        style={({ pressed }) => [
+          styles.realtimeVoiceButton,
+          pressed && styles.realtimeVoiceButtonPressed,
+        ]}
+        hitSlop={4}
+      >
+        <Icon name="waveform" size={19} color={colors.text} weight="semibold" />
+      </Pressable>
+    ) : null;
+
   const showAttachmentStrip =
     enableAttachments && (attachments?.length ?? 0) > 0;
 
@@ -2818,7 +2888,6 @@ export function ChatPane({
     ],
     [styles.list, footerHeight, keyboardExtra],
   );
-
   return (
     <View ref={rootRef} collapsable={false} style={styles.screen}>
       <View style={styles.viewport}>
@@ -3222,6 +3291,7 @@ export function ChatPane({
                     // toolbar, which always shows the mic).
                     <View style={styles.pillTrailingCluster}>
                       {micButton}
+                      {realtimeVoiceButton}
                       <StopButton
                         onPress={onStop}
                         styles={styles}
@@ -3229,7 +3299,10 @@ export function ChatPane({
                       />
                     </View>
                   ) : (
-                    micButton
+                    <View style={styles.pillTrailingCluster}>
+                      {micButton}
+                      {realtimeVoiceButton}
+                    </View>
                   )}
                 </View>
                 {isExpandedComposed && !dictationBelow ? (
@@ -3237,6 +3310,7 @@ export function ChatPane({
                     <View style={styles.toolbarLeft}>{plusButton}</View>
                     <View style={styles.toolbarRight}>
                       {micButton}
+                      {realtimeVoiceButton}
                       {streaming && onStop && !hasText ? (
                         <StopButton
                           onPress={onStop}
@@ -3290,6 +3364,18 @@ export function ChatPane({
         onDismiss={dismissMessageMenu}
         colors={colors}
         containerRef={rootRef}
+      />
+      <RealtimeVoiceOverlay
+        visible={realtimeVoiceOpen}
+        conversationId={realtimeVoiceConversationId}
+        execution={realtimeVoiceExecution}
+        desktopAccess={realtimeVoiceDesktopAccess}
+        signInRequired={realtimeVoiceSignInRequired}
+        messages={messages}
+        tasks={activityTasks ?? []}
+        chatBusy={streaming}
+        onPerformAction={performRealtimeVoiceAction}
+        onClose={() => setRealtimeVoiceOpen(false)}
       />
     </View>
   );
@@ -3767,4 +3853,16 @@ const makeStyles = (colors: Colors) =>
       width: 32,
     },
     micButtonActive: { backgroundColor: colors.accent },
+    realtimeVoiceButton: {
+      alignItems: "center",
+      backgroundColor: "transparent",
+      borderRadius: 16,
+      height: 32,
+      justifyContent: "center",
+      width: 32,
+    },
+    realtimeVoiceButtonPressed: {
+      opacity: 0.55,
+      transform: [{ scale: 0.96 }],
+    },
   } as const);

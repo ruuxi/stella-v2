@@ -183,6 +183,23 @@ export function createRelayUsageParser(
     });
   }
 
+  if (provider === "xai") {
+    return createSseParser((event) => {
+      const response = asRecord(event.response);
+      return {
+        model:
+          typeof response?.model === "string"
+            ? response.model
+            : typeof event.model === "string"
+              ? event.model
+              : undefined,
+        ...(response
+          ? parseResponsesUsage(response.usage)
+          : parseOpenAIUsage(event.usage)),
+      };
+    });
+  }
+
   return createSseParser((event) => ({
     model: typeof event.model === "string" ? event.model : undefined,
     ...parseOpenAIUsage(event.usage),

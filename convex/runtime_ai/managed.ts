@@ -176,6 +176,9 @@ function providerFromBaseUrl(baseUrl: string): string {
   if (baseUrl.includes("api.fireworks.ai")) {
     return "fireworks";
   }
+  if (baseUrl.includes("api.x.ai")) {
+    return "xai";
+  }
   if (baseUrl.includes("ai-gateway.vercel.sh")) {
     return "vercel-ai-gateway";
   }
@@ -195,6 +198,9 @@ function providerFromBaseUrl(baseUrl: string): string {
 }
 
 function modelIdForGateway(model: string, provider: string): string {
+  if (provider === "xai" && model.startsWith("x-ai/")) {
+    return model.slice("x-ai/".length);
+  }
   if (provider === "openai" && model.startsWith("openai/")) {
     return model.slice("openai/".length);
   }
@@ -215,7 +221,11 @@ function resolveManagedProtocol(args: {
     model: args.config.model,
     configuredProvider: args.config.managedGatewayProvider,
   });
-  if (gateway.provider === "fireworks" || gateway.provider === "openai") {
+  if (
+    gateway.provider === "fireworks" ||
+    gateway.provider === "xai" ||
+    gateway.provider === "openai"
+  ) {
     return "openai-responses";
   }
   if (gateway.provider === "anthropic") {

@@ -62,6 +62,8 @@ import {
   STELLA_META_CHAT_COMPLETIONS_PATH,
   STELLA_META_RESPONSES_PATH,
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
+  STELLA_XAI_CHAT_COMPLETIONS_PATH,
+  STELLA_XAI_RESPONSES_PATH,
   STELLA_RELAY_PATH_PREFIX,
   type AuthorizedStellaRequest,
 } from "./stella_provider/shared";
@@ -77,6 +79,8 @@ export {
   STELLA_META_CHAT_COMPLETIONS_PATH,
   STELLA_META_RESPONSES_PATH,
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
+  STELLA_XAI_CHAT_COMPLETIONS_PATH,
+  STELLA_XAI_RESPONSES_PATH,
   STELLA_RELAY_PATH_PREFIX,
 } from "./stella_provider/shared";
 
@@ -228,6 +232,10 @@ export const upstreamUrl = (
     }
     case "fireworks":
       return `${base}/responses`;
+    case "xai":
+      return requestUrl.pathname.endsWith("/chat/completions")
+        ? `${base}/chat/completions`
+        : `${base}/responses`;
     case "openrouter":
       return `${base}/chat/completions`;
     case "meta":
@@ -250,6 +258,7 @@ const isResponsesRequest = (
   if (
     provider !== "openai" &&
     provider !== "fireworks" &&
+    provider !== "xai" &&
     provider !== "meta"
   ) {
     return false;
@@ -463,10 +472,15 @@ const normalizeChatReasoning = (
   const topLevelEffort = body.reasoning_effort;
 
   if (resolvedModel === "x-ai/grok-4.5") {
-    body.reasoning =
-      typeof effort === "string" && effort !== "none" && effort !== "off"
-        ? { effort }
-        : { effort: "low" };
+    const raw =
+      typeof effort === "string"
+        ? effort
+        : typeof topLevelEffort === "string"
+          ? topLevelEffort
+          : undefined;
+    const safe = raw && raw !== "none" && raw !== "off" ? raw : "low";
+    body.reasoning_effort = safe;
+    body.reasoning = { effort: safe };
     return;
   }
 
@@ -570,17 +584,22 @@ export const bodyForUpstream = (
   const isChatCompletions = provider === "openrouter" || pathIsChatCompletions;
   if (
     provider === "openrouter" ||
-    (provider === "meta" && pathIsChatCompletions)
+    ((provider === "meta" || provider === "xai") && pathIsChatCompletions)
   ) {
     normalizeChatCompletionsBody(body, authorized.resolvedModel);
-    if (provider === "meta") {
-      // Meta chat completions accepts top-level `reasoning_effort` and rejects
-      // the Responses-style nested `reasoning` object.
+    if (provider === "meta" || provider === "xai") {
+      // Direct Meta/xAI chat completions accept top-level `reasoning_effort`.
       delete body.reasoning;
+    } else {
+      // OpenRouter uses its normalized nested reasoning object.
+      delete body.reasoning_effort;
     }
-  } else if (provider === "meta" && !pathIsChatCompletions) {
-    // Meta Responses has the inverse contract: nested `reasoning` is accepted,
-    // while top-level `reasoning_effort` is rejected as an unknown parameter.
+  } else if (
+    (provider === "meta" || provider === "xai") &&
+    !pathIsChatCompletions
+  ) {
+    // Meta/xAI Responses use nested `reasoning`, not top-level
+    // `reasoning_effort`.
     normalizeChatReasoning(body, authorized.resolvedModel);
     delete body.reasoning_effort;
   }

@@ -33,7 +33,7 @@ export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
 export const STELLA_MAX_MODEL = `${STELLA_PROVIDER}/max`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 6, 29, 12, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 1, 3, 30);
 
 export type StellaCatalogModel = {
   id: string;
@@ -58,7 +58,7 @@ export type StellaDefaultEntry = {
 };
 
 const DISPLAY_NAMES: Record<string, string> = {
-  "accounts/fireworks/models/deepseek-v4-flash": "DeepSeek V4 Flash",
+  "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
   "accounts/fireworks/models/kimi-k2p6": "Kimi K2.6",
   "accounts/fireworks/models/kimi-k2p7-code": "Kimi K2.7 Code",
   "anthropic/claude-fable-5": "Claude Fable 5",

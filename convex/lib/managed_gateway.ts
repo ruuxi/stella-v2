@@ -1,6 +1,7 @@
 export const MANAGED_GATEWAY_PROVIDERS = [
   "openrouter",
   "fireworks",
+  "xai",
   "openai",
   "anthropic",
   "google",
@@ -36,6 +37,11 @@ const MANAGED_GATEWAY_CONFIGS: Record<ManagedGatewayProvider, ManagedGatewayConf
     baseURL: "https://api.fireworks.ai/inference/v1",
     apiKeyEnvVar: "FIREWORKS_API_KEY",
   },
+  xai: {
+    provider: "xai",
+    baseURL: "https://api.x.ai/v1",
+    apiKeyEnvVar: "XAI_API_KEY",
+  },
   openai: {
     provider: "openai",
     baseURL: "https://api.openai.com/v1",
@@ -68,6 +74,8 @@ const FIREWORKS_MODEL_PREFIXES = [
 ] as const;
 
 const DIRECT_MODEL_PROVIDER_PREFIXES = [
+  ["x-ai/", "xai"],
+  ["xai/", "xai"],
   ["openai/", "openai"],
   ["anthropic/", "anthropic"],
   ["google/", "google"],

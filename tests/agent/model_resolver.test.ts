@@ -39,7 +39,7 @@ describe("resolveModelConfig overrides route through the override's own gateway"
 
   it("ignores a mode override a restricted tier may not pick", async () => {
     // free can't override designer → falls back to orchestrator's backend
-    // default (Grok 4.5 on OpenRouter).
+    // default (Grok 4.5 directly on xAI).
     const resolved = await resolveModelConfig(
       ctx,
       AGENT_IDS.ORCHESTRATOR,
@@ -50,6 +50,6 @@ describe("resolveModelConfig overrides route through the override's own gateway"
       },
     );
     expect(resolved.model).toBe("x-ai/grok-4.5");
-    expect(resolved.managedGatewayProvider).toBe("openrouter");
+    expect(resolved.managedGatewayProvider).toBe("xai");
   });
 });

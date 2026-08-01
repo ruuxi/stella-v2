@@ -177,19 +177,18 @@ const isInternalModelConfigKey = (
 // Anthropic's Messages API requires `max_tokens`, so `designer`
 // keeps its value as a protocol requirement, not a policy choice.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
-  // Stella Standard: Grok 4.5 via OpenRouter. Default for orchestrator +
+  // Stella Standard: Grok 4.5 directly via xAI. Default for orchestrator +
   // general across every audience. Missing or disabled reasoning is normalized
   // to low at the relay boundary.
   standard: {
     model: "x-ai/grok-4.5",
     fallbackMode: "light",
-    managedGatewayProvider: "openrouter",
+    managedGatewayProvider: "xai",
     temperature: 1.0,
     providerOptions: {
       openai: {
         reasoningEffort: "low",
       },
-      ...gatewayOptions("openrouter"),
     },
   },
 
@@ -207,7 +206,7 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   },
 
   light: {
-    model: "accounts/fireworks/models/deepseek-v4-flash",
+    model: "accounts/fireworks/models/deepseek-v4-flash-0731",
     managedGatewayProvider: "fireworks",
     temperature: 1.0,
     providerOptions: {

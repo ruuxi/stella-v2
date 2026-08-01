@@ -23,6 +23,7 @@ describe("toProviderNativeModel", () => {
     expect(toProviderNativeModel("meta/muse-spark-1.1", "meta")).toBe(
       "muse-spark-1.1",
     );
+    expect(toProviderNativeModel("x-ai/grok-4.5", "xai")).toBe("grok-4.5");
   });
 
   it("passes through ids that do not match the relay provider", () => {
@@ -219,7 +220,7 @@ describe("resolveRequestedStellaModel", () => {
     expect(resolved.resolvedModel).toBe(
       getModelConfig("orchestrator", "pro").model,
     );
-    expect(resolved.config.managedGatewayProvider).toBe("openrouter");
+    expect(resolved.config.managedGatewayProvider).toBe("xai");
     expect(resolved.config.fallback).toBeUndefined();
   });
 

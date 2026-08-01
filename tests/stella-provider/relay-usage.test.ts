@@ -129,6 +129,61 @@ describe("createRelayUsageParser", () => {
     });
   });
 
+  describe("xAI", () => {
+    it("parses direct chat-completions usage", () => {
+      const parser = createRelayUsageParser("xai");
+      const usage = feed(parser, [
+        `data: ${JSON.stringify({
+          model: "grok-4.5",
+          usage: {
+            prompt_tokens: 12,
+            completion_tokens: 8,
+            total_tokens: 20,
+            prompt_tokens_details: { cached_tokens: 3 },
+            completion_tokens_details: { reasoning_tokens: 5 },
+          },
+        })}\n\n`,
+      ]);
+
+      expect(usage).toEqual({
+        model: "grok-4.5",
+        inputTokens: 12,
+        outputTokens: 8,
+        totalTokens: 20,
+        cachedInputTokens: 3,
+        reasoningTokens: 5,
+      });
+    });
+
+    it("parses direct Responses usage", () => {
+      const parser = createRelayUsageParser("xai");
+      const usage = feed(parser, [
+        `data: ${JSON.stringify({
+          type: "response.completed",
+          response: {
+            model: "grok-4.5",
+            usage: {
+              input_tokens: 14,
+              output_tokens: 9,
+              total_tokens: 23,
+              input_tokens_details: { cached_tokens: 4 },
+              output_tokens_details: { reasoning_tokens: 6 },
+            },
+          },
+        })}\n\n`,
+      ]);
+
+      expect(usage).toEqual({
+        model: "grok-4.5",
+        inputTokens: 14,
+        outputTokens: 9,
+        totalTokens: 23,
+        cachedInputTokens: 4,
+        reasoningTokens: 6,
+      });
+    });
+  });
+
   describe("google", () => {
     it("derives totalTokens when only per-bucket counts are present", () => {
       const parser = createRelayUsageParser("google");

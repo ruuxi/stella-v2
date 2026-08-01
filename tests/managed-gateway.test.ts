@@ -8,6 +8,19 @@ import {
 } from "../convex/lib/managed_gateway";
 
 describe("managed gateway", () => {
+  it("infers xAI from the canonical Grok model prefix", () => {
+    expect(inferManagedGatewayProviderFromModel("x-ai/grok-4.5")).toBe("xai");
+    expect(resolveManagedGatewayProvider({ model: "x-ai/grok-4.5" })).toBe(
+      "xai",
+    );
+  });
+
+  it("points xAI at its direct API using XAI_API_KEY", () => {
+    const config = getManagedGatewayConfig("xai");
+    expect(config.baseURL).toBe("https://api.x.ai/v1");
+    expect(config.apiKeyEnvVar).toBe("XAI_API_KEY");
+  });
+
   it("infers meta from the meta/ model prefix", () => {
     expect(inferManagedGatewayProviderFromModel("meta/muse-spark-1.1")).toBe(
       "meta",

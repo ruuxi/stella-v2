@@ -19,23 +19,27 @@ const makeAuthorized = (
   resolvedModel:
     provider === "fireworks"
       ? "accounts/fireworks/models/kimi-k2p6"
-      : provider === "openai"
-        ? "openai/gpt-5.5"
-        : provider === "openrouter"
-          ? "x-ai/grok-4.5"
-          : provider === "meta"
-            ? "meta/muse-spark-1.1"
-            : "google/gemini-3-flash-preview",
+      : provider === "xai"
+        ? "x-ai/grok-4.5"
+        : provider === "openai"
+          ? "openai/gpt-5.5"
+          : provider === "openrouter"
+            ? "x-ai/grok-4.5"
+            : provider === "meta"
+              ? "meta/muse-spark-1.1"
+              : "google/gemini-3-flash-preview",
   upstreamModel:
     provider === "fireworks"
       ? "accounts/fireworks/models/kimi-k2p6"
-      : provider === "openai"
-        ? "gpt-5.5"
-        : provider === "openrouter"
-          ? "x-ai/grok-4.5"
-          : provider === "meta"
-            ? "muse-spark-1.1"
-            : "gemini-3-flash-preview",
+      : provider === "xai"
+        ? "grok-4.5"
+        : provider === "openai"
+          ? "gpt-5.5"
+          : provider === "openrouter"
+            ? "x-ai/grok-4.5"
+            : provider === "meta"
+              ? "muse-spark-1.1"
+              : "gemini-3-flash-preview",
   serviceTier: "priority",
   apiKey: "test-key",
   tokenEstimate: { inputTokens: 1, outputTokens: 1 },
@@ -260,6 +264,23 @@ describe("bodyForUpstream", () => {
 });
 
 describe("upstreamUrl", () => {
+  it("routes xAI chat completions and Responses directly to api.x.ai", () => {
+    expect(
+      upstreamUrl(
+        "xai",
+        requestFor("/api/stella/xai/v1/chat/completions"),
+        "grok-4.5",
+      ),
+    ).toBe("https://api.x.ai/v1/chat/completions");
+    expect(
+      upstreamUrl(
+        "xai",
+        requestFor("/api/stella/xai/v1/responses"),
+        "grok-4.5",
+      ),
+    ).toBe("https://api.x.ai/v1/responses");
+  });
+
   it("preserves Google stream query parameters", () => {
     expect(
       upstreamUrl(
@@ -286,6 +307,47 @@ describe("upstreamUrl", () => {
     ).toBe(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
     );
+  });
+});
+
+describe("direct xAI Grok relay", () => {
+  it("uses xAI's top-level reasoning_effort for chat completions", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("xai", {
+          model: "stella/standard",
+          messages: [{ role: "user", content: "hi" }],
+          reasoning: { effort: "none" },
+          stream: true,
+        }),
+        "xai",
+        requestFor("/api/stella/xai/v1/chat/completions"),
+      ),
+    );
+
+    expect(body.model).toBe("grok-4.5");
+    expect(body.reasoning_effort).toBe("low");
+    expect(body.reasoning).toBeUndefined();
+    expect(body.stream_options).toEqual({ include_usage: true });
+  });
+
+  it("uses xAI's nested reasoning object for Responses", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("xai", {
+          model: "stella/standard",
+          input: [{ role: "user", content: "hi" }],
+          reasoning_effort: "high",
+        }),
+        "xai",
+        requestFor("/api/stella/xai/v1/responses"),
+      ),
+    );
+
+    expect(body.model).toBe("grok-4.5");
+    expect(body.reasoning_effort).toBeUndefined();
+    expect(body.reasoning).toEqual({ effort: "high" });
+    expect(body.store).toBe(false);
   });
 });
 

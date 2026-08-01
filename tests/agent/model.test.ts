@@ -16,7 +16,8 @@ import {
 
 describe("managed model config", () => {
   it("preserves the non-GPT Light matrix and moves synthesis to GPT-5.6 Luna", () => {
-    const deepSeekLight = "accounts/fireworks/models/deepseek-v4-flash";
+    const deepSeekLight =
+      "accounts/fireworks/models/deepseek-v4-flash-0731";
 
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       const light = getModeConfig("light", audience);
@@ -60,7 +61,7 @@ describe("managed model config", () => {
       );
       expect(
         getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).managedGatewayProvider,
-      ).toBe("openrouter");
+      ).toBe("xai");
       expect(
         getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).providerOptions?.openai
           ?.reasoningEffort,
@@ -70,15 +71,15 @@ describe("managed model config", () => {
       );
       expect(
         getModelConfig(AGENT_IDS.GENERAL, audience).managedGatewayProvider,
-      ).toBe("openrouter");
+      ).toBe("xai");
     }
   });
 
-  it("routes Standard through OpenRouter Grok 4.5", () => {
+  it("routes Standard directly through xAI Grok 4.5", () => {
     const standard = getModeConfig("standard");
     expect(standard.model).toBe("x-ai/grok-4.5");
-    expect(standard.managedGatewayProvider).toBe("openrouter");
-    expect(standard.providerOptions?.gateway?.order).toEqual(["openrouter"]);
+    expect(standard.managedGatewayProvider).toBe("xai");
+    expect(standard.providerOptions?.gateway).toBeUndefined();
     expect(standard.providerOptions?.openai?.reasoningEffort).toBe("low");
   });
 
@@ -174,19 +175,19 @@ describe("managed model config", () => {
       defaults.find((entry) => entry.agentType === "orchestrator"),
     ).toMatchObject({
       model: "stella/default",
-      resolvedModel: "openrouter/x-ai/grok-4.5",
+      resolvedModel: "x-ai/grok-4.5",
     });
     expect(
       defaults.find((entry) => entry.agentType === "chronicle"),
     ).toMatchObject({
       model: "stella/default",
-      resolvedModel: "accounts/fireworks/models/deepseek-v4-flash",
+      resolvedModel: "accounts/fireworks/models/deepseek-v4-flash-0731",
     });
   });
 
   it("keeps the Light model id in the managed model sync list", () => {
     expect(listManagedModelIds()).toContain(
-      "accounts/fireworks/models/deepseek-v4-flash",
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
     );
     expect(listManagedModelIds()).toContain("openai/gpt-5.6-luna");
     expect(listManagedModelIds()).not.toContain("openai/gpt-5.4-mini");

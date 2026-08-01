@@ -36,6 +36,7 @@ function stellaProviderErrorResponse(
 }
 
 const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
+  xai: "x-ai/",
   anthropic: "anthropic/",
   google: "google/",
   openai: "openai/",

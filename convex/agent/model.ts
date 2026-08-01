@@ -136,7 +136,7 @@ const KIMI_K2P6_MODEL_CONFIG: ModeConfig = {
   },
 };
 
-// Gemini 3.5 Flash via OpenRouter. Powers the general agent's
+// Gemini 3.6 Flash via OpenRouter. Powers the general agent's
 // post-completion "finishing up" HTML pass (agent type `html_finish`): a
 // fast, cheap render of a finished report into a self-contained HTML
 // canvas. Routed through OpenRouter (not the Google gateway) per product
@@ -145,10 +145,9 @@ const KIMI_K2P6_MODEL_CONFIG: ModeConfig = {
 // desktop never hardcodes it; it requests the opaque default for the
 // `html_finish` agent type and the backend resolves it here.
 const HTML_MODEL_CONFIG: ModeConfig = {
-  model: "google/gemini-3.5-flash",
+  model: "google/gemini-3.6-flash",
   fallbackMode: "light",
   managedGatewayProvider: "openrouter",
-  temperature: 1.0,
   providerOptions: {
     ...gatewayOptions("openrouter"),
   },
@@ -231,7 +230,7 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   },
 
   designer: {
-    model: "anthropic/claude-opus-4.8",
+    model: "anthropic/claude-opus-5",
     fallbackMode: "light",
     managedGatewayProvider: "anthropic",
     temperature: 1.0,
@@ -245,10 +244,9 @@ const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
   },
 
   vision: {
-    model: "google/gemini-3-flash-preview",
+    model: "google/gemini-3.6-flash",
     fallbackMode: "designer",
     managedGatewayProvider: "google",
-    temperature: 0.4,
     providerOptions: {
       ...gatewayOptions("google"),
     },
@@ -650,7 +648,10 @@ export function isModelMode(value: string): value is ModelMode {
 // currently the default for any mode or agent task. Prefer putting models
 // behind a mode/task selection when they are catalog defaults; use this list
 // only for extras that have no mode of their own.
-export const ADDITIONAL_MANAGED_MODEL_IDS = ["meta/muse-spark-1.1"] as const;
+export const ADDITIONAL_MANAGED_MODEL_IDS = [
+  "accounts/fireworks/models/kimi-k3",
+  "meta/muse-spark-1.1",
+] as const;
 
 export function listManagedModelIds(): string[] {
   const modelIds = new Set<string>();

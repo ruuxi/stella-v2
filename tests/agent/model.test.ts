@@ -48,9 +48,15 @@ describe("managed model config", () => {
         fallbackManagedGatewayProvider: "fireworks",
       });
       expect(getModelConfig("html_finish", audience)).toMatchObject({
-        model: "google/gemini-3.5-flash",
+        model: "google/gemini-3.6-flash",
         fallback: deepSeekLight,
       });
+      expect(getModelConfig("html_finish", audience).temperature).toBeUndefined();
+      expect(getModeConfig("vision", audience)).toMatchObject({
+        model: "google/gemini-3.6-flash",
+        managedGatewayProvider: "google",
+      });
+      expect(getModeConfig("vision", audience).temperature).toBeUndefined();
     }
   });
 
@@ -87,6 +93,12 @@ describe("managed model config", () => {
     const builder = getModeConfig("builder");
     expect(builder.model).toBe("openai/gpt-5.6-sol");
     expect(builder.managedGatewayProvider).toBe("openai");
+  });
+
+  it("routes Designer directly through Anthropic Claude Opus 5", () => {
+    const designer = getModeConfig("designer");
+    expect(designer.model).toBe("anthropic/claude-opus-5");
+    expect(designer.managedGatewayProvider).toBe("anthropic");
   });
 
   it("publishes branded tier modes and real managed models in the catalog", () => {
@@ -190,7 +202,35 @@ describe("managed model config", () => {
       "accounts/fireworks/models/deepseek-v4-flash-0731",
     );
     expect(listManagedModelIds()).toContain("openai/gpt-5.6-luna");
+    expect(listManagedModelIds()).toContain("google/gemini-3.6-flash");
+    expect(listManagedModelIds()).toContain("anthropic/claude-opus-5");
+    expect(listManagedModelIds()).toContain(
+      "accounts/fireworks/models/kimi-k3",
+    );
+    expect(listManagedModelIds()).not.toContain("anthropic/claude-opus-4.8");
+    expect(listManagedModelIds()).not.toContain("google/gemini-3.5-flash");
+    expect(listManagedModelIds()).not.toContain("google/gemini-3-flash-preview");
     expect(listManagedModelIds()).not.toContain("openai/gpt-5.4-mini");
+  });
+
+  it("registers Kimi K3 as a pinnable Fireworks model", () => {
+    const modelId = "accounts/fireworks/models/kimi-k3";
+    const catalog = listStellaCatalogModels("pro");
+
+    expect(listManagedModelIds()).toContain(modelId);
+    expect(
+      catalog.find((model) => model.id === `stella/${modelId}`),
+    ).toMatchObject({
+      name: "Kimi K3",
+      upstreamModel: modelId,
+      type: "multimodal",
+      allowedForAudience: true,
+    });
+    expect(
+      listStellaCatalogModels("free").find(
+        (model) => model.id === `stella/${modelId}`,
+      )?.allowedForAudience,
+    ).toBe(false);
   });
 
   it("registers Muse Spark 1.1 as a pinnable managed model", () => {

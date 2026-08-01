@@ -12,14 +12,14 @@ describe("toProviderNativeModel", () => {
   it("strips provider prefix for matching upstream", () => {
     // Anthropic ids use dashes, not dots — converted at the wire boundary.
     expect(
-      toProviderNativeModel("anthropic/claude-opus-4.8", "anthropic"),
-    ).toBe("claude-opus-4-8");
+      toProviderNativeModel("anthropic/claude-opus-5", "anthropic"),
+    ).toBe("claude-opus-5");
     expect(toProviderNativeModel("openai/gpt-5.6-luna", "openai")).toBe(
       "gpt-5.6-luna",
     );
     expect(
-      toProviderNativeModel("google/gemini-3-flash-preview", "google"),
-    ).toBe("gemini-3-flash-preview");
+      toProviderNativeModel("google/gemini-3.6-flash", "google"),
+    ).toBe("gemini-3.6-flash");
     expect(toProviderNativeModel("meta/muse-spark-1.1", "meta")).toBe(
       "muse-spark-1.1",
     );
@@ -40,30 +40,30 @@ describe("requestedModelFromGooglePath", () => {
   it("extracts a single-segment model + verb", () => {
     expect(
       requestedModelFromGooglePath(
-        "/api/stella/google/v1beta/models/gemini-3-flash-preview:streamGenerateContent",
+        "/api/stella/google/v1beta/models/gemini-3.6-flash:streamGenerateContent",
       ),
-    ).toBe("gemini-3-flash-preview");
+    ).toBe("gemini-3.6-flash");
   });
 
   it("extracts model ids containing slashes (stella/google/...)", () => {
     expect(
       requestedModelFromGooglePath(
-        "/api/stella/google/v1beta/models/stella/google/gemini-3-flash-preview:streamGenerateContent",
+        "/api/stella/google/v1beta/models/stella/google/gemini-3.6-flash:streamGenerateContent",
       ),
-    ).toBe("stella/google/gemini-3-flash-preview");
+    ).toBe("stella/google/gemini-3.6-flash");
   });
 
   it("works for non-stream verbs", () => {
     expect(
       requestedModelFromGooglePath(
-        "/api/stella/google/v1beta/models/gemini-3-flash-preview:generateContent",
+        "/api/stella/google/v1beta/models/gemini-3.6-flash:generateContent",
       ),
-    ).toBe("gemini-3-flash-preview");
+    ).toBe("gemini-3.6-flash");
     expect(
       requestedModelFromGooglePath(
-        "/api/stella/google/v1beta/models/gemini-3-flash-preview:countTokens",
+        "/api/stella/google/v1beta/models/gemini-3.6-flash:countTokens",
       ),
-    ).toBe("gemini-3-flash-preview");
+    ).toBe("gemini-3.6-flash");
     expect(
       requestedModelFromGooglePath(
         "/api/stella/google/v1beta/models/text-embedding-001:embedContent",
@@ -74,15 +74,15 @@ describe("requestedModelFromGooglePath", () => {
   it("decodes percent-encoded path segments", () => {
     expect(
       requestedModelFromGooglePath(
-        "/api/stella/google/v1beta/models/stella%2Fgoogle%2Fgemini-3-flash-preview:streamGenerateContent",
+        "/api/stella/google/v1beta/models/stella%2Fgoogle%2Fgemini-3.6-flash:streamGenerateContent",
       ),
-    ).toBe("stella/google/gemini-3-flash-preview");
+    ).toBe("stella/google/gemini-3.6-flash");
   });
 
   it("returns null on paths without a verb suffix", () => {
     expect(
       requestedModelFromGooglePath(
-        "/api/stella/google/v1beta/models/gemini-3-flash-preview",
+        "/api/stella/google/v1beta/models/gemini-3.6-flash",
       ),
     ).toBeNull();
   });
@@ -205,11 +205,17 @@ describe("downgradeUnsupportedRequestImages", () => {
     );
     expect(downgradeUnsupportedRequestImages(body, "x-ai/grok-4.5")).toBe(body);
     expect(
-      downgradeUnsupportedRequestImages(body, "google/gemini-3-flash-preview"),
+      downgradeUnsupportedRequestImages(body, "google/gemini-3.6-flash"),
     ).toBe(body);
     expect(downgradeUnsupportedRequestImages(body, "meta/muse-spark-1.1")).toBe(
       body,
     );
+    expect(
+      downgradeUnsupportedRequestImages(
+        body,
+        "accounts/fireworks/models/kimi-k3",
+      ),
+    ).toBe(body);
   });
 });
 
@@ -268,11 +274,11 @@ describe("resolveRequestedStellaModel", () => {
   it("resolves an explicit upstream pick to its native model id and clears fallback", () => {
     const resolved = resolveRequestedStellaModel(
       "orchestrator",
-      { model: "stella/anthropic/claude-opus-4.8" },
+      { model: "stella/anthropic/claude-opus-5" },
       "pro",
     );
-    expect(resolved.requestedModel).toBe("stella/anthropic/claude-opus-4.8");
-    expect(resolved.resolvedModel).toBe("anthropic/claude-opus-4.8");
+    expect(resolved.requestedModel).toBe("stella/anthropic/claude-opus-5");
+    expect(resolved.resolvedModel).toBe("anthropic/claude-opus-5");
     expect(resolved.config.managedGatewayProvider).toBe("anthropic");
     expect(resolved.config.fallback).toBeUndefined();
   });
@@ -288,7 +294,7 @@ describe("resolveRequestedStellaModel", () => {
     expect(
       resolveRequestedStellaModel(
         "orchestrator",
-        { model: "stella/google/gemini-3-flash-preview" },
+        { model: "stella/google/gemini-3.6-flash" },
         "pro",
       ).config.managedGatewayProvider,
     ).toBe("google");
@@ -304,7 +310,7 @@ describe("resolveRequestedStellaModel", () => {
   it("coerces an override to the backend default for restricted audiences", () => {
     const resolved = resolveRequestedStellaModel(
       "orchestrator",
-      { model: "stella/anthropic/claude-opus-4.8" },
+      { model: "stella/anthropic/claude-opus-5" },
       "free",
     );
     expect(resolved.requestedModel).toBe("stella/default");
@@ -316,7 +322,7 @@ describe("resolveRequestedStellaModel", () => {
   it("ignores overrides for locked agents and uses their backend default", () => {
     const resolved = resolveRequestedStellaModel(
       "chronicle",
-      { model: "stella/anthropic/claude-opus-4.8" },
+      { model: "stella/anthropic/claude-opus-5" },
       "pro",
     );
     expect(resolved.requestedModel).toBe("stella/default");

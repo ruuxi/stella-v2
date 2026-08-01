@@ -7,7 +7,7 @@ import type { ManagedGatewayProvider } from "../../convex/lib/managed_gateway";
 const makeAuthorized = (
   provider: ManagedGatewayProvider,
   requestJson: AuthorizedStellaRequest["requestJson"] = {
-    model: "stella/google/gemini-3-flash-preview",
+    model: "stella/google/gemini-3.6-flash",
     contents: [{ role: "user", parts: [{ text: "hi" }] }],
   },
 ): AuthorizedStellaRequest => ({
@@ -15,7 +15,7 @@ const makeAuthorized = (
   agentType: "orchestrator",
   relayProvider: provider,
   requestJson,
-  requestedModel: "stella/google/gemini-3-flash-preview",
+  requestedModel: "stella/google/gemini-3.6-flash",
   resolvedModel:
     provider === "fireworks"
       ? "accounts/fireworks/models/kimi-k2p6"
@@ -27,7 +27,7 @@ const makeAuthorized = (
             ? "x-ai/grok-4.5"
             : provider === "meta"
               ? "meta/muse-spark-1.1"
-              : "google/gemini-3-flash-preview",
+              : "google/gemini-3.6-flash",
   upstreamModel:
     provider === "fireworks"
       ? "accounts/fireworks/models/kimi-k2p6"
@@ -39,7 +39,7 @@ const makeAuthorized = (
             ? "x-ai/grok-4.5"
             : provider === "meta"
               ? "muse-spark-1.1"
-              : "gemini-3-flash-preview",
+              : "gemini-3.6-flash",
   serviceTier: "priority",
   apiKey: "test-key",
   tokenEstimate: { inputTokens: 1, outputTokens: 1 },
@@ -67,7 +67,7 @@ describe("bodyForUpstream", () => {
         makeAuthorized("google"),
         "google",
         requestFor(
-          "/api/stella/google/v1beta/models/stella%2Fgoogle%2Fgemini-3-flash-preview:streamGenerateContent",
+          "/api/stella/google/v1beta/models/stella%2Fgoogle%2Fgemini-3.6-flash:streamGenerateContent",
         ),
       ),
     );
@@ -286,12 +286,12 @@ describe("upstreamUrl", () => {
       upstreamUrl(
         "google",
         requestFor(
-          "/api/stella/relay/models/stella%2Fgoogle%2Fgemini-3-flash-preview:streamGenerateContent?alt=sse",
+          "/api/stella/relay/models/stella%2Fgoogle%2Fgemini-3.6-flash:streamGenerateContent?alt=sse",
         ),
-        "gemini-3-flash-preview",
+        "gemini-3.6-flash",
       ),
     ).toBe(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:streamGenerateContent?alt=sse",
     );
   });
 
@@ -300,12 +300,12 @@ describe("upstreamUrl", () => {
       upstreamUrl(
         "google",
         requestFor(
-          "/api/stella/relay/models/stella%2Fgoogle%2Fgemini-3-flash-preview:generateContent",
+          "/api/stella/relay/models/stella%2Fgoogle%2Fgemini-3.6-flash:generateContent",
         ),
-        "gemini-3-flash-preview",
+        "gemini-3.6-flash",
       ),
     ).toBe(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
     );
   });
 });

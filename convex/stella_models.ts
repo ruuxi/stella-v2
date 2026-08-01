@@ -33,7 +33,7 @@ export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
 export const STELLA_MAX_MODEL = `${STELLA_PROVIDER}/max`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 1, 3, 30);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 1, 4, 34);
 
 export type StellaCatalogModel = {
   id: string;
@@ -61,11 +61,12 @@ const DISPLAY_NAMES: Record<string, string> = {
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
   "accounts/fireworks/models/kimi-k2p6": "Kimi K2.6",
   "accounts/fireworks/models/kimi-k2p7-code": "Kimi K2.7 Code",
+  "accounts/fireworks/models/kimi-k3": "Kimi K3",
   "anthropic/claude-fable-5": "Claude Fable 5",
-  "anthropic/claude-opus-4.8": "Claude Opus 4.8",
+  "anthropic/claude-opus-5": "Claude Opus 5",
   "anthropic/claude-opus-4.5": "Claude Opus 4.5",
   "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
-  "google/gemini-3-flash-preview": "Gemini 3 Flash",
+  "google/gemini-3.6-flash": "Gemini 3.6 Flash",
   "inception/mercury-2": "Mercury 2",
   "moonshotai/kimi-k2.5": "Kimi K2.5",
   "openai/gpt-5.4": "GPT-5.4",
@@ -340,10 +341,11 @@ export const listStellaCatalogModels = (
     name: deriveDisplayName(upstreamModel),
     provider: STELLA_PROVIDER,
     upstreamModel,
-    // Muse Spark and Grok 4.5 are natively multimodal; everything else remains
-    // language-only in the static catalog until models.dev rows or an explicit
-    // override say otherwise.
+    // Kimi K3, Muse Spark, and Grok 4.5 are natively multimodal; everything
+    // else remains language-only in the static catalog until models.dev rows
+    // or an explicit override say otherwise.
     type:
+      upstreamModel === "accounts/fireworks/models/kimi-k3" ||
       upstreamModel.startsWith("meta/muse-spark") ||
       upstreamModel === "x-ai/grok-4.5"
         ? "multimodal"

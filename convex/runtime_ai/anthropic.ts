@@ -198,10 +198,10 @@ function normalizeAnthropicModelId(modelId: string): string {
  */
 function modelDeprecatesTemperature(modelId: string): boolean {
   const id = normalizeAnthropicModelId(modelId);
-  const match = /(?:opus|sonnet|haiku)-(\d+)-(\d+)/.exec(id);
+  const match = /(?:opus|sonnet|haiku)-(\d+)(?:-(\d+))?/.exec(id);
   if (!match) return false;
   const major = Number(match[1]);
-  const minor = Number(match[2]);
+  const minor = Number(match[2] ?? 0);
   return major > 4 || (major === 4 && minor >= 6);
 }
 

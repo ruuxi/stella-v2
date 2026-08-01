@@ -23,8 +23,8 @@ const usage = {
 };
 
 const anthropicModel: Model<"anthropic-messages"> = {
-  id: "claude-opus-4-8",
-  name: "Claude Opus 4.8",
+  id: "claude-opus-5",
+  name: "Claude Opus 5",
   api: "anthropic-messages",
   provider: "anthropic",
   baseUrl: "https://api.anthropic.com/v1",
@@ -106,7 +106,7 @@ describe("backend Anthropic message conversion", () => {
           role: "assistant",
           provider: "anthropic",
           api: "anthropic-messages",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5",
           usage,
           stopReason: "stop",
           timestamp: 1,
@@ -193,6 +193,55 @@ describe("backend Anthropic message conversion", () => {
         text: "Final answer.",
       },
     ]);
+  });
+
+  it("omits deprecated temperature for Claude Opus 5", async () => {
+    const priorFetch = globalThis.fetch;
+    const encoder = new TextEncoder();
+    const sse = [
+      {
+        type: "message_start",
+        message: { usage: { input_tokens: 1, output_tokens: 0 } },
+      },
+      {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+        usage: { output_tokens: 0 },
+      },
+      { type: "message_stop" },
+    ]
+      .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+      .join("");
+    let requestBody: Record<string, unknown> | undefined;
+
+    globalThis.fetch = async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(sse));
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      );
+    };
+
+    try {
+      const stream = streamAnthropic(
+        anthropicModel,
+        { messages: [] },
+        { apiKey: "test-key", temperature: 1 },
+      );
+      for await (const _event of stream) {
+        // Consume the stream so the request completes.
+      }
+
+      expect(requestBody).toMatchObject({ model: "claude-opus-5" });
+      expect(requestBody).not.toHaveProperty("temperature");
+    } finally {
+      globalThis.fetch = priorFetch;
+    }
   });
 
   it("captures Anthropic thinking signatures while streaming", async () => {

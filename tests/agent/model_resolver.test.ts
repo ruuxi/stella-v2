@@ -8,8 +8,8 @@ const ctx = { runQuery: async () => null } as never;
 
 describe("resolveModelConfig overrides route through the override's own gateway", () => {
   it("routes a mode override through the mode's provider, not the agent default", async () => {
-    // orchestrator's pro default is Kimi on Fireworks; a designer override must
-    // resolve to Opus on Anthropic (not Opus mis-routed through Fireworks).
+    // A designer override must resolve to Opus on Anthropic rather than using
+    // the orchestrator's direct-xAI default provider.
     const resolved = await resolveModelConfig(
       ctx,
       AGENT_IDS.ORCHESTRATOR,
@@ -19,7 +19,7 @@ describe("resolveModelConfig overrides route through the override's own gateway"
         audience: "pro",
       },
     );
-    expect(resolved.model).toBe("anthropic/claude-opus-4.8");
+    expect(resolved.model).toBe("anthropic/claude-opus-5");
     expect(resolved.managedGatewayProvider).toBe("anthropic");
   });
 
@@ -29,11 +29,11 @@ describe("resolveModelConfig overrides route through the override's own gateway"
       AGENT_IDS.ORCHESTRATOR,
       undefined,
       {
-        modelOverride: "stella/anthropic/claude-opus-4.8",
+        modelOverride: "stella/anthropic/claude-opus-5",
         audience: "pro",
       },
     );
-    expect(resolved.model).toBe("anthropic/claude-opus-4.8");
+    expect(resolved.model).toBe("anthropic/claude-opus-5");
     expect(resolved.managedGatewayProvider).toBe("anthropic");
   });
 

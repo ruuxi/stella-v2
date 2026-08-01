@@ -47,18 +47,15 @@ type ResolvedModelsDevModel = {
 };
 
 const MODELS_DEV_ALIASES: Record<string, string[]> = {
-  "google/gemini-3-flash-preview": [
-    "google/gemini-3-flash",
-    "vercel/google/gemini-3-flash",
-    "vercel/google/gemini-3-flash-preview",
+  "google/gemini-3.6-flash": [
+    "vercel/google/gemini-3.6-flash",
   ],
   "anthropic/claude-sonnet-4.6": [
     "vercel/anthropic/claude-sonnet-4.6",
     "anthropic/claude-sonnet-4-6",
   ],
-  "anthropic/claude-opus-4.8": [
-    "vercel/anthropic/claude-opus-4.8",
-    "anthropic/claude-opus-4-8",
+  "anthropic/claude-opus-5": [
+    "vercel/anthropic/claude-opus-5",
   ],
   "anthropic/claude-opus-4.6": [
     "vercel/anthropic/claude-opus-4.6",
@@ -204,6 +201,18 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     cacheWritePerMillionUsd: 1.25,
     reasoningPerMillionUsd: 6,
     modalitiesInput: ["text", "image"],
+    modalitiesOutput: ["text"],
+  },
+  // Gemini 3.6 Flash GA rates: $1.50 / $7.50 per 1M tokens, with cached
+  // input at $0.15. Keep a static fill-in while models.dev catches up.
+  "google/gemini-3.6-flash": {
+    sourceProvider: "google",
+    sourceModelId: "gemini-3.6-flash",
+    inputPerMillionUsd: 1.5,
+    outputPerMillionUsd: 7.5,
+    cacheReadPerMillionUsd: 0.15,
+    reasoningPerMillionUsd: 7.5,
+    modalitiesInput: ["text", "image", "audio", "video", "pdf"],
     modalitiesOutput: ["text"],
   },
 };

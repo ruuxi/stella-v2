@@ -62,9 +62,8 @@ const DEFAULT_WELCOME_MESSAGE =
   "Hey! I'm Stella, your AI assistant. What can I help you with today?";
 
 const WELCOME_HTML_MODEL_CONFIG: ManagedModelConfig = {
-  model: "google/gemini-3-flash-preview",
+  model: "google/gemini-3.6-flash",
   managedGatewayProvider: "google",
-  temperature: 1.0,
   maxOutputTokens: 32768,
   providerOptions: {
     gateway: {

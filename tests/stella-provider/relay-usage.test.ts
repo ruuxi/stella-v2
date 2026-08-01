@@ -18,7 +18,7 @@ describe("createRelayUsageParser", () => {
           type: "message_start",
           message: {
             id: "msg_1",
-            model: "claude-opus-4-8",
+            model: "claude-opus-5",
             usage: { input_tokens: 100, cache_read_input_tokens: 40 },
           },
         })}\n\n`,
@@ -30,7 +30,7 @@ describe("createRelayUsageParser", () => {
       ]);
 
       expect(usage).toEqual({
-        model: "claude-opus-4-8",
+        model: "claude-opus-5",
         inputTokens: 100,
         outputTokens: 50,
         cachedInputTokens: 40,
@@ -41,12 +41,12 @@ describe("createRelayUsageParser", () => {
       const parser = createRelayUsageParser("anthropic");
       const payload = `event: message_start\ndata: ${JSON.stringify({
         type: "message_start",
-        message: { model: "claude-opus-4-8", usage: { input_tokens: 12 } },
+        message: { model: "claude-opus-5", usage: { input_tokens: 12 } },
       })}\n\n`;
       const half = Math.floor(payload.length / 2);
       const usage = feed(parser, [payload.slice(0, half), payload.slice(half)]);
       expect(usage?.inputTokens).toBe(12);
-      expect(usage?.model).toBe("claude-opus-4-8");
+      expect(usage?.model).toBe("claude-opus-5");
     });
   });
 
@@ -189,7 +189,7 @@ describe("createRelayUsageParser", () => {
       const parser = createRelayUsageParser("google");
       const usage = feed(parser, [
         `data: ${JSON.stringify({
-          modelVersion: "gemini-3-flash-preview",
+          modelVersion: "gemini-3.6-flash",
           usageMetadata: {
             promptTokenCount: 10,
             candidatesTokenCount: 20,
@@ -200,7 +200,7 @@ describe("createRelayUsageParser", () => {
       ]);
 
       expect(usage).toEqual({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.6-flash",
         inputTokens: 10,
         outputTokens: 20,
         reasoningTokens: 5,

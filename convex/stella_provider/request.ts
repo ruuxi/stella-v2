@@ -12,6 +12,7 @@ const NON_VISION_TOOL_IMAGE_PLACEHOLDER =
   "(tool image omitted: model does not support images)";
 
 const IMAGE_CAPABLE_MANAGED_MODEL_PREFIXES = [
+  "accounts/fireworks/models/kimi-k3",
   "anthropic/",
   "google/",
   "openai/",
@@ -203,7 +204,7 @@ export function downgradeUnsupportedRequestImages(
 // Extract the Stella/upstream model id from a Google relay path. The
 // desktop's Google SDK constructs URLs as `…/models/{model}:{verb}`
 // where `{model}` is whatever was set as `model.id` on the relay model
-// — which is the full requested id (e.g. `stella/google/gemini-3-flash-preview`,
+// — which is the full requested id (e.g. `stella/google/gemini-3.6-flash`,
 // containing slashes). The previous `[^/]+` capture only matched single-
 // segment names and silently dropped the rest, so the auth layer fell
 // back to the standard mode and the user's pick was ignored. Allow

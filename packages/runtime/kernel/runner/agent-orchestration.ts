@@ -321,6 +321,8 @@ export const createAgentOrchestration = (
       display?: boolean;
     }) => Promise<void>;
     cloudAgentRecords: ComputerAgentCloudRecords;
+    /** Test/embedding override; production uses the manager's bounded default. */
+    attemptTeardownTimeoutMs?: number;
   },
 ) => {
   const handleAgentLifecycleEvent = (rawEvent: AgentLifecycleEvent) => {
@@ -570,6 +572,9 @@ export const createAgentOrchestration = (
 
   context.state.localAgentManager = new LocalAgentManager({
     maxConcurrent: 24,
+    ...(deps.attemptTeardownTimeoutMs !== undefined
+      ? { attemptTeardownTimeoutMs: deps.attemptTeardownTimeoutMs }
+      : {}),
     getMaxConcurrent: () => getMaxAgentConcurrency(context.stellaDataDir),
     resolveTaskThread: ({ conversationId, agentType, threadId, nameHint }) => {
       if (!isLocalCliAgentId(agentType)) {

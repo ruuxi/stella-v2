@@ -555,6 +555,17 @@ const recordSummaryFailure = (threadKey: string, cycle: number): number => {
   return count;
 };
 
+/** Test seam for isolating near-ceiling failure tracking. */
+export const resetThreadSummaryFailureTracking = (threadKey?: string): void => {
+  if (threadKey === undefined) {
+    consecutiveSummaryFailures.clear();
+    latestSummaryCycle.clear();
+    return;
+  }
+  consecutiveSummaryFailures.delete(threadKey);
+  latestSummaryCycle.delete(threadKey);
+};
+
 const isAbortLikeSummaryFailure = (
   error: unknown,
   abortSignal?: AbortSignal,

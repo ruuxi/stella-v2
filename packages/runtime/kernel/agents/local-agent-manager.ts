@@ -491,6 +491,8 @@ const taskToolActivityFromEnd = (event: {
 
 type LocalAgentManagerOpts = {
   maxConcurrent?: number;
+  /** Bounded ownership handoff for an aborted attempt that never settles. */
+  attemptTeardownTimeoutMs?: number;
   getMaxConcurrent?: () => number;
   resolveTaskThread?: (args: {
     conversationId: string;
@@ -1748,7 +1750,11 @@ export class LocalAgentManager implements AgentToolApi {
       // cancels every pending/running task).
       return;
     }
-    const timeoutMs = DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS;
+    const timeoutMs = Math.max(
+      1,
+      this.opts.attemptTeardownTimeoutMs ??
+        DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS,
+    );
     const deadlineBody = Effect.sync(() => {
       const inFlight = this.inFlightAttempts.get(task.threadId);
       const takeover = this.attemptTakeoverDeadlines.get(task.threadId);

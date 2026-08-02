@@ -108,10 +108,18 @@ const readBoundedFromHandle = async (
   return Buffer.concat(chunks, total);
 };
 
+type ReferenceReadHooks = {
+  /** Test-only race injection after the file descriptor is safely open. */
+  afterOpen?: () => void | Promise<void>;
+  /** Test-only mutation injection between independent descriptor snapshots. */
+  afterFirstRead?: () => void | Promise<void>;
+};
+
 export const readValidatedImageFileNoFollow = async (
   filePath: string,
   options: {
     allowedRoots?: readonly string[];
+    hooks?: ReferenceReadHooks;
   } = {},
 ): Promise<AuthorizedImageReference> => {
   const requested = path.resolve(filePath);
@@ -145,6 +153,7 @@ export const readValidatedImageFileNoFollow = async (
         `reference image must be between 1 byte and ${MAX_IMAGE_REFERENCE_BYTES} bytes`,
       );
     }
+    await options.hooks?.afterOpen?.();
     const postOpenResolved = await fs.realpath(requested);
     if (
       roots.length > 0 &&
@@ -159,6 +168,7 @@ export const readValidatedImageFileNoFollow = async (
       throw new Error("reference image changed while it was being authorized");
     }
     const bytes = await readBoundedFromHandle(handle);
+    await options.hooks?.afterFirstRead?.();
     // A second descriptor-positioned read prevents a same-length overwrite
     // from producing a mixed snapshot even on coarse-timestamp filesystems.
     const verificationBytes = await readBoundedFromHandle(handle);
@@ -186,6 +196,7 @@ export const readValidatedImageFileNoFollow = async (
 export const readAuthorizedImageReference = async (
   filePath: string,
   context: ToolContext,
+  hooks?: ReferenceReadHooks,
 ): Promise<AuthorizedImageReference> => {
   const roots = await authorizedRoots(context);
   if (roots.length === 0) {
@@ -195,6 +206,7 @@ export const readAuthorizedImageReference = async (
   }
   return await readValidatedImageFileNoFollow(filePath, {
     allowedRoots: roots,
+    ...(hooks ? { hooks } : {}),
   });
 };
 

@@ -70,8 +70,10 @@ const hostExecutableMatches = (
  * "version-mismatch" fails fast with the protocol parity error; deadline
  * lapse maps to the readiness-timeout parity error.
  *
+ * Exported for the timing-parity regression tests only; the exports map
+ * does not expose this module outside packages/runtime.
  */
-const pollForWorkerReady = (
+export const pollForWorkerReady = (
   paths: RuntimePaths,
   timeoutMs: number,
   budgets: LifecycleBudgets,
@@ -230,9 +232,9 @@ const discoverExistingWorker = (
  */
 export const startOrAttachWorkerEffect = (
   options: LifecycleStartOptions,
+  budgets: LifecycleBudgets = defaultLifecycleBudgets,
 ): Effect.Effect<LifecycleConnection, unknown, Scope.Scope> =>
   Effect.gen(function* () {
-    const budgets = defaultLifecycleBudgets;
     const paths = resolveRuntimePaths(options.stellaAppDir);
     yield* Effect.promise(() =>
       Promise.all([

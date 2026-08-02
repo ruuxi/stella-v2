@@ -93,6 +93,8 @@ export type NodeReplKernelManagerOptions = {
    * without awaiting (see `DEFAULT_NODE_REPL_TOOL_DRAIN_TIMEOUT_MS`).
    */
   toolDrainTimeoutMs?: number;
+  /** Bound on teardown awaited in the evaluate error path (tests only). */
+  disposeTimeoutMs?: number;
   executeTool?: (
     toolName: string,
     args: Record<string, unknown>,
@@ -1106,7 +1108,8 @@ export class NodeReplKernelRegistry {
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.toolDrainTimeoutMs =
       options.toolDrainTimeoutMs ?? DEFAULT_NODE_REPL_TOOL_DRAIN_TIMEOUT_MS;
-    this.disposeTimeoutMs = DEFAULT_KERNEL_DISPOSE_TIMEOUT_MS;
+    this.disposeTimeoutMs =
+      options.disposeTimeoutMs ?? DEFAULT_KERNEL_DISPOSE_TIMEOUT_MS;
     this.browserSessionFactory =
       options.browserSessionFactory ?? createBrowserSession;
   }

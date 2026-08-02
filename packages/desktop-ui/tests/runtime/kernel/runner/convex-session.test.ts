@@ -1,0 +1,76 @@
+import { describe, expect, it, vi } from "vitest";
+import { createConvexSession } from "@stella/runtime/kernel/runner/convex-session";
+
+const CONVEX_URL = "https://example.convex.cloud";
+
+const createFakeClient = () => ({
+  close: vi.fn().mockResolvedValue(undefined),
+  setAuth: vi.fn(),
+});
+
+const createContext = (client = createFakeClient()) =>
+  ({
+    state: {
+      convexClient: client,
+      convexClientUrl: CONVEX_URL,
+      convexDeploymentUrl: CONVEX_URL,
+      convexSiteUrl: null,
+      authToken: "old-token",
+      cloudSyncEnabled: false,
+      hasConnectedAccount: true,
+    },
+    // Auth reconnects resume the cloud transcript outbox drain.
+    cloudTranscript: { resume: vi.fn() },
+  }) as any;
+
+describe("createConvexSession", () => {
+  it("recreates the Convex client when the auth token changes", async () => {
+    const client = createFakeClient();
+    const context = createContext(client);
+    const onAuthTokenSet = vi.fn();
+    const session = createConvexSession(context, {
+      onAuthTokenSet,
+    });
+
+    session.setAuthToken("new-token");
+    await Promise.resolve();
+
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(context.state.convexClient).toBeNull();
+    expect(context.state.convexClientUrl).toBeNull();
+    expect(context.state.authToken).toBe("new-token");
+    expect(onAuthTokenSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the Convex client alone when the auth token is unchanged", () => {
+    const client = createFakeClient();
+    const context = createContext(client);
+    const onAuthTokenSet = vi.fn();
+    const session = createConvexSession(context, {
+      onAuthTokenSet,
+    });
+
+    session.setAuthToken("old-token");
+
+    expect(client.close).not.toHaveBeenCalled();
+    expect(onAuthTokenSet).not.toHaveBeenCalled();
+  });
+
+  it("reconnects when the same auth token is force-reapplied", async () => {
+    const client = createFakeClient();
+    const context = createContext(client);
+    const onAuthTokenSet = vi.fn();
+    const session = createConvexSession(context, {
+      onAuthTokenSet,
+    });
+
+    session.setAuthToken("old-token", { forceReconnect: true });
+    await Promise.resolve();
+
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(context.state.convexClient).toBeNull();
+    expect(context.state.convexClientUrl).toBeNull();
+    expect(context.state.authToken).toBe("old-token");
+    expect(onAuthTokenSet).toHaveBeenCalledTimes(1);
+  });
+});

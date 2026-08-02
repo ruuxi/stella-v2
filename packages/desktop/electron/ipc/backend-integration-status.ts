@@ -11,7 +11,8 @@
  * This module polls the backend's `/api/native-integrations/status`
  * endpoint (which asks Composio whether the user's session actually has
  * a connected account for the toolkit) and only reports `connected`
- * on a real completion signal. Pure and reusable without Electron.
+ * on a real completion signal. Pure + fetch-injectable so it is
+ * unit-testable without Electron.
  */
 
 export type BackendIntegrationProbeResult =
@@ -44,9 +45,11 @@ export const probeBackendIntegrationConnection = async (options: {
   siteUrl: string;
   authToken: string;
   id: string;
+  fetchImpl?: typeof fetch;
 }): Promise<BackendIntegrationProbeResult> => {
+  const fetchImpl = options.fetchImpl ?? fetch;
   const base = options.siteUrl.trim().replace(/\/+$/u, "");
-  const response = await fetch(
+  const response = await fetchImpl(
     `${base}/api/native-integrations/status?id=${encodeURIComponent(options.id)}`,
     {
       headers: {
@@ -88,20 +91,24 @@ export const waitForBackendIntegrationConnection = async (options: {
   timeoutMs?: number;
   intervalMs?: number;
   signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+  /** Injectable clock for tests. */
+  now?: () => number;
 }): Promise<BackendIntegrationWaitResult> => {
   if (!options.siteUrl.trim() || !options.authToken.trim()) {
     return "auth_unavailable";
   }
   const timeoutMs = options.timeoutMs ?? 4 * 60 * 1000;
   const intervalMs = options.intervalMs ?? 2_500;
-  const deadline = Date.now() + timeoutMs;
+  const now = options.now ?? Date.now;
+  const deadline = now() + timeoutMs;
   for (;;) {
     if (options.signal?.aborted) return "cancelled";
     const result = await probeBackendIntegrationConnection(options);
     if (result === "connected") return "connected";
     if (result === "unsupported") return "unsupported";
     if (options.signal?.aborted) return "cancelled";
-    if (Date.now() >= deadline) return "timeout";
+    if (now() >= deadline) return "timeout";
     await sleep(intervalMs, options.signal);
   }
 };

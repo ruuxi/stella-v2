@@ -1,0 +1,292 @@
+import path from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  createShellState,
+  handleBash,
+  resolveShellNodeBinary,
+  runShell,
+} from "@stella/runtime/kernel/tools/shell";
+import type { ToolContext } from "@stella/runtime/kernel/tools/types";
+import { createSyncTempDirTracker } from "../../../helpers/temp.js";
+
+const tempDirs = createSyncTempDirTracker();
+const originalPlatform = process.platform;
+
+afterEach(() => {
+  Object.defineProperty(process, "platform", {
+    value: originalPlatform,
+    configurable: true,
+  });
+  tempDirs.cleanup();
+});
+
+const createTempDir = () => {
+  return tempDirs.create("stella-computer-shell-");
+};
+
+const forcePlatform = (platform: NodeJS.Platform) => {
+  Object.defineProperty(process, "platform", {
+    value: platform,
+    configurable: true,
+  });
+};
+
+describe("stella-computer shell bootstrap", () => {
+  it("injects the stella-computer command into Bash", async () => {
+    const tempDir = createTempDir();
+    const fakeComputerCliPath = path.join(tempDir, "fake-stella-computer.js");
+    writeFileSync(
+      fakeComputerCliPath,
+      `console.log(JSON.stringify({
+  cli: process.env.STELLA_COMPUTER_CLI ?? null,
+  electronRunAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null,
+  args: process.argv.slice(2),
+}));`,
+      "utf-8",
+    );
+
+    const state = createShellState(tempDir, {
+      stellaComputerCliPath: fakeComputerCliPath,
+    });
+    const output = await runShell(
+      state,
+      "stella-computer snapshot --json",
+      tempDir,
+      10_000,
+    );
+
+    expect(output).not.toContain("Command exited with code");
+    expect(JSON.parse(output)).toEqual({
+      cli: fakeComputerCliPath,
+      electronRunAsNode: "1",
+      args: ["snapshot", "--json"],
+    });
+  });
+
+  it("assigns a task-scoped stella-computer session for Bash runs", async () => {
+    const tempDir = createTempDir();
+    const fakeComputerCliPath = path.join(tempDir, "fake-stella-computer.js");
+    writeFileSync(
+      fakeComputerCliPath,
+      `console.log(JSON.stringify({
+  cli: process.env.STELLA_COMPUTER_CLI ?? null,
+  session: process.env.STELLA_COMPUTER_SESSION ?? null,
+  args: process.argv.slice(2),
+}));`,
+      "utf-8",
+    );
+
+    const state = createShellState(tempDir, {
+      stellaComputerCliPath: fakeComputerCliPath,
+    });
+    const context: ToolContext = {
+      conversationId: "conversation-test",
+      deviceId: "device-test",
+      requestId: "request-test",
+      runId: "run-test",
+      agentId: "task-test",
+      agentType: "general",
+      stellaAppDir: tempDir,
+      storageMode: "local",
+    };
+    const result = await handleBash(
+      state,
+      {
+        command: "stella-computer snapshot --json",
+        working_directory: tempDir,
+        timeout: 10_000,
+      },
+      context,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(JSON.parse(String(result.result))).toEqual({
+      cli: fakeComputerCliPath,
+      session: "general-task-task-test",
+      args: ["snapshot", "--json"],
+    });
+  });
+
+  it("creates a Windows cmd shim for stella-computer", () => {
+    forcePlatform("win32");
+    const tempDir = createTempDir();
+    const fakeComputerCliPath = path.join(tempDir, "fake-stella-computer.js");
+
+    const state = createShellState(tempDir, {
+      stellaComputerCliPath: fakeComputerCliPath,
+    });
+
+    expect(state.windowsCliShimDir).toBeTruthy();
+    const shim = readFileSync(
+      path.join(String(state.windowsCliShimDir), "stella-computer.cmd"),
+      "utf-8",
+    );
+    expect(shim).toContain('set "ELECTRON_RUN_AS_NODE=1"');
+    expect(shim).toContain('"%STELLA_NODE_BIN%" "%STELLA_COMPUTER_CLI%" %*');
+  });
+
+  it("runs stella-connect through Electron's Node mode", async () => {
+    const tempDir = createTempDir();
+    const fakeConnectCliPath = path.join(tempDir, "fake-stella-connect.js");
+    writeFileSync(
+      fakeConnectCliPath,
+      `console.log(JSON.stringify({
+  electronRunAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null,
+  args: process.argv.slice(2),
+}));`,
+      "utf-8",
+    );
+
+    const state = createShellState(tempDir, {
+      stellaConnectCliPath: fakeConnectCliPath,
+    });
+    const output = await runShell(
+      state,
+      "stella-connect tools outlook",
+      tempDir,
+      10_000,
+    );
+
+    expect(JSON.parse(output)).toEqual({
+      electronRunAsNode: "1",
+      args: ["tools", "outlook"],
+    });
+  });
+
+  it("always creates a Windows cmd shim for Node.js", () => {
+    forcePlatform("win32");
+    const tempDir = createTempDir();
+
+    const state = createShellState(tempDir);
+
+    expect(state.nodeShimDir).toBeTruthy();
+    const shim = readFileSync(
+      path.join(String(state.nodeShimDir), "node.cmd"),
+      "utf-8",
+    );
+    expect(shim).toContain('set "ELECTRON_RUN_AS_NODE=1"');
+    expect(shim).toContain('"%STELLA_NODE_BIN%" %*');
+  });
+
+  it("uses Electron's Node runtime instead of the Bun worker executable", () => {
+    const tempDir = createTempDir();
+    const hostExecutable = path.join(tempDir, "electron-host");
+    const explicitNode = path.join(tempDir, "explicit-node");
+    writeFileSync(hostExecutable, "", "utf-8");
+    writeFileSync(explicitNode, "", "utf-8");
+
+    expect(
+      resolveShellNodeBinary({
+        STELLA_HOST_EXECUTABLE_PATH: hostExecutable,
+      }),
+    ).toBe(hostExecutable);
+    expect(
+      resolveShellNodeBinary({
+        STELLA_NODE_BIN: explicitNode,
+        STELLA_HOST_EXECUTABLE_PATH: hostExecutable,
+      }),
+    ).toBe(explicitNode);
+    expect(resolveShellNodeBinary({})).toBe(process.execPath);
+  });
+
+  it("injects stella-media with media auth for command runs", async () => {
+    const tempDir = createTempDir();
+    const fakeMediaCliPath = path.join(tempDir, "fake-stella-media.js");
+    writeFileSync(
+      fakeMediaCliPath,
+      `console.log(JSON.stringify({
+  cli: process.env.STELLA_MEDIA_CLI ?? null,
+  baseUrl: process.env.STELLA_MEDIA_BASE_URL ?? null,
+  tokenPresent: Boolean(process.env.STELLA_MEDIA_AUTH_TOKEN),
+  deviceId: process.env.STELLA_DEVICE_ID ?? null,
+  args: process.argv.slice(2),
+}));`,
+      "utf-8",
+    );
+
+    const state = createShellState(tempDir, {
+      stellaMediaCliPath: fakeMediaCliPath,
+      getStellaSiteAuth: () => ({
+        baseUrl: "https://stella.example",
+        authToken: "token-test",
+      }),
+    });
+    const context: ToolContext = {
+      conversationId: "conversation-test",
+      deviceId: "device-test",
+      requestId: "request-test",
+      runId: "run-test",
+      agentType: "general",
+      stellaAppDir: tempDir,
+      storageMode: "local",
+    };
+    const result = await handleBash(
+      state,
+      {
+        command: "stella-media status --job-id job-test --json",
+        working_directory: tempDir,
+        timeout: 10_000,
+      },
+      context,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(JSON.parse(String(result.result))).toEqual({
+      cli: fakeMediaCliPath,
+      baseUrl: "https://stella.example",
+      tokenPresent: true,
+      deviceId: "device-test",
+      args: ["status", "--job-id", "job-test", "--json"],
+    });
+  });
+
+  it("injects stella-x-api with Stella auth for command runs", async () => {
+    const tempDir = createTempDir();
+    const fakeXApiCliPath = path.join(tempDir, "fake-stella-x-api.js");
+    writeFileSync(
+      fakeXApiCliPath,
+      `console.log(JSON.stringify({
+  cli: process.env.STELLA_X_API_CLI ?? null,
+  baseUrl: process.env.STELLA_X_API_BASE_URL ?? null,
+  tokenPresent: Boolean(process.env.STELLA_X_API_AUTH_TOKEN),
+  args: process.argv.slice(2),
+}));`,
+      "utf-8",
+    );
+
+    const state = createShellState(tempDir, {
+      stellaXApiCliPath: fakeXApiCliPath,
+      getStellaSiteAuth: () => ({
+        baseUrl: "https://stella.example",
+        authToken: "token-test",
+      }),
+    });
+    const context: ToolContext = {
+      conversationId: "conversation-test",
+      deviceId: "device-test",
+      requestId: "request-test",
+      runId: "run-test",
+      agentType: "general",
+      stellaAppDir: tempDir,
+      storageMode: "local",
+    };
+    const result = await handleBash(
+      state,
+      {
+        command: "stella-x-api whoami --json",
+        working_directory: tempDir,
+        timeout: 10_000,
+      },
+      context,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(JSON.parse(String(result.result))).toEqual({
+      cli: fakeXApiCliPath,
+      baseUrl: "https://stella.example",
+      tokenPresent: true,
+      args: ["whoami", "--json"],
+    });
+  });
+});

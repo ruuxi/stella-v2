@@ -1025,8 +1025,14 @@ export type DreamMemoryLayoutTelemetry = {
   cleanedStagingFiles: number;
 };
 
+/** Test-only coordination point for deterministic filesystem race coverage. */
+export type DreamMemoryMigrationTestHooks = {
+  afterLegacySnapshotsRead?: () => void | Promise<void>;
+};
+
 const ensureDreamMemoryLayoutLockedEffect = (
   stellaDataDir: string,
+  hooks?: DreamMemoryMigrationTestHooks,
 ): Effect.Effect<DreamMemoryLayoutTelemetry, Error> =>
   Effect.gen(function* () {
     const root = memoriesRoot(stellaDataDir);
@@ -1081,6 +1087,16 @@ const ensureDreamMemoryLayoutLockedEffect = (
       { concurrency: "unbounded" },
     );
     const [indexSource, summarySource] = legacySnapshots;
+    if (hooks?.afterLegacySnapshotsRead) {
+      const afterLegacySnapshotsRead = hooks.afterLegacySnapshotsRead;
+      yield* Effect.tryPromise({
+        try: async () => {
+          await afterLegacySnapshotsRead();
+        },
+        catch: (error) =>
+          error instanceof Error ? error : new Error(String(error)),
+      });
+    }
     const verifyLegacySources = Effect.forEach(
       legacySnapshots,
       (snapshot) => verifyLegacySourceSnapshotEffect(snapshot, canonicalRoot),
@@ -1107,10 +1123,11 @@ const ensureDreamMemoryLayoutLockedEffect = (
 
 export const ensureDreamMemoryLayoutEffect = (
   stellaDataDir: string,
+  hooks?: DreamMemoryMigrationTestHooks,
 ): Effect.Effect<DreamMemoryLayoutTelemetry, Error> =>
   withDreamMemoryMigrationLockEffect(
     stellaDataDir,
-    ensureDreamMemoryLayoutLockedEffect(stellaDataDir),
+    ensureDreamMemoryLayoutLockedEffect(stellaDataDir, hooks),
   ).pipe(
     Effect.tap((telemetry) =>
       Effect.sync(() => logger.info("dream.memory-layout", telemetry)),
@@ -1126,8 +1143,9 @@ export const ensureDreamMemoryLayoutEffect = (
 
 export const ensureDreamMemoryLayout = (
   stellaDataDir: string,
+  hooks?: DreamMemoryMigrationTestHooks,
 ): Promise<DreamMemoryLayoutTelemetry> =>
-  runMemoryPromise(ensureDreamMemoryLayoutEffect(stellaDataDir));
+  runMemoryPromise(ensureDreamMemoryLayoutEffect(stellaDataDir, hooks));
 
 export const readMemoryFileEffect = (
   stellaDataDir: string,

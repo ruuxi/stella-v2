@@ -10,6 +10,10 @@ export const integrationsSchema = {
     category: v.optional(v.string()),
     auth: v.optional(v.array(v.string())),
     catalogToolCount: v.optional(v.number()),
+    // Actual number of canonical, schema-bearing actions published into the
+    // child table below. Optional for migration safety: pre-existing catalog
+    // rows remain valid, but are treated as non-executable until republished.
+    actionCount: v.optional(v.number()),
     description: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     iconUrl: v.optional(v.string()),
@@ -19,9 +23,31 @@ export const integrationsSchema = {
     updatedAt: v.number(),
   })
     .index("by_integrationId", ["id"])
-    // Lets `listPublicIntegrations` page over the catalog by recency without
-    // a table scan (and gives us a natural ordering for clients).
+    // Gives Store catalog clients a bounded, deterministic recency ordering.
     .index("by_updatedAt", ["updatedAt"]),
+
+  /**
+   * Canonical Composio actions are intentionally stored one document per
+   * action. Large toolkits contain hundreds of schemas and can approach the
+   * 1 MiB Convex document limit if embedded in `integrations_public`.
+   *
+   * `inputSchemaJson` preserves arbitrarily deep JSON Schema documents without
+   * weakening the app-wide bounded JSON validator or using `v.any()`.
+   */
+  integration_actions: defineTable({
+    integrationId: v.string(),
+    name: v.string(),
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    searchText: v.string(),
+    inputSchemaJson: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_integrationId_and_name", ["integrationId", "name"])
+    .searchIndex("search_searchText", {
+      searchField: "searchText",
+      filterFields: ["integrationId"],
+    }),
 
   user_integrations: defineTable({
     ownerId: v.string(),

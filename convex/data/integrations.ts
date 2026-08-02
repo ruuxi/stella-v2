@@ -10,6 +10,11 @@ import { jsonObjectValidator } from "../shared_validators";
 import { internal } from "../_generated/api";
 import { encryptSecret } from "./secrets_crypto";
 import {
+  MAX_INTEGRATION_ACTIONS_PAGE_SIZE,
+  MAX_INTEGRATION_ACTION_SCHEMA_BYTES,
+  MAX_PUBLISHED_INTEGRATION_ACTIONS,
+} from "../lib/native_integration_limits";
+import {
   buildXAuthorizationUrl,
   buildXCodeChallenge,
   generateXCodeVerifier,
@@ -21,39 +26,54 @@ import {
 } from "../lib/x_oauth";
 
 
-const storeIntegrationConnectorValidator = v.union(
-  v.object({
-    type: v.union(v.literal("mcp"), v.literal("api")),
-    url: v.optional(v.string()),
-    baseUrl: v.optional(v.string()),
-    oauth: v.object({
-      tokenKey: v.optional(v.string()),
-      clientId: v.string(),
-      authorizationEndpoint: v.string(),
-      tokenEndpoint: v.optional(v.string()),
-      tokenAuth: v.optional(v.union(v.literal("body"), v.literal("basic"))),
-      responseType: v.optional(v.union(v.literal("code"), v.literal("token"))),
-      callbackId: v.optional(v.string()),
-      callbackUrl: v.optional(v.string()),
-      callbackMode: v.optional(v.union(v.literal("local"), v.literal("external"))),
-      scopes: v.optional(v.array(v.string())),
-      scopeSeparator: v.optional(v.string()),
-      resourceUrl: v.optional(v.string()),
-      oauthResource: v.optional(v.union(v.string(), v.null())),
-      usesPkce: v.optional(v.boolean()),
-      authorizationRedirectParam: v.optional(v.string()),
-      authorizationParams: v.optional(v.record(v.string(), v.string())),
-      tokenRedirectParam: v.optional(v.string()),
-      tokenExchangeProvider: v.optional(v.string()),
-    }),
-  }),
-  v.object({
-    type: v.literal("composio"),
-    toolkit: v.string(),
-    actionNamespace: v.optional(v.string()),
-    provider: v.optional(v.string()),
-  }),
-);
+const storeIntegrationConnectorValidator = v.object({
+  type: v.literal("composio"),
+  toolkit: v.string(),
+  actionNamespace: v.optional(v.string()),
+  provider: v.optional(v.string()),
+});
+
+const publishedIntegrationActionValidator = v.object({
+  name: v.string(),
+  title: v.optional(v.string()),
+  description: v.optional(v.string()),
+  // Kept as a string because real JSON schemas can be much deeper than the
+  // shared bounded JSON validator. HTTP ingestion validates/parses this once,
+  // then this mutation stores each schema in its own bounded document.
+  inputSchemaJson: v.string(),
+});
+
+const SAFE_INTEGRATION_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/u;
+const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
+
+type ComposioConnector = {
+  type: "composio";
+  toolkit: string;
+  actionNamespace?: string;
+  provider?: string;
+};
+
+const isComposioConnector = (value: unknown): value is ComposioConnector => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.type === "composio" &&
+    typeof record.toolkit === "string" &&
+    record.toolkit.trim().length > 0
+  );
+};
+
+const isExecutableStoreIntegration = (record: {
+  connector?: Record<string, unknown>;
+  enabled: boolean;
+  actionCount?: number;
+}) =>
+  record.enabled &&
+  isComposioConnector(record.connector) &&
+  typeof record.actionCount === "number" &&
+  Number.isSafeInteger(record.actionCount) &&
+  record.actionCount > 0 &&
+  record.actionCount <= MAX_PUBLISHED_INTEGRATION_ACTIONS;
 
 const storeIntegrationStatusValues = new Set(["ready", "hidden"]);
 
@@ -64,6 +84,7 @@ const normalizePublicIntegration = (record: {
   category?: string;
   auth?: string[];
   catalogToolCount?: number;
+  actionCount?: number;
   description?: string;
   sourceUrl?: string;
   iconUrl?: string;
@@ -77,17 +98,22 @@ const normalizePublicIntegration = (record: {
     : record.enabled
       ? "ready"
       : "hidden";
+  const connector = isComposioConnector(record.connector)
+    ? record.connector
+    : undefined;
   return {
     id: record.id,
     name: record.name ?? record.provider,
     provider: record.provider,
     category: record.category ?? "integrations",
     auth: record.auth ?? ["OAUTH2"],
-    catalogToolCount: record.catalogToolCount ?? 0,
+    // The stored action set, rather than provider-reported marketing metadata,
+    // is the authoritative executable tool count.
+    catalogToolCount: record.actionCount ?? 0,
     description: record.description ?? `Connect ${record.provider} to Stella.`,
     ...(record.sourceUrl ? { sourceUrl: record.sourceUrl } : {}),
     ...(record.iconUrl ? { iconUrl: record.iconUrl } : {}),
-    ...(options?.includeConnector && record.connector ? { connector: record.connector } : {}),
+    ...(options?.includeConnector && connector ? { connector } : {}),
     status,
     enabled: record.enabled,
     updatedAt: record.updatedAt,
@@ -109,6 +135,37 @@ const store_integration_public_validator = v.object({
   updatedAt: v.number(),
 });
 
+const integrationPublicDocumentValidator = v.object({
+  _id: v.id("integrations_public"),
+  _creationTime: v.number(),
+  id: v.string(),
+  name: v.optional(v.string()),
+  provider: v.string(),
+  category: v.optional(v.string()),
+  auth: v.optional(v.array(v.string())),
+  catalogToolCount: v.optional(v.number()),
+  actionCount: v.optional(v.number()),
+  description: v.optional(v.string()),
+  sourceUrl: v.optional(v.string()),
+  iconUrl: v.optional(v.string()),
+  connector: v.optional(jsonObjectValidator),
+  enabled: v.boolean(),
+  usagePolicy: v.string(),
+  updatedAt: v.number(),
+});
+
+const userIntegrationDocumentValidator = v.object({
+  _id: v.id("user_integrations"),
+  _creationTime: v.number(),
+  ownerId: v.string(),
+  provider: v.string(),
+  mode: v.string(),
+  externalId: v.optional(v.string()),
+  config: jsonObjectValidator,
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+
 export const listStoreIntegrations = query({
   args: {},
   returns: v.array(store_integration_public_validator),
@@ -119,13 +176,30 @@ export const listStoreIntegrations = query({
       .order("desc")
       .take(500);
     return records
-      .filter((record) => record.enabled)
+      .filter(isExecutableStoreIntegration)
       .map((record) => normalizePublicIntegration(record));
   },
 });
 
 export const listStoreIntegrationsWithConnectors = internalQuery({
   args: {},
+  returns: v.array(
+    v.object({
+      id: v.string(),
+      name: v.string(),
+      provider: v.string(),
+      category: v.string(),
+      auth: v.array(v.string()),
+      catalogToolCount: v.number(),
+      description: v.string(),
+      sourceUrl: v.optional(v.string()),
+      iconUrl: v.optional(v.string()),
+      status: v.string(),
+      enabled: v.boolean(),
+      updatedAt: v.number(),
+      connector: v.optional(storeIntegrationConnectorValidator),
+    }),
+  ),
   handler: async (ctx) => {
     const records = await ctx.db
       .query("integrations_public")
@@ -133,21 +207,10 @@ export const listStoreIntegrationsWithConnectors = internalQuery({
       .order("desc")
       .take(500);
     return records
-      .filter((record) => record.enabled)
+      .filter(isExecutableStoreIntegration)
       .map((record) =>
         normalizePublicIntegration(record, { includeConnector: true }),
       );
-  },
-});
-
-export const listPublicIntegrations = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db
-      .query("integrations_public")
-      .withIndex("by_updatedAt")
-      .order("desc")
-      .take(200);
   },
 });
 
@@ -159,53 +222,152 @@ export const upsertPublicIntegration = internalMutation({
     category: v.optional(v.string()),
     auth: v.optional(v.array(v.string())),
     catalogToolCount: v.optional(v.number()),
+    actions: v.array(publishedIntegrationActionValidator),
     description: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     iconUrl: v.optional(v.string()),
-    connector: v.optional(storeIntegrationConnectorValidator),
+    connector: storeIntegrationConnectorValidator,
     enabled: v.boolean(),
     usagePolicy: v.string(),
   },
+  returns: v.object({ actionCount: v.number() }),
   handler: async (ctx, args) => {
+    const id = args.id.trim().toLowerCase();
+    if (!SAFE_INTEGRATION_ID.test(id)) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Integration id is invalid.",
+      });
+    }
+    if (
+      args.provider.trim().toLowerCase() !== "composio" ||
+      args.connector.toolkit.trim().toLowerCase() !== id ||
+      (args.connector.provider &&
+        args.connector.provider.trim().toLowerCase() !== "composio")
+    ) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Only matching Composio Store integrations can be published.",
+      });
+    }
+    if (args.actions.length === 0) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "At least one schema-bearing action is required.",
+      });
+    }
+    if (args.actions.length > MAX_PUBLISHED_INTEGRATION_ACTIONS) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: `Integration action count exceeds ${MAX_PUBLISHED_INTEGRATION_ACTIONS}.`,
+      });
+    }
+    const actionNames = new Set<string>();
+    for (const action of args.actions) {
+      if (!SAFE_ACTION_NAME.test(action.name) || actionNames.has(action.name)) {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: `Integration action name is invalid or duplicated: ${action.name}`,
+        });
+      }
+      actionNames.add(action.name);
+      if (
+        new TextEncoder().encode(action.inputSchemaJson).byteLength >
+        MAX_INTEGRATION_ACTION_SCHEMA_BYTES
+      ) {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: `Integration action schema is too large: ${action.name}`,
+        });
+      }
+      try {
+        const schema = JSON.parse(action.inputSchemaJson) as unknown;
+        if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+          throw new Error("schema is not an object");
+        }
+      } catch {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: `Integration action schema is invalid: ${action.name}`,
+        });
+      }
+    }
+
     const existing = await ctx.db
       .query("integrations_public")
-      .withIndex("by_integrationId", (q) => q.eq("id", args.id))
+      .withIndex("by_integrationId", (q) => q.eq("id", id))
       .unique();
+
+    const existingActions = await ctx.db
+      .query("integration_actions")
+      .withIndex("by_integrationId_and_name", (q) =>
+        q.eq("integrationId", id),
+      )
+      .take(MAX_PUBLISHED_INTEGRATION_ACTIONS + 1);
+    if (existingActions.length > MAX_PUBLISHED_INTEGRATION_ACTIONS) {
+      throw new ConvexError({
+        code: "INTERNAL_ERROR",
+        message: "Existing integration action set exceeds the replacement bound.",
+      });
+    }
+
+    // Convex mutations are transactional. Validate the full new set above,
+    // then replace children and parent together so readers see either the old
+    // complete publication or the new complete publication, never a partial.
+    await Promise.all(existingActions.map((action) => ctx.db.delete(action._id)));
+    const now = Date.now();
+    await Promise.all(
+      args.actions.map((action) =>
+        ctx.db.insert("integration_actions", {
+          integrationId: id,
+          name: action.name,
+          title: action.title,
+          description: action.description,
+          searchText: [action.name, action.title, action.description]
+            .filter((value): value is string => Boolean(value))
+            .join(" "),
+          inputSchemaJson: action.inputSchemaJson,
+          updatedAt: now,
+        }),
+      ),
+    );
 
     if (existing) {
       await ctx.db.patch(existing._id, {
         name: args.name,
-        provider: args.provider,
+        provider: "composio",
         category: args.category,
         auth: args.auth,
         catalogToolCount: args.catalogToolCount,
+        actionCount: args.actions.length,
         description: args.description,
         sourceUrl: args.sourceUrl,
         iconUrl: args.iconUrl,
-        connector: args.connector,
+        connector: { ...args.connector, toolkit: id, provider: "composio" },
         enabled: args.enabled,
         usagePolicy: args.usagePolicy,
-        updatedAt: Date.now(),
+        updatedAt: now,
       });
-      return null;
+      return { actionCount: args.actions.length };
     }
 
     await ctx.db.insert("integrations_public", {
-      id: args.id,
+      id,
       name: args.name,
-      provider: args.provider,
+      provider: "composio",
       category: args.category,
       auth: args.auth,
       catalogToolCount: args.catalogToolCount,
+      actionCount: args.actions.length,
       description: args.description,
       sourceUrl: args.sourceUrl,
       iconUrl: args.iconUrl,
-      connector: args.connector,
+      connector: { ...args.connector, toolkit: id, provider: "composio" },
       enabled: args.enabled,
       usagePolicy: args.usagePolicy,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
-    return null;
+    return { actionCount: args.actions.length };
   },
 });
 
@@ -674,7 +836,7 @@ const getPublicIntegrationByIdHandler = async (ctx: Pick<QueryCtx, "db">, args: 
     .query("integrations_public")
     .withIndex("by_integrationId", (q) => q.eq("id", args.id))
     .unique();
-  if (!record || !record.enabled) {
+  if (!record || !isExecutableStoreIntegration(record)) {
     return null;
   }
   return record;
@@ -685,8 +847,107 @@ export const getPublicIntegrationById = internalQuery({
   args: {
     id: v.string(),
   },
+  returns: v.union(v.null(), integrationPublicDocumentValidator),
   handler: async (ctx, args) => {
     return await getPublicIntegrationByIdHandler(ctx, args);
+  },
+});
+
+const storedIntegrationActionValidator = v.object({
+  name: v.string(),
+  title: v.optional(v.string()),
+  description: v.optional(v.string()),
+  inputSchemaJson: v.string(),
+});
+
+export const listPublicIntegrationActions = internalQuery({
+  args: {
+    id: v.string(),
+    cursor: v.union(v.string(), v.null()),
+    limit: v.number(),
+    query: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      id: v.string(),
+      actionCount: v.number(),
+      updatedAt: v.number(),
+      isDone: v.boolean(),
+      continueCursor: v.string(),
+      actions: v.array(storedIntegrationActionValidator),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const id = args.id.trim().toLowerCase();
+    const integration = await getPublicIntegrationByIdHandler(ctx, { id });
+    if (!integration || !isExecutableStoreIntegration(integration)) return null;
+    const limit = Math.min(
+      Math.max(Math.floor(args.limit), 1),
+      MAX_INTEGRATION_ACTIONS_PAGE_SIZE,
+    );
+    const search = args.query?.trim();
+    const page = search
+      ? await ctx.db
+          .query("integration_actions")
+          .withSearchIndex("search_searchText", (q) =>
+            q.search("searchText", search).eq("integrationId", id),
+          )
+          .paginate({ numItems: limit, cursor: args.cursor })
+      : await ctx.db
+          .query("integration_actions")
+          .withIndex("by_integrationId_and_name", (q) =>
+            q.eq("integrationId", id),
+          )
+          .paginate({ numItems: limit, cursor: args.cursor });
+    return {
+      id,
+      actionCount: integration.actionCount!,
+      updatedAt: integration.updatedAt,
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+      actions: page.page.map((action) => ({
+        name: action.name,
+        title: action.title,
+        description: action.description,
+        inputSchemaJson: action.inputSchemaJson,
+      })),
+    };
+  },
+});
+
+export const getPublicIntegrationAction = internalQuery({
+  args: { id: v.string(), name: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      id: v.string(),
+      connector: storeIntegrationConnectorValidator,
+      action: storedIntegrationActionValidator,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const id = args.id.trim().toLowerCase();
+    const integration = await getPublicIntegrationByIdHandler(ctx, { id });
+    if (!integration || !isExecutableStoreIntegration(integration)) return null;
+    const action = await ctx.db
+      .query("integration_actions")
+      .withIndex("by_integrationId_and_name", (q) =>
+        q.eq("integrationId", id).eq("name", args.name),
+      )
+      .unique();
+    return action && isComposioConnector(integration.connector)
+      ? {
+          id,
+          connector: integration.connector,
+          action: {
+            name: action.name,
+            title: action.title,
+            description: action.description,
+            inputSchemaJson: action.inputSchemaJson,
+          },
+        }
+      : null;
   },
 });
 
@@ -695,6 +956,7 @@ export const getUserIntegrationByOwnerAndProvider = internalQuery({
     ownerId: v.string(),
     provider: v.string(),
   },
+  returns: v.union(v.null(), userIntegrationDocumentValidator),
   handler: async (ctx, args) => {
     return await ctx.db
       .query("user_integrations")

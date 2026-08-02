@@ -31,32 +31,27 @@ const FETCH_CONCURRENCY = Math.max(
 );
 const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
 
-// The supported Store surface is explicit. Official Composio APIs supply all
-// metadata and schemas; this manifest only decides which toolkits Stella ships.
+// The supported Store surface is explicit. Every entry below must currently be
+// non-deprecated and support Composio-managed OAuth; official Composio APIs
+// supply all metadata and schemas.
 const SUPPORTED_TOOLKIT_IDS = new Set([
-  "airtable", "apaleo", "asana", "attio", "bamboohr", "basecamp",
-  "beeminder", "bitbucket", "blackbaud", "blackboard", "boldsign", "box",
-  "brevo", "brex", "cal", "calendly", "canva", "canvas", "capsule_crm",
-  "clickup", "confluence", "contentful", "coupa", "crowdin",
-  "d2lbrightspace", "dart", "databricks", "datadog", "dialpad",
-  "digital_ocean", "docusign", "dropbox", "dropbox_sign", "dub",
-  "dynamics365", "egnyte", "eventbrite", "excel", "exist", "facebook",
-  "fathom", "figma", "fly", "follow_up_boss", "freeagent", "freshbooks",
-  "github", "gitlab", "gmail", "gong", "google_admin", "google_analytics",
+  "airtable", "apaleo", "asana", "attio", "basecamp", "bitbucket",
+  "blackbaud", "boldsign", "box", "cal", "calendly", "canva", "capsule_crm",
+  "clickup", "confluence", "contentful", "crowdin", "dart", "dialpad",
+  "digital_ocean", "dropbox", "dub", "dynamics365", "eventbrite", "excel",
+  "exist", "facebook", "fathom", "figma", "freeagent", "freshbooks",
+  "github", "gitlab", "gmail", "gong", "google_analytics",
   "google_classroom", "google_maps", "google_search_console", "googleads",
   "googlebigquery", "googlecalendar", "googledocs", "googledrive",
   "googlemeet", "googlephotos", "googlesheets", "googleslides",
   "googlesuper", "googletasks", "gorgias", "gumroad", "harvest", "hubspot",
-  "hugging_face", "instagram", "intercom", "jira", "kit", "klaviyo",
-  "kommo", "lever", "linear", "linkedin", "linkhut", "mailchimp", "metaads",
-  "miro", "monday", "moneybird", "mural", "netsuite", "notion", "omnisend",
-  "one_drive", "outlook", "pagerduty", "pipedrive", "prisma", "productboard",
-  "pushbullet", "quickbooks", "ramp", "reddit", "salesforce",
-  "salesforce_service_cloud", "sentry", "servicem8", "share_point", "shippo",
-  "shopify", "snowflake", "splitwise", "spotify", "square", "stack_exchange",
-  "storyblok", "strava", "stripe", "supabase", "survey_monkey", "ticktick",
-  "tiktok", "timely", "todoist", "toneden", "twitter", "typeform", "wakatime",
-  "webex", "webflow", "whop", "workable", "workday", "wrike", "xata", "xero",
+  "hugging_face", "instagram", "intercom", "jira", "kit", "linear",
+  "linkedin", "linkhut", "mailchimp", "miro", "monday", "moneybird", "mural",
+  "notion", "omnisend", "one_drive", "outlook", "pagerduty", "prisma",
+  "productboard", "pushbullet", "quickbooks", "reddit", "salesforce", "sentry",
+  "servicem8", "share_point", "shippo", "shopify", "splitwise", "square",
+  "stack_exchange", "strava", "stripe", "supabase", "ticktick", "timely",
+  "todoist", "toneden", "typeform", "wakatime", "webex", "wrike",
   "yandex", "ynab", "youtube", "zendesk", "zeplin", "zoho", "zoho_bigin",
   "zoho_books", "zoho_desk", "zoho_inventory", "zoho_invoice", "zoho_mail",
   "zoom",

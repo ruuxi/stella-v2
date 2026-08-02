@@ -132,6 +132,19 @@ describe("Composio integration catalog and execution", () => {
     ]);
     expect(rejected.status).toBe(400);
 
+    const invalidSchema = await publish([
+      {
+        name: "OUTLOOK_QUERY_EMAILS",
+        title: "Invalid schema",
+        inputSchema: { type: "not-a-json-schema-type" },
+      },
+    ]);
+    expect(invalidSchema.status).toBe(400);
+    expect(await invalidSchema.json()).toEqual({
+      error:
+        "Integration action has an invalid input schema: OUTLOOK_QUERY_EMAILS.",
+    });
+
     const retained = await asOwner(t).fetch(
       "/api/native-integrations/actions?id=outlook&action=OUTLOOK_QUERY_EMAILS",
     );

@@ -2,6 +2,7 @@
 
 // Backend-owned administrative publisher. This script requires Composio and
 // Stella admin credentials and must never be shipped with the desktop runtime.
+import AjvModule from "ajv";
 
 const siteUrl = (
   process.env.STELLA_CONVEX_SITE_URL ||
@@ -24,12 +25,29 @@ const composioToolkitsUrl =
 const apply = process.argv.includes("--apply");
 const MAX_ACTIONS_PER_INTEGRATION = 2_000;
 const MAX_ACTION_SCHEMA_BYTES = 64 * 1024;
+const MAX_PUBLISH_BODY_BYTES = 4 * 1024 * 1024;
 const TOOL_PAGE_SIZE = 1_000;
 const FETCH_CONCURRENCY = Math.max(
   1,
   Math.min(Number(process.env.COMPOSIO_CATALOG_CONCURRENCY || "6"), 12),
 );
 const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
+const Ajv = AjvModule.default ?? AjvModule;
+
+const hasCompilableSchema = (schema) => {
+  try {
+    new Ajv({
+      allErrors: true,
+      strict: false,
+      coerceTypes: false,
+      validateFormats: false,
+      logger: false,
+    }).compile(schema);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 // The supported Store surface is explicit. Every entry below must currently be
 // non-deprecated and support Composio-managed OAuth; official Composio APIs
@@ -96,27 +114,34 @@ const toBaseRow = (entry) => ({
 const normalizeSchemaNode = (value) => {
   if (Array.isArray(value)) return value.map(normalizeSchemaNode);
   if (!isObject(value)) return value;
-  const normalized = Object.fromEntries(
-    Object.entries(value).map(([key, child]) => [
-      key,
-      normalizeSchemaNode(child),
-    ]),
-  );
-  if (isObject(value.properties)) {
+  const normalized = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key !== "properties" || !isObject(child)) {
+      // A properties block owns normalization of its adjacent required array.
+      if (key === "required" && isObject(value.properties)) continue;
+      normalized[key] = normalizeSchemaNode(child);
+      continue;
+    }
+
+    // Normalize property schemas without recursively treating the property map
+    // itself as a schema. Real APIs can have a field literally named
+    // `properties` (for example BigQuery Spark options).
     const required = new Set(
       Array.isArray(value.required)
         ? value.required.filter((name) => typeof name === "string")
         : [],
     );
-    for (const [name, rawProperty] of Object.entries(value.properties)) {
+    const properties = {};
+    for (const [name, rawProperty] of Object.entries(child)) {
       if (!isObject(rawProperty)) return null;
       if (rawProperty.required === true) required.add(name);
-      const property = normalized.properties[name];
+      const property = normalizeSchemaNode(rawProperty);
       if (!isObject(property)) return null;
       if (typeof property.required === "boolean") delete property.required;
+      properties[name] = property;
     }
-    normalized.required = required.size > 0 ? [...required] : undefined;
-    if (normalized.required === undefined) delete normalized.required;
+    normalized.properties = properties;
+    if (required.size > 0) normalized.required = [...required];
   }
   return normalized;
 };
@@ -236,6 +261,7 @@ const fetchPublishedToolkitRows = async () => {
 
 const fetchToolkitActions = async (row) => {
   const actions = new Map();
+  const skippedActions = new Map();
   const seenCursors = new Set();
   let cursor = null;
   for (;;) {
@@ -258,14 +284,14 @@ const fetchToolkitActions = async (row) => {
           : "";
       if (toolkit !== row.id || !SAFE_ACTION_NAME.test(name)) continue;
       const inputSchema = schemaFromComposioTool(tool);
-      if (!inputSchema) {
-        throw new Error(`${row.id}: ${name} has no usable input schema.`);
+      if (!inputSchema || !hasCompilableSchema(inputSchema)) {
+        skippedActions.set(name, "invalid_schema");
+        continue;
       }
       const schemaBytes = Buffer.byteLength(JSON.stringify(inputSchema));
       if (schemaBytes > MAX_ACTION_SCHEMA_BYTES) {
-        throw new Error(
-          `${row.id}: ${name} schema exceeds ${MAX_ACTION_SCHEMA_BYTES} bytes.`,
-        );
+        skippedActions.set(name, "schema_too_large");
+        continue;
       }
       actions.set(name, {
         name,
@@ -302,7 +328,10 @@ const fetchToolkitActions = async (row) => {
       `${row.id}: action count exceeds ${MAX_ACTIONS_PER_INTEGRATION}.`,
     );
   }
-  return { ...row, actions: sorted, catalogToolCount: sorted.length };
+  return {
+    publication: { ...row, actions: sorted, catalogToolCount: sorted.length },
+    skippedActions: [...skippedActions].map(([name, reason]) => ({ name, reason })),
+  };
 };
 
 const mapConcurrent = async (values, concurrency, fn) => {
@@ -369,11 +398,20 @@ if (!siteUrl || !adminToken) {
 
 // Resolve and validate the complete publication before mutating the backend.
 // A provider/API failure therefore leaves every existing action set untouched.
-rows = await mapConcurrent(rows, FETCH_CONCURRENCY, async (row) => {
+const resolvedRows = await mapConcurrent(rows, FETCH_CONCURRENCY, async (row) => {
   return await fetchToolkitActions(row);
 });
+const publicationBodies = resolvedRows.map(({ publication }) => {
+  const body = JSON.stringify(publication);
+  if (Buffer.byteLength(body) > MAX_PUBLISH_BODY_BYTES) {
+    throw new Error(
+      `${publication.id}: publication exceeds ${MAX_PUBLISH_BODY_BYTES} bytes.`,
+    );
+  }
+  return { publication, body };
+});
 
-for (const row of rows) {
+for (const { publication, body } of publicationBodies) {
   const response = await fetch(
     `${siteUrl}/api/admin/native-integrations/upsert`,
     {
@@ -383,20 +421,35 @@ for (const row of rows) {
         "content-type": "application/json",
         authorization: `Bearer ${adminToken}`,
       },
-      body: JSON.stringify(row),
+      body,
     },
   );
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`${row.id}: ${response.status} ${text.slice(0, 500)}`);
+    throw new Error(
+      `${publication.id}: ${response.status} ${text.slice(0, 500)}`,
+    );
   }
 }
 
 process.stdout.write(
   `${JSON.stringify(
     {
-      published: rows.length,
-      actions: rows.reduce((sum, row) => sum + row.actions.length, 0),
+      published: publicationBodies.length,
+      actions: publicationBodies.reduce(
+        (sum, row) => sum + row.publication.actions.length,
+        0,
+      ),
+      skippedActions: resolvedRows.reduce(
+        (sum, row) => sum + row.skippedActions.length,
+        0,
+      ),
+      skippedByToolkit: resolvedRows
+        .filter((row) => row.skippedActions.length > 0)
+        .map((row) => ({
+          id: row.publication.id,
+          count: row.skippedActions.length,
+        })),
     },
     null,
     2,

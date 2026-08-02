@@ -1,5 +1,4 @@
 import type { HttpRouter } from "convex/server";
-import AjvModule from "ajv";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
@@ -63,13 +62,6 @@ const MAX_ADMIN_INTEGRATION_BODY_BYTES = 4 * 1024 * 1024;
 const MAX_NATIVE_INTEGRATION_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_COMPOSIO_RESPONSE_BYTES = 2 * 1024 * 1024;
 const COMPOSIO_REQUEST_TIMEOUT_MS = 30_000;
-const Ajv =
-  (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
-const actionInputValidator = new Ajv({
-  allErrors: true,
-  strict: false,
-  coerceTypes: false,
-});
 
 const readString = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : null;
@@ -134,14 +126,6 @@ export const normalizePublishedIntegrationActions = (
         error: `Integration action is missing an object input schema: ${name}.`,
       };
     }
-    try {
-      actionInputValidator.compile(raw.inputSchema);
-    } catch {
-      return {
-        ok: false,
-        error: `Integration action has an invalid input schema: ${name}.`,
-      };
-    }
     const inputSchemaJson = JSON.stringify(raw.inputSchema);
     if (
       new TextEncoder().encode(inputSchemaJson).byteLength >
@@ -170,17 +154,6 @@ const parseJsonObject = (text: string) => {
       : null;
   } catch {
     return null;
-  }
-};
-
-const validateActionInput = (
-  schema: Record<string, unknown>,
-  input: Record<string, unknown>,
-): "valid" | "invalid" | "invalid_schema" => {
-  try {
-    return actionInputValidator.compile(schema)(input) ? "valid" : "invalid";
-  } catch {
-    return "invalid_schema";
   }
 };
 
@@ -507,6 +480,34 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         return jsonResponse({ error: normalizedActions.error }, 400);
       }
       try {
+        const schemaValidation = await ctx.runAction(
+          internal.node.native_integration_schemas.validatePublishedActionSchemas,
+          {
+            actions: normalizedActions.actions.map((action) => ({
+              name: action.name,
+              inputSchemaJson: action.inputSchemaJson,
+            })),
+          },
+        );
+        if (!schemaValidation.ok) {
+          return jsonResponse(
+            {
+              error: `Integration action has an invalid input schema: ${schemaValidation.invalidAction ?? "<unknown>"}.`,
+            },
+            400,
+          );
+        }
+      } catch (error) {
+        console.error("[native-integrations] schema validation unavailable", {
+          id: readString(body.id),
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return jsonResponse(
+          { error: "Integration schema validation is unavailable." },
+          503,
+        );
+      }
+      try {
         const result = await ctx.runMutation(
           internal.data.integrations.upsertPublicIntegration,
           {
@@ -807,19 +808,27 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         if (!resolved || !connector) {
           return errorResponse(400, "Integration action is not allowed.", origin);
         }
-        let schema: Record<string, unknown>;
+        let inputValidation: "valid" | "invalid" | "invalid_schema";
         try {
-          const parsed = JSON.parse(resolved.action.inputSchemaJson) as unknown;
-          if (!isJsonObject(parsed)) throw new Error("invalid schema");
-          schema = parsed;
-        } catch {
+          inputValidation = await ctx.runAction(
+            internal.node.native_integration_schemas.validateActionInput,
+            {
+              inputJson: JSON.stringify(body.input),
+              schemaJson: resolved.action.inputSchemaJson,
+            },
+          );
+        } catch (error) {
+          console.error("[native-integrations] input validation unavailable", {
+            id,
+            action,
+            message: error instanceof Error ? error.message : String(error),
+          });
           return errorResponse(
             503,
-            "Executable integration action schema is unavailable.",
+            "Integration action validation is unavailable.",
             origin,
           );
         }
-        const inputValidation = validateActionInput(schema, body.input);
         if (inputValidation === "invalid") {
           return errorResponse(
             400,

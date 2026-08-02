@@ -176,6 +176,11 @@ export function isTransientTransportError(error: unknown): boolean {
 		"ENETUNREACH",
 		"ENOTFOUND",
 		"UND_ERR_SOCKET",
+		// undici surfaces a mid-body connection teardown on a `connection: close`
+		// response as `TypeError: terminated` caused by an HTTPParserError with
+		// this code (invalid EOF state). It is a torn transport, not a provider
+		// error, so stream resume must engage.
+		"HPE_INVALID_EOF_STATE",
 	]);
 	const code = (error as { code?: unknown }).code;
 	if (typeof code === "string" && codes.has(code.toUpperCase())) return true;

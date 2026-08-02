@@ -78,6 +78,11 @@ type CatalogMemo = {
 
 let catalogMemo: CatalogMemo | null = null;
 
+/** Test hook. */
+export const resetConnectorStatusCatalogMemo = () => {
+  catalogMemo = null;
+};
+
 const loadCatalog = async (
   options: ConnectorStatusToolOptions,
 ): Promise<{

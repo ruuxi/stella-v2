@@ -330,6 +330,8 @@ export const runCompactionWithHooks = async (args: {
   messageCount: number;
   /** Schedule-time estimate used to avoid Dream waits below the fold gate. */
   orchestratorTokenEstimate?: number;
+  /** Focused-test seam; production always uses the certified 180s ceiling. */
+  preCompactionTimeoutMs?: number;
   /** Aborts the summarization LLM call on compaction-scheduler shutdown. */
   abortSignal?: AbortSignal;
 }): Promise<ThreadCompactionResult> => {
@@ -348,6 +350,9 @@ export const runCompactionWithHooks = async (args: {
         store: args.opts.store,
         resolvedLlm: args.opts.resolvedLlm,
         conversationId: args.opts.conversationId,
+        ...(args.preCompactionTimeoutMs !== undefined
+          ? { timeoutMs: args.preCompactionTimeoutMs }
+          : {}),
         ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
       });
     } catch (error) {

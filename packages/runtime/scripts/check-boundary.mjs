@@ -85,7 +85,7 @@ const moduleSpecifiers = (text) => {
 /**
  * Scan a repo tree for workspace-boundary violations.
  */
-const checkBoundaries = async (repoRoot) => {
+export const checkBoundaries = async (repoRoot) => {
   const offenders = [];
   const inspect = async (root, isForbidden) => {
     for (const file of await walk(root)) {
@@ -120,7 +120,9 @@ const checkBoundaries = async (repoRoot) => {
     }
     if (
       specifier === "node:sqlite" &&
-      !file.startsWith("packages/runtime/scripts/")
+      !file.startsWith("packages/runtime/scripts/") &&
+      !file.startsWith("packages/runtime/tests/") &&
+      !/\.test\.tsx?$/.test(file)
     ) {
       // The detached worker runs under Bun, which has no node:sqlite; a
       // static import crashes the runner chunk at load (desktop-v0.0.409,
@@ -131,7 +133,8 @@ const checkBoundaries = async (repoRoot) => {
   });
 
   // packages/desktop-ui — the whole package is Effect-free. The stricter
-  // contracts-only import rule applies to renderer src; configs use build tooling.
+  // contracts-only import rule applies to renderer src (tests intentionally
+  // exercise @stella/runtime/worker/* internals; configs use build tooling).
   await inspect(path.join(repoRoot, "packages", "desktop-ui"), (specifier, file) => {
     if (isEffectImport(specifier)) {
       return "Effect is fenced inside packages/runtime";

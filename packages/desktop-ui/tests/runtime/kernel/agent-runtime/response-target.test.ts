@@ -1,0 +1,129 @@
+import { describe, expect, it } from "vitest";
+import {
+  createOrchestratorResponseTargetTracker,
+  createAgentLifecycleResponseTarget,
+} from "@stella/runtime/kernel/agent-runtime/response-target";
+
+describe("orchestrator response target tracking", () => {
+  it("classifies a spawn_agent reply as a task turn", () => {
+    const tracker = createOrchestratorResponseTargetTracker();
+
+    tracker.noteToolEnd("spawn_agent", {
+      thread_id: "task-1",
+    });
+
+    expect(tracker.resolve()).toEqual({
+      type: "agent_turn",
+      agentId: "task-1",
+    });
+  });
+
+  it("classifies a spawn_manager reply as its durable manager turn", () => {
+    const tracker = createOrchestratorResponseTargetTracker();
+
+    tracker.noteToolEnd("spawn_manager", {
+      result: { thread_id: "manager-1" },
+    });
+
+    expect(tracker.resolve()).toEqual({
+      type: "agent_turn",
+      agentId: "manager-1",
+    });
+  });
+
+  it("classifies task follow-up tools by thread id", () => {
+    const tracker = createOrchestratorResponseTargetTracker();
+
+    tracker.noteToolStart("send_input", {
+      thread_id: "task-1",
+    });
+
+    expect(tracker.resolve()).toEqual({
+      type: "agent_turn",
+      agentId: "task-1",
+    });
+  });
+
+  it("falls back to a normal user turn when multiple task ids are involved", () => {
+    const tracker = createOrchestratorResponseTargetTracker();
+
+    tracker.noteToolEnd("spawn_agent", {
+      thread_id: "task-1",
+    });
+    tracker.noteToolEnd("spawn_agent", {
+      thread_id: "task-2",
+    });
+
+    expect(tracker.resolve()).toEqual({
+      type: "user_turn",
+    });
+  });
+
+  it("tracks task ids surfaced through nested tool details", () => {
+    const tracker = createOrchestratorResponseTargetTracker();
+
+    tracker.noteToolEnd("Bash", {
+      calls: [
+        {
+          toolName: "spawn_agent",
+          args: { description: "run nested task" },
+          result: { thread_id: "task-from-exec" },
+        },
+      ],
+    });
+
+    expect(tracker.resolve()).toEqual({
+      type: "agent_turn",
+      agentId: "task-from-exec",
+    });
+  });
+});
+
+describe("task lifecycle response targets", () => {
+  it("keeps task completions as separate terminal notices", () => {
+    expect(
+      createAgentLifecycleResponseTarget({
+        agentId: "task-1",
+        eventType: "agent-completed",
+      }),
+    ).toEqual({
+      type: "agent_terminal_notice",
+      agentId: "task-1",
+      terminalState: "completed",
+    });
+  });
+
+  it("keeps interim manager messages non-terminal", () => {
+    expect(
+      createAgentLifecycleResponseTarget({
+        agentId: "manager-1",
+        eventType: "agent-message",
+      }),
+    ).toEqual({
+      type: "agent_turn",
+      agentId: "manager-1",
+    });
+  });
+
+  it("routes failed and canceled task follow-ups back into the task turn", () => {
+    expect(
+      createAgentLifecycleResponseTarget({
+        agentId: "task-1",
+        eventType: "agent-failed",
+      }),
+    ).toEqual({
+      type: "agent_turn",
+      agentId: "task-1",
+    });
+
+    expect(
+      createAgentLifecycleResponseTarget({
+        agentId: "task-1",
+        eventType: "agent-canceled",
+      }),
+    ).toEqual({
+      type: "agent_turn",
+      agentId: "task-1",
+    });
+  });
+});

@@ -99,6 +99,8 @@ export type RunCoordinator = {
   drainNow: () => Promise<void>;
   pendingTurnCount: () => number;
   isDraining: () => boolean;
+  /** Number of drain fibers ever forked (coalescing assertions in tests). */
+  drainPassCount: () => number;
   /**
    * Interrupt the drain fiber and join the in-flight turn. Idempotent and
    * terminal: no wakeup or drain runs afterwards. Queue/slot mirrors are
@@ -114,6 +116,7 @@ export const createRunCoordinator = (
   let draining = false;
   let wakePending = false;
   let closed = false;
+  let drainPasses = 0;
   let closePromise: Promise<void> | null = null;
   const passWaiters: Array<() => void> = [];
 
@@ -169,6 +172,7 @@ export const createRunCoordinator = (
       return;
     }
     draining = true;
+    drainPasses += 1;
     coordinatorRuntime.runSync(
       Effect.forkIn(drainEffect, scope, { startImmediately: true }),
     );
@@ -241,6 +245,7 @@ export const createRunCoordinator = (
     },
     pendingTurnCount: () => host.state.queuedOrchestratorTurns.length,
     isDraining: () => draining,
+    drainPassCount: () => drainPasses,
     shutdown: () => {
       if (closePromise) {
         return closePromise;

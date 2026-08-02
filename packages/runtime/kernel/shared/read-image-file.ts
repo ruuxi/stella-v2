@@ -46,6 +46,8 @@ const delay = (ms: number): Promise<void> =>
 export type ReadImageFileSettledOptions = {
   /** Maximum number of read attempts (>= 1). Defaults to 6. */
   maxAttempts?: number;
+  /** Injectable sleep, for tests. Defaults to a real timer. */
+  sleep?: (ms: number) => Promise<void>;
 };
 
 export const readImageFileSettled = async (
@@ -53,6 +55,7 @@ export const readImageFileSettled = async (
   options?: ReadImageFileSettledOptions,
 ): Promise<Buffer> => {
   const maxAttempts = Math.max(1, options?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
+  const sleep = options?.sleep ?? delay;
 
   let buf = await fs.readFile(filePath);
   let previousLength = -1;
@@ -71,7 +74,7 @@ export const readImageFileSettled = async (
     }
     previousLength = buf.length;
 
-    await delay(Math.min(BASE_DELAY_MS * 2 ** (attempt - 1), MAX_DELAY_MS));
+    await sleep(Math.min(BASE_DELAY_MS * 2 ** (attempt - 1), MAX_DELAY_MS));
     buf = await fs.readFile(filePath);
   }
 

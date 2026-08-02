@@ -1,0 +1,138 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { afterEach, describe, expect, it } from "vitest";
+import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
+import { createSyncTempDirTracker } from "../../../helpers/temp.js";
+
+const tempDirs = createSyncTempDirTracker();
+
+afterEach(() => tempDirs.cleanup());
+
+const AGENT_MD = [
+  "---",
+  "name: Orchestrator",
+  "description: Coordinates user-facing work.",
+  "tools: spawn_agent, web",
+  "---",
+  "",
+  "You are Stella.",
+  "",
+].join("\n");
+
+describe("loadParsedAgentsFromDir", () => {
+  it("loads every shipped capability record through the standard agent markdown contract", () => {
+    const agents = loadParsedAgentsFromDir(
+      path.resolve(
+        process.cwd(),
+        "..",
+        "home-seed",
+        "extensions",
+        "stella-runtime",
+        "agent-metadata",
+      ),
+    );
+
+    expect(agents.map((agent) => agent.id).sort()).toEqual(
+      [
+        "dream",
+        "explore",
+        "fashion",
+        "general",
+        "manager",
+        "orchestrator",
+        "schedule",
+        "social_session",
+      ].sort(),
+    );
+    expect(agents.every((agent) => agent.systemPrompt.length > 0)).toBe(true);
+  });
+
+  it("loads the home extension manager metadata with only agent-management tools", () => {
+    const agents = loadParsedAgentsFromDir(
+      path.resolve(
+        process.cwd(),
+        "..",
+        "home-seed",
+        "extensions",
+        "stella-runtime",
+        "agent-metadata",
+      ),
+    );
+    const manager = agents.find((agent) => agent.id === "manager");
+    expect(manager?.toolsAllowlist).toEqual([
+      "spawn_agent",
+      "send_input",
+      "pause_agent",
+      "report",
+    ]);
+    expect(manager?.maxAgentDepth).toBe(2);
+    expect(
+      manager?.systemPrompt.startsWith("You are Stella's Manager agent"),
+    ).toBe(true);
+    const prompt = manager?.systemPrompt ?? "";
+    expect(prompt).toMatch(/\bdynamic\b[\s\S]*\bprocess supervisor\b/i);
+    expect(prompt).toMatch(/\bopen-ended\b/i);
+    expect(prompt).toMatch(/\bcontinuity\b/i);
+    expect(prompt).toMatch(/\bfresh independent context\b/i);
+    expect(prompt).toMatch(/orchestrator(?:'s)? instructions/i);
+    expect(prompt).not.toMatch(/brand-new[\s-]+(?:fresh-context )?reviewer/i);
+    expect(prompt).toMatch(/`report` is your only upward channel/i);
+    expect(prompt).toMatch(/assistant responses[\s\S]*private/i);
+    expect(prompt).toMatch(
+      /child and descendant lifecycle messages[\s\S]*internal/i,
+    );
+    expect(prompt).toMatch(
+      /final: true[\s\S]*exactly once[\s\S]*only after ALL requested work[\s\S]*every child, review, fix, and re-review round[\s\S]*deliberately canceled/i,
+    );
+    expect(prompt).toMatch(
+      /final: false[\s\S]*only for a genuine blocker[\s\S]*requires orchestrator or user action, judgment, credentials, money, access, or a scope decision/i,
+    );
+    expect(prompt).toContain("It is not a progress-update channel.");
+    expect(prompt).toMatch(
+      /Never report child or reviewer spawn, start, or completion[\s\S]*review PASS\/FAIL[\s\S]*routine status[\s\S]*partial milestones[\s\S]*recoverable child failures/i,
+    );
+    expect(prompt).toMatch(
+      /absorb the result and immediately continue[\s\S]*siblings remain, wait[\s\S]*send them to the fixer and re-review without reporting upward/i,
+    );
+    expect(prompt).toMatch(/No keep-alives/i);
+    expect(prompt).toMatch(/production credentials[\s\S]*is valid/i);
+    expect(prompt).toMatch(/one child is still running[\s\S]*is never valid/i);
+    expect(prompt).not.toMatch(/explicitly requested progress updates/i);
+    expect(prompt).not.toMatch(/\[(?:Status|Milestone)\]/);
+  });
+
+  it("loads agents when given a directory string path", () => {
+    const dir = tempDirs.create("agent-loader-");
+    writeFileSync(path.join(dir, "orchestrator.md"), AGENT_MD, "utf-8");
+
+    const agents = loadParsedAgentsFromDir(dir);
+
+    expect(agents.map((agent) => agent.id)).toEqual(["orchestrator"]);
+    expect(agents[0]?.toolsAllowlist).toContain("spawn_agent");
+  });
+
+  // Production callers pass a `file://` URL built from `import.meta.url`.
+  // On Windows that URL's `pathname` is `/C:/...` with `%20`-encoded
+  // characters, which `URL.pathname` (the old impl) turned into an
+  // unreadable path so every agent was silently skipped — collapsing the
+  // orchestrator to only the universal RequestCredential/no_response
+  // tools. A directory containing a space reproduces the encoding half of
+  // that failure on any platform.
+  it("loads agents from a file:// URL whose path needs decoding", () => {
+    const base = tempDirs.create("agent loader url-");
+    const dir = path.join(base, "agents dir");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "orchestrator.md"), AGENT_MD, "utf-8");
+
+    // Trailing slash so `new URL` treats it as a directory, matching the
+    // `new URL("./agents/", import.meta.url)` production callers.
+    const dirUrl = pathToFileURL(`${dir}${path.sep}`);
+    expect(dirUrl.pathname).toContain("%20");
+
+    const agents = loadParsedAgentsFromDir(dirUrl);
+
+    expect(agents.map((agent) => agent.id)).toEqual(["orchestrator"]);
+    expect(agents[0]?.toolsAllowlist).toContain("spawn_agent");
+  });
+});

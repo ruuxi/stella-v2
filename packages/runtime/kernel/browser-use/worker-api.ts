@@ -261,6 +261,10 @@ const title = await tab.title();`;
       }
     }
   };
+  // Effect-ratchet pin (1 setTimeout): this function's source is embedded in
+  // the Node REPL worker via `toString()` (see the data-URL note above), so
+  // it executes in a sandbox with no Effect runtime — the raw timer is the
+  // only scheduling primitive available there.
   const delay = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms));
 

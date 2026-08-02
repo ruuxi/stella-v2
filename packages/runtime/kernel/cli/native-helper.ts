@@ -14,8 +14,16 @@ import {
   getComputerExecutionCliPath,
   getComputerExecutionSignal,
 } from "../computer-use/execution-context.js";
+import { forkTimeoutFiber } from "./effect-runtime.js";
 
-const __dirname = import.meta.dirname;
+// NOT named `__dirname`: the CLI/electron esbuild bundles prepend a banner
+// that already declares a top-level `const __dirname`, and esbuild cannot
+// rename identifiers it does not see — a module-level `__dirname` here made
+// the bundled stella-computer CLI throw "Identifier '__dirname' has already
+// been declared" at load. `import.meta.dirname` resolves to this module's
+// directory unbundled and to the bundle's directory when bundled, exactly
+// like the old shadowed constant.
+const moduleDirname = import.meta.dirname;
 
 const platformDir =
   process.platform === "win32"
@@ -48,12 +56,17 @@ export const resolveNativeHelperPath = (baseName: string): string | null => {
       : null,
     path.resolve(process.cwd(), "packages/native/out", platformDir, fileName),
     path.resolve(
-      __dirname,
+      moduleDirname,
       "../../../native/out",
       platformDir,
       fileName,
     ),
-    path.resolve(__dirname, "../../../../native/out", platformDir, fileName),
+    path.resolve(
+      moduleDirname,
+      "../../../../native/out",
+      platformDir,
+      fileName,
+    ),
   ];
 
   for (const candidate of candidates) {
@@ -143,7 +156,7 @@ export const runNativeHelper = async (args: {
       const finish = (result: NativeHelperResult) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timeout);
+        cancelTimeout();
         signal?.removeEventListener("abort", onAbort);
         resolve(result);
       };
@@ -182,7 +195,10 @@ export const runNativeHelper = async (args: {
       });
 
       const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-      const timeout = setTimeout(() => {
+      // Effect-backed timeout fiber (kernel/cli/effect-runtime.ts); the old
+      // `setTimeout`/`clearTimeout` pair with identical timing. The `finish`
+      // race guard means a late timeout firing is a no-op, same as before.
+      const cancelTimeout = forkTimeoutFiber(timeoutMs, () => {
         killDetachedProcess(child.pid);
         const stdout = readTrimmedFile(stdoutPath);
         const stderr = readTrimmedFile(stderrPath);
@@ -196,8 +212,7 @@ export const runNativeHelper = async (args: {
           stderr: message,
           timedOut: true,
         });
-      }, timeoutMs);
-      timeout.unref();
+      });
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted) onAbort();
     });

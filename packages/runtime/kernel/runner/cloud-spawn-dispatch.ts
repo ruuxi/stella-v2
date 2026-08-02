@@ -12,6 +12,7 @@ import type {
   CloudDispatchRequest,
   CloudDispatchResult,
 } from "../tools/types.js";
+import { raceWithTimeoutError } from "./cloud-effect-runtime.js";
 
 /**
  * A cloud spawn is one mutation that returns as soon as the thread row exists.
@@ -62,51 +63,28 @@ const readConvexErrorText = (error: unknown): string => {
   return (uncaught?.[1] ?? message).trim();
 };
 
-const withTimeout = async <T>(
-  promise: Promise<T>,
-  workspace: string,
-): Promise<T> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
-          reject(
-            new Error(
-              `Stella's cloud did not accept the ${workspace} agent within 30s — this device may be offline. Check the running agents before retrying so the same work does not start twice.`,
-            ),
-          );
-        }, CLOUD_SPAWN_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-};
+const withTimeout = <T>(promise: Promise<T>, workspace: string): Promise<T> =>
+  raceWithTimeoutError(
+    promise,
+    CLOUD_SPAWN_TIMEOUT_MS,
+    () =>
+      new Error(
+        `Stella's cloud did not accept the ${workspace} agent within 30s — this device may be offline. Check the running agents before retrying so the same work does not start twice.`,
+      ),
+  );
 
-const withControlTimeout = async <T>(
+const withControlTimeout = <T>(
   promise: Promise<T>,
   operation: string,
-): Promise<T> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
-          reject(
-            new Error(
-              `Stella's cloud did not ${operation} within 30s. Check the thread before retrying so the same control is not applied twice.`,
-            ),
-          );
-        }, CLOUD_SPAWN_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-};
+): Promise<T> =>
+  raceWithTimeoutError(
+    promise,
+    CLOUD_SPAWN_TIMEOUT_MS,
+    () =>
+      new Error(
+        `Stella's cloud did not ${operation} within 30s. Check the thread before retrying so the same control is not applied twice.`,
+      ),
+  );
 
 export const createCloudSpawnDispatcher = (
   options: CloudSpawnDispatcherOptions,

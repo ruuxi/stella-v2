@@ -4,6 +4,12 @@ import { spawn } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { Worker } from "node:worker_threads";
+import { Effect } from "effect";
+
+import {
+  forkCancelableTimeout,
+  runComputerUseEffect,
+} from "./effect-runtime.js";
 
 import type {
   ToolContext,
@@ -181,7 +187,8 @@ const deserializeError = (error: SerializedError): Error => {
 type ActiveEvaluation = {
   id: number;
   controller: AbortController;
-  timeout: NodeJS.Timeout;
+  /** Interrupts the evaluation's timeout fiber (the clearTimeout analogue). */
+  cancelTimeout: () => void;
   signal?: AbortSignal;
   onAbort?: () => void;
   resolve: (output: string) => void;
@@ -317,7 +324,8 @@ class NodeReplKernel {
   private readonly executeTool?: NodeReplKernelManagerOptions["executeTool"];
   private readonly onTerminated: (kernel: NodeReplKernel) => void;
   private tail: Promise<void> = Promise.resolve();
-  private idleTimer: NodeJS.Timeout | null = null;
+  /** Interrupts the pending idle-teardown fiber (the clearTimeout analogue). */
+  private cancelIdleTimer: (() => void) | null = null;
   private pending = 0;
   private skyTail: Promise<void> = Promise.resolve();
   private browserTail: Promise<void> = Promise.resolve();
@@ -417,8 +425,8 @@ class NodeReplKernel {
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.closed = true;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = null;
+    this.cancelIdleTimer?.();
+    this.cancelIdleTimer = null;
     const active = this.active;
     if (active) {
       active.controller.abort(new Error("Node REPL kernel closed."));
@@ -454,8 +462,8 @@ class NodeReplKernel {
     }
     this.pending += 1;
     this.worker.ref();
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = null;
+    this.cancelIdleTimer?.();
+    this.cancelIdleTimer = null;
     const run = async () => {
       if (this.closed) throw new KernelTerminatedError("Kernel closed.");
       return await this.evaluate(
@@ -483,12 +491,18 @@ class NodeReplKernel {
     return task;
   }
 
+  // The idle teardown is a forked timeout fiber (forkCancelableTimeout),
+  // interrupted by enqueue/close — the Effect replacement for the unref'd
+  // setTimeout. Process liveness is unaffected: the runtime worker exits via
+  // explicit process.exit (worker/entry.ts), never by event-loop drain, and
+  // registry disposal cancels the fiber.
   private scheduleIdle(
     timeoutMs: number,
     onIdle: (kernel: NodeReplKernel) => void,
   ) {
-    this.idleTimer = setTimeout(() => onIdle(this), timeoutMs);
-    this.idleTimer.unref();
+    this.cancelIdleTimer = forkCancelableTimeout(timeoutMs, () =>
+      onIdle(this),
+    );
   }
 
   private evaluate(
@@ -514,18 +528,25 @@ class NodeReplKernel {
 
     return new Promise<string>((resolve, reject) => {
       const id = this.nextEvaluationId++;
+      // Effect-ratchet pin (1 new AbortController): this is the seam
+      // controller whose real AbortSignal is handed to the computer-use
+      // session daemon, the browser client (CDP transport), and nested tool
+      // execution — non-Effect consumers that need a genuine AbortSignal.
       const controller = new AbortController();
-      const timeout = setTimeout(() => {
+      // The evaluation timeout is a forked fiber interrupted by
+      // `settleActive` (the clearTimeout analogue); the duration and the
+      // terminate path are unchanged.
+      const cancelTimeout = forkCancelableTimeout(timeoutMs, () => {
         this.terminateActive(
           new KernelTerminatedError(
             `Node REPL timed out after ${timeoutMs}ms.`,
           ),
         );
-      }, timeoutMs);
+      });
       const active: ActiveEvaluation = {
         id,
         controller,
-        timeout,
+        cancelTimeout,
         signal,
         resolve,
         reject,
@@ -1037,7 +1058,7 @@ class NodeReplKernel {
   ) {
     if (this.active !== active) return;
     this.active = null;
-    clearTimeout(active.timeout);
+    active.cancelTimeout();
     if (active.signal && active.onAbort) {
       active.signal.removeEventListener("abort", active.onAbort);
     }
@@ -1194,15 +1215,16 @@ export class NodeReplKernelRegistry {
     // rethrowing a KernelTerminatedError, so an unbounded wait here would
     // swallow the eval timeout and hang the node_repl tool call forever.
     // The registry entry is already deleted, so a follow-up evaluate gets a
-    // fresh kernel while teardown finishes in the background.
-    let deadline: NodeJS.Timeout | undefined;
-    return Promise.race([
-      teardown,
-      new Promise<void>((resolve) => {
-        deadline = setTimeout(resolve, this.disposeTimeoutMs);
-        deadline.unref?.();
-      }),
-    ]).finally(() => clearTimeout(deadline));
+    // fresh kernel while teardown finishes in the background. The bound is
+    // an Effect race: when teardown settles first the sleep fiber is
+    // interrupted (the clearTimeout analogue); when the deadline fires
+    // first, teardown keeps running in the background exactly as before.
+    return runComputerUseEffect(
+      Effect.raceFirst(
+        Effect.promise(() => teardown),
+        Effect.sleep(this.disposeTimeoutMs),
+      ),
+    );
   }
 }
 

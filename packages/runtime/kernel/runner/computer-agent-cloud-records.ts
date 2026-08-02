@@ -1,5 +1,9 @@
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type { AgentToolSnapshot } from "../tools/types.js";
+import {
+  forkDelayedCall,
+  raceWithTimeoutError,
+} from "./cloud-effect-runtime.js";
 
 const CLOUD_RECORD_TIMEOUT_MS = 30_000;
 const NO_AUTH_RETRY_MS = 4_000;
@@ -77,28 +81,15 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
-const withTimeout = async <T>(promise: Promise<T>): Promise<T> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                "Stella's cloud did not acknowledge the computer agent within 30s.",
-              ),
-            ),
-          CLOUD_RECORD_TIMEOUT_MS,
-        );
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-};
+const withTimeout = <T>(promise: Promise<T>): Promise<T> =>
+  raceWithTimeoutError(
+    promise,
+    CLOUD_RECORD_TIMEOUT_MS,
+    () =>
+      new Error(
+        "Stella's cloud did not acknowledge the computer agent within 30s.",
+      ),
+  );
 
 const parseSnapshot = (value: unknown): AgentToolSnapshot | null => {
   const record = asRecord(value);
@@ -209,7 +200,8 @@ export const createComputerAgentCloudRecords = (
     };
   };
 
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Cancel thunk for the pending drain-delay fiber (the old `clearTimeout`). */
+  let cancelRetryDelay: (() => void) | null = null;
   let draining = false;
   let stopped = false;
   let lastKnownOwnerScope = resolveConvexJwtOwnerScope(
@@ -243,15 +235,11 @@ export const createComputerAgentCloudRecords = (
 
   const scheduleDrain = (delayMs = 0): void => {
     if (stopped) return;
-    if (retryTimer) clearTimeout(retryTimer);
-    retryTimer = setTimeout(
-      () => {
-        retryTimer = null;
-        void drain();
-      },
-      Math.max(0, delayMs),
-    );
-    retryTimer.unref?.();
+    if (cancelRetryDelay) cancelRetryDelay();
+    cancelRetryDelay = forkDelayedCall(Math.max(0, delayMs), () => {
+      cancelRetryDelay = null;
+      void drain();
+    });
   };
 
   const deliver = async (
@@ -479,9 +467,9 @@ export const createComputerAgentCloudRecords = (
     },
     stop: () => {
       stopped = true;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
+      if (cancelRetryDelay) {
+        cancelRetryDelay();
+        cancelRetryDelay = null;
       }
     },
   };

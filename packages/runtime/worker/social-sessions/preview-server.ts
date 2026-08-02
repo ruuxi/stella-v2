@@ -17,6 +17,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { forkDelayed, type WorkerTimerHandle } from "../effect-runtime.js";
 
 type PreviewState = "starting" | "running" | "stopping" | "stopped" | "error";
 
@@ -31,7 +32,7 @@ type PreviewEntry = {
   lastError: string | null;
   startPromise: Promise<string | null> | null;
   stopPromise: Promise<void> | null;
-  restartTimer: ReturnType<typeof setTimeout> | null;
+  restartTimer: WorkerTimerHandle | null;
 };
 
 export type PreviewSnapshot = {
@@ -136,28 +137,28 @@ const killChildProcessTree = async (child: ChildProcess) => {
     }
   }
 
-  await Promise.race([
-    new Promise<void>((resolve) => {
-      child.once("exit", () => resolve());
-    }),
-    new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        try {
-          if (process.platform === "win32") {
-            child.kill();
-          } else if (child.pid) {
-            process.kill(-child.pid, "SIGKILL");
-          } else {
-            child.kill("SIGKILL");
-          }
-        } catch {
-          // Already exited.
+  await new Promise<void>((resolve) => {
+    // SIGKILL escalation as a forked grace fiber (same STOP_GRACE_MS); an
+    // exit before the deadline cancels it, so nothing outlives the child.
+    const escalation = forkDelayed(STOP_GRACE_MS, () => {
+      try {
+        if (process.platform === "win32") {
+          child.kill();
+        } else if (child.pid) {
+          process.kill(-child.pid, "SIGKILL");
+        } else {
+          child.kill("SIGKILL");
         }
-        resolve();
-      }, STOP_GRACE_MS);
-      timer.unref?.();
-    }),
-  ]);
+      } catch {
+        // Already exited.
+      }
+      resolve();
+    });
+    child.once("exit", () => {
+      escalation.cancel();
+      resolve();
+    });
+  });
 };
 
 export class SocialPreviewServerManager {
@@ -210,7 +211,7 @@ export class SocialPreviewServerManager {
     }
     entry.state = "stopping";
     if (entry.restartTimer) {
-      clearTimeout(entry.restartTimer);
+      entry.restartTimer.cancel();
       entry.restartTimer = null;
     }
     const stopPromise = (async () => {
@@ -363,13 +364,14 @@ export class SocialPreviewServerManager {
 
     let urlResolved = false;
     const urlPromise = new Promise<string | null>((resolve) => {
-      const timeout = setTimeout(() => {
+      // URL-discovery deadline as a forked fiber (same timeout); canceled
+      // when the URL is found in the child's output.
+      const timeout = forkDelayed(URL_DISCOVERY_TIMEOUT_MS, () => {
         if (!urlResolved) {
           urlResolved = true;
           resolve(null);
         }
-      }, URL_DISCOVERY_TIMEOUT_MS);
-      timeout.unref?.();
+      });
 
       const handleChunk = (data: Buffer | string) => {
         const chunk = typeof data === "string" ? data : data.toString("utf8");
@@ -378,7 +380,7 @@ export class SocialPreviewServerManager {
           return;
         }
         urlResolved = true;
-        clearTimeout(timeout);
+        timeout.cancel();
         entry.url = found.url;
         entry.port = found.port;
         entry.state = "running";
@@ -439,7 +441,9 @@ export class SocialPreviewServerManager {
   private scheduleRestart(entry: PreviewEntry) {
     if (this.stoppingAll) return;
     if (entry.restartTimer) return;
-    entry.restartTimer = setTimeout(() => {
+    // Restart backoff as a forked fiber (same RESTART_BACKOFF_MS); canceled
+    // by stopSession/stopAll through the entry handle.
+    entry.restartTimer = forkDelayed(RESTART_BACKOFF_MS, () => {
       entry.restartTimer = null;
       const stillTracked = this.entries.get(entry.sessionId);
       if (!stillTracked || this.stoppingAll) {
@@ -447,8 +451,7 @@ export class SocialPreviewServerManager {
       }
       log("restarting vite after exit", { sessionId: entry.sessionId });
       void this.spawnVite(entry);
-    }, RESTART_BACKOFF_MS);
-    entry.restartTimer.unref?.();
+    });
   }
 
   private async ensureDependenciesInstalled(
@@ -485,16 +488,17 @@ export class SocialPreviewServerManager {
     child.stderr?.on("data", appendOutput);
 
     const exitCode = await new Promise<number | null>((resolve) => {
-      const timeout = setTimeout(() => {
+      // Install deadline as a forked fiber (same INSTALL_TIMEOUT_MS);
+      // canceled when the install child exits or errors first.
+      const timeout = forkDelayed(INSTALL_TIMEOUT_MS, () => {
         void killChildProcessTree(child).finally(() => resolve(null));
-      }, INSTALL_TIMEOUT_MS);
-      timeout.unref?.();
+      });
       child.once("exit", (code) => {
-        clearTimeout(timeout);
+        timeout.cancel();
         resolve(code);
       });
       child.once("error", () => {
-        clearTimeout(timeout);
+        timeout.cancel();
         resolve(null);
       });
     });

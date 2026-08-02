@@ -196,8 +196,16 @@ export const prepareOrchestratorRun = async (args: {
     uiVisibility: args.uiVisibility ?? "visible",
   });
 
+  // The controller is the cooperative seam handed to the loop/tools (they
+  // take plain AbortSignals); its lifecycle belongs to the run's supervisor
+  // scope. Registering the abort at admission makes the pre-launch window
+  // (model-route resolution, agent-context build) cancellable through the
+  // same keyed fiber structure that owns the launched run — the replacement
+  // for the old `activeRunAbortControllers` map entry.
   const abortController = new AbortController();
-  args.context.state.activeRunAbortControllers.set(args.runId, abortController);
+  args.context.state.supervisor.registerRun(args.runId, (reason) =>
+    abortController.abort(reason),
+  );
 
   try {
     const resolvedAgentModel = await resolveAgentModelRoute(
@@ -267,7 +275,9 @@ export const prepareOrchestratorRun = async (args: {
     return prepared;
   } catch (error) {
     runCoordinator.releaseRun(args.runId);
-    args.context.state.activeRunAbortControllers.delete(args.runId);
+    // Admission failed before any fiber launched: drop the fiberless run
+    // scope (and its registered abort) so the entry cannot leak.
+    args.context.state.supervisor.discardRun(args.runId);
     throw error;
   }
 };

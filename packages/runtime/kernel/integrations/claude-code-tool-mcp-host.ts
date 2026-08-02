@@ -19,6 +19,7 @@ import type {
   ToolUpdateCallback,
 } from "../tools/types.js";
 import { extractAttachImageBlocks } from "../agent-runtime/tool-adapters.js";
+import { forkCancelableTimeout } from "./effect-runtime.js";
 
 const HOST = "127.0.0.1";
 const MAX_TOOL_RESULT_CHARS = 80_000;
@@ -367,6 +368,10 @@ export const createClaudeCodeToolMcpHost = async (
             };
           }
 
+          // Legitimate ratchet pin: `turn.executeTool` takes a REAL
+          // AbortSignal, and this call must abort from two plain-TS sources
+          // (the MCP client's `extra.signal` and `abortActiveCalls` on
+          // process teardown), so a seam controller stays.
           const callAbort = new AbortController();
           activeCalls.add(callAbort);
           const forwardAbort = () => callAbort.abort();
@@ -581,15 +586,13 @@ export const createClaudeCodeToolMcpHost = async (
       const onReady = () => finish();
       const onAbort = () =>
         finish(signal?.reason ?? new Error("Claude MCP startup canceled."));
-      const timer = setTimeout(
-        () => finish(new Error("Claude MCP tool catalog did not initialize.")),
-        timeoutMs,
+      const cancelTimer = forkCancelableTimeout(timeoutMs, () =>
+        finish(new Error("Claude MCP tool catalog did not initialize.")),
       );
-      timer.unref?.();
       const finish = (error?: unknown) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        cancelTimer();
         signal?.removeEventListener("abort", onAbort);
         clientReadyWaiters.delete(onReady);
         if (error) reject(error);

@@ -5,6 +5,7 @@ import type {
   LegacyChatVisibleMessage,
   RuntimeStore,
 } from "../storage/runtime-store.js";
+import { forkDelayedCall } from "./cloud-effect-runtime.js";
 import {
   CloudTranscriptAlreadyAdmittedError,
   type CloudTranscriptFinishRecord,
@@ -221,16 +222,16 @@ export const createLegacyChatCloudImporter = (args: {
   const log = args.onLog ?? (() => {});
   let stopped = false;
   let inFlight: Promise<void> | null = null;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Cancel thunk for the pending retry-delay fiber (the old `clearTimeout`). */
+  let cancelRetryDelay: (() => void) | null = null;
 
   const schedule = (delayMs: number): void => {
     if (stopped) return;
-    if (retryTimer) clearTimeout(retryTimer);
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
+    if (cancelRetryDelay) cancelRetryDelay();
+    cancelRetryDelay = forkDelayedCall(delayMs, () => {
+      cancelRetryDelay = null;
       resume();
-    }, delayMs);
-    retryTimer.unref?.();
+    });
   };
 
   const markSkipped = (
@@ -385,9 +386,9 @@ export const createLegacyChatCloudImporter = (args: {
 
   const resume = (): void => {
     if (stopped || inFlight || !args.hasAuthToken()) return;
-    if (retryTimer) {
-      clearTimeout(retryTimer);
-      retryTimer = null;
+    if (cancelRetryDelay) {
+      cancelRetryDelay();
+      cancelRetryDelay = null;
     }
     inFlight = run()
       .catch((error) => {
@@ -405,9 +406,9 @@ export const createLegacyChatCloudImporter = (args: {
     resume,
     stop: () => {
       stopped = true;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
+      if (cancelRetryDelay) {
+        cancelRetryDelay();
+        cancelRetryDelay = null;
       }
     },
   };

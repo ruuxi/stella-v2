@@ -1,5 +1,6 @@
 import type { AgentEvent, AgentMessage } from "../agent-core/types.js";
 import { Buffer } from "node:buffer";
+import { Deferred, Effect, Layer, ManagedRuntime, Scope } from "effect";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type {
   RuntimeAttachmentRef,
@@ -45,22 +46,29 @@ const configuredTimeoutMs = (envName: string, fallbackMs: number): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
 };
 
-const waitForAgentAbortSettlement = async (
-  work: Promise<void>,
-): Promise<void> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      work.catch(() => undefined),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, AGENT_ABORT_SETTLE_GRACE_MS);
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-};
+/**
+ * Requirements-free runtime + scope for the per-prompt watchdog fibers
+ * (house convention: one module-level ManagedRuntime; context rides in
+ * closures). Every forked fiber is interrupted in the prompt's finally
+ * block, so nothing outlives its run.
+ */
+const executionRuntime = ManagedRuntime.make(Layer.empty);
+const executionScope = Scope.makeUnsafe();
+
+const waitForAgentAbortSettlement = (work: Promise<void>): Promise<void> =>
+  // Bounded settle race; the losing sleep arm is fiber-interrupted (the
+  // Effect replacement for the old `clearTimeout` + unref'd timer).
+  executionRuntime.runPromise(
+    Effect.raceFirst(
+      Effect.promise(() =>
+        work.then(
+          () => undefined,
+          () => undefined,
+        ),
+      ),
+      Effect.sleep(AGENT_ABORT_SETTLE_GRACE_MS),
+    ),
+  );
 
 const MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -157,48 +165,68 @@ export const executeRuntimeAgentPrompt = async (args: {
     "STELLA_AGENT_TOOL_IDLE_TIMEOUT_MS",
     DEFAULT_AGENT_TOOL_IDLE_TIMEOUT_MS,
   );
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let idleSettled = false;
   let hasAgentActivity = false;
   const activeToolCallIds = new Set<string>();
+  let lastActivityAt = Date.now();
+  let activityLatch = Deferred.makeUnsafe<void>();
   let rejectIdle: (error: Error) => void = () => {};
   const idleFailure = new Promise<never>((_, reject) => {
     rejectIdle = reject;
   });
-  const refreshIdleTimer = () => {
-    if (idleSettled) return;
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = undefined;
-    // A tool owns its own completion/cancellation semantics. Long-running
-    // commands can legitimately be silent for more than the agent stream's
-    // idle window, so while tool calls are in flight the watchdog is armed
-    // with the much longer tool ceiling instead of the stream idle window.
-    // The agent-core per-tool inactivity bound cancels a silent tool (with
-    // an error result the agent survives) well before this fires; reaching
-    // this timeout means tool tracking leaked and the run really is dead.
-    const toolsInFlight = activeToolCallIds.size > 0;
-    const timeoutMs = toolsInFlight
+  // A tool owns its own completion/cancellation semantics. Long-running
+  // commands can legitimately be silent for more than the agent stream's
+  // idle window, so while tool calls are in flight the watchdog runs with
+  // the much longer tool ceiling instead of the stream idle window. The
+  // agent-core per-tool inactivity bound cancels a silent tool (with an
+  // error result the agent survives) well before this fires; reaching this
+  // timeout means tool tracking leaked and the run really is dead.
+  const currentIdleBoundMs = () =>
+    activeToolCallIds.size > 0
       ? toolIdleTimeoutMs
       : hasAgentActivity
         ? idleTimeoutMs
         : startupIdleTimeoutMs;
-    idleTimer = setTimeout(() => {
-      idleSettled = true;
-      try {
-        args.agent.abort();
-      } catch {
-        // Best effort; the prompt race below owns surfacing the timeout.
-      }
-      rejectIdle(
-        new Error(
-          toolsInFlight
-            ? `Agent produced no activity for ${Math.round(timeoutMs / 1000)}s while ${activeToolCallIds.size} tool call(s) were still marked in flight.`
-            : `Agent did not produce activity for ${Math.round(timeoutMs / 1000)}s.`,
-        ),
-      );
-    }, timeoutMs);
-    idleTimer.unref?.();
-  };
+  // The three-level idle watchdog as one deadline-looped fiber (the Effect
+  // replacement for the re-armed setTimeout): every agent event pushes
+  // `lastActivityAt` and completes the activity latch, so the loop
+  // re-sleeps toward the fresh deadline under whichever bound currently
+  // applies (startup / stream-idle / tool ceiling). Interrupting the fiber
+  // in the finally block below is the old `clearTimeout`.
+  const watchdogFiber = executionRuntime.runSync(
+    Effect.forkIn(
+      Effect.gen(function* () {
+        for (;;) {
+          const timeoutMs = currentIdleBoundMs();
+          const remainingMs = timeoutMs - (Date.now() - lastActivityAt);
+          if (remainingMs <= 0) break;
+          const latch = Deferred.makeUnsafe<void>();
+          activityLatch = latch;
+          yield* Effect.raceFirst(
+            Effect.sleep(remainingMs),
+            Deferred.await(latch),
+          );
+        }
+        idleSettled = true;
+        const toolsInFlight = activeToolCallIds.size > 0;
+        const timeoutMs = currentIdleBoundMs();
+        try {
+          args.agent.abort();
+        } catch {
+          // Best effort; the prompt race below owns surfacing the timeout.
+        }
+        rejectIdle(
+          new Error(
+            toolsInFlight
+              ? `Agent produced no activity for ${Math.round(timeoutMs / 1000)}s while ${activeToolCallIds.size} tool call(s) were still marked in flight.`
+              : `Agent did not produce activity for ${Math.round(timeoutMs / 1000)}s.`,
+          ),
+        );
+      }),
+      executionScope,
+      { startImmediately: true },
+    ),
+  );
   const markAgentActivity = (event?: AgentEvent) => {
     hasAgentActivity = true;
     if (event?.type === "tool_execution_start") {
@@ -206,9 +234,10 @@ export const executeRuntimeAgentPrompt = async (args: {
     } else if (event?.type === "tool_execution_end") {
       activeToolCallIds.delete(event.toolCallId);
     }
-    refreshIdleTimer();
+    if (idleSettled) return;
+    lastActivityAt = Date.now();
+    Deferred.doneUnsafe(activityLatch, Effect.void);
   };
-  refreshIdleTimer();
   const unsubscribeIdle = args.agent.subscribe(markAgentActivity);
 
   const unsubscribe = subscribeRuntimeAgentEvents({
@@ -335,7 +364,7 @@ export const executeRuntimeAgentPrompt = async (args: {
     };
   } finally {
     idleSettled = true;
-    if (idleTimer) clearTimeout(idleTimer);
+    watchdogFiber.interruptUnsafe();
     try {
       await args.onCleanup?.();
     } finally {

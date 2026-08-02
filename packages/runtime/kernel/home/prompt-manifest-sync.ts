@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { Effect, Semaphore } from "effect";
+
 import type { SqliteDatabase } from "../storage/shared.js";
 
 import {
@@ -22,10 +24,21 @@ import {
 import { ensurePrivateDir } from "../shared/private-fs.js";
 import {
   createFileEntryAdapter,
-  reconcileBundledEntries,
+  reconcileBundledEntriesEffect,
   type BundledEntryAdapter,
   type BundledSyncReport,
 } from "./bundled-sync.js";
+import {
+  AgentMetadataFrontmatterError,
+  AppliedStateRecordCollisionError,
+  AppliedStateRecordTooLargeError,
+  AppliedStateVanishedError,
+  SqliteRuntimeUnavailableError,
+  StalePromptManifestError,
+} from "./errors.js";
+import { runHome } from "./home-runtime.js";
+
+export { StalePromptManifestError };
 
 const PROMPT_CACHE_FILE = "prompt-manifest.json";
 const PROMPT_APPLIED_STATE_FILE = "prompt-applied-state.json";
@@ -70,12 +83,35 @@ export type PromptManifestResolution = {
 };
 
 const appliedStateMemory = new Map<string, AppliedPromptState>();
-const promptApplyQueueTails = new Map<string, Promise<void>>();
+
+/**
+ * Per-data-dir serialization of prompt applies. SQLite serializes every
+ * writer to a data directory, so the in-process gate must use the same
+ * scope — otherwise a second synchronous BEGIN could block the event loop
+ * while the first holder awaits reconciliation. Was a hand-rolled promise
+ * queue (`promptApplyQueueTails`); now a fair FIFO `Semaphore(1)` per
+ * resolved data dir, held across the whole apply Effect.
+ */
+const promptApplyLocks = new Map<string, Semaphore.Semaphore>();
+
+const promptApplyLockFor = (stellaDataDir: string): Semaphore.Semaphore => {
+  const key = path.resolve(stellaDataDir);
+  let lock = promptApplyLocks.get(key);
+  if (!lock) {
+    lock = Semaphore.makeUnsafe(1);
+    promptApplyLocks.set(key, lock);
+  }
+  return lock;
+};
 
 type SqliteDatabaseCtor = new (path: string) => SqliteDatabase;
 
 const dynamicImport = (specifier: string): Promise<Record<string, unknown>> =>
   import(/* @vite-ignore */ specifier) as Promise<Record<string, unknown>>;
+
+/** Adapt a leaf Promise IO call, failing with the raw thrown value. */
+const tryIO = <A>(f: () => Promise<A>): Effect.Effect<A, unknown> =>
+  Effect.tryPromise({ try: f, catch: (error) => error });
 
 /**
  * The prompt sync runs in Electron/Node and Stella's detached Bun
@@ -95,7 +131,7 @@ const loadSqliteDatabaseCtor = async (): Promise<SqliteDatabaseCtor> => {
   if (typeof bunSqlite.Database === "function") {
     return bunSqlite.Database as SqliteDatabaseCtor;
   }
-  throw new Error("No compatible SQLite runtime is available.");
+  throw new SqliteRuntimeUnavailableError();
 };
 
 export const resetPromptAppliedStateMemoryForTests = (): void => {
@@ -447,7 +483,7 @@ const writeAppliedStateAtomic = async (
   );
   const content = `${JSON.stringify(state, null, 2)}\n`;
   if (utf8Bytes(content) > PROMPT_APPLIED_STATE_RECORD_MAX_BYTES) {
-    throw new Error("Prompt applied-state record exceeds the size limit");
+    throw new AppliedStateRecordTooLargeError();
   }
   const existing = await readAppliedStateRecord(filePath);
   if (existing) {
@@ -456,7 +492,7 @@ const writeAppliedStateAtomic = async (
       existing.publishedAt !== state.publishedAt ||
       existing.revision !== state.revision
     ) {
-      throw new Error("Prompt applied-state record collision");
+      throw new AppliedStateRecordCollisionError();
     }
     const fileHandle = await fs.open(filePath, "r");
     try {
@@ -484,25 +520,39 @@ const writeAppliedStateAtomic = async (
   }
 };
 
-export const compactAppliedStateRecords = async (
+export const compactAppliedStateRecordsEffect = (
   stellaDataDir: string,
   endpoint: string,
   options: { onDurableDelete?: (filePath: string) => Promise<void> } = {},
-): Promise<void> => {
-  const records = await listAppliedStateRecords(stellaDataDir, endpoint);
-  records.sort((left, right) => {
-    if (left.state.publishedAt !== right.state.publishedAt) {
-      return right.state.publishedAt - left.state.publishedAt;
+): Effect.Effect<void, unknown> =>
+  Effect.gen(function* () {
+    const records = yield* tryIO(() =>
+      listAppliedStateRecords(stellaDataDir, endpoint),
+    );
+    records.sort((left, right) => {
+      if (left.state.publishedAt !== right.state.publishedAt) {
+        return right.state.publishedAt - left.state.publishedAt;
+      }
+      return right.state.revision.localeCompare(left.state.revision);
+    });
+    const obsolete = records.slice(PROMPT_APPLIED_STATE_RECOVERY_RECORDS);
+    for (const record of obsolete) {
+      yield* tryIO(() => fs.rm(record.filePath));
+      yield* tryIO(() =>
+        syncDirectory(appliedStateEndpointDir(stellaDataDir, endpoint)),
+      );
+      yield* tryIO(async () => {
+        await options.onDurableDelete?.(record.filePath);
+      });
     }
-    return right.state.revision.localeCompare(left.state.revision);
   });
-  const obsolete = records.slice(PROMPT_APPLIED_STATE_RECOVERY_RECORDS);
-  for (const record of obsolete) {
-    await fs.rm(record.filePath);
-    await syncDirectory(appliedStateEndpointDir(stellaDataDir, endpoint));
-    await options.onDurableDelete?.(record.filePath);
-  }
-};
+
+export const compactAppliedStateRecords = (
+  stellaDataDir: string,
+  endpoint: string,
+  options: { onDurableDelete?: (filePath: string) => Promise<void> } = {},
+): Promise<void> =>
+  runHome(compactAppliedStateRecordsEffect(stellaDataDir, endpoint, options));
 
 const acquirePromptApplyDatabaseLock = async (
   stellaDataDir: string,
@@ -531,101 +581,116 @@ const releasePromptApplyDatabaseLock = (database: SqliteDatabase): void => {
   }
 };
 
-const withPromptApplyLock = async <T>(
+/**
+ * Run `operation` holding both the in-process turn (fair per-data-dir
+ * semaphore) and the cross-process SQLite `BEGIN IMMEDIATE` lock. The
+ * `acquireUseRelease` release runs on success, failure, AND interruption, so
+ * the kernel lock can never leak past the apply — the proof the old
+ * try/finally provided by convention.
+ */
+const withPromptApplyLockEffect = <A>(
   stellaDataDir: string,
   endpoint: string,
-  operation: () => Promise<T>,
-): Promise<T> => {
-  // SQLite serializes every writer to this data directory, so the in-process
-  // queue must use the same scope. Otherwise a second synchronous BEGIN could
-  // block the event loop while the first holder awaits reconciliation.
-  const key = path.resolve(stellaDataDir);
-  const previous = promptApplyQueueTails.get(key) ?? Promise.resolve();
-  let releaseTurn!: () => void;
-  const turn = new Promise<void>((resolve) => {
-    releaseTurn = resolve;
-  });
-  promptApplyQueueTails.set(key, turn);
-  await previous;
-  let database: SqliteDatabase | null = null;
-  try {
-    database = await acquirePromptApplyDatabaseLock(stellaDataDir, endpoint);
-    return await operation();
-  } finally {
-    if (database) releasePromptApplyDatabaseLock(database);
-    releaseTurn();
-    if (promptApplyQueueTails.get(key) === turn) {
-      promptApplyQueueTails.delete(key);
-    }
-  }
-};
+  operation: Effect.Effect<A, unknown>,
+): Effect.Effect<A, unknown> =>
+  Effect.suspend(() =>
+    promptApplyLockFor(stellaDataDir).withPermit(
+      Effect.acquireUseRelease(
+        tryIO(() => acquirePromptApplyDatabaseLock(stellaDataDir, endpoint)),
+        () => operation,
+        (database) =>
+          Effect.sync(() => releasePromptApplyDatabaseLock(database)),
+      ),
+    ),
+  );
 
-export class StalePromptManifestError extends Error {
-  constructor(
-    readonly candidate: AppliedPromptState,
-    readonly winner: AppliedPromptState,
-  ) {
-    super(
-      `Prompt publication ${candidate.publishedAt}/${candidate.revision} is stale; durable maximum is ${winner.publishedAt}/${winner.revision}`,
-    );
-    this.name = "StalePromptManifestError";
-  }
-}
-
-const recordAppliedPromptManifestLocked = async (args: {
+const recordAppliedPromptManifestLockedEffect = (args: {
   stellaDataDir: string;
   endpoint: string;
   manifest: RemotePromptManifest;
   writeStateImpl?: typeof writeAppliedStateAtomic;
-}): Promise<AppliedPromptState> => {
-  const candidate: AppliedPromptState = {
-    endpoint: args.endpoint,
-    publishedAt: args.manifest.publishedAt,
-    revision: args.manifest.revision,
-  };
-  await (args.writeStateImpl ?? writeAppliedStateAtomic)(
-    args.stellaDataDir,
-    candidate,
-  );
-  const winner = await readDurableAppliedState(
+}): Effect.Effect<AppliedPromptState, unknown> =>
+  Effect.gen(function* () {
+    const candidate: AppliedPromptState = {
+      endpoint: args.endpoint,
+      publishedAt: args.manifest.publishedAt,
+      revision: args.manifest.revision,
+    };
+    yield* tryIO(() =>
+      (args.writeStateImpl ?? writeAppliedStateAtomic)(
+        args.stellaDataDir,
+        candidate,
+      ),
+    );
+    const winner = yield* tryIO(() =>
+      readDurableAppliedState(args.stellaDataDir, args.endpoint),
+    );
+    if (!winner) {
+      return yield* Effect.fail(new AppliedStateVanishedError());
+    }
+    appliedStateMemory.set(
+      appliedStateKey(args.stellaDataDir, args.endpoint),
+      winner,
+    );
+    yield* compactAppliedStateRecordsEffect(args.stellaDataDir, args.endpoint);
+    if (
+      winner.publishedAt !== candidate.publishedAt ||
+      winner.revision !== candidate.revision
+    ) {
+      return yield* Effect.fail(
+        new StalePromptManifestError({ candidate, winner }),
+      );
+    }
+    return winner;
+  });
+
+export const recordAppliedPromptManifestEffect = (args: {
+  stellaDataDir: string;
+  endpoint: string;
+  manifest: RemotePromptManifest;
+  writeStateImpl?: typeof writeAppliedStateAtomic;
+}): Effect.Effect<AppliedPromptState, unknown> =>
+  withPromptApplyLockEffect(
     args.stellaDataDir,
     args.endpoint,
+    recordAppliedPromptManifestLockedEffect(args),
   );
-  if (!winner) throw new Error("Applied prompt state vanished after write");
-  appliedStateMemory.set(
-    appliedStateKey(args.stellaDataDir, args.endpoint),
-    winner,
-  );
-  await compactAppliedStateRecords(args.stellaDataDir, args.endpoint);
-  if (
-    winner.publishedAt !== candidate.publishedAt ||
-    winner.revision !== candidate.revision
-  ) {
-    throw new StalePromptManifestError(candidate, winner);
-  }
-  return winner;
-};
 
-export const recordAppliedPromptManifest = async (args: {
+export const recordAppliedPromptManifest = (args: {
   stellaDataDir: string;
   endpoint: string;
   manifest: RemotePromptManifest;
   writeStateImpl?: typeof writeAppliedStateAtomic;
 }): Promise<AppliedPromptState> =>
-  withPromptApplyLock(args.stellaDataDir, args.endpoint, () =>
-    recordAppliedPromptManifestLocked(args),
+  runHome(recordAppliedPromptManifestEffect(args));
+
+export const applyPromptManifestIfCurrentEffect = <T>(args: {
+  stellaDataDir: string;
+  endpoint: string;
+  manifest: RemotePromptManifest;
+  reconcile: Effect.Effect<T, unknown>;
+}): Effect.Effect<T, unknown> =>
+  withPromptApplyLockEffect(
+    args.stellaDataDir,
+    args.endpoint,
+    Effect.gen(function* () {
+      yield* recordAppliedPromptManifestLockedEffect(args);
+      return yield* args.reconcile;
+    }),
   );
 
-export const applyPromptManifestIfCurrent = async <T>(args: {
+export const applyPromptManifestIfCurrent = <T>(args: {
   stellaDataDir: string;
   endpoint: string;
   manifest: RemotePromptManifest;
   reconcile: () => Promise<T>;
 }): Promise<T> =>
-  withPromptApplyLock(args.stellaDataDir, args.endpoint, async () => {
-    await recordAppliedPromptManifestLocked(args);
-    return await args.reconcile();
-  });
+  runHome(
+    applyPromptManifestIfCurrentEffect({
+      ...args,
+      reconcile: tryIO(args.reconcile),
+    }),
+  );
 
 const writeCacheAtomic = async (
   stellaDataDir: string,
@@ -682,86 +747,120 @@ const highestKnownState = (
     : applied;
 };
 
-export const resolvePromptManifest = async (args: {
+type FetchedManifestBody =
+  | { notModified: true }
+  | { notModified: false; body: unknown };
+
+export const resolvePromptManifestEffect = (args: {
   stellaDataDir: string;
   siteUrl?: string | null;
   fetchImpl?: typeof fetch;
   writeCacheImpl?: typeof writeCacheAtomic;
-}): Promise<PromptManifestResolution> => {
-  const siteUrl = args.siteUrl?.trim();
-  const configuredEndpoint = siteUrl
-    ? stellaPromptEndpointFromSiteUrl(siteUrl)
-    : undefined;
-  const cached = await readCache(args.stellaDataDir, configuredEndpoint);
-  const initialApplied = await readAppliedState(
-    args.stellaDataDir,
-    configuredEndpoint,
-  );
-  const endpoint =
-    configuredEndpoint ?? cached?.endpoint ?? initialApplied?.endpoint;
-  if (!endpoint) {
-    return { source: "unavailable", manifest: null };
-  }
-  const applied =
-    initialApplied?.endpoint === endpoint
-      ? initialApplied
-      : await readAppliedState(args.stellaDataDir, endpoint);
-  const highWater = highestKnownState(cached, applied);
-  const safeCached =
-    cached && (!applied || !isRollback(cached.manifest, applied))
-      ? cached
-      : null;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const headers: Record<string, string> = {};
-    if (cached) headers["If-None-Match"] = publicationEtag(cached.manifest);
-    const response = await (args.fetchImpl ?? fetch)(endpoint, {
-      headers,
-      signal: controller.signal,
-    });
-    if (response.status === 304 && safeCached) {
-      return {
-        source: "fresh-remote",
-        manifest: safeCached.manifest,
-        endpoint,
-      };
-    }
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const manifest = parseRemotePromptManifest(
-      await readBoundedJsonResponse(response),
+}): Effect.Effect<PromptManifestResolution, unknown> =>
+  Effect.gen(function* () {
+    const siteUrl = args.siteUrl?.trim();
+    const configuredEndpoint = siteUrl
+      ? stellaPromptEndpointFromSiteUrl(siteUrl)
+      : undefined;
+    const cached = yield* tryIO(() =>
+      readCache(args.stellaDataDir, configuredEndpoint),
     );
-    if (!manifest) throw new Error("Invalid prompt manifest");
-    if (highWater && isRollback(manifest, highWater)) {
-      return safeCached
-        ? { source: "cached-remote", manifest: safeCached.manifest, endpoint }
-        : { source: "unavailable", manifest: null, endpoint };
+    const initialApplied = yield* tryIO(() =>
+      readAppliedState(args.stellaDataDir, configuredEndpoint),
+    );
+    const endpoint =
+      configuredEndpoint ?? cached?.endpoint ?? initialApplied?.endpoint;
+    if (!endpoint) {
+      return { source: "unavailable" as const, manifest: null };
     }
+    const applied =
+      initialApplied?.endpoint === endpoint
+        ? initialApplied
+        : yield* tryIO(() => readAppliedState(args.stellaDataDir, endpoint));
+    const highWater = highestKnownState(cached, applied);
+    const safeCached =
+      cached && (!applied || !isRollback(cached.manifest, applied))
+        ? cached
+        : null;
 
-    const nextCache: CachedPromptManifest = {
-      endpoint,
-      etag: publicationEtag(manifest),
-      manifest,
-    };
-    await (args.writeCacheImpl ?? writeCacheAtomic)(
-      args.stellaDataDir,
-      nextCache,
-    ).catch((error) => {
-      console.warn(
-        "[stella-home] Could not persist prompt manifest cache:",
-        error,
-      );
-    });
-    return { source: "fresh-remote", manifest, endpoint };
-  } catch {
-    return safeCached
+    const fallback: PromptManifestResolution = safeCached
       ? { source: "cached-remote", manifest: safeCached.manifest, endpoint }
       : { source: "unavailable", manifest: null, endpoint };
-  } finally {
-    clearTimeout(timeout);
-  }
-};
+
+    // The remote attempt. The fetch + bounded body read run under a 3s
+    // Effect.timeout whose interruption aborts the request through the
+    // tryPromise AbortSignal — this replaces the pre-Effect
+    // AbortController + setTimeout budget. Any failure (timeout, HTTP
+    // error, oversized/invalid manifest) falls back to the safe cache.
+    const attempt: Effect.Effect<PromptManifestResolution, unknown> =
+      Effect.gen(function* () {
+        const headers: Record<string, string> = {};
+        if (cached) headers["If-None-Match"] = publicationEtag(cached.manifest);
+        const fetched: FetchedManifestBody = yield* Effect.tryPromise({
+          try: async (signal): Promise<FetchedManifestBody> => {
+            const response = await (args.fetchImpl ?? fetch)(endpoint, {
+              headers,
+              signal,
+            });
+            if (response.status === 304 && safeCached) {
+              return { notModified: true };
+            }
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return {
+              notModified: false,
+              body: await readBoundedJsonResponse(response),
+            };
+          },
+          catch: (error) => error,
+        }).pipe(Effect.timeout(FETCH_TIMEOUT_MS));
+        if (fetched.notModified) {
+          return {
+            source: "fresh-remote" as const,
+            manifest: safeCached!.manifest,
+            endpoint,
+          };
+        }
+        const manifest = parseRemotePromptManifest(fetched.body);
+        if (!manifest) {
+          return yield* Effect.fail(new Error("Invalid prompt manifest"));
+        }
+        if (highWater && isRollback(manifest, highWater)) {
+          return fallback;
+        }
+
+        const nextCache: CachedPromptManifest = {
+          endpoint,
+          etag: publicationEtag(manifest),
+          manifest,
+        };
+        yield* tryIO(() =>
+          (args.writeCacheImpl ?? writeCacheAtomic)(
+            args.stellaDataDir,
+            nextCache,
+          ),
+        ).pipe(
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              console.warn(
+                "[stella-home] Could not persist prompt manifest cache:",
+                error,
+              );
+            }),
+          ),
+        );
+        return { source: "fresh-remote" as const, manifest, endpoint };
+      });
+
+    return yield* attempt.pipe(Effect.catch(() => Effect.succeed(fallback)));
+  });
+
+export const resolvePromptManifest = (args: {
+  stellaDataDir: string;
+  siteUrl?: string | null;
+  fetchImpl?: typeof fetch;
+  writeCacheImpl?: typeof writeCacheAtomic;
+}): Promise<PromptManifestResolution> =>
+  runHome(resolvePromptManifestEffect(args));
 
 const readAgentMetadataFrontmatter = async (
   agentMetadataDir: string,
@@ -773,7 +872,7 @@ const readAgentMetadataFrontmatter = async (
   );
   const match = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
   if (!match) {
-    throw new Error(`Agent metadata ${id} is missing valid frontmatter`);
+    throw new AgentMetadataFrontmatterError({ id });
   }
   return match[0];
 };
@@ -847,30 +946,46 @@ const createRemoteAdapter = (
   },
 });
 
-export const reconcileRemotePromptManifest = async (
+export const reconcileRemotePromptManifestEffect = (
   manifest: RemotePromptManifest,
   stellaDataDir: string,
   agentMetadataDir: string,
-): Promise<BundledSyncReport[]> => {
-  const reports: BundledSyncReport[] = [];
-  const byArea = await resolveReconciledPrompts(manifest, agentMetadataDir);
-  for (const area of ["agents", "prompts"] as const) {
-    const entries = byArea.get(area)!;
-    const sourceKey = `remote:${area}:${manifest.revision}`;
-    reports.push(
-      await reconcileBundledEntries(
-        sourceKey,
-        path.join(stellaDataDir, area),
-        createRemoteAdapter(sourceKey, entries),
-        {
-          sourceRevision: manifest.revision,
-          removeObsolete: false,
-        },
-      ),
+): Effect.Effect<BundledSyncReport[], unknown> =>
+  Effect.gen(function* () {
+    const reports: BundledSyncReport[] = [];
+    const byArea = yield* tryIO(() =>
+      resolveReconciledPrompts(manifest, agentMetadataDir),
     );
-  }
-  return reports;
-};
+    for (const area of ["agents", "prompts"] as const) {
+      const entries = byArea.get(area)!;
+      const sourceKey = `remote:${area}:${manifest.revision}`;
+      reports.push(
+        yield* reconcileBundledEntriesEffect(
+          sourceKey,
+          path.join(stellaDataDir, area),
+          createRemoteAdapter(sourceKey, entries),
+          {
+            sourceRevision: manifest.revision,
+            removeObsolete: false,
+          },
+        ),
+      );
+    }
+    return reports;
+  });
+
+export const reconcileRemotePromptManifest = (
+  manifest: RemotePromptManifest,
+  stellaDataDir: string,
+  agentMetadataDir: string,
+): Promise<BundledSyncReport[]> =>
+  runHome(
+    reconcileRemotePromptManifestEffect(
+      manifest,
+      stellaDataDir,
+      agentMetadataDir,
+    ),
+  );
 
 /**
  * Transitional fallback for app versions that know about the Manager agent
@@ -879,11 +994,11 @@ export const reconcileRemotePromptManifest = async (
  * hash-history manifest, so a later remote Manager prompt can replace an
  * untouched fallback without trampling user edits.
  */
-export const reconcileBundledManagerPromptFallback = async (
+export const reconcileBundledManagerPromptFallbackEffect = (
   stellaDataDir: string,
   agentMetadataDir: string,
-): Promise<BundledSyncReport> =>
-  await reconcileBundledEntries(
+): Effect.Effect<BundledSyncReport, unknown> =>
+  reconcileBundledEntriesEffect(
     agentMetadataDir,
     path.join(stellaDataDir, "agents"),
     createFileEntryAdapter(".md"),
@@ -893,4 +1008,12 @@ export const reconcileBundledManagerPromptFallback = async (
       seedMissingOnly: true,
       removeObsolete: false,
     },
+  );
+
+export const reconcileBundledManagerPromptFallback = (
+  stellaDataDir: string,
+  agentMetadataDir: string,
+): Promise<BundledSyncReport> =>
+  runHome(
+    reconcileBundledManagerPromptFallbackEffect(stellaDataDir, agentMetadataDir),
   );

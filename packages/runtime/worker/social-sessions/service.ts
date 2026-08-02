@@ -11,6 +11,7 @@ import type {
   SocialSessionServiceSnapshot,
   SocialSessionRuntimeRecord,
 } from "@stella/contracts/protocol";
+import { forkDelayed, type WorkerTimerHandle } from "../effect-runtime.js";
 import type { SocialSessionRole, SocialSessionSyncRecord } from "./store.js";
 import {
   applySessionFileOp,
@@ -198,7 +199,7 @@ export class SocialSessionService {
   private clientUrl: string | null = null;
   private started = false;
   private sessionsUnsubscribe: (() => void) | null = null;
-  private tickTimer: ReturnType<typeof setTimeout> | null = null;
+  private tickTimer: WorkerTimerHandle | null = null;
   private tickRunning = false;
   private activeSessions = new Map<string, SessionRuntime>();
   private processingTurnId: string | null = null;
@@ -297,7 +298,7 @@ export class SocialSessionService {
 
   private clearTickTimer() {
     if (this.tickTimer) {
-      clearTimeout(this.tickTimer);
+      this.tickTimer.cancel();
       this.tickTimer = null;
     }
   }
@@ -307,9 +308,11 @@ export class SocialSessionService {
     if (!this.started) {
       return;
     }
-    this.tickTimer = setTimeout(() => {
+    // Reschedulable tick as a forked fiber (the old `setTimeout` +
+    // `clearTimeout` pair); the interval is unchanged.
+    this.tickTimer = forkDelayed(TICK_INTERVAL_MS, () => {
       void this.runTick();
-    }, TICK_INTERVAL_MS);
+    });
   }
 
   private rebuildSessionSnapshot(): SocialSessionRuntimeRecord[] {

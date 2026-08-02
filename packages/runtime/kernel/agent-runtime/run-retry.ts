@@ -233,6 +233,10 @@ export const prepareTransientResumeTail = (
     ? popEmptyCompletionTailForResume(messages)
     : popErroredTailForResume(messages);
 
+// Effect-ratchet pin (1 setTimeout): abort-aware retry backoff rejecting
+// with the caller's ORIGINAL abort reason (the "Request was aborted" parity
+// strings). The unref'd raw timer must never keep the process alive through
+// a retry window; an Effect sleep fiber would hold the event loop.
 const sleepWithAbort = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
     if (signal?.aborted) {

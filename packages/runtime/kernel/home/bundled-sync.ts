@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { Effect } from "effect";
+
 import { ensurePrivateDir } from "../shared/private-fs.js";
+import { runHomeEffect } from "./effect-run.js";
 
 /**
  * Reusable hash-history reconciliation of bundled entries into Stella home.
@@ -25,6 +28,10 @@ import { ensurePrivateDir } from "../shared/private-fs.js";
  * The directory-vs-file mechanics are pluggable via {@link BundledEntryAdapter}
  * so skills and backend-synchronized prompt snapshots share this one
  * algorithm.
+ *
+ * The reconciliation core is an Effect (`reconcileBundledEntriesEffect`);
+ * adapters stay plain Promise-shaped leaf IO (the HostBus convention:
+ * Effect semantics are applied at the point of use via `Effect.tryPromise`).
  */
 
 const MANIFEST_VERSION = 2 as const;
@@ -91,6 +98,10 @@ type BundledManifest = {
   version: typeof MANIFEST_VERSION;
   entries: Record<string, BundledManifestEntry>;
 };
+
+/** Adapt a leaf Promise IO call, failing with the raw thrown value. */
+const tryIO = <A>(f: () => Promise<A>): Effect.Effect<A, unknown> =>
+  Effect.tryPromise({ try: f, catch: (error) => error });
 
 const readManifest = async (
   manifestPath: string,
@@ -165,145 +176,159 @@ const writeManifest = async (
 
 /**
  * Reconcile bundled entries into a Stella home directory. Returns a report of
- * every decision so callers can log a summary.
+ * every decision so callers can log a summary. Effect-native core; the
+ * exported Promise API below is a facade over the shared home runtime.
  */
-export const reconcileBundledEntries = async (
+export const reconcileBundledEntriesEffect = (
   bundledDir: string,
   homeDir: string,
   adapter: BundledEntryAdapter,
   options: BundledSyncOptions = {},
-): Promise<BundledSyncReport> => {
-  await ensurePrivateDir(homeDir);
+): Effect.Effect<BundledSyncReport, unknown> =>
+  Effect.gen(function* () {
+    yield* tryIO(() => ensurePrivateDir(homeDir));
 
-  const manifestPath = path.join(
-    homeDir,
-    options.manifestFilename ?? DEFAULT_MANIFEST_FILENAME,
-  );
-  const manifest =
-    (await readManifest(manifestPath, options.legacyEntriesKey)) ??
-    ({ version: MANIFEST_VERSION, entries: {} } as BundledManifest);
-  const sourceRevision = options.sourceRevision?.trim() || "bundled";
-  const seedMissingOnly = options.seedMissingOnly === true;
+    const manifestPath = path.join(
+      homeDir,
+      options.manifestFilename ?? DEFAULT_MANIFEST_FILENAME,
+    );
+    const manifest =
+      (yield* tryIO(() =>
+        readManifest(manifestPath, options.legacyEntriesKey),
+      )) ?? ({ version: MANIFEST_VERSION, entries: {} } as BundledManifest);
+    const sourceRevision = options.sourceRevision?.trim() || "bundled";
+    const seedMissingOnly = options.seedMissingOnly === true;
 
-  const includeBundledId = options.includeBundledId ?? (() => true);
-  const bundledIds = (await adapter.listIds(bundledDir)).filter(
-    includeBundledId,
-  );
-  const homeIds = await adapter.listIds(homeDir);
+    const includeBundledId = options.includeBundledId ?? (() => true);
+    const bundledIds = (yield* tryIO(() =>
+      adapter.listIds(bundledDir),
+    )).filter(includeBundledId);
+    const homeIds = yield* tryIO(() => adapter.listIds(homeDir));
 
-  const actions: BundledSyncAction[] = [];
-  const nextEntries: Record<string, BundledManifestEntry> = {
-    ...manifest.entries,
-  };
-
-  // 1. Reconcile every bundled entry against home + manifest.
-  for (const id of bundledIds) {
-    const bundledHash = await adapter.hash(bundledDir, id);
-    if (!bundledHash) continue;
-
-    const homeHash = await adapter.hash(homeDir, id);
-    const recorded = manifest.entries[id];
-    const recordedHash = recorded?.lastSyncedHash;
-
-    if (homeHash === null) {
-      await adapter.copy(bundledDir, homeDir, id);
-      nextEntries[id] = {
-        lastSyncedHash: bundledHash,
-        sourceRevision,
-        customized: false,
-      };
-      actions.push({ type: "seed", id, bundledHash });
-      continue;
-    }
-
-    if (seedMissingOnly) {
-      // Bundled bootstrap runs after fresh/cached remote reconciliation. If a
-      // file already exists, its remote/customization history is authoritative;
-      // an older app bundle must not rewrite either the file or its metadata.
-      if (recorded) {
-        nextEntries[id] = recorded;
-        continue;
-      }
-      if (homeHash !== bundledHash) {
-        actions.push({
-          type: "skip-user-modified",
-          id,
-          reason: "no-manifest",
-        });
-        continue;
-      }
-    }
-
-    if (homeHash === bundledHash) {
-      nextEntries[id] = {
-        lastSyncedHash: bundledHash,
-        sourceRevision,
-        customized: false,
-      };
-      if (recordedHash !== bundledHash) {
-        actions.push({ type: "adopt-identical", id, bundledHash });
-      }
-      continue;
-    }
-
-    if (
-      !seedMissingOnly &&
-      recordedHash !== undefined &&
-      recordedHash === homeHash
-    ) {
-      // Bundled changed, user hasn't touched it. Adapters replace atomically;
-      // removing first would create a crash window with no usable entry.
-      await adapter.copy(bundledDir, homeDir, id);
-      nextEntries[id] = {
-        lastSyncedHash: bundledHash,
-        sourceRevision,
-        customized: false,
-      };
-      actions.push({ type: "update", id, bundledHash });
-      continue;
-    }
-
-    // User diverged (or first run with no manifest entry). Never overwrite.
-    nextEntries[id] = {
-      lastSyncedHash: recordedHash ?? bundledHash,
-      sourceRevision: recorded?.sourceRevision ?? sourceRevision,
-      customized: true,
+    const actions: BundledSyncAction[] = [];
+    const nextEntries: Record<string, BundledManifestEntry> = {
+      ...manifest.entries,
     };
-    actions.push({
-      type: "skip-user-modified",
-      id,
-      reason: recordedHash === undefined ? "no-manifest" : "diverged",
-    });
-  }
 
-  // 2. Handle entries the bundle no longer ships.
-  const bundledIdSet = new Set(bundledIds);
-  for (const id of options.removeObsolete === false ? [] : homeIds) {
-    if (bundledIdSet.has(id)) continue;
-    const recorded = manifest.entries[id];
-    const recordedHash = recorded?.lastSyncedHash;
-    if (recordedHash === undefined) {
-      actions.push({ type: "ignore-user-entry", id });
-      continue;
-    }
-    const homeHash = await adapter.hash(homeDir, id);
-    if (homeHash !== null && homeHash === recordedHash) {
-      await adapter.remove(homeDir, id);
-      delete nextEntries[id];
-      actions.push({ type: "remove-obsolete", id });
-    } else {
-      nextEntries[id] = { ...recorded, customized: true };
-      actions.push({ type: "skip-obsolete-user-modified", id });
-    }
-  }
+    // 1. Reconcile every bundled entry against home + manifest.
+    for (const id of bundledIds) {
+      const bundledHash = yield* tryIO(() => adapter.hash(bundledDir, id));
+      if (!bundledHash) continue;
 
-  await writeManifest(manifestPath, {
-    version: MANIFEST_VERSION,
-    entries: nextEntries,
+      const homeHash = yield* tryIO(() => adapter.hash(homeDir, id));
+      const recorded = manifest.entries[id];
+      const recordedHash = recorded?.lastSyncedHash;
+
+      if (homeHash === null) {
+        yield* tryIO(() => adapter.copy(bundledDir, homeDir, id));
+        nextEntries[id] = {
+          lastSyncedHash: bundledHash,
+          sourceRevision,
+          customized: false,
+        };
+        actions.push({ type: "seed", id, bundledHash });
+        continue;
+      }
+
+      if (seedMissingOnly) {
+        // Bundled bootstrap runs after fresh/cached remote reconciliation. If a
+        // file already exists, its remote/customization history is authoritative;
+        // an older app bundle must not rewrite either the file or its metadata.
+        if (recorded) {
+          nextEntries[id] = recorded;
+          continue;
+        }
+        if (homeHash !== bundledHash) {
+          actions.push({
+            type: "skip-user-modified",
+            id,
+            reason: "no-manifest",
+          });
+          continue;
+        }
+      }
+
+      if (homeHash === bundledHash) {
+        nextEntries[id] = {
+          lastSyncedHash: bundledHash,
+          sourceRevision,
+          customized: false,
+        };
+        if (recordedHash !== bundledHash) {
+          actions.push({ type: "adopt-identical", id, bundledHash });
+        }
+        continue;
+      }
+
+      if (
+        !seedMissingOnly &&
+        recordedHash !== undefined &&
+        recordedHash === homeHash
+      ) {
+        // Bundled changed, user hasn't touched it. Adapters replace atomically;
+        // removing first would create a crash window with no usable entry.
+        yield* tryIO(() => adapter.copy(bundledDir, homeDir, id));
+        nextEntries[id] = {
+          lastSyncedHash: bundledHash,
+          sourceRevision,
+          customized: false,
+        };
+        actions.push({ type: "update", id, bundledHash });
+        continue;
+      }
+
+      // User diverged (or first run with no manifest entry). Never overwrite.
+      nextEntries[id] = {
+        lastSyncedHash: recordedHash ?? bundledHash,
+        sourceRevision: recorded?.sourceRevision ?? sourceRevision,
+        customized: true,
+      };
+      actions.push({
+        type: "skip-user-modified",
+        id,
+        reason: recordedHash === undefined ? "no-manifest" : "diverged",
+      });
+    }
+
+    // 2. Handle entries the bundle no longer ships.
+    const bundledIdSet = new Set(bundledIds);
+    for (const id of options.removeObsolete === false ? [] : homeIds) {
+      if (bundledIdSet.has(id)) continue;
+      const recorded = manifest.entries[id];
+      const recordedHash = recorded?.lastSyncedHash;
+      if (recordedHash === undefined) {
+        actions.push({ type: "ignore-user-entry", id });
+        continue;
+      }
+      const homeHash = yield* tryIO(() => adapter.hash(homeDir, id));
+      if (homeHash !== null && homeHash === recordedHash) {
+        yield* tryIO(() => adapter.remove(homeDir, id));
+        delete nextEntries[id];
+        actions.push({ type: "remove-obsolete", id });
+      } else {
+        nextEntries[id] = { ...recorded, customized: true };
+        actions.push({ type: "skip-obsolete-user-modified", id });
+      }
+    }
+
+    yield* tryIO(() =>
+      writeManifest(manifestPath, {
+        version: MANIFEST_VERSION,
+        entries: nextEntries,
+      }),
+    );
+
+    return { actions };
   });
 
-  return { actions };
-};
+/** Plain-Promise facade preserved for existing callers. */
+export const reconcileBundledEntries = (
+  bundledDir: string,
+  homeDir: string,
+  adapter: BundledEntryAdapter,
+  options: BundledSyncOptions = {},
+): Promise<BundledSyncReport> =>
+  runHomeEffect(reconcileBundledEntriesEffect(bundledDir, homeDir, adapter, options));
 
 export const summarizeBundledSync = (report: BundledSyncReport): string => {
   const tally = {

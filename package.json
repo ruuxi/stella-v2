@@ -42,6 +42,7 @@
     "packaging:verify-social": "node packages/desktop/scripts/verify-packaged-social-session.mjs",
     "postinstall": "node packages/desktop/scripts/postinstall-dist-electron.mjs && node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback --best-effort",
     "check:boundary": "node packages/runtime/scripts/check-boundary.mjs",
+    "check:ratchet": "node packages/runtime/scripts/check-effect-ratchet.mjs",
     "check:activity-titles": "bun packages/desktop/scripts/check-activity-title-projection.js"
   },
   "dependencies": {

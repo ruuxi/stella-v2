@@ -939,7 +939,6 @@ export const createRunnerContext = ({
       queuedOrchestratorTurns: [],
       runCoordinator: null,
       pendingFollowUpReplies: new Map(),
-      activeRunAbortControllers: new Map(),
       supervisor: createKernelRunSupervisor(),
       conversationCallbacks: new Map(),
       runCallbacksByRunId: new Map(),

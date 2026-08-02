@@ -13,10 +13,16 @@
  * Effect-owned compaction scheduler calls `notifyCompacted`, and PiSessionCore
  * reloads the persisted thread before the next turn, so duplicating that
  * imperative mutation here would race the current session ownership model.
+ *
+ * Effect-native: the disk reads are Effects; because the planner runs inside
+ * a SQLite transaction, the exported read APIs stay synchronous facades over
+ * the shared memory ManagedRuntime (`runMemorySync`). Planning/telemetry are
+ * pure/plain and unchanged.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+import { Effect } from "effect";
 import { redactMemoryText } from "./redaction.js";
 import {
   MEMORY_MAP_MAX_CHARS,
@@ -26,6 +32,7 @@ import {
 } from "./dream-storage.js";
 import { USER_PROFILE_INJECTED_MAX_CHARS } from "./user-profile-store.js";
 import { createRuntimeLogger } from "../debug.js";
+import { runMemorySync } from "./effect-runtime.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type {
   RuntimeThreadCustomMessageEntry,
@@ -71,11 +78,19 @@ const capResidentMemoryDoc = (content: string, maxChars?: number): string => {
   );
 };
 
-const readResidentMemoryDoc = (
+/** Run one sync read; ANY failure (missing file, bad UTF-8) is undefined. */
+const swallowToUndefined = <A>(
+  op: () => A | undefined,
+): Effect.Effect<A | undefined> =>
+  Effect.try({ try: op, catch: () => undefined }).pipe(
+    Effect.catch(() => Effect.succeed(undefined)),
+  );
+
+const readResidentMemoryDocEffect = (
   filePath: string,
   maxChars?: number,
-): string | undefined => {
-  try {
+): Effect.Effect<string | undefined> =>
+  swallowToUndefined(() => {
     // The retired archive/charter transport stays byte-for-byte on disk; only
     // the model-facing view drops HTML comments, before cap accounting.
     const bytes = fs.readFileSync(filePath);
@@ -85,77 +100,98 @@ const readResidentMemoryDoc = (
     return content
       ? capResidentMemoryDoc(redactMemoryText(content), maxChars)
       : undefined;
-  } catch {
-    return undefined;
-  }
-};
+  });
 
-export const readCoreMemory = (stellaDataDir: string): string | undefined => {
-  const candidatePaths = [
-    path.join(stellaDataDir, "core-memory.md"),
-    path.join(stellaDataDir, "CORE_MEMORY.MD"),
-  ];
-  for (const filePath of candidatePaths) {
-    try {
-      const content = fs.readFileSync(filePath, "utf-8").trim();
+export const readCoreMemoryEffect = (
+  stellaDataDir: string,
+): Effect.Effect<string | undefined> =>
+  Effect.gen(function* () {
+    const candidatePaths = [
+      path.join(stellaDataDir, "core-memory.md"),
+      path.join(stellaDataDir, "CORE_MEMORY.MD"),
+    ];
+    for (const filePath of candidatePaths) {
+      const content = yield* swallowToUndefined(() =>
+        fs.readFileSync(filePath, "utf-8").trim(),
+      );
       if (content) return redactMemoryText(content);
-    } catch {
-      continue;
     }
-  }
-  return undefined;
-};
+    return undefined;
+  });
 
-export const readMemoryMapDoc = (stellaDataDir: string): string | undefined =>
-  readResidentMemoryDoc(
+export const readCoreMemory = (stellaDataDir: string): string | undefined =>
+  runMemorySync(readCoreMemoryEffect(stellaDataDir));
+
+export const readMemoryMapDocEffect = (
+  stellaDataDir: string,
+): Effect.Effect<string | undefined> =>
+  readResidentMemoryDocEffect(
     path.join(stellaDataDir, "memories", "memory_map.md"),
     MEMORY_MAP_MAX_CHARS,
   );
 
-export const readUserProfileDoc = (stellaDataDir: string): string | undefined =>
-  readResidentMemoryDoc(
+export const readMemoryMapDoc = (stellaDataDir: string): string | undefined =>
+  runMemorySync(readMemoryMapDocEffect(stellaDataDir));
+
+export const readUserProfileDocEffect = (
+  stellaDataDir: string,
+): Effect.Effect<string | undefined> =>
+  readResidentMemoryDocEffect(
     path.join(stellaDataDir, "memories", "profile.md"),
     USER_PROFILE_INJECTED_MAX_CHARS,
   );
 
-const readOptionalTextFileSync = (filePath: string): string | undefined => {
-  try {
-    const content = fs.readFileSync(filePath, "utf-8").trim();
-    return content || undefined;
-  } catch {
-    return undefined;
+export const readUserProfileDoc = (stellaDataDir: string): string | undefined =>
+  runMemorySync(readUserProfileDocEffect(stellaDataDir));
+
+const readOptionalTextFileEffect = (
+  filePath: string,
+): Effect.Effect<string | undefined> =>
+  swallowToUndefined(() => fs.readFileSync(filePath, "utf-8").trim()).pipe(
+    Effect.map((content) => content || undefined),
+  );
+
+export const readStartupDocBodyFromDiskEffect = (
+  stellaDataDir: string,
+  displayPath: string,
+): Effect.Effect<string | undefined> => {
+  switch (displayPath) {
+    case LIFE_PERSONALITY_DISPLAY_PATH:
+      return readOptionalTextFileEffect(
+        path.join(stellaDataDir, "PERSONALITY.md"),
+      );
+    case LIFE_REGISTRY_DISPLAY_PATH:
+      return readOptionalTextFileEffect(path.join(stellaDataDir, "registry.md"));
+    case LIFE_CORE_MEMORY_DISPLAY_PATH:
+      return readCoreMemoryEffect(stellaDataDir).pipe(
+        Effect.map((coreMemory) =>
+          coreMemory ? redactMemoryText(coreMemory.trim()) : undefined,
+        ),
+      );
+    case LIFE_USER_PROFILE_DISPLAY_PATH:
+      return readUserProfileDocEffect(stellaDataDir).pipe(
+        Effect.map((profile) =>
+          profile ? redactMemoryText(profile.trim()) : undefined,
+        ),
+      );
+    case LIFE_MEMORY_MAP_DISPLAY_PATH:
+      return readMemoryMapDocEffect(stellaDataDir).pipe(
+        Effect.map((memoryMap) =>
+          memoryMap ? redactMemoryText(memoryMap.trim()) : undefined,
+        ),
+      );
+    default:
+      // Retired summary/index labels deliberately have no fresh body. They
+      // remain frozen until a boundary can replace them with the map safely.
+      return Effect.succeed(undefined);
   }
 };
 
 export const readStartupDocBodyFromDisk = (
   stellaDataDir: string,
   displayPath: string,
-): string | undefined => {
-  switch (displayPath) {
-    case LIFE_PERSONALITY_DISPLAY_PATH:
-      return readOptionalTextFileSync(
-        path.join(stellaDataDir, "PERSONALITY.md"),
-      );
-    case LIFE_REGISTRY_DISPLAY_PATH:
-      return readOptionalTextFileSync(path.join(stellaDataDir, "registry.md"));
-    case LIFE_CORE_MEMORY_DISPLAY_PATH: {
-      const coreMemory = readCoreMemory(stellaDataDir);
-      return coreMemory ? redactMemoryText(coreMemory.trim()) : undefined;
-    }
-    case LIFE_USER_PROFILE_DISPLAY_PATH: {
-      const profile = readUserProfileDoc(stellaDataDir);
-      return profile ? redactMemoryText(profile.trim()) : undefined;
-    }
-    case LIFE_MEMORY_MAP_DISPLAY_PATH: {
-      const memoryMap = readMemoryMapDoc(stellaDataDir);
-      return memoryMap ? redactMemoryText(memoryMap.trim()) : undefined;
-    }
-    default:
-      // Retired summary/index labels deliberately have no fresh body. They
-      // remain frozen until a boundary can replace them with the map safely.
-      return undefined;
-  }
-};
+): string | undefined =>
+  runMemorySync(readStartupDocBodyFromDiskEffect(stellaDataDir, displayPath));
 
 const customMessageText = (
   content: string | Array<{ type: string; text?: string }>,

@@ -1,4 +1,5 @@
 import type { ToolResult } from "../tools/types.js";
+import { forkCancelableTimeout } from "./effect-runtime.js";
 
 /**
  * Shared per-tool inactivity bound for Stella tools bridged into external
@@ -46,11 +47,15 @@ export const executeToolWithInactivityBound = async (args: {
   ) => Promise<ToolResult>;
 }): Promise<ToolResult> => {
   const timeoutMs = args.timeoutMs ?? configuredInactivityTimeoutMs();
+  // Legitimate ratchet pin: the composed (outer + inactivity) cancellation
+  // must cross the tool-executor seam as a REAL AbortSignal, and the
+  // inactivity contribution is resettable — inexpressible via
+  // AbortSignal.any/timeout, so a controller stays.
   const toolAbort = new AbortController();
   const onOuterAbort = () => toolAbort.abort(args.signal?.reason);
   if (args.signal?.aborted) onOuterAbort();
   args.signal?.addEventListener("abort", onOuterAbort);
-  let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
+  let cancelInactivityTimer: (() => void) | undefined;
   let timedOut = false;
   let rejectOnInactivity: (error: Error) => void = () => {};
   const inactivityFailure = new Promise<never>((_, reject) => {
@@ -58,17 +63,17 @@ export const executeToolWithInactivityBound = async (args: {
   });
   inactivityFailure.catch(() => undefined);
   const armInactivityTimer = () => {
-    if (inactivityTimer) clearTimeout(inactivityTimer);
+    cancelInactivityTimer?.();
+    cancelInactivityTimer = undefined;
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return;
-    inactivityTimer = setTimeout(() => {
+    cancelInactivityTimer = forkCancelableTimeout(timeoutMs, () => {
       timedOut = true;
       const error = new Error(
         `Tool ${args.toolName} produced no output for ${Math.round(timeoutMs / 1000)}s and was cancelled. The agent may retry or continue without it.`,
       );
       toolAbort.abort(error);
       rejectOnInactivity(error);
-    }, timeoutMs);
-    inactivityTimer.unref?.();
+    });
   };
   armInactivityTimer();
 
@@ -87,7 +92,7 @@ export const executeToolWithInactivityBound = async (args: {
     }
     throw error;
   } finally {
-    if (inactivityTimer) clearTimeout(inactivityTimer);
+    cancelInactivityTimer?.();
     args.signal?.removeEventListener("abort", onOuterAbort);
   }
 };

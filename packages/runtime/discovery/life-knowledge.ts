@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Effect } from "effect";
+import { runDiscovery, tryDiscovery } from "./effect-io.js";
 import type {
   DiscoveryCategory,
   DiscoveryKnowledgeSeedPayload,
@@ -159,64 +161,77 @@ const buildSkillFile = (
 
 export const discoveryKnowledgeExists = async (
   stellaDataDir: string,
-): Promise<boolean> => {
-  try {
-    await fs.access(path.join(topicDir(stellaDataDir), "SKILL.md"));
-    return true;
-  } catch {
-    return false;
-  }
-};
+): Promise<boolean> =>
+  runDiscovery(
+    tryDiscovery(() =>
+      fs.access(path.join(topicDir(stellaDataDir), "SKILL.md")),
+    ).pipe(Effect.match({ onSuccess: () => true, onFailure: () => false })),
+  );
 
 export const writeDiscoveryKnowledge = async (
   stellaDataDir: string,
   payload: DiscoveryKnowledgeSeedPayload,
-): Promise<void> => {
-  const skillRoot = topicDir(stellaDataDir);
-  const rawRoot = rawDiscoveryDir(stellaDataDir);
-  await Promise.all([
-    fs.mkdir(skillRoot, { recursive: true }),
-    fs.mkdir(rawRoot, { recursive: true }),
-  ]);
+): Promise<void> =>
+  runDiscovery(
+    Effect.gen(function* () {
+      const skillRoot = topicDir(stellaDataDir);
+      const rawRoot = rawDiscoveryDir(stellaDataDir);
+      yield* Effect.all(
+        [
+          tryDiscovery(() => fs.mkdir(skillRoot, { recursive: true })),
+          tryDiscovery(() => fs.mkdir(rawRoot, { recursive: true })),
+        ],
+        { concurrency: "unbounded" },
+      );
 
-  const analyses = payload.categoryAnalyses ?? {};
+      const analyses = payload.categoryAnalyses ?? {};
 
-  const availableRawPages = rawSignalPages.filter(
-    (page) => payload.formattedSections[page.key]?.trim().length,
+      const availableRawPages = rawSignalPages.filter(
+        (page) => payload.formattedSections[page.key]?.trim().length,
+      );
+      const availableRawKeys = new Set(availableRawPages.map((p) => p.key));
+
+      const availableKnowledgePages = knowledgePages.filter(
+        (page) => analyses[page.key]?.trim().length,
+      );
+
+      yield* Effect.all(
+        [
+          tryDiscovery(() =>
+            fs.writeFile(
+              path.join(skillRoot, "SKILL.md"),
+              buildSkillFile(availableKnowledgePages, availableRawPages),
+              "utf-8",
+            ),
+          ),
+
+          // LLM-summarized summary pages
+          ...availableKnowledgePages.map((page) =>
+            tryDiscovery(() =>
+              fs.writeFile(
+                path.join(skillRoot, page.fileName),
+                buildKnowledgePage(
+                  page,
+                  analyses[page.key]!,
+                  availableRawKeys.has(page.key),
+                ),
+                "utf-8",
+              ),
+            ),
+          ),
+
+          // Raw signal dumps
+          ...availableRawPages.map((page) =>
+            tryDiscovery(() =>
+              fs.writeFile(
+                path.join(rawRoot, page.fileName),
+                buildRawFile(page, payload.formattedSections[page.key]!),
+                "utf-8",
+              ),
+            ),
+          ),
+        ],
+        { concurrency: "unbounded" },
+      );
+    }),
   );
-  const availableRawKeys = new Set(availableRawPages.map((p) => p.key));
-
-  const availableKnowledgePages = knowledgePages.filter(
-    (page) => analyses[page.key]?.trim().length,
-  );
-
-  await Promise.all([
-    fs.writeFile(
-      path.join(skillRoot, "SKILL.md"),
-      buildSkillFile(availableKnowledgePages, availableRawPages),
-      "utf-8",
-    ),
-
-    // LLM-summarized summary pages
-    ...availableKnowledgePages.map((page) =>
-      fs.writeFile(
-        path.join(skillRoot, page.fileName),
-        buildKnowledgePage(
-          page,
-          analyses[page.key]!,
-          availableRawKeys.has(page.key),
-        ),
-        "utf-8",
-      ),
-    ),
-
-    // Raw signal dumps
-    ...availableRawPages.map((page) =>
-      fs.writeFile(
-        path.join(rawRoot, page.fileName),
-        buildRawFile(page, payload.formattedSections[page.key]!),
-        "utf-8",
-      ),
-    ),
-  ]);
-};

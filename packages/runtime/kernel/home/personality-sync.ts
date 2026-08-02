@@ -3,6 +3,8 @@ import fs from "node:fs";
 import { promises as fsp } from "node:fs";
 import path from "node:path";
 
+import { Effect } from "effect";
+
 import {
   coercePersonalityId,
   type PersonalityId,
@@ -14,11 +16,12 @@ import {
   ensurePrivateDirSync,
 } from "../shared/private-fs.js";
 import {
-  reconcileBundledEntries,
+  reconcileBundledEntriesEffect,
   type BundledEntryAdapter,
   type BundledManifestEntry,
   type BundledSyncReport,
 } from "./bundled-sync.js";
+import { runHomeEffect } from "./effect-run.js";
 
 export const PERSONALITY_MANIFEST_FILENAME = ".personality-manifest.json";
 const PERSONALITY_ENTRY_ID = "PERSONALITY";
@@ -365,100 +368,121 @@ export const replacePersonalityIfHomeHashMatches = (args: {
   }
 };
 
-const reconcileSelectedPersonalityAttempt = async (
-  stellaDataDir: string,
-  sourceRevision: string,
-): Promise<{ report: BundledSyncReport; stable: boolean }> => {
-  await seedLegacyPersonalityMetadata(stellaDataDir);
-  const selectedId = coercePersonalityId(getPersonalityVoiceId(stellaDataDir));
-  const generation = intentionalWriteGeneration;
-  const content = resolvePersonalityPresetContent(stellaDataDir, selectedId);
-  const sourceKey = `personality:${selectedId}:${sourceRevision}`;
-  let expectedHomeHash: string | null | undefined;
-  let directEditDetected = false;
-  const adapter: BundledEntryAdapter = {
-    listIds: async (dir) => {
-      if (dir === sourceKey) return [PERSONALITY_ENTRY_ID];
-      try {
-        return (await fsp.stat(path.join(dir, PERSONALITY_FILENAME))).isFile()
-          ? [PERSONALITY_ENTRY_ID]
-          : [];
-      } catch {
-        return [];
-      }
-    },
-    hash: async (dir) => {
-      if (dir === sourceKey) return sha256(content);
-      try {
-        const homeHash = sha256(
-          await fsp.readFile(path.join(dir, PERSONALITY_FILENAME), "utf-8"),
-        );
-        expectedHomeHash = homeHash;
-        return homeHash;
-      } catch {
-        expectedHomeHash = null;
-        return null;
-      }
-    },
-    copy: async (_src, dest) => {
-      await ensurePrivateDir(dest);
-      const target = path.join(dest, PERSONALITY_FILENAME);
-      const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
-      await fsp.writeFile(temp, content, { encoding: "utf-8", mode: 0o600 });
-      if (
-        generation !== intentionalWriteGeneration ||
-        coercePersonalityId(getPersonalityVoiceId(stellaDataDir)) !== selectedId
-      ) {
-        await fsp.rm(temp, { force: true });
-        return;
-      }
-      if (
-        expectedHomeHash === undefined ||
-        !replacePersonalityIfHomeHashMatches({
-          target,
-          staged: temp,
-          expectedHomeHash,
-        })
-      ) {
-        directEditDetected = true;
-        await fsp.rm(temp, { force: true });
-      }
-    },
-    remove: async (dir) => {
-      await fsp.rm(path.join(dir, PERSONALITY_FILENAME), { force: true });
-    },
-  };
-  const report = await reconcileBundledEntries(
-    sourceKey,
-    stellaDataDir,
-    adapter,
-    {
-      manifestFilename: PERSONALITY_MANIFEST_FILENAME,
-      sourceRevision,
-      removeObsolete: false,
-    },
-  );
-  return {
-    report,
-    stable:
-      !directEditDetected &&
-      generation === intentionalWriteGeneration &&
-      coercePersonalityId(getPersonalityVoiceId(stellaDataDir)) === selectedId,
-  };
-};
+/** Adapt a leaf Promise IO call, failing with the raw thrown value. */
+const tryIO = <A>(f: () => Promise<A>): Effect.Effect<A, unknown> =>
+  Effect.tryPromise({ try: f, catch: (error) => error });
 
-export const reconcileSelectedPersonality = async (
+const reconcileSelectedPersonalityAttemptEffect = (
   stellaDataDir: string,
   sourceRevision: string,
-): Promise<BundledSyncReport> => {
-  let latest: BundledSyncReport = { actions: [] };
-  for (let attempt = 0; attempt < MAX_RECONCILE_RETRIES; attempt += 1) {
-    const result = await reconcileSelectedPersonalityAttempt(
+): Effect.Effect<{ report: BundledSyncReport; stable: boolean }, unknown> =>
+  Effect.gen(function* () {
+    yield* tryIO(() => seedLegacyPersonalityMetadata(stellaDataDir));
+    const { selectedId, generation, content } = yield* Effect.sync(() => {
+      const id = coercePersonalityId(getPersonalityVoiceId(stellaDataDir));
+      return {
+        selectedId: id,
+        generation: intentionalWriteGeneration,
+        content: resolvePersonalityPresetContent(stellaDataDir, id),
+      };
+    });
+    const sourceKey = `personality:${selectedId}:${sourceRevision}`;
+    let expectedHomeHash: string | null | undefined;
+    let directEditDetected = false;
+    const adapter: BundledEntryAdapter = {
+      listIds: async (dir) => {
+        if (dir === sourceKey) return [PERSONALITY_ENTRY_ID];
+        try {
+          return (await fsp.stat(path.join(dir, PERSONALITY_FILENAME))).isFile()
+            ? [PERSONALITY_ENTRY_ID]
+            : [];
+        } catch {
+          return [];
+        }
+      },
+      hash: async (dir) => {
+        if (dir === sourceKey) return sha256(content);
+        try {
+          const homeHash = sha256(
+            await fsp.readFile(path.join(dir, PERSONALITY_FILENAME), "utf-8"),
+          );
+          expectedHomeHash = homeHash;
+          return homeHash;
+        } catch {
+          expectedHomeHash = null;
+          return null;
+        }
+      },
+      copy: async (_src, dest) => {
+        await ensurePrivateDir(dest);
+        const target = path.join(dest, PERSONALITY_FILENAME);
+        const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
+        await fsp.writeFile(temp, content, { encoding: "utf-8", mode: 0o600 });
+        if (
+          generation !== intentionalWriteGeneration ||
+          coercePersonalityId(getPersonalityVoiceId(stellaDataDir)) !==
+            selectedId
+        ) {
+          await fsp.rm(temp, { force: true });
+          return;
+        }
+        if (
+          expectedHomeHash === undefined ||
+          !replacePersonalityIfHomeHashMatches({
+            target,
+            staged: temp,
+            expectedHomeHash,
+          })
+        ) {
+          directEditDetected = true;
+          await fsp.rm(temp, { force: true });
+        }
+      },
+      remove: async (dir) => {
+        await fsp.rm(path.join(dir, PERSONALITY_FILENAME), { force: true });
+      },
+    };
+    const report = yield* reconcileBundledEntriesEffect(
+      sourceKey,
       stellaDataDir,
-      sourceRevision,
+      adapter,
+      {
+        manifestFilename: PERSONALITY_MANIFEST_FILENAME,
+        sourceRevision,
+        removeObsolete: false,
+      },
     );
-    latest = result.report;
-    if (result.stable) return result.report;
-  }
-  return latest;
-};
+    const stable = yield* Effect.sync(
+      () =>
+        !directEditDetected &&
+        generation === intentionalWriteGeneration &&
+        coercePersonalityId(getPersonalityVoiceId(stellaDataDir)) ===
+          selectedId,
+    );
+    return { report, stable };
+  });
+
+/**
+ * Reconcile the selected personality preset into `PERSONALITY.md`. The
+ * pre-Effect `for` loop over attempts is now `Effect.repeat`: up to
+ * `MAX_RECONCILE_RETRIES` total attempts, stopping early once an attempt
+ * observed no concurrent intentional write, selection change, or direct
+ * edit — and returning the last attempt's report either way.
+ */
+export const reconcileSelectedPersonalityEffect = (
+  stellaDataDir: string,
+  sourceRevision: string,
+): Effect.Effect<BundledSyncReport, unknown> =>
+  reconcileSelectedPersonalityAttemptEffect(stellaDataDir, sourceRevision).pipe(
+    Effect.repeat({
+      times: MAX_RECONCILE_RETRIES - 1,
+      until: (result) => result.stable,
+    }),
+    Effect.map((result) => result.report),
+  );
+
+export const reconcileSelectedPersonality = (
+  stellaDataDir: string,
+  sourceRevision: string,
+): Promise<BundledSyncReport> =>
+  runHomeEffect(reconcileSelectedPersonalityEffect(stellaDataDir, sourceRevision));

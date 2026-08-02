@@ -327,14 +327,15 @@ export type RunnerState = {
    * fresh reply turn when the run is interrupted or fails before draining.
    */
   pendingFollowUpReplies: Map<string, PendingFollowUpReply[]>;
-  activeRunAbortControllers: Map<string, AbortController>;
   /**
    * Fiber supervision tree for orchestrator turns and subagent attempts.
-   * Every launched turn registers a root fiber keyed by `runId`; subagent
-   * attempts spawned with a `rootRunId` join that run's cancellation scope.
-   * `cancelLocalChat` and worker shutdown interrupt through this tree so
-   * teardown of child processes, streams, and pending tool calls is joined
-   * rather than fire-and-forget. See
+   * Every run registers its cooperative abort at admission (`registerRun`)
+   * and its root fiber at launch (`startRun`); subagent attempts spawned
+   * with a `rootRunId` join that run's cancellation scope. This keyed
+   * structure replaced the `activeRunAbortControllers` map:
+   * `cancelLocalChat` and worker shutdown look up, abort, interrupt, and
+   * join through the run scopes, so teardown of child processes, streams,
+   * and pending tool calls is joined rather than fire-and-forget. See
    * `runtime/kernel/runner/supervision/run-supervisor.ts`.
    */
   supervisor: KernelRunSupervisor;

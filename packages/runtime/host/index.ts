@@ -107,7 +107,13 @@ import {
   killDetachedWorker,
 } from "./uds-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
-import { Cause, Exit, Fiber, Layer, ManagedRuntime } from "effect";
+import { Cause, Effect, Exit, Fiber } from "effect";
+import {
+  forkDelayed,
+  forkInterval,
+  hostRuntime,
+  type HostTimerHandle,
+} from "./effect-runtime.js";
 import {
   clearPendingWorkerRestartFlag,
   evaluateWorkerStaleness,
@@ -115,14 +121,15 @@ import {
   quiescencePollEffect,
 } from "./staleness.js";
 
-/**
- * Host-side Effect boundary for the staleness/build-stamp handshake and the
- * quiescence poll. Effects run on this module-level runtime; the
- * StellaRuntimeHost API below stays plain Promise/data — no Effect type
+/*
+ * Host-side Effect boundary: the staleness/build-stamp handshake, the
+ * quiescence poll, and every host timer (reload debounce, heartbeat
+ * interval, ack/flush debounces) run on the shared `hostRuntime`
+ * (host/effect-runtime.ts) as fibers cancelled through HostTimerHandle.
+ * The StellaRuntimeHost API below stays plain Promise/data — no Effect type
  * escapes this file (check-boundary.mjs enforces the package fence, this
  * comment enforces the signature fence).
  */
-const hostStalenessRuntime = ManagedRuntime.make(Layer.empty);
 
 type PortableSqliteDatabaseCtor = new (filePath: string) => SqliteDatabase;
 const requireRuntime = createRequire(import.meta.url);
@@ -170,7 +177,7 @@ type ConnectorStreamBuffer = {
   lastSentRevision: number;
   lastSentTextLength: number;
   lastSentAt: number;
-  timer: ReturnType<typeof setTimeout> | null;
+  timer: HostTimerHandle | null;
   inFlight: Promise<void> | null;
 };
 
@@ -465,7 +472,7 @@ export class StellaRuntimeHost {
   private schedulerService: LocalSchedulerService | null = null;
   private schedulerSubscription: (() => void) | null = null;
   private watcher: FSWatcher | null = null;
-  private reloadTimer: NodeJS.Timeout | null = null;
+  private reloadTimer: HostTimerHandle | null = null;
   private deferredRuntimeReload = false;
   // Coalescing for the dev-watcher reload path only: while a
   // scheduled reload's restart is queued or running, further reload requests
@@ -504,13 +511,13 @@ export class StellaRuntimeHost {
   > | null = null;
   private hostDeviceRegistered = false;
   private hostDeviceRegistering = false;
-  private hostHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private hostHeartbeatTimer: HostTimerHandle | null = null;
   private hostRemoteTurnAuthWindowStartedAt = 0;
   private hostRemoteTurnUnauthenticatedFailures = 0;
   private hostRemoteTurnAuthRecoveryPromise: Promise<boolean> | null = null;
   private hostDeviceIdentityRecoveryPromise: Promise<boolean> | null = null;
   private pendingRunEventAcks = new Map<string, number>();
-  private runEventAckTimer: ReturnType<typeof setTimeout> | null = null;
+  private runEventAckTimer: HostTimerHandle | null = null;
   /**
    * Per-conversation routing for follow-up assistant messages. Set when a
    * connector-sourced user message kicks off an orchestrator turn; cleared
@@ -668,13 +675,11 @@ export class StellaRuntimeHost {
    */
   private scheduleRuntimeReload() {
     this.deferredRuntimeReload = true;
-    if (this.reloadTimer) {
-      clearTimeout(this.reloadTimer);
-    }
-    this.reloadTimer = setTimeout(() => {
+    this.reloadTimer?.cancel();
+    this.reloadTimer = forkDelayed(150, () => {
       this.reloadTimer = null;
       void this.flushWorkerRestart();
-    }, 150);
+    });
   }
 
   /*
@@ -735,7 +740,7 @@ export class StellaRuntimeHost {
     console.warn(
       `[runtime-host] Runtime update pending (${reason}); the worker restarts when current work finishes.`,
     );
-    const persistExit = await hostStalenessRuntime.runPromiseExit(
+    const persistExit = await hostRuntime.runPromiseExit(
       persistPendingWorkerRestartFlag(this.getRuntimeControlPaths(), record),
     );
     if (Exit.isFailure(persistExit)) {
@@ -747,12 +752,12 @@ export class StellaRuntimeHost {
     this.startStaleWorkerQuiescencePoll();
     // Nudge the unified gate soon: restart now if already quiescent, otherwise
     // an unblock hook (pause release, morph settle, worker idle) or the poll
-    // retries. Off this call stack so a caller still inside the startup /
-    // apply sequence isn't restarted from under itself.
-    const nudge = setTimeout(() => {
+    // retries. Forked as a 1s fiber so it stays off this call stack — a
+    // caller still inside the startup / apply sequence isn't restarted from
+    // under itself.
+    forkDelayed(1_000, () => {
       void this.flushWorkerRestart();
-    }, 1_000);
-    nudge.unref?.();
+    });
     if (this.started) {
       this.events.emit("runtime-ready", await this.health());
     }
@@ -761,7 +766,7 @@ export class StellaRuntimeHost {
   private async clearPendingWorkerRestart() {
     this.stopStaleWorkerQuiescencePoll();
     this.pendingStaleWorkerRestart = null;
-    await hostStalenessRuntime.runPromise(
+    await hostRuntime.runPromise(
       clearPendingWorkerRestartFlag(this.getRuntimeControlPaths()),
     );
   }
@@ -772,7 +777,7 @@ export class StellaRuntimeHost {
     // (e.g. voice-only activity) or a missed event during churn. Fixed-rate
     // 30s ticks with a leading delay, matching the old setInterval cadence
     // (see quiescencePollEffect).
-    this.staleWorkerQuiescencePollFiber = hostStalenessRuntime.runFork(
+    this.staleWorkerQuiescencePollFiber = hostRuntime.runFork(
       quiescencePollEffect(() => this.flushWorkerRestart()),
     );
   }
@@ -781,7 +786,7 @@ export class StellaRuntimeHost {
     const fiber = this.staleWorkerQuiescencePollFiber;
     if (!fiber) return;
     this.staleWorkerQuiescencePollFiber = null;
-    hostStalenessRuntime.runFork(Fiber.interrupt(fiber));
+    hostRuntime.runFork(Fiber.interrupt(fiber));
   }
 
   /**
@@ -796,7 +801,7 @@ export class StellaRuntimeHost {
       await this.clearPendingWorkerRestart();
       return;
     }
-    const verdict = await hostStalenessRuntime.runPromise(
+    const verdict = await hostRuntime.runPromise(
       evaluateWorkerStaleness({
         attachedToExistingWorker: true,
         paths: this.getRuntimeControlPaths(),
@@ -912,9 +917,9 @@ export class StellaRuntimeHost {
           this.restartInProgress = false;
           if (this.restartRequestedDuringRestart) {
             this.restartRequestedDuringRestart = false;
-            setTimeout(() => {
+            forkDelayed(0, () => {
               void this.flushWorkerRestart();
-            }, 0);
+            });
           }
           // `restartWorker()` emits readiness while restartInProgress is still
           // true, so that snapshot intentionally remains send-blocked. Publish
@@ -957,7 +962,7 @@ export class StellaRuntimeHost {
 
   private stopHostHeartbeatLoop() {
     if (this.hostHeartbeatTimer) {
-      clearInterval(this.hostHeartbeatTimer);
+      this.hostHeartbeatTimer.cancel();
       this.hostHeartbeatTimer = null;
     }
   }
@@ -1159,9 +1164,9 @@ export class StellaRuntimeHost {
 
       await this.registerHostDevice();
       this.startHostHeartbeatLoop();
-      setTimeout(() => {
+      forkDelayed(0, () => {
         void this.sendHostHeartbeat();
-      }, 0);
+      });
       const activeRun = await this.getActiveRun().catch(() => null);
       if (!activeRun) {
         void this.scheduleRuntimeReload();
@@ -1256,9 +1261,9 @@ export class StellaRuntimeHost {
     if (this.hostHeartbeatTimer) {
       return;
     }
-    this.hostHeartbeatTimer = setInterval(() => {
+    this.hostHeartbeatTimer = forkInterval(DEVICE_HEARTBEAT_INTERVAL_MS, () => {
       void this.sendHostHeartbeat();
-    }, DEVICE_HEARTBEAT_INTERVAL_MS);
+    });
   }
 
   private async registerHostDevice(attempt = 0): Promise<void> {
@@ -1280,7 +1285,7 @@ export class StellaRuntimeHost {
 
     this.hostDeviceRegistering = true;
     if (attempt === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await hostRuntime.runPromise(Effect.sleep(1_500));
     }
     if (this.deviceIdentity?.deviceId !== deviceId) {
       this.hostDeviceRegistering = false;
@@ -1323,7 +1328,7 @@ export class StellaRuntimeHost {
         return;
       }
       if (attempt < 3) {
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        await hostRuntime.runPromise(Effect.sleep(2_000));
         this.hostDeviceRegistering = false;
         return await this.registerHostDevice(attempt + 1);
       }
@@ -1640,9 +1645,7 @@ export class StellaRuntimeHost {
       return;
     }
     const existing = this.connectorStreamBuffersByRequestId.get(args.requestId);
-    if (existing?.timer) {
-      clearTimeout(existing.timer);
-    }
+    existing?.timer?.cancel();
     this.connectorStreamBuffersByRequestId.set(args.requestId, {
       requestId: args.requestId,
       backendConversationId: args.backendConversationId,
@@ -1659,17 +1662,13 @@ export class StellaRuntimeHost {
 
   private clearConnectorStreamBuffer(requestId: string): void {
     const buffer = this.connectorStreamBuffersByRequestId.get(requestId);
-    if (buffer?.timer) {
-      clearTimeout(buffer.timer);
-    }
+    buffer?.timer?.cancel();
     this.connectorStreamBuffersByRequestId.delete(requestId);
   }
 
   private clearAllConnectorStreamBuffers(): void {
     for (const buffer of this.connectorStreamBuffersByRequestId.values()) {
-      if (buffer.timer) {
-        clearTimeout(buffer.timer);
-      }
+      buffer.timer?.cancel();
     }
     this.connectorStreamBuffersByRequestId.clear();
   }
@@ -1693,7 +1692,7 @@ export class StellaRuntimeHost {
 
   private scheduleConnectorStreamFlush(buffer: ConnectorStreamBuffer): void {
     if (buffer.timer) {
-      clearTimeout(buffer.timer);
+      buffer.timer.cancel();
       buffer.timer = null;
     }
     const pendingChars = Math.max(
@@ -1708,14 +1707,13 @@ export class StellaRuntimeHost {
       void this.flushConnectorStreamBuffer(buffer);
       return;
     }
-    buffer.timer = setTimeout(
+    buffer.timer = forkDelayed(
+      Math.max(0, CONNECTOR_STREAM_FLUSH_INTERVAL_MS - elapsed),
       () => {
         buffer.timer = null;
         void this.flushConnectorStreamBuffer(buffer);
       },
-      Math.max(0, CONNECTOR_STREAM_FLUSH_INTERVAL_MS - elapsed),
     );
-    buffer.timer.unref?.();
   }
 
   private async flushConnectorStreamBuffer(
@@ -2025,7 +2023,7 @@ export class StellaRuntimeHost {
     this.agentEventBuffers.clear();
     this.pendingRunEventAcks.clear();
     this.clearAllConnectorStreamBuffers();
-    if (this.runEventAckTimer) clearTimeout(this.runEventAckTimer);
+    this.runEventAckTimer?.cancel();
     this.runEventAckTimer = null;
     this.deferredRuntimeReload = false;
     this.restartInProgress = false;
@@ -2034,7 +2032,7 @@ export class StellaRuntimeHost {
     // the next host's reconnect handshake picks the deferral back up.
     this.pendingStaleWorkerRestart = null;
     this.stopStaleWorkerQuiescencePoll();
-    if (this.reloadTimer) clearTimeout(this.reloadTimer);
+    this.reloadTimer?.cancel();
     this.reloadTimer = null;
     this.watcher?.close();
     this.watcher = null;
@@ -2231,7 +2229,7 @@ export class StellaRuntimeHost {
    */
   private flushRunEventAcks() {
     if (this.runEventAckTimer) {
-      clearTimeout(this.runEventAckTimer);
+      this.runEventAckTimer.cancel();
       this.runEventAckTimer = null;
     }
     const pending = this.pendingRunEventAcks;
@@ -2251,10 +2249,9 @@ export class StellaRuntimeHost {
     const previous = this.pendingRunEventAcks.get(runId) ?? 0;
     this.pendingRunEventAcks.set(runId, Math.max(previous, lastSeq));
     if (this.runEventAckTimer) return;
-    this.runEventAckTimer = setTimeout(() => {
+    this.runEventAckTimer = forkDelayed(150, () => {
       this.flushRunEventAcks();
-    }, 150);
-    this.runEventAckTimer.unref?.();
+    });
   }
 
   async runAutomationTurn(payload: RuntimeAutomationTurnRequest) {
@@ -3323,10 +3320,9 @@ export class StellaRuntimeHost {
           // A deferred worker restart is waiting for the worker to go idle;
           // give immediate follow-up runs a moment to register before the
           // unified gate re-checks.
-          const timer = setTimeout(() => {
+          forkDelayed(500, () => {
             void this.flushWorkerRestart();
-          }, 500);
-          timer.unref?.();
+          });
         }
       }
     });

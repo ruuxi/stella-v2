@@ -1,5 +1,5 @@
 import { type ChildProcessWithoutNullStreams } from "node:child_process";
-import { setTimeout as delay } from "node:timers/promises";
+import { Deferred, Effect, Fiber } from "effect";
 import {
   createRuntimeUnavailableError,
   type JsonRpcPeer,
@@ -9,6 +9,7 @@ import type {
   RuntimeActiveRun,
   SocialSessionServiceSnapshot,
 } from "@stella/contracts/protocol";
+import { hostRuntime, runHostEffect } from "./effect-runtime.js";
 
 export type WorkerConnection = {
   process: ChildProcessWithoutNullStreams;
@@ -38,38 +39,47 @@ export type WorkerHealthSnapshot = {
   socialSessions?: SocialSessionServiceSnapshot;
 };
 
-type InFlightDrainWaiter = {
-  resolve: () => void;
-  promise: Promise<void>;
-};
+/**
+ * Wait for the child to exit after a SIGTERM, escalating to SIGKILL when the
+ * grace window lapses. Listener-before-kill ordering matches the old
+ * promise loop; the SIGKILL branch settles immediately (it does not wait for
+ * the post-KILL exit event), exactly like the old timeout callback.
+ */
+const waitForWorkerProcessExitEffect = (
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Effect.Effect<void> =>
+  Effect.raceFirst(
+    Effect.callback<void>((resume) => {
+      const finish = () => resume(Effect.void);
+      child.once("exit", finish);
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        finish();
+      }
+      return Effect.sync(() => {
+        child.off("exit", finish);
+      });
+    }),
+    Effect.sleep(timeoutMs).pipe(
+      Effect.andThen(
+        Effect.sync(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // Best effort during process shutdown.
+          }
+        }),
+      ),
+    ),
+  );
 
 export const waitForWorkerProcessExit = async (
   child: ChildProcessWithoutNullStreams,
   timeoutMs = 1_500,
 ) => {
-  await new Promise<void>((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      resolve();
-    };
-    child.once("exit", finish);
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      finish();
-      return;
-    }
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      try {
-        child.kill("SIGKILL");
-      } catch {}
-      finish();
-    }, timeoutMs);
-    timeout.unref?.();
-  });
+  await hostRuntime.runPromise(waitForWorkerProcessExitEffect(child, timeoutMs));
 };
 
 /**
@@ -77,44 +87,52 @@ export const waitForWorkerProcessExit = async (
  * the worker self-supervises (UDS detached mode) so an Electron restart
  * leaves the worker running for the next host to attach.
  */
+const disconnectWorkerEffect = (
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Effect.Effect<void> =>
+  Effect.suspend(() => {
+    // Fast path: the process already exited (e.g. an explicit killWorker()
+    // just confirmed it dead, so its socket is already closing). The shim's
+    // `exit` event has likely fired before we could attach a listener, which
+    // would make the race below sit out the entire timeout fallback waiting
+    // for an event that won't come again. Closing stdin is a no-op on a dead
+    // socket.
+    if (child.exitCode != null || child.signalCode != null) {
+      try {
+        child.stdin?.end();
+      } catch {
+        // Best effort.
+      }
+      return Effect.void;
+    }
+    return Effect.raceFirst(
+      Effect.callback<void>((resume) => {
+        const finish = () => resume(Effect.void);
+        child.once("exit", finish);
+        // For UDS adapters, buildProcessShim intentionally maps stdin to the
+        // underlying Socket; ending stdin is the IPC-disconnect operation. For
+        // real ChildProcessWithoutNullStreams, ending stdin makes the child
+        // read EOF and exit naturally — but the timeout fallback keeps a
+        // noncooperative worker from hanging the host.
+        try {
+          child.stdin?.end();
+        } catch {
+          // Best effort.
+        }
+        return Effect.sync(() => {
+          child.off("exit", finish);
+        });
+      }),
+      Effect.sleep(timeoutMs),
+    );
+  });
+
 export const disconnectWorker = async (
   child: ChildProcessWithoutNullStreams,
   timeoutMs = 1_500,
 ) => {
-  // Fast path: the process already exited (e.g. an explicit killWorker() just
-  // confirmed it dead, so its socket is already closing). The shim's `exit`
-  // event has likely fired before we could attach a listener, which would make
-  // the loop below sit out the entire timeout fallback waiting for an event
-  // that won't come again. Closing stdin is a no-op on a dead socket.
-  if (child.exitCode != null || child.signalCode != null) {
-    try {
-      child.stdin?.end();
-    } catch {
-      // Best effort.
-    }
-    return;
-  }
-  await new Promise<void>((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      resolve();
-    };
-    child.once("exit", finish);
-    // For UDS adapters, buildProcessShim intentionally maps stdin to the
-    // underlying Socket; ending stdin is the IPC-disconnect operation. For
-    // real ChildProcessWithoutNullStreams, ending stdin makes the child read
-    // EOF and exit naturally — but we give it a timeout fallback so a
-    // noncooperative worker doesn't hang the host.
-    try {
-      child.stdin?.end();
-    } catch {
-      // Best effort.
-    }
-    const timer = setTimeout(finish, timeoutMs);
-    timer.unref?.();
-  });
+  await hostRuntime.runPromise(disconnectWorkerEffect(child, timeoutMs));
 };
 
 export type RuntimeWorkerLifecycleControllerOptions = {
@@ -158,6 +176,26 @@ export type RuntimeWorkerLifecycleControllerOptions = {
   killWorker?: () => Promise<void>;
 };
 
+/**
+ * The host-side worker lifecycle state machine, rewritten on structured
+ * Effect primitives (M5 completion, phase 5):
+ *
+ * - Single-flight startup is a forked fiber on the host runtime; joiners
+ *   share its `Fiber.join` promise, so every concurrent `ensureStarted`
+ *   observes the same success or the same original failure.
+ * - The in-flight request drain race is a `Deferred` latch resolved by the
+ *   last decrement, raced against the old 1.5s cap.
+ * - `stop()` runs the kill/disconnect branch as one Effect whose
+ *   `Effect.ensuring` cleanup performs the old `.finally` bookkeeping
+ *   (connection/stoppingPid/state reset) on success, failure, and
+ *   interruption alike.
+ *
+ * The outward surface is unchanged: plain Promise methods, the same
+ * `WorkerLifecycleState` transitions, and byte-identical error strings —
+ * Electron main never sees an Effect type. Startup is deliberately never
+ * interrupted (parity: a concurrent `stop()` sees no connection until the
+ * factory settles, exactly as before).
+ */
 export class RuntimeWorkerLifecycleController {
   private connection: WorkerConnection | null = null;
   private startupPromise: Promise<void> | null = null;
@@ -165,7 +203,7 @@ export class RuntimeWorkerLifecycleController {
   private stoppingPid: number | null = null;
   private state: WorkerLifecycleState = "idle";
   private inFlightWorkerRequests = 0;
-  private inFlightDrainWaiter: InFlightDrainWaiter | null = null;
+  private inFlightDrainLatch: Deferred.Deferred<void> | null = null;
 
   constructor(
     private readonly options: RuntimeWorkerLifecycleControllerOptions,
@@ -189,16 +227,12 @@ export class RuntimeWorkerLifecycleController {
     this.options.onStateChange?.(nextState);
   }
 
-  private getOrCreateInFlightDrainWaiter() {
-    if (this.inFlightDrainWaiter) {
-      return this.inFlightDrainWaiter;
+  private getOrCreateInFlightDrainLatch() {
+    if (this.inFlightDrainLatch) {
+      return this.inFlightDrainLatch;
     }
-    let resolve = () => {};
-    const promise = new Promise<void>((innerResolve) => {
-      resolve = innerResolve;
-    });
-    this.inFlightDrainWaiter = { resolve, promise };
-    return this.inFlightDrainWaiter;
+    this.inFlightDrainLatch = Deferred.makeUnsafe<void>();
+    return this.inFlightDrainLatch;
   }
 
   private incrementInFlightWorkerRequests() {
@@ -207,10 +241,10 @@ export class RuntimeWorkerLifecycleController {
 
   private decrementInFlightWorkerRequests() {
     this.inFlightWorkerRequests = Math.max(0, this.inFlightWorkerRequests - 1);
-    if (this.inFlightWorkerRequests === 0 && this.inFlightDrainWaiter) {
-      const waiter = this.inFlightDrainWaiter;
-      this.inFlightDrainWaiter = null;
-      waiter.resolve();
+    if (this.inFlightWorkerRequests === 0 && this.inFlightDrainLatch) {
+      const latch = this.inFlightDrainLatch;
+      this.inFlightDrainLatch = null;
+      Deferred.doneUnsafe(latch, Effect.void);
     }
   }
 
@@ -218,8 +252,78 @@ export class RuntimeWorkerLifecycleController {
     if (this.inFlightWorkerRequests === 0) {
       return;
     }
-    const waiter = this.getOrCreateInFlightDrainWaiter();
-    await Promise.race([waiter.promise, delay(timeoutMs)]);
+    const latch = this.getOrCreateInFlightDrainLatch();
+    await hostRuntime.runPromise(
+      Effect.raceFirst(Deferred.await(latch), Effect.sleep(timeoutMs)),
+    );
+  }
+
+  /** The startup transaction as one fiber-run Effect (single-flight). */
+  private startupEffect(): Effect.Effect<void, unknown> {
+    const self = this;
+    return Effect.gen(function* () {
+      // The detached-UDS factory manages its own lifecycle (single-instance
+      // via flock, idempotent attach), so there is no stale-child sweep here.
+      const connection = yield* Effect.tryPromise({
+        try: () =>
+          self.options.createConnectionAsync(self.options.workerEntryPath),
+        catch: (error) => error,
+      });
+      self.connection = connection;
+      self.stoppingPid = null;
+
+      connection.peer.on("closed", () => {
+        if (self.connection?.peer !== connection.peer) {
+          return;
+        }
+        self.connection = null;
+        if (self.state === "running") {
+          self.setState("idle");
+        }
+      });
+
+      connection.process.once("exit", () => {
+        const wasIntentional = self.stoppingPid === connection.pid;
+        if (self.connection?.process === connection.process) {
+          self.connection = null;
+        }
+        if (!wasIntentional) {
+          self.setState("idle");
+        }
+        if (self.stopPromise && wasIntentional) return;
+        if (self.options.isHostStarted()) {
+          void self.options.onUnexpectedExit();
+        }
+      });
+
+      yield* Effect.tryPromise({
+        try: () => self.options.initializeConnection(connection),
+        catch: (error) => error,
+      }).pipe(
+        Effect.andThen(
+          Effect.tryPromise({
+            try: () => self.options.onConnectionStarted(connection),
+            catch: (error) => error,
+          }),
+        ),
+        Effect.andThen(Effect.sync(() => self.setState("running"))),
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            if (self.connection?.pid === connection.pid) {
+              self.connection = null;
+            }
+            self.setState("idle");
+          }).pipe(
+            Effect.andThen(
+              Effect.ignore(
+                waitForWorkerProcessExitEffect(connection.process, 1_500),
+              ),
+            ),
+            Effect.andThen(Effect.fail(error)),
+          ),
+        ),
+      );
+    });
   }
 
   async ensureStarted() {
@@ -238,54 +342,10 @@ export class RuntimeWorkerLifecycleController {
     }
 
     this.setState("starting");
-    this.startupPromise = (async () => {
-      // The detached-UDS factory manages its own lifecycle (single-instance
-      // via flock, idempotent attach), so there is no stale-child sweep here.
-      const connection = await this.options.createConnectionAsync(
-        this.options.workerEntryPath,
-      );
-      this.connection = connection;
-      this.stoppingPid = null;
-
-      connection.peer.on("closed", () => {
-        if (this.connection?.peer !== connection.peer) {
-          return;
-        }
-        this.connection = null;
-        if (this.state === "running") {
-          this.setState("idle");
-        }
-      });
-
-      connection.process.once("exit", () => {
-        const wasIntentional = this.stoppingPid === connection.pid;
-        if (this.connection?.process === connection.process) {
-          this.connection = null;
-        }
-        if (!wasIntentional) {
-          this.setState("idle");
-        }
-        if (this.stopPromise && wasIntentional) return;
-        if (this.options.isHostStarted()) {
-          void this.options.onUnexpectedExit();
-        }
-      });
-
-      try {
-        await this.options.initializeConnection(connection);
-        await this.options.onConnectionStarted(connection);
-        this.setState("running");
-      } catch (error) {
-        if (this.connection?.pid === connection.pid) {
-          this.connection = null;
-        }
-        this.setState("idle");
-        try {
-          await waitForWorkerProcessExit(connection.process);
-        } catch {}
-        throw error;
-      }
-    })();
+    // Fork the startup fiber and share its join: concurrent callers await
+    // the same completion and observe the same original failure.
+    const startupFiber = hostRuntime.runFork(this.startupEffect());
+    this.startupPromise = runHostEffect(Fiber.join(startupFiber));
 
     try {
       await this.startupPromise;
@@ -310,22 +370,29 @@ export class RuntimeWorkerLifecycleController {
     this.setState("stopping");
     this.stoppingPid = connection.pid;
     const shouldKill = this.options.killWorkerOnStop?.(reason) ?? true;
-    this.stopPromise = (
-      shouldKill
-        ? this.options.killWorker
-          ? this.options
-              .killWorker()
-              .then(() => disconnectWorker(connection.process, 100))
-          : waitForWorkerProcessExit(connection.process)
-        : disconnectWorker(connection.process)
-    ).finally(() => {
-      if (this.connection?.pid === connection.pid) {
-        this.connection = null;
-      }
-      this.stoppingPid = null;
-      this.stopPromise = null;
-      this.setState("idle");
-    });
+    const killWorker = this.options.killWorker;
+    const stopCore: Effect.Effect<void, unknown> = shouldKill
+      ? killWorker
+        ? Effect.tryPromise({
+            try: () => killWorker(),
+            catch: (error) => error,
+          }).pipe(Effect.andThen(disconnectWorkerEffect(connection.process, 100)))
+        : waitForWorkerProcessExitEffect(connection.process, 1_500)
+      : disconnectWorkerEffect(connection.process, 1_500);
+    this.stopPromise = runHostEffect(
+      stopCore.pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (this.connection?.pid === connection.pid) {
+              this.connection = null;
+            }
+            this.stoppingPid = null;
+            this.stopPromise = null;
+            this.setState("idle");
+          }),
+        ),
+      ),
+    );
     await this.stopPromise;
     if (this.options.isHostStarted()) {
       await this.options.onAfterStop(reason);

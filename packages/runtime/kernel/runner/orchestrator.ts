@@ -849,12 +849,17 @@ export const createOrchestratorController = (
   };
 
   const cancelLocalChat = async (runId: string): Promise<void> => {
-    const controller = context.state.activeRunAbortControllers.get(runId);
-    if (!controller) return;
+    // Run lookup is the supervisor's keyed scope registry (the replacement
+    // for the old `activeRunAbortControllers` map): a run is cancellable
+    // from the moment admission registers its cooperative abort until its
+    // fiber tree has fully settled.
+    if (!context.state.supervisor.hasRun(runId)) return;
     const wasPreExecution = preparingRunIds.has(runId);
     const uiVisibility = context.state.activeOrchestratorUiVisibility;
     const callbacks = context.state.runCallbacksByRunId.get(runId);
-    controller.abort();
+    // Cooperative abort first (synchronous, reason-less — the loop's latch
+    // observes the default AbortError exactly as before), join after.
+    context.state.supervisor.abortRun(runId);
     if (wasPreExecution) {
       preExecutionCanceledRunIds.add(runId);
       cleanupRun(runId);
@@ -878,7 +883,6 @@ export const createOrchestratorController = (
     // and a queued turn can no longer start while the old turn is still
     // tearing down.
     await context.state.supervisor.cancelRun(runId, "Canceled");
-    context.state.activeRunAbortControllers.delete(runId);
     clearActiveOrchestratorRun(runId);
   };
 

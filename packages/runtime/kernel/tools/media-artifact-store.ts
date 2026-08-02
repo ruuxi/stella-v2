@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { forkAbortTimer, sleepWithAbort } from "./effect-runtime.js";
 
 const LOCK_STALE_MS = 2 * 60_000;
 const LOCK_POLL_MS = 50;
@@ -14,18 +15,7 @@ const abortError = (signal: AbortSignal): Error => {
 };
 
 const wait = (ms: number, signal?: AbortSignal): Promise<void> =>
-  new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(abortError(signal));
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(abortError(signal!));
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
+  sleepWithAbort(ms, signal, abortError);
 
 export const readyMediaArtifactSize = async (
   filePath: string,
@@ -124,14 +114,15 @@ export const materializeMediaArtifact = async (args: {
   }
 
   const partialPath = `${args.filePath}.partial-${process.pid}-${randomUUID()}`;
+  // The controller stays at the producer seam (the download needs a real
+  // AbortSignal); the timeout escalation is a bounded fiber canceled in the
+  // `finally` below.
   const timeoutController = new AbortController();
-  const timeout = args.producerTimeoutMs
-    ? setTimeout(
-        () =>
-          timeoutController.abort(
-            new Error("Media artifact download timed out."),
-          ),
-        args.producerTimeoutMs,
+  const cancelProducerTimeout = args.producerTimeoutMs
+    ? forkAbortTimer(args.producerTimeoutMs, () =>
+        timeoutController.abort(
+          new Error("Media artifact download timed out."),
+        ),
       )
     : null;
   const producerSignal = args.signal
@@ -189,7 +180,7 @@ export const materializeMediaArtifact = async (args: {
     }
     return { path: args.filePath, sizeBytes, created: true };
   } finally {
-    if (timeout) clearTimeout(timeout);
+    if (cancelProducerTimeout) cancelProducerTimeout();
     await fs.unlink(partialPath).catch(() => undefined);
     await lock.close().catch(() => undefined);
     await fs.unlink(lockPath).catch(() => undefined);

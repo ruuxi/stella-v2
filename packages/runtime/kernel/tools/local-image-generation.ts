@@ -21,6 +21,7 @@ import {
 import { materializeMediaArtifact } from "./media-artifact-store.js";
 import type { ManagedImageTerminalResult } from "./managed-image-job.js";
 import type { ToolContext, ToolHandlerExtras, ToolResult } from "./types.js";
+import { sleepWithAbort } from "./effect-runtime.js";
 
 type LocalImageGenerationInput = {
   args: Record<string, unknown>;
@@ -50,20 +51,7 @@ const abortError = (signal: AbortSignal): Error => {
 export const localImagePollSleep = (
   ms: number,
   signal?: AbortSignal,
-): Promise<void> =>
-  new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(abortError(signal));
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(abortError(signal!));
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    timer.unref?.();
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
+): Promise<void> => sleepWithAbort(ms, signal, abortError);
 
 const sleep = localImagePollSleep;
 

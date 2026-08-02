@@ -11,6 +11,7 @@ import {
   isNativeConnectorEnabled,
 } from "../kernel/connectors/native-integrations.js";
 import type { BackendConnectorActionResult } from "../kernel/connectors/cli-broker-client.js";
+import { forkDelayed } from "./effect-runtime.js";
 import {
   redactSensitiveText,
   sanitizeSensitiveData,
@@ -240,10 +241,14 @@ export const createBackendConnectorActionBroker =
     }
 
     let response: Response;
+    // Effect-ratchet pin (1 new AbortController): fetch needs a REAL
+    // AbortSignal, so the seam controller stays — it composes the caller's
+    // cooperative signal with the action deadline. The deadline itself is a
+    // forked fiber canceled when the request settles (the old
+    // `clearTimeout`), with the same ACTION_TIMEOUT_MS.
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort("timeout"),
-      ACTION_TIMEOUT_MS,
+    const timeout = forkDelayed(ACTION_TIMEOUT_MS, () =>
+      controller.abort("timeout"),
     );
     const abort = () => controller.abort(params.signal?.reason ?? "cancelled");
     params.signal?.addEventListener("abort", abort, { once: true });
@@ -267,7 +272,7 @@ export const createBackendConnectorActionBroker =
         },
       );
     } catch (error) {
-      clearTimeout(timeout);
+      timeout.cancel();
       params.signal?.removeEventListener("abort", abort);
       return {
         ok: false,
@@ -299,7 +304,7 @@ export const createBackendConnectorActionBroker =
         requestId: responseRequestId,
       };
     } finally {
-      clearTimeout(timeout);
+      timeout.cancel();
       params.signal?.removeEventListener("abort", abort);
     }
     if (!response.ok) {

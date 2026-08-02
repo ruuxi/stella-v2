@@ -6,18 +6,29 @@
  * archives. Archive copies land and fsync before the active ledger changes;
  * every replacement is atomic and verified, so retries may duplicate work
  * transiently but cannot lose a block.
+ *
+ * Effect-native: all reads/writes are Effects and the per-file critical
+ * sections run under the same cross-tool write lock the file tools use
+ * (`withFileWriteLockEffect`). Parsing/selection stays pure. The exported
+ * Promise API is a facade over the shared memory ManagedRuntime.
  */
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { Effect } from "effect";
 
 import { createRuntimeLogger } from "../debug.js";
 import {
   canonicalFileWriteLockPath,
-  withFileWriteLock,
   writeFileAtomicWithVerify,
 } from "../tools/file-write-lock.js";
 import { memoriesRoot, memoryFilePath } from "./dream-storage.js";
+import { runMemoryPromise } from "./effect-runtime.js";
+import {
+  readOptionalTextFile,
+  tryFs,
+  withFileWriteLockEffect,
+} from "./effect-io.js";
 
 const logger = createRuntimeLogger("memory.memory-rotation");
 
@@ -39,18 +50,22 @@ export const archiveFileNameForBlockDate = (isoDate: string): string => {
   return `MEMORY-${year}-Q${quarter}.md`;
 };
 
-export const listMemoryArchiveFiles = async (
+export const listMemoryArchiveFilesEffect = (
   stellaDataDir: string,
-): Promise<string[]> => {
-  try {
-    return (await fs.readdir(memoryArchiveRoot(stellaDataDir)))
-      .filter((name) => name.endsWith(".md"))
-      .sort();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
-  }
-};
+): Effect.Effect<string[], NodeJS.ErrnoException> =>
+  tryFs(() => fs.readdir(memoryArchiveRoot(stellaDataDir))).pipe(
+    Effect.map((names) =>
+      names.filter((name) => name.endsWith(".md")).sort(),
+    ),
+    Effect.catchIf(
+      (error) => error.code === "ENOENT",
+      () => Effect.succeed([] as string[]),
+    ),
+  );
+
+export const listMemoryArchiveFiles = (
+  stellaDataDir: string,
+): Promise<string[]> => runMemoryPromise(listMemoryArchiveFilesEffect(stellaDataDir));
 
 const ACTIVE_START = "<!-- DREAM:ACTIVE_BLOCKS_START -->";
 const ACTIVE_END = "<!-- DREAM:ACTIVE_BLOCKS_END -->";
@@ -76,44 +91,56 @@ const supersededHeader = (): string =>
     "",
   ].join("\n");
 
-const appendToArchive = async (
+const appendToArchiveEffect = (
   targetInput: string,
   header: string,
   text: string,
   dedupeText = text,
-): Promise<void> => {
-  await fs.mkdir(path.dirname(targetInput), { recursive: true });
-  const target = await canonicalFileWriteLockPath(targetInput);
-  await withFileWriteLock(target, async () => {
-    let existing: string | null = null;
-    try {
-      existing = await fs.readFile(target, "utf-8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    const preserved = text.trim();
-    if (existing?.includes(dedupeText.trim())) return;
-    const base = existing ?? header;
-    await writeFileAtomicWithVerify(
+): Effect.Effect<void, NodeJS.ErrnoException> =>
+  Effect.gen(function* () {
+    yield* tryFs(() =>
+      fs.mkdir(path.dirname(targetInput), { recursive: true }),
+    );
+    const target = yield* Effect.promise(() =>
+      canonicalFileWriteLockPath(targetInput),
+    );
+    yield* withFileWriteLockEffect(
       target,
-      `${base.replace(/\n*$/u, "")}\n\n${preserved}\n`,
+      Effect.gen(function* () {
+        const existing = yield* readOptionalTextFile(target);
+        const preserved = text.trim();
+        if (existing?.includes(dedupeText.trim())) return;
+        const base = existing ?? header;
+        yield* tryFs(() =>
+          writeFileAtomicWithVerify(
+            target,
+            `${base.replace(/\n*$/u, "")}\n\n${preserved}\n`,
+          ),
+        );
+      }),
     );
   });
-};
 
-export const appendSupersededMemoryText = async (
+export const appendSupersededMemoryTextEffect = (
   stellaDataDir: string,
   removedText: string,
-): Promise<void> => {
-  const text = removedText.trim();
-  if (!text) return;
-  await appendToArchive(
-    memorySupersededArchivePath(stellaDataDir),
-    supersededHeader(),
-    `## superseded ${new Date().toISOString()}\n${text}`,
-    text,
-  );
-};
+): Effect.Effect<void, NodeJS.ErrnoException> =>
+  Effect.suspend(() => {
+    const text = removedText.trim();
+    if (!text) return Effect.void;
+    return appendToArchiveEffect(
+      memorySupersededArchivePath(stellaDataDir),
+      supersededHeader(),
+      `## superseded ${new Date().toISOString()}\n${text}`,
+      text,
+    );
+  });
+
+export const appendSupersededMemoryText = (
+  stellaDataDir: string,
+  removedText: string,
+): Promise<void> =>
+  runMemoryPromise(appendSupersededMemoryTextEffect(stellaDataDir, removedText));
 
 type MemoryBlock = {
   text: string;
@@ -231,21 +258,18 @@ export type MemoryRotationResult = {
   bytesAfter: number;
 };
 
-export const rotateMemoryFileIfNeeded = async (
+export type MemoryRotationHooks = {
+  beforeActiveRewrite?: () => void | Promise<void>;
+};
+
+const rotateLockedEffect = (
   stellaDataDir: string,
-  hooks?: { beforeActiveRewrite?: () => void | Promise<void> },
-): Promise<MemoryRotationResult | null> => {
-  const activePath = await canonicalFileWriteLockPath(
-    memoryFilePath(stellaDataDir),
-  );
-  return await withFileWriteLock(activePath, async () => {
-    let raw: string;
-    try {
-      raw = await fs.readFile(activePath, "utf-8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
-    }
+  activePath: string,
+  hooks?: MemoryRotationHooks,
+): Effect.Effect<MemoryRotationResult | null, unknown> =>
+  Effect.gen(function* () {
+    const raw = yield* readOptionalTextFile(activePath);
+    if (raw === null) return null;
     const bytesBefore = Buffer.byteLength(raw, "utf-8");
     if (bytesBefore <= MEMORY_ROTATION_THRESHOLD_BYTES) return null;
     const parsed = parseMemory(raw);
@@ -279,11 +303,16 @@ export const rotateMemoryFileIfNeeded = async (
       for (const block of [...blocks].sort((a, b) =>
         a.isoDate!.localeCompare(b.isoDate!),
       )) {
-        await appendToArchive(target, archiveHeader(file), block.text);
+        yield* appendToArchiveEffect(target, archiveHeader(file), block.text);
       }
     }
 
-    await hooks?.beforeActiveRewrite?.();
+    yield* Effect.tryPromise({
+      try: async () => {
+        await hooks?.beforeActiveRewrite?.();
+      },
+      catch: (error) => error,
+    });
 
     let rewritten = replaceSection(
       parsed.raw,
@@ -297,7 +326,7 @@ export const rotateMemoryFileIfNeeded = async (
       ARCHIVE_END,
       removeSelected(parsed.archiveBody, "archive", selected),
     );
-    await writeFileAtomicWithVerify(activePath, rewritten);
+    yield* tryFs(() => writeFileAtomicWithVerify(activePath, rewritten));
     const result = {
       rotatedBlocks: selected.length,
       archiveFiles: [...groups.keys()].sort(),
@@ -307,4 +336,23 @@ export const rotateMemoryFileIfNeeded = async (
     logger.info("memory-rotation.rotated", result);
     return result;
   });
-};
+
+export const rotateMemoryFileIfNeededEffect = (
+  stellaDataDir: string,
+  hooks?: MemoryRotationHooks,
+): Effect.Effect<MemoryRotationResult | null, unknown> =>
+  Effect.gen(function* () {
+    const activePath = yield* Effect.promise(() =>
+      canonicalFileWriteLockPath(memoryFilePath(stellaDataDir)),
+    );
+    return yield* withFileWriteLockEffect(
+      activePath,
+      rotateLockedEffect(stellaDataDir, activePath, hooks),
+    );
+  });
+
+export const rotateMemoryFileIfNeeded = (
+  stellaDataDir: string,
+  hooks?: MemoryRotationHooks,
+): Promise<MemoryRotationResult | null> =>
+  runMemoryPromise(rotateMemoryFileIfNeededEffect(stellaDataDir, hooks));

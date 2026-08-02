@@ -1,3 +1,4 @@
+import { forkCancelableTimeout, sleepWithAbort } from "../effect-runtime.js";
 import { isTransientTransportError } from "./retry.js";
 
 export type StreamReconnectPhase = "connect" | "resume" | "waiting-for-safe-resume";
@@ -74,30 +75,24 @@ const abortError = (signal: AbortSignal): Error => {
 	return error;
 };
 
+/**
+ * Reconnect-delay sleep on the ai/ fiber substrate. Delay VALUES stay data
+ * (jittered exponential with injectable `random`, clamped to the recovery
+ * deadline window) — only the timer substrate moved onto fibers. Abort
+ * rejects with `abortError(signal)`, the same reason-carrying error as
+ * before.
+ */
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
-	new Promise((resolve, reject) => {
-		if (signal?.aborted) {
-			reject(abortError(signal));
-			return;
-		}
-		const onAbort = () => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", onAbort);
-			reject(abortError(signal!));
-		};
-		const timer = setTimeout(() => {
-			signal?.removeEventListener("abort", onAbort);
-			resolve();
-		}, ms);
-		timer.unref?.();
-		signal?.addEventListener("abort", onAbort, { once: true });
-	});
+	sleepWithAbort(ms, signal, (aborted) => abortError(aborted));
 
 const linkAbortSignals = (first?: AbortSignal, second?: AbortSignal): { signal?: AbortSignal; cleanup: () => void } => {
 	const signals = [first, second].filter((signal): signal is AbortSignal => signal !== undefined);
 	if (signals.length <= 1) {
 		return { signal: signals[0], cleanup: () => {} };
 	}
+	// Seam pin: this controller's signal is handed as a REAL AbortSignal to
+	// the caller's `connect`/`resume` (fetch/SDK) calls, so it must remain a
+	// platform AbortController rather than fiber interruption.
 	const controller = new AbortController();
 	const listeners = signals.map((signal) => {
 		const onAbort = () => controller.abort(signal.reason);
@@ -154,7 +149,7 @@ export async function* resilientEventStream<T>(options: ResilientEventStreamOpti
 	let lastError: unknown;
 	let nextConnection: "connect" | "resume" = "connect";
 	let recoveryController: AbortController | undefined;
-	let recoveryDeadlineTimer: ReturnType<typeof setTimeout> | undefined;
+	let cancelRecoveryDeadline: (() => void) | undefined;
 	const captureInitialResumeState = () => {
 		if (runId !== undefined || cursor !== undefined) return;
 		const initialResumeState = options.getInitialResumeState?.();
@@ -163,8 +158,8 @@ export async function* resilientEventStream<T>(options: ResilientEventStreamOpti
 		cursor = initialResumeState.cursor;
 	};
 	const clearRecoveryWindow = () => {
-		if (recoveryDeadlineTimer) clearTimeout(recoveryDeadlineTimer);
-		recoveryDeadlineTimer = undefined;
+		cancelRecoveryDeadline?.();
+		cancelRecoveryDeadline = undefined;
 		recoveryController = undefined;
 		reconnectStartedAt = undefined;
 		reconnectAttempts = 0;
@@ -226,11 +221,14 @@ export async function* resilientEventStream<T>(options: ResilientEventStreamOpti
 				lastError = error;
 				if (reconnectStartedAt === undefined) {
 					reconnectStartedAt = now();
+					// Seam pin: the recovery window's signal is linked into the REAL
+					// AbortSignal handed to `connect`/`resume` fetch/SDK calls, so it
+					// stays a platform AbortController; only the deadline timer that
+					// fires it moved onto a fiber.
 					recoveryController = new AbortController();
-					recoveryDeadlineTimer = setTimeout(() => {
+					cancelRecoveryDeadline = forkCancelableTimeout(deadlineMs, () => {
 						recoveryController?.abort(new Error("Reconnect deadline exhausted"));
-					}, deadlineMs);
-					recoveryDeadlineTimer.unref?.();
+					});
 				}
 			} finally {
 				linked.cleanup();

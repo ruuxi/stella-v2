@@ -12,6 +12,7 @@ import {
   type ModelsJsonModelOverride,
   type ModelsJsonProvider,
 } from "./model-config.js";
+import { forkCancelableTimeout } from "./effect-runtime.js";
 import type { Api, Model } from "./types.js";
 import {
   ensurePrivateDirSync,
@@ -613,12 +614,15 @@ export class ModelRuntime {
     this.refreshIsForce = options.force === true;
     this.refreshPromise = (async () => {
       if (options.allowNetwork !== false) {
+        // Seam pin: this controller's signal is handed as a REAL AbortSignal
+        // to the catalog fetch calls, so it stays a platform AbortController;
+        // only the timeout that fires it moved onto a fiber.
         const controller = new AbortController();
         const onAbort = () => controller.abort(options.signal?.reason);
         options.signal?.addEventListener("abort", onAbort, { once: true });
-        const timeout = setTimeout(
-          () => controller.abort(),
+        const cancelTimeout = forkCancelableTimeout(
           REMOTE_CATALOG_TIMEOUT_MS,
+          () => controller.abort(),
         );
         try {
           const providerIds = [...this.builtins.keys()].filter(
@@ -653,7 +657,7 @@ export class ModelRuntime {
             this.writeStoredCatalogs();
           }
         } finally {
-          clearTimeout(timeout);
+          cancelTimeout();
           options.signal?.removeEventListener("abort", onAbort);
         }
       }

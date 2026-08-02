@@ -18,12 +18,19 @@
  *
  * Single-flight per (stellaDataDir, window) via a mkdir lock under
  * `~/.stella/locks/chronicle-summary-{window}/`, mirroring `dream-scheduler.ts`.
+ *
+ * Effect-native: the tick is one Effect pipeline; the mkdir lock and the
+ * captures file handle are scoped resources (`Effect.acquireRelease`), and
+ * the LLM call/file writes are Effects whose failures map to the exact
+ * result-object reasons the pre-Effect implementation returned. The exported
+ * Promise API is a facade over the shared memory ManagedRuntime.
  */
 
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import path from "node:path";
+import { Effect, Result } from "effect";
 
 import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import type { Context, Message } from "../../ai/types.js";
@@ -41,6 +48,8 @@ import {
 } from "../integrations/claude-code-agent-runtime.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { readHomePrompt } from "../prompts/home-prompts.js";
+import { runMemoryPromise } from "./effect-runtime.js";
+import { tryFs } from "./effect-io.js";
 
 const logger = createRuntimeLogger("memory.chronicle-summarizer");
 
@@ -86,15 +95,17 @@ const summaryMetaPath = (
     `${window}-current.meta.json`,
   );
 
-const isChronicleEnabled = async (stellaDataDir: string): Promise<boolean> => {
-  return getChronicleEnabled(stellaDataDir);
-};
-
 const lockDir = (
   stellaDataDir: string,
   window: ChronicleSummaryWindow,
 ): string => path.join(stellaDataDir, "locks", `chronicle-summary-${window}`);
 
+/**
+ * One synchronous mkdir-lock acquisition attempt (with stale takeover after
+ * five minutes). Returns the release thunk, or null when the lock is busy.
+ * Plain sync helper — the scoped acquire/release around it lives in
+ * `runChronicleSummaryEffect`.
+ */
 const acquireLock = (
   stellaDataDir: string,
   window: ChronicleSummaryWindow,
@@ -152,63 +163,70 @@ const parseEntry = (line: string): CaptureEntry | null => {
   }
 };
 
-const readCapturesInWindow = async (
+const readCapturesInWindowEffect = (
   stellaDataDir: string,
   windowMs: number,
-): Promise<CaptureEntry[]> => {
-  const file = capturesPath(stellaDataDir);
-  let stat: fs.Stats;
-  try {
-    stat = await fsp.stat(file);
-  } catch {
-    return [];
-  }
-  if (stat.size === 0) return [];
+): Effect.Effect<CaptureEntry[]> =>
+  Effect.gen(function* () {
+    const file = capturesPath(stellaDataDir);
+    const stat = yield* tryFs(() => fsp.stat(file)).pipe(
+      Effect.catch(() => Effect.succeed(null)),
+    );
+    if (!stat || stat.size === 0) return [];
 
-  const cutoffMs = Date.now() - windowMs;
+    const cutoffMs = Date.now() - windowMs;
 
-  let raw: string;
-  try {
-    if (stat.size <= MAX_FILE_SIZE_FOR_TAIL) {
-      raw = await fsp.readFile(file, "utf-8");
-    } else {
-      // Tail read: open and read the trailing chunk so giant capture files
-      // don't OOM the worker. ~2MB is enough for many minutes of OCR deltas.
-      const handle = await fsp.open(file, "r");
-      try {
-        const tailBytes = 2 * 1024 * 1024;
-        const start = Math.max(0, stat.size - tailBytes);
-        const buffer = Buffer.alloc(stat.size - start);
-        await handle.read(buffer, 0, buffer.length, start);
-        raw = buffer.toString("utf-8");
-        // Drop a likely-partial first line.
-        const firstNewline = raw.indexOf("\n");
-        if (firstNewline > 0) {
-          raw = raw.slice(firstNewline + 1);
-        }
-      } finally {
-        await handle.close();
-      }
+    const readRaw: Effect.Effect<string, NodeJS.ErrnoException> =
+      stat.size <= MAX_FILE_SIZE_FOR_TAIL
+        ? tryFs(() => fsp.readFile(file, "utf-8"))
+        : // Tail read: open and read the trailing chunk so giant capture
+          // files don't OOM the worker. ~2MB is enough for many minutes of
+          // OCR deltas. The handle is a scoped resource: closed on success,
+          // failure, and interruption.
+          Effect.scoped(
+            Effect.gen(function* () {
+              const handle = yield* Effect.acquireRelease(
+                tryFs(() => fsp.open(file, "r")),
+                (open) =>
+                  Effect.promise(() => open.close().catch(() => undefined)),
+              );
+              const tailBytes = 2 * 1024 * 1024;
+              const start = Math.max(0, stat.size - tailBytes);
+              const buffer = Buffer.alloc(stat.size - start);
+              yield* tryFs(() =>
+                handle.read(buffer, 0, buffer.length, start),
+              );
+              let raw = buffer.toString("utf-8");
+              // Drop a likely-partial first line.
+              const firstNewline = raw.indexOf("\n");
+              if (firstNewline > 0) {
+                raw = raw.slice(firstNewline + 1);
+              }
+              return raw;
+            }),
+          );
+
+    const rawResult = yield* Effect.result(readRaw);
+    if (Result.isFailure(rawResult)) {
+      const error = rawResult.failure;
+      logger.debug("chronicle.captures.read-failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
     }
-  } catch (error) {
-    logger.debug("chronicle.captures.read-failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return [];
-  }
 
-  const lines = raw.split("\n");
-  const entries: CaptureEntry[] = [];
-  for (const line of lines) {
-    const entry = parseEntry(line);
-    if (!entry) continue;
-    const tsMs = Date.parse(entry.ts);
-    if (!Number.isFinite(tsMs)) continue;
-    if (tsMs < cutoffMs) continue;
-    entries.push(entry);
-  }
-  return entries;
-};
+    const lines = rawResult.success.split("\n");
+    const entries: CaptureEntry[] = [];
+    for (const line of lines) {
+      const entry = parseEntry(line);
+      if (!entry) continue;
+      const tsMs = Date.parse(entry.ts);
+      if (!Number.isFinite(tsMs)) continue;
+      if (tsMs < cutoffMs) continue;
+      entries.push(entry);
+    }
+    return entries;
+  });
 
 const aggregateUniqueLines = (entries: CaptureEntry[]): string[] => {
   const seen = new Set<string>();
@@ -238,23 +256,20 @@ const buildInputFingerprint = (
     .update(lines.join("\n"))
     .digest("hex");
 
-const readExistingInputFingerprint = async (
+const readExistingInputFingerprintEffect = (
   stellaDataDir: string,
   window: ChronicleSummaryWindow,
-): Promise<string | null> => {
-  try {
-    const raw = await fsp.readFile(
-      summaryMetaPath(stellaDataDir, window),
-      "utf-8",
+): Effect.Effect<string | null> =>
+  tryFs(() => fsp.readFile(summaryMetaPath(stellaDataDir, window), "utf-8"))
+    .pipe(
+      Effect.map((raw) => {
+        const parsed = JSON.parse(raw) as { inputFingerprint?: unknown };
+        return typeof parsed.inputFingerprint === "string"
+          ? parsed.inputFingerprint
+          : null;
+      }),
+      Effect.catch(() => Effect.succeed(null)),
     );
-    const parsed = JSON.parse(raw) as { inputFingerprint?: unknown };
-    return typeof parsed.inputFingerprint === "string"
-      ? parsed.inputFingerprint
-      : null;
-  } catch {
-    return null;
-  }
-};
 
 export const buildChronicleSystemPrompt = (
   stellaDataDir: string | undefined,
@@ -298,15 +313,20 @@ const renderSummaryFile = (
   ].join("\n");
 };
 
-const writeFileAtomic = async (
+const writeFileAtomicEffect = (
   filePath: string,
   contents: string,
-): Promise<void> => {
-  await fsp.mkdir(path.dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  await fsp.writeFile(tmp, contents, "utf-8");
-  await fsp.rename(tmp, filePath);
-};
+): Effect.Effect<void, NodeJS.ErrnoException> =>
+  Effect.suspend(() => {
+    const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+    return tryFs(() =>
+      fsp.mkdir(path.dirname(filePath), { recursive: true }),
+    ).pipe(
+      Effect.andThen(tryFs(() => fsp.writeFile(tmp, contents, "utf-8"))),
+      Effect.andThen(tryFs(() => fsp.rename(tmp, filePath))),
+      Effect.asVoid,
+    );
+  });
 
 export type ChronicleSummaryResult =
   | {
@@ -332,62 +352,30 @@ export type ChronicleSummaryResult =
       detail?: string;
     };
 
-export const runChronicleSummary = async (args: {
+export type RunChronicleSummaryArgs = {
   stellaDataDir: string;
   window: ChronicleSummaryWindow;
   resolvedLlm: ResolvedLlmRoute;
   /** Dream-inbox handle; when present the digest is queued for consolidation. */
   store?: RuntimeStore;
-}): Promise<ChronicleSummaryResult> => {
-  if (!(await isChronicleEnabled(args.stellaDataDir))) {
-    return {
-      wrote: false,
-      window: args.window,
-      reason: "disabled",
-      uniqueLines: 0,
-    };
-  }
+};
 
-  const useClaudeCode = shouldUseClaudeCodeAgentRuntime({
-    stellaAppDir: args.stellaDataDir,
-    modelId: args.resolvedLlm.model.id,
-  });
-  const apiKey = useClaudeCode
-    ? undefined
-    : await getResolvedLlmApiKey(args.resolvedLlm);
-  if (
-    !useClaudeCode &&
-    !apiKey &&
-    !resolvedLlmSupportsCredentiallessCalls(args.resolvedLlm)
-  ) {
-    return {
-      wrote: false,
-      window: args.window,
-      reason: "no_api_key",
-      uniqueLines: 0,
-    };
-  }
-
-  const release = acquireLock(args.stellaDataDir, args.window);
-  if (!release) {
-    return {
-      wrote: false,
-      window: args.window,
-      reason: "lock_busy",
-      uniqueLines: 0,
-    };
-  }
-
-  try {
-    const entries = await readCapturesInWindow(
+/** The locked body of one summarizer tick (lock already held). */
+const runLockedSummaryEffect = (
+  args: RunChronicleSummaryArgs,
+  useClaudeCode: boolean,
+  apiKey: string | undefined,
+): Effect.Effect<ChronicleSummaryResult, Error> =>
+  Effect.gen(function* () {
+    const entries = yield* readCapturesInWindowEffect(
       args.stellaDataDir,
       WINDOW_MS[args.window],
     );
     if (entries.length === 0) {
       return {
-        wrote: false,
+        wrote: false as const,
         window: args.window,
-        reason: "no_captures",
+        reason: "no_captures" as const,
         uniqueLines: 0,
       };
     }
@@ -395,23 +383,23 @@ export const runChronicleSummary = async (args: {
     const uniqueLines = aggregateUniqueLines(entries);
     if (uniqueLines.length < MIN_UNIQUE_LINES) {
       return {
-        wrote: false,
+        wrote: false as const,
         window: args.window,
-        reason: "below_threshold",
+        reason: "below_threshold" as const,
         uniqueLines: uniqueLines.length,
       };
     }
 
     const inputFingerprint = buildInputFingerprint(args.window, uniqueLines);
-    const existingFingerprint = await readExistingInputFingerprint(
+    const existingFingerprint = yield* readExistingInputFingerprintEffect(
       args.stellaDataDir,
       args.window,
     );
     if (existingFingerprint === inputFingerprint) {
       return {
-        wrote: false,
+        wrote: false as const,
         window: args.window,
-        reason: "unchanged",
+        reason: "unchanged" as const,
         uniqueLines: uniqueLines.length,
       };
     }
@@ -434,45 +422,53 @@ export const runChronicleSummary = async (args: {
       tools: [],
     };
 
-    let responseText: string;
-    try {
-      if (useClaudeCode) {
-        responseText = (
-          await runClaudeCodeAgentTextCompletion({
-            stellaAppDir: args.stellaDataDir,
-            agentType: AGENT_IDS.CHRONICLE,
-            stellaModel: args.resolvedLlm.model.id,
-            effortLevel: "low",
-            context,
-          })
-        ).trim();
-      } else {
-        const response = await completeSimple(
-          args.resolvedLlm.model,
-          context,
-          { ...(apiKey ? { apiKey } : {}), reasoning: "low" },
-        );
-        responseText = readAssistantText(response).trim();
-      }
-    } catch (error) {
+    const llmCall: Effect.Effect<string, unknown> = useClaudeCode
+      ? Effect.tryPromise({
+          try: async () =>
+            (
+              await runClaudeCodeAgentTextCompletion({
+                stellaAppDir: args.stellaDataDir,
+                agentType: AGENT_IDS.CHRONICLE,
+                stellaModel: args.resolvedLlm.model.id,
+                effortLevel: "low",
+                context,
+              })
+            ).trim(),
+          catch: (error) => error,
+        })
+      : Effect.tryPromise({
+          try: async () =>
+            readAssistantText(
+              await completeSimple(args.resolvedLlm.model, context, {
+                ...(apiKey ? { apiKey } : {}),
+                reasoning: "low",
+              }),
+            ).trim(),
+          catch: (error) => error,
+        });
+
+    const llmResult = yield* Effect.result(llmCall);
+    if (Result.isFailure(llmResult)) {
+      const error = llmResult.failure;
       logger.debug("chronicle.summary.llm-failed", {
         window: args.window,
         error: error instanceof Error ? error.message : String(error),
       });
       return {
-        wrote: false,
+        wrote: false as const,
         window: args.window,
-        reason: "llm_failed",
+        reason: "llm_failed" as const,
         uniqueLines: uniqueLines.length,
         detail: error instanceof Error ? error.message : String(error),
       };
     }
+    const responseText = llmResult.success;
 
     if (!responseText || /^NO_SIGNAL\b/i.test(responseText)) {
       return {
-        wrote: false,
+        wrote: false as const,
         window: args.window,
-        reason: "no_signal",
+        reason: "no_signal" as const,
         uniqueLines: uniqueLines.length,
       };
     }
@@ -483,53 +479,67 @@ export const runChronicleSummary = async (args: {
       responseText,
       uniqueLines.length,
     );
-    try {
-      await writeFileAtomic(outPath, rendered);
-    } catch (error) {
+    const writeResult = yield* Effect.result(
+      writeFileAtomicEffect(outPath, rendered),
+    );
+    if (Result.isFailure(writeResult)) {
+      const error = writeResult.failure;
       logger.debug("chronicle.summary.write-failed", {
         window: args.window,
         error: error instanceof Error ? error.message : String(error),
       });
       return {
-        wrote: false,
+        wrote: false as const,
         window: args.window,
-        reason: "write_failed",
+        reason: "write_failed" as const,
         uniqueLines: uniqueLines.length,
         detail: error instanceof Error ? error.message : String(error),
       };
     }
-    try {
-      args.store?.dreamInboxStore.recordChronicleSummary({
-        window: args.window,
-        content: rendered,
-        uniqueLines: uniqueLines.length,
-      });
-    } catch (error) {
-      logger.debug("chronicle.summary.inbox-enqueue-failed", {
-        window: args.window,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-    try {
-      await writeFileAtomic(
-        summaryMetaPath(args.stellaDataDir, args.window),
-        `${JSON.stringify(
-          {
+
+    // Best-effort inbox enqueue; a failure never blocks the written summary.
+    yield* Effect.try({
+      try: () =>
+        args.store?.dreamInboxStore.recordChronicleSummary({
+          window: args.window,
+          content: rendered,
+          uniqueLines: uniqueLines.length,
+        }),
+      catch: (error) => error,
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() =>
+          logger.debug("chronicle.summary.inbox-enqueue-failed", {
             window: args.window,
-            inputFingerprint,
-            uniqueLines: uniqueLines.length,
-            updatedAt: new Date().toISOString(),
-          },
-          null,
-          2,
-        )}\n`,
-      );
-    } catch (error) {
-      logger.debug("chronicle.summary.meta-write-failed", {
-        window: args.window,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        ),
+      ),
+    );
+
+    // Best-effort fingerprint metadata write.
+    yield* writeFileAtomicEffect(
+      summaryMetaPath(args.stellaDataDir, args.window),
+      `${JSON.stringify(
+        {
+          window: args.window,
+          inputFingerprint,
+          uniqueLines: uniqueLines.length,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() =>
+          logger.debug("chronicle.summary.meta-write-failed", {
+            window: args.window,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        ),
+      ),
+    );
 
     logger.debug("chronicle.summary.wrote", {
       window: args.window,
@@ -537,14 +547,77 @@ export const runChronicleSummary = async (args: {
       uniqueLines: uniqueLines.length,
     });
     return {
-      wrote: true,
+      wrote: true as const,
       window: args.window,
       uniqueLines: uniqueLines.length,
       outPath,
     };
-  } finally {
-    release();
-  }
-};
+  });
+
+export const runChronicleSummaryEffect = (
+  args: RunChronicleSummaryArgs,
+): Effect.Effect<ChronicleSummaryResult, Error> =>
+  Effect.gen(function* () {
+    const enabled = yield* Effect.try({
+      try: () => getChronicleEnabled(args.stellaDataDir),
+      catch: (error) => error as Error,
+    });
+    if (!enabled) {
+      return {
+        wrote: false as const,
+        window: args.window,
+        reason: "disabled" as const,
+        uniqueLines: 0,
+      };
+    }
+
+    const useClaudeCode = shouldUseClaudeCodeAgentRuntime({
+      stellaAppDir: args.stellaDataDir,
+      modelId: args.resolvedLlm.model.id,
+    });
+    const apiKey = useClaudeCode
+      ? undefined
+      : yield* Effect.tryPromise({
+          try: () => getResolvedLlmApiKey(args.resolvedLlm),
+          catch: (error) => error as Error,
+        });
+    if (
+      !useClaudeCode &&
+      !apiKey &&
+      !resolvedLlmSupportsCredentiallessCalls(args.resolvedLlm)
+    ) {
+      return {
+        wrote: false as const,
+        window: args.window,
+        reason: "no_api_key" as const,
+        uniqueLines: 0,
+      };
+    }
+
+    // The single-flight mkdir lock is a scoped resource: released on
+    // success, failure, and interruption. A busy lock short-circuits.
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const release = yield* Effect.acquireRelease(
+          Effect.sync(() => acquireLock(args.stellaDataDir, args.window)),
+          (held) => Effect.sync(() => held?.()),
+        );
+        if (!release) {
+          return {
+            wrote: false as const,
+            window: args.window,
+            reason: "lock_busy" as const,
+            uniqueLines: 0,
+          };
+        }
+        return yield* runLockedSummaryEffect(args, useClaudeCode, apiKey);
+      }),
+    );
+  });
+
+export const runChronicleSummary = (
+  args: RunChronicleSummaryArgs,
+): Promise<ChronicleSummaryResult> =>
+  runMemoryPromise(runChronicleSummaryEffect(args));
 
 export const chronicleSummaryFilePath = summaryFilePath;

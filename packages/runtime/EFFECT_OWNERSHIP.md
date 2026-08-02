@@ -23,6 +23,8 @@ aesthetics.
 | Boot readiness | `shared/readiness-latch.ts` (Deferred; reset on stop) |
 | Subagent settlement | `LocalAgentManager.waitForAgentUpdate` (notify at persistTask; SQLite truth) |
 | toolHost shutdown | idempotent memoized finalizer sequence; shell exits joined (3s bound) → repl kernels |
+| Shell exit joins | `kernel/tools/host.ts#killShell` — event-driven join on the shell's exit latch, 1.5s bound (was a 25ms poll) |
+| RunEventLog retention sweep | fixed-rate fiber in `kernel/storage/run-event-log.ts` with a cancel thunk (was an unref'd `setInterval`); host timers (heartbeat, debounces) ride `host/effect-runtime.ts` |
 
 ## Retained imperative seams (deliberate, with reasons)
 
@@ -44,10 +46,6 @@ aesthetics.
 - CLI entrypoints (`stella-connect`, `stella-computer`, `native-helper`)
   and `connector-bridge` — sidecar-process boundary code owned by their
   own process lifetimes (`closeConnectorBridgeSessions` on the CLI side).
-- `run-event-log` sweep interval / host heartbeat interval — unref'd,
-  cleared inside owned stop paths (session layer finalizer / host stop).
-- `kernel/tools/host.ts#killShell` — 25ms poll bounded at 1.5s per call;
-  no persistent resource.
 - Pure async transforms (prompt building, thread memory, image
   pipelines) and renderer/IPC facades — no lifetime ownership; stay
   imperative by design.

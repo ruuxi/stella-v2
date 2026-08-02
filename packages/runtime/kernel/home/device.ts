@@ -1,12 +1,16 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { createPrivateKey, generateKeyPairSync, sign } from "crypto";
+
+import { Effect } from "effect";
+
 import {
   deleteProtectedValue,
   protectValue,
   unprotectValue,
 } from "../shared/protected-storage.js";
 import { ensurePrivateDir, writePrivateFile } from "../shared/private-fs.js";
+import { withHome } from "./home-runtime.js";
 
 type DeviceRecord = {
   deviceId: string;
@@ -22,6 +26,10 @@ export type DeviceIdentity = {
 
 const DEVICE_FILE = "device.json";
 const DEVICE_PRIVATE_KEY_SCOPE = "device-private-key";
+
+/** Adapt a leaf Promise IO call, failing with the raw thrown value. */
+const tryIO = <A>(f: () => Promise<A>): Effect.Effect<A, unknown> =>
+  Effect.tryPromise({ try: f, catch: (error) => error });
 
 export const getDeviceRecordPath = (statePath: string) =>
   path.join(statePath, DEVICE_FILE);
@@ -55,76 +63,110 @@ const toStoredDeviceRecord = (identity: DeviceIdentity): DeviceRecord => ({
   ),
 });
 
-const createAndStoreDeviceIdentity = async (
+const createAndStoreDeviceIdentityEffect = (
   recordPath: string,
   previousPrivateKeyProtected?: string,
-): Promise<DeviceIdentity> => {
-  const payload: DeviceIdentity = {
-    deviceId: crypto.randomUUID(),
-    ...generateDeviceKeyPair(),
-  };
-  const record = toStoredDeviceRecord(payload);
-  await ensurePrivateDir(path.dirname(recordPath));
-  await writePrivateFile(recordPath, JSON.stringify(record, null, 2));
-  if (
-    previousPrivateKeyProtected &&
-    previousPrivateKeyProtected !== record.privateKeyProtected
-  ) {
-    deleteProtectedValue(DEVICE_PRIVATE_KEY_SCOPE, previousPrivateKeyProtected);
-  }
-  return payload;
-};
-
-export const getOrCreateDeviceIdentity = async (
-  statePath: string,
-): Promise<DeviceIdentity> => {
-  const recordPath = getDeviceRecordPath(statePath);
-  let previousPrivateKeyProtected: string | undefined;
-  try {
-    const raw = await fs.readFile(recordPath, "utf-8");
-    const parsed = JSON.parse(raw) as DeviceRecord;
-    previousPrivateKeyProtected = parsed.privateKeyProtected;
-    if (parsed.deviceId && parsed.publicKey && parsed.privateKeyProtected) {
-      const decryptedPrivateKey = unprotectValue(
-        DEVICE_PRIVATE_KEY_SCOPE,
-        parsed.privateKeyProtected,
+): Effect.Effect<DeviceIdentity, unknown> =>
+  Effect.gen(function* () {
+    const payload = yield* Effect.sync(
+      (): DeviceIdentity => ({
+        deviceId: crypto.randomUUID(),
+        ...generateDeviceKeyPair(),
+      }),
+    );
+    const record = yield* Effect.sync(() => toStoredDeviceRecord(payload));
+    yield* tryIO(() => ensurePrivateDir(path.dirname(recordPath)));
+    yield* tryIO(() =>
+      writePrivateFile(recordPath, JSON.stringify(record, null, 2)),
+    );
+    if (
+      previousPrivateKeyProtected &&
+      previousPrivateKeyProtected !== record.privateKeyProtected
+    ) {
+      yield* Effect.sync(() =>
+        deleteProtectedValue(
+          DEVICE_PRIVATE_KEY_SCOPE,
+          previousPrivateKeyProtected,
+        ),
       );
-      if (!decryptedPrivateKey) {
-        throw new Error("Unable to decrypt persisted device private key.");
-      }
-      return {
-        deviceId: parsed.deviceId,
-        publicKey: parsed.publicKey,
-        privateKey: decryptedPrivateKey,
-      };
     }
-  } catch {
-    // Fall through to create a fresh identity.
-  }
+    return payload;
+  });
 
-  return await createAndStoreDeviceIdentity(
-    recordPath,
-    previousPrivateKeyProtected,
-  );
-};
-
-export const resetDeviceIdentity = async (
-  statePath: string,
-): Promise<DeviceIdentity> => {
-  const recordPath = getDeviceRecordPath(statePath);
-  let previousPrivateKeyProtected: string | undefined;
-  try {
+/**
+ * Read the persisted device record, or `undefined` on any read/parse error.
+ * Captures `privateKeyProtected` even when the rest of the record is
+ * unusable, so a re-key can clean up the superseded protected value —
+ * exactly the pre-Effect try/catch flow.
+ */
+const readPersistedDeviceRecord = (
+  recordPath: string,
+): Effect.Effect<DeviceRecord | undefined> =>
+  tryIO(async (): Promise<DeviceRecord> => {
     const raw = await fs.readFile(recordPath, "utf-8");
-    const parsed = JSON.parse(raw) as DeviceRecord;
-    previousPrivateKeyProtected = parsed.privateKeyProtected;
-  } catch {
-    // No usable previous record to clean up.
-  }
-  return await createAndStoreDeviceIdentity(
-    recordPath,
-    previousPrivateKeyProtected,
-  );
-};
+    return JSON.parse(raw) as DeviceRecord;
+  }).pipe(Effect.catch(() => Effect.succeed(undefined)));
+
+export const getOrCreateDeviceIdentityEffect = (
+  statePath: string,
+): Effect.Effect<DeviceIdentity, unknown> =>
+  Effect.gen(function* () {
+    const recordPath = getDeviceRecordPath(statePath);
+    const parsed = yield* readPersistedDeviceRecord(recordPath);
+    const previousPrivateKeyProtected = parsed?.privateKeyProtected;
+    const existing = yield* Effect.try({
+      try: (): DeviceIdentity | null => {
+        if (
+          parsed?.deviceId &&
+          parsed.publicKey &&
+          parsed.privateKeyProtected
+        ) {
+          const decryptedPrivateKey = unprotectValue(
+            DEVICE_PRIVATE_KEY_SCOPE,
+            parsed.privateKeyProtected,
+          );
+          // A record that cannot be decrypted is unusable: fall through to
+          // create a fresh identity (the pre-Effect code threw here and was
+          // caught by the same fall-through).
+          if (!decryptedPrivateKey) return null;
+          return {
+            deviceId: parsed.deviceId,
+            publicKey: parsed.publicKey,
+            privateKey: decryptedPrivateKey,
+          };
+        }
+        return null;
+      },
+      catch: (error) => error,
+    }).pipe(Effect.catch(() => Effect.succeed(null)));
+    if (existing) return existing;
+    return yield* createAndStoreDeviceIdentityEffect(
+      recordPath,
+      previousPrivateKeyProtected,
+    );
+  });
+
+export const getOrCreateDeviceIdentity = (
+  statePath: string,
+): Promise<DeviceIdentity> =>
+  withHome((home) => home.getOrCreateDeviceIdentity(statePath));
+
+export const resetDeviceIdentityEffect = (
+  statePath: string,
+): Effect.Effect<DeviceIdentity, unknown> =>
+  Effect.gen(function* () {
+    const recordPath = getDeviceRecordPath(statePath);
+    const parsed = yield* readPersistedDeviceRecord(recordPath);
+    return yield* createAndStoreDeviceIdentityEffect(
+      recordPath,
+      parsed?.privateKeyProtected,
+    );
+  });
+
+export const resetDeviceIdentity = (
+  statePath: string,
+): Promise<DeviceIdentity> =>
+  withHome((home) => home.resetDeviceIdentity(statePath));
 
 export const signDeviceHeartbeat = (
   identity: DeviceIdentity,

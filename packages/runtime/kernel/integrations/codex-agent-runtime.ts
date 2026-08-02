@@ -1,3 +1,23 @@
+/**
+ * Codex app-server (JSON-RPC over stdio) agent runtime.
+ *
+ * Effect-native concurrency spine (M5 kernel/integrations pass), behind the
+ * exact pre-Effect exported names/signatures/strings:
+ *
+ * - The app-server kill ladders (SIGINT→1.5s→SIGTERM→4s→SIGKILL) are forked
+ *   fibers racing the child's `exit` event against the escalation deadline
+ *   (`kill/abortExternalCliProcess` in ./effect-runtime.ts).
+ * - Every timer — per-request timeouts, the effort model/list deadline, the
+ *   turn idle watchdog (startup/progress/tool ceilings), and the
+ *   agent-message completion grace — is a `forkCancelableTimeout` fiber
+ *   armed and interrupted exactly where the old `setTimeout`/`clearTimeout`
+ *   pair was.
+ * - The readline JSON-RPC reactor stays a plain synchronous line loop:
+ *   notification delivery ordering and the parse-tolerance branches are the
+ *   parity bar, and pure parsers stay plain per the architecture doc.
+ *   Cancellation stays cooperative at the seam: the caller's `AbortSignal`
+ *   still drives `turn/interrupt` plus the abort ladder unchanged.
+ */
 import {
   execFile,
   spawn,
@@ -37,9 +57,13 @@ import {
   buildExternalCliChildEnv,
   resolveExternalCliPath,
 } from "./external-cli-resolution.js";
+import {
+  abortExternalCliProcess as abortCodexProcess,
+  externalCliProcessIsDead as codexProcessIsDead,
+  forkCancelableTimeout,
+  killExternalCliProcess as killCodexProcess,
+} from "./effect-runtime.js";
 const MAX_STDERR_CAPTURE = 8_000;
-const SIGTERM_TIMEOUT_MS = 1_500;
-const SIGKILL_TIMEOUT_MS = 4_000;
 const DEFAULT_CODEX_REQUEST_TIMEOUT_MS = 60 * 1000;
 const DEFAULT_CODEX_EFFORT_MODEL_LIST_TIMEOUT_MS = 2_000;
 const DEFAULT_CODEX_TURN_STARTUP_IDLE_TIMEOUT_MS = 15 * 1000;
@@ -718,43 +742,6 @@ const truncateStderr = (chunks: Buffer[]): string => {
   return text.slice(text.length - MAX_STDERR_CAPTURE);
 };
 
-/**
- * True only when the child has actually terminated. `child.killed` is
- * "a signal was SENT", not "the process died" — using it as a ladder
- * guard made SIGTERM/SIGKILL unreachable after the SIGINT in
- * `abortCodexProcess`, so a signal-ignoring app-server survived.
- */
-const codexProcessIsDead = (child: ChildProcessWithoutNullStreams): boolean =>
-  child.exitCode !== null || child.signalCode !== null;
-
-const killCodexProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (codexProcessIsDead(child)) return;
-  try {
-    child.kill("SIGTERM");
-  } catch {
-    // Process may have already exited.
-  }
-  const sigkillTimer = setTimeout(() => {
-    if (codexProcessIsDead(child)) return;
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // Process may have already exited.
-    }
-  }, SIGKILL_TIMEOUT_MS);
-  child.once("exit", () => clearTimeout(sigkillTimer));
-};
-
-const abortCodexProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (codexProcessIsDead(child)) return;
-  try {
-    child.kill("SIGINT");
-  } catch {
-    // Fall through to the harder kill path.
-  }
-  setTimeout(() => killCodexProcess(child), SIGTERM_TIMEOUT_MS);
-};
-
 const appendUniqueFileChanges = (
   target: FileChangeRecord[],
   changes: FileChangeRecord[],
@@ -933,7 +920,8 @@ export const buildCodexTurnStartParams = (args: {
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
-  timeout?: ReturnType<typeof setTimeout>;
+  /** Interrupts the request-timeout fiber (the old `clearTimeout`). */
+  cancelTimeout?: () => void;
 };
 
 type CodexServerRequestHandler = (
@@ -1061,34 +1049,30 @@ class CodexAppServerClient {
         "STELLA_CODEX_REQUEST_TIMEOUT_MS",
         DEFAULT_CODEX_REQUEST_TIMEOUT_MS,
       );
-      const timeout = setTimeout(() => {
+      const cancelTimeout = forkCancelableTimeout(timeoutMs, () => {
         this.pending.delete(id);
         reject(
           new Error(
             `Codex app-server request ${method} timed out after ${Math.round(timeoutMs / 1000)}s.`,
           ),
         );
-      }, timeoutMs);
-      timeout.unref?.();
+      });
       this.pending.set(id, {
         resolve: (value) => {
-          clearTimeout(timeout);
+          cancelTimeout();
           resolve(value as T);
         },
         reject: (error) => {
-          clearTimeout(timeout);
+          cancelTimeout();
           reject(error);
         },
-        timeout,
+        cancelTimeout,
       });
     });
     try {
       this.write({ jsonrpc: "2.0", id, method, params });
     } catch (error) {
-      const pending = this.pending.get(id);
-      if (pending?.timeout) {
-        clearTimeout(pending.timeout);
-      }
+      this.pending.get(id)?.cancelTimeout?.();
       this.pending.delete(id);
       throw error;
     }
@@ -1178,9 +1162,7 @@ class CodexAppServerClient {
     const pending = this.pending.get(message.id);
     if (!pending) return;
     this.pending.delete(message.id);
-    if (pending.timeout) {
-      clearTimeout(pending.timeout);
-    }
+    pending.cancelTimeout?.();
     if (message.error) {
       pending.reject(
         new Error(
@@ -1234,9 +1216,7 @@ class CodexAppServerClient {
   private rejectAll(error: Error) {
     this.closedError = error;
     for (const pending of this.pending.values()) {
-      if (pending.timeout) {
-        clearTimeout(pending.timeout);
-      }
+      pending.cancelTimeout?.();
       pending.reject(error);
     }
     this.pending.clear();
@@ -1367,25 +1347,20 @@ const requestCodexModelsWithDeadline = async (
       DEFAULT_CODEX_EFFORT_MODEL_LIST_TIMEOUT_MS,
     ),
   );
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let cancelTimeout: (() => void) | undefined;
   try {
     return await Promise.race([
       requestCodexModels(client, includeHidden),
       new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Codex effort model/list timed out after ${timeoutMs}ms.`,
-              ),
-            ),
-          timeoutMs,
+        cancelTimeout = forkCancelableTimeout(timeoutMs, () =>
+          reject(
+            new Error(`Codex effort model/list timed out after ${timeoutMs}ms.`),
+          ),
         );
-        timeout.unref?.();
       }),
     ]);
   } finally {
-    if (timeout) clearTimeout(timeout);
+    cancelTimeout?.();
   }
 };
 
@@ -1576,8 +1551,9 @@ export const runCodexAgentTurn = async (request: {
   let waitingForTurnCompletion = false;
   let hasTurnProgress = false;
   const activeTurnWork = new Set<string>();
-  let turnIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  let agentMessageCompletionTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Cancel thunks interrupting the armed watchdog/grace fibers. */
+  let cancelTurnIdleTimer: (() => void) | undefined;
+  let cancelAgentMessageCompletionTimer: (() => void) | undefined;
   let refreshTurnIdleTimer: (() => void) | undefined;
   let scheduleCompletionGrace: (() => void) | undefined;
 
@@ -1640,17 +1616,18 @@ export const runCodexAgentTurn = async (request: {
       ) {
         return;
       }
-      if (agentMessageCompletionTimer) {
-        clearTimeout(agentMessageCompletionTimer);
-      }
-      agentMessageCompletionTimer = setTimeout(() => {
-        resolveCompleted();
-      }, CODEX_AGENT_MESSAGE_COMPLETION_GRACE_MS);
+      cancelAgentMessageCompletionTimer?.();
+      cancelAgentMessageCompletionTimer = forkCancelableTimeout(
+        CODEX_AGENT_MESSAGE_COMPLETION_GRACE_MS,
+        () => {
+          resolveCompleted();
+        },
+      );
     };
     refreshTurnIdleTimer = () => {
       if (!waitingForTurnCompletion || completed) return;
-      if (turnIdleTimer) clearTimeout(turnIdleTimer);
-      turnIdleTimer = undefined;
+      cancelTurnIdleTimer?.();
+      cancelTurnIdleTimer = undefined;
       // App-server notifications are edge-triggered. A native command or a
       // Stella tool may remain silent while it legitimately runs beyond the
       // stream idle window, so while confirmed work is in flight the watchdog
@@ -1671,7 +1648,7 @@ export const runCodexAgentTurn = async (request: {
               "STELLA_CODEX_TURN_STARTUP_IDLE_TIMEOUT_MS",
               DEFAULT_CODEX_TURN_STARTUP_IDLE_TIMEOUT_MS,
             );
-      turnIdleTimer = setTimeout(() => {
+      cancelTurnIdleTimer = forkCancelableTimeout(timeoutMs, () => {
         if (
           turnCompletionReported &&
           finalAgentMessageCompleted &&
@@ -1696,8 +1673,7 @@ export const runCodexAgentTurn = async (request: {
         if (!request.reuseAppServer) {
           client.abort();
         }
-      }, timeoutMs);
-      turnIdleTimer.unref?.();
+      });
     };
     const markTurnProgress = () => {
       hasTurnProgress = true;
@@ -1995,8 +1971,8 @@ export const runCodexAgentTurn = async (request: {
       ...(fileChanges.length ? { fileChanges } : {}),
     };
   } finally {
-    if (turnIdleTimer) clearTimeout(turnIdleTimer);
-    if (agentMessageCompletionTimer) clearTimeout(agentMessageCompletionTimer);
+    cancelTurnIdleTimer?.();
+    cancelAgentMessageCompletionTimer?.();
     request.abortSignal?.removeEventListener("abort", abortHandler);
     removeNotificationHandler?.();
     removeRequestHandler?.();

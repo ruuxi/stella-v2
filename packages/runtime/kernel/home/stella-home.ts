@@ -1,9 +1,12 @@
 import path from "path";
 import { promises as fs } from "fs";
 import type { App } from "electron";
+
+import { Effect } from "effect";
+
 import { ensurePrivateDir } from "../shared/private-fs.js";
 import {
-  reconcileBundledSkills,
+  reconcileBundledSkillsEffect,
   summarizeSkillsSync,
   type SkillsSyncReport,
 } from "./skills-sync.js";
@@ -12,19 +15,21 @@ import {
   type BundledSyncReport,
 } from "./bundled-sync.js";
 import {
-  reconcileBundledExtensions,
+  reconcileBundledExtensionsEffect,
   summarizeExtensionsSync,
   type ExtensionsSyncReport,
 } from "./extensions-sync.js";
 import {
   StalePromptManifestError,
-  applyPromptManifestIfCurrent,
-  reconcileBundledManagerPromptFallback,
-  reconcileRemotePromptManifest,
-  resolvePromptManifest,
+  applyPromptManifestIfCurrentEffect,
+  reconcileBundledManagerPromptFallbackEffect,
+  reconcileRemotePromptManifestEffect,
+  resolvePromptManifestEffect,
   type PromptManifestResolution,
 } from "./prompt-manifest-sync.js";
-import { reconcileSelectedPersonality } from "./personality-sync.js";
+import { reconcileSelectedPersonalityEffect } from "./personality-sync.js";
+import { PromptEndpointMissingError } from "./errors.js";
+import { withHome } from "./home-runtime.js";
 import {
   resolveBundledAgentMetadataDir,
   resolveDefaultStellaDataDir,
@@ -52,6 +57,17 @@ export type StellaDataDir = {
   workspacePath: string;
   workspaceAppsPath: string;
 };
+
+export type StellaDataDirSeedReport = {
+  skillsSync: SkillsSyncReport;
+  extensionsSync: ExtensionsSyncReport;
+  personalitySync: BundledSyncReport;
+  promptResolution: PromptManifestResolution["source"];
+};
+
+/** Adapt a leaf Promise IO call, failing with the raw thrown value. */
+const tryIO = <A>(f: () => Promise<A>): Effect.Effect<A, unknown> =>
+  Effect.tryPromise({ try: f, catch: (error) => error });
 
 const ensureDir = async (dirPath: string) => {
   await ensurePrivateDir(dirPath);
@@ -91,182 +107,225 @@ const STELLA_DATA_SEED_ENTRIES = [
   path.join("outputs", "README.md"),
 ] as const;
 
-export const ensureStellaDataDirSeeded = async (
+export const ensureStellaDataDirSeededEffect = (
   stellaAppDir: string,
   stellaDataDir: string,
   options: { promptSiteUrl?: string | null } = {},
-): Promise<{
-  skillsSync: SkillsSyncReport;
-  extensionsSync: ExtensionsSyncReport;
-  personalitySync: BundledSyncReport;
-  promptResolution: PromptManifestResolution["source"];
-}> => {
-  await ensureDir(stellaDataDir);
-  const seedPath = resolveStellaDataSeedDir(stellaAppDir);
-  for (const entry of STELLA_DATA_SEED_ENTRIES) {
-    const sourcePath = path.join(seedPath, entry);
-    if (!(await pathExists(sourcePath))) {
-      continue;
+): Effect.Effect<StellaDataDirSeedReport, unknown> =>
+  Effect.gen(function* () {
+    yield* tryIO(() => ensureDir(stellaDataDir));
+    const seedPath = resolveStellaDataSeedDir(stellaAppDir);
+    for (const entry of STELLA_DATA_SEED_ENTRIES) {
+      const sourcePath = path.join(seedPath, entry);
+      if (!(yield* tryIO(() => pathExists(sourcePath)))) {
+        continue;
+      }
+      yield* tryIO(() =>
+        copyPathIfMissing(sourcePath, path.join(stellaDataDir, entry)),
+      );
     }
-    await copyPathIfMissing(sourcePath, path.join(stellaDataDir, entry));
-  }
 
-  const bundledSkillsDir = path.join(seedPath, "skills");
-  const homeSkillsDir = path.join(stellaDataDir, "skills");
-  const skillsSync = await reconcileBundledSkills(
-    bundledSkillsDir,
-    homeSkillsDir,
-  );
-  const summary = summarizeSkillsSync(skillsSync);
-  if (summary !== "no-op") {
-    console.log(`[stella-home] skills sync: ${summary}`);
-  }
-
-  const extensionsSync = await reconcileBundledExtensions(
-    path.join(seedPath, "extensions"),
-    path.join(stellaDataDir, "extensions"),
-  );
-  const extensionsSummary = summarizeExtensionsSync(extensionsSync);
-  if (extensionsSummary !== "no-op") {
-    console.log(`[stella-home] extensions sync: ${extensionsSummary}`);
-  }
-
-  const promptResolution = await resolvePromptManifest({
-    stellaDataDir,
-    siteUrl: options.promptSiteUrl,
-  });
-  let personalitySync: BundledSyncReport | null = null;
-  if (promptResolution.manifest) {
-    if (!promptResolution.endpoint) {
-      throw new Error("Resolved prompt manifest is missing its endpoint");
+    const bundledSkillsDir = path.join(seedPath, "skills");
+    const homeSkillsDir = path.join(stellaDataDir, "skills");
+    const skillsSync = yield* reconcileBundledSkillsEffect(
+      bundledSkillsDir,
+      homeSkillsDir,
+    );
+    const summary = summarizeSkillsSync(skillsSync);
+    if (summary !== "no-op") {
+      console.log(`[stella-home] skills sync: ${summary}`);
     }
-    try {
-      await applyPromptManifestIfCurrent({
+
+    const extensionsSync = yield* reconcileBundledExtensionsEffect(
+      path.join(seedPath, "extensions"),
+      path.join(stellaDataDir, "extensions"),
+    );
+    const extensionsSummary = summarizeExtensionsSync(extensionsSync);
+    if (extensionsSummary !== "no-op") {
+      console.log(`[stella-home] extensions sync: ${extensionsSummary}`);
+    }
+
+    const promptResolution = yield* resolvePromptManifestEffect({
+      stellaDataDir,
+      siteUrl: options.promptSiteUrl,
+    });
+    let personalitySync: BundledSyncReport | null = null;
+    if (promptResolution.manifest) {
+      if (!promptResolution.endpoint) {
+        return yield* Effect.fail(new PromptEndpointMissingError());
+      }
+      yield* applyPromptManifestIfCurrentEffect({
         stellaDataDir,
         endpoint: promptResolution.endpoint,
         manifest: promptResolution.manifest,
-        reconcile: async () => {
-          await reconcileRemotePromptManifest(
+        reconcile: Effect.gen(function* () {
+          yield* reconcileRemotePromptManifestEffect(
             promptResolution.manifest!,
             stellaDataDir,
             resolveBundledAgentMetadataDir(stellaAppDir),
           );
-          personalitySync = await reconcileSelectedPersonality(
+          personalitySync = yield* reconcileSelectedPersonalityEffect(
             stellaDataDir,
             promptResolution.manifest!.revision,
           );
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof StalePromptManifestError)) throw error;
-      personalitySync = { actions: [] };
+        }),
+      }).pipe(
+        Effect.catch((error) =>
+          error instanceof StalePromptManifestError
+            ? Effect.sync(() => {
+                personalitySync = { actions: [] };
+              })
+            : Effect.fail(error),
+        ),
+      );
     }
-  }
 
-  const managerFallbackSync = await reconcileBundledManagerPromptFallback(
-    stellaDataDir,
-    resolveBundledAgentMetadataDir(stellaAppDir),
+    const managerFallbackSync =
+      yield* reconcileBundledManagerPromptFallbackEffect(
+        stellaDataDir,
+        resolveBundledAgentMetadataDir(stellaAppDir),
+      );
+    const managerFallbackSummary = summarizeBundledSync(managerFallbackSync);
+    if (managerFallbackSummary !== "no-op") {
+      console.log(
+        `[stella-home] manager prompt fallback sync: ${managerFallbackSummary}`,
+      );
+    }
+
+    personalitySync ??= { actions: [] };
+
+    return {
+      skillsSync,
+      extensionsSync,
+      personalitySync,
+      promptResolution: promptResolution.source,
+    };
+  });
+
+export const ensureStellaDataDirSeeded = (
+  stellaAppDir: string,
+  stellaDataDir: string,
+  options: { promptSiteUrl?: string | null } = {},
+): Promise<StellaDataDirSeedReport> =>
+  withHome((home) =>
+    home.ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir, options),
   );
-  const managerFallbackSummary = summarizeBundledSync(managerFallbackSync);
-  if (managerFallbackSummary !== "no-op") {
-    console.log(
-      `[stella-home] manager prompt fallback sync: ${managerFallbackSummary}`,
-    );
-  }
-
-  personalitySync ??= { actions: [] };
-
-  return {
-    skillsSync,
-    extensionsSync,
-    personalitySync,
-    promptResolution: promptResolution.source,
-  };
-};
 
 /**
  * Re-run only the remote prompt portion after the renderer supplies a site URL
  * later than main-process startup. Agent bodies are live-read per turn and the
  * extension watcher observes the atomic replacements.
  */
-export const syncStellaPromptSnapshot = async (
+export const syncStellaPromptSnapshotEffect = (
   stellaAppDir: string,
   stellaDataDir: string,
   promptSiteUrl: string,
-): Promise<PromptManifestResolution> => {
-  const resolution = await resolvePromptManifest({
-    stellaDataDir,
-    siteUrl: promptSiteUrl,
-  });
-  if (resolution.manifest) {
-    if (!resolution.endpoint) {
-      throw new Error("Resolved prompt manifest is missing its endpoint");
-    }
-    try {
-      await applyPromptManifestIfCurrent({
+): Effect.Effect<PromptManifestResolution, unknown> =>
+  Effect.gen(function* () {
+    const resolution = yield* resolvePromptManifestEffect({
+      stellaDataDir,
+      siteUrl: promptSiteUrl,
+    });
+    if (resolution.manifest) {
+      if (!resolution.endpoint) {
+        return yield* Effect.fail(new PromptEndpointMissingError());
+      }
+      yield* applyPromptManifestIfCurrentEffect({
         stellaDataDir,
         endpoint: resolution.endpoint,
         manifest: resolution.manifest,
-        reconcile: async () => {
-          await reconcileRemotePromptManifest(
+        reconcile: Effect.gen(function* () {
+          yield* reconcileRemotePromptManifestEffect(
             resolution.manifest!,
             stellaDataDir,
             resolveBundledAgentMetadataDir(stellaAppDir),
           );
-          await reconcileSelectedPersonality(
+          yield* reconcileSelectedPersonalityEffect(
             stellaDataDir,
             resolution.manifest!.revision,
           );
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof StalePromptManifestError)) throw error;
+        }),
+      }).pipe(
+        Effect.catch((error) =>
+          error instanceof StalePromptManifestError
+            ? Effect.void
+            : Effect.fail(error),
+        ),
+      );
     }
-  }
-  await reconcileBundledManagerPromptFallback(
-    stellaDataDir,
-    resolveBundledAgentMetadataDir(stellaAppDir),
-  );
-  return resolution;
-};
+    yield* reconcileBundledManagerPromptFallbackEffect(
+      stellaDataDir,
+      resolveBundledAgentMetadataDir(stellaAppDir),
+    );
+    return resolution;
+  });
 
-export const resolveStellaDataDir = async (
+export const syncStellaPromptSnapshot = (
+  stellaAppDir: string,
+  stellaDataDir: string,
+  promptSiteUrl: string,
+): Promise<PromptManifestResolution> =>
+  withHome((home) =>
+    home.syncStellaPromptSnapshot(stellaAppDir, stellaDataDir, promptSiteUrl),
+  );
+
+export const resolveStellaDataDirEffect = (
   app: App,
   explicitRoot?: string,
   explicitStatePath?: string,
-): Promise<StellaDataDir> => {
-  const stellaAppDir = resolveStellaAppDir(app, explicitRoot);
-  const statePath = resolveRuntimeStatePath(
-    app,
-    stellaAppDir,
-    explicitStatePath,
+): Effect.Effect<StellaDataDir, unknown> =>
+  Effect.gen(function* () {
+    const resolved = yield* Effect.sync(() => {
+      const stellaAppDir = resolveStellaAppDir(app, explicitRoot);
+      const statePath = resolveRuntimeStatePath(
+        app,
+        stellaAppDir,
+        explicitStatePath,
+      );
+      const mutableRoot = app.isPackaged ? statePath : stellaAppDir;
+      const workspacePath = path.join(mutableRoot, "workspace");
+
+      const extensionsPath = path.join(statePath, "extensions");
+      const workspaceAppsPath = path.join(workspacePath, "apps");
+
+      process.env.STELLA_APP_DIR = stellaAppDir;
+      process.env.STELLA_DATA_DIR = statePath;
+
+      return {
+        stellaAppDir,
+        statePath,
+        extensionsPath,
+        workspacePath,
+        workspaceAppsPath,
+      };
+    });
+
+    // NOTE: `ensureStellaDataDirSeeded` (skills/agents hash-history reconciliation)
+    // is intentionally NOT invoked here. It does ~100 awaited fs ops + sha256 over
+    // hundreds of KB across ~17 skill dirs + ~8 agent files, and nothing on the
+    // first-paint path consumes the seeded dirs — only the deferred runtime worker
+    // does. It is now awaited in `initializeStellaHostRunner` (host-runner.ts),
+    // off the pre-window path, before the worker that reads those dirs connects.
+    // `resolveStellaDataDir` keeps only the cheap path resolution + env + dir
+    // ensures that the rest of bootstrap depends on synchronously.
+    yield* tryIO(() => ensureDir(resolved.workspacePath));
+    yield* tryIO(() => ensureDir(resolved.workspaceAppsPath));
+
+    return {
+      stellaAppDir: resolved.stellaAppDir,
+      stellaDataDir: resolved.statePath,
+      extensionsPath: resolved.extensionsPath,
+      statePath: resolved.statePath,
+      workspacePath: resolved.workspacePath,
+      workspaceAppsPath: resolved.workspaceAppsPath,
+    };
+  });
+
+export const resolveStellaDataDir = (
+  app: App,
+  explicitRoot?: string,
+  explicitStatePath?: string,
+): Promise<StellaDataDir> =>
+  withHome((home) =>
+    home.resolveStellaDataDir(app, explicitRoot, explicitStatePath),
   );
-  const mutableRoot = app.isPackaged ? statePath : stellaAppDir;
-  const workspacePath = path.join(mutableRoot, "workspace");
-
-  const extensionsPath = path.join(statePath, "extensions");
-  const workspaceAppsPath = path.join(workspacePath, "apps");
-
-  process.env.STELLA_APP_DIR = stellaAppDir;
-  process.env.STELLA_DATA_DIR = statePath;
-
-  // NOTE: `ensureStellaDataDirSeeded` (skills/agents hash-history reconciliation)
-  // is intentionally NOT invoked here. It does ~100 awaited fs ops + sha256 over
-  // hundreds of KB across ~17 skill dirs + ~8 agent files, and nothing on the
-  // first-paint path consumes the seeded dirs — only the deferred runtime worker
-  // does. It is now awaited in `initializeStellaHostRunner` (host-runner.ts),
-  // off the pre-window path, before the worker that reads those dirs connects.
-  // `resolveStellaDataDir` keeps only the cheap path resolution + env + dir
-  // ensures that the rest of bootstrap depends on synchronously.
-  await ensureDir(workspacePath);
-  await ensureDir(workspaceAppsPath);
-
-  return {
-    stellaAppDir,
-    stellaDataDir: statePath,
-    extensionsPath,
-    statePath,
-    workspacePath,
-    workspaceAppsPath,
-  };
-};

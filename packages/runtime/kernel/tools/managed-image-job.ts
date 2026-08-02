@@ -17,6 +17,7 @@ import {
   readResponseBodyBounded,
   validateDecodedImageFile,
 } from "./image-decode-validation.js";
+import { sleepWithAbort } from "./effect-runtime.js";
 
 // fal permits inference to run for up to one hour and may continue retrying a
 // webhook for two hours. Keep the terminal waiter beyond both envelopes.
@@ -123,23 +124,7 @@ const throwIfAborted = (signal?: AbortSignal): void => {
 };
 
 const abortableSleep = (ms: number, signal?: AbortSignal): Promise<void> =>
-  new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(abortError(signal));
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      reject(abortError(signal!));
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    timer.unref?.();
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
+  sleepWithAbort(ms, signal, abortError);
 
 const requestHeaders = (
   options: Pick<ManagedImageJobOptions, "authToken" | "context">,

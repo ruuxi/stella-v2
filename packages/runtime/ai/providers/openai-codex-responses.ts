@@ -20,6 +20,7 @@ if (typeof process !== "undefined" && (process.versions?.node || process.version
 	});
 }
 
+import { forkCancelableTimeout, iterateStream, scopedBodyChunks, sleepWithAbort } from "../effect-runtime.js";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { clampThinkingLevel } from "../models.js";
 import { registerSessionResourceCleanup } from "../session-resources.js";
@@ -107,22 +108,13 @@ function isRetryableError(status: number, errorText: string): boolean {
 	return /rate.?limit|overloaded|service.?unavailable|upstream.?connect|connection.?refused/i.test(errorText);
 }
 
+/**
+ * Retry backoff sleep on the ai/ fiber substrate. Delay VALUES stay data
+ * (BASE_DELAY_MS * 2 ** attempt, computed at the call sites); only the timer
+ * moved onto a fiber. The abort error message is the exact legacy string.
+ */
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-	return new Promise((resolve, reject) => {
-		if (signal?.aborted) {
-			reject(new Error("Request was aborted"));
-			return;
-		}
-		const onAbort = () => {
-			clearTimeout(timeout);
-			reject(new Error("Request was aborted"));
-		};
-		const timeout = setTimeout(() => {
-			signal?.removeEventListener("abort", onAbort);
-			resolve();
-		}, ms);
-		signal?.addEventListener("abort", onAbort, { once: true });
-	});
+	return sleepWithAbort(ms, signal, () => new Error("Request was aborted"));
 }
 
 // ============================================================================
@@ -551,48 +543,43 @@ function normalizeCodexStatus(status: unknown): CodexResponseStatus | undefined 
 async function* parseSSE(response: Response): AsyncGenerator<Record<string, unknown>> {
 	if (!response.body) return;
 
-	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
 	let buffer = "";
 
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
+	// Delivery substrate is an Effect Stream (M5 phase 3): the reader's
+	// close-exactly-once teardown (cancel + releaseLock on every exit path —
+	// EOF, read error, protocol error, early consumer exit) is a SCOPED
+	// FINALIZER in `scopedBodyChunks`, released deterministically by
+	// `iterateStream`'s bridge. The double-newline SSE chunking below stays
+	// the same pure state machine, run between pulls, so event bytes and
+	// ordering are unchanged. Same pattern as anthropic's iterateSseMessages.
+	for await (const value of iterateStream(scopedBodyChunks(response.body))) {
+		buffer += decoder.decode(value, { stream: true });
 
-			let idx = buffer.indexOf("\n\n");
-			while (idx !== -1) {
-				const chunk = buffer.slice(0, idx);
-				buffer = buffer.slice(idx + 2);
+		let idx = buffer.indexOf("\n\n");
+		while (idx !== -1) {
+			const chunk = buffer.slice(0, idx);
+			buffer = buffer.slice(idx + 2);
 
-				const dataLines = chunk
-					.split("\n")
-					.filter((l) => l.startsWith("data:"))
-					.map((l) => l.slice(5).trim());
-				if (dataLines.length > 0) {
-					const data = dataLines.join("\n").trim();
-					if (data && data !== "[DONE]") {
-						try {
-							yield JSON.parse(data) as Record<string, unknown>;
-						} catch (cause) {
-							throw new CodexProtocolError(`Invalid Codex SSE JSON: ${formatThrownValue(cause)}`, {
-								cause,
-								payload: data,
-							});
-						}
+			const dataLines = chunk
+				.split("\n")
+				.filter((l) => l.startsWith("data:"))
+				.map((l) => l.slice(5).trim());
+			if (dataLines.length > 0) {
+				const data = dataLines.join("\n").trim();
+				if (data && data !== "[DONE]") {
+					try {
+						yield JSON.parse(data) as Record<string, unknown>;
+					} catch (cause) {
+						throw new CodexProtocolError(`Invalid Codex SSE JSON: ${formatThrownValue(cause)}`, {
+							cause,
+							payload: data,
+						});
 					}
 				}
-				idx = buffer.indexOf("\n\n");
 			}
+			idx = buffer.indexOf("\n\n");
 		}
-	} finally {
-		try {
-			await reader.cancel();
-		} catch {}
-		try {
-			reader.releaseLock();
-		} catch {}
 	}
 }
 
@@ -622,7 +609,8 @@ interface CachedWebSocketContinuationState {
 interface CachedWebSocketConnection {
 	socket: WebSocketLike;
 	busy: boolean;
-	idleTimer?: ReturnType<typeof setTimeout>;
+	/** Cancels the pending idle-expiry fiber (ai/effect-runtime timer). */
+	cancelIdleTimer?: () => void;
 	continuation?: CachedWebSocketContinuationState;
 }
 
@@ -684,7 +672,7 @@ export function resetOpenAICodexWebSocketDebugStats(sessionId?: string): void {
 
 export function closeOpenAICodexWebSocketSessions(sessionId?: string): void {
 	const closeEntry = (entry: CachedWebSocketConnection) => {
-		if (entry.idleTimer) clearTimeout(entry.idleTimer);
+		entry.cancelIdleTimer?.();
 		closeWebSocketSilently(entry.socket, 1000, "debug_close");
 	};
 	if (sessionId) {
@@ -769,14 +757,12 @@ function closeWebSocketSilently(socket: WebSocketLike, code = 1000, reason = "do
 }
 
 function scheduleSessionWebSocketExpiry(sessionId: string, entry: CachedWebSocketConnection): void {
-	if (entry.idleTimer) {
-		clearTimeout(entry.idleTimer);
-	}
-	entry.idleTimer = setTimeout(() => {
+	entry.cancelIdleTimer?.();
+	entry.cancelIdleTimer = forkCancelableTimeout(SESSION_WEBSOCKET_CACHE_TTL_MS, () => {
 		if (entry.busy) return;
 		closeWebSocketSilently(entry.socket, 1000, "idle_timeout");
 		websocketSessionCache.delete(sessionId);
-	}, SESSION_WEBSOCKET_CACHE_TTL_MS);
+	});
 }
 
 async function connectWebSocket(url: string, headers: Headers, signal?: AbortSignal): Promise<WebSocketLike> {
@@ -869,9 +855,9 @@ async function acquireWebSocket(
 
 	const cached = websocketSessionCache.get(sessionId);
 	if (cached) {
-		if (cached.idleTimer) {
-			clearTimeout(cached.idleTimer);
-			cached.idleTimer = undefined;
+		if (cached.cancelIdleTimer) {
+			cached.cancelIdleTimer();
+			cached.cancelIdleTimer = undefined;
 		}
 		if (!cached.busy && isWebSocketReusable(cached.socket)) {
 			cached.busy = true;
@@ -916,7 +902,7 @@ async function acquireWebSocket(
 		release: ({ keep } = {}) => {
 			if (!keep || !isWebSocketReusable(entry.socket)) {
 				closeWebSocketSilently(entry.socket);
-				if (entry.idleTimer) clearTimeout(entry.idleTimer);
+				entry.cancelIdleTimer?.();
 				if (websocketSessionCache.get(sessionId) === entry) {
 					websocketSessionCache.delete(sessionId);
 				}
@@ -985,6 +971,15 @@ async function decodeWebSocketData(data: unknown): Promise<string | null> {
 	return null;
 }
 
+/**
+ * WebSocket event delivery deliberately stays a plain synchronous listener
+ * reactor (queue + wake), NOT an Effect Stream: `message`/`error`/`close`
+ * listeners append and settle synchronously in arrival order, and completion
+ * detection (`sawCompletion` before `close`) depends on that ordering.
+ * Re-plumbing delivery through fiber scheduling could reorder a same-tick
+ * error/close against queued messages — the same parity call as the
+ * stream-json stdout reactor in kernel/integrations/claude-code-session-runtime.
+ */
 async function* parseWebSocket(socket: WebSocketLike, signal?: AbortSignal): AsyncGenerator<Record<string, unknown>> {
 	const queue: Record<string, unknown>[] = [];
 	let pending: (() => void) | null = null;

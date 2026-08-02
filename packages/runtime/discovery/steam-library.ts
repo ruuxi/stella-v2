@@ -11,6 +11,8 @@
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
+import { Effect } from "effect";
+import { runDiscovery, tryDiscovery } from "./effect-io.js";
 
 const log = (...args: unknown[]) => console.error("[steam-library]", ...args);
 
@@ -310,34 +312,42 @@ const resolveGameNames = async (
 // Main Collection
 // ---------------------------------------------------------------------------
 
-export const collectSteamLibrary = async (): Promise<SteamLibrarySignals | null> => {
-  const steamDir = await findSteamDir();
+const collectSteamLibraryEffect: Effect.Effect<
+  SteamLibrarySignals | null,
+  unknown
+> = Effect.gen(function* () {
+  const steamDir = yield* tryDiscovery(() => findSteamDir());
   if (!steamDir) {
     log("Steam not found");
     return null;
   }
   log(`Found Steam at: ${steamDir}`);
 
-  const userId = await findUserId(steamDir);
+  const userId = yield* tryDiscovery(() => findUserId(steamDir));
   if (!userId) {
     log("No Steam user data found");
     return null;
   }
 
-  const [username, libraryPaths, playtimeData] = await Promise.all([
-    getUsername(steamDir),
-    getLibraryPaths(steamDir),
-    getPlaytimeData(steamDir, userId),
-  ]);
+  const [username, libraryPaths, playtimeData] = yield* Effect.all(
+    [
+      tryDiscovery(() => getUsername(steamDir)),
+      tryDiscovery(() => getLibraryPaths(steamDir)),
+      tryDiscovery(() => getPlaytimeData(steamDir, userId)),
+    ],
+    { concurrency: "unbounded" },
+  );
 
-  const gameNames = await getGameNamesFromManifests(libraryPaths);
+  const gameNames = yield* tryDiscovery(() =>
+    getGameNamesFromManifests(libraryPaths),
+  );
 
   // Get IDs that have playtime but no name, sorted by most recent
   const allIds = [...playtimeData.keys()]
     .sort((a, b) => (playtimeData.get(b)!.lastPlayed) - (playtimeData.get(a)!.lastPlayed));
 
   // Resolve missing names via API (top 20 most recent without names)
-  await resolveGameNames(allIds, gameNames);
+  yield* tryDiscovery(() => resolveGameNames(allIds, gameNames));
 
   // Build game list (only games we have names for)
   const games: SteamGame[] = [];
@@ -361,7 +371,10 @@ export const collectSteamLibrary = async (): Promise<SteamLibrarySignals | null>
   log(`Collected ${games.length} games for user "${username}"`);
 
   return { username, games };
-};
+});
+
+export const collectSteamLibrary = async (): Promise<SteamLibrarySignals | null> =>
+  runDiscovery(collectSteamLibraryEffect);
 
 // ---------------------------------------------------------------------------
 // Formatting

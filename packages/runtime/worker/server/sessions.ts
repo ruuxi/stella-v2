@@ -6,6 +6,7 @@ import {
 } from "@stella/contracts/protocol";
 import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { getFileLogger } from "../../observability/file-logger.js";
+import { forkDelayed } from "../effect-runtime.js";
 import type { SocialSessionService } from "../social-sessions/service.js";
 import type { VoiceRuntimeService } from "../voice/service.js";
 import { ProtocolMismatchError } from "./errors.js";
@@ -259,10 +260,11 @@ export const layer = Layer.effect(
             };
             currentSession = session;
 
-            // Post-ready warmups — off the initialize response path, exactly
-            // like the old setTimeout(0) block: backfill orphaned run events,
-            // then wait out the background runner build for startup logging.
-            setTimeout(() => {
+            // Post-ready warmups — off the initialize response path, as a
+            // forked 0-delay fiber (the old setTimeout(0) block): backfill
+            // orphaned run events, then wait out the background runner build
+            // for startup logging.
+            forkDelayed(0, () => {
               void (async () => {
                 const startupStartedAt = Date.now();
                 await Promise.allSettled([
@@ -286,7 +288,7 @@ export const layer = Layer.effect(
                   ms: Date.now() - startupStartedAt,
                 });
               })();
-            }, 0);
+            });
 
             if (pendingConfigPatch) {
               applyConfigPatch(session, pendingConfigPatch);

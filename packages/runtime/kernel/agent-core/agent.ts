@@ -579,6 +579,11 @@ export class Agent {
 			this.resolveRunningPrompt = resolve;
 		});
 
+		// Effect-ratchet pin (1 new AbortController): the agent's per-prompt
+		// cancellation seam. `abort()` must fire a REAL AbortSignal because
+		// the cancel path is deliberately cooperative (the loop bridges the
+		// raw signal into its latch and still emits the normal terminal
+		// events); interrupting a fiber here would break that ordering.
 		this.abortController = new AbortController();
 		this._state.isStreaming = true;
 		this._state.streamMessage = null;

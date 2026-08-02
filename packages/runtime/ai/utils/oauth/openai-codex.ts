@@ -20,6 +20,7 @@ if (
   });
 }
 
+import { forkCancelableTimeout } from "../../effect-runtime.js";
 import { oauthErrorHtml, oauthSuccessHtml } from "./oauth-page.js";
 import { generatePKCE } from "./pkce.js";
 import type {
@@ -419,13 +420,15 @@ export async function loginOpenAICodex(options: {
   originator?: string;
   signal?: AbortSignal;
 }): Promise<OAuthCredentials> {
+  // Seam pin: this controller's signal is handed as a REAL AbortSignal to the
+  // OAuth fetches and the local callback server, so it stays a platform
+  // AbortController; only the login deadline that fires it moved onto a fiber.
   const controller = new AbortController();
   const abortFromCaller = () =>
     controller.abort(new Error("OpenAI OAuth was canceled."));
   options.signal?.addEventListener("abort", abortFromCaller, { once: true });
-  const deadline = setTimeout(
-    () => controller.abort(new Error("OpenAI OAuth timed out.")),
-    OAUTH_LOGIN_TIMEOUT_MS,
+  const cancelDeadline = forkCancelableTimeout(OAUTH_LOGIN_TIMEOUT_MS, () =>
+    controller.abort(new Error("OpenAI OAuth timed out.")),
   );
   const signal = controller.signal;
   let server: OAuthServerInfo | null = null;
@@ -562,7 +565,7 @@ export async function loginOpenAICodex(options: {
       accountId,
     };
   } finally {
-    clearTimeout(deadline);
+    cancelDeadline();
     options.signal?.removeEventListener("abort", abortFromCaller);
     server?.close();
   }

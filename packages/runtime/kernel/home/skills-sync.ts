@@ -10,12 +10,19 @@
  * (directory units, platform gating, user-profile exclusion).
  */
 
+import type { Effect } from "effect";
+
 import {
   createDirectoryEntryAdapter,
-  reconcileBundledEntries,
-  summarizeBundledSync,
+  reconcileBundledEntriesEffect,
   type BundledSyncReport,
 } from "./bundled-sync.js";
+import { withHome } from "./home-runtime.js";
+
+// Live re-export (not a top-level binding read): this module sits inside the
+// home facade/service import cycle, and reading the binding at evaluation
+// time would hit the temporal dead zone depending on entry order.
+export { summarizeBundledSync as summarizeSkillsSync } from "./bundled-sync.js";
 
 const USER_PROFILE_SKILL_ID = "user-profile";
 const PLATFORM_SKILL_IDS: Partial<Record<NodeJS.Platform, readonly string[]>> =
@@ -27,7 +34,7 @@ const PLATFORM_EXCLUSIVE_SKILL_IDS = new Set(
   Object.values(PLATFORM_SKILL_IDS).flat(),
 );
 
-type SkillsSyncOptions = {
+export type SkillsSyncOptions = {
   platform?: NodeJS.Platform;
 };
 
@@ -47,13 +54,13 @@ const isBundledSkillIncludedForPlatform = (
  * Reconcile bundled skills into a Stella home skills tree. `user-profile` is
  * intrinsically user-owned onboarding memory and is excluded entirely.
  */
-export const reconcileBundledSkills = async (
+export const reconcileBundledSkillsEffect = (
   bundledSkillsDir: string,
   homeSkillsDir: string,
   options: SkillsSyncOptions = {},
-): Promise<SkillsSyncReport> => {
+): Effect.Effect<SkillsSyncReport, unknown> => {
   const platform = options.platform ?? process.platform;
-  return reconcileBundledEntries(
+  return reconcileBundledEntriesEffect(
     bundledSkillsDir,
     homeSkillsDir,
     createDirectoryEntryAdapter((id) => id !== USER_PROFILE_SKILL_ID),
@@ -66,4 +73,11 @@ export const reconcileBundledSkills = async (
   );
 };
 
-export const summarizeSkillsSync = summarizeBundledSync;
+export const reconcileBundledSkills = (
+  bundledSkillsDir: string,
+  homeSkillsDir: string,
+  options: SkillsSyncOptions = {},
+): Promise<SkillsSyncReport> =>
+  withHome((home) =>
+    home.reconcileBundledSkills(bundledSkillsDir, homeSkillsDir, options),
+  );

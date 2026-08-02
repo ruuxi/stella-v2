@@ -1,5 +1,11 @@
+import { Effect } from "effect";
 import type { SqliteDatabase } from "../kernel/storage/shared.js";
 import type { ConnectorFollowupDelivery } from "./connector-followup.js";
+import {
+  forkDelayed,
+  hostRuntime,
+  type HostTimerHandle,
+} from "./effect-runtime.js";
 
 export type DurableConnectorFollowupTarget = {
   requestId: string;
@@ -54,6 +60,14 @@ const asTarget = (
  * Durable host-side admission for connector follow-ups. Convex remains the
  * delivery authority, but a row is deleted locally only after its mutation
  * ACK, so auth/network failure and process restart cannot drop terminal text.
+ *
+ * Structure (M5 phase 5): sqlite IS the durable queue, keyed by
+ * `delivery_id` with per-row persisted attempt counts; the in-memory part is
+ * a single-flight drain Effect plus one wake fiber (`forkDelayed`) armed at
+ * the earliest `next_attempt_at`. The exponential backoff formula
+ * (`retryBaseMs * 2^min(attempts, 8)`, capped at `retryMaxMs`) is computed
+ * from the persisted attempts rather than a `Schedule` state precisely so it
+ * survives process restarts with identical timing.
  */
 export class ConnectorFollowupOutbox {
   private readonly database: SqliteDatabase;
@@ -61,7 +75,7 @@ export class ConnectorFollowupOutbox {
   private readonly retryBaseMs: number;
   private readonly retryMaxMs: number;
   private readonly now: () => number;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private timer: HostTimerHandle | null = null;
   private draining = false;
   private drainPromise: Promise<void> | null = null;
   private stopped = false;
@@ -318,20 +332,19 @@ export class ConnectorFollowupOutbox {
             WHERE eligible_at IS NOT NULL`,
         )
         .run(now, now);
-      if (this.timer) clearTimeout(this.timer);
+      this.timer?.cancel();
       this.timer = null;
     }
     if (this.draining || this.timer) return;
-    this.timer = setTimeout(() => {
+    this.timer = forkDelayed(0, () => {
       this.timer = null;
       void this.startDrain();
-    }, 0);
-    this.timer.unref?.();
+    });
   }
 
   async drainNow(): Promise<void> {
     if (this.timer) {
-      clearTimeout(this.timer);
+      this.timer.cancel();
       this.timer = null;
     }
     await this.startDrain();
@@ -339,7 +352,7 @@ export class ConnectorFollowupOutbox {
 
   async stop(): Promise<void> {
     this.stopped = true;
-    if (this.timer) clearTimeout(this.timer);
+    this.timer?.cancel();
     this.timer = null;
     await this.drainPromise?.catch(() => undefined);
   }
@@ -353,14 +366,10 @@ export class ConnectorFollowupOutbox {
 
   private scheduleAt(timestamp: number): void {
     if (this.stopped || this.timer) return;
-    this.timer = setTimeout(
-      () => {
-        this.timer = null;
-        void this.startDrain();
-      },
-      Math.max(0, timestamp - this.now()),
-    );
-    this.timer.unref?.();
+    this.timer = forkDelayed(Math.max(0, timestamp - this.now()), () => {
+      this.timer = null;
+      void this.startDrain();
+    });
   }
 
   private nextReady(): ConnectorFollowupOutboxRow | null {
@@ -392,56 +401,76 @@ export class ConnectorFollowupOutbox {
 
   private startDrain(): Promise<void> {
     if (this.drainPromise) return this.drainPromise;
-    const work = this.drain().finally(() => {
+    const work = hostRuntime.runPromise(this.drainEffect()).finally(() => {
       if (this.drainPromise === work) this.drainPromise = null;
     });
     this.drainPromise = work;
     return work;
   }
 
-  private async drain(): Promise<void> {
-    if (this.stopped || this.draining) return;
-    this.draining = true;
-    try {
-      while (!this.stopped) {
-        const row = this.nextReady();
-        if (!row) {
-          const next = this.nextRetryAt();
-          if (next !== null) this.scheduleAt(next);
-          return;
-        }
-        try {
-          await this.deliver(row);
-          this.database
+  /**
+   * Single-flight drain pass: deliver ready rows in sequence order until the
+   * queue is empty or a delivery fails; a failure re-arms the wake fiber at
+   * the persisted `next_attempt_at` and ends the pass (identical to the old
+   * promise loop's early return).
+   */
+  private drainEffect(): Effect.Effect<void> {
+    const self = this;
+    return Effect.suspend(() => {
+      if (self.stopped || self.draining) return Effect.void;
+      self.draining = true;
+      return Effect.gen(function* () {
+        while (!self.stopped) {
+          const row = self.nextReady();
+          if (!row) {
+            const next = self.nextRetryAt();
+            if (next !== null) self.scheduleAt(next);
+            return;
+          }
+          const outcome = yield* Effect.tryPromise({
+            try: () => self.deliver(row),
+            catch: (error) => error,
+          }).pipe(
+            Effect.map(() => "delivered" as const),
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                const attempts = row.attempts + 1;
+                const nextAttemptAt = self.now() + self.retryDelay(attempts);
+                self.database
+                  .prepare(
+                    `UPDATE connector_followup_outbox
+                        SET attempts = ?, next_attempt_at = ?, last_error = ?,
+                            updated_at = ?
+                      WHERE delivery_id = ?`,
+                  )
+                  .run(
+                    attempts,
+                    nextAttemptAt,
+                    error instanceof Error
+                      ? error.message.slice(0, 500)
+                      : String(error).slice(0, 500),
+                    self.now(),
+                    row.deliveryId,
+                  );
+                self.scheduleAt(nextAttemptAt);
+                return "failed" as const;
+              }),
+            ),
+          );
+          if (outcome === "failed") return;
+          self.database
             .prepare(
               "DELETE FROM connector_followup_outbox WHERE delivery_id = ?",
             )
             .run(row.deliveryId);
-        } catch (error) {
-          const attempts = row.attempts + 1;
-          const nextAttemptAt = this.now() + this.retryDelay(attempts);
-          this.database
-            .prepare(
-              `UPDATE connector_followup_outbox
-                  SET attempts = ?, next_attempt_at = ?, last_error = ?,
-                      updated_at = ?
-                WHERE delivery_id = ?`,
-            )
-            .run(
-              attempts,
-              nextAttemptAt,
-              error instanceof Error
-                ? error.message.slice(0, 500)
-                : String(error).slice(0, 500),
-              this.now(),
-              row.deliveryId,
-            );
-          this.scheduleAt(nextAttemptAt);
-          return;
         }
-      }
-    } finally {
-      this.draining = false;
-    }
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            self.draining = false;
+          }),
+        ),
+      );
+    });
   }
 }

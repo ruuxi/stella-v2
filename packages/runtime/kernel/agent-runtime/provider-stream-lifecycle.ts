@@ -74,6 +74,9 @@ export const createRunScopedStreamFn = (args: {
     sequence += 1;
     const label = `provider-stream:${args.runId}:${sequence}`;
     const outer = options?.signal;
+    // Effect-ratchet pin (1 new AbortController): the relay seam controller —
+    // provider adapters take a REAL AbortSignal, and the run supervisor's
+    // cooperative abort must fire it independently of the outer signal.
     const relay = new AbortController();
     const onOuterAbort = () => relay.abort(outer?.reason);
     if (outer?.aborted) {
@@ -147,6 +150,10 @@ export const createRunScopedStreamFn = (args: {
         const armAbandonment = () => {
           if (settledFlag || abandonTimer) return;
           if (!Number.isFinite(graceMs) || graceMs <= 0) return;
+          // Effect-ratchet pin (1 setTimeout): the post-abort abandonment
+          // grace is a deliberately unref'd raw timer — the bounded join
+          // must never keep the process alive for a stream that ignores its
+          // abort; an Effect sleep fiber would hold the event loop.
           abandonTimer = setTimeout(() => finish(true), graceMs);
           abandonTimer.unref?.();
         };

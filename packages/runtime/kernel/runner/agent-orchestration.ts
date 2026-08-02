@@ -963,37 +963,36 @@ export const createAgentOrchestration = (
       ...request,
       storageMode: "local",
     });
-    while (true) {
-      const snapshot = await context.state.localAgentManager.getAgent(threadId);
-      if (!snapshot) {
-        return {
-          status: "error",
-          finalText: "",
-          error: "Agent record disappeared before completion.",
-          threadId,
-        };
-      }
-      if (snapshot.status === "completed") {
-        return {
-          status: "ok",
-          finalText: snapshot.result ?? "",
-          threadId,
-        };
-      }
-      if (snapshot.status === "error" || snapshot.status === "canceled") {
-        return {
-          status: "error",
-          finalText: "",
-          error: snapshot.error ?? "Agent run failed",
-          threadId,
-        };
-      }
-      // Event-driven settlement: terminal transitions wake this loop
-      // immediately via the manager's update notifier; the 2s fallback
-      // covers rehydrated records and out-of-band writers (SQLite stays
-      // the only truth — every wake re-reads the snapshot above).
-      await context.state.localAgentManager.waitForAgentUpdate(threadId);
+    // Effect-native settlement (replaces the historical poll-until-terminal
+    // loop): the manager's settlement latch wakes the wait on terminal
+    // transitions, with the same 2s fallback re-read for rehydrated records
+    // and out-of-band writers — SQLite stays the only truth. Cancellation
+    // pairing: abandoning this wait never cancels the child; the parent
+    // run's supervisor scope owns that (adoptChild's abort → cancelAgent,
+    // joined on cancelRun/shutdown).
+    const settlement =
+      await context.state.localAgentManager.awaitAgentSettled(threadId);
+    if (!settlement) {
+      return {
+        status: "error",
+        finalText: "",
+        error: "Agent record disappeared before completion.",
+        threadId,
+      };
     }
+    if (settlement.status === "completed") {
+      return {
+        status: "ok",
+        finalText: settlement.result ?? "",
+        threadId,
+      };
+    }
+    return {
+      status: "error",
+      finalText: "",
+      error: settlement.error ?? "Agent run failed",
+      threadId,
+    };
   };
 
   const createBackgroundAgent = async (

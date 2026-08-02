@@ -1,4 +1,5 @@
 import type { AgentLifecycleEvent } from "../agents/local-agent-manager.js";
+import { forkDelayedCall } from "./cloud-effect-runtime.js";
 
 type CloudAgentThreadRow = {
   threadId: string;
@@ -173,16 +174,16 @@ export const createCloudAgentLifecycleMonitor = (
   let unsubscribe: (() => void) | null = null;
   let stopped = false;
   const processing = new Set<string>();
-  const retryTimers = new Set<ReturnType<typeof setTimeout>>();
+  /** Cancel thunks for pending per-row retry fibers (the old timer Set). */
+  const retryCancels = new Set<() => void>();
 
   const scheduleRetry = (row: CloudAgentThreadRow) => {
     if (stopped) return;
-    const timer = setTimeout(() => {
-      retryTimers.delete(timer);
+    const cancel = forkDelayedCall(RETRY_DELAY_MS, () => {
+      retryCancels.delete(cancel);
       void processRow(row);
-    }, RETRY_DELAY_MS);
-    timer.unref?.();
-    retryTimers.add(timer);
+    });
+    retryCancels.add(cancel);
   };
 
   const acknowledge = async (row: CloudAgentThreadRow) => {
@@ -232,8 +233,8 @@ export const createCloudAgentLifecycleMonitor = (
     stopped = true;
     unsubscribe?.();
     unsubscribe = null;
-    for (const timer of retryTimers) clearTimeout(timer);
-    retryTimers.clear();
+    for (const cancel of retryCancels) cancel();
+    retryCancels.clear();
     processing.clear();
   };
 

@@ -5,12 +5,14 @@ import type {
   ScheduleToolChangeSet,
   ScheduleToolDetails,
 } from "@stella/contracts/scheduling";
+import { Effect } from "effect";
 import type {
   ScheduleToolApi,
   AgentToolApi,
   ToolContext,
   ToolResult,
 } from "./types.js";
+import { runToolEffect } from "./effect-runtime.js";
 
 const formatResult = (value: unknown) =>
   typeof value === "string" ? value : JSON.stringify(value ?? null, null, 2);
@@ -86,10 +88,7 @@ Instructions:
 - Make reasonable, conservative assumptions when details are missing, and mention any important assumption in your final reply.
 - Return plain text only: a short summary of what you changed, or say clearly if no change was needed.`;
 
-const sleep = (ms: number) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+const sleep = (ms: number) => runToolEffect(Effect.sleep(ms));
 
 /**
  * Best-effort schedule snapshot scoped to a single conversation. Heartbeat

@@ -4,23 +4,39 @@ import { pathToFileURL } from "node:url";
 
 // The Effect fence (M5): Effect lives ONLY in packages/runtime, and even
 // there it is banned from tool and prompt definitions so those stay plain
-// portable TS. Every source-bearing file in the banned packages is scanned —
-// source, scripts, and configs — not just the app entry roots.
+// portable TS. The tool EXECUTION infrastructure (kernel/tools/ outside
+// defs/) went Effect-native in the M5 completion pass (shell scopes, kill
+// ladders, joined shutdown — see docs/effect-architecture.md §6), so the
+// fence covers the model-facing definition subtrees: kernel/tools/defs/ and
+// kernel/prompts/. Every source-bearing file in the banned packages is
+// scanned — source, scripts, and configs — not just the app entry roots.
 const isEffectImport = (specifier) =>
   specifier === "effect" || specifier.startsWith("effect/");
 // Runtime modules whose EXPORTED SIGNATURES carry Effect/Scope types. The
-// runtime package.json blocks these subpaths outright (null export targets),
-// and the fence flags any attempted import from the Effect-free packages so
-// a violation reads as a boundary error, not a resolution failure. The
-// plain-Promise facades (@stella/runtime/host, @stella/runtime/host/lifecycle)
-// stay importable.
+// runtime package.json blocks the host subpaths outright (null export
+// targets), and the fence flags any attempted import from the Effect-free
+// packages so a violation reads as a boundary error, not a resolution
+// failure. The plain-Promise facades (@stella/runtime/host,
+// @stella/runtime/host/lifecycle) stay importable.
+//
+// The per-area Effect runtime modules from the M5 completion pass are fenced
+// the same way: `host/effect-runtime`, `worker/effect-runtime`, every
+// `kernel/**/effect-runtime`, and `kernel/runner/cloud-effect-runtime`
+// export ManagedRuntimes and Effect combinators — never facades — so their
+// Effect-typed exports must not leak into desktop/desktop-ui/contracts.
 const isEffectBearingRuntimeImport = (specifier) =>
   specifier.startsWith("@stella/runtime/host/lifecycle/") ||
   specifier === "@stella/runtime/host/staleness" ||
   specifier === "@stella/runtime/host/staleness.js" ||
-  /(?:^|\/)runtime\/host\/(?:lifecycle\/|staleness(?:\.|$))/.test(specifier);
+  /(?:^|\/)runtime\/host\/(?:lifecycle\/|staleness(?:\.|$))/.test(specifier) ||
+  /^@stella\/runtime\/(?:[^/]+\/)*(?:cloud-)?effect-runtime(?:\.js)?$/.test(
+    specifier,
+  ) ||
+  /(?:^|\/)runtime\/(?:[^/]+\/)*(?:cloud-)?effect-runtime(?:\.|$)/.test(
+    specifier,
+  );
 const runtimeEffectFencedPrefixes = [
-  "packages/runtime/kernel/tools/",
+  "packages/runtime/kernel/tools/defs/",
   "packages/runtime/kernel/prompts/",
 ];
 const ignoredDirectories = new Set([
@@ -121,7 +137,7 @@ const checkBoundaries = async (repoRoot) => {
       return "Effect is fenced inside packages/runtime";
     }
     if (isEffectBearingRuntimeImport(specifier)) {
-      return "Effect-bearing runtime host internals are fenced inside packages/runtime";
+      return "Effect-bearing runtime internals are fenced inside packages/runtime";
     }
     if (!file.startsWith("packages/desktop-ui/src/")) {
       return null;
@@ -145,7 +161,7 @@ const checkBoundaries = async (repoRoot) => {
       return "Effect is fenced inside packages/runtime";
     }
     if (isEffectBearingRuntimeImport(specifier)) {
-      return "Effect-bearing runtime host internals are fenced inside packages/runtime";
+      return "Effect-bearing runtime internals are fenced inside packages/runtime";
     }
     if (
       file.startsWith("packages/desktop/electron/") &&
@@ -162,7 +178,7 @@ const checkBoundaries = async (repoRoot) => {
       return "Effect is fenced inside packages/runtime";
     }
     if (isEffectBearingRuntimeImport(specifier)) {
-      return "Effect-bearing runtime host internals are fenced inside packages/runtime";
+      return "Effect-bearing runtime internals are fenced inside packages/runtime";
     }
     return null;
   });

@@ -101,8 +101,11 @@ export const fetchReadableText = async (
     return "Error: URL contains what appears to be an API key or token. Secrets must not be sent in URLs.";
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  // Whole-pipeline deadline. This module must stay pure fetch API (the
+  // cloud orchestrator DO runs it in workerd), so the deadline is the
+  // platform's own `AbortSignal.timeout` rather than an Effect fiber; the
+  // catch below maps its `TimeoutError` to the exact legacy timeout string.
+  const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
 
   try {
     let targetUrl = await options.guardUrl(args.url);
@@ -114,7 +117,7 @@ export const fetchReadableText = async (
       redirectCount += 1
     ) {
       response = await fetch(targetUrl, {
-        signal: controller.signal,
+        signal: timeoutSignal,
         redirect: "manual",
         headers: {
           "User-Agent": options.userAgent ?? "Stella/1.0",
@@ -172,11 +175,12 @@ export const fetchReadableText = async (
     return sanitize(text);
   } catch (error) {
     const msg = (error as Error).message ?? "Unknown error";
-    if (msg.includes("abort")) {
+    // `TimeoutError` is what `AbortSignal.timeout` rejects with; its message
+    // varies by runtime ("The operation timed out." on Bun does not contain
+    // "abort"), so match the name as well to keep the legacy timeout string.
+    if (msg.includes("abort") || (error as Error).name === "TimeoutError") {
       return `Error: Request timed out after ${FETCH_TIMEOUT_MS / 1000}s`;
     }
     return `Error fetching URL: ${sanitize(msg)}`;
-  } finally {
-    clearTimeout(timeout);
   }
 };

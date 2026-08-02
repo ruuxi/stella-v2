@@ -7,6 +7,7 @@ import {
 import { PassThrough } from "node:stream";
 import { existsSync, promises as fsPromises } from "node:fs";
 import path from "node:path";
+import { Effect } from "effect";
 import { attachJsonRpcPeerToStreams } from "@stella/contracts/protocol/jsonl";
 import {
   STELLA_RUNTIME_PROTOCOL_VERSION,
@@ -14,6 +15,7 @@ import {
   type JsonRpcMessage,
 } from "@stella/contracts/protocol";
 import type { WorkerPeerBroker } from "./peer-broker.js";
+import { workerRuntime } from "./effect-runtime.js";
 import {
   isWindowsNamedPipePath,
   runtimeIpcPathUsesFilesystem,
@@ -138,30 +140,53 @@ const startStdioTransport = (
   };
 };
 
-const removeIfStaleSocket = async (socketPath: string) => {
-  const usesFilesystem = runtimeIpcPathUsesFilesystem(socketPath);
-  if (usesFilesystem && !existsSync(socketPath)) return;
-  const liveSocket = await new Promise<boolean>((resolve) => {
+/**
+ * Probe whether another worker still answers on the socket. The 250ms
+ * deadline is `Effect.timeoutOrElse`; its interrupt (like any external
+ * interruption) destroys the probe socket via the callback's cleanup
+ * effect, then resolves "not alive" — the old timer semantics.
+ */
+const probeSocketAlive = (socketPath: string): Effect.Effect<boolean> =>
+  Effect.callback<boolean>((resume) => {
     let socket: Socket;
     try {
       socket = createConnection(socketPath);
     } catch {
-      resolve(false);
+      resume(Effect.succeed(false));
       return;
     }
     let settled = false;
     const finish = (alive: boolean) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
       socket.destroy();
-      resolve(alive);
+      resume(Effect.succeed(alive));
     };
-    const timer = setTimeout(() => finish(false), 250);
-    timer.unref?.();
     socket.once("connect", () => finish(true));
     socket.once("error", () => finish(false));
-  });
+    return Effect.sync(() => {
+      if (!settled) {
+        settled = true;
+        try {
+          socket.destroy();
+        } catch {
+          // Best effort.
+        }
+      }
+    });
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: 250,
+      orElse: () => Effect.succeed(false),
+    }),
+  );
+
+const removeIfStaleSocket = async (socketPath: string) => {
+  const usesFilesystem = runtimeIpcPathUsesFilesystem(socketPath);
+  if (usesFilesystem && !existsSync(socketPath)) return;
+  const liveSocket = await workerRuntime.runPromise(
+    probeSocketAlive(socketPath),
+  );
   if (liveSocket) {
     throw new Error(`Runtime socket is already in use: ${socketPath}`);
   }

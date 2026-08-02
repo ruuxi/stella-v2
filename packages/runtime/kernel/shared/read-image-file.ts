@@ -36,6 +36,10 @@ const DEFAULT_MAX_ATTEMPTS = 6;
 const BASE_DELAY_MS = 15;
 const MAX_DELAY_MS = 240;
 
+// Effect-ratchet pin (1 setTimeout): tiny settle backoff (15–240ms) at a
+// pure read boundary. `kernel/shared/` stays Effect-free (join-timeout.ts
+// documents the same posture) so Effect-fenced consumers — tool/prompt
+// definition trees — can use these helpers without piercing the fence.
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 

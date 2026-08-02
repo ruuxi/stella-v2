@@ -1,8 +1,9 @@
 import "./providers/register-builtins.js";
 import "./utils/http-proxy.js";
 
-import { Effect, Layer, ManagedRuntime, Stream } from "effect";
+import { Effect, Stream } from "effect";
 import { getApiProvider, resolveApiProviderInternal } from "./api-registry.js";
+import { aiRuntime } from "./effect-runtime.js";
 import { AssistantMessageEventStream } from "./utils/event-stream.js";
 import type { AssistantMessageEvent } from "./types.js";
 import type {
@@ -48,12 +49,9 @@ function makeProviderErrorMessage(
 	};
 }
 
-/**
- * Requirements-free runtime for the provider event pipelines below (same
- * convention as the kernel's supervision runtimes: context rides in
- * closures).
- */
-const providerPipelineRuntime = ManagedRuntime.make(Layer.empty);
+// The provider event pipelines below run on the ai/ area runtime
+// (./effect-runtime.ts) — one requirements-free runtime per facade family,
+// context rides in closures.
 
 /**
  * Drive `inner` (the real provider stream, produced after the lazy
@@ -86,7 +84,7 @@ async function pipeStream(
 		out.end();
 		return;
 	}
-	await providerPipelineRuntime.runPromise(
+	await aiRuntime.runPromise(
 		Stream.fromAsyncIterable(
 			inner as AsyncIterable<AssistantMessageEvent>,
 			(error) => error,

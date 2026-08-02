@@ -150,6 +150,10 @@ export class BackgroundCompactionScheduler {
     args: CompactionScheduleArgs,
     onSuccessChain: Array<() => void>,
   ): Promise<void> {
+    // Effect-ratchet pin (1 new AbortController): the genuine seam
+    // controller for the supervised compaction run — `supervise` fires it
+    // on interrupt/shutdown and the REAL AbortSignal rides into the
+    // compaction's LLM calls (plain-TS AbortSignal consumers).
     const controller = new AbortController();
     const settled = this.executeRunInner(args, onSuccessChain, controller);
     this.supervision.supervise({

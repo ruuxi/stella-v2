@@ -43,7 +43,9 @@ export const createOrchestratorCoordinator = (context: RunnerContext) => {
   };
 
   const cleanupRun = (runId: string, onCleanup?: () => void) => {
-    context.state.activeRunAbortControllers.delete(runId);
+    // The run's supervisor scope (which replaced the AbortController map
+    // entry) reclaims itself once its fiber tree is quiescent; terminal
+    // cleanup only releases the lane and wakes the queue.
     runCoordinator.releaseRun(runId);
     onCleanup?.();
     runCoordinator.wake();

@@ -451,6 +451,9 @@ const nodeReplWorkerMain = async (
           // delivered through server.eval's callback. Give that callback a
           // short grace period. Only an async/domain throw that abandons the
           // callback is fatal to this worker.
+          // Effect-ratchet pin: this function is serialized with
+          // `toString()` into the eval-worker source, which has no Effect
+          // runtime — the raw timer is the only scheduling primitive there.
           outputErrorTimer ??= setTimeout(() => {
             const reject = outputErrorReject;
             outputErrorTimer = undefined;
@@ -568,6 +571,8 @@ const nodeReplWorkerMain = async (
           ? await Promise.race([
               Promise.all(batch),
               new Promise<null>((resolve) => {
+                // Effect-ratchet pin: serialized worker source (see above) —
+                // no Effect runtime exists inside the eval worker.
                 deadlineTimer = setTimeout(() => resolve(null), remainingMs);
                 deadlineTimer.unref?.();
               }),

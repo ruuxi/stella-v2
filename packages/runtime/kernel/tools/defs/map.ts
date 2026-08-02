@@ -23,6 +23,7 @@ import {
   type MapRouteArtifact,
 } from "@stella/contracts/map-artifact";
 import type { ToolDefinition } from "../types.js";
+import { forkAbortTimer } from "../effect-runtime.js";
 
 export type MapToolOptions = {
   /** Override the stella.sh base for self-hosted resolution. */
@@ -181,8 +182,13 @@ export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
         };
       }
 
+      // The controller stays at the fetch seam (composing the caller's
+      // cooperative AbortSignal with the resolve deadline); the deadline
+      // itself is a bounded fiber canceled in the `finally` below.
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), RESOLVE_TIMEOUT_MS);
+      const cancelResolveTimer = forkAbortTimer(RESOLVE_TIMEOUT_MS, () =>
+        controller.abort(),
+      );
       const onAbort = () => controller.abort();
       extras?.signal?.addEventListener("abort", onAbort, { once: true });
       try {
@@ -236,7 +242,7 @@ export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
             : (error as Error).message;
         return { error: `Map lookup failed: ${message}` };
       } finally {
-        clearTimeout(timer);
+        cancelResolveTimer();
         extras?.signal?.removeEventListener("abort", onAbort);
       }
     },

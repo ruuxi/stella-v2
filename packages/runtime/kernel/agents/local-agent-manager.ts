@@ -28,9 +28,47 @@
  * with the follow-up as the next user message. The path funnels through
  * `deliverFollowUpAsNextTurn` → `tryStartNext` → `executeTask` →
  * `runSubagent`.
+ *
+ * Effect-native supervision (M5 surface 3): the manager's concurrency
+ * plumbing runs as Effect fibers on one module-level ManagedRuntime while
+ * the public surface stays a plain TS/Promise facade with the exact
+ * pre-Effect names, signatures, event ordering, and error strings:
+ *
+ * - Each started attempt is supervised by a fiber in a keyed structure
+ *   (`attemptFibers`, FiberMap-style: Map<threadId, {generation, fiber}>)
+ *   forked into the manager's supervisory scope; the fiber joins the
+ *   attempt promise and owns the slot-release bookkeeping.
+ * - The stale-attempt takeover `setTimeout`s are deadline fibers in the
+ *   same scope (`attemptTakeoverDeadlines`), interrupted by `clear` or by
+ *   scope close at `shutdown()` — the Effect replacement for
+ *   `clearTimeout` + `timer.unref()`.
+ * - Completion detection is Deferred-based: per-thread update latches
+ *   (`waitForAgentUpdate`) and settlement latches (`awaitAgentSettled`)
+ *   wake blocking callers the moment a transition persists, instead of on
+ *   a polling tick. SQLite stays the only truth — every wake re-reads the
+ *   durable snapshot, and a bounded fallback re-check covers records
+ *   rehydrated by out-of-band writers.
+ * - CANCELLATION STAYS LATCH-COOPERATIVE. `cancelAgent` aborts the run's
+ *   `AbortController`; the agent loop observes the latch, the provider
+ *   emits a terminal, and the loop settles with its normal terminal
+ *   events (message_end → turn_end → agent_end). No fiber running the
+ *   loop is ever interrupted — fiber interruption is reserved for the
+ *   manager's own supervisory fibers (deadlines, latch race losers,
+ *   scope teardown). The `*Effect` variants exposed for the orchestrator
+ *   simply wrap that cooperative path.
  */
 
 import path from "path";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  type Fiber,
+  Layer,
+  ManagedRuntime,
+  Scope,
+} from "effect";
 import type {
   TaskToolActivity,
   TaskLifecycleStatus,
@@ -753,6 +791,29 @@ const logWorkingIndicatorTrace = (
   process.stderr.write(`${JSON.stringify({ label, ...payload })}\n`);
 };
 
+/**
+ * Requirements-free runtime for the manager's supervisory fibers (house
+ * convention: ONE module-level ManagedRuntime, context rides in closures —
+ * never a per-call `Effect.runPromise`). Same fence as
+ * `shared/supervised-scope.ts`: Effect types cross the class surface only on
+ * the explicitly Effect-native `*Effect` methods consumed inside
+ * `packages/runtime`.
+ */
+const managerRuntime = ManagedRuntime.make(Layer.empty);
+
+/** Terminal outcome observed by `awaitAgentSettled` / `awaitAgentSettledEffect`. */
+export type LocalAgentSettlement = {
+  threadId: string;
+  status: TerminalTaskLifecycleStatus;
+  result?: string;
+  error?: string;
+};
+
+const isTerminalSnapshotStatus = (
+  status: AgentToolSnapshot["status"],
+): status is TerminalTaskLifecycleStatus =>
+  status === "completed" || status === "error" || status === "canceled";
+
 export class LocalAgentManager implements AgentToolApi {
   private readonly defaultMaxConcurrent: number;
   private readonly opts: LocalAgentManagerOpts;
@@ -763,12 +824,43 @@ export class LocalAgentManager implements AgentToolApi {
     string,
     { generation: number; promise: Promise<void> }
   >();
-  private readonly attemptTakeoverTimers = new Map<
+  /**
+   * Supervisory scope for the manager's own fibers: per-attempt supervision
+   * fibers (`attemptFibers`) and stale-attempt takeover deadline fibers
+   * (`attemptTakeoverDeadlines`). Closed at the end of `shutdown()`, which
+   * interrupts every remaining supervisory fiber. Run-loop work is NEVER
+   * forked in here — cancellation of a run stays cooperative via its
+   * `AbortController` so the agent loop always settles through its terminal
+   * events.
+   */
+  private readonly supervisoryScope = Scope.makeUnsafe();
+  private supervisoryScopeClosed = false;
+  private supervisoryScopeClosePromise: Promise<void> | null = null;
+  /**
+   * FiberMap-style keyed attempt supervision: one fiber per in-flight
+   * `executeTask` attempt, keyed by durable threadId, forked into the
+   * supervisory scope. The fiber joins the attempt promise and owns the
+   * slot-release bookkeeping that used to hang off `execution.finally`.
+   * Identity fences (generation + promise) — not fiber identity — guard
+   * every mutation, so a late-settling superseded attempt can never release
+   * a successor's slot.
+   */
+  private readonly attemptFibers = new Map<
+    string,
+    { generation: number; promise: Promise<void>; fiber: Fiber.Fiber<void> }
+  >();
+  /**
+   * Stale-attempt takeover deadlines as sleeping fibers (formerly unref'd
+   * `setTimeout`s). Interrupted by `clearAttemptTakeoverTimer` or by scope
+   * close; the deadline body re-validates map/generation/promise identity,
+   * so an interrupt racing an already-started body is harmless.
+   */
+  private readonly attemptTakeoverDeadlines = new Map<
     string,
     {
       generation: number;
       promise: Promise<void>;
-      timer: ReturnType<typeof setTimeout>;
+      fiber: Fiber.Fiber<void>;
     }
   >();
   private readonly cancelCascadeInProgress = new Set<string>();
@@ -1015,49 +1107,156 @@ export class LocalAgentManager implements AgentToolApi {
    * notification: waiters re-read the durable record and decide for
    * themselves, so SQLite stays the only truth and a missed wakeup (e.g.
    * a record rehydrated by another writer) is covered by the caller's
-   * fallback timeout.
+   * fallback timeout. One shared per-thread Deferred; completed + replaced
+   * on every persisted transition.
    */
-  private readonly updateWaiters = new Map<string, Set<() => void>>();
+  private readonly updateLatches = new Map<string, Deferred.Deferred<void>>();
+
+  /**
+   * Per-thread settlement latches, completed exactly when a terminal
+   * transition (completed/error/canceled) is persisted for the thread. A
+   * `send_input` resurrection re-arms naturally: the next waiter creates a
+   * fresh latch that the next terminal transition completes.
+   */
+  private readonly settlementLatches = new Map<
+    string,
+    Deferred.Deferred<void>
+  >();
+
+  private latchFor(
+    latches: Map<string, Deferred.Deferred<void>>,
+    threadId: string,
+  ): Deferred.Deferred<void> {
+    const existing = latches.get(threadId);
+    if (existing) return existing;
+    const latch = Deferred.makeUnsafe<void>();
+    latches.set(threadId, latch);
+    return latch;
+  }
+
+  private openLatch(
+    latches: Map<string, Deferred.Deferred<void>>,
+    threadId: string,
+  ): void {
+    const latch = latches.get(threadId);
+    if (!latch) return;
+    latches.delete(threadId);
+    Deferred.doneUnsafe(latch, Effect.void);
+  }
 
   private notifyAgentUpdated(threadId: string): void {
-    const waiters = this.updateWaiters.get(threadId);
-    if (!waiters?.size) return;
-    this.updateWaiters.delete(threadId);
-    for (const wake of waiters) wake();
+    this.openLatch(this.updateLatches, threadId);
+  }
+
+  private settleAgentThread(threadId: string): void {
+    this.openLatch(this.settlementLatches, threadId);
+  }
+
+  /**
+   * Effect variant of `waitForAgentUpdate`: resolves on the next persisted
+   * update for `threadId`, or after `timeoutMs` as a rehydration-safe
+   * fallback (a non-finite/non-positive `timeoutMs` waits unbounded, as
+   * before). Never fails.
+   */
+  waitForAgentUpdateEffect(
+    threadId: string,
+    timeoutMs = 2_000,
+  ): Effect.Effect<void> {
+    return Effect.suspend(() => {
+      const wait = Deferred.await(
+        this.latchFor(this.updateLatches, threadId),
+      );
+      if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+        return wait;
+      }
+      // raceFirst interrupts the losing arm, so a woken waiter tears down
+      // its fallback sleep (the Effect replacement for `clearTimeout`).
+      return Effect.raceFirst(wait, Effect.sleep(timeoutMs));
+    });
   }
 
   /**
    * Resolve on the next persisted update for `threadId`, or after
    * `timeoutMs` as a rehydration-safe fallback. Replaces fixed-interval
    * completion polling: terminal transitions wake blocking callers
-   * immediately instead of on the next 250ms tick.
+   * immediately instead of on the next poll tick.
    */
   waitForAgentUpdate(threadId: string, timeoutMs = 2_000): Promise<void> {
-    return new Promise((resolve) => {
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      const wake = () => {
-        if (timer) clearTimeout(timer);
-        resolve();
-      };
-      const waiters = this.updateWaiters.get(threadId) ?? new Set();
-      waiters.add(wake);
-      this.updateWaiters.set(threadId, waiters);
-      if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
-        timer = setTimeout(() => {
-          const current = this.updateWaiters.get(threadId);
-          current?.delete(wake);
-          if (current && current.size === 0) {
-            this.updateWaiters.delete(threadId);
-          }
-          resolve();
-        }, timeoutMs);
-        timer.unref?.();
+    return managerRuntime.runPromise(
+      this.waitForAgentUpdateEffect(threadId, timeoutMs),
+    );
+  }
+
+  /**
+   * Await the thread's terminal settlement (completed/error/canceled) and
+   * return the terminal snapshot fields, or `null` when no record exists
+   * anywhere (the caller's "record disappeared" case). Completion detection
+   * is Deferred-driven — a terminal transition wakes the waiter immediately —
+   * with a bounded fallback re-read (`fallbackRecheckMs`) so records mutated
+   * by out-of-band writers still settle; SQLite remains the only truth (the
+   * latch is only ever a wakeup, every pass re-reads the snapshot).
+   *
+   * This is the Effect-native replacement for polling `getAgent` until a
+   * terminal status appears (`runBlockingLocalAgent`'s historical 250ms
+   * loop). Cancellation note: interrupting THIS effect abandons the wait
+   * only — it never cancels the underlying run; use `cancelAgentEffect`
+   * for the cooperative cancel path.
+   */
+  awaitAgentSettledEffect(
+    threadId: string,
+    fallbackRecheckMs = 2_000,
+  ): Effect.Effect<LocalAgentSettlement | null> {
+    const manager = this;
+    return Effect.gen(function* () {
+      for (;;) {
+        // Latch first, snapshot second: a terminal transition landing
+        // between the two completes the latch we already hold, so the
+        // wakeup cannot be missed.
+        const settled = Deferred.await(
+          manager.latchFor(manager.settlementLatches, threadId),
+        );
+        const snapshot = yield* Effect.promise(() =>
+          manager.getAgent(threadId),
+        );
+        if (!snapshot) return null;
+        if (isTerminalSnapshotStatus(snapshot.status)) {
+          return {
+            threadId,
+            status: snapshot.status,
+            ...(typeof snapshot.result === "string"
+              ? { result: snapshot.result }
+              : {}),
+            ...(typeof snapshot.error === "string"
+              ? { error: snapshot.error }
+              : {}),
+          };
+        }
+        yield* Number.isFinite(fallbackRecheckMs) && fallbackRecheckMs > 0
+          ? Effect.raceFirst(settled, Effect.sleep(fallbackRecheckMs))
+          : settled;
       }
     });
   }
 
+  /** Promise facade over `awaitAgentSettledEffect`. */
+  awaitAgentSettled(
+    threadId: string,
+    fallbackRecheckMs = 2_000,
+  ): Promise<LocalAgentSettlement | null> {
+    return managerRuntime.runPromise(
+      this.awaitAgentSettledEffect(threadId, fallbackRecheckMs),
+    );
+  }
+
   private persistTask(task: RuntimeAgentRecord): void {
     this.notifyAgentUpdated(task.threadId);
+    if (
+      task.status === "completed" ||
+      task.status === "error" ||
+      task.status === "canceled"
+    ) {
+      this.settleAgentThread(task.threadId);
+    }
     this.opts.saveAgentRecord?.({
       threadId: task.threadId,
       conversationId: task.conversationId,
@@ -1395,6 +1594,9 @@ export class LocalAgentManager implements AgentToolApi {
     task.activeToolCount = 0;
     task.toSubagentQueue.length = 0;
     task.toOrchestratorQueue.length = 0;
+    // Effect-ratchet pin: `task.controller` is the subagent attempt's
+    // cooperative cancellation seam — a REAL AbortSignal threaded through
+    // the plain-TS agent session/tools; each new attempt gets a fresh one.
     task.controller = new AbortController();
     task.interruptedForFollowUp = false;
     task.terminalEventEmitted = false;
@@ -1430,6 +1632,8 @@ export class LocalAgentManager implements AgentToolApi {
       status: "pending",
       startedAt: Date.now(),
       completedAt: null,
+      // Effect-ratchet pin: fresh attempt seam controller (see
+      // resetTaskForNextAttempt above).
       controller: new AbortController(),
       storageMode: record.storageMode ?? "local",
       parentAgentId: record.parentAgentId,
@@ -1515,19 +1719,22 @@ export class LocalAgentManager implements AgentToolApi {
     generation?: number,
     promise?: Promise<void>,
   ): void {
-    const pending = this.attemptTakeoverTimers.get(threadId);
+    const pending = this.attemptTakeoverDeadlines.get(threadId);
     if (!pending) return;
     if (generation !== undefined && pending.generation !== generation) return;
     if (promise !== undefined && pending.promise !== promise) return;
-    clearTimeout(pending.timer);
-    this.attemptTakeoverTimers.delete(threadId);
+    // The synchronous map delete is the real fence (the deadline body
+    // re-validates against the map); the interrupt just reclaims the
+    // sleeping fiber, replacing `clearTimeout`.
+    this.attemptTakeoverDeadlines.delete(threadId);
+    pending.fiber.interruptUnsafe();
   }
 
   private scheduleAttemptTakeover(
     task: RuntimeAgentRecord,
     activeAttempt: { generation: number; promise: Promise<void> },
   ): void {
-    const existing = this.attemptTakeoverTimers.get(task.threadId);
+    const existing = this.attemptTakeoverDeadlines.get(task.threadId);
     if (
       existing?.generation === activeAttempt.generation &&
       existing.promise === activeAttempt.promise
@@ -1535,10 +1742,16 @@ export class LocalAgentManager implements AgentToolApi {
       return;
     }
     this.clearAttemptTakeoverTimer(task.threadId);
+    if (this.supervisoryScopeClosed) {
+      // Shutdown already interrupted the supervisory scope; a takeover
+      // deadline after that point has nothing left to arbitrate (shutdown
+      // cancels every pending/running task).
+      return;
+    }
     const timeoutMs = DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS;
-    const timer = setTimeout(() => {
+    const deadlineBody = Effect.sync(() => {
       const inFlight = this.inFlightAttempts.get(task.threadId);
-      const takeover = this.attemptTakeoverTimers.get(task.threadId);
+      const takeover = this.attemptTakeoverDeadlines.get(task.threadId);
       if (
         inFlight?.generation !== activeAttempt.generation ||
         inFlight.promise !== activeAttempt.promise ||
@@ -1559,16 +1772,22 @@ export class LocalAgentManager implements AgentToolApi {
       // ignored abort). Release its scheduler slot and remove its ownership
       // record. Generation/controller checks fence every later callback and
       // state write from that promise if it eventually returns.
-      this.attemptTakeoverTimers.delete(task.threadId);
+      this.attemptTakeoverDeadlines.delete(task.threadId);
       this.inFlightAttempts.delete(task.threadId);
       this.runningCount = Math.max(0, this.runningCount - 1);
       this.tryStartNext();
-    }, timeoutMs);
-    timer.unref?.();
-    this.attemptTakeoverTimers.set(task.threadId, {
+    });
+    const fiber = managerRuntime.runSync(
+      Effect.forkIn(
+        Effect.andThen(Effect.sleep(timeoutMs), deadlineBody),
+        this.supervisoryScope,
+        { startImmediately: true },
+      ),
+    );
+    this.attemptTakeoverDeadlines.set(task.threadId, {
       generation: activeAttempt.generation,
       promise: activeAttempt.promise,
-      timer,
+      fiber,
     });
   }
 
@@ -1698,7 +1917,14 @@ export class LocalAgentManager implements AgentToolApi {
         },
         settled: execution.then(() => undefined),
       });
-      void execution.finally(() => {
+      const settleAttempt = () => {
+        const fiberEntry = this.attemptFibers.get(threadId);
+        if (
+          fiberEntry?.generation === generation &&
+          fiberEntry.promise === execution
+        ) {
+          this.attemptFibers.delete(threadId);
+        }
         const activeAttempt = this.inFlightAttempts.get(threadId);
         if (
           activeAttempt?.generation === generation &&
@@ -1709,7 +1935,32 @@ export class LocalAgentManager implements AgentToolApi {
           this.runningCount = Math.max(0, this.runningCount - 1);
           this.tryStartNext();
         }
-      });
+      };
+      if (this.supervisoryScopeClosed) {
+        // Post-shutdown resurrection path: no supervisory scope remains, so
+        // fall back to a plain promise join for the bookkeeping.
+        void execution.finally(settleAttempt);
+      } else {
+        // The attempt's supervision fiber: joins the (already-started,
+        // never-rejecting) execution promise and releases the scheduler
+        // slot. Interrupting this fiber (scope close at shutdown) runs the
+        // same bookkeeping via `ensuring` but NEVER cancels the run itself —
+        // run cancellation is only ever the cooperative `cancelAgent` path.
+        const fiber = managerRuntime.runSync(
+          Effect.forkIn(
+            Effect.asVoid(Effect.promise(() => execution)).pipe(
+              Effect.ensuring(Effect.sync(settleAttempt)),
+            ),
+            this.supervisoryScope,
+            { startImmediately: true },
+          ),
+        );
+        this.attemptFibers.set(threadId, {
+          generation,
+          promise: execution,
+          fiber,
+        });
+      }
     }
   }
 
@@ -2088,6 +2339,8 @@ export class LocalAgentManager implements AgentToolApi {
       task.completedAt = null;
       task.result = undefined;
       task.error = undefined;
+      // Effect-ratchet pin: fresh attempt seam controller for the manager's
+      // wait-boundary turn (see resetTaskForNextAttempt).
       task.controller = new AbortController();
       task.waitingForManagedChildren = true;
       task.terminalEventEmitted = false;
@@ -2237,6 +2490,9 @@ export class LocalAgentManager implements AgentToolApi {
   }> {
     // `request.workspace` is intentionally ignored: local execution implies the computer workspace.
     this.assertActiveParentChain(request);
+    // Effect-ratchet pin: the new agent's cooperative cancellation seam
+    // (see resetTaskForNextAttempt) — created before the task record so the
+    // spawn window is already cancellable.
     const controller = new AbortController();
     const resolvedThread =
       this.opts.resolveTaskThread?.({
@@ -2529,10 +2785,10 @@ export class LocalAgentManager implements AgentToolApi {
    * (`superviseAttempt`), which interrupts and joins them at shutdown.
    */
   async shutdown(reason = AGENT_SHUTDOWN_CANCEL_REASON): Promise<void> {
-    for (const pending of this.attemptTakeoverTimers.values()) {
-      clearTimeout(pending.timer);
+    for (const pending of this.attemptTakeoverDeadlines.values()) {
+      pending.fiber.interruptUnsafe();
     }
-    this.attemptTakeoverTimers.clear();
+    this.attemptTakeoverDeadlines.clear();
     // v1 could snapshot still-running rows on the replacement worker's boot.
     // v2 performs a graceful Effect shutdown first, which durably cancels
     // those rows. Capture every resumable task before that cancellation so the
@@ -2597,6 +2853,9 @@ export class LocalAgentManager implements AgentToolApi {
         task.result = task.managerFinalReport;
         task.error = undefined;
         task.terminalEventEmitted = true;
+        // Effect-ratchet pin: replace the seam controller BEFORE aborting
+        // the old one, so the interrupted attempt's teardown can never fire
+        // a signal a future attempt observes (see resetTaskForNextAttempt).
         task.controller = new AbortController();
         this.persistTask(task);
         if (task.storageMode === "cloud") {
@@ -2617,6 +2876,33 @@ export class LocalAgentManager implements AgentToolApi {
       );
     }
     await Promise.allSettled(cancels);
+    // Close the supervisory scope last: every remaining supervision fiber
+    // (attempt joins whose underlying promise ignored abort, stray
+    // deadlines) is interrupted, and their `ensuring` bookkeeping runs.
+    // This never touches the run loops themselves — those were cancelled
+    // cooperatively above and are joined by the kernel run supervisor.
+    await this.closeSupervisoryScope();
+  }
+
+  /** Effect facade over `shutdown` for Effect-native callers. */
+  shutdownEffect(
+    reason = AGENT_SHUTDOWN_CANCEL_REASON,
+  ): Effect.Effect<void> {
+    return Effect.promise(() => this.shutdown(reason));
+  }
+
+  private closeSupervisoryScope(): Promise<void> {
+    if (this.supervisoryScopeClosePromise) {
+      return this.supervisoryScopeClosePromise;
+    }
+    this.supervisoryScopeClosed = true;
+    this.supervisoryScopeClosePromise = managerRuntime
+      .runPromise(
+        Scope.close(this.supervisoryScope, Exit.failCause(Cause.interrupt())),
+      )
+      .catch(() => undefined)
+      .then(() => undefined);
+    return this.supervisoryScopeClosePromise;
   }
 
   async cancelAgent(
@@ -2722,6 +3008,9 @@ export class LocalAgentManager implements AgentToolApi {
           error,
           updatedAt: Date.now(),
         });
+        // Terminal transition outside `persistTask`: wake settlement
+        // waiters directly (they re-read the durable record).
+        this.settleAgentThread(agentId);
         this.opts.onAgentEvent?.({
           type: "agent-canceled",
           conversationId: persisted.conversationId,
@@ -2748,6 +3037,78 @@ export class LocalAgentManager implements AgentToolApi {
       return { canceled: true };
     }
     return await this.opts.cancelCloudAgentRecord(agentId, reason);
+  }
+
+  /**
+   * Effect-native cooperative cancel for the orchestrator wave. Aborts the
+   * run's `AbortController` and resolves only after full settlement —
+   * lifecycle events emitted in order, session disposed, managed-child
+   * cascade and cloud sync joined. It deliberately does NOT interrupt any
+   * fiber running the agent loop: the loop's provider observes the abort
+   * latch, emits its terminal, and settles through message_end → turn_end →
+   * agent_end exactly as a Promise-land cancel does.
+   */
+  cancelAgentEffect(
+    agentId: string,
+    reason?: string,
+  ): Effect.Effect<{ canceled: boolean }> {
+    return Effect.promise(() => this.cancelAgent(agentId, reason));
+  }
+
+  /** Effect facade over `cancelGroup` (same cooperative semantics). */
+  cancelGroupEffect(
+    groupKey: string,
+    reason?: string,
+  ): Effect.Effect<{ canceled: boolean; canceledThreadIds: string[] }> {
+    return Effect.promise(() => this.cancelGroup(groupKey, reason));
+  }
+
+  /**
+   * Active (pending/running) agent threads spawned under `rootRunId`.
+   * Parent-run association for the orchestrator: when a parent run is
+   * interrupted, these are the children it should cancel through
+   * `cancelAgentsForRootRunEffect`.
+   */
+  listActiveThreadIdsForRootRun(rootRunId: string): string[] {
+    const threadIds: string[] = [];
+    for (const task of this.tasks.values()) {
+      if (
+        task.rootRunId === rootRunId &&
+        (task.status === "pending" || task.status === "running")
+      ) {
+        threadIds.push(task.threadId);
+      }
+    }
+    return threadIds;
+  }
+
+  /**
+   * Cooperatively cancel every active agent thread spawned under
+   * `rootRunId`. Sequential like the managed-child cascade; each cancel is
+   * joined to full settlement before the next starts. The Effect-native
+   * path for "orchestrator interrupts a parent → children are cancelled
+   * through the manager" (the Promise-land equivalent remains the
+   * `superviseAttempt` hook's `abort` → `cancelAgent`).
+   */
+  cancelAgentsForRootRunEffect(
+    rootRunId: string,
+    reason?: string,
+  ): Effect.Effect<{ canceledThreadIds: string[] }> {
+    const manager = this;
+    return Effect.gen(function* () {
+      const canceledThreadIds: string[] = [];
+      for (const threadId of manager.listActiveThreadIdsForRootRun(
+        rootRunId,
+      )) {
+        const result = yield* Effect.promise(() =>
+          manager.cancelAgent(threadId, reason),
+        );
+        if (result.canceled) {
+          canceledThreadIds.push(threadId);
+        }
+      }
+      return { canceledThreadIds };
+    });
   }
 
   async sendAgentMessage(

@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from "effect";
 import { NOTIFICATION_NAMES } from "@stella/contracts/protocol";
 import { getFileLogger } from "../../observability/file-logger.js";
+import { forkDelayed, type WorkerTimerHandle } from "../effect-runtime.js";
 import * as HostBus from "./host-bus.js";
 import type { RuntimeRunner } from "./types.js";
 
@@ -46,7 +47,7 @@ export const layer = Layer.effect(
     let modulePromise:
       | Promise<typeof import("../../ai/model-runtime.js")>
       | undefined;
-    let warmTimer: ReturnType<typeof setTimeout> | null = null;
+    let warmTimer: WorkerTimerHandle | null = null;
 
     const ensureSubscription = async () => {
       const loaded = await (modulePromise ??= import(
@@ -62,8 +63,11 @@ export const layer = Layer.effect(
 
     const scheduleWarm = (getRunner: () => RuntimeRunner | null) => {
       if (!getRunner()) return;
-      if (warmTimer) clearTimeout(warmTimer);
-      warmTimer = setTimeout(() => {
+      // Debounce as a forked 50ms fiber (the old `clearTimeout` +
+      // `setTimeout` pair): a re-schedule cancels the pending fiber, so a
+      // configure call touching multiple fields still warms once.
+      if (warmTimer) warmTimer.cancel();
+      warmTimer = forkDelayed(50, () => {
         warmTimer = null;
         const warmStartedAt = Date.now();
         void getRunner()
@@ -74,7 +78,7 @@ export const layer = Layer.effect(
             });
           })
           .catch(() => undefined);
-      }, 50);
+      });
     };
 
     const dispose = () => {
@@ -82,7 +86,7 @@ export const layer = Layer.effect(
       unsubscribe?.();
       unsubscribe = undefined;
       if (warmTimer) {
-        clearTimeout(warmTimer);
+        warmTimer.cancel();
         warmTimer = null;
       }
     };

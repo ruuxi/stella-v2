@@ -11,6 +11,14 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 import { URL } from "node:url";
 
+import { Deferred, Effect } from "effect";
+
+import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
+import {
+  forkTimeoutFiber,
+  runConnectorEffect,
+  tryConnectorOp,
+} from "./effect-runtime.js";
 import { getConnectorStateRoot } from "./state.js";
 import {
   deleteProtectedValue,
@@ -125,30 +133,31 @@ const credentialScope = (tokenKey: string) =>
 
 const emptyStore = (): TokenStore => ({ version: 2, tokens: {} });
 
-const readTokenStore = async (stellaAppDir: string): Promise<TokenStore> => {
-  try {
+const readTokenStore = (stellaAppDir: string): Effect.Effect<TokenStore> =>
+  tryConnectorOp(async () => {
     const parsed = JSON.parse(
       await fs.readFile(tokenFile(stellaAppDir), "utf-8"),
     ) as TokenStore;
-    if (
-      parsed?.version === 2 &&
+    return parsed?.version === 2 &&
       parsed.tokens &&
       typeof parsed.tokens === "object"
-    ) {
-      return parsed;
-    }
-  } catch {
-    // Fall through to empty store.
-  }
-  return emptyStore();
-};
-
-const writeTokenStore = async (stellaAppDir: string, store: TokenStore) => {
-  await writePrivateFile(
-    tokenFile(stellaAppDir),
-    `${JSON.stringify(store, null, 2)}\n`,
+      ? parsed
+      : emptyStore();
+  }).pipe(
+    // Missing/corrupt stores read as empty, exactly as before.
+    Effect.catch(() => Effect.succeed(emptyStore())),
   );
-};
+
+const writeTokenStore = (
+  stellaAppDir: string,
+  store: TokenStore,
+): Effect.Effect<void, unknown> =>
+  tryConnectorOp(() =>
+    writePrivateFile(
+      tokenFile(stellaAppDir),
+      `${JSON.stringify(store, null, 2)}\n`,
+    ),
+  );
 
 const decodeTokenPayload = (
   tokenKey: string,
@@ -169,82 +178,112 @@ const decodeTokenPayload = (
   return null;
 };
 
+const saveConnectorTokenPayloadEffect = (
+  stellaAppDir: string,
+  tokenKey: string,
+  payload: ConnectorTokenPayload,
+): Effect.Effect<void, unknown> =>
+  Effect.gen(function* () {
+    const broker = tokenStoreBroker;
+    if (broker) {
+      return yield* tryConnectorOp(() => broker.save(tokenKey, payload));
+    }
+    const store = yield* readTokenStore(stellaAppDir);
+    const existing = store.tokens[tokenKey];
+    const valueProtected = yield* Effect.try({
+      try: () =>
+        protectValue(credentialScope(tokenKey), JSON.stringify(payload)),
+      catch: (error) => error,
+    });
+    store.tokens[tokenKey] = {
+      valueProtected,
+      ...(payload.expiresAt ? { expiresAt: payload.expiresAt } : {}),
+      ...(payload.clientId ? { clientId: payload.clientId } : {}),
+      ...(payload.tokenEndpoint ? { tokenEndpoint: payload.tokenEndpoint } : {}),
+      ...(payload.resourceUrl ? { resourceUrl: payload.resourceUrl } : {}),
+      ...(payload.scopes?.length ? { scopes: payload.scopes } : {}),
+    };
+    yield* writeTokenStore(stellaAppDir, store);
+    if (
+      existing?.valueProtected &&
+      existing.valueProtected !== valueProtected
+    ) {
+      yield* Effect.sync(() =>
+        deleteProtectedValue(credentialScope(tokenKey), existing.valueProtected),
+      );
+    }
+  });
+
 export const saveConnectorTokenPayload = async (
   stellaAppDir: string,
   tokenKey: string,
   payload: ConnectorTokenPayload,
 ) => {
-  if (tokenStoreBroker) {
-    await tokenStoreBroker.save(tokenKey, payload);
-    return;
-  }
-  const store = await readTokenStore(stellaAppDir);
-  const existing = store.tokens[tokenKey];
-  const valueProtected = protectValue(
-    credentialScope(tokenKey),
-    JSON.stringify(payload),
+  await runConnectorEffect(
+    saveConnectorTokenPayloadEffect(stellaAppDir, tokenKey, payload),
   );
-  store.tokens[tokenKey] = {
-    valueProtected,
-    ...(payload.expiresAt ? { expiresAt: payload.expiresAt } : {}),
-    ...(payload.clientId ? { clientId: payload.clientId } : {}),
-    ...(payload.tokenEndpoint ? { tokenEndpoint: payload.tokenEndpoint } : {}),
-    ...(payload.resourceUrl ? { resourceUrl: payload.resourceUrl } : {}),
-    ...(payload.scopes?.length ? { scopes: payload.scopes } : {}),
-  };
-  await writeTokenStore(stellaAppDir, store);
-  if (existing?.valueProtected && existing.valueProtected !== valueProtected) {
-    deleteProtectedValue(credentialScope(tokenKey), existing.valueProtected);
-  }
 };
 
-// Per-tokenKey in-flight refresh dedup. Without it, concurrent near-expiry
-// loads each POST the same refresh token, which can revoke rotating grants and
-// let racing saves persist a stale token. Mirrors the updateQueues pattern in
-// shared/atomic-json-state.ts: the first caller performs the refresh, others
-// await the same promise, and the entry clears once it settles.
-const connectorRefreshQueues = new Map<
+// Per-tokenKey in-flight refresh single-flight. Without it, concurrent
+// near-expiry loads each POST the same refresh token, which can revoke
+// rotating grants and let racing saves persist a stale token. The first
+// caller performs the refresh and completes a keyed Deferred with its Exit;
+// joiners await the same Deferred (observing the identical success value or
+// failure object), and the entry clears once it settles — the Effect-native
+// shape of the old promise-coalescing map.
+const connectorRefreshLatches = new Map<
   string,
-  Promise<ConnectorTokenPayload | null>
+  Deferred.Deferred<ConnectorTokenPayload | null, unknown>
 >();
 
-const refreshConnectorAccessTokenDeduped = async (
+const refreshConnectorAccessTokenDeduped = (
   stellaAppDir: string,
   tokenKey: string,
   payload: ConnectorTokenPayload,
-): Promise<ConnectorTokenPayload | null> => {
-  const inflight = connectorRefreshQueues.get(tokenKey);
-  if (inflight) return await inflight;
-  const run = refreshConnectorAccessToken(stellaAppDir, tokenKey, payload);
-  connectorRefreshQueues.set(tokenKey, run);
-  void run
-    .finally(() => {
-      if (connectorRefreshQueues.get(tokenKey) === run) {
-        connectorRefreshQueues.delete(tokenKey);
-      }
-    })
-    .catch(() => undefined);
-  return await run;
-};
+): Effect.Effect<ConnectorTokenPayload | null, unknown> =>
+  Effect.gen(function* () {
+    const inflight = connectorRefreshLatches.get(tokenKey);
+    if (inflight) {
+      return yield* Deferred.await(inflight);
+    }
+    const latch = Deferred.makeUnsafe<ConnectorTokenPayload | null, unknown>();
+    connectorRefreshLatches.set(tokenKey, latch);
+    const exit = yield* Effect.exit(
+      tryConnectorOp(() =>
+        refreshConnectorAccessToken(stellaAppDir, tokenKey, payload),
+      ),
+    );
+    if (connectorRefreshLatches.get(tokenKey) === latch) {
+      connectorRefreshLatches.delete(tokenKey);
+    }
+    yield* Deferred.done(latch, exit);
+    return yield* exit;
+  });
 
 export const loadConnectorTokenPayload = async (
   stellaAppDir: string,
   tokenKey?: string,
 ): Promise<ConnectorTokenPayload | null> => {
   if (!tokenKey) return null;
-  if (tokenStoreBroker) {
-    return await tokenStoreBroker.load(tokenKey);
-  }
-  const store = await readTokenStore(stellaAppDir);
-  const payload = decodeTokenPayload(tokenKey, store.tokens[tokenKey]);
-  if (!payload?.accessToken) return null;
-  if (!payload.expiresAt || payload.expiresAt > Date.now() + 30_000) {
-    return payload;
-  }
-  return await refreshConnectorAccessTokenDeduped(
-    stellaAppDir,
-    tokenKey,
-    payload,
+  const key = tokenKey;
+  return await runConnectorEffect(
+    Effect.gen(function* () {
+      const broker = tokenStoreBroker;
+      if (broker) {
+        return yield* tryConnectorOp(() => broker.load(key));
+      }
+      const store = yield* readTokenStore(stellaAppDir);
+      const payload = decodeTokenPayload(key, store.tokens[key]);
+      if (!payload?.accessToken) return null;
+      if (!payload.expiresAt || payload.expiresAt > Date.now() + 30_000) {
+        return payload;
+      }
+      return yield* refreshConnectorAccessTokenDeduped(
+        stellaAppDir,
+        key,
+        payload,
+      );
+    }),
   );
 };
 
@@ -294,23 +333,47 @@ const fetchWithTimeout = async (
   init: RequestInit = {},
   timeoutMs = DISCOVERY_TIMEOUT_MS,
 ) => {
+  // Seam: fetch needs a real AbortSignal, so the timeout and the upstream
+  // caller signal funnel into one AbortController (sanctioned ratchet pin).
+  // The timer is a scoped fiber (interrupted when the fetch settles — the
+  // old clearTimeout), and the upstream listener rides the acquireAbortLatch
+  // bridge so its removal is a scoped finalizer on every exit path.
   const timeoutController = new AbortController();
-  const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
-  const upstreamSignal = init.signal;
-  const onAbort = () => timeoutController.abort(upstreamSignal?.reason);
-  try {
-    if (upstreamSignal) {
-      if (upstreamSignal.aborted) {
-        timeoutController.abort(upstreamSignal.reason);
-      } else {
-        upstreamSignal.addEventListener("abort", onAbort, { once: true });
-      }
-    }
-    return await fetch(url, { ...init, signal: timeoutController.signal });
-  } finally {
-    clearTimeout(timer);
-    upstreamSignal?.removeEventListener("abort", onAbort);
-  }
+  const upstreamSignal = init.signal ?? undefined;
+  return await runConnectorEffect(
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* Effect.forkScoped(
+          Effect.sleep(timeoutMs).pipe(
+            Effect.flatMap(() =>
+              Effect.sync(() => timeoutController.abort()),
+            ),
+          ),
+          { startImmediately: true },
+        );
+        if (upstreamSignal) {
+          if (upstreamSignal.aborted) {
+            timeoutController.abort(upstreamSignal.reason);
+          } else {
+            const latch = yield* acquireAbortLatch(upstreamSignal);
+            yield* Effect.forkScoped(
+              Deferred.await(latch).pipe(
+                Effect.flatMap(() =>
+                  Effect.sync(() =>
+                    timeoutController.abort(upstreamSignal.reason),
+                  ),
+                ),
+              ),
+              { startImmediately: true },
+            );
+          }
+        }
+        return yield* tryConnectorOp(() =>
+          fetch(url, { ...init, signal: timeoutController.signal }),
+        );
+      }),
+    ),
+  );
 };
 
 const fetchJson = async <T>(
@@ -591,28 +654,33 @@ export const beginConnectorDeviceOAuth = async (args: {
   );
 };
 
-const sleepWithAbort = async (ms: number, signal?: AbortSignal) =>
-  await new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(
-        signal.reason instanceof Error
-          ? signal.reason
-          : new Error("Connector authorization cancelled."),
-      );
-      return;
-    }
-    const timeout = setTimeout(resolve, ms);
-    const onAbort = () => {
-      clearTimeout(timeout);
-      const reason = signal?.reason;
-      reject(
-        reason instanceof Error
-          ? reason
-          : new Error("Connector authorization cancelled."),
-      );
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
+const connectorAuthAbortError = (signal?: AbortSignal) =>
+  signal?.reason instanceof Error
+    ? signal.reason
+    : new Error("Connector authorization cancelled.");
+
+const sleepWithAbort = (ms: number, signal?: AbortSignal): Promise<void> =>
+  runConnectorEffect(
+    Effect.scoped(
+      Effect.gen(function* () {
+        if (!signal) {
+          return yield* Effect.sleep(ms);
+        }
+        if (signal.aborted) {
+          return yield* Effect.fail(connectorAuthAbortError(signal));
+        }
+        const abortLatch = yield* acquireAbortLatch(signal);
+        yield* Effect.raceFirst(
+          Effect.sleep(ms),
+          Deferred.await(abortLatch).pipe(
+            Effect.flatMap(() =>
+              Effect.fail(connectorAuthAbortError(signal)),
+            ),
+          ),
+        );
+      }),
+    ),
+  );
 
 export const completeConnectorDeviceOAuth = async (
   stellaAppDir: string,
@@ -690,20 +758,26 @@ export const deleteConnectorAccessTokens = async (
     ...new Set([...tokenKeys].filter((key): key is string => Boolean(key))),
   ];
   if (keys.length === 0) return;
-  if (tokenStoreBroker) {
-    await tokenStoreBroker.delete(keys);
-    return;
-  }
-  const store = await readTokenStore(stellaAppDir);
-  let changed = false;
-  for (const key of keys) {
-    const existing = store.tokens[key];
-    if (!existing) continue;
-    deleteProtectedValue(credentialScope(key), existing.valueProtected);
-    delete store.tokens[key];
-    changed = true;
-  }
-  if (changed) await writeTokenStore(stellaAppDir, store);
+  await runConnectorEffect(
+    Effect.gen(function* () {
+      const broker = tokenStoreBroker;
+      if (broker) {
+        return yield* tryConnectorOp(() => broker.delete(keys));
+      }
+      const store = yield* readTokenStore(stellaAppDir);
+      let changed = false;
+      for (const key of keys) {
+        const existing = store.tokens[key];
+        if (!existing) continue;
+        yield* Effect.sync(() =>
+          deleteProtectedValue(credentialScope(key), existing.valueProtected),
+        );
+        delete store.tokens[key];
+        changed = true;
+      }
+      if (changed) yield* writeTokenStore(stellaAppDir, store);
+    }),
+  );
 };
 
 const callbackIdFromResourceUrl = (resourceUrl: string) =>
@@ -759,6 +833,11 @@ const createOAuthCallbackListener = async (
   }>((resolve, reject) => {
     let settled = false;
     let redirectUri = "";
+    // Assigned once the listener is up; interrupts the 5-minute hard-timeout
+    // fiber when the flow settles first. Never assigned when the caller's
+    // signal was already aborted (the executor returns before forking, just
+    // as the old code returned before scheduling its setTimeout).
+    let cancelHardTimeout: (() => void) | null = null;
     let callbackResolver:
       | ((callback: ConnectorOAuthCallbackResult) => void)
       | null = null;
@@ -780,6 +859,7 @@ const createOAuthCallbackListener = async (
       const errorDescription = url.searchParams.get("error_description");
       if (error) {
         settled = true;
+        cancelHardTimeout?.();
         res.writeHead(400).end("Stella connector authorization failed.");
         server.close();
         callbackRejecter?.(providerError(error, errorDescription));
@@ -797,6 +877,7 @@ const createOAuthCallbackListener = async (
           "<html><body><h3>Stella connector authorized.</h3><p>You can close this window.</p></body></html>",
         );
       settled = true;
+      cancelHardTimeout?.();
       server.close();
       const expiresIn = Number(url.searchParams.get("expires_in"));
       const expires = Number(url.searchParams.get("expires"));
@@ -828,6 +909,7 @@ const createOAuthCallbackListener = async (
     const onAbort = () => {
       if (settled) return null;
       settled = true;
+      cancelHardTimeout?.();
       server.close();
       const error = new Error(
         options.signal?.reason instanceof Error
@@ -860,14 +942,14 @@ const createOAuthCallbackListener = async (
         resolve({ redirectUri, waitForCallback, waitForCode });
       },
     );
-    setTimeout(() => {
+    cancelHardTimeout = forkTimeoutFiber(5 * 60_000, () => {
       if (settled) return;
       settled = true;
       server.close();
       callbackRejecter?.(
         new Error("Timed out waiting for connector authorization."),
       );
-    }, 5 * 60_000).unref();
+    });
   });
 
 export const connectConnectorOAuth = async (

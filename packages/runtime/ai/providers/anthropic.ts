@@ -6,6 +6,7 @@ import type {
 	MessageParam,
 	RawMessageStreamEvent,
 } from "@anthropic-ai/sdk/resources/messages.js";
+import { forkCancelableTimeout, iterateStream, scopedBodyChunks } from "../effect-runtime.js";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { calculateCost } from "../models.js";
 import type {
@@ -346,35 +347,25 @@ async function* iterateSseMessages(
 	body: ReadableStream<Uint8Array>,
 	signal?: AbortSignal,
 ): AsyncGenerator<ServerSentEvent> {
-	const reader = body.getReader();
 	const decoder = new TextDecoder();
 	const state: SseDecoderState = { event: null, data: [], raw: [] };
 	let buffer = "";
 
-	try {
-		while (true) {
-			if (signal?.aborted) {
-				throw new Error("Request was aborted");
-			}
-
-			const { value, done } = await reader.read();
-			if (done) {
-				break;
-			}
-
-			buffer += decoder.decode(value, { stream: true });
-			let consumed = consumeLine(buffer);
-			while (consumed) {
-				buffer = consumed.rest;
-				const event = decodeSseLine(consumed.line, state);
-				if (event) {
-					yield event;
-				}
-				consumed = consumeLine(buffer);
-			}
-		}
-
-		buffer += decoder.decode();
+	// Delivery substrate is an Effect Stream (M5 phase 3): the reader's
+	// close-exactly-once teardown (cancel + releaseLock on every exit path —
+	// EOF, read error, abort, early consumer exit) is a SCOPED FINALIZER in
+	// `scopedBodyChunks`, released deterministically by `iterateStream`'s
+	// bridge before control leaves this generator. `beforeRead` reproduces
+	// the legacy pre-read abort throw byte-identically. The SSE line parsing
+	// below stays the same pure state machine, run between pulls, so event
+	// bytes and ordering are unchanged. Same pattern as
+	// openai-codex-responses' parseSSE.
+	for await (const value of iterateStream(
+		scopedBodyChunks(body, {
+			beforeRead: () => (signal?.aborted ? new Error("Request was aborted") : undefined),
+		}),
+	)) {
+		buffer += decoder.decode(value, { stream: true });
 		let consumed = consumeLine(buffer);
 		while (consumed) {
 			buffer = consumed.rest;
@@ -384,30 +375,29 @@ async function* iterateSseMessages(
 			}
 			consumed = consumeLine(buffer);
 		}
+	}
 
-		if (buffer.length > 0) {
-			const event = decodeSseLine(buffer, state);
-			if (event) {
-				yield event;
-			}
+	buffer += decoder.decode();
+	let consumed = consumeLine(buffer);
+	while (consumed) {
+		buffer = consumed.rest;
+		const event = decodeSseLine(consumed.line, state);
+		if (event) {
+			yield event;
 		}
+		consumed = consumeLine(buffer);
+	}
 
-		const trailingEvent = flushSseEvent(state);
-		if (trailingEvent) {
-			yield trailingEvent;
+	if (buffer.length > 0) {
+		const event = decodeSseLine(buffer, state);
+		if (event) {
+			yield event;
 		}
-	} finally {
-		// Close the transport exactly once on every exit path. An early
-		// consumer exit (error/break mid-iteration without an abort) would
-		// otherwise leave the response body — and its connection — open
-		// until GC; cancel on an already-finished stream is a no-op. Same
-		// pattern as openai-codex-responses.
-		try {
-			await reader.cancel();
-		} catch {
-			// The stream may already be closed or errored.
-		}
-		reader.releaseLock();
+	}
+
+	const trailingEvent = flushSseEvent(state);
+	if (trailingEvent) {
+		yield trailingEvent;
 	}
 }
 
@@ -492,6 +482,9 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 		// (STELLA_THINKING_ABORT_DEFER_TIMEOUT_MS) while we wait for the block to
 		// seal — an intentional trade for not corrupting the thread.
 		const externalSignal = options?.signal;
+		// Seam pin: `streamAbort.signal` is handed as a REAL AbortSignal to the
+		// Anthropic SDK request and the SSE reader, so it must remain a platform
+		// AbortController rather than fiber interruption.
 		const streamAbort = new AbortController();
 		const abortGate = createThinkingAbortGate({
 			timeoutMs: resolveThinkingAbortDeferTimeoutMs(),
@@ -1293,18 +1286,32 @@ export function createThinkingAbortGate(opts: {
 	clearTimer?: (handle: ReturnType<typeof setTimeout>) => void;
 }): ThinkingAbortGate {
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_THINKING_ABORT_DEFER_TIMEOUT_MS;
-	const setTimer = opts.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
-	const clearTimer = opts.clearTimer ?? ((handle) => clearTimeout(handle));
 
 	let open = false;
 	let pending = false;
 	let forwarded = false;
-	let timer: ReturnType<typeof setTimeout> | undefined;
+	let cancelTimer: (() => void) | undefined;
+
+	// Default deferral timer is a bounded fiber (ai/effect-runtime); an
+	// injected `setTimer`/`clearTimer` pair keeps working unchanged (the
+	// injected handle is unref'd exactly as before). `clearTimer` without
+	// `setTimer` has nothing to clear — the fiber cancels itself.
+	const armTimer = () => {
+		if (cancelTimer !== undefined) return;
+		if (opts.setTimer) {
+			const handle = opts.setTimer(forward, timeoutMs);
+			(handle as { unref?: () => void }).unref?.();
+			const clearTimer = opts.clearTimer ?? ((h: ReturnType<typeof setTimeout>) => clearTimeout(h));
+			cancelTimer = () => clearTimer(handle);
+		} else {
+			cancelTimer = forkCancelableTimeout(timeoutMs, forward);
+		}
+	};
 
 	const clearPendingTimer = () => {
-		if (timer !== undefined) {
-			clearTimer(timer);
-			timer = undefined;
+		if (cancelTimer !== undefined) {
+			cancelTimer();
+			cancelTimer = undefined;
 		}
 	};
 
@@ -1321,10 +1328,7 @@ export function createThinkingAbortGate(opts: {
 			if (forwarded) return;
 			if (open) {
 				pending = true;
-				if (timer === undefined) {
-					timer = setTimer(forward, timeoutMs);
-					(timer as { unref?: () => void }).unref?.();
-				}
+				armTimer();
 				return;
 			}
 			forward();

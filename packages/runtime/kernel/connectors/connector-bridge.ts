@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import readline from "node:readline";
 
+import { forkTimeoutFiber, guardWithAbortTimeout } from "./effect-runtime.js";
 import { loadConnectorAccessToken } from "./oauth.js";
 import {
   removeConnectorBridgeProcessRecord,
@@ -137,32 +138,34 @@ class HttpConnectorBridgeSession {
   ): Promise<unknown> {
     if (!this.server.url)
       throw new Error(`${this.server.displayName} does not have a URL.`);
+    const url = this.server.url;
     const id = randomUUID();
+    // Seam: fetch needs a real AbortSignal for the 60s guard, so the
+    // controller stays (sanctioned ratchet pin); the timer is a scoped Effect
+    // fiber interrupted when the request settles.
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000);
-    let response: Response;
-    try {
-      response = await fetch(this.server.url, {
-        method: "POST",
-        headers: await this.headers(),
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id,
-          method,
-          ...(params === undefined ? {} : { params }),
+    const response = await guardWithAbortTimeout({
+      timeoutMs: 60_000,
+      onTimeout: () => controller.abort(),
+      run: async () =>
+        await fetch(url, {
+          method: "POST",
+          headers: await this.headers(),
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method,
+            ...(params === undefined ? {} : { params }),
+          }),
+          signal: controller.signal,
         }),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (controller.signal.aborted) {
-        throw new Error(
-          `${this.server.displayName} timed out waiting for ${method}.`,
-        );
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-    }
+      mapError: (error) =>
+        controller.signal.aborted
+          ? new Error(
+              `${this.server.displayName} timed out waiting for ${method}.`,
+            )
+          : error,
+    });
     const responseSessionId = response.headers.get("mcp-session-id");
     if (responseSessionId) this.sessionId = responseSessionId;
     const text = await response.text();
@@ -208,22 +211,24 @@ class HttpConnectorBridgeSession {
 
   private async notify(method: string, params?: unknown) {
     if (!this.server.url) return;
+    const url = this.server.url;
+    // Seam controller for the 60s guard (see request()).
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000);
-    try {
-      await fetch(this.server.url, {
-        method: "POST",
-        headers: await this.headers(),
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method,
-          ...(params === undefined ? {} : { params }),
+    await guardWithAbortTimeout({
+      timeoutMs: 60_000,
+      onTimeout: () => controller.abort(),
+      run: async () =>
+        await fetch(url, {
+          method: "POST",
+          headers: await this.headers(),
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method,
+            ...(params === undefined ? {} : { params }),
+          }),
+          signal: controller.signal,
         }),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
 
   async initialize() {
@@ -387,7 +392,10 @@ class StdioConnectorBridgeSession {
       })}\n`,
     );
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      // Effect timer fiber instead of setTimeout; interrupted (the old
+      // clearTimeout) when the pending entry settles from the stdout reader
+      // or the exit/error handlers.
+      const cancelTimeout = forkTimeoutFiber(60_000, () => {
         if (this.pending.delete(id)) {
           reject(
             new Error(
@@ -395,15 +403,14 @@ class StdioConnectorBridgeSession {
             ),
           );
         }
-      }, 60_000);
-      timeout.unref?.();
+      });
       this.pending.set(id, {
         resolve: (value) => {
-          clearTimeout(timeout);
+          cancelTimeout();
           resolve(value);
         },
         reject: (error) => {
-          clearTimeout(timeout);
+          cancelTimeout();
           reject(error);
         },
       });

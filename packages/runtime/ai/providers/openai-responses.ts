@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { ResponseCreateParamsStreaming, ResponseStreamEvent } from "openai/resources/responses/responses.js";
+import { sleepMs } from "../effect-runtime.js";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { clampThinkingLevel } from "../models.js";
 import type {
@@ -146,8 +147,9 @@ export const streamOpenAIResponses: StreamFunction<"openai-responses", OpenAIRes
 				relayAbortListenerAttached = true;
 				const cancelRelayResponse = () => {
 					void (async () => {
+						// Pacing delays stay data; the timer substrate is a fiber sleep.
 						for (const delayMs of [0, 100, 250, 500, 1_000]) {
-							if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+							if (delayMs > 0) await sleepMs(delayMs);
 							try {
 								await client.delete<void>(`/responses/${encodeURIComponent(requestId)}`, {
 									maxRetries: 0,

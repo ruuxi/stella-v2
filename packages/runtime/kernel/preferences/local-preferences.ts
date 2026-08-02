@@ -3,10 +3,25 @@
  *
  * Serves as the local source of truth for user preferences. Model routing
  * preferences live here only; Convex does not own or sync them.
+ *
+ * Effect-native internals (M5): the mtime-cached load and the private-file
+ * save live on a `LocalPreferences` service run by one module-level
+ * `ManagedRuntime`. Every exported symbol keeps its pre-Effect synchronous
+ * signature; failures rethrow the ORIGINAL error object via `Cause.squash`
+ * so escaping messages stay byte-identical (host/lifecycle.ts pattern).
  */
 
 import fs from "fs";
 import path from "path";
+import {
+  Cause,
+  Context,
+  Effect,
+  Exit,
+  Layer,
+  ManagedRuntime,
+  Ref,
+} from "effect";
 import {
   ensurePrivateDirSync,
   writePrivateFileSync,
@@ -231,118 +246,212 @@ const RETIRED_MODEL_PROVIDERS = new Set([
   "google-gemini-cli",
 ]);
 
-let _cached: LocalPreferences | null = null;
-let _cachedMtime: number | null = null;
-
 const prefsPath = (stellaDataDir: string) =>
   path.join(stellaDataDir, "preferences.json");
 
+/**
+ * Coerce whatever `preferences.json` holds into a fully-normalized
+ * `LocalPreferences`. Pure — the field-by-field rules are unchanged from the
+ * pre-Effect loader.
+ */
+const normalizeStoredPreferences = (
+  parsed: Partial<LocalPreferences>,
+): LocalPreferences => ({
+  ...DEFAULT_PREFERENCES,
+  defaultModels: normalizeModelPreferenceMap(parsed.defaultModels),
+  modelOverrides: normalizeModelPreferenceMap(parsed.modelOverrides),
+  assistantPropagatedAgents: normalizeAssistantPropagatedAgents(
+    parsed.assistantPropagatedAgents,
+  ),
+  reasoningEfforts: normalizeReasoningEfforts(parsed.reasoningEfforts),
+  stellaConversationModelOverrides: normalizeModelPreferenceMap(
+    parsed.stellaConversationModelOverrides,
+  ),
+  stellaConversationReasoningEfforts: normalizeReasoningEfforts(
+    parsed.stellaConversationReasoningEfforts,
+  ),
+  agentRuntimeEngine: normalizeEngine(parsed.agentRuntimeEngine),
+  codexModel: normalizeCodexModel(parsed.codexModel),
+  codexModelExplicit: parsed.codexModelExplicit === true,
+  codexReasoningEffort: normalizeReasoningEffort(parsed.codexReasoningEffort),
+  claudeCodeModel: normalizeClaudeCodeModel(parsed.claudeCodeModel),
+  claudeCodeReasoningEffort:
+    normalizeReasoningEffort(parsed.claudeCodeReasoningEffort) === "minimal"
+      ? "low"
+      : normalizeReasoningEffort(parsed.claudeCodeReasoningEffort),
+  maxAgentConcurrency: normalizeConcurrency(parsed.maxAgentConcurrency),
+  imageGeneration: normalizeImageGenerationPreferences(parsed.imageGeneration),
+  realtimeVoice: normalizeRealtimeVoicePreferences(parsed.realtimeVoice),
+  syncMode: parsed.syncMode === "on" ? "on" : "off",
+  radialTriggerKey: normalizeRadialTriggerCode(parsed.radialTriggerKey),
+  dictationShortcut:
+    typeof parsed.dictationShortcut === "string"
+      ? parsed.dictationShortcut
+      : DEFAULT_PREFERENCES.dictationShortcut,
+  voiceRtcShortcut:
+    typeof parsed.voiceRtcShortcut === "string"
+      ? parsed.voiceRtcShortcut
+      : DEFAULT_PREFERENCES.voiceRtcShortcut,
+  miniDoubleTapModifier: normalizeMiniDoubleTapModifier(
+    parsed.miniDoubleTapModifier,
+  ),
+  preventComputerSleep: parsed.preventComputerSleep === true,
+  lockedComputerUseEnabled: parsed.lockedComputerUseEnabled === true,
+  soundNotificationsEnabled: parsed.soundNotificationsEnabled !== false,
+  dictationSoundEffectsEnabled: parsed.dictationSoundEffectsEnabled !== false,
+  wakeWordEnabled:
+    typeof parsed.wakeWordEnabled === "boolean"
+      ? parsed.wakeWordEnabled
+      : DEFAULT_PREFERENCES.wakeWordEnabled,
+  onboardingCompleted: parsed.onboardingCompleted === true,
+  wakeWordThreshold:
+    typeof parsed.wakeWordThreshold === "number" &&
+    Number.isFinite(parsed.wakeWordThreshold) &&
+    parsed.wakeWordThreshold > 0 &&
+    parsed.wakeWordThreshold <= 1
+      ? parsed.wakeWordThreshold
+      : DEFAULT_PREFERENCES.wakeWordThreshold,
+  readAloudEnabled: parsed.readAloudEnabled === true,
+  chronicleEnabled: parsed.chronicleEnabled === true,
+  chroniclePendingEnable:
+    parsed.chronicleEnabled !== true && parsed.chroniclePendingEnable === true,
+  personalityVoiceId: isKnownPersonalityId(parsed.personalityVoiceId)
+    ? parsed.personalityVoiceId
+    : DEFAULT_PREFERENCES.personalityVoiceId,
+});
+
+// ── Effect service ────────────────────────────────────────────────────────
+
+type CacheEntry = {
+  readonly prefs: LocalPreferences;
+  readonly mtimeMs: number | null;
+};
+
+/**
+ * The effectful core: mtime-cached load and private-file save. Everything
+ * else in this module is a pure projection over these two operations.
+ * Exported so sibling kernel services (e.g. the Personality service) can
+ * compose the layer directly instead of round-tripping through the sync
+ * facade. The cache is mtime-keyed, so multiple runtimes holding their own
+ * cache entry converge on the file's content.
+ */
+export interface Interface {
+  readonly load: (stellaDataDir: string) => Effect.Effect<LocalPreferences>;
+  readonly save: (
+    stellaDataDir: string,
+    prefs: LocalPreferences,
+  ) => Effect.Effect<void, unknown>;
+}
+
+export class Service extends Context.Service<Service, Interface>()(
+  "@stella/runtime/kernel/LocalPreferences",
+) {}
+
+export const layer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    // Single cache slot keyed by mtime — same shape (and same
+    // last-loaded-file-wins behavior) as the old module-level
+    // `_cached`/`_cachedMtime` pair.
+    const cache = yield* Ref.make<CacheEntry | null>(null);
+
+    const load = Effect.fn("LocalPreferences.load")(function* (
+      stellaDataDir: string,
+    ) {
+      const filePath = prefsPath(stellaDataDir);
+      const cached = yield* Ref.get(cache);
+      const loaded = yield* Effect.try({
+        try: (): CacheEntry => {
+          const stat = fs.statSync(filePath);
+          if (cached && cached.mtimeMs === stat.mtimeMs) {
+            return cached;
+          }
+          const raw = fs.readFileSync(filePath, "utf-8");
+          const parsed = JSON.parse(raw) as Partial<LocalPreferences>;
+          return {
+            prefs: normalizeStoredPreferences(parsed),
+            mtimeMs: stat.mtimeMs,
+          };
+        },
+        catch: (error) => error,
+      }).pipe(
+        // Missing/unreadable/corrupt file falls back to defaults, cache
+        // untouched — identical to the old catch-all.
+        Effect.catch(() => Effect.succeed<CacheEntry | null>(null)),
+      );
+      if (loaded === null) {
+        return { ...DEFAULT_PREFERENCES };
+      }
+      if (loaded !== cached) {
+        yield* Ref.set(cache, loaded);
+      }
+      return loaded.prefs;
+    });
+
+    const save = Effect.fn("LocalPreferences.save")(function* (
+      stellaDataDir: string,
+      prefs: LocalPreferences,
+    ) {
+      const filePath = prefsPath(stellaDataDir);
+      // Write failures propagate the ORIGINAL fs error to the caller and
+      // leave the cache untouched (the file was not replaced).
+      yield* Effect.try({
+        try: () => {
+          const dir = path.dirname(filePath);
+          if (!fs.existsSync(dir)) {
+            ensurePrivateDirSync(dir);
+          }
+          writePrivateFileSync(filePath, JSON.stringify(prefs, null, 2));
+        },
+        catch: (error) => error,
+      });
+      const mtimeMs = yield* Effect.sync(() => {
+        try {
+          return fs.statSync(filePath).mtimeMs;
+        } catch {
+          return null;
+        }
+      });
+      yield* Ref.set(cache, { prefs, mtimeMs });
+    });
+
+    return { load, save };
+  }),
+);
+
+// ── Sync facade over one module-level ManagedRuntime ──────────────────────
+
+const preferencesRuntime = ManagedRuntime.make(layer);
+
+/** Run a preferences Effect, rethrowing the original failure object. */
+const runPreferences = <A, E>(effect: Effect.Effect<A, E, Service>): A => {
+  const exit = preferencesRuntime.runSyncExit(effect);
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
+  }
+  throw Cause.squash(exit.cause);
+};
+
 export const loadLocalPreferences = (
   stellaDataDir: string,
-): LocalPreferences => {
-  const filePath = prefsPath(stellaDataDir);
-
-  try {
-    const stat = fs.statSync(filePath);
-    if (_cached && _cachedMtime === stat.mtimeMs) {
-      return _cached;
-    }
-
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<LocalPreferences>;
-    const prefs: LocalPreferences = {
-      ...DEFAULT_PREFERENCES,
-      defaultModels: normalizeModelPreferenceMap(parsed.defaultModels),
-      modelOverrides: normalizeModelPreferenceMap(parsed.modelOverrides),
-      assistantPropagatedAgents: normalizeAssistantPropagatedAgents(
-        parsed.assistantPropagatedAgents,
-      ),
-      reasoningEfforts: normalizeReasoningEfforts(parsed.reasoningEfforts),
-      stellaConversationModelOverrides: normalizeModelPreferenceMap(
-        parsed.stellaConversationModelOverrides,
-      ),
-      stellaConversationReasoningEfforts: normalizeReasoningEfforts(
-        parsed.stellaConversationReasoningEfforts,
-      ),
-      agentRuntimeEngine: normalizeEngine(parsed.agentRuntimeEngine),
-      codexModel: normalizeCodexModel(parsed.codexModel),
-      codexModelExplicit: parsed.codexModelExplicit === true,
-      codexReasoningEffort: normalizeReasoningEffort(
-        parsed.codexReasoningEffort,
-      ),
-      claudeCodeModel: normalizeClaudeCodeModel(parsed.claudeCodeModel),
-      claudeCodeReasoningEffort:
-        normalizeReasoningEffort(parsed.claudeCodeReasoningEffort) === "minimal"
-          ? "low"
-          : normalizeReasoningEffort(parsed.claudeCodeReasoningEffort),
-      maxAgentConcurrency: normalizeConcurrency(parsed.maxAgentConcurrency),
-      imageGeneration: normalizeImageGenerationPreferences(
-        parsed.imageGeneration,
-      ),
-      realtimeVoice: normalizeRealtimeVoicePreferences(parsed.realtimeVoice),
-      syncMode: parsed.syncMode === "on" ? "on" : "off",
-      radialTriggerKey: normalizeRadialTriggerCode(parsed.radialTriggerKey),
-      dictationShortcut:
-        typeof parsed.dictationShortcut === "string"
-          ? parsed.dictationShortcut
-          : DEFAULT_PREFERENCES.dictationShortcut,
-      voiceRtcShortcut:
-        typeof parsed.voiceRtcShortcut === "string"
-          ? parsed.voiceRtcShortcut
-          : DEFAULT_PREFERENCES.voiceRtcShortcut,
-      miniDoubleTapModifier: normalizeMiniDoubleTapModifier(
-        parsed.miniDoubleTapModifier,
-      ),
-      preventComputerSleep: parsed.preventComputerSleep === true,
-      lockedComputerUseEnabled: parsed.lockedComputerUseEnabled === true,
-      soundNotificationsEnabled: parsed.soundNotificationsEnabled !== false,
-      dictationSoundEffectsEnabled:
-        parsed.dictationSoundEffectsEnabled !== false,
-      wakeWordEnabled:
-        typeof parsed.wakeWordEnabled === "boolean"
-          ? parsed.wakeWordEnabled
-          : DEFAULT_PREFERENCES.wakeWordEnabled,
-      onboardingCompleted: parsed.onboardingCompleted === true,
-      wakeWordThreshold:
-        typeof parsed.wakeWordThreshold === "number" &&
-        Number.isFinite(parsed.wakeWordThreshold) &&
-        parsed.wakeWordThreshold > 0 &&
-        parsed.wakeWordThreshold <= 1
-          ? parsed.wakeWordThreshold
-          : DEFAULT_PREFERENCES.wakeWordThreshold,
-      readAloudEnabled: parsed.readAloudEnabled === true,
-      chronicleEnabled: parsed.chronicleEnabled === true,
-      chroniclePendingEnable:
-        parsed.chronicleEnabled !== true &&
-        parsed.chroniclePendingEnable === true,
-      personalityVoiceId: isKnownPersonalityId(parsed.personalityVoiceId)
-        ? parsed.personalityVoiceId
-        : DEFAULT_PREFERENCES.personalityVoiceId,
-    };
-    _cached = prefs;
-    _cachedMtime = stat.mtimeMs;
-    return prefs;
-  } catch {
-    return { ...DEFAULT_PREFERENCES };
-  }
-};
+): LocalPreferences =>
+  runPreferences(
+    Effect.gen(function* () {
+      const service = yield* Service;
+      return yield* service.load(stellaDataDir);
+    }),
+  );
 
 export const saveLocalPreferences = (
   stellaDataDir: string,
   prefs: LocalPreferences,
 ): void => {
-  const filePath = prefsPath(stellaDataDir);
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    ensurePrivateDirSync(dir);
-  }
-  writePrivateFileSync(filePath, JSON.stringify(prefs, null, 2));
-  _cached = prefs;
-  try {
-    _cachedMtime = fs.statSync(filePath).mtimeMs;
-  } catch {
-    _cachedMtime = null;
-  }
+  runPreferences(
+    Effect.gen(function* () {
+      const service = yield* Service;
+      yield* service.save(stellaDataDir, prefs);
+    }),
+  );
 };
 
 export const getModelOverride = (

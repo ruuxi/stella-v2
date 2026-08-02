@@ -1,3 +1,4 @@
+import { Context, Effect, Layer } from "effect";
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import {
   AGENT_IDS,
@@ -20,6 +21,7 @@ import {
   normalizeRuntimeThreadId,
 } from "../runtime-threads.js";
 import { slugify } from "../shared/slug.js";
+import { createDesktopDatabase } from "./database.js";
 import type { SqliteDatabase } from "./shared.js";
 import {
   DEFAULT_CONVERSATION_SETTING_KEY,
@@ -82,7 +84,7 @@ export const AGENT_ASSISTANT_UPDATE_LIMITS = {
   scanRowsPerMessage: 8,
 } as const;
 
-type SessionStoreOptions = {
+export type SessionStoreOptions = {
   onThreadAssistantUpdate?: (payload: ThreadActivityUpdatedPayload) => void;
   onThreadTranscriptUpdate?: (payload: ThreadTranscriptUpdatedPayload) => void;
 };
@@ -6901,3 +6903,78 @@ export class SessionStore {
       .run(conversationId, reviewedTs);
   }
 }
+
+/**
+ * SessionStore as a scoped Effect service (M5 kernel/storage pass).
+ *
+ * Ownership design: the sqlite handle is acquired into the layer's scope and
+ * `db.close()` is the scope finalizer, so the handle provably cannot outlive
+ * (or be leaked past) the graph built over it. Because the driver is
+ * synchronous (bun:sqlite), every store method stays a synchronous call over
+ * prepared statements — many callers run inside open transactions
+ * (`withTransaction`), where an async hop would break atomicity. Effect-land
+ * callers wrap store work with `withSessionStore`, which runs one synchronous
+ * body (e.g. a persist-then-notify pair) as a single Effect.
+ *
+ * Surface 1 (`worker/server/session/storage.ts`) composes the same resource
+ * shape over these exports today: it builds `createDesktopDatabase` +
+ * `new ChatStore(db, …)` + `RunEventLog` inside its own `Layer.effect` and
+ * registers `db.close()` via `Effect.addFinalizer` at the BOTTOM of the
+ * session chain, so the close runs LAST on teardown (after the runner drains
+ * compactions and `runEventLog.stop()` — the old `stopWorkerServices`
+ * order). That layer stays byte-compatible with the class constructor and is
+ * untouched here; this service is the storage-area-owned equivalent for
+ * kernel-side Effect composition, with the identical finalizer contract.
+ */
+export interface SessionStoreServiceShape {
+  readonly db: SqliteDatabase;
+  readonly store: SessionStore;
+}
+
+export class SessionStoreService extends Context.Service<
+  SessionStoreService,
+  SessionStoreServiceShape
+>()("@stella/runtime/storage/SessionStore") {}
+
+/**
+ * Build the scoped SessionStore service: open the desktop database, own the
+ * handle in the layer scope, close it as the scope finalizer (on success,
+ * failure, and interruption).
+ */
+export const sessionStoreLayer = (config: {
+  stellaDataDirPath: string;
+  options?: SessionStoreOptions;
+}) =>
+  Layer.effect(
+    SessionStoreService,
+    Effect.gen(function* () {
+      const db = yield* Effect.acquireRelease(
+        Effect.sync(() => createDesktopDatabase(config.stellaDataDirPath)),
+        (handle) =>
+          Effect.sync(() => {
+            handle.close();
+          }),
+      );
+      return { db, store: new SessionStore(db, config.options) };
+    }),
+  );
+
+/**
+ * Run one synchronous body against the store as a single Effect. Failures
+ * carry the ORIGINAL thrown error object so parity strings survive
+ * `Cause.squash` at the facade boundary. Persist-then-notify pairs (the
+ * store's transactional write followed by its `onThreadTranscriptUpdate` /
+ * `onThreadAssistantUpdate` callbacks) execute inside one such body, so the
+ * observable order — persist committed, then notify, same tick — is exactly
+ * the pre-Effect order.
+ */
+export const withSessionStore = <A>(
+  body: (store: SessionStore) => A,
+): Effect.Effect<A, unknown, SessionStoreService> =>
+  Effect.gen(function* () {
+    const { store } = yield* SessionStoreService;
+    return yield* Effect.try({
+      try: () => body(store),
+      catch: (error) => error,
+    });
+  });

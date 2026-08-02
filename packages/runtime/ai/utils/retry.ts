@@ -1,3 +1,5 @@
+import { sleepWithAbort } from "../effect-runtime.js";
+
 export interface RetryOptions {
 	/** Total attempts including the first try. Default: 10. */
 	maxAttempts?: number;
@@ -77,22 +79,14 @@ function retryDelay(retryIndex: number, baseDelayMs: number, maxDelayMs: number)
 	return Math.min(baseDelayMs * 2 ** (retryIndex - 2), maxDelayMs);
 }
 
+/**
+ * Backoff sleep on the ai/ fiber substrate. Delay VALUES stay data computed
+ * above (retry-after headers, attempt-indexed exponential, total budget);
+ * only the timer moved onto a fiber. The abort error message is the exact
+ * legacy string.
+ */
 function retrySleep(ms: number, signal?: AbortSignal): Promise<void> {
-	return new Promise((resolve, reject) => {
-		if (signal?.aborted) {
-			reject(new Error("Request was aborted"));
-			return;
-		}
-		const onAbort = () => {
-			clearTimeout(timeout);
-			reject(new Error("Request was aborted"));
-		};
-		const timeout = setTimeout(() => {
-			signal?.removeEventListener("abort", onAbort);
-			resolve();
-		}, ms);
-		signal?.addEventListener("abort", onAbort, { once: true });
-	});
+	return sleepWithAbort(ms, signal, () => new Error("Request was aborted"));
 }
 
 function isAbortError(error: unknown): boolean {

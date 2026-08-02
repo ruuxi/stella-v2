@@ -36,6 +36,11 @@ const boundedFinalizeStage = async <T>(args: {
   work: () => Promise<T> | T;
   fallback: T;
 }): Promise<T> => {
+  // Effect-ratchet pin (1 setTimeout): the finalize-stage ceiling is a
+  // deliberately unref'd raw timer — this backstop runs between "final
+  // answer produced" and RUN_FINISHED, where it must never keep the worker
+  // process alive; an Effect sleep fiber would hold the event loop for the
+  // full 30s on every finalization.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const startedAt = Date.now();
   try {

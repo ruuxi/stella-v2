@@ -43,6 +43,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { Effect } from "effect";
+
 import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import type {
   AssistantMessage,
@@ -81,6 +83,7 @@ import {
 } from "../integrations/claude-code-agent-runtime.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { readHomePrompt } from "../prompts/home-prompts.js";
+import { runCloudWriterEffect } from "../runner/cloud-effect-runtime.js";
 import {
   createSupervisedScope,
   type SupervisedScope,
@@ -738,6 +741,11 @@ export const maybeSpawnDreamRun = async (
   }
   state.inFlight = true;
 
+  // Effect-ratchet pin (1 new AbortController): the genuine seam controller
+  // for the supervised dream run — `SupervisedScope.supervise` fires
+  // `controller.abort` on interrupt/shutdown, and the resulting REAL
+  // AbortSignal rides into `runDream`'s LLM calls (`completeSimple` /
+  // claude-code completions), which are plain-TS AbortSignal consumers.
   const controller = new AbortController();
   const memoryMtimeBefore = fileMtimeMs(memoryFilePath(args.stellaDataDir));
   const mapMtimeBefore = fileMtimeMs(memoryMapPath(args.stellaDataDir));
@@ -836,6 +844,10 @@ export const maybeSpawnDreamRun = async (
   // separate supervised abort handle. The compile-time production cutover
   // gate above remains false; no shadow proposal can mutate durable memory.
   if (config.deltaShadow && args.conversationId) {
+    // Effect-ratchet pin (1 new AbortController): the shadow run's own seam
+    // controller — supervised separately from the live run, its REAL
+    // AbortSignal is threaded through `runDreamDeltaShadow` into the same
+    // plain-TS LLM seams.
     const shadowController = new AbortController();
     const shadow = completion
       .then(async (outcome) => {
@@ -885,35 +897,54 @@ export type DreamShadowOutcome =
 export const DREAM_SHADOW_TIMEOUT_MS = 180_000;
 const SHADOW_IN_FLIGHT = new Set<string>();
 
-const raceShadow = async <T>(args: {
+/**
+ * "aborted" competitor for the hard-timeout races below: settles when the
+ * supervised abort signal fires. The listener is removed by the callback's
+ * cleanup effect on every exit path (the old `removeEventListener` finally);
+ * with no signal the competitor never settles.
+ */
+const abortedOutcome = (
+  signal: AbortSignal | undefined,
+): Effect.Effect<"aborted"> =>
+  signal === undefined
+    ? Effect.never
+    : Effect.callback<"aborted">((resume) => {
+        if (signal.aborted) {
+          resume(Effect.succeed("aborted" as const));
+          return;
+        }
+        const onAbort = () => resume(Effect.succeed("aborted" as const));
+        signal.addEventListener("abort", onAbort, { once: true });
+        return Effect.sync(() => {
+          signal.removeEventListener("abort", onAbort);
+        });
+      });
+
+/**
+ * Race `promise` against the shadow hard timeout and the supervised abort
+ * signal, on the runner area's shared Effect runtime. The timeout and abort
+ * arms are fibers interrupted when they lose (the old `clearTimeout` +
+ * `removeEventListener` finally); when they win, the underlying promise
+ * keeps running with its settlement ignored, exactly as `Promise.race` left
+ * it. Rejections rethrow the ORIGINAL error object (Cause.squash in
+ * `runCloudWriterEffect`). Timings unchanged.
+ */
+const raceShadow = <T>(args: {
   promise: Promise<T>;
   timeoutMs: number;
   signal?: AbortSignal;
-}): Promise<T | "timed_out" | "aborted"> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: (() => void) | undefined;
-  const competitors: Array<Promise<T | "timed_out" | "aborted">> = [
-    args.promise,
-    new Promise<"timed_out">((resolve) => {
-      timer = setTimeout(() => resolve("timed_out"), args.timeoutMs);
-    }),
-  ];
-  if (args.signal) {
-    competitors.push(
-      new Promise<"aborted">((resolve) => {
-        if (args.signal?.aborted) return resolve("aborted");
-        onAbort = () => resolve("aborted");
-        args.signal?.addEventListener("abort", onAbort, { once: true });
-      }),
-    );
-  }
-  try {
-    return await Promise.race(competitors);
-  } finally {
-    clearTimeout(timer);
-    if (onAbort) args.signal?.removeEventListener("abort", onAbort);
-  }
-};
+}): Promise<T | "timed_out" | "aborted"> =>
+  runCloudWriterEffect(
+    Effect.raceFirst(
+      Effect.raceFirst(
+        Effect.tryPromise({ try: () => args.promise, catch: (error) => error }),
+        Effect.sleep(args.timeoutMs).pipe(
+          Effect.flatMap(() => Effect.succeed("timed_out" as const)),
+        ),
+      ),
+      abortedOutcome(args.signal),
+    ),
+  );
 
 /**
  * Shadow validation only. It derives a bounded proposal from raw messages,
@@ -1127,40 +1158,31 @@ export type PreCompactionConsolidationResult = {
   detail?: string;
 };
 
-const raceDreamCompletion = async (args: {
+/**
+ * Bound the pre-compaction join on the supervised completion: race it
+ * against the hard timeout and the compaction scheduler's abort signal (the
+ * same fiber shape as `raceShadow` above — losing arms interrupted, the
+ * supervised run keeps executing past a timeout). Timings unchanged.
+ */
+const raceDreamCompletion = (args: {
   completion: Promise<DreamRunOutcome>;
   timeoutMs: number;
   abortSignal?: AbortSignal;
-}): Promise<DreamRunOutcome | "timed_out" | "aborted"> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: (() => void) | undefined;
-  try {
-    const competitors: Array<
-      Promise<DreamRunOutcome | "timed_out" | "aborted">
-    > = [
-      args.completion,
-      new Promise<"timed_out">((resolve) => {
-        timer = setTimeout(() => resolve("timed_out"), args.timeoutMs);
-      }),
-    ];
-    if (args.abortSignal) {
-      competitors.push(
-        new Promise<"aborted">((resolve) => {
-          if (args.abortSignal?.aborted) {
-            resolve("aborted");
-            return;
-          }
-          onAbort = () => resolve("aborted");
-          args.abortSignal?.addEventListener("abort", onAbort, { once: true });
+}): Promise<DreamRunOutcome | "timed_out" | "aborted"> =>
+  runCloudWriterEffect(
+    Effect.raceFirst(
+      Effect.raceFirst(
+        Effect.tryPromise({
+          try: () => args.completion,
+          catch: (error) => error,
         }),
-      );
-    }
-    return await Promise.race(competitors);
-  } finally {
-    clearTimeout(timer);
-    if (onAbort) args.abortSignal?.removeEventListener("abort", onAbort);
-  }
-};
+        Effect.sleep(args.timeoutMs).pipe(
+          Effect.flatMap(() => Effect.succeed("timed_out" as const)),
+        ),
+      ),
+      abortedOutcome(args.abortSignal),
+    ),
+  );
 
 /**
  * Give Dream one bounded opportunity to consolidate the pending frontier

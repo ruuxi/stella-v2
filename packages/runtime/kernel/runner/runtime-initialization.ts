@@ -1,6 +1,13 @@
 import { watch as fsWatch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import {
+  Effect,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Scope,
+} from "effect";
+import {
   loadBundledAgents,
   mergeBundledAndExtensionAgents,
 } from "../agents/agents.js";
@@ -14,6 +21,29 @@ import { joinWithTimeout } from "../shared/supervised-scope.js";
 import { shutdownDreamRuns } from "../agent-runtime/dream-scheduler.js";
 
 const logger = createRuntimeLogger("runtime-init");
+
+/**
+ * Requirements-free runtime + scope for this module's timer fibers (watch
+ * debounces, busy-retry, the compaction drain bound). House convention:
+ * one module-level ManagedRuntime, work carries its context via closures.
+ * The fibers are short-lived sleeps; `stopExtensionWatcher` interrupts any
+ * pending one, so nothing outlives `stop()`.
+ */
+const initRuntime = ManagedRuntime.make(Layer.empty);
+const initTimersScope = Scope.makeUnsafe();
+
+/**
+ * Fork `fn` to run after `ms` on the shared timer scope. The returned
+ * fiber's `interruptUnsafe` is the Effect replacement for `clearTimeout`.
+ */
+const forkAfter = (ms: number, fn: () => void): Fiber.Fiber<void> =>
+  initRuntime.runSync(
+    Effect.forkIn(
+      Effect.andThen(Effect.sleep(ms), Effect.sync(fn)),
+      initTimersScope,
+      { startImmediately: true },
+    ),
+  );
 
 export const createRuntimeInitialization = (
   context: RunnerContext,
@@ -231,29 +261,27 @@ export const createRuntimeInitialization = (
    */
   let resourceWatchers: FSWatcher[] = [];
   let modelConfigWatcher: FSWatcher | null = null;
-  let extensionDebounce: NodeJS.Timeout | null = null;
-  let extensionRetry: NodeJS.Timeout | null = null;
-  let modelConfigDebounce: NodeJS.Timeout | null = null;
+  let extensionDebounce: Fiber.Fiber<void> | null = null;
+  let extensionRetry: Fiber.Fiber<void> | null = null;
+  let modelConfigDebounce: Fiber.Fiber<void> | null = null;
   const FILE_WATCH_DEBOUNCE_MS = 500;
   const RELOAD_BUSY_RETRY_MS = 2_000;
 
   const scheduleExtensionReload = () => {
-    if (extensionDebounce) {
-      clearTimeout(extensionDebounce);
-    }
-    extensionDebounce = setTimeout(() => {
+    extensionDebounce?.interruptUnsafe();
+    extensionDebounce = forkAfter(FILE_WATCH_DEBOUNCE_MS, () => {
       extensionDebounce = null;
       void (async () => {
         const result = await reloadUserExtensions();
         if (result.status === "busy") {
-          if (extensionRetry) clearTimeout(extensionRetry);
-          extensionRetry = setTimeout(() => {
+          extensionRetry?.interruptUnsafe();
+          extensionRetry = forkAfter(RELOAD_BUSY_RETRY_MS, () => {
             extensionRetry = null;
             scheduleExtensionReload();
-          }, RELOAD_BUSY_RETRY_MS);
+          });
         }
       })();
-    }, FILE_WATCH_DEBOUNCE_MS);
+    });
   };
 
   const startExtensionWatcher = () => {
@@ -303,8 +331,8 @@ export const createRuntimeInitialization = (
   };
 
   const scheduleModelConfigReload = () => {
-    if (modelConfigDebounce) clearTimeout(modelConfigDebounce);
-    modelConfigDebounce = setTimeout(() => {
+    modelConfigDebounce?.interruptUnsafe();
+    modelConfigDebounce = forkAfter(FILE_WATCH_DEBOUNCE_MS, () => {
       modelConfigDebounce = null;
       void modelRuntime
         .reloadConfig()
@@ -321,7 +349,7 @@ export const createRuntimeInitialization = (
             error: error instanceof Error ? error.message : String(error),
           });
         });
-    }, FILE_WATCH_DEBOUNCE_MS);
+    });
   };
 
   const startModelConfigWatcher = () => {
@@ -354,18 +382,12 @@ export const createRuntimeInitialization = (
   };
 
   const stopExtensionWatcher = () => {
-    if (extensionDebounce) {
-      clearTimeout(extensionDebounce);
-      extensionDebounce = null;
-    }
-    if (extensionRetry) {
-      clearTimeout(extensionRetry);
-      extensionRetry = null;
-    }
-    if (modelConfigDebounce) {
-      clearTimeout(modelConfigDebounce);
-      modelConfigDebounce = null;
-    }
+    extensionDebounce?.interruptUnsafe();
+    extensionDebounce = null;
+    extensionRetry?.interruptUnsafe();
+    extensionRetry = null;
+    modelConfigDebounce?.interruptUnsafe();
+    modelConfigDebounce = null;
     try {
       modelConfigWatcher?.close();
     } catch {
@@ -405,16 +427,22 @@ export const createRuntimeInitialization = (
   const COMPACTION_DRAIN_TIMEOUT_MS = 5_000;
 
   const drainCompactionsWithTimeout = async (): Promise<void> => {
-    const drain = context.state.compactionScheduler.drain();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const timeout = new Promise<"timeout">((resolve) => {
-      timer = setTimeout(() => resolve("timeout"), COMPACTION_DRAIN_TIMEOUT_MS);
-    });
     try {
-      const result = await Promise.race([
-        drain.then(() => "drained" as const),
-        timeout,
-      ]);
+      // Effect-bounded drain: the losing sleep arm is fiber-interrupted
+      // (the old `clearTimeout`), and a timeout leaves the abandoned drain
+      // promise to the scheduler's own shutdown join below.
+      const result = await initRuntime.runPromise(
+        Effect.raceFirst(
+          Effect.map(
+            Effect.promise(() => context.state.compactionScheduler.drain()),
+            () => "drained" as const,
+          ),
+          Effect.map(
+            Effect.sleep(COMPACTION_DRAIN_TIMEOUT_MS),
+            () => "timeout" as const,
+          ),
+        ),
+      );
       if (result === "timeout") {
         logger.warn("compaction-scheduler.drain-timeout", {
           timeoutMs: COMPACTION_DRAIN_TIMEOUT_MS,
@@ -424,8 +452,6 @@ export const createRuntimeInitialization = (
       logger.warn("compaction-scheduler.drain-failed", {
         error: error instanceof Error ? error.message : String(error),
       });
-    } finally {
-      if (timer !== null) clearTimeout(timer);
     }
   };
 
@@ -442,7 +468,7 @@ export const createRuntimeInitialization = (
   const stop = async (): Promise<void> => {
     logger.warn("runner.stop", {
       activeOrchestratorRunId: context.state.activeOrchestratorRunId,
-      activeAbortControllers: context.state.activeRunAbortControllers.size,
+      activeSupervisedRuns: context.state.supervisor.activeRunCount(),
       conversationCallbacks: context.state.conversationCallbacks.size,
       runCallbacksByRunId: context.state.runCallbacksByRunId.size,
     });
@@ -459,14 +485,13 @@ export const createRuntimeInitialization = (
     // needs a token to flush) and leaving it running keeps a timer alive past
     // shutdown, so it is dropped here alongside the client it depends on.
     context.cloudTranscript.stop();
-    // Cancel every live orchestrator turn cooperatively first, then cancel
-    // agent tasks (awaited: lifecycle events + managed-child cascades), then
+    // Cancel every live orchestrator turn cooperatively first (the
+    // supervisor fires each run's registered abort), then cancel agent
+    // tasks (awaited: lifecycle events + managed-child cascades), then
     // interrupt the whole supervised fiber tree — root turn fibers and
     // subagent attempt fibers — and join their teardown before any shared
     // resource (tool host, store) is torn down beneath them.
-    for (const controller of context.state.activeRunAbortControllers.values()) {
-      controller.abort();
-    }
+    context.state.supervisor.abortAllRuns();
     const tasksShutdown = Promise.resolve(deps.shutdownTasks()).catch(
       (error) => {
         logger.warn("runner.stop.task-shutdown-failed", {
@@ -521,7 +546,6 @@ export const createRuntimeInitialization = (
     }
     context.state.orchestratorSessions.clear();
     context.state.queuedOrchestratorTurns.length = 0;
-    context.state.activeRunAbortControllers.clear();
     context.state.conversationCallbacks.clear();
     context.state.runCallbacksByRunId.clear();
     // Give in-flight background compactions their historical 5s grace to

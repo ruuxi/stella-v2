@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect";
 
 /**
  * Restart-with-continuation: auto-resume of orchestrator/agent work after a
@@ -74,8 +75,9 @@ import path from "node:path";
  * authorization that distinguishes a deliberate restart from a crash. (The
  * pre-existing orphan sweep still tidies thread rows after a crash.)
  *
- * This module must stay import-light (node:fs/path only): the host process
- * imports the record-writing half and must not pull the kernel agent stack.
+ * This module must stay import-light (node:fs/path plus `effect` only): the
+ * host process imports the record-writing half and must not pull the kernel
+ * agent stack.
  */
 
 export const RESTART_CONTINUATION_RECORD_FILE = "restart-continuation.json";
@@ -207,6 +209,39 @@ export type RestartThreadRecordLike = {
   updatedAt: number;
 };
 
+/**
+ * The one module-level ManagedRuntime for restart-continuation (M5 kernel
+ * pass). The exported persistence APIs stay SYNCHRONOUS — the host calls the
+ * record-writing half during shutdown, where deferring to a promise would
+ * lose the write — so the file IO runs as Effects driven by `runSyncExit`,
+ * rethrowing the ORIGINAL failure via `Cause.squash`. Write ordering is
+ * unchanged: every effect below is a sequential composition of the exact
+ * same sync fs steps (tmp write → fsync → close → rename).
+ */
+const continuationRuntime = ManagedRuntime.make(Layer.empty);
+
+const runContinuationSync = <A>(effect: Effect.Effect<A, unknown>): A => {
+  const exit = continuationRuntime.runSyncExit(effect);
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
+  }
+  throw Cause.squash(exit.cause);
+};
+
+const runContinuationPromise = async <A>(
+  effect: Effect.Effect<A, unknown>,
+): Promise<A> => {
+  const exit = await continuationRuntime.runPromiseExit(effect);
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
+  }
+  throw Cause.squash(exit.cause);
+};
+
+/** Wrap one sync fs step; failures carry the original error object. */
+const tryContinuationFs = <A>(op: () => A): Effect.Effect<A, unknown> =>
+  Effect.try({ try: op, catch: (error) => error });
+
 const recordPath = (stellaDataDir: string) =>
   path.join(stellaDataDir, RESTART_CONTINUATION_RECORD_FILE);
 
@@ -216,47 +251,68 @@ const statePath = (stellaDataDir: string) =>
 const snapshotPath = (stellaDataDir: string) =>
   path.join(stellaDataDir, RESTART_INTERRUPTED_SNAPSHOT_FILE);
 
-const readJsonFile = (filePath: string): unknown => {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown;
-  } catch {
-    // Missing, unreadable, or malformed/partial JSON — callers treat all of
-    // these as "no usable artifact". Atomic writes below make a torn file a
-    // legacy/OS-crash artifact rather than a normal failure mode.
-    return null;
-  }
-};
+const readJsonFile = (filePath: string): unknown =>
+  runContinuationSync(
+    tryContinuationFs(
+      () => JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown,
+    ).pipe(
+      // Missing, unreadable, or malformed/partial JSON — callers treat all
+      // of these as "no usable artifact". Atomic writes below make a torn
+      // file a legacy/OS-crash artifact rather than a normal failure mode.
+      Effect.catch(() => Effect.succeed(null)),
+    ),
+  );
 
-const deleteFileSilently = (filePath: string) => {
-  try {
-    fs.rmSync(filePath, { force: true });
-  } catch {
-    // Best-effort: a leftover file is re-guarded by staleness checks.
-  }
-};
+const deleteFileSilently = (filePath: string) =>
+  runContinuationSync(
+    tryContinuationFs(() => {
+      fs.rmSync(filePath, { force: true });
+    }).pipe(
+      // Best-effort: a leftover file is re-guarded by staleness checks.
+      Effect.catch(() => Effect.void),
+    ),
+  );
 
 /**
  * Atomic durable JSON write: tmp file + fsync + rename. A crash mid-write
  * leaves only a stray tmp file, never a torn target. (Directory fsync is
  * skipped deliberately — an entry lost to an OS crash degrades to the
  * documented crash behavior: no continuation.)
+ *
+ * The write ORDER is load-bearing and byte-identical to the pre-Effect
+ * version: open tmp → write → fsync → close (always, via the release) →
+ * rename; a rename failure removes the tmp file and rethrows the original
+ * error.
  */
-const writeJsonAtomic = (filePath: string, value: unknown): void => {
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  const fd = fs.openSync(tmpPath, "w");
-  try {
-    fs.writeSync(fd, JSON.stringify(value));
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
-  try {
-    fs.renameSync(tmpPath, filePath);
-  } catch (error) {
-    deleteFileSilently(tmpPath);
-    throw error;
-  }
-};
+const writeJsonAtomicEffect = (
+  filePath: string,
+  value: unknown,
+): Effect.Effect<void, unknown> =>
+  Effect.suspend(() => {
+    const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    return Effect.acquireUseRelease(
+      tryContinuationFs(() => fs.openSync(tmpPath, "w")),
+      (fd) =>
+        tryContinuationFs(() => {
+          fs.writeSync(fd, JSON.stringify(value));
+          fs.fsyncSync(fd);
+        }),
+      (fd) => Effect.sync(() => fs.closeSync(fd)),
+    ).pipe(
+      Effect.flatMap(() =>
+        tryContinuationFs(() => fs.renameSync(tmpPath, filePath)).pipe(
+          Effect.tapError(() =>
+            tryContinuationFs(() => {
+              fs.rmSync(tmpPath, { force: true });
+            }).pipe(Effect.catch(() => Effect.void)),
+          ),
+        ),
+      ),
+    );
+  });
+
+const writeJsonAtomic = (filePath: string, value: unknown): void =>
+  runContinuationSync(writeJsonAtomicEffect(filePath, value));
 
 const parseShutdownRecord = (value: unknown): RestartShutdownRecord | null => {
   if (!value || typeof value !== "object") return null;
@@ -1070,13 +1126,26 @@ const buildThreadFacts = (
  * claimed-but-failed conversation is not retried by the turn mechanism
  * (the reminder covers it).
  */
-export const fireRestartContinuationTurn = async (
+export const fireRestartContinuationTurn = (
   deps: RestartContinuationFireDeps,
 ): Promise<{
   fired: boolean;
   conversationIds: string[];
   outcomes: Record<string, "completed" | "failed" | "skipped">;
-}> => {
+}> =>
+  runContinuationPromise(fireRestartContinuationTurnEffect(deps));
+
+const fireRestartContinuationTurnEffect = (
+  deps: RestartContinuationFireDeps,
+): Effect.Effect<
+  {
+    fired: boolean;
+    conversationIds: string[];
+    outcomes: Record<string, "completed" | "failed" | "skipped">;
+  },
+  unknown
+> =>
+  Effect.gen(function* () {
   const now = deps.now ?? Date.now();
   const outcomes: Record<string, "completed" | "failed" | "skipped"> = {};
   if (!isRestartContinuationTurnEnabled(deps.env)) {
@@ -1148,7 +1217,7 @@ export const fireRestartContinuationTurn = async (
         description: record.description,
       }));
 
-    try {
+    yield* tryContinuationFs(() => {
       deps.appendLocalChatEvent({
         conversationId,
         type: "assistant_message",
@@ -1157,12 +1226,16 @@ export const fireRestartContinuationTurn = async (
           source: RESTART_CONTINUATION_CHAT_SOURCE,
         },
       });
-    } catch (error) {
-      deps.log?.("restart-continuation: failed to append chat notice", {
-        conversationId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          deps.log?.("restart-continuation: failed to append chat notice", {
+            conversationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }),
+      ),
+    );
 
     const prompt = buildRestartContinuationPrompt({
       reason: state.reason,
@@ -1171,34 +1244,45 @@ export const fireRestartContinuationTurn = async (
       threads: facts,
       pausedThreads,
     });
-    let succeeded = false;
-    try {
-      const result = await deps.runAutomationTurn({
-        conversationId,
-        userPrompt: prompt,
-      });
-      succeeded = result.status === "ok";
-      if (succeeded && result.finalText?.trim()) {
-        deps.appendLocalChatEvent({
+    // One promise seam per dispatched turn; a throw from the turn (or from
+    // appending its final text) lands in the catch below and is logged with
+    // the exact pre-Effect message, leaving `succeeded` false.
+    const succeeded = yield* Effect.tryPromise({
+      try: async () => {
+        const result = await deps.runAutomationTurn({
           conversationId,
-          type: "assistant_message",
-          payload: {
-            text: result.finalText,
-            source: RESTART_CONTINUATION_CHAT_SOURCE,
-          },
+          userPrompt: prompt,
         });
-      } else if (!succeeded) {
-        deps.log?.("restart-continuation: continuation turn failed", {
-          conversationId,
-          error: result.error ?? "unknown",
-        });
-      }
-    } catch (error) {
-      deps.log?.("restart-continuation: continuation turn threw", {
-        conversationId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+        const ok = result.status === "ok";
+        if (ok && result.finalText?.trim()) {
+          deps.appendLocalChatEvent({
+            conversationId,
+            type: "assistant_message",
+            payload: {
+              text: result.finalText,
+              source: RESTART_CONTINUATION_CHAT_SOURCE,
+            },
+          });
+        } else if (!ok) {
+          deps.log?.("restart-continuation: continuation turn failed", {
+            conversationId,
+            error: result.error ?? "unknown",
+          });
+        }
+        return ok;
+      },
+      catch: (error) => error,
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          deps.log?.("restart-continuation: continuation turn threw", {
+            conversationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return false;
+        }),
+      ),
+    );
 
     // Record the real outcome. Success is only claimed AFTER it happened;
     // anything else leaves the conversation failed-claimed so the reminder
@@ -1230,4 +1314,4 @@ export const fireRestartContinuationTurn = async (
     conversationIds: dispatchedConversationIds,
     outcomes,
   };
-};
+  });

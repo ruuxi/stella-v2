@@ -38,6 +38,8 @@ import { log, logError, recoverStaleSecretFiles } from "./utils.js";
 import {
   createShellState,
   drainCompletedProducedFiles,
+  shutdownManagedShells,
+  waitForShellExit,
   type ShellState,
 } from "./shell.js";
 import { createStateContext, type StateContext } from "./state.js";
@@ -50,7 +52,6 @@ import { buildBuiltinTools } from "./defs/index.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
 import { NodeReplKernelRegistry } from "../computer-use/kernel.js";
-import { joinWithTimeout } from "../shared/join-timeout.js";
 import {
   createMacComputerUseSession,
   shutdownMacStellaComputerSession,
@@ -380,52 +381,27 @@ export const createToolHost = ({
     if (shell.running) {
       shell.kill();
     }
-    const deadline = Date.now() + 1_500;
-    while (shell.running && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
+    // Event-driven join on the shell's exit latch (was a 25ms poll),
+    // bounded at the same 1.5s so a TERM-ignoring child can't hang the
+    // caller; the ladder's SIGKILL fires at 1s.
+    await waitForShellExit(shell, 1_500);
   };
 
   /**
    * Idempotent, bounded, JOINED teardown (finalizer ordering: shells →
-   * repl kernels). `killAllShells` alone only *starts* the TERM→1s→KILL
-   * ladders on unref'd timers — a worker that exits right after would
-   * strand TERM-ignoring children as orphans. Shutdown therefore joins
-   * every running shell's actual exit, bounded at 3s (comfortably past
-   * the ladder) so a wedged process can never hang worker stop; anything
-   * still alive at the bound is logged and left to the OS as the ladder's
-   * KILL already fired. Conversation-scoped shells are deliberately
-   * worker-lifetime resources: they die here, never earlier.
+   * repl kernels). `shutdownManagedShells` starts every running shell's
+   * TERM→1s→KILL ladder and then joins every exit latch in parallel under
+   * a single 3s bound (comfortably past the ladder), so a wedged process
+   * can never hang worker stop; anything still alive at the bound is
+   * logged and left to the OS as the ladder's KILL already fired.
+   * Conversation-scoped shells are deliberately worker-lifetime resources:
+   * they die here, never earlier.
    */
   let shutdownPromise: Promise<void> | null = null;
   const shutdown = () => {
     if (shutdownPromise) return shutdownPromise;
     shutdownPromise = (async () => {
-      const exits: Array<Promise<void>> = [];
-      for (const shell of shellState.shells.values()) {
-        if (!shell.running || !shell.child) continue;
-        const child = shell.child;
-        if (child.exitCode !== null) continue;
-        exits.push(
-          new Promise<void>((resolve) => {
-            child.once("close", () => resolve());
-            child.once("error", () => resolve());
-          }),
-        );
-      }
-      killAllShells();
-      if (exits.length > 0) {
-        const joined = await joinWithTimeout(
-          Promise.allSettled(exits),
-          3_000,
-        );
-        if (joined === "timeout") {
-          // eslint-disable-next-line no-console
-          console.warn(
-            "[tool-host] shell teardown exceeded the shutdown bound; SIGKILL was already dispatched",
-          );
-        }
-      }
+      await shutdownManagedShells(shellState);
       await nodeReplRegistry.dispose();
     })();
     return shutdownPromise;

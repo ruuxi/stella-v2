@@ -1,6 +1,8 @@
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
+import { Effect } from "effect";
+import { runDiscovery, tryDiscovery } from "./effect-io.js";
 import type { BrowserBookmarks, BookmarkEntry } from "./discovery-types.js";
 import type { BrowserType } from "@stella/contracts";
 
@@ -94,10 +96,69 @@ function walkBookmarkTree(
   return entries;
 }
 
-export async function collectBrowserBookmarks(
+/**
+ * Read one profile's Bookmarks file. Returns null for the "keep scanning"
+ * cases (no roots / no entries); read and parse failures reject and are
+ * treated identically to null by the scan loop, exactly like the pre-Effect
+ * try/catch-continue.
+ */
+const readProfileBookmarks = async (
+  browser: BrowserBookmarkConfig,
+  profile: string,
+): Promise<BrowserBookmarks | null> => {
+  const bookmarksPath = profile
+    ? path.join(browser.basePath, profile, "Bookmarks")
+    : path.join(browser.basePath, "Bookmarks");
+  const content = await fs.readFile(bookmarksPath, "utf-8");
+  const data: BookmarksFile = JSON.parse(content);
+
+  if (!data.roots) {
+    return null;
+  }
+
+  let allEntries: BookmarkEntry[] = [];
+
+  if (data.roots.bookmark_bar) {
+    allEntries.push(...walkBookmarkTree(data.roots.bookmark_bar));
+  }
+  if (data.roots.other) {
+    allEntries.push(...walkBookmarkTree(data.roots.other));
+  }
+  if (data.roots.synced) {
+    allEntries.push(...walkBookmarkTree(data.roots.synced));
+  }
+
+  if (allEntries.length === 0) {
+    return null;
+  }
+
+  // Limit to 200 bookmarks
+  if (allEntries.length > 200) {
+    allEntries = allEntries.slice(0, 200);
+  }
+
+  // Extract unique folder names
+  const folders = new Set<string>();
+  for (const entry of allEntries) {
+    if (entry.folder) {
+      folders.add(entry.folder);
+    }
+  }
+
+  log(`Found ${allEntries.length} bookmarks in ${browser.name} (${profile})`);
+
+  return {
+    browser: browser.name,
+    bookmarks: allEntries,
+    folders: Array.from(folders),
+  };
+};
+
+const collectBrowserBookmarksEffect = (
   options: BookmarkCollectionOptions = {},
-): Promise<BrowserBookmarks | null> {
-  const appDataDir = getAppDataDir();
+): Effect.Effect<BrowserBookmarks | null> =>
+  Effect.gen(function* () {
+    const appDataDir = getAppDataDir();
   const roamingAppDataDir = getRoamingAppDataDir();
   const platform = os.platform();
 
@@ -172,68 +233,30 @@ export async function collectBrowserBookmarks(
       : browser.profiles;
 
     for (const profile of profilesToScan) {
-      try {
-        const bookmarksPath = profile
-          ? path.join(browser.basePath, profile, "Bookmarks")
-          : path.join(browser.basePath, "Bookmarks");
-        const content = await fs.readFile(bookmarksPath, "utf-8");
-        const data: BookmarksFile = JSON.parse(content);
-
-        if (!data.roots) {
-          continue;
-        }
-
-        let allEntries: BookmarkEntry[] = [];
-
-        if (data.roots.bookmark_bar) {
-          allEntries.push(...walkBookmarkTree(data.roots.bookmark_bar));
-        }
-        if (data.roots.other) {
-          allEntries.push(...walkBookmarkTree(data.roots.other));
-        }
-        if (data.roots.synced) {
-          allEntries.push(...walkBookmarkTree(data.roots.synced));
-        }
-
-        if (allEntries.length === 0) {
-          continue;
-        }
-
-        // Limit to 200 bookmarks
-        if (allEntries.length > 200) {
-          allEntries = allEntries.slice(0, 200);
-        }
-
-        // Extract unique folder names
-        const folders = new Set<string>();
-        for (const entry of allEntries) {
-          if (entry.folder) {
-            folders.add(entry.folder);
-          }
-        }
-
-        log(`Found ${allEntries.length} bookmarks in ${browser.name} (${profile})`);
-
-        return {
-          browser: browser.name,
-          bookmarks: allEntries,
-          folders: Array.from(folders),
-        };
-      } catch {
-        // Silently continue to next browser/profile
-        continue;
+      // Silently continue to next browser/profile on any read/parse error.
+      const found = yield* tryDiscovery(() =>
+        readProfileBookmarks(browser, profile),
+      ).pipe(Effect.catch(() => Effect.succeed(null)));
+      if (found) {
+        return found;
       }
     }
   }
 
-  if (options.selectedBrowser) {
-    log(
-      `No bookmarks found for selected browser${options.selectedProfile ? ` profile ${options.selectedProfile}` : ""}: ${options.selectedBrowser}`,
-    );
-  } else {
-    log("No bookmarks found in any browser");
-  }
-  return null;
+    if (options.selectedBrowser) {
+      log(
+        `No bookmarks found for selected browser${options.selectedProfile ? ` profile ${options.selectedProfile}` : ""}: ${options.selectedBrowser}`,
+      );
+    } else {
+      log("No bookmarks found in any browser");
+    }
+    return null;
+  });
+
+export async function collectBrowserBookmarks(
+  options: BookmarkCollectionOptions = {},
+): Promise<BrowserBookmarks | null> {
+  return runDiscovery(collectBrowserBookmarksEffect(options));
 }
 
 function extractDomain(url: string): string {

@@ -1,3 +1,24 @@
+/**
+ * Claude Code CLI session runtime.
+ *
+ * Effect-native concurrency spine (M5 kernel/integrations pass), behind the
+ * exact pre-Effect exported names/signatures/strings:
+ *
+ * - The CLI kill ladders (SIGINT→1.5s→SIGTERM→4s→SIGKILL) are forked fibers
+ *   racing the child's `exit` event against the escalation deadline
+ *   (`kill/abortExternalCliProcess` in ./effect-runtime.ts), replacing the
+ *   unref'd `setTimeout` rungs with identical signal ordering and timings.
+ * - Every timer — the per-prompt idle watchdog (startup/output/native-tool
+ *   ceilings), the per-session idle-close timer, and the 5s durable
+ *   tool_use-identity wait — is a `forkCancelableTimeout` fiber armed and
+ *   interrupted exactly where the old `setTimeout`/`clearTimeout` pair was.
+ * - The stream-json stdout reactor (`consumeStdout` + the `data`/`close`/
+ *   `error` listeners) deliberately stays a plain synchronous line loop:
+ *   event delivery ordering and every parse-error tolerance branch are the
+ *   parity bar the desktop UI observes, and the pure parsers stay plain per
+ *   the architecture doc. Cancellation stays cooperative at the seam: the
+ *   caller's `AbortSignal` triggers the same abort ladder as before.
+ */
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { StringDecoder } from "node:string_decoder";
 import crypto from "crypto";
@@ -33,6 +54,12 @@ import {
   type ClaudeCodeToolMcpActiveTurn,
   type ClaudeCodeToolMcpHost,
 } from "./claude-code-tool-mcp-host.js";
+import {
+  abortExternalCliProcess as abortProcess,
+  externalCliProcessIsDead as processIsDead,
+  forkCancelableTimeout,
+  killExternalCliProcess as killProcess,
+} from "./effect-runtime.js";
 
 const CLAUDE_CODE_MODEL_PREFIX = "claude-code/";
 /**
@@ -120,8 +147,6 @@ const CLAUDE_CODE_ALIAS_LABELS: Record<
   },
 };
 const SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
-const SIGTERM_TIMEOUT_MS = 1_500;
-const SIGKILL_TIMEOUT_MS = 4_000;
 const MAX_STDERR_CAPTURE = 4_000;
 const DEFAULT_STEP_STARTUP_IDLE_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_STEP_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -486,7 +511,8 @@ type PendingClaudeCodePrompt = {
   /** Native MCP calls that started while this prompt was in flight. */
   mcpCalls: ClaudeCodeMcpCallRecord[];
   abortListener?: () => void;
-  idleTimer?: ReturnType<typeof setTimeout>;
+  /** Interrupts the armed idle-watchdog fiber (the old `clearTimeout`). */
+  cancelIdleTimer?: () => void;
   hasOutput?: boolean;
   activeNativeToolUseIds: Set<string>;
 };
@@ -691,11 +717,12 @@ export const createClaudeNativeToolUseCorrelator = () => {
       return await new Promise<string>((resolve, reject) => {
         const entries = waiters.get(key) ?? [];
         const onAbort = () => {
+          cancelTimer();
           const index = entries.indexOf(onObserved);
           if (index >= 0) entries.splice(index, 1);
           reject(signal.reason ?? new Error("Claude tool call canceled."));
         };
-        const timer = setTimeout(() => {
+        const cancelTimer = forkCancelableTimeout(5_000, () => {
           signal.removeEventListener("abort", onAbort);
           const index = entries.indexOf(onObserved);
           if (index >= 0) entries.splice(index, 1);
@@ -704,10 +731,9 @@ export const createClaudeNativeToolUseCorrelator = () => {
               "Timed out waiting for Claude's durable tool_use identity.",
             ),
           );
-        }, 5_000);
-        timer.unref?.();
+        });
         const onObserved = (id: string) => {
-          clearTimeout(timer);
+          cancelTimer();
           signal.removeEventListener("abort", onAbort);
           resolve(id);
         };
@@ -751,49 +777,6 @@ const configuredTimeoutMs = (envName: string, fallbackMs: number): number => {
   if (!raw) return fallbackMs;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
-};
-
-/**
- * True only when the child has actually terminated. `child.killed` must
- * NOT be used for ladder guards: it flips true as soon as any signal was
- * SENT, which previously made every later rung unreachable — after the
- * SIGINT in `abortProcess`, neither SIGTERM nor SIGKILL could ever fire,
- * so a signal-ignoring CLI survived cancellation.
- */
-const processIsDead = (child: ChildProcessWithoutNullStreams): boolean =>
-  child.exitCode !== null || child.signalCode !== null;
-
-const killProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (processIsDead(child)) return;
-  try {
-    child.kill("SIGTERM");
-  } catch {
-    // Process may have already exited.
-  }
-
-  const sigkillTimer = setTimeout(() => {
-    if (processIsDead(child)) return;
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // Process may have already exited.
-    }
-  }, SIGKILL_TIMEOUT_MS);
-
-  child.once("exit", () => clearTimeout(sigkillTimer));
-};
-
-const abortProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (processIsDead(child)) return;
-  try {
-    child.kill("SIGINT");
-  } catch {
-    // Ignore and fall through to SIGTERM/SIGKILL.
-  }
-
-  setTimeout(() => {
-    killProcess(child);
-  }, SIGTERM_TIMEOUT_MS);
 };
 
 const parseClaudeCodeModel = (modelId: string): string | undefined => {
@@ -1356,10 +1339,8 @@ class ClaudeCodeSessionRuntime {
     ChildProcessWithoutNullStreams
   >();
   private readonly closeWhenIdle = new Set<string>();
-  private readonly idleCloseTimers = new Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >();
+  /** Cancel thunks for the per-session idle-close watchdog fibers. */
+  private readonly idleCloseTimers = new Map<string, () => void>();
 
   async runTurn(request: ClaudeCodeTurnRequest): Promise<ClaudeCodeTurnResult> {
     this.clearIdleCloseTimer(request.sessionKey);
@@ -1390,17 +1371,16 @@ class ClaudeCodeSessionRuntime {
 
   scheduleSessionCloseWhenIdle(sessionKey: string, timeoutMs: number): void {
     this.clearIdleCloseTimer(sessionKey);
-    const timer = setTimeout(
-      () => this.closeSessionWhenIdle(sessionKey),
-      Math.max(1_000, timeoutMs),
+    this.idleCloseTimers.set(
+      sessionKey,
+      forkCancelableTimeout(Math.max(1_000, timeoutMs), () =>
+        this.closeSessionWhenIdle(sessionKey),
+      ),
     );
-    timer.unref?.();
-    this.idleCloseTimers.set(sessionKey, timer);
   }
 
   private clearIdleCloseTimer(sessionKey: string): void {
-    const timer = this.idleCloseTimers.get(sessionKey);
-    if (timer) clearTimeout(timer);
+    this.idleCloseTimers.get(sessionKey)?.();
     this.idleCloseTimers.delete(sessionKey);
   }
 
@@ -1429,7 +1409,7 @@ class ClaudeCodeSessionRuntime {
     }
     this.sessions.clear();
     this.closeWhenIdle.clear();
-    for (const timer of this.idleCloseTimers.values()) clearTimeout(timer);
+    for (const cancel of this.idleCloseTimers.values()) cancel();
     this.idleCloseTimers.clear();
   }
 
@@ -2460,9 +2440,9 @@ class ClaudeCodeSessionRuntime {
   }
 
   private detachAbortListener(pending: PendingClaudeCodePrompt): void {
-    if (pending.idleTimer) {
-      clearTimeout(pending.idleTimer);
-      pending.idleTimer = undefined;
+    if (pending.cancelIdleTimer) {
+      pending.cancelIdleTimer();
+      pending.cancelIdleTimer = undefined;
     }
     if (pending.abortListener && pending.request.abortSignal) {
       pending.request.abortSignal.removeEventListener(
@@ -2476,10 +2456,8 @@ class ClaudeCodeSessionRuntime {
     processState: ClaudeCodeStreamingProcess,
     pending: PendingClaudeCodePrompt,
   ): void {
-    if (pending.idleTimer) {
-      clearTimeout(pending.idleTimer);
-    }
-    pending.idleTimer = undefined;
+    pending.cancelIdleTimer?.();
+    pending.cancelIdleTimer = undefined;
     // Vanilla Claude Code runs native tools inside the CLI. Their stream-json
     // lifecycle is edge-triggered, so a silent Bash/Task invocation is still
     // confirmed live work and must not be mistaken for a dead output stream.
@@ -2501,7 +2479,7 @@ class ClaudeCodeSessionRuntime {
             "STELLA_CLAUDE_CODE_STARTUP_IDLE_TIMEOUT_MS",
             DEFAULT_STEP_STARTUP_IDLE_TIMEOUT_MS,
           );
-    pending.idleTimer = setTimeout(() => {
+    pending.cancelIdleTimer = forkCancelableTimeout(timeoutMs, () => {
       const index = processState.pending.indexOf(pending);
       if (index >= 0) {
         processState.pending.splice(index, 1);
@@ -2515,8 +2493,7 @@ class ClaudeCodeSessionRuntime {
             : `Claude Code did not produce output for ${Math.round(timeoutMs / 1000)}s.`,
         ),
       );
-    }, timeoutMs);
-    pending.idleTimer.unref?.();
+    });
   }
 
   private parseResultPayload(

@@ -23,6 +23,12 @@ import path from "path";
 import os from "os";
 import { exec, execFile } from "child_process";
 import { pathToFileURL } from "node:url";
+import { Effect } from "effect";
+import {
+  runDiscovery,
+  tryDiscovery,
+  tryDiscoverySync,
+} from "./effect-io.js";
 
 import type { DevProject } from "./types.js";
 
@@ -659,67 +665,78 @@ const parseEditorTrackedRepos = (raw: string): EditorTrackedRepo[] => {
   }
 };
 
-const collectFromEditors = async (
+const collectFromEditorsEffect = (
   candidates: Map<string, ProjectCandidate>,
-): Promise<number> => {
-  let count = 0;
-  const { Database } = await import("bun:sqlite");
+): Effect.Effect<number, unknown> =>
+  Effect.gen(function* () {
+    let count = 0;
+    const { Database } = yield* tryDiscovery(() => import("bun:sqlite"));
 
-  for (const config of getEditorConfigs()) {
-    if (!(await fileExists(config.dbPath))) continue;
+    for (const config of getEditorConfigs()) {
+      if (!(yield* tryDiscovery(() => fileExists(config.dbPath)))) continue;
 
-    let db: SqliteDatabase | null = null;
-    try {
-      // Read the live DB directly via an immutable URI: editors hold a WAL
-      // lock on state.vscdb while running; immutable skips locking.
-      const uri = `${pathToFileURL(config.dbPath).href}?immutable=1`;
-      db = new Database(uri, { readonly: true }) as SqliteDatabase;
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          // Read the live DB directly via an immutable URI: editors hold a WAL
+          // lock on state.vscdb while running; immutable skips locking.
+          const db = yield* Effect.acquireRelease(
+            tryDiscoverySync(() => {
+              const uri = `${pathToFileURL(config.dbPath).href}?immutable=1`;
+              return new Database(uri, { readonly: true }) as SqliteDatabase;
+            }),
+            (openDb) => Effect.sync(() => openDb.close()),
+          );
 
-      const getKey = (key: string): string | null => {
-        const row = db!
-          .query("SELECT value FROM ItemTable WHERE key = ?")
-          .get(key) as { value: Buffer | string } | undefined;
-        if (!row) return null;
-        return typeof row.value === "string"
-          ? row.value
-          : Buffer.from(row.value).toString("utf-8");
-      };
+          yield* tryDiscoverySync(() => {
+            const getKey = (key: string): string | null => {
+              const row = db
+                .query("SELECT value FROM ItemTable WHERE key = ?")
+                .get(key) as { value: Buffer | string } | undefined;
+              if (!row) return null;
+              return typeof row.value === "string"
+                ? row.value
+                : Buffer.from(row.value).toString("utf-8");
+            };
 
-      const recentRaw = getKey("history.recentlyOpenedPathsList");
-      const recentWorkspaces = recentRaw
-        ? parseEditorRecentWorkspaces(recentRaw)
-        : [];
-      for (const workspace of recentWorkspaces) {
-        addCandidate(candidates, workspace.path, `${config.name}-recent`, 6);
-        count += 1;
-      }
+            const recentRaw = getKey("history.recentlyOpenedPathsList");
+            const recentWorkspaces = recentRaw
+              ? parseEditorRecentWorkspaces(recentRaw)
+              : [];
+            for (const workspace of recentWorkspaces) {
+              addCandidate(candidates, workspace.path, `${config.name}-recent`, 6);
+              count += 1;
+            }
 
-      const trackerRaw = getKey("repositoryTracker.paths");
-      const trackedRepos = trackerRaw
-        ? parseEditorTrackedRepos(trackerRaw)
-        : [];
-      for (const repo of trackedRepos) {
-        const lastAccessed = repo.lastAccessed;
-        const age = lastAccessed ? daysAgo(lastAccessed) : null;
-        const weight = age === null ? 4 : age <= 7 ? 8 : age <= 30 ? 6 : 3;
-        addCandidate(
-          candidates,
-          repo.path,
-          `${config.name}-repo-tracker`,
-          weight,
-          lastAccessed ? { editorLastAccessed: lastAccessed } : undefined,
-        );
-        count += 1;
-      }
-    } catch (error) {
-      log(`Failed to read ${config.name} editor state:`, error);
-    } finally {
-      db?.close();
+            const trackerRaw = getKey("repositoryTracker.paths");
+            const trackedRepos = trackerRaw
+              ? parseEditorTrackedRepos(trackerRaw)
+              : [];
+            for (const repo of trackedRepos) {
+              const lastAccessed = repo.lastAccessed;
+              const age = lastAccessed ? daysAgo(lastAccessed) : null;
+              const weight = age === null ? 4 : age <= 7 ? 8 : age <= 30 ? 6 : 3;
+              addCandidate(
+                candidates,
+                repo.path,
+                `${config.name}-repo-tracker`,
+                weight,
+                lastAccessed ? { editorLastAccessed: lastAccessed } : undefined,
+              );
+              count += 1;
+            }
+          });
+        }),
+      ).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            log(`Failed to read ${config.name} editor state:`, error);
+          }),
+        ),
+      );
     }
-  }
 
-  return count;
-};
+    return count;
+  });
 
 // ---------------------------------------------------------------------------
 // Source 5: Shell history
@@ -1155,37 +1172,49 @@ const detectProjectTech = async (projectPath: string): Promise<string[]> => {
 // Main Collection
 // ---------------------------------------------------------------------------
 
-export const collectDevProjects = async (): Promise<DevProject[]> => {
-  log("Starting dev projects discovery...");
+const collectDevProjectsEffect: Effect.Effect<DevProject[], unknown> =
+  Effect.gen(function* () {
+    log("Starting dev projects discovery...");
 
-  const candidates = new Map<string, ProjectCandidate>();
+    const candidates = new Map<string, ProjectCandidate>();
 
-  const [
-    identity,
-    spotlightPaths,
-    ghDesktopPaths,
-    jetbrainsPaths,
-    editorCount,
-    shellCount,
-    devRootCount,
-  ] = await Promise.all([
-    readGlobalGitIdentity(),
-    collectFromSpotlight(),
-    collectFromGitHubDesktop(),
-    collectFromJetBrains(),
-    collectFromEditors(candidates).catch((error) => {
-      log("Editor state collection failed:", error);
-      return 0;
-    }),
-    collectFromShellHistory(candidates).catch((error) => {
-      log("Shell history project collection failed:", error);
-      return 0;
-    }),
-    collectFromCommonDevRoots(candidates).catch((error) => {
-      log("Dev root scan failed:", error);
-      return 0;
-    }),
-  ]);
+    const [
+      identity,
+      spotlightPaths,
+      ghDesktopPaths,
+      jetbrainsPaths,
+      editorCount,
+      shellCount,
+      devRootCount,
+    ] = yield* Effect.all(
+      [
+        tryDiscovery(() => readGlobalGitIdentity()),
+        tryDiscovery(() => collectFromSpotlight()),
+        tryDiscovery(() => collectFromGitHubDesktop()),
+        tryDiscovery(() => collectFromJetBrains()),
+        collectFromEditorsEffect(candidates).pipe(
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              log("Editor state collection failed:", error);
+              return 0;
+            }),
+          ),
+        ),
+        tryDiscovery(() =>
+          collectFromShellHistory(candidates).catch((error) => {
+            log("Shell history project collection failed:", error);
+            return 0;
+          }),
+        ),
+        tryDiscovery(() =>
+          collectFromCommonDevRoots(candidates).catch((error) => {
+            log("Dev root scan failed:", error);
+            return 0;
+          }),
+        ),
+      ],
+      { concurrency: "unbounded" },
+    );
 
   for (const projectPath of spotlightPaths) {
     addCandidate(candidates, projectPath, "spotlight", 2);
@@ -1229,14 +1258,16 @@ export const collectDevProjects = async (): Promise<DevProject[]> => {
     .slice(0, MAX_CANDIDATE_PATHS);
   log(`${candidatePaths.length} unique candidate paths`);
 
-  const resolved = await resolveCandidates(candidatePaths);
+  const resolved = yield* tryDiscovery(() => resolveCandidates(candidatePaths));
   log(`${resolved.length} git repos resolved from candidates`);
 
   const scored: ScoredProject[] = [];
   for (let i = 0; i < resolved.length; i += MAX_VALIDATION_BATCH_SIZE) {
     const batch = resolved.slice(i, i + MAX_VALIDATION_BATCH_SIZE);
-    const batchResults = await Promise.all(
-      batch.map((project) => scoreProject(project, identity)),
+    const batchResults = yield* Effect.forEach(
+      batch,
+      (project) => tryDiscovery(() => scoreProject(project, identity)),
+      { concurrency: "unbounded" },
     );
     for (const result of batchResults) {
       if (result) scored.push(result);
@@ -1250,13 +1281,16 @@ export const collectDevProjects = async (): Promise<DevProject[]> => {
       a.path.localeCompare(b.path),
   );
 
-  const limited = await Promise.all(
-    scored.slice(0, MAX_RESULTS).map(async (project) => ({
-      name: project.name,
-      path: project.path,
-      lastActivity: project.lastActivity,
-      tech: await detectProjectTech(project.path),
-    })),
+  const limited = yield* Effect.forEach(
+    scored.slice(0, MAX_RESULTS),
+    (project) =>
+      tryDiscovery(async () => ({
+        name: project.name,
+        path: project.path,
+        lastActivity: project.lastActivity,
+        tech: await detectProjectTech(project.path),
+      })),
+    { concurrency: "unbounded" },
   );
 
   log(
@@ -1276,7 +1310,10 @@ export const collectDevProjects = async (): Promise<DevProject[]> => {
   }
 
   return limited;
-};
+});
+
+export const collectDevProjects = async (): Promise<DevProject[]> =>
+  runDiscovery(collectDevProjectsEffect);
 
 // ---------------------------------------------------------------------------
 // Formatting

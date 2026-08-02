@@ -1,8 +1,10 @@
+import { Cause, Effect, Exit, Scope } from "effect";
 import {
   getFileLogger,
   initFileLogger,
   installGlobalErrorLogging,
 } from "../observability/file-logger.js";
+import { workerRuntime } from "./effect-runtime.js";
 import {
   WorkerLifecycleServer,
   removeStaleRuntimeArtifacts,
@@ -85,27 +87,53 @@ const main = async () => {
   }
   const transport = transportResult.transport;
 
-  const broker = new WorkerPeerBroker();
-  const runtimeServer = createRuntimeWorkerServer(broker);
-  let server: Awaited<ReturnType<typeof startWorkerTransport>> | null = null;
-  let shuttingDown = false;
-
-  const teardown = async () => {
-    if (server) {
-      try {
-        await server.close();
-      } catch {
-        // Best effort during process shutdown.
-      }
-      server = null;
-    }
-    try {
-      await runtimeServer.shutdown();
-    } catch {
-      // Best effort during process shutdown.
-    }
-    broker.dispose();
+  // The process root scope: every boot-owned resource — peer broker,
+  // runtime server, transport listener — is acquired into this scope, and
+  // ALL teardown paths (signal, idle shutdown) are one `Scope.close` whose
+  // LIFO finalizers replay the old teardown order exactly:
+  //   transport close → runtimeServer.shutdown() → broker.dispose().
+  // `createRuntimeWorkerServer`'s `shutdown()` (surface 1) is the join
+  // point; each finalizer stays best-effort like the old try/catch chain.
+  const rootScope = Scope.makeUnsafe();
+  let rootScopeClosed = false;
+  const closeRootScope = async () => {
+    if (rootScopeClosed) return;
+    rootScopeClosed = true;
+    await workerRuntime
+      .runPromise(Scope.close(rootScope, Exit.void))
+      .catch(() => undefined);
   };
+  const acquire = async <A>(
+    effect: Effect.Effect<A, unknown, Scope.Scope>,
+  ): Promise<A> => {
+    const exit = await workerRuntime.runPromiseExit(
+      Scope.provide(effect, rootScope),
+    );
+    if (Exit.isSuccess(exit)) return exit.value;
+    throw Cause.squash(exit.cause);
+  };
+
+  const broker = await acquire(
+    Effect.acquireRelease(
+      Effect.sync(() => new WorkerPeerBroker()),
+      (acquired) =>
+        Effect.sync(() => {
+          try {
+            acquired.dispose();
+          } catch {
+            // Best effort during process shutdown.
+          }
+        }),
+    ),
+  );
+  const runtimeServer = await acquire(
+    Effect.acquireRelease(
+      Effect.sync(() => createRuntimeWorkerServer(broker)),
+      (acquired) =>
+        Effect.promise(() => acquired.shutdown().catch(() => undefined)),
+    ),
+  );
+  let shuttingDown = false;
 
   let lifecycle: WorkerLifecycleServer | null = null;
   let detachedMode = false;
@@ -135,7 +163,7 @@ const main = async () => {
         : {}),
       shouldKeepAlive: () => runtimeServer.hasActiveWork(),
       onShutdown: async (reason) => {
-        await teardown();
+        await closeRootScope();
         if (reason === "idle") {
           setImmediate(() => process.exit(0));
         }
@@ -158,13 +186,23 @@ const main = async () => {
     });
   }
 
-  server = await startWorkerTransport({
-    transport,
-    broker,
-    onError: (error) => {
-      console.error("[runtime-worker] transport error:", error);
-    },
-  });
+  const server = await acquire(
+    Effect.acquireRelease(
+      Effect.tryPromise({
+        try: () =>
+          startWorkerTransport({
+            transport,
+            broker,
+            onError: (error) => {
+              console.error("[runtime-worker] transport error:", error);
+            },
+          }),
+        catch: (error) => error,
+      }),
+      (acquired) =>
+        Effect.promise(() => acquired.close().catch(() => undefined)),
+    ),
+  );
 
   if (detachedMode) {
     console.error(
@@ -172,15 +210,17 @@ const main = async () => {
     );
   }
 
-  const shutdown = async (signal: string) => {
+  const shutdown = async (_signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     if (lifecycle) {
+      // The lifecycle server closes the root scope through its onShutdown
+      // hook, then releases pid/lock files.
       await lifecycle.shutdown("signal");
     } else {
-      await teardown();
+      await closeRootScope();
     }
-    process.exit(signal === "SIGTERM" ? 0 : 0);
+    process.exit(0);
   };
 
   process.once("SIGTERM", () => void shutdown("SIGTERM"));

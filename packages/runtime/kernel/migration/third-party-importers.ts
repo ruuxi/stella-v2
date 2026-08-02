@@ -3,8 +3,10 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { parse as parseYaml } from "yaml";
 
+import { runMigrationEffect, tryMigrationOp } from "./effect-runtime.js";
 import { LocalSchedulerService } from "../local-scheduler-service.js";
 import { getPersonalityFilePath } from "../personality/personality.js";
 import {
@@ -324,40 +326,55 @@ export const resolveDefaultMigrationSourceRoot = (
   );
 };
 
-export const detectThirdPartyMigrationSources = async (opts?: {
+export const detectThirdPartyMigrationSources = (opts?: {
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
-}): Promise<ThirdPartyMigrationPreview[]> => {
-  const homeDir = opts?.homeDir ?? os.homedir();
-  const candidates: Array<[ThirdPartyMigrationSource, string]> = [
-    ["hermes", resolveDefaultMigrationSourceRoot("hermes", opts)],
-    ["openclaw", resolveDefaultMigrationSourceRoot("openclaw", opts)],
-    ["openclaw", path.join(homeDir, ".clawdbot")],
-  ];
+}): Promise<ThirdPartyMigrationPreview[]> =>
+  runMigrationEffect(
+    Effect.gen(function* () {
+      const homeDir = opts?.homeDir ?? os.homedir();
+      const candidates: Array<[ThirdPartyMigrationSource, string]> = [
+        ["hermes", resolveDefaultMigrationSourceRoot("hermes", opts)],
+        ["openclaw", resolveDefaultMigrationSourceRoot("openclaw", opts)],
+        ["openclaw", path.join(homeDir, ".clawdbot")],
+      ];
 
-  const previews: ThirdPartyMigrationPreview[] = [];
-  const seen = new Set<string>();
-  for (const [source, root] of candidates) {
-    const resolved = path.resolve(root);
-    const key = `${source}:${resolved}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (!(await pathExists(resolved))) continue;
-    const preview = await previewThirdPartyMigration({ source, sourceRoot: resolved });
-    if (preview.found) {
-      previews.push(preview);
-    }
-  }
-  return previews;
-};
+      const previews: ThirdPartyMigrationPreview[] = [];
+      const seen = new Set<string>();
+      for (const [source, root] of candidates) {
+        const resolved = path.resolve(root);
+        const key = `${source}:${resolved}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (!(yield* tryMigrationOp(() => pathExists(resolved)))) continue;
+        const preview = yield* previewThirdPartyMigrationEffect({
+          source,
+          sourceRoot: resolved,
+        });
+        if (preview.found) {
+          previews.push(preview);
+        }
+      }
+      return previews;
+    }),
+  );
 
-export const previewThirdPartyMigration = async (opts: {
+export const previewThirdPartyMigration = (opts: {
   source: ThirdPartyMigrationSource;
   sourceRoot?: string;
-}): Promise<ThirdPartyMigrationPreview> => {
+}): Promise<ThirdPartyMigrationPreview> =>
+  runMigrationEffect(previewThirdPartyMigrationEffect(opts));
+
+const previewThirdPartyMigrationEffect = (opts: {
+  source: ThirdPartyMigrationSource;
+  sourceRoot?: string;
+}): Effect.Effect<ThirdPartyMigrationPreview, unknown> =>
+  Effect.gen(function* () {
   const sourceRoot =
     opts.sourceRoot ?? resolveDefaultMigrationSourceRoot(opts.source);
-  const paths = await collectSourcePaths(opts.source, sourceRoot);
+  const paths = yield* tryMigrationOp(() =>
+    collectSourcePaths(opts.source, sourceRoot),
+  );
   const findings: ThirdPartyMigrationFinding[] = [
     {
       option: "memory",
@@ -424,7 +441,7 @@ export const previewThirdPartyMigration = async (opts: {
     found: findings.some((finding) => finding.found),
     findings,
   };
-};
+  });
 
 const collectSourcePaths = async (
   source: ThirdPartyMigrationSource,
@@ -813,133 +830,161 @@ const collectOpenClawSessionFileRefs = (value: unknown): string[] => {
   return out;
 };
 
-export const runThirdPartyMigration = async (opts: {
+export const runThirdPartyMigration = (opts: {
   source: ThirdPartyMigrationSource;
   sourceRoot?: string;
   stellaDataDir: string;
   selection?: ThirdPartyMigrationSelection;
   db?: SqliteDatabase;
   now?: Date;
-}): Promise<ThirdPartyMigrationReport> => {
-  const sourceRoot = path.resolve(
-    opts.sourceRoot ?? resolveDefaultMigrationSourceRoot(opts.source),
+}): Promise<ThirdPartyMigrationReport> =>
+  runMigrationEffect(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const sourceRoot = path.resolve(
+          opts.sourceRoot ?? resolveDefaultMigrationSourceRoot(opts.source),
+        );
+        const stellaDataDir = path.resolve(opts.stellaDataDir);
+        const selected = { ...DEFAULT_OPTIONS, ...(opts.selection ?? {}) };
+        const startedAt = opts.now ?? new Date();
+        const paths = yield* tryMigrationOp(() =>
+          collectSourcePaths(opts.source, sourceRoot),
+        );
+        const importState = yield* tryMigrationOp(() =>
+          readImportState(stellaDataDir),
+        );
+        const key = sourceKey(opts.source, sourceRoot);
+        const items: ThirdPartyMigrationReportItem[] = [];
+        // An OWNED database handle is a scoped resource: the release (the
+        // old `finally { db.close() }`) runs on success, failure, and
+        // interruption. A caller-provided handle stays caller-owned.
+        const db =
+          opts.db ??
+          (yield* Effect.acquireRelease(
+            tryMigrationOp(() => createMigrationDatabase(stellaDataDir)),
+            (owned) => Effect.sync(() => owned.close()),
+          ));
+
+        if (!(yield* tryMigrationOp(() => pathExists(sourceRoot)))) {
+          items.push({
+            kind: "source",
+            status: "error",
+            source: sourceRoot,
+            message: `${PRODUCT_LABELS[opts.source]} was not found.`,
+          });
+        } else {
+          if (selected.memory) {
+            yield* tryMigrationOp(() =>
+              importMemoryFiles({
+                source: opts.source,
+                target: "memory",
+                files: paths.memoryFiles,
+                stellaDataDir,
+                state: importState,
+                stateKey: key,
+                items,
+              }),
+            );
+          }
+          if (selected.user) {
+            yield* tryMigrationOp(() =>
+              importMemoryFiles({
+                source: opts.source,
+                target: "user",
+                files: paths.userFiles,
+                stellaDataDir,
+                state: importState,
+                stateKey: key,
+                items,
+              }),
+            );
+          }
+          if (selected.skills) {
+            yield* tryMigrationOp(() =>
+              importSkillDirs({
+                source: opts.source,
+                dirs: paths.skillDirs,
+                stellaDataDir,
+                state: importState,
+                stateKey: key,
+                items,
+              }),
+            );
+          }
+          if (selected.personality) {
+            yield* tryMigrationOp(() =>
+              importPersonalityFiles({
+                source: opts.source,
+                files: paths.personalityFiles,
+                stellaDataDir,
+                state: importState,
+                stateKey: key,
+                items,
+              }),
+            );
+          }
+          if (selected.modelConfig) {
+            yield* tryMigrationOp(() =>
+              importModelConfig({
+                source: opts.source,
+                files: paths.modelConfigFiles,
+                stellaDataDir,
+                state: importState,
+                stateKey: key,
+                items,
+              }),
+            );
+          }
+          if (selected.sessionHistory) {
+            yield* tryMigrationOp(() =>
+              importSessionHistory({
+                source: opts.source,
+                sourceRoot,
+                paths,
+                db,
+                state: importState,
+                stateKey: key,
+                items,
+              }),
+            );
+          }
+          if (selected.schedules) {
+            yield* tryMigrationOp(() =>
+              importSchedules({
+                source: opts.source,
+                files: paths.scheduleFiles,
+                stellaDataDir,
+                state: importState,
+                stateKey: key,
+                items,
+              }),
+            );
+          }
+        }
+
+        items.push({
+          kind: "channels",
+          status: "skipped",
+          message:
+            "Channels skipped - re-enable in Stella settings (no setup required).",
+        });
+
+        yield* tryMigrationOp(() =>
+          writeImportState(stellaDataDir, importState),
+        );
+        const report = yield* tryMigrationOp(() =>
+          writeMarkdownReport({
+            source: opts.source,
+            sourceRoot,
+            stellaDataDir,
+            startedAt,
+            items,
+          }),
+        );
+        return report;
+      }),
+    ),
   );
-  const stellaDataDir = path.resolve(opts.stellaDataDir);
-  const selected = { ...DEFAULT_OPTIONS, ...(opts.selection ?? {}) };
-  const startedAt = opts.now ?? new Date();
-  const paths = await collectSourcePaths(opts.source, sourceRoot);
-  const importState = await readImportState(stellaDataDir);
-  const key = sourceKey(opts.source, sourceRoot);
-  const items: ThirdPartyMigrationReportItem[] = [];
-  const ownsDb = !opts.db;
-    const db = opts.db ?? await createMigrationDatabase(stellaDataDir);
-
-  try {
-    if (!(await pathExists(sourceRoot))) {
-      items.push({
-        kind: "source",
-        status: "error",
-        source: sourceRoot,
-        message: `${PRODUCT_LABELS[opts.source]} was not found.`,
-      });
-    } else {
-      if (selected.memory) {
-        await importMemoryFiles({
-          source: opts.source,
-          target: "memory",
-          files: paths.memoryFiles,
-          stellaDataDir,
-          state: importState,
-          stateKey: key,
-          items,
-        });
-      }
-      if (selected.user) {
-        await importMemoryFiles({
-          source: opts.source,
-          target: "user",
-          files: paths.userFiles,
-          stellaDataDir,
-          state: importState,
-          stateKey: key,
-          items,
-        });
-      }
-      if (selected.skills) {
-        await importSkillDirs({
-          source: opts.source,
-          dirs: paths.skillDirs,
-          stellaDataDir,
-          state: importState,
-          stateKey: key,
-          items,
-        });
-      }
-      if (selected.personality) {
-        await importPersonalityFiles({
-          source: opts.source,
-          files: paths.personalityFiles,
-          stellaDataDir,
-          state: importState,
-          stateKey: key,
-          items,
-        });
-      }
-      if (selected.modelConfig) {
-        await importModelConfig({
-          source: opts.source,
-          files: paths.modelConfigFiles,
-          stellaDataDir,
-          state: importState,
-          stateKey: key,
-          items,
-        });
-      }
-      if (selected.sessionHistory) {
-        await importSessionHistory({
-          source: opts.source,
-          sourceRoot,
-          paths,
-          db,
-          state: importState,
-          stateKey: key,
-          items,
-        });
-      }
-      if (selected.schedules) {
-        await importSchedules({
-          source: opts.source,
-          files: paths.scheduleFiles,
-          stellaDataDir,
-          state: importState,
-          stateKey: key,
-          items,
-        });
-      }
-    }
-
-    items.push({
-      kind: "channels",
-      status: "skipped",
-      message:
-        "Channels skipped - re-enable in Stella settings (no setup required).",
-    });
-
-    await writeImportState(stellaDataDir, importState);
-    const report = await writeMarkdownReport({
-      source: opts.source,
-      sourceRoot,
-      stellaDataDir,
-      startedAt,
-      items,
-    });
-    return report;
-  } finally {
-    if (ownsDb) {
-      db.close();
-    }
-  }
-};
 
 const createMigrationDatabase = async (
   stellaDataDir: string,

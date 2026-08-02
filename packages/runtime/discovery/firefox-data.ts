@@ -16,6 +16,13 @@ import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
 import { pathToFileURL } from "node:url";
+import { Effect } from "effect";
+import {
+  acquireCloseable,
+  runDiscovery,
+  tryDiscovery,
+  tryDiscoverySync,
+} from "./effect-io.js";
 
 const log = (...args: unknown[]) => console.error("[firefox-data]", ...args);
 
@@ -162,60 +169,69 @@ LIMIT 100
 // Main Collection
 // ---------------------------------------------------------------------------
 
-export const collectFirefoxData = async (): Promise<FirefoxSignals | null> => {
-  const profilePath = await findActiveProfile();
-  if (!profilePath) {
-    log("No Firefox profile found");
-    return null;
-  }
+const collectFirefoxDataEffect: Effect.Effect<FirefoxSignals | null, unknown> =
+  Effect.gen(function* () {
+    const profilePath = yield* tryDiscovery(() => findActiveProfile());
+    if (!profilePath) {
+      log("No Firefox profile found");
+      return null;
+    }
 
-  log(`Found Firefox profile at: ${profilePath}`);
+    log(`Found Firefox profile at: ${profilePath}`);
 
-  const sourcePath = path.join(profilePath, "places.sqlite");
+    const sourcePath = path.join(profilePath, "places.sqlite");
 
-  let db: SqliteDatabase | null = null;
-  try {
-    db = await openDatabase(sourcePath);
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const db = yield* acquireCloseable(() => openDatabase(sourcePath));
 
-    // Query domains
-    const domainRows = db.prepare(DOMAINS_QUERY).all() as {
-      domain: string;
-      visits: number;
-      frecency: number;
-      last_visit: number | null;
-    }[];
+        return yield* tryDiscoverySync(() => {
+          // Query domains
+          const domainRows = db.prepare(DOMAINS_QUERY).all() as {
+            domain: string;
+            visits: number;
+            frecency: number;
+            last_visit: number | null;
+          }[];
 
-    const domains: FirefoxDomainVisit[] = domainRows.map((r) => ({
-      domain: r.domain,
-      visits: r.visits,
-      frecency: r.frecency,
-      // Firefox timestamps: microseconds since Unix epoch
-      lastVisit: r.last_visit ? Math.floor(r.last_visit / 1000) : 0,
-    }));
+          const domains: FirefoxDomainVisit[] = domainRows.map((r) => ({
+            domain: r.domain,
+            visits: r.visits,
+            frecency: r.frecency,
+            // Firefox timestamps: microseconds since Unix epoch
+            lastVisit: r.last_visit ? Math.floor(r.last_visit / 1000) : 0,
+          }));
 
-    // Query bookmarks
-    const bookmarkRows = db.prepare(BOOKMARKS_QUERY).all() as {
-      bookmark_title: string;
-      url: string;
-      folder_title: string | null;
-    }[];
+          // Query bookmarks
+          const bookmarkRows = db.prepare(BOOKMARKS_QUERY).all() as {
+            bookmark_title: string;
+            url: string;
+            folder_title: string | null;
+          }[];
 
-    const bookmarks: FirefoxBookmark[] = bookmarkRows.map((r) => ({
-      title: r.bookmark_title,
-      url: r.url,
-      folder: r.folder_title ?? undefined,
-    }));
+          const bookmarks: FirefoxBookmark[] = bookmarkRows.map((r) => ({
+            title: r.bookmark_title,
+            url: r.url,
+            folder: r.folder_title ?? undefined,
+          }));
 
-    log(`Collected ${domains.length} domains, ${bookmarks.length} bookmarks from Firefox`);
+          log(`Collected ${domains.length} domains, ${bookmarks.length} bookmarks from Firefox`);
 
-    return { domains, bookmarks };
-  } catch (error) {
-    log("Failed to read Firefox data:", error);
-    return null;
-  } finally {
-    db?.close?.();
-  }
-};
+          return { domains, bookmarks };
+        });
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          log("Failed to read Firefox data:", error);
+          return null;
+        }),
+      ),
+    );
+  });
+
+export const collectFirefoxData = async (): Promise<FirefoxSignals | null> =>
+  runDiscovery(collectFirefoxDataEffect);
 
 // ---------------------------------------------------------------------------
 // Formatting

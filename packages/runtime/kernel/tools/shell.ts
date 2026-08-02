@@ -1,7 +1,31 @@
 /**
  * Shell tools: platform shell plus `exec_command` / `write_stdin` handlers.
+ *
+ * Effect-native concurrency spine (M5 kernel/tools pass), behind the exact
+ * pre-Effect exported names/signatures/strings:
+ *
+ * - Every spawned shell is a scoped resource. `runShell`'s child is acquired
+ *   via `Effect.acquireRelease` whose release runs the TERM→1s→KILL ladder
+ *   when the process is still alive at scope close (the timeout path);
+ *   managed session shells register a `Deferred` exit latch completed by
+ *   their close/error events, which the kill ladder, `waitForShellExit`, and
+ *   the joined shutdown all await instead of polling.
+ * - The kill ladder's 1s TERM→KILL escalation is a forked fiber racing the
+ *   child's exit (replacing the unref'd `setTimeout`).
+ * - `waitForShellActivity` and the exec/write_stdin settle windows are scoped
+ *   effects: the activity waiter is an `acquireRelease` resource and the
+ *   caller's `AbortSignal` crosses in through the agent loop's
+ *   `acquireAbortLatch` bridge (cooperative cancel; identical "Aborted"
+ *   rejection reasons).
+ * - Run-owned shell classification is a scope finalizer: the exec window that
+ *   STARTED a shell kills it when the window fails (abort) before the session
+ *   id ever reached the model; session shells whose id was delivered stay
+ *   conversation-scoped and die only at `shutdownManagedShells`.
+ * - `shutdownManagedShells` is the joined, bounded teardown: start every
+ *   ladder, then await every exit latch in parallel under a single 3s bound.
  */
 
+import { Deferred, Effect, Exit } from "effect";
 import { spawn } from "child_process";
 import path from "path";
 import os from "os";
@@ -23,6 +47,8 @@ import type {
   ToolUpdateCallback,
 } from "./types.js";
 import { expandHomePath, MAX_OUTPUT, truncate } from "./utils.js";
+import { runToolEffect, toolsRuntime } from "./effect-runtime.js";
+import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
 import { resolveBundledRuntimeFile } from "../shared/runtime-paths.js";
 import { isDangerousCommand } from "./command-safety.js";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";
@@ -97,12 +123,19 @@ const WINDOWS_CLI_SHIMS = [
   },
 ] as const;
 
-type ManagedShellRecord = ShellRecord & {
+export type ManagedShellRecord = ShellRecord & {
   unreadOutput: string;
   outputVersion: number;
   waiters: Set<() => void>;
   child?: SpawnedShell;
   stdinOpen: boolean;
+  /**
+   * Completed exactly once, when the child's `close`/`error` event fires
+   * (pre-completed for records that never spawned). The kill ladder,
+   * `waitForShellExit`, and the joined shutdown await this instead of
+   * polling `running`.
+   */
+  exitLatch: Deferred.Deferred<void>;
   startSnapshot?: FileSnapshot | null;
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   producedFilesReported?: boolean;
@@ -1167,60 +1200,65 @@ const notifyShellActivity = (record: ManagedShellRecord) => {
   }
 };
 
-const waitForShellActivity = async (
+/**
+ * Wait for new shell activity (or completion), bounded by `timeoutMs`, as a
+ * scoped effect. The activity waiter is an `acquireRelease` resource (always
+ * removed from `record.waiters` on success, timeout, and abort alike) and
+ * the caller's signal crosses in through `acquireAbortLatch`; an abort fails
+ * the effect with the legacy reason (`signal.reason ?? new Error("Aborted")`).
+ */
+const waitForShellActivityEffect = (
   record: ManagedShellRecord,
   observedVersion: number,
   timeoutMs: number,
   signal?: AbortSignal,
-) => {
-  if (!record.running || record.outputVersion !== observedVersion) {
-    return;
-  }
-  await new Promise<void>((resolve, reject) => {
-    const finish = () => {
-      cleanup();
-      resolve();
-    };
-    const onAbort = () => {
-      cleanup();
-      reject(signal?.reason ?? new Error("Aborted"));
-    };
-    const cleanup = () => {
-      clearTimeout(timer);
-      record.waiters.delete(finish);
-      signal?.removeEventListener("abort", onAbort);
-    };
-    const timer = setTimeout(finish, timeoutMs);
-    record.waiters.add(finish);
-    if (signal) {
-      if (signal.aborted) {
-        onAbort();
+): Effect.Effect<void, unknown> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      if (!record.running || record.outputVersion !== observedVersion) {
         return;
       }
-      signal.addEventListener("abort", onAbort, { once: true });
-    }
-  });
-};
+      const activity = yield* Deferred.make<void>();
+      const finish = () => {
+        Deferred.doneUnsafe(activity, Effect.void);
+      };
+      yield* Effect.acquireRelease(
+        Effect.sync(() => record.waiters.add(finish)),
+        () => Effect.sync(() => record.waiters.delete(finish)),
+      );
+      const abortLatch = yield* acquireAbortLatch(signal);
+      yield* Effect.raceFirst(
+        Effect.raceFirst(Deferred.await(activity), Effect.sleep(timeoutMs)),
+        Deferred.await(abortLatch).pipe(
+          Effect.flatMap((reason) =>
+            Effect.fail(reason ?? new Error("Aborted")),
+          ),
+        ),
+      );
+    }),
+  );
 
-const settleCompletedShell = async (
+const settleCompletedShellEffect = (
   record: ManagedShellRecord,
   signal?: AbortSignal,
-) => {
-  const deadline = Date.now() + 250;
-  while (record.running && Date.now() < deadline) {
-    const observedVersion = record.outputVersion;
-    try {
-      await waitForShellActivity(
-        record,
-        observedVersion,
-        Math.min(25, Math.max(1, deadline - Date.now())),
-        signal,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const deadline = Date.now() + 250;
+    while (record.running && Date.now() < deadline) {
+      const observedVersion = record.outputVersion;
+      const attempt = yield* Effect.exit(
+        waitForShellActivityEffect(
+          record,
+          observedVersion,
+          Math.min(25, Math.max(1, deadline - Date.now())),
+          signal,
+        ),
       );
-    } catch {
-      return;
+      if (Exit.isFailure(attempt)) {
+        return;
+      }
     }
-  }
-};
+  });
 
 const spawnShellProcess = (
   shell: string,
@@ -1280,6 +1318,14 @@ const killShellProcess = (
   }
 };
 
+/**
+ * TERM→1s→KILL ladder. The escalation is a forked fiber racing the child's
+ * `exit` event against a 1s sleep (replacing the unref'd `setTimeout`): if
+ * the child is still alive at the deadline it is SIGKILLed; if it exits
+ * first the fiber ends immediately. Bounded to 1s of fiber lifetime per
+ * invocation, so repeated kills stay cheap and shutdown never inherits an
+ * unbounded timer set.
+ */
 const terminateShellProcess = (child: SpawnedShell) => {
   if (child.exitCode !== null) {
     return;
@@ -1287,13 +1333,24 @@ const terminateShellProcess = (child: SpawnedShell) => {
 
   killShellProcess(child, "SIGTERM");
 
-  const forceKillTimer = setTimeout(() => {
-    if (child.exitCode !== null) {
-      return;
-    }
-    killShellProcess(child, "SIGKILL");
-  }, 1_000);
-  forceKillTimer.unref?.();
+  toolsRuntime.runFork(
+    Effect.gen(function* () {
+      const exited = yield* Deferred.make<void>();
+      const onExit = () => {
+        Deferred.doneUnsafe(exited, Effect.void);
+      };
+      child.once("exit", onExit);
+      yield* Effect.ensuring(
+        Effect.raceFirst(Effect.sleep(1_000), Deferred.await(exited)),
+        Effect.sync(() => {
+          child.removeListener("exit", onExit);
+        }),
+      );
+      if (child.exitCode === null) {
+        killShellProcess(child, "SIGKILL");
+      }
+    }),
+  );
 };
 
 const shouldUseStellaComputer = (command: string): boolean =>
@@ -1323,6 +1380,9 @@ export const startShell = (
 
   if ("error" in launch) {
     const safeSpawnError = sanitizeToolVisibleText(launch.error);
+    // Never spawned: the exit latch is born completed so joins are no-ops.
+    const exitLatch = Deferred.makeUnsafe<void>();
+    Deferred.doneUnsafe(exitLatch, Effect.void);
     const record: ManagedShellRecord = {
       id,
       command,
@@ -1336,6 +1396,7 @@ export const startShell = (
       outputVersion: 1,
       waiters: new Set(),
       stdinOpen: false,
+      exitLatch,
       startSnapshot,
       externalCandidateSnapshots,
       producedFileLimit,
@@ -1366,6 +1427,7 @@ export const startShell = (
     outputVersion: 0,
     waiters: new Set(),
     stdinOpen: Boolean(child.stdin),
+    exitLatch: Deferred.makeUnsafe<void>(),
     startSnapshot,
     externalCandidateSnapshots,
     producedFileLimit,
@@ -1403,6 +1465,7 @@ export const startShell = (
     record.exitCode = record.exitCode ?? 1;
     record.completedAt = Date.now();
     record.stdinOpen = false;
+    Deferred.doneUnsafe(record.exitLatch, Effect.void);
     notifyShellActivity(record);
     onActivity?.(record);
     if (onClose) {
@@ -1414,6 +1477,7 @@ export const startShell = (
     record.exitCode = code ?? null;
     record.completedAt = Date.now();
     record.stdinOpen = false;
+    Deferred.doneUnsafe(record.exitLatch, Effect.void);
     notifyShellActivity(record);
     onActivity?.(record);
     if (onClose) {
@@ -1424,6 +1488,72 @@ export const startShell = (
   state.shells.set(id, record);
   return record;
 };
+
+/**
+ * Await a managed shell's exit (close/error already reflected in
+ * `record.running`), bounded by `timeoutMs`. Resolves either way — the
+ * bound exists so a wedged process can never hang a caller; the kill
+ * ladder's SIGKILL has already been dispatched by then.
+ */
+export const waitForShellExit = (
+  record: ManagedShellRecord,
+  timeoutMs: number,
+): Promise<void> =>
+  runToolEffect(
+    Effect.gen(function* () {
+      if (!record.running) {
+        return;
+      }
+      yield* Effect.raceFirst(
+        Deferred.await(record.exitLatch),
+        Effect.sleep(timeoutMs),
+      );
+    }),
+  );
+
+/**
+ * Joined, bounded teardown of every managed shell. `kill()` alone only
+ * *starts* the TERM→1s→KILL ladders — a worker that exits right after would
+ * strand TERM-ignoring children as orphans. This joins every running
+ * shell's actual exit latch in parallel under a single 3s bound
+ * (comfortably past the ladder); anything still alive at the bound is
+ * logged and left to the OS, as the ladder's KILL already fired.
+ * Conversation-scoped shells are deliberately worker-lifetime resources:
+ * they die here, never earlier.
+ */
+export const shutdownManagedShells = (state: ShellState): Promise<void> =>
+  runToolEffect(
+    Effect.gen(function* () {
+      const pending: ManagedShellRecord[] = [];
+      for (const record of state.shells.values()) {
+        if (record.running && record.child && record.child.exitCode === null) {
+          pending.push(record);
+        }
+      }
+      for (const record of state.shells.values()) {
+        if (record.running) {
+          record.kill();
+        }
+      }
+      if (pending.length === 0) {
+        return;
+      }
+      const joined = yield* Effect.raceFirst(
+        Effect.forEach(
+          pending,
+          (record) => Deferred.await(record.exitLatch),
+          { concurrency: "unbounded", discard: true },
+        ).pipe(Effect.as("joined" as const)),
+        Effect.sleep(3_000).pipe(Effect.as("timeout" as const)),
+      );
+      if (joined === "timeout") {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[tool-host] shell teardown exceeded the shutdown bound; SIGKILL was already dispatched",
+        );
+      }
+    }),
+  );
 
 export const runShell = async (
   state: ShellState,
@@ -1440,53 +1570,87 @@ export const runShell = async (
     return launch.error;
   }
 
-  return new Promise<string>((resolve) => {
-    const child = spawnShellProcess(
-      launch.shell,
-      launch.args,
-      cwd,
-      buildShellEnv(envOverrides, state),
-    );
+  type RunShellSettled =
+    | { type: "close"; code: number | null }
+    | { type: "error"; message: string }
+    | { type: "timeout" };
 
-    let output = "";
-    let finished = false;
-
-    const timer = setTimeout(() => {
-      if (finished) return;
-      finished = true;
-      terminateShellProcess(child);
-      resolve(`Command timed out after ${timeoutMs}ms.\n\n${truncate(output)}`);
-    }, timeoutMs);
-
-    const append = (data: Buffer) => {
-      output = truncate(`${output}${data.toString()}`);
-    };
-
-    child.stdout.on("data", append);
-    child.stderr.on("data", append);
-    child.on("close", (code) => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
-      // Clean Windows console noise (chcp output) that confuses LLMs
-      const cleanedOutput = sanitizeToolVisibleText(output)
-        .replace(/^Active code page: \d+\s*/gm, "")
-        .replace(/^\s+/, ""); // Trim leading whitespace after removal
-      if (code === 0) {
-        resolve(cleanedOutput || "Command completed successfully (no output).");
-      } else {
-        resolve(
-          `Command exited with code ${code}.\n\n${truncate(cleanedOutput)}`,
+  return runToolEffect(
+    Effect.scoped(
+      Effect.gen(function* () {
+        let output = "";
+        let processSettled = false;
+        const settledLatch = yield* Deferred.make<RunShellSettled>();
+        // The spawned shell is a scoped resource: if the process has not
+        // settled (close/error) when the scope closes — the timeout path,
+        // or an interruption — the release finalizer runs the TERM→1s→KILL
+        // ladder, exactly where the legacy timeout branch killed it.
+        const child = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            spawnShellProcess(
+              launch.shell,
+              launch.args,
+              cwd,
+              buildShellEnv(envOverrides, state),
+            ),
+          ),
+          (spawned) =>
+            Effect.sync(() => {
+              if (!processSettled) {
+                terminateShellProcess(spawned);
+              }
+            }),
         );
-      }
-    });
-    child.on("error", (error) => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
-      resolve(`Failed to execute command: ${error.message}`);
-    });
-  });
+
+        const append = (data: Buffer) => {
+          output = truncate(`${output}${data.toString()}`);
+        };
+        child.stdout.on("data", append);
+        child.stderr.on("data", append);
+        child.on("close", (code) => {
+          processSettled = true;
+          Deferred.doneUnsafe(
+            settledLatch,
+            Effect.succeed<RunShellSettled>({
+              type: "close",
+              code: code ?? null,
+            }),
+          );
+        });
+        child.on("error", (error) => {
+          processSettled = true;
+          Deferred.doneUnsafe(
+            settledLatch,
+            Effect.succeed<RunShellSettled>({
+              type: "error",
+              message: error.message,
+            }),
+          );
+        });
+
+        const settled = yield* Effect.raceFirst(
+          Deferred.await(settledLatch),
+          Effect.sleep(timeoutMs).pipe(
+            Effect.as<RunShellSettled>({ type: "timeout" }),
+          ),
+        );
+        if (settled.type === "timeout") {
+          return `Command timed out after ${timeoutMs}ms.\n\n${truncate(output)}`;
+        }
+        if (settled.type === "error") {
+          return `Failed to execute command: ${settled.message}`;
+        }
+        // Clean Windows console noise (chcp output) that confuses LLMs
+        const cleanedOutput = sanitizeToolVisibleText(output)
+          .replace(/^Active code page: \d+\s*/gm, "")
+          .replace(/^\s+/, ""); // Trim leading whitespace after removal
+        if (settled.code === 0) {
+          return cleanedOutput || "Command completed successfully (no output).";
+        }
+        return `Command exited with code ${settled.code}.\n\n${truncate(cleanedOutput)}`;
+      }),
+    ),
+  );
 };
 
 const resolveManagedShellCommand = (
@@ -1680,31 +1844,42 @@ export const handleExecCommand = async (
   );
   const observedVersion = record.outputVersion;
   try {
-    await waitForShellActivity(
-      record,
-      observedVersion,
-      resolveExecYieldTime(args.yield_time_ms, DEFAULT_EXEC_YIELD_MS),
-      signal,
+    await runToolEffect(
+      Effect.scoped(
+        Effect.gen(function* () {
+          // Ownership classification (run-owned vs conversation-scoped):
+          // this call STARTED the shell, so until the session id reaches
+          // the model the shell is run-owned — an abort before then would
+          // otherwise orphan it until toolHost shutdown. The window's
+          // exit-aware scope finalizer kills it through the TERM→1s→KILL
+          // ladder on any failing exit (abort). Session shells whose id
+          // was already delivered (later write_stdin polls) are
+          // conversation-scoped and deliberately exempt: aborting a poll
+          // never kills the shell.
+          yield* Effect.acquireRelease(Effect.void, (_, exit) =>
+            Effect.sync(() => {
+              if (Exit.isFailure(exit) && record.running) {
+                try {
+                  record.kill();
+                } catch {
+                  // Best effort; the process may already be exiting.
+                }
+              }
+            }),
+          );
+          yield* waitForShellActivityEffect(
+            record,
+            observedVersion,
+            resolveExecYieldTime(args.yield_time_ms, DEFAULT_EXEC_YIELD_MS),
+            signal,
+          );
+        }),
+      ),
     );
   } catch (error) {
-    // Ownership classification (run-owned vs conversation-scoped): this
-    // call STARTED the shell and is aborting before the session id ever
-    // reaches the model — nothing can address the shell later, so it is
-    // run-owned and would otherwise orphan until toolHost shutdown. Kill
-    // it through the TERM→1s→KILL ladder as the aborted call's finalizer.
-    // Session shells whose id was already delivered (later write_stdin
-    // polls) are conversation-scoped and deliberately exempt: aborting a
-    // poll never kills the shell.
-    if (record.running) {
-      try {
-        record.kill();
-      } catch {
-        // Best effort; the process may already be exiting.
-      }
-    }
     return { error: (error as Error).message };
   }
-  await settleCompletedShell(record, signal);
+  await runToolEffect(settleCompletedShellEffect(record, signal));
 
   const drained = drainUnreadOutput(record, maxOutputChars);
   const payload = buildExecToolPayload(record, drained, callStartedAt);
@@ -1751,16 +1926,18 @@ export const handleWriteStdin = async (
   }
 
   try {
-    await waitForShellActivity(
-      record,
-      observedVersion,
-      resolveExecYieldTime(args.yield_time_ms, DEFAULT_WRITE_STDIN_YIELD_MS),
-      signal,
+    await runToolEffect(
+      waitForShellActivityEffect(
+        record,
+        observedVersion,
+        resolveExecYieldTime(args.yield_time_ms, DEFAULT_WRITE_STDIN_YIELD_MS),
+        signal,
+      ),
     );
   } catch (error) {
     return { error: (error as Error).message };
   }
-  await settleCompletedShell(record, signal);
+  await runToolEffect(settleCompletedShellEffect(record, signal));
 
   const drained = drainUnreadOutput(
     record,

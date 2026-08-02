@@ -26,9 +26,10 @@ export type ReadySocketResult =
 
 /**
  * Connect to the worker socket, failing WorkerNotReadyError when the path is
- * absent, the connection is refused, or `timeoutMs` elapses. Interruption
- * (and the internal timeout) destroys the pending socket via the callback's
- * cleanup effect.
+ * absent, the connection is refused, or `timeoutMs` elapses. The deadline is
+ * `Effect.timeoutOrElse`: its interrupt (like any external interruption)
+ * destroys the pending socket via the callback's cleanup effect, then maps
+ * to the same WorkerNotReadyError the old internal timer produced.
  */
 const connectSocket = (
   socketPath: string,
@@ -61,19 +62,14 @@ const connectSocket = (
         }
         resume(Effect.succeed(result));
       };
-      const timer = setTimeout(() => finish(null), timeoutMs);
-      timer.unref?.();
       socket.once("connect", () => {
-        clearTimeout(timer);
         socket.setNoDelay(true);
         finish(socket);
       });
       socket.once("error", () => {
-        clearTimeout(timer);
         finish(null);
       });
       return Effect.sync(() => {
-        clearTimeout(timer);
         if (!settled) {
           settled = true;
           try {
@@ -83,7 +79,12 @@ const connectSocket = (
           }
         }
       });
-    });
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: timeoutMs,
+        orElse: () => Effect.fail(new WorkerNotReadyError({ socketPath })),
+      }),
+    );
   });
 
 /**
@@ -104,7 +105,6 @@ const probeWorkerRpcReadiness = (
     const finish = (result: ReadyProbeResult) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
       socket.off("data", onData);
       socket.off("error", onError);
       resume(Effect.succeed(result));
@@ -148,8 +148,6 @@ const probeWorkerRpcReadiness = (
       }
     };
     const onError = () => finish("unavailable");
-    const timer = setTimeout(() => finish("unavailable"), timeoutMs);
-    timer.unref?.();
     socket.on("data", onData);
     socket.once("error", onError);
     socket.write(
@@ -160,11 +158,18 @@ const probeWorkerRpcReadiness = (
     );
     return Effect.sync(() => {
       settled = true;
-      clearTimeout(timer);
       socket.off("data", onData);
       socket.off("error", onError);
     });
-  });
+  }).pipe(
+    // Deadline as Effect.timeoutOrElse: the timeout interrupt detaches the
+    // probe listeners via the cleanup effect, then resolves "unavailable" —
+    // never a failure, matching the old probe's tri-state result.
+    Effect.timeoutOrElse({
+      duration: timeoutMs,
+      orElse: () => Effect.succeed("unavailable" as ReadyProbeResult),
+    }),
+  );
 
 /**
  * Probe on a scoped throwaway socket, then — only when ready — hand back a

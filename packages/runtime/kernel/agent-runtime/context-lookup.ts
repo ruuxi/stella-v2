@@ -382,7 +382,10 @@ const previewForTrace = (value: string, maxChars = 300): string => {
     : `${collapsed.slice(0, maxChars)}…`;
 };
 
-/** Signal-aware backoff sleep; resolves early (without throwing) on abort. */
+/** Signal-aware backoff sleep; resolves early (without throwing) on abort.
+ * Effect-ratchet pin (1 setTimeout): the unref'd raw timer must never keep
+ * the process alive through a lookup retry window; an Effect sleep fiber
+ * would hold the event loop. */
 const sleepForRetry = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
     if (signal?.aborted) {

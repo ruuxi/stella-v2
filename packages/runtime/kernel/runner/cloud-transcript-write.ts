@@ -3,6 +3,7 @@ import type {
   CloudTranscriptOutboxRecord,
   RuntimeStore,
 } from "../storage/runtime-store.js";
+import { forkDelayedCall } from "./cloud-effect-runtime.js";
 
 export type CloudTranscriptBeginRequest = {
   conversationId: string;
@@ -336,9 +337,10 @@ export const createCloudTranscriptWriter = (
     10,
     options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
   );
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  let journalRetryTimer: ReturnType<typeof setTimeout> | null = null;
-  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Cancel thunks for the pending delay fibers (the old `clearTimeout`s). */
+  let cancelRetryDelay: (() => void) | null = null;
+  let cancelJournalRetryDelay: (() => void) | null = null;
+  let cancelHeartbeatDelay: (() => void) | null = null;
   let heartbeating = false;
   let draining = false;
   let journalDraining = false;
@@ -639,41 +641,32 @@ export const createCloudTranscriptWriter = (
 
   const scheduleDrain = (delayMs = 0): void => {
     if (stopped) return;
-    if (retryTimer) clearTimeout(retryTimer);
-    retryTimer = setTimeout(
-      () => {
-        retryTimer = null;
-        void drain();
-      },
-      Math.max(0, delayMs),
-    );
+    if (cancelRetryDelay) cancelRetryDelay();
+    cancelRetryDelay = forkDelayedCall(Math.max(0, delayMs), () => {
+      cancelRetryDelay = null;
+      void drain();
+    });
   };
 
   const scheduleJournalDrain = (delayMs = 0): void => {
     if (stopped) return;
-    if (journalRetryTimer) clearTimeout(journalRetryTimer);
-    journalRetryTimer = setTimeout(
-      () => {
-        journalRetryTimer = null;
-        void drainJournal();
-      },
-      Math.max(0, delayMs),
-    );
+    if (cancelJournalRetryDelay) cancelJournalRetryDelay();
+    cancelJournalRetryDelay = forkDelayedCall(Math.max(0, delayMs), () => {
+      cancelJournalRetryDelay = null;
+      void drainJournal();
+    });
   };
 
   const scheduleHeartbeat = (delayMs = heartbeatIntervalMs): void => {
-    if (heartbeatTimer) {
-      clearTimeout(heartbeatTimer);
-      heartbeatTimer = null;
+    if (cancelHeartbeatDelay) {
+      cancelHeartbeatDelay();
+      cancelHeartbeatDelay = null;
     }
     if (stopped || activeBegins.size === 0) return;
-    heartbeatTimer = setTimeout(
-      () => {
-        heartbeatTimer = null;
-        void heartbeat();
-      },
-      Math.max(10, delayMs),
-    );
+    cancelHeartbeatDelay = forkDelayedCall(Math.max(10, delayMs), () => {
+      cancelHeartbeatDelay = null;
+      void heartbeat();
+    });
   };
 
   const heartbeat = async (): Promise<void> => {
@@ -1202,17 +1195,17 @@ export const createCloudTranscriptWriter = (
     stop: () => {
       if (stopped) return;
       stopped = true;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
+      if (cancelRetryDelay) {
+        cancelRetryDelay();
+        cancelRetryDelay = null;
       }
-      if (journalRetryTimer) {
-        clearTimeout(journalRetryTimer);
-        journalRetryTimer = null;
+      if (cancelJournalRetryDelay) {
+        cancelJournalRetryDelay();
+        cancelJournalRetryDelay = null;
       }
-      if (heartbeatTimer) {
-        clearTimeout(heartbeatTimer);
-        heartbeatTimer = null;
+      if (cancelHeartbeatDelay) {
+        cancelHeartbeatDelay();
+        cancelHeartbeatDelay = null;
       }
       const error = new Error("Cloud transcript writer stopped.");
       for (const waiters of beginWaiters.values()) {

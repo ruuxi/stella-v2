@@ -5,13 +5,31 @@
  * use of `memory_summary.md` and `memory_index.md`; those legacy files remain
  * byte-for-byte on disk and readable for recovery, but Dream cannot write
  * them and runtime injection never consumes them after the cutover.
+ *
+ * Effect-native: every filesystem access is an Effect; file handles and the
+ * cross-process SQLite migration lock are scoped resources
+ * (`Effect.acquireRelease`), and the in-process migration queue is a keyed
+ * `Semaphore(1)` (replacing the old promise-chain tails). Pure template /
+ * parsing / truncation helpers stay plain functions. The exported Promise
+ * API is a facade over the shared memory ManagedRuntime and rejects with
+ * byte-identical error messages (tagged errors in `errors.ts`).
  */
 
 import { constants as fsConstants, promises as fs, type Stats } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { Effect, Semaphore } from "effect";
 import { ensurePrivateDir } from "../shared/private-fs.js";
 import { createRuntimeLogger } from "../debug.js";
+import {
+  DreamMemoryRootError,
+  LegacyMemorySourceError,
+  MemoryLayoutConflictError,
+  MigrationSqliteUnavailableError,
+  MigrationStagingError,
+} from "./errors.js";
+import { runMemoryPromise } from "./effect-runtime.js";
+import { readOptionalTextFile, tryFs } from "./effect-io.js";
 
 const logger = createRuntimeLogger("memory.dream-storage");
 
@@ -202,28 +220,40 @@ export const memoriesRoot = (stellaDataDir: string): string =>
  * itself be reached through an operator-selected alias; ownership begins at
  * its canonical identity, and its direct `memories` child must be real.
  */
-export const assertSafeDreamMemoryRoot = async (
+export const assertSafeDreamMemoryRootEffect = (
   stellaDataDir: string,
-): Promise<string> => {
-  const root = memoriesRoot(stellaDataDir);
-  const stat = await fs.lstat(root);
-  if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    throw new Error(
-      `Refusing Dream memory root ${root}: expected a real directory owned by Stella.`,
+): Effect.Effect<
+  string,
+  DreamMemoryRootError | NodeJS.ErrnoException
+> =>
+  Effect.gen(function* () {
+    const root = memoriesRoot(stellaDataDir);
+    const stat = yield* tryFs(() => fs.lstat(root));
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      return yield* Effect.fail(
+        new DreamMemoryRootError({ root, reason: "not_directory" }),
+      );
+    }
+    const [canonicalDataDir, canonicalRoot] = yield* Effect.all(
+      [
+        tryFs(() => fs.realpath(stellaDataDir)),
+        tryFs(() => fs.realpath(root)),
+      ],
+      { concurrency: "unbounded" },
     );
-  }
-  const [canonicalDataDir, canonicalRoot] = await Promise.all([
-    fs.realpath(stellaDataDir),
-    fs.realpath(root),
-  ]);
-  const expectedRoot = path.join(canonicalDataDir, "memories");
-  if (canonicalRoot !== expectedRoot) {
-    throw new Error(
-      `Refusing Dream memory root ${root}: canonical path escaped the Stella data directory.`,
-    );
-  }
-  return canonicalRoot;
-};
+    const expectedRoot = path.join(canonicalDataDir, "memories");
+    if (canonicalRoot !== expectedRoot) {
+      return yield* Effect.fail(
+        new DreamMemoryRootError({ root, reason: "escaped" }),
+      );
+    }
+    return canonicalRoot;
+  });
+
+export const assertSafeDreamMemoryRoot = (
+  stellaDataDir: string,
+): Promise<string> =>
+  runMemoryPromise(assertSafeDreamMemoryRootEffect(stellaDataDir));
 
 export const memoryFilePath = (stellaDataDir: string): string =>
   path.join(memoriesRoot(stellaDataDir), MEMORY_FILE);
@@ -240,15 +270,6 @@ export const memorySummaryPath = (stellaDataDir: string): string =>
 
 export const memoryIndexPath = (stellaDataDir: string): string =>
   path.join(memoriesRoot(stellaDataDir), MEMORY_INDEX_FILE);
-
-const readOptionalFile = async (target: string): Promise<string | null> => {
-  try {
-    return await fs.readFile(target, "utf-8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-};
 
 /**
  * Strip retired HTML-comment transport from model-facing views. Files remain
@@ -449,102 +470,141 @@ const decodeUtf8Strict = (bytes: Uint8Array, filePath: string): string => {
   }
 };
 
-const readStableLegacySource = async (
+/** lstat with ENOENT mapped to null; other errors re-fail unchanged. */
+const lstatOrNull = (
+  target: string,
+): Effect.Effect<Stats | null, NodeJS.ErrnoException> =>
+  tryFs(() => fs.lstat(target)).pipe(
+    Effect.catchIf(
+      (error) => error.code === "ENOENT",
+      () => Effect.succeed(null),
+    ),
+  );
+
+/** An O_RDONLY(|flags) file handle as a scoped resource. */
+const openScopedHandle = (target: string, flags: number) =>
+  Effect.acquireRelease(
+    tryFs(() => fs.open(target, flags)),
+    (handle) => Effect.promise(() => handle.close().catch(() => undefined)),
+  );
+
+const readStableLegacySourceEffect = (
   target: string,
   canonicalRoot: string,
-): Promise<LegacySourceSnapshot> => {
-  let pathStat: Stats;
-  try {
-    pathStat = await fs.lstat(target);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { path: target, exists: false };
-    }
-    throw error;
-  }
-  if (pathStat.isSymbolicLink() || !pathStat.isFile() || pathStat.nlink !== 1) {
-    throw new Error(
-      `Refusing legacy memory source ${target}: expected a stable regular unaliased file.`,
-    );
-  }
-  const canonicalPath = await fs.realpath(target);
-  if (canonicalPath !== path.join(canonicalRoot, path.basename(target))) {
-    throw new Error(
-      `Refusing legacy memory source ${target}: canonical path escaped the owned memory root.`,
-    );
-  }
-
-  const handle = await fs.open(
-    target,
-    fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
-  );
-  try {
-    const before = await handle.stat();
+): Effect.Effect<LegacySourceSnapshot, Error> =>
+  Effect.gen(function* () {
+    const pathStat = yield* lstatOrNull(target);
+    if (!pathStat) return { path: target, exists: false } as const;
     if (
-      !before.isFile() ||
-      before.nlink !== 1 ||
-      !sameFileIdentity(pathStat, before)
+      pathStat.isSymbolicLink() ||
+      !pathStat.isFile() ||
+      pathStat.nlink !== 1
     ) {
-      throw new Error(`Legacy memory source changed before read: ${target}.`);
-    }
-    const bytes = await handle.readFile();
-    const after = await handle.stat();
-    if (!sameFileIdentity(before, after)) {
-      throw new Error(`Legacy memory source changed during read: ${target}.`);
-    }
-    return {
-      path: target,
-      exists: true,
-      raw: decodeUtf8Strict(bytes, target),
-      digest: sha256Hex(bytes),
-      identity: before,
-    };
-  } finally {
-    await handle.close();
-  }
-};
-
-const verifyLegacySourceSnapshot = async (
-  snapshot: LegacySourceSnapshot,
-  canonicalRoot: string,
-): Promise<void> => {
-  const current = await readStableLegacySource(snapshot.path, canonicalRoot);
-  if (!snapshot.exists || !current.exists) {
-    if (snapshot.exists !== current.exists) {
-      throw new Error(
-        `Legacy memory source changed during migration: ${snapshot.path}.`,
+      return yield* Effect.fail(
+        new LegacyMemorySourceError({ path: target, reason: "unstable" }),
       );
     }
-    return;
-  }
-  if (
-    snapshot.digest !== current.digest ||
-    !sameFileIdentity(snapshot.identity, current.identity)
-  ) {
-    throw new Error(
-      `Legacy memory source changed during migration: ${snapshot.path}.`,
-    );
-  }
-};
+    const canonicalPath = yield* tryFs(() => fs.realpath(target));
+    if (canonicalPath !== path.join(canonicalRoot, path.basename(target))) {
+      return yield* Effect.fail(
+        new LegacyMemorySourceError({ path: target, reason: "escaped" }),
+      );
+    }
 
-const syncDirectory = async (directory: string): Promise<void> => {
-  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
-  try {
-    handle = await fs.open(directory, fsConstants.O_RDONLY);
-    await handle.sync();
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (
-      process.platform === "win32" &&
-      (code === "EACCES" || code === "EINVAL" || code === "EPERM")
-    ) {
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const handle = yield* openScopedHandle(
+          target,
+          fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+        );
+        const before = yield* tryFs(() => handle.stat());
+        if (
+          !before.isFile() ||
+          before.nlink !== 1 ||
+          !sameFileIdentity(pathStat, before)
+        ) {
+          return yield* Effect.fail(
+            new LegacyMemorySourceError({
+              path: target,
+              reason: "changed_before_read",
+            }),
+          );
+        }
+        const bytes = yield* tryFs(() => handle.readFile());
+        const after = yield* tryFs(() => handle.stat());
+        if (!sameFileIdentity(before, after)) {
+          return yield* Effect.fail(
+            new LegacyMemorySourceError({
+              path: target,
+              reason: "changed_during_read",
+            }),
+          );
+        }
+        const raw = yield* Effect.try({
+          try: () => decodeUtf8Strict(bytes, target),
+          catch: (error) => error as Error,
+        });
+        return {
+          path: target,
+          exists: true,
+          raw,
+          digest: sha256Hex(bytes),
+          identity: before,
+        } as const;
+      }),
+    );
+  });
+
+const verifyLegacySourceSnapshotEffect = (
+  snapshot: LegacySourceSnapshot,
+  canonicalRoot: string,
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    const current = yield* readStableLegacySourceEffect(
+      snapshot.path,
+      canonicalRoot,
+    );
+    if (!snapshot.exists || !current.exists) {
+      if (snapshot.exists !== current.exists) {
+        return yield* Effect.fail(
+          new LegacyMemorySourceError({
+            path: snapshot.path,
+            reason: "changed_during_migration",
+          }),
+        );
+      }
       return;
     }
-    throw error;
-  } finally {
-    await handle?.close().catch(() => undefined);
-  }
-};
+    if (
+      snapshot.digest !== current.digest ||
+      !sameFileIdentity(snapshot.identity, current.identity)
+    ) {
+      return yield* Effect.fail(
+        new LegacyMemorySourceError({
+          path: snapshot.path,
+          reason: "changed_during_migration",
+        }),
+      );
+    }
+  });
+
+const isIgnorableWin32SyncError = (error: NodeJS.ErrnoException): boolean =>
+  process.platform === "win32" &&
+  (error.code === "EACCES" ||
+    error.code === "EINVAL" ||
+    error.code === "EPERM");
+
+const syncDirectoryEffect = (
+  directory: string,
+): Effect.Effect<void, NodeJS.ErrnoException> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const handle = yield* openScopedHandle(directory, fsConstants.O_RDONLY);
+      yield* tryFs(() => handle.sync());
+    }),
+  ).pipe(
+    Effect.catchIf(isIgnorableWin32SyncError, () => Effect.void),
+  );
 
 const stagingPrefix = (target: string): string =>
   `.${path.basename(target)}.migration-${MIGRATION_STAGING_VERSION}-`;
@@ -565,12 +625,15 @@ const parseStagingDigest = (
   return match?.[1] ?? null;
 };
 
-const listMigrationStagingNames = async (target: string): Promise<string[]> => {
-  const genericPrefix = `.${path.basename(target)}.migration-`;
-  return (await fs.readdir(path.dirname(target))).filter((name) =>
-    name.startsWith(genericPrefix),
+const listMigrationStagingNamesEffect = (
+  target: string,
+): Effect.Effect<string[], NodeJS.ErrnoException> =>
+  tryFs(() => fs.readdir(path.dirname(target))).pipe(
+    Effect.map((names) => {
+      const genericPrefix = `.${path.basename(target)}.migration-`;
+      return names.filter((name) => name.startsWith(genericPrefix));
+    }),
   );
-};
 
 /**
  * Remove only an unattached file from this migration's reserved staging
@@ -580,64 +643,66 @@ const listMigrationStagingNames = async (target: string): Promise<string[]> => {
  * cannot belong to a live publisher. Unrecognized or aliased files are left
  * untouched.
  */
-const cleanupUnattachedMigrationStages = async (
+const cleanupUnattachedMigrationStagesEffect = (
   target: string,
   canonicalRoot: string,
-): Promise<number> => {
-  let removed = 0;
-  for (const name of await listMigrationStagingNames(target)) {
-    const digest = parseStagingDigest(target, name);
-    if (!digest) continue;
-    const stagingPath = path.join(path.dirname(target), name);
-    try {
-      const pathStat = await fs.lstat(stagingPath);
-      if (
-        pathStat.isSymbolicLink() ||
-        !pathStat.isFile() ||
-        pathStat.nlink !== 1
-      ) {
-        continue;
-      }
-      if ((await fs.realpath(stagingPath)) !== path.join(canonicalRoot, name)) {
-        continue;
-      }
-      const handle = await fs.open(
-        stagingPath,
-        fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
-      );
-      let verified: FileIdentity | undefined;
-      try {
-        const before = await handle.stat();
+): Effect.Effect<number, NodeJS.ErrnoException> =>
+  Effect.gen(function* () {
+    let removed = 0;
+    for (const name of yield* listMigrationStagingNamesEffect(target)) {
+      const digest = parseStagingDigest(target, name);
+      if (!digest) continue;
+      const stagingPath = path.join(path.dirname(target), name);
+      // A candidate that cannot be proved safe (any verification failure)
+      // is not migration-owned and is skipped.
+      const didRemove = yield* Effect.gen(function* () {
+        const pathStat = yield* tryFs(() => fs.lstat(stagingPath));
         if (
-          !before.isFile() ||
-          before.nlink !== 1 ||
-          !sameFileIdentity(pathStat, before)
+          pathStat.isSymbolicLink() ||
+          !pathStat.isFile() ||
+          pathStat.nlink !== 1
         ) {
-          continue;
+          return false;
         }
-        const bytes = await handle.readFile();
-        const after = await handle.stat();
-        if (sameFileIdentity(before, after) && sha256Hex(bytes) === digest) {
-          verified = after;
+        const canonicalPath = yield* tryFs(() => fs.realpath(stagingPath));
+        if (canonicalPath !== path.join(canonicalRoot, name)) {
+          return false;
         }
-      } finally {
-        await handle.close();
-      }
-      if (!verified) continue;
-      const current = await fs.lstat(stagingPath);
-      if (!sameFileIdentity(verified, current) || current.nlink !== 1) continue;
-      await fs.unlink(stagingPath);
-      removed += 1;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        // A candidate that cannot be proved safe is not migration-owned.
-        continue;
-      }
+        const verified = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const handle = yield* openScopedHandle(
+              stagingPath,
+              fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+            );
+            const before = yield* tryFs(() => handle.stat());
+            if (
+              !before.isFile() ||
+              before.nlink !== 1 ||
+              !sameFileIdentity(pathStat, before)
+            ) {
+              return undefined;
+            }
+            const bytes = yield* tryFs(() => handle.readFile());
+            const after = yield* tryFs(() => handle.stat());
+            return sameFileIdentity(before, after) &&
+              sha256Hex(bytes) === digest
+              ? (after as FileIdentity)
+              : undefined;
+          }),
+        );
+        if (!verified) return false;
+        const current = yield* tryFs(() => fs.lstat(stagingPath));
+        if (!sameFileIdentity(verified, current) || current.nlink !== 1) {
+          return false;
+        }
+        yield* tryFs(() => fs.unlink(stagingPath));
+        return true;
+      }).pipe(Effect.catch(() => Effect.succeed(false)));
+      if (didRemove) removed += 1;
     }
-  }
-  if (removed > 0) await syncDirectory(path.dirname(target));
-  return removed;
-};
+    if (removed > 0) yield* syncDirectoryEffect(path.dirname(target));
+    return removed;
+  });
 
 /**
  * A crash after link(target) but before unlink(staging) leaves two names for
@@ -645,134 +710,180 @@ const cleanupUnattachedMigrationStages = async (
  * every link must be accounted for so an unrelated hard-link alias still
  * fails closed.
  */
-const recoverPublishedStagingLink = async (
+const recoverPublishedStagingLinkEffect = (
   target: string,
   targetStat: Stats,
-): Promise<void> => {
-  const targetBytes = await fs.readFile(target);
-  const targetDigest = sha256Hex(targetBytes);
-  const linkedStages: string[] = [];
-  for (const name of await listMigrationStagingNames(target)) {
-    const digest = parseStagingDigest(target, name);
-    if (!digest) {
-      throw new Error(
-        `Refusing unverified memory migration staging artifact ${name}.`,
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    const targetBytes = yield* tryFs(() => fs.readFile(target));
+    const targetDigest = sha256Hex(targetBytes);
+    const linkedStages: string[] = [];
+    for (const name of yield* listMigrationStagingNamesEffect(target)) {
+      const digest = parseStagingDigest(target, name);
+      if (!digest) {
+        return yield* Effect.fail(
+          new MigrationStagingError({ path: name, reason: "unverified" }),
+        );
+      }
+      const stagingPath = path.join(path.dirname(target), name);
+      const stat = yield* tryFs(() => fs.lstat(stagingPath));
+      if (stat.dev !== targetStat.dev || stat.ino !== targetStat.ino) continue;
+      if (!stat.isFile() || digest !== targetDigest) {
+        return yield* Effect.fail(
+          new MigrationStagingError({
+            path: stagingPath,
+            reason: "tampered_link",
+          }),
+        );
+      }
+      linkedStages.push(stagingPath);
+    }
+    if (linkedStages.length !== targetStat.nlink - 1) {
+      return yield* Effect.fail(
+        new MemoryLayoutConflictError({
+          target,
+          reason: "unaccounted_aliases",
+        }),
       );
     }
-    const stagingPath = path.join(path.dirname(target), name);
-    const stat = await fs.lstat(stagingPath);
-    if (stat.dev !== targetStat.dev || stat.ino !== targetStat.ino) continue;
-    if (!stat.isFile() || digest !== targetDigest) {
-      throw new Error(
-        `Refusing tampered linked migration staging artifact ${stagingPath}.`,
+    for (const stagingPath of linkedStages) {
+      yield* tryFs(() => fs.unlink(stagingPath));
+    }
+    yield* syncDirectoryEffect(path.dirname(target));
+    const recovered = yield* tryFs(() => fs.lstat(target));
+    if (
+      recovered.dev !== targetStat.dev ||
+      recovered.ino !== targetStat.ino ||
+      recovered.nlink !== 1
+    ) {
+      return yield* Effect.fail(
+        new MigrationStagingError({
+          path: target,
+          reason: "recovery_diverged",
+        }),
       );
     }
-    linkedStages.push(stagingPath);
-  }
-  if (linkedStages.length !== targetStat.nlink - 1) {
-    throw new Error(
-      `Refusing memory layout conflict at ${target}: unaccounted hard-link aliases remain.`,
-    );
-  }
-  for (const stagingPath of linkedStages) await fs.unlink(stagingPath);
-  await syncDirectory(path.dirname(target));
-  const recovered = await fs.lstat(target);
-  if (
-    recovered.dev !== targetStat.dev ||
-    recovered.ino !== targetStat.ino ||
-    recovered.nlink !== 1
-  ) {
-    throw new Error(
-      `Memory migration staging recovery did not converge for ${target}.`,
-    );
-  }
-};
+  });
 
-const hasSafeExistingFile = async (target: string): Promise<boolean> => {
-  try {
-    const stat = await fs.lstat(target);
+const hasSafeExistingFileEffect = (
+  target: string,
+): Effect.Effect<boolean, Error> =>
+  Effect.gen(function* () {
+    const stat = yield* lstatOrNull(target);
+    if (!stat) return false;
     if (stat.isSymbolicLink() || !stat.isFile()) {
-      throw new Error(
-        `Refusing memory layout conflict at ${target}: expected a regular unaliased file.`,
+      return yield* Effect.fail(
+        new MemoryLayoutConflictError({
+          target,
+          reason: "not_regular_file",
+        }),
       );
     }
-    if (stat.nlink > 1) await recoverPublishedStagingLink(target, stat);
+    if (stat.nlink > 1) {
+      yield* recoverPublishedStagingLinkEffect(target, stat);
+    }
     return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
+  });
+
+type PublishValidation = {
+  beforeLink: Effect.Effect<void, Error>;
+  afterLink: Effect.Effect<void, Error>;
 };
 
 /**
  * Publish a fully-written file without overwriting a concurrently-created
  * destination. The same-directory hard link is an atomic create-if-absent;
  * a crash can leave only a hidden staging file, never a partial live map.
+ *
+ * Cleanup mirrors the pre-Effect try/catch/finally exactly: a failure after
+ * a successful link unlinks the just-linked target (same-inode check), and
+ * the staging temp file and any open handle are always released.
  */
-const publishFileIfMissing = async (
+const publishFileIfMissingEffect = (
   target: string,
   contents: string,
-  validation?: {
-    beforeLink: () => Promise<void>;
-    afterLink: () => Promise<void>;
-  },
-): Promise<PublishResult> => {
-  if (await hasSafeExistingFile(target)) return "exists";
-  const digest = sha256Hex(contents);
-  const temporary = path.join(
-    path.dirname(target),
-    `${stagingPrefix(target)}${digest}-${process.pid}-${randomUUID()}.tmp`,
-  );
-  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
-  let linked = false;
-  try {
-    handle = await fs.open(
-      temporary,
-      fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY,
-      0o600,
+  validation?: PublishValidation,
+): Effect.Effect<PublishResult, Error> =>
+  Effect.suspend(() => {
+    const digest = sha256Hex(contents);
+    const temporary = path.join(
+      path.dirname(target),
+      `${stagingPrefix(target)}${digest}-${process.pid}-${randomUUID()}.tmp`,
     );
-    await handle.writeFile(contents, "utf-8");
-    await handle.sync();
-    await handle.close();
-    handle = undefined;
-    await validation?.beforeLink();
-    try {
-      await fs.link(temporary, target);
-      linked = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        await hasSafeExistingFile(target);
-        return "exists";
+    let openHandle: Awaited<ReturnType<typeof fs.open>> | undefined;
+    let linked = false;
+
+    const body = Effect.gen(function* () {
+      if (yield* hasSafeExistingFileEffect(target)) {
+        return "exists" as const;
       }
-      throw error;
-    }
-    await validation?.afterLink();
-    await syncDirectory(path.dirname(target));
-    return "created";
-  } catch (error) {
-    if (linked) {
-      const [targetStat, stagingStat] = await Promise.all([
-        fs.lstat(target).catch(() => null),
-        fs.lstat(temporary).catch(() => null),
-      ]);
+      const handle = yield* tryFs(() =>
+        fs.open(
+          temporary,
+          fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY,
+          0o600,
+        ),
+      );
+      openHandle = handle;
+      yield* tryFs(() => handle.writeFile(contents, "utf-8"));
+      yield* tryFs(() => handle.sync());
+      yield* tryFs(() => handle.close());
+      openHandle = undefined;
+      if (validation) yield* validation.beforeLink;
+      const linkOutcome = yield* tryFs(() => fs.link(temporary, target)).pipe(
+        Effect.as("linked" as const),
+        Effect.catchIf(
+          (error) => error.code === "EEXIST",
+          () => Effect.succeed("exists" as const),
+        ),
+      );
+      if (linkOutcome === "exists") {
+        yield* hasSafeExistingFileEffect(target);
+        return "exists" as const;
+      }
+      linked = true;
+      if (validation) yield* validation.afterLink;
+      yield* syncDirectoryEffect(path.dirname(target));
+      return "created" as const;
+    });
+
+    // On failure after a successful link, roll the published name back if it
+    // still aliases our staging inode (the pre-Effect `catch` block).
+    const rollbackLinked = Effect.gen(function* () {
+      if (!linked) return;
+      const [targetStat, stagingStat] = yield* Effect.all(
+        [
+          lstatOrNull(target).pipe(Effect.catch(() => Effect.succeed(null))),
+          lstatOrNull(temporary).pipe(
+            Effect.catch(() => Effect.succeed(null)),
+          ),
+        ],
+        { concurrency: "unbounded" },
+      );
       if (
         targetStat &&
         stagingStat &&
         targetStat.dev === stagingStat.dev &&
         targetStat.ino === stagingStat.ino
       ) {
-        await fs.unlink(target).catch(() => undefined);
-        await syncDirectory(path.dirname(target)).catch(() => undefined);
+        yield* tryFs(() => fs.unlink(target)).pipe(Effect.ignore);
+        yield* syncDirectoryEffect(path.dirname(target)).pipe(Effect.ignore);
       }
-    }
-    throw error;
-  } finally {
-    await handle?.close().catch(() => undefined);
-    await fs.unlink(temporary).catch(() => undefined);
-  }
-};
+    });
 
-const migrationQueueTails = new Map<string, Promise<void>>();
+    // Always release the handle and remove the staging temp (the pre-Effect
+    // `finally` block); best-effort on both.
+    const cleanup = Effect.promise(async () => {
+      await openHandle?.close().catch(() => undefined);
+      await fs.unlink(temporary).catch(() => undefined);
+    });
+
+    return body.pipe(
+      Effect.tapError(() => rollbackLinked),
+      Effect.ensuring(cleanup),
+    );
+  });
+
 const MIGRATION_LOCK_TIMEOUT_MS = 10_000;
 
 type MigrationLockDatabase = {
@@ -787,41 +898,50 @@ type MigrationLockDatabaseCtor = new (
 const dynamicImport = (specifier: string): Promise<Record<string, unknown>> =>
   import(/* @vite-ignore */ specifier) as Promise<Record<string, unknown>>;
 
-const loadMigrationLockDatabaseCtor =
-  async (): Promise<MigrationLockDatabaseCtor> => {
-    try {
-      const nodeSqlite = await dynamicImport("node:sqlite");
-      if (typeof nodeSqlite.DatabaseSync === "function") {
-        return nodeSqlite.DatabaseSync as MigrationLockDatabaseCtor;
-      }
-    } catch {}
-    const bunSqlite = await dynamicImport("bun:sqlite");
-    if (typeof bunSqlite.Database === "function") {
-      return bunSqlite.Database as MigrationLockDatabaseCtor;
-    }
-    throw new Error(
-      "No compatible SQLite runtime is available for memory migration locking.",
-    );
-  };
-
-const acquireMigrationDatabaseLock = async (
-  stellaDataDir: string,
-): Promise<MigrationLockDatabase> => {
-  const lockRoot = path.join(stellaDataDir, "cache");
-  await ensurePrivateDir(lockRoot);
-  const Database = await loadMigrationLockDatabaseCtor();
-  const database = new Database(
-    path.join(lockRoot, "memory-layout-migration-lock.sqlite"),
-  );
-  try {
-    database.exec(`PRAGMA busy_timeout = ${MIGRATION_LOCK_TIMEOUT_MS}`);
-    database.exec("BEGIN IMMEDIATE");
-    return database;
-  } catch (error) {
-    database.close();
-    throw error;
+const loadMigrationLockDatabaseCtorEffect: Effect.Effect<
+  MigrationLockDatabaseCtor,
+  Error
+> = Effect.gen(function* () {
+  const nodeSqlite = yield* Effect.tryPromise({
+    try: () => dynamicImport("node:sqlite"),
+    catch: (error) => error,
+  }).pipe(Effect.catch(() => Effect.succeed(null)));
+  if (nodeSqlite && typeof nodeSqlite.DatabaseSync === "function") {
+    return nodeSqlite.DatabaseSync as unknown as MigrationLockDatabaseCtor;
   }
-};
+  const bunSqlite = yield* Effect.tryPromise({
+    try: () => dynamicImport("bun:sqlite"),
+    catch: (error) => error as Error,
+  });
+  if (typeof bunSqlite.Database === "function") {
+    return bunSqlite.Database as unknown as MigrationLockDatabaseCtor;
+  }
+  return yield* Effect.fail(new MigrationSqliteUnavailableError());
+});
+
+const acquireMigrationDatabaseLockEffect = (
+  stellaDataDir: string,
+): Effect.Effect<MigrationLockDatabase, Error> =>
+  Effect.gen(function* () {
+    const lockRoot = path.join(stellaDataDir, "cache");
+    yield* tryFs(() => ensurePrivateDir(lockRoot));
+    const Database = yield* loadMigrationLockDatabaseCtorEffect;
+    const database = yield* Effect.try({
+      try: () =>
+        new Database(
+          path.join(lockRoot, "memory-layout-migration-lock.sqlite"),
+        ),
+      catch: (error) => error as Error,
+    });
+    yield* Effect.try({
+      try: () => {
+        database.exec(`PRAGMA busy_timeout = ${MIGRATION_LOCK_TIMEOUT_MS}`);
+        database.exec("BEGIN IMMEDIATE");
+      },
+      catch: (error) => error as Error,
+    }).pipe(Effect.tapError(() => Effect.sync(() => database.close())));
+    return database;
+  });
 
 const releaseMigrationDatabaseLock = (
   database: MigrationLockDatabase,
@@ -835,43 +955,53 @@ const releaseMigrationDatabaseLock = (
   }
 };
 
-const withDreamMemoryMigrationLock = async <T>(
-  stellaDataDir: string,
-  operation: () => Promise<T>,
-): Promise<T> => {
-  // Queue the same process first: a synchronous SQLite BEGIN waiting behind
-  // an async holder would otherwise block that holder's event loop. The
-  // SQLite write transaction then serializes independent app/worker processes
-  // and is released by the OS on crash.
-  let canonicalDataDir: string;
-  try {
-    canonicalDataDir = await fs.realpath(stellaDataDir);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    await ensurePrivateDir(stellaDataDir);
-    canonicalDataDir = await fs.realpath(stellaDataDir);
-  }
-  const key =
-    process.platform === "linux"
-      ? canonicalDataDir
-      : canonicalDataDir.toLowerCase();
-  const previous = migrationQueueTails.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const turn = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  migrationQueueTails.set(key, turn);
-  await previous;
-  let database: MigrationLockDatabase | undefined;
-  try {
-    database = await acquireMigrationDatabaseLock(stellaDataDir);
-    return await operation();
-  } finally {
-    if (database) releaseMigrationDatabaseLock(database);
-    release();
-    if (migrationQueueTails.get(key) === turn) migrationQueueTails.delete(key);
-  }
+/**
+ * In-process FIFO serialization per canonical data dir. Queue the same
+ * process first: a synchronous SQLite BEGIN waiting behind an async holder
+ * would otherwise block that holder's event loop. The SQLite write
+ * transaction then serializes independent app/worker processes and is
+ * released by the OS on crash.
+ */
+const migrationSemaphores = new Map<string, Semaphore.Semaphore>();
+
+const migrationSemaphoreForKey = (key: string): Semaphore.Semaphore => {
+  const existing = migrationSemaphores.get(key);
+  if (existing) return existing;
+  const created = Semaphore.makeUnsafe(1);
+  migrationSemaphores.set(key, created);
+  return created;
 };
+
+const withDreamMemoryMigrationLockEffect = <A, E>(
+  stellaDataDir: string,
+  operation: Effect.Effect<A, E>,
+): Effect.Effect<A, E | Error> =>
+  Effect.gen(function* () {
+    const canonicalDataDir = yield* tryFs(() =>
+      fs.realpath(stellaDataDir),
+    ).pipe(
+      Effect.catchIf(
+        (error) => error.code === "ENOENT",
+        () =>
+          tryFs(() => ensurePrivateDir(stellaDataDir)).pipe(
+            Effect.andThen(tryFs(() => fs.realpath(stellaDataDir))),
+          ),
+      ),
+    );
+    const key =
+      process.platform === "linux"
+        ? canonicalDataDir
+        : canonicalDataDir.toLowerCase();
+    return yield* migrationSemaphoreForKey(key).withPermit(
+      Effect.scoped(
+        Effect.acquireRelease(
+          acquireMigrationDatabaseLockEffect(stellaDataDir),
+          (database) =>
+            Effect.sync(() => releaseMigrationDatabaseLock(database)),
+        ).pipe(Effect.flatMap(() => operation)),
+      ),
+    );
+  });
 
 /**
  * Ensure the staged Dream layout.
@@ -895,87 +1025,126 @@ export type DreamMemoryLayoutTelemetry = {
   cleanedStagingFiles: number;
 };
 
-const ensureDreamMemoryLayoutLocked = async (
+const ensureDreamMemoryLayoutLockedEffect = (
   stellaDataDir: string,
-): Promise<DreamMemoryLayoutTelemetry> => {
-  const root = memoriesRoot(stellaDataDir);
-  try {
-    const existingRoot = await fs.lstat(root);
-    if (existingRoot.isSymbolicLink() || !existingRoot.isDirectory()) {
-      throw new Error(
-        `Refusing Dream memory root ${root}: expected a real directory owned by Stella.`,
+): Effect.Effect<DreamMemoryLayoutTelemetry, Error> =>
+  Effect.gen(function* () {
+    const root = memoriesRoot(stellaDataDir);
+    const existingRoot = yield* lstatOrNull(root);
+    if (
+      existingRoot &&
+      (existingRoot.isSymbolicLink() || !existingRoot.isDirectory())
+    ) {
+      return yield* Effect.fail(
+        new DreamMemoryRootError({ root, reason: "not_directory" }),
       );
     }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  await ensurePrivateDir(root);
-  const canonicalRoot = await assertSafeDreamMemoryRoot(stellaDataDir);
-  const memoryTarget = memoryFilePath(stellaDataDir);
-  const mapTarget = memoryMapPath(stellaDataDir);
-  const cleanedStagingFiles =
-    (await cleanupUnattachedMigrationStages(memoryTarget, canonicalRoot)) +
-    (await cleanupUnattachedMigrationStages(mapTarget, canonicalRoot));
-  const memory = await publishFileIfMissing(memoryTarget, MEMORY_TEMPLATE);
+    yield* tryFs(() => ensurePrivateDir(root));
+    const canonicalRoot = yield* assertSafeDreamMemoryRootEffect(stellaDataDir);
+    const memoryTarget = memoryFilePath(stellaDataDir);
+    const mapTarget = memoryMapPath(stellaDataDir);
+    const cleanedStagingFiles =
+      (yield* cleanupUnattachedMigrationStagesEffect(
+        memoryTarget,
+        canonicalRoot,
+      )) +
+      (yield* cleanupUnattachedMigrationStagesEffect(
+        mapTarget,
+        canonicalRoot,
+      ));
+    const memory = yield* publishFileIfMissingEffect(
+      memoryTarget,
+      MEMORY_TEMPLATE,
+    );
 
-  if (await hasSafeExistingFile(mapTarget)) {
+    if (yield* hasSafeExistingFileEffect(mapTarget)) {
+      return {
+        memory,
+        map: "exists" as const,
+        legacyIndex: "not_read" as const,
+        legacySummary: "not_read" as const,
+        cleanedStagingFiles,
+      };
+    }
+
+    const legacySnapshots = yield* Effect.all(
+      [
+        readStableLegacySourceEffect(
+          memoryIndexPath(stellaDataDir),
+          canonicalRoot,
+        ),
+        readStableLegacySourceEffect(
+          memorySummaryPath(stellaDataDir),
+          canonicalRoot,
+        ),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const [indexSource, summarySource] = legacySnapshots;
+    const verifyLegacySources = Effect.forEach(
+      legacySnapshots,
+      (snapshot) => verifyLegacySourceSnapshotEffect(snapshot, canonicalRoot),
+      { discard: true },
+    );
+    const map = yield* publishFileIfMissingEffect(
+      mapTarget,
+      buildSeededMemoryMapContent({
+        indexRaw: indexSource.exists ? indexSource.raw : null,
+        summaryRaw: summarySource.exists ? summarySource.raw : null,
+      }),
+      { beforeLink: verifyLegacySources, afterLink: verifyLegacySources },
+    );
     return {
       memory,
-      map: "exists",
-      legacyIndex: "not_read",
-      legacySummary: "not_read",
+      map,
+      legacyIndex: indexSource.exists ? ("used" as const) : ("absent" as const),
+      legacySummary: summarySource.exists
+        ? ("used" as const)
+        : ("absent" as const),
       cleanedStagingFiles,
     };
-  }
+  });
 
-  const legacySnapshots = await Promise.all([
-    readStableLegacySource(memoryIndexPath(stellaDataDir), canonicalRoot),
-    readStableLegacySource(memorySummaryPath(stellaDataDir), canonicalRoot),
-  ]);
-  const [indexSource, summarySource] = legacySnapshots;
-  const verifyLegacySources = async (): Promise<void> => {
-    for (const snapshot of legacySnapshots) {
-      await verifyLegacySourceSnapshot(snapshot, canonicalRoot);
-    }
-  };
-  const map = await publishFileIfMissing(
-    mapTarget,
-    buildSeededMemoryMapContent({
-      indexRaw: indexSource.exists ? indexSource.raw : null,
-      summaryRaw: summarySource.exists ? summarySource.raw : null,
-    }),
-    { beforeLink: verifyLegacySources, afterLink: verifyLegacySources },
+export const ensureDreamMemoryLayoutEffect = (
+  stellaDataDir: string,
+): Effect.Effect<DreamMemoryLayoutTelemetry, Error> =>
+  withDreamMemoryMigrationLockEffect(
+    stellaDataDir,
+    ensureDreamMemoryLayoutLockedEffect(stellaDataDir),
+  ).pipe(
+    Effect.tap((telemetry) =>
+      Effect.sync(() => logger.info("dream.memory-layout", telemetry)),
+    ),
+    Effect.tapError((error) =>
+      Effect.sync(() =>
+        logger.warn("dream.memory-layout-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      ),
+    ),
   );
-  return {
-    memory,
-    map,
-    legacyIndex: indexSource.exists ? "used" : "absent",
-    legacySummary: summarySource.exists ? "used" : "absent",
-    cleanedStagingFiles,
-  };
-};
 
-export const ensureDreamMemoryLayout = async (
+export const ensureDreamMemoryLayout = (
   stellaDataDir: string,
-): Promise<DreamMemoryLayoutTelemetry> => {
-  try {
-    const telemetry = await withDreamMemoryMigrationLock(stellaDataDir, () =>
-      ensureDreamMemoryLayoutLocked(stellaDataDir),
-    );
-    logger.info("dream.memory-layout", telemetry);
-    return telemetry;
-  } catch (error) {
-    logger.warn("dream.memory-layout-failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
-};
+): Promise<DreamMemoryLayoutTelemetry> =>
+  runMemoryPromise(ensureDreamMemoryLayoutEffect(stellaDataDir));
 
-export const readMemoryFile = async (
+export const readMemoryFileEffect = (
   stellaDataDir: string,
-): Promise<string | null> => readOptionalFile(memoryFilePath(stellaDataDir));
+): Effect.Effect<string | null, NodeJS.ErrnoException> =>
+  readOptionalTextFile(memoryFilePath(stellaDataDir));
 
-export const readMemoryMap = async (
+export const readMemoryFile = (
   stellaDataDir: string,
-): Promise<string | null> => readOptionalFile(memoryMapPath(stellaDataDir));
+): Promise<string | null> =>
+  runMemoryPromise(readMemoryFileEffect(stellaDataDir));
+
+export const readMemoryMapEffect = (
+  stellaDataDir: string,
+): Effect.Effect<string | null, NodeJS.ErrnoException> =>
+  readOptionalTextFile(memoryMapPath(stellaDataDir));
+
+export const readMemoryMap = (
+  stellaDataDir: string,
+): Promise<string | null> =>
+  runMemoryPromise(readMemoryMapEffect(stellaDataDir));

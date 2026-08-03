@@ -1,9 +1,3 @@
-diff --git a/node_modules/react-native-carplay/.bun-tag-5da88733b9f803fb b/.bun-tag-5da88733b9f803fb
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/node_modules/react-native-carplay/.bun-tag-8ecb6aa752be0cfb b/.bun-tag-8ecb6aa752be0cfb
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/ios/RNCarPlay.m b/ios/RNCarPlay.m
 index 672a032a2ab8214249c65229d5eccf9583e86c8c..8d256e32e547f06b3afcd8f9f14e6dfc7706a0c9 100644
 --- a/ios/RNCarPlay.m

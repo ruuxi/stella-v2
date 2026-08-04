@@ -34,7 +34,6 @@ import {
   ClipboardList,
   ClipboardPaste,
   Crop,
-  Paperclip,
 } from "@/ui/icons";
 import {
   describePastedText,
@@ -67,6 +66,11 @@ import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
 import { MessageActions } from "@/app/chat/MessageActions";
 import { ImageAttachmentChip } from "@/app/chat/ComposerContextChips";
+import {
+  FileAttachmentChip,
+  getFileAttachmentName,
+  isImageAttachment,
+} from "@/app/chat/FileAttachmentChip";
 import { eventRowEqual } from "@/features/chat/lib/row-equality";
 import { assistantRowHasVisibleContent } from "@/features/chat/lib/assistant-row-content";
 import type {
@@ -462,7 +466,7 @@ export const UserMessageRow = memo(
     attachments.forEach((attachment, index) => {
       const safeUrl = sanitizeAttachmentImageUrl(attachment.url);
       const key = attachment.id ?? `attachment-${index}`;
-      if (safeUrl) {
+      if (safeUrl && isImageAttachment(attachment, safeUrl)) {
         chips.push({
           key,
           node: (
@@ -475,20 +479,18 @@ export const UserMessageRow = memo(
         });
         return;
       }
+      // Non-image attachments (pdf, docs, audio, …) reuse the composer's
+      // document chip: file-type glyph + real filename, opening the
+      // original on disk when a source path was captured at attach time.
       chips.push({
         key,
         node: (
-          <div className="event-attachment-fallback">
-            <Paperclip
-              className="event-attachment-fallback__icon"
-              size={13}
-              strokeWidth={1.75}
-              aria-hidden="true"
-            />
-            <span className="event-attachment-fallback__label">
-              {getAttachmentLabel(attachment, index)}
-            </span>
-          </div>
+          <FileAttachmentChip
+            name={getFileAttachmentName(attachment)}
+            size={attachment.size}
+            mimeType={attachment.mimeType}
+            path={attachment.path}
+          />
         ),
       });
     });

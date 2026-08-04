@@ -29,6 +29,15 @@ type BillingUsage = {
   monthlyLimitUsd: number;
 };
 
+type BillingUsagePolicy =
+  | {
+      kind: "anonymous_requests";
+      requestLimit: number;
+      perIpRequestLimit: number;
+      resetAfterInactivityDays: number;
+    }
+  | { kind: "managed_cost" };
+
 type BillingStatus = {
   authenticated: boolean;
   isAnonymous: boolean;
@@ -36,7 +45,8 @@ type BillingStatus = {
   subscriptionStatus: string;
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: number | null;
-  usage: BillingUsage;
+  usage: BillingUsage | null;
+  usagePolicy: BillingUsagePolicy;
   plans: Record<BillingPlan, BillingPlanConfig>;
 };
 
@@ -301,6 +311,7 @@ function BillingInteractive() {
   const planCatalog = billingStatus?.plans;
   const currentPlan = billingStatus?.plan ?? "free";
   const usage = billingStatus?.usage;
+  const usagePolicy = billingStatus?.usagePolicy;
   const hasAccount = Boolean(
     billingStatus?.authenticated && !billingStatus.isAnonymous,
   );
@@ -453,7 +464,7 @@ function BillingInteractive() {
     currentPlanCatalogEntry?.rollingWindowHours ?? 5;
 
   const usageMeters: UsageMeter[] | null =
-    usage && planCatalog
+    usage && planCatalog && usagePolicy?.kind === "managed_cost"
       ? [
           {
             key: "rolling",
@@ -475,6 +486,8 @@ function BillingInteractive() {
           },
         ]
       : null;
+  const anonymousUsagePolicy =
+    usagePolicy?.kind === "anonymous_requests" ? usagePolicy : null;
 
   const renewalLabel = billingStatus?.cancelAtPeriodEnd
     ? "Cancellation pending"
@@ -554,7 +567,20 @@ function BillingInteractive() {
             ) : null}
           </div>
 
-          {usageMeters ? (
+          {anonymousUsagePolicy ? (
+            <div className="billing-anonymous-policy">
+              <div className="billing-status-meter-label">
+                <span>Anonymous preview</span>
+                <span>{anonymousUsagePolicy.requestLimit} requests</span>
+              </div>
+              <p>
+                Shared network cap: {anonymousUsagePolicy.perIpRequestLimit}
+                {" requests. "}Allowance resets after{" "}
+                {anonymousUsagePolicy.resetAfterInactivityDays} days without a
+                request. Sign in for cost-based Free usage.
+              </p>
+            </div>
+          ) : usageMeters ? (
             <div className="billing-account-meters">
               {usageMeters.map((meter) => (
                 <div key={meter.key} className="billing-status-meter">

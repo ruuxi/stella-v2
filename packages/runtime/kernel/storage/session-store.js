@@ -1091,6 +1091,40 @@ export class SessionStore {
             .all(conversationId, normalizedLimit);
         return rows.map((row) => this.deserializeEventRow(row));
     }
+    listLifecycleEventsByIds(eventIdsInput) {
+        const eventIds = [
+            ...new Set(eventIdsInput.map(asTrimmedString).filter(Boolean)),
+        ].slice(0, 500);
+        if (eventIds.length === 0)
+            return [];
+        const rows = this.db
+            .prepare(`
+      SELECT
+        message.id AS _id,
+        message.created_at AS timestamp,
+        message.type AS type,
+        message.device_id AS deviceId,
+        message.request_id AS requestId,
+        message.target_device_id AS targetDeviceId,
+        part.data_json AS payloadJson,
+        message.data_json AS channelEnvelopeJson
+      FROM message
+      LEFT JOIN part
+        ON part.message_id = message.id
+       AND part.ord = 0
+      WHERE message.id IN (${eventIds.map(() => "?").join(", ")})
+        AND message.type IN (
+          'agent-started',
+          'agent-progress',
+          'agent-completed',
+          'agent-failed',
+          'agent-canceled'
+        )
+      ORDER BY message.created_at ASC, message.id ASC
+    `)
+            .all(...eventIds);
+        return rows.map((row) => this.deserializeEventRow(row));
+    }
     /**
      * Return cross-conversation activity newer than `sinceMs` (plain ms
      * since the Unix epoch — same unit `message.created_at` is written
@@ -2952,6 +2986,8 @@ export class SessionStore {
         conversation_id,
         agent_type,
         description,
+        prompt,
+        prompt_created_at,
         agent_depth,
         max_agent_depth,
         parent_agent_id,
@@ -2965,11 +3001,13 @@ export class SessionStore {
         root_run_id,
         attempt_generation
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET
         conversation_id = excluded.conversation_id,
         agent_type = excluded.agent_type,
         description = excluded.description,
+        prompt = COALESCE(runtime_agents.prompt, excluded.prompt),
+        prompt_created_at = COALESCE(runtime_agents.prompt_created_at, excluded.prompt_created_at),
         agent_depth = excluded.agent_depth,
         max_agent_depth = excluded.max_agent_depth,
         parent_agent_id = excluded.parent_agent_id,
@@ -2983,7 +3021,7 @@ export class SessionStore {
         root_run_id = excluded.root_run_id,
         attempt_generation = excluded.attempt_generation
     `)
-            .run(record.threadId, record.conversationId, record.agentType, record.description, record.agentDepth, record.maxAgentDepth ?? null, record.parentAgentId ?? null, toJsonValueString(record.modelConfigSnapshot) ?? null, record.status, record.startedAt, record.completedAt ?? null, record.result ?? null, record.error ?? null, record.updatedAt, record.rootRunId ?? null, record.attemptGeneration ?? 0);
+            .run(record.threadId, record.conversationId, record.agentType, record.description, record.prompt ?? null, record.promptCreatedAt ?? null, record.agentDepth, record.maxAgentDepth ?? null, record.parentAgentId ?? null, toJsonValueString(record.modelConfigSnapshot) ?? null, record.status, record.startedAt, record.completedAt ?? null, record.result ?? null, record.error ?? null, record.updatedAt, record.rootRunId ?? null, record.attemptGeneration ?? 0);
     }
     /**
      * Mirror the renderer's rolling per-agent progress-summary phrases into
@@ -3036,6 +3074,8 @@ export class SessionStore {
         conversation_id,
         agent_type,
         description,
+        prompt,
+        prompt_created_at,
         agent_depth,
         max_agent_depth,
         parent_agent_id,
@@ -3062,6 +3102,14 @@ export class SessionStore {
             conversationId: row.conversation_id,
             agentType: normalizeRetiredAgentType(row.agent_type),
             description: row.description,
+            ...(row.prompt
+                ? {
+                    prompt: row.prompt,
+                    promptCreatedAt: typeof row.prompt_created_at === "number"
+                        ? row.prompt_created_at
+                        : row.started_at,
+                }
+                : {}),
             agentDepth: row.agent_depth,
             ...(row.max_agent_depth == null
                 ? {}
@@ -3086,6 +3134,8 @@ export class SessionStore {
         conversation_id,
         agent_type,
         description,
+        prompt,
+        prompt_created_at,
         agent_depth,
         max_agent_depth,
         parent_agent_id,
@@ -3110,6 +3160,14 @@ export class SessionStore {
                 conversationId: row.conversation_id,
                 agentType: normalizeRetiredAgentType(row.agent_type),
                 description: row.description,
+                ...(row.prompt
+                    ? {
+                        prompt: row.prompt,
+                        promptCreatedAt: typeof row.prompt_created_at === "number"
+                            ? row.prompt_created_at
+                            : row.started_at,
+                    }
+                    : {}),
                 agentDepth: row.agent_depth,
                 ...(row.max_agent_depth == null
                     ? {}

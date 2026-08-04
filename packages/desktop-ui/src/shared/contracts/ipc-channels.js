@@ -202,12 +202,12 @@ export const IPC_APP_RESET_MESSAGES = "app:resetLocalMessages";
 export const IPC_CREDENTIAL_REQUEST = "credential:request";
 export const IPC_CREDENTIAL_SUBMIT = "credential:submit";
 export const IPC_CREDENTIAL_CANCEL = "credential:cancel";
-// ── Updates ─────────────────────────────────────────────────────────────────
-export const IPC_UPDATES_GET_INSTALL_MANIFEST = "updates:getInstallManifest";
-export const IPC_UPDATES_TRY_APPLY_CLEAN = "updates:tryApplyCleanUpdate";
-export const IPC_UPDATES_RECORD_APPLIED_COMMIT = "updates:recordAppliedCommit";
-export const IPC_UPDATES_REFRESH_NATIVE_HELPERS = "updates:refreshNativeHelpers";
-export const IPC_UPDATES_ROLLBACK_CANCELED = "updates:rollbackCanceledUpdate";
+// ── Packaged desktop updates (electron-updater) ─────────────────────────────
+export const IPC_UPDATES_GET_STATE = "updates:getState";
+export const IPC_UPDATES_CHECK = "updates:check";
+export const IPC_UPDATES_DOWNLOAD = "updates:download";
+export const IPC_UPDATES_RESTART_AND_INSTALL = "updates:restartAndInstall";
+export const IPC_UPDATES_STATE_CHANGED = "updates:stateChanged";
 // ── Onboarding ──────────────────────────────────────────────────────────────
 export const IPC_ONBOARDING_SYNTHESIZE = "onboarding:synthesizeCoreMemory";
 // ── Discovery ───────────────────────────────────────────────────────────────

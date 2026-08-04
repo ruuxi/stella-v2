@@ -48,6 +48,7 @@ import {
   type ExternalSubagentRunSession,
 } from "./run-session.js";
 import { now, resolveLocalCliCwd, textFromUnknown } from "./shared.js";
+import { createExternalAssistantUpdateBuffer } from "./external-assistant-updates.js";
 import {
   buildHistorySource,
   buildOrchestratorPromptMessages,
@@ -574,18 +575,23 @@ const runClaudeHostedTurn = async (args: {
   // would append to the same overlay slot with no separator — visually fusing
   // the preamble's last word with the answer's first word — and the working
   // indicator would dismiss on the preamble across the preamble->tool gap.
-  let streamedAssistantText = "";
-  const acceptClaudeStreamChunk = (chunk: string) => {
-    streamedAssistantText += chunk;
-    args.callbacks?.onStream?.(runEvents.recordStream(chunk));
-  };
+  const attemptGeneration = Reflect.get(
+    args.opts.agentContext,
+    "attemptGeneration",
+  );
+  const assistantUpdateBuffer = createExternalAssistantUpdateBuffer({
+    store: args.opts.store,
+    threadKey,
+    engine: "claude_code",
+    runId,
+    ...(typeof attemptGeneration === "number" ? { attemptGeneration } : {}),
+  });
   const flushPreambleBeforeTool = (toolArgs2: {
     toolCallId: string;
     toolName: string;
     toolArgs: Record<string, unknown>;
   }) => {
-    const preamble = streamedAssistantText.trim();
-    streamedAssistantText = "";
+    const preamble = assistantUpdateBuffer.flushBeforeTool();
     if (!preamble) {
       return;
     }
@@ -735,10 +741,17 @@ const runClaudeHostedTurn = async (args: {
         runEvents.recordStatus(status.text, status.state),
       );
     },
-    onStream: acceptClaudeStreamChunk,
+    onStream: (chunk) => {
+      assistantUpdateBuffer.append(chunk);
+      args.callbacks?.onStream?.(runEvents.recordStream(chunk));
+    },
     onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
     executeTool: executeClaudeTool,
+  }).catch((error) => {
+    assistantUpdateBuffer.flushOnTermination();
+    throw error;
   });
+  assistantUpdateBuffer.discard();
   collectTurnFileChanges(finalResult.fileChanges);
 
   for (;;) {
@@ -792,10 +805,17 @@ const runClaudeHostedTurn = async (args: {
           runEvents.recordStatus(status.text, status.state),
         );
       },
-      onStream: acceptClaudeStreamChunk,
+      onStream: (chunk) => {
+        assistantUpdateBuffer.append(chunk);
+        args.callbacks?.onStream?.(runEvents.recordStream(chunk));
+      },
       executeTool: executeClaudeTool,
       onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
+    }).catch((error) => {
+      assistantUpdateBuffer.flushOnTermination();
+      throw error;
     });
+    assistantUpdateBuffer.discard();
     collectTurnFileChanges(finalResult.fileChanges);
   }
 
@@ -895,14 +915,23 @@ const runCodexHostedTurn = async (args: {
   // boundary. When a tool call starts we flush it as an interim, tool-call-
   // bearing message (see `flushPreambleBeforeTool`) so the working indicator
   // does not dismiss on the preamble across the gap before the tool starts.
-  let streamedAssistantText = "";
+  const attemptGeneration = Reflect.get(
+    args.opts.agentContext,
+    "attemptGeneration",
+  );
+  const assistantUpdateBuffer = createExternalAssistantUpdateBuffer({
+    store: args.opts.store,
+    threadKey,
+    engine: "codex",
+    runId,
+    ...(typeof attemptGeneration === "number" ? { attemptGeneration } : {}),
+  });
   const flushPreambleBeforeTool = (args2: {
     toolCallId: string;
     toolName: string;
     toolArgs: Record<string, unknown>;
   }) => {
-    const preamble = streamedAssistantText.trim();
-    streamedAssistantText = "";
+    const preamble = assistantUpdateBuffer.flushBeforeTool();
     if (!preamble) {
       return;
     }
@@ -1096,7 +1125,7 @@ const runCodexHostedTurn = async (args: {
     },
     onCommandExecution: emitCodexCommandExecution,
     onStream: (chunk) => {
-      streamedAssistantText += chunk;
+      assistantUpdateBuffer.append(chunk);
       args.opts.onProgress?.(chunk);
       args.callbacks?.onStream?.(runEvents.recordStream(chunk));
     },
@@ -1105,7 +1134,11 @@ const runCodexHostedTurn = async (args: {
     executeTool: executeCodexTool,
     reuseAppServer: true,
     streamFinalAnswer: args.session.kind === "orchestrator",
+  }).catch((error) => {
+    assistantUpdateBuffer.flushOnTermination();
+    throw error;
   });
+  assistantUpdateBuffer.discard();
 
   for (;;) {
     const queued = args.liveAgent?.drain() ?? [];
@@ -1154,7 +1187,7 @@ const runCodexHostedTurn = async (args: {
       },
       onCommandExecution: emitCodexCommandExecution,
       onStream: (chunk) => {
-        streamedAssistantText += chunk;
+        assistantUpdateBuffer.append(chunk);
         args.opts.onProgress?.(chunk);
         args.callbacks?.onStream?.(runEvents.recordStream(chunk));
       },
@@ -1163,7 +1196,11 @@ const runCodexHostedTurn = async (args: {
       executeTool: executeCodexTool,
       reuseAppServer: true,
       streamFinalAnswer: args.session.kind === "orchestrator",
+    }).catch((error) => {
+      assistantUpdateBuffer.flushOnTermination();
+      throw error;
     });
+    assistantUpdateBuffer.discard();
   }
 
   await persistAssistantReply({

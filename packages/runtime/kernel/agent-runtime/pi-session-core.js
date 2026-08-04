@@ -3,6 +3,10 @@ import { createRuntimeLogger } from "../debug.js";
 import { buildSafetyAbortSwapRoute, isProviderContentAbortMessage, parseQuarantineRecord, ProviderAbortContainment, QUARANTINE_CUSTOM_TYPE, } from "./provider-abort-containment.js";
 import { createRuntimeAgent, resolveAgentThinkingLevel } from "./shared.js";
 import { buildHistorySource } from "./thread-memory.js";
+import {
+    clearProviderContextWindow,
+    setProviderContextWindow,
+} from "./context-budget.js";
 const resolveCodexProviderServiceTier = (resolvedLlm, agentContext) => {
     const snapshot = agentContext.modelConfigSnapshot;
     if (snapshot?.engine !== "codex_cli" ||
@@ -60,6 +64,7 @@ export class PiSessionCore {
     }
     setResolvedLlm(resolvedLlm) {
         this.currentResolvedLlm = resolvedLlm;
+        setProviderContextWindow(this.threadKey, resolvedLlm.model.contextWindow);
     }
     historyForToolActivation(agentContext) {
         return this.agent?.state.messages ?? buildHistorySource(agentContext);
@@ -303,6 +308,7 @@ export class PiSessionCore {
         this.agent = null;
         this.currentResolvedLlm = null;
         this.pendingHistoryRefresh = false;
+        clearProviderContextWindow(this.threadKey);
         // Release per-session provider resources keyed by the same id used as the
         // AI cache session id (the thread key), e.g. Codex WebSocket connections
         // and their transport/fallback bookkeeping.

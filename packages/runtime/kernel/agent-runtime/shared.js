@@ -6,6 +6,7 @@ import { selectRecentByTokenBudget } from "../local-history.js";
 import { estimateRuntimeTokens } from "../runtime-threads.js";
 import { getAgentFollowUpMode, getAgentSteeringMode, getLocalCliWorkingDirectory, } from "@stella/contracts/agent-runtime";
 import { isBootstrapStartupDocMessage, stripStaleImageBlocks, } from "./thread-memory.js";
+import { preflightProviderPayload } from "./context-budget.js";
 const MAX_RESULT_PREVIEW = 200;
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
 const CONTEXT_PRUNE_RESERVE_TOKENS = 16_384;
@@ -406,7 +407,12 @@ export const createRuntimeAgent = (args) => {
         // versa). The inner `?.()` returns `undefined` when the route lacks
         // one, which the agent loop already handles.
         refreshApiKey: () => resolveLlm().refreshApiKey?.(),
-        onPayload: createBeforeProviderPayloadTransform(args.hookEmitter, args.agentType),
+        onPayload: async (payload, model) => {
+            const transform = createBeforeProviderPayloadTransform(args.hookEmitter, args.agentType);
+            const transformed = await transform?.(payload, model);
+            preflightProviderPayload(args.cacheSessionId ?? args.agentType, transformed ?? payload, model);
+            return transformed;
+        },
         onProviderRetry: args.onProviderRetry,
         afterToolCall: args.afterToolCall
             ? async (context, signal) => await args.afterToolCall?.(context, signal)

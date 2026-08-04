@@ -1,6 +1,5 @@
 import {
   AGENT_MODELS,
-  canOverrideStellaModel,
   getModeConfig,
   getModelConfig,
   isModelMode,
@@ -33,7 +32,7 @@ export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
 export const STELLA_MAX_MODEL = `${STELLA_PROVIDER}/max`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 1, 6, 41);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 4, 1, 7);
 
 export type StellaCatalogModel = {
   id: string;
@@ -59,6 +58,7 @@ export type StellaDefaultEntry = {
 
 const DISPLAY_NAMES: Record<string, string> = {
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
+  "accounts/fireworks/models/deepseek-v4-pro": "DeepSeek V4 Pro",
   "accounts/fireworks/models/kimi-k2p6": "Kimi K2.6",
   "accounts/fireworks/models/kimi-k2p7-code": "Kimi K2.7 Code",
   "accounts/fireworks/models/kimi-k3": "Kimi K3",
@@ -350,10 +350,12 @@ export const listStellaCatalogModels = (
       upstreamModel === "x-ai/grok-4.5"
         ? "multimodal"
         : "language",
-    // Restricted tiers (anonymous / free / go) can't override the
-    // backend-chosen default at all, so every pinnable model is disabled
-    // for them; pro+ may pin any managed model.
-    allowedForAudience: canOverrideStellaModel(audience),
+    // Pro+ may pin every managed model. Restricted audiences only receive the
+    // explicit raw-model exceptions declared by the shared policy helper.
+    allowedForAudience: isStellaModelAllowedForAudience(
+      toStellaModelId(upstreamModel),
+      audience,
+    ),
   })),
 ];
 

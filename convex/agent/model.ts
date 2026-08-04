@@ -373,6 +373,12 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
   new Set<string>(["stella/standard", "stella/light"]);
 
+const FREE_AUDIENCE_ADDITIONAL_STELLA_MODEL_IDS: ReadonlySet<string> =
+  new Set<string>([
+    "stella/openai/gpt-5.6-luna",
+    "stella/accounts/fireworks/models/deepseek-v4-pro",
+  ]);
+
 export const isStellaModelAllowedForAudience = (
   modelId: string,
   audience: ManagedModelAudience,
@@ -384,6 +390,12 @@ export const isStellaModelAllowedForAudience = (
     return isPaidManagedAudience(audience);
   }
   if (canOverrideStellaModel(audience)) return true;
+  if (
+    (audience === "anonymous" || audience === "free") &&
+    FREE_AUDIENCE_ADDITIONAL_STELLA_MODEL_IDS.has(modelId)
+  ) {
+    return true;
+  }
   return RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId);
 };
 
@@ -657,6 +669,7 @@ export function isModelMode(value: string): value is ModelMode {
 // behind a mode/task selection when they are catalog defaults; use this list
 // only for extras that have no mode of their own.
 export const ADDITIONAL_MANAGED_MODEL_IDS = [
+  "accounts/fireworks/models/deepseek-v4-pro",
   "accounts/fireworks/models/kimi-k3",
   "meta/muse-spark-1.1",
 ] as const;

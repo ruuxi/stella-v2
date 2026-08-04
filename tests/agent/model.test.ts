@@ -167,17 +167,21 @@ describe("managed model config", () => {
   });
 
   it("restricts catalog picks by audience", () => {
-    const allowedFor = (audience: "free" | "go" | "pro") =>
+    const allowedFor = (audience: "anonymous" | "free" | "go" | "pro") =>
       new Set(
         listStellaCatalogModels(audience)
           .filter((model) => model.allowedForAudience)
           .map((model) => model.id),
       );
 
-    // Free users may only pick the Standard and Light modes.
-    expect(allowedFor("free")).toEqual(
-      new Set(["stella/standard", "stella/light"]),
-    );
+    const freeSelections = new Set([
+      "stella/standard",
+      "stella/light",
+      "stella/openai/gpt-5.6-luna",
+      "stella/accounts/fireworks/models/deepseek-v4-pro",
+    ]);
+    expect(allowedFor("anonymous")).toEqual(freeSelections);
+    expect(allowedFor("free")).toEqual(freeSelections);
     // Go is restricted from arbitrary pinning, but it is paid and can pick
     // paid-only branded modes.
     expect(allowedFor("go")).toEqual(
@@ -217,6 +221,9 @@ describe("managed model config", () => {
     expect(listManagedModelIds()).toContain(
       "accounts/fireworks/models/deepseek-v4-flash-0731",
     );
+    expect(listManagedModelIds()).toContain(
+      "accounts/fireworks/models/deepseek-v4-pro",
+    );
     expect(listManagedModelIds()).toContain("openai/gpt-5.6-luna");
     expect(listManagedModelIds()).toContain("google/gemini-3.6-flash");
     expect(listManagedModelIds()).toContain("anthropic/claude-opus-5");
@@ -227,6 +234,31 @@ describe("managed model config", () => {
     expect(listManagedModelIds()).not.toContain("google/gemini-3.5-flash");
     expect(listManagedModelIds()).not.toContain("google/gemini-3-flash-preview");
     expect(listManagedModelIds()).not.toContain("openai/gpt-5.4-mini");
+  });
+
+  it("publishes Luna and DeepSeek V4 Pro as free-selectable managed models", () => {
+    for (const audience of ["anonymous", "free"] as const) {
+      const catalog = listStellaCatalogModels(audience);
+      expect(
+        catalog.find((model) => model.id === "stella/openai/gpt-5.6-luna"),
+      ).toMatchObject({
+        name: "GPT-5.6 Luna",
+        upstreamModel: "openai/gpt-5.6-luna",
+        allowedForAudience: true,
+      });
+      expect(
+        catalog.find(
+          (model) =>
+            model.id ===
+            "stella/accounts/fireworks/models/deepseek-v4-pro",
+        ),
+      ).toMatchObject({
+        name: "DeepSeek V4 Pro",
+        upstreamModel: "accounts/fireworks/models/deepseek-v4-pro",
+        type: "language",
+        allowedForAudience: true,
+      });
+    }
   });
 
   it("registers Kimi K3 as a pinnable Fireworks model", () => {

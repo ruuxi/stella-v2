@@ -101,7 +101,6 @@ export const usePetStatusBroadcast = ({ messages, tasks, runtimeStatusText, isSt
     // pet settles back to idle without waiting for the next unrelated render.
     const [freshTick, bumpFreshTick] = useReducer((n) => n + 1, 0);
     const liveTasks = useMemo(() => selectFreshActivityTasks(tasks ?? []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- freshTick re-runs the time-window filter.
     [tasks, freshTick]);
     useEffect(() => {
         if (!liveTasks.some((task) => task.status !== "running"))

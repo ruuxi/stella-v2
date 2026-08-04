@@ -1,0 +1,250 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { clipboard, ipcMain, nativeImage, } from "electron";
+import { getBrowserCookieHeader } from "./browser-fetch-session.js";
+import { normalizeUrlForPrivilegedRendererFetch, PRIVILEGED_RENDERER_FETCH_TIMEOUT_MS, } from "./renderer-safe-url.js";
+import { IPC_BROWSER_FETCH_JSON, IPC_BROWSER_FETCH_TEXT, IPC_MEDIA_COPY_IMAGE, IPC_MEDIA_GET_DIR, IPC_MEDIA_SAVE_OUTPUT, } from "@stella/contracts/desktop/ipc-channels";
+const fetchWithBrowserSession = async (payload) => {
+    const url = await normalizeUrlForPrivilegedRendererFetch(payload.url);
+    const cookieHeader = await getBrowserCookieHeader(url);
+    const method = payload.init?.method ?? "GET";
+    const headers = new Headers(payload.init?.headers);
+    if (!headers.has("User-Agent")) {
+        headers.set("User-Agent", "StellaDesktop/1.0");
+    }
+    if (cookieHeader) {
+        headers.set("Cookie", cookieHeader);
+    }
+    const response = await globalThis.fetch(url, {
+        method,
+        headers,
+        body: payload.init?.body,
+        redirect: "follow",
+        signal: AbortSignal.timeout(PRIVILEGED_RENDERER_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}.`);
+    }
+    if (payload.responseType === "json") {
+        const text = await response.text();
+        try {
+            return JSON.parse(text);
+        }
+        catch {
+            throw new Error(`Response was not valid JSON (status ${response.status}, ${text.length} bytes).`);
+        }
+    }
+    return response.text();
+};
+const assertStellaInitialized = (options) => {
+    // The browser bridge is gated on the app being far enough along that a
+    // stellaAppDir has been resolved; the value itself isn't needed here because
+    // the browser service lives inside the desktop tree.
+    const stellaAppDir = options.getStellaAppDir();
+    if (!stellaAppDir?.trim()) {
+        throw new Error("Stella root not available; restart the app.");
+    }
+};
+const resolveMediaOutputPath = (dir, fileName) => {
+    if (!fileName ||
+        fileName === "." ||
+        fileName === ".." ||
+        fileName.includes("\0") ||
+        fileName.includes("/") ||
+        fileName.includes("\\") ||
+        path.isAbsolute(fileName)) {
+        throw new Error("Invalid media output filename.");
+    }
+    const resolvedDir = path.resolve(dir);
+    const destPath = path.resolve(resolvedDir, fileName);
+    if (!destPath.startsWith(`${resolvedDir}${path.sep}`)) {
+        throw new Error("Invalid media output filename.");
+    }
+    return destPath;
+};
+const normalizedImageOutputPath = (requestedPath, mimeType) => {
+    const extension = mimeType === "image/jpeg"
+        ? ".jpg"
+        : mimeType === "image/png"
+            ? ".png"
+            : mimeType === "image/gif"
+                ? ".gif"
+                : mimeType === "image/webp"
+                    ? ".webp"
+                    : null;
+    if (!extension)
+        throw new Error("Downloaded image format is unsupported.");
+    const parsed = path.parse(requestedPath);
+    return path.join(parsed.dir, `${parsed.name}${extension}`);
+};
+export const registerBrowserHandlers = (options) => {
+    ipcMain.handle(IPC_BROWSER_FETCH_JSON, async (event, payload) => {
+        if (!options.assertPrivilegedSender(event, IPC_BROWSER_FETCH_JSON)) {
+            throw new Error("Blocked untrusted request.");
+        }
+        assertStellaInitialized(options);
+        options.ensureBrowserBridgeStarted?.();
+        return fetchWithBrowserSession({
+            url: payload.url,
+            responseType: "json",
+            init: payload.init,
+        });
+    });
+    ipcMain.handle(IPC_BROWSER_FETCH_TEXT, async (event, payload) => {
+        if (!options.assertPrivilegedSender(event, IPC_BROWSER_FETCH_TEXT)) {
+            throw new Error("Blocked untrusted request.");
+        }
+        assertStellaInitialized(options);
+        options.ensureBrowserBridgeStarted?.();
+        return fetchWithBrowserSession({
+            url: payload.url,
+            responseType: "text",
+            init: payload.init,
+        });
+    });
+    // ── Media file operations ──
+    ipcMain.handle(IPC_MEDIA_SAVE_OUTPUT, async (event, payload) => {
+        if (!options.assertPrivilegedSender(event, IPC_MEDIA_SAVE_OUTPUT)) {
+            return { ok: false, error: "Blocked untrusted request." };
+        }
+        const stellaDataDir = options.getStellaDataDir();
+        if (!stellaDataDir) {
+            return { ok: false, error: "Stella root not initialized" };
+        }
+        try {
+            const dir = path.join(stellaDataDir, "media", "outputs");
+            await fs.mkdir(dir, { recursive: true });
+            let destPath = resolveMediaOutputPath(dir, payload.fileName);
+            const declaredImage = /\.(?:png|jpe?g|gif|webp)$/i.test(destPath);
+            const expectedImageMime = /\.png$/i.test(destPath)
+                ? "image/png"
+                : /\.jpe?g$/i.test(destPath)
+                    ? "image/jpeg"
+                    : /\.gif$/i.test(destPath)
+                        ? "image/gif"
+                        : /\.webp$/i.test(destPath)
+                            ? "image/webp"
+                            : undefined;
+            const validateExisting = expectedImageMime
+                ? async (candidate) => await validateDecodedImageFile(candidate, expectedImageMime)
+                : undefined;
+            // The terminal image_gen path materializes the same deterministic
+            // jobId-based filename before the renderer sees completion. Reuse the
+            // durable file so the sidebar/inline materializers do not download or
+            // create a second artifact for the same media job.
+            const dataUriMatch = payload.url.match(/^data:([^;,]+);base64,(.+)$/is);
+            if (dataUriMatch) {
+                const bytes = decodeBase64ImageBounded(dataUriMatch[2]);
+                const decoded = await decodeAndValidateImage(bytes);
+                if (!decoded || decoded.mimeType !== dataUriMatch[1]?.toLowerCase()) {
+                    throw new Error("Image payload MIME type does not match its decoded bytes.");
+                }
+                if (payload.kind === "image") {
+                    destPath = normalizedImageOutputPath(destPath, decoded.mimeType);
+                }
+                const normalizedExpectedMime = payload.kind === "image" ? decoded.mimeType : expectedImageMime;
+                const saved = await materializeMediaArtifact({
+                    filePath: destPath,
+                    validateExisting: async (candidate) => await validateDecodedImageFile(candidate, normalizedExpectedMime ?? dataUriMatch[1]?.toLowerCase()),
+                    producer: async () => {
+                        if (payload.kind !== "image" &&
+                            expectedImageMime &&
+                            decoded.mimeType !== expectedImageMime) {
+                            throw new Error("Image payload MIME type does not match its decoded bytes.");
+                        }
+                        if (payload.kind !== "image" && !expectedImageMime) {
+                            throw new Error("Image output requires an extension matching its decoded bytes.");
+                        }
+                        return bytes;
+                    },
+                });
+                return { ok: true, path: saved.path };
+            }
+            const safeUrl = await normalizeUrlForPrivilegedRendererFetch(payload.url);
+            if (payload.kind === "image") {
+                const signal = AbortSignal.timeout(PRIVILEGED_RENDERER_FETCH_TIMEOUT_MS);
+                const response = await globalThis.fetch(safeUrl, {
+                    headers: { "User-Agent": "StellaDesktop/1.0" },
+                    redirect: "follow",
+                    signal,
+                });
+                if (!response.ok) {
+                    throw new Error(`Download failed (${response.status})`);
+                }
+                const bytes = await readResponseBodyBounded(response, { signal });
+                const decoded = await decodeAndValidateImage(bytes);
+                if (!decoded) {
+                    throw new Error("Downloaded image is invalid or exceeds safe resource limits.");
+                }
+                destPath = normalizedImageOutputPath(destPath, decoded.mimeType);
+                const saved = await materializeMediaArtifact({
+                    filePath: destPath,
+                    validateExisting: async (candidate) => await validateDecodedImageFile(candidate, decoded.mimeType),
+                    producer: async () => bytes,
+                });
+                return { ok: true, path: saved.path };
+            }
+            const saved = await materializeMediaArtifact({
+                filePath: destPath,
+                ...(validateExisting ? { validateExisting } : {}),
+                producerTimeoutMs: PRIVILEGED_RENDERER_FETCH_TIMEOUT_MS,
+                producer: async (signal) => {
+                    const res = await globalThis.fetch(safeUrl, {
+                        headers: { "User-Agent": "StellaDesktop/1.0" },
+                        redirect: "follow",
+                        signal,
+                    });
+                    if (!res.ok) {
+                        throw new Error(`Download failed (${res.status})`);
+                    }
+                    const bytes = await readResponseBodyBounded(res, { signal });
+                    const responseIsImage = res.headers
+                        .get("content-type")
+                        ?.toLowerCase()
+                        .startsWith("image/") ?? false;
+                    if (declaredImage || responseIsImage) {
+                        const decoded = await decodeAndValidateImage(bytes);
+                        if (!decoded)
+                            throw new Error("Downloaded image is invalid or exceeds safe resource limits.");
+                        if (expectedImageMime && decoded.mimeType !== expectedImageMime) {
+                            throw new Error(`Downloaded image bytes are ${decoded.mimeType}, not ${expectedImageMime}.`);
+                        }
+                        if (!expectedImageMime) {
+                            throw new Error("Image output requires an extension matching its decoded bytes.");
+                        }
+                    }
+                    return bytes;
+                },
+            });
+            return { ok: true, path: saved.path };
+        }
+        catch (error) {
+            return { ok: false, error: error.message };
+        }
+    });
+    ipcMain.handle(IPC_MEDIA_GET_DIR, async (event) => {
+        if (!options.assertPrivilegedSender(event, IPC_MEDIA_GET_DIR)) {
+            return null;
+        }
+        const stellaDataDir = options.getStellaDataDir();
+        if (!stellaDataDir)
+            return null;
+        return path.join(stellaDataDir, "media");
+    });
+    ipcMain.handle(IPC_MEDIA_COPY_IMAGE, async (event, payload) => {
+        if (!options.assertPrivilegedSender(event, IPC_MEDIA_COPY_IMAGE)) {
+            return { ok: false, error: "Blocked untrusted request." };
+        }
+        try {
+            const image = nativeImage.createFromBuffer(Buffer.from(payload.pngBase64, "base64"));
+            if (image.isEmpty()) {
+                return { ok: false, error: "Could not read image." };
+            }
+            clipboard.writeImage(image);
+            return { ok: true };
+        }
+        catch (error) {
+            return { ok: false, error: error.message };
+        }
+    });
+};

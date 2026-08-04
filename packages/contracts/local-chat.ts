@@ -1,6 +1,5 @@
 import type { OfficePreviewRef } from "./office-preview.js";
 import type { FileChangeRecord, ProducedFileRecord } from "./file-changes.js";
-import type { AgentModelConfigSnapshot } from "./agent-engine.js";
 
 export type EventRecord = {
   _id: string;

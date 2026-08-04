@@ -6,7 +6,7 @@
  * the preload bridge (electron/preload.ts) and handler (electron/ipc/*.ts)
  * using that constant — never raw strings.
  */
-import type { UiState, WindowMode } from "./ui";
+import type { UiState } from "./ui";
 import type { Theme } from "@/shared/theme/themes/types";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
 import type {

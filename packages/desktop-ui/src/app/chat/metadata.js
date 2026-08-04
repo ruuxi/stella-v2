@@ -1,0 +1,12 @@
+import { dispatchShowHome } from "@/shared/lib/stella-orb-chat";
+import { CustomHouse } from "@/ui/nav-icons";
+const metadata = {
+    id: "chat",
+    label: "Home",
+    icon: CustomHouse,
+    route: "/chat",
+    slot: "top",
+    order: 10,
+    onActiveClick: dispatchShowHome,
+};
+export default metadata;

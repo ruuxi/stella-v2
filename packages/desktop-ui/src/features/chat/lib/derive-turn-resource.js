@@ -1,0 +1,736 @@
+/**
+ * Per-turn primary-resource derivation.
+ *
+ *   1. Walk every `tool_result` in the turn and collect normalized
+ *      `fileChanges` records (explicit edit provenance) plus
+ *      Stella `producedFiles` records (user-facing outputs detected from
+ *      shell/CLI side effects).
+ *   2. Collect `referencedFilePaths` from
+ *        - office preview refs (which are "look at this file" signals,
+ *          not edits, so they belong with referenced files)
+ *        - markdown links in the assistant message text
+ *   3. Combine both pools (deduped by absolute path) and feed into
+ *      `pickPrimaryEditedPath`:
+ *      a single office/PDF/media artifact wins; otherwise we only
+ *      surface a pill if the entire turn touched exactly one
+ *      previewable file.
+ *
+ * The runtime is the source of truth for what was edited. The chat
+ * surface no longer sniffs tool names like `Write`, `Edit`, or
+ * `apply_patch` — any new file-mutating tool that emits structured
+ * `fileChanges` automatically participates in the resource pill.
+ */
+import { isOfficePreviewRef } from "@stella/contracts/office-preview";
+import { isFileChangeRecordArray, isProducedFileRecordArray, } from "@stella/contracts/file-changes";
+import { kindForPath, basenameOf, extensionOf, fileArtifactPayloadForPath, isDeclaredOutputPath, isDeveloperResourceExtension, isNoiseProducedPath, pickPrimaryEditedPath, } from "@/features/workspace-display/path-to-viewer";
+import { isToolRequest, isToolResult } from "./event-transforms";
+const asNonEmptyString = (value) => {
+    if (typeof value !== "string")
+        return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+};
+const requestedSizeFromRecord = (value) => {
+    if (!value || typeof value !== "object")
+        return null;
+    const record = value;
+    const width = typeof record.width === "number" && Number.isFinite(record.width)
+        ? Math.floor(record.width)
+        : null;
+    const height = typeof record.height === "number" && Number.isFinite(record.height)
+        ? Math.floor(record.height)
+        : null;
+    return width !== null && height !== null && width > 0 && height > 0
+        ? { width, height }
+        : null;
+};
+const normalizePosixPath = (candidate) => {
+    const trimmed = candidate.trim();
+    if (!trimmed)
+        return trimmed;
+    const leadingSlash = trimmed.startsWith("/");
+    const segments = [];
+    for (const part of trimmed.split("/")) {
+        if (!part || part === ".")
+            continue;
+        if (part === "..") {
+            if (segments.length > 0)
+                segments.pop();
+            continue;
+        }
+        segments.push(part);
+    }
+    return `${leadingSlash ? "/" : ""}${segments.join("/")}`;
+};
+const resolvePathAgainstCwd = (candidate, cwd) => {
+    const trimmed = asNonEmptyString(candidate);
+    const base = asNonEmptyString(cwd);
+    if (!trimmed || !base || !base.startsWith("/"))
+        return null;
+    if (trimmed.startsWith("/"))
+        return normalizePosixPath(trimmed);
+    return normalizePosixPath(`${base.replace(/\/+$/g, "")}/${trimmed}`);
+};
+const resolveRelativePathFromKnownAbsolute = (candidate, absoluteCandidates) => {
+    const trimmed = asNonEmptyString(candidate);
+    if (!trimmed || trimmed.startsWith("/"))
+        return null;
+    // Without a turn cwd we can still dedupe common `./foo/bar.pdf` links by
+    // matching them against the absolute edited / referenced paths we already
+    // collected for this turn.
+    if (trimmed.startsWith("../"))
+        return null;
+    const suffix = normalizePosixPath(trimmed).replace(/^\/+/, "");
+    if (!suffix)
+        return null;
+    const matches = absoluteCandidates.filter((existing) => existing === suffix || existing.endsWith(`/${suffix}`));
+    return matches.length === 1 ? matches[0] : null;
+};
+/**
+ * Inline-card file collection is orchestrator-DIRECT only. Delegated-agent
+ * outputs are DELIBERATELY excluded here and surface as pills on that agent's
+ * own completion card (see `AgentCompletionCard`) instead of rolling up as a
+ * jumpy inline artifact card on the orchestrator's reply row. Prevention at
+ * the source, not render-then-strip. Two delegated shapes to exclude:
+ *
+ *   - `agent-completed` lifecycle events (the end-of-run rollup carrying
+ *     `agentId` + the run's full `fileChanges`/`producedFiles`).
+ *   - MID-RUN `tool_result` events from a delegated agent's own tool calls:
+ *     the runner forwards subagent tool ends into the conversation stream, so
+ *     they land on the orchestrator's current assistant row stamped with the
+ *     subagent's `agentType` (e.g. `general`, a custom subagent id) — but no
+ *     `agentId`. Without this guard each such write pops a loose standalone
+ *     pill while the agent is still working. Every mid-run write is also
+ *     collected into that run's `agent-completed` rollup, so excluding it
+ *     here loses nothing — it reappears inside the owning agent's completion
+ *     card, per-agent even when several agents run concurrently.
+ *
+ * A `tool_result` with `agentType === "orchestrator"` (the same gate
+ * `imageGenPayloadsByPath` / `orchestratorHtmlPayload` use) or with no
+ * `agentType` at all (legacy persisted events, which predate the stamp and
+ * were always orchestrator-direct) keeps rendering inline exactly as today.
+ */
+const isDelegatedToolResult = (event) => {
+    if (!isToolResult(event))
+        return false;
+    const agentType = event.payload.agentType;
+    return (typeof agentType === "string" &&
+        agentType.trim().length > 0 &&
+        agentType !== "orchestrator");
+};
+const fileChangesForResult = (event) => {
+    if (!isToolResult(event) || isDelegatedToolResult(event))
+        return [];
+    const candidate = event.payload
+        ?.fileChanges;
+    return isFileChangeRecordArray(candidate) ? candidate : [];
+};
+/**
+ * Post-change path of a file record (`move_path` wins for moves) — the
+ * location surfaces would actually open.
+ */
+const postChangePathForRecord = (record) => record.kind.type === "update" && record.kind.move_path
+    ? record.kind.move_path
+    : record.path;
+const producedFilesForResult = (event) => {
+    if (!isToolResult(event) || isDelegatedToolResult(event))
+        return [];
+    const candidate = event.payload
+        ?.producedFiles;
+    if (!isProducedFileRecordArray(candidate))
+        return [];
+    // Snapshot-detected outputs sweep up profile/cache/log noise alongside the
+    // real deliverables — drop the noise at the extraction choke point so every
+    // consumer in this module (produced pool, html-output payload) is covered.
+    return candidate.filter((record) => !isNoiseProducedPath(postChangePathForRecord(record)));
+};
+const officeRefForResult = (event) => {
+    if (!isToolResult(event))
+        return null;
+    const ref = event.payload
+        .officePreviewRef;
+    return isOfficePreviewRef(ref) ? ref : null;
+};
+/**
+ * Resolve a fileChange record into the canonical post-mutation path,
+ * using the post-mutation path:
+ *   - `update` with `move_path` → use the new location
+ *   - `update` without `move_path` / `add` → use `path`
+ *   - `delete` → produces no edited path; deleted files can't be
+ *     previewed.
+ */
+const resolveFileChange = (record, timestamp) => {
+    const kindType = record.kind.type;
+    if (kindType === "delete")
+        return null;
+    const path = kindType === "update" && record.kind.move_path
+        ? record.kind.move_path
+        : record.path;
+    const trimmed = asNonEmptyString(path);
+    if (!trimmed)
+        return null;
+    return { path: trimmed, kind: kindType, timestamp };
+};
+/**
+ * Pull `image_gen` rich metadata (jobId / prompt / capability) out of a
+ * tool_result so the in-sidebar viewer keeps its prompt context. We
+ * still rely on the tool's `fileChanges` for path collection, but the
+ * rich metadata lives in `details` and isn't part of the `fileChange`
+ * contract.
+ */
+const imageGenPayloadsByPath = (toolEvents) => {
+    const byPath = new Map();
+    for (const event of toolEvents) {
+        if (!isToolResult(event))
+            continue;
+        if (event.payload.toolName !== "image_gen" || event.payload.error)
+            continue;
+        const result = event.payload.result;
+        if (!result || typeof result !== "object")
+            continue;
+        const record = result;
+        const rawPaths = record.filePaths;
+        if (!Array.isArray(rawPaths))
+            continue;
+        const filePaths = rawPaths.filter((filePath) => typeof filePath === "string" && filePath.trim().length > 0);
+        if (filePaths.length === 0)
+            continue;
+        const payload = {
+            kind: "media",
+            asset: { kind: "image", filePaths },
+            createdAt: event.timestamp,
+            ...(typeof record.jobId === "string" ? { jobId: record.jobId } : {}),
+            ...(typeof record.capability === "string"
+                ? { capability: record.capability }
+                : {}),
+            ...(typeof record.prompt === "string" ? { prompt: record.prompt } : {}),
+            ...(typeof record.aspectRatio === "string"
+                ? { aspectRatio: record.aspectRatio }
+                : {}),
+            ...(requestedSizeFromRecord(record.requestedSize)
+                ? { requestedSize: requestedSizeFromRecord(record.requestedSize) }
+                : {}),
+            ...(event.payload.agentType ===
+                "orchestrator"
+                ? { presentation: "inline-image" }
+                : {}),
+        };
+        for (const filePath of filePaths) {
+            if (!byPath.has(filePath))
+                byPath.set(filePath, payload);
+        }
+    }
+    return byPath;
+};
+/**
+ * Pull the orchestrator's last `html` tool result for this turn and build
+ * a file-backed `canvas-html` payload from it. The tool writes a
+ * self-contained HTML document under `~/.stella/outputs/html/<slug>.html` and
+ * we surface it as both an inline artifact card AND a Canvas display tab.
+ *
+ * Mirrors `inlineImageGenSubmissionPayload`: orchestrator-only, latest
+ * call wins (the assistant rarely emits more than one canvas per turn,
+ * but if it does, the freshest one is the right artifact to anchor the
+ * row).
+ */
+const orchestratorHtmlPayload = (toolEvents) => {
+    for (let index = toolEvents.length - 1; index >= 0; index -= 1) {
+        const event = toolEvents[index];
+        if (!isToolResult(event))
+            continue;
+        if (event.payload.toolName !== "html" || event.payload.error)
+            continue;
+        if (event.payload.agentType !== "orchestrator") {
+            continue;
+        }
+        const candidate = event.payload.details && typeof event.payload.details === "object"
+            ? event.payload.details
+            : event.payload.result;
+        if (!candidate || typeof candidate !== "object")
+            continue;
+        const record = candidate;
+        const filePath = asNonEmptyString(record.filePath);
+        if (!filePath)
+            continue;
+        const title = asNonEmptyString(record.title) ?? undefined;
+        const slug = asNonEmptyString(record.slug) ?? undefined;
+        const createdAtNum = typeof record.createdAt === "number" && Number.isFinite(record.createdAt)
+            ? record.createdAt
+            : event.timestamp;
+        return {
+            kind: "canvas-html",
+            filePath,
+            ...(title ? { title } : {}),
+            ...(slug ? { slug } : {}),
+            createdAt: createdAtNum,
+        };
+    }
+    return null;
+};
+/**
+ * Pull a `canvas-html` payload from any tool-result this turn whose
+ * `fileChanges` touch an `.html` file anywhere under `~/.stella/outputs/**`
+ * (the declared deliverables dir — `outputs/html/` canvases included, but
+ * also e.g. reports written straight to `outputs/report.html`, which are
+ * user-facing documents, not developer source). Lets the general agent (or
+ * any future tool that uses `apply_patch`/`exec_command`) write a canvas to
+ * the conventional output dir and have it surface as an inline artifact +
+ * Canvas tab, the same way the orchestrator's `html` tool does. The
+ * orchestrator's richer (title-carrying) result is preferred — this is the
+ * fallback when no orchestrator html tool was used. Latest write in the
+ * turn wins.
+ */
+const HTML_OUTPUT_PATH_RE = /(?:^|\/)(?:\.stella|state)\/outputs\/(?:.+\/)?([^/]+)\.html$/;
+const titleFromHtmlSlug = (slug) => {
+    const trimmed = slug.trim();
+    if (!trimmed)
+        return "Canvas";
+    return trimmed
+        .split("-")
+        .filter((segment) => segment.length > 0)
+        .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+        .join(" ");
+};
+const fileChangeHtmlOutputPayload = (toolEvents) => {
+    let latest = null;
+    for (const event of toolEvents) {
+        // Orchestrator-DIRECT html writes only. Delegated-agent `agent-completed`
+        // events (which may fold an auto "finishing up" canvas into producedFiles)
+        // are excluded — that canvas surfaces as a pill on the agent's completion
+        // card, not as an inline orchestrator artifact.
+        if (!isToolResult(event))
+            continue;
+        if (event.payload.error)
+            continue;
+        for (const record of [
+            ...fileChangesForResult(event),
+            ...producedFilesForResult(event),
+        ]) {
+            const resolved = resolveFileChange(record, event.timestamp);
+            if (!resolved)
+                continue;
+            const match = HTML_OUTPUT_PATH_RE.exec(resolved.path);
+            if (!match)
+                continue;
+            if (!latest || resolved.timestamp >= latest.createdAt) {
+                latest = {
+                    filePath: resolved.path,
+                    slug: match[1],
+                    createdAt: resolved.timestamp,
+                };
+            }
+        }
+    }
+    if (!latest)
+        return null;
+    return {
+        kind: "canvas-html",
+        filePath: latest.filePath,
+        title: titleFromHtmlSlug(latest.slug),
+        slug: latest.slug,
+        createdAt: latest.createdAt,
+    };
+};
+const normalizeNumImages = (value) => {
+    if (typeof value !== "number" || !Number.isFinite(value))
+        return null;
+    const rounded = Math.floor(value);
+    return rounded >= 1 ? Math.min(rounded, 4) : null;
+};
+const orchestratorImageGenRecord = (event) => {
+    if (!isToolResult(event))
+        return null;
+    if (event.payload.toolName !== "image_gen" || event.payload.error)
+        return null;
+    if (event.payload.agentType !== "orchestrator") {
+        return null;
+    }
+    const candidate = event.payload.details && typeof event.payload.details === "object"
+        ? event.payload.details
+        : event.payload.result;
+    if (!candidate || typeof candidate !== "object")
+        return null;
+    return candidate;
+};
+const isOrchestratorInlineImageGenResult = (event) => orchestratorImageGenRecord(event) !== null;
+/**
+ * One payload per orchestrator `image_gen` call in the turn. Each payload
+ * may represent multiple images; the inline card group expands it into
+ * one placeholder/card per image.
+ */
+export const deriveTurnInlineImagePayloads = (toolEvents) => {
+    const payloads = [];
+    for (const event of toolEvents) {
+        const record = orchestratorImageGenRecord(event);
+        if (!record)
+            continue;
+        const jobId = asNonEmptyString(record.jobId);
+        const rawPaths = record.filePaths;
+        const filePaths = Array.isArray(rawPaths)
+            ? rawPaths.filter((filePath) => typeof filePath === "string" && filePath.trim().length > 0)
+            : [];
+        const numImages = normalizeNumImages(record.numImages) ??
+            normalizeNumImages(record.num_images);
+        if (!jobId && filePaths.length === 0)
+            continue;
+        payloads.push({
+            kind: "media",
+            asset: { kind: "image", filePaths },
+            ...(jobId ? { jobId } : {}),
+            ...(typeof record.capability === "string"
+                ? { capability: record.capability }
+                : {}),
+            ...(typeof record.prompt === "string" ? { prompt: record.prompt } : {}),
+            ...(typeof record.aspectRatio === "string"
+                ? { aspectRatio: record.aspectRatio }
+                : {}),
+            ...(requestedSizeFromRecord(record.requestedSize)
+                ? { requestedSize: requestedSizeFromRecord(record.requestedSize) }
+                : {}),
+            ...(numImages ? { numImages } : {}),
+            presentation: "inline-image",
+            createdAt: event.timestamp,
+        });
+    }
+    return payloads;
+};
+export const buildPayloadFromBarePath = (filePath, createdAt, options) => {
+    // HTML artifacts under `~/.stella/outputs/**` (canvases in `outputs/html/`
+    // plus reports/documents written anywhere in the outputs tree) need to
+    // surface as a `canvas-html` payload (not a generic .html source diff) so
+    // the home overview's Recent files list, the inline chat card, completion
+    // pills, and the workspace Canvas tab all open the same viewer.
+    const htmlMatch = HTML_OUTPUT_PATH_RE.exec(filePath);
+    if (htmlMatch) {
+        const slug = htmlMatch[1];
+        return {
+            kind: "canvas-html",
+            filePath,
+            title: titleFromHtmlSlug(slug),
+            slug,
+            createdAt,
+        };
+    }
+    switch (kindForPath(filePath)) {
+        case "markdown":
+            return {
+                kind: "markdown",
+                filePath,
+                title: basenameOf(filePath),
+                createdAt,
+            };
+        case "office-document":
+        case "office-spreadsheet":
+        case "office-slides":
+            if (options?.produced !== true)
+                return null;
+            return (fileArtifactPayloadForPath(filePath, createdAt) ?? {
+                kind: "media",
+                asset: {
+                    kind: "download",
+                    filePath,
+                    label: basenameOf(filePath),
+                },
+                createdAt,
+            });
+        case "pdf":
+            return { kind: "pdf", filePath };
+        case "image":
+            return {
+                kind: "media",
+                asset: { kind: "image", filePaths: [filePath] },
+                createdAt,
+            };
+        case "video":
+            return { kind: "media", asset: { kind: "video", filePath }, createdAt };
+        case "audio":
+            return { kind: "media", asset: { kind: "audio", filePath }, createdAt };
+        case "model3d":
+            return {
+                kind: "media",
+                asset: { kind: "model3d", filePath },
+                createdAt,
+            };
+        default:
+            if (options?.developerResourcesEnabled === true &&
+                isDeveloperResourceExtension(extensionOf(filePath))) {
+                return {
+                    kind: "source-diff",
+                    filePath,
+                    title: basenameOf(filePath),
+                    ...(options.patch ? { patch: options.patch } : {}),
+                    createdAt,
+                };
+            }
+            // Office files opened from bare edit paths still require a preview
+            // session ref. Plain text fallbacks are unsupported by the viewers
+            // today, so skip them rather than render a pill that does nothing.
+            return null;
+    }
+};
+const patchInputForToolCall = (toolEvents, toolCallId) => {
+    if (!toolCallId)
+        return undefined;
+    const request = toolEvents.find((event) => isToolRequest(event) &&
+        event.payload.toolName === "apply_patch" &&
+        event.requestId === toolCallId);
+    const args = request && isToolRequest(request) ? request.payload.args : null;
+    const input = args?.input ?? args?.patch;
+    return typeof input === "string" && input.trim().length > 0
+        ? input
+        : undefined;
+};
+const requestIdForEvent = (event) => {
+    if (typeof event.requestId === "string" && event.requestId.trim()) {
+        return event.requestId;
+    }
+    const payloadRequestId = event.payload?.requestId;
+    return typeof payloadRequestId === "string" && payloadRequestId.trim()
+        ? payloadRequestId
+        : undefined;
+};
+/**
+ * Extract local file paths referenced via markdown links in the
+ * assistant message text. Walk the markdown for link nodes, decode the url,
+ * and discard anything that looks like an http(s) / mailto link or otherwise
+ * isn't a local path.
+ *
+ * Uses a regex instead of a full markdown AST walk because we don't
+ * already have the parsed tree on hand and the rules are simple.
+ * Handles both `[text](url)` and `[text](<url>)` forms.
+ */
+// Two forms, matched in one pass:
+//   - `[text](<url with spaces>)` → group 1 captures the angle-bracket
+//     payload, which is allowed to contain whitespace
+//   - `[text](url-without-spaces)` → group 2 captures the bare payload
+const MARKDOWN_LINK_RE = /\[[^\]]*?\]\(\s*(?:<([^>]+)>|([^()<>\s]+))\s*\)/g;
+const NON_FILE_URL_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+export const extractMarkdownLinkPaths = (assistantText) => {
+    if (!assistantText)
+        return [];
+    const out = [];
+    for (const match of assistantText.matchAll(MARKDOWN_LINK_RE)) {
+        const raw = match[1] ?? match[2];
+        if (!raw)
+            continue;
+        let decoded;
+        try {
+            decoded = decodeURI(raw);
+        }
+        catch {
+            decoded = raw;
+        }
+        const trimmed = decoded.trim();
+        if (!trimmed)
+            continue;
+        if (NON_FILE_URL_RE.test(trimmed))
+            continue;
+        out.push(trimmed);
+    }
+    return out;
+};
+const resolveReferencedMarkdownPath = (rawLinkPath, turnCwd, absoluteCandidates) => {
+    const trimmed = asNonEmptyString(rawLinkPath);
+    if (!trimmed)
+        return null;
+    if (trimmed.startsWith("/"))
+        return normalizePosixPath(trimmed);
+    return (resolvePathAgainstCwd(trimmed, turnCwd) ??
+        resolveRelativePathFromKnownAbsolute(trimmed, absoluteCandidates) ??
+        trimmed);
+};
+/**
+ * Derive the primary `DisplayPayload` for a turn, or `null` if no
+ * eligible artifact was touched.
+ */
+/**
+ * Collect this turn's developer-resource source-diff payloads, in
+ * edit order. Returns an empty array when the setting is off or no
+ * developer files were edited.
+ *
+ * The list size doubles as the "N file changes" label (the chat
+ * surface uses `.length`), and the payloads themselves feed the
+ * singleton "Code changes" tab batch on click.
+ *
+ * Tool-agnostic — any tool that emits `fileChanges` participates
+ * (apply_patch carries the unified-diff text in `patch`; write/edit
+ * tools fall back to the file-bytes preview in `SourceDiffTabContent`).
+ */
+export const collectTurnSourceDiffPayloads = (toolEvents, options) => {
+    if (options?.developerResourcesEnabled !== true)
+        return [];
+    if (toolEvents.length === 0)
+        return [];
+    const seen = new Set();
+    const payloads = [];
+    for (const event of toolEvents) {
+        const records = fileChangesForResult(event);
+        for (const record of records) {
+            const resolved = resolveFileChange(record, event.timestamp);
+            if (!resolved)
+                continue;
+            if (!isDeveloperResourceExtension(extensionOf(resolved.path)))
+                continue;
+            if (seen.has(resolved.path))
+                continue;
+            seen.add(resolved.path);
+            const patch = isToolResult(event) && event.payload.toolName === "apply_patch"
+                ? patchInputForToolCall(toolEvents, requestIdForEvent(event))
+                : undefined;
+            payloads.push({
+                kind: "source-diff",
+                filePath: resolved.path,
+                title: basenameOf(resolved.path),
+                ...(patch ? { patch } : {}),
+                createdAt: resolved.timestamp,
+            });
+        }
+    }
+    return payloads;
+};
+export const deriveTurnResource = (toolEvents, assistantText = "", turnCwd, options) => {
+    if (toolEvents.length === 0 && !assistantText)
+        return null;
+    // The `html` canvas wins outright when present — its purpose is
+    // "show this canvas inline + open it in the panel", and an HTML
+    // canvas is never the same artifact as an unrelated edited file, so
+    // we skip the file-pool merge and surface it directly. The
+    // orchestrator's first-class `html` tool is preferred (it carries an
+    // explicit title); otherwise any other tool (e.g. the general agent
+    // via `apply_patch`/`exec_command`) writing to
+    // `~/.stella/outputs/html/*.html` is treated the same way.
+    const htmlPayload = orchestratorHtmlPayload(toolEvents) ??
+        fileChangeHtmlOutputPayload(toolEvents);
+    if (htmlPayload)
+        return htmlPayload;
+    // Build payloadByPath using rich signals (office previews + image_gen
+    // metadata) so the chosen path resolves to a previewer that keeps
+    // session ids / prompts / capability context.
+    const payloadByPath = new Map();
+    const imagePayloads = imageGenPayloadsByPath(toolEvents);
+    for (const [filePath, payload] of imagePayloads) {
+        if (!payloadByPath.has(filePath)) {
+            payloadByPath.set(filePath, payload);
+        }
+    }
+    const referencedFromOffice = new Map();
+    for (const event of toolEvents) {
+        const office = officeRefForResult(event);
+        if (!office)
+            continue;
+        const path = office.sourcePath;
+        if (!referencedFromOffice.has(path)) {
+            referencedFromOffice.set(path, office);
+        }
+        if (!payloadByPath.has(path)) {
+            payloadByPath.set(path, { kind: "office", previewRef: office });
+        }
+    }
+    // Edited pool = paths from explicit fileChange items.
+    const editedPaths = [];
+    const editedSeen = new Set();
+    for (const event of toolEvents) {
+        if (isOrchestratorInlineImageGenResult(event))
+            continue;
+        const records = fileChangesForResult(event);
+        for (const record of records) {
+            const resolved = resolveFileChange(record, event.timestamp);
+            if (!resolved)
+                continue;
+            if (editedSeen.has(resolved.path))
+                continue;
+            editedSeen.add(resolved.path);
+            editedPaths.push(resolved.path);
+            if (!payloadByPath.has(resolved.path)) {
+                const patch = isToolResult(event) && event.payload.toolName === "apply_patch"
+                    ? patchInputForToolCall(toolEvents, requestIdForEvent(event))
+                    : undefined;
+                const inferred = buildPayloadFromBarePath(resolved.path, resolved.timestamp, {
+                    developerResourcesEnabled: options?.developerResourcesEnabled,
+                    ...(patch ? { patch } : {}),
+                });
+                if (inferred) {
+                    payloadByPath.set(resolved.path, inferred);
+                }
+            }
+        }
+    }
+    // Stella's produced-file pool = user-facing outputs detected from shell/CLI
+    // side effects or rolled up from child agents. These are not explicit edit
+    // artifacts, but they should still surface in Stella's chat.
+    const producedPaths = [];
+    const producedSeen = new Set();
+    for (const event of toolEvents) {
+        if (isOrchestratorInlineImageGenResult(event))
+            continue;
+        const records = producedFilesForResult(event);
+        for (const record of records) {
+            const resolved = resolveFileChange(record, event.timestamp);
+            if (!resolved)
+                continue;
+            if (producedSeen.has(resolved.path) || editedSeen.has(resolved.path))
+                continue;
+            producedSeen.add(resolved.path);
+            producedPaths.push(resolved.path);
+            if (!payloadByPath.has(resolved.path)) {
+                const inferred = buildPayloadFromBarePath(resolved.path, resolved.timestamp, {
+                    produced: true,
+                    developerResourcesEnabled: options?.developerResourcesEnabled,
+                });
+                if (inferred) {
+                    payloadByPath.set(resolved.path, inferred);
+                }
+            }
+        }
+    }
+    // Referenced pool = office preview ref source paths + markdown links in the
+    // assistant message text.
+    const referencedPaths = [];
+    const referencedSeen = new Set();
+    const absoluteCandidates = [
+        ...editedPaths,
+        ...producedPaths,
+        ...referencedFromOffice.keys(),
+    ]
+        .filter((candidate) => candidate.startsWith("/"))
+        .map(normalizePosixPath);
+    const pushReferenced = (path) => {
+        if (!path || referencedSeen.has(path) || editedSeen.has(path))
+            return;
+        referencedSeen.add(path);
+        referencedPaths.push(path);
+    };
+    for (const sourcePath of referencedFromOffice.keys())
+        pushReferenced(sourcePath);
+    for (const linkPath of extractMarkdownLinkPaths(assistantText)) {
+        pushReferenced(resolveReferencedMarkdownPath(linkPath, turnCwd, absoluteCandidates));
+    }
+    // Within the produced pool, declared deliverables (`~/.stella/outputs/**`)
+    // outrank incidental writes elsewhere: `pickPrimaryEditedPath` returns the
+    // FIRST preferred-extension path, so ordering decides which file anchors
+    // the card when a run produced both (e.g. a rendered video in outputs plus
+    // scratch frames in a worktree).
+    const rankedProducedPaths = [
+        ...producedPaths.filter(isDeclaredOutputPath),
+        ...producedPaths.filter((path) => !isDeclaredOutputPath(path)),
+    ];
+    const candidatePaths = [
+        ...editedPaths,
+        ...rankedProducedPaths,
+        ...referencedPaths,
+    ];
+    if (candidatePaths.length === 0)
+        return null;
+    const primary = pickPrimaryEditedPath(candidatePaths, {
+        includeDeveloperResources: options?.developerResourcesEnabled,
+    });
+    if (!primary)
+        return null;
+    const directPayload = payloadByPath.get(primary);
+    if (directPayload)
+        return directPayload;
+    const fallbackTimestamp = toolEvents[toolEvents.length - 1]?.timestamp ?? Date.now();
+    return buildPayloadFromBarePath(primary, fallbackTimestamp, {
+        developerResourcesEnabled: options?.developerResourcesEnabled,
+    });
+};

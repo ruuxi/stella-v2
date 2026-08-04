@@ -1,0 +1,478 @@
+import { execFile } from 'child_process';
+import { app as electronApp } from 'electron';
+import { runNativeHelper, runNativeHelperDetailed } from './native-helper.js';
+import { requestRecentAppsDaemon } from './native-helper-daemon.js';
+// Dedicated home-suggestion helper. Lives in `home_apps.swift` (separate
+// from `desktop_automation` so the agent-facing tool stays untouched by
+// renderer-UI concerns: MRU sort, AX title fallback, regular-apps-only
+// scope, per-element AX timeouts, diagnostics in warnings).
+const HELPER_NAME = 'home_apps';
+// Perf: the dominant CPU win is the renderer-side focus/visibility gate, which
+// stops the ~5s poll entirely while Stella is hidden/blurred. This cache only
+// dedupes redundant spawns from concurrent callers (e.g. multiple surfaces) or
+// timer jitter. Keep the TTL BELOW the ~5s poll interval (POLL_INTERVAL_MS) so
+// each foreground poll still refetches and a real foreground-app change shows
+// up on the very next poll — a TTL >= the interval would make alternate polls
+// serve stale data and double the visible refresh latency.
+const RECENT_APPS_CACHE_MS = 2_500;
+const WINDOWS_RECENT_APPS_CACHE_MS = 10_000;
+const WINDOWS_NATIVE_HELPER_TIMEOUT_MS = 1_000;
+const WINDOWS_NATIVE_SLOW_SUCCESS_THRESHOLD_MS = 750;
+const WINDOWS_NATIVE_SLOW_SUCCESS_BACKOFF_MS = 60_000;
+const recentAppsCache = new Map();
+const recentAppsInFlight = new Map();
+/**
+ * Apps that are part of the OS chrome / always-on infra. Filtered before
+ * showing in the renderer because they carry no user signal as a chip.
+ */
+const NOISE_NAMES = new Set([
+    // macOS — UI chrome
+    'finder',
+    'dock',
+    'systemuiserver',
+    'controlcenter',
+    'control center',
+    'notificationcenter',
+    'notification center',
+    'spotlight',
+    'windowserver',
+    'screen sharing',
+    'wallpaper',
+    'loginwindow',
+    'coreservicesuiagent',
+    'sidecar',
+    'siri',
+    'crashpad',
+    // macOS — TCC / privacy / auth prompts that occasionally register as
+    // .regular activation-policy apps. None of them are something a user
+    // would deliberately treat as "context for Stella."
+    'universalaccessauthwarn',
+    'universal access auth',
+    'tccd',
+    'authorizationhost',
+    'securityagent',
+    'storedownloadd',
+    'screenshot',
+    // Windows
+    'explorer',
+    'searchhost',
+    'searchapp',
+    'startmenuexperiencehost',
+    'shellexperiencehost',
+    'lockapp',
+    'applicationframehost',
+    'runtimebroker',
+    'textinputhost',
+    'sihost',
+    'ctfmon',
+    'dwm',
+    'fontdrvhost',
+    'csrss',
+    'wininit',
+    'winlogon',
+    'services',
+    'smss',
+    'lsass',
+    'svchost',
+    'taskhostw',
+    'systemsettings',
+    'gamebar',
+    'gamebarpresencewriter',
+    'msedgewebview2',
+    'widgets',
+]);
+/**
+ * macOS bundle-id substrings for Apple system services that periodically
+ * present themselves as regular apps (auth prompts, install dialogs, etc.).
+ * Substring match is intentional — Apple keeps adding new variants
+ * (`com.apple.*.UniversalAccessAuthWarn`,
+ *  `com.apple.AccessibilityVisualsAgent`, etc.) and a substring net
+ * catches them all.
+ */
+const NOISE_BUNDLE_ID_SUBSTRINGS = [
+    'universalaccessauth',
+    'tccd',
+    'authorizationhost',
+    'securityagent',
+    'screensharing',
+    'screencaptureui',
+    'systemuiserver',
+    'controlcenter',
+    'notificationcenter',
+    'spotlight',
+    'windowserver',
+    'loginwindow',
+    'coreservicesuiagent',
+];
+const STELLA_BUNDLE_ID_PREFIXES = ['com.stella', 'ai.stella', 'org.stella'];
+const STELLA_PROCESS_NAMES = new Set([
+    'stella',
+    'stella helper',
+    'stella overlay',
+]);
+const STELLA_EXECUTABLE_PATH_NEEDLES = [
+    '\\stella\\',
+    '/stella/',
+    '\\stella.app\\',
+    '/stella.app/',
+];
+const STELLA_WINDOW_TITLE_PREFIXES = [
+    'stella',
+    'stella overlay',
+];
+const hasStellaExecutablePath = (executablePath) => {
+    const exePath = executablePath?.toLowerCase().trim();
+    if (!exePath)
+        return false;
+    const normalized = exePath.replaceAll('/', '\\');
+    if (normalized.endsWith('\\stella.exe'))
+        return true;
+    if (normalized.endsWith('\\stella helper.exe'))
+        return true;
+    for (const needle of STELLA_EXECUTABLE_PATH_NEEDLES) {
+        if (exePath.includes(needle))
+            return true;
+    }
+    return false;
+};
+const isStellaApp = (rawName, bundleId, executablePath, windowTitle) => {
+    const lowerBundle = bundleId?.toLowerCase();
+    if (lowerBundle) {
+        for (const prefix of STELLA_BUNDLE_ID_PREFIXES) {
+            if (lowerBundle.startsWith(prefix))
+                return true;
+        }
+    }
+    const name = (rawName ?? '').toLowerCase().trim();
+    if (STELLA_PROCESS_NAMES.has(name))
+        return true;
+    const hasStellaPath = hasStellaExecutablePath(executablePath);
+    if (hasStellaPath)
+        return true;
+    const title = windowTitle?.toLowerCase().trim();
+    if (title && (name === 'electron' || name.includes('stella') || hasStellaPath)) {
+        for (const prefix of STELLA_WINDOW_TITLE_PREFIXES) {
+            if (title === prefix ||
+                title.startsWith(`${prefix} `) ||
+                title.startsWith(`${prefix} -`) ||
+                title.startsWith(`${prefix}:`))
+                return true;
+        }
+    }
+    return false;
+};
+const isNoiseName = (name) => NOISE_NAMES.has(name.toLowerCase().trim());
+const isNoiseBundleId = (bundleId) => {
+    if (!bundleId)
+        return false;
+    const lower = bundleId.toLowerCase();
+    for (const needle of NOISE_BUNDLE_ID_SUBSTRINGS) {
+        if (lower.includes(needle))
+            return true;
+    }
+    return false;
+};
+// ---------------------------------------------------------------------------
+// macOS implementation — wraps the bundled `home_apps list` helper.
+// home_apps already filters to regular activation-policy apps (so the AX
+// title-fallback loop stays bounded). It returns apps in MRU order with
+// each app's topmost-window title attached.
+// ---------------------------------------------------------------------------
+const listRecentAppsMac = async (limit) => {
+    // Generous timeout because the helper's AX-title fallback can stall for
+    // ~0.5s per pid when an app is unresponsive. The UI polls infrequently
+    // enough that 8s is invisible.
+    const stdout = await runNativeHelper(HELPER_NAME, ['list'], {
+        timeout: 8_000,
+        maxBuffer: 4 * 1024 * 1024,
+        onError: (error) => {
+            console.warn('[home] home_apps list (mac) failed', error.message);
+        },
+    });
+    if (!stdout)
+        return null;
+    let parsed;
+    try {
+        parsed = JSON.parse(stdout);
+    }
+    catch (error) {
+        console.warn('[home] home_apps list (mac) parse failed', error);
+        return null;
+    }
+    if (parsed.ok === false || !Array.isArray(parsed.apps)) {
+        return null;
+    }
+    const cleaned = [];
+    const seenPids = new Set();
+    for (const raw of parsed.apps) {
+        if (typeof raw.name !== 'string' || typeof raw.pid !== 'number')
+            continue;
+        if (isStellaApp(raw.name, raw.bundleId ?? null, null, raw.windowTitle ?? null))
+            continue;
+        if (isNoiseName(raw.name))
+            continue;
+        if (isNoiseBundleId(raw.bundleId ?? null))
+            continue;
+        if (seenPids.has(raw.pid))
+            continue;
+        seenPids.add(raw.pid);
+        const windowTitle = typeof raw.windowTitle === 'string' ? raw.windowTitle.trim() : '';
+        const iconDataUrl = typeof raw.iconDataUrl === 'string' &&
+            raw.iconDataUrl.startsWith('data:image/')
+            ? raw.iconDataUrl
+            : undefined;
+        cleaned.push({
+            name: raw.name,
+            bundleId: raw.bundleId ?? undefined,
+            pid: raw.pid,
+            isActive: Boolean(raw.isActive),
+            windowTitle: windowTitle || undefined,
+            iconDataUrl,
+        });
+    }
+    return cleaned.slice(0, Math.max(0, limit));
+};
+const windowsIconCache = new Map();
+let windowsRecentAppsNativeBackoffUntil = 0;
+const execAsync = (command, args, timeoutMs) => new Promise((resolve) => {
+    execFile(command, args, {
+        timeout: timeoutMs,
+        encoding: 'utf8',
+        maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true,
+    }, (error, stdout) => {
+        if (error) {
+            resolve(null);
+            return;
+        }
+        resolve(typeof stdout === 'string' ? stdout : null);
+    });
+});
+const cleanWindowsName = (name) => name.replace(/\.exe$/i, '').trim();
+const resolveWindowsIconDataUrl = async (executablePath) => {
+    const normalizedPath = typeof executablePath === 'string' ? executablePath.trim() : '';
+    if (!normalizedPath)
+        return undefined;
+    if (!electronApp.isReady())
+        return undefined;
+    const cached = windowsIconCache.get(normalizedPath);
+    if (cached !== undefined)
+        return cached ?? undefined;
+    try {
+        const icon = await electronApp.getFileIcon(normalizedPath, { size: 'normal' });
+        if (icon.isEmpty()) {
+            windowsIconCache.set(normalizedPath, null);
+            return undefined;
+        }
+        const resized = icon.resize({ width: 32, height: 32 });
+        const dataUrl = resized.isEmpty() ? icon.toDataURL() : resized.toDataURL();
+        const normalizedDataUrl = dataUrl.startsWith('data:image/')
+            ? dataUrl
+            : null;
+        windowsIconCache.set(normalizedPath, normalizedDataUrl);
+        return normalizedDataUrl ?? undefined;
+    }
+    catch {
+        windowsIconCache.set(normalizedPath, null);
+        return undefined;
+    }
+};
+const listRecentAppsWindows = async (limit) => {
+    if (limit <= 0)
+        return [];
+    // Prefer the native EnumWindows helper (a single in-process walk, no
+    // PowerShell cold start). Fall back to the PowerShell snapshot when the
+    // helper is absent/old or returns malformed output; helper timeouts should
+    // not cascade into a second slow process launch.
+    const native = await listRecentAppsWindowsNative(limit);
+    if (native !== null)
+        return native;
+    return listRecentAppsWindowsPowerShell(limit);
+};
+const parseWinProcessesJson = (stdout) => {
+    try {
+        const json = JSON.parse(stdout);
+        return Array.isArray(json) ? json : [];
+    }
+    catch {
+        return null;
+    }
+};
+const listRecentAppsWindowsNative = async (limit) => {
+    // Fast path: the persistent `recent_apps --serve` daemon answers over a pipe
+    // (no CreateProcess, no per-spawn Defender scan). It self-gates by platform
+    // and returns undefined when unavailable / old (no --serve) / wedged, in
+    // which case we fall back to the one-shot spawn below, then PowerShell.
+    const daemonResponse = await requestRecentAppsDaemon([`--limit=${limit}`]);
+    if (daemonResponse !== undefined) {
+        const parsed = parseWinProcessesJson(daemonResponse);
+        if (parsed)
+            return buildRecentAppsFromWinProcesses(parsed, limit);
+        // Daemon answered with an unexpected shape — fall through to a one-shot.
+    }
+    const now = Date.now();
+    if (windowsRecentAppsNativeBackoffUntil > now) {
+        return [];
+    }
+    const result = await runNativeHelperDetailed('recent_apps', [`--limit=${limit}`], {
+        timeout: WINDOWS_NATIVE_HELPER_TIMEOUT_MS,
+        maxBuffer: 4 * 1024 * 1024,
+        onError: () => {
+            // Missing/old binary → caller falls back to PowerShell; not an error.
+        },
+    });
+    if (result.timedOut ||
+        result.killed ||
+        result.skippedReason === 'circuit-open' ||
+        result.skippedReason === 'in-flight') {
+        return [];
+    }
+    if (result.durationMs >= WINDOWS_NATIVE_SLOW_SUCCESS_THRESHOLD_MS) {
+        windowsRecentAppsNativeBackoffUntil =
+            Date.now() + WINDOWS_NATIVE_SLOW_SUCCESS_BACKOFF_MS;
+    }
+    const stdout = result.stdout;
+    if (!stdout)
+        return null;
+    const parsed = parseWinProcessesJson(stdout);
+    if (!parsed)
+        return null;
+    return buildRecentAppsFromWinProcesses(parsed, limit);
+};
+const listRecentAppsWindowsPowerShell = async (limit) => {
+    // PowerShell: enumerate windowed processes, then mark the current foreground
+    // window as active via P/Invoke (GetForegroundWindow).
+    const psScript = `
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -Name 'StellaFW' -Namespace 'Win32' -MemberDefinition @'
+[DllImport("user32.dll")]
+public static extern System.IntPtr GetForegroundWindow();
+[DllImport("user32.dll")]
+public static extern int GetWindowThreadProcessId(System.IntPtr hWnd, out int lpdwProcessId);
+'@
+$fgPid = 0
+$null = [Win32.StellaFW]::GetWindowThreadProcessId([Win32.StellaFW]::GetForegroundWindow(), [ref]$fgPid)
+$procs = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } |
+  Select-Object Id, ProcessName, MainWindowTitle, @{Name='IsActive';Expression={$_.Id -eq $fgPid}}, @{Name='ExecutablePath';Expression={try { $_.MainModule.FileName } catch { $null }}}
+$procs | ConvertTo-Json -Compress
+`.trim();
+    const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+    const stdout = await execAsync('powershell.exe', ['-NoProfile', '-EncodedCommand', encoded], 3_000);
+    if (!stdout)
+        return null;
+    const trimmed = stdout.trim();
+    if (!trimmed || trimmed === 'null')
+        return null;
+    let parsed;
+    try {
+        const json = JSON.parse(trimmed.startsWith('[') ? trimmed : `[${trimmed}]`);
+        parsed = Array.isArray(json) ? json : [];
+    }
+    catch (error) {
+        console.warn('[home] list-apps (win) parse failed', error);
+        return null;
+    }
+    return buildRecentAppsFromWinProcesses(parsed, limit);
+};
+/**
+ * Shared cleaning/filtering for Windows windowed-process snapshots, used by
+ * both the native `recent_apps` helper and the PowerShell fallback (both emit
+ * the same `WinProcess` field shape). Sorts foreground-first, drops Stella /
+ * OS-chrome noise, dedups by pid, resolves icons concurrently, and caps to
+ * `limit`.
+ */
+const buildRecentAppsFromWinProcesses = async (parsed, limit) => {
+    const seenPids = new Set();
+    // Foreground window first, then by name (case-insensitive) for stable order.
+    parsed.sort((a, b) => {
+        if (a.IsActive !== b.IsActive) {
+            return a.IsActive ? -1 : 1;
+        }
+        const aName = (a.ProcessName ?? '').toLowerCase();
+        const bName = (b.ProcessName ?? '').toLowerCase();
+        return aName.localeCompare(bName);
+    });
+    const kept = [];
+    for (const raw of parsed) {
+        const rawName = raw.ProcessName?.trim();
+        const pid = typeof raw.Id === 'number' ? raw.Id : NaN;
+        if (!rawName || !Number.isFinite(pid))
+            continue;
+        const windowTitle = raw.MainWindowTitle?.trim() ?? '';
+        if (isStellaApp(rawName, null, raw.ExecutablePath ?? null, windowTitle))
+            continue;
+        if (isNoiseName(rawName))
+            continue;
+        if (seenPids.has(pid))
+            continue;
+        seenPids.add(pid);
+        kept.push({ raw, name: rawName, pid, windowTitle });
+        if (kept.length >= limit)
+            break;
+    }
+    // Each cache miss is a getFileIcon + resize + toDataURL round trip, so
+    // resolve all icons concurrently; share one promise per executable path so
+    // multiple processes of the same app don't decode the icon twice.
+    const iconPromisesByPath = new Map();
+    const icons = await Promise.all(kept.map(({ raw }) => {
+        const exePath = typeof raw.ExecutablePath === 'string' ? raw.ExecutablePath.trim() : '';
+        if (!exePath)
+            return Promise.resolve(undefined);
+        let promise = iconPromisesByPath.get(exePath);
+        if (!promise) {
+            promise = resolveWindowsIconDataUrl(raw.ExecutablePath);
+            iconPromisesByPath.set(exePath, promise);
+        }
+        return promise;
+    }));
+    return kept.map((entry, index) => ({
+        name: cleanWindowsName(entry.name),
+        pid: entry.pid,
+        isActive: Boolean(entry.raw.IsActive),
+        windowTitle: entry.windowTitle || undefined,
+        iconDataUrl: icons[index],
+    }));
+};
+// ---------------------------------------------------------------------------
+/**
+ * Snapshot of running user-facing apps. macOS via the bundled Swift helper;
+ * Windows via PowerShell. The frontmost app is marked `isActive: true`.
+ *
+ * Returns `null` when the platform is unsupported or the underlying snapshot
+ * call failed (treat as "no signal" — render nothing).
+ */
+export const listRecentApps = async (limit = 6) => {
+    const normalizedLimit = Math.max(0, Math.floor(limit));
+    const cacheKey = `${process.platform}:${normalizedLimit}`;
+    const now = Date.now();
+    const cached = recentAppsCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+        return cached.value;
+    }
+    const inFlight = recentAppsInFlight.get(cacheKey);
+    if (inFlight) {
+        return await inFlight;
+    }
+    const promise = (async () => {
+        if (process.platform === 'darwin')
+            return await listRecentAppsMac(normalizedLimit);
+        if (process.platform === 'win32')
+            return await listRecentAppsWindows(normalizedLimit);
+        return null;
+    })();
+    recentAppsInFlight.set(cacheKey, promise);
+    try {
+        const value = await promise;
+        const cacheTtlMs = process.platform === 'win32'
+            ? WINDOWS_RECENT_APPS_CACHE_MS
+            : RECENT_APPS_CACHE_MS;
+        recentAppsCache.set(cacheKey, {
+            expiresAt: Date.now() + cacheTtlMs,
+            value,
+        });
+        return value;
+    }
+    finally {
+        recentAppsInFlight.delete(cacheKey);
+    }
+};

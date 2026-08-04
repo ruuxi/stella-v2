@@ -1,0 +1,1 @@
+export { MediaTabContent } from "./MediaTabContent";

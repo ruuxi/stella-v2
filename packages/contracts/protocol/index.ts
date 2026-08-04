@@ -372,6 +372,8 @@ export type RuntimeHealthSnapshot = {
 export type RuntimeAttachmentRef = {
   url: string;
   mimeType?: string;
+  /** Durable local copy used when an older image is pruned from model input. */
+  sourcePath?: string;
   /**
    * Optional metadata preserved across the host/worker boundary so future
    * non-image attachment paths (voice notes, documents, video) can branch
@@ -606,9 +608,6 @@ export type RuntimeAgentEventPayload = {
   outcome?: AgentRunFinishOutcome;
   reason?: string;
   replacedByRunId?: string;
-  /** Work group (`grp-…` key + human label) of the agent's thread. */
-  groupKey?: string;
-  groupLabel?: string;
   responseTarget?:
     | { type: "user_turn" }
     | { type: "agent_turn"; agentId: string }
@@ -689,8 +688,6 @@ export type HostHeartbeatSignature = {
  * payload shape before routing it to the panel.
  */
 export type HostDisplayUpdateParams = { payload: unknown };
-
-export type HostWindowTarget = "mini" | "full";
 
 export type HostRecentApp = {
   name: string;

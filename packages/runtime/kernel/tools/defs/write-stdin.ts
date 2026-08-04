@@ -46,11 +46,12 @@ export const createWriteStdinTool = (
       yield_time_ms: {
         type: "number",
         description:
-          "How long to wait (in milliseconds) for output before yielding. Defaults to 250.",
+          "How long to wait (in milliseconds) for output before yielding. A write defaults to 250 and caps at 30000. An empty poll defaults to 5000 and caps at 300000, so you can sit out a quiet build in one call — it still returns the moment the process prints anything or exits.",
       },
       max_output_tokens: {
         type: "number",
-        description: "Maximum number of tokens to return. Excess output is truncated.",
+        description:
+          "Output token budget. Defaults to 10000 tokens; larger requests may be capped by the active model policy.",
       },
     },
     required: ["session_id"],

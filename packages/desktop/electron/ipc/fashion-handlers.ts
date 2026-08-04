@@ -11,13 +11,12 @@
  * preview without giving the renderer process direct disk read access.
  */
 
-import { promises as fs } from "node:fs";
+import { execFile } from "node:child_process";
+import { constants, promises as fs, type Stats } from "node:fs";
 import path from "node:path";
-import {
-  BrowserWindow,
-  dialog,
-  type IpcMainInvokeEvent,
-} from "electron";
+import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
+import { BrowserWindow, dialog, type IpcMainInvokeEvent } from "electron";
 
 import {
   IPC_FASHION_DELETE_BODY_PHOTO,
@@ -35,6 +34,16 @@ import {
   type PrivilegedIpcOptions,
 } from "./privileged-ipc.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
+import {
+  MAX_IMAGE_REFERENCE_BYTES,
+  readValidatedImageFileNoFollow,
+} from "../../../runtime/kernel/tools/image-reference-policy.js";
+import {
+  decodeAndValidateImage,
+  validateDecodedImageFile,
+} from "../../../runtime/kernel/tools/image-decode-validation.js";
+import { materializeMediaArtifact } from "../../../runtime/kernel/tools/media-artifact-store.js";
+import { MAX_MANAGED_IMAGE_REFERENCE_ITEMS } from "../../../runtime/kernel/tools/managed-image-references.js";
 
 type FashionHandlerOptions = PrivilegedIpcOptions & {
   getStellaAppDir: () => string | null;
@@ -52,22 +61,286 @@ export type FashionBodyPhotoInfo = {
   updatedAt?: number;
 };
 
-const SUPPORTED_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "heic"] as const;
+const SUPPORTED_EXTENSIONS = [
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "heic",
+] as const;
+const execFileAsync = promisify(execFile);
+const SIPS_TIMEOUT_MS = 30_000;
+type FashionConversionOptions = {
+  sipsPath?: string;
+  /** Test override; production always uses the 30-second ceiling. */
+  timeoutMs?: number;
+  execSips?: (
+    executable: string,
+    args: readonly string[],
+    options: { timeout: number; killSignal: NodeJS.Signals; maxBuffer: number },
+  ) => Promise<unknown>;
+  /** Test-only race injection after pathname identity is captured. */
+  afterPathSnapshot?: () => void | Promise<void>;
+};
 
 const EXT_MIME_MAP: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
+  gif: "image/gif",
   webp: "image/webp",
   heic: "image/heic",
 };
 
 const fashionDir = (root: string) => path.join(root, "fashion");
 const tryOnDir = (root: string) => path.join(fashionDir(root), "try-on");
-const mediaOutputsDir = (root: string) =>
-  path.join(root, "media", "outputs");
+const mediaOutputsDir = (root: string) => path.join(root, "media", "outputs");
 const hiddenFashionConversationId = (root: string) =>
   `fashion:${Buffer.from(root).toString("base64url").slice(0, 24)}`;
+
+const sameFile = (left: Stats, right: Stats): boolean =>
+  left.dev === right.dev &&
+  left.ino === right.ino &&
+  left.size === right.size &&
+  left.mtimeMs === right.mtimeMs &&
+  left.ctimeMs === right.ctimeMs;
+
+const readPickedFileNoFollow = async (
+  filePath: string,
+  options: FashionConversionOptions = {},
+): Promise<Buffer> => {
+  if (typeof constants.O_NOFOLLOW !== "number") {
+    throw new Error("Safe no-follow image reads are unavailable.");
+  }
+  const requested = path.resolve(filePath);
+  const initialResolved = await fs.realpath(requested);
+  const selectedPathStat = await fs.stat(initialResolved);
+  if (!selectedPathStat.isFile() || selectedPathStat.nlink !== 1) {
+    throw new Error("Fashion images must be regular, non-linked files.");
+  }
+  await options.afterPathSnapshot?.();
+  const handle = await fs.open(
+    initialResolved,
+    constants.O_RDONLY | constants.O_NOFOLLOW,
+  );
+  try {
+    const before = await handle.stat();
+    if (
+      !before.isFile() ||
+      before.nlink !== 1 ||
+      before.size <= 0 ||
+      before.size > MAX_IMAGE_REFERENCE_BYTES
+    ) {
+      throw new Error(
+        "Fashion images must be regular files no larger than 20 MB.",
+      );
+    }
+    const postOpenResolved = await fs.realpath(requested);
+    const postOpenPathStat = await fs.stat(postOpenResolved);
+    if (
+      postOpenResolved !== initialResolved ||
+      !sameFile(selectedPathStat, before) ||
+      !sameFile(before, postOpenPathStat)
+    ) {
+      throw new Error(
+        "Fashion image pathname changed before its selected file was opened.",
+      );
+    }
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for (;;) {
+      const chunk = Buffer.allocUnsafe(
+        Math.min(256 * 1024, MAX_IMAGE_REFERENCE_BYTES + 1 - total),
+      );
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, total);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+      if (total > MAX_IMAGE_REFERENCE_BYTES) {
+        throw new Error("Fashion images must be no larger than 20 MB.");
+      }
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+    const verification = Buffer.allocUnsafe(total);
+    let verificationOffset = 0;
+    while (verificationOffset < total) {
+      const { bytesRead } = await handle.read(
+        verification,
+        verificationOffset,
+        total - verificationOffset,
+        verificationOffset,
+      );
+      if (bytesRead === 0) break;
+      verificationOffset += bytesRead;
+    }
+    const after = await handle.stat();
+    const result = Buffer.concat(chunks, total);
+    if (
+      after.nlink !== 1 ||
+      !sameFile(before, after) ||
+      total !== before.size ||
+      verificationOffset !== total ||
+      !result.equals(verification)
+    ) {
+      throw new Error("Fashion image changed while it was being read.");
+    }
+    return result;
+  } finally {
+    await handle.close();
+  }
+};
+
+const isHeicBytes = (bytes: Buffer): boolean => {
+  if (bytes.length < 12 || bytes.subarray(4, 8).toString("ascii") !== "ftyp") {
+    return false;
+  }
+  const brand = bytes.subarray(8, 12).toString("ascii");
+  return ["heic", "heix", "hevc", "hevx", "mif1", "msf1"].includes(brand);
+};
+
+const convertHeicToJpeg = async (
+  bytes: Buffer,
+  directory: string,
+  options: FashionConversionOptions = {},
+): Promise<Buffer> => {
+  if (process.platform !== "darwin") {
+    throw new Error("HEIC conversion is available only on macOS.");
+  }
+  const sipsPath = options.sipsPath ?? "/usr/bin/sips";
+  const timeoutMs = options.timeoutMs ?? SIPS_TIMEOUT_MS;
+  await fs.access(sipsPath, constants.X_OK).catch(() => {
+    throw new Error(
+      "HEIC conversion is unavailable in this Stella environment.",
+    );
+  });
+  await fs.mkdir(directory, { recursive: true });
+  const token = randomUUID();
+  const sourcePath = path.join(directory, `.heic-source-${token}.heic`);
+  const outputPath = path.join(directory, `.heic-output-${token}.jpg`);
+  const source = await fs.open(sourcePath, "wx", 0o600);
+  try {
+    await source.writeFile(bytes);
+    await source.sync();
+  } finally {
+    await source.close();
+  }
+  try {
+    await (options.execSips ?? execFileAsync)(
+      sipsPath,
+      ["-s", "format", "jpeg", sourcePath, "--out", outputPath],
+      {
+        timeout: timeoutMs,
+        killSignal: "SIGKILL",
+        maxBuffer: 256 * 1024,
+      },
+    ).catch((error) => {
+      if ((error as NodeJS.ErrnoException & { killed?: boolean }).killed) {
+        throw new Error("HEIC conversion exceeded its 30 second safety limit.");
+      }
+      throw new Error(
+        `HEIC conversion failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+    const converted = await readValidatedImageFileNoFollow(outputPath, {
+      allowedRoots: [await fs.realpath(directory)],
+    });
+    if (converted.mimeType !== "image/jpeg") {
+      throw new Error("HEIC conversion did not produce a complete JPEG image.");
+    }
+    return converted.bytes;
+  } finally {
+    await Promise.all([
+      fs.unlink(sourcePath).catch(() => undefined),
+      fs.unlink(outputPath).catch(() => undefined),
+    ]);
+  }
+};
+
+export const prepareFashionImage = async (
+  sourcePath: string,
+  directory: string,
+  conversionOptions: FashionConversionOptions = {},
+): Promise<{ bytes: Buffer; ext: "jpg" | "png" | "gif" | "webp" }> => {
+  const bytes = await readPickedFileNoFollow(sourcePath, conversionOptions);
+  const sourceExt = path.extname(sourcePath).slice(1).toLowerCase();
+  if (sourceExt === "heic" || isHeicBytes(bytes)) {
+    if (!isHeicBytes(bytes)) throw new Error("Selected HEIC file is invalid.");
+    return {
+      bytes: await convertHeicToJpeg(bytes, directory, conversionOptions),
+      ext: "jpg",
+    };
+  }
+  const decoded = await decodeAndValidateImage(bytes);
+  if (!decoded)
+    throw new Error("Selected file is not a complete, decodable image.");
+  const ext =
+    decoded.mimeType === "image/jpeg"
+      ? "jpg"
+      : decoded.mimeType === "image/png"
+        ? "png"
+        : decoded.mimeType === "image/gif"
+          ? "gif"
+          : "webp";
+  return { bytes, ext };
+};
+
+const mimeForPreparedExtension = (ext: string): string =>
+  ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+
+const writePreparedFashionImage = async (
+  filePath: string,
+  prepared: Awaited<ReturnType<typeof prepareFashionImage>>,
+): Promise<void> => {
+  await materializeMediaArtifact({
+    filePath,
+    validateExisting: async (candidate) =>
+      await validateDecodedImageFile(
+        candidate,
+        mimeForPreparedExtension(prepared.ext),
+      ),
+    producer: async () => prepared.bytes,
+  });
+};
+
+const syncDirectory = async (directory: string): Promise<void> => {
+  const handle = await fs.open(directory, "r").catch(() => null);
+  if (!handle) return;
+  try {
+    await handle.sync();
+  } catch (error) {
+    if (
+      !["EINVAL", "ENOTSUP", "EBADF"].includes(
+        (error as NodeJS.ErrnoException).code ?? "",
+      )
+    ) {
+      throw error;
+    }
+  } finally {
+    await handle.close();
+  }
+};
+
+const replaceBodyPhoto = async (
+  root: string,
+  prepared: Awaited<ReturnType<typeof prepareFashionImage>>,
+): Promise<string> => {
+  const directory = fashionDir(root);
+  await fs.mkdir(directory, { recursive: true });
+  const staged = path.join(
+    directory,
+    `.body-next-${randomUUID()}.${prepared.ext}`,
+  );
+  await writePreparedFashionImage(staged, prepared);
+  const destination = path.join(directory, `body.${prepared.ext}`);
+  try {
+    await removeAllBodyPhotos(root);
+    await fs.rename(staged, destination);
+    await syncDirectory(directory);
+    return destination;
+  } finally {
+    await fs.unlink(staged).catch(() => undefined);
+  }
+};
 
 const normalizeStringArray = (value: unknown): string[] | undefined => {
   if (!Array.isArray(value)) return undefined;
@@ -86,6 +359,11 @@ const findExistingBodyPhoto = async (
     const candidate = path.join(dir, `body.${ext}`);
     try {
       await fs.access(candidate);
+      if (ext === "heic") {
+        const prepared = await prepareFashionImage(candidate, dir);
+        const absolutePath = await replaceBodyPhoto(root, prepared);
+        return { absolutePath, ext: prepared.ext };
+      }
       return { absolutePath: candidate, ext };
     } catch {
       // Try next extension.
@@ -109,15 +387,17 @@ const removeAllBodyPhotos = async (root: string) => {
 
 const isPathInside = (childPath: string, parentPath: string): boolean => {
   const relative = path.relative(parentPath, childPath);
-  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+  return (
+    Boolean(relative) &&
+    !relative.startsWith("..") &&
+    !path.isAbsolute(relative)
+  );
 };
 
-const mimeTypeForImagePath = (filePath: string): string => {
-  const ext = path.extname(filePath).slice(1).toLowerCase();
-  return EXT_MIME_MAP[ext] ?? "image/png";
-};
-
-const assertAllowedLocalImagePath = (root: string, rawPath: unknown): string => {
+const assertAllowedLocalImagePath = (
+  root: string,
+  rawPath: unknown,
+): string => {
   if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
     throw new Error("Image path is required.");
   }
@@ -127,8 +407,12 @@ const assertAllowedLocalImagePath = (root: string, rawPath: unknown): string => 
     tryOnDir(root),
     mediaOutputsDir(root),
   ].map((entry) => path.resolve(entry));
-  if (!allowedRoots.some((allowedRoot) => isPathInside(absolutePath, allowedRoot))) {
-    throw new Error("Image path is outside Fashion's allowed local image folders.");
+  if (
+    !allowedRoots.some((allowedRoot) => isPathInside(absolutePath, allowedRoot))
+  ) {
+    throw new Error(
+      "Image path is outside Fashion's allowed local image folders.",
+    );
   }
   return absolutePath;
 };
@@ -155,7 +439,7 @@ const normalizeImageUrls = (value: unknown): string[] => {
  * anywhere on disk; the destination is always under Fashion's allowed
  * local-image roots.
  */
-const stashTryOnImagePaths = async (
+export const stashTryOnImagePaths = async (
   root: string,
   batchId: string,
   rawPaths: unknown,
@@ -166,19 +450,20 @@ const stashTryOnImagePaths = async (
     if (typeof entry === "string" && entry.trim()) paths.push(entry.trim());
   }
   if (paths.length === 0) return [];
+  if (
+    path.basename(batchId) !== batchId ||
+    !/^[a-zA-Z0-9._-]+$/.test(batchId)
+  ) {
+    throw new Error("Fashion batch ID is invalid.");
+  }
   const dir = path.join(tryOnDir(root), batchId);
   await fs.mkdir(dir, { recursive: true });
   const out: string[] = [];
   for (let index = 0; index < paths.length; index += 1) {
     const sourcePath = paths[index]!;
-    const ext = path.extname(sourcePath).slice(1).toLowerCase();
-    const normalizedExt = SUPPORTED_EXTENSIONS.includes(
-      ext as (typeof SUPPORTED_EXTENSIONS)[number],
-    )
-      ? ext
-      : "png";
-    const destPath = path.join(dir, `${index}.${normalizedExt}`);
-    await fs.copyFile(sourcePath, destPath);
+    const prepared = await prepareFashionImage(sourcePath, dir);
+    const destPath = path.join(dir, `${index}.${prepared.ext}`);
+    await writePreparedFashionImage(destPath, prepared);
     out.push(destPath);
   }
   return out;
@@ -220,14 +505,10 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
     },
   );
 
-  registerPrivilegedHandle(
-    options,
-    IPC_FASHION_DELETE_BODY_PHOTO,
-    async () => {
-      await removeAllBodyPhotos(requireRoot());
-      return { ok: true } as const;
-    },
-  );
+  registerPrivilegedHandle(options, IPC_FASHION_DELETE_BODY_PHOTO, async () => {
+    await removeAllBodyPhotos(requireRoot());
+    return { ok: true } as const;
+  });
 
   registerPrivilegedHandle(
     options,
@@ -265,16 +546,8 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
       }
 
       const sourcePath = result.filePaths[0]!;
-      const ext = path.extname(sourcePath).slice(1).toLowerCase();
-      const normalizedExt = SUPPORTED_EXTENSIONS.includes(
-        ext as (typeof SUPPORTED_EXTENSIONS)[number],
-      )
-        ? ext
-        : "jpg";
-
-      await removeAllBodyPhotos(root);
-      const destPath = path.join(dir, `body.${normalizedExt}`);
-      await fs.copyFile(sourcePath, destPath);
+      const prepared = await prepareFashionImage(sourcePath, dir);
+      await replaceBodyPhoto(root, prepared);
 
       const info = await getBodyPhotoInfo(root);
       return { canceled: false, info } as const;
@@ -288,9 +561,11 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
       const root = requireRoot();
       const found = await findExistingBodyPhoto(root);
       if (!found) return null;
-      const buf = await fs.readFile(found.absolutePath);
-      const mime = EXT_MIME_MAP[found.ext] ?? "application/octet-stream";
-      return `data:${mime};base64,${buf.toString("base64")}`;
+      const allowedRoot = await fs.realpath(fashionDir(root));
+      const image = await readValidatedImageFileNoFollow(found.absolutePath, {
+        allowedRoots: [allowedRoot],
+      });
+      return `data:${image.mimeType};base64,${image.bytes.toString("base64")}`;
     },
   );
 
@@ -300,8 +575,17 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
     async (_event: IpcMainInvokeEvent, payload?: { path?: unknown }) => {
       const root = requireRoot();
       const filePath = assertAllowedLocalImagePath(root, payload?.path);
-      const buf = await fs.readFile(filePath);
-      return `data:${mimeTypeForImagePath(filePath)};base64,${buf.toString("base64")}`;
+      const allowedRoots = await Promise.all(
+        [fashionDir(root), tryOnDir(root), mediaOutputsDir(root)].map(
+          async (candidate) => await fs.realpath(candidate).catch(() => null),
+        ),
+      );
+      const image = await readValidatedImageFileNoFollow(filePath, {
+        allowedRoots: allowedRoots.filter(
+          (candidate): candidate is string => candidate !== null,
+        ),
+      });
+      return `data:${image.mimeType};base64,${image.bytes.toString("base64")}`;
     },
   );
 
@@ -328,6 +612,11 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
       if (result.canceled || result.filePaths.length === 0) {
         return { canceled: true, paths: [] as string[] } as const;
       }
+      if (result.filePaths.length >= MAX_MANAGED_IMAGE_REFERENCE_ITEMS) {
+        throw new Error(
+          `Choose at most ${MAX_MANAGED_IMAGE_REFERENCE_ITEMS - 1} clothing images; the body photo uses the first image_gen reference slot.`,
+        );
+      }
       return { canceled: false, paths: result.filePaths } as const;
     },
   );
@@ -349,12 +638,26 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
           ? payload.batchId.trim()
           : `tryon-${Date.now().toString(36)}`;
 
+      const imageUrls = normalizeImageUrls(payload?.imageUrls);
+      const requestedPaths = Array.isArray(payload?.imagePaths)
+        ? payload.imagePaths.filter(
+            (value): value is string =>
+              typeof value === "string" && value.trim().length > 0,
+          )
+        : [];
+      if (
+        requestedPaths.length + imageUrls.length >=
+        MAX_MANAGED_IMAGE_REFERENCE_ITEMS
+      ) {
+        throw new Error(
+          `Fashion try-on accepts at most ${MAX_MANAGED_IMAGE_REFERENCE_ITEMS - 1} clothing references because the body photo occupies the first image_gen reference slot.`,
+        );
+      }
       const stashedPaths = await stashTryOnImagePaths(
         root,
         batchId,
-        payload?.imagePaths,
+        requestedPaths,
       );
-      const imageUrls = normalizeImageUrls(payload?.imageUrls);
 
       if (stashedPaths.length === 0 && imageUrls.length === 0) {
         throw new Error(
@@ -391,7 +694,7 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
         "1. Call FashionCreateOutfit with batchId, ordinal=0, themeLabel='Try-on', themeDescription set to a one-line summary of the user request, products=[] (empty array — there are no shoppable products in try-on mode), and tryOnPrompt set to the prompt you'll feed image_gen.",
         "2. Call image_gen with profile='fast', aspectRatio='3:4', referenceImagePaths=[bodyPhotoPath, ...attachmentImagePaths], referenceImageUrls=attachmentImageUrls.",
         "   The prompt MUST include: 'studio photo on a clean white background, full body, natural pose, the same person as the first reference image, wearing the clothes from the remaining reference images.'",
-        "3. Read the image_gen `Saved image paths:` line and call FashionMarkOutfitReady with tryOnImagePath set to image_1's absolute path.",
+        "3. Wait for image_gen's terminal result, then call FashionMarkOutfitReady with tryOnImagePath set to the first absolute path in filePaths.",
         "4. If image_gen fails, call FashionMarkOutfitFailed with a one-line errorMessage. Stop after a single render — do not retry, do not generate more outfits.",
       ].filter(Boolean);
 
@@ -437,7 +740,9 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
         typeof payload?.batchId === "string" && payload.batchId.trim()
           ? payload.batchId.trim()
           : `fashion-${Date.now().toString(36)}`;
-      const excludeProductIds = normalizeStringArray(payload?.excludeProductIds);
+      const excludeProductIds = normalizeStringArray(
+        payload?.excludeProductIds,
+      );
       const seedHints = normalizeStringArray(payload?.seedHints);
 
       const promptLines = [
@@ -457,7 +762,7 @@ export const registerFashionHandlers = (options: FashionHandlerOptions) => {
           ? `- seedHints: ${seedHints.join(", ")}`
           : "",
         "",
-        "Always begin by calling `FashionGetContext` once. Then assemble each outfit slot-by-slot with `FashionSearchProducts`, register it via `FashionCreateOutfit`, render it via `image_gen` (with the body photo path as the first reference image and product imageUrls as the remaining references), and finalize via `FashionMarkOutfitReady` / `FashionMarkOutfitFailed`.",
+        "Always begin by calling `FashionGetContext` once. Then assemble each outfit slot-by-slot with `FashionSearchProducts`, register it via `FashionCreateOutfit`, render it via `image_gen` (with the body photo path as the first reference image and at most three product imageUrls as the remaining references), and finalize via `FashionMarkOutfitReady` / `FashionMarkOutfitFailed`.",
         "The try-on image must show the user wearing the selected clothes on a clean white studio background. The Fashion tab will render the generated image and surround it with the actual product images.",
       ].filter(Boolean);
 

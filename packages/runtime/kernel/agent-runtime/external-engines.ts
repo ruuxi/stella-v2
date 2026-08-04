@@ -638,12 +638,15 @@ const runClaudeHostedTurn = async (args: {
       agentType: args.opts.agentType,
       deviceId: args.opts.deviceId,
       stellaAppDir: args.opts.stellaAppDir,
+      stellaDataDir: args.opts.stellaDataDir,
       toolWorkspaceRoot: args.opts.toolWorkspaceRoot,
       agentDepth: args.opts.agentContext.agentDepth ?? 0,
       maxAgentDepth: args.opts.agentContext.maxAgentDepth,
+      parentAgentId: args.opts.agentContext.parentAgentId,
       modelConfigSnapshot: args.opts.agentContext.modelConfigSnapshot,
       connectorDeliveryTarget: args.opts.connectorDeliveryTarget,
       allowedToolNames: args.opts.agentContext.toolsAllowlist,
+      deferImageDeliveryAck: toolName === "image_gen",
       store: args.opts.store,
       toolExecutor: args.opts.toolExecutor,
       hookEmitter: args.opts.hookEmitter,
@@ -863,6 +866,10 @@ const runCodexHostedTurn = async (args: {
     threadKey,
     engine: "codex_cli",
   });
+  const imageToolMetadata = getRuntimeToolMetadata({
+    toolsAllowlist: args.opts.agentContext.toolsAllowlist,
+    toolCatalog: args.opts.toolCatalog,
+  }).filter((tool) => tool.name === "image_gen");
   const persistCodexSessionId = (sessionId: string) => {
     setExternalEngineSessionId({
       store: args.opts.store,
@@ -948,12 +955,15 @@ const runCodexHostedTurn = async (args: {
       agentType: args.opts.agentType,
       deviceId: args.opts.deviceId,
       stellaAppDir: args.opts.stellaAppDir,
+      stellaDataDir: args.opts.stellaDataDir,
       toolWorkspaceRoot: args.opts.toolWorkspaceRoot,
       agentDepth: args.opts.agentContext.agentDepth ?? 0,
       maxAgentDepth: args.opts.agentContext.maxAgentDepth,
+      parentAgentId: args.opts.agentContext.parentAgentId,
       modelConfigSnapshot: args.opts.agentContext.modelConfigSnapshot,
       connectorDeliveryTarget: args.opts.connectorDeliveryTarget,
       allowedToolNames: args.opts.agentContext.toolsAllowlist,
+      deferImageDeliveryAck: toolName === "image_gen",
       store: args.opts.store,
       toolExecutor: args.opts.toolExecutor,
       hookEmitter: args.opts.hookEmitter,
@@ -1049,12 +1059,16 @@ const runCodexHostedTurn = async (args: {
   const codexReasoningEffort =
     inheritedCodexConfig?.reasoningEffort ??
     args.opts.agentContext.spawnReasoningEffort;
+  const codexServiceTier = inheritedCodexConfig?.serviceTier;
   let finalResult = await runCodexAgentTurn({
     runId,
     sessionKey,
     ...(persistedSessionId ? { persistedSessionId } : {}),
     prompt,
     systemPrompt: args.systemPrompt,
+    // Scope this durability change to image_gen. Codex persists dynamic tool
+    // definitions on the engine thread, including across thread/resume.
+    tools: imageToolMetadata,
     cwd: localCliCwd,
     stellaDataDir: args.opts.stellaDataDir,
     stellaAppDir: args.opts.stellaAppDir,
@@ -1062,7 +1076,7 @@ const runCodexHostedTurn = async (args: {
       ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
       : {}),
     stellaModel: args.opts.agentContext.model,
-    // Exact inherited Manager route or per-spawn Codex pin.
+    // Exact inherited parent route or per-spawn Codex pin.
     ...(codexModelOverride ? { modelOverride: codexModelOverride } : {}),
     ...(codexReasoningEffort
       ? {
@@ -1070,6 +1084,7 @@ const runCodexHostedTurn = async (args: {
           ...(inheritedCodexConfig ? { reasoningEffortResolved: true } : {}),
         }
       : {}),
+    ...(codexServiceTier ? { serviceTier: codexServiceTier } : {}),
     attachments: args.opts.attachments,
     abortSignal: args.opts.abortSignal,
     onStatus: (status) => {
@@ -1112,6 +1127,7 @@ const runCodexHostedTurn = async (args: {
       persistedSessionId: finalResult.sessionId,
       prompt: queuedPrompt,
       systemPrompt: args.systemPrompt,
+      tools: imageToolMetadata,
       cwd: localCliCwd,
       stellaDataDir: args.opts.stellaDataDir,
       stellaAppDir: args.opts.stellaAppDir,
@@ -1126,6 +1142,7 @@ const runCodexHostedTurn = async (args: {
             ...(inheritedCodexConfig ? { reasoningEffortResolved: true } : {}),
           }
         : {}),
+      ...(codexServiceTier ? { serviceTier: codexServiceTier } : {}),
       attachments: queuedAttachments,
       abortSignal: args.opts.abortSignal,
       onStatus: (status) => {

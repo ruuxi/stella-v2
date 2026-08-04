@@ -1,0 +1,116 @@
+/* Section hosts inside the display panel body — see `SidebarSectionBody.tsx`.
+
+   All three panel-owned sections are mounted at once and stacked; only the
+   active one is visible. Home/Activity is a separate shell surface.
+
+   Hiding is `visibility` + `content-visibility`, never `display: none`.
+   `display: none` destroys the subtree's layout boxes, and browsers do not
+   restore scroll offsets through that — which would silently break the promise
+   the always-mounted design exists to make. Two sections depend on it
+   concretely: Files hosts canvas iframes, and Apps hosts live user apps whose
+   scroll position and media state have to survive a tab switch.
+   `content-visibility: hidden` gets the same skipped rendering work and the
+   same offscreen IntersectionObserver reading, while keeping the boxes. */
+
+.sidebar-section {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  visibility: hidden;
+  content-visibility: hidden;
+  pointer-events: none;
+}
+
+.sidebar-section[data-active="true"] {
+  position: relative;
+  visibility: visible;
+  content-visibility: visible;
+  pointer-events: auto;
+  flex: 1 1 auto;
+}
+
+/* Shared list/viewer scaffolding used by Files, Home activity and Apps. */
+
+.sidebar-section__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 10px 14px;
+}
+
+.sidebar-section__empty {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  color: var(--text-weak);
+  font-size: var(--font-size-base);
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* Header shown above a section's viewer, carrying the back affordance that
+   returns the section to its list. This is the only route back to a list —
+   re-selecting the tab closes the panel instead. */
+.sidebar-section__viewer-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-weak);
+}
+
+.sidebar-section__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px 0 5px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-weak);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
+  cursor: default;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.sidebar-section__back:hover {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+.sidebar-section__back:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.sidebar-section__viewer-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sidebar-section__viewer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

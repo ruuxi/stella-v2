@@ -11,6 +11,7 @@ import {
 import { isReportedOrchestratorError } from "../agent-runtime/run-completion.js";
 import type { RunnerContext } from "./types.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
+import { createRunnerImageDescriptionService } from "./model-selection.js";
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,

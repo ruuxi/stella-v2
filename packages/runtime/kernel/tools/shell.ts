@@ -96,12 +96,46 @@ const WINDOWS_CLI_SHIMS = [
   },
 ] as const;
 
+/**
+ * Which thread started a shell session. Sessions outlive the run that
+ * created them and live in one worker-wide map, so the record has to carry
+ * its own provenance — that's what lets a background command's exit be
+ * delivered back to the agent that started it.
+ */
+export type ShellSessionOwner = {
+  conversationId: string;
+  /** Durable agent thread id. Absent for non-subagent callers. */
+  agentId?: string;
+  agentType?: string;
+};
+
+/** What a caller learns when a background session finally exits. */
+export type ShellExitSnapshot = {
+  sessionId: string;
+  command: string;
+  cwd: string;
+  exitCode: number | null;
+  startedAt: number;
+  completedAt: number;
+  /** Captured output, raw-capped with equal head and tail retention. */
+  output: string;
+  owner?: ShellSessionOwner;
+};
+
 type ManagedShellRecord = ShellRecord & {
   unreadOutput: string;
+  outputBuffer: HeadTailOutputBuffer;
+  unreadOutputBuffer: HeadTailOutputBuffer;
   outputVersion: number;
   waiters: Set<() => void>;
+  /**
+   * Persistent exit listeners, distinct from `waiters`: those are one-shot
+   * and fire on any activity, these fire once when the process is gone.
+   */
+  exitWatchers: Set<() => void>;
   child?: SpawnedShell;
   stdinOpen: boolean;
+  owner?: ShellSessionOwner;
   startSnapshot?: FileSnapshot | null;
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   producedFilesReported?: boolean;
@@ -141,7 +175,13 @@ type ExternalCandidateSnapshot =
 export const DEFAULT_EXEC_YIELD_MS = 10_000;
 export const DEFAULT_WRITE_STDIN_YIELD_MS = 250;
 const MAX_EXEC_YIELD_MS = 30_000;
-const DEFAULT_EXEC_OUTPUT_TOKENS = 4_000;
+// An empty `write_stdin` is a poll, not an interaction: nobody is waiting on
+// the other side of the pipe, so it can afford to block much longer than a
+// write. Codex sizes the same case at 5s..5min; matching that lets an agent
+// sit out a quiet build inside its turn instead of round-tripping every 30s.
+export const DEFAULT_EMPTY_POLL_YIELD_MS = 5_000;
+const MAX_EMPTY_POLL_YIELD_MS = 5 * 60_000;
+export const DEFAULT_EXEC_OUTPUT_TOKENS = 10_000;
 const MAX_SNAPSHOT_FILES = 20_000;
 const SNAPSHOT_IGNORED_DIRS = new Set([
   ".git",
@@ -1064,24 +1104,10 @@ const resolveShellLaunch = (
 
 type SpawnedShell = ReturnType<typeof spawn>;
 
-const outputCharBudgetFromTokens = (value: unknown): number => {
-  const tokens =
-    typeof value === "number" && Number.isFinite(value)
-      ? Math.max(256, Math.floor(value))
-      : DEFAULT_EXEC_OUTPUT_TOKENS;
-  return Math.max(1_024, Math.min(tokens * 4, 200_000));
-};
-
-// Live shell buffers (`output`, `unreadOutput`) and "recent" drains keep the
-// TAIL: newest output matters most, and once a buffer hits its cap between
-// drains, dropping the head lets a poller keep seeing fresh activity.
-const truncateTail = (value: string, max: number): string =>
-  value.length > max
-    ? `... (truncated) ...\n${value.slice(value.length - max)}`
-    : value;
-
-const truncateRecent = (value: string, max: number): string =>
-  truncateTail(value, max);
+export const resolveExecOutputTokens = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.max(1, Math.floor(value))
+    : DEFAULT_EXEC_OUTPUT_TOKENS;
 
 type DrainedOutput = {
   text: string;
@@ -1089,18 +1115,25 @@ type DrainedOutput = {
   truncated: boolean;
 };
 
-const drainUnreadOutput = (
-  record: ManagedShellRecord,
-  maxChars: number,
-): DrainedOutput => {
-  const unread = record.unreadOutput;
+const drainUnreadOutput = (record: ManagedShellRecord): DrainedOutput => {
+  const unread = record.unreadOutputBuffer.drain();
   record.unreadOutput = "";
-  const text = truncateRecent(unread, maxChars);
   return {
-    text,
-    originalLength: unread.length,
-    truncated: unread.length > maxChars,
+    text: unread.text,
+    originalLength: unread.totalBytes,
+    truncated: unread.omittedBytes > 0,
   };
+};
+
+const refreshShellOutputText = (record: ManagedShellRecord): void => {
+  record.output = record.outputBuffer.snapshot().text;
+  record.unreadOutput = record.unreadOutputBuffer.snapshot().text;
+};
+
+const appendShellOutput = (record: ManagedShellRecord, text: string): void => {
+  record.outputBuffer.pushText(text);
+  record.unreadOutputBuffer.pushText(text);
+  refreshShellOutputText(record);
 };
 
 const notifyShellActivity = (record: ManagedShellRecord) => {
@@ -1110,6 +1143,95 @@ const notifyShellActivity = (record: ManagedShellRecord) => {
   for (const waiter of waiters) {
     waiter();
   }
+};
+
+const notifyShellExit = (record: ManagedShellRecord) => {
+  const watchers = [...record.exitWatchers];
+  record.exitWatchers.clear();
+  for (const watcher of watchers) {
+    try {
+      watcher();
+    } catch {
+      // A listener must never break the process teardown path.
+    }
+  }
+};
+
+export const readShellExitSnapshot = (
+  state: ShellState,
+  sessionId: string,
+): ShellExitSnapshot | null => {
+  const record = state.shells.get(sessionId);
+  if (!record || record.running) return null;
+  return {
+    sessionId: record.id,
+    command: record.command,
+    cwd: record.cwd,
+    exitCode: record.exitCode,
+    startedAt: record.startedAt,
+    completedAt: record.completedAt ?? Date.now(),
+    output: sanitizeToolVisibleText(record.output),
+    ...(record.owner ? { owner: record.owner } : {}),
+  };
+};
+
+/**
+ * Call `listener` once the session's process is gone, and return a
+ * disposer. Sessions that already exited resolve on the next microtask so
+ * callers never have to special-case the race between "still running when
+ * I checked" and "exited before I subscribed".
+ */
+export const watchShellExit = (
+  state: ShellState,
+  sessionId: string,
+  listener: () => void,
+): (() => void) => {
+  const record = state.shells.get(sessionId);
+  if (!record) return () => {};
+  if (!record.running) {
+    let disposed = false;
+    queueMicrotask(() => {
+      if (!disposed) listener();
+    });
+    return () => {
+      disposed = true;
+    };
+  }
+  record.exitWatchers.add(listener);
+  return () => {
+    record.exitWatchers.delete(listener);
+  };
+};
+
+/**
+ * Every running session an agent thread owns, whichever of its runs started
+ * them. Scoping a thread's background work by owner rather than by "what
+ * the last run touched" is what keeps a job started three turns ago — and
+ * not polled since — from being forgotten.
+ */
+export const listRunningShellSessionsOwnedBy = (
+  state: ShellState,
+  agentId: string,
+): string[] => {
+  const owned: string[] = [];
+  for (const shell of state.shells.values()) {
+    if (!shell.running || shell.owner?.agentId !== agentId) continue;
+    owned.push(shell.id);
+  }
+  return owned;
+};
+
+/** Stamp the calling thread onto a freshly started session. */
+export const setShellOwner = (
+  record: Pick<ShellRecord, "id">,
+  context?: ToolContext,
+): void => {
+  if (!context?.conversationId) return;
+  (record as ManagedShellRecord).owner = {
+    conversationId: context.conversationId,
+    ...(context.agentId ? { agentId: context.agentId } : {}),
+    ...(context.agentType ? { agentType: context.agentType } : {}),
+  };
 };
 
 const waitForShellActivity = async (
@@ -1284,6 +1406,8 @@ export const startShell = (
       externalCandidateSnapshots,
       kill: () => {},
     };
+    record.outputBuffer.pushText(safeLaunchError);
+    record.unreadOutputBuffer.pushText(safeLaunchError);
     state.shells.set(id, record);
     return record;
   }
@@ -1300,14 +1424,17 @@ export const startShell = (
     command,
     cwd,
     output: "",
+    outputBuffer: new HeadTailOutputBuffer(RAW_SHELL_OUTPUT_MAX_BYTES),
     running: true,
     exitCode: null,
     startedAt: Date.now(),
     completedAt: null,
     child,
     unreadOutput: "",
+    unreadOutputBuffer: new HeadTailOutputBuffer(RAW_SHELL_OUTPUT_MAX_BYTES),
     outputVersion: 0,
     waiters: new Set(),
+    exitWatchers: new Set(),
     stdinOpen: Boolean(child.stdin),
     startSnapshot,
     externalCandidateSnapshots,
@@ -1319,11 +1446,7 @@ export const startShell = (
   const append = (data: Buffer) => {
     const chunk = data.toString();
     const safeChunk = sanitizeToolVisibleText(chunk);
-    record.output = truncateTail(`${record.output}${safeChunk}`, MAX_OUTPUT);
-    record.unreadOutput = truncateTail(
-      `${record.unreadOutput}${safeChunk}`,
-      200_000,
-    );
+    appendShellOutput(record, safeChunk);
     notifyShellActivity(record);
     onActivity?.(record);
   };
@@ -1336,16 +1459,13 @@ export const startShell = (
   });
   child.on("error", (error) => {
     const safeMessage = sanitizeToolVisibleText(error.message);
-    record.output = truncateTail(`${record.output}${safeMessage}`, MAX_OUTPUT);
-    record.unreadOutput = truncateTail(
-      `${record.unreadOutput}${safeMessage}`,
-      200_000,
-    );
+    appendShellOutput(record, safeMessage);
     record.running = false;
     record.exitCode = record.exitCode ?? 1;
     record.completedAt = Date.now();
     record.stdinOpen = false;
     notifyShellActivity(record);
+    notifyShellExit(record);
     onActivity?.(record);
     if (onClose) {
       onClose();
@@ -1357,6 +1477,7 @@ export const startShell = (
     record.completedAt = Date.now();
     record.stdinOpen = false;
     notifyShellActivity(record);
+    notifyShellExit(record);
     onActivity?.(record);
     if (onClose) {
       onClose();
@@ -1497,12 +1618,13 @@ const resolveManagedShellCommand = (
 const resolveExecYieldTime = (
   value: unknown,
   defaultMs: number = DEFAULT_EXEC_YIELD_MS,
+  maxMs: number = MAX_EXEC_YIELD_MS,
 ): number => {
   const raw =
     typeof value === "number" && Number.isFinite(value)
       ? Math.floor(value)
       : defaultMs;
-  return Math.max(0, Math.min(raw, MAX_EXEC_YIELD_MS));
+  return Math.max(0, Math.min(raw, maxMs));
 };
 
 const buildExecToolPayload = (
@@ -1511,23 +1633,30 @@ const buildExecToolPayload = (
   callStartedAt: number,
 ): Record<string, unknown> => {
   const wallTimeSeconds = (Date.now() - callStartedAt) / 1000;
-  // Includes wall_time_seconds and
-  // (when truncation happened) original_token_count so the model can detect
-  // dropped output and react.
+  // Includes wall_time_seconds and original_token_count so the model can
+  // detect output omitted by the raw one-MiB collector and react.
   const payload: Record<string, unknown> = {
     session_id: record.running ? record.id : null,
     running: record.running,
     exit_code: record.running ? null : record.exitCode,
     output: sanitizeToolVisibleText(drained.text),
     wall_time_seconds: wallTimeSeconds,
-    // Always report the pre-truncation token estimate so callers
-    // can distinguish "small output" from "output omitted because it was huge".
+    // Always report the pre-collection-cap token estimate so callers can
+    // distinguish small output from output whose middle was omitted.
     original_token_count: Math.ceil(
       drained.originalLength / APPROX_BYTES_PER_TOKEN,
     ),
     cwd: record.cwd,
     command: record.command,
   };
+  if (!record.running && record.exitCode !== 0) {
+    const hint = getTerminalRecoveryHint({
+      command: record.command,
+      exitCode: record.exitCode,
+      output: drained.text,
+    });
+    if (hint) payload.hint = hint;
+  }
   return payload;
 };
 
@@ -1588,17 +1717,17 @@ export const handleExecCommand = async (
       )
     : { rootSnapshot: null };
   let lastUpdateAt = 0;
-  const maxOutputChars = outputCharBudgetFromTokens(args.max_output_tokens);
+  const modelOutputTokens = resolveExecOutputTokens(args.max_output_tokens);
   const emitUpdate = (record: ManagedShellRecord) => {
     if (!onUpdate) return;
     const now = Date.now();
     if (record.running && now - lastUpdateAt < 250) return;
     lastUpdateAt = now;
-    const unread = record.unreadOutput;
+    const unread = record.unreadOutputBuffer.snapshot();
     const drained = {
-      text: truncateRecent(unread, maxOutputChars),
-      originalLength: unread.length,
-      truncated: unread.length > maxOutputChars,
+      text: unread.text,
+      originalLength: unread.totalBytes,
+      truncated: unread.omittedBytes > 0,
     };
     const payload = buildExecToolPayload(record, drained, callStartedAt);
     onUpdate({ result: payload, details: payload });
@@ -1613,6 +1742,7 @@ export const handleExecCommand = async (
     beforeSideEffects.externalCandidateSnapshots,
     emitUpdate,
   );
+  setShellOwner(record, context);
   const observedVersion = record.outputVersion;
   try {
     await waitForShellActivity(
@@ -1622,11 +1752,26 @@ export const handleExecCommand = async (
       signal,
     );
   } catch (error) {
+    // Ownership classification (run-owned vs conversation-scoped): this
+    // call STARTED the shell and is aborting before the session id ever
+    // reaches the model — nothing can address the shell later, so it is
+    // run-owned and would otherwise orphan until toolHost shutdown. Kill
+    // it through the TERM→1s→KILL ladder as the aborted call's finalizer.
+    // Session shells whose id was already delivered (later write_stdin
+    // polls) are conversation-scoped and deliberately exempt: aborting a
+    // poll never kills the shell.
+    if (record.running) {
+      try {
+        record.kill();
+      } catch {
+        // Best effort; the process may already be exiting.
+      }
+    }
     return { error: (error as Error).message };
   }
   await settleCompletedShell(record, signal);
 
-  const drained = drainUnreadOutput(record, maxOutputChars);
+  const drained = drainUnreadOutput(record);
   const payload = buildExecToolPayload(record, drained, callStartedAt);
   const producedFiles = !record.running
     ? await takeCompletedProducedFiles(record)
@@ -1634,6 +1779,7 @@ export const handleExecCommand = async (
   return {
     result: payload,
     details: payload,
+    modelOutputTokens,
     ...(producedFiles ? { producedFiles } : {}),
   };
 };
@@ -1668,7 +1814,19 @@ export const handleWriteStdin = async (
     await waitForShellActivity(
       record,
       observedVersion,
-      resolveExecYieldTime(args.yield_time_ms, DEFAULT_WRITE_STDIN_YIELD_MS),
+      chars
+        ? resolveExecYieldTime(args.yield_time_ms, DEFAULT_WRITE_STDIN_YIELD_MS)
+        : // An empty write is a pure poll on a silent process, so it gets a
+          // far higher ceiling than an interactive write — matching Codex,
+          // whose background-terminal poll budget is 5 minutes. The wait
+          // still returns the instant the process emits anything or exits,
+          // so a chatty build is unaffected; this only stops a quiet
+          // 10-minute job from costing twenty round-trips.
+          resolveExecYieldTime(
+            args.yield_time_ms,
+            DEFAULT_EMPTY_POLL_YIELD_MS,
+            MAX_EMPTY_POLL_YIELD_MS,
+          ),
       signal,
     );
   } catch (error) {
@@ -1676,15 +1834,13 @@ export const handleWriteStdin = async (
   }
   await settleCompletedShell(record, signal);
 
-  const drained = drainUnreadOutput(
-    record,
-    outputCharBudgetFromTokens(args.max_output_tokens),
-  );
+  const drained = drainUnreadOutput(record);
   const payload = buildExecToolPayload(record, drained, callStartedAt);
   const producedFiles = await takeCompletedProducedFiles(record);
   return {
     result: payload,
     details: payload,
+    modelOutputTokens: resolveExecOutputTokens(args.max_output_tokens),
     ...(producedFiles ? { producedFiles } : {}),
   };
 };
@@ -1738,6 +1894,7 @@ export const handleBash = async (
       beforeSideEffects.rootSnapshot,
       beforeSideEffects.externalCandidateSnapshots,
     );
+    setShellOwner(record, context);
     const extracted = extractOfficePreviewRef(record.output || "");
     return {
       result: `Command running in background.\nShell ID: ${record.id}\n\n${truncate(

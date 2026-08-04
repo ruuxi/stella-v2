@@ -26,6 +26,23 @@ type PiSessionCoreOptions = {
 
 type SessionLogContext = Record<string, unknown>;
 
+const resolveCodexProviderServiceTier = (
+  resolvedLlm: ResolvedLlmRoute,
+  agentContext: LocalAgentContext,
+): "default" | "priority" | undefined => {
+  const snapshot = agentContext.modelConfigSnapshot;
+  if (
+    snapshot?.engine !== "codex_cli" ||
+    resolvedLlm.model.api !== "openai-codex-responses"
+  ) {
+    return undefined;
+  }
+  // Codex represents Standard as an explicit `default` session setting but
+  // omits it from the actual Responses request. The native provider has no
+  // Codex session layer, so omission is the matching wire behavior.
+  return snapshot.serviceTier === "fast" ? "priority" : undefined;
+};
+
 /**
  * Shared mutable Pi-Agent state for long-lived runtime sessions.
  *
@@ -76,6 +93,12 @@ export class PiSessionCore {
 
   protected setResolvedLlm(resolvedLlm: ResolvedLlmRoute): void {
     this.currentResolvedLlm = resolvedLlm;
+  }
+
+  protected historyForToolActivation(
+    agentContext: LocalAgentContext,
+  ): import("../agent-core/types.js").AgentMessage[] {
+    return this.agent?.state.messages ?? buildHistorySource(agentContext);
   }
 
   protected refreshHistoryIfNeeded(
@@ -297,6 +320,10 @@ export class PiSessionCore {
     onProviderRetry?: CreateRuntimeAgentArgs["onProviderRetry"];
     logContext: SessionLogContext;
   }): Agent {
+    const serviceTier = resolveCodexProviderServiceTier(
+      args.resolvedLlm,
+      args.agentContext,
+    );
     if (!this.agent) {
       const historySource = buildHistorySource(args.agentContext);
       this.agent = createRuntimeAgent({
@@ -314,6 +341,7 @@ export class PiSessionCore {
         tools: args.tools,
         historySource,
         cacheSessionId: this.threadKey,
+        ...(serviceTier ? { serviceTier } : {}),
         ...(args.afterToolCall ? { afterToolCall: args.afterToolCall } : {}),
         ...(args.onProviderRetry
           ? { onProviderRetry: args.onProviderRetry }
@@ -337,6 +365,7 @@ export class PiSessionCore {
         ? { agentContextReasoningEffort: args.agentContext.reasoningEffort }
         : {}),
     });
+    this.agent.setServiceTier(serviceTier);
     this.logger.debug("agent-reused", {
       threadKey: this.threadKey,
       priorMessages: this.agent.state.messages.length,

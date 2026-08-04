@@ -9,6 +9,7 @@ import {
   isMobileBridgeEventChannel,
   isMobileBridgeRequestChannel,
 } from "./bridge-policy.js";
+import { encodeBridgeBinaryValues } from "./binary-codec.js";
 import type { MobileBridgeBootstrap } from "./bootstrap-payload.js";
 import {
   BRIDGE_CRYPTO_PROTOCOL,
@@ -25,6 +26,7 @@ import {
   type BridgeReplayGuard,
 } from "./crypto.js";
 import { getHandler, getOnHandlers } from "./handler-registry.js";
+import { adaptLegacyMobileArgs } from "./legacy-args.js";
 import { probeBridgePublicHealth } from "./public-health.js";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 
@@ -613,6 +615,7 @@ export class MobileBridgeService {
       }
       return;
     }
+    const encodedData = encodeBridgeBinaryValues(data);
     for (const [ws, client] of this.wsClients) {
       if (
         client.authenticated &&
@@ -620,7 +623,11 @@ export class MobileBridgeService {
         ws.readyState === WebSocket.OPEN
       ) {
         ws.send(
-          this.serializeWsMessage(client, { type: "event", channel, data }),
+          this.serializeWsMessage(client, {
+            type: "event",
+            channel,
+            data: encodedData,
+          }),
         );
       }
     }
@@ -1144,14 +1151,17 @@ export class MobileBridgeService {
       const decodedBody = encryptedRequest
         ? this.decryptBridgePayload(session, body.envelope)
         : body;
+      const requestArgs = (decodedBody as { args?: unknown }).args ?? [];
       const dispatchResult = await dispatchCapturedIpc(
         channel,
-        (decodedBody as { args?: unknown }).args ?? [],
+        Array.isArray(requestArgs)
+          ? adaptLegacyMobileArgs(channel, requestArgs)
+          : requestArgs,
         this.broadcastToMobile,
         { swallowEventHandlerErrors: true },
       );
       if (dispatchResult.kind === "handle") {
-        const { result } = dispatchResult;
+        const result = encodeBridgeBinaryValues(dispatchResult.result);
         this.sendMaybeEncryptedJson(
           res,
           200,
@@ -1363,13 +1373,16 @@ export class MobileBridgeService {
     args: unknown[],
   ) {
     try {
+      const resolvedArgs = this.resolveUploadedAttachments(channel, args);
       const dispatchResult = await dispatchCapturedIpc(
         channel,
-        this.resolveUploadedAttachments(channel, args),
+        Array.isArray(resolvedArgs)
+          ? adaptLegacyMobileArgs(channel, resolvedArgs)
+          : resolvedArgs,
         this.broadcastToMobile,
       );
       if (dispatchResult.kind === "handle") {
-        const { result } = dispatchResult;
+        const result = encodeBridgeBinaryValues(dispatchResult.result);
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(
             this.serializeWsMessage(client, { type: "response", id, result }),
@@ -1757,24 +1770,39 @@ export class MobileBridgeService {
     }
     if (!healthy) {
       this.healthFailureStreak += 1;
-      if (
-        this.healthFailureStreak >= BRIDGE_PUBLIC_HEALTH_FAILURE_THRESHOLD &&
-        this.hasActiveRegistrationLease()
-      ) {
+      const streakExceeded =
+        this.healthFailureStreak >= BRIDGE_PUBLIC_HEALTH_FAILURE_THRESHOLD;
+      // Only a previously verified URL is cleared on a failure streak — that's
+      // the healthy→dead transition this guard exists for. A URL that has
+      // NEVER probed healthy from this desktop may still be a resolver-vantage
+      // false negative (e.g. a VPN's DNS server returning stale NXDOMAIN while
+      // the phone's network resolves the hostname fine), so clearing — or
+      // never registering — would strand a working tunnel.
+      const everVerified = this.lastHealthyProbeAt > 0;
+      if (streakExceeded && everVerified && this.hasActiveRegistrationLease()) {
         console.warn(
           `[mobile-bridge] Public tunnel failed ${this.healthFailureStreak} health checks; clearing availability`,
         );
         await this.clearRegistration();
         return;
       }
-      // Below threshold: keep any existing lease but don't refresh the
-      // registration against an unconfirmed URL this tick.
-      if (this.hasActiveRegistrationLease()) {
-        this.registrationState = "degraded";
+      if (!streakExceeded || everVerified) {
+        // Keep any existing lease but don't refresh the registration against
+        // an unconfirmed URL this tick.
+        if (this.hasActiveRegistrationLease()) {
+          this.registrationState = "degraded";
+        }
+        return;
       }
-      return;
+      // Streak exceeded and never verified: mirror the tunnel layer's
+      // advertise-anyway fallback and register the URL as degraded rather than
+      // leaving the phone with nothing to connect to.
+      console.warn(
+        `[mobile-bridge] Public tunnel unverified after ${this.healthFailureStreak} health checks; registering anyway (probe may be resolver-blinded)`,
+      );
+    } else {
+      this.healthFailureStreak = 0;
     }
-    this.healthFailureStreak = 0;
 
     try {
       const response = await this.postBridgeJson(
@@ -1807,7 +1835,9 @@ export class MobileBridgeService {
           throw new Error("Registration response missing a valid lease expiry");
         }
         this.setRegistrationLease(expiresAt);
-        this.registrationState = "healthy";
+        // An unverified advertise-anyway registration stays degraded until a
+        // probe actually succeeds from this desktop.
+        this.registrationState = healthy ? "healthy" : "degraded";
         return;
       }
 

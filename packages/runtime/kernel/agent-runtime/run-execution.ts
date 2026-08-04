@@ -9,11 +9,16 @@ import {
   subscribeRuntimeAgentEvents,
   type RuntimeRunEventRecorder,
 } from "./run-events.js";
-import { createRuntimePromptAgentMessage } from "./run-preparation.js";
 import {
-  getAgentCompletion,
-  now,
-} from "./shared.js";
+  createRuntimePromptAgentMessage,
+  prepareRuntimeAttachments,
+} from "./run-preparation.js";
+import {
+  enrichImageContentForTextOnlyModel,
+  IMAGE_DESCRIPTION_CUSTOM_TYPE,
+  type ImageDescriptionService,
+} from "./image-description.js";
+import { getAgentCompletion, now } from "./shared.js";
 import type { RuntimeRunCallbacks } from "./types.js";
 import {
   persistThreadCustomMessage,
@@ -23,6 +28,12 @@ import {
 type RuntimeExecutableAgent = {
   state: {
     messages: AgentMessage[];
+    model?: {
+      provider?: string;
+      api?: string;
+      id?: string;
+      input?: ("text" | "image")[];
+    };
   };
   subscribe: (listener: (event: AgentEvent) => void) => () => void;
   prompt: (message: AgentMessage | AgentMessage[]) => Promise<void>;
@@ -86,9 +97,17 @@ const materializeRemoteImageAttachment = async (
 
 const materializePromptAttachments = async (
   attachments?: RuntimeAttachmentRef[],
+  target?: {
+    provider?: string;
+    api?: string;
+    modelId?: string;
+  },
 ): Promise<RuntimeAttachmentRef[] | undefined> => {
   if (!attachments?.length) return attachments;
-  return await Promise.all(attachments.map(materializeRemoteImageAttachment));
+  const materialized = await Promise.all(
+    attachments.map(materializeRemoteImageAttachment),
+  );
+  return await prepareRuntimeAttachments(materialized, target);
 };
 
 export const executeRuntimeAgentPrompt = async (args: {
@@ -220,6 +239,13 @@ export const executeRuntimeAgentPrompt = async (args: {
         finalText: completion.finalText.trim(),
       };
     }
+    const imageTarget = args.agent.state.model
+      ? {
+          provider: args.agent.state.model.provider,
+          api: args.agent.state.model.api,
+          modelId: args.agent.state.model.id,
+        }
+      : undefined;
     const promptInputs =
       args.promptMessages && args.promptMessages.length > 0
         ? await Promise.all(
@@ -227,21 +253,66 @@ export const executeRuntimeAgentPrompt = async (args: {
               ...message,
               attachments: await materializePromptAttachments(
                 message.attachments,
+                imageTarget,
               ),
             })),
           )
-        : [{
-            text: args.promptText ?? "",
-            attachments: await materializePromptAttachments(args.attachments),
-          }];
+        : [
+            {
+              text: args.promptText ?? "",
+              attachments: await materializePromptAttachments(
+                args.attachments,
+                imageTarget,
+              ),
+            },
+          ];
     const promptTimestamp = now();
-    const promptMessages = promptInputs.map((message, index) => ({
-      message: createRuntimePromptAgentMessage(
-        message,
-        promptTimestamp + index,
-      ),
-      input: message,
-    }));
+    const promptMessages = (
+      await Promise.all(
+        promptInputs.map(async (input, index) => {
+          const message = createRuntimePromptAgentMessage(
+            input,
+            promptTimestamp + index * 2,
+          );
+          if (
+            (message.role !== "user" && message.role !== "runtimeInternal") ||
+            typeof message.content === "string"
+          ) {
+            return [{ message, input }];
+          }
+          const enrichedContent = await enrichImageContentForTextOnlyModel({
+            content: message.content,
+            model: args.agent.state.model,
+            describeImages: args.describeImages,
+            signal: args.abortSignal,
+          });
+          if (enrichedContent === message.content) {
+            return [{ message, input }];
+          }
+          const description = enrichedContent.at(-1);
+          if (description?.type !== "text") {
+            return [{ message, input }];
+          }
+          const descriptionInput = {
+            text: description.text,
+            messageType: "message" as const,
+            customType: IMAGE_DESCRIPTION_CUSTOM_TYPE,
+            display: false,
+            uiVisibility: "hidden" as const,
+          };
+          return [
+            { message, input },
+            {
+              message: createRuntimePromptAgentMessage(
+                descriptionInput,
+                promptTimestamp + index * 2 + 1,
+              ),
+              input: descriptionInput,
+            },
+          ];
+        }),
+      )
+    ).flat();
     for (const [index, promptMessage] of promptMessages.entries()) {
       const promptInput = promptMessage.input ?? promptInputs[index];
       const messageType = promptInput?.messageType ?? "user";
@@ -259,7 +330,8 @@ export const executeRuntimeAgentPrompt = async (args: {
       if (
         messageType === "message" &&
         promptMessage.message.role === "runtimeInternal" &&
-        promptInput.customType?.startsWith("bootstrap.") &&
+        (promptInput.customType?.startsWith("bootstrap.") ||
+          promptInput.customType === IMAGE_DESCRIPTION_CUSTOM_TYPE) &&
         args.threadStore &&
         args.threadKey
       ) {

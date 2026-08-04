@@ -601,6 +601,7 @@ export const finalizeSubagentSuccess = async (args: {
           messageCount,
         });
         if (compacted) {
+          resetSkillReadDedup(args.threadKey);
           args.opts.subagentSession?.notifyCompacted();
         }
       },

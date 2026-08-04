@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { StringDecoder } from "node:string_decoder";
 import crypto from "crypto";
 import fs from "fs";
 import os from "os";
@@ -462,6 +463,12 @@ type PendingClaudeCodePrompt = {
 type ClaudeCodeStreamingProcess = {
   child: ChildProcessWithoutNullStreams;
   stdoutBuffer: string;
+  /**
+   * Stateful UTF-8 decoder for stdout chunking: a multi-byte character
+   * split across chunk boundaries must not be corrupted into U+FFFD
+   * (plain `chunk.toString("utf8")` decodes each chunk independently).
+   */
+  stdoutDecoder: StringDecoder;
   stderrText: string;
   finalSessionId: string;
   pending: PendingClaudeCodePrompt[];
@@ -496,6 +503,28 @@ type SessionState = {
   mcpConfigPath?: string;
   /** Turn-scoped callbacks consulted lazily by the session MCP host. */
   activeMcpTurn?: ClaudeCodeToolMcpActiveTurn;
+  activeNativeToolUseCorrelator?: {
+    observe: (args: {
+      toolCallId: string;
+      toolName: string;
+      toolArgs: Record<string, unknown>;
+    }) => void;
+    observeStreamEvent: (event: Record<string, unknown>) => void;
+    observeAssistantMessage: (
+      event: Record<string, unknown>,
+    ) => ClaudeToolUseTruncation | null;
+    resolveToolUseIntegrity: (
+      toolName: string,
+      toolArgs: Record<string, unknown>,
+      signal?: AbortSignal,
+      timeoutMs?: number,
+    ) => Promise<ClaudeToolUseTruncation | undefined>;
+    claim: (
+      toolName: string,
+      toolArgs: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<string>;
+  };
   /** A successful NoResponse tool call permits this native turn to end empty. */
   allowEmptyNativeFinal?: boolean;
   /**
@@ -518,6 +547,313 @@ type SessionState = {
    * the turn falls back via `modelOverride`.
    */
   fableSafetyFailures?: number;
+};
+
+/**
+ * Message-level stop reasons that mean the model's stream ended BEFORE the
+ * content block it was generating was complete. `refusal` is a mid-stream
+ * safety stop (the API cuts generation the moment a classifier fires);
+ * `max_tokens` is the output budget running out. In both cases the CLI still
+ * repairs the partial `input_json_delta` into syntactically valid JSON and
+ * dispatches the tool call, so a half-written string argument arrives here
+ * looking exactly like a complete one.
+ */
+const TRUNCATING_STOP_REASONS = new Set(["refusal", "max_tokens"]);
+
+export type ClaudeToolUseTruncation = {
+  toolName: string;
+  stopReason: string;
+  /** `stop_details.category` when the API supplies one (e.g. "cyber"). */
+  category?: string;
+  explanation?: string;
+};
+
+/**
+ * Detects an `assistant` stream event whose trailing content block is a
+ * `tool_use` that was cut off mid-generation.
+ *
+ * The CLI emits one `assistant` event per finalized content block, stamping
+ * each with the message-level `stop_reason`. A truncating stop always cuts the
+ * block that was in flight, which is the LAST block of the message — so a
+ * `tool_use` that is followed by another block completed normally and must not
+ * be flagged. Requiring the tool_use to be last keeps this free of false
+ * positives on multi-block messages.
+ */
+export const getClaudeCodeTruncatedToolUseFromStreamEvent = (
+  event: Record<string, unknown>,
+):
+  | (ClaudeToolUseTruncation & {
+      toolCallId: string;
+      toolArgs: Record<string, unknown>;
+    })
+  | null => {
+  if (event.type !== "assistant") return null;
+  const message = asObject(event.message);
+  const stopReason =
+    typeof message?.stop_reason === "string" ? message.stop_reason : "";
+  if (!TRUNCATING_STOP_REASONS.has(stopReason)) return null;
+  const content = message?.content;
+  if (!Array.isArray(content) || content.length === 0) return null;
+  const block = asObject(content[content.length - 1]);
+  if (
+    block?.type !== "tool_use" ||
+    typeof block.id !== "string" ||
+    typeof block.name !== "string"
+  ) {
+    return null;
+  }
+  const details = asObject(message?.stop_details);
+  return {
+    toolCallId: block.id,
+    toolName: block.name,
+    toolArgs: asObject(block.input) ?? {},
+    stopReason,
+    ...(typeof details?.category === "string"
+      ? { category: details.category }
+      : {}),
+    ...(typeof details?.explanation === "string"
+      ? { explanation: details.explanation }
+      : {}),
+  };
+};
+
+export const describeClaudeToolUseTruncation = (
+  truncation: ClaudeToolUseTruncation,
+): string =>
+  `Claude's stream ended with stop_reason "${truncation.stopReason}"` +
+  `${truncation.category ? ` (${truncation.category})` : ""} while it was ` +
+  `still writing the arguments for \`${truncation.toolName}\`, so those ` +
+  `arguments are cut off mid-value.`;
+
+const stableToolArgs = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(stableToolArgs).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableToolArgs(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+};
+
+const claudeToolKey = (
+  toolName: string,
+  toolArgs: Record<string, unknown>,
+): string => {
+  const normalizedName = toolName.includes("__")
+    ? (toolName.split("__").at(-1) ?? toolName)
+    : toolName;
+  return crypto
+    .createHash("sha256")
+    .update(normalizedName)
+    .update("\0")
+    .update(stableToolArgs(toolArgs))
+    .digest("hex");
+};
+
+/**
+ * How long an inbound MCP call waits for the finalized `assistant` event that
+ * carries its `stop_reason` before giving up and running anyway.
+ *
+ * The CLI writes that event to stdout immediately before issuing the MCP HTTP
+ * call, so in practice the verdict is already recorded and the wait is zero.
+ * The ceiling only covers the few-millisecond window where the HTTP request
+ * beats the pipe read; it is small because the gate FAILS OPEN — an unmatched
+ * call must never be delayed or blocked on the strength of missing evidence.
+ */
+const TOOL_USE_INTEGRITY_SETTLE_MS = 250;
+
+export const createClaudeNativeToolUseCorrelator = () => {
+  const queued = new Map<string, string[]>();
+  const waiters = new Map<string, Array<(id: string) => void>>();
+  const observedIds = new Set<string>();
+  /** Keys of tool_use blocks a finalized assistant event proved truncated. */
+  const truncatedKeys = new Map<string, ClaudeToolUseTruncation>();
+  /** Keys a finalized assistant event has adjudicated (truncated or clean). */
+  const settledKeys = new Set<string>();
+  const integrityWaiters = new Map<string, Array<() => void>>();
+  const settleKey = (key: string) => {
+    settledKeys.add(key);
+    const pending = integrityWaiters.get(key);
+    integrityWaiters.delete(key);
+    for (const resolve of pending ?? []) resolve();
+  };
+  const streamingBlocks = new Map<
+    number,
+    {
+      toolCallId: string;
+      toolName: string;
+      initialInput: Record<string, unknown>;
+      partialJson: string;
+    }
+  >();
+  const observe = (args: {
+    toolCallId: string;
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+  }) => {
+    if (observedIds.has(args.toolCallId)) return;
+    observedIds.add(args.toolCallId);
+    const key = claudeToolKey(args.toolName, args.toolArgs);
+    const waiter = waiters.get(key)?.shift();
+    if (waiter) {
+      waiter(args.toolCallId);
+      return;
+    }
+    const values = queued.get(key) ?? [];
+    if (!values.includes(args.toolCallId)) values.push(args.toolCallId);
+    queued.set(key, values);
+  };
+  return {
+    observe,
+    /**
+     * Records the integrity verdict a finalized `assistant` event carries for
+     * the tool_use blocks it contains. Returns the truncation when this event
+     * proved one, so the caller can also surface it to the user (the call may
+     * already be executing, in which case the gate below cannot stop it).
+     */
+    observeAssistantMessage(
+      event: Record<string, unknown>,
+    ): ClaudeToolUseTruncation | null {
+      if (event.type !== "assistant") return null;
+      const content = asObject(event.message)?.content;
+      if (!Array.isArray(content)) return null;
+      const truncated = getClaudeCodeTruncatedToolUseFromStreamEvent(event);
+      for (const raw of content) {
+        const block = asObject(raw);
+        if (block?.type !== "tool_use" || typeof block.name !== "string") {
+          continue;
+        }
+        const key = claudeToolKey(block.name, asObject(block.input) ?? {});
+        if (truncated && block.id === truncated.toolCallId) {
+          truncatedKeys.set(key, truncated);
+        }
+        settleKey(key);
+      }
+      return truncated;
+    },
+    /**
+     * Verdict for an inbound MCP call: the truncation that cut its arguments,
+     * or undefined when the arguments are whole OR when no finalized event
+     * arrived in time to say. Fails open by design — see the settle constant.
+     */
+    async resolveToolUseIntegrity(
+      toolName: string,
+      toolArgs: Record<string, unknown>,
+      signal?: AbortSignal,
+      timeoutMs: number = TOOL_USE_INTEGRITY_SETTLE_MS,
+    ): Promise<ClaudeToolUseTruncation | undefined> {
+      const key = claudeToolKey(toolName, toolArgs);
+      if (!settledKeys.has(key)) {
+        await new Promise<void>((resolve) => {
+          const entries = integrityWaiters.get(key) ?? [];
+          const finish = () => {
+            clearTimeout(timer);
+            signal?.removeEventListener("abort", finish);
+            const index = entries.indexOf(finish);
+            if (index >= 0) entries.splice(index, 1);
+            resolve();
+          };
+          const timer = setTimeout(finish, timeoutMs);
+          timer.unref?.();
+          entries.push(finish);
+          integrityWaiters.set(key, entries);
+          signal?.addEventListener("abort", finish, { once: true });
+          if (signal?.aborted) finish();
+        });
+      }
+      return truncatedKeys.get(key);
+    },
+    observeStreamEvent(event: Record<string, unknown>) {
+      if (event.type !== "stream_event") return;
+      const source = asObject(event.event);
+      const index = asNumber(source?.index);
+      if (!source || index === undefined || !Number.isInteger(index)) return;
+      if (source.type === "content_block_start") {
+        const block = asObject(source.content_block);
+        if (
+          block?.type === "tool_use" &&
+          typeof block.id === "string" &&
+          typeof block.name === "string"
+        ) {
+          streamingBlocks.set(index, {
+            toolCallId: block.id,
+            toolName: block.name,
+            initialInput: asObject(block.input) ?? {},
+            partialJson: "",
+          });
+        }
+        return;
+      }
+      const pending = streamingBlocks.get(index);
+      if (!pending) return;
+      if (source.type === "content_block_delta") {
+        const delta = asObject(source.delta);
+        if (
+          delta?.type === "input_json_delta" &&
+          typeof delta.partial_json === "string"
+        ) {
+          pending.partialJson += delta.partial_json;
+        }
+        return;
+      }
+      if (source.type !== "content_block_stop") return;
+      streamingBlocks.delete(index);
+      let toolArgs = pending.initialInput;
+      if (pending.partialJson.trim()) {
+        try {
+          const parsed = JSON.parse(pending.partialJson) as unknown;
+          toolArgs = asObject(parsed) ?? pending.initialInput;
+        } catch {
+          // The finalized assistant event remains a safe fallback. Never bind
+          // an MCP mutation to malformed or incomplete streamed arguments.
+          return;
+        }
+      }
+      observe({
+        toolCallId: pending.toolCallId,
+        toolName: pending.toolName,
+        toolArgs,
+      });
+    },
+    async claim(
+      toolName: string,
+      toolArgs: Record<string, unknown>,
+      signal: AbortSignal,
+    ) {
+      const key = claudeToolKey(toolName, toolArgs);
+      const existing = queued.get(key)?.shift();
+      if (existing) return existing;
+      return await new Promise<string>((resolve, reject) => {
+        const entries = waiters.get(key) ?? [];
+        const onAbort = () => {
+          const index = entries.indexOf(onObserved);
+          if (index >= 0) entries.splice(index, 1);
+          reject(signal.reason ?? new Error("Claude tool call canceled."));
+        };
+        const timer = setTimeout(() => {
+          signal.removeEventListener("abort", onAbort);
+          const index = entries.indexOf(onObserved);
+          if (index >= 0) entries.splice(index, 1);
+          reject(
+            new Error(
+              "Timed out waiting for Claude's durable tool_use identity.",
+            ),
+          );
+        }, 5_000);
+        timer.unref?.();
+        const onObserved = (id: string) => {
+          clearTimeout(timer);
+          signal.removeEventListener("abort", onAbort);
+          resolve(id);
+        };
+        entries.push(onObserved);
+        waiters.set(key, entries);
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      });
+    },
+  };
 };
 
 const asNumber = (value: unknown): number | undefined =>
@@ -553,8 +889,18 @@ const configuredTimeoutMs = (envName: string, fallbackMs: number): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
 };
 
+/**
+ * True only when the child has actually terminated. `child.killed` must
+ * NOT be used for ladder guards: it flips true as soon as any signal was
+ * SENT, which previously made every later rung unreachable — after the
+ * SIGINT in `abortProcess`, neither SIGTERM nor SIGKILL could ever fire,
+ * so a signal-ignoring CLI survived cancellation.
+ */
+const processIsDead = (child: ChildProcessWithoutNullStreams): boolean =>
+  child.exitCode !== null || child.signalCode !== null;
+
 const killProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (child.killed || child.exitCode !== null) return;
+  if (processIsDead(child)) return;
   try {
     child.kill("SIGTERM");
   } catch {
@@ -562,12 +908,11 @@ const killProcess = (child: ChildProcessWithoutNullStreams) => {
   }
 
   const sigkillTimer = setTimeout(() => {
-    if (!child.killed && child.exitCode === null) {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // Process may have already exited.
-      }
+    if (processIsDead(child)) return;
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Process may have already exited.
     }
   }, SIGKILL_TIMEOUT_MS);
 
@@ -575,7 +920,7 @@ const killProcess = (child: ChildProcessWithoutNullStreams) => {
 };
 
 const abortProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (child.killed || child.exitCode !== null) return;
+  if (processIsDead(child)) return;
   try {
     child.kill("SIGINT");
   } catch {
@@ -816,6 +1161,34 @@ const updateClaudeCodeNativeToolActivity = (
     }
   }
   return before !== activeToolUseIds.size;
+};
+
+const observeFinalizedClaudeToolUses = (
+  event: Record<string, unknown>,
+  observe?: (args: {
+    toolCallId: string;
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+  }) => void,
+): void => {
+  if (event.type !== "assistant" || !observe) return;
+  const content = asObject(event.message)?.content;
+  if (!Array.isArray(content)) return;
+  for (const raw of content) {
+    const block = asObject(raw);
+    if (
+      block?.type !== "tool_use" ||
+      typeof block.id !== "string" ||
+      typeof block.name !== "string"
+    ) {
+      continue;
+    }
+    observe({
+      toolCallId: block.id,
+      toolName: block.name,
+      toolArgs: asObject(block.input) ?? {},
+    });
+  }
 };
 
 const fileChangeDedupeKey = (record: FileChangeRecord): string =>
@@ -1237,7 +1610,21 @@ class ClaudeCodeSessionRuntime {
     }
 
     if (!request.vanilla) {
+      const nativeToolUseCorrelator = createClaudeNativeToolUseCorrelator();
+      session.activeNativeToolUseCorrelator = nativeToolUseCorrelator;
       session.activeMcpTurn = {
+        // The persisted Claude session is the conversation boundary. Native
+        // tool_use.id distinguishes invocations within it; Stella run IDs can
+        // change during crash recovery and must not alter replay identity.
+        identityScope: request.sessionKey,
+        claimNativeToolUseId: (toolName, toolArgs, signal) =>
+          nativeToolUseCorrelator.claim(toolName, toolArgs, signal),
+        checkToolUseIntegrity: (toolName, toolArgs, signal) =>
+          nativeToolUseCorrelator.resolveToolUseIntegrity(
+            toolName,
+            toolArgs,
+            signal,
+          ),
         executeTool: async (
           toolCallId,
           toolName,
@@ -1306,6 +1693,7 @@ class ClaudeCodeSessionRuntime {
           }
           return toolResult;
         },
+        onToolResponseWritten: request.onToolResponseWritten,
       };
     }
 
@@ -1392,8 +1780,8 @@ class ClaudeCodeSessionRuntime {
         const recoverable = asRecoverableStepError(error);
         const hasPossibleSideEffects = Boolean(
           recoverable &&
-          (recoverable.fileChanges.length > 0 ||
-            recoverable.mcpCalls.length > 0),
+            (recoverable.fileChanges.length > 0 ||
+              recoverable.mcpCalls.length > 0),
         );
         // A normal refusal/overload can retry the configured model and then
         // fall back. Once any tool call started, the same prompt is never
@@ -1673,13 +2061,18 @@ class ClaudeCodeSessionRuntime {
       // Native takeover: Claude owns the tool loop. Its built-ins and all
       // ambient/user MCP servers remain disabled; only this run-private,
       // token-authenticated Stella server is visible.
+      const allowedStellaTools = request.tools
+        .map((tool) => `mcp__stella__${tool.name}`)
+        .join(",");
       args.push(
         "--strict-mcp-config",
         "--mcp-config",
         session.mcpConfigPath,
         "--disable-slash-commands",
         "--tools",
-        "",
+        "mcp__stella__*",
+        "--allowedTools",
+        allowedStellaTools,
       );
     }
     if (effectiveSystemPrompt.trim()) {
@@ -1741,6 +2134,7 @@ class ClaudeCodeSessionRuntime {
     }
     session.mcpHost = await createClaudeCodeToolMcpHost({
       tools: request.tools,
+      identityScope: request.sessionKey,
       getActiveTurn: () => session.activeMcpTurn,
     });
     session.mcpToolCatalogKey = catalogKey;
@@ -1773,7 +2167,18 @@ class ClaudeCodeSessionRuntime {
       effectiveSystemPrompt,
       mcpHost,
     );
-    if (session.process && !session.process.closed) {
+    if (
+      session.process &&
+      !session.process.closed &&
+      // Dying-process fence: a child that has been signaled (`killed` is
+      // "signal sent") or already terminated must never take new prompts —
+      // a late reuse would write into a process the kill ladder is tearing
+      // down. Its exit handler rejects the pendings and clears
+      // `session.process`; respawning below (same resume id) is the
+      // correct successor.
+      !session.process.child.killed &&
+      !processIsDead(session.process.child)
+    ) {
       if (session.process.launchConfig === launchConfig) {
         return session.process;
       }
@@ -1835,6 +2240,7 @@ class ClaudeCodeSessionRuntime {
     const processState: ClaudeCodeStreamingProcess = {
       child,
       stdoutBuffer: "",
+      stdoutDecoder: new StringDecoder("utf8"),
       stderrText: "",
       finalSessionId: session.sessionId,
       pending: [],
@@ -1880,6 +2286,32 @@ class ClaudeCodeSessionRuntime {
         }
         // The init event names the model the CLI actually resolved the
         // requested alias to (e.g. default -> claude-opus-4-8[1m]).
+        if (
+          parsedLine.type === "system" &&
+          parsedLine.subtype === "init" &&
+          request.onProtocolInit
+        ) {
+          request.onProtocolInit({
+            tools: Array.isArray(parsedLine.tools)
+              ? parsedLine.tools.filter(
+                  (entry): entry is string => typeof entry === "string",
+                )
+              : [],
+            mcpServers: Array.isArray(parsedLine.mcp_servers)
+              ? parsedLine.mcp_servers.map((entry) => {
+                  const value = asObject(entry);
+                  return {
+                    ...(typeof value?.name === "string"
+                      ? { name: value.name }
+                      : {}),
+                    ...(typeof value?.status === "string"
+                      ? { status: value.status }
+                      : {}),
+                  };
+                })
+              : [],
+          });
+        }
         if (
           parsedLine.type === "system" &&
           parsedLine.subtype === "init" &&
@@ -1983,7 +2415,7 @@ class ClaudeCodeSessionRuntime {
     };
 
     child.stdout.on("data", (chunk: Buffer) => {
-      processState.stdoutBuffer += chunk.toString("utf8");
+      processState.stdoutBuffer += processState.stdoutDecoder.write(chunk);
       refreshPendingIdleTimers(true);
       consumeStdout(false);
     });
@@ -2062,6 +2494,9 @@ class ClaudeCodeSessionRuntime {
       }
     });
 
+    if (mcpHost && request.tools.some((tool) => tool.name === "image_gen")) {
+      await mcpHost.waitForClientReady(request.abortSignal);
+    }
     return processState;
   }
 

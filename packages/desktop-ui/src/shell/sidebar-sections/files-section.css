@@ -1,0 +1,136 @@
+/* Unified Work list — agent threads and files interleaved by recency. The
+   surface remains the drop target for local media imports. */
+
+.files-list {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.files-list__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border-weak);
+  color: var(--text-weak);
+}
+
+.files-list__search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--font-size-base);
+}
+
+.files-list__search input::placeholder {
+  color: var(--text-faint);
+}
+
+.files-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.files-list__page-end {
+  height: 1px;
+}
+
+.files-list__item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.files-list__item:hover {
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+}
+
+.files-list__open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px;
+  border: none;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--font-size-base);
+  text-align: left;
+  cursor: default;
+}
+
+.files-list__open:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.files-list__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-weak);
+}
+
+.files-list__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.files-list__meta {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+}
+
+/* The remove affordance only appears on hover/focus so a long list reads as
+   titles rather than as a column of buttons. */
+.files-list__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-weak);
+  opacity: 0;
+  cursor: default;
+}
+
+.files-list__item:hover .files-list__remove,
+.files-list__remove:focus-visible {
+  opacity: 1;
+}
+
+.files-list__remove:hover {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
+.files-list__remove:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

@@ -283,7 +283,7 @@ export default defineConfig({
     // Cover every window's HTML entry in the cold dep scan (not just index.html),
     // so the overlay/pet/mini spines don't trigger a separate re-optimize when
     // first opened.
-    entries: ["index.html", "overlay.html", "pet.html", "mini.html"],
+    entries: ["index.html", "overlay.html", "pet.html"],
     rolldownOptions: {
       transform: {
         target: "esnext",
@@ -299,7 +299,6 @@ export default defineConfig({
     rolldownOptions: {
       input: {
         main: path.resolve(__dirname, "index.html"),
-        mini: path.resolve(__dirname, "mini.html"),
         overlay: path.resolve(__dirname, "overlay.html"),
         pet: path.resolve(__dirname, "pet.html"),
       },
@@ -328,7 +327,7 @@ export default defineConfig({
     warmup: {
       clientFiles: [
         // First-paint spine.
-        "./src/main.tsx",
+        "./src/main.jsx",
         "./src/App.tsx",
         "./src/context/AppProviders.tsx",
         "./src/shell/FullShell.tsx",
@@ -348,7 +347,6 @@ export default defineConfig({
         // instantly instead of cold-transforming on creation.
         "./src/overlay-entry.tsx",
         "./src/pet-entry.tsx",
-        "./src/mini-entry.tsx",
       ],
     },
     // Defaults to the standard Stella loopback URL; an override lets an

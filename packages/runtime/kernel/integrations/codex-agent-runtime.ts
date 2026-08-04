@@ -53,6 +53,17 @@ export const CODEX_LIGHT_MODEL = "gpt-5.4-mini";
 export const CODEX_UTILITY_MODEL = "gpt-5.6-luna";
 const execFileAsync = promisify(execFile);
 
+const stableJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+};
+
 type JsonRpcId = number | string;
 type JsonRpcError = {
   code?: number;
@@ -106,6 +117,12 @@ type CodexModel = {
   defaultReasoningEffort: CodexReasoningEffort;
   inputModalities: string[];
   additionalSpeedTiers: string[];
+  serviceTiers: Array<{
+    id: string;
+    name: string;
+    description: string;
+  }>;
+  defaultServiceTier?: string | null;
   isDefault: boolean;
 };
 
@@ -129,6 +146,12 @@ type CodexThreadStartParams = {
   developerInstructions?: string | null;
   ephemeral?: boolean | null;
   experimentalRawEvents: boolean;
+  dynamicTools?: Array<{
+    type: "function";
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }>;
 };
 
 type CodexThreadResumeParams = {
@@ -156,6 +179,7 @@ type CodexTurnStartParams = {
   sandboxPolicy?: { type: "dangerFullAccess" };
   model?: string | null;
   effort?: CodexReasoningEffort | null;
+  serviceTier?: "default" | "priority";
 };
 
 type CodexTurn = {
@@ -586,7 +610,11 @@ export const getCodexRuntimePreferences = (
   stellaDataDir?: string,
   stellaModel?: string,
   modelOverride?: string,
-): { model: string; reasoningEffort?: CodexReasoningEffort } => {
+): {
+  model: string;
+  reasoningEffort?: CodexReasoningEffort;
+  serviceTier: CodexServiceTier;
+} => {
   const prefs = stellaDataDir ? loadLocalPreferences(stellaDataDir) : null;
   const lightDefault =
     stellaModel?.trim() === "stella/light" ? CODEX_LIGHT_MODEL : undefined;
@@ -619,8 +647,13 @@ export const getCodexRuntimePreferences = (
   return {
     model,
     ...(reasoningEffort ? { reasoningEffort } : {}),
+    serviceTier: prefs?.codexServiceTier ?? DEFAULT_CODEX_SERVICE_TIER,
   };
 };
+
+export const codexServiceTierRequestValue = (
+  serviceTier: CodexServiceTier,
+): "default" | "priority" => (serviceTier === "fast" ? "priority" : "default");
 
 const mimeExtension = (mimeType: string): string => {
   switch (mimeType.trim().toLowerCase()) {
@@ -707,27 +740,35 @@ const truncateStderr = (chunks: Buffer[]): string => {
   return text.slice(text.length - MAX_STDERR_CAPTURE);
 };
 
+/**
+ * True only when the child has actually terminated. `child.killed` is
+ * "a signal was SENT", not "the process died" — using it as a ladder
+ * guard made SIGTERM/SIGKILL unreachable after the SIGINT in
+ * `abortCodexProcess`, so a signal-ignoring app-server survived.
+ */
+const codexProcessIsDead = (child: ChildProcessWithoutNullStreams): boolean =>
+  child.exitCode !== null || child.signalCode !== null;
+
 const killCodexProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (child.killed || child.exitCode !== null) return;
+  if (codexProcessIsDead(child)) return;
   try {
     child.kill("SIGTERM");
   } catch {
     // Process may have already exited.
   }
   const sigkillTimer = setTimeout(() => {
-    if (!child.killed && child.exitCode === null) {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // Process may have already exited.
-      }
+    if (codexProcessIsDead(child)) return;
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Process may have already exited.
     }
   }, SIGKILL_TIMEOUT_MS);
   child.once("exit", () => clearTimeout(sigkillTimer));
 };
 
 const abortCodexProcess = (child: ChildProcessWithoutNullStreams) => {
-  if (child.killed || child.exitCode !== null) return;
+  if (codexProcessIsDead(child)) return;
   try {
     child.kill("SIGINT");
   } catch {
@@ -805,10 +846,31 @@ const toolArgsFromCodexValue = (value: unknown): Record<string, unknown> => {
   return {};
 };
 
+export const codexDurableImageToolCallId = (args: {
+  sessionKey?: string;
+  threadId: string;
+  callId: string;
+  toolArgs: Record<string, unknown>;
+}): string => {
+  const requestHash = crypto
+    .createHash("sha256")
+    .update("image_gen")
+    .update("\0")
+    .update(stableJson(args.toolArgs))
+    .digest("hex");
+  const durableScope = crypto
+    .createHash("sha256")
+    .update(args.sessionKey ?? args.threadId)
+    .digest("hex")
+    .slice(0, 24);
+  return `codex:${durableScope}:${args.callId}:${requestHash.slice(0, 24)}`;
+};
+
 export const buildCodexThreadStartParams = (args: {
   model: string;
   cwd?: string;
   systemPrompt?: string;
+  tools?: ToolMetadata[];
 }): CodexThreadStartParams => {
   const developerInstructions = extractCodexDeveloperInstructions(
     args.systemPrompt,
@@ -826,6 +888,16 @@ export const buildCodexThreadStartParams = (args: {
       : {}),
     ephemeral: false,
     experimentalRawEvents: false,
+    ...(args.tools?.length
+      ? {
+          dynamicTools: args.tools.map((tool) => ({
+            type: "function" as const,
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.parameters,
+          })),
+        }
+      : {}),
   };
 };
 
@@ -859,6 +931,7 @@ export const buildCodexTurnStartParams = (args: {
   model: string;
   cwd?: string;
   reasoningEffort?: CodexReasoningEffort;
+  serviceTier?: CodexServiceTier;
 }): CodexTurnStartParams => ({
   threadId: args.threadId,
   input: args.input,
@@ -867,6 +940,9 @@ export const buildCodexTurnStartParams = (args: {
   sandboxPolicy: { type: "dangerFullAccess" },
   model: args.model,
   ...(args.reasoningEffort ? { effort: args.reasoningEffort } : {}),
+  ...(args.serviceTier
+    ? { serviceTier: codexServiceTierRequestValue(args.serviceTier) }
+    : {}),
 });
 
 type PendingRequest = {
@@ -878,6 +954,29 @@ type PendingRequest = {
 type CodexServerRequestHandler = (
   request: JsonRpcRequestMessage,
 ) => Promise<unknown | undefined> | unknown | undefined;
+
+const CODEX_RESPONSE_WITH_ACK = Symbol("codex-response-with-ack");
+type CodexResponseWithAck = {
+  [CODEX_RESPONSE_WITH_ACK]: true;
+  result: unknown;
+  afterResponseWritten?: () => void | Promise<void>;
+};
+
+const responseWithAck = (
+  result: unknown,
+  afterResponseWritten?: () => void | Promise<void>,
+): CodexResponseWithAck => ({
+  [CODEX_RESPONSE_WITH_ACK]: true,
+  result,
+  afterResponseWritten,
+});
+
+const isResponseWithAck = (value: unknown): value is CodexResponseWithAck =>
+  Boolean(
+    value &&
+      typeof value === "object" &&
+      (value as Partial<CodexResponseWithAck>)[CODEX_RESPONSE_WITH_ACK],
+  );
 
 const configuredTimeoutMs = (envName: string, fallbackMs: number): number => {
   const raw = process.env[envName]?.trim();
@@ -945,7 +1044,14 @@ class CodexAppServerClient {
   }
 
   isClosed(): boolean {
-    return Boolean(this.closedError);
+    // A signaled (dying) child counts as closed for reuse: the shared
+    // client must not accept new work while the kill ladder tears the
+    // app-server down.
+    return (
+      Boolean(this.closedError) ||
+      this.child.killed ||
+      codexProcessIsDead(this.child)
+    );
   }
 
   async initialize(): Promise<void> {
@@ -1038,6 +1144,20 @@ class CodexAppServerClient {
     }
   }
 
+  private writeAsync(message: JsonRpcOutgoingMessage): Promise<void> {
+    if (this.closedError) return Promise.reject(this.closedError);
+    const line = `${JSON.stringify(message)}\n`;
+    return new Promise((resolve, reject) => {
+      this.child.stdin.write(line, (error) => {
+        if (error) {
+          reject(new Error(`Codex app-server write failed: ${error.message}`));
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
   private handleLine(line: string) {
     const trimmed = line.trim();
     if (!trimmed) return;
@@ -1093,7 +1213,17 @@ class CodexAppServerClient {
       for (const handler of this.requestHandlers) {
         const result = await handler(message);
         if (result !== undefined) {
-          this.write({ jsonrpc: "2.0", id: message.id, result });
+          const response = isResponseWithAck(result) ? result.result : result;
+          await this.writeAsync({
+            jsonrpc: "2.0",
+            id: message.id,
+            result: response,
+          });
+          if (isResponseWithAck(result)) {
+            await Promise.resolve(result.afterResponseWritten?.()).catch(
+              () => undefined,
+            );
+          }
           return;
         }
       }
@@ -1108,11 +1238,11 @@ class CodexAppServerClient {
     } catch (error) {
       const messageText =
         error instanceof Error ? error.message : textFromUnknown(error);
-      this.write({
+      await this.writeAsync({
         jsonrpc: "2.0",
         id: message.id,
         error: { code: -32000, message: messageText },
-      } as JsonRpcResponseMessage);
+      } as JsonRpcResponseMessage).catch(() => undefined);
     }
   }
 
@@ -1280,6 +1410,7 @@ const startOrResumeCodexThread = async (args: {
   model: string;
   cwd?: string;
   systemPrompt?: string;
+  tools?: ToolMetadata[];
   onStatus?: (status: string) => void;
 }): Promise<string> => {
   if (args.persistedSessionId) {
@@ -1305,6 +1436,7 @@ const startOrResumeCodexThread = async (args: {
       model: args.model,
       cwd: args.cwd,
       systemPrompt: args.systemPrompt,
+      tools: args.tools,
     }),
   );
   return response.thread.id;
@@ -1376,6 +1508,8 @@ export const runCodexAgentTurn = async (request: {
   persistedSessionId?: string;
   prompt: string;
   systemPrompt?: string;
+  /** Stella dynamic tools exposed to the app-server thread. */
+  tools?: ToolMetadata[];
   cwd?: string;
   stellaDataDir?: string;
   stellaAppDir?: string;
@@ -1385,6 +1519,8 @@ export const runCodexAgentTurn = async (request: {
   modelOverride?: string;
   /** Per-spawn reasoning override; never persisted. */
   reasoningEffort?: AgentModelReasoningEffort;
+  /** Captured ChatGPT/Codex service tier; falls back to local preferences. */
+  serviceTier?: CodexServiceTier;
   /** True when the effort was captured from an already-resolved parent turn. */
   reasoningEffortResolved?: boolean;
   /** Automatic utility pass: fixed cheap model and low effort. */
@@ -1402,6 +1538,10 @@ export const runCodexAgentTurn = async (request: {
     toolName: string;
     update: ToolResult;
   }) => void;
+  onToolResponseWritten?: (args: {
+    toolCallId: string;
+    toolName: string;
+  }) => void | Promise<void>;
   executeTool?: (
     toolCallId: string,
     toolName: string,
@@ -1419,6 +1559,7 @@ export const runCodexAgentTurn = async (request: {
     request.utility ? CODEX_UTILITY_MODEL : request.modelOverride,
   );
   const model = runtimePreferences.model;
+  const serviceTier = request.serviceTier ?? runtimePreferences.serviceTier;
   let reasoningEffort: CodexReasoningEffort | undefined = request.utility
     ? "low"
     : (request.reasoningEffort ?? runtimePreferences.reasoningEffort);
@@ -1560,7 +1701,15 @@ export const runCodexAgentTurn = async (request: {
               : `Codex app-server did not report turn progress for ${Math.round(timeoutMs / 1000)}s.`,
           ),
         );
-        client.abort();
+        // Shared-client guard (same policy as the abort handler): one
+        // turn's idleness must interrupt only ITS turn, never tear down a
+        // shared app-server that other turns are using.
+        if (threadId && turnId) {
+          void client.interrupt(threadId, turnId).catch(() => {});
+        }
+        if (!request.reuseAppServer) {
+          client.abort();
+        }
       }, timeoutMs);
       turnIdleTimer.unref?.();
     };
@@ -1697,6 +1846,15 @@ export const runCodexAgentTurn = async (request: {
         const executeTool = request.executeTool;
         const toolName = params.tool;
         const toolArgs = toolArgsFromCodexValue(params.arguments);
+        const toolCallId =
+          toolName === "image_gen"
+            ? codexDurableImageToolCallId({
+                sessionKey: request.sessionKey,
+                threadId: params.threadId,
+                callId: params.callId,
+                toolArgs,
+              })
+            : params.callId;
         const workKey = `tool:${params.callId}`;
         activeTurnWork.add(workKey);
         refreshTurnIdleTimer?.();
@@ -1709,35 +1867,39 @@ export const runCodexAgentTurn = async (request: {
             toolName,
             signal: request.abortSignal,
             run: (signal, onActivity) =>
-              executeTool(
-                params.callId,
-                toolName,
-                toolArgs,
-                signal,
-                (update) => {
-                  onActivity();
-                  refreshTurnIdleTimer?.();
-                  request.onToolUpdate?.({
-                    toolCallId: params.callId,
-                    toolName,
-                    update,
-                  });
-                  const statusText = buildToolResultText(update).trim();
-                  if (statusText) emitStatus(statusText);
-                },
-              ),
+              executeTool(toolCallId, toolName, toolArgs, signal, (update) => {
+                onActivity();
+                refreshTurnIdleTimer?.();
+                request.onToolUpdate?.({
+                  toolCallId,
+                  toolName,
+                  update,
+                });
+                const statusText = buildToolResultText(update).trim();
+                if (statusText) emitStatus(statusText);
+              }),
           });
         } finally {
           activeTurnWork.delete(workKey);
           refreshTurnIdleTimer?.();
         }
         appendUniqueFileChanges(fileChanges, toolResult.fileChanges ?? []);
-        return {
+        const response = {
           contentItems: [
             { type: "inputText", text: buildToolResultText(toolResult) },
           ],
           success: !toolResult.error,
         };
+        return responseWithAck(
+          response,
+          toolName === "image_gen"
+            ? () =>
+                request.onToolResponseWritten?.({
+                  toolCallId,
+                  toolName,
+                })
+            : undefined,
+        );
       }
       if (message.method === "item/commandExecution/requestApproval") {
         return { decision: "decline" };
@@ -1779,6 +1941,7 @@ export const runCodexAgentTurn = async (request: {
       model,
       cwd: request.cwd,
       systemPrompt: request.systemPrompt,
+      tools: request.tools,
       onStatus: emitStatus,
     });
     request.onSessionId?.(threadId);
@@ -1794,6 +1957,7 @@ export const runCodexAgentTurn = async (request: {
         model,
         cwd: request.cwd,
         reasoningEffort,
+        serviceTier,
       }),
     );
     turnId = turn.turn.id;

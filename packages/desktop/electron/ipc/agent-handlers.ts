@@ -67,9 +67,6 @@ type AgentEventPayload = {
   outcome?: AgentRunFinishOutcome;
   reason?: string;
   replacedByRunId?: string;
-  /** Work group (`grp-…` key + human label) of the agent's thread. */
-  groupKey?: string;
-  groupLabel?: string;
   assistantMessageEventId?: string;
 };
 

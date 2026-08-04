@@ -66,8 +66,6 @@ import {
   IPC_LLM_CREDENTIALS_SAVE,
   IPC_MEDIA_GET_DIR,
   IPC_MEDIA_SAVE_OUTPUT,
-  IPC_MINI_BRIDGE_REQUEST,
-  IPC_MINI_BRIDGE_UPDATE,
   IPC_OFFICE_PREVIEW_LIST,
   IPC_OFFICE_PREVIEW_START,
   IPC_ONBOARDING_SYNTHESIZE,
@@ -129,6 +127,13 @@ export type MobileBridgeRequestCapability = {
   path: string;
   channel: string;
   transport: MobileBridgeRequestTransport;
+  /**
+   * The payload shape preload sends on this channel, attached when the
+   * manifest is built. The phone packs its arguments to match instead of
+   * keeping its own copy of the shape, so a channel added or reshaped here
+   * reaches the phone correctly without a shim edit.
+   */
+  payload?: IpcPayloadContract;
 };
 
 export type MobileBridgeEventCapability = {
@@ -210,10 +215,6 @@ export const MOBILE_BRIDGE_CAPABILITIES = [
     "Native traffic-light buttons are desktop-only chrome.",
   ),
   unsupported(
-    "window.setMiniAlwaysOnTop",
-    "Mini-window pinning is desktop-window state.",
-  ),
-  unsupported(
     "capture.screenshot",
     "Mobile WebView taps should not trigger raw desktop screenshots.",
   ),
@@ -262,9 +263,6 @@ export const MOBILE_BRIDGE_CAPABILITIES = [
   invoke("capture.getContext", IPC_CHAT_CONTEXT_GET),
   event("capture.onContext", IPC_CHAT_CONTEXT_UPDATED),
 
-  invoke("mini.request", IPC_MINI_BRIDGE_REQUEST),
-  event("mini.onUpdate", IPC_MINI_BRIDGE_UPDATE),
-
   invoke("theme.listInstalled", IPC_THEME_LIST_INSTALLED),
 
   send("uiState.apply", IPC_UI_STATE_KV_APPLY),
@@ -280,6 +278,11 @@ export const MOBILE_BRIDGE_CAPABILITIES = [
   event("voice.onRuntimeState", IPC_VOICE_RUNTIME_STATE),
 
   invoke("agent.healthCheck", IPC_AGENT_HEALTH_CHECK),
+  // The renderer's LLM proxy. Apps rendered in the phone's mirrored UI call
+  // this directly; without it the shim leaves the method undefined and they
+  // fail with a TypeError rather than a bridged call. `agent.startChat` below
+  // is already exposed and is strictly more capable.
+  invoke("agent.oneShotCompletion", IPC_AGENT_ONE_SHOT_COMPLETION),
   invoke("agent.getActiveRun", IPC_AGENT_GET_ACTIVE_RUN),
   invoke("agent.getAppSessionStartedAt", IPC_AGENT_GET_SESSION_STARTED_AT),
   invoke("agent.startChat", IPC_AGENT_START_CHAT),
@@ -428,10 +431,33 @@ export const MOBILE_BRIDGE_REQUEST_CHANNELS =
 export const MOBILE_BRIDGE_EVENT_CHANNELS =
   MOBILE_BRIDGE_EVENT_CAPABILITIES.map((capability) => capability.channel);
 
+/**
+ * Channels the phone is allowed to call that preload does not expose, so the
+ * derived payload contract has nothing to say about them. Each one is a
+ * surface the phone reaches directly rather than through the desktop's own
+ * `window.electronAPI`. A new channel that lands here without a contract is a
+ * mistake until someone decides otherwise, which is what the parity test
+ * asserts.
+ */
+export const PHONE_ONLY_REQUEST_CHANNELS: Readonly<Record<string, string>> = {
+  "mobile:hello": "One-RTT connect handshake; only the phone ever calls it.",
+  "localChat:getEventCount":
+    "Registered in local-chat-handlers for the phone; the desktop UI reads counts from its own store.",
+};
+
+/**
+ * The manifest the phone bootstraps from. Payload contracts are attached here
+ * rather than at each declaration so a channel added above picks its contract
+ * up automatically.
+ */
 export const buildMobileBridgeCapabilityManifest =
   (): MobileBridgeCapabilityManifest => ({
     version: 1,
-    capabilities: [...MOBILE_BRIDGE_CAPABILITIES],
+    capabilities: MOBILE_BRIDGE_CAPABILITIES.map((capability) => {
+      if (capability.mode !== "remote-request") return capability;
+      const payload = IPC_PAYLOAD_CONTRACT[capability.channel];
+      return payload ? { ...capability, payload } : capability;
+    }),
   });
 
 /**

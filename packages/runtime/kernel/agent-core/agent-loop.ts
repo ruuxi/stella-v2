@@ -717,6 +717,7 @@ async function finalizeExecutedToolCall(
 		);
 		if (afterResult) {
 			result = {
+				...result,
 				content: afterResult.content ?? result.content,
 				details: afterResult.details ?? result.details,
 			};
@@ -754,6 +755,8 @@ async function emitToolCallOutcome(
 		toolName: toolCall.name,
 		content: result.content,
 		details: result.details,
+		...(typeof result.modelOutputTokens === "number" ? { modelOutputTokens: result.modelOutputTokens } : {}),
+		...(result.addedToolNames?.length ? { addedToolNames: result.addedToolNames } : {}),
 		isError,
 		timestamp: Date.now(),
 	};

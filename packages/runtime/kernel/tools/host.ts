@@ -38,15 +38,20 @@ import { log, logError, recoverStaleSecretFiles } from "./utils.js";
 import {
   createShellState,
   drainCompletedProducedFiles,
+  listRunningShellSessionsOwnedBy,
+  readShellExitSnapshot,
+  watchShellExit,
   type ShellState,
 } from "./shell.js";
 import { createStateContext, type StateContext } from "./state.js";
+import { joinWithTimeout } from "../shared/join-timeout.js";
 import {
   createShellToolHandlers,
   mergeToolHandlers,
   registerExtensionToolHandlers,
 } from "./registry.js";
 import { buildBuiltinTools } from "./defs/index.js";
+import { AGENT_ORCHESTRATION_TOOL_NAMES } from "./defs/task.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
 import { NodeReplKernelRegistry } from "../computer-use/kernel.js";
@@ -274,6 +279,19 @@ export const createToolHost = ({
     return tool.agentTypes.includes(agentType);
   };
 
+  /**
+   * Second, ownership-based gate. A parent-owned agent (one spawned BY another
+   * agent) runs with a top-level agent's toolset minus the orchestration
+   * tools, so it cannot open a third level or steer a sibling thread. Applied
+   * at catalog build time so the tools are simply absent from what the model
+   * sees, and mirrored at executeTool time as defense in depth.
+   */
+  const isOrchestrationToolWithheld = (
+    toolName: string,
+    parentOwned: boolean | undefined,
+  ): boolean =>
+    parentOwned === true && AGENT_ORCHESTRATION_TOOL_NAMES.includes(toolName);
+
   executeTool = async (
     toolName: string,
     toolArgs: Record<string, unknown>,
@@ -289,6 +307,15 @@ export const createToolHost = ({
       args: toolArgs,
       context,
     });
+
+    // Ownership gate, mirroring the catalog filter for the same
+    // catalog-bypass reasons. A parent-owned agent never sees these tools, so
+    // reaching here means a hallucinated or replayed call.
+    if (isOrchestrationToolWithheld(toolName, Boolean(context.parentAgentId))) {
+      return {
+        error: `${toolName} is not available to a subagent. Complete the work in this task and report the result to the agent that started you.`,
+      };
+    }
 
     // Declarative agent-type gate. Mirrors the catalog filter so a tool that
     // declares `agentTypes` is rejected here too, defending against
@@ -383,9 +410,45 @@ export const createToolHost = ({
     }
   };
 
-  const shutdown = async () => {
-    killAllShells();
-    await nodeReplRegistry.dispose();
+  /**
+   * Idempotent, bounded, JOINED teardown (finalizer ordering: shells →
+   * repl kernels). `killAllShells` alone only *starts* the TERM→1s→KILL
+   * ladders on unref'd timers — a worker that exits right after would
+   * strand TERM-ignoring children as orphans. Shutdown therefore joins
+   * every running shell's actual exit, bounded at 3s (comfortably past
+   * the ladder) so a wedged process can never hang worker stop; anything
+   * still alive at the bound is logged and left to the OS as the ladder's
+   * KILL already fired. Conversation-scoped shells are deliberately
+   * worker-lifetime resources: they die here, never earlier.
+   */
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdown = () => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      const exits: Array<Promise<void>> = [];
+      for (const shell of shellState.shells.values()) {
+        if (!shell.running || !shell.child) continue;
+        const child = shell.child;
+        if (child.exitCode !== null) continue;
+        exits.push(
+          new Promise<void>((resolve) => {
+            child.once("close", () => resolve());
+            child.once("error", () => resolve());
+          }),
+        );
+      }
+      killAllShells();
+      if (exits.length > 0) {
+        const joined = await joinWithTimeout(Promise.allSettled(exits), 3_000);
+        if (joined === "timeout") {
+          console.warn(
+            "[tool-host] shell teardown exceeded the shutdown bound; SIGKILL was already dispatched",
+          );
+        }
+      }
+      await nodeReplRegistry.dispose();
+    })();
+    return shutdownPromise;
   };
 
   const getToolCatalog = (
@@ -394,6 +457,8 @@ export const createToolHost = ({
       model?: Pick<Model<Api>, "api" | "provider" | "id" | "name">;
       agentEngine?: FileEditAgentEngine;
       includeDeferred?: boolean;
+      /** This thread was spawned by another agent; withhold orchestration tools. */
+      parentOwned?: boolean;
     },
   ) => {
     const fileEditToolFamily = getFileEditToolFamily({
@@ -407,6 +472,9 @@ export const createToolHost = ({
       // frontmatter `tools:` allowlist (applied downstream in
       // tool-adapters) decides what each agent is actually offered.
       if (!isAgentAllowedForTool(tool, agentType)) return false;
+      if (isOrchestrationToolWithheld(tool.name, options?.parentOwned)) {
+        return false;
+      }
       if (tool.deferred && options?.includeDeferred !== true) return false;
       // Swap the file-edit tool family to the agent's engine: Claude Code
       // wants Write/Edit, Stella wants apply_patch.
@@ -436,6 +504,31 @@ export const createToolHost = ({
     getToolCatalog,
     getHandlerNames: () => Object.keys(handlers),
     getShells: () => Array.from(shellState.shells.values()),
+    /**
+     * Session ids still running, optionally scoped to the sessions a run
+     * touched. Shells outlive the run that started them by design (see the
+     * shutdown comment above), so a non-empty answer at run teardown means
+     * the agent left work running past the end of its turn.
+     */
+    listRunningShellSessionIds: (sessionIds?: string[]) => {
+      const scope = sessionIds ? new Set(sessionIds) : null;
+      const running: string[] = [];
+      for (const shell of shellState.shells.values()) {
+        if (!shell.running) continue;
+        if (scope && !scope.has(shell.id)) continue;
+        running.push(shell.id);
+      }
+      return running;
+    },
+    /** Running sessions owned by one agent thread, across all of its runs. */
+    listRunningShellSessionsOwnedBy: (agentId: string) =>
+      listRunningShellSessionsOwnedBy(shellState, agentId),
+    /** Subscribe to one session's exit. Returns a disposer. */
+    watchShellExit: (sessionId: string, listener: () => void) =>
+      watchShellExit(shellState, sessionId, listener),
+    /** Terminal facts about an exited session; null while it still runs. */
+    readShellExitSnapshot: (sessionId: string) =>
+      readShellExitSnapshot(shellState, sessionId),
     // Pull deliverables from background/long-running shell sessions that
     // finished after their last poll (so their produced files were never
     // drained inline) into the agent-completed rollup. Optionally scoped to

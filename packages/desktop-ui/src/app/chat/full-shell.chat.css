@@ -1,7 +1,7 @@
 /* ============================================================
  * Chat typography contract
  *
- * Every chat surface — full chat, sidebar, mini window, orb,
+ * Every chat surface — full chat, sidebar, orb,
  * and the Store thread — lives inside `.chat-viewport-region`.
  * Defining the message typography tokens here means the
  * virtualized rows (which are NOT descendants of any `.event-list`
@@ -95,7 +95,6 @@
 }
 
 .chat-viewport-region--sidebar .event-list-trailing-region,
-.chat-viewport-region--mini .event-list-trailing-region,
 .chat-viewport-region--orb .event-list-trailing-region {
   min-height: 120px;
 }
@@ -106,7 +105,6 @@
    scroll geometry while moving the empty space above the queued state. */
 .event-list-trailing-region--after-queue,
 .chat-viewport-region--sidebar .event-list-trailing-region--after-queue,
-.chat-viewport-region--mini .event-list-trailing-region--after-queue,
 .chat-viewport-region--orb .event-list-trailing-region--after-queue {
   min-height: 12px;
 }
@@ -132,7 +130,6 @@
 }
 
 .chat-viewport-region--sidebar .composer-queued-stack,
-.chat-viewport-region--mini .composer-queued-stack,
 .chat-viewport-region--orb .composer-queued-stack {
   padding-top: 108px;
 }
@@ -381,12 +378,14 @@
 }
 
 .event-item.user {
-  /* Solid send-button fill so the user bubble reads as "mine" at a glance.
-     Text flips to the primary foreground to stay legible on the saturated
-     background. */
-  background: var(--primary);
-  --chat-text-color: var(--primary-foreground);
-  color: var(--primary-foreground);
+  /* Solid accent-derived fill so the user bubble reads as "mine" at a
+     glance. Fill and text both come from the `--chat-user-bubble-*` pair
+     (index.css), which guarantees their contrast for any theme — never
+     use `--primary-foreground` here; it's paired against raw `--primary`,
+     not this derived fill. */
+  background: var(--chat-user-bubble-fill);
+  --chat-text-color: var(--chat-user-bubble-text);
+  color: var(--chat-user-bubble-text);
   border-color: transparent;
   margin-left: auto;
   max-width: 85%;

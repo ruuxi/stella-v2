@@ -8,7 +8,6 @@ import {
 // hidden transcript messages instead of being reconstructed from UI events.
 const INTERNAL_TASK_TOOL_NAMES = new Set([
   "spawn_agent",
-  "spawn_manager",
   "send_input",
   "pause_agent",
 ]);
@@ -84,6 +83,7 @@ const MICROCOMPACT_ELIGIBLE_TOOLS = new Set([
   "apply_patch",
   "web",
   "RequestCredential",
+  // Legacy persisted tool name from before image reads moved into Read.
   "view_image",
   "image_gen",
   "Read",

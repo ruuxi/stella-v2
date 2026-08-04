@@ -3,6 +3,9 @@ export type AgentRuntimeEngine = "default" | "claude_code_local" | "codex_cli";
 export const DEFAULT_AGENT_RUNTIME_ENGINE: AgentRuntimeEngine = "default";
 /** Saved Codex/ChatGPT model preference. Kept even when not in the live catalog. */
 export const DEFAULT_CODEX_MODEL = "gpt-5.6-sol";
+/** ChatGPT/Codex service tier selected in Stella's model picker. */
+export type CodexServiceTier = "standard" | "fast";
+export const DEFAULT_CODEX_SERVICE_TIER: CodexServiceTier = "standard";
 
 /** Reasoning levels accepted by spawn_agent's optional model suffix. */
 export type SpawnReasoningEffort = "low" | "medium" | "high" | "xhigh";
@@ -15,9 +18,8 @@ export type AgentModelReasoningEffort =
 
 /**
  * Serializable snapshot of the effective model configuration for a turn.
- * Manager threads persist this so every resume uses the spawning
- * Orchestrator's engine/model instead of resolving an independent Manager
- * default.
+ * Child threads persist this so every resume uses the spawning parent's
+ * engine/model instead of resolving an independent default.
  */
 export type AgentModelConfigSnapshot = {
   engine: AgentRuntimeEngine;
@@ -26,6 +28,8 @@ export type AgentModelConfigSnapshot = {
   /** Exact engine-native model when an external engine owns execution. */
   engineModel?: string;
   reasoningEffort?: AgentModelReasoningEffort;
+  /** Effective ChatGPT/Codex service tier captured for this turn. */
+  serviceTier?: CodexServiceTier;
 };
 
 export const AGENT_RUNTIME_ENGINES: readonly AgentRuntimeEngine[] = [
@@ -42,8 +46,8 @@ const AGENT_RUNTIME_ENGINE_LABELS: Record<AgentRuntimeEngine, string> = {
 
 /**
  * Per-spawn engine selection carried by spawn_agent's optional `model`
- * parameter. Plain model references explicitly select `default` (the
- * in-process Stella runtime); `codex[/<model>]` and
+ * parameter. `stella` and plain model references explicitly select `default`
+ * (the in-process Stella runtime); `codex[/<model>]` and
  * `claude-code[/<model>]` select an external engine. Scoped to a single
  * spawned agent run — never persisted to preferences.
  */

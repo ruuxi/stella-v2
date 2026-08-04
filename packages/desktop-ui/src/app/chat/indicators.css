@@ -112,9 +112,8 @@
 }
 
 .chat-viewport-region--sidebar .inline-working-indicator,
-.chat-viewport-region--mini .inline-working-indicator,
 .chat-viewport-region--orb .inline-working-indicator {
-  /* Compact-pill height + tighter density in the sidebar/mini/orb,
+  /* Compact-pill height + tighter density in the sidebar/orb,
    * matching the smaller `--compact-chat-item-padding`. */
   min-height: 30px;
   padding: 0;
@@ -206,6 +205,12 @@
   top: 50%;
   left: 50%;
   translate: -50% -50%;
+}
+
+/* The WebGL scene already supplies the working motion. Avoid stacking the
+   generic eight-second breathing transform around this tiny live indicator. */
+.indicator-stella .stella-animation-container {
+  animation: none;
 }
 
 /* ============================================

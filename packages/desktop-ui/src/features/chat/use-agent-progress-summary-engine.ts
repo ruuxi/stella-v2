@@ -21,7 +21,6 @@ import {
   type TaskItem,
 } from "@/features/chat/lib/event-transforms";
 import { agentProgressSummaryStore } from "@/features/chat/agent-progress-summary-store";
-import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { redactSensitiveText } from "@stella/contracts/sensitive-data";
 
 const FIRST_DELAY_MS = 10_000;
@@ -228,15 +227,11 @@ export function useAgentProgressSummaryEngine(
   const runningIdsKey = useMemo(
     () =>
       liveTasks
-        // Managers use their live child hierarchy as the useful progress
-        // signal, not generated prose. Only leaf user-facing agents earn
-        // summary ticks; internal helpers and Manager coordinators must not
+        // Only user-facing agents earn summary ticks; internal helpers must not
         // burn LLM calls here even if a caller passes an unfiltered list.
         .filter(
           (task) =>
-            task.status === "running" &&
-            task.agentType !== AGENT_IDS.MANAGER &&
-            isActivityFeedTask(task),
+            task.status === "running" && isActivityFeedTask(task),
         )
         .map((task) => task.id)
         .sort()

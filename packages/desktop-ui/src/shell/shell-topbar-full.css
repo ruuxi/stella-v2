@@ -1,0 +1,238 @@
+/* Full-window top bar — see `ShellTopBarFull.tsx`.
+
+   Transparent 38px strip positioned against `.full-body`, spanning both the
+   main column and standalone Activity surface. When the display panel opens,
+   its right edge follows the main column while the panel owns its own strip.
+
+   It sits above the content (which reserves `--shell-topbar-height` of
+   padding) rather than floating over it, because with the left sidebar gone
+   there is no other chrome keeping the traffic lights and the nav clear of the
+   chat surface. */
+
+.shell-topbar-full {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--shell-topbar-height, 38px);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-base);
+  background: transparent;
+  border: none;
+  -webkit-app-region: drag;
+  user-select: none;
+  pointer-events: auto;
+  transition:
+    right 460ms cubic-bezier(0.32, 0.72, 0.16, 1),
+    opacity 120ms ease-out;
+}
+
+.shell-topbar-full[data-display-open="true"] {
+  right: var(--display-panel-width, clamp(380px, 34vw, 520px));
+}
+
+:root[data-display-panel-expanded="true"]
+  .shell-topbar-full[data-display-open="true"],
+:root[data-display-panel-takeover="true"]
+  .shell-topbar-full[data-display-open="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The panel width variable is written once per drag frame. Remove the
+   open/close easing while that live gesture is active so the account cluster
+   follows the panel edge on the same frame instead of trailing behind it. */
+body[data-display-resizing="true"] .shell-topbar-full,
+body[data-display-expanding="true"] .shell-topbar-full,
+:root[data-shell-window-resizing="true"] .shell-topbar-full {
+  transition: none;
+}
+
+.shell-topbar-full__left {
+  flex-shrink: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+/* Clears the macOS traffic lights. 84px matches `.shell-topbar-left` and
+   `.shell-edge-toggle--left` so every left-anchored control in the app lines
+   up on the same inset. */
+.shell-topbar-full[data-platform="mac"] .shell-topbar-full__left {
+  padding-left: 84px;
+}
+
+.shell-topbar-full__spacer {
+  flex: 1;
+  min-width: 8px;
+  height: 100%;
+  -webkit-app-region: drag;
+}
+
+.shell-topbar-full__right {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-right: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.shell-topbar-full[data-platform="win"] .shell-topbar-full__right {
+  padding-right: 0;
+}
+
+.shell-topbar-full__right .shell-topbar-account {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(240px, 32vw);
+}
+
+.shell-topbar-full__right .shell-topbar-account-signin,
+.shell-topbar-full__right .shell-topbar-account-trigger {
+  padding-right: 6px;
+}
+
+/* The sidebar header remains mounted at its resolved width, then clip-reveals
+   from the right alongside the panel. Closed controls live in
+   `.shell-topbar-full__right`; this header is inert until the panel opens. */
+.display-panel-topbar {
+  position: absolute;
+  top: 0;
+  right: 6px;
+  z-index: 81;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: var(--display-panel-width, clamp(380px, 34vw, 520px));
+  height: var(--shell-topbar-height, 38px);
+  padding: 0 10px 0 6px;
+  box-sizing: border-box;
+  overflow: clip;
+  container-type: inline-size;
+  container-name: display-panel;
+  -webkit-app-region: drag;
+  clip-path: inset(0);
+  transition:
+    width 460ms cubic-bezier(0.32, 0.72, 0.16, 1),
+    clip-path 460ms cubic-bezier(0.32, 0.72, 0.16, 1);
+}
+
+.display-panel-topbar[data-display-open="false"] {
+  clip-path: inset(0 0 0 100%);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.display-panel-topbar[data-display-open="false"] * {
+  -webkit-app-region: no-drag;
+}
+
+.display-panel-topbar[data-display-open="true"][data-display-expanded="false"] {
+  border-left: 1px solid
+    var(--shell-junction-border, var(--border-base));
+}
+
+.display-panel-topbar[data-platform="win"] {
+  right: 0;
+  width: calc(
+    var(--display-panel-width, clamp(380px, 34vw, 520px)) + 6px
+  );
+  padding-right: 0;
+}
+
+.display-panel-topbar__tabs {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  -webkit-app-region: drag;
+}
+
+.display-panel-topbar .shell-topbar-display-controls,
+.display-panel-topbar .shell-topbar-icon-btn,
+.display-panel-topbar .shell-topbar-window-controls {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+body[data-display-resizing="true"] .display-panel-topbar,
+body[data-display-expanding="true"] .display-panel-topbar,
+:root[data-shell-window-resizing="true"] .display-panel-topbar {
+  transition: none;
+}
+
+.display-panel-topbar[data-display-open="true"][data-display-expanded="true"] {
+  left: 6px;
+  width: auto;
+}
+
+.display-panel-topbar[data-display-open="true"][data-display-expanded="true"][data-platform="mac"] {
+  padding-left: 84px;
+}
+
+/* At narrow widths the panel replaces the main content, so its external
+   header spans the same full-view frame. Resize/expand is meaningless in this
+   mode; closing returns to the regular shell. */
+:root[data-display-panel-takeover="true"]
+  .display-panel-topbar[data-display-open="true"] {
+  left: 6px;
+  right: 6px;
+  width: auto;
+  border-left: none;
+  transition: none;
+}
+
+/* A takeover is full-width without setting the panel's persisted "expanded"
+   state, so it does not match the expanded macOS traffic-light inset above.
+   Reserve that same native-button gap on desktop, while leaving the mobile
+   WebView flush because it has no Electron traffic lights. */
+:root:not([data-platform="mobile"])[data-display-panel-takeover="true"]
+  .display-panel-topbar[data-display-open="true"][data-platform="mac"] {
+  padding-left: 84px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-topbar-full,
+  .display-panel-topbar {
+    transition: none;
+  }
+}
+
+/* Tooltips on right-cluster controls anchor to their right edge so they never
+   spill past the window corner — mirrors `.shell-topbar-right`. */
+.shell-topbar-full__right .shell-topbar-icon-btn::after,
+.shell-topbar-full__right .shell-topbar-wc-btn::after {
+  left: auto;
+  right: 0;
+  transform: translateY(-2px);
+}
+
+.shell-topbar-full__right .shell-topbar-icon-btn:hover::after,
+.shell-topbar-full__right .shell-topbar-icon-btn:focus-visible::after,
+.shell-topbar-full__right .shell-topbar-wc-btn:hover::after,
+.shell-topbar-full__right .shell-topbar-wc-btn:focus-visible::after {
+  transform: translateY(0);
+}
+
+/* The nav's own tooltips anchor left for the same reason, mirrored. */
+.shell-topbar-full__left .shell-topbar-icon-btn::after {
+  left: 0;
+  transform: translateY(-2px);
+}
+
+.shell-topbar-full__left .shell-topbar-icon-btn:hover::after,
+.shell-topbar-full__left .shell-topbar-icon-btn:focus-visible::after {
+  transform: translateY(0);
+}

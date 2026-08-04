@@ -1,0 +1,461 @@
+import { createRootRoute, Outlet, useMatchRoute, useNavigate, useRouter, useRouterState, } from "@tanstack/react-router";
+import { lazy, Suspense, useCallback, useEffect, useRef, } from "react";
+import { z } from "zod";
+import { ChatRuntimeProvider } from "@/context/chat-runtime";
+import { useChatRuntime } from "@/context/use-chat-runtime";
+import { useUiState } from "@/context/ui-state";
+import { ChatColumn } from "@/app/chat/ChatColumn";
+import { ComposerAreaSelectOverlay } from "@/app/chat/ComposerAreaSelectOverlay";
+import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
+import { setActiveLocalConversationId } from "@/features/chat/services/local-chat-store";
+import { writeActiveConversationIdCache } from "@/features/chat/services/active-conversation-cache";
+// The workspace panel is a ~410-line surface not needed for first
+// interaction, so it is lazy-loaded to keep it out of the always-eager
+// shell's first-paint module graph. The imperative `ref` handle is null
+// until the chunk mounts; every consumer (`use-workspace-panel-events`,
+// `use-display-payload-routing`) already accesses it defensively with `?.`,
+// and only from event/async callbacks — never synchronously on mount.
+const RightSidebar = lazy(() => import("@/shell/RightSidebar").then((m) => ({ default: m.RightSidebar })));
+const WorkspaceHomeSurface = lazy(() => import("@/shell/WorkspaceHomeSurface").then((m) => ({
+    default: m.WorkspaceHomeSurface,
+})));
+// These dialogs are rarely seen on first interaction (onboarding welcome,
+// nickname prompt, post-OAuth confirmation, billing upgrade) and each already
+// renders null until its own open/visibility state flips. In a dev-server-in-prod
+// app every static import is a separate first-paint transform, so they are
+// lazy-loaded — wrapped in <Suspense fallback={null}> at their conditional mount
+// sites — to keep them off the always-eager shell's first-paint graph. Behavior
+// is unchanged: each dialog still renders null until its own state opens, so
+// nothing visual depends on the deferred chunk and there is no fallback flash.
+const WelcomeDialog = lazy(() => import("@/global/onboarding/WelcomeDialog").then((m) => ({
+    default: m.WelcomeDialog,
+})));
+const NicknameDialog = lazy(() => import("@/global/auth/NicknameDialog").then((m) => ({
+    default: m.NicknameDialog,
+})));
+const ProviderConnectedDialog = lazy(() => import("@/global/settings/ProviderConnectedDialog").then((m) => ({
+    default: m.ProviderConnectedDialog,
+})));
+const SubscriptionUpgradeDialog = lazy(() => import("@/global/billing/SubscriptionUpgradeDialog").then((m) => ({
+    default: m.SubscriptionUpgradeDialog,
+})));
+import { ShellTopBarFull } from "@/shell/ShellTopBarFull";
+import { DisplayPanelTopBar } from "@/shell/DisplayPanelTopBar";
+import { StellaContextMenu } from "@/shell/context-menu/StellaContextMenu";
+import { displayTabs, useDisplayPanelExpanded, useDisplayPanelOpen, } from "@/features/workspace-display/tab-store";
+import { CHAT_DISPLAY_TAB_ID, HOME_DISPLAY_TAB_ID, ensureChatDisplayTab, openChatDisplayTab, openHomeDisplayTab, } from "@/shell/display/default-tabs";
+import { FullShellDialogs } from "@/shell/full-shell-dialogs";
+import { STELLA_COMPOSE_TEXT_EVENT, } from "@/shared/lib/stella-orb-chat";
+import { ModelCatalogUpdatedAtProvider } from "@/global/settings/hooks/model-catalog-updated-at";
+import { useRestrictedStellaModelReset } from "@/global/settings/hooks/use-restricted-stella-model-reset";
+import { MobileActivityNotificationsBridge } from "@/global/mobile/MobileActivityNotificationsBridge";
+import { useDictationToggleBridge } from "@/shell/root-chrome/use-dictation-toggle-bridge";
+import { useDisplayPayloadRouting } from "@/shell/root-chrome/use-display-payload-routing";
+import { useLastLocationRestore } from "@/shell/root-chrome/use-last-location-restore";
+import { useOnboardingMemoryPromotion } from "@/shell/root-chrome/use-onboarding-memory-promotion";
+import { usePersistLastLocation } from "@/shell/root-chrome/use-persist-last-location";
+import { useWorkspacePanelEvents } from "@/shell/root-chrome/use-workspace-panel-events";
+import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
+import { shellBreakpointStore, useShellBreakpointState, } from "@/shell/shell-breakpoints";
+/**
+ * The root route owns the app chrome — top shell bar, workspace panel,
+ * dialogs, welcome — plus an `<Outlet />` where the active route renders.
+ * Chat runtime state is hoisted into a provider so both the chat route and
+ * the workspace panel consume the same hook output.
+ */
+function RootLayout() {
+    const { state, setConversationId } = useUiState();
+    const matchRoute = useMatchRoute();
+    const isOnChatRoute = Boolean(matchRoute({ to: "/chat" }));
+    const routerConversationId = useRouterState({
+        select: (s) => s.location.pathname === "/chat"
+            ? (s.location.search.c ?? null)
+            : null,
+    });
+    const conversationId = routerConversationId ?? state.conversationId;
+    const router = useRouter();
+    useEffect(() => {
+        if (routerConversationId && routerConversationId !== state.conversationId) {
+            setConversationId(routerConversationId);
+        }
+    }, [routerConversationId, setConversationId, state.conversationId]);
+    // Single writer for the active-conversation pointer. The router
+    // (`/chat?c=<id>`) is the live source of truth; whenever it changes we
+    // mirror the id into SQLite (durable, cross-process) and a synchronous
+    // shared-UI-state cache (fast boot read). Together they let the next boot
+    // restore exactly this conversation — surviving both renderer hard reloads
+    // and full restarts — without the empty-state flash an IPC-only read causes.
+    useEffect(() => {
+        if (!routerConversationId)
+            return;
+        writeActiveConversationIdCache(routerConversationId);
+        void setActiveLocalConversationId(routerConversationId);
+    }, [routerConversationId]);
+    useLastLocationRestore(router);
+    usePersistLastLocation(router);
+    return (<ModelCatalogUpdatedAtProvider>
+      <ChatRuntimeProvider activeConversationId={conversationId} isOnChatRoute={isOnChatRoute}>
+        <RootChrome />
+      </ChatRuntimeProvider>
+    </ModelCatalogUpdatedAtProvider>);
+}
+function RootChrome() {
+    useRestrictedStellaModelReset();
+    const navigate = useNavigate();
+    const { dialog: activeDialog } = Route.useSearch();
+    const { state } = useUiState();
+    const conversationId = state.conversationId;
+    const chat = useChatRuntime();
+    const panelOpen = useDisplayPanelOpen();
+    const panelExpanded = useDisplayPanelExpanded();
+    const shellBreakpoints = useShellBreakpointState();
+    const panelExpandedBeforeTakeoverRef = useRef(null);
+    const displayBreakpointTransitionTimeoutRef = useRef(null);
+    const rightSidebarRef = useRef(null);
+    const { hasConnectedAccount, isLoading: isAuthLoading } = useAuthSessionState();
+    const pathname = useRouterState({ select: (s) => s.location.pathname });
+    const isOnChatRoute = pathname === "/chat";
+    const triggerDisplayBreakpointTransition = useCallback(() => {
+        document.body.dataset.displayBreakpointTransition = "true";
+        if (displayBreakpointTransitionTimeoutRef.current !== null) {
+            window.clearTimeout(displayBreakpointTransitionTimeoutRef.current);
+        }
+        displayBreakpointTransitionTimeoutRef.current = window.setTimeout(() => {
+            displayBreakpointTransitionTimeoutRef.current = null;
+            delete document.body.dataset.displayBreakpointTransition;
+        }, 520);
+    }, []);
+    useEffect(() => () => {
+        if (displayBreakpointTransitionTimeoutRef.current !== null) {
+            window.clearTimeout(displayBreakpointTransitionTimeoutRef.current);
+            displayBreakpointTransitionTimeoutRef.current = null;
+        }
+        delete document.body.dataset.displayBreakpointTransition;
+    }, []);
+    useEffect(() => {
+        window.electronAPI?.window.setNativeButtonsVisible?.(true);
+    }, []);
+    useEffect(() => {
+        const root = document.documentElement;
+        root.dataset.shellPanelChrome = "true";
+        return () => {
+            delete root.dataset.shellPanelChrome;
+        };
+    }, []);
+    const setDialogSearch = useCallback((next) => {
+        void navigate({
+            to: ".",
+            search: (prev) => ({
+                ...(prev ?? {}),
+                dialog: next,
+            }),
+        });
+    }, [navigate]);
+    const showAuthDialog = useCallback(() => setDialogSearch("auth"), [setDialogSearch]);
+    const showConnectDialog = useCallback(() => setDialogSearch("connect"), [setDialogSearch]);
+    const closeDialog = useCallback(() => setDialogSearch(undefined), [setDialogSearch]);
+    useEffect(() => {
+        const handler = () => showConnectDialog();
+        window.addEventListener(OPEN_CONNECT_DIALOG_EVENT, handler);
+        return () => window.removeEventListener(OPEN_CONNECT_DIALOG_EVENT, handler);
+    }, [showConnectDialog]);
+    useOnboardingMemoryPromotion({
+        hasConnectedAccount,
+        isAuthLoading,
+        showAuthDialog,
+    });
+    const handleDialogOpenChange = useCallback((open) => {
+        if (!open)
+            closeDialog();
+    }, [closeDialog]);
+    const openChatPanel = useCallback((detail = {}) => {
+        openChatDisplayTab({ id: Date.now(), ...detail });
+    }, []);
+    // Route-aware default surface for a manual panel open (right-click /
+    // keyboard). Home never opens to a duplicate chat — it shows the Home
+    // launcher; every other route opens the chat viewer. An already-active
+    // artifact viewer (media / canvas / pdf / …) reopens as-is regardless of
+    // route so summoning doesn't lose what the user was looking at.
+    const openDefaultPanelSurface = useCallback(() => {
+        const { activeTabId } = displayTabs.getTabListSnapshot();
+        const isArtifactViewer = activeTabId !== null &&
+            activeTabId !== CHAT_DISPLAY_TAB_ID &&
+            activeTabId !== HOME_DISPLAY_TAB_ID;
+        if (isArtifactViewer) {
+            displayTabs.setPanelOpen(true);
+            return;
+        }
+        if (isOnChatRoute) {
+            openHomeDisplayTab();
+            return;
+        }
+        openChatPanel();
+    }, [isOnChatRoute, openChatPanel]);
+    useEffect(() => {
+        const handleComposeText = (event) => {
+            const detail = event.detail;
+            const text = typeof detail?.text === "string" ? detail.text : "";
+            const hasPrefillText = Boolean(text.trim());
+            const hasChatContext = Object.prototype.hasOwnProperty.call(detail, "chatContext");
+            const hasSelectedText = Object.prototype.hasOwnProperty.call(detail, "selectedText");
+            if (!hasPrefillText && !hasChatContext && !hasSelectedText)
+                return;
+            const selectedTextContext = hasSelectedText && detail.selectedText
+                ? {
+                    window: null,
+                    browserUrl: null,
+                    selectedText: detail.selectedText,
+                    regionScreenshots: [],
+                }
+                : null;
+            const nextChatContext = hasChatContext
+                ? (detail.chatContext ?? null)
+                : selectedTextContext;
+            if (isOnChatRoute) {
+                if (hasPrefillText) {
+                    chat.composer.setMessage(text);
+                }
+                if (hasChatContext || selectedTextContext) {
+                    chat.composer.setChatContext(nextChatContext);
+                }
+                if (hasSelectedText) {
+                    chat.composer.setSelectedText(detail.selectedText ?? null);
+                }
+                chat.composer.requestFocus?.();
+                return;
+            }
+            openChatDisplayTab({
+                id: Date.now(),
+                chatContext: nextChatContext,
+                ...(hasPrefillText ? { prefillText: text } : {}),
+            });
+        };
+        window.addEventListener(STELLA_COMPOSE_TEXT_EVENT, handleComposeText);
+        return () => {
+            window.removeEventListener(STELLA_COMPOSE_TEXT_EVENT, handleComposeText);
+        };
+    }, [chat.composer, isOnChatRoute]);
+    // Display tab rule: Chat is always present in the strip; its body
+    // adapts to the route inside `ChatDisplayTab` (home shows the activity
+    // / files overview, every other route shows the live chat panel).
+    // Tabs are otherwise sticky — only the user closes them.
+    useEffect(() => {
+        ensureChatDisplayTab();
+    }, []);
+    const handleContextMenuOpenPanel = useCallback(() => {
+        displayTabs.setPanelOpen(true);
+    }, []);
+    const handleContextMenuClosePanel = useCallback(() => {
+        displayTabs.setPanelOpen(false);
+    }, []);
+    const { latestDisplayPayloadRef } = useDisplayPayloadRouting({
+        rightSidebarRef,
+    });
+    useDictationToggleBridge();
+    useWorkspacePanelEvents({
+        rightSidebarRef,
+        latestDisplayPayloadRef,
+        openChatPanel,
+        openDefaultPanelSurface,
+    });
+    // Auto-follow the route with the panel's default surface: navigating to
+    // home flips an open Chat panel to the Home launcher, and navigating away
+    // from home flips an open Home launcher to Chat. Only the default
+    // surfaces follow the route — an open artifact viewer (Media / Canvas /
+    // PDF / …) is left untouched so navigation never yanks the user off it,
+    // and a closed panel stays closed (it picks the right surface when opened).
+    useEffect(() => {
+        const { panelOpen, activeTabId } = displayTabs.getSnapshot();
+        if (!panelOpen)
+            return;
+        const isDefaultSurface = activeTabId === CHAT_DISPLAY_TAB_ID ||
+            activeTabId === HOME_DISPLAY_TAB_ID;
+        if (!isDefaultSurface)
+            return;
+        if (isOnChatRoute) {
+            if (activeTabId !== HOME_DISPLAY_TAB_ID)
+                openHomeDisplayTab();
+        }
+        else if (activeTabId !== CHAT_DISPLAY_TAB_ID) {
+            displayTabs.activateTab(CHAT_DISPLAY_TAB_ID);
+        }
+    }, [isOnChatRoute]);
+    useEffect(() => {
+        const root = document.documentElement;
+        if (panelOpen)
+            root.dataset.displayPanelOpen = "true";
+        else
+            delete root.dataset.displayPanelOpen;
+        if (panelOpen && panelExpanded)
+            root.dataset.displayPanelExpanded = "true";
+        else
+            delete root.dataset.displayPanelExpanded;
+        return () => {
+            delete root.dataset.displayPanelOpen;
+            delete root.dataset.displayPanelExpanded;
+        };
+    }, [panelExpanded, panelOpen]);
+    useEffect(() => {
+        const root = document.documentElement;
+        let active = false;
+        let timeout = 0;
+        const clearActive = () => {
+            active = false;
+            timeout = 0;
+            delete root.dataset.shellWindowResizing;
+        };
+        const onResize = () => {
+            if (!active) {
+                active = true;
+                root.dataset.shellWindowResizing = "true";
+            }
+            window.clearTimeout(timeout);
+            timeout = window.setTimeout(clearActive, 140);
+        };
+        window.addEventListener("resize", onResize, { passive: true });
+        return () => {
+            window.clearTimeout(timeout);
+            window.removeEventListener("resize", onResize);
+            delete root.dataset.shellWindowResizing;
+        };
+    }, []);
+    const applyShellBreakpoints = useCallback((width) => {
+        shellBreakpointStore.setWidth(width);
+    }, []);
+    const shellWidthRef = useRef(0);
+    useEffect(() => {
+        const shell = document.querySelector(".full-body");
+        if (!shell)
+            return;
+        let frame = 0;
+        const syncWidth = (width) => {
+            shellWidthRef.current = width;
+            if (frame !== 0)
+                return;
+            frame = requestAnimationFrame(() => {
+                frame = 0;
+                applyShellBreakpoints(shellWidthRef.current);
+            });
+        };
+        syncWidth(shell.getBoundingClientRect().width);
+        if (typeof ResizeObserver === "undefined") {
+            const onResize = () => syncWidth(shell.getBoundingClientRect().width);
+            window.addEventListener("resize", onResize);
+            return () => {
+                cancelAnimationFrame(frame);
+                window.removeEventListener("resize", onResize);
+            };
+        }
+        const observer = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (!entry)
+                return;
+            syncWidth(entry.contentRect.width);
+        });
+        observer.observe(shell);
+        return () => {
+            cancelAnimationFrame(frame);
+            observer.disconnect();
+        };
+    }, [applyShellBreakpoints]);
+    useEffect(() => {
+        const root = document.documentElement;
+        if (shellBreakpoints.displayPanelTakeover) {
+            root.dataset.displayPanelTakeover = "true";
+        }
+        else {
+            delete root.dataset.displayPanelTakeover;
+        }
+        return () => {
+            delete root.dataset.displayPanelTakeover;
+        };
+    }, [shellBreakpoints.displayPanelTakeover]);
+    useEffect(() => {
+        const { panelExpanded } = displayTabs.getSnapshot();
+        if (shellBreakpoints.displayPanelTakeover) {
+            if (panelExpandedBeforeTakeoverRef.current === null) {
+                panelExpandedBeforeTakeoverRef.current = panelExpanded;
+            }
+            if (panelExpanded) {
+                triggerDisplayBreakpointTransition();
+                displayTabs.setPanelExpanded(false);
+            }
+            return;
+        }
+        const restoreExpanded = panelExpandedBeforeTakeoverRef.current;
+        panelExpandedBeforeTakeoverRef.current = null;
+        if (restoreExpanded && !panelExpanded) {
+            triggerDisplayBreakpointTransition();
+            displayTabs.setPanelExpanded(true);
+        }
+    }, [
+        panelExpanded,
+        shellBreakpoints.displayPanelTakeover,
+        triggerDisplayBreakpointTransition,
+    ]);
+    return (<>
+      <MobileActivityNotificationsBridge />
+
+      <StellaContextMenu isOpen={panelOpen} onOpen={handleContextMenuOpenPanel} onClose={handleContextMenuClosePanel}>
+        <div className="content-area">
+          <div className={`persistent-chat-surface${isOnChatRoute ? " persistent-chat-surface--active" : ""}`} aria-hidden={!isOnChatRoute}>
+            <ChatColumn conversation={chat.conversation} composer={chat.composer} scroll={chat.scroll} conversationId={conversationId} showHomeContent={chat.showHomeContent} onDismissHome={chat.dismissHome}/>
+          </div>
+          <div className={`route-outlet-surface${isOnChatRoute ? "" : " route-outlet-surface--active"}`} aria-hidden={isOnChatRoute}>
+            <Outlet />
+          </div>
+        </div>
+
+        {/* The top bar spans the whole shell while Activity is visible, then
+            follows the main column's right edge when the display panel opens.
+            It is rendered after the content area's drag strip so its
+            `no-drag` controls remain interactive. */}
+        <ShellTopBarFull onSignIn={showAuthDialog}/>
+
+        <Suspense fallback={null}>
+          <WorkspaceHomeSurface hidden={panelOpen || shellBreakpoints.hideWorkspaceStrip}/>
+        </Suspense>
+
+        <DisplayPanelTopBar />
+
+        <Suspense fallback={null}>
+          <RightSidebar ref={rightSidebarRef}/>
+        </Suspense>
+      </StellaContextMenu>
+
+      <ComposerAreaSelectOverlay active={chat.annotation.active} requestId={chat.annotation.requestId} onCancel={chat.annotation.cancel} onSelect={chat.annotation.submit}/>
+
+      <FullShellDialogs activeDialog={activeDialog ?? null} onDialogOpenChange={handleDialogOpenChange}/>
+
+      {/* Suspense fallback={null} mirrors the lazy RightSidebar above: the
+            deferred chunk stays off the first-paint graph, and each dialog still
+            renders null until its own open state flips — no flash, no behavior change. */}
+      <Suspense fallback={null}>
+        <WelcomeDialog conversationId={conversationId} onConnect={showConnectDialog} onSignIn={showAuthDialog}/>
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <NicknameDialog />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <ProviderConnectedDialog />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <SubscriptionUpgradeDialog />
+      </Suspense>
+    </>);
+}
+/**
+ * Root-level search params: dialogs (auth/connect) become URL state so they
+ * are deep-linkable (e.g. an auth deep-link from an external browser opens
+ * the AuthDialog without any other glue).
+ */
+const RootSearch = z.object({
+    dialog: z.enum(["auth", "connect"]).optional(),
+});
+export const Route = createRootRoute({
+    validateSearch: RootSearch,
+    component: RootLayout,
+});

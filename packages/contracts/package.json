@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./index.ts",
+    "./model-mentions": "./model-mentions.js",
     "./protocol": "./protocol/index.ts",
     "./protocol/*": "./protocol/*.ts",
     "./*": "./*.ts"

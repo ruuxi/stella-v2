@@ -255,7 +255,7 @@ type WorkerState = {
   /**
    * Persistent ring buffer for streaming run events. Every event we emit
    * via NOTIFICATION_NAMES.RUN_EVENT also gets persisted here so that a
-   * reconnecting host (post-Electron-restart, post-mini-window-open, etc.)
+   * reconnecting host (for example, after an Electron restart)
    * can replay anything past its `lastSeq` without losing in-flight work.
    * See runtime/kernel/storage/run-event-log.ts.
    */
@@ -309,7 +309,7 @@ const encodeImageDataUrl = (mimeType: string, data: ArrayBuffer): string =>
  * Pi-style attachment sizing: resize each composer image to fit the
  * per-image vision budget before it ever reaches the prompt. With every
  * image ≤4.5MB base64 (typically a few hundred KB), whole batches inline
- * directly and the spill-to-disk + view_image fallback only triggers for
+ * directly and the spill-to-disk + Read fallback only triggers for
  * genuinely huge sets. Falls back to the original bytes when Photon
  * can't decode the format.
  */
@@ -1406,6 +1406,21 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       let modelImageAttachments = materializedImageAttachments.map(
         ({ attachment }) => attachment,
       );
+      let persistedImageAttachments: SpilledImageAttachment[] = [];
+      if (modelImageAttachments.length > 0) {
+        if (!state.init) {
+          throw new Error("Worker has not been initialized.");
+        }
+        persistedImageAttachments = await spillImageAttachmentsToDisk({
+          stellaDataDirPath: state.init.stellaDataDirPath,
+          conversationId: payload.conversationId,
+          attachments: modelImageAttachments,
+        });
+        modelImageAttachments = attachPersistedImagePaths(
+          modelImageAttachments,
+          persistedImageAttachments,
+        );
+      }
       const totalInlineImageBytes = modelImageAttachments.reduce(
         (total, attachment) => total + approximateDataUrlBytes(attachment.url),
         0,
@@ -1419,14 +1434,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         totalInlineImageBytes > INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES ||
         hasOverCapInlineImage
       ) {
-        if (!state.init) {
-          throw new Error("Worker has not been initialized.");
-        }
-        spilledImageAttachments = await spillImageAttachmentsToDisk({
-          stellaDataDirPath: state.init.stellaDataDirPath,
-          conversationId: payload.conversationId,
-          attachments: modelImageAttachments,
-        });
+        spilledImageAttachments = persistedImageAttachments;
         modelImageAttachments = [];
       }
       const { buildChatPromptMessages } = await loadChatPromptContext();
@@ -1435,6 +1443,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         windowContextLabel,
         browserUrl,
         appSelectionLabel,
+        appSelectionLabels,
         activityLabel,
         promptMessages,
         windowScreenshotAttachment,
@@ -1445,6 +1454,21 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         chatContext: payload.chatContext ?? null,
         explicitImageAttachmentCount: modelImageAttachments.length,
       });
+      let modelWindowScreenshotAttachment = windowScreenshotAttachment;
+      if (modelWindowScreenshotAttachment) {
+        if (!state.init) {
+          throw new Error("Worker has not been initialized.");
+        }
+        const persistedWindowScreenshot = await spillImageAttachmentsToDisk({
+          stellaDataDirPath: state.init.stellaDataDirPath,
+          conversationId: payload.conversationId,
+          attachments: [modelWindowScreenshotAttachment],
+        });
+        [modelWindowScreenshotAttachment] = attachPersistedImagePaths(
+          [modelWindowScreenshotAttachment],
+          persistedWindowScreenshot,
+        );
+      }
       const runPromptMessages: RuntimePromptMessage[] = [
         ...(promptMessages ?? []),
         ...(spilledImageAttachments.length > 0
@@ -1536,6 +1560,11 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                                     appSelectionLabel,
                                   }
                                 : {}),
+                              ...(appSelectionLabels?.length
+                                ? {
+                                    appSelectionLabels,
+                                  }
+                                : {}),
                               ...(activityLabel
                                 ? {
                                     activityLabel,
@@ -1598,7 +1627,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       const segmentFirstChunkAtMsByRunId = new Map<string, number>();
       const mergedAttachments = [
         ...modelImageAttachments,
-        ...(windowScreenshotAttachment ? [windowScreenshotAttachment] : []),
+        ...(modelWindowScreenshotAttachment
+          ? [modelWindowScreenshotAttachment]
+          : []),
       ];
       logger.info("startChat.prompt-shape", {
         conversationId: payload.conversationId,

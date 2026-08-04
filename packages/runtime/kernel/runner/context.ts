@@ -251,7 +251,7 @@ const buildConnectorTransitionReminder = (
       `The user just switched to messaging you from ${providerLabel} (not the desktop app).`,
       "Reply in plain text only — no markdown, no headers, no bullet lists, no code blocks. Write like a normal text message.",
       "Do not call the `html` tool (HTML/canvas artifacts only render in the desktop sidebar — type the answer in chat instead).",
-      "After calling `image_gen`, do not narrate or describe the image you just made — the generated file is delivered to the user's chat directly when it finishes, separately from your text reply. Saying \"here's the image\" reads as broken because the image arrives later as its own message.",
+      "`image_gen` stays pending until the image succeeds or fails and returns durable artifact paths in that same tool result. Do not poll, retry, download, or open the result yourself. After success, do not narrate or describe the image you just made; the returned artifact is rendered directly in chat.",
       "Keep replies short and conversational.",
     ];
     if (currentSurface.provider === "linq") {
@@ -620,15 +620,6 @@ export const createRunnerContext = ({
           reason,
         );
       },
-      cancelGroup: async (groupKey, reason) => {
-        if (!context.state.localAgentManager) {
-          return { canceled: false, canceledThreadIds: [] };
-        }
-        return await context.state.localAgentManager.cancelGroup(
-          groupKey,
-          reason,
-        );
-      },
       adoptAgent: async (agentId, parentAgentId) => {
         if (!context.state.localAgentManager) {
           return { adopted: false };
@@ -702,6 +693,7 @@ export const createRunnerContext = ({
       isInitialized: false,
       initializationPromise: null,
       localAgentManager: null,
+      backgroundExitWake: null,
       activeOrchestratorRunId: null,
       activeOrchestratorConversationId: null,
       activeOrchestratorUiVisibility: "visible",
@@ -718,6 +710,38 @@ export const createRunnerContext = ({
     },
     hookEmitter,
     toolHost,
+  });
+
+  // Needs both halves: the tool host owns the shell sessions, the agent
+  // manager owns the threads a wake resumes. Both are reachable now, so the
+  // wake is wired here rather than deferred to initialization.
+  context.state.backgroundExitWake = createBackgroundExitWake({
+    watchShellExit: toolHost.watchShellExit,
+    readShellExitSnapshot: toolHost.readShellExitSnapshot,
+    getThreadStatus: async (agentId) =>
+      (await context.state.localAgentManager?.getAgent(agentId))?.status,
+    writeExitLog: async (sessionId, contents) =>
+      await writeBackgroundExitLog(stellaDataDir, sessionId, contents),
+    deliver: async ({ conversationId, agentId, text }) => {
+      const manager = context.state.localAgentManager;
+      if (!manager) return false;
+      // Same door as `send_input`: rehydrates an evicted or finished thread
+      // with its own history instead of starting a stranger.
+      const result = await manager.sendAgentMessage(
+        agentId,
+        text,
+        "orchestrator",
+        {
+          deliveryKind: "external-input",
+        },
+      );
+      if (result.delivered) {
+        console.info(
+          `[background-wake] resumed thread ${agentId} (conversation ${conversationId}) on background command exit`,
+        );
+      }
+      return result.delivered;
+    },
   });
 
   return context;
@@ -1129,16 +1153,14 @@ export const buildAgentContext = async (
     resolvedLlm,
     modelConfigSnapshot:
       args.modelConfigSnapshot ??
-      (args.agentType === AGENT_IDS.ORCHESTRATOR
-        ? captureEffectiveModelConfig({
-            stellaDataDir: context.stellaDataDir,
-            engine: agentEngine,
-            configuredModel: model,
-            engineModelOverride: args.spawnEngine?.model,
-            resolvedLlm,
-            reasoningEffort: effectiveReasoningEffort,
-          })
-        : undefined),
+      captureEffectiveModelConfig({
+        stellaDataDir: context.stellaDataDir,
+        engine: agentEngine,
+        configuredModel: model,
+        engineModelOverride: args.spawnEngine?.model,
+        resolvedLlm,
+        reasoningEffort: effectiveReasoningEffort,
+      }),
     reasoningEffort: effectiveReasoningEffort,
     maxAgentDepth: agent?.maxAgentDepth ?? DEFAULT_MAX_AGENT_DEPTH,
     coreMemory: injectsCoreMemory

@@ -1,9 +1,12 @@
-/* Three-column shell junction — full-height side panels, visible borders.
-   Left seam: center column rounds outward. Right seam: flat — the display
-   panel butts straight against the center column with no curve. */
+/* The main column keeps the original shell geometry. The display panel alone
+   is presented as an inset window below its external topbar.
+
+   This was a three-column junction until the left sidebar was removed; the
+   left-seam gradient scoop it needed went with it. */
 
 :root[data-shell-panel-chrome="true"] {
   --shell-junction-radius: 16px;
+  --display-panel-window-radius: 8px;
   --shell-window-radius: 12px;
   --shell-junction-border: var(--border-base);
 }
@@ -12,6 +15,7 @@
 
 :root[data-shell-panel-chrome="true"] .content-area {
   border: 1px solid var(--shell-junction-border);
+  border-right: none;
   /* Round only the left edge — right edge stays square for inward panel scoops. */
   border-radius: var(--shell-junction-radius) 0 0 var(--shell-junction-radius);
   overflow: clip;
@@ -19,85 +23,22 @@
   box-shadow: var(--panel-surface-highlight);
 }
 
-:root[data-shell-panel-chrome="true"] .left-sidebar {
-  z-index: 1;
-}
-
 :root[data-shell-panel-chrome="true"] .right-sidebar.right-sidebar-panel {
   z-index: 1;
 }
 
-:root[data-shell-panel-chrome="true"] .full-body::before {
-  content: "";
-  position: absolute;
-  top: 1px;
-  bottom: 1px;
-  left: var(--shell-left-sidebar-width, 0px);
-  width: var(--shell-junction-radius);
-  z-index: 1;
-  opacity: 0;
-  pointer-events: none;
-  background: var(--panel-surface-bg-gradient);
-  transition:
-    left 460ms cubic-bezier(0.32, 0.72, 0.16, 1),
-    opacity 1ms linear 460ms;
-  -webkit-mask:
-    radial-gradient(
-        circle at 100% 100%,
-        transparent calc(var(--shell-junction-radius) - 0.5px),
-        #000 calc(var(--shell-junction-radius) + 0.5px)
-      )
-      top left / var(--shell-junction-radius) var(--shell-junction-radius)
-      no-repeat,
-    radial-gradient(
-        circle at 100% 0,
-        transparent calc(var(--shell-junction-radius) - 0.5px),
-        #000 calc(var(--shell-junction-radius) + 0.5px)
-      )
-      bottom left / var(--shell-junction-radius) var(--shell-junction-radius)
-      no-repeat;
-  mask:
-    radial-gradient(
-        circle at 100% 100%,
-        transparent calc(var(--shell-junction-radius) - 0.5px),
-        #000 calc(var(--shell-junction-radius) + 0.5px)
-      )
-      top left / var(--shell-junction-radius) var(--shell-junction-radius)
-      no-repeat,
-    radial-gradient(
-        circle at 100% 0,
-        transparent calc(var(--shell-junction-radius) - 0.5px),
-        #000 calc(var(--shell-junction-radius) + 0.5px)
-      )
-      bottom left / var(--shell-junction-radius) var(--shell-junction-radius)
-      no-repeat;
-}
+/* ── Inset right viewer window ─────────────────────────────────────── */
 
-:root[data-shell-panel-chrome="true"][data-shell-left-sidebar-docked="true"]
-  .full-body::before {
-  opacity: 1;
-  transition:
-    left 460ms cubic-bezier(0.32, 0.72, 0.16, 1),
-    opacity 80ms linear;
-}
-
-/* ── Left sidebar ──────────────────────────────────────────────────── */
-
-:root[data-shell-panel-chrome="true"] .left-sidebar {
-  overflow: hidden;
-  overflow-clip-margin: 0;
-}
-
-:root[data-shell-panel-chrome="true"] .left-sidebar__frame {
-  position: relative;
-  height: 100%;
-  margin: 0;
-  border: 1px solid var(--shell-junction-border);
-  border-right: none;
+:root[data-shell-panel-chrome="true"]
+  .right-sidebar.right-sidebar-panel.right-sidebar--shell-visible {
+  height: auto;
+  align-self: stretch;
+  margin: var(--shell-topbar-height, 38px) 6px 0 4px;
+  border: none;
+  border-left: 1px solid var(--shell-junction-border);
   border-radius: 0;
-  border-top-left-radius: var(--shell-window-radius);
-  border-bottom-left-radius: var(--shell-window-radius);
-  box-shadow: var(--panel-surface-highlight);
+  box-sizing: border-box;
+  box-shadow: none;
 }
 
 /* ── Right viewer panel ────────────────────────────────────────────── */
@@ -114,7 +55,6 @@
   height: 100%;
   max-height: none;
   margin: 0;
-  background: transparent;
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -137,8 +77,60 @@
 }
 
 :root[data-shell-panel-chrome="true"]
+  .right-sidebar.right-sidebar-panel.right-sidebar--expanded {
+  margin: 0;
+  border-left: none;
+  border-radius: 0;
+}
+
+:root[data-shell-panel-chrome="true"]
   .right-sidebar.right-sidebar-panel
   .right-sidebar-panel__body
   .right-sidebar__active {
   min-width: var(--display-panel-width, clamp(380px, 34vw, 520px));
+}
+
+/* ── Narrow shell: full-view panel takeover ─────────────────────────────
+   The panel remains available below its side-by-side pressure point. It
+   replaces the main content instead of squeezing it, while the external
+   panel topbar remains visible above the section body. */
+:root[data-shell-panel-chrome="true"][data-display-panel-takeover="true"]
+  .right-sidebar.right-sidebar-panel.right-sidebar--open {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  width: auto;
+  height: auto;
+  flex: none;
+  margin: var(--shell-topbar-height, 38px) 6px 6px;
+  border-left: none;
+  border-radius: 0;
+  transition: none;
+}
+
+:root[data-shell-panel-chrome="true"][data-display-panel-takeover="true"]
+  .right-sidebar.right-sidebar-panel
+  .right-sidebar-inner.right-sidebar-panel__frame,
+:root[data-shell-panel-chrome="true"][data-display-panel-takeover="true"]
+  .right-sidebar.right-sidebar-panel.right-sidebar--open
+  .right-sidebar-inner.right-sidebar-panel__frame {
+  width: 100%;
+  transition: none;
+}
+
+:root[data-shell-panel-chrome="true"][data-display-panel-takeover="true"]
+  .right-sidebar.right-sidebar-panel
+  .right-sidebar-panel__body
+  .right-sidebar__active {
+  min-width: 0;
+}
+
+:root[data-display-panel-takeover="true"][data-display-panel-open="true"]
+  .full-body
+  .content-area {
+  display: none;
+}
+
+:root[data-display-panel-takeover="true"] .right-sidebar__resize-handle {
+  display: none;
 }

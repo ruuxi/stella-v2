@@ -3119,19 +3119,15 @@ export class StellaRuntimeHost {
     );
     peer.registerRequestHandler(
       METHOD_NAMES.HOST_WINDOW_SHOW,
-      async (params) => {
-        await this.options.hostHandlers.showWindow?.(
-          params as HostWindowTarget,
-        );
+      async () => {
+        await this.options.hostHandlers.showWindow?.();
         return { ok: true };
       },
     );
     peer.registerRequestHandler(
       METHOD_NAMES.HOST_WINDOW_FOCUS,
-      async (params) => {
-        await this.options.hostHandlers.focusWindow?.(
-          params as HostWindowTarget,
-        );
+      async () => {
+        await this.options.hostHandlers.focusWindow?.();
         return { ok: true };
       },
     );

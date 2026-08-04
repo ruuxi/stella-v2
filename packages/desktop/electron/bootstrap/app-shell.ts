@@ -94,9 +94,6 @@ const initializeWindowShell = (context: BootstrapContext) => {
     isDev: config.useDevServer,
     getDevServerUrl,
   });
-  state.overlayController.setSelectionChipClickHandler((requestId) => {
-    services.selectionWatcherService.resolveClick(requestId);
-  });
 
   lifecycle.setWindowManager(
     new WindowManager({
@@ -112,10 +109,7 @@ const initializeWindowShell = (context: BootstrapContext) => {
       sessionPartition: config.sessionPartition,
       isDev: config.useDevServer,
       getDevServerUrl,
-      isAppReady: () => state.appReady,
       externalLinkService: services.externalLinkService,
-      onUpdateUiState: (partial) => services.uiStateService.update(partial),
-      onMiniHidden: () => services.selectionWatcherService.hideChip(),
       isQuitting: () => state.isQuitting,
       onMinimizeFullToTray: () => state.trayController?.notifyMinimizedToTray(),
     }),
@@ -127,7 +121,7 @@ const initializeWindowShell = (context: BootstrapContext) => {
   if (process.platform === "win32") {
     const trayController = new TrayController({
       electronDir: config.electronDir,
-      onShowWindow: () => state.windowManager?.showWindow("full"),
+      onShowWindow: () => state.windowManager?.showWindow(),
       onQuit: () => {
         state.isQuitting = true;
         app.quit();
@@ -180,7 +174,7 @@ const finalizeWindowLaunch = (context: BootstrapContext) => {
     });
   }
 
-  state.windowManager!.showWindow("full");
+  state.windowManager!.showWindow();
   context.state.processRuntime.setManagedTimeout(() => {
     triggerDeferredStartup("fallback");
   }, config.startupFirstPaintFallbackMs);
@@ -192,8 +186,7 @@ const finalizeWindowLaunch = (context: BootstrapContext) => {
       if (!hasMacPermission("accessibility", false)) {
         return;
       }
-      services.radialGestureService.start();
-      services.selectionWatcherService.start();
+      services.globalInputHook.start();
     });
   }
 };

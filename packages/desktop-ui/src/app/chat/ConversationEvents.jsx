@@ -1,0 +1,82 @@
+/**
+ * Home full-chat surface.
+ *
+ * Projects local `EventRecord[]` into row view models via `useEventRows`
+ * and mounts the shared `<ChatTimeline>`.
+ */
+import { memo, useEffect, useMemo, useState, } from "react";
+import { useEventRows } from "@/features/chat/hooks/use-event-rows";
+import { ChatTimeline } from "./ChatTimeline";
+import { hasQueuedMessageEntryPlayed } from "@/features/chat/lib/message-entry-animation-state";
+const USER_MESSAGE_ENTER_MS = 360;
+/**
+ * Tracks message ids whose enter animation has already played. Module
+ * scope so a home→chat transition (ConversationEvents remount) or a
+ * dev remount doesn't replay the fade/grow on the same bubble.
+ */
+const justSentPlayedIds = new Set();
+const justSentActiveUntil = new Map();
+/**
+ * Returns the set of row ids that should carry `justSent` this frame.
+ * Registration runs synchronously during render so the CSS enter
+ * animation starts on the bubble's first paint — the previous
+ * `useEffect` path painted the row at full opacity, then added the
+ * class a frame later, which read as a double appear/re-render on
+ * the first send after a cold load (especially when ConversationEvents
+ * mounts for the first time on home→chat).
+ */
+function useOneShotIds(ids, durationMs) {
+    const key = useMemo(() => [...new Set(ids)].sort().join("\n"), [ids]);
+    const [tick, setTick] = useState(0);
+    const active = useMemo(() => {
+        // `tick` is an explicit clock revision: the timeout below advances it to
+        // expire IDs even when the input list itself has not changed.
+        void tick;
+        const now = performance.now();
+        const set = new Set();
+        for (const id of key ? key.split("\n") : []) {
+            if (!id)
+                continue;
+            if (!justSentPlayedIds.has(id)) {
+                justSentPlayedIds.add(id);
+                justSentActiveUntil.set(id, now + durationMs);
+            }
+            const until = justSentActiveUntil.get(id) ?? 0;
+            if (until > now) {
+                set.add(id);
+            }
+        }
+        return set;
+    }, [durationMs, key, tick]);
+    useEffect(() => {
+        if (active.size === 0)
+            return;
+        const now = performance.now();
+        let delayMs = durationMs;
+        for (const id of active) {
+            const until = justSentActiveUntil.get(id) ?? 0;
+            delayMs = Math.min(delayMs, Math.max(0, until - now));
+        }
+        const timeoutId = window.setTimeout(() => {
+            setTick((current) => current + 1);
+        }, delayMs + 1);
+        return () => window.clearTimeout(timeoutId);
+    }, [active, durationMs]);
+    return active;
+}
+export const ConversationEvents = memo(function ConversationEvents({ messages, conversationId, agentModelConfigByThread, maxItems, pendingUserMessageId, queuedUserMessages, onCancelQueued, indicator, hasOlderMessages, isLoadingOlder, isLoadingHistory, listRef, className, contentContainerStyle, estimatedItemSize, }) {
+    const { rows: projectedRows } = useEventRows({
+        messages,
+        maxItems,
+    });
+    const justSentCandidates = useMemo(() => pendingUserMessageId && !hasQueuedMessageEntryPlayed(pendingUserMessageId)
+        ? [pendingUserMessageId]
+        : [], [pendingUserMessageId]);
+    const animatingJustSentIds = useOneShotIds(justSentCandidates, USER_MESSAGE_ENTER_MS);
+    const rows = animatingJustSentIds.size > 0
+        ? projectedRows.map((row) => row.kind === "user" && animatingJustSentIds.has(row.id)
+            ? { ...row, justSent: true }
+            : row)
+        : projectedRows;
+    return (<ChatTimeline rows={rows} conversationId={conversationId} agentModelConfigByThread={agentModelConfigByThread} hasOlderEvents={hasOlderMessages} isLoadingOlder={isLoadingOlder} isLoadingHistory={isLoadingHistory} queuedUserMessages={queuedUserMessages} onCancelQueued={onCancelQueued} indicator={indicator} listRef={listRef} className={className} contentContainerStyle={contentContainerStyle} estimatedItemSize={estimatedItemSize}/>);
+});

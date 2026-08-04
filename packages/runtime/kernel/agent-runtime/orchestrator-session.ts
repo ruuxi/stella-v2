@@ -95,6 +95,10 @@ export class OrchestratorSession extends PiSessionCore {
     recorder: RuntimeRunEventRecorder;
     callbacks?: RuntimeRunCallbacks;
   } | null = null;
+  private currentImageDescriptionContext: {
+    model: Pick<Model<Api>, "input">;
+    describeImages?: ImageDescriptionService;
+  } | null = null;
 
   constructor(public readonly conversationId: string) {
     super({
@@ -147,6 +151,10 @@ export class OrchestratorSession extends PiSessionCore {
       opts.responseTarget,
     );
     this.currentResponseTargetTracker = responseTargetTracker;
+    this.currentImageDescriptionContext = {
+      model: opts.resolvedLlm.model,
+      ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
+    };
 
     const tools = createPiTools({
       runId,
@@ -160,10 +168,12 @@ export class OrchestratorSession extends PiSessionCore {
       toolWorkspaceRoot: opts.toolWorkspaceRoot,
       agentDepth: opts.agentContext.agentDepth ?? 0,
       maxAgentDepth: opts.agentContext.maxAgentDepth,
+      parentAgentId: opts.agentContext.parentAgentId,
       modelConfigSnapshot: opts.agentContext.modelConfigSnapshot,
       connectorDeliveryTarget: opts.connectorDeliveryTarget,
       toolsAllowlist: opts.agentContext.toolsAllowlist,
       toolCatalog: opts.toolCatalog,
+      historyMessages: this.historyForToolActivation(opts.agentContext),
       store: opts.store,
       toolExecutor: opts.toolExecutor,
       hookEmitter: opts.hookEmitter,
@@ -192,12 +202,20 @@ export class OrchestratorSession extends PiSessionCore {
       agentContext: opts.agentContext,
       ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),
       tools,
-      afterToolCall: async (context) => {
+      afterToolCall: async (context, signal) => {
         this.currentResponseTargetTracker?.noteToolEnd(
           context.toolCall.name,
           context.result.details,
         );
-        return undefined;
+        const imageContext = this.currentImageDescriptionContext;
+        if (!imageContext) return undefined;
+        const content = await enrichImageContentForTextOnlyModel({
+          content: context.result.content,
+          model: imageContext.model,
+          describeImages: imageContext.describeImages,
+          signal,
+        });
+        return content === context.result.content ? undefined : { content };
       },
       onProviderRetry: this.handleProviderRetry,
       logContext: {
@@ -259,6 +277,7 @@ export class OrchestratorSession extends PiSessionCore {
       });
       this.currentResponseTargetTracker = null;
       this.currentRetryStatusContext = null;
+      this.currentImageDescriptionContext = null;
       return runId;
     }
 
@@ -434,6 +453,7 @@ export class OrchestratorSession extends PiSessionCore {
     } finally {
       this.currentResponseTargetTracker = null;
       this.currentRetryStatusContext = null;
+      this.currentImageDescriptionContext = null;
     }
   }
 
@@ -441,6 +461,7 @@ export class OrchestratorSession extends PiSessionCore {
     super.dispose();
     this.currentResponseTargetTracker = null;
     this.currentRetryStatusContext = null;
+    this.currentImageDescriptionContext = null;
   }
 }
 

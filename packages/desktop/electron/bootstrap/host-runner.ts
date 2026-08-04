@@ -271,15 +271,11 @@ export const createHostRunnerHandlers = (
   openExternal: async (url) => {
     context.services.externalLinkService.openSafeExternalUrl(url);
   },
-  showWindow: async (target) => {
-    context.state.windowManager?.showWindow(target);
+  showWindow: async () => {
+    context.state.windowManager?.showWindow();
   },
-  focusWindow: async (target) => {
-    const window =
-      target === "mini"
-        ? context.state.windowManager?.getMiniWindow()
-        : context.state.windowManager?.getFullWindow();
-    window?.focus();
+  focusWindow: async () => {
+    context.state.windowManager?.getFullWindow()?.focus();
   },
 });
 
@@ -392,7 +388,7 @@ export const initializeStellaHostRunner = async (context: BootstrapContext) => {
     createStellaHostRunner({
       initializeParams: {
         clientName: "stella-electron-host",
-        clientVersion: "0.0.0",
+        clientVersion: app.getVersion(),
         isDev: context.config.useDevServer,
         platform: process.platform,
         stellaAppDir,

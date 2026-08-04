@@ -348,8 +348,11 @@ function buildRequestBody(
 	context: Context,
 	options?: OpenAICodexResponsesOptions,
 ): RequestBody {
+	const supportsToolSearch = model.compat?.supportsToolSearch ?? /^gpt-(?:[6-9]|\d{2,})|^gpt-5\.[4-9]/.test(model.id);
+	const toolPlacement = splitDeferredTools(context, supportsToolSearch);
 	const messages = convertResponsesMessages(model, context, CODEX_TOOL_CALL_PROVIDERS, {
 		includeSystemPrompt: false,
+		deferredTools: toolPlacement.deferred,
 	});
 
 	const body: RequestBody = {
@@ -373,8 +376,10 @@ function buildRequestBody(
 		body.service_tier = options.serviceTier;
 	}
 
-	if (context.tools && context.tools.length > 0) {
-		body.tools = convertResponsesTools(context.tools, { strict: null });
+	if (toolPlacement.immediate.length > 0) {
+		body.tools = convertResponsesTools(toolPlacement.immediate, {
+			strict: null,
+		});
 	}
 
 	if (options?.reasoningEffort !== undefined) {
@@ -499,9 +504,21 @@ async function* mapCodexEvents(events: AsyncIterable<Record<string, unknown>>): 
 		if (!type) continue;
 
 		if (type === "error") {
-			const code = (event as { code?: string }).code || "";
-			const message = (event as { message?: string }).message || "";
-			throw new CodexApiError(`Codex error: ${message || code || JSON.stringify(event)}`, {
+			const nestedError =
+				event.error && typeof event.error === "object"
+					? (event.error as { code?: unknown; message?: unknown; type?: unknown })
+					: undefined;
+			const code =
+				(typeof event.code === "string" ? event.code : undefined) ||
+				(typeof nestedError?.code === "string" ? nestedError.code : undefined) ||
+				(typeof nestedError?.type === "string" ? nestedError.type : undefined) ||
+				"";
+			const message =
+				(typeof event.message === "string" ? event.message : undefined) ||
+				(typeof nestedError?.message === "string" ? nestedError.message : undefined) ||
+				"";
+			const summary = message || code || JSON.stringify(event);
+			throw new CodexApiError(`Codex error${code ? ` (${code})` : ""}: ${summary}`, {
 				code: code || undefined,
 				payload: event,
 			});

@@ -1,0 +1,29 @@
+import { useEffect } from 'react';
+import { STELLA_SEND_MESSAGE_EVENT, toStellaMessageMetadata, } from '@/shared/lib/stella-send-message';
+/**
+ * Bridge `STELLA_SEND_MESSAGE_EVENT` window events into chat sends.
+ *
+ * Suggestion chips and the orchestrator's hidden follow-ups dispatch
+ * the same event; the routing call here
+ * decides whether to send into the active conversation or into a
+ * specific routed agent (when `targetAgentId` is present).
+ */
+export function useStellaSendMessageBridge({ sendContextlessMessage, sendAgentInputMessage, }) {
+    useEffect(() => {
+        const handleSuggestionMessage = (event) => {
+            const detail = event.detail;
+            if (!detail?.text)
+                return;
+            const metadata = toStellaMessageMetadata(detail);
+            if (detail.targetAgentId) {
+                sendAgentInputMessage(detail, metadata);
+                return;
+            }
+            sendContextlessMessage(detail.text, metadata);
+        };
+        window.addEventListener(STELLA_SEND_MESSAGE_EVENT, handleSuggestionMessage);
+        return () => {
+            window.removeEventListener(STELLA_SEND_MESSAGE_EVENT, handleSuggestionMessage);
+        };
+    }, [sendAgentInputMessage, sendContextlessMessage]);
+}

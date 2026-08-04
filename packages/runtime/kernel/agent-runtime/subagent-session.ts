@@ -25,6 +25,11 @@ import {
   persistThreadCustomMessage,
 } from "./thread-memory.js";
 import { createPiTools } from "./tool-adapters.js";
+import {
+  enrichImageContentForTextOnlyModel,
+  type ImageDescriptionService,
+} from "./image-description.js";
+import type { Api, Model } from "../../ai/types.js";
 import type {
   RuntimeRunCallbacks,
   SubagentRunOptions,
@@ -35,6 +40,10 @@ export class SubagentSession extends PiSessionCore {
   private currentRetryStatusContext: {
     recorder: RuntimeRunEventRecorder;
     callbacks?: Partial<RuntimeRunCallbacks>;
+  } | null = null;
+  private currentImageDescriptionContext: {
+    model: Pick<Model<Api>, "input">;
+    describeImages?: ImageDescriptionService;
   } | null = null;
 
   private handleProviderRetry = (info: {
@@ -90,6 +99,10 @@ export class SubagentSession extends PiSessionCore {
 
     // Keep the reused Agent pointed at the current model route.
     this.setResolvedLlm(opts.resolvedLlm);
+    this.currentImageDescriptionContext = {
+      model: opts.resolvedLlm.model,
+      ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
+    };
 
     this.refreshHistoryIfNeeded(opts.agentContext, {
       threadId: this.threadId,
@@ -107,6 +120,7 @@ export class SubagentSession extends PiSessionCore {
       toolWorkspaceRoot: opts.toolWorkspaceRoot,
       agentDepth: opts.agentContext.agentDepth ?? 0,
       maxAgentDepth: opts.agentContext.maxAgentDepth,
+      parentAgentId: opts.agentContext.parentAgentId,
       modelConfigSnapshot: opts.agentContext.modelConfigSnapshot,
       // Inherited from the spawning orchestrator's run so subagent-side
       // tools that opt in (none today — `image_gen` is orchestrator-only)
@@ -116,6 +130,7 @@ export class SubagentSession extends PiSessionCore {
       connectorDeliveryTarget: opts.connectorDeliveryTarget,
       toolsAllowlist: opts.agentContext.toolsAllowlist,
       toolCatalog: opts.toolCatalog,
+      historyMessages: this.historyForToolActivation(opts.agentContext),
       store: opts.store,
       toolExecutor: opts.toolExecutor,
       hookEmitter: opts.hookEmitter,
@@ -142,6 +157,17 @@ export class SubagentSession extends PiSessionCore {
       agentContext: opts.agentContext,
       ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),
       tools,
+      afterToolCall: async (context, signal) => {
+        const imageContext = this.currentImageDescriptionContext;
+        if (!imageContext) return undefined;
+        const content = await enrichImageContentForTextOnlyModel({
+          content: context.result.content,
+          model: imageContext.model,
+          describeImages: imageContext.describeImages,
+          signal,
+        });
+        return content === context.result.content ? undefined : { content };
+      },
       onProviderRetry: this.handleProviderRetry,
       logContext: {
         threadId: this.threadId,
@@ -185,13 +211,15 @@ export class SubagentSession extends PiSessionCore {
       const reason =
         resolveInterruptionReason({ abortSignal: opts.abortSignal }) ??
         "Canceled";
-      return finalizeSubagentInterrupted({
+      const result = finalizeSubagentInterrupted({
         opts,
         runEvents,
         runId,
         reason,
         threadKey: this.threadKey,
       });
+      this.currentImageDescriptionContext = null;
+      return result;
     }
 
     this.currentRetryStatusContext = {
@@ -364,12 +392,14 @@ export class SubagentSession extends PiSessionCore {
       });
     } finally {
       this.currentRetryStatusContext = null;
+      this.currentImageDescriptionContext = null;
     }
   }
 
   dispose(): void {
     super.dispose();
     this.currentRetryStatusContext = null;
+    this.currentImageDescriptionContext = null;
   }
 }
 

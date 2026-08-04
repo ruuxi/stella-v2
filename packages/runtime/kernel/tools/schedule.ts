@@ -243,7 +243,7 @@ export const handleSchedule = async (
     ...(typeof context.maxAgentDepth === "number"
       ? { maxAgentDepth: context.maxAgentDepth }
       : {}),
-    parentAgentId: context.cloudAgentId ?? context.agentId,
+    parentAgentId: context.agentId,
     storageMode: context.storageMode ?? "local",
   });
 

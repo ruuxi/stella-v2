@@ -450,6 +450,21 @@ const truncateTextBlockForStorage = (text: string, label = "Text"): string =>
 const truncateToolOutputForStorage = (text: string): string =>
   `This tool output was too large to persist in storage (${text.length} chars). If the user asks about this data, suggest re-running the tool. Preview: ${truncatePreview(text)}`;
 
+const strippedImageStorageNote = (image: ImageContent): TextContent => {
+  const sourcePath = image.sourcePath?.trim();
+  if (sourcePath) {
+    return {
+      type: "text",
+      text: `<image_reference>\n${sourcePath}\nUse the Read tool with file_path set to this absolute path to inspect the image.\n</image_reference>`,
+    };
+  }
+  const sizeKb = Math.round(((image.data?.length ?? 0) * 0.75) / 1024);
+  return {
+    type: "text",
+    text: `[image content block stripped for storage: mime=${image.mimeType ?? "image/png"} approx_kb=${sizeKb}]`,
+  };
+};
+
 const truncateObjectForStorage = (
   value: unknown,
   label: string,
@@ -483,6 +498,17 @@ const enforceThreadPayloadRowSizeLimit = (
     const candidate = { ...payload, content };
     if (payloadByteLength(candidate) <= THREAD_ROW_MAX_BYTES) {
       return candidate;
+    }
+    if (typeof content !== "string") {
+      const withoutImageData: PersistedRuntimeThreadPayload = {
+        ...payload,
+        content: content.map((block) =>
+          block.type === "image" ? strippedImageStorageNote(block) : block,
+        ),
+      };
+      if (payloadByteLength(withoutImageData) <= THREAD_ROW_MAX_BYTES) {
+        return withoutImageData;
+      }
     }
     return {
       ...payload,
@@ -574,11 +600,7 @@ const enforceThreadPayloadRowSizeLimit = (
       if (block.type !== "image") {
         return block;
       }
-      const sizeKb = Math.round(((block.data?.length ?? 0) * 0.75) / 1024);
-      return {
-        type: "text" as const,
-        text: `[image content block stripped for storage: mime=${block.mimeType ?? "image/png"} approx_kb=${sizeKb}]`,
-      };
+      return strippedImageStorageNote(block);
     }),
   };
   if (payloadByteLength(withoutImageData) <= THREAD_ROW_MAX_BYTES) {
@@ -2901,8 +2923,6 @@ export class SessionStore {
     lastUsedAt: number;
     description: string | null;
     summary: string | null;
-    groupKey?: string | null;
-    groupLabel?: string | null;
     agentStatus?: TaskLifecycleStatus | null;
     agentUpdatedAt?: number | null;
   }): RuntimeThreadRecord {
@@ -2920,8 +2940,6 @@ export class SessionStore {
         : {}),
       ...(row.description ? { description: row.description } : {}),
       ...(row.summary ? { summary: row.summary } : {}),
-      ...(row.groupKey ? { groupKey: row.groupKey } : {}),
-      ...(row.groupLabel ? { groupLabel: row.groupLabel } : {}),
     };
   }
 
@@ -2935,8 +2953,6 @@ export class SessionStore {
         runtime_threads.created_at AS createdAt,
         runtime_threads.last_used_at AS lastUsedAt,
         runtime_threads.summary AS summary,
-        runtime_threads.group_key AS groupKey,
-        runtime_threads.group_label AS groupLabel,
         runtime_agents.description AS description,
         runtime_agents.status AS agentStatus,
         runtime_agents.updated_at AS agentUpdatedAt
@@ -2946,10 +2962,7 @@ export class SessionStore {
   `;
 
   listActiveThreads(conversationId: string): RuntimeThreadRecord[] {
-    // Eviction caps SLOTS (groups + ungrouped threads) at
-    // MAX_ACTIVE_RUNTIME_THREADS, and group membership is capped at
-    // MAX_GROUP_MEMBER_THREADS, so the row LIMIT here is the product —
-    // a safety bound, not the budgeting mechanism.
+    // Active-thread eviction keeps this query bounded to the same cap.
     const rows = this.db
       .prepare(
         `
@@ -2960,10 +2973,9 @@ export class SessionStore {
       LIMIT ?
     `,
       )
-      .all(
-        conversationId,
-        MAX_ACTIVE_RUNTIME_THREADS * MAX_GROUP_MEMBER_THREADS,
-      ) as Array<Parameters<SessionStore["deserializeRuntimeThread"]>[0]>;
+      .all(conversationId, MAX_ACTIVE_RUNTIME_THREADS) as Array<
+      Parameters<SessionStore["deserializeRuntimeThread"]>[0]
+    >;
     return rows.map((row) => this.deserializeRuntimeThread(row));
   }
 
@@ -3070,8 +3082,6 @@ export class SessionStore {
         thread_key LIKE ? ESCAPE '\\'
         OR runtime_threads.name LIKE ? ESCAPE '\\'
         OR runtime_threads.summary LIKE ? ESCAPE '\\'
-        OR runtime_threads.group_label LIKE ? ESCAPE '\\'
-        OR runtime_threads.group_key LIKE ? ESCAPE '\\'
         OR runtime_agents.description LIKE ? ESCAPE '\\'
       )`;
     // The index already enforced eligibility at write time, but the clauses
@@ -3094,7 +3104,7 @@ export class SessionStore {
     ];
     for (const token of tokens) {
       const pattern = `%${escapeLike(token)}%`;
-      params.push(pattern, pattern, pattern, pattern, pattern, pattern);
+      params.push(pattern, pattern, pattern, pattern);
     }
     params.push(limit);
     const rows = this.db
@@ -3122,8 +3132,6 @@ export class SessionStore {
         thread_key LIKE ? ESCAPE '\\'
         OR runtime_threads.name LIKE ? ESCAPE '\\'
         OR runtime_threads.summary LIKE ? ESCAPE '\\'
-        OR runtime_threads.group_label LIKE ? ESCAPE '\\'
-        OR runtime_threads.group_key LIKE ? ESCAPE '\\'
         OR runtime_agents.description LIKE ? ESCAPE '\\'
       )`;
     const where = [
@@ -3154,7 +3162,7 @@ export class SessionStore {
     const pushTokenParams = () => {
       for (const token of tokens) {
         const pattern = `%${escapeLike(token)}%`;
-        params.push(pattern, pattern, pattern, pattern, pattern, pattern);
+        params.push(pattern, pattern, pattern, pattern);
       }
     };
     pushTokenParams(); // WHERE token binds,
@@ -3618,70 +3626,29 @@ export class SessionStore {
       .sort((a, b) => a.atMs - b.atMs);
   }
 
-  getThreadGroup(
-    threadKey: string,
-  ): { groupKey?: string; groupLabel?: string } | undefined {
-    const row = this.db
-      .prepare(
-        `
-      SELECT group_key AS groupKey, group_label AS groupLabel
-      FROM runtime_threads
-      WHERE thread_key = ?
-      LIMIT 1
-    `,
-      )
-      .get(threadKey) as
-      | { groupKey: string | null; groupLabel: string | null }
-      | undefined;
-    if (!row) return undefined;
-    return {
-      ...(row.groupKey ? { groupKey: row.groupKey } : {}),
-      ...(row.groupLabel ? { groupLabel: row.groupLabel } : {}),
-    };
-  }
-
-  listGroupMemberThreadIds(groupKey: string): string[] {
-    const rows = this.db
-      .prepare(
-        `
-      SELECT thread_key AS threadId
-      FROM runtime_threads
-      WHERE group_key = ?
-      ORDER BY last_used_at DESC
-    `,
-      )
-      .all(groupKey) as Array<{ threadId: string }>;
-    return rows.map((row) => row.threadId);
-  }
-
-  /**
-   * Active work slots for a conversation: each group is one slot, each
-   * ungrouped thread is one slot. Eviction and the active-work budget
-   * operate on slots so a multi-agent fan-out costs one of the
-   * MAX_ACTIVE_RUNTIME_THREADS slots, not one per member.
-   */
-  private listActiveWorkSlots(
+  private listActiveThreadsByAge(
     conversationId: string,
-  ): Array<{ slot: string; lastUsedAt: number }> {
+  ): Array<{ threadId: string; lastUsedAt: number }> {
     return this.db
       .prepare(
         `
       SELECT
-        COALESCE(group_key, thread_key) AS slot,
-        MAX(last_used_at) AS lastUsedAt
+        thread_key AS threadId,
+        last_used_at AS lastUsedAt
       FROM runtime_threads
       WHERE conversation_id = ?
         AND status = 'active'
-      GROUP BY COALESCE(group_key, thread_key)
-      ORDER BY lastUsedAt ASC
+      ORDER BY last_used_at ASC, thread_key ASC
     `,
       )
-      .all(conversationId) as Array<{ slot: string; lastUsedAt: number }>;
+      .all(conversationId) as Array<{
+      threadId: string;
+      lastUsedAt: number;
+    }>;
   }
 
-  /** Flip every thread in the least-recently-used active slot to 'evicted'. */
-  private evictOldestWorkSlot(conversationId: string): void {
-    const oldest = this.listActiveWorkSlots(conversationId)[0];
+  private evictOldestThread(conversationId: string): void {
+    const oldest = this.listActiveThreadsByAge(conversationId)[0];
     if (!oldest) return;
     this.db
       .prepare(
@@ -3690,24 +3657,18 @@ export class SessionStore {
       SET status = 'evicted'
       WHERE conversation_id = ?
         AND status = 'active'
-        AND COALESCE(group_key, thread_key) = ?
+        AND thread_key = ?
     `,
       )
-      .run(conversationId, oldest.slot);
+      .run(conversationId, oldest.threadId);
   }
 
-  /**
-   * Reactivate a thread and — when it belongs to a group — every sibling
-   * in that group, evicting the LRU slot first when the conversation is
-   * at its slot budget. Sibling context is what makes resuming old work
-   * useful, so resurrection is all-or-nothing per slot.
-   */
-  private reactivateWorkSlot(conversationId: string, slot: string): void {
+  private reactivateThread(conversationId: string, threadId: string): void {
     if (
-      this.listActiveWorkSlots(conversationId).length >=
+      this.listActiveThreadsByAge(conversationId).length >=
       MAX_ACTIVE_RUNTIME_THREADS
     ) {
-      this.evictOldestWorkSlot(conversationId);
+      this.evictOldestThread(conversationId);
     }
     this.db
       .prepare(
@@ -3715,102 +3676,33 @@ export class SessionStore {
       UPDATE runtime_threads
       SET status = 'active'
       WHERE conversation_id = ?
-        AND COALESCE(group_key, thread_key) = ?
+        AND thread_key = ?
     `,
       )
-      .run(conversationId, slot);
+      .run(conversationId, threadId);
   }
 
-  private threadOrGroupKeyExists(key: string): boolean {
+  private threadKeyExists(key: string): boolean {
     const row = this.db
       .prepare(
         `
       SELECT 1 AS hit
       FROM runtime_threads
-      WHERE thread_key = ? OR group_key = ?
+      WHERE thread_key = ?
       LIMIT 1
     `,
       )
-      .get(key, key) as { hit: number } | undefined;
+      .get(key) as { hit: number } | undefined;
     return Boolean(row);
   }
 
-  /**
-   * Mint a key unique across BOTH thread keys and group keys (they share
-   * one id namespace so `pause_agent`/`send_input` routing is never
-   * ambiguous). Collisions get `-2`, `-3`, … suffixes.
-   */
+  /** Mint a globally unique thread key, suffixing collisions with -2, -3, …. */
   private mintUniqueKey(base: string): string {
-    if (!this.threadOrGroupKeyExists(base)) return base;
+    if (!this.threadKeyExists(base)) return base;
     for (let ordinal = 2; ; ordinal++) {
       const candidate = `${base}-${ordinal}`;
-      if (!this.threadOrGroupKeyExists(candidate)) return candidate;
+      if (!this.threadKeyExists(candidate)) return candidate;
     }
-  }
-
-  /**
-   * Resolve the `group` value passed to spawn_agent: an existing
-   * `grp-…` id attaches to that group (resurrecting it when evicted), a
-   * label create-or-attaches against the conversation's ACTIVE groups by
-   * normalized label (so parallel same-label spawns land in one group),
-   * and anything else mints a fresh group.
-   */
-  private resolveSpawnGroup(
-    conversationId: string,
-    rawGroup: string,
-  ): { groupKey: string; groupLabel: string; isNewGroup: boolean } {
-    const trimmed = rawGroup.trim().replace(/\s+/g, " ").slice(0, 120);
-    if (trimmed.startsWith(THREAD_GROUP_KEY_PREFIX)) {
-      const row = this.db
-        .prepare(
-          `
-        SELECT group_key AS groupKey, group_label AS groupLabel
-        FROM runtime_threads
-        WHERE conversation_id = ? AND group_key = ?
-        LIMIT 1
-      `,
-        )
-        .get(conversationId, trimmed) as
-        | { groupKey: string; groupLabel: string | null }
-        | undefined;
-      if (row) {
-        return {
-          groupKey: row.groupKey,
-          groupLabel: row.groupLabel ?? row.groupKey,
-          isNewGroup: false,
-        };
-      }
-    }
-    const labelMatch = this.db
-      .prepare(
-        `
-      SELECT group_key AS groupKey, group_label AS groupLabel
-      FROM runtime_threads
-      WHERE conversation_id = ?
-        AND status = 'active'
-        AND group_label IS NOT NULL
-        AND LOWER(group_label) = LOWER(?)
-      LIMIT 1
-    `,
-      )
-      .get(conversationId, trimmed) as
-      | { groupKey: string; groupLabel: string | null }
-      | undefined;
-    if (labelMatch) {
-      return {
-        groupKey: labelMatch.groupKey,
-        groupLabel: labelMatch.groupLabel ?? trimmed,
-        isNewGroup: false,
-      };
-    }
-    // A stale/unknown `grp-…` id falls through to minting; strip the
-    // prefix first so the result is `grp-tokyo-trip`, never `grp-grp-…`.
-    const labelSource = trimmed.startsWith(THREAD_GROUP_KEY_PREFIX)
-      ? trimmed.slice(THREAD_GROUP_KEY_PREFIX.length).trim() || trimmed
-      : trimmed;
-    const slug = slugify(labelSource) || "work";
-    const groupKey = this.mintUniqueKey(`${THREAD_GROUP_KEY_PREFIX}${slug}`);
-    return { groupKey, groupLabel: labelSource, isNewGroup: true };
   }
 
   private mintThreadKey(args: {
@@ -3818,14 +3710,10 @@ export class SessionStore {
     nameHint?: string;
   }): string {
     const slug = slugify(args.nameHint ?? "");
-    // `grp-` is the group-id namespace; `legacy-` is the seeded feature
-    // roster's id namespace (store-mod-store.ts) — a thread key landing in
-    // either would merge unrelated identities downstream.
-    if (
-      slug &&
-      !slug.startsWith(THREAD_GROUP_KEY_PREFIX) &&
-      !slug.startsWith("legacy-")
-    ) {
+    // `legacy-` is the seeded feature roster's id namespace
+    // (store-mod-store.ts); a thread key landing there would merge unrelated
+    // identities downstream.
+    if (slug && !slug.startsWith("legacy-")) {
       return this.mintUniqueKey(slug);
     }
     // Fallback for descriptions that slug to nothing (emoji, non-Latin
@@ -3861,16 +3749,9 @@ export class SessionStore {
      * and stored as the thread's display name.
      */
     nameHint?: string;
-    /**
-     * Group this spawn under one work slot: an existing `grp-…` id, or a
-     * short label shared by sibling spawn_agent calls.
-     */
-    group?: string;
   }): {
     threadId: string;
     reused: boolean;
-    groupKey?: string;
-    groupLabel?: string;
   } {
     const requestedThreadId = normalizeRuntimeThreadId(args.threadId ?? "");
     const existing = requestedThreadId
@@ -3881,9 +3762,7 @@ export class SessionStore {
           thread_key AS threadId,
           conversation_id AS conversationId,
           agent_type AS agentType,
-          status,
-          group_key AS groupKey,
-          group_label AS groupLabel
+          status
         FROM runtime_threads
         WHERE thread_key = ?
         LIMIT 1
@@ -3895,8 +3774,6 @@ export class SessionStore {
               conversationId: string;
               agentType: string;
               status: "active" | "evicted";
-              groupKey: string | null;
-              groupLabel: string | null;
             }
           | undefined)
       : undefined;
@@ -3911,66 +3788,20 @@ export class SessionStore {
         );
       }
       if (existing.status !== "active") {
-        this.reactivateWorkSlot(
-          args.conversationId,
-          existing.groupKey ?? existing.threadId,
-        );
+        this.reactivateThread(args.conversationId, existing.threadId);
       }
       this.touchThread(existing.threadId);
       return {
         threadId: existing.threadId,
         reused: true,
-        ...(existing.groupKey ? { groupKey: existing.groupKey } : {}),
-        ...(existing.groupLabel ? { groupLabel: existing.groupLabel } : {}),
       };
     }
 
-    const group = args.group?.trim()
-      ? this.resolveSpawnGroup(args.conversationId, args.group)
-      : undefined;
-
-    if (group && !group.isNewGroup) {
-      const memberStatuses = this.db
-        .prepare(
-          `
-        SELECT status, COUNT(*) AS count
-        FROM runtime_threads
-        WHERE conversation_id = ? AND group_key = ?
-        GROUP BY status
-      `,
-        )
-        .all(args.conversationId, group.groupKey) as Array<{
-        status: string;
-        count: number;
-      }>;
-      const activeMembers =
-        memberStatuses.find((row) => row.status === "active")?.count ?? 0;
-      const totalMembers = memberStatuses.reduce(
-        (sum, row) => sum + row.count,
-        0,
-      );
-      // Attaching to a fully-evicted group resurrects ALL its members, so
-      // the cap applies to the total in that case — otherwise a 9th spawn
-      // into an evicted 8-member group would bypass the budget entirely.
-      const membersAfterResurrection =
-        activeMembers === 0 ? totalMembers : activeMembers;
-      if (membersAfterResurrection >= MAX_GROUP_MEMBER_THREADS) {
-        throw new Error(
-          `Group ${group.groupKey} already has ${membersAfterResurrection} threads. Continue one of its existing threads with send_input instead of spawning another.`,
-        );
-      }
-      if (activeMembers === 0 && totalMembers > 0) {
-        // Adding work to a fully-evicted group resurrects the whole slot.
-        this.reactivateWorkSlot(args.conversationId, group.groupKey);
-      }
-    }
-    const occupiesNewSlot = !group || group.isNewGroup;
     if (
-      occupiesNewSlot &&
-      this.listActiveWorkSlots(args.conversationId).length >=
-        MAX_ACTIVE_RUNTIME_THREADS
+      this.listActiveThreadsByAge(args.conversationId).length >=
+      MAX_ACTIVE_RUNTIME_THREADS
     ) {
-      this.evictOldestWorkSlot(args.conversationId);
+      this.evictOldestThread(args.conversationId);
     }
 
     const threadId =
@@ -3994,29 +3825,15 @@ export class SessionStore {
         status,
         created_at,
         last_used_at,
-        summary,
-        group_key,
-        group_label
+        summary
       )
-      VALUES (?, ?, ?, ?, 'active', ?, ?, NULL, ?, ?)
+      VALUES (?, ?, ?, ?, 'active', ?, ?, NULL)
     `,
       )
-      .run(
-        threadId,
-        args.conversationId,
-        args.agentType,
-        name,
-        now,
-        now,
-        group?.groupKey ?? null,
-        group?.groupLabel ?? null,
-      );
+      .run(threadId, args.conversationId, args.agentType, name, now, now);
     return {
       threadId,
       reused: false,
-      ...(group
-        ? { groupKey: group.groupKey, groupLabel: group.groupLabel }
-        : {}),
     };
   }
 
@@ -4304,7 +4121,7 @@ export class SessionStore {
     return {
       threadId: row.thread_id,
       conversationId: row.conversation_id,
-      agentType: row.agent_type,
+      agentType: normalizeRetiredAgentType(row.agent_type),
       description: row.description,
       agentDepth: row.agent_depth,
       ...(row.max_agent_depth == null
@@ -4377,7 +4194,7 @@ export class SessionStore {
       return {
         threadId: row.thread_id,
         conversationId: row.conversation_id,
-        agentType: row.agent_type,
+        agentType: normalizeRetiredAgentType(row.agent_type),
         description: row.description,
         agentDepth: row.agent_depth,
         ...(row.max_agent_depth == null
@@ -4400,8 +4217,7 @@ export class SessionStore {
   /**
    * Authoritative Activity read: one row per background-agent thread in the
    * conversation, straight from `runtime_agents` (the single writer is the
-   * LocalAgentManager's `persistTask`), joined with the thread registry's
-   * group fields. Ordered oldest-started first — the renderer sorts for
+   * LocalAgentManager's `persistTask`). Ordered oldest-started first — the renderer sorts for
    * display. Truncated result/error previews keep the wire payload small;
    * the full result still rides the completion chat card.
    */
@@ -4421,11 +4237,8 @@ export class SessionStore {
         substr(a.result, 1, 2000) AS result,
         substr(a.error, 1, 2000) AS error,
         a.updated_at,
-        a.root_run_id,
-        t.group_key,
-        t.group_label
+        a.root_run_id
       FROM runtime_agents a
-      LEFT JOIN runtime_threads t ON t.thread_key = a.thread_id
       WHERE a.conversation_id = ?
       ORDER BY a.started_at ASC, a.thread_id ASC
     `,

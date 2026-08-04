@@ -8,68 +8,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-#stella-mini-boot {
-  display: none;
-}
-
-/* Pre-React boot splash for the mini (Spotlight) window. Flat, calm surface
-   that matches the redesigned app — no gradient. */
-html[data-stella-window="mini"] #stella-mini-boot {
-  display: flex !important;
-  width: 100vw;
-  height: 100vh;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: #f5f5f7;
-  color: #1d1d1f;
-  font-family: "Manrope", "Manrope Fallback", system-ui, sans-serif;
-  -webkit-app-region: drag;
-}
-
-.stella-mini-boot__top {
-  display: flex;
-  height: 42px;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 0 15px;
-}
-
-.stella-mini-boot__top span {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.stella-mini-boot__body {
-  display: grid;
-  flex: 1;
-  align-content: end;
-  gap: 12px;
-  padding: 0 22px 28px;
-}
-
-.stella-mini-boot__mark {
-  font-family: var(--font-family-display, "Cormorant Garamond", Georgia, serif);
-  font-size: 18px;
-  font-weight: 400;
-  letter-spacing: -0.03em;
-  line-height: 1;
-}
-
-.stella-mini-boot__line {
-  width: 58%;
-  height: 12px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.06);
-}
-
-.stella-mini-boot__line--wide {
-  width: 76%;
-}
-
 @theme inline {
   /* Softer, macOS-native radii — generous enough to read as approachable,
      restrained enough to stay precise. */
@@ -309,6 +247,40 @@ html[data-stella-window="mini"] #stella-mini-boot {
   --select-text: var(--text-strong);
   --select-chip-shadow: var(--shadow-sm);
 
+  /* ── User chat bubble ─────────────────────────────────────────────────
+     Derived from `--primary` so the bubble always carries the theme's
+     accent, but with legibility guaranteed by construction rather than by
+     trusting each theme's hand-paired `--primary-foreground` (several
+     themes pair a mid-lightness primary with white, which lands well below
+     readable contrast — and a derived fill can drift from what the pair
+     was authored against).
+
+     How: a lightness gate decides whether the fill is a "dark bubble"
+     (white text) or a "light bubble" (near-black text). Fills whose
+     primary sits in the ambiguous mid band (oklch L 0.56–0.70, where
+     NEITHER black nor white text reads well) are snapped to the nearest
+     edge of the band: L ≤ 0.65 clamps down to 0.55, L > 0.65 clamps up
+     to 0.70. The text token then flips off the same 0.65 threshold, so
+     fill and text can never disagree. Worst-case contrast ≈ 4.6:1
+     (L 0.55 fill + white text); every other theme lands higher. */
+  --chat-user-bubble-fill: oklch(
+    from var(--primary)
+    calc(
+      (1 - clamp(0, (l - 0.65) * 10000, 1)) * min(l, 0.55)
+      + clamp(0, (l - 0.65) * 10000, 1) * max(l, 0.70)
+    )
+    calc(c * 0.75)
+    h
+  );
+  /* Near-white on dark fills, near-black on light fills; keeps a whisper
+     of the fill's hue so the text doesn't read as foreign. */
+  --chat-user-bubble-text: oklch(
+    from var(--chat-user-bubble-fill)
+    calc(0.985 - clamp(0, (l - 0.65) * 10000, 1) * 0.835)
+    calc(c * 0.12)
+    h
+  );
+
   /* ── Type scale (fixed px — native, never viewport-scaled). ── */
   --font-size-2xs: 10px; /* micro labels, badge counts, mono timestamps */
   --font-size-xs: 11px; /* secondary metadata, captions, chip sub-labels */
@@ -498,8 +470,7 @@ html:has(.window-shell) .app {
   background: var(--background);
 }
 
-/* Transparent windows — overlay (unified), mini (Spotlight), region capture,
-   voice — keep their own shaped/floating surfaces. */
+/* Floating overlay surfaces paint their own transparent window shapes. */
 html[data-stella-window="overlay"],
 html[data-stella-window="overlay"] body,
 html[data-stella-window="overlay"] #root {

@@ -81,12 +81,6 @@
       "description": "Lets Stella see the page you're on and take actions in your browser.",
       "action": "Get extension"
     },
-    "migration": {
-      "title": "Import from Hermes or OpenClaw",
-      "action": "Import",
-      "description": "Bring over memory, skills, sessions, and model choices from another local assistant install.",
-      "dialogClose": "Close import"
-    },
     "permissions": {
       "title": "Permissions",
       "enable": "Enable",
@@ -129,16 +123,6 @@
       "voiceAgent": {
         "description": "Starts or stops Stella's live voice agent."
       },
-      "radial": {
-        "label": "Radial dial",
-        "description": "Opens the wedge menu for capture, chat, voice, and quick actions.",
-        "ariaLabel": "Radial dial shortcut"
-      },
-      "mini": {
-        "label": "Mini window",
-        "description": "Double-tap a modifier key to open or dismiss the mini chat.",
-        "ariaLabel": "Mini window shortcut"
-      },
       "targets": {
         "dictation": "dictation",
         "voice": "the voice agent"
@@ -149,20 +133,13 @@
         "updatedDescription": "Press {keys} to start {target}.",
         "clearedDescription": "{action} is disabled until you set a new shortcut.",
         "unavailableTitle": "Shortcut unavailable",
-        "failedTitle": "Shortcut update failed",
-        "radialUpdatedTitle": "Radial dial shortcut updated",
-        "radialUpdatedDescription": "Hold {key} to open the radial dial.",
-        "miniUpdatedTitle": "Mini window shortcut updated",
-        "miniDisabledDescription": "Double-tap is disabled.",
-        "miniUpdatedDescription": "Double-tap {modifier} to open the mini window."
+        "failedTitle": "Shortcut update failed"
       },
       "errors": {
         "load": "Failed to load shortcuts.",
         "unavailable": "Shortcuts are unavailable in this window.",
         "unavailableShortcut": "That shortcut is unavailable.",
-        "update": "Failed to update shortcut.",
-        "radialUpdate": "Failed to update radial dial shortcut.",
-        "miniUpdate": "Failed to update mini window shortcut."
+        "update": "Failed to update shortcut."
       }
     },
     "memory": {
@@ -422,7 +399,7 @@
       "descriptions": {
         "voice": "Pick Stella's speaking style and personality voice.",
         "permissions": "Grant accessibility, screen capture, and microphone access on macOS.",
-        "shortcuts": "Change how Stella opens, listens, and starts the radial dial or voice.",
+        "shortcuts": "Change dictation and voice shortcuts.",
         "memory": "Manage screen memory, update or erase what Stella has remembered.",
         "backup": "Automatic encrypted backups, restore points, and on-demand snapshots.",
         "account": "Sign out, delete your data, or permanently delete your account.",
@@ -470,13 +447,11 @@
     },
     "stepTitles": {
       "shapeshift": "This app can rewrite itself.",
-      "import": "Bring your setup into Stella.",
       "engine": "Pick what powers Stella.",
       "extension": "Add Stella to your browser.",
       "browser": "Let Stella get to know you.",
       "theme": "How should Stella look?",
       "personality": "How should Stella talk?",
-      "summon": "Summon Stella from anywhere.",
       "voice": "Speak instead of type.",
       "memory": "Help Stella remember.",
       "enter": "Stella is almost ready."

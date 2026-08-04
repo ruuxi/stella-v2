@@ -33,12 +33,18 @@ export type ToolContext = {
   toolWorkspaceRoot?: string;
   storageMode?: "cloud" | "local";
   agentId?: string;
-  cloudAgentId?: string;
+  /**
+   * Thread of the agent that spawned this one. Set only for a parent-owned
+   * thread; a root-spawned agent has no agent parent. Drives the ownership
+   * tier that withholds the orchestration tools.
+   */
+  parentAgentId?: string;
   agentDepth?: number;
   maxAgentDepth?: number;
-  /** Effective Orchestrator route inherited by spawn_manager. */
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   allowedToolNames?: string[];
+  /** External adapters acknowledge image delivery after transcript storage. */
+  deferImageDeliveryAck?: boolean;
   connectorDeliveryTarget?: {
     requestId: string;
     conversationId: string;
@@ -51,6 +57,11 @@ export type ToolResult = {
   result?: unknown;
   details?: unknown;
   error?: string;
+  /**
+   * Tool-specific model-facing text budget. The raw result is still returned
+   * and persisted; provider context assembly applies this limit later.
+   */
+  modelOutputTokens?: number;
   /**
    * Normalized record of any filesystem mutations the tool performed.
    *
@@ -134,13 +145,14 @@ export type AgentToolRequest = {
   /**
    * Per-spawn engine selection. Plain model references pin `default` so a
    * saved external-engine preference cannot override the requested model;
-   * `codex` / `claude-code` optionally carry a pinned engine-native model.
+   * `stella` explicitly selects `default`, while `codex` / `claude-code`
+   * optionally carry a pinned engine-native model.
    * Never persisted.
    */
   spawnEngine?: SpawnEngineSelection;
   /** Per-spawn reasoning override parsed from model's `:<effort>` suffix. */
   spawnReasoningEffort?: SpawnReasoningEffort;
-  /** Durable effective route inherited by a Manager from its Orchestrator. */
+  /** Durable effective route inherited by a subagent from its Orchestrator. */
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   toolWorkspaceRoot?: string;
   rootRunId?: string;
@@ -148,7 +160,7 @@ export type AgentToolRequest = {
   maxAgentDepth?: number;
   parentAgentId?: string;
   threadId?: string;
-  storageMode: "cloud" | "local";
+  storageMode: "local";
 };
 
 export type AgentToolSnapshot = {
@@ -191,11 +203,6 @@ export type AgentToolApi = {
     threadId: string,
     reason?: string,
   ) => Promise<{ canceled: boolean }>;
-  /** Cancel every member thread of a `grp-…` work group at once. */
-  cancelGroup?: (
-    groupKey: string,
-    reason?: string,
-  ) => Promise<{ canceled: boolean; canceledThreadIds: string[] }>;
   /** Rebind an existing thread's completion routing to a manager thread. */
   adoptAgent?: (
     threadId: string,
@@ -208,11 +215,10 @@ export type AgentToolApi = {
     options?: {
       description?: string;
       rootRunId?: string;
-      /** Manager thread that adopted and now owns completion routing. */
+      /** Parent agent thread that owns this thread's completion routing. */
       parentAgentId?: string;
       /** Internal child report vs. direct orchestrator status/steering input. */
-      deliveryKind?: "manager-event" | "external-input";
-      /** Current Orchestrator route, used only to heal legacy Manager rows. */
+      deliveryKind?: "child-report" | "external-input";
       modelConfigSnapshot?: AgentModelConfigSnapshot;
     },
   ) => Promise<{ delivered: boolean; reason?: string }>;

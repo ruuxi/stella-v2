@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import http from "node:http";
 import type { Socket } from "node:net";
 
@@ -24,6 +25,24 @@ const MAX_TOOL_RESULT_CHARS = 80_000;
 const MAX_SETTLED_CALL_LEDGER_ENTRIES = 512;
 
 export type ClaudeCodeToolMcpActiveTurn = {
+  /** Stable Stella run identity; survives a Claude process restart. */
+  identityScope?: string;
+  /** Resolve the engine-persisted Anthropic tool_use id for this MCP call. */
+  claimNativeToolUseId?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ) => Promise<string>;
+  /**
+   * Resolves to a truncation when the model's stream ended mid-argument for
+   * this call (safety refusal, output budget), or undefined when the arguments
+   * are whole or unadjudicated. Truncated calls are rejected, never executed.
+   */
+  checkToolUseIntegrity?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ) => Promise<{ stopReason: string; explanation?: string } | undefined>;
   executeTool: (
     toolCallId: string,
     toolName: string,
@@ -41,6 +60,11 @@ export type ClaudeCodeToolMcpActiveTurn = {
     toolName: string;
     result: ToolResult;
   }) => void;
+  /** Called only after the MCP HTTP response has been flushed to the socket. */
+  onToolResponseWritten?: (args: {
+    toolCallId: string;
+    toolName: string;
+  }) => void | Promise<void>;
 };
 
 export type ClaudeCodeToolMcpHost = {
@@ -58,6 +82,11 @@ export type ClaudeCodeToolMcpHost = {
   };
   /** Abort tools owned by a dying Claude process without closing the host. */
   abortActiveCalls: (reason?: unknown) => void;
+  /** Wait until the spawned Claude process has initialized this MCP catalog. */
+  waitForClientReady: (
+    signal?: AbortSignal,
+    timeoutMs?: number,
+  ) => Promise<void>;
   /** Drop MCP transports owned by a dead Claude process generation. */
   resetClientSessions: (reason?: unknown) => Promise<void>;
   close: () => Promise<void>;
@@ -65,6 +94,8 @@ export type ClaudeCodeToolMcpHost = {
 
 export type CreateClaudeCodeToolMcpHostOptions = {
   tools: readonly ToolMetadata[];
+  /** Persisted Stella session identity, not an MCP transport session id. */
+  identityScope?: string;
   /**
    * Resolved for every native MCP call. The host is session-scoped while the
    * execution callback and cancellation boundary are turn-scoped.
@@ -243,7 +274,18 @@ export const createClaudeCodeToolMcpHost = async (
   // response. Retain the original promise for the session so a successful
   // mutation is never executed twice under the same native request ID.
   const callLedger = new Map<string, Promise<CallToolResult>>();
+  const responseDelivery = new AsyncLocalStorage<{
+    acknowledgements: Set<() => void | Promise<void>>;
+    catalogListed: boolean;
+  }>();
   const settledCallLedgerKeys = new Set<string>();
+  const clientReadyWaiters = new Set<() => void>();
+  let catalogListed = false;
+  const announceClientReady = () => {
+    catalogListed = true;
+    for (const resolve of clientReadyWaiters) resolve();
+    clientReadyWaiters.clear();
+  };
   const trimCallLedger = () => {
     if (settledCallLedgerKeys.size <= MAX_SETTLED_CALL_LEDGER_ENTRIES) return;
     for (const key of callLedger.keys()) {
@@ -255,9 +297,11 @@ export const createClaudeCodeToolMcpHost = async (
   };
 
   const configureMcpServer = (mcpServer: Server) => {
-    mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools,
-    }));
+    mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
+      const delivery = responseDelivery.getStore();
+      if (delivery) delivery.catalogListed = true;
+      return { tools };
+    });
     mcpServer.setRequestHandler(
       CallToolRequestSchema,
       async (request, extra) => {
@@ -267,14 +311,81 @@ export const createClaudeCodeToolMcpHost = async (
             `Tool is not available in this Stella session: ${request.params.name}`,
           );
         }
+        const turn = options.getActiveTurn();
+        // A safety refusal or an exhausted output budget cuts the model's
+        // stream mid-argument, and the CLI repairs the partial JSON and
+        // dispatches the call anyway — a half-written `prompt` or `message`
+        // is indistinguishable from a complete one by the time it lands here.
+        // Refuse it loudly so the model resends whole arguments instead of
+        // silently shipping half an instruction to an agent.
+        const truncation = await turn?.checkToolUseIntegrity?.(
+          request.params.name,
+          request.params.arguments ?? {},
+          extra.signal,
+        );
+        if (truncation) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Refusing ${request.params.name}: your stream ended with ` +
+              `stop_reason "${truncation.stopReason}" while these arguments ` +
+              `were still being written, so they are cut off mid-value and ` +
+              `were NOT executed. Reissue the call with complete arguments` +
+              `${truncation.explanation ? ` (${truncation.explanation})` : ""}.`,
+          );
+        }
         const clientSessionId = extra.sessionId ?? "stateless";
-        const toolCallId = `mcp:${clientSessionId}:${String(extra.requestId)}`;
-        const ledgerKey = `${clientSessionId}:${String(extra.requestId)}:${request.params.name}`;
+        const durableScope = crypto
+          .createHash("sha256")
+          .update(turn?.identityScope ?? options.identityScope ?? "unscoped")
+          .digest("hex")
+          .slice(0, 24);
+        const canonicalRequestHash = crypto
+          .createHash("sha256")
+          .update(request.params.name)
+          .update("\0")
+          .update(stableJson(request.params.arguments ?? {}))
+          .digest("hex");
+        const nativeToolUseId =
+          request.params.name === "image_gen"
+            ? await turn?.claimNativeToolUseId?.(
+                request.params.name,
+                request.params.arguments ?? {},
+                extra.signal,
+              )
+            : undefined;
+        if (request.params.name === "image_gen" && !nativeToolUseId) {
+          throw new McpError(
+            ErrorCode.InternalError,
+            "Claude did not expose a durable tool_use identity for image_gen; refusing an unsafe submission.",
+          );
+        }
+        const toolCallId = nativeToolUseId
+          ? `claude:${durableScope}:${nativeToolUseId}:${canonicalRequestHash.slice(0, 24)}`
+          : `mcp:${clientSessionId}:${String(extra.requestId)}`;
+        const ledgerKey =
+          request.params.name === "image_gen"
+            ? `${durableScope}:${nativeToolUseId}:${request.params.name}:${canonicalRequestHash}`
+            : `${clientSessionId}:${String(extra.requestId)}:${request.params.name}`;
+        const registerDeliveryAcknowledgement = () => {
+          if (request.params.name !== "image_gen") return;
+          const acknowledgement = turn?.onToolResponseWritten;
+          const delivery = responseDelivery.getStore();
+          if (!acknowledgement || !delivery) return;
+          delivery.acknowledgements.add(() =>
+            acknowledgement({
+              toolCallId,
+              toolName: request.params.name,
+            }),
+          );
+        };
         const previous = callLedger.get(ledgerKey);
-        if (previous) return await previous;
+        if (previous) {
+          const result = await previous;
+          registerDeliveryAcknowledgement();
+          return result;
+        }
 
         const execution = (async (): Promise<CallToolResult> => {
-          const turn = options.getActiveTurn();
           if (!turn) {
             return {
               content: [
@@ -359,7 +470,9 @@ export const createClaudeCodeToolMcpHost = async (
             trimCallLedger();
           },
         );
-        return await execution;
+        const result = await execution;
+        registerDeliveryAcknowledgement();
+        return result;
       },
     );
   };
@@ -430,7 +543,25 @@ export const createClaudeCodeToolMcpHost = async (
         // the immutable catalog URL without reusing stale transport state.
         state = await createClientSession();
       }
-      await state.transport.handleRequest(request, response);
+      const delivery = {
+        acknowledgements: new Set<() => void | Promise<void>>(),
+        catalogListed: false,
+      };
+      let responseFinished = false;
+      response.once("finish", () => {
+        responseFinished = true;
+        if (delivery.catalogListed) announceClientReady();
+        for (const acknowledge of delivery.acknowledgements) {
+          void Promise.resolve(acknowledge()).catch(() => undefined);
+        }
+        delivery.acknowledgements.clear();
+      });
+      response.once("close", () => {
+        if (!responseFinished) delivery.acknowledgements.clear();
+      });
+      await responseDelivery.run(delivery, () =>
+        state.transport.handleRequest(request, response),
+      );
       if (!state.transport.sessionId) {
         pendingSessions.delete(state);
         await state.server.close().catch(() => undefined);
@@ -456,12 +587,7 @@ export const createClaudeCodeToolMcpHost = async (
     socket.once("close", () => sockets.delete(socket));
   });
 
-  let port: number;
-  try {
-    port = await listen(httpServer);
-  } catch (error) {
-    throw error;
-  }
+  const port = await listen(httpServer);
   const url = `http://${HOST}:${port}${endpointPath}`;
   const abortActiveCalls = (reason?: unknown) => {
     for (const controller of activeCalls) controller.abort(reason);
@@ -473,7 +599,38 @@ export const createClaudeCodeToolMcpHost = async (
     const sessions = [...clientSessions.values(), ...pendingSessions.values()];
     clientSessions.clear();
     pendingSessions.clear();
+    catalogListed = false;
     await Promise.allSettled(sessions.map((state) => state.server.close()));
+  };
+  const waitForClientReady = async (
+    signal?: AbortSignal,
+    timeoutMs = 10_000,
+  ): Promise<void> => {
+    if (catalogListed) return;
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const onReady = () => finish();
+      const onAbort = () =>
+        finish(signal?.reason ?? new Error("Claude MCP startup canceled."));
+      const timer = setTimeout(
+        () => finish(new Error("Claude MCP tool catalog did not initialize.")),
+        timeoutMs,
+      );
+      timer.unref?.();
+      const finish = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        clientReadyWaiters.delete(onReady);
+        if (error) reject(error);
+        else resolve();
+      };
+      clientReadyWaiters.add(onReady);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+      else if (catalogListed) onReady();
+    });
   };
   const close = async () => {
     if (closed) return;
@@ -501,6 +658,7 @@ export const createClaudeCodeToolMcpHost = async (
       headers: { Authorization: bearer },
     },
     abortActiveCalls,
+    waitForClientReady,
     resetClientSessions,
     close,
   };

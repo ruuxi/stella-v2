@@ -1,0 +1,90 @@
+/**
+ * TextShimmer: animated gradient shimmer across the entire string.
+ */
+import { useEffect, useMemo, useRef } from "react";
+import { useContinuousAnimationGate } from "@/shared/hooks/use-continuous-animation-gate";
+import { useExclusiveAnimation } from "@/shared/hooks/use-exclusive-animation";
+import "./text-shimmer.css";
+export const CHAT_ACTIVITY_SHIMMER_GROUP = "chat-activity";
+const SHIMMER_WINDOW_FRACTION = 0.44;
+export function TextShimmer({ text, active = true, className, durationMs, syncPhase = false, exclusiveGroup, exclusivePriority = 0, }) {
+    const rootRef = useRef(null);
+    const sweepRef = useRef(null);
+    const sweepTextRef = useRef(null);
+    const duration = useMemo(() => {
+        if (durationMs !== undefined)
+            return durationMs;
+        const perCharMs = 95;
+        return Math.max(1400, Math.min(4000, text.length * perCharMs));
+    }, [durationMs, text.length]);
+    const animationGateOpen = useContinuousAnimationGate({
+        active,
+        elementRef: rootRef,
+    });
+    const shouldAnimate = useExclusiveAnimation(exclusiveGroup, animationGateOpen, exclusivePriority);
+    useEffect(() => {
+        if (!shouldAnimate || !sweepRef.current || !sweepTextRef.current)
+            return;
+        const sweep = sweepRef.current;
+        const sweepText = sweepTextRef.current;
+        if (typeof sweep.animate !== "function" ||
+            typeof sweepText.animate !== "function") {
+            return;
+        }
+        // The old background-position shimmer crossed the phrase over nearly the
+        // full duration. Keep that deliberate pace while retaining a bounded rest
+        // between compositor-only transform bursts.
+        const sweepDuration = Math.min(2200, Math.max(1400, duration * 0.85));
+        const restDuration = Math.max(3000, duration * 1.5);
+        let stopped = false;
+        let timerId;
+        let animations = [];
+        const runSweep = () => {
+            if (stopped)
+                return;
+            animations = [
+                sweep.animate([
+                    { transform: "translate3d(-100%, 0, 0)" },
+                    {
+                        transform: `translate3d(calc(100% / ${SHIMMER_WINDOW_FRACTION}), 0, 0)`,
+                    },
+                ], { duration: sweepDuration, easing: "ease-in-out" }),
+                sweepText.animate([
+                    {
+                        transform: `translate3d(${SHIMMER_WINDOW_FRACTION * 100}%, 0, 0)`,
+                    },
+                    { transform: "translate3d(-100%, 0, 0)" },
+                ], { duration: sweepDuration, easing: "ease-in-out" }),
+            ];
+            void Promise.all(animations.map((animation) => animation.finished))
+                .catch(() => undefined)
+                .then(() => {
+                if (!stopped)
+                    timerId = window.setTimeout(runSweep, restDuration);
+            });
+        };
+        const initialDelay = syncPhase ? duration - (Date.now() % duration) : 0;
+        if (initialDelay > 0)
+            timerId = window.setTimeout(runSweep, initialDelay);
+        else
+            runSweep();
+        return () => {
+            stopped = true;
+            if (timerId !== undefined)
+                window.clearTimeout(timerId);
+            for (const animation of animations)
+                animation.cancel();
+        };
+    }, [duration, shouldAnimate, syncPhase]);
+    if (!active) {
+        return <span className={className}>{text}</span>;
+    }
+    return (<span ref={rootRef} className={`text-shimmer${shouldAnimate ? " text-shimmer--active" : ""}${className ? ` ${className}` : ""}`}>
+      <span className="text-shimmer__base">{text}</span>
+      {shouldAnimate ? (<span ref={sweepRef} className="text-shimmer__sweep" aria-hidden="true">
+          <span ref={sweepTextRef} className="text-shimmer__sweep-text">
+            {text}
+          </span>
+        </span>) : null}
+    </span>);
+}

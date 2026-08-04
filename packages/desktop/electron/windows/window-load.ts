@@ -12,8 +12,6 @@ const getWindowEntryFile = (windowMode: WindowLoadMode) => {
       return 'overlay.html'
     case 'pet':
       return 'pet.html'
-    case 'mini':
-      return 'mini.html'
     case 'full':
     default:
       return 'index.html'

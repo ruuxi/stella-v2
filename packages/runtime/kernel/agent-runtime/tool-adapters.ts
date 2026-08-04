@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 
-import type { AgentTool } from "../agent-core/types.js";
+import type { AgentMessage, AgentTool } from "../agent-core/types.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { TextContent } from "../../ai/types.js";
 import { DEVICE_TOOL_NAMES } from "../tools/schemas.js";
@@ -147,6 +147,10 @@ const formatToolResult = (
   };
 };
 
+// Final native Pi tool results bypass this legacy cap and are normalized
+// request-only in shared.ts. Keep this bound for live partial updates and
+// external-engine dynamic-tool adapters, which do not use the Pi context
+// transform.
 export const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = 30_000;
 
 export const truncateModelVisibleToolText = (
@@ -275,7 +279,12 @@ const parseAttachImageMatches = (text: string): AttachImageMatch[] => {
   return matches;
 };
 
-type ImageBlock = { type: "image"; mimeType: string; data: string };
+type ImageBlock = {
+  type: "image";
+  mimeType: string;
+  data: string;
+  sourcePath: string;
+};
 
 const base64Length = (binaryBytes: number) => Math.ceil(binaryBytes / 3) * 4;
 
@@ -387,6 +396,7 @@ export const extractAttachImageBlocks = async (
           type: "image",
           mimeType: resized.mimeType,
           data: resized.data,
+          sourcePath: imgPath,
         });
         continue;
       }
@@ -425,6 +435,7 @@ export const extractAttachImageBlocks = async (
         type: "image",
         mimeType,
         data: buf.toString("base64"),
+        sourcePath: imgPath,
       });
     } catch {
       // If the file vanished between CLI exit and our read, leave the marker
@@ -486,10 +497,12 @@ type RuntimeToolContextArgs = {
   stellaAppDir?: string;
   stellaDataDir?: string;
   toolWorkspaceRoot?: string;
+  parentAgentId?: string;
   agentDepth?: number;
   maxAgentDepth?: number;
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   allowedToolNames?: string[];
+  deferImageDeliveryAck?: boolean;
   connectorDeliveryTarget?: {
     requestId: string;
     conversationId: string;
@@ -514,6 +527,7 @@ export const buildRuntimeToolContext = (
     : {}),
   storageMode: "local",
   ...(args.agentId ? { agentId: args.agentId } : {}),
+  ...(args.parentAgentId ? { parentAgentId: args.parentAgentId } : {}),
   ...(typeof args.agentDepth === "number"
     ? { agentDepth: args.agentDepth }
     : {}),
@@ -526,6 +540,7 @@ export const buildRuntimeToolContext = (
   ...(Array.isArray(args.allowedToolNames) && args.allowedToolNames.length > 0
     ? { allowedToolNames: args.allowedToolNames }
     : {}),
+  ...(args.deferImageDeliveryAck ? { deferImageDeliveryAck: true } : {}),
   ...(args.connectorDeliveryTarget
     ? { connectorDeliveryTarget: args.connectorDeliveryTarget }
     : {}),
@@ -619,6 +634,7 @@ export const createPiTools = (opts: {
   stellaAppDir?: string;
   stellaDataDir?: string;
   toolWorkspaceRoot?: string;
+  parentAgentId?: string;
   agentDepth?: number;
   maxAgentDepth?: number;
   modelConfigSnapshot?: AgentModelConfigSnapshot;
@@ -630,6 +646,8 @@ export const createPiTools = (opts: {
   };
   toolsAllowlist?: string[];
   toolCatalog?: ToolMetadata[];
+  /** Durable transcript used to restore tools exposed on earlier turns. */
+  historyMessages?: AgentMessage[];
   store: RuntimeStore;
   toolExecutor: (
     toolName: string,
@@ -703,10 +721,12 @@ export const createPiTools = (opts: {
             })
             .slice(0, clampToolSearchLimit(args.limit));
 
+          const addedToolNames: string[] = [];
           for (const { tool } of matches) {
             if (activeToolNames.has(tool.name)) continue;
             activeToolNames.add(tool.name);
             activeTools.push(registerTool(tool.name));
+            addedToolNames.push(tool.name);
           }
 
           const toolNames = matches.map(({ tool }) => tool.name);
@@ -745,6 +765,7 @@ export const createPiTools = (opts: {
               query,
               exposedTools: toolNames,
             },
+            ...(addedToolNames.length > 0 ? { addedToolNames } : {}),
           };
         }
         const toolResult = await executeRuntimeToolCall({
@@ -760,6 +781,7 @@ export const createPiTools = (opts: {
           stellaAppDir: opts.stellaAppDir,
           stellaDataDir: opts.stellaDataDir,
           toolWorkspaceRoot: opts.toolWorkspaceRoot,
+          parentAgentId: opts.parentAgentId,
           agentDepth: opts.agentDepth,
           maxAgentDepth: opts.maxAgentDepth,
           modelConfigSnapshot: opts.modelConfigSnapshot,
@@ -788,16 +810,15 @@ export const createPiTools = (opts: {
         // the screenshot on the very next turn with no extra Read step.
         const { text: forwardedText, images: legacyImages } =
           await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
-        const truncatedText = truncateModelVisibleToolText(forwardedText);
         const content: Array<TextContent | ImageBlock> = [];
         const screenshotNote =
           legacyImages.length > 0
-            ? "\n\n[Screenshot attached below. If the accessibility tree is sparse or missing the visible control, inspect this image directly and use screenshot x/y coordinates.]"
+            ? "\n\n[Image attached below. Inspect it directly. If it is a UI screenshot and the accessibility tree is sparse or missing a visible control, use screenshot x/y coordinates.]"
             : "";
-        if (truncatedText.text || legacyImages.length === 0) {
+        if (forwardedText || legacyImages.length === 0) {
           content.push({
             type: "text" as const,
-            text: `${truncatedText.text}${screenshotNote}`,
+            text: `${forwardedText}${screenshotNote}`,
           });
         } else if (screenshotNote) {
           content.push({
@@ -809,6 +830,9 @@ export const createPiTools = (opts: {
         return {
           content,
           details: formatted.details,
+          ...(typeof toolResult.modelOutputTokens === "number"
+            ? { modelOutputTokens: toolResult.modelOutputTokens }
+            : {}),
         };
       },
     };
@@ -819,6 +843,30 @@ export const createPiTools = (opts: {
     if (activeToolNames.has(toolName)) continue;
     activeToolNames.add(toolName);
     activeTools.push(registerTool(toolName));
+  }
+
+  const connectorProvider = opts.connectorDeliveryTarget?.provider;
+  const restoreDeferredTool = (toolName: string) => {
+    if (activeToolNames.has(toolName)) return;
+    const metadata = catalog.get(toolName);
+    if (!metadata?.deferred) return;
+    const requiredProvider = metadata.deferred.requiredConnectorProvider;
+    if (requiredProvider && requiredProvider !== connectorProvider) return;
+    activeToolNames.add(toolName);
+    activeTools.push(registerTool(toolName));
+  };
+  for (const message of opts.historyMessages ?? []) {
+    if (message.role === "assistant") {
+      for (const block of message.content) {
+        if (block.type === "toolCall") restoreDeferredTool(block.name);
+      }
+      continue;
+    }
+    if (message.role === "toolResult") {
+      for (const toolName of message.addedToolNames ?? []) {
+        restoreDeferredTool(toolName);
+      }
+    }
   }
 
   return activeTools;

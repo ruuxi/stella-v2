@@ -18,7 +18,42 @@ import {
 
 const DEFAULT_CATALOG_BASE_URL = "https://pi.dev";
 const REMOTE_CATALOG_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1_000;
+// Per provider, measured from the moment that provider's request is dispatched
+// rather than from the start of the batch, so one slow endpoint cannot spend
+// the budget belonging to the providers queued behind it.
 const REMOTE_CATALOG_TIMEOUT_MS = 15_000;
+// Every provider catalog lives on the same origin, so firing all of them at
+// once just queues them in the connection pool while their deadlines run.
+const REMOTE_CATALOG_CONCURRENCY = 6;
+
+/**
+ * A bare AbortError reads as "The operation was aborted." no matter why it
+ * fired, which made a per-provider timeout indistinguishable from a refresh the
+ * caller had torn down. Name the cause instead.
+ */
+class CatalogRefreshCancelledError extends Error {
+  constructor(providerId: string) {
+    super(`Model catalog refresh for ${providerId} was cancelled`);
+    this.name = "CatalogRefreshCancelledError";
+  }
+}
+
+const describeCatalogFetchFailure = (
+  providerId: string,
+  error: unknown,
+  causes: { timeoutMs?: number; cancelled: boolean },
+): Error => {
+  // A lifecycle teardown wins over the deadline: if both fired, the refresh was
+  // going away regardless and reporting a timeout would be misleading.
+  if (causes.cancelled) return new CatalogRefreshCancelledError(providerId);
+  if (causes.timeoutMs !== undefined) {
+    return new Error(
+      `Model catalog request for ${providerId} timed out after ${causes.timeoutMs}ms`,
+    );
+  }
+  return error instanceof Error ? error : new Error(String(error));
+};
+
 
 type StoredCatalogEntry = {
   models: Model<Api>[];
@@ -253,6 +288,7 @@ export class ModelRuntime {
   private compositionFailedProviders = new Set<string>();
   private catalogError?: string;
   private catalogBaseUrl = DEFAULT_CATALOG_BASE_URL;
+  private catalogRequestTimeoutMs = REMOTE_CATALOG_TIMEOUT_MS;
   // Timestamp-derived sequence remains ordered across worker restarts while
   // still allowing multiple registry changes inside one millisecond.
   private revision = Date.now() * 1_000;
@@ -276,11 +312,14 @@ export class ModelRuntime {
     stellaDataDir: string;
     allowNetwork?: boolean;
     catalogBaseUrl?: string;
+    catalogRequestTimeoutMs?: number;
   }): Promise<void> {
     const revisionBeforeInitialization = this.revision;
     this.modelsPath = path.join(options.stellaDataDir, "models.json");
     this.storePath = path.join(options.stellaDataDir, "models-store.json");
     this.catalogBaseUrl = options.catalogBaseUrl ?? DEFAULT_CATALOG_BASE_URL;
+    this.catalogRequestTimeoutMs =
+      options.catalogRequestTimeoutMs ?? REMOTE_CATALOG_TIMEOUT_MS;
     this.readStoredCatalogs();
     await this.reloadConfig();
     await this.refresh({ allowNetwork: options.allowNetwork ?? true });
@@ -490,7 +529,7 @@ export class ModelRuntime {
 
   private async refreshProvider(
     providerId: string,
-    options: { force?: boolean; signal?: AbortSignal },
+    options: { force?: boolean; lifecycleSignal?: AbortSignal },
   ): Promise<void> {
     const stored = this.dynamicCatalogs.get(providerId);
     if (
@@ -500,13 +539,30 @@ export class ModelRuntime {
     ) {
       return;
     }
-    const response = await fetch(
-      new URL(
-        `/api/models/providers/${encodeURIComponent(providerId)}`,
-        this.catalogBaseUrl,
-      ),
-      { headers: { accept: "application/json" }, signal: options.signal },
-    );
+    const timeoutSignal = AbortSignal.timeout(this.catalogRequestTimeoutMs);
+    const signal = options.lifecycleSignal
+      ? AbortSignal.any([options.lifecycleSignal, timeoutSignal])
+      : timeoutSignal;
+    let response: Response;
+    let payload: unknown;
+    try {
+      response = await fetch(
+        new URL(
+          `/api/models/providers/${encodeURIComponent(providerId)}`,
+          this.catalogBaseUrl,
+        ),
+        { headers: { accept: "application/json" }, signal },
+      );
+      // Reading the body can abort too, so it shares the request's deadline.
+      payload = response.ok ? ((await response.json()) as unknown) : undefined;
+    } catch (error) {
+      throw describeCatalogFetchFailure(providerId, error, {
+        timeoutMs: timeoutSignal.aborted
+          ? this.catalogRequestTimeoutMs
+          : undefined,
+        cancelled: options.lifecycleSignal?.aborted === true,
+      });
+    }
     const checkedAt = Date.now();
     if (response.status === 404 || response.status === 501) {
       this.dynamicCatalogs.set(providerId, {
@@ -520,7 +576,6 @@ export class ModelRuntime {
         `Model catalog request failed for ${providerId}: ${response.status}`,
       );
     }
-    const payload = (await response.json()) as unknown;
     const entries = Array.isArray(payload)
       ? payload
       : payload && typeof payload === "object" && "models" in payload
@@ -560,48 +615,26 @@ export class ModelRuntime {
     this.refreshIsForce = options.force === true;
     this.refreshPromise = (async () => {
       if (options.allowNetwork !== false) {
-        const controller = new AbortController();
-        const onAbort = () => controller.abort(options.signal?.reason);
-        options.signal?.addEventListener("abort", onAbort, { once: true });
-        const timeout = setTimeout(
-          () => controller.abort(),
-          REMOTE_CATALOG_TIMEOUT_MS,
+        const providerIds = [...this.builtins.keys()].filter(
+          (providerId) => providerId !== "local",
         );
-        try {
-          const providerIds = [...this.builtins.keys()].filter(
-            (providerId) => providerId !== "local",
-          );
-          const results = await Promise.allSettled(
-            providerIds.map((providerId) =>
-              this.refreshProvider(providerId, {
-                force: options.force,
-                signal: controller.signal,
-              }),
-            ),
-          );
-          const failures = results.flatMap((result, index) =>
-            result.status === "rejected"
-              ? [
-                  `${providerIds[index]}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
-                ]
-              : [],
-          );
-          const successCount = results.length - failures.length;
-          this.catalogError =
-            failures.length > 0
-              ? `Model catalog refresh failed for ${failures.join("; ")}`
-              : undefined;
-          if (successCount === 0 && failures.length > 0) {
-            this.publishCatalogChangeIfNeeded();
-            throw new Error(this.catalogError);
-          }
-          if (successCount > 0) {
-            this.refreshedAt = Date.now();
-            this.writeStoredCatalogs();
-          }
-        } finally {
-          clearTimeout(timeout);
-          options.signal?.removeEventListener("abort", onAbort);
+        const failures = await this.refreshProviders(providerIds, options);
+        // A torn-down refresh is not a catalog failure. Report nothing rather
+        // than one scary line per provider that never got its turn, and leave
+        // the previous error in place as the last thing we actually learned.
+        if (options.signal?.aborted) return;
+        const successCount = providerIds.length - failures.length;
+        this.catalogError =
+          failures.length > 0
+            ? `Model catalog refresh failed for ${failures.join("; ")}`
+            : undefined;
+        if (successCount === 0 && failures.length > 0) {
+          this.publishCatalogChangeIfNeeded();
+          throw new Error(this.catalogError);
+        }
+        if (successCount > 0) {
+          this.refreshedAt = Date.now();
+          this.writeStoredCatalogs();
         }
       }
       this.recompose();

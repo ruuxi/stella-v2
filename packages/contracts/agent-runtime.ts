@@ -1,6 +1,5 @@
 export const AGENT_IDS = {
   ORCHESTRATOR: "orchestrator",
-  MANAGER: "manager",
   SCHEDULE: "schedule",
   FASHION: "fashion",
   GENERAL: "general",
@@ -108,20 +107,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
       triggersDreamScheduler: true,
       triggersMemoryReview: true,
     },
-  },
-  {
-    id: AGENT_IDS.MANAGER,
-    name: "Manager",
-    description:
-      "Coordinates multi-agent work and reports consolidated results to the orchestrator.",
-    activityLabel: "Managing",
-    bundledCore: false,
-    runsAsSubagent: true,
-    includeInAgentRoster: false,
-    usesLocalCliRuntime: true,
-    promptRole: "subagent",
-    localCliWorkingDirectory: null,
-    modelSettings: null,
   },
   {
     id: AGENT_IDS.SCHEDULE,
@@ -301,6 +286,27 @@ export const isOrchestratorReservedBuiltinAgentId = (
   agentId: string,
 ): boolean => ORCHESTRATOR_RESERVED_BUILTIN_AGENT_ID_SET.has(agentId);
 
+/**
+ * Agent types that existed in earlier versions and no longer do, mapped to
+ * what a persisted row of that type should read as now.
+ *
+ * Applied when loading `runtime_agents` rows, so a thread written by an older
+ * install degrades into an ordinary thread rather than an unknown type: it
+ * keeps its history, still appears in Activity (the feed admits only known
+ * types), renders its subagents as a normal parent/child hierarchy, and runs
+ * with a real toolset if the user resumes it. The stored value is left alone —
+ * this is a read-time reinterpretation, not a migration that rewrites rows.
+ */
+const RETIRED_AGENT_TYPE_REPLACEMENTS: Readonly<Record<string, AgentId>> =
+  Object.freeze({
+    // Removed with the Manager agent; its threads were ordinary coordination
+    // threads whose children are plain General subagents.
+    manager: AGENT_IDS.GENERAL,
+  });
+
+export const normalizeRetiredAgentType = (agentType: string): string =>
+  RETIRED_AGENT_TYPE_REPLACEMENTS[agentType] ?? agentType;
+
 export const MODEL_SETTINGS_AGENTS = Object.freeze(
   BUILTIN_AGENT_DEFINITIONS.filter(
     (
@@ -377,8 +383,6 @@ export const AGENT_STREAM_EVENT_TYPES = {
   TOOL_END: "tool-end",
   AGENT_STARTED: "agent-started",
   AGENT_PROGRESS: "agent-progress",
-  /** Non-terminal manager report; not part of task lifecycle persistence. */
-  AGENT_MESSAGE: "agent-message",
   AGENT_COMPLETED: "agent-completed",
   AGENT_FAILED: "agent-failed",
   AGENT_CANCELED: "agent-canceled",

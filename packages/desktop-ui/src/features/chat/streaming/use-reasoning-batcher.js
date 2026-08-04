@@ -1,0 +1,63 @@
+/**
+ * rAF-coalesced reasoning chunks for the local agent stream.
+ *
+ * Inbound `agent-reasoning` events arrive at sub-frame frequency; this
+ * hook accumulates them per thread (`agentId`) and flushes once per
+ * animation frame so the reducer doesn't spin on every keystroke from
+ * the underlying SSE.
+ */
+import { useCallback, useEffect, useRef } from "react";
+import { appendTaskReasoning } from "./task-decoration-store";
+export function useReasoningBatcher() {
+    const pendingReasoningChunksRef = useRef(new Map());
+    const reasoningFrameRef = useRef(null);
+    const flushPendingReasoningChunks = useCallback((onlyAgentId) => {
+        const pending = pendingReasoningChunksRef.current;
+        const entries = onlyAgentId
+            ? pending.has(onlyAgentId)
+                ? [[onlyAgentId, pending.get(onlyAgentId)]]
+                : []
+            : [...pending.entries()];
+        if (entries.length === 0) {
+            return;
+        }
+        for (const [key] of entries) {
+            pending.delete(key);
+        }
+        for (const [, entry] of entries) {
+            appendTaskReasoning(entry);
+        }
+    }, []);
+    const queueAgentReasoningChunk = useCallback((entry) => {
+        const current = pendingReasoningChunksRef.current.get(entry.agentId);
+        pendingReasoningChunksRef.current.set(entry.agentId, {
+            ...entry,
+            chunk: `${current?.chunk ?? ""}${entry.chunk}`,
+        });
+        if (reasoningFrameRef.current !== null) {
+            return;
+        }
+        reasoningFrameRef.current = window.requestAnimationFrame(() => {
+            reasoningFrameRef.current = null;
+            flushPendingReasoningChunks();
+        });
+    }, [flushPendingReasoningChunks]);
+    const discardPendingReasoningChunks = useCallback((agentId) => {
+        pendingReasoningChunksRef.current.delete(agentId);
+    }, []);
+    useEffect(() => {
+        const pendingReasoningChunks = pendingReasoningChunksRef.current;
+        return () => {
+            if (reasoningFrameRef.current !== null) {
+                window.cancelAnimationFrame(reasoningFrameRef.current);
+                reasoningFrameRef.current = null;
+            }
+            pendingReasoningChunks.clear();
+        };
+    }, []);
+    return {
+        queueAgentReasoningChunk,
+        flushPendingReasoningChunks,
+        discardPendingReasoningChunks,
+    };
+}

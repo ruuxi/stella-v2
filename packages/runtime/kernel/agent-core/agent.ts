@@ -10,6 +10,7 @@ import type {
 	Message,
 	Model,
 	SimpleStreamOptions,
+	ServiceTier,
 	TextContent,
 	ThinkingBudgets,
 	Transport,
@@ -116,6 +117,9 @@ export interface AgentOptions {
 	 */
 	transport?: Transport;
 
+	/** Provider request tier, such as ChatGPT/Codex Standard or Fast. */
+	serviceTier?: ServiceTier;
+
 	/**
 	 * Maximum delay in milliseconds to wait for a retry when the server requests a long wait.
 	 * If the server's requested delay exceeds this value, the request fails immediately,
@@ -178,6 +182,7 @@ export class Agent {
 	private resolveRunningPrompt?: () => void;
 	private _thinkingBudgets?: ThinkingBudgets;
 	private _transport: Transport;
+	private _serviceTier?: ServiceTier;
 	private _maxRetryDelayMs?: number;
 	private _toolExecution: ToolExecutionMode;
 	private _toolInactivityTimeoutMs?: number;
@@ -313,6 +318,10 @@ export class Agent {
 
 	setThinkingLevel(l: ThinkingLevel) {
 		this._state.thinkingLevel = l;
+	}
+
+	setServiceTier(serviceTier: ServiceTier | undefined) {
+		this._serviceTier = serviceTier;
 	}
 
 	setSteeringMode(mode: "all" | "one-at-a-time") {
@@ -575,6 +584,7 @@ export class Agent {
 			onPayload: this._onPayload,
 			onProviderRetry: this._onProviderRetry,
 			transport: this._transport,
+			serviceTier: this._serviceTier,
 			thinkingBudgets: this._thinkingBudgets,
 			maxRetryDelayMs: this._maxRetryDelayMs,
 			toolExecution: this._toolExecution,
@@ -693,9 +703,13 @@ export class Agent {
 				timestamp: Date.now(),
 			};
 
-			this.appendMessage(errorMsg);
 			this._state.error = errorMessage;
-			this.emit({ type: "agent_end", messages: [errorMsg] });
+			this._processLoopEvent({
+				type: "message_start",
+				message: { ...errorMsg },
+			});
+			this._processLoopEvent({ type: "message_end", message: errorMsg });
+			this._processLoopEvent({ type: "agent_end", messages: [errorMsg] });
 		} finally {
 			this._state.isStreaming = false;
 			this._state.streamMessage = null;

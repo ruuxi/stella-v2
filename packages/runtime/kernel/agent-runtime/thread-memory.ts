@@ -53,78 +53,6 @@ export const buildRunThreadKey = ({
     threadId,
   });
 
-// Retention budget for tool-result images in model history, newest first.
-// The old policy kept exactly ONE image-bearing message, which made
-// multi-image work impossible: viewing 5 reference images left 4 as
-// "re-run the tool" placeholders on the very next LLM call, and every
-// re-view evicted the previous image. Budgets are accounted per image
-// block (a batched view counts each image), sized so screenshot loops
-// stay cheap while a set of downscaled reference images survives across
-// turns without busting the managed relay's ~20MiB request cap.
-const MAX_IMAGES_IN_HISTORY = 8;
-const IMAGE_HISTORY_BASE64_BUDGET = 12 * 1024 * 1024;
-
-export const stripStaleImageBlocks = <T extends { role: string }>(
-  messages: T[],
-): T[] => {
-  let imagesKept = 0;
-  let imageBytesKept = 0;
-  let rewroteAny = false;
-  const out: T[] = [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role !== "toolResult") {
-      out.push(message);
-      continue;
-    }
-    const toolResult = message as unknown as {
-      content: Array<{ type: string; data?: string; mimeType?: string }>;
-    };
-    const hasImage = toolResult.content.some((block) => block.type === "image");
-    if (!hasImage) {
-      out.push(message);
-      continue;
-    }
-    let rewroteThisMessage = false;
-    // Within a message, newest-last ordering doesn't matter much; account
-    // blocks in reverse so the budget favors the same blocks the loop
-    // direction favors across messages.
-    const compactContent = [...toolResult.content]
-      .reverse()
-      .map((block) => {
-        if (block.type !== "image") {
-          return block;
-        }
-        const base64Bytes = block.data?.length ?? 0;
-        if (
-          imagesKept < MAX_IMAGES_IN_HISTORY &&
-          imageBytesKept + base64Bytes <= IMAGE_HISTORY_BASE64_BUDGET
-        ) {
-          imagesKept += 1;
-          imageBytesKept += base64Bytes;
-          return block;
-        }
-        rewroteThisMessage = true;
-        const sizeKb = Math.round((base64Bytes * 0.75) / 1024);
-        return {
-          type: "text",
-          text: `[Older ${block.mimeType ?? "image/png"} screenshot omitted from history (~${sizeKb}KB). Re-run the tool to see it again.]`,
-        };
-      })
-      .reverse();
-    if (!rewroteThisMessage) {
-      out.push(message);
-      continue;
-    }
-    rewroteAny = true;
-    out.push({
-      ...(message as object),
-      content: compactContent,
-    } as unknown as T);
-  }
-  return rewroteAny ? out.reverse() : messages;
-};
-
 export const buildHistorySource = (
   context: LocalAgentContext,
 ): AgentMessage[] => {
@@ -174,7 +102,7 @@ export const buildHistorySource = (
         return null;
       })
       .filter((entry): entry is AgentMessage => entry !== null) ?? [];
-  return stripStaleImageBlocks(messages);
+  return messages;
 };
 
 const createHistoryAssistantMessage = (
@@ -345,6 +273,33 @@ const hasShellToolGuidance = (context: LocalAgentContext): boolean => {
   return hasToolGuidance(context, ["Bash", "exec_command"]);
 };
 
+/**
+ * Runtime facts about waiting, stated wherever an agent has a shell rather
+ * than left to each agent's prompt body.
+ *
+ * Agents were writing checks the runtime couldn't cash — "I'll report back
+ * when the benchmark lands" — and their threads stopped forever; one left a
+ * GPU pod idle-billing for hours. There are exactly two ways to wait now
+ * and no tool for either: a background `exec_command` session wakes the
+ * thread when it exits, and everything else is polled inside the turn.
+ * Since the covered case is defined by what the tool host can see, the
+ * boundary has to be spelled out too.
+ */
+const buildBackgroundWaitPrompt = (
+  context: LocalAgentContext,
+): string | null => {
+  if (!hasShellToolGuidance(context)) {
+    return null;
+  }
+  return [
+    "Waiting on long work:",
+    "- A command still running when `exec_command` yields keeps running after your turn ends, and the runtime watches it for you. When it exits you are resumed in this thread, with your history, holding its command, exit code, and output. So you may start a long job, end your turn, and genuinely be woken when it finishes — several exits close together arrive as one wake.",
+    "- That covers sessions `exec_command` gave you a `session_id` for. It does NOT cover a process you detach from that session (`nohup … &`, `disown`, a daemon that forks away): the session exits immediately and the thing you actually care about is invisible to the runtime. Run long work in the foreground of its own session and let it hold the session open.",
+    "- For anything else you need to wait on — a file appearing, a remote job flipping to done, an endpoint going healthy — poll inside the current turn. `write_stdin` with empty `chars` blocks on a session until it prints or exits, up to 5 minutes per call; a foreground `sleep N && check` loop works for the rest. There is no tool that wakes you later, so a wait you do not either background as a session or finish in-turn is a wait nobody is keeping.",
+    "- Never claim you'll report back on something outside those two paths. If a wait is genuinely unattended, say so plainly and hand over the exact command to check it.",
+  ].join("\n");
+};
+
 const buildFileEditingPrompt = (context: LocalAgentContext): string | null => {
   const explicitlyHasWriteEdit =
     Array.isArray(context.toolsAllowlist) &&
@@ -388,6 +343,11 @@ export const buildSystemPrompt = (context: LocalAgentContext): string => {
   const platformShellPrompt = getPlatformShellPrompt();
   if (platformShellPrompt && hasShellToolGuidance(context)) {
     sections.push(platformShellPrompt);
+  }
+
+  const backgroundWaitPrompt = buildBackgroundWaitPrompt(context);
+  if (backgroundWaitPrompt) {
+    sections.push(backgroundWaitPrompt);
   }
 
   return sections.filter(Boolean).join("\n\n");

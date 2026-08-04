@@ -477,6 +477,8 @@ const KNOWN_TOOL_RESULT_KEYS_LIST = [
   "toolName",
   "isError",
   "content",
+  "modelOutputTokens",
+  "addedToolNames",
   "timestamp",
 ] as const satisfies readonly (keyof Omit<ToolResultMessage, "details">)[];
 const KNOWN_TOOL_RESULT_KEYS: ReadonlySet<string> = new Set(
@@ -567,6 +569,15 @@ export const parseRuntimeThreadPayload = (
       typeof record.toolName === "string" &&
       typeof record.isError === "boolean" &&
       isToolResultContent(record.content) &&
+      (record.modelOutputTokens === undefined ||
+        (typeof record.modelOutputTokens === "number" &&
+          Number.isFinite(record.modelOutputTokens) &&
+          record.modelOutputTokens > 0)) &&
+      (record.addedToolNames === undefined ||
+        (Array.isArray(record.addedToolNames) &&
+          record.addedToolNames.every(
+            (name) => typeof name === "string" && name.trim().length > 0,
+          ))) &&
       isFiniteTimestamp(record.timestamp)
     ) {
       return {
@@ -576,6 +587,13 @@ export const parseRuntimeThreadPayload = (
         toolName: record.toolName,
         isError: record.isError,
         content: record.content,
+        ...(typeof record.modelOutputTokens === "number"
+          ? { modelOutputTokens: record.modelOutputTokens }
+          : {}),
+        ...(Array.isArray(record.addedToolNames) &&
+          record.addedToolNames.length > 0
+          ? { addedToolNames: record.addedToolNames as string[] }
+          : {}),
         timestamp: record.timestamp,
       } as unknown as PersistedRuntimeThreadPayload;
     }

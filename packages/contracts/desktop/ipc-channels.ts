@@ -79,12 +79,6 @@ export const IPC_REGION_CANCEL = "region:cancel" as const;
 export const IPC_CAPTURE_PAGE_DATA_URL = "capture:pageDataUrl" as const;
 export const IPC_CAPTURE_REGION_FAILED = "capture:regionCaptureFailed" as const;
 
-// ── Radial ──────────────────────────────────────────────────────────────────
-
-export const IPC_RADIAL_SHOW = "radial:show" as const;
-export const IPC_RADIAL_HIDE = "radial:hide" as const;
-export const IPC_RADIAL_ANIM_DONE = "radial:animDone" as const;
-export const IPC_RADIAL_CURSOR = "radial:cursor" as const;
 
 // ── Overlay ─────────────────────────────────────────────────────────────────
 
@@ -240,14 +234,6 @@ export const IPC_PREFERENCES_LIST_CODEX_MODELS =
   "preferences:listCodexModels" as const;
 export const IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS =
   "preferences:listClaudeCodeModels" as const;
-export const IPC_PREFERENCES_GET_RADIAL_TRIGGER =
-  "preferences:getRadialTrigger" as const;
-export const IPC_PREFERENCES_SET_RADIAL_TRIGGER =
-  "preferences:setRadialTrigger" as const;
-export const IPC_PREFERENCES_GET_MINI_DOUBLE_TAP =
-  "preferences:getMiniDoubleTap" as const;
-export const IPC_PREFERENCES_SET_MINI_DOUBLE_TAP =
-  "preferences:setMiniDoubleTap" as const;
 export const IPC_PREFERENCES_GET_PREVENT_SLEEP =
   "preferences:getPreventSleep" as const;
 export const IPC_PREFERENCES_SET_PREVENT_SLEEP =
@@ -315,9 +301,6 @@ export const IPC_ONBOARDING_SYNTHESIZE =
 
 // ── Migration ───────────────────────────────────────────────────────────────
 
-export const IPC_MIGRATION_DETECT_SOURCES = "migration:detectSources" as const;
-export const IPC_MIGRATION_PREVIEW = "migration:preview" as const;
-export const IPC_MIGRATION_RUN = "migration:run" as const;
 
 // ── Discovery ───────────────────────────────────────────────────────────────
 
@@ -460,9 +443,8 @@ export const IPC_PET_MOVE_WINDOW = "pet:moveWindow" as const;
  *  keystrokes (the resting pet window is non-focusable so it never
  *  steals focus from the active app). */
 export const IPC_PET_SET_COMPOSER_ACTIVE = "pet:setComposerActive" as const;
-/** Pet voice button: ask main to enter voice (RTC) mode. Routes
- *  through `uiStateService.activateVoiceRtc` — same path the radial
- *  dial uses — so all the existing voice-overlay plumbing applies. */
+/** Pet voice button: ask main to enter voice (RTC) mode through the shared
+ *  voice-overlay plumbing. */
 export const IPC_PET_REQUEST_VOICE = "pet:requestVoice" as const;
 /** Renderer-driven mouse passthrough toggle. The pet window is small
  *  but most of its rectangle is transparent space around the sprite +
@@ -474,7 +456,3 @@ export const IPC_PET_SET_INTERACTIVE = "pet:setInteractive" as const;
 export const IPC_PET_STATUS = "pet:status" as const;
 export const IPC_PET_OPEN_CHAT = "pet:openChat" as const;
 export const IPC_PET_SEND_MESSAGE = "pet:sendMessage" as const;
-/** Pet click: toggle the mini chat window open/closed. When opening,
- *  main positions the mini just to the left of the pet sprite; the pet
- *  itself stays visible either way. */
-export const IPC_PET_TOGGLE_MINI = "pet:toggleMiniWindow" as const;

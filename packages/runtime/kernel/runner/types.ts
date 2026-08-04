@@ -4,6 +4,7 @@ import type { ImageCapTarget } from "../../ai/utils/image-caps.js";
 import type { AgentMessage } from "../agent-core/types.js";
 import type { OrchestratorSession } from "../agent-runtime/orchestrator-session.js";
 import type { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
+import type { BackgroundExitWake } from "./background-exit-wake.js";
 import type {
   RuntimeAssistantMessageEvent,
   RuntimeEndEvent,
@@ -267,6 +268,12 @@ export type RunnerState = {
   isInitialized: boolean;
   initializationPromise: Promise<void> | null;
   localAgentManager: LocalAgentManager | null;
+  /**
+   * Watches `exec_command` sessions a finished run left running and wakes
+   * the owning thread when they exit. Null until the runner is initialized
+   * (it needs both the tool host and the agent manager).
+   */
+  backgroundExitWake: BackgroundExitWake | null;
   activeOrchestratorRunId: string | null;
   activeOrchestratorConversationId: string | null;
   activeOrchestratorUiVisibility: "visible" | "hidden";
@@ -350,6 +357,8 @@ export type RunnerContext = {
         model?: Pick<Model<Api>, "api" | "provider" | "id" | "name">;
         agentEngine?: import("../tools/file-edit-policy.js").FileEditAgentEngine;
         includeDeferred?: boolean;
+        /** This thread was spawned by another agent; withhold orchestration tools. */
+        parentOwned?: boolean;
       },
     ) => ToolMetadata[];
     executeTool: (

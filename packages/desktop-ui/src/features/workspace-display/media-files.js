@@ -1,0 +1,60 @@
+import { openDisplayPayloadTab } from "./open-payload";
+export const SUPPORTED_MEDIA_MIME_PREFIXES = [
+    "image/",
+    "video/",
+    "audio/",
+];
+export const SUPPORTED_MEDIA_ACCEPT = "image/*,video/*,audio/*";
+export const isSupportedMediaMime = (type) => SUPPORTED_MEDIA_MIME_PREFIXES.some((prefix) => type.startsWith(prefix));
+export const isSupportedMediaFile = (file) => isSupportedMediaMime(file.type);
+export const dataTransferHasSupportedMedia = (event) => {
+    const items = event.dataTransfer?.items;
+    if (!items || items.length === 0)
+        return false;
+    for (const item of Array.from(items)) {
+        if (item.kind !== "file")
+            continue;
+        if (!item.type || isSupportedMediaMime(item.type))
+            return true;
+    }
+    return false;
+};
+export const fileToDataUri = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read file"));
+    reader.readAsDataURL(file);
+});
+const assetForImportedFile = (file, filePath) => {
+    if (file.type.startsWith("image/")) {
+        return { kind: "image", filePaths: [filePath] };
+    }
+    if (file.type.startsWith("video/")) {
+        return { kind: "video", filePath };
+    }
+    if (file.type.startsWith("audio/")) {
+        return { kind: "audio", filePath };
+    }
+    return null;
+};
+export const importLocalMedia = async (file) => {
+    const saveApi = window.electronAPI?.media?.saveOutput;
+    if (!saveApi)
+        throw new Error("Media import is not available");
+    const dataUri = await fileToDataUri(file);
+    const safeBase = file.name.replace(/[^A-Za-z0-9._-]/g, "_") || "import";
+    const result = await saveApi(dataUri, `imported-${Date.now()}-${safeBase}`);
+    if (!result.ok || !result.path) {
+        throw new Error(result.error ?? "Could not save imported file");
+    }
+    const asset = assetForImportedFile(file, result.path);
+    if (!asset)
+        throw new Error("Unsupported file type");
+    const payload = {
+        kind: "media",
+        asset,
+        capability: "imported",
+        createdAt: Date.now(),
+    };
+    openDisplayPayloadTab(payload);
+};

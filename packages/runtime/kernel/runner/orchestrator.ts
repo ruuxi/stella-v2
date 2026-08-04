@@ -322,7 +322,7 @@ export const createOrchestratorController = (
     return payload;
   };
 
-  const persistAndQueueLiveChatMessages = (args: {
+  const persistAndQueueLiveChatMessages = async (args: {
     session: ActiveOrchestratorSession;
     userMessageId: string;
     userPrompt: string;
@@ -330,6 +330,10 @@ export const createOrchestratorController = (
     attachments: StartPreparedRunArgs["attachments"];
     callbacks: AgentCallbacks;
   }) => {
+    const attachments =
+      args.session.engine === "native"
+        ? await prepareRuntimeAttachments(args.attachments)
+        : args.attachments;
     const trimmedUserPrompt = args.userPrompt.trim();
     const promptInputs =
       args.promptMessages && args.promptMessages.length > 0
@@ -359,8 +363,8 @@ export const createOrchestratorController = (
       const message = createRuntimePromptAgentMessage(
         {
           ...promptInput,
-          ...(index === promptInputs.length - 1 && args.attachments.length
-            ? { attachments: args.attachments }
+          ...(index === promptInputs.length - 1 && attachments?.length
+            ? { attachments }
             : {}),
         },
         timestamp + index,
@@ -651,7 +655,7 @@ export const createOrchestratorController = (
 
     const liveSession = getLiveOrchestratorSession(conversationId, agentType);
     if (liveSession) {
-      persistAndQueueLiveChatMessages({
+      await persistAndQueueLiveChatMessages({
         session: liveSession,
         userMessageId: payload.userMessageId,
         userPrompt,

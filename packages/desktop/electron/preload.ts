@@ -5,18 +5,10 @@ import type {
   LocalChatUpdatedPayload,
   ThreadActivityUpdatedPayload,
 } from "@stella/contracts/local-chat";
-import type { RadialTriggerCode } from "@stella/contracts/radial-trigger";
-import type { MiniDoubleTapModifier } from "@stella/contracts/mini-double-tap";
 import type { MorphTimingSettings } from "@stella/contracts/desktop/morph-timing";
 import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
-import type {
-  ThirdPartyMigrationPreview,
-  ThirdPartyMigrationReport,
-  ThirdPartyMigrationSelection,
-  ThirdPartyMigrationSource,
-} from "@stella/contracts/desktop/migration";
 import {
   IPC_BROWSER_FETCH_JSON,
   IPC_BROWSER_FETCH_TEXT,
@@ -28,9 +20,6 @@ import {
   IPC_MEDIA_COPY_IMAGE,
   IPC_MEDIA_GET_DIR,
   IPC_MEDIA_SAVE_OUTPUT,
-  IPC_MIGRATION_DETECT_SOURCES,
-  IPC_MIGRATION_PREVIEW,
-  IPC_MIGRATION_RUN,
   IPC_DISCOVERY_COLLECT_BROWSER_DATA,
   IPC_DISCOVERY_CORE_MEMORY_EXISTS,
   IPC_DISCOVERY_DETECT_PREFERRED_BROWSER,
@@ -90,21 +79,17 @@ import {
   IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS,
   IPC_PREFERENCES_LIST_MODELS,
   IPC_PREFERENCES_MODELS_UPDATED,
-  IPC_PREFERENCES_GET_MINI_DOUBLE_TAP,
   IPC_PREFERENCES_GET_ONBOARDING_COMPLETED,
   IPC_PREFERENCES_GET_PREVENT_SLEEP,
   IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE,
-  IPC_PREFERENCES_GET_RADIAL_TRIGGER,
   IPC_PREFERENCES_GET_READ_ALOUD,
   IPC_PREFERENCES_READ_ALOUD_CHANGED,
   IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS,
   IPC_PREFERENCES_GET_SYNC_MODE,
   IPC_PREFERENCES_SET_MODELS,
-  IPC_PREFERENCES_SET_MINI_DOUBLE_TAP,
   IPC_PREFERENCES_SET_ONBOARDING_COMPLETED,
   IPC_PREFERENCES_SET_PREVENT_SLEEP,
   IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE,
-  IPC_PREFERENCES_SET_RADIAL_TRIGGER,
   IPC_PREFERENCES_SET_READ_ALOUD,
   IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS,
   IPC_PREFERENCES_SET_SYNC_MODE,
@@ -257,10 +242,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     maximize: () => ipcRenderer.send("window:maximize"),
     close: () => ipcRenderer.send("window:close"),
     isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
-    isMiniAlwaysOnTop: () => ipcRenderer.invoke("window:isMiniAlwaysOnTop"),
-    setMiniAlwaysOnTop: (enabled: boolean) =>
-      ipcRenderer.invoke("window:setMiniAlwaysOnTop", enabled),
-    show: (target: "mini" | "full") => ipcRenderer.send("window:show", target),
+    show: (target: "full") => ipcRenderer.send("window:show", target),
     setNativeButtonsVisible: (visible: boolean) =>
       ipcRenderer.send(IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE, visible),
   },
@@ -320,30 +302,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         sourcePath: string;
       }>,
     onUpdate: onIpc<OfficePreviewSnapshot>(IPC_OFFICE_PREVIEW_UPDATE),
-  },
-
-  migration: {
-    detectSources: () =>
-      ipcRenderer.invoke(IPC_MIGRATION_DETECT_SOURCES) as Promise<
-        ThirdPartyMigrationPreview[]
-      >,
-    preview: (payload: {
-      source: ThirdPartyMigrationSource;
-      sourceRoot?: string;
-    }) =>
-      ipcRenderer.invoke(
-        IPC_MIGRATION_PREVIEW,
-        payload,
-      ) as Promise<ThirdPartyMigrationPreview>,
-    run: (payload: {
-      source: ThirdPartyMigrationSource;
-      sourceRoot?: string;
-      selection?: ThirdPartyMigrationSelection;
-    }) =>
-      ipcRenderer.invoke(
-        IPC_MIGRATION_RUN,
-        payload,
-      ) as Promise<ThirdPartyMigrationReport>,
   },
 
   ui: {
@@ -500,28 +458,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         | { cancelled: true }
         | { ok: false; reason: string; message: string }
       >,
-  },
-
-  radial: {
-    onShow: onIpcWithEvent<{
-      centerX: number;
-      centerY: number;
-      x?: number;
-      y?: number;
-      screenX?: number;
-      screenY?: number;
-      compactFocused?: boolean;
-      miniAlwaysOnTop?: boolean;
-    }>("radial:show"),
-    onHide: onIpcSignal("radial:hide"),
-    animDone: () => ipcRenderer.send("radial:animDone"),
-    onCursor: onIpcWithEvent<{
-      x: number;
-      y: number;
-      centerX: number;
-      centerY: number;
-    }>("radial:cursor"),
-    onAddIcon: onIpcWithEvent<{ iconDataUrl: string | null }>("radial:addIcon"),
   },
 
   overlay: {
@@ -1115,24 +1051,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_PREFERENCES_GET_SYNC_MODE) as Promise<string>,
     setLocalSyncMode: (mode: string) =>
       ipcRenderer.invoke(IPC_PREFERENCES_SET_SYNC_MODE, mode),
-    getRadialTriggerKey: () =>
-      ipcRenderer.invoke(
-        IPC_PREFERENCES_GET_RADIAL_TRIGGER,
-      ) as Promise<RadialTriggerCode>,
-    setRadialTriggerKey: (triggerKey: RadialTriggerCode) =>
-      ipcRenderer.invoke(
-        IPC_PREFERENCES_SET_RADIAL_TRIGGER,
-        triggerKey,
-      ) as Promise<{ triggerKey: RadialTriggerCode }>,
-    getMiniDoubleTapModifier: () =>
-      ipcRenderer.invoke(
-        IPC_PREFERENCES_GET_MINI_DOUBLE_TAP,
-      ) as Promise<MiniDoubleTapModifier>,
-    setMiniDoubleTapModifier: (modifier: MiniDoubleTapModifier) =>
-      ipcRenderer.invoke(
-        IPC_PREFERENCES_SET_MINI_DOUBLE_TAP,
-        modifier,
-      ) as Promise<{ modifier: MiniDoubleTapModifier }>,
     getPreventComputerSleep: () =>
       ipcRenderer.invoke(IPC_PREFERENCES_GET_PREVENT_SLEEP) as Promise<boolean>,
     setPreventComputerSleep: (enabled: boolean) =>
@@ -2033,7 +1951,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     openChat: () => ipcRenderer.send("pet:openChat"),
     sendMessage: (text: string) => ipcRenderer.send("pet:sendMessage", text),
     onSendMessage: onIpc<string>("pet:sendMessage"),
-    toggleMiniWindow: () => ipcRenderer.send("pet:toggleMiniWindow"),
   },
 
   nativeIntegrations: {

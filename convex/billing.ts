@@ -42,6 +42,11 @@ import {
   resolveManagedModelAudience,
 } from "./agent/model";
 import { enforceActionRateLimit, RATE_EXPENSIVE } from "./lib/rate_limits";
+import {
+  ANON_DEVICE_USAGE_RETENTION_DAYS,
+  getMaxAnonRequests,
+  getMaxAnonRequestsPerIp,
+} from "./lib/anonymous_usage";
 
 const planValidator = v.union(
   v.literal("free"),
@@ -99,14 +104,26 @@ const subscriptionStatusReturnValidator = v.object({
   subscriptionStatus: v.string(),
   cancelAtPeriodEnd: v.boolean(),
   currentPeriodEnd: v.union(v.number(), v.null()),
-  usage: v.object({
-    rollingUsedUsd: v.number(),
-    rollingLimitUsd: v.number(),
-    weeklyUsedUsd: v.number(),
-    weeklyLimitUsd: v.number(),
-    monthlyUsedUsd: v.number(),
-    monthlyLimitUsd: v.number(),
-  }),
+  usage: v.union(
+    v.object({
+      rollingUsedUsd: v.number(),
+      rollingLimitUsd: v.number(),
+      weeklyUsedUsd: v.number(),
+      weeklyLimitUsd: v.number(),
+      monthlyUsedUsd: v.number(),
+      monthlyLimitUsd: v.number(),
+    }),
+    v.null(),
+  ),
+  usagePolicy: v.union(
+    v.object({
+      kind: v.literal("anonymous_requests"),
+      requestLimit: v.number(),
+      perIpRequestLimit: v.number(),
+      resetAfterInactivityDays: v.number(),
+    }),
+    v.object({ kind: v.literal("managed_cost") }),
+  ),
   plans: v.object({
     free: planConfigShapeValidator,
     go: planConfigShapeValidator,
@@ -2082,21 +2099,20 @@ export const getSubscriptionStatus = query({
       max: planCatalog.max,
     };
 
-    if (!identity) {
+    if (!identity || isAnonymousIdentity(identity)) {
       return {
-        authenticated: false,
+        authenticated: Boolean(identity),
         isAnonymous: true,
         plan: "free" as SubscriptionPlan,
         subscriptionStatus: "none",
         cancelAtPeriodEnd: false,
         currentPeriodEnd: null,
-        usage: {
-          rollingUsedUsd: 0,
-          rollingLimitUsd: planCatalog.free.rollingLimitUsd,
-          weeklyUsedUsd: 0,
-          weeklyLimitUsd: planCatalog.free.weeklyLimitUsd,
-          monthlyUsedUsd: 0,
-          monthlyLimitUsd: planCatalog.free.monthlyLimitUsd,
+        usage: null,
+        usagePolicy: {
+          kind: "anonymous_requests" as const,
+          requestLimit: getMaxAnonRequests(),
+          perIpRequestLimit: getMaxAnonRequestsPerIp(),
+          resetAfterInactivityDays: ANON_DEVICE_USAGE_RETENTION_DAYS,
         },
         plans,
       };
@@ -2174,6 +2190,7 @@ export const getSubscriptionStatus = query({
           ? normalizedProfile.currentPeriodEnd
           : null,
       usage: usageSection,
+      usagePolicy: { kind: "managed_cost" as const },
       plans,
     };
   },

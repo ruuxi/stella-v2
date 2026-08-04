@@ -12,6 +12,10 @@ import {
   isAnonDeviceHashSaltMissingError,
   logMissingSaltOnce,
 } from "../http_shared/anon_device";
+import {
+  getMaxAnonRequests,
+  getMaxAnonRequestsPerIp,
+} from "../lib/anonymous_usage";
 
 export type TokenEstimate = {
   inputTokens: number;
@@ -23,37 +27,14 @@ export type TokenEstimate = {
  * runs a managed-LLM completion that Stella pays for, so this stays
  * enforced server-side.
  *
- * Required env: `STELLA_ANON_MAX_REQUESTS` (positive integer). No
- * default — Stella is open source and the cap lives in the deployment,
- * not the repo. Throws on first read if missing or invalid.
+ * Required env: `STELLA_ANON_MAX_REQUESTS` (positive integer). The shared
+ * policy loader validates it and also exposes it to subscription status.
  *
  * This per-device counter resets whenever a user deletes Stella's local
  * data (a new anonymous identity is minted, so a fresh `deviceId`). It is
  * the per-person trial size, not an abuse backstop — see the per-IP cap
  * below for the durable ceiling.
  */
-let cachedMaxAnonRequests: number | null = null;
-
-const loadMaxAnonRequests = (): number => {
-  if (cachedMaxAnonRequests !== null) return cachedMaxAnonRequests;
-  const raw = process.env.STELLA_ANON_MAX_REQUESTS?.trim();
-  if (!raw) {
-    throw new Error(
-      "[stella-provider] Missing required env STELLA_ANON_MAX_REQUESTS. Set it in Convex env before starting.",
-    );
-  }
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 1 || !Number.isInteger(parsed)) {
-    throw new Error(
-      `[stella-provider] Invalid env STELLA_ANON_MAX_REQUESTS=${raw}; expected a positive integer.`,
-    );
-  }
-  cachedMaxAnonRequests = parsed;
-  return parsed;
-};
-
-export const getMaxAnonRequests = (): number => loadMaxAnonRequests();
-
 /**
  * Per-IP cap on anonymous Stella provider usage. IP is the one identifier
  * that survives a local-data wipe, so this is the durable ceiling that
@@ -68,30 +49,6 @@ export const getMaxAnonRequests = (): number => loadMaxAnonRequests();
  * guarantees the invariant `ipCap >= deviceCap`, so a lone legitimate user
  * never trips the IP wall before exhausting their own device trial.
  */
-const ANON_IP_CAP_DEFAULT_MULTIPLIER = 10;
-
-let cachedMaxAnonRequestsPerIp: number | null = null;
-
-const loadMaxAnonRequestsPerIp = (): number => {
-  if (cachedMaxAnonRequestsPerIp !== null) return cachedMaxAnonRequestsPerIp;
-  const raw = process.env.STELLA_ANON_MAX_REQUESTS_PER_IP?.trim();
-  if (!raw) {
-    cachedMaxAnonRequestsPerIp =
-      loadMaxAnonRequests() * ANON_IP_CAP_DEFAULT_MULTIPLIER;
-    return cachedMaxAnonRequestsPerIp;
-  }
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 1 || !Number.isInteger(parsed)) {
-    throw new Error(
-      `[stella-provider] Invalid env STELLA_ANON_MAX_REQUESTS_PER_IP=${raw}; expected a positive integer.`,
-    );
-  }
-  cachedMaxAnonRequestsPerIp = parsed;
-  return parsed;
-};
-
-export const getMaxAnonRequestsPerIp = (): number => loadMaxAnonRequestsPerIp();
-
 /**
  * Constant `deviceId` for the per-IP counter. Hashing this with the client
  * IP (`hash(salt, "anon-ip|addr:<IP>")`) yields a bucket keyed purely on

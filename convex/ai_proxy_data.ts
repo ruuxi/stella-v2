@@ -7,8 +7,8 @@ import { internalMutation } from './_generated/server'
 import { internal } from './_generated/api'
 import { hashSha256Hex } from './lib/crypto_utils'
 import { clampIntToRange } from './lib/number_utils'
+import { ANON_DEVICE_USAGE_RETENTION_MS } from './lib/anonymous_usage'
 
-const DEVICE_USAGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_CLIENT_ADDRESS_KEY_LENGTH = 128
 const CLIENT_ADDRESS_KEY_PATTERN = /^[0-9a-fA-F:.]+$/
 
@@ -56,7 +56,7 @@ export const purgeStaleDeviceUsage = internalMutation({
   returns: v.object({ deleted: v.number(), hasMore: v.boolean() }),
   handler: async (ctx, args) => {
     const batchSize = clampIntToRange(args.batchSize ?? 500, 1, 1000)
-    const cutoff = Date.now() - DEVICE_USAGE_RETENTION_MS
+    const cutoff = Date.now() - ANON_DEVICE_USAGE_RETENTION_MS
     const stale = await ctx.db
       .query('anon_device_usage')
       .withIndex('by_lastRequestAt', (q) => q.lt('lastRequestAt', cutoff))
@@ -100,7 +100,7 @@ export const consumeDeviceAllowance = internalMutation({
     let firstRequestAt = now
 
     if (existing) {
-      const stale = now - existing.lastRequestAt > DEVICE_USAGE_RETENTION_MS
+      const stale = now - existing.lastRequestAt > ANON_DEVICE_USAGE_RETENTION_MS
       requestCount = stale ? 1 : existing.requestCount + 1
       firstRequestAt = stale ? now : existing.firstRequestAt
       await ctx.db.patch(existing._id, {

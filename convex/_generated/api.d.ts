@@ -104,6 +104,7 @@ import type * as http_shared_request from "../http_shared/request.js";
 import type * as http_shared_sse from "../http_shared/sse.js";
 import type * as http_shared_webhook_controls from "../http_shared/webhook_controls.js";
 import type * as lib_agent_constants from "../lib/agent_constants.js";
+import type * as lib_anonymous_usage from "../lib/anonymous_usage.js";
 import type * as lib_app_review_auth from "../lib/app_review_auth.js";
 import type * as lib_async from "../lib/async.js";
 import type * as lib_billing_date from "../lib/billing_date.js";
@@ -342,6 +343,7 @@ declare const fullApi: ApiFromModules<{
   "http_shared/sse": typeof http_shared_sse;
   "http_shared/webhook_controls": typeof http_shared_webhook_controls;
   "lib/agent_constants": typeof lib_agent_constants;
+  "lib/anonymous_usage": typeof lib_anonymous_usage;
   "lib/app_review_auth": typeof lib_app_review_auth;
   "lib/async": typeof lib_async;
   "lib/billing_date": typeof lib_billing_date;

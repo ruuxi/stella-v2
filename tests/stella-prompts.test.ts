@@ -116,6 +116,12 @@ describe("Stella prompt defaults", () => {
     expect(agentPrompts).toContain("Enrich the WHAT; never invent the HOW");
     expect(agentPrompts).toMatch(/intensity, scope, tone, exact overrides/);
     expect(agentPrompts).toContain("Vite + React");
+
+    const tools = orchestrator!.match(/# Tools\n([\s\S]*?)\n# Skills/)?.[1];
+    expect(tools).toContain("**`exec_command`**");
+    expect(tools).toMatch(/one command, or at most two tightly related commands/);
+    expect(tools).toMatch(/Do not chain commands merely to fit within this limit/);
+    expect(tools).toMatch(/interactive or persistent process.*General agent/s);
   });
 
   it("no longer publishes the retired Manager prompt", () => {

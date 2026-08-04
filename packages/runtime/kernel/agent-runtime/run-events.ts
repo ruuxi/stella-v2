@@ -516,7 +516,10 @@ export const subscribeRuntimeAgentEvents = ({
     if (event.type === "message_end") {
       if (threadStore && threadKey) {
         const payload = toPersistedThreadPayload(event.message);
-        if (payload && payload.role !== "user") {
+        if (
+          payload &&
+          (payload.role !== "user" || agentType !== "orchestrator")
+        ) {
           persistThreadPayloadMessage(threadStore, {
             threadKey,
             payload,

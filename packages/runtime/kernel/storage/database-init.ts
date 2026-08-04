@@ -637,6 +637,8 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       conversation_id TEXT NOT NULL,
       agent_type TEXT NOT NULL,
       description TEXT NOT NULL,
+      prompt TEXT,
+      prompt_created_at INTEGER,
       agent_depth INTEGER NOT NULL,
       max_agent_depth INTEGER,
       parent_agent_id TEXT,
@@ -653,6 +655,16 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   `);
   try {
     db.exec("ALTER TABLE runtime_agents ADD COLUMN root_run_id TEXT;");
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec("ALTER TABLE runtime_agents ADD COLUMN prompt TEXT;");
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec("ALTER TABLE runtime_agents ADD COLUMN prompt_created_at INTEGER;");
   } catch {
     // Column already exists.
   }

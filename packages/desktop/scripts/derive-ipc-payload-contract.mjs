@@ -29,10 +29,13 @@ import ts from "typescript";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(here, "..");
 const PRELOAD = path.join(desktopDir, "electron/preload.ts");
-const CHANNELS = path.join(desktopDir, "src/shared/contracts/ipc-channels.ts");
+const CHANNELS = path.resolve(
+  desktopDir,
+  "../contracts/desktop/ipc-channels.ts",
+);
 const OUTPUT = path.join(
   desktopDir,
-  "electron/services/mobile-bridge/ipc-payload-contract.generated.ts",
+  "electron/services/mobile-bridge/ipc-payload-contract.generated.js",
 );
 
 const parse = (file) =>
@@ -239,7 +242,7 @@ function render(contracts) {
         contract.kind === "object"
           ? `{ kind: "object", fields: [${contract.fields.map((field) => JSON.stringify(field)).join(", ")}] }`
           : `{ kind: "${contract.kind}" }`;
-      return `  ${JSON.stringify(channel)}: ${value},`;
+      return `    ${JSON.stringify(channel)}: ${value},`;
     })
     .join("\n");
 
@@ -252,15 +255,7 @@ function render(contracts) {
 // the \`ipcMain.handle\` handlers destructure. The mobile bridge ships this to
 // the phone so its shim can pack arguments the same way instead of keeping a
 // second, hand-maintained copy of the same knowledge.
-
-export type IpcPayloadContract =
-  | { kind: "none" }
-  | { kind: "passthrough" }
-  | { kind: "object"; fields: readonly string[] };
-
-export const IPC_PAYLOAD_CONTRACT: Readonly<
-  Record<string, IpcPayloadContract>
-> = {
+export const IPC_PAYLOAD_CONTRACT = {
 ${body}
 };
 `;
@@ -273,7 +268,7 @@ if (process.argv.includes("--check")) {
   const current = fs.existsSync(OUTPUT) ? fs.readFileSync(OUTPUT, "utf8") : "";
   if (current !== rendered) {
     console.error(
-      "ipc-payload-contract.generated.ts is stale. Run: node scripts/derive-ipc-payload-contract.mjs",
+      "ipc-payload-contract.generated.js is stale. Run: node scripts/derive-ipc-payload-contract.mjs",
     );
     process.exit(1);
   }

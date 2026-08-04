@@ -1301,6 +1301,19 @@ export type ElectronLocalChatApi = {
   listThreadActivity: (payload: {
     conversationId: string;
   }) => Promise<ThreadActivityRecord[]>;
+  listAgentThreadMessages: (payload: {
+    threadId: string;
+    limit?: number;
+  }) => Promise<
+    Array<{
+      entryId?: string;
+      timestamp: number;
+      role: "user" | "assistant" | "lifecycle";
+      content: string;
+      lifecycleEvent?: EventRecord;
+      source?: string;
+    }>
+  >;
   listFiles: (payload: {
     conversationId: string;
     limit?: number;

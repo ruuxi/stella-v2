@@ -1,14 +1,21 @@
 # DEV-to-local-first port ledger
 
 Historical base: `c90cee24270defe3e3ed8a3031c1ac8b72a90302`  
-DEV audit range: `2026-07-20 00:00:00..2026-08-03 23:59:59` on `/Users/rahulnanda/projects/stella`  
-Audited non-merge commits: **165**  
-Final state: **39 ported, 75 adapted, 51 omitted, 0 pending**.
+DEV audit range: `2026-07-20 00:00:00..2026-08-03 23:59:59` on `/Users/rahulnanda/projects/stella`, plus five requested recovery commits completed after the original inventory
+Audited candidate commits: **170**
+Final state: **39 ported, 80 adapted, 51 omitted, 0 pending**.
 
 Status meanings: **ported** is a direct behavior port; **adapted** preserves intent through v2 seams; **omitted** conflicts with or is obsolete under the requested architecture. No candidates remain pending.
 
+Manager is retired from packaged prompts, metadata, tools, and execution. The only retained Manager identifiers are read-time compatibility aliases: legacy `runtime_agents.agent_type = manager` rows normalize to General without rewriting SQLite, and legacy prompt-manifest entries are accepted for revision integrity but skipped during reconciliation. Legacy transcript/UI labels may still be recognized when reading records created by older builds; they do not expose an active Manager agent or `spawn_manager` tool.
+
 | DEV SHA | Date | Status | Feature | Decision |
 |---|---|---|---|---|
+| `ef9bd4461c23cc59247480d8ac94b5e3094fe1ad` | 2026-08-04 | **adapted** | fix(runtime): recover nested agent transcripts | Persisted initial nested-agent instructions and subagent user messages in local SQLite, recovered historical child instructions/results in the read-only local thread projection, and retained partial Claude Code/Codex assistant text when an external engine terminates. |
+| `430f3131cb3ce1e8648e92054bedfb1feb0c5ff0` | 2026-08-03 | **adapted** | fix(runtime): catch context preflights before retry | Hardened the imperative local recovery wrapper so provider-preflight throws are compacted before retry and a repeated safe overflow or compaction failure returns a durable local handoff without replaying tools. |
+| `d0b8759c1ae8998cd42feaef3394c22d7963dc93` | 2026-08-03 | **adapted** | fix(runtime): recover repeated context preflights | Added the durable SQLite thread token estimate to forced recovery compaction so an already oversized thread cannot be rejected by the ordinary compaction threshold before its single safe retry. |
+| `85dfeae4dd7497e29c1eea93ffd594875084a4af` | 2026-08-03 | **adapted** | fix(runtime): harden context overflow recovery | Translated the Pi-aligned overflow detector, low-overhead request preflight, durable recovery handoff, bounded child reports, and root-only sibling roster into the imperative packaged local runtime; no Effect or cloud execution path was imported. |
+| `88425a4823dd3bedd6ba7540b1a98bbce8df12eb` | 2026-08-03 | **adapted** | fix(runtime): recover agent context overflows | Added forced local SQLite thread compaction and a single safe retry for pre-generation context overflow in long-lived local Orchestrator and General sessions, preserving durable thread state when compaction cannot recover. |
 | `ee165659e3c2f3740b729e858dd89aeaf4bed044` | 2026-08-03 | **adapted** | feat(orchestrator): allow bounded shell commands | Added exec_command to the packaged local orchestrator capability metadata; the existing local shell guard remains authoritative. |
 | `d33217fbd143f92ef1ca4b19831b971caabfaac3` | 2026-08-03 | **adapted** | refactor(agents): split native runtime opt-outs | Implemented in the imperative local runner/tool host with local agent sessions; cloud executor, self-mod, and Effect paths were excluded. |
 | `5228fa593c9982b40e57c9eb35336acca15d4ebe` | 2026-08-03 | **omitted** | fix(ci): link Git against system curl on macOS | Test, CI, or documentation-only churn; no product behavior to port. |

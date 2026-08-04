@@ -534,6 +534,12 @@ export class LocalAgentManager {
             conversationId: task.conversationId,
             agentType: task.agentType,
             description: task.description,
+            ...(task.initialPrompt
+                ? {
+                    prompt: task.initialPrompt,
+                    promptCreatedAt: task.promptCreatedAt,
+                }
+                : {}),
             agentDepth: task.agentDepth,
             ...(typeof task.maxAgentDepth === "number"
                 ? { maxAgentDepth: task.maxAgentDepth }
@@ -741,7 +747,7 @@ export class LocalAgentManager {
         task.pendingStartIsFollowUp = undefined;
     }
     hydrateTaskFromRecord(record, prompt, statusText = prompt) {
-        return {
+        const task = {
             threadId: record.threadId,
             conversationId: record.conversationId,
             description: record.description,
@@ -779,6 +785,11 @@ export class LocalAgentManager {
                 ? Math.max(0, Math.floor(record.attemptGeneration))
                 : 0,
         };
+        if (record.prompt) {
+            task.initialPrompt = record.prompt;
+            task.promptCreatedAt = record.promptCreatedAt;
+        }
+        return task;
     }
     enqueueTask(task, prioritize = false) {
         this.tasks.set(task.threadId, task);
@@ -1379,12 +1390,15 @@ export class LocalAgentManager {
             nameHint: request.description,
         }) ?? null;
         const threadId = resolvedThread?.threadId ?? request.threadId ?? `thread-${++this.nextId}`;
+        const createdAt = Date.now();
         const task = {
             threadId,
             conversationId: request.conversationId,
             rootRunId: request.rootRunId,
             description: request.description,
             prompt: request.prompt,
+            initialPrompt: request.prompt,
+            promptCreatedAt: createdAt,
             agentType: request.agentType,
             ...(request.model ? { model: request.model } : {}),
             ...(request.spawnEngine ? { spawnEngine: request.spawnEngine } : {}),
@@ -1402,7 +1416,7 @@ export class LocalAgentManager {
                 ? Math.max(1, Math.floor(request.maxAgentDepth))
                 : undefined,
             status: "pending",
-            startedAt: Date.now(),
+            startedAt: createdAt,
             completedAt: null,
             controller,
             storageMode: "local",
@@ -1558,7 +1572,7 @@ export class LocalAgentManager {
         if (persisted) {
             return this.buildPersistedSnapshot(persisted);
         }
-        return await this.opts.getCloudAgentRecord(agentId);
+        return null;
     }
     getActiveAgentCount() {
         let count = 0;

@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { finalizeSubagentError, finalizeSubagentInterrupted, finalizeSubagentSuccess, resolveInterruptionReason, } from "./run-completion.js";
 import { executeRuntimeAgentPrompt } from "./run-execution.js";
+import { executeWithContextOverflowRecovery } from "./context-overflow-recovery.js";
 import { buildSubagentSystemPrompt } from "./run-preparation.js";
 import { createRunEventRecorder, } from "./run-events.js";
 import { PiSessionCore } from "./pi-session-core.js";
@@ -203,7 +204,18 @@ export class SubagentSession extends PiSessionCore {
                 conversationId: opts.conversationId,
                 ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
             };
-            let execution = await executeRuntimeAgentPrompt(executionArgs);
+            let execution = await executeWithContextOverflowRecovery({
+                execute: (resume = false) => executeRuntimeAgentPrompt({
+                    ...executionArgs,
+                    ...(resume ? { resume: true } : {}),
+                }),
+                agent,
+                opts,
+                threadKey: this.threadKey,
+                runId,
+                runEvents,
+                session: this,
+            });
             // Safety containment: a fable-5 refusal/safety abort first gets
             // retried on the configured model — refusals are often transient — up
             // to SAFETY_ABORT_FABLE_ATTEMPTS consecutive attempts total. Only when

@@ -29,6 +29,7 @@ import {
   type LocalChatMobileSyncResult,
   type LocalChatSyncMessageWithArtifacts,
 } from "./local-chat-artifacts.js";
+import { listAgentThreadMessages } from "./agent-thread-history.js";
 
 type LocalChatHistoryServiceOptions = {
   stellaAppDir: string;
@@ -289,6 +290,10 @@ export class LocalChatHistoryService {
     conversationId: string;
   }): ThreadActivityRecord[] {
     return this.getStore().listThreadActivity(args.conversationId);
+  }
+
+  listAgentThreadMessages(args = {}) {
+    return listAgentThreadMessages(this.getStore(), args);
   }
 
   listFiles(args: {

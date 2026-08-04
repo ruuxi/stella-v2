@@ -3,7 +3,7 @@
 Historical base: `c90cee24270defe3e3ed8a3031c1ac8b72a90302`  
 DEV audit range: `2026-07-20 00:00:00..2026-08-03 23:59:59` on `/Users/rahulnanda/projects/stella`  
 Audited non-merge commits: **165**  
-Final state: **9 ported, 7 adapted, 33 omitted, 116 pending**.
+Final state: **9 ported, 7 adapted, 34 omitted, 115 pending**.
 
 Status meanings: **ported** is a direct behavior port; **adapted** preserves intent through v2 seams; **omitted** conflicts with or is obsolete under the requested architecture; **pending** remains relevant but was not safely completed in this reconstruction.
 
@@ -118,7 +118,7 @@ Status meanings: **ported** is a direct behavior port; **adapted** preserves int
 | `c4e6cd7ef1cc9511aa3cd9bbfcd68cd5afc2e650` | 2026-07-24 | **pending** | Resolve select-area source in-house instead of through react-grab | Product/runtime candidate remains pending selective translation; it was not merged wholesale. |
 | `fb897156a41b1472d7d1323b6d916a8f8d27f373` | 2026-07-24 | **pending** | Let select-area selections accumulate as multiple chips | Product/runtime candidate remains pending selective translation; it was not merged wholesale. |
 | `333ae8a8a582e9e5e9a53712a1f44639ff2e8288` | 2026-07-24 | **pending** | Make the Media tab a viewer, not a generation studio | Relevant media/runtime work, but the DEV series spans storage, tools, and UI contracts and remains to be adapted without Effect/cloud ownership. |
-| `646d9ffc1be2a7f615bdf1818248b7ebac76f2bb` | 2026-07-24 | **pending** | Base the update card on tracked writes, not on the commit | Product/runtime candidate remains pending selective translation; it was not merged wholesale. |
+| `646d9ffc1be2a7f615bdf1818248b7ebac76f2bb` | 2026-07-24 | **omitted** | Base the update card on tracked writes, not on the commit | The update card is self-mod Apply/HMR UI; that lifecycle is intentionally absent end to end in the packaged local-first line. |
 | `5e80481f0086fa12bff9bf631083ad48fc0e2923` | 2026-07-24 | **pending** | Auto-scroll the whole live tail, above the composer chrome | Product/runtime candidate remains pending selective translation; it was not merged wholesale. |
 | `345eb8a7396d23eb6e33bda573a7e5c0bf60597b` | 2026-07-24 | **pending** | Drop the wake tools; keep exit-wake and in-turn polling | Product/runtime candidate remains pending selective translation; it was not merged wholesale. |
 | `7c4762b5fa8b163e92bc68c521958f298bcb74c1` | 2026-07-24 | **pending** | Wake the agent when its background command finishes | Product/runtime candidate remains pending selective translation; it was not merged wholesale. |

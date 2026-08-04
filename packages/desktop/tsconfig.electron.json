@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowJs": true,
     "outDir": "dist-electron",
     "rootDir": "../..",
     "lib": ["ES2022"],

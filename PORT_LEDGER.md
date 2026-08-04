@@ -3,7 +3,7 @@
 Historical base: `c90cee24270defe3e3ed8a3031c1ac8b72a90302`  
 DEV audit range: `2026-07-20 00:00:00..2026-08-03 23:59:59` on `/Users/rahulnanda/projects/stella`  
 Audited non-merge commits: **165**  
-Final state: **8 ported, 7 adapted, 33 omitted, 117 pending**.
+Final state: **9 ported, 7 adapted, 33 omitted, 116 pending**.
 
 Status meanings: **ported** is a direct behavior port; **adapted** preserves intent through v2 seams; **omitted** conflicts with or is obsolete under the requested architecture; **pending** remains relevant but was not safely completed in this reconstruction.
 
@@ -13,7 +13,7 @@ Status meanings: **ported** is a direct behavior port; **adapted** preserves int
 | `d33217fbd143f92ef1ca4b19831b971caabfaac3` | 2026-08-03 | **pending** | refactor(agents): split native runtime opt-outs | Product/runtime candidate remains pending selective translation; it was not merged wholesale. |
 | `5228fa593c9982b40e57c9eb35336acca15d4ebe` | 2026-08-03 | **omitted** | fix(ci): link Git against system curl on macOS | Test, CI, or documentation-only churn; no product behavior to port. |
 | `edf291c4ffc9b766472af0baec47920a7e727ebd` | 2026-08-03 | **omitted** | fix(ci): verify Git source on macOS | Test, CI, or documentation-only churn; no product behavior to port. |
-| `40e8a36e2e548ca0843db2707369a29fee0703df` | 2026-08-03 | **pending** | fix(browser): launch native daemon directly | Relevant integration behavior not covered by the selected focused ports; requires packaged bridge verification. |
+| `40e8a36e2e548ca0843db2707369a29fee0703df` | 2026-08-03 | **ported** | fix(browser): launch native daemon directly | Ported direct native-daemon launch with staged-binary activation and executable permission repair. |
 | `236b52fe49ccb2a0930103e9e7751920a3faa5f3` | 2026-08-03 | **omitted** | test(agents): align subscription harness snapshot | Test, CI, or documentation-only churn; no product behavior to port. |
 | `e69837e2eb355265a0effe09c1baf51054260eee` | 2026-08-03 | **omitted** | feat(agents): use Stella harness by default | Cloud/harness-owned agent routing is excluded; orchestrator and General remain local. |
 | `c78acb7f2bd89fa5d4526519f7d89fa5c277a513` | 2026-08-03 | **adapted** | Add on-demand local dictation download | Added on-demand local model download UI/IPC while relying on the packaged native helper instead of DEV update-owned helper refresh. |

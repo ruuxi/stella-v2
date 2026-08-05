@@ -52,7 +52,10 @@ const writeProject = async (
   return projectPath;
 };
 
-const fakeBun = async (workspace: string) => {
+const fakeBun = async (
+  workspace: string,
+  { announceUrl = true }: { announceUrl?: boolean } = {},
+) => {
   const filePath = path.join(workspace, "fake-bun.mjs");
   await writeFile(
     filePath,
@@ -69,10 +72,9 @@ if (process.argv[2] === 'install') {
 }
 const portIndex = process.argv.indexOf('--port')
 const port = process.argv[portIndex + 1]
-setTimeout(() => {
-  console.log('  Local:   http://127.0.0.1:' + port + '/')
-}, 250)
-setInterval(() => {}, 1000)
+${announceUrl ? "setTimeout(() => console.log('  Local:   http://127.0.0.1:' + port + '/'), 250)" : ""}
+const { createServer } = await import('node:net')
+createServer(() => {}).listen(Number(port), '127.0.0.1')
 `,
   );
   await chmod(filePath, 0o755);
@@ -308,6 +310,24 @@ describe("UserAppProjectService", () => {
       readFile(path.join(projectPath, ".install-called"), "utf8"),
     ).rejects.toMatchObject({ code: "ENOENT" });
     await service.stopProject("vanilla-app");
+    await service.shutdown();
+  });
+
+  it("detects readiness from the loopback server without parsing Vite output", async () => {
+    const workspace = await makeWorkspace();
+    await writeProject(workspace, "silent-app");
+    const executablePath = await fakeBun(workspace, { announceUrl: false });
+    const service = new UserAppProjectService({
+      workspacePath: workspace,
+      executablePath,
+    });
+    await service.start();
+    await expect(service.startProject("silent-app")).resolves.toMatchObject({
+      slug: "silent-app",
+      status: "running",
+      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/$/),
+    });
+    await service.stopProject("silent-app");
     await service.shutdown();
   });
 

@@ -222,6 +222,7 @@ jobs:
             --publish never \
             --config.forceCodeSigning=true \
             --config.mac.identity="$signing_identity" \
+            --config.mac.notarize=false \
             --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
 
       # Windows is deliberately unsigned for M4. Users will see SmartScreen

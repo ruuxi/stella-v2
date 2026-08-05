@@ -7,19 +7,15 @@
 import { useEffect } from "react";
 import { openEngineDisplayTab } from "@/features/workspace-display/default-tabs";
 import { WorkspaceSections } from "@/shell/workspace/WorkspaceSections";
-import { SidebarModelsControl } from "./SidebarModelsControl";
 import "./home-search.css";
-export function ActivityOverview({ onNavigate, showModels = true, } = {}) {
+export function ActivityOverview({ onNavigate, } = {}) {
     return (<div className="sidebar-search">
       <div className="sidebar-search__body">
         <WorkspaceSections variant="overview" searchMode="quick" onNavigate={onNavigate}/>
       </div>
-      {showModels ? (<div className="sidebar-home-footer">
-          <SidebarModelsControl />
-        </div>) : null}
     </div>);
 }
-export function HomeSection({ showModels = true } = {}) {
+export function HomeSection() {
     useEffect(() => {
         const handleOpenModelPicker = () => openEngineDisplayTab();
         window.addEventListener("stella:open-model-picker", handleOpenModelPicker);
@@ -27,5 +23,5 @@ export function HomeSection({ showModels = true } = {}) {
             window.removeEventListener("stella:open-model-picker", handleOpenModelPicker);
         };
     }, []);
-    return <ActivityOverview showModels={showModels}/>;
+    return <ActivityOverview />;
 }

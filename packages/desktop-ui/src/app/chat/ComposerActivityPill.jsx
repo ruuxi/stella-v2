@@ -148,7 +148,7 @@ function PillGlyph({ state }) {
 function ActivityTray({ onNavigate }) {
     return (<div className="composer-activity-tray">
       <Suspense fallback={null}>
-        <ActivityOverview onNavigate={onNavigate} showModels={false}/>
+        <ActivityOverview onNavigate={onNavigate}/>
       </Suspense>
     </div>);
 }

@@ -1,6 +1,60 @@
 /* Unified Work list — agent threads and files interleaved by recency. The
    surface remains the drop target for local media imports. */
 
+.work-section,
+.work-section__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.work-section__footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  padding: 10px 12px 12px;
+}
+
+.pill-btn.work-models-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+}
+
+.pill-btn.work-models-button[data-active] {
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+  color: var(--text-strong);
+}
+
+.work-models-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 10px 12px 0;
+}
+
+.work-models-panel .agent-model-picker {
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+}
+
+.work-models-panel__loading {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-weak);
+  font-size: var(--font-size-base);
+}
+
 .files-list {
   position: relative;
   display: flex;

@@ -4,7 +4,6 @@ import { normalizeDisplayPayload } from "@stella/contracts/desktop/display-paylo
 import { DISPLAY_MAIN_CONTENT_MIN_WIDTH, DISPLAY_PANEL_MIN_WIDTH, displayTabs, useDisplayPanelExpanded, useDisplayPanelOpen, } from "@/features/workspace-display/tab-store";
 import { payloadToTabSpec } from "./display/payload-to-tab-spec";
 import { SidebarSectionBody } from "@/shell/sidebar-sections/SidebarSectionBody";
-import { SidebarModelsControl } from "@/shell/sidebar-sections/SidebarModelsControl";
 import "./right-sidebar.css";
 import "./right-sidebar-panel.css";
 import "./shell-junction.css";
@@ -323,9 +322,6 @@ export const RightSidebar = forwardRef(function RightSidebar({ portalTarget }, r
             <SidebarSectionBody />
           </div>
         </div>
-        {panelOpen ? (<div className="right-sidebar-models-footer">
-          <SidebarModelsControl />
-        </div>) : null}
       </div>
     </aside>, resolvedPortalTarget);
 });

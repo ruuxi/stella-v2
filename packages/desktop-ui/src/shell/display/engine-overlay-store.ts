@@ -1,7 +1,7 @@
 /**
- * Tiny singleton store for the sidebar Models popover. Callers like
- * `openEngineDisplayTab()` and `stella:open-model-picker` flip this on
- * so the footer Models button opens its popover programmatically.
+ * Tiny singleton store for Work's inline Models panel. Callers like
+ * `openEngineDisplayTab()` and `stella:open-model-picker` flip this on so the
+ * Work body is replaced without creating a popover or affecting other tabs.
  */
 import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";

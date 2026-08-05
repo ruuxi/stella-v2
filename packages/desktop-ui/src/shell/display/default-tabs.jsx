@@ -70,10 +70,11 @@ export function openTrashDisplayTab() {
     });
 }
 /**
- * Open the Models popover anchored to the Home section's footer button.
+ * Open the right sidebar on Work and replace its body with Models.
  */
 export function openEngineDisplayTab() {
-    sidebarSections.openLocation("home", null);
+    sidebarSections.setActiveSection("files");
+    displayTabs.setPanelOpen(true);
     engineOverlay.setOpen(true);
 }
 registerWorkspaceDefaultTabs({

@@ -84,15 +84,6 @@ body[data-display-expanding="true"]
   overflow: hidden;
 }
 
-/* Reserve a real footer row for Models so Work/App/Settings content ends
-   above it instead of scrolling underneath a floating overlay. */
-.right-sidebar-models-footer {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: flex-end;
-  padding: 10px 12px 12px;
-}
-
 .right-sidebar-panel__body .right-sidebar__active {
   flex: 1 1 auto;
   min-height: 0;

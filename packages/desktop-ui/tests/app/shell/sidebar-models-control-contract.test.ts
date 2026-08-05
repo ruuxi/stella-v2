@@ -12,19 +12,28 @@ const readSource = (relativePath: string) =>
   fs.readFileSync(path.join(SOURCE_ROOT, relativePath), "utf8");
 
 describe("sidebar Models control placement", () => {
-  it("keeps one picker on the visible bottom-right surface", () => {
+  it("keeps Models inside Work and swaps that section instead of using a popover", () => {
     const panel = readSource("shell/RightSidebar.jsx");
     const home = readSource("shell/WorkspaceHomeSurface.jsx");
-    const styles = readSource("shell/right-sidebar-panel.css");
+    const work = readSource("shell/sidebar-sections/FilesSection.jsx");
+    const control = readSource(
+      "shell/sidebar-sections/SidebarModelsControl.jsx",
+    );
+    const styles = readSource("shell/sidebar-sections/files-section.css");
 
-    expect(panel).toContain('className="right-sidebar-models-footer"');
-    expect(panel).toContain("{panelOpen ? (");
-    expect(panel).toContain("<SidebarModelsControl />");
+    expect(panel).not.toContain("SidebarModelsControl");
+    expect(panel).not.toContain("right-sidebar-models-footer");
+    expect(home).toContain("<HomeSection />");
+    expect(home).not.toContain("showModels");
 
-    expect(home).toContain("<HomeSection showModels={!surfaceHidden}/>");
+    expect(work).toContain('className="work-section__footer"');
+    expect(work).toContain("<SidebarModelsControl />");
+    expect(work).toContain("modelsOpen ?");
+    expect(work).toContain("<AgentModelPicker active={modelsActive}/>");
 
-    expect(styles).toContain(".right-sidebar-models-footer {");
-    expect(styles).toContain("flex: 0 0 auto;");
-    expect(styles).not.toContain(".right-sidebar-models-island");
+    expect(control).not.toContain("ModelsPicker");
+    expect(control).toContain("onClick={engineOverlay.toggle}");
+    expect(styles).toContain(".work-section__footer {");
+    expect(styles).toContain(".work-models-panel {");
   });
 });

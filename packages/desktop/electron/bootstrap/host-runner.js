@@ -1,3 +1,4 @@
+import { app } from "electron";
 import { getOrCreateDeviceIdentity, resetDeviceIdentity as resetStoredDeviceIdentity, signDeviceHeartbeat, } from "@stella/runtime/kernel/home/device";
 import { getSoundNotificationsEnabled } from "@stella/runtime/kernel/preferences/local-preferences";
 import { deleteConnectorAccessTokens, loadConnectorTokenPayload, saveConnectorTokenPayload, } from "@stella/runtime/kernel/connectors/oauth";

@@ -1,6 +1,33 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { ipcMain } from "electron";
 import { waitForConnectedRunner } from "./runtime-availability.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
+const listInstalledThemes = async (stellaDataDir) => {
+    const themesDir = path.join(stellaDataDir, "themes");
+    try {
+        const files = await fs.readdir(themesDir);
+        const themes = [];
+        for (const file of files) {
+            if (!file.endsWith(".json"))
+                continue;
+            try {
+                const raw = await fs.readFile(path.join(themesDir, file), "utf-8");
+                const theme = JSON.parse(raw);
+                if (theme.id && theme.name && theme.light && theme.dark) {
+                    themes.push(theme);
+                }
+            }
+            catch {
+                // Skip invalid theme files.
+            }
+        }
+        return themes;
+    }
+    catch {
+        return [];
+    }
+};
 export const registerStoreHandlers = (options) => {
     const waitForRunner = (timeoutMs = 10_000) => waitForConnectedRunner(options.getStellaHostRunner, {
         timeoutMs,
@@ -40,6 +67,10 @@ export const registerStoreHandlers = (options) => {
             type: "showToast",
             payload,
         });
+    });
+    ipcMain.handle("theme:listInstalled", async () => {
+        const stellaDataDir = options.getStellaDataDir();
+        return stellaDataDir ? await listInstalledThemes(stellaDataDir) : [];
     });
     ipcMain.handle("store:listPackages", async (event) => await withStoreRunner(event, "store:listPackages", async (runner) => (await runner.listStorePackages())));
     ipcMain.handle("store:getPackage", async (event, payload) => await withStoreRunner(event, "store:getPackage", async (runner) => (await runner.getStorePackage(payload.packageId))));

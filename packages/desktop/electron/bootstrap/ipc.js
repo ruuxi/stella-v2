@@ -358,10 +358,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerUpdatesHandlers({
-        getStellaAppDir: lifecycle.getStellaAppDir,
-        getStellaDataDir: lifecycle.getStellaDataDir,
-        getStellaHostRunner: lifecycle.getRunner,
-        onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
+        getAllWindows: () => getAllWindows(context),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     const togglePetVoiceImpl = () => togglePetVoice({

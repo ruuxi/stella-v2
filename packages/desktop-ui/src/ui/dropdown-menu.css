@@ -189,6 +189,10 @@
   color: color-mix(in srgb, var(--text-strong, var(--foreground)) 25%, var(--destructive) 75%);
 }
 
+.shell-settings-menu {
+  min-width: 212px;
+}
+
 @keyframes dropdown-menu-open {
   from {
     opacity: 0;

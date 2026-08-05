@@ -5,8 +5,8 @@ import { secureSignOut } from "@/global/auth/services/auth";
 import { ThemePicker } from "@/global/settings/ThemePicker";
 import { usePostOnboardingHint } from "@/global/onboarding/post-onboarding-hints";
 import { useFeedbackPrompt } from "@/shell/sidebar/use-feedback-prompt";
-import { ArrowLeft, ChevronRight, CreditCard, MessageSquare, Palette, Settings, } from "@/ui/icons";
-import { CustomDevice as Device } from "@/ui/nav-icons";
+import { getVisibleSettingsDestinations, isSettingsLocation, SETTINGS_DESTINATIONS, } from "./settings-navigation";
+import { ArrowLeft, ChevronRight } from "@/ui/icons";
 import "./settings-section.css";
 const SettingsScreen = lazy(() => import("@/global/settings/SettingsView").then((module) => ({
     default: module.SettingsScreen,
@@ -20,48 +20,6 @@ const FeedbackPanel = lazy(() => import("@/shell/sidebar/FeedbackDialog").then((
 const BillingPanel = lazy(() => import("@/global/billing/BillingScreen").then((module) => ({
     default: module.BillingPanel,
 })));
-const SETTINGS_LOCATIONS = [
-    "settings",
-    "theme",
-    "connect",
-    "billing",
-    "feedback",
-];
-const isSettingsLocation = (value) => value !== null &&
-    SETTINGS_LOCATIONS.includes(value);
-const SETTINGS_HOME_ITEMS = [
-    {
-        id: "settings",
-        label: "Settings",
-        description: "General, shortcuts, memory, account, and audio",
-        Icon: Settings,
-    },
-    {
-        id: "theme",
-        label: "Theme",
-        description: "Appearance, gradients, and colors",
-        Icon: Palette,
-    },
-    {
-        id: "connect",
-        label: "Connect",
-        description: "Phone access and integrations",
-        Icon: Device,
-    },
-    {
-        id: "billing",
-        label: "Plan & billing",
-        description: "Upgrade or manage your Stella plan",
-        Icon: CreditCard,
-        signedInOnly: true,
-    },
-    {
-        id: "feedback",
-        label: "Send feedback",
-        description: "Tell us what is working and what could be better",
-        Icon: MessageSquare,
-    },
-];
 export function SettingsSection() {
     const active = useActiveSidebarSection() === "settings";
     const location = useSidebarSections().locations.settings;
@@ -100,8 +58,8 @@ export function SettingsSection() {
         (hasConnectedAccount || location !== "billing")
         ? location
         : null;
-    const visibleHomeItems = SETTINGS_HOME_ITEMS.filter((item) => !item.signedInOnly || hasConnectedAccount);
-    const detailTitle = SETTINGS_HOME_ITEMS.find((item) => item.id === resolvedLocation)?.label;
+    const visibleHomeItems = getVisibleSettingsDestinations(hasConnectedAccount);
+    const detailTitle = SETTINGS_DESTINATIONS.find((item) => item.id === resolvedLocation)?.label;
     return (<div className="settings-section-view">
       {resolvedLocation === null ? (<div className="settings-section-home">
           <div className="settings-section-home__title">Settings</div>

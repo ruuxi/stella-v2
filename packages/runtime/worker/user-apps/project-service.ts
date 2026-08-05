@@ -169,6 +169,29 @@ export class UserAppProjectService {
     this.appsRoot = path.join(path.resolve(options.workspacePath), "apps");
   }
 
+  /**
+   * User apps are hosted by child Vite processes owned by this worker. Keep the
+   * worker alive while one is starting, running, stopping, or awaiting a
+   * scheduled restart; otherwise detached-worker idle shutdown tears down a
+   * healthy app moments after the start RPC returns.
+   */
+  hasActiveWork(): boolean {
+    for (const entry of this.entries.values()) {
+      if (
+        entry.startPromise ||
+        entry.stopPromise ||
+        entry.restartTimer ||
+        entry.status === "installing" ||
+        entry.status === "starting" ||
+        entry.status === "stopping" ||
+        (entry.status === "running" && entry.desiredRunning)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async start(): Promise<void> {
     await fs.mkdir(this.appsRoot, { recursive: true, mode: 0o700 });
     await this.loadPortMap();

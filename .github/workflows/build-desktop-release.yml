@@ -218,7 +218,7 @@ jobs:
           set -euo pipefail
           signing_identity="${APPLE_SIGNING_IDENTITY#Developer ID Application: }"
           test -n "$signing_identity"
-          bunx electron-builder ${{ matrix.builderArgs }} \
+          node node_modules/electron-builder/out/cli/cli.js ${{ matrix.builderArgs }} \
             --publish never \
             --config.forceCodeSigning=true \
             --config.mac.identity="$signing_identity" \
@@ -234,7 +234,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bunx electron-builder ${{ matrix.builderArgs }} \
+          node node_modules/electron-builder/out/cli/cli.js ${{ matrix.builderArgs }} \
             --publish never \
             --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
 

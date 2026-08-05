@@ -8,6 +8,7 @@ import {
   measureConversationTabOverflow,
   resolveHistoryDeleteActivation,
   resolveConversationTabShortcut,
+  shouldRenderNewChatLabel,
   shouldRenderConversationHomeLauncher,
 } from "@/shell/topbar/ConversationTopBar";
 
@@ -43,6 +44,13 @@ describe("conversation top-bar contracts", () => {
       tabs,
       "second",
     );
+
+  it("labels New chat only until multiple tabs are open", () => {
+    expect(shouldRenderNewChatLabel(0)).toBe(true);
+    expect(shouldRenderNewChatLabel(1)).toBe(true);
+    expect(shouldRenderNewChatLabel(2)).toBe(false);
+    expect(shouldRenderNewChatLabel(12)).toBe(false);
+  });
 
   it("maps the OpenCode tab shortcuts and wraps cycling", () => {
     expect(shortcut("t", { metaKey: true })).toEqual({ type: "new" });
@@ -153,6 +161,13 @@ describe("conversation top-bar contracts", () => {
     );
     expect(source).toContain("onClick={dispatchShowHome}");
     expect(source).not.toContain("conversation-topbar__home-label");
+    expect(source).toContain(
+      '<span className="conversation-topbar__new-label">New chat</span>',
+    );
+    expect(source).toContain(
+      'data-compact={!showNewChatLabel ? "true" : undefined}',
+    );
+    expect(source).toContain('aria-label="New chat"');
     expect(source).toMatch(
       /<House[\s\S]*?size=\{16\}[\s\S]*?strokeWidth=\{1\.85\}/,
     );
@@ -193,7 +208,19 @@ describe("conversation top-bar contracts", () => {
       /\.conversation-topbar__history,[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;/,
     );
     expect(css).toMatch(
-      /\.conversation-topbar__history,[\s\S]*?\.conversation-topbar__home,[\s\S]*?\.conversation-topbar__plus\s*\{[^}]*color:\s*var\(--text-muted\)/,
+      /\.conversation-topbar__plus\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*76px;[^}]*height:\s*28px;/,
+    );
+    expect(css).toMatch(
+      /\.conversation-topbar__plus\[data-compact="true"\]\s*\{[^}]*width:\s*28px;[^}]*min-width:\s*28px;/,
+    );
+    expect(css).toMatch(
+      /\.conversation-topbar__new-label\s*\{[^}]*white-space:\s*nowrap;/,
+    );
+    expect(css).toMatch(
+      /\.conversation-topbar__history,[\s\S]*?\.conversation-topbar__home\s*\{[^}]*color:\s*var\(--text-muted\)/,
+    );
+    expect(css).toMatch(
+      /\.conversation-topbar__plus\s*\{[^}]*color:\s*var\(--text-muted\)/,
     );
     expect(css).toMatch(
       /\.conversation-topbar__viewport::before,[\s\S]*?width:\s*24px;/,
@@ -244,5 +271,28 @@ describe("conversation top-bar contracts", () => {
     expect(root.match(/<ChatRuntimeProvider/g)).toHaveLength(1);
     expect(root.match(/<ChatColumn/g)).toHaveLength(1);
   });
-});
+  it("keeps the top bar as the only New Chat entry point", () => {
+    const topBar = fs.readFileSync(
+      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
+      "utf8",
+    );
+    const fullChat = fs.readFileSync(
+      path.join(SOURCE_ROOT, "shell/use-full-shell-chat.js"),
+      "utf8",
+    );
+    const localChatStore = fs.readFileSync(
+      path.join(SOURCE_ROOT, "features/chat/services/local-chat-store.js"),
+      "utf8",
+    );
 
+    expect(topBar).toContain("await createNewLocalConversationId()");
+    expect(fullChat).not.toContain("createNewLocalConversationId");
+    expect(fullChat).not.toContain("startNewChat");
+    expect(fullChat).not.toContain("onNewChat");
+    expect(topBar).not.toContain("createNewDefaultConversationId");
+    expect(fullChat).not.toContain("createNewDefaultConversationId");
+    expect(localChatStore).toContain(
+      "getLocalChatApi().createNewDefaultConversationId()",
+    );
+  });
+});

@@ -243,6 +243,7 @@ describe("UserAppProjectService", () => {
       executablePath,
     });
     await service.start();
+    expect(service.hasActiveWork()).toBe(false);
     const [first, second] = await Promise.all([
       service.startProject("running-app"),
       service.startProject("running-app"),
@@ -252,6 +253,7 @@ describe("UserAppProjectService", () => {
       slug: "running-app",
       status: "running",
     });
+    expect(service.hasActiveWork()).toBe(true);
     expect(first.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
     const portMap = JSON.parse(
       await readFile(
@@ -272,6 +274,7 @@ describe("UserAppProjectService", () => {
       slug: "running-app",
       status: "stopped",
     });
+    expect(service.hasActiveWork()).toBe(false);
     await expect(service.list()).resolves.toEqual({
       apps: [
         expect.objectContaining({ slug: "running-app", status: "stopped" }),

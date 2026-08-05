@@ -593,13 +593,15 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     const voicePinned =
       (state.voiceService?.isBusy() ?? false) ||
       (state.voiceService?.getPendingRequestCount() ?? 0) > 0;
+    const userAppPinned = state.userAppProjectService?.hasActiveWork() ?? false;
     const requestPinned = (peer.activeRequestHandlerCount?.() ?? 0) > 0;
     return Boolean(
       state.runner?.getActiveOrchestratorRun() ||
       (state.runner?.getActiveAgentCount() ?? 0) > 0 ||
       requestPinned ||
       socialPinned ||
-      voicePinned,
+      voicePinned ||
+      userAppPinned,
     );
   };
 

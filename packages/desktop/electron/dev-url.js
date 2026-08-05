@@ -9,11 +9,20 @@ export function getDevServerUrl() {
     if (cachedDevUrl) {
         return cachedDevUrl;
     }
+    const configuredUrl = process.env.STELLA_DEV_SERVER_URL?.trim();
+    if (configuredUrl) {
+        cachedDevUrl = configuredUrl;
+        return configuredUrl;
+    }
     const candidates = [
         process.env.STELLA_APP_DIR
             ? path.join(process.env.STELLA_APP_DIR, 'desktop', '.vite-dev-url')
             : null,
+        process.env.STELLA_APP_DIR
+            ? path.join(process.env.STELLA_APP_DIR, 'packages', 'desktop-ui', '.vite-dev-url')
+            : null,
         path.resolve(__dirname, '../../../../desktop/.vite-dev-url'),
+        path.resolve(__dirname, '../../../desktop-ui/.vite-dev-url'),
         path.resolve(__dirname, '../.vite-dev-url'),
         path.resolve(process.cwd(), 'desktop', '.vite-dev-url'),
         path.resolve(process.cwd(), '.vite-dev-url'),

@@ -1,7 +1,7 @@
 const SCRIPT = `#Requires -Version 5
 $ErrorActionPreference = 'Stop'
 
-$url = 'https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable/Stella.exe'
+$url = 'https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella.exe'
 $dest = Join-Path $env:TEMP 'Stella.exe'
 
 Write-Host 'Downloading Stella for Windows...'

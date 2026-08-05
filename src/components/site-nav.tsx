@@ -22,7 +22,6 @@ const NAV_ENTRIES: NavEntry[] = [
     label: "Product",
     items: [
       { label: "Learn More", href: "/learn-more" },
-      { label: "Memory", href: "/memory" },
       { label: "Storage", href: "/storage" },
       { label: "Agents", href: "/agents" },
       { label: "Voice", href: "/voice" },

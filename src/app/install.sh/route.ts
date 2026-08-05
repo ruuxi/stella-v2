@@ -15,7 +15,7 @@ case "$(uname -m)" in
     ;;
 esac
 
-url="https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable/Stella-darwin-\${suffix}.dmg"
+url="https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella-darwin-\${suffix}.dmg"
 dmg="$(mktemp -d -t Stella)/Stella.dmg"
 
 echo "Downloading Stella for macOS (\${suffix})..."

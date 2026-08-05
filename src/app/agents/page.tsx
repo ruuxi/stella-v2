@@ -56,13 +56,13 @@ export default function AgentsPage() {
             <div className={styles.copy}>
               <span className={styles.eyebrow}>
                 <MessageCircle size={14} strokeWidth={1.9} aria-hidden="true" />
-                One conversation
+                One assistant
               </span>
               <h2>You only ever talk to Stella.</h2>
               <p>
-                No juggling a dozen bots. There&apos;s one chat, one assistant.
+                No juggling a dozen bots. Each chat has one assistant.
                 Everything you ask goes to Stella, and she figures out who
-                should do what — you just see her replies.
+                should do what — you see the work and its progress inline.
               </p>
             </div>
 

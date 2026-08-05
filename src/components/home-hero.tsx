@@ -17,12 +17,12 @@ export function HomeHero() {
       <section className={styles.inner}>
         <div className={styles.content}>
           <h1 id="hero-title" className={styles.title}>
-            Stella, the app that <span className={styles.accent}>changes.</span>
+            Stella, your <span className={styles.accent}>personal assistant.</span>
           </h1>
 
           <p className={styles.intro}>
-            Your system, your computer, your rules. Everything can change to fit
-            the way you work, and everything stays private.
+            Give Stella a task and keep moving. It can work with your computer,
+            browser, files, and apps while your work stays local.
           </p>
 
           <div className={styles.cta}>

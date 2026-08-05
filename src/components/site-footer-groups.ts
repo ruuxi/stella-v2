@@ -18,7 +18,7 @@ export const chromeExtensionLink: FooterLink = {
 export const openSourceFooterItems: FooterLink[] = [
   {
     label: "GitHub",
-    href: "https://github.com/ruuxi/stella",
+    href: "https://github.com/ruuxi/stella-v2",
     external: true,
   },
   {
@@ -36,11 +36,6 @@ export const openSourceFooterItems: FooterLink[] = [
     href: "https://github.com/ruuxi/stella-website",
     external: true,
   },
-  {
-    label: "Launcher Repo",
-    href: "https://github.com/ruuxi/stella-launcher",
-    external: true,
-  },
 ];
 
 export const homeFooterGroups: FooterGroup[] = [
@@ -48,7 +43,6 @@ export const homeFooterGroups: FooterGroup[] = [
     title: "Product",
     items: [
       { label: "Learn More", href: "/learn-more" },
-      { label: "Memory", href: "/memory" },
       { label: "Storage", href: "/storage" },
       { label: "Agents", href: "/agents" },
       { label: "Voice", href: "/voice" },

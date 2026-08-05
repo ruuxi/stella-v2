@@ -81,7 +81,7 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "Stella — the app that changes. Your personal AI assistant, on your computer.",
+        alt: "Stella — your personal AI assistant, on your computer.",
       },
     ],
   },
@@ -129,7 +129,7 @@ const jsonLd = {
       name: "Stella",
       url: siteUrl.origin,
       logo: new URL("/stella-logo.svg", siteUrl).href,
-      sameAs: ["https://x.com/stella", "https://github.com/ruuxi/stella"],
+      sameAs: ["https://x.com/stella", "https://github.com/ruuxi/stella-v2"],
     },
     {
       "@type": "SoftwareApplication",

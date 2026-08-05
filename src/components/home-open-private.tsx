@@ -69,7 +69,7 @@ export function HomeOpenPrivate() {
           className={styles.githubLink}
           data-reveal-child
           style={{ ["--reveal-index" as string]: 3 }}
-          href="https://github.com/ruuxi/stella"
+          href="https://github.com/ruuxi/stella-v2"
           target="_blank"
           rel="noopener noreferrer"
         >

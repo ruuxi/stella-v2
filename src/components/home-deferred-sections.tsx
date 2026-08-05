@@ -2,9 +2,6 @@
 
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
-const HomeMakeYours = lazy(() =>
-  import("./home-make-yours").then((module) => ({ default: module.HomeMakeYours })),
-);
 const HomeSingleChat = lazy(() =>
   import("./home-single-chat").then((module) => ({ default: module.HomeSingleChat })),
 );
@@ -52,7 +49,6 @@ function DeferredSection({ children }: { children: React.ReactNode }) {
 export function HomeDeferredSections() {
   return (
     <>
-      <DeferredSection><HomeMakeYours /></DeferredSection>
       <DeferredSection><HomeSingleChat /></DeferredSection>
       <DeferredSection><HomeComputerUse /></DeferredSection>
       <DeferredSection><HomePhoneConnectors /></DeferredSection>

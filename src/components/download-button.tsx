@@ -32,11 +32,11 @@ function WindowsIcon({ size = 18 }: { size?: number }) {
 
 const DOWNLOADS = {
   macArm64:
-    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable/Stella-darwin-arm64.dmg",
+    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella-darwin-arm64.dmg",
   macX64:
-    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable/Stella-darwin-x64.dmg",
+    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella-darwin-x64.dmg",
   windows:
-    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable/Stella.exe",
+    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella.exe",
 } as const;
 
 type Platform = "macArm64" | "macX64" | "windows";

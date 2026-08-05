@@ -145,22 +145,19 @@ export default function LearnMore() {
                 Stella, <span className="learn-hero__accent">in detail</span>.
               </h1>
               <p>
-                A private, open-source desktop app that gives you one ongoing
-                chat for your computer. Ask once, keep talking, and Stella
-                figures out which agent, app, file, browser, model, or tool
-                should handle the work.
+                A private, open-source personal assistant for your computer.
+                Ask Stella to work with an app, file, browser, model, or tool,
+                then keep moving while the work runs.
               </p>
               <p>
-                The unusual part is not just that Stella can use your computer.
-                It is that the desktop app itself can change. Stella can learn
-                your preferences, adjust the interface, add workflows, and turn
-                the app into something closer to your own operating space.
+                Chats keep different projects focused, while background agents
+                can handle independent work and report progress inline.
               </p>
               <div className="learn-hero__actions">
                 <DownloadButton />
                 <a
                   className="button button--ghost"
-                  href="https://github.com/ruuxi/stella"
+                  href="https://github.com/ruuxi/stella-v2"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -187,27 +184,25 @@ export default function LearnMore() {
                 reminders, dictation, realtime voice, and connected apps.
               </p>
               <p>
-                Those capabilities are table stakes now. Stella&apos;s bigger
-                bet is that all of this belongs in one personal desktop app, one
-                chat, and one interface that can keep adapting.
+                Those capabilities belong in one personal desktop app, with
+                focused chats and a consistent interface instead of a maze of
+                separate tools and modes.
               </p>
             </div>
           </section>
 
           <section id="one-chat" className="learn-section section-border">
-            <SectionHeader eyebrow="One chat" title="You keep talking in the same place">
+            <SectionHeader eyebrow="Chats" title="Keep every project in its place">
               <p>
-                Most agent products make you choose a mode, start a new thread,
-                pick a specialist, then remember where everything went. Stella
-                keeps the top-level experience continuous.
+                Open a chat for a project, switch instantly when your focus
+                changes, and return without losing your place.
               </p>
             </SectionHeader>
             <div className="learn-prose">
               <p>
-                Behind the scenes, Stella can split work into smaller jobs, run
-                specialized agents, keep track of active threads, and bring the
-                result back into the conversation. The point is simple: you
-                should not have to become a project manager for your assistant.
+                Stella can split work into smaller jobs, run specialized agents,
+                and bring their progress back into the chat. You stay in control
+                without becoming the project manager for your assistant.
               </p>
             </div>
           </section>
@@ -299,47 +294,23 @@ export default function LearnMore() {
           </section>
 
           <section id="technical" className="learn-section section-border">
-            <SectionHeader eyebrow="Technical notes" title="The launcher starts a local runtime">
+            <SectionHeader eyebrow="Technical notes" title="A packaged, local-first desktop app">
               <p>
-                The installed launcher handles setup, updates, recovery, and
-                startup. The desktop app itself is a local repo-style runtime.
+                Stella installs like a normal desktop app and keeps its runtime,
+                conversations, settings, and project state on your computer.
               </p>
             </SectionHeader>
             <div className="learn-prose">
               <p>
-                The launcher downloads the current desktop release archive and
-                native helpers, writes the local environment file, creates a
-                launch script, installs dependencies as needed, initializes the
-                local Git state, and launches the desktop with{" "}
-                <code>bun run electron:dev</code>.
+                Signed macOS packages and Windows installers include the runtime
+                and native helpers they need. Stella updates from its isolated
+                desktop release channel without rebuilding itself on your
+                machine.
               </p>
               <p>
-                That is intentional. Stella is open source, inspectable, and
-                changeable. The app can update itself, but you can also inspect
-                the repo, keep your local changes, and recover from bad
-                self-changes.
-              </p>
-            </div>
-
-            <h3 className="learn-subheading">How self-change works</h3>
-            <div className="learn-prose">
-              <p>
-                When you ask Stella to change the app, an agent edits the local
-                desktop code. Stella tracks the files involved, coordinates live
-                updates, then applies visible renderer changes through Vite HMR
-                when possible.
-              </p>
-              <p>
-                If a change affects routes, shell structure, config,
-                dependencies, native helpers, or deeper runtime code, Stella may
-                need a reload or relaunch. The morph overlay covers visible
-                refreshes so the change feels intentional instead of like a
-                broken page reload.
-              </p>
-              <p>
-                If a self-change breaks startup, the launcher can show a
-                recovery view and, when the latest commit is an agent-authored
-                self-change, offer an undo path.
+                The application is open source and inspectable. Projects Stella
+                creates are ordinary local web apps under its workspace, kept
+                separate from the packaged application itself.
               </p>
             </div>
           </section>
@@ -364,8 +335,7 @@ export default function LearnMore() {
           <section className="learn-cta">
             <h2>Stella is your desktop app.</h2>
             <p>
-              Private, open source, one continuous chat, and flexible enough to
-              reshape itself around how you work.
+              Private, open source, and ready to work across your computer.
             </p>
             <Link className="button button--primary" href="/">
               Get Stella

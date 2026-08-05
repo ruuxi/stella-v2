@@ -48,22 +48,17 @@ function header(title: string, route: string, ...taglines: string[]): string {
 /* ------------------------------------------------------------------ */
 
 const HOME_MD = `${header(
-  "Stella — the app that changes",
+  "Stella — your personal assistant",
   "/",
-  "Your system, your computer, your rules. Everything can change to fit the way you work, and everything stays private.",
+  "Give Stella a task and keep moving. It can work with your computer, browser, files, and apps while your work stays local.",
 )}
-Stella is your personal AI assistant that lives on your computer. One ongoing
-chat handles your computer, files, browser, apps, and media — and the desktop
-app itself can reshape to fit how you work.
+Stella is your personal AI assistant that lives on your computer. It can work
+with your files, browser, apps, and media, and it keeps separate projects in
+focused chats you can return to at any time.
 
-## Make Stella yours
-Ask Stella to become whatever you want and the interface follows: "make it
-cozy", "give me a terminal", "anime sunset vibes", "sports mode", "keep it
-minimal". The app is yours to shape.
-
-## One chat for everything
-No more juggling threads. Fire off a plan, a file, a message, and a background
-task at once — they all flow into the same conversation and come back together.
+## One assistant, separate chats
+Keep related work together, open a new chat when the context changes, and let
+background tasks keep running while you move on.
 
 ## Stella can drive your computer
 Keep working in one window while Stella moves through another — clicking,
@@ -88,13 +83,12 @@ keys, and models.
 Agents & harnesses: Claude Code, Codex, Cursor, OpenClaw, Hermes Agent.
 Models & providers: OpenAI, Anthropic, Google, xAI, DeepSeek, Moonshot AI.
 
-Source: https://github.com/ruuxi/stella
+Source: https://github.com/ruuxi/stella-v2
 
 ## Explore
 - Learn More: ${abs("/learn-more.md")}
 - Agents: ${abs("/agents.md")}
 - Voice: ${abs("/voice.md")}
-- Memory: ${abs("/memory.md")}
 - Storage: ${abs("/storage.md")}
 - Pricing: ${abs("/pricing.md")}
 - What's New: ${abs("/learn-more/whats-new.md")}
@@ -110,9 +104,9 @@ const AGENTS_MD = `${header(
   "You talk to one assistant. Behind the scenes she hands work to a team of helpers that run in the background.",
 )}
 ## You only ever talk to Stella
-No juggling a dozen bots. There's one chat, one assistant. Everything you ask
-goes to Stella, and she figures out who should do what — you just see her
-replies.
+No juggling a dozen bots. Each chat has one assistant. Everything you ask goes
+to Stella, and she figures out who should do what — you see the work and its
+progress inline.
 
 ## She hands the work to helpers
 Instead of doing everything herself, Stella spins up little helpers for each job
@@ -169,40 +163,6 @@ and steps back the moment you say "bye."
 ## Have a real conversation
 Talk back and forth like a phone call. Stella hears you in real time, answers
 out loud, and can even take a look at your screen when you ask her to.
-`;
-
-/* ------------------------------------------------------------------ */
-/*  Memory — /memory.md                                                */
-/* ------------------------------------------------------------------ */
-
-const MEMORY_MD = `${header(
-  "Memory — Stella remembers, the way a good friend would",
-  "/memory",
-  "It holds on to the things that matter, sets the rest aside, and brings something up only when it actually helps.",
-)}
-## A few things it never forgets
-The essentials — who you are and how you like to work — stay pinned. Every
-conversation starts already knowing the basics, so you never have to
-reintroduce yourself.
-
-## It jots things down now, and tidies up later
-While you work, Stella quietly drops little notes into a pile. On its own time it
-goes back through them and folds everything into a clean, lasting memory — the
-way you make sense of a busy day after sleeping on it.
-
-## It can keep light notes on what's in front of you
-This one is off by default. If you turn it on, Stella keeps a short, rolling
-note of what you've been looking at — so "that thing from earlier" isn't a
-mystery. It stays on your computer, and you can switch it off any time.
-
-## It speaks up only when a memory helps
-Stella doesn't pour everything it knows into every reply. When you say "that" or
-"yesterday," it quietly looks up the one thing that fits and works it into the
-answer.
-
-## It's just plain files on your computer
-No cloud memory, no mystery database, nothing kept on our servers. Your memory
-is a folder of text you can open, read, and delete whenever you want.
 `;
 
 /* ------------------------------------------------------------------ */
@@ -280,16 +240,12 @@ const LEARN_MORE_MD = `${header(
   "Learn More — Stella, in detail",
   "/learn-more",
 )}
-A private, open-source desktop app that gives you one ongoing chat for your
-computer. Ask once, keep talking, and Stella figures out which agent, app, file,
-browser, model, or tool should handle the work.
+A private, open-source personal assistant for your computer. Ask Stella to work
+with an app, file, browser, model, or tool, then keep moving while the work
+runs. Chats keep different projects focused, while background agents can handle
+independent work and report progress inline.
 
-The unusual part is not just that Stella can use your computer. It is that the
-desktop app itself can change. Stella can learn your preferences, adjust the
-interface, add workflows, and turn the app into something closer to your own
-operating space.
-
-Source: https://github.com/ruuxi/stella
+Source: https://github.com/ruuxi/stella-v2
 
 ## A desktop app, not just a chat box
 Stella lives with your files, apps, browser, and local state, so it can help
@@ -297,17 +253,14 @@ with the real work on your machine instead of only answering questions in a web
 tab. You can use Stella for research, writing, spreadsheets, PDFs, Word
 documents, browser tasks, computer control, image generation, video and 3D
 workflows, media prompts, scheduling, reminders, dictation, realtime voice, and
-connected apps. Those capabilities are table stakes now — Stella's bigger bet is
-that all of this belongs in one personal desktop app, one chat, and one
-interface that can keep adapting.
+connected apps. Those capabilities belong in one personal desktop app, with
+focused chats and a consistent interface instead of a maze of separate tools
+and modes.
 
-## You keep talking in the same place
-Most agent products make you choose a mode, start a new thread, pick a
-specialist, then remember where everything went. Stella keeps the top-level
-experience continuous. Behind the scenes, Stella can split work into smaller
-jobs, run specialized agents, keep track of active threads, and bring the result
-back into the conversation. You should not have to become a project manager for
-your assistant.
+## Keep every project in its place
+Open a chat for a project, switch instantly when your focus changes, and return
+without losing your place. Stella can split work into smaller jobs, run
+specialized agents, and bring their progress back into the chat.
 
 ## What Stella can do
 - **Use your computer** — Inspect the screen, click, type, open apps, navigate windows, and work with what is actually in front of you.
@@ -365,27 +318,12 @@ You can also add your own provider credentials, use local runtimes, and use
 Claude Code directly as the assistant engine. In those paths, Stella is acting
 as the desktop app and runtime you control, not as the model vendor.
 
-## The launcher starts a local runtime
-The installed launcher handles setup, updates, recovery, and startup. The
-desktop app itself is a local repo-style runtime. The launcher downloads the
-current desktop release archive and native helpers, writes the local
-environment file, creates a launch script, installs dependencies as needed,
-initializes the local Git state, and launches the desktop with
-\`bun run electron:dev\`.
-
-That is intentional. Stella is open source, inspectable, and changeable. The app
-can update itself, but you can also inspect the repo, keep your local changes,
-and recover from bad self-changes.
-
-### How self-change works
-When you ask Stella to change the app, an agent edits the local desktop code.
-Stella tracks the files involved, coordinates live updates, then applies visible
-renderer changes through Vite HMR when possible. If a change affects routes,
-shell structure, config, dependencies, native helpers, or deeper runtime code,
-Stella may need a reload or relaunch. The morph overlay covers visible refreshes
-so the change feels intentional instead of like a broken page reload. If a
-self-change breaks startup, the launcher can show a recovery view and, when the
-latest commit is an agent-authored self-change, offer an undo path.
+## A packaged, local-first desktop app
+Stella installs like a normal desktop app and keeps its runtime, conversations,
+settings, and project state on your computer. Signed macOS packages and Windows
+installers include the runtime and native helpers they need. Projects Stella
+creates are ordinary local web apps under its workspace, kept separate from the
+packaged application itself.
 
 ## A running changelog
 Stella ships small, frequent releases. The full log, grouped by release with
@@ -468,7 +406,7 @@ export const AGENT_PAGES: AgentPage[] = [
     route: "/learn-more",
     mdPath: "/learn-more.md",
     label: "Learn More",
-    description: "Stella in detail: capabilities, access, privacy, models, and self-change.",
+    description: "Stella in detail: capabilities, access, privacy, models, and packaging.",
     markdown: LEARN_MORE_MD,
   },
   {
@@ -491,13 +429,6 @@ export const AGENT_PAGES: AgentPage[] = [
     label: "Voice",
     description: "Dictation, wake word, and live voice conversation.",
     markdown: VOICE_MD,
-  },
-  {
-    route: "/memory",
-    mdPath: "/memory.md",
-    label: "Memory",
-    description: "How Stella remembers — local, plain-file memory.",
-    markdown: MEMORY_MD,
   },
   {
     route: "/storage",
@@ -534,9 +465,9 @@ export function renderLlmsTxt(): string {
   const lines = [
     "# Stella",
     "",
-    "> Stella is a private, open-source desktop AI assistant. One ongoing chat",
-    "> drives your computer, files, browser, apps, and media — and the desktop app",
-    "> itself can reshape to fit how you work. Everything stays on your machine by",
+    "> Stella is a private, open-source desktop AI assistant. Focused chats",
+    "> organize work across your computer, files, browser, apps, and media.",
+    "> Everything stays on your machine by",
     "> default. Each page below has a clean markdown version for agents.",
     "",
     "## Pages",
@@ -544,6 +475,6 @@ export function renderLlmsTxt(): string {
   for (const page of AGENT_PAGES) {
     lines.push(`- [${page.label}](${abs(page.mdPath)}): ${page.description}`);
   }
-  lines.push("", "## Source", "- [GitHub](https://github.com/ruuxi/stella)");
+  lines.push("", "## Source", "- [GitHub](https://github.com/ruuxi/stella-v2)");
   return `${lines.join("\n")}\n`;
 }

@@ -23,7 +23,7 @@ type Exchange = {
   reply: string;
 };
 
-// Each request chip fires its own exchange into the one chat.
+// Each request chip shows the range of work handled by one assistant.
 const EXCHANGES: Exchange[] = [
   {
     icon: CalendarCheck,
@@ -135,7 +135,7 @@ export function HomeSingleChat() {
         data-reveal-child
         style={{ ["--reveal-index" as string]: 0 }}
       >
-        <h2>One chat for everything.</h2>
+        <h2>One assistant. Separate chats.</h2>
       </div>
 
       <div className="home-atlas-scene home-atlas-scene--reverse">
@@ -146,12 +146,11 @@ export function HomeSingleChat() {
         >
           <span className="home-atlas-kicker">
             <MessageCircle size={15} strokeWidth={1.9} aria-hidden="true" />
-            One chat
+            Your workspace
           </span>
           <p>
-            No more juggling threads. Fire off a plan, a file, a message, and a
-            background task at once — they all flow into the same conversation
-            and come back together.
+            Keep related work together, open a new chat when the context
+            changes, and let background tasks keep running while you move on.
           </p>
         </div>
 

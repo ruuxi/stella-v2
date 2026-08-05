@@ -10,9 +10,11 @@
   <img src="https://img.shields.io/badge/status-research%20preview-orange" alt="Research preview" />
 </p>
 
-## The world's first personal software.
+## Your personal assistant.
 
-Everything can change. UI, functionality, runtime, prompts, skills. No restrictions, no plugin sandbox, no extension store gatekeeping. If Stella is missing something you want, you just ask her to add it.
+Stella is a local-first desktop assistant that can work with your files, browser,
+apps, and computer. Ask a question, hand it a task, or let it split larger work
+across background agents while you keep going.
 
 ### Install
 
@@ -20,24 +22,21 @@ Download the installer from [stella.sh](https://stella.sh). On macOS, open the
 DMG and drag Stella into Applications. On Windows, run the NSIS installer. On
 Linux, mark the AppImage executable and open it.
 
-## One ongoing conversation
+## Chats that stay manageable
 
-There are no new chats and no chat history to manage. You talk to the same Stella every time, and she remembers. When something needs work, she spawns agents in the background and gets back to you.
+Keep related work together, open another chat when the context changes, and
+switch between active conversations without losing your place. Stella can run
+background agents from any chat and bring their progress back inline.
 
-## Personalized in a few clicks
+## Personal from the start
 
-Onboarding is a couple of buttons. Tell Stella who you are and what you care about, and she takes it from there.
+Choose the models and providers you want, connect the services you use, and keep
+the rest simple. Stella is useful out of the box without forcing every workflow
+into a plugin or a separate mode.
 
 ## Open source. Your data stays on your computer.
 
 Stella is fully open source. Your files and your conversations stay on your machine — we don't store them on our servers. Bring any model you already pay for, or use Stella's managed route if you'd rather not set anything up.
-
-## Memory that grows with you
-
-Stella keeps a long-term memory in plain markdown files on your computer, so the longer you use her the better she gets. Two optional background agents keep it healthy:
-
-- Chronicle watches what's on your screen so Stella can answer things like "what was I just working on" without you having to re-explain.
-- Dream runs in the background to consolidate what Stella's learned into durable notes and skills, and prune what's no longer useful.
 
 ## What Stella can do
 

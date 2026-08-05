@@ -337,6 +337,30 @@ jobs:
               --content-type "application/x-yaml" \
               --cache-control "no-cache" \
               --endpoint-url "$R2_ENDPOINT"
+
+            # Website-friendly aliases intentionally live at the root of the
+            # isolated v2 stable namespace. They are replaced on every release,
+            # so the website never needs to know the package version.
+            case "$platform" in
+              mac-arm64)
+                installer="$(find "$source_dir" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+                alias_name="Stella-darwin-arm64.dmg"
+                ;;
+              mac-x64)
+                installer="$(find "$source_dir" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+                alias_name="Stella-darwin-x64.dmg"
+                ;;
+              win-x64)
+                installer="$(find "$source_dir" -maxdepth 1 -type f -name '*.exe' -print -quit)"
+                alias_name="Stella.exe"
+                ;;
+            esac
+            test -n "$installer"
+            alias_target="${STELLA_V2_STABLE_PREFIX}/${alias_name}"
+            assert_v2_prefix "$alias_target"
+            aws s3 cp "$installer" "s3://${R2_BUCKET}/${alias_target}" \
+              --cache-control "no-cache" \
+              --endpoint-url "$R2_ENDPOINT"
           done
 
       - name: Create GitHub release with installers
@@ -370,5 +394,19 @@ jobs:
             case "$url" in
               */desktop-v2/stable/*) ;;
               *) echo "Verification escaped the v2 feed: $url" >&2; exit 1 ;;
+            esac
+          done
+
+          for installer in \
+            Stella-darwin-arm64.dmg \
+            Stella-darwin-x64.dmg \
+            Stella.exe; do
+            url="${R2_PUBLIC_BASE_URL%/}/${STELLA_V2_STABLE_PREFIX}/${installer}"
+            status="$(curl --fail --show-error --silent --location \
+              --range 0-0 --output /dev/null --write-out '%{http_code}' \
+              --retry 5 --retry-delay 2 "$url")"
+            case "$status" in
+              200|206) ;;
+              *) echo "Installer alias was not range-readable: $url ($status)" >&2; exit 1 ;;
             esac
           done

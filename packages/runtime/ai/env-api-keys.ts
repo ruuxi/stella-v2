@@ -73,6 +73,13 @@ export function getEnvApiKey(provider: any): string | undefined {
 		return process.env.ANTHROPIC_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY;
 	}
 
+	// Meta documents MODEL_API_KEY for the Model API SDK and META_API_KEY for
+	// Muse Code/CI. Accept both names so the direct provider and Meta's own CLI
+	// can share the user's existing environment configuration.
+	if (provider === "meta") {
+		return process.env.META_API_KEY || process.env.MODEL_API_KEY;
+	}
+
 	// Vertex AI supports either an explicit API key or Application Default Credentials
 	// Auth is configured via `gcloud auth application-default login`
 	if (provider === "google-vertex") {

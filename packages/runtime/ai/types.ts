@@ -43,6 +43,7 @@ export type KnownProvider =
   | "huggingface"
   | "local"
   | "fireworks"
+  | "meta"
   | "opencode"
   | "opencode-go"
   | "kimi-coding"

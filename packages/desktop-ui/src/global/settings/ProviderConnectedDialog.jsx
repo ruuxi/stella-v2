@@ -15,6 +15,7 @@ const PROVIDER_SURFACES = {
     openai: { assistant: true, image: "openai", voice: "openai" },
     anthropic: { assistant: true, image: null, voice: null },
     google: { assistant: true, image: null, voice: null },
+    meta: { assistant: true, image: null, voice: null },
     openrouter: { assistant: true, image: "openrouter", voice: null },
     fal: { assistant: false, image: "fal", voice: null },
     xai: { assistant: true, image: null, voice: "xai" },
@@ -108,6 +109,7 @@ export function ProviderConnectedDialog() {
                 openai: "openai/gpt-5.5",
                 anthropic: "anthropic/claude-opus-4.7",
                 google: "google/gemini-3.1-pro",
+                meta: "meta/muse-spark-1.2",
                 openrouter: "openrouter/anthropic/claude-opus-4.7",
                 xai: "xai/grok-4.5",
             };

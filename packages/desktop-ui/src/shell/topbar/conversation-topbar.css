@@ -178,7 +178,7 @@
 .conversation-topbar__tab[data-active="true"],
 .conversation-topbar__tab[data-dragging="true"] {
   color: var(--text-strong);
-  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
 }
 
 .conversation-topbar__tab:hover::after,

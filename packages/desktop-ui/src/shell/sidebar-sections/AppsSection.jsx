@@ -14,7 +14,7 @@
  */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { PersistentUserAppsHost } from "@/app/apps/PersistentUserAppsHost";
-import { formatUserAppCreatedAt, listUserApps, useRequestUserApp, } from "@/app/apps/user-app-library";
+import { listUserApps, useRequestUserApp, } from "@/app/apps/user-app-library";
 import { getServerSnapshot, getSnapshot, refreshUserApps, stopUserApp, subscribe, } from "@/app/apps/user-apps-registry";
 import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
 import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
@@ -133,9 +133,6 @@ function AppsLibrary({ registry }) {
             return (<li key={app.slug} className="apps-section__card">
             <button type="button" className={`apps-section__card-open${running || stopping ? " apps-section__card-open--with-runtime" : ""}`} onClick={() => sidebarSections.setLocation("apps", app.slug)}>
               <span className="apps-section__card-label">{app.meta.label}</span>
-              <span className="apps-section__card-meta">
-                {formatUserAppCreatedAt(app.meta.createdAt)}
-              </span>
             </button>
             {running || stopping ? (<div className="apps-section__card-runtime">
                 <span className="apps-section__card-status">

@@ -2,6 +2,7 @@ import { MAX_ACTIVE_RUNTIME_THREADS, MAX_GROUP_MEMBER_THREADS, THREAD_GROUP_KEY_
 import { slugify } from "../shared/slug.js";
 import { DEFAULT_CONVERSATION_SETTING_KEY, MAX_EVENTS_PER_CONVERSATION, RUNTIME_THREAD_SESSION_VERSION, asFiniteNumber, asObject, asTrimmedString, eventTextFromPayload, generateLocalId, isUserContent, parseJsonRecord, parseRuntimeThreadPayload, toJsonString, toJsonValueString, } from "./shared.js";
 import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
+import { normalizeRetiredAgentType } from "@stella/contracts/agent-runtime";
 import { DreamInboxStore } from "../memory/dream-inbox-store.js";
 /**
  * Upper bound on the user/assistant rows scanned per `listMessages` /

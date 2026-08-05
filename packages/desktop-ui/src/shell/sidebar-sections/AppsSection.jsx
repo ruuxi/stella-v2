@@ -19,7 +19,7 @@ import { getServerSnapshot, getSnapshot, refreshUserApps, stopUserApp, subscribe
 import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
 import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
-import { ChevronLeft, LoaderCircle } from "@/ui/icons";
+import { ChevronLeft, LoaderCircle, Power } from "@/ui/icons";
 import "./apps-section.css";
 export function AppsSection() {
     const registry = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
@@ -130,31 +130,21 @@ function AppsLibrary({ registry }) {
         {visible.map((app) => {
             const stopping = stoppingSlugs.has(app.slug) || app.status === "stopping";
             const running = app.status === "running";
-            const starting = app.status === "starting" || app.status === "installing";
-            const statusLabel = stopping
-                ? "Stopping"
-                : running
-                    ? "Running"
-                    : starting
-                        ? "Starting"
-                        : "Stopped";
-            const statusTone = running ? "running" : starting || stopping ? "busy" : "stopped";
             return (<li key={app.slug} className="apps-section__card">
-            <button type="button" className="apps-section__card-open" onClick={() => sidebarSections.setLocation("apps", app.slug)}>
+            <button type="button" className={`apps-section__card-open${running || stopping ? " apps-section__card-open--with-runtime" : ""}`} onClick={() => sidebarSections.setLocation("apps", app.slug)}>
               <span className="apps-section__card-label">{app.meta.label}</span>
               <span className="apps-section__card-meta">
                 {formatUserAppCreatedAt(app.meta.createdAt)}
               </span>
             </button>
-            <div className="apps-section__card-runtime">
-              <span className={`apps-section__card-status apps-section__card-status--${statusTone}`}>
-                <span className="apps-section__card-status-dot" aria-hidden="true"/>
-                {statusLabel}
-              </span>
-              {running || stopping ? (<button type="button" className="apps-section__shutdown" disabled={stopping} onClick={() => void shutDown(app.slug)}>
-                  {stopping ? "Stopping" : "Shut down"}
-                </button>) : null}
-            </div>
+            {running || stopping ? (<div className="apps-section__card-runtime">
+                <span className="apps-section__card-status">
+                  {stopping ? "Stopping" : "Running"}
+                </span>
+                <button type="button" className="apps-section__shutdown" aria-label={`Shut down ${app.meta.label}`} title="Shut down" disabled={stopping} onClick={() => void shutDown(app.slug)}>
+                  <Power size={15} strokeWidth={1.8} aria-hidden="true"/>
+                </button>
+              </div>) : null}
           </li>);
         })}
       </ul>

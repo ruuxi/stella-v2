@@ -64,12 +64,16 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  padding: 10px 12px 7px;
+  padding: 10px 12px;
   border: 0;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
+}
+
+.apps-section__card-open--with-runtime {
+  padding-bottom: 7px;
 }
 
 .apps-section__card-open:focus-visible,
@@ -107,37 +111,20 @@
 }
 
 .apps-section__card-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   color: var(--text-weak);
   font-size: var(--font-size-sm);
   line-height: 1;
-}
-
-.apps-section__card-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--foreground) 28%, transparent);
-}
-
-.apps-section__card-status--running .apps-section__card-status-dot {
-  background: var(--success);
-}
-
-.apps-section__card-status--busy .apps-section__card-status-dot {
-  background: var(--text-weak);
 }
 
 .apps-section__shutdown {
-  padding: 2px 0;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
   border: 0;
   background: transparent;
   color: var(--text-weak);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  line-height: 1;
 }
 
 .apps-section__shutdown:hover:not(:disabled) {

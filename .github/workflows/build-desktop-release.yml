@@ -246,6 +246,15 @@ jobs:
           app_path="$(find packages/desktop/release -maxdepth 2 -type d -name Stella.app -print -quit)"
           test -n "$app_path"
           codesign --verify --deep --strict --verbose=2 "$app_path"
+          entitlements_path="$RUNNER_TEMP/stella-main-entitlements.plist"
+          codesign -d --entitlements :- "$app_path" 2>&1 | \
+            sed -n '/^<?xml/,$p' > "$entitlements_path"
+          /usr/libexec/PlistBuddy \
+            -c 'Print :com.apple.security.cs.allow-jit' \
+            "$entitlements_path" | grep -Fx true
+          /usr/libexec/PlistBuddy \
+            -c 'Print :com.apple.security.cs.allow-unsigned-executable-memory' \
+            "$entitlements_path" | grep -Fx true
           xcrun stapler validate "$app_path"
           spctl --assess --verbose --type exec "$app_path"
 

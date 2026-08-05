@@ -56,6 +56,7 @@ const TAB_DRAG_ACTIVATION_DISTANCE = 4;
 const TAB_DRAG_EDGE_SIZE = 24;
 const TAB_DRAG_SCROLL_STEP = 12;
 const HISTORY_DELETE_CONFIRM_TIMEOUT_MS = 3000;
+const HISTORY_HOVER_CLOSE_DELAY_MS = 120;
 
 export type TabOverflow = { left: boolean; right: boolean };
 
@@ -199,6 +200,7 @@ export function ConversationTopBar() {
   const historyRequestRef = useRef(0);
   const historyLoadingRef = useRef(false);
   const historyDeleteTimerRef = useRef<number | null>(null);
+  const historyHoverCloseTimerRef = useRef<number | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
   const titleRefs = useRef(new Map<string, HTMLSpanElement>());
@@ -446,6 +448,26 @@ export function ConversationTopBar() {
     setHistoryDeleteErrorId(null);
   }, [clearHistoryDeleteTimer]);
 
+  const clearHistoryHoverCloseTimer = useCallback(() => {
+    if (historyHoverCloseTimerRef.current === null) return;
+    window.clearTimeout(historyHoverCloseTimerRef.current);
+    historyHoverCloseTimerRef.current = null;
+  }, []);
+
+  const openHistoryFromHover = useCallback(() => {
+    clearHistoryHoverCloseTimer();
+    setHistoryOpen(true);
+  }, [clearHistoryHoverCloseTimer]);
+
+  const scheduleHistoryCloseFromHover = useCallback(() => {
+    clearHistoryHoverCloseTimer();
+    historyHoverCloseTimerRef.current = window.setTimeout(() => {
+      historyHoverCloseTimerRef.current = null;
+      disarmHistoryDelete();
+      setHistoryOpen(false);
+    }, HISTORY_HOVER_CLOSE_DELAY_MS);
+  }, [clearHistoryHoverCloseTimer, disarmHistoryDelete]);
+
   const deleteHistoryConversation = useCallback(
     async (summary: ConversationSummary) => {
       const action = resolveHistoryDeleteActivation(
@@ -490,8 +512,9 @@ export function ConversationTopBar() {
   useEffect(
     () => () => {
       clearHistoryDeleteTimer();
+      clearHistoryHoverCloseTimer();
     },
-    [clearHistoryDeleteTimer],
+    [clearHistoryDeleteTimer, clearHistoryHoverCloseTimer],
   );
 
   useEffect(() => {
@@ -721,6 +744,7 @@ export function ConversationTopBar() {
       <Popover
         open={historyOpen}
         onOpenChange={(open) => {
+          clearHistoryHoverCloseTimer();
           setHistoryOpen(open);
           if (!open) disarmHistoryDelete();
         }}
@@ -731,6 +755,19 @@ export function ConversationTopBar() {
             className="shell-topbar-icon-btn conversation-topbar__history"
             aria-label="Conversation history"
             title="Conversation history"
+            onPointerEnter={(event) => {
+              if (event.pointerType !== "touch") openHistoryFromHover();
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== "touch") {
+                scheduleHistoryCloseFromHover();
+              }
+            }}
+            onClick={(event) => {
+              if (isKeyboardClick(event)) return;
+              event.preventDefault();
+              openHistoryFromHover();
+            }}
           >
             <History
               className="conversation-topbar__control-icon"
@@ -745,6 +782,14 @@ export function ConversationTopBar() {
           side="bottom"
           sideOffset={6}
           aria-label="Conversation history"
+          onPointerEnter={(event) => {
+            if (event.pointerType !== "touch") clearHistoryHoverCloseTimer();
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType !== "touch") {
+              scheduleHistoryCloseFromHover();
+            }
+          }}
         >
           <LegendList<ConversationSummary>
             className="conversation-history-popover__list"

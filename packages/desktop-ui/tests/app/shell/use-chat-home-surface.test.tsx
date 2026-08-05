@@ -10,14 +10,20 @@ import { useChatHomeSurface } from "@/shell/use-chat-home-surface";
 type HarnessProps = {
   conversationId: string;
   hasMessages: boolean;
+  isInitialLoading?: boolean;
 };
 
 let latestHomeState: ReturnType<typeof useChatHomeSurface> | null = null;
 
-function Harness({ conversationId, hasMessages }: HarnessProps) {
+function Harness({
+  conversationId,
+  hasMessages,
+  isInitialLoading = false,
+}: HarnessProps) {
   latestHomeState = useChatHomeSurface({
     isOnChatRoute: true,
     hasMessages,
+    isInitialLoading,
     isStreaming: false,
     activeConversationId: conversationId,
   });
@@ -77,6 +83,37 @@ describe("useChatHomeSurface conversation tabs", () => {
     expect(container.textContent).toBe("home");
   });
 
+  it("does not flash Home while a selected populated conversation loads", async () => {
+    await render({ conversationId: "existing", hasMessages: true });
+    await act(async () => latestHomeState?.dismissHome());
+    expect(container.textContent).toBe("chat");
+
+    await render({
+      conversationId: "other",
+      hasMessages: false,
+      isInitialLoading: true,
+    });
+    expect(container.textContent).toBe("chat");
+
+    await render({ conversationId: "other", hasMessages: true });
+    expect(container.textContent).toBe("chat");
+  });
+
+  it("shows Home after a selected empty conversation finishes loading", async () => {
+    await render({ conversationId: "existing", hasMessages: true });
+    await act(async () => latestHomeState?.dismissHome());
+
+    await render({
+      conversationId: "new",
+      hasMessages: false,
+      isInitialLoading: true,
+    });
+    expect(container.textContent).toBe("chat");
+
+    await render({ conversationId: "new", hasMessages: false });
+    expect(container.textContent).toBe("home");
+  });
+
   it("opens Home from a populated conversation when the launcher is clicked", async () => {
     await render({ conversationId: "existing", hasMessages: true });
     await act(async () => latestHomeState?.dismissHome());
@@ -86,4 +123,3 @@ describe("useChatHomeSurface conversation tabs", () => {
     expect(container.textContent).toBe("home");
   });
 });
-

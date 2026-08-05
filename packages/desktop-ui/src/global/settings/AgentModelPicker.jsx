@@ -91,22 +91,22 @@ const VOICE_PROVIDER_OPTIONS = [
     {
         key: "stella",
         label: "Stella",
-        description: "Default. All OpenAI, xAI, and Inworld voices included — no API key needed.",
+        description: "Included with Stella.",
     },
     {
         key: "openai",
         label: "OpenAI",
-        description: "Use your own OpenAI account.",
+        description: "Use your own OpenAI API key.",
     },
     {
         key: "xai",
         label: "xAI",
-        description: "Use your own xAI account with Grok's Voice Agent.",
+        description: "Use your own xAI API key.",
     },
     {
         key: "inworld",
         label: "Inworld",
-        description: "Use your own Inworld account.",
+        description: "Use your own Inworld API key.",
     },
 ];
 /**

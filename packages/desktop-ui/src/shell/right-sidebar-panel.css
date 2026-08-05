@@ -84,21 +84,13 @@ body[data-display-expanding="true"]
   overflow: hidden;
 }
 
-/* Models remains anchored to the panel's bottom-right corner regardless of
-   which Work/App/Settings surface is scrolling underneath it. The opaque
-   island intentionally overlays that lower slice instead of resizing the
-   active section, so opening the panel does not move the control. */
-.right-sidebar-models-island {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  z-index: 8;
+/* Reserve a real footer row for Models so Work/App/Settings content ends
+   above it instead of scrolling underneath a floating overlay. */
+.right-sidebar-models-footer {
+  flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
-  padding: 5px;
-  border-radius: 999px;
-  background: var(--surface-raised-stronger-non-alpha, var(--surface-raised));
-  box-shadow: var(--shadow-sm);
+  padding: 10px 12px 12px;
 }
 
 .right-sidebar-panel__body .right-sidebar__active {

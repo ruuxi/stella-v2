@@ -323,7 +323,7 @@ export const RightSidebar = forwardRef(function RightSidebar({ portalTarget }, r
             <SidebarSectionBody />
           </div>
         </div>
-        {panelOpen ? (<div className="right-sidebar-models-island">
+        {panelOpen ? (<div className="right-sidebar-models-footer">
           <SidebarModelsControl />
         </div>) : null}
       </div>

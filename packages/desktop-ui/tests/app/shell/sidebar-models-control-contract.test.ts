@@ -17,15 +17,14 @@ describe("sidebar Models control placement", () => {
     const home = readSource("shell/WorkspaceHomeSurface.jsx");
     const styles = readSource("shell/right-sidebar-panel.css");
 
-    expect(panel).toContain('className="right-sidebar-models-island"');
+    expect(panel).toContain('className="right-sidebar-models-footer"');
     expect(panel).toContain("{panelOpen ? (");
     expect(panel).toContain("<SidebarModelsControl />");
 
     expect(home).toContain("<HomeSection showModels={!surfaceHidden}/>");
 
-    expect(styles).toContain(".right-sidebar-models-island {");
-    expect(styles).toContain("position: absolute;");
-    expect(styles).toContain("right: 12px;");
-    expect(styles).toContain("bottom: 12px;");
+    expect(styles).toContain(".right-sidebar-models-footer {");
+    expect(styles).toContain("flex: 0 0 auto;");
+    expect(styles).not.toContain(".right-sidebar-models-island");
   });
 });

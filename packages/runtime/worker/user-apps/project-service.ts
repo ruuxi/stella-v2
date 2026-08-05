@@ -549,17 +549,66 @@ export class UserAppProjectService {
     let buffer = "";
     return await new Promise<string | null>((resolve) => {
       let settled = false;
+      let probeTimer: ReturnType<typeof setTimeout> | null = null;
+      let probeSocket: net.Socket | null = null;
+      let consecutiveReadyProbes = 0;
       const finish = (value: string | null) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
+        if (probeTimer) clearTimeout(probeTimer);
+        probeTimer = null;
+        probeSocket?.destroy();
+        probeSocket = null;
         resolve(value);
+      };
+      const probeLoopback = () => {
+        if (settled || probeSocket) return;
+        const socket = net.createConnection({
+          host: "127.0.0.1",
+          port: expectedPort,
+        });
+        probeSocket = socket;
+        let probeSettled = false;
+        const finishProbe = (ready: boolean) => {
+          if (probeSettled) return;
+          probeSettled = true;
+          socket.destroy();
+          if (probeSocket === socket) probeSocket = null;
+          if (settled) return;
+          if (ready) {
+            consecutiveReadyProbes += 1;
+            // Two successful probes keep a pre-existing listener from being
+            // mistaken for this child during the brief strict-port failure
+            // window.
+            if (
+              consecutiveReadyProbes >= 2 &&
+              child.exitCode === null &&
+              child.signalCode === null
+            ) {
+              finish(`http://127.0.0.1:${expectedPort}/`);
+              return;
+            }
+          } else {
+            consecutiveReadyProbes = 0;
+          }
+          probeTimer = setTimeout(probeLoopback, ready ? 100 : 50);
+          probeTimer.unref?.();
+        };
+        socket.setTimeout(250);
+        socket.once("connect", () => finishProbe(true));
+        socket.once("error", () => finishProbe(false));
+        socket.once("timeout", () => finishProbe(false));
       };
       const timeout = setTimeout(() => {
         entry.error = "Vite startup timed out.";
         void killProcessTree(child).finally(() => finish(null));
       }, URL_TIMEOUT_MS);
       timeout.unref?.();
+      // Vite's console format is not a runtime contract and has changed across
+      // versions. Keep parsing it as a fast path, but treat the actual bound
+      // loopback port as the source of truth for readiness.
+      probeLoopback();
       const onData = (chunk: Buffer | string) => {
         buffer = `${buffer}${chunk.toString()}`.slice(-8_000);
         const match = buffer.match(URL_RE);
@@ -582,7 +631,7 @@ export class UserAppProjectService {
       child.once("exit", (code) => {
         const wasRunning = entry.status === "running";
         if (!settled) {
-          entry.error = `Vite exited before startup${code == null ? "" : ` (code ${code})`}.`;
+          entry.error ||= `Vite exited before startup${code == null ? "" : ` (code ${code})`}.`;
           finish(null);
         }
         if (entry.child === child) entry.child = null;

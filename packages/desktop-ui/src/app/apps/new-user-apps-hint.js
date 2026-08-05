@@ -15,8 +15,8 @@ import { getSnapshot as getUserAppsSnapshot, subscribe as subscribeToUserApps, }
  *
  * On the very first launch with this feature shipped, the seen set is
  * seeded from the current registry — that way existing apps don't all
- * pop a dot retroactively. After that, any new file in `_user/` whose
- * slug isn't in `seen` lights the nav dot until the library is opened.
+ * pop a dot retroactively. After that, any new project in `~/.stella/workspace/apps`
+ * whose slug isn't in `seen` lights the nav dot until the library is opened.
  */
 const STORAGE_KEY = "stella:new-user-apps-seen";
 const CHANGE_EVENT = "stella:new-user-apps-seen-changed";
@@ -106,8 +106,11 @@ const notifyAll = () => {
 const seedIfNeeded = (state) => {
     if (state.initialized)
         return state;
+    const registry = getUserAppsSnapshot();
+    if (registry.phase !== "ready")
+        return state;
     const seen = {};
-    for (const app of getUserAppsSnapshot()) {
+    for (const app of registry.apps) {
         seen[app.slug] = true;
     }
     const next = { initialized: true, seen };
@@ -120,9 +123,12 @@ const seedIfNeeded = (state) => {
  */
 export const markAllUserAppsSeen = () => {
     const current = safeRead();
+    const registry = getUserAppsSnapshot();
+    if (registry.phase !== "ready")
+        return;
     const nextSeen = { ...current.seen };
     let changed = !current.initialized;
-    for (const app of getUserAppsSnapshot()) {
+    for (const app of registry.apps) {
         if (!nextSeen[app.slug]) {
             nextSeen[app.slug] = true;
             changed = true;
@@ -143,7 +149,10 @@ export const clearNewUserAppsHint = () => {
 };
 const getHintSnapshot = () => {
     const state = seedIfNeeded(safeRead());
-    for (const app of getUserAppsSnapshot()) {
+    const registry = getUserAppsSnapshot();
+    if (registry.phase !== "ready")
+        return false;
+    for (const app of registry.apps) {
         if (!state.seen[app.slug])
             return true;
     }
@@ -152,7 +161,9 @@ const getHintSnapshot = () => {
 const getServerSnapshot = () => false;
 /**
  * Subscribe to the "you have a new user app" hint dot for the Apps
- * top-bar entry. Returns true while at least one user app exists that
+ * top-bar entry. The first ready runtime registry snapshot seeds the seen set,
+ * so the initial async load never makes every existing app look newly added.
+ * Returns true while at least one user app exists that
  * the user hasn't acknowledged.
  */
 export function useNewUserAppsHint() {

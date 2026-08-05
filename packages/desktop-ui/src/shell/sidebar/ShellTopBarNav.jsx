@@ -1,7 +1,7 @@
 import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useSyncExternalStore, } from "react";
 import { useSocialBadges } from "@/app/social/hooks/use-social-badges";
-import { markAllUserAppsSeen, useNewUserAppsHint, } from "@/app/_user/new-user-apps-hint";
+import { markAllUserAppsSeen, useNewUserAppsHint, } from "@/app/apps/new-user-apps-hint";
 import { preloadNavSurfaceRoute } from "@/shell/topbar/nav-surface-preloads";
 import { getSnapshot as getAppRegistrySnapshot, subscribe as subscribeToAppRegistry, } from "./app-registry";
 import "./topbar-nav.css";

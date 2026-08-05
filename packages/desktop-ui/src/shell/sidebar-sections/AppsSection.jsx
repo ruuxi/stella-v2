@@ -15,14 +15,15 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { PersistentUserAppsHost } from "@/app/apps/PersistentUserAppsHost";
 import { formatUserAppCreatedAt, listUserApps, useRequestUserApp, } from "@/app/apps/user-app-library";
-import { getSnapshot, subscribe, } from "@/app/_user/user-apps-registry";
-import { markAllUserAppsSeen } from "@/app/_user/new-user-apps-hint";
+import { getServerSnapshot, getSnapshot, refreshUserApps, subscribe, } from "@/app/apps/user-apps-registry";
+import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
 import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
-import { ChevronLeft } from "@/ui/icons";
+import { ChevronLeft, LoaderCircle } from "@/ui/icons";
 import "./apps-section.css";
 export function AppsSection() {
-    const apps = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const registry = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+    const apps = registry.apps;
     const openSlug = useSidebarSectionLocation("apps");
     const activeSection = useActiveSidebarSection();
     const panelOpen = useDisplayPanelOpen();
@@ -32,6 +33,11 @@ export function AppsSection() {
     const openApp = openSlug
         ? (apps.find((app) => app.slug === openSlug) ?? null)
         : null;
+    useEffect(() => {
+        if (registry.phase === "ready" && openSlug && !openApp) {
+            sidebarSections.clearLocation("apps");
+        }
+    }, [openApp, openSlug, registry.phase]);
     // The list counts as "seen" only when the user can actually see it: every
     // section stays mounted, so mounting alone says nothing about attention.
     const listVisible = panelOpen && activeSection === "apps" && !openApp;
@@ -50,13 +56,39 @@ export function AppsSection() {
           </span>
         </div>) : null}
       <div className="apps-section__body">
-        {openApp ? null : <AppsLibrary apps={apps}/>}
+        {openApp ? null : <AppsLibrary registry={registry}/>}
         <PersistentUserAppsHost />
       </div>
     </>);
 }
-function AppsLibrary({ apps }) {
+function AppsLibrary({ registry }) {
     const requestUserApp = useRequestUserApp();
+    const { apps, error, phase, refreshing } = registry;
+    if (phase === "loading" && apps.length === 0) {
+        return (<div className="apps-section__library apps-section__library--status" role="status" aria-live="polite">
+        <LoaderCircle className="stella-loader-circle" size={18} strokeWidth={2} aria-hidden="true"/>
+        <p>Loading apps…</p>
+      </div>);
+    }
+    if (phase === "unsupported") {
+        return (<div className="apps-section__library apps-section__library--status" role="status">
+        <p className="apps-section__empty-title">Apps are available on desktop.</p>
+        <p className="apps-section__empty-body">
+          Open Stella on your computer to use locally installed apps.
+        </p>
+      </div>);
+    }
+    if (phase === "error" && apps.length === 0) {
+        return (<div className="apps-section__library apps-section__library--status" role="alert">
+        <p className="apps-section__empty-title">Couldn’t load apps</p>
+        <p className="apps-section__empty-body">
+          {error || "Stella couldn’t read your apps folder."}
+        </p>
+        <button type="button" className="pill-btn pill-btn--primary" onClick={() => void refreshUserApps()}>
+          Try again
+        </button>
+      </div>);
+    }
     if (apps.length === 0) {
         return (<div className="apps-section__library apps-section__library--empty">
         <p className="apps-section__empty-title">Nothing here yet.</p>
@@ -70,6 +102,12 @@ function AppsLibrary({ apps }) {
     }
     const visible = listUserApps(apps, "", "recent");
     return (<div className="apps-section__library">
+      {phase === "error" ? (<div className="apps-section__warning" role="status">
+          <span>Apps may be out of date.</span>
+          <button type="button" onClick={() => void refreshUserApps()}>
+            Try again
+          </button>
+        </div>) : null}
       <ul className="apps-section__grid sidebar-section__scroll">
         {visible.map((app) => (<li key={app.slug}>
             <button type="button" className="apps-section__card" onClick={() => sidebarSections.setLocation("apps", app.slug)}>
@@ -81,7 +119,7 @@ function AppsLibrary({ apps }) {
           </li>))}
       </ul>
 
-      <div className="apps-section__footer">
+      <div className="apps-section__footer" aria-busy={refreshing || undefined}>
         <button type="button" className="pill-btn" onClick={requestUserApp}>
           Create an app
         </button>

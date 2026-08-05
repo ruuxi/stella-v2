@@ -206,9 +206,16 @@ export const resolveStellaDataDir = async (
     stellaAppDir,
     explicitStatePath,
   );
-  const mutableRoot = app.isPackaged ? statePath : stellaAppDir;
-  const runtimeRoot = path.join(mutableRoot, "runtime");
-  const workspacePath = path.join(mutableRoot, "workspace");
+  // Development may load runtime code from the checkout, but user-created
+  // projects must always live in Stella's writable data root. Keeping the
+  // workspace under `stellaAppDir` in dev made the external-app scaffold and
+  // runtime look in different directories and reintroduced source-tree
+  // mutation in the one mode where it is easiest to miss.
+  const runtimeRoot = path.join(
+    app.isPackaged ? statePath : stellaAppDir,
+    "runtime",
+  );
+  const workspacePath = path.join(statePath, "workspace");
 
   const extensionsPath = path.join(runtimeRoot, "extensions");
   const workspaceAppsPath = path.join(workspacePath, "apps");

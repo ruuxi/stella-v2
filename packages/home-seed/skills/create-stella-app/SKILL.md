@@ -1,160 +1,109 @@
 ---
 name: create-stella-app
-description: Scaffold a new single-file Stella app under desktop/src/app/_user. Use when the user asks Stella to build them an app, then edit only the generated file.
+description: Scaffold a standalone Vite React app in Stella's writable workspace. Use when the user asks Stella to build them an app, then work only inside that app project.
 ---
 
 # Creating a Stella app
 
-A Stella app is **one file**: `desktop/src/app/_user/<slug>.tsx`. It
-appears in the right sidebar's **Apps** section automatically, and opens
-*inside that panel* when the user picks it from the list. Apps have no
-URL of their own, no nav entry of their own, and no multi-file scaffold.
+A Stella app is an ordinary Vite React TypeScript project stored outside the
+Stella installation. Its default location is:
+
+```text
+~/.stella/workspace/apps/<slug>/
+```
+
+When `STELLA_DATA_DIR` is set, the root is instead
+`$STELLA_DATA_DIR/workspace/apps/<slug>`. This keeps development and packaged
+app data isolated. Never write a user app into Stella's source tree or install
+its dependencies in Stella's root package.
 
 ## Scaffold
 
-Run from the Stella install root (the directory containing `desktop/` and
-`runtime/`) so the script writes into the tree the running
-app loads from:
+Run the scaffold script beside this skill's `SKILL.md`:
 
 ```sh
-bun runtime/home-seed/skills/create-stella-app/scripts/program.ts <slug> <label words...>
+bun <this-skill-directory>/scripts/program.ts <slug> <name words...>
 ```
 
-`<slug>` is lowercase `[a-z][a-z0-9-]*`, ≤32 chars (the URL segment).
-`<label>` is whatever you'd call the app in conversation; the script
-takes the rest of the args verbatim.
+`<slug>` must be lowercase `[a-z][a-z0-9-]*` and at most 32 characters.
+The script refuses to overwrite an existing app and publishes the project only
+after every template file has been written successfully.
 
-It creates exactly one file:
+It creates:
 
+```text
+stella.app.json
+package.json
+index.html
+vite.config.ts
+tsconfig.json
+.gitignore
+src/App.tsx
+src/main.tsx
+src/app.css
+src/vite-env.d.ts
 ```
-desktop/src/app/_user/<slug>.tsx
+
+`stella.app.json` is the library metadata contract:
+
+```json
+{
+  "schemaVersion": 1,
+  "slug": "focus-timer",
+  "name": "Focus Timer",
+  "createdAt": "2026-01-01T00:00:00.000Z"
+}
 ```
 
-That file exports:
+The directory name and manifest slug must remain identical.
 
-- `default function App()` — the component the Apps section mounts.
-- `export const meta = { label, createdAt }` — read by the Apps library
-  to render the list and sort by recency.
+## Build the app
 
-Optional `meta` flag: `backgroundInput: true`. Apps stay mounted but
-hidden for a while after the user leaves them — closing the panel or
-switching to another sidebar section counts; by default a hidden app's
-window/document input listeners (keyboard, pointer, clipboard) are
-gated off so it can't react to typing elsewhere. Set
-`backgroundInput: true` only when the app must keep watching global
-input while hidden (typing trackers, global-keybind launchers). The
-flag affects input gating only, never teardown timing.
-
-Then fill in the body. If you need a new dependency, `bun add <pkg>`
-from the repo root (never `npm` or `pnpm`). Validate from the install
-root:
+After scaffolding, change into that app directory and install there:
 
 ```sh
-node node_modules/typescript-7/lib/tsc.js -p desktop/tsconfig.app.json --noEmit
+cd "$STELLA_DATA_DIR/workspace/apps/<slug>" # or ~/.stella/workspace/apps/<slug>
+bun install
+bun run check
+bun run build
 ```
 
-## One file, on purpose
+Add packages from the app directory only:
 
-Don't preemptively split. The agent should keep the whole app in one
-file until it actually stops working — well past 1k lines, not before.
-When it does, split helpers into siblings (`<slug>.helpers.ts`,
-`<slug>.css`) and import them locally. The library only needs the
-top-level `<slug>.tsx` to keep exporting `default` and `meta`.
+```sh
+bun add <package>
+```
 
-Don't touch:
+Stella's managed app runtime launches the project's local Vite installation on
+loopback and embeds its URL. Source changes use Vite HMR; the built `dist/`
+directory is validation output, not the live discovery protocol. Do not start
+a second manual dev server unless you are explicitly debugging the project
+outside Stella.
 
-- `desktop/src/routes/` — apps don't have routes. The Apps section's
-  keep-alive host mounts every registered app.
-- `desktop/src/app/_user/user-apps-registry.ts` — discovery happens
-  through `import.meta.glob`; new files are picked up automatically.
-- the top-bar nav / `app-registry` — user apps live in the right
-  sidebar's Apps section; they never get their own nav row.
+## Project boundaries
+
+- Work only inside the generated app directory.
+- Do not edit Stella's renderer, routes, registries, package.json, or lockfile.
+- Do not assume access to Electron, Stella renderer imports, or host globals.
+- Keep `vite.config.ts` base set to `"./"` and use the provided scripts.
+- Store app-owned source and assets in the project. Do not reach back into the
+  Stella installation with relative paths.
 
 ## Visual style
 
-You're designing a **surface**, not a widget. It fills the right
-sidebar panel — `width: 100%; height: 100%` — which the user can drag
-between roughly 380px and half the window, or expand to the whole
-content area. Use the room you're given. Don't cap content to ~430px
-and float a single card in the middle of empty space.
+The app fills an embedded panel that can range from narrow sidebar width to a
+large content surface. Build a complete responsive page, not a tiny widget in
+the middle of empty space.
 
-### Size against the panel, never the viewport
-
-The panel is a **container** (`container-name: display-panel`,
-`container-type: inline-size`). The window can be 2000px wide while
-the app has 400px, so viewport units and viewport media queries read
-the wrong number and overflow the panel:
-
-- `cqi` / `cqw` instead of `vw` — `clamp(1.8rem, 7cqi, 3.6rem)`.
-- `@container display-panel (max-width: 720px)` instead of
-  `@media (max-width: 720px)`.
-- Multi-column layouts (`grid-template-columns: 1fr 280px`) need a
-  container query that collapses them; at the panel's default width
-  there is no room for a rail.
-
-`@media (prefers-reduced-motion: reduce)` and friends are still media
-queries — only *size* queries move to the container.
-
-Aim for Apple-like polish: generous whitespace, restrained color,
-sharp typography, intentional structure. **No AI slop**: don't pile
-cards on cards, don't sprinkle gradients/badges/dots/emoji to fill
-space, don't add affordances that aren't earned.
-
-### Let the layout match the feature
-
-The shape of the surface should follow what's actually on it. A few
-honest patterns — pick one, don't force it:
-
-- **Hero + canvas** — a single focused surface (game board, viewer,
-  editor): a Cormorant hero up top, then the thing itself filling the
-  remaining height. The default stub is this shape, and it's the one
-  that survives a narrow panel best.
-- **Rail + canvas** — a comprehensive tool with controls plus a
-  working area: `display: grid; grid-template-columns: <rail> 1fr;
-  height: 100%`, collapsed to one column by a container query. Use
-  this only when there are enough controls to earn a rail, and only if
-  the app is usable stacked; don't manufacture a sidebar to look
-  fancier.
-- **Stream / list** — feeds, libraries, history: a hero, then a
-  scrollable column at a comfortable measure (≤ ~72ch) inside the
-  full-height surface.
-
-What the patterns share: full-height layout, a real hero, structure
-that fits the content. What they don't share: a fixed template.
-
-### Typography
-
-Type families are loaded globally via `desktop/src/main.tsx` — never
-import or `@font-face` anything yourself, just reference the token:
-
-- `var(--font-family-display)` — **Cormorant Garamond**. The page
-  hero / title. Use 300 or 400 weight, tight letter-spacing (~ −0.04em),
-  `line-height: 1`. Italics via `<em>` work well for a single accented
-  word.
-- `var(--font-family-sans)` — **Manrope**. Body, controls, labels.
-  Set it on the root with
-  `var(--font-family-sans--default-letter-spacing)` (−0.02em) so
-  children inherit. Headings 600, body 400.
-- `var(--font-family-mono)` — **IBM Plex Mono**. Numeric readouts,
-  code/JSON, `<kbd>` chips, small uppercase tab labels. Pair with
-  `font-variant-numeric: tabular-nums`.
-
-### Color & surfaces
-
-Don't hard-code colors — light/dark flip automatically through tokens.
-**Don't paint a background on the root**; Stella's shifting gradient
-canvas sits behind everything and the stub leaves the root transparent
-on purpose. Apply backgrounds only on raised surfaces (rails, cards,
-chips, modals) where contrast is actually needed.
-
-- `var(--background)`, `var(--foreground)` — page bg / text
-- `var(--card)` — raised surfaces
-- `var(--border)` — hairlines
-- `var(--accent)` — call-out / highlight color
-- `var(--text-weaker, var(--muted-foreground))` — secondary text
-- `var(--radius-2xl)` (12px), `var(--radius-full)` for pill chips
-- `color-mix(in srgb, var(--foreground) 6%, transparent)` for
-  theme-adaptive overlays
+- Size against the app's own viewport or a local CSS container.
+- Define app-local colors and type choices; host CSS variables and fonts do not
+  cross the iframe boundary.
+- Support light and dark mode with `prefers-color-scheme` until a host theme
+  bridge is explicitly available.
+- Cover keyboard focus, empty/loading/error states, narrow layouts, reduced
+  motion, and long content where relevant.
+- Avoid filler cards, decorative badges, gratuitous gradients, and controls
+  that do not serve the app.
 
 ## Backlinks
 

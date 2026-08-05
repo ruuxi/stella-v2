@@ -114,6 +114,10 @@ import {
   IPC_SOCIAL_SESSIONS_GET_STATUS,
   IPC_SOCIAL_SESSIONS_QUEUE_TURN,
   IPC_SOCIAL_SESSIONS_UPDATE_STATUS,
+  IPC_USER_APPS_LIST,
+  IPC_USER_APPS_START,
+  IPC_USER_APPS_STOP,
+  IPC_USER_APPS_UPDATED,
   IPC_VOICE_CREATE_OPENAI_SESSION,
   IPC_VOICE_EXECUTE_TOOL,
   IPC_VOICE_ORCHESTRATOR_CONFIG,
@@ -1919,6 +1923,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
       clientTurnId?: string;
     }) => ipcRenderer.invoke(IPC_SOCIAL_SESSIONS_QUEUE_TURN, payload),
     getStatus: () => ipcRenderer.invoke(IPC_SOCIAL_SESSIONS_GET_STATUS),
+  },
+
+  userApps: {
+    list: () => ipcRenderer.invoke(IPC_USER_APPS_LIST),
+    start: (slug: string) => ipcRenderer.invoke(IPC_USER_APPS_START, { slug }),
+    stop: (slug: string) => ipcRenderer.invoke(IPC_USER_APPS_STOP, { slug }),
+    onUpdated: onIpc<void>(IPC_USER_APPS_UPDATED),
+    // Alias retained for consumers that use the event-style naming convention.
+    onChanged: onIpc<void>(IPC_USER_APPS_UPDATED),
   },
 
   pet: {

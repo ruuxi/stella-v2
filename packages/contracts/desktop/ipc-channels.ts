@@ -424,6 +424,13 @@ export const IPC_SOCIAL_SESSIONS_QUEUE_TURN =
 export const IPC_SOCIAL_SESSIONS_GET_STATUS =
   "socialSessions:getStatus" as const;
 
+// ── Local user apps ────────────────────────────────────────────────────────
+
+export const IPC_USER_APPS_LIST = "userApps:list" as const;
+export const IPC_USER_APPS_START = "userApps:start" as const;
+export const IPC_USER_APPS_STOP = "userApps:stop" as const;
+export const IPC_USER_APPS_UPDATED = "userApps:updated" as const;
+
 // ── Pet Overlay ─────────────────────────────────────────────────────────────
 //
 // The pet renders inside the existing transparent overlay window. State is

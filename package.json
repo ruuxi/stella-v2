@@ -26,7 +26,7 @@
     "native:build": "cd packages/native && bun run build",
     "native:download": "node packages/desktop/scripts/download-native-helpers.mjs",
     "stella-browser:download": "node packages/desktop/scripts/download-stella-browser.mjs",
-    "workspace:create-app": "node packages/desktop/scripts/create-workspace-app.mjs",
+    "app:create": "node packages/desktop/scripts/create-workspace-app.mjs",
     "electron:install": "bun ./node_modules/electron/install.js",
     "electron:dev": "node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback && node packages/desktop/scripts/dev-electron-build.mjs --once && concurrently -k \"bun run dev\" \"node packages/desktop/scripts/launch-electron-dev.mjs\"",
     "electron:typecheck": "node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.electron.json --pretty false --noEmit && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.preload.json --pretty false --noEmit",

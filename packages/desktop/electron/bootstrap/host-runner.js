@@ -5,7 +5,7 @@ import { deleteConnectorAccessTokens, loadConnectorTokenPayload, saveConnectorTo
 import { ensureStellaDataDirSeeded, syncStellaPromptSnapshot, } from "@stella/runtime/kernel/home/stella-home";
 import { stellaPromptEndpointFromSiteUrl } from "@stella/contracts/stella-api";
 import { createStellaHostRunner, } from "../stella-host-runner.js";
-import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastToWindows, } from "./context.js";
+import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastUserAppsUpdated, broadcastToWindows, } from "./context.js";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
 import { IPC_AUTH_RUNTIME_REFRESH_REQUESTED } from "@stella/contracts/desktop/ipc-channels";
 import { showStellaNotification } from "../services/notification-service.js";
@@ -210,6 +210,8 @@ const clearHostRunnerSubscriptions = (context) => {
     state.threadActivityUpdateUnsubscribe = null;
     state.scheduleUpdateUnsubscribe?.();
     state.scheduleUpdateUnsubscribe = null;
+    state.userAppsUpdateUnsubscribe?.();
+    state.userAppsUpdateUnsubscribe = null;
 };
 const connectHostRunner = async (context) => {
     const { lifecycle, services, state } = context;
@@ -232,6 +234,9 @@ const connectHostRunner = async (context) => {
     });
     state.scheduleUpdateUnsubscribe = runner.onScheduleUpdated(() => {
         broadcastScheduleUpdated(context);
+    });
+    state.userAppsUpdateUnsubscribe = runner.onProjectsUpdated(() => {
+        broadcastUserAppsUpdated(context);
     });
     const logger = getMainLogger();
     const connectBeganAt = Math.round(process.uptime() * 1000);

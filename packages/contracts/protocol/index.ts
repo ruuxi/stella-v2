@@ -286,6 +286,7 @@ export const NOTIFICATION_NAMES = {
   THREAD_ACTIVITY_UPDATED: "localChat.threadActivityUpdated",
   SCHEDULE_UPDATED: "schedule.updated",
   MODEL_CATALOG_UPDATED: "modelCatalog.updated",
+  PROJECTS_UPDATED: "projects.updated",
   APPROVAL_REQUESTED: "approval.requested",
 } as const;
 

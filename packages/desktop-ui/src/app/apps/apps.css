@@ -23,6 +23,24 @@
   gap: 1.5rem;
 }
 
+.apps-screen--status {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.apps-screen__warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 12px;
+  border: 1px solid var(--border-weak);
+  border-radius: var(--radius-lg, 10px);
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+}
+
 .apps-screen__hero {
   display: flex;
   flex-direction: column;
@@ -123,8 +141,8 @@
 }
 
 [data-component="select"]:has(
-    > [data-slot="select-trigger"].apps-screen__sort-trigger
-  ) {
+  > [data-slot="select-trigger"].apps-screen__sort-trigger
+) {
   width: auto;
 }
 

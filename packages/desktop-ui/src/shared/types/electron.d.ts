@@ -76,6 +76,11 @@ import type {
 } from "@stella/contracts/office-preview";
 import type { DisplayPayload } from "@stella/contracts/display-payload";
 import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
+import type {
+  UserAppProjectListResult,
+  UserAppProjectStartResult,
+  UserAppProjectStopResult,
+} from "@stella/contracts/user-app-projects";
 
 type MobileAgentWorkPayloadForSync = {
   kind: "agent-work";
@@ -1241,6 +1246,14 @@ export type ElectronSocialSessionsApi = {
   getStatus: () => Promise<SocialSessionServiceSnapshot>;
 };
 
+export type ElectronUserAppsApi = {
+  list: () => Promise<UserAppProjectListResult>;
+  start: (slug: string) => Promise<UserAppProjectStartResult>;
+  stop: (slug: string) => Promise<UserAppProjectStopResult>;
+  onUpdated: (callback: () => void) => () => void;
+  onChanged: (callback: () => void) => () => void;
+};
+
 export type ElectronLocalChatApi = {
   getOrCreateDefaultConversationId: () => Promise<string>;
   createNewDefaultConversationId: () => Promise<string>;
@@ -1772,6 +1785,7 @@ export type ElectronApi = {
   store: ElectronStoreApi;
   fashion: ElectronFashionApi;
   socialSessions: ElectronSocialSessionsApi;
+  userApps: ElectronUserAppsApi;
   localChat: ElectronLocalChatApi;
   nativeIntegrations: ElectronNativeIntegrationsApi;
   home: ElectronHomeApi;

@@ -99,7 +99,7 @@ const STELLA_PRESET_FALLBACK_DEFS: ReadonlyArray<{
   {
     mode: "light",
     name: "Stella Light",
-    upstreamModel: "accounts/fireworks/models/deepseek-v4-flash",
+    upstreamModel: "accounts/fireworks/models/deepseek-v4-flash-0731",
   },
   {
     mode: "standard",

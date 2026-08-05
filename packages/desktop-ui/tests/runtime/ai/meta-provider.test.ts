@@ -4,7 +4,11 @@ import { getProviderDisplayName } from "@stella/contracts/provider-display";
 import { getEnvApiKey } from "@stella/runtime/ai/env-api-keys";
 import { getModels } from "@stella/runtime/ai/models";
 import { streamSimpleOpenAIResponses } from "@stella/runtime/ai/providers/openai-responses";
-import { LLM_PROVIDERS } from "@/global/settings/lib/llm-providers";
+import {
+  compareProviderRailOrder,
+  LLM_PROVIDERS,
+} from "@/global/settings/lib/llm-providers";
+import { buildProviderTabs } from "@/global/settings/ProviderModelPanel";
 
 const originalFetch = globalThis.fetch;
 const originalMetaApiKey = process.env.META_API_KEY;
@@ -65,6 +69,26 @@ describe("Meta direct provider", () => {
         cacheRead: 0.002,
       },
     ]);
+  });
+
+  it("keeps Meta visible before its model catalog loads and omits retired Google providers", () => {
+    expect(buildProviderTabs([], ["meta"])).toEqual([
+      expect.objectContaining({
+        key: "meta",
+        label: "Meta",
+        models: [],
+      }),
+    ]);
+    expect(LLM_PROVIDERS.map((provider) => provider.key)).not.toEqual(
+      expect.arrayContaining(["google-antigravity", "google-gemini-cli"]),
+    );
+  });
+
+  it("orders Meta after OpenAI and OpenRouter after xAI", () => {
+    const providers = ["openrouter", "meta", "xai", "openai"].sort((a, b) =>
+      compareProviderRailOrder(a, b, a, b),
+    );
+    expect(providers).toEqual(["openai", "meta", "xai", "openrouter"]);
   });
 
   it("accepts both Meta-documented environment variable names", () => {

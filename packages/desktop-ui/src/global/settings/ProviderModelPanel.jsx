@@ -20,15 +20,27 @@ const LOCAL_PROVIDER_KEY = "local";
 const DEFAULT_TARGET = "__default__";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:11434/v1";
 export const providerUsesRuntimeManagedAuth = (tab) => tab.runtimeManagedAuth || tab.runtimeCredentialless;
-function buildProviderTabs(groups, visibleProviders) {
+export function buildProviderTabs(groups, visibleProviders) {
     const tabs = new Map();
+    for (const entry of LLM_PROVIDERS) {
+        if (visibleProviders && !visibleProviders.includes(entry.key)) {
+            continue;
+        }
+        tabs.set(entry.key, {
+            key: entry.key,
+            label: entry.label,
+            models: [],
+            llmEntry: entry,
+            runtimeManaged: false,
+            runtimeManagedAuth: false,
+            runtimeCredentialless: false,
+        });
+    }
     for (const group of groups) {
         if (visibleProviders && !visibleProviders.includes(group.provider)) {
             continue;
         }
         const models = group.models;
-        if (models.length === 0)
-            continue;
         tabs.set(group.provider, {
             key: group.provider,
             label: group.providerName,

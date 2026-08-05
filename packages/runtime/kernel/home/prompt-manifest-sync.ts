@@ -775,10 +775,10 @@ export const resolvePromptManifest = async (args: {
   }
 };
 
-const readAgentMetadataFrontmatter = async (
+const readAgentMetadata = async (
   agentMetadataDir: string,
   id: string,
-): Promise<string> => {
+): Promise<{ frontmatter: string; bundledPrompt?: string }> => {
   const raw = await fs.readFile(
     path.join(agentMetadataDir, `${id}.md`),
     "utf-8",
@@ -787,7 +787,15 @@ const readAgentMetadataFrontmatter = async (
   if (!match) {
     throw new Error(`Agent metadata ${id} is missing valid frontmatter`);
   }
-  return match[0];
+  const bundledPrompt =
+    /^promptSource\s*:\s*bundled\s*$/m.test(match[0]) &&
+    raw.slice(match[0].length).trim()
+      ? raw.slice(match[0].length).trim()
+      : undefined;
+  return {
+    frontmatter: match[0],
+    ...(bundledPrompt ? { bundledPrompt } : {}),
+  };
 };
 
 const resolveReconciledPrompts = async (
@@ -805,10 +813,11 @@ const resolveReconciledPrompts = async (
     if (STELLA_PROMPT_RETIRED_ID_SET.has(prompt.id)) continue;
     const area = prompt.id.startsWith("agents/") ? "agents" : "prompts";
     const id = prompt.id.slice(area.length + 1, -3);
-    const content =
-      area === "agents"
-        ? `${await readAgentMetadataFrontmatter(agentMetadataDir, id)}${prompt.content}`
-        : prompt.content;
+    let content = prompt.content;
+    if (area === "agents") {
+      const metadata = await readAgentMetadata(agentMetadataDir, id);
+      content = `${metadata.frontmatter}${metadata.bundledPrompt ?? prompt.content}`;
+    }
     byArea.get(area)!.set(id, {
       ...prompt,
       content,

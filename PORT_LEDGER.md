@@ -1,16 +1,22 @@
 # DEV-to-local-first port ledger
 
 Historical base: `c90cee24270defe3e3ed8a3031c1ac8b72a90302`  
-DEV audit range: `2026-07-20 00:00:00..2026-08-03 23:59:59` on `/Users/rahulnanda/projects/stella`, plus five requested recovery commits completed after the original inventory
-Audited candidate commits: **170**
-Final state: **39 ported, 80 adapted, 51 omitted, 0 pending**.
+DEV audit range: `2026-07-20 00:00:00..2026-08-05 23:59:59` on `/Users/rahulnanda/projects/stella`
+Audited candidate commits: **172**
+Final state: **39 ported, 81 adapted, 52 omitted, 0 pending**.
 
 Status meanings: **ported** is a direct behavior port; **adapted** preserves intent through v2 seams; **omitted** conflicts with or is obsolete under the requested architecture. No candidates remain pending.
 
 Manager is retired from packaged prompts, metadata, tools, and execution. The only retained Manager identifiers are read-time compatibility aliases: legacy `runtime_agents.agent_type = manager` rows normalize to General without rewriting SQLite, and legacy prompt-manifest entries are accepted for revision integrity but skipped during reconciliation. Legacy transcript/UI labels may still be recognized when reading records created by older builds; they do not expose an active Manager agent or `spawn_manager` tool.
 
+The packaged-v2 Orchestrator is now a working top-level agent: it owns the same direct work tools as General plus bounded delegation tools, and may spawn General children directly. Its bundled capability metadata and working-agent prompt remain authoritative while an explicitly customized home prompt body is preserved. This is a local-v2 architecture decision, not a DEV commit port; packaged operation, the monorepo layout, and the intentional absence of self-modification/HMR remain unchanged.
+
+The verification sweep also restored three imports lost during earlier monorepo translation: Codex service-tier defaults, bounded shell output/recovery helpers, and delegated-model mention parsing. These are exact current-v1 dependencies adapted only to package aliases; they do not add a DEV lifecycle or alter packaged ownership.
+
 | DEV SHA | Date | Status | Feature | Decision |
 |---|---|---|---|---|
+| `1cd267f361b13a16510c904b36a4718e19c4b422` | 2026-08-05 | **adapted** | refactor(runtime): simplify recovery and live steering | Ported provider-owned Responses recovery, provider prompt-cache affinity, stable historical tool results, one-time bounded tool output, live Pi steering, duplicate tool-call suppression, browser-output bounds, configured-General model capture, and the Electron computer-use fix. Omitted DEV self-mod mutation epochs and HMR bookkeeping because packaged v2 intentionally has neither lifecycle. |
+| `d9afe4c195c6e00af46054839a68379e7850c088` | 2026-08-04 | **omitted** | test(runtime): cover context overflow recovery | Test-only coverage for the already-adapted context-overflow path; no additional product behavior was required beyond the packaged-v2 recovery tests and runtime implementation. |
 | `ef9bd4461c23cc59247480d8ac94b5e3094fe1ad` | 2026-08-04 | **adapted** | fix(runtime): recover nested agent transcripts | Persisted initial nested-agent instructions and subagent user messages in local SQLite, recovered historical child instructions/results in the read-only local thread projection, and retained partial Claude Code/Codex assistant text when an external engine terminates. |
 | `430f3131cb3ce1e8648e92054bedfb1feb0c5ff0` | 2026-08-03 | **adapted** | fix(runtime): catch context preflights before retry | Hardened the imperative local recovery wrapper so provider-preflight throws are compacted before retry and a repeated safe overflow or compaction failure returns a durable local handoff without replaying tools. |
 | `d0b8759c1ae8998cd42feaef3394c22d7963dc93` | 2026-08-03 | **adapted** | fix(runtime): recover repeated context preflights | Added the durable SQLite thread token estimate to forced recovery compaction so an already oversized thread cannot be rejected by the ordinary compaction threshold before its single safe retry. |

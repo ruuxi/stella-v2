@@ -7,4 +7,5 @@ export type ParsedAgent = {
   toolsAllowlist?: string[];
   model?: string;
   maxAgentDepth?: number;
+  promptSource?: "bundled";
 };

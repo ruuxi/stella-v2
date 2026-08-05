@@ -14,7 +14,10 @@ import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { STELLA_PROMPT_IDS } from "@stella/contracts/stella-prompts";
+import {
+  STELLA_PROMPT_IDS,
+  STELLA_PROMPT_RETIRED_IDS,
+} from "@stella/contracts/stella-prompts";
 import { stellaPromptEndpointFromSiteUrl } from "@stella/contracts/stella-api";
 import { buildDreamSystemPrompt } from "@stella/runtime/kernel/agent-runtime/dream-scheduler";
 import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
@@ -24,7 +27,6 @@ import {
   compactAppliedStateRecords,
   parseRemotePromptManifest,
   recordAppliedPromptManifest,
-  reconcileBundledManagerPromptFallback,
   resetPromptAppliedStateMemoryForTests,
   reconcileRemotePromptManifest,
   resolvePromptManifest,
@@ -33,10 +35,6 @@ import {
 
 const roots = new Set<string>();
 const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
-const managerMetadataDir = path.join(
-  repoRoot,
-  "packages/runtime/extensions/stella-runtime/agent-metadata",
-);
 const promptSyncBundles = new Map<string, Promise<string>>();
 const tempDir = async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "stella-prompts-"));
@@ -255,12 +253,13 @@ const manifest = (
 ): RemotePromptManifest =>
   manifestForIds(STELLA_PROMPT_IDS, publishedAt, overrides);
 
-const legacyManifest = (
+// A manifest as published by a server that has not yet dropped retired ids.
+const retiredManifest = (
   publishedAt: number,
   overrides: Record<string, string> = {},
 ): RemotePromptManifest =>
   manifestForIds(
-    STELLA_PROMPT_IDS.filter((id) => id !== "agents/manager.md"),
+    [...STELLA_PROMPT_IDS, ...STELLA_PROMPT_RETIRED_IDS],
     publishedAt,
     overrides,
   );
@@ -345,6 +344,48 @@ describe("remote prompt startup sync", () => {
     });
   });
 
+  it("uses an explicitly bundled agent prompt instead of the remote body", async () => {
+    const home = await tempDir();
+    const bundled = await createBundledAgents();
+    const bundledPrompt = `${agentFrontmatter("orchestrator").replace(
+      "---\n",
+      "---\npromptSource: bundled\n",
+    )}bundled working prompt\n`;
+    await writeFile(
+      path.join(bundled, "orchestrator.md"),
+      bundledPrompt,
+      "utf-8",
+    );
+
+    const first = manifest(1, {
+      "agents/orchestrator.md": "remote coordinator prompt\n",
+    });
+    await reconcileRemotePromptManifest(first, home, bundled);
+    await expect(
+      readFile(path.join(home, "agents/orchestrator.md"), "utf-8"),
+    ).resolves.toBe(bundledPrompt.trimEnd());
+
+    const localEdit = bundledPrompt.replace(
+      "bundled working prompt",
+      "locally customized working prompt",
+    );
+    await writeFile(
+      path.join(home, "agents/orchestrator.md"),
+      localEdit,
+      "utf-8",
+    );
+    await reconcileRemotePromptManifest(
+      manifest(2, {
+        "agents/orchestrator.md": "new remote coordinator prompt\n",
+      }),
+      home,
+      bundled,
+    );
+    await expect(
+      readFile(path.join(home, "agents/orchestrator.md"), "utf-8"),
+    ).resolves.toBe(localEdit);
+  });
+
   it("keeps bundled agent capabilities when the remote body contains frontmatter-like text", async () => {
     const home = await tempDir();
     const bundled = await createBundledAgents();
@@ -388,85 +429,37 @@ describe("remote prompt startup sync", () => {
     });
   });
 
-  it("uses fresh then cached legacy manifests and fills only their missing manager from the bundled fallback", async () => {
+  it("accepts a server still publishing a retired manager prompt and never writes it into home", async () => {
     const home = await tempDir();
     const bundled = await createBundledAgents();
-    const legacy = legacyManifest(1, {
-      "agents/general.md": "legacy general\n",
+    const published = retiredManifest(1, {
+      "agents/general.md": "remote general\n",
     });
     expect(
-      STELLA_PROMPT_IDS.filter(
-        (id) => !legacy.prompts.some((prompt) => prompt.id === id),
-      ),
-    ).toEqual(["agents/manager.md"]);
+      published.prompts.some((prompt) => prompt.id === "agents/manager.md"),
+    ).toBe(true);
 
     const fresh = await resolvePromptManifest({
       stellaDataDir: home,
       siteUrl: "https://legacy.example.test",
-      fetchImpl: async () => new Response(JSON.stringify(legacy)),
+      fetchImpl: async () => new Response(JSON.stringify(published)),
     });
-    expect(fresh).toEqual({
-      source: "fresh-remote",
-      manifest: legacy,
-      endpoint: "https://legacy.example.test/api/stella/prompts",
-    });
-    await reconcileRemotePromptManifest(legacy, home, bundled);
-    await reconcileBundledManagerPromptFallback(home, managerMetadataDir);
+    expect(fresh.source).toBe("fresh-remote");
+    expect(fresh.manifest).toEqual(published);
+    expect(parseRemotePromptManifest(fresh.manifest)).toEqual(published);
 
-    const fallbackManager = loadParsedAgentsFromDir(
-      path.join(home, "agents"),
-    ).find((agent) => agent.id === "manager");
-    const fallbackPrompt = fallbackManager?.systemPrompt ?? "";
-    expect(fallbackManager?.toolsAllowlist).toEqual([
-      "spawn_agent",
-      "send_input",
-      "pause_agent",
-    ]);
-    expect(fallbackPrompt).toMatch(/\bopen-ended\b/i);
-    expect(fallbackPrompt).toMatch(/\bcontinuity\b/i);
-    expect(fallbackPrompt).toMatch(/\bfresh independent context\b/i);
-    expect(fallbackPrompt).toMatch(/orchestrator(?:'s)? instructions/i);
-    const statusRule = fallbackPrompt
-      .split("\n")
-      .find((line) => line.includes("[Status]"));
-    expect(statusRule).toMatch(/status|update/i);
-    expect(statusRule).toMatch(/incoming|request|asks/i);
-    expect(statusRule).toMatch(/unfinished|active/i);
-    const milestoneRule = fallbackPrompt
-      .split("\n")
-      .find((line) => line.includes("[Milestone]"));
-    expect(milestoneRule).toMatch(/milestone|interim/i);
-    expect(milestoneRule).toMatch(/explicit|request/i);
-    expect(milestoneRule).toMatch(/conditional|only when/i);
-    expect(milestoneRule).toMatch(/otherwise|unsolicited|by default/i);
+    await reconcileRemotePromptManifest(published, home, bundled);
+    expect(
+      loadParsedAgentsFromDir(path.join(home, "agents")).map(
+        (agent) => agent.id,
+      ),
+    ).not.toContain("manager");
+    await expect(
+      readFile(path.join(home, "agents/manager.md"), "utf-8"),
+    ).rejects.toThrow();
     await expect(
       readFile(path.join(home, "agents/general.md"), "utf-8"),
-    ).resolves.toBe(`${agentFrontmatter("general")}legacy general\n`);
-
-    const cached = await resolvePromptManifest({
-      stellaDataDir: home,
-      fetchImpl: async () => {
-        throw new Error("offline");
-      },
-    });
-    expect(cached).toEqual({
-      source: "cached-remote",
-      manifest: legacy,
-      endpoint: "https://legacy.example.test/api/stella/prompts",
-    });
-
-    const current = manifest(2, { "agents/manager.md": "remote manager\n" });
-    await reconcileRemotePromptManifest(current, home, managerMetadataDir);
-    await reconcileBundledManagerPromptFallback(home, managerMetadataDir);
-    const remoteManager = loadParsedAgentsFromDir(
-      path.join(home, "agents"),
-    ).find((agent) => agent.id === "manager");
-    expect(remoteManager?.systemPrompt).toBe("remote manager");
-    expect(remoteManager?.toolsAllowlist).toEqual([
-      "spawn_agent",
-      "send_input",
-      "pause_agent",
-    ]);
+    ).resolves.toBe(`${agentFrontmatter("general")}remote general\n`);
   });
 
   it("applies a validated fresh manifest even when cache persistence fails", async () => {
@@ -944,11 +937,13 @@ describe("remote prompt startup sync", () => {
     });
   });
 
-  it("accepts the legacy manifest without manager but rejects any other missing entry", () => {
+  it("accepts a retired entry idempotently but rejects any missing canonical entry", () => {
     const valid = manifest(1);
     expect(parseRemotePromptManifest(valid)).toEqual(valid);
-    const legacy = legacyManifest(1);
-    expect(parseRemotePromptManifest(legacy)).toEqual(legacy);
+    const withRetired = retiredManifest(1);
+    const parsed = parseRemotePromptManifest(withRetired);
+    expect(parsed).toEqual(withRetired);
+    expect(parseRemotePromptManifest(parsed)).toEqual(withRetired);
     expect(
       parseRemotePromptManifest({ ...valid, prompts: valid.prompts.slice(1) }),
     ).toBeNull();

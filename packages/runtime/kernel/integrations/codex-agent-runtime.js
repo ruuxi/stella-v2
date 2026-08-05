@@ -8,6 +8,7 @@ import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { setupEnvironment } from "dugite";
+import { DEFAULT_CODEX_SERVICE_TIER } from "@stella/contracts/agent-engine";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { redactSensitiveText } from "@stella/contracts/sensitive-data";
 import { executeToolWithInactivityBound } from "./tool-inactivity.js";

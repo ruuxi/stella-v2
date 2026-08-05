@@ -21,7 +21,12 @@ import type {
   ShellRecord,
   ToolUpdateCallback,
 } from "./types.js";
-import { MAX_OUTPUT, truncate } from "./utils.js";
+import { truncate } from "./utils.js";
+import { getTerminalRecoveryHint } from "./terminal-hints.js";
+import {
+  HeadTailOutputBuffer,
+  RAW_SHELL_OUTPUT_MAX_BYTES,
+} from "./head-tail-output-buffer.js";
 import { resolveBundledRuntimeFile } from "../shared/runtime-paths.js";
 import { isDangerousCommand } from "./command-safety.js";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";

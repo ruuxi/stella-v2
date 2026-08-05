@@ -143,21 +143,7 @@ const toRuntimeMessage = (payload) => {
         return payload;
     }
     if (payload.role === "assistant") {
-        const trimmedContent = [];
-        for (const block of payload.content) {
-            if (block.type !== "text") {
-                trimmedContent.push(block);
-                continue;
-            }
-            const trimmed = block.text.trim();
-            if (trimmed) {
-                trimmedContent.push({ ...block, text: trimmed });
-            }
-        }
-        return {
-            ...payload,
-            content: trimmedContent,
-        };
+        return payload;
     }
     return payload;
 };

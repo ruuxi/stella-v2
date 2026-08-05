@@ -135,12 +135,13 @@ const buildOtherThreadsResult = (threads, currentThreadId) => threads
     last_active: formatRuntimeThreadAge(runtimeThreadLastActiveAt(thread)),
     ...(thread.description ? { description: thread.description } : {}),
 }));
-export const createStateContext = (stateRoot, agentApi, validateSpawnModel, validateSpawnModelWithMetadata) => ({
+export const createStateContext = (stateRoot, agentApi, validateSpawnModel, validateSpawnModelWithMetadata, captureSpawnModelConfig) => ({
     stateRoot,
     tasks: new Map(),
     agentApi,
     validateSpawnModel,
     validateSpawnModelWithMetadata,
+    captureSpawnModelConfig,
 });
 export const handleSendInput = async (ctx, args, context) => {
     const threadId = toOptionalString(args.thread_id) ?? toOptionalString(context.agentId);
@@ -302,6 +303,30 @@ export const handleSpawnAgent = async (ctx, args, context) => {
             promptPreview: prompt.slice(0, 160),
             rootRunId: context.rootRunId,
         });
+        let capturedModelConfig;
+        if (ctx.captureSpawnModelConfig &&
+            (modelSelection.kind !== "default" ||
+                context.agentType === AGENT_IDS.ORCHESTRATOR)) {
+            try {
+                capturedModelConfig = await ctx.captureSpawnModelConfig({
+                    agentType,
+                    spawnEngine: modelSelection.kind === "model"
+                        ? { engine: "default" }
+                        : modelSelection.kind === "engine"
+                            ? modelSelection.engine
+                            : { engine: "default" },
+                    ...(modelSelection.kind === "model"
+                        ? { model: modelSelection.model }
+                        : {}),
+                    ...(modelSelection.reasoningEffort
+                        ? { spawnReasoningEffort: modelSelection.reasoningEffort }
+                        : {}),
+                });
+            }
+            catch (error) {
+                return { error: error.message };
+            }
+        }
         let created;
         try {
             created = await ctx.agentApi.createAgent({
@@ -321,6 +346,11 @@ export const handleSpawnAgent = async (ctx, args, context) => {
                 ...(modelSelection.reasoningEffort
                     ? { spawnReasoningEffort: modelSelection.reasoningEffort }
                     : {}),
+                ...(capturedModelConfig
+                    ? { modelConfigSnapshot: capturedModelConfig }
+                    : modelSelection.kind === "default" && context.modelConfigSnapshot
+                        ? { modelConfigSnapshot: context.modelConfigSnapshot }
+                        : {}),
                 rootRunId: context.rootRunId,
                 agentDepth: nextAgentDepth,
                 ...(typeof maxAgentDepth === "number" ? { maxAgentDepth } : {}),

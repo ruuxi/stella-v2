@@ -2,6 +2,7 @@ import path from "node:path";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  createPiTools,
   extractAttachImageBlocks,
   truncateModelVisibleToolText,
 } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
@@ -334,5 +335,40 @@ describe("truncateModelVisibleToolText", () => {
     expect(result.text).toContain("Total output lines: 2");
     expect(result.text.startsWith("a")).toBe(true);
     expect(result.text.endsWith("b")).toBe(true);
+  });
+});
+
+describe("native tool-result persistence boundary", () => {
+  it("truncates tool text once before it enters durable history", async () => {
+    const rawText = `HEAD-${"x".repeat(40_000)}-TAIL`;
+    const [tool] = createPiTools({
+      runId: "run-raw-tool-output",
+      rootRunId: "run-raw-tool-output",
+      conversationId: "conversation-1",
+      agentType: "general",
+      deviceId: "device-1",
+      stellaAppDir: "/tmp/stella",
+      stellaDataDir: "/tmp/stella",
+      agentDepth: 1,
+      toolCatalog: [
+        {
+          name: "Read",
+          description: "Read a file",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      store: {} as never,
+      toolExecutor: async () => ({ result: rawText }),
+    });
+
+    const result = await tool!.execute("call-1", {}, undefined, undefined);
+    const text = result.content[0];
+    const persistedText = text?.type === "text" ? text.text : "";
+
+    expect(persistedText).not.toBe(rawText);
+    expect(persistedText.length).toBeLessThanOrEqual(30_000);
+    expect(persistedText).toContain("Tool output truncated");
+    expect(persistedText.startsWith("HEAD-")).toBe(true);
+    expect(persistedText.endsWith("-TAIL")).toBe(true);
   });
 });

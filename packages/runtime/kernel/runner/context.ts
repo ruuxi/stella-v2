@@ -506,6 +506,32 @@ export const createRunnerContext = ({
         reasoningEffort,
       );
     },
+    captureSpawnModelConfig: async ({
+      agentType,
+      spawnEngine,
+      model: spawnModel,
+      spawnReasoningEffort,
+    }) => {
+      const agent = resolveAgent(context, agentType);
+      const configuredModel =
+        spawnModel ?? getConfiguredModel(context, agentType, agent);
+      const reasoningEffort =
+        spawnReasoningEffort ?? getReasoningEffort(stellaDataDir, agentType);
+      const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
+        context,
+        agentType,
+        configuredModel,
+        spawnReasoningEffort,
+      );
+      return captureEffectiveModelConfig({
+        stellaDataDir,
+        engine: spawnEngine.engine,
+        configuredModel,
+        engineModelOverride: spawnEngine.model,
+        resolvedLlm,
+        reasoningEffort,
+      });
+    },
     scheduleApi,
 
     fashionApi: resolvedFashionApi,

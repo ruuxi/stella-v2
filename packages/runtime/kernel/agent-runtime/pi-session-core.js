@@ -38,12 +38,27 @@ export class PiSessionCore {
      */
     abortContainment = new ProviderAbortContainment();
     threadKey;
+    promptCacheKey;
     constructor(opts) {
         this.threadKey = opts.threadKey;
+        this.promptCacheKey = opts.promptCacheKey;
         this.logger = createRuntimeLogger(opts.loggerName);
     }
     get hasAgent() {
         return this.agent !== null;
+    }
+    get canSteerLiveAgent() {
+        return this.agent?.state.isStreaming === true;
+    }
+    /**
+     * Inject a user message into an actively streaming Pi agent. The agent loop
+     * consumes it at the next safe boundary without aborting the provider.
+     */
+    steerLiveAgent(message) {
+        if (!this.canSteerLiveAgent || !this.agent)
+            return false;
+        this.agent.steer(message);
+        return true;
     }
     /**
      * Flag that SQLite compaction wrote a new overlay. The next turn swaps the
@@ -263,6 +278,7 @@ export class PiSessionCore {
                 tools: args.tools,
                 historySource,
                 cacheSessionId: this.threadKey,
+                promptCacheKey: this.promptCacheKey,
                 ...(serviceTier ? { serviceTier } : {}),
                 ...(args.afterToolCall ? { afterToolCall: args.afterToolCall } : {}),
                 ...(args.onProviderRetry

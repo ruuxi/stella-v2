@@ -12,7 +12,7 @@ import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-ca
 import { useClaudeCodeModelCatalog } from "@/global/settings/hooks/use-claude-code-model-catalog";
 import { BrandIcon } from "@/ui/brand-icon";
 import { useEdgeFadeRef } from "@/shared/hooks/use-edge-fade";
-import { compareProviderRailOrder, getLlmProviderEntry, } from "@/global/settings/lib/llm-providers";
+import { compareProviderRailOrder, getLlmProviderEntry, LLM_PROVIDERS, } from "@/global/settings/lib/llm-providers";
 import { getStellaDisplayName } from "@/global/settings/lib/model-catalog";
 import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getDefaultModelOptionLabel, getModelDisplayLabel, getLocalModelDefaults, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
 import { getPlanLabel, isRestrictedModelOverrideAudience, } from "@/global/billing/audience";
@@ -395,10 +395,10 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const activeVoice = activeAgent === VOICE_TARGET;
     const activeProviderSetting = activeImage || activeVoice;
     /**
-     * Brand icon rail: one entry per catalog provider that has models, with
+     * Brand icon rail: one entry per configured or catalog provider, with
      * `openai-codex` folded into OpenAI (it's the same brand through the
-     * ChatGPT subscription). Stella, OpenAI, and Anthropic always show even
-     * with an empty catalog so their engine/connect flows stay reachable.
+     * ChatGPT subscription). Configured providers remain reachable while the
+     * runtime catalog is loading so users can connect them first.
      */
     const railBrands = useMemo(() => {
         const labels = new Map();
@@ -409,11 +409,14 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             if (!labels.has(key))
                 labels.set(key, group.providerName);
         }
-        for (const key of ["stella", "openai", "anthropic"]) {
+        for (const entry of LLM_PROVIDERS) {
+            const key = entry.key === OPENAI_CODEX_PROVIDER ? "openai" : entry.key;
             if (!labels.has(key)) {
-                labels.set(key, getLlmProviderEntry(key)?.label ?? key);
+                labels.set(key, entry.label);
             }
         }
+        if (!labels.has("stella"))
+            labels.set("stella", getLlmProviderEntry("stella")?.label ?? "Stella");
         return Array.from(labels, ([key, label]) => ({ key, label })).sort((a, b) => compareProviderRailOrder(a.key, b.key, a.label, b.label));
     }, [groups]);
     /** Saved model override for the active tab (assistant reads orchestrator

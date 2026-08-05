@@ -18,13 +18,13 @@ const PROVIDER_RAIL_PRIORITY: readonly string[] = [
   "anthropic",
   "openai",
   "openai-codex",
+  "meta",
   "xai",
+  "openrouter",
   "github-copilot",
   "google",
-  "meta",
   "kimi-coding",
   "zai",
-  "openrouter",
 ];
 
 export const compareProviderRailOrder = (
@@ -59,12 +59,6 @@ export const LLM_PROVIDERS: readonly LlmProviderEntry[] = [
   { key: "vercel-ai-gateway", label: "Vercel AI Gateway", placeholder: "..." },
   { key: "opencode", label: "OpenCode Zen", placeholder: "..." },
   { key: "github-copilot", label: "GitHub Copilot", placeholder: "OAuth only" },
-  { key: "google-gemini-cli", label: "Gemini CLI", placeholder: "OAuth only" },
-  {
-    key: "google-antigravity",
-    label: "Google Antigravity",
-    placeholder: "OAuth only",
-  },
 ];
 
 /**

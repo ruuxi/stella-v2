@@ -61,9 +61,21 @@
   color: var(--text-weak);
 }
 
-.provider-only-row-main:hover .provider-only-row-icon,
+.provider-only-row-icon svg {
+  filter: grayscale(1);
+  opacity: 0.58;
+  transition:
+    filter 120ms ease,
+    opacity 120ms ease;
+}
+
 .provider-only-row[data-selected] .provider-only-row-icon {
   color: var(--text-strong);
+}
+
+.provider-only-row[data-selected] .provider-only-row-icon svg {
+  filter: none;
+  opacity: 1;
 }
 
 .provider-only-row-text {

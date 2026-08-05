@@ -69,22 +69,22 @@ export const IMAGE_PROVIDER_OPTIONS = [
     {
         key: "stella",
         label: "Stella",
-        description: "Default. Uses Stella's managed image service; local references require per-generation upload consent.",
+        description: "Included with Stella.",
     },
     {
         key: "openai",
         label: "OpenAI",
-        description: "Uses your key. References go directly from this device to OpenAI; an ambiguous lost response is reported as unknown and is never blindly retried.",
+        description: "Use your own OpenAI API key.",
     },
     {
         key: "openrouter",
         label: "OpenRouter",
-        description: "Uses your key. References go directly from this device to OpenRouter; an ambiguous lost response is reported as unknown and is never blindly retried.",
+        description: "Use your own OpenRouter API key.",
     },
     {
         key: "fal",
         label: "fal",
-        description: "Uses your key. References go directly from this device to fal; an ambiguous lost response is reported as unknown and is never blindly retried.",
+        description: "Use your own fal API key.",
     },
 ];
 const VOICE_PROVIDER_OPTIONS = [

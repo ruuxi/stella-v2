@@ -74,6 +74,8 @@ export const isConversationTabTitleOverflowing = (
 export const shouldRenderConversationHomeLauncher = (tabCount: number) =>
   tabCount === 1;
 
+export const shouldRenderNewChatLabel = (tabCount: number) => tabCount <= 1;
+
 export const resolveHistoryDeleteActivation = (
   armedConversationId: string | null,
   conversationId: string,
@@ -175,6 +177,7 @@ type ConversationTabPointerDrag = {
 export function ConversationTopBar() {
   const router = useRouter();
   const { tabs } = useConversationTabs();
+  const showNewChatLabel = shouldRenderNewChatLabel(tabs.length);
   const activeConversationId = useRouterState({
     select: (state) =>
       state.location.pathname === "/chat"
@@ -982,15 +985,20 @@ export function ConversationTopBar() {
       <button
         type="button"
         className="shell-topbar-icon-btn conversation-topbar__plus"
+        data-compact={!showNewChatLabel ? "true" : undefined}
         onClick={() => void createConversation()}
-        aria-label="New conversation"
-        title="New conversation"
+        aria-label="New chat"
+        title="New chat"
       >
         <Plus
           className="conversation-topbar__control-icon"
           size={16}
           strokeWidth={1.85}
+          aria-hidden="true"
         />
+        {showNewChatLabel ? (
+          <span className="conversation-topbar__new-label">New chat</span>
+        ) : null}
       </button>
     </div>
   );

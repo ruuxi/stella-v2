@@ -19,7 +19,6 @@ import { emojiPacksSchema } from "./schema/emoji_packs";
 import { userPetsSchema } from "./schema/user_pets";
 import { canvasSharesSchema } from "./schema/canvas_shares";
 import { promptsSchema } from "./schema/prompts";
-import { relayResumeSchema } from "./schema/relay_resume";
 
 export default defineSchema({
   ...conversationsSchema,
@@ -42,5 +41,4 @@ export default defineSchema({
   ...userPetsSchema,
   ...canvasSharesSchema,
   ...promptsSchema,
-  ...relayResumeSchema,
 });

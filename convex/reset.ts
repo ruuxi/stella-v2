@@ -109,36 +109,6 @@ export const resetAllUserData = action({
           hasMore = result.hasMore;
         }
       }),
-      (async () => {
-        // Gate first: while the purge gate is open no relay resume rows can
-        // be created for this owner, so the drain cannot race with in-flight
-        // relay streams re-buffering response plaintext after we finish.
-        await ctx.runMutation(
-          internal.stella_provider.relay_resume_store
-            .beginOwnerRelayResumePurge,
-          { ownerId, nowMs: Date.now() },
-        );
-        const drain = async () => {
-          let hasMore = true;
-          while (hasMore) {
-            const result: { hasMore: boolean } = await ctx.runMutation(
-              internal.stella_provider.relay_resume_store
-                .deleteOwnerRelayResumeBatch,
-              { ownerId, nowMs: Date.now() },
-            );
-            hasMore = result.hasMore;
-          }
-        };
-        await drain();
-        // Final pass after active relay work has been rejected by the gate.
-        await drain();
-        // Reset keeps the account: lift the gate so relay resume works again.
-        await ctx.runMutation(
-          internal.stella_provider.relay_resume_store
-            .finishOwnerRelayResumePurge,
-          { ownerId },
-        );
-      })(),
     ]);
 
     return null;

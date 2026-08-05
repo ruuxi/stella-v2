@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
-import { beforeAll, describe, expect, it } from "vitest";
-import { api } from "./_generated/api";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -73,6 +73,76 @@ describe("billing subscription status", () => {
         monthlyLimitUsd: 1,
       },
       usagePolicy: { kind: "managed_cost" },
+    });
+  });
+});
+
+describe("managed model billing", () => {
+  it("meters a dated route using the synced undated family price", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("billing_model_prices", {
+        model: "accounts/fireworks/models/deepseek-v4-flash",
+        source: "models.dev",
+        sourceProvider: "fireworks-ai",
+        sourceModelId: "accounts/fireworks/models/deepseek-v4-flash",
+        inputPerMillionUsd: 0.14,
+        outputPerMillionUsd: 0.28,
+        cacheReadPerMillionUsd: 0.028,
+        cacheWritePerMillionUsd: 0,
+        reasoningPerMillionUsd: 0,
+        modalitiesInput: ["text"],
+        modalitiesOutput: ["text"],
+        sourceUpdatedAt: "2026-06-16",
+        syncedAt: 1,
+      });
+    });
+
+    const result = await t.mutation(internal.billing.logManagedUsage, {
+      ownerId: "billing-test-owner",
+      agentType: "proxy:orchestrator",
+      model: "accounts/fireworks/models/deepseek-v4-flash-0731",
+      durationMs: 100,
+      success: true,
+      inputTokens: 1_000_000,
+      cachedInputTokens: 500_000,
+      outputTokens: 1_000_000,
+    });
+
+    // $0.07 uncached input + $0.014 cached input + $0.28 output.
+    expect(result.costMicroCents).toBe(36_400_000);
+  });
+
+  it("persists resolved prices before reporting an incomplete sync", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const t = convexTest(schema, modules);
+
+    try {
+      await expect(
+        t.action(internal.billing.syncManagedModelPricesFromModelsDev, {}),
+      ).rejects.toThrow(/models\.dev is missing prices/u);
+    } finally {
+      fetchMock.mockRestore();
+    }
+
+    const staticRow = await t.run(async (ctx) =>
+      ctx.db
+        .query("billing_model_prices")
+        .withIndex("by_model", (q) => q.eq("model", "openai/gpt-5.6-luna"))
+        .unique(),
+    );
+    expect(staticRow).toMatchObject({
+      model: "openai/gpt-5.6-luna",
+      source: "static",
+      inputPerMillionUsd: 1,
+      outputPerMillionUsd: 6,
     });
   });
 });

@@ -118,10 +118,14 @@ describe("Stella prompt defaults", () => {
     expect(agentPrompts).toContain("Vite + React");
 
     const tools = orchestrator!.match(/# Tools\n([\s\S]*?)\n# Skills/)?.[1];
-    expect(tools).toContain("**`exec_command`**");
-    expect(tools).toMatch(/one command, or at most two tightly related commands/);
-    expect(tools).toMatch(/Do not chain commands merely to fit within this limit/);
-    expect(tools).toMatch(/interactive or persistent process.*General agent/s);
+    expect(tools).not.toContain("**`exec_command`**");
+    expect(tools).not.toMatch(/one command, or at most two tightly related commands/);
+    expect(tools).not.toMatch(/Do not chain commands merely to fit within this limit/);
+    expect(tools).not.toMatch(/interactive or persistent process.*General agent/s);
+    expect(tools).toMatch(/Never issue the same tool call twice/);
+    expect(tools).toMatch(/pass a specific `prompt`/);
+    expect(orchestrator).toMatch(/work must stay separate.*do not send any part/s);
+    expect(orchestrator).not.toContain("cannot start a fresh chat");
   });
 
   it("no longer publishes the retired Manager prompt", () => {

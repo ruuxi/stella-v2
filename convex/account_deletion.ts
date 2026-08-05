@@ -982,32 +982,6 @@ export const purgeOwnerCloudData = internalAction({
       ...MOBILE_TABLES.map((table) => drainMobileTable(ctx, ownerId, table)),
       ...EXTRA_TABLES.map((table) => drainExtraTable(ctx, ownerId, table)),
       (async () => {
-        // Gate first: while the purge gate is open no relay resume rows can
-        // be created for this owner, so deletion cannot race with in-flight
-        // relay streams re-buffering response plaintext after it returns.
-        await ctx.runMutation(
-          internal.stella_provider.relay_resume_store
-            .beginOwnerRelayResumePurge,
-          { ownerId, nowMs: Date.now() },
-        );
-        const drain = async () => {
-          let hasMore = true;
-          while (hasMore) {
-            const result: { hasMore: boolean } = await ctx.runMutation(
-              internal.stella_provider.relay_resume_store
-                .deleteOwnerRelayResumeBatch,
-              { ownerId, nowMs: Date.now() },
-            );
-            hasMore = result.hasMore;
-          }
-        };
-        await drain();
-        // Final pass after active relay work has been rejected by the gate.
-        // The gate itself stays in place for still-valid tokens; the cleanup
-        // sweep removes it after its TTL.
-        await drain();
-      })(),
-      (async () => {
         let hasMore = true;
         while (hasMore) {
           const result: { hasMore: boolean } = await ctx.runMutation(

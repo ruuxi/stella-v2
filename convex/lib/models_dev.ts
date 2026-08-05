@@ -65,6 +65,38 @@ const MODELS_DEV_ALIASES: Record<string, string[]> = {
     "vercel/anthropic/claude-opus-4.5",
     "anthropic/claude-opus-4-5",
   ],
+  // Stella routes xAI as `x-ai`, while models.dev's first-party provider
+  // namespace is `xai` (and Vercel nests the same id under its provider).
+  "x-ai/grok-4.5": [
+    "xai/grok-4.5",
+    "vercel/xai/grok-4.5",
+  ],
+};
+
+const stripSnapshotSuffix = (model: string): string | null => {
+  const withoutIsoDate = model.replace(/-\d{4}-\d{2}-\d{2}$/u, "");
+  if (withoutIsoDate !== model) return withoutIsoDate;
+
+  // Some providers publish MMDD snapshots (for example DeepSeek V4 Flash
+  // 0731) while keeping pricing on the undated family id.
+  const withoutMonthDay = model.replace(/-\d{4}$/u, "");
+  return withoutMonthDay !== model ? withoutMonthDay : null;
+};
+
+/**
+ * Ordered model ids that may share a billing price. Exact ids always win;
+ * dated provider snapshots can fall back to the corresponding family price.
+ */
+export const listManagedModelPriceLookupCandidates = (
+  model: string,
+): string[] => {
+  const normalized = model.trim();
+  if (!normalized) return [];
+
+  const candidates = [normalized];
+  const snapshotBase = stripSnapshotSuffix(normalized);
+  if (snapshotBase) candidates.push(snapshotBase);
+  return Array.from(new Set(candidates));
 };
 
 const parseCandidatePath = (value: string) => {
@@ -83,27 +115,38 @@ const resolveModelsDevModel = (
   data: ModelsDevApi,
   model: string,
 ): ResolvedModelsDevModel | null => {
-  const direct = parseCandidatePath(model);
-  const candidates = [
-    `vercel/${model}`,
-    model,
-    ...(MODELS_DEV_ALIASES[model] ?? []),
-  ];
+  const candidates: string[] = [];
+  for (const lookupModel of listManagedModelPriceLookupCandidates(model)) {
+    const direct = parseCandidatePath(lookupModel);
+    candidates.push(
+      `vercel/${lookupModel}`,
+      lookupModel,
+      ...(MODELS_DEV_ALIASES[lookupModel] ?? []),
+    );
 
-  // models.dev uses provider "fireworks-ai" with full IDs (e.g. accounts/fireworks/routers/…)
-  // as keys; a naive split on the first "/" looks under data.accounts instead.
-  if (model.startsWith("accounts/fireworks/")) {
-    candidates.push(`fireworks-ai/${model}`);
-  }
+    // models.dev uses provider "fireworks-ai" with full IDs (e.g.
+    // accounts/fireworks/routers/…) as keys; a naive split on the first "/"
+    // looks under data.accounts instead.
+    if (lookupModel.startsWith("accounts/fireworks/")) {
+      candidates.push(`fireworks-ai/${lookupModel}`);
+    }
 
-  if (direct) {
-    candidates.push(`${direct.provider}/${direct.modelId.replace(/\./g, "-")}`);
-    if (direct.provider === "accounts" && direct.modelId.startsWith("fireworks/models/")) {
-      candidates.push(`fireworks/${direct.modelId.slice("fireworks/models/".length)}`);
+    if (direct) {
+      candidates.push(
+        `${direct.provider}/${direct.modelId.replace(/\./g, "-")}`,
+      );
+      if (
+        direct.provider === "accounts" &&
+        direct.modelId.startsWith("fireworks/models/")
+      ) {
+        candidates.push(
+          `fireworks/${direct.modelId.slice("fireworks/models/".length)}`,
+        );
+      }
     }
   }
 
-  for (const candidate of candidates) {
+  for (const candidate of new Set(candidates)) {
     const parsed = parseCandidatePath(candidate);
     if (!parsed) {
       continue;

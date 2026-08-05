@@ -312,7 +312,7 @@ function buildParams(
       model.compat?.supportsLongCacheRetention === false
         ? undefined
         : getPromptCacheRetention(model.baseUrl, cacheRetention),
-    store: false,
+    store: true,
   };
 
   if (options?.maxTokens) {

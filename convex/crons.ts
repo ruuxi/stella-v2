@@ -22,12 +22,6 @@ crons.interval(
   { maxBatches: 10 },
 );
 crons.interval(
-  "stella relay resume cleanup",
-  { minutes: 1 },
-  internal.stella_provider.relay_resume_store.drainExpiredRelayResumeStreams,
-  {},
-);
-crons.interval(
   "transient cleanup failure retention sweep",
   { hours: 12 },
   internal.channels.transient_data.purgeExpiredCleanupFailures,

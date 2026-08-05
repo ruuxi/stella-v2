@@ -7,6 +7,7 @@ import {
   internalQuery,
   query,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -34,6 +35,7 @@ import {
 } from "./lib/billing_money";
 import {
   buildManagedModelPriceEntries,
+  listManagedModelPriceLookupCandidates,
   type ManagedModelPriceEntry,
   type ModelsDevApi,
 } from "./lib/models_dev";
@@ -590,11 +592,19 @@ export type ManagedUsageRecordArgs = {
   toolCalls?: number;
 };
 
-const getManagedModelPriceRow = async (ctx: MutationCtx, model: string) =>
-  await ctx.db
-    .query("billing_model_prices")
-    .withIndex("by_model", (q) => q.eq("model", model))
-    .unique();
+const getManagedModelPriceRow = async (
+  ctx: Pick<QueryCtx, "db">,
+  model: string,
+) => {
+  for (const candidate of listManagedModelPriceLookupCandidates(model)) {
+    const row = await ctx.db
+      .query("billing_model_prices")
+      .withIndex("by_model", (q) => q.eq("model", candidate))
+      .unique();
+    if (row) return row;
+  }
+  return null;
+};
 
 const toTokenPriceConfig = (
   row: {
@@ -1973,11 +1983,27 @@ export const getManagedModelPrice = internalQuery({
   args: {
     model: v.string(),
   },
-  handler: async (ctx, args) =>
-    await ctx.db
-      .query("billing_model_prices")
-      .withIndex("by_model", (q) => q.eq("model", args.model))
-      .unique(),
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("billing_model_prices"),
+      _creationTime: v.number(),
+      model: v.string(),
+      source: v.string(),
+      sourceProvider: v.string(),
+      sourceModelId: v.string(),
+      inputPerMillionUsd: v.number(),
+      outputPerMillionUsd: v.number(),
+      cacheReadPerMillionUsd: v.number(),
+      cacheWritePerMillionUsd: v.number(),
+      reasoningPerMillionUsd: v.number(),
+      modalitiesInput: v.optional(v.array(v.string())),
+      modalitiesOutput: v.optional(v.array(v.string())),
+      sourceUpdatedAt: v.string(),
+      syncedAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => await getManagedModelPriceRow(ctx, args.model),
 });
 
 export const upsertManagedModelPrices = internalMutation({
@@ -2028,6 +2054,11 @@ export const upsertManagedModelPrices = internalMutation({
 
 export const syncManagedModelPricesFromModelsDev = internalAction({
   args: {},
+  returns: v.object({
+    syncedAt: v.number(),
+    upserted: v.number(),
+    source: v.string(),
+  }),
   handler: async (
     ctx,
   ): Promise<{ syncedAt: number; upserted: number; source: string }> => {
@@ -2047,19 +2078,22 @@ export const syncManagedModelPricesFromModelsDev = internalAction({
       syncedAt,
     });
 
+    // Persist every resolved row before surfacing an incomplete catalog. A
+    // newly added model should not prevent unrelated current prices from
+    // refreshing for another 24-hour cron cycle.
+    const upserted: { upserted: number } =
+      entries.length > 0
+        ? await ctx.runMutation(internal.billing.upsertManagedModelPrices, {
+            prices: entries as ManagedModelPriceEntry[] as never,
+          })
+        : { upserted: 0 };
+
     if (missingModels.length > 0) {
       throw new ConvexError({
         code: "MODEL_PRICE_SYNC_INCOMPLETE",
         message: `models.dev is missing prices for: ${missingModels.join(", ")}`,
       });
     }
-
-    const upserted: { upserted: number } = await ctx.runMutation(
-      internal.billing.upsertManagedModelPrices,
-      {
-        prices: entries as ManagedModelPriceEntry[] as never,
-      },
-    );
 
     return {
       syncedAt,

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
-import { buildManagedModelPriceEntries } from "../convex/lib/models_dev";
+import {
+  buildManagedModelPriceEntries,
+  listManagedModelPriceLookupCandidates,
+} from "../convex/lib/models_dev";
 
 describe("managed model price entries", () => {
   it("fills Muse Spark from static overrides when models.dev is empty", () => {
@@ -156,6 +159,67 @@ describe("managed model price entries", () => {
         modalitiesInput: ["text", "image"],
       }),
     ]);
+  });
+
+  it("falls a dated Fireworks snapshot back to the undated family price", () => {
+    const model = "accounts/fireworks/models/deepseek-v4-flash-0731";
+    expect(listManagedModelPriceLookupCandidates(model)).toEqual([
+      model,
+      "accounts/fireworks/models/deepseek-v4-flash",
+    ]);
+
+    const { entries, missingModels } = buildManagedModelPriceEntries({
+      data: {
+        "fireworks-ai": {
+          models: {
+            "accounts/fireworks/models/deepseek-v4-flash": {
+              id: "accounts/fireworks/models/deepseek-v4-flash",
+              cost: { input: 0.14, output: 0.28, cache_read: 0.028 },
+              last_updated: "2026-06-16",
+            },
+          },
+        },
+      },
+      modelIds: [model],
+      syncedAt: 1,
+    });
+
+    expect(missingModels).toEqual([]);
+    expect(entries[0]).toMatchObject({
+      model,
+      sourceProvider: "fireworks-ai",
+      sourceModelId: "accounts/fireworks/models/deepseek-v4-flash",
+      inputPerMillionUsd: 0.14,
+      outputPerMillionUsd: 0.28,
+      cacheReadPerMillionUsd: 0.028,
+    });
+  });
+
+  it("resolves Stella's x-ai namespace through models.dev's xai provider", () => {
+    const { entries, missingModels } = buildManagedModelPriceEntries({
+      data: {
+        xai: {
+          models: {
+            "grok-4.5": {
+              id: "grok-4.5",
+              cost: { input: 2, output: 6, cache_read: 0.2 },
+              last_updated: "2026-07-30",
+            },
+          },
+        },
+      },
+      modelIds: ["x-ai/grok-4.5"],
+      syncedAt: 1,
+    });
+
+    expect(missingModels).toEqual([]);
+    expect(entries[0]).toMatchObject({
+      model: "x-ai/grok-4.5",
+      sourceProvider: "xai",
+      sourceModelId: "grok-4.5",
+      inputPerMillionUsd: 2,
+      outputPerMillionUsd: 6,
+    });
   });
 
   it("still reports truly unknown models as missing", () => {

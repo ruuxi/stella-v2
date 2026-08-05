@@ -87,7 +87,7 @@ describe("bodyForUpstream", () => {
 
     expect(body.service_tier).toBeUndefined();
     expect(body.model).toBe("gpt-5.5");
-    expect(body.store).toBe(false);
+    expect(body.store).toBe(true);
   });
 
   it("strips legacy messages from OpenAI Responses bodies", () => {
@@ -347,7 +347,7 @@ describe("direct xAI Grok relay", () => {
     expect(body.model).toBe("grok-4.5");
     expect(body.reasoning_effort).toBeUndefined();
     expect(body.reasoning).toEqual({ effort: "high" });
-    expect(body.store).toBe(false);
+    expect(body.store).toBe(true);
   });
 });
 

@@ -1,8 +1,14 @@
+import { classifyStellaProviderError } from './stella-provider-error-classifier'
+
 const isTokenReadinessIssue = (reason: string | null): boolean => {
   if (!reason) return false
 
   const normalized = reason.toLowerCase()
-  return normalized.includes('token') || normalized.includes('auth')
+  return (
+    normalized.includes('awaiting auth token') ||
+    normalized.includes('missing auth token') ||
+    normalized.includes('auth is still syncing')
+  )
 }
 
 export const resolveAgentNotReadyToast = (
@@ -29,8 +35,12 @@ export const resolveAgentNotReadyToast = (
     }
   }
 
+  const classification = classifyStellaProviderError(reason)
   return {
-    title: 'Stella is still starting up',
-    description: 'Please try again in a moment.',
+    title: 'Stella could not start',
+    description:
+      classification.kind === 'unknown'
+        ? classification.detail
+        : reason,
   }
 }

@@ -28,7 +28,7 @@ export function WorkspaceHomeSurface({ hidden, portalTarget, }) {
     return createPortal(<aside className="workspace-home-surface" data-hidden={surfaceHidden ? "true" : "false"} data-activity-availability-changing={activityAvailabilityChanging ? "true" : undefined} aria-label="Activity" aria-hidden={surfaceHidden} inert={surfaceHidden}>
       <div className="workspace-home-surface__inner">
         <div className="workspace-home-surface__body">
-          <HomeSection />
+          <HomeSection showModels={!surfaceHidden}/>
         </div>
       </div>
     </aside>, resolvedPortalTarget);

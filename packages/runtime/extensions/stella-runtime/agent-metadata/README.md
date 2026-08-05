@@ -6,8 +6,11 @@ non-empty body. Capability-only entries use a short HTML comment as that body.
 
 `maxAgentDepth` caps how deep a spawn chain may go, and the effective limit is
 the minimum of the agent's own declared value and the one inherited from its
-parent. Orchestrator and General both declare `2`, which permits
-Orchestrator -> General -> subagent and blocks anything deeper.
+parent. The Orchestrator declares `1`: it works directly and may create
+one level of General agents. A top-level General still declares `2` for the
+standalone General -> subagent mode.
 
-Canonical prompt bodies live in the sibling `stella-backend` repository under
-`prompts/stella-runtime/` and are synchronized into `~/.stella/` at startup.
+Canonical prompt bodies normally live in the sibling `stella-backend`
+repository and synchronize into `~/.stella/`. An entry with
+`promptSource: bundled` intentionally owns its prompt in this packaged line;
+remote reconciliation keeps the bundled body while preserving local edits.

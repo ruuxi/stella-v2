@@ -20,7 +20,7 @@ const context: ToolContext = {
 };
 
 describe("node_repl tool", () => {
-  it("is General-only and retains state across tool calls", async () => {
+  it("is available to working Orchestrator and General agents and retains state across tool calls", async () => {
     const registry = new NodeReplKernelRegistry({
       sessionFactory: () => ({
         request: async () => {
@@ -32,7 +32,10 @@ describe("node_repl tool", () => {
     });
     const tool = createNodeReplTool({ registry });
     try {
-      expect(tool.agentTypes).toEqual([AGENT_IDS.GENERAL]);
+      expect(tool.agentTypes).toEqual([
+        AGENT_IDS.ORCHESTRATOR,
+        AGENT_IDS.GENERAL,
+      ]);
       expect(tool.description).toContain("bindings persist");
       expect(tool.description).toContain("fresh element IDs");
       await expect(

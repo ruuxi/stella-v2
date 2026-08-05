@@ -24,10 +24,13 @@ export const loadStellaRuntimeAgents = (
   stellaDataDir: string,
   agentMetadataDir: string | URL = bundledAgentMetadataDir(),
 ) => {
+  const metadataAgents = loadParsedAgentsFromDir(agentMetadataDir);
   const metadataById = new Map(
-    loadParsedAgentsFromDir(agentMetadataDir).map((agent) => [agent.id, agent]),
+    metadataAgents.map((agent) => [agent.id, agent]),
   );
-  return loadParsedAgentsFromDir(path.join(stellaDataDir, "agents")).map(
+  const homeAgents = loadParsedAgentsFromDir(path.join(stellaDataDir, "agents"));
+  const homeIds = new Set(homeAgents.map((agent) => agent.id));
+  const reconciled = homeAgents.map(
     (homeAgent) => {
       const metadata = metadataById.get(homeAgent.id);
       if (!metadata) return homeAgent;
@@ -47,6 +50,12 @@ export const loadStellaRuntimeAgents = (
       };
     },
   );
+  for (const metadata of metadataAgents) {
+    if (metadata.promptSource === "bundled" && !homeIds.has(metadata.id)) {
+      reconciled.push(metadata);
+    }
+  }
+  return reconciled;
 };
 
 /**

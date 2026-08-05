@@ -15,7 +15,7 @@ import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runti
 
 const executeRuntimeAgentPrompt = vi.fn();
 
-vi.mock("@stella/runtime/kernel/agent-runtime/run-execution", () => ({
+vi.mock("@stella/runtime/kernel/agent-runtime/run-execution.js", () => ({
   executeRuntimeAgentPrompt: (...args: unknown[]) =>
     executeRuntimeAgentPrompt(...args),
 }));
@@ -170,8 +170,9 @@ describe("OrchestratorSession", () => {
       "Keep this customized prompt body.",
     );
     expect(afterReload?.systemPrompt).toBe("Keep this customized prompt body.");
-    expect(beforeReload?.toolsAllowlist).not.toContain("spawn_manager");
-    expect(afterReload?.toolsAllowlist).toContain("spawn_manager");
+    expect(beforeReload?.toolsAllowlist).not.toContain("exec_command");
+    expect(afterReload?.toolsAllowlist).toContain("exec_command");
+    expect(afterReload?.toolsAllowlist).toContain("node_repl");
 
     const toolMetadata = (name: string) => ({
       name,
@@ -214,7 +215,8 @@ describe("OrchestratorSession", () => {
 
     expect(advertisedTools[0]).toEqual(originalTools);
     expect(advertisedTools[1]).toEqual(updatedTools);
-    expect(advertisedTools[1]).toContain("spawn_manager");
+    expect(advertisedTools[1]).toContain("exec_command");
+    expect(advertisedTools[1]).toContain("node_repl");
     await rm(tempRoot, { recursive: true, force: true });
   });
 
@@ -347,6 +349,89 @@ describe("SubagentSession", () => {
     expect(executionHistory).toContain(
       "Child completed during manager session creation",
     );
+  });
+
+  it("persists a live steering instruction before queueing it", async () => {
+    const session = new SubagentSession(
+      "steered-thread",
+      "conversation-1",
+      "general",
+    );
+    const appendThreadMessage = vi.fn();
+    const store = {
+      recordRunEvent: vi.fn(),
+      appendThreadMessage,
+      appendThreadCustomMessage: vi.fn(),
+      loadThreadMessages: vi.fn(() => []),
+    };
+    let markExecutionStarted!: () => void;
+    const executionStarted = new Promise<void>((resolve) => {
+      markExecutionStarted = resolve;
+    });
+    let releaseExecution!: () => void;
+    const executionGate = new Promise<void>((resolve) => {
+      releaseExecution = resolve;
+    });
+    executeRuntimeAgentPrompt.mockImplementation(async () => {
+      markExecutionStarted();
+      await executionGate;
+      return { finalText: "done" };
+    });
+
+    const turn = session.runTurn({
+      runId: "steered-run",
+      conversationId: "conversation-1",
+      userMessageId: "user-1",
+      agentId: "steered-thread",
+      agentType: "general",
+      userPrompt: "Start the task.",
+      agentContext: {
+        systemPrompt: "General prompt",
+        dynamicContext: "",
+        maxAgentDepth: 1,
+        attemptGeneration: 4,
+        threadHistory: [],
+      },
+      toolCatalog: [],
+      toolExecutor: vi.fn(async () => ({ result: "ok" })),
+      deviceId: "device-1",
+      stellaDataDir: "/tmp/stella",
+      stellaAppDir: "/tmp/stella",
+      resolvedLlm: {
+        model,
+        route: "direct-provider",
+        getApiKey: () => undefined,
+      },
+      store: store as never,
+      callbacks: {},
+      compactionScheduler: new BackgroundCompactionScheduler(),
+    } satisfies SubagentRunOptions);
+
+    await executionStarted;
+    Object.defineProperty(session, "canSteer", {
+      configurable: true,
+      get: () => true,
+    });
+    const steerLiveAgent = vi.fn(() => true);
+    Object.defineProperty(session, "steerLiveAgent", {
+      configurable: true,
+      value: steerLiveAgent,
+    });
+
+    expect(session.steer("Keep this proposal-only.")).toBe(true);
+    expect(appendThreadMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadKey: "steered-thread",
+        role: "user",
+        content: "Keep this proposal-only.",
+      }),
+    );
+    expect(steerLiveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "user" }),
+    );
+
+    releaseExecution();
+    await turn;
   });
 });
 

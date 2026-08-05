@@ -84,20 +84,20 @@ describe("Stella prompt defaults", () => {
     expect(installUpdate).not.toContain("source pack");
   });
 
-  it("preserves the orchestrator's prompt ownership, access, and briefing invariants", () => {
+  it("preserves the primary agent's app, access, and briefing invariants", () => {
     const orchestrator = STELLA_PROMPT_DEFAULTS.prompts.find(
       (prompt) => prompt.id === "agents/orchestrator.md",
     )?.content;
     expect(orchestrator).toBeDefined();
 
-    const selfImprovement = orchestrator!.match(
-      /# Self Improvement\n([\s\S]*?)\n# Setup and access/,
-    )?.[1];
-    expect(selfImprovement).toContain("~/.stella/");
-    expect(selfImprovement).toContain("personal customizations");
-    expect(selfImprovement).toContain("stella-backend/prompts/stella-runtime/");
-    expect(selfImprovement).toMatch(/canonical source.*system-prompt bodies/);
-    expect(selfImprovement).toMatch(/runtime\/extensions.*metadata/);
+    expect(orchestrator).toContain(
+      "Complete requests directly with your own tools.",
+    );
+    expect(orchestrator).toContain("stella.app.json");
+    expect(orchestrator).toContain("not a modification of Stella's packaged source");
+    expect(orchestrator).not.toContain("# Self Improvement");
+    expect(orchestrator).not.toContain("self-modifying");
+    expect(orchestrator).not.toContain("Apply Stella update");
 
     const setup = orchestrator!.match(
       /# Setup and access\n([\s\S]*?)\n# Agent Prompts/,

@@ -242,7 +242,7 @@ describe("resolveRequestedStellaModel", () => {
     expect(resolved.resolvedModel).toBe(
       getModelConfig("orchestrator", "pro").model,
     );
-    expect(resolved.config.managedGatewayProvider).toBe("xai");
+    expect(resolved.config.managedGatewayProvider).toBe("fireworks");
     expect(resolved.config.fallback).toBeUndefined();
   });
 

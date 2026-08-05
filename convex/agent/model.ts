@@ -294,36 +294,32 @@ const AUDIENCE_MODE_OVERRIDES: Record<
 // agents that share the underlying modes. Values are a mode or an internal
 // model config key.
 //
-// Pro-and-higher audiences run the orchestrator and general agent on Standard.
-// Anonymous, signed-in free, and Go users keep the orchestrator on Standard
-// while the General agent uses Light (DeepSeek V4 Flash).
-const STANDARD_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
-  [AGENT_IDS.ORCHESTRATOR]: "standard",
-  [AGENT_IDS.GENERAL]: "standard",
-};
-
-const LIGHT_GENERAL_AGENT_OVERRIDES: Partial<
+// The primary Stella agent now works directly for the user, with optional
+// General agents for delegated background work. Both default to Light
+// (DeepSeek V4 Flash 0731) for every audience; Standard remains an explicit
+// selectable mode rather than the implicit default.
+const DEFAULT_AGENT_OVERRIDES: Partial<
   Record<string, TaskModelSelection>
 > = {
-  [AGENT_IDS.ORCHESTRATOR]: "standard",
+  [AGENT_IDS.ORCHESTRATOR]: "light",
   [AGENT_IDS.GENERAL]: "light",
 };
 
 const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
   Record<ManagedModelAudience, Partial<Record<string, TaskModelSelection>>>
 > = {
-  anonymous: LIGHT_GENERAL_AGENT_OVERRIDES,
-  free: LIGHT_GENERAL_AGENT_OVERRIDES,
-  go: LIGHT_GENERAL_AGENT_OVERRIDES,
-  pro: STANDARD_AGENT_OVERRIDES,
-  plus: STANDARD_AGENT_OVERRIDES,
-  ultra: STANDARD_AGENT_OVERRIDES,
-  max: STANDARD_AGENT_OVERRIDES,
-  go_fallback: LIGHT_GENERAL_AGENT_OVERRIDES,
-  pro_fallback: STANDARD_AGENT_OVERRIDES,
-  plus_fallback: STANDARD_AGENT_OVERRIDES,
-  ultra_fallback: STANDARD_AGENT_OVERRIDES,
-  max_fallback: STANDARD_AGENT_OVERRIDES,
+  anonymous: DEFAULT_AGENT_OVERRIDES,
+  free: DEFAULT_AGENT_OVERRIDES,
+  go: DEFAULT_AGENT_OVERRIDES,
+  pro: DEFAULT_AGENT_OVERRIDES,
+  plus: DEFAULT_AGENT_OVERRIDES,
+  ultra: DEFAULT_AGENT_OVERRIDES,
+  max: DEFAULT_AGENT_OVERRIDES,
+  go_fallback: DEFAULT_AGENT_OVERRIDES,
+  pro_fallback: DEFAULT_AGENT_OVERRIDES,
+  plus_fallback: DEFAULT_AGENT_OVERRIDES,
+  ultra_fallback: DEFAULT_AGENT_OVERRIDES,
+  max_fallback: DEFAULT_AGENT_OVERRIDES,
 };
 
 // Audiences that may NOT override the per-agent default model from the

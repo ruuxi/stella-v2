@@ -58,8 +58,8 @@ describe("resolveModelConfig overrides route through the override's own gateway"
   });
 
   it("ignores a mode override a restricted tier may not pick", async () => {
-    // free can't override designer → falls back to orchestrator's backend
-    // default (Grok 4.5 directly on xAI).
+    // free can't override designer → falls back to the primary agent's
+    // backend default (DeepSeek V4 Flash on Fireworks).
     const resolved = await resolveModelConfig(
       ctx,
       AGENT_IDS.ORCHESTRATOR,
@@ -69,7 +69,9 @@ describe("resolveModelConfig overrides route through the override's own gateway"
         audience: "free",
       },
     );
-    expect(resolved.model).toBe("x-ai/grok-4.5");
-    expect(resolved.managedGatewayProvider).toBe("xai");
+    expect(resolved.model).toBe(
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    );
+    expect(resolved.managedGatewayProvider).toBe("fireworks");
   });
 });

@@ -32,7 +32,7 @@ export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
 export const STELLA_MAX_MODEL = `${STELLA_PROVIDER}/max`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 4, 1, 7);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 5, 19, 15);
 
 export type StellaCatalogModel = {
   id: string;

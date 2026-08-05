@@ -60,34 +60,20 @@ describe("managed model config", () => {
     }
   });
 
-  it("routes free and Go General to DeepSeek while keeping Orchestrator on Grok", () => {
+  it("defaults the primary and General agents to DeepSeek V4 Flash", () => {
     const deepSeekLight =
       "accounts/fireworks/models/deepseek-v4-flash-0731";
 
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       expect(getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).model).toBe(
-        "x-ai/grok-4.5",
+        deepSeekLight,
       );
       expect(
         getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).managedGatewayProvider,
-      ).toBe("xai");
-      expect(
-        getModelConfig(AGENT_IDS.ORCHESTRATOR, audience).providerOptions?.openai
-          ?.reasoningEffort,
-      ).toBe("low");
+      ).toBe("fireworks");
       const general = getModelConfig(AGENT_IDS.GENERAL, audience);
-      if (
-        audience === "anonymous" ||
-        audience === "free" ||
-        audience === "go" ||
-        audience === "go_fallback"
-      ) {
-        expect(general.model).toBe(deepSeekLight);
-        expect(general.managedGatewayProvider).toBe("fireworks");
-      } else {
-        expect(general.model).toBe("x-ai/grok-4.5");
-        expect(general.managedGatewayProvider).toBe("xai");
-      }
+      expect(general.model).toBe(deepSeekLight);
+      expect(general.managedGatewayProvider).toBe("fireworks");
     }
   });
 
@@ -201,7 +187,7 @@ describe("managed model config", () => {
       defaults.find((entry) => entry.agentType === "orchestrator"),
     ).toMatchObject({
       model: "stella/default",
-      resolvedModel: "x-ai/grok-4.5",
+      resolvedModel: "accounts/fireworks/models/deepseek-v4-flash-0731",
     });
     expect(
       defaults.find((entry) => entry.agentType === "general"),

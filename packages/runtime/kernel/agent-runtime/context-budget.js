@@ -3,8 +3,7 @@ import { Buffer } from "node:buffer";
 const providerBudgets = new Map();
 const forcedCompactions = new Map();
 
-const MIN_HEADROOM_TOKENS = 32_768;
-const MAX_INPUT_FRACTION = 0.82;
+const MAX_INPUT_FRACTION = 0.7;
 const ESTIMATED_BYTES_PER_TOKEN = 3;
 const ESTIMATED_IMAGE_TOKENS = 2_000;
 const EXACT_INSPECTION_FRACTION = 0.75;
@@ -117,10 +116,7 @@ export const preflightProviderPayload = (threadKey, payload, model) => {
 
   const inputBudget = Math.max(
     8_000,
-    Math.min(
-      Math.floor(contextWindow * MAX_INPUT_FRACTION),
-      contextWindow - MIN_HEADROOM_TOKENS,
-    ),
+    Math.floor(contextWindow * MAX_INPUT_FRACTION),
   );
   const estimatedTokens = estimatePayloadTokens(payload, inputBudget);
   if (estimatedTokens < inputBudget) return;

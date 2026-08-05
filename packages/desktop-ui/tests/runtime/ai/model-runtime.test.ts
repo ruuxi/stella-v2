@@ -289,9 +289,7 @@ describe("ModelRuntime", () => {
       credentialless: true,
     });
     expect(runtime.allowsCredentiallessRouting("xai")).toBe(false);
-    expect(runtime.allowsCredentiallessRouting("unknown-provider")).toBe(
-      false,
-    );
+    expect(runtime.allowsCredentiallessRouting("unknown-provider")).toBe(false);
   });
 
   it("does not treat authHeader providers without a key as credentialless", async () => {
@@ -920,6 +918,109 @@ describe("ModelRuntime", () => {
     }
   });
 
+  it("discovers, persists, and restores the remote-only Fireworks catalog", async () => {
+    const stellaDataDir = await makeTempDir();
+    const originalFetch = globalThis.fetch;
+    const fireworksModel = {
+      id: "accounts/fireworks/models/deepseek-v4-flash-0731",
+      name: "DeepSeek V4 Flash 0731",
+      provider: "fireworks",
+      api: "anthropic-messages",
+      baseUrl: "https://api.fireworks.ai/inference",
+      reasoning: true,
+      input: ["text"],
+      cost: { input: 0.14, output: 0.28, cacheRead: 0.028, cacheWrite: 0 },
+      contextWindow: 1_000_000,
+      maxTokens: 384_000,
+    };
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith("/fireworks")) {
+        return new Response(JSON.stringify({ models: [fireworksModel] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: true });
+      expect(runtime.getModel("fireworks", fireworksModel.id)).toMatchObject({
+        contextWindow: 1_000_000,
+        maxTokens: 384_000,
+      });
+
+      const stored = JSON.parse(
+        await readFile(path.join(stellaDataDir, "models-store.json"), "utf8"),
+      ) as { fireworks?: { models?: Array<{ id?: string }> } };
+      expect(stored.fireworks?.models).toEqual([
+        expect.objectContaining({ id: fireworksModel.id }),
+      ]);
+
+      const restored = new ModelRuntime();
+      await restored.initialize({ stellaDataDir, allowNetwork: false });
+      expect(restored.getModel("fireworks", fireworksModel.id)).toMatchObject({
+        contextWindow: 1_000_000,
+        maxTokens: 384_000,
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("coalesces a cold targeted provider lookup and then serves it from cache", async () => {
+    const stellaDataDir = await makeTempDir();
+    const runtime = new ModelRuntime();
+    await runtime.initialize({ stellaDataDir, allowNetwork: false });
+    const originalFetch = globalThis.fetch;
+    const modelId = "accounts/fireworks/models/deepseek-v4-flash-0731";
+    let requests = 0;
+    globalThis.fetch = (async (input) => {
+      expect(String(input)).toMatch(/\/fireworks$/u);
+      requests += 1;
+      return new Response(
+        JSON.stringify({
+          models: [
+            {
+              id: modelId,
+              name: "DeepSeek V4 Flash 0731",
+              provider: "fireworks",
+              api: "anthropic-messages",
+              baseUrl: "https://api.fireworks.ai/inference",
+              reasoning: true,
+              input: ["text"],
+              cost: {
+                input: 0.14,
+                output: 0.28,
+                cacheRead: 0.028,
+                cacheWrite: 0,
+              },
+              contextWindow: 1_000_000,
+              maxTokens: 384_000,
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const [first, second] = await Promise.all([
+        runtime.ensureProviderModel("fireworks", [modelId]),
+        runtime.ensureProviderModel("fireworks", [modelId]),
+      ]);
+      const third = await runtime.ensureProviderModel("fireworks", [modelId]);
+
+      expect(requests).toBe(1);
+      expect(first?.contextWindow).toBe(1_000_000);
+      expect(second?.contextWindow).toBe(1_000_000);
+      expect(third?.contextWindow).toBe(1_000_000);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("forces a fresh pi.dev request at explicit refresh boundaries", async () => {
     const stellaDataDir = await makeTempDir();
     const runtime = new ModelRuntime();
@@ -1045,9 +1146,7 @@ describe("ModelRuntime", () => {
         forceRefresh: true,
       });
       expect(snapshot.refreshedAt).not.toBeNull();
-      expect(snapshot.catalogError).toMatch(
-        /xai: xAI catalog unavailable/u,
-      );
+      expect(snapshot.catalogError).toMatch(/xai: xAI catalog unavailable/u);
     } finally {
       globalThis.fetch = originalFetch;
     }

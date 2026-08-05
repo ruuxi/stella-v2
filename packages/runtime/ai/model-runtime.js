@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { MODELS } from "@stella/contracts/models.generated";
+import { STELLA_RELAY_PROVIDERS } from "@stella/contracts/stella-api";
 import { ModelConfig, isModelConfigValueConfigured, resolveModelConfigHeaders, resolveModelConfigValue, } from "./model-config.js";
 import { ensurePrivateDirSync, writePrivateFileSync, } from "../kernel/shared/private-fs.js";
 const DEFAULT_CATALOG_BASE_URL = "https://pi.dev";
@@ -168,6 +169,7 @@ export class ModelRuntime {
     storePath;
     refreshPromise;
     refreshIsForce = false;
+    providerRefreshes = new Map();
     refreshedAt = null;
     compositionErrors = [];
     compositionFailedProviders = new Set();
@@ -361,7 +363,7 @@ export class ModelRuntime {
             this.registeredModels.delete(providerId);
         this.recompose();
     }
-    async refreshProvider(providerId, options) {
+    async refreshProviderOnce(providerId, options) {
         const stored = this.dynamicCatalogs.get(providerId);
         if (!options.force &&
             stored?.checkedAt !== undefined &&
@@ -413,6 +415,86 @@ export class ModelRuntime {
             .map((model) => ({ ...model, provider: providerId }));
         this.dynamicCatalogs.set(providerId, { models, checkedAt });
     }
+    refreshProvider(providerId, options) {
+        const existing = this.providerRefreshes.get(providerId);
+        if (existing) {
+            if (options.force && !existing.force) {
+                return existing.promise.then(() => this.refreshProvider(providerId, options), () => this.refreshProvider(providerId, options));
+            }
+            return existing.promise;
+        }
+        const promise = this.refreshProviderOnce(providerId, options).finally(() => {
+            if (this.providerRefreshes.get(providerId)?.promise === promise) {
+                this.providerRefreshes.delete(providerId);
+            }
+        });
+        this.providerRefreshes.set(providerId, {
+            promise,
+            force: options.force === true,
+        });
+        return promise;
+    }
+    /**
+     * Resolve one model from a provider catalog, fetching that provider only
+     * when the requested model is absent. This prevents a cold first turn from
+     * racing the broader startup catalog warm.
+     */
+    async ensureProviderModel(providerId, modelIds) {
+        const candidates = Array.from(new Set(modelIds.map((id) => id.trim()).filter(Boolean)));
+        const findCandidate = () => {
+            for (const modelId of candidates) {
+                const model = this.getModel(providerId, modelId);
+                if (model)
+                    return model;
+            }
+            return undefined;
+        };
+        const cached = findCandidate();
+        if (cached)
+            return cached;
+        if (!STELLA_RELAY_PROVIDERS.includes(providerId)) {
+            return undefined;
+        }
+        const activeRefresh = this.providerRefreshes.get(providerId);
+        if (activeRefresh) {
+            await activeRefresh.promise;
+            this.recompose();
+            const refreshedByActiveRequest = findCandidate();
+            if (refreshedByActiveRequest)
+                return refreshedByActiveRequest;
+        }
+        await this.refreshProvider(providerId, { force: true });
+        this.refreshedAt = Date.now();
+        this.writeStoredCatalogs();
+        this.recompose();
+        return findCandidate();
+    }
+    /**
+     * Refresh providers through a bounded pool so one slow endpoint does not
+     * stall or spend the request deadline of the providers behind it.
+     */
+    async refreshProviders(providerIds, options) {
+        const failures = [];
+        let cursor = 0;
+        const runWorker = async () => {
+            while (cursor < providerIds.length && !options.signal?.aborted) {
+                const providerId = providerIds[cursor++];
+                try {
+                    await this.refreshProvider(providerId, {
+                        force: options.force,
+                        lifecycleSignal: options.signal,
+                    });
+                }
+                catch (error) {
+                    if (error instanceof CatalogRefreshCancelledError)
+                        continue;
+                    failures.push(`${providerId}: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(REMOTE_CATALOG_CONCURRENCY, providerIds.length) }, runWorker));
+        return failures;
+    }
     async refresh(options = {}) {
         if (this.refreshPromise) {
             const activeRefresh = this.refreshPromise;
@@ -424,7 +506,7 @@ export class ModelRuntime {
         this.refreshIsForce = options.force === true;
         this.refreshPromise = (async () => {
             if (options.allowNetwork !== false) {
-                const providerIds = [...this.builtins.keys()].filter((providerId) => providerId !== "local");
+                const providerIds = Array.from(new Set([...this.builtins.keys(), ...STELLA_RELAY_PROVIDERS])).filter((providerId) => providerId !== "local");
                 const failures = await this.refreshProviders(providerIds, options);
                 // A torn-down refresh is not a catalog failure. Report nothing rather
                 // than one scary line per provider that never got its turn, and leave

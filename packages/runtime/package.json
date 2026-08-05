@@ -6,6 +6,7 @@
   "exports": {
     ".": "./index.ts",
     "./host": "./host/index.ts",
+    "./ai/model-runtime": "./ai/model-runtime.js",
     "./ai/utils/oauth": "./ai/utils/oauth/index.ts",
     "./kernel/integrations/claude-code-session-runtime": "./kernel/integrations/claude-code-session-runtime.js",
     "./kernel/integrations/codex-agent-runtime": "./kernel/integrations/codex-agent-runtime.js",

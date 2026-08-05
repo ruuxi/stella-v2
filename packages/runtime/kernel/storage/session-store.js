@@ -1061,6 +1061,135 @@ export class SessionStore {
             this.setSetting(DEFAULT_CONVERSATION_SETTING_KEY, conversationId);
         });
     }
+    /** Permanently remove one local conversation and its conversation-owned data. */
+    deleteConversation(conversationIdInput) {
+        const conversationId = this.sanitizeConversationId(conversationIdInput);
+        const exists = this.db
+            .prepare(`SELECT 1 FROM session WHERE id = ? LIMIT 1`)
+            .get(conversationId);
+        if (!exists)
+            return false;
+        const runningAgent = this.db
+            .prepare(`SELECT 1
+         FROM runtime_agents
+         WHERE conversation_id = ? AND status = 'running'
+         LIMIT 1`)
+            .get(conversationId);
+        if (runningAgent) {
+            throw new Error("A conversation with running tasks cannot be deleted.");
+        }
+        this.withTransaction(() => {
+            this.db
+                .prepare(`DELETE FROM agent_progress_summaries
+                 WHERE agent_id IN (
+                   SELECT thread_id FROM runtime_agents WHERE conversation_id = ?
+                 )`)
+                .run(conversationId);
+            this.db
+                .prepare(`DELETE FROM runtime_agents WHERE conversation_id = ?`)
+                .run(conversationId);
+            this.db
+                .prepare(`DELETE FROM runtime_threads WHERE conversation_id = ?`)
+                .run(conversationId);
+            this.db
+                .prepare(`DELETE FROM runtime_conversation_state WHERE conversation_id = ?`)
+                .run(conversationId);
+            this.db
+                .prepare(`DELETE FROM runtime_memory_review_state WHERE conversation_id = ?`)
+                .run(conversationId);
+            this.db
+                .prepare(`DELETE FROM settings WHERE key = ? AND value = ?`)
+                .run(DEFAULT_CONVERSATION_SETTING_KEY, conversationId);
+            this.db.prepare(`DELETE FROM session WHERE id = ?`).run(conversationId);
+        });
+        return true;
+    }
+    /** Cursor-paginated conversation history for the renderer's top bar. */
+    listConversationSummaries(args = {}) {
+        const requestedLimit = asFiniteNumber(args.limit);
+        const limit = Math.min(100, Math.max(1, Math.floor(requestedLimit ?? 50)));
+        const cursorUpdatedAt = asFiniteNumber(args.cursor?.updatedAt);
+        const cursorConversationId = asTrimmedString(args.cursor?.conversationId);
+        const hasCursor = cursorUpdatedAt !== null && Boolean(cursorConversationId);
+        const rows = this.db
+            .prepare(`
+      WITH page AS (
+        SELECT id, created_at, updated_at
+        FROM session
+        WHERE status = 'active'
+          AND length(id) = 26
+          AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'
+          ${hasCursor
+            ? "AND (updated_at < ? OR (updated_at = ? AND id < ?))"
+            : ""}
+        ORDER BY updated_at DESC, id DESC
+        LIMIT ?
+      )
+      SELECT
+        page.id AS conversationId,
+        page.created_at AS createdAt,
+        page.updated_at AS updatedAt,
+        latest.id AS latestMessageId,
+        latest.created_at AS latestMessageAt,
+        latest_part.data_json AS payloadJson
+      FROM page
+      LEFT JOIN message AS latest
+        ON latest.id = (
+          SELECT candidate.id
+          FROM message AS candidate
+          INNER JOIN part AS candidate_part
+            ON candidate_part.message_id = candidate.id
+           AND candidate_part.ord = 0
+          WHERE candidate.session_id = page.id
+            AND candidate.type IN ('user_message', 'assistant_message')
+            AND CASE
+              WHEN json_valid(candidate_part.data_json) THEN
+                typeof(json_extract(candidate_part.data_json, '$.text')) = 'text'
+                AND trim(json_extract(candidate_part.data_json, '$.text')) <> ''
+                AND coalesce(json_extract(candidate_part.data_json, '$.metadata.ui.visibility'), '') <> 'hidden'
+                AND coalesce(json_extract(candidate_part.data_json, '$.metadata.trigger.kind'), '') <> 'workspace_creation_request'
+              ELSE 0
+            END
+          ORDER BY candidate.created_at DESC, candidate.id DESC
+          LIMIT 1
+        )
+      LEFT JOIN part AS latest_part
+        ON latest_part.message_id = latest.id
+       AND latest_part.ord = 0
+      ORDER BY page.updated_at DESC, page.id DESC
+      `)
+            .all(...(hasCursor
+            ? [cursorUpdatedAt, cursorUpdatedAt, cursorConversationId, limit + 1]
+            : [limit + 1]));
+        const hasMore = rows.length > limit;
+        const pageRows = hasMore ? rows.slice(0, limit) : rows;
+        const conversations = pageRows.map((row) => {
+            const payload = parseJsonRecord(row.payloadJson);
+            const rawText = !isUiHiddenChatMessagePayload(payload ?? null) &&
+                typeof payload?.text === "string"
+                ? payload.text
+                : "";
+            const title = rawText.replace(/\s+/g, " ").trim().slice(0, 240);
+            return {
+                conversationId: row.conversationId,
+                title: title || "New chat",
+                ...(row.latestMessageId ? { latestMessageId: row.latestMessageId } : {}),
+                ...(typeof row.latestMessageAt === "number"
+                    ? { latestMessageAt: row.latestMessageAt }
+                    : {}),
+                createdAt: row.createdAt,
+                updatedAt: row.updatedAt,
+            };
+        });
+        const last = conversations.at(-1);
+        return {
+            conversations,
+            hasMore,
+            ...(hasMore && last
+                ? { nextCursor: { updatedAt: last.updatedAt, conversationId: last.conversationId } }
+                : {}),
+        };
+    }
     listEvents(conversationIdInput, maxItems = 200) {
         const conversationId = this.sanitizeConversationId(conversationIdInput);
         const normalizedLimit = Math.max(1, Math.floor(maxItems));

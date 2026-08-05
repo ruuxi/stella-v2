@@ -1,4 +1,9 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import type { ConversationSummaryCursor } from "@stella/contracts/local-chat";
+import {
+  IPC_LOCAL_CHAT_DELETE_CONVERSATION,
+  IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
+} from "@stella/contracts/desktop/ipc-channels";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
 
@@ -53,6 +58,38 @@ export const registerLocalChatHandlers = (
         "localChat:setActiveConversationId",
         (client) =>
           client.setActiveConversationId(payload?.conversationId ?? ""),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
+    async (
+      event,
+      payload: {
+        limit?: number;
+        cursor?: ConversationSummaryCursor | null;
+      },
+    ) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
+        (client) =>
+          client.listConversations({
+            limit: payload?.limit,
+            cursor: payload?.cursor,
+          }),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_LOCAL_CHAT_DELETE_CONVERSATION,
+    async (event, payload: { conversationId?: string }) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_LOCAL_CHAT_DELETE_CONVERSATION,
+        (client) => client.deleteConversation(payload?.conversationId ?? ""),
       ),
   );
 

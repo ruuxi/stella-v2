@@ -18,6 +18,8 @@ import type {
   SqliteDatabase,
 } from "@stella/runtime/kernel/storage/shared";
 import type {
+  ConversationSummaryCursor,
+  ConversationSummaryPage,
   LocalChatUpdatedPayload,
   TaskDecorationUpdatedPayload,
   ThreadActivityRecord,
@@ -221,6 +223,17 @@ export class LocalChatHistoryService {
   setActiveConversationId(conversationId: string): { ok: true } {
     this.getStore().setActiveDefaultConversationId(conversationId);
     return { ok: true };
+  }
+
+  listConversations(args: {
+    limit?: number;
+    cursor?: ConversationSummaryCursor | null;
+  }): ConversationSummaryPage {
+    return this.getStore().listConversationSummaries(args);
+  }
+
+  deleteConversation(conversationId: string): { deleted: boolean } {
+    return { deleted: this.getStore().deleteConversation(conversationId) };
   }
 
   listEvents(args: {

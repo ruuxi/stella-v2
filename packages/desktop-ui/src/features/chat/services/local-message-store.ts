@@ -151,6 +151,9 @@ const EMPTY_SNAPSHOT: LocalMessageWindowSnapshot = {
   error: null,
 };
 
+const RETAINED_CONVERSATION_LIMIT = 10;
+const RETAINED_VISIBLE_MESSAGE_LIMIT = 200;
+
 const localMessageWindows = new Map<string, LocalMessageWindowEntry>();
 
 /**
@@ -166,23 +169,37 @@ const localMessageWindows = new Map<string, LocalMessageWindowEntry>();
  * Seeding from this cache keeps the prior messages on screen until the
  * larger window resolves.
  *
- * Lifecycle: while a conversation has live entries the cached value is
- * the same object as the live snapshot's window (no extra memory). Once
- * the last subscription for a conversation unsubscribes, the cache entry
- * is evicted on the next microtask — React's cleanup-before-setup re-key
- * happens synchronously within one commit, so the bridge case is still
- * covered, while navigating away genuinely frees the window instead of
- * pinning every visited conversation's history for the session.
+ * Lifecycle: successful reads retain only the newest 200-visible-message
+ * projection for the 10 most-recently used conversations. Inactive cached
+ * conversations never refresh in the background.
  */
 const lastLoadedWindowByConversation = new Map<string, LocalMessageWindow>();
 
-const scheduleSeedCacheEviction = (conversationId: string) => {
-  queueMicrotask(() => {
-    for (const entry of localMessageWindows.values()) {
-      if (entry.conversationId === conversationId) return;
-    }
-    lastLoadedWindowByConversation.delete(conversationId);
-  });
+const retainLoadedWindow = (
+  conversationId: string,
+  window: LocalMessageWindow,
+) => {
+  const retained = trimWindowToVisibleCap(
+    window,
+    RETAINED_VISIBLE_MESSAGE_LIMIT,
+  );
+  lastLoadedWindowByConversation.delete(conversationId);
+  lastLoadedWindowByConversation.set(conversationId, retained);
+  while (lastLoadedWindowByConversation.size > RETAINED_CONVERSATION_LIMIT) {
+    const oldest = lastLoadedWindowByConversation.keys().next().value;
+    if (!oldest) break;
+    lastLoadedWindowByConversation.delete(oldest);
+  }
+};
+
+const getRetainedWindow = (
+  conversationId: string,
+): LocalMessageWindow | undefined => {
+  const retained = lastLoadedWindowByConversation.get(conversationId);
+  if (!retained) return undefined;
+  lastLoadedWindowByConversation.delete(conversationId);
+  lastLoadedWindowByConversation.set(conversationId, retained);
+  return retained;
 };
 let unsubscribeLocalChatUpdates: (() => void) | null = null;
 
@@ -198,8 +215,12 @@ const setSnapshot = (
   snapshot: LocalMessageWindowSnapshot,
 ) => {
   entry.snapshot = snapshot;
-  if (snapshot.hasLoaded && !snapshot.error) {
-    lastLoadedWindowByConversation.set(entry.conversationId, snapshot.window);
+  if (
+    snapshot.hasLoaded &&
+    !snapshot.error &&
+    localMessageWindows.get(entry.key) === entry
+  ) {
+    retainLoadedWindow(entry.conversationId, snapshot.window);
   }
   for (const listener of entry.listeners) {
     listener(cloneSnapshot(snapshot));
@@ -423,19 +444,10 @@ const getOrCreateEntry = (
   // than the request (a second surface opening a conversation another
   // surface has scrolled deep) is sliced to the newest `maxVisibleMessages`
   // so the seed never renders more rows than the subscription asked for.
-  const cachedWindow = lastLoadedWindowByConversation.get(
-    options.conversationId,
-  );
-  const seedWindow =
-    cachedWindow && cachedWindow.messages.length > options.maxVisibleMessages
-      ? {
-          messages: cachedWindow.messages.slice(-options.maxVisibleMessages),
-          visibleMessageCount: Math.min(
-            cachedWindow.visibleMessageCount,
-            options.maxVisibleMessages,
-          ),
-        }
-      : cachedWindow;
+  const cachedWindow = getRetainedWindow(options.conversationId);
+  const seedWindow = cachedWindow
+    ? trimWindowToVisibleCap(cachedWindow, options.maxVisibleMessages)
+    : undefined;
   const seedSnapshot: LocalMessageWindowSnapshot | null = seed
     ? { ...cloneSnapshot(seed.snapshot), hasLoaded: false }
     : seedWindow
@@ -467,7 +479,6 @@ export const subscribeToLocalMessageWindow = (
     entry.listeners.delete(listener);
     if (entry.listeners.size === 0) {
       localMessageWindows.delete(entry.key);
-      scheduleSeedCacheEviction(entry.conversationId);
     }
     if (localMessageWindows.size === 0 && unsubscribeLocalChatUpdates) {
       unsubscribeLocalChatUpdates();

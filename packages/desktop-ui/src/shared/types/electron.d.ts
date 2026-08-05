@@ -10,6 +10,8 @@ import type { UiState } from "./ui";
 import type { Theme } from "@/shared/theme/themes/types";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
 import type {
+  ConversationSummaryCursor,
+  ConversationSummaryPage,
   EventRecord,
   LocalChatUpdatedPayload,
   ThreadActivityRecord,
@@ -1250,6 +1252,13 @@ export type ElectronLocalChatApi = {
   setActiveConversationId: (payload: {
     conversationId: string;
   }) => Promise<{ ok: true }>;
+  listConversations: (payload: {
+    limit?: number;
+    cursor?: ConversationSummaryCursor | null;
+  }) => Promise<ConversationSummaryPage>;
+  deleteConversation: (payload: {
+    conversationId: string;
+  }) => Promise<{ deleted: boolean }>;
   /**
    * Raw event-stream read kept for the few non-timeline consumers that
    * look for specific auxiliary event types (the welcome dialog reads

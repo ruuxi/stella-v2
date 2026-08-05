@@ -6,6 +6,7 @@ const EMPTY_RECORDS = [];
  * trailing window folds a burst of persistTask pushes into one refetch. */
 const PUSH_REFRESH_DEBOUNCE_MS = 120;
 const LOAD_RETRY_MS = 1_000;
+const RETAINED_CONVERSATION_LIMIT = 10;
 export const listThreadActivity = async (conversationId) => {
     const api = getLocalChatApi();
     if (!api?.listThreadActivity)
@@ -19,7 +20,24 @@ const EMPTY_SNAPSHOT = {
     error: null,
 };
 const entries = new Map();
+const retainedRecordsByConversation = new Map();
 let unsubscribeUpdates = null;
+const retainRecords = (conversationId, records) => {
+    retainedRecordsByConversation.delete(conversationId);
+    retainedRecordsByConversation.set(conversationId, records.slice());
+    while (retainedRecordsByConversation.size > RETAINED_CONVERSATION_LIMIT) {
+        const oldestConversationId = retainedRecordsByConversation.keys().next().value;
+        if (typeof oldestConversationId !== "string")
+            break;
+        retainedRecordsByConversation.delete(oldestConversationId);
+    }
+};
+export const getRetainedThreadActivitySnapshot = (conversationId) => {
+    const records = retainedRecordsByConversation.get(conversationId);
+    if (!records)
+        return null;
+    return { records: records.slice(), hasLoaded: false, error: null };
+};
 /** Cheap identity for "did anything the UI renders actually change" —
  * a refetch triggered by a no-op write returns byte-identical rows, and
  * notifying React for those re-renders every task surface. */
@@ -28,6 +46,9 @@ const recordsSignature = (records) => records
     .join("\n");
 const setSnapshot = (entry, snapshot) => {
     entry.snapshot = snapshot;
+    if (snapshot.hasLoaded && !snapshot.error) {
+        retainRecords(entry.conversationId, snapshot.records);
+    }
     for (const listener of entry.listeners) {
         listener({ ...snapshot });
     }
@@ -172,9 +193,10 @@ export const subscribeToThreadActivity = (conversationId, listener) => {
     ensureSubscription();
     let entry = entries.get(conversationId);
     if (!entry) {
+        const retainedSnapshot = getRetainedThreadActivitySnapshot(conversationId);
         entry = {
             conversationId,
-            snapshot: EMPTY_SNAPSHOT,
+            snapshot: retainedSnapshot ?? EMPTY_SNAPSHOT,
             listeners: new Set(),
             loading: null,
             pendingRefetch: false,
@@ -220,5 +242,6 @@ export const __privateThreadActivityStore = {
         unsubscribeUpdates?.();
         unsubscribeUpdates = null;
         entries.clear();
+        retainedRecordsByConversation.clear();
     },
 };

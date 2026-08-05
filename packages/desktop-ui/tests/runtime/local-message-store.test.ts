@@ -678,7 +678,7 @@ describe("local-message-store", () => {
     }
   });
 
-  it("evicts the retained window once the conversation has no live subscriptions", async () => {
+  it("retains the last window once the conversation has no live subscriptions", async () => {
     const listMessages = vi
       .fn()
       .mockResolvedValue(window([makeMessage("u-1", 1_000, "first")]));
@@ -708,7 +708,11 @@ describe("local-message-store", () => {
         (snapshot) => laterSnapshots.push(snapshot),
       );
       expect(laterSnapshots[0]?.hasLoaded).toBe(false);
-      expect(laterSnapshots[0]?.window.messages).toHaveLength(0);
+      expect(
+        laterSnapshots[0]?.window.messages.map((message) => message._id),
+      ).toEqual(["u-1"]);
+      await waitFor(() => expect(laterSnapshots.at(-1)?.hasLoaded).toBe(true));
+      expect(listMessages).toHaveBeenCalledTimes(2);
 
       unsubscribeLater();
     } finally {

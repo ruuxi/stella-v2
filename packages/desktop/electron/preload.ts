@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { ChatContext } from "@stella/contracts";
 import type {
+  ConversationSummaryCursor,
+  ConversationSummaryPage,
   LocalChatUpdatedPayload,
   ThreadActivityUpdatedPayload,
 } from "@stella/contracts/local-chat";
@@ -17,6 +19,8 @@ import {
   IPC_HOME_CAPTURE_APP_WINDOW,
   IPC_HOME_GET_ACTIVE_BROWSER_TAB,
   IPC_HOME_LIST_RECENT_APPS,
+  IPC_LOCAL_CHAT_DELETE_CONVERSATION,
+  IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
   IPC_MEDIA_COPY_IMAGE,
   IPC_MEDIA_GET_DIR,
   IPC_MEDIA_SAVE_OUTPUT,
@@ -1825,6 +1829,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("localChat:createNewDefaultConversationId"),
     setActiveConversationId: (payload: { conversationId: string }) =>
       ipcRenderer.invoke("localChat:setActiveConversationId", payload),
+    listConversations: (payload: {
+      limit?: number;
+      cursor?: ConversationSummaryCursor | null;
+    }): Promise<ConversationSummaryPage> =>
+      ipcRenderer.invoke(IPC_LOCAL_CHAT_LIST_CONVERSATIONS, payload),
+    deleteConversation: (payload: { conversationId: string }) =>
+      ipcRenderer.invoke(IPC_LOCAL_CHAT_DELETE_CONVERSATION, payload),
     listEvents: (payload: { conversationId: string; maxItems?: number }) =>
       ipcRenderer.invoke("localChat:listEvents", payload),
     listMessages: (payload: {

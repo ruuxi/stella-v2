@@ -17,6 +17,10 @@
   pointer-events: none;
 }
 
+.workspace-home-surface[data-activity-availability-changing="true"] {
+  transition: none;
+}
+
 .workspace-home-surface__inner {
   display: flex;
   flex-direction: column;

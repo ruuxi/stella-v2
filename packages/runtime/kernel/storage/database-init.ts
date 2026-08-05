@@ -465,6 +465,10 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     );
   `);
   db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_session_status_updated
+    ON session(status, updated_at DESC, id DESC);
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS message (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,

@@ -26,6 +26,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   huggingface: "Hugging Face",
   local: "Local",
   "kimi-coding": "Kimi",
+  meta: "Meta",
   minimax: "MiniMax",
   "minimax-cn": "MiniMax China",
   mistral: "Mistral",

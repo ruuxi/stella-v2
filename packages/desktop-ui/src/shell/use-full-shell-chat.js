@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { attachComposerAppSelectionContext, deriveComposerState, } from "@/features/chat/composer-context";
-import { createNewLocalConversationId } from "@/features/chat/services/local-chat-store";
 import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
 import { useConversationActivity } from "@/features/chat/hooks/use-conversation-activity";
 import { useConversationDisplayMessages } from "@/features/chat/hooks/use-conversation-display-messages";
@@ -11,8 +10,6 @@ import { useStreamingChat } from "@/features/chat/hooks/use-streaming-chat";
 import { useThreadActivity } from "@/features/chat/hooks/use-thread-activity";
 import { useTraceEventMonitor, useTraceIpcListener, } from "@/platform/diagnostics/use-trace-listener";
 import { buildActivityTasks, } from "@/features/chat/lib/event-transforms";
-import { useUiState } from "@/context/ui-state";
-import { router } from "@/router";
 import { useCapturedChatContext } from "./use-captured-chat-context";
 import { useChatScrollManagement } from "./use-chat-scroll-management";
 import { useChatHomeSurface } from "./use-chat-home-surface";
@@ -30,7 +27,6 @@ const setBoundedTabMemory = (memory, conversationId, value) => {
     }
 };
 export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEnabled, }) {
-    const { setConversationId } = useUiState();
     // Message state + always-current mirror ref, synced at WRITE time. The
     // dictate-and-submit commit is rAF-deferred and can fire before React
     // flushes the render that carries the appended transcript — a ref synced in
@@ -145,21 +141,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             return;
         setComposerFocusRequestId((id) => id + 1);
     }, [isOnChatRoute, activeConversationId]);
-    const startNewChat = useCallback(async () => {
-        const nextConversationId = await createNewLocalConversationId();
-        setConversationId(nextConversationId);
-        showHome();
-        if (isOnChatRoute) {
-            await router.navigate({
-                to: "/chat",
-                search: (prev) => ({
-                    ...(prev ?? {}),
-                    c: nextConversationId,
-                }),
-                replace: true,
-            });
-        }
-    }, [isOnChatRoute, setConversationId, showHome]);
     const { sendContextlessMessage, sendAgentInputMessage, sendMessageWithContext, } = useAgentInputRouting({
         activeConversationId,
         sendMessage,
@@ -410,7 +391,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         onSelectArea: () => startAnnotation({ submit: attachFullChatAnnotation }),
         onSend: handleSend,
         onStop: cancelCurrentStream,
-        onNewChat: startNewChat,
     }), [
         message,
         setMessage,
@@ -424,7 +404,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         attachFullChatAnnotation,
         handleSend,
         cancelCurrentStream,
-        startNewChat,
     ]);
     const chatColumnScroll = useMemo(() => ({
         listRef,
@@ -468,7 +447,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         sendContextlessMessage,
         sendMessageWithContext,
         cancelCurrentStream,
-        startNewChat,
     }), [
         chatColumnConversation,
         hasOlderMessages,
@@ -483,7 +461,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         sendContextlessMessage,
         sendMessageWithContext,
         cancelCurrentStream,
-        startNewChat,
     ]);
     const composer = useMemo(() => ({
         ...chatColumnComposer,

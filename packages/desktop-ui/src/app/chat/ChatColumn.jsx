@@ -198,7 +198,7 @@ export const ChatColumn = memo(function ChatColumn({ conversation, composer, scr
      */
     const renderComposer = (surface, replyPeek) => {
         const isActiveSurface = surface === "home" ? showHomeContent : !showHomeContent;
-        return (<Composer message={composer.message} setMessage={composer.setMessage} chatContext={composer.chatContext} setChatContext={composer.setChatContext} selectedText={composer.selectedText} setSelectedText={composer.setSelectedText} isStreaming={conversation.streaming.isStreaming} canSubmit={composer.canSubmit} focusRequestId={isActiveSurface ? composer.focusRequestId : undefined} conversationId={conversationId} onSend={composer.onSend} onStop={composer.onStop} onNewChat={composer.onNewChat} onSelectArea={composer.onSelectArea} isDragOver={isDragOver} replyPeek={replyPeek} suggestionsActive={isActiveSurface}/>);
+        return (<Composer message={composer.message} setMessage={composer.setMessage} chatContext={composer.chatContext} setChatContext={composer.setChatContext} selectedText={composer.selectedText} setSelectedText={composer.setSelectedText} isStreaming={conversation.streaming.isStreaming} canSubmit={composer.canSubmit} focusRequestId={isActiveSurface ? composer.focusRequestId : undefined} conversationId={conversationId} onSend={composer.onSend} onStop={composer.onStop} onSelectArea={composer.onSelectArea} isDragOver={isDragOver} replyPeek={replyPeek} suggestionsActive={isActiveSurface}/>);
     };
     const chatReplyPeek = assistantReplyPeek.visible
         ? {

@@ -105,6 +105,10 @@ export const Smartphone = createIcon("smartphone", <>
 export const Play = createIcon("play", <path d="M8.25 5.6v12.8c0 .87.96 1.4 1.7.93l10.06-6.4a1.1 1.1 0 0 0 0-1.86L9.95 4.67c-.74-.47-1.7.06-1.7.93Z"/>);
 export const Pause = createIcon("pause", <path d="M9.25 5.5v13M14.75 5.5v13"/>);
 export const Square = createIcon("square", <rect x="5.75" y="5.75" width="12.5" height="12.5" rx="2.5"/>);
+export const Power = createIcon("power", <>
+    <path d="M12 3.5v8"/>
+    <path d="M7.25 6.25a7 7 0 1 0 9.5 0"/>
+  </>);
 export const Mic = createIcon("mic", <>
     <rect x="9.25" y="3" width="5.5" height="11" rx="2.75"/>
     <path d="M5.75 11.5a6.25 6.25 0 0 0 12.5 0M12 17.75V21"/>

@@ -164,10 +164,23 @@ describe("AppsSection external-app states", () => {
     render();
 
     expect(container.textContent).toContain("Running");
-    const shutdown = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Shut down",
+    const shutdown = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Shut down Ledger"]',
     );
     await act(async () => shutdown?.click());
     expect(registry.stop).toHaveBeenCalledWith("ledger");
+  });
+
+  it("leaves an inactive app card free of runtime chrome", () => {
+    registry.set({
+      phase: "ready",
+      apps: [{ ...ledger, status: "stopped" }],
+      error: null,
+      refreshing: false,
+    });
+    render();
+
+    expect(container.textContent).not.toContain("Stopped");
+    expect(container.querySelector(".apps-section__card-runtime")).toBeNull();
   });
 });

@@ -154,7 +154,10 @@ M4 stops locally. To run the real release:
    immutable manifests contain `darwin-arm64`, `darwin-x64`, and `win-x64`.
 5. Push an exact stable `desktop-v2-vX.Y.Z` tag. Confirm Developer ID signing,
    notarization, stapling, Gatekeeper assessment, unsigned-Windows assertion,
-   R2 publication, and GitHub Release creation all pass.
+   R2 publication, website installer aliases, and GitHub Release creation all
+   pass. The website aliases are `desktop-v2/stable/Stella-darwin-arm64.dmg`,
+   `desktop-v2/stable/Stella-darwin-x64.dmg`, and
+   `desktop-v2/stable/Stella.exe`.
 6. On an isolated test account or machine—not Rahul's live install—install an
    older signed v2 build, publish a newer signed v2 build, and prove the pill
    downloads, quits, installs, and relaunches the newer version. Verify the

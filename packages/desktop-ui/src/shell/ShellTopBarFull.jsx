@@ -24,16 +24,14 @@
  * is rendered independently by `WorkspaceHomeSurface`.
  */
 import { getPlatform } from "@/platform/electron/platform";
-import { displaySearchStore } from "@/features/workspace-display/display-search-store";
 import { displayTabs, useDisplayPanelOpen, } from "@/features/workspace-display/tab-store";
-import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
-import { usePostOnboardingHint } from "@/global/onboarding/post-onboarding-hints";
+import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
 import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
 import { ShellTopBarPrimaryNav } from "@/shell/sidebar/ShellTopBarNav";
 import { ConversationTopBar } from "@/shell/topbar/ConversationTopBar";
 import { ShellTopBarUpdatePill } from "@/shell/ShellTopBarUpdatePill";
 import { WindowControls } from "@/shell/WindowControls";
-import { PanelRight, Settings } from "@/ui/icons";
+import { PanelRight } from "@/ui/icons";
 import "./shell-topbar-full.css";
 /**
  * Nav entries the full-window bar suppresses. Apps lives in the right sidebar;
@@ -45,7 +43,6 @@ export function ShellTopBarFull({ onSignIn }) {
     const isMac = platform === "darwin";
     const isWin = platform === "win32";
     const panelOpen = useDisplayPanelOpen();
-    const connectHint = usePostOnboardingHint("connect");
     return (<header className="shell-topbar-full" data-platform={isMac ? "mac" : isWin ? "win" : "other"} data-display-open={panelOpen ? "true" : "false"}>
       <div className="shell-topbar-full__left">
         <ConversationTopBar />
@@ -58,13 +55,7 @@ export function ShellTopBarFull({ onSignIn }) {
       <div className="shell-topbar-full__right">
         <ShellTopBarAccount onSignIn={onSignIn}/>
         {!panelOpen ? (<>
-            <button type="button" className="shell-topbar-account-settings" onClick={() => {
-                displaySearchStore.close();
-                sidebarSections.openLocation("settings", null);
-            }} aria-label="Settings" title="Settings">
-              <Settings size={14} strokeWidth={1.75}/>
-              {connectHint.active ? (<span className="shell-topbar-nav-hint-dot" aria-hidden="true"/>) : null}
-            </button>
+            <SettingsMenuButton className="shell-topbar-account-settings" />
             <button type="button" className="shell-topbar-icon-btn" onClick={() => displayTabs.setPanelOpen(true)} aria-label="Open panel" title="Open panel">
               <PanelRight size={16} strokeWidth={1.75}/>
             </button>

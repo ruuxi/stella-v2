@@ -2,29 +2,20 @@ import { displayTabs, useDisplayPanelExpanded, useDisplayPanelOpen, } from "@/fe
 import { displaySearchStore } from "@/features/workspace-display/display-search-store";
 import { getPlatform } from "@/platform/electron/platform";
 import { SidebarTabRail } from "@/shell/sidebar-sections/SidebarTabRail";
-import { sidebarSections, useActiveSidebarSection, } from "@/features/workspace-display/sidebar-sections";
-import { usePostOnboardingHint } from "@/global/onboarding/post-onboarding-hints";
+import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
 import { WindowControls } from "@/shell/WindowControls";
-import { PanelRight, Settings } from "@/ui/icons";
+import { PanelRight } from "@/ui/icons";
 export function DisplayPanelTopBar() {
     const panelOpen = useDisplayPanelOpen();
     const panelExpanded = useDisplayPanelExpanded();
     const platform = getPlatform();
     const isMac = platform === "darwin";
     const isWin = platform === "win32";
-    const activeSection = useActiveSidebarSection();
-    const connectHint = usePostOnboardingHint("connect");
     return (<header className="display-panel-topbar" data-platform={isMac ? "mac" : isWin ? "win" : "other"} data-display-open={panelOpen ? "true" : "false"} data-display-expanded={panelExpanded ? "true" : "false"} aria-hidden={!panelOpen} inert={!panelOpen}>
       <div className="display-panel-topbar__tabs">
         <SidebarTabRail />
       </div>
-      <button type="button" className="shell-topbar-account-settings" data-active={panelOpen && activeSection === "settings" ? "true" : undefined} onClick={() => {
-            displaySearchStore.close();
-            sidebarSections.openLocation("settings", null);
-        }} aria-label="Settings" aria-pressed={panelOpen && activeSection === "settings"} title="Settings">
-        <Settings size={14} strokeWidth={1.75}/>
-        {connectHint.active ? (<span className="shell-topbar-nav-hint-dot" aria-hidden="true"/>) : null}
-      </button>
+      <SettingsMenuButton className="shell-topbar-account-settings" showActiveState={panelOpen}/>
       <button type="button" className="shell-topbar-icon-btn" onClick={() => {
             if (panelOpen)
                 displaySearchStore.close();

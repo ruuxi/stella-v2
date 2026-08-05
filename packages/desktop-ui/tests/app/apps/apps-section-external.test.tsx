@@ -14,6 +14,7 @@ const registry = vi.hoisted(() => {
     apps: [] as Array<{
       slug: string;
       meta: { label: string; createdAt: string };
+      status?: string;
     }>,
     error: null as string | null,
     refreshing: false,
@@ -30,6 +31,7 @@ const registry = vi.hoisted(() => {
       return () => listeners.delete(listener);
     },
     refresh: vi.fn(),
+    stop: vi.fn(),
   };
 });
 
@@ -38,6 +40,7 @@ vi.mock("@/app/apps/user-apps-registry", () => ({
   getServerSnapshot: registry.get,
   subscribe: registry.subscribe,
   refreshUserApps: registry.refresh,
+  stopUserApp: registry.stop,
 }));
 
 vi.mock("@/app/apps/PersistentUserAppsHost", () => ({
@@ -53,6 +56,7 @@ const { displayTabs } = await import("@/features/workspace-display/tab-store");
 const ledger = {
   slug: "ledger",
   meta: { label: "Ledger", createdAt: "2026-01-01T00:00:00.000Z" },
+  status: "running",
 };
 
 describe("AppsSection external-app states", () => {
@@ -64,6 +68,8 @@ describe("AppsSection external-app states", () => {
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     registry.refresh.mockClear();
+    registry.stop.mockReset();
+    registry.stop.mockResolvedValue({ slug: "ledger", status: "stopped" });
     registry.set({
       phase: "loading",
       apps: [],
@@ -122,7 +128,7 @@ describe("AppsSection external-app states", () => {
     });
     render();
     const card = container.querySelector<HTMLButtonElement>(
-      ".apps-section__card",
+      ".apps-section__card-open",
     );
     act(() => card?.click());
     expect(sidebarSections.getSnapshot().locations.apps).toBe("ledger");
@@ -146,5 +152,22 @@ describe("AppsSection external-app states", () => {
       }),
     );
     expect(sidebarSections.getSnapshot().locations.apps).toBeNull();
+  });
+
+  it("shows runtime status and shuts down a running app", async () => {
+    registry.set({
+      phase: "ready",
+      apps: [ledger],
+      error: null,
+      refreshing: false,
+    });
+    render();
+
+    expect(container.textContent).toContain("Running");
+    const shutdown = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Shut down",
+    );
+    await act(async () => shutdown?.click());
+    expect(registry.stop).toHaveBeenCalledWith("ledger");
   });
 });

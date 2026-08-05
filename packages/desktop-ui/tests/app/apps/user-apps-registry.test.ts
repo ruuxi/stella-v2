@@ -5,12 +5,14 @@ import {
   __resetUserAppsRegistryForTests,
   getSnapshot,
   refreshUserApps,
+  stopUserApp,
   subscribe,
 } from "@/app/apps/user-apps-registry";
 
 const app = {
   slug: "ledger",
   meta: { label: "Ledger", createdAt: "2026-01-01T00:00:00.000Z" },
+  status: "running",
 };
 
 const flush = async () => {
@@ -40,11 +42,16 @@ describe("external user-app registry", () => {
   const installApi = (
     list: ReturnType<typeof vi.fn>,
     refresh: ReturnType<typeof vi.fn> = list,
+    stop: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue({
+      slug: "ledger",
+      status: "stopped",
+    }),
   ) => {
     (window as unknown as { electronAPI: unknown }).electronAPI = {
       userApps: {
         list,
         refresh,
+        stop,
         onUpdated: (callback: () => void) => {
           changed = callback;
           return () => {
@@ -66,8 +73,30 @@ describe("external user-app registry", () => {
     expect(list).toHaveBeenCalledTimes(1);
     expect(getSnapshot()).toMatchObject({
       phase: "ready",
-      apps: [expect.objectContaining({ slug: "ledger" })],
+      apps: [expect.objectContaining({ slug: "ledger", status: "running" })],
       refreshing: false,
+    });
+    unsubscribe();
+  });
+
+  it("stops an app and refreshes its runtime status", async () => {
+    const stoppedApp = { ...app, status: "stopped" };
+    const list = vi.fn().mockResolvedValue({ apps: [app] });
+    const refresh = vi.fn().mockResolvedValue({ apps: [stoppedApp] });
+    const stop = vi.fn().mockResolvedValue({
+      slug: "ledger",
+      status: "stopped",
+    });
+    installApi(list, refresh, stop);
+    const unsubscribe = subscribe(vi.fn());
+    await flush();
+
+    await stopUserApp("ledger");
+
+    expect(stop).toHaveBeenCalledWith("ledger");
+    expect(getSnapshot().apps[0]).toMatchObject({
+      slug: "ledger",
+      status: "stopped",
     });
     unsubscribe();
   });

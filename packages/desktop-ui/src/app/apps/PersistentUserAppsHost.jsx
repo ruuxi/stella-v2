@@ -261,6 +261,17 @@ export function PersistentUserAppsHost() {
         const app = apps.find((entry) => entry.slug === slug);
         if (!app) return null;
         const isActive = slug === onScreenSlug;
+        // A library-level shutdown should also release the hidden retained
+        // iframe. Keep stopped/error apps mountable only when the user opens
+        // them again, which gives them a clean start lease.
+        if (
+          !isActive &&
+          (app.status === "stopped" ||
+            app.status === "stopping" ||
+            app.status === "error")
+        ) {
+          return null;
+        }
         return (
           <div
             key={slug}

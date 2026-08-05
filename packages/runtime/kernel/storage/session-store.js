@@ -687,6 +687,18 @@ export class SessionStore {
             throw error;
         }
     }
+    /** Reserve the WAL writer before a read-then-write decision. */
+    withImmediateTransaction(work) {
+        this.db.exec("BEGIN IMMEDIATE;");
+        try {
+            work();
+            this.db.exec("COMMIT;");
+        }
+        catch (error) {
+            this.db.exec("ROLLBACK;");
+            throw error;
+        }
+    }
     getSetting(key) {
         const row = this.db
             .prepare(`
@@ -1038,13 +1050,65 @@ export class SessionStore {
         return created;
     }
     createNewDefaultConversationId() {
-        const created = generateLocalId();
-        const createdAt = Date.now();
-        this.withTransaction(() => {
+        let resolvedConversationId = "";
+        this.withImmediateTransaction(() => {
+            const activeConversationId = this.getSetting(DEFAULT_CONVERSATION_SETTING_KEY);
+            // "Empty" follows the durable UI-visibility contract: every
+            // displayable user/assistant row occupies a chat, including an
+            // attachment/context-only or malformed row with no title text.
+            // Hidden workspace triggers and system/tool-only rows do not. A
+            // conversation that has owned an agent is also excluded so a
+            // task-only thread is never repurposed as a blank user chat.
+            const reusable = this.db
+                .prepare(`
+          SELECT candidate.id
+          FROM session AS candidate
+          WHERE candidate.status = 'active'
+            AND length(candidate.id) = 26
+            AND candidate.id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM runtime_agents AS agent
+              WHERE agent.conversation_id = candidate.id
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM message AS visible_message
+              INNER JOIN part AS visible_part
+                ON visible_part.message_id = visible_message.id
+               AND visible_part.ord = 0
+              WHERE visible_message.session_id = candidate.id
+                AND visible_message.type IN ('user_message', 'assistant_message')
+                AND (
+                  NOT json_valid(visible_part.data_json)
+                  OR (
+                    coalesce(json_extract(visible_part.data_json, '$.metadata.ui.visibility'), '') <> 'hidden'
+                    AND coalesce(json_extract(visible_part.data_json, '$.metadata.trigger.kind'), '') <> 'workspace_creation_request'
+                  )
+                )
+            )
+          ORDER BY
+            CASE WHEN candidate.id = ? THEN 0 ELSE 1 END,
+            candidate.updated_at DESC,
+            candidate.id DESC
+          LIMIT 1
+        `)
+                .get(activeConversationId ?? "");
+            if (typeof reusable?.id === "string" && reusable.id) {
+                resolvedConversationId = reusable.id;
+                // Repeated New Chat on the active empty chat is a true no-op.
+                if (reusable.id !== activeConversationId) {
+                    this.setSetting(DEFAULT_CONVERSATION_SETTING_KEY, reusable.id);
+                }
+                return;
+            }
+            const created = generateLocalId();
+            const createdAt = Date.now();
             this.upsertSession(created, createdAt);
             this.setSetting(DEFAULT_CONVERSATION_SETTING_KEY, created);
+            resolvedConversationId = created;
         });
-        return created;
+        return resolvedConversationId;
     }
     /**
      * Point the durable "active conversation" pointer at `conversationId`.

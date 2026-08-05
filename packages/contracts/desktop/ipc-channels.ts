@@ -383,6 +383,10 @@ export const IPC_LOCAL_CHAT_GET_OR_CREATE_ID =
   "localChat:getOrCreateDefaultConversationId" as const;
 export const IPC_LOCAL_CHAT_CREATE_NEW_DEFAULT_ID =
   "localChat:createNewDefaultConversationId" as const;
+export const IPC_LOCAL_CHAT_LIST_CONVERSATIONS =
+  "localChat:listConversations" as const;
+export const IPC_LOCAL_CHAT_DELETE_CONVERSATION =
+  "localChat:deleteConversation" as const;
 export const IPC_LOCAL_CHAT_LIST_EVENTS = "localChat:listEvents" as const;
 export const IPC_LOCAL_CHAT_LIST_MESSAGES = "localChat:listMessages" as const;
 export const IPC_LOCAL_CHAT_LIST_MESSAGES_BEFORE =

@@ -9,7 +9,7 @@
  * rows exist (and this hook works) for cloud-mode conversations too.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { subscribeToThreadActivity, } from "@/features/chat/services/thread-activity-store";
+import { getRetainedThreadActivitySnapshot, subscribeToThreadActivity, } from "@/features/chat/services/thread-activity-store";
 import { showToast } from "@/ui/toast";
 const EMPTY_RECORDS = [];
 const EMPTY_SNAPSHOT = {
@@ -19,6 +19,9 @@ const EMPTY_SNAPSHOT = {
 };
 export const useThreadActivity = (conversationId) => {
     const visitToken = useMemo(() => Symbol(conversationId ?? ""), [conversationId]);
+    const retainedSnapshot = useMemo(() => conversationId
+        ? (getRetainedThreadActivitySnapshot(conversationId) ?? EMPTY_SNAPSHOT)
+        : EMPTY_SNAPSHOT, [conversationId]);
     const [snapshotState, setSnapshotState] = useState({ visitToken, snapshot: EMPTY_SNAPSHOT });
     const lastErrorToastAtRef = useRef(0);
     useEffect(() => {
@@ -55,7 +58,7 @@ export const useThreadActivity = (conversationId) => {
     }, [conversationId, visitToken]);
     const activeSnapshot = snapshotState.visitToken === visitToken
         ? snapshotState.snapshot
-        : EMPTY_SNAPSHOT;
+        : retainedSnapshot;
     return {
         records: activeSnapshot.records,
         isInitialLoading: Boolean(conversationId) &&

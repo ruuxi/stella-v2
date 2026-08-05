@@ -5,6 +5,17 @@
  * props) so they remain drop-in at every call site.
  */
 import { forwardRef } from "react";
+/**
+ * @typedef {import("react").SVGProps<SVGSVGElement> & {
+ *   size?: number,
+ *   strokeWidth?: number,
+ * }} StellaIconProps
+ */
+/**
+ * @param {string} name
+ * @param {import("react").ReactNode} children
+ * @returns {import("react").ForwardRefExoticComponent<StellaIconProps & import("react").RefAttributes<SVGSVGElement>>}
+ */
 function createIcon(name, children) {
     const Icon = forwardRef(function StellaIcon({ size = 24, strokeWidth = 2, className, ...rest }, ref) {
         return (<svg ref={ref} xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className ? `stella-icon stella-icon-${name} ${className}` : `stella-icon stella-icon-${name}`} {...rest}>
@@ -61,6 +72,10 @@ export const History = createIcon("history", <>
     <path d="M12 3.75a8.25 8.25 0 1 1-8.18 9.31"/>
     <path d="M4.75 4.75v4h4"/>
     <path d="M12 8.25V12l2.6 1.7"/>
+  </>);
+export const House = createIcon("house", <>
+    <path d="M3.75 10.25 12 3.75l8.25 6.5"/>
+    <path d="M5.75 9.75v9.5c0 .55.45 1 1 1h3.5v-6h3.5v6h3.5c.55 0 1-.45 1-1v-9.5"/>
   </>);
 export const Download = createIcon("download", <path d="M4.5 14.25v3.25a2.75 2.75 0 0 0 2.75 2.75h9.5a2.75 2.75 0 0 0 2.75-2.75v-3.25M12 3.75v10M7.75 9.75 12 14l4.25-4.25"/>);
 export const Upload = createIcon("upload", <path d="M4.5 14.25v3.25a2.75 2.75 0 0 0 2.75 2.75h9.5a2.75 2.75 0 0 0 2.75-2.75v-3.25M12 14.5V4M7.75 8.25 12 4l4.25 4.25"/>);

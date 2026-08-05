@@ -47,6 +47,47 @@ export const setActiveLocalConversationId = async (conversationId) => {
         return;
     await api.setActiveConversationId({ conversationId });
 };
+export const listLocalConversations = async (args) => {
+    const api = window.electronAPI?.localChat;
+    if (!api)
+        return { conversations: [], hasMore: false };
+    return api.listConversations(args);
+};
+export const deleteLocalConversation = async (conversationId) => {
+    const result = await getLocalChatApi().deleteConversation({ conversationId });
+    return result.deleted;
+};
+/** Derives a tab-title update only from a complete persisted chat message. */
+export const conversationTitleFromUpdate = (payload) => {
+    const conversationId = payload?.conversationId?.trim();
+    const event = payload?.event;
+    if (!conversationId || !event)
+        return null;
+    if (event.type !== "user_message" && event.type !== "assistant_message")
+        return null;
+    const metadata = event.payload?.metadata && typeof event.payload.metadata === "object"
+        ? event.payload.metadata
+        : null;
+    const ui = metadata?.ui && typeof metadata.ui === "object" ? metadata.ui : null;
+    const trigger = metadata?.trigger && typeof metadata.trigger === "object"
+        ? metadata.trigger
+        : null;
+    if (ui?.visibility === "hidden" ||
+        trigger?.kind === "workspace_creation_request") {
+        return null;
+    }
+    const title = typeof event.payload?.text === "string"
+        ? event.payload.text.replace(/\s+/g, " ").trim().slice(0, 240)
+        : "";
+    return title
+        ? {
+            conversationId,
+            title,
+            latestMessageAt: event.timestamp,
+            latestMessageId: event._id,
+        }
+        : null;
+};
 export const listLocalEvents = async (conversationId, maxItems = 200) => {
     const api = window.electronAPI?.localChat;
     if (!api)

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { attachComposerAppSelectionContext, deriveComposerState, } from "@/features/chat/composer-context";
 import { createNewLocalConversationId } from "@/features/chat/services/local-chat-store";
+import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
 import { useConversationActivity } from "@/features/chat/hooks/use-conversation-activity";
 import { useConversationDisplayMessages } from "@/features/chat/hooks/use-conversation-display-messages";
 import { useConversationFiles } from "@/features/chat/hooks/use-conversation-files";
@@ -17,6 +18,17 @@ import { useChatScrollManagement } from "./use-chat-scroll-management";
 import { useChatHomeSurface } from "./use-chat-home-surface";
 import { useAgentInputRouting } from "./use-agent-input-routing";
 import { useStellaSendMessageBridge } from "./use-stella-send-message-bridge";
+const MAX_RETAINED_TAB_STATE = 20;
+const setBoundedTabMemory = (memory, conversationId, value) => {
+    memory.delete(conversationId);
+    memory.set(conversationId, value);
+    while (memory.size > MAX_RETAINED_TAB_STATE) {
+        const oldestConversationId = memory.keys().next().value;
+        if (typeof oldestConversationId !== "string")
+            break;
+        memory.delete(oldestConversationId);
+    }
+};
 export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEnabled, }) {
     const { setConversationId } = useUiState();
     // Message state + always-current mirror ref, synced at WRITE time. The
@@ -31,7 +43,51 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
     const annotationTargetRef = useRef(null);
     const [annotationTarget, setAnnotationTarget] = useState(null);
     const { chatContext, setChatContext, selectedText, setSelectedText } = useCapturedChatContext();
+    const composerMemoryByConversationRef = useRef(new Map());
+    const scrollMemoryByConversationRef = useRef(new Map());
+    const previousComposerConversationIdRef = useRef(activeConversationId);
     const restoredConversationScrollRef = useRef(null);
+    useEffect(() => {
+        const previousConversationId = previousComposerConversationIdRef.current;
+        if (previousConversationId === activeConversationId)
+            return;
+        if (previousConversationId) {
+            const remainsOpen = conversationTabs
+                .getSnapshot()
+                .tabs.some((tab) => tab.conversationId === previousConversationId);
+            if (remainsOpen) {
+                setBoundedTabMemory(composerMemoryByConversationRef.current, previousConversationId, {
+                    message: latestMessageRef.current,
+                    chatContext,
+                    selectedText,
+                });
+            }
+        }
+        if (activeConversationId) {
+            const remembered = composerMemoryByConversationRef.current.get(activeConversationId);
+            setMessage(remembered?.message ?? "");
+            setChatContext(remembered?.chatContext ?? null);
+            setSelectedText(remembered?.selectedText ?? null);
+        }
+        previousComposerConversationIdRef.current = activeConversationId;
+    }, [
+        activeConversationId,
+        chatContext,
+        latestMessageRef,
+        selectedText,
+        setChatContext,
+        setMessage,
+        setSelectedText,
+    ]);
+    useEffect(() => conversationTabs.subscribe(() => {
+        const openIds = new Set(conversationTabs.getSnapshot().tabs.map((tab) => tab.conversationId));
+        for (const conversationId of composerMemoryByConversationRef.current.keys()) {
+            if (!openIds.has(conversationId)) {
+                composerMemoryByConversationRef.current.delete(conversationId);
+                scrollMemoryByConversationRef.current.delete(conversationId);
+            }
+        }
+    }), []);
     const { messages: persistedMessages, hasOlderMessages, isLoadingOlder: isLoadingOlderMessages, isInitialLoading: isInitialLoadingMessages, loadOlder: loadOlderMessages, } = useConversationMessages(activeConversationId ?? undefined);
     const { activities, hasOlderActivity, isLoadingOlder: isLoadingOlderActivity, loadOlder: loadOlderActivity, } = useConversationActivity(activeConversationId ?? undefined);
     const { files: persistedFiles, hasOlderFiles, isLoadingOlder: isLoadingOlderFiles, loadOlder: loadOlderFiles, } = useConversationFiles(activeConversationId ?? undefined);
@@ -90,9 +146,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
     }, [isOnChatRoute, activeConversationId]);
     const startNewChat = useCallback(async () => {
         const nextConversationId = await createNewLocalConversationId();
-        setMessage("");
-        setSelectedText(null);
-        setChatContext(null);
         setConversationId(nextConversationId);
         showHome();
         if (isOnChatRoute) {
@@ -105,14 +158,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
                 replace: true,
             });
         }
-    }, [
-        isOnChatRoute,
-        setChatContext,
-        setConversationId,
-        setMessage,
-        setSelectedText,
-        showHome,
-    ]);
+    }, [isOnChatRoute, setConversationId, showHome]);
     const { sendContextlessMessage, sendAgentInputMessage, sendMessageWithContext, } = useAgentInputRouting({
         activeConversationId,
         sendMessage,
@@ -159,15 +205,27 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         isLoadingOlder: isLoadingOlderMessages,
         onLoadOlder: loadOlderMessages,
     });
-    // On conversation change, snap to the latest content. `initialScrollAtEnd`
-    // covers fresh mounts; this handles in-place conversation switches.
-    useEffect(() => {
+    useLayoutEffect(() => {
+        const conversationId = activeConversationId;
         const list = listRef.current;
-        if (!list)
-            return;
-        const el = list.getScrollableNode();
-        el?.scrollTo({ top: el.scrollHeight, behavior: "instant" });
-    }, [activeConversationId, listRef]);
+        const scrollMemory = scrollMemoryByConversationRef.current;
+        return () => {
+            if (!conversationId)
+                return;
+            const remainsOpen = conversationTabs
+                .getSnapshot()
+                .tabs.some((tab) => tab.conversationId === conversationId);
+            if (!remainsOpen)
+                return;
+            const element = list?.getScrollableNode();
+            if (!element)
+                return;
+            setBoundedTabMemory(scrollMemory, conversationId, {
+                scrollTop: element.scrollTop,
+                followingLatest: getIsFollowing(),
+            });
+        };
+    }, [activeConversationId, getIsFollowing, listRef]);
     useEffect(() => {
         if (!activeConversationId ||
             isInitialLoadingMessages ||
@@ -177,7 +235,18 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         }
         const conversationId = activeConversationId;
         const frame = window.requestAnimationFrame(() => {
-            scrollToBottom("instant");
+            const remembered = scrollMemoryByConversationRef.current.get(conversationId);
+            const element = listRef.current?.getScrollableNode();
+            if (remembered && !remembered.followingLatest && element) {
+                const maximumScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+                element.scrollTo({
+                    top: Math.min(remembered.scrollTop, maximumScrollTop),
+                    behavior: "instant",
+                });
+            }
+            else {
+                scrollToBottom("instant");
+            }
             restoredConversationScrollRef.current = conversationId;
         });
         return () => window.cancelAnimationFrame(frame);
@@ -185,6 +254,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         activeConversationId,
         displayMessages.length,
         isInitialLoadingMessages,
+        listRef,
         scrollToBottom,
     ]);
     const handleSend = useCallback(() => {

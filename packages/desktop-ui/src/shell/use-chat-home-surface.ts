@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useIdleHomeVisibility } from '@/features/chat/hooks/use-idle-home-visibility'
 import { uiState } from '@/platform/ui-state'
 import { STELLA_SHOW_HOME_EVENT } from '@/shared/lib/stella-orb-chat'
@@ -89,16 +89,16 @@ export function useChatHomeSurface({
     : idleBasedHome
   const showHomeContent = isHomeDismissed ? false : baseShowHomeContent
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (prevConversationIdRef.current === activeConversationId) return
     const hadConversation = Boolean(prevConversationIdRef.current)
     prevConversationIdRef.current = activeConversationId
     if (hadConversation) {
-      queueMicrotask(() => {
-        setIsHomeDismissed(false)
-      })
+      setHasInteractedWithChatThisSession(true)
+      setIsHomeDismissed(false)
+      resetIdleTimer()
     }
-  }, [activeConversationId])
+  }, [activeConversationId, resetIdleTimer])
 
   useEffect(() => {
     if (!isOnChatRoute) return

@@ -17,6 +17,28 @@ export type LocalChatUpdatedPayload = {
   event?: EventRecord;
 };
 
+/** Stable keyset cursor for the conversation-history list. */
+export type ConversationSummaryCursor = {
+  updatedAt: number;
+  conversationId: string;
+};
+
+/** Lightweight conversation metadata for history and top-bar tabs. */
+export type ConversationSummary = {
+  conversationId: string;
+  title: string;
+  latestMessageId?: string;
+  latestMessageAt?: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ConversationSummaryPage = {
+  conversations: ConversationSummary[];
+  nextCursor?: ConversationSummaryCursor;
+  hasMore: boolean;
+};
+
 /**
  * One background-agent thread's authoritative activity state — a direct
  * projection of the runtime's `runtime_agents` row. This is the single source of truth the Activity

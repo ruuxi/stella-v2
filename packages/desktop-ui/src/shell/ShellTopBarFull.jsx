@@ -30,6 +30,7 @@ import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
 import { usePostOnboardingHint } from "@/global/onboarding/post-onboarding-hints";
 import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
 import { ShellTopBarPrimaryNav } from "@/shell/sidebar/ShellTopBarNav";
+import { ConversationTopBar } from "@/shell/topbar/ConversationTopBar";
 import { ShellTopBarUpdatePill } from "@/shell/ShellTopBarUpdatePill";
 import { WindowControls } from "@/shell/WindowControls";
 import { PanelRight, Settings } from "@/ui/icons";
@@ -47,6 +48,7 @@ export function ShellTopBarFull({ onSignIn }) {
     const connectHint = usePostOnboardingHint("connect");
     return (<header className="shell-topbar-full" data-platform={isMac ? "mac" : isWin ? "win" : "other"} data-display-open={panelOpen ? "true" : "false"}>
       <div className="shell-topbar-full__left">
+        <ConversationTopBar />
         <ShellTopBarPrimaryNav omitIds={OMITTED_NAV_IDS}/>
         <ShellTopBarUpdatePill />
       </div>

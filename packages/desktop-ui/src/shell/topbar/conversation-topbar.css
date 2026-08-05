@@ -1,0 +1,445 @@
+.conversation-topbar {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 92px;
+  max-width: 100%;
+  height: 28px;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.conversation-topbar__history,
+.conversation-topbar__home,
+.conversation-topbar__plus {
+  flex: 0 0 28px;
+  min-width: 28px;
+  width: 28px;
+  height: 28px;
+  color: var(--text-muted);
+}
+
+.conversation-topbar__history:hover,
+.conversation-topbar__home:hover,
+.conversation-topbar__plus:hover {
+  color: var(--text-muted);
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
+}
+
+.conversation-topbar__control-icon {
+  transform: translateY(1px);
+}
+
+.conversation-topbar__viewport {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 28px;
+  max-width: calc(100% - 68px);
+  height: 28px;
+  overflow: hidden;
+}
+
+.conversation-topbar__viewport::before,
+.conversation-topbar__viewport::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.conversation-topbar__viewport::before {
+  left: 0;
+  background: linear-gradient(90deg, var(--surface-base), transparent);
+}
+
+.conversation-topbar__viewport::after {
+  right: 0;
+  background: linear-gradient(270deg, var(--surface-base), transparent);
+}
+
+.conversation-topbar__viewport[data-overflow-left="true"]::before,
+.conversation-topbar__viewport[data-overflow-right="true"]::after {
+  opacity: 1;
+}
+
+.conversation-topbar__tabs {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+  height: 28px;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.conversation-topbar__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.conversation-topbar__home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: default;
+  font: inherit;
+  -webkit-app-region: no-drag;
+}
+
+.conversation-topbar__home:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.conversation-topbar__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 224px;
+  width: 224px;
+  min-width: 28px;
+  max-width: 224px;
+  height: 28px;
+  box-sizing: border-box;
+  overflow: visible;
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: transparent;
+  container-type: inline-size;
+}
+
+.conversation-topbar__tab:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: -3.75px;
+  width: 1.5px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--border-base);
+  opacity: 0.55;
+}
+
+.conversation-topbar__tab:hover {
+  color: var(--text-base);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+}
+
+.conversation-topbar__tab[data-active="true"],
+.conversation-topbar__tab[data-dragging="true"] {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+}
+
+.conversation-topbar__tab:hover::after,
+.conversation-topbar__tab[data-active="true"]::after,
+.conversation-topbar__tab:has(+ .conversation-topbar__tab:hover)::after,
+.conversation-topbar__tab:has(
+    + .conversation-topbar__tab[data-active="true"]
+  )::after {
+  opacity: 0;
+}
+
+.conversation-topbar__tab-target {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  outline: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: default;
+  font: inherit;
+  -webkit-app-region: no-drag;
+}
+
+.conversation-topbar__tab:hover .conversation-topbar__tab-target,
+.conversation-topbar__tab[data-active="true"] .conversation-topbar__tab-target {
+  padding-right: 28px;
+}
+
+.conversation-topbar__tab-target:focus-visible {
+  box-shadow: inset var(--focus-ring);
+}
+
+.conversation-topbar__tab-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+
+.conversation-topbar__tab[data-title-overflow="true"]
+  .conversation-topbar__tab-title {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #000 0,
+    #000 calc(100% - 14px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 0,
+    #000 calc(100% - 14px),
+    transparent 100%
+  );
+}
+
+.conversation-topbar__tab-icon {
+  flex: 0 0 16px;
+}
+
+.conversation-topbar__tab-close {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  opacity: 0;
+  cursor: default;
+  -webkit-app-region: no-drag;
+  transition: opacity 100ms ease;
+}
+
+.conversation-topbar__tab:hover .conversation-topbar__tab-close,
+.conversation-topbar__tab:focus-within .conversation-topbar__tab-close,
+.conversation-topbar__tab[data-active="true"] .conversation-topbar__tab-close {
+  opacity: 0.72;
+}
+
+.conversation-topbar__tab-close:hover,
+.conversation-topbar__tab-close:focus-visible {
+  opacity: 1 !important;
+  outline: none;
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
+.conversation-history-popover {
+  width: min(320px, calc(100vw - 24px));
+  max-width: min(320px, calc(100vw - 24px));
+  overflow: hidden;
+}
+
+.conversation-history-popover__list {
+  max-height: min(380px, calc(100vh - 78px));
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.conversation-history-popover__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-base);
+  background: transparent;
+}
+
+.conversation-history-popover__item:hover,
+.conversation-history-popover__item:focus-within {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+}
+
+.conversation-history-popover__item[data-active="true"] {
+  border-color: var(--border-base);
+}
+
+.conversation-history-popover__item-target {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: inherit;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.conversation-history-popover__item-target:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus-ring);
+}
+
+.conversation-history-popover__title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.conversation-history-popover__time {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: opacity 100ms ease;
+}
+
+.conversation-history-popover__delete {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  opacity: 0;
+  pointer-events: none;
+  cursor: default;
+  transition:
+    opacity 100ms ease,
+    color 100ms ease,
+    background-color 100ms ease;
+}
+
+.conversation-history-popover__item:hover .conversation-history-popover__delete,
+.conversation-history-popover__item:focus-within
+  .conversation-history-popover__delete,
+.conversation-history-popover__item[data-delete-armed="true"]
+  .conversation-history-popover__delete,
+.conversation-history-popover__item[data-delete-error="true"]
+  .conversation-history-popover__delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.conversation-history-popover__item:hover .conversation-history-popover__time,
+.conversation-history-popover__item:focus-within
+  .conversation-history-popover__time,
+.conversation-history-popover__item[data-delete-armed="true"]
+  .conversation-history-popover__time,
+.conversation-history-popover__item[data-delete-error="true"]
+  .conversation-history-popover__time {
+  opacity: 0;
+}
+
+.conversation-history-popover__delete:hover,
+.conversation-history-popover__delete:focus-visible,
+.conversation-history-popover__item[data-delete-armed="true"]
+  .conversation-history-popover__delete,
+.conversation-history-popover__item[data-delete-error="true"]
+  .conversation-history-popover__delete {
+  outline: none;
+  color: var(--destructive);
+  background: color-mix(
+    in oklch,
+    var(--destructive) 10%,
+    var(--surface-raised)
+  );
+}
+
+.conversation-history-popover__delete:disabled {
+  opacity: 0.45;
+}
+
+.conversation-history-popover__status,
+.conversation-history-popover__retry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px;
+  border: 0;
+  color: var(--text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+}
+
+.conversation-history-popover__retry:hover,
+.conversation-history-popover__retry:focus-visible {
+  outline: none;
+  color: var(--text-strong);
+}
+
+@container (max-width: 64px) {
+  .conversation-topbar__tab-target {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .conversation-topbar__tab-title {
+    display: none;
+  }
+
+  .conversation-topbar__tab-close {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .conversation-topbar__tab:hover .conversation-topbar__tab-icon,
+  .conversation-topbar__tab[data-active="true"] .conversation-topbar__tab-icon {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-topbar__viewport::before,
+  .conversation-topbar__viewport::after,
+  .conversation-topbar__tab,
+  .conversation-topbar__tab-close {
+    transition: none;
+  }
+}
+
+:root[data-reduce-motion="reduce"] .conversation-topbar__viewport::before,
+:root[data-reduce-motion="reduce"] .conversation-topbar__viewport::after,
+:root[data-reduce-motion="reduce"] .conversation-topbar__tab,
+:root[data-reduce-motion="reduce"] .conversation-topbar__tab-close {
+  transition: none;
+}

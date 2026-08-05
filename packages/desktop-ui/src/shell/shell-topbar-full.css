@@ -50,7 +50,7 @@ body[data-display-expanding="true"] .shell-topbar-full,
 }
 
 .shell-topbar-full__left {
-  flex-shrink: 1;
+  flex: 1 1 auto;
   min-width: 0;
   height: 100%;
   display: flex;

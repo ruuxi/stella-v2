@@ -9,6 +9,7 @@ import {
   LLM_PROVIDERS,
 } from "@/global/settings/lib/llm-providers";
 import { buildProviderTabs } from "@/global/settings/ProviderModelPanel";
+import { BRAND_ICON_COLOR_MARKUP } from "@/ui/brand-icon-paths";
 
 const originalFetch = globalThis.fetch;
 const originalMetaApiKey = process.env.META_API_KEY;
@@ -32,6 +33,7 @@ afterEach(() => {
 describe("Meta direct provider", () => {
   it("publishes Meta and all current Muse Spark models in the local catalog", () => {
     expect(getProviderDisplayName("meta")).toBe("Meta");
+    expect(BRAND_ICON_COLOR_MARKUP.meta).toContain('fill="#0467DF"');
     expect(LLM_PROVIDERS).toContainEqual({
       key: "meta",
       label: "Meta",

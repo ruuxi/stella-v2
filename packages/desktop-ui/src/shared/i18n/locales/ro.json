@@ -30,7 +30,6 @@
     "tabs": {
       "general": "General",
       "shortcuts": "Comenzi rapide",
-      "memory": "Memorie",
       "backup": "Copii de rezervă",
       "account": "Cont și legal",
       "audio": "Audio"
@@ -140,95 +139,6 @@
         "unavailable": "Scurtăturile nu sunt disponibile în această fereastră.",
         "unavailableShortcut": "Acea scurtătură nu este disponibilă.",
         "update": "Nu s-a putut actualiza scurtătura."
-      }
-    },
-    "memory": {
-      "title": "Memorie",
-      "enable": "Activează",
-      "disable": "Dezactivează",
-      "working": "Se lucrează…",
-      "screen": {
-        "label": "Memoria ecranului",
-        "description": "Stella poate arunca din când în când o privire pe ecranul tău pentru a-și aminti ce făceai.",
-        "signInDescription": "Conectează-te la Stella sau alege un model mic pentru Chronicle în panoul Engine.",
-        "upgradeDescription": "Memoria ecranului este inclusă în orice plan Stella. Fă upgrade sau alege un model mic pentru Chronicle în panoul Engine."
-      },
-      "status": {
-        "label": "Stare",
-        "running": "În execuție",
-        "stopped": "Oprit",
-        "disabled": "Dezactivat",
-        "fps": "{fps} fps",
-        "lastCapture": "ultima captură {time}"
-      },
-      "folder": {
-        "label": "Folder de memorie",
-        "description": "Deschide folderul de pe computer unde Stella își păstrează amintirile.",
-        "open": "Deschide folderul",
-        "opening": "Se deschide…"
-      },
-      "update": {
-        "label": "Actualizează memoria acum",
-        "description": "Lasă Stella să revizuiască activitatea recentă și să salveze ce a învățat. De obicei se întâmplă de la sine.",
-        "run": "Rulează acum",
-        "running": "Visează…"
-      },
-      "erase": {
-        "label": "Șterge memoria",
-        "description": "Șterge tot ce și-a amintit Stella, inclusiv activitatea de ecran salvată. Această acțiune nu poate fi anulată.",
-        "action": "Șterge",
-        "working": "Se șterge…",
-        "confirm": "Ștergi tot ce și-a amintit Stella? Această acțiune nu poate fi anulată."
-      },
-      "access": {
-        "signInTitle": "Conectare necesară",
-        "subscriptionTitle": "Abonament necesar",
-        "signInMessage": "Conectează-te la Stella sau alege un model mic pentru Chronicle în panoul Engine.",
-        "upgradeMessage": "Memoria ecranului este inclusă în orice plan Stella. Fă upgrade — sau alege un model mic pentru Chronicle în panoul Engine.",
-        "pickModel": "Alege un model",
-        "upgrade": "Fă upgrade"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle activat",
-        "disabledTitle": "Chronicle dezactivat",
-        "alreadyRunning": "Chronicle rula deja.",
-        "enableFailedTitle": "Chronicle nu a putut fi activat",
-        "disableFailedTitle": "Chronicle nu a putut fi dezactivat",
-        "dreamScheduledTitle": "Trecere Dream programată",
-        "dreamNotScheduledTitle": "Trecere Dream neprogramată",
-        "wipeFailedTitle": "Ștergerea a eșuat",
-        "wipedTitle": "Amintiri șterse"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Rădăcina spațiului de lucru al Stellei este indisponibilă.",
-        "needsPermission": "Permisiunea de înregistrare a ecranului este încă necesară înainte ca Chronicle să poată porni.",
-        "binaryMissing": "Fișierul ajutător Chronicle lipsește.",
-        "startupTimeout": "Chronicle nu a ajuns online după lansare.",
-        "unsupportedPlatform": "Chronicle este disponibil doar pe macOS.",
-        "unknown": "Eroare necunoscută."
-      },
-      "dreamResults": {
-        "scheduled": "Dream va consolida backlogul curent.",
-        "inFlight": "O trecere Dream este deja în execuție.",
-        "noInputs": "Nu există nimic nou de consolidat în acest moment.",
-        "noApiKey": "Dream are nevoie de un model/cheie API configurate sau de o rută Stella conectată.",
-        "disabled": "Programarea Dream este momentan dezactivată.",
-        "belowThreshold": "Pragul de inactivitate nu a fost încă atins.",
-        "lockBusy": "Dream este ocupat acum. Încearcă din nou într-o clipă.",
-        "noRunner": "Mediul de execuție local nu este încă pregătit.",
-        "unavailable": "Dream este momentan indisponibil.",
-        "pendingPrefix": "În așteptare: {items}.",
-        "pendingThreadSummary": "{count} rezumat de sarcină",
-        "pendingThreadSummaries": "{count} rezumate de sarcini",
-        "pendingExtension": "{count} fișier Chronicle",
-        "pendingExtensions": "{count} fișiere Chronicle",
-        "pendingJoin": " și "
-      },
-      "errors": {
-        "loadStatus": "Nu s-a putut încărca starea Chronicle.",
-        "update": "Nu s-a putut actualiza Chronicle.",
-        "dream": "Nu s-a putut declanșa trecerea Dream.",
-        "wipe": "Nu s-au putut șterge amintirile."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Alege stilul de vorbire și vocea de personalitate a Stellei.",
         "permissions": "Acordă acces la accesibilitate, captură de ecran și microfon pe macOS.",
-        "memory": "Gestionează memoria ecranului, actualizează sau șterge ce și-a amintit Stella.",
         "backup": "Copii de rezervă criptate automate, puncte de restaurare și instantanee la cerere.",
         "account": "Deconectează-te, șterge-ți datele sau șterge-ți definitiv contul.",
         "legal": "Termeni și condiții și politică de confidențialitate.",
@@ -454,7 +363,6 @@
       "theme": "Cum ar trebui să arate Stella?",
       "personality": "Cum ar trebui să vorbească Stella?",
       "voice": "Vorbește în loc să tastezi.",
-      "memory": "Ajută Stella să țină minte.",
       "enter": "Stella e aproape gata."
     },
     "acts": {

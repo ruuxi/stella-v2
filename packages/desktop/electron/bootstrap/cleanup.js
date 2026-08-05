@@ -43,10 +43,6 @@ export const registerBootstrapProcessCleanups = (context) => {
         const stellaDataDir = context.state.stellaDataDirPath ?? context.config.stellaDataDirPath;
         await stopOfficePreviewSessions(stellaDataDir);
     });
-    processRuntime.registerCleanup("before-quit", "chronicle-daemon", async () => {
-        await context.state.chronicleController?.stop();
-        context.state.chronicleController = null;
-    });
     // Meeting capture finalizes any in-flight recording (patches WAV headers,
     // writes session.json) before the daemon exits.
     processRuntime.registerCleanup("before-quit", "meeting-capture-daemon", async () => {

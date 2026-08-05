@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Umum",
       "shortcuts": "Pintasan",
-      "memory": "Memori",
       "backup": "Cadangan",
       "account": "Akun & legal",
       "audio": "Audio"
@@ -140,95 +139,6 @@
         "unavailable": "Pintasan tidak tersedia di jendela ini.",
         "unavailableShortcut": "Pintasan itu tidak tersedia.",
         "update": "Gagal memperbarui pintasan."
-      }
-    },
-    "memory": {
-      "title": "Memori",
-      "enable": "Aktifkan",
-      "disable": "Nonaktifkan",
-      "working": "Memproses…",
-      "screen": {
-        "label": "Memori layar",
-        "description": "Stella dapat sesekali melirik layar Anda untuk mengingat apa yang Anda lakukan.",
-        "signInDescription": "Masuk ke Stella, atau pilih model kecil untuk Chronicle di panel Engine.",
-        "upgradeDescription": "Memori layar termasuk dalam paket Stella mana pun. Tingkatkan, atau pilih model kecil untuk Chronicle di panel Engine."
-      },
-      "status": {
-        "label": "Status",
-        "running": "Berjalan",
-        "stopped": "Berhenti",
-        "disabled": "Dinonaktifkan",
-        "fps": "{fps} fps",
-        "lastCapture": "tangkapan terakhir {time}"
-      },
-      "folder": {
-        "label": "Folder memori",
-        "description": "Membuka folder di komputer Anda tempat Stella menyimpan memorinya.",
-        "open": "Buka folder",
-        "opening": "Membuka…"
-      },
-      "update": {
-        "label": "Perbarui memori sekarang",
-        "description": "Minta Stella meninjau aktivitas terbaru dan menyimpan apa yang dipelajarinya. Ini biasanya terjadi otomatis.",
-        "run": "Jalankan sekarang",
-        "running": "Bermimpi…"
-      },
-      "erase": {
-        "label": "Hapus memori",
-        "description": "Menghapus semua yang diingat Stella, termasuk aktivitas layar yang tersimpan. Ini tidak dapat dibatalkan.",
-        "action": "Hapus",
-        "working": "Menghapus…",
-        "confirm": "Hapus semua yang diingat Stella? Ini tidak dapat dibatalkan."
-      },
-      "access": {
-        "signInTitle": "Perlu masuk",
-        "subscriptionTitle": "Perlu langganan",
-        "signInMessage": "Masuk ke Stella, atau pilih model kecil untuk Chronicle di panel Engine.",
-        "upgradeMessage": "Memori layar termasuk dalam paket Stella mana pun. Tingkatkan — atau pilih model kecil untuk Chronicle di panel Engine.",
-        "pickModel": "Pilih model",
-        "upgrade": "Tingkatkan"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle diaktifkan",
-        "disabledTitle": "Chronicle dinonaktifkan",
-        "alreadyRunning": "Chronicle sudah berjalan.",
-        "enableFailedTitle": "Tidak dapat mengaktifkan Chronicle",
-        "disableFailedTitle": "Tidak dapat menonaktifkan Chronicle",
-        "dreamScheduledTitle": "Proses Dream dijadwalkan",
-        "dreamNotScheduledTitle": "Proses Dream tidak dijadwalkan",
-        "wipeFailedTitle": "Penghapusan gagal",
-        "wipedTitle": "Memori dihapus"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Root ruang kerja Stella tidak tersedia.",
-        "needsPermission": "Izin perekaman layar masih diperlukan sebelum Chronicle dapat dimulai.",
-        "binaryMissing": "Berkas bantuan Chronicle tidak ada.",
-        "startupTimeout": "Chronicle tidak online setelah diluncurkan.",
-        "unsupportedPlatform": "Chronicle hanya tersedia di macOS.",
-        "unknown": "Kesalahan tidak diketahui."
-      },
-      "dreamResults": {
-        "scheduled": "Dream akan mengonsolidasikan tumpukan saat ini.",
-        "inFlight": "Proses Dream sudah berjalan.",
-        "noInputs": "Tidak ada yang baru untuk dikonsolidasikan saat ini.",
-        "noApiKey": "Dream memerlukan model/kunci API yang dikonfigurasi atau rute Stella yang sudah masuk.",
-        "disabled": "Penjadwalan Dream saat ini dinonaktifkan.",
-        "belowThreshold": "Ambang batas idle belum tercapai.",
-        "lockBusy": "Dream sedang sibuk. Coba lagi sebentar.",
-        "noRunner": "Runtime lokal belum siap.",
-        "unavailable": "Dream saat ini tidak tersedia.",
-        "pendingPrefix": "Tertunda: {items}.",
-        "pendingThreadSummary": "{count} ringkasan tugas",
-        "pendingThreadSummaries": "{count} ringkasan tugas",
-        "pendingExtension": "{count} berkas Chronicle",
-        "pendingExtensions": "{count} berkas Chronicle",
-        "pendingJoin": " dan "
-      },
-      "errors": {
-        "loadStatus": "Gagal memuat status Chronicle.",
-        "update": "Gagal memperbarui Chronicle.",
-        "dream": "Gagal memicu proses Dream.",
-        "wipe": "Gagal menghapus memori."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Pilih gaya bicara dan suara kepribadian Stella.",
         "permissions": "Berikan akses ke aksesibilitas, rekam layar, dan mikrofon di macOS.",
-        "memory": "Kelola memori layar, perbarui atau hapus apa yang diingat Stella.",
         "backup": "Cadangan terenkripsi otomatis, titik pemulihan, dan snapshot sesuai permintaan.",
         "account": "Keluar, hapus data Anda, atau hapus akun Anda secara permanen.",
         "legal": "Ketentuan Layanan dan Kebijakan Privasi.",
@@ -454,7 +363,6 @@
       "theme": "Bagaimana Stella seharusnya terlihat?",
       "personality": "Bagaimana Stella seharusnya berbicara?",
       "voice": "Bicaralah, jangan mengetik.",
-      "memory": "Bantu Stella mengingat.",
       "enter": "Stella hampir siap."
     },
     "acts": {

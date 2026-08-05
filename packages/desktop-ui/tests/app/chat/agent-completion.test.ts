@@ -139,7 +139,7 @@ describe("buildAgentCompletionSections", () => {
     // Before the completion-card consolidation these files rendered inline
     // for every agent type; consolidating must not make them vanish from the
     // transcript. (In practice, reserved builtins that could produce noise —
-    // fashion, dream, chronicle — run in hidden conversations and never reach
+    // fashion and dream — run in hidden conversations and never reach
     // the visible transcript at all.)
     const meta = buildAgentMetaMap([
       started("schedule-1", "Schedule a reminder", { agentType: "schedule" }),

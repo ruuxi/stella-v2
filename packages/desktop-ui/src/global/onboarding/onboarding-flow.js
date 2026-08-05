@@ -8,7 +8,6 @@ export const SPLIT_PHASES = new Set([
     "extension",
     "engine",
     "voice",
-    "memory",
     "enter",
 ]);
 /**
@@ -17,7 +16,7 @@ export const SPLIT_PHASES = new Set([
  *   Discover      — what Stella can do, and the shape-shifting app itself
  *   Make it yours — theme and personality
  *   Connect       — permissions, browser discovery, extension, engine
- *   Your flow     — voice and memory
+ *   Your flow     — voice
  *   Ready         — the final gate
  *
  * The act label renders as a small eyebrow above each step title so the
@@ -34,7 +33,6 @@ export const SPLIT_STEP_ORDER = [
     "extension",
     "engine",
     "voice",
-    "memory",
     "enter",
 ];
 export const PHASE_ACTS = {
@@ -47,7 +45,6 @@ export const PHASE_ACTS = {
     extension: "connect",
     engine: "connect",
     voice: "flow",
-    memory: "flow",
     enter: "ready",
 };
 /**
@@ -58,7 +55,6 @@ export const PHASE_ACTS = {
 export const CREATURE_HIDDEN_PHASES = new Set([
     "shapeshift",
     "voice",
-    "memory",
     "enter",
 ]);
 /**

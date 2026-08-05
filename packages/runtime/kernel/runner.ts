@@ -454,40 +454,5 @@ export const createStellaHostRunner = (
       }
     },
 
-    runChronicleSummaryTick: async (window) => {
-      try {
-        const { runChronicleSummary } =
-          await import("./memory/chronicle-summarizer.js");
-        const { resolveRunnerLlmRoute } =
-          await import("./runner/model-selection.js");
-        const { AGENT_IDS } = await import("@stella/contracts/agent-runtime");
-        const chronicleAgent = resolveAgent(context, AGENT_IDS.CHRONICLE);
-        const chronicleModel = getConfiguredModel(
-          context,
-          AGENT_IDS.CHRONICLE,
-          chronicleAgent,
-        );
-        const resolvedLlm = resolveRunnerLlmRoute(
-          context,
-          AGENT_IDS.CHRONICLE,
-          chronicleModel,
-        );
-        return await runChronicleSummary({
-          stellaDataDir: context.stellaDataDir,
-          window,
-          resolvedLlm,
-          store: context.runtimeStore,
-        });
-      } catch (error) {
-        console.warn("[runner] runChronicleSummaryTick failed", error);
-        return {
-          wrote: false,
-          window,
-          reason: "llm_failed" as const,
-          uniqueLines: 0,
-          detail: error instanceof Error ? error.message : String(error),
-        };
-      }
-    },
   };
 };

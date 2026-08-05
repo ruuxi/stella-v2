@@ -3,13 +3,11 @@ import { registerRuntimeAvailabilityBridge } from "../ipc/runtime-availability-b
 import { registerBrowserHandlers } from "../ipc/browser-handlers.js";
 import { registerDiscoveryHandlers } from "../ipc/discovery-handlers.js";
 import { registerCaptureHandlers } from "../ipc/capture-handlers.js";
-import { registerChronicleHandlers } from "../ipc/chronicle-handlers.js";
 import { registerMeetingCaptureHandlers } from "../ipc/meeting-capture-handlers.js";
 import { registerDisplayHandlers } from "../ipc/display-handlers.js";
 import { registerHomeHandlers } from "../ipc/home-handlers.js";
 import { registerLocalChatHandlers } from "../ipc/local-chat-handlers.js";
 import { registerMobileHelloHandlers } from "../ipc/mobile-hello-handlers.js";
-import { registerMemoryHandlers } from "../ipc/memory-handlers.js";
 import { registerMorphHandlers } from "../ipc/morph-handlers.js";
 import { registerNativeIntegrationHandlers } from "../ipc/native-integration-handlers.js";
 import { registerOnboardingHandlers } from "../ipc/onboarding-handlers.js";
@@ -153,54 +151,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     registerHomeHandlers({
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-    });
-    registerMemoryHandlers({
-        getStellaAppDir: lifecycle.getStellaAppDir,
-        getStellaDataDir: lifecycle.getStellaDataDir,
-        getController: () => state.chronicleController,
-        setController: (controller) => {
-            state.chronicleController = controller;
-        },
-        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-    });
-    registerChronicleHandlers({
-        getStellaAppDir: lifecycle.getStellaAppDir,
-        getStellaDataDir: lifecycle.getStellaDataDir,
-        getController: () => state.chronicleController,
-        setController: (controller) => {
-            state.chronicleController = controller;
-        },
-        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-        triggerDreamNow: async () => {
-            const stellaAppDir = lifecycle.getStellaAppDir();
-            if (!stellaAppDir) {
-                return {
-                    ok: false,
-                    reason: "no-stella-root",
-                    pendingItems: 0,
-                };
-            }
-            const runner = lifecycle.getRunner();
-            if (!runner) {
-                return {
-                    ok: false,
-                    reason: "no-runner",
-                    pendingItems: 0,
-                };
-            }
-            try {
-                const result = await runner.triggerDreamNow("manual");
-                return { ok: result.scheduled, ...result };
-            }
-            catch (error) {
-                return {
-                    ok: false,
-                    reason: "unavailable",
-                    pendingItems: 0,
-                    detail: error instanceof Error ? error.message : String(error),
-                };
-            }
-        },
     });
     registerMeetingCaptureHandlers({
         getStellaDataDir: lifecycle.getStellaDataDir,

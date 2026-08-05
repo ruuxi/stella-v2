@@ -25,7 +25,7 @@ const preferences = {
   modelOverrides: {
     orchestrator: "anthropic/claude-opus-4.8",
     general: "anthropic/claude-opus-4.8",
-    chronicle: "stella/light",
+    fashion: "stella/light",
   },
   stellaConversationModelOverrides: {},
   assistantPropagatedAgents: ["general", "explore"],
@@ -155,7 +155,7 @@ describe("engine model routing", () => {
       modelOverrides: {
         orchestrator: "openai-codex/gpt-5.4",
         general: "openai-codex/gpt-5.4",
-        chronicle: "stella/light",
+        fashion: "stella/light",
       },
       assistantPropagatedAgents: ["explore"],
       stellaConversationModelOverrides: {
@@ -178,7 +178,7 @@ describe("engine model routing", () => {
 
     expect(buildEngineRoutingPatch(chatGptPreferences, "default")).toEqual({
       agentRuntimeEngine: "default",
-      modelOverrides: { chronicle: "stella/light" },
+      modelOverrides: { fashion: "stella/light" },
       stellaConversationModelOverrides: {},
       assistantPropagatedAgents: ["explore"],
     });
@@ -315,7 +315,7 @@ describe("engine model routing", () => {
       modelOverrides: {
         orchestrator: "openrouter/existing-orchestrator",
         general: "anthropic/claude-opus-4.8",
-        chronicle: "stella/light",
+        fashion: "stella/light",
       },
       stellaConversationModelOverrides: {
         orchestrator: "openrouter/existing-orchestrator",

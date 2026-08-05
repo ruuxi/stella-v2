@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Generale",
       "shortcuts": "Scorciatoie",
-      "memory": "Memoria",
       "backup": "Backup",
       "account": "Account e note legali",
       "audio": "Audio"
@@ -140,95 +139,6 @@
         "unavailable": "Le scorciatoie non sono disponibili in questa finestra.",
         "unavailableShortcut": "Quella scorciatoia non è disponibile.",
         "update": "Impossibile aggiornare la scorciatoia."
-      }
-    },
-    "memory": {
-      "title": "Memoria",
-      "enable": "Abilita",
-      "disable": "Disabilita",
-      "working": "In corso…",
-      "screen": {
-        "label": "Memoria dello schermo",
-        "description": "Stella può dare un'occhiata al tuo schermo di tanto in tanto per ricordare cosa stavi facendo.",
-        "signInDescription": "Accedi a Stella o scegli un modello piccolo per Chronicle nel pannello Engine.",
-        "upgradeDescription": "La memoria dello schermo è inclusa in qualsiasi piano Stella. Esegui l'upgrade o scegli un modello piccolo per Chronicle nel pannello Engine."
-      },
-      "status": {
-        "label": "Stato",
-        "running": "In esecuzione",
-        "stopped": "Fermo",
-        "disabled": "Disattivato",
-        "fps": "{fps} fps",
-        "lastCapture": "ultima cattura {time}"
-      },
-      "folder": {
-        "label": "Cartella della memoria",
-        "description": "Apre la cartella sul computer dove Stella conserva i suoi ricordi.",
-        "open": "Apri cartella",
-        "opening": "Apertura…"
-      },
-      "update": {
-        "label": "Aggiorna la memoria ora",
-        "description": "Fai sì che Stella riveda l'attività recente e salvi ciò che ha imparato. Di solito avviene da solo.",
-        "run": "Esegui ora",
-        "running": "Sta sognando…"
-      },
-      "erase": {
-        "label": "Cancella la memoria",
-        "description": "Elimina tutto ciò che Stella ha ricordato, inclusa l'attività dello schermo salvata. Non può essere annullato.",
-        "action": "Cancella",
-        "working": "Cancellazione…",
-        "confirm": "Cancellare tutto ciò che Stella ha ricordato? Non può essere annullato."
-      },
-      "access": {
-        "signInTitle": "Accesso richiesto",
-        "subscriptionTitle": "Abbonamento richiesto",
-        "signInMessage": "Accedi a Stella o scegli un modello piccolo per Chronicle nel pannello Engine.",
-        "upgradeMessage": "La memoria dello schermo è inclusa in qualsiasi piano Stella. Esegui l'upgrade — o scegli un modello piccolo per Chronicle nel pannello Engine.",
-        "pickModel": "Scegli un modello",
-        "upgrade": "Esegui l'upgrade"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle attivato",
-        "disabledTitle": "Chronicle disattivato",
-        "alreadyRunning": "Chronicle era già in esecuzione.",
-        "enableFailedTitle": "Impossibile attivare Chronicle",
-        "disableFailedTitle": "Impossibile disattivare Chronicle",
-        "dreamScheduledTitle": "Passaggio di Dream programmato",
-        "dreamNotScheduledTitle": "Passaggio di Dream non programmato",
-        "wipeFailedTitle": "Cancellazione non riuscita",
-        "wipedTitle": "Ricordi cancellati"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "La radice dell'area di lavoro di Stella non è disponibile.",
-        "needsPermission": "È ancora richiesta l'autorizzazione alla registrazione dello schermo prima che Chronicle possa avviarsi.",
-        "binaryMissing": "Il binario di supporto di Chronicle è mancante.",
-        "startupTimeout": "Chronicle non si è connesso dopo l'avvio.",
-        "unsupportedPlatform": "Chronicle è disponibile solo su macOS.",
-        "unknown": "Errore sconosciuto."
-      },
-      "dreamResults": {
-        "scheduled": "Dream consoliderà l'arretrato attuale.",
-        "inFlight": "Un passaggio di Dream è già in esecuzione.",
-        "noInputs": "Al momento non c'è nulla di nuovo da consolidare.",
-        "noApiKey": "Dream richiede un modello/chiave API configurati o un percorso Stella con accesso effettuato.",
-        "disabled": "La programmazione di Dream è attualmente disattivata.",
-        "belowThreshold": "La soglia di inattività non è ancora stata raggiunta.",
-        "lockBusy": "Dream è occupato in questo momento. Riprova tra poco.",
-        "noRunner": "Il runtime locale non è ancora pronto.",
-        "unavailable": "Dream non è al momento disponibile.",
-        "pendingPrefix": "In attesa: {items}.",
-        "pendingThreadSummary": "{count} riepilogo attività",
-        "pendingThreadSummaries": "{count} riepiloghi attività",
-        "pendingExtension": "{count} file Chronicle",
-        "pendingExtensions": "{count} file Chronicle",
-        "pendingJoin": " e "
-      },
-      "errors": {
-        "loadStatus": "Impossibile caricare lo stato di Chronicle.",
-        "update": "Impossibile aggiornare Chronicle.",
-        "dream": "Impossibile avviare il passaggio di Dream.",
-        "wipe": "Impossibile cancellare i ricordi."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Scegli lo stile di parlato e la voce di personalità di Stella.",
         "permissions": "Concedi l'accesso ad accessibilità, cattura schermo e microfono su macOS.",
-        "memory": "Gestisci la memoria dello schermo, aggiorna o cancella ciò che Stella ha ricordato.",
         "backup": "Backup crittografati automatici, punti di ripristino e snapshot su richiesta.",
         "account": "Esci, elimina i tuoi dati o elimina definitivamente il tuo account.",
         "legal": "Termini di servizio e informativa sulla privacy.",
@@ -454,7 +363,6 @@
       "theme": "Che aspetto deve avere Stella?",
       "personality": "Come deve parlare Stella?",
       "voice": "Parla invece di scrivere.",
-      "memory": "Aiuta Stella a ricordare.",
       "enter": "Stella è quasi pronta."
     },
     "acts": {

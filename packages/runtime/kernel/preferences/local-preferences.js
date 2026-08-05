@@ -48,8 +48,6 @@ const DEFAULT_PREFERENCES = {
     onboardingCompleted: false,
     wakeWordThreshold: 0.6,
     readAloudEnabled: false,
-    chronicleEnabled: false,
-    chroniclePendingEnable: false,
     personalityVoiceId: undefined,
 };
 const LEGACY_STELLA_DEFAULT_MODEL = "stella/default";
@@ -122,9 +120,6 @@ export const loadLocalPreferences = (stellaDataDir) => {
                 ? parsed.wakeWordThreshold
                 : DEFAULT_PREFERENCES.wakeWordThreshold,
             readAloudEnabled: parsed.readAloudEnabled === true,
-            chronicleEnabled: parsed.chronicleEnabled === true,
-            chroniclePendingEnable: parsed.chronicleEnabled !== true &&
-                parsed.chroniclePendingEnable === true,
             personalityVoiceId: isKnownPersonalityId(parsed.personalityVoiceId)
                 ? parsed.personalityVoiceId
                 : DEFAULT_PREFERENCES.personalityVoiceId,
@@ -306,21 +301,6 @@ export const getReadAloudEnabled = (stellaDataDir) => {
 export const setReadAloudEnabled = (stellaDataDir, enabled) => {
     const prefs = loadLocalPreferences(stellaDataDir);
     saveLocalPreferences(stellaDataDir, { ...prefs, readAloudEnabled: enabled });
-};
-export const getChronicleEnabled = (stellaDataDir) => {
-    return loadLocalPreferences(stellaDataDir).chronicleEnabled;
-};
-export const getChroniclePendingEnable = (stellaDataDir) => {
-    const prefs = loadLocalPreferences(stellaDataDir);
-    return (prefs.chronicleEnabled !== true && prefs.chroniclePendingEnable === true);
-};
-export const setChronicleMemoryPreference = (stellaDataDir, value) => {
-    const prefs = loadLocalPreferences(stellaDataDir);
-    saveLocalPreferences(stellaDataDir, {
-        ...prefs,
-        chronicleEnabled: value.enabled,
-        chroniclePendingEnable: value.enabled === true ? false : value.pendingEnable === true,
-    });
 };
 export const getPersonalityVoiceId = (stellaDataDir) => loadLocalPreferences(stellaDataDir).personalityVoiceId;
 export const setPersonalityVoiceId = (stellaDataDir, id) => {

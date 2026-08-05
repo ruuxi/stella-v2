@@ -30,7 +30,6 @@
     "tabs": {
       "general": "기본",
       "shortcuts": "단축키",
-      "memory": "메모리",
       "backup": "백업",
       "account": "계정 및 법적 고지",
       "audio": "오디오"
@@ -140,95 +139,6 @@
         "unavailable": "이 창에서는 단축키를 사용할 수 없습니다.",
         "unavailableShortcut": "해당 단축키를 사용할 수 없습니다.",
         "update": "단축키를 업데이트하지 못했습니다."
-      }
-    },
-    "memory": {
-      "title": "메모리",
-      "enable": "사용",
-      "disable": "사용 안 함",
-      "working": "처리 중…",
-      "screen": {
-        "label": "화면 메모리",
-        "description": "Stella는 가끔 화면을 살펴보고 무엇을 하고 있었는지 기억할 수 있습니다.",
-        "signInDescription": "Stella에 로그인하거나 Engine 패널에서 Chronicle용 소형 모델을 선택하세요.",
-        "upgradeDescription": "화면 메모리는 모든 Stella 요금제에 포함되어 있습니다. 업그레이드하거나 Engine 패널에서 Chronicle용 소형 모델을 선택하세요."
-      },
-      "status": {
-        "label": "상태",
-        "running": "실행 중",
-        "stopped": "중지됨",
-        "disabled": "비활성화됨",
-        "fps": "{fps} fps",
-        "lastCapture": "마지막 캡처 {time}"
-      },
-      "folder": {
-        "label": "메모리 폴더",
-        "description": "Stella가 메모리를 보관하는 컴퓨터의 폴더를 엽니다.",
-        "open": "폴더 열기",
-        "opening": "여는 중…"
-      },
-      "update": {
-        "label": "지금 메모리 업데이트",
-        "description": "Stella가 최근 활동을 검토하고 배운 내용을 저장하도록 합니다. 보통 자동으로 진행됩니다.",
-        "run": "지금 실행",
-        "running": "꿈꾸는 중…"
-      },
-      "erase": {
-        "label": "메모리 지우기",
-        "description": "저장된 화면 활동을 포함하여 Stella가 기억한 모든 것을 삭제합니다. 되돌릴 수 없습니다.",
-        "action": "지우기",
-        "working": "지우는 중…",
-        "confirm": "Stella가 기억한 모든 것을 지울까요? 되돌릴 수 없습니다."
-      },
-      "access": {
-        "signInTitle": "로그인 필요",
-        "subscriptionTitle": "구독 필요",
-        "signInMessage": "Stella에 로그인하거나 Engine 패널에서 Chronicle용 소형 모델을 선택하세요.",
-        "upgradeMessage": "화면 메모리는 모든 Stella 요금제에 포함되어 있습니다. 업그레이드하거나 — Engine 패널에서 Chronicle용 소형 모델을 선택하세요.",
-        "pickModel": "모델 선택",
-        "upgrade": "업그레이드"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle 사용",
-        "disabledTitle": "Chronicle 사용 안 함",
-        "alreadyRunning": "Chronicle이 이미 실행 중이었습니다.",
-        "enableFailedTitle": "Chronicle을 사용할 수 없음",
-        "disableFailedTitle": "Chronicle을 사용 안 함으로 설정할 수 없음",
-        "dreamScheduledTitle": "Dream 실행이 예약됨",
-        "dreamNotScheduledTitle": "Dream 실행이 예약되지 않음",
-        "wipeFailedTitle": "지우기 실패",
-        "wipedTitle": "메모리가 지워짐"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Stella의 작업 공간 루트를 사용할 수 없습니다.",
-        "needsPermission": "Chronicle을 시작하려면 여전히 화면 기록 권한이 필요합니다.",
-        "binaryMissing": "Chronicle 도우미 바이너리가 없습니다.",
-        "startupTimeout": "실행 후 Chronicle이 온라인 상태가 되지 않았습니다.",
-        "unsupportedPlatform": "Chronicle은 macOS에서만 사용할 수 있습니다.",
-        "unknown": "알 수 없는 오류."
-      },
-      "dreamResults": {
-        "scheduled": "Dream이 현재 대기 중인 항목을 통합합니다.",
-        "inFlight": "Dream 실행이 이미 진행 중입니다.",
-        "noInputs": "지금은 통합할 새로운 것이 없습니다.",
-        "noApiKey": "Dream에는 구성된 모델/API 키 또는 로그인된 Stella 경로가 필요합니다.",
-        "disabled": "Dream 예약이 현재 비활성화되어 있습니다.",
-        "belowThreshold": "유휴 임계값에 아직 도달하지 않았습니다.",
-        "lockBusy": "Dream이 지금 사용 중입니다. 잠시 후 다시 시도하세요.",
-        "noRunner": "로컬 런타임이 아직 준비되지 않았습니다.",
-        "unavailable": "Dream을 현재 사용할 수 없습니다.",
-        "pendingPrefix": "대기 중: {items}.",
-        "pendingThreadSummary": "작업 요약 {count}개",
-        "pendingThreadSummaries": "작업 요약 {count}개",
-        "pendingExtension": "Chronicle 파일 {count}개",
-        "pendingExtensions": "Chronicle 파일 {count}개",
-        "pendingJoin": " 및 "
-      },
-      "errors": {
-        "loadStatus": "Chronicle 상태를 불러오지 못했습니다.",
-        "update": "Chronicle을 업데이트하지 못했습니다.",
-        "dream": "Dream 실행을 시작하지 못했습니다.",
-        "wipe": "메모리를 지우지 못했습니다."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Stella의 말하기 스타일과 성격 음성을 선택합니다.",
         "permissions": "macOS에서 손쉬운 사용, 화면 기록, 마이크 접근을 허용합니다.",
-        "memory": "화면 메모리를 관리하고 Stella가 기억한 내용을 업데이트하거나 지웁니다.",
         "backup": "자동 암호화 백업, 복원 지점, 온디맨드 스냅샷.",
         "account": "로그아웃하거나 데이터를 삭제하거나 계정을 영구적으로 삭제합니다.",
         "legal": "서비스 약관 및 개인정보 처리방침.",
@@ -454,7 +363,6 @@
       "theme": "Stella는 어떤 모습이어야 할까요?",
       "personality": "Stella는 어떻게 말해야 할까요?",
       "voice": "타이핑 대신 말하세요.",
-      "memory": "Stella가 기억하도록 도와주세요.",
       "enter": "Stella가 거의 준비됐어요."
     },
     "acts": {

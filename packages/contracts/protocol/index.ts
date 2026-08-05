@@ -238,8 +238,6 @@ export const METHOD_NAMES = {
   INTERNAL_WORKER_PROJECTS_STOP: "internal.worker.projects.stop",
   INTERNAL_WORKER_ONE_SHOT_COMPLETION: "internal.worker.oneShotCompletion",
   INTERNAL_WORKER_DREAM_TRIGGER_NOW: "internal.worker.dream.triggerNow",
-  INTERNAL_WORKER_CHRONICLE_SUMMARY_TICK:
-    "internal.worker.chronicle.summaryTick",
   INTERNAL_STORE_LOAD_THREAD_MESSAGES: "internal.store.loadThreadMessages",
   INTERNAL_STORE_LIST_ACTIVE_THREADS: "internal.store.listActiveThreads",
   INTERNAL_STORE_GET_ORCHESTRATOR_REMINDER_STATE:

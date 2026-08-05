@@ -80,7 +80,7 @@ describe("loadLocalPreferences", () => {
     writePreferences(stellaDataDir, {
       defaultModels: {
         orchestrator: "stella/default",
-        chronicle: " stella/light ",
+        explore: " stella/light ",
       },
       modelOverrides: {
         orchestrator: "stella/default",
@@ -90,7 +90,7 @@ describe("loadLocalPreferences", () => {
     });
 
     expect(loadLocalPreferences(stellaDataDir).defaultModels).toEqual({
-      chronicle: "stella/light",
+      explore: "stella/light",
     });
     expect(loadLocalPreferences(stellaDataDir).modelOverrides).toEqual({
       general: "stella/standard",

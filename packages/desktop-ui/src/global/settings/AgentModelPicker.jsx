@@ -16,8 +16,6 @@ import { compareProviderRailOrder, getLlmProviderEntry, } from "@/global/setting
 import { getStellaDisplayName } from "@/global/settings/lib/model-catalog";
 import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getDefaultModelOptionLabel, getModelDisplayLabel, getLocalModelDefaults, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
 import { getPlanLabel, isRestrictedModelOverrideAudience, } from "@/global/billing/audience";
-import { router } from "@/router";
-import { openEngineDisplayTab } from "@/features/workspace-display/default-tabs";
 import { useLlmCredentials } from "@/global/settings/hooks/use-llm-credentials";
 import { showToast } from "@/ui/toast";
 import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, codexModelSupportsFast, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, fromOpenAiCodexModelId, intersectChatGptModels, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, } from "@/global/settings/lib/engine-model-routing";
@@ -54,17 +52,12 @@ function brandOfModelValue(value) {
  * together. Splitting them is available in Settings -> Models -> Advanced.
  *
  * Picking a non-Stella model on the Assistant tab ALSO auto-propagates
- * the same model to every other configurable agent — minus chronicle,
- * which is intentionally explicit-opt-in (it runs minute-cadence over
- * screen captures, and picking e.g. Claude Opus for "Assistant" should
- * not silently translate to "burn $20/hr summarizing OCR on Opus").
+ * the same model to every other configurable agent.
  * Propagated writes are tracked in `assistantPropagatedAgents` so
  * switching Assistant back to Stella cleans up only those writes and
  * never touches user-intentional per-agent picks.
  */
 const ASSISTANT_AGENT_KEYS = ["orchestrator", "general"];
-/** Agent keys that must never receive Assistant-tab propagation. */
-const ASSISTANT_PROPAGATE_EXCLUDE = new Set(["chronicle"]);
 const isStellaModelId = (modelId) => modelId === "" || modelId.startsWith("stella/");
 const DEFAULT_IMAGE_GENERATION = {
     provider: "stella",
@@ -557,12 +550,10 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             }
             if (value !== "" && !isStellaModelId(value)) {
                 // Broadcast to every other configurable agent that doesn't have
-                // an explicit user-intentional override. Chronicle is excluded —
-                // see ASSISTANT_PROPAGATE_EXCLUDE.
+                // an explicit user-intentional override.
                 const propagateTargets = configurableAgents
                     .map((agent) => agent.key)
-                    .filter((key) => !ASSISTANT_PROPAGATE_EXCLUDE.has(key) &&
-                    !assistantWriteKeys.includes(key));
+                    .filter((key) => !assistantWriteKeys.includes(key));
                 const written = [];
                 for (const key of propagateTargets) {
                     const hadManualOverride = previousOverrides[key] !== undefined &&
@@ -619,8 +610,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             });
             if (saved)
                 setPreferences(saved);
-            // Let other listeners (notably the Memory tab's chronicle gate)
-            // pick up the new override without remounting.
+            // Let other model listeners pick up the new override without remounting.
             window.dispatchEvent(new CustomEvent("stella:local-model-preferences-changed"));
             setError(null);
             // Restricted-tier picks used to fire a toast here. The picker
@@ -1078,16 +1068,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
      */
     const restrictedStellaPicks = isRestrictedModelOverrideAudience(audience);
     const restrictedPlanLabel = audience ? getPlanLabel(audience) : null;
-    // Surface a one-liner when Assistant is routed through a non-Stella
-    // provider but Chronicle (screen memory) is still pointing at Stella —
-    // those minute-cadence ticks would otherwise silently keep eating the
-    // user's Stella quota without them realizing.
-    const chronicleOverride = overrides.chronicle ?? "";
-    const showChronicleStillOnStellaNotice = activeAssistant &&
-        !activeProviderSetting &&
-        current !== "" &&
-        !isStellaModelId(current) &&
-        (chronicleOverride === "" || isStellaModelId(chronicleOverride));
     const tabButton = (key, label, title, isActive) => (<button key={key} type="button" role="tab" aria-selected={isActive} className="agent-model-picker-toggle-btn" data-active={isActive || undefined} onClick={() => {
             setActiveAgent(key);
             // Each tab re-derives its brand/source from saved preferences.
@@ -1200,19 +1180,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     : ""} onSelect={(modelId) => void handleEngineModelSelect("claude_code_local", modelId)} loading={claudeCodeModelsLoading} disabled={!preferences || pendingAgent !== null}/>) : (<ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel="Assistant model picker" onSelect={handleSelect} visibleProviders={[activeBrand]} hideSelectedTitle hideProviderLabel hideSearch={activeBrand === "stella"}/>)}
           </>)}
 
-        {showChronicleStillOnStellaNotice ? (<p className="agent-model-picker-chronicle-notice">
-            Screen memory still uses Stella.{" "}
-            <button type="button" className="agent-model-picker-chronicle-link" onClick={() => {
-                // Open the sidebar Models popover so Chronicle can be
-                // configured without leaving chat.
-                void router.navigate({ to: "/chat" });
-                openEngineDisplayTab();
-                onSelected?.();
-            }}>
-              Pick a small model for Chronicle
-            </button>{" "}
-            to switch.
-          </p>) : null}
       </div>
 
       {activeProviderSetting ? null : (<div className="agent-model-picker-footer">

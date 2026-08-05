@@ -775,7 +775,4 @@ export class RuntimeHostAdapter {
     triggerDreamNow(trigger) {
         return this.host.triggerDreamNow(trigger);
     }
-    runChronicleSummaryTick(window) {
-        return this.host.runChronicleSummaryTick(window);
-    }
 }

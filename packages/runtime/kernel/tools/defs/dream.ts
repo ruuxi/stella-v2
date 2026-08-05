@@ -12,7 +12,7 @@ import type { ToolDefinition } from "../types.js";
 export const dreamTool: ToolDefinition = {
   name: "Dream",
   description:
-    'Background memory consolidator IO. action="list" returns unprocessed Dream-inbox rows (thread summaries, memory notes, chronicle digests); action="markProcessed" stamps rows as consumed by id.',
+    'Background memory consolidator IO. action="list" returns unprocessed Dream-inbox rows (thread summaries and memory notes); action="markProcessed" stamps rows as consumed by id.',
   parameters: {
     type: "object",
     properties: {

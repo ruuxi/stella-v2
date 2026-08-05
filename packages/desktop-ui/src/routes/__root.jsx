@@ -52,10 +52,8 @@ import { MobileActivityNotificationsBridge } from "@/global/mobile/MobileActivit
 import { useDictationToggleBridge } from "@/shell/root-chrome/use-dictation-toggle-bridge";
 import { useDisplayPayloadRouting } from "@/shell/root-chrome/use-display-payload-routing";
 import { useLastLocationRestore } from "@/shell/root-chrome/use-last-location-restore";
-import { useOnboardingMemoryPromotion } from "@/shell/root-chrome/use-onboarding-memory-promotion";
 import { usePersistLastLocation } from "@/shell/root-chrome/use-persist-last-location";
 import { useWorkspacePanelEvents } from "@/shell/root-chrome/use-workspace-panel-events";
-import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { shellBreakpointStore, useShellBreakpointState, } from "@/shell/shell-breakpoints";
 /**
  * The root route owns the app chrome — top shell bar, workspace panel,
@@ -112,7 +110,6 @@ function RootChrome() {
     const panelExpandedBeforeTakeoverRef = useRef(null);
     const displayBreakpointTransitionTimeoutRef = useRef(null);
     const rightSidebarRef = useRef(null);
-    const { hasConnectedAccount, isLoading: isAuthLoading } = useAuthSessionState();
     const pathname = useRouterState({ select: (s) => s.location.pathname });
     const isOnChatRoute = pathname === "/chat";
     const triggerDisplayBreakpointTransition = useCallback(() => {
@@ -159,11 +156,6 @@ function RootChrome() {
         window.addEventListener(OPEN_CONNECT_DIALOG_EVENT, handler);
         return () => window.removeEventListener(OPEN_CONNECT_DIALOG_EVENT, handler);
     }, [showConnectDialog]);
-    useOnboardingMemoryPromotion({
-        hasConnectedAccount,
-        isAuthLoading,
-        showAuthDialog,
-    });
     const handleDialogOpenChange = useCallback((open) => {
         if (!open)
             closeDialog();

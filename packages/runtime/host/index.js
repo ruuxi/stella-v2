@@ -1758,9 +1758,6 @@ export class StellaRuntimeHost {
     async triggerDreamNow(trigger = "manual") {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_DREAM_TRIGGER_NOW, { trigger }, { ensureWorker: true, recordActivity: true });
     }
-    async runChronicleSummaryTick(window) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_CHRONICLE_SUMMARY_TICK, { window }, { ensureWorker: true, recordActivity: true });
-    }
     buildWorkerInitializationState() {
         return {
             protocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,

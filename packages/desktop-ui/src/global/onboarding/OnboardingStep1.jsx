@@ -5,7 +5,6 @@ import { getPlatform } from "@/platform/electron/platform";
 import { useOnboardingAppearance } from "./use-onboarding-appearance";
 import { useOnboardingDiscovery } from "./use-onboarding-discovery";
 import { useOnboardingFlow } from "./use-onboarding-flow";
-import { useOnboardingMemory } from "./use-onboarding-memory";
 import { useT } from "@/shared/i18n";
 import "./Onboarding.css";
 /* Phases are eager imports because the entire onboarding flow already
@@ -29,7 +28,6 @@ import { OnboardingBrowserPhase } from "./OnboardingBrowserPhase";
 import { OnboardingThemePhase } from "./OnboardingThemePhase";
 import { OnboardingPersonalityPhase } from "./OnboardingPersonalityPhase";
 import { OnboardingVoicePhase } from "./OnboardingVoicePhase";
-import { OnboardingMemoryPhase } from "./OnboardingMemoryPhase";
 import { OnboardingEnterPhase } from "./OnboardingEnterPhase";
 import { OnboardingMockWindows } from "./OnboardingMockWindows";
 /**
@@ -46,7 +44,6 @@ const STEP_TITLE_KEYS = {
     theme: "onboarding.stepTitles.theme",
     personality: "onboarding.stepTitles.personality",
     voice: "onboarding.stepTitles.voice",
-    memory: "onboarding.stepTitles.memory",
     enter: "onboarding.stepTitles.enter",
 };
 const ACT_LABEL_KEYS = {
@@ -123,7 +120,6 @@ export const OnboardingStep1 = ({ initialPhase = "intro", onComplete, onInteract
         handlePhaseChange(initialPhase);
     }, [handlePhaseChange, initialPhase]);
     const appearance = useOnboardingAppearance();
-    const handleMemoryContinue = useOnboardingMemory(nextSplitStep);
     useEffect(() => {
         const shell = document.querySelector(".window-shell");
         if (!shell) {
@@ -208,8 +204,6 @@ export const OnboardingStep1 = ({ initialPhase = "intro", onComplete, onInteract
                 return (<OnboardingPersonalityPhase personalityOptions={appearance.personalityOptions} personalityVoiceId={appearance.personalityVoiceId} defaultPersonalityVoiceId={appearance.defaultPersonalityVoiceId} splitTransitionActive={leaving} onFinish={nextSplitStep} onSelectVoice={appearance.selectPersonalityVoice}/>);
             case "voice":
                 return (<OnboardingVoicePhase splitTransitionActive={leaving} onContinue={nextSplitStep}/>);
-            case "memory":
-                return (<OnboardingMemoryPhase splitTransitionActive={leaving} isAuthenticated={Boolean(isAuthenticated)} onContinue={handleMemoryContinue}/>);
             case "enter":
                 return (<OnboardingEnterPhase discoveryWelcomeReady={discoveryWelcomeReady} splitTransitionActive={leaving} onEnter={nextSplitStep}/>);
             default:

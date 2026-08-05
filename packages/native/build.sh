@@ -221,15 +221,6 @@ build_swift_universal "home_capture" "src/home_capture.swift" \
   -framework ScreenCaptureKit
 echo "Build successful: $OUTPUT_DIR/home_capture"
 
-echo "Building chronicle (macOS)..."
-build_swift_universal "chronicle" "src/chronicle.swift" \
-  -framework AppKit \
-  -framework CoreGraphics \
-  -framework Foundation \
-  -framework ScreenCaptureKit \
-  -framework Vision
-echo "Build successful: $OUTPUT_DIR/chronicle"
-
 echo "Building meeting_capture (macOS)..."
 build_swift_universal "meeting_capture" "src/meeting_capture.swift" \
   -framework AVFoundation \

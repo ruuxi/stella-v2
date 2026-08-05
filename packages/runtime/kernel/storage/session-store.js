@@ -667,7 +667,7 @@ export class SessionStore {
     /**
      * Lazily-constructed singleton DreamInboxStore — the unified queue of
      * everything Dream consolidates: subagent rollout summaries, orchestrator
-     * memory-review notes, and chronicle digests.
+     * memory-review notes.
      */
     get dreamInboxStore() {
         if (!this.dreamInboxStoreInstance) {

@@ -87,33 +87,6 @@ describe("DreamInboxStore", () => {
     expect(serialized).toContain("***");
   });
 
-  it("coalesces chronicle digests per window while unprocessed", () => {
-    const { store } = createTestContext();
-
-    store.recordChronicleSummary({
-      window: "10m",
-      content: "- Editing the runtime kernel",
-      uniqueLines: 12,
-    });
-    store.recordChronicleSummary({
-      window: "10m",
-      content: "- Now reviewing a pull request",
-      uniqueLines: 9,
-    });
-    store.recordChronicleSummary({
-      window: "6h",
-      content: "- A whole afternoon of Stella work",
-      uniqueLines: 80,
-    });
-
-    const unprocessed = store.listUnprocessed();
-    expect(unprocessed).toHaveLength(2);
-    const tenMinute = unprocessed.find((row) => row.sourceKey === "10m");
-    expect(tenMinute?.kind).toBe("chronicle");
-    expect(tenMinute?.content).toBe("- Now reviewing a pull request");
-    expect(tenMinute?.metadata).toMatchObject({ window: "10m", uniqueLines: 9 });
-  });
-
   it("stores memory notes as formatted candidates and lists them newest first", () => {
     const { store } = createTestContext();
 
@@ -197,7 +170,6 @@ describe("DreamInboxStore", () => {
       agentType: "general",
       rolloutSummary: "Older work",
     });
-    store.recordChronicleSummary({ window: "10m", content: "- noise" });
     const [first] = store.listUnprocessed();
     store.markProcessed({ ids: [first!.id] });
 

@@ -779,7 +779,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
 
   // Unified Dream inbox: every durable input Dream consolidates flows through
   // this one queue — subagent rollout summaries, orchestrator memory-review
-  // notes, and chronicle screen-activity digests. `processed_by_dream_at IS
+  // notes. `processed_by_dream_at IS
   // NULL` is the entire queue state; there is no separate watermark file.
   // Replaces the pre-launch `thread_summaries` table (hard cut, no migration).
   db.exec("DROP TABLE IF EXISTS thread_summaries;");

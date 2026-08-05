@@ -8,7 +8,6 @@ import { SETTINGS_TABS, } from "@/global/settings/settings-tabs";
 import { AccountTab } from "./tabs/AccountTab";
 import { BackupTab } from "./tabs/BackupTab";
 import { GeneralTab } from "./tabs/GeneralTab";
-import { MemoryTab } from "./tabs/MemoryTab";
 import { ShortcutsTab } from "./tabs/ShortcutsTab";
 import { useT } from "@/shared/i18n";
 import "@/global/settings/settings.css";
@@ -173,6 +172,6 @@ function SettingsTabContent({ activeTab, onSignOut, onOpenLegal, pendingScrollTa
         };
     }, [activeTab, pendingScrollTarget, onScrollTargetHandled]);
     return (<div ref={contentRef} className="settings-panel-content">
-      {activeTab === "general" ? (<GeneralTab />) : activeTab === "shortcuts" ? (<ShortcutsTab />) : activeTab === "memory" ? (<MemoryTab />) : activeTab === "backup" ? (<BackupTab />) : activeTab === "account" ? (<AccountTab onSignOut={onSignOut} onOpenLegal={onOpenLegal}/>) : activeTab === "audio" ? (<AudioTab />) : (<GeneralTab />)}
+      {activeTab === "general" ? (<GeneralTab />) : activeTab === "shortcuts" ? (<ShortcutsTab />) : activeTab === "backup" ? (<BackupTab />) : activeTab === "account" ? (<AccountTab onSignOut={onSignOut} onOpenLegal={onOpenLegal}/>) : activeTab === "audio" ? (<AudioTab />) : (<GeneralTab />)}
     </div>);
 }

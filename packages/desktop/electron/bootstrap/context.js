@@ -74,7 +74,6 @@ export const createBootstrapContext = (config) => {
         overlayController: null,
         petController: null,
         petHandlersDispose: null,
-        chronicleController: null,
         meetingCaptureController: null,
         processRuntime,
         scheduleUpdateUnsubscribe: null,

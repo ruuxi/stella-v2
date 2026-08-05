@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Obecné",
       "shortcuts": "Zkratky",
-      "memory": "Paměť",
       "backup": "Zálohy",
       "account": "Účet a právní",
       "audio": "Zvuk"
@@ -140,95 +139,6 @@
         "unavailable": "Zkratky nejsou v tomto okně dostupné.",
         "unavailableShortcut": "Tato zkratka není dostupná.",
         "update": "Nepodařilo se aktualizovat zkratku."
-      }
-    },
-    "memory": {
-      "title": "Paměť",
-      "enable": "Povolit",
-      "disable": "Zakázat",
-      "working": "Pracuji…",
-      "screen": {
-        "label": "Paměť obrazovky",
-        "description": "Stella se může čas od času podívat na vaši obrazovku, aby si zapamatovala, co jste dělali.",
-        "signInDescription": "Přihlaste se ke Stelle nebo vyberte malý model pro Chronicle v panelu Engine.",
-        "upgradeDescription": "Paměť obrazovky je součástí každého plánu Stella. Upgradujte nebo vyberte malý model pro Chronicle v panelu Engine."
-      },
-      "status": {
-        "label": "Stav",
-        "running": "Běží",
-        "stopped": "Zastaveno",
-        "disabled": "Zakázáno",
-        "fps": "{fps} fps",
-        "lastCapture": "poslední zachycení {time}"
-      },
-      "folder": {
-        "label": "Složka paměti",
-        "description": "Otevře složku ve vašem počítači, kde Stella uchovává své vzpomínky.",
-        "open": "Otevřít složku",
-        "opening": "Otevírání…"
-      },
-      "update": {
-        "label": "Aktualizovat paměť nyní",
-        "description": "Nechte Stellu projít nedávnou aktivitu a uložit, co se naučila. Obvykle to probíhá samo.",
-        "run": "Spustit nyní",
-        "running": "Sní…"
-      },
-      "erase": {
-        "label": "Vymazat paměť",
-        "description": "Odstraní vše, co si Stella zapamatovala, včetně uložené aktivity obrazovky. Toto nelze vrátit zpět.",
-        "action": "Vymazat",
-        "working": "Mazání…",
-        "confirm": "Vymazat vše, co si Stella zapamatovala? Toto nelze vrátit zpět."
-      },
-      "access": {
-        "signInTitle": "Vyžadováno přihlášení",
-        "subscriptionTitle": "Vyžadováno předplatné",
-        "signInMessage": "Přihlaste se ke Stelle nebo vyberte malý model pro Chronicle v panelu Engine.",
-        "upgradeMessage": "Paměť obrazovky je součástí každého plánu Stella. Upgradujte — nebo vyberte malý model pro Chronicle v panelu Engine.",
-        "pickModel": "Vybrat model",
-        "upgrade": "Upgradovat"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle povolen",
-        "disabledTitle": "Chronicle zakázán",
-        "alreadyRunning": "Chronicle už běžel.",
-        "enableFailedTitle": "Nepodařilo se povolit Chronicle",
-        "disableFailedTitle": "Nepodařilo se zakázat Chronicle",
-        "dreamScheduledTitle": "Průchod Dream naplánován",
-        "dreamNotScheduledTitle": "Průchod Dream nenaplánován",
-        "wipeFailedTitle": "Mazání se nezdařilo",
-        "wipedTitle": "Vzpomínky vymazány"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Kořen pracovního prostoru Stelly není dostupný.",
-        "needsPermission": "Před spuštěním Chronicle je stále vyžadováno oprávnění k záznamu obrazovky.",
-        "binaryMissing": "Pomocný soubor Chronicle chybí.",
-        "startupTimeout": "Chronicle se po spuštění nepřipojil.",
-        "unsupportedPlatform": "Chronicle je dostupný pouze v systému macOS.",
-        "unknown": "Neznámá chyba."
-      },
-      "dreamResults": {
-        "scheduled": "Dream sloučí aktuální nevyřízené položky.",
-        "inFlight": "Průchod Dream už probíhá.",
-        "noInputs": "Právě teď není co slučovat.",
-        "noApiKey": "Dream potřebuje nakonfigurovaný model/klíč API nebo přihlášenou trasu Stella.",
-        "disabled": "Plánování Dream je momentálně zakázáno.",
-        "belowThreshold": "Práh nečinnosti ještě nebyl dosažen.",
-        "lockBusy": "Dream je právě zaneprázdněn. Zkuste to za chvíli znovu.",
-        "noRunner": "Místní běhové prostředí ještě není připraveno.",
-        "unavailable": "Dream je momentálně nedostupný.",
-        "pendingPrefix": "Čeká: {items}.",
-        "pendingThreadSummary": "{count} souhrn úlohy",
-        "pendingThreadSummaries": "souhrnů úloh: {count}",
-        "pendingExtension": "{count} soubor Chronicle",
-        "pendingExtensions": "souborů Chronicle: {count}",
-        "pendingJoin": " a "
-      },
-      "errors": {
-        "loadStatus": "Nepodařilo se načíst stav Chronicle.",
-        "update": "Nepodařilo se aktualizovat Chronicle.",
-        "dream": "Nepodařilo se spustit průchod Dream.",
-        "wipe": "Nepodařilo se vymazat vzpomínky."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Vyberte styl mluvení a hlas osobnosti Stelly.",
         "permissions": "Udělte v systému macOS přístup ke zpřístupnění, záznamu obrazovky a mikrofonu.",
-        "memory": "Spravujte paměť obrazovky, aktualizujte nebo vymažte, co si Stella zapamatovala.",
         "backup": "Automatické šifrované zálohy, body obnovení a snímky na vyžádání.",
         "account": "Odhlaste se, smažte svá data nebo trvale smažte svůj účet.",
         "legal": "Podmínky služby a zásady ochrany osobních údajů.",
@@ -454,7 +363,6 @@
       "theme": "Jak by Stella měla vypadat?",
       "personality": "Jak by Stella měla mluvit?",
       "voice": "Mluvte místo psaní.",
-      "memory": "Pomozte Stelle si pamatovat.",
       "enter": "Stella je téměř připravena."
     },
     "acts": {

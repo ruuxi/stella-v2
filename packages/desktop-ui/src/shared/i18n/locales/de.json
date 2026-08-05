@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Allgemein",
       "shortcuts": "Tastenkürzel",
-      "memory": "Erinnerungen",
       "backup": "Sicherungen",
       "account": "Konto & Recht",
       "audio": "Audio"
@@ -140,95 +139,6 @@
         "unavailable": "Tastenkürzel sind in diesem Fenster nicht verfügbar.",
         "unavailableShortcut": "Dieses Tastenkürzel ist nicht verfügbar.",
         "update": "Tastenkürzel konnte nicht aktualisiert werden."
-      }
-    },
-    "memory": {
-      "title": "Erinnerung",
-      "enable": "Aktivieren",
-      "disable": "Deaktivieren",
-      "working": "Wird ausgeführt…",
-      "screen": {
-        "label": "Bildschirm-Erinnerung",
-        "description": "Stella kann ab und zu einen Blick auf deinen Bildschirm werfen, um sich zu merken, was du gerade getan hast.",
-        "signInDescription": "Melde dich bei Stella an oder wähle ein kleines Modell für Chronicle im Engine-Panel.",
-        "upgradeDescription": "Bildschirm-Erinnerung ist in jedem Stella-Tarif enthalten. Führe ein Upgrade durch oder wähle ein kleines Modell für Chronicle im Engine-Panel."
-      },
-      "status": {
-        "label": "Status",
-        "running": "Läuft",
-        "stopped": "Gestoppt",
-        "disabled": "Deaktiviert",
-        "fps": "{fps} fps",
-        "lastCapture": "letzte Aufnahme {time}"
-      },
-      "folder": {
-        "label": "Erinnerungsordner",
-        "description": "Öffnet den Ordner auf deinem Computer, in dem Stella ihre Erinnerungen speichert.",
-        "open": "Ordner öffnen",
-        "opening": "Wird geöffnet…"
-      },
-      "update": {
-        "label": "Erinnerung jetzt aktualisieren",
-        "description": "Lass Stella die letzten Aktivitäten durchsehen und das Gelernte speichern. Das geschieht normalerweise von selbst.",
-        "run": "Jetzt ausführen",
-        "running": "Träumt…"
-      },
-      "erase": {
-        "label": "Erinnerung löschen",
-        "description": "Löscht alles, was sich Stella gemerkt hat, einschließlich gespeicherter Bildschirmaktivität. Das kann nicht rückgängig gemacht werden.",
-        "action": "Löschen",
-        "working": "Wird gelöscht…",
-        "confirm": "Alles löschen, was sich Stella gemerkt hat? Das kann nicht rückgängig gemacht werden."
-      },
-      "access": {
-        "signInTitle": "Anmeldung erforderlich",
-        "subscriptionTitle": "Abonnement erforderlich",
-        "signInMessage": "Melde dich bei Stella an oder wähle ein kleines Modell für Chronicle im Engine-Panel.",
-        "upgradeMessage": "Bildschirm-Erinnerung ist in jedem Stella-Tarif enthalten. Führe ein Upgrade durch – oder wähle ein kleines Modell für Chronicle im Engine-Panel.",
-        "pickModel": "Modell wählen",
-        "upgrade": "Upgrade"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle aktiviert",
-        "disabledTitle": "Chronicle deaktiviert",
-        "alreadyRunning": "Chronicle lief bereits.",
-        "enableFailedTitle": "Chronicle konnte nicht aktiviert werden",
-        "disableFailedTitle": "Chronicle konnte nicht deaktiviert werden",
-        "dreamScheduledTitle": "Dream-Durchlauf geplant",
-        "dreamNotScheduledTitle": "Dream-Durchlauf nicht geplant",
-        "wipeFailedTitle": "Löschen fehlgeschlagen",
-        "wipedTitle": "Erinnerungen gelöscht"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Das Arbeitsbereich-Stammverzeichnis von Stella ist nicht verfügbar.",
-        "needsPermission": "Die Berechtigung zur Bildschirmaufnahme ist weiterhin erforderlich, bevor Chronicle starten kann.",
-        "binaryMissing": "Die Chronicle-Hilfsdatei fehlt.",
-        "startupTimeout": "Chronicle ist nach dem Start nicht online gegangen.",
-        "unsupportedPlatform": "Chronicle ist nur unter macOS verfügbar.",
-        "unknown": "Unbekannter Fehler."
-      },
-      "dreamResults": {
-        "scheduled": "Dream wird den aktuellen Rückstand konsolidieren.",
-        "inFlight": "Ein Dream-Durchlauf läuft bereits.",
-        "noInputs": "Es gibt gerade nichts Neues zu konsolidieren.",
-        "noApiKey": "Dream benötigt ein konfiguriertes Modell/einen API-Schlüssel oder eine angemeldete Stella-Route.",
-        "disabled": "Die Dream-Planung ist derzeit deaktiviert.",
-        "belowThreshold": "Die Leerlaufschwelle wurde noch nicht erreicht.",
-        "lockBusy": "Dream ist gerade beschäftigt. Versuche es gleich noch einmal.",
-        "noRunner": "Die lokale Laufzeit ist noch nicht bereit.",
-        "unavailable": "Dream ist derzeit nicht verfügbar.",
-        "pendingPrefix": "Ausstehend: {items}.",
-        "pendingThreadSummary": "{count} Aufgabenzusammenfassung",
-        "pendingThreadSummaries": "{count} Aufgabenzusammenfassungen",
-        "pendingExtension": "{count} Chronicle-Datei",
-        "pendingExtensions": "{count} Chronicle-Dateien",
-        "pendingJoin": " und "
-      },
-      "errors": {
-        "loadStatus": "Chronicle-Status konnte nicht geladen werden.",
-        "update": "Chronicle konnte nicht aktualisiert werden.",
-        "dream": "Dream-Durchlauf konnte nicht ausgelöst werden.",
-        "wipe": "Erinnerungen konnten nicht gelöscht werden."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Wähle Stellas Sprechstil und Persönlichkeitsstimme.",
         "permissions": "Erteile unter macOS Zugriff auf Bedienungshilfen, Bildschirmaufnahme und Mikrofon.",
-        "memory": "Verwalte die Bildschirm-Erinnerung, aktualisiere oder lösche, was sich Stella gemerkt hat.",
         "backup": "Automatische verschlüsselte Backups, Wiederherstellungspunkte und Snapshots auf Abruf.",
         "account": "Abmelden, deine Daten löschen oder dein Konto dauerhaft löschen.",
         "legal": "Nutzungsbedingungen und Datenschutzrichtlinie.",
@@ -454,7 +363,6 @@
       "theme": "Wie soll Stella aussehen?",
       "personality": "Wie soll Stella sprechen?",
       "voice": "Sprich, statt zu tippen.",
-      "memory": "Hilf Stella, sich zu erinnern.",
       "enter": "Stella ist fast bereit."
     },
     "acts": {

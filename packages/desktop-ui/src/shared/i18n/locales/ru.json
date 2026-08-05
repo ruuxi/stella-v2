@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Основные",
       "shortcuts": "Горячие клавиши",
-      "memory": "Память",
       "backup": "Резервные копии",
       "account": "Аккаунт и право",
       "audio": "Звук"
@@ -140,95 +139,6 @@
         "unavailable": "Сочетания клавиш недоступны в этом окне.",
         "unavailableShortcut": "Это сочетание недоступно.",
         "update": "Не удалось обновить сочетание."
-      }
-    },
-    "memory": {
-      "title": "Память",
-      "enable": "Включить",
-      "disable": "Отключить",
-      "working": "Выполнение…",
-      "screen": {
-        "label": "Память экрана",
-        "description": "Stella может время от времени поглядывать на ваш экран, чтобы запоминать, чем вы занимались.",
-        "signInDescription": "Войдите в Stella или выберите небольшую модель для Chronicle на панели Engine.",
-        "upgradeDescription": "Память экрана входит в любой тариф Stella. Перейдите на более высокий тариф или выберите небольшую модель для Chronicle на панели Engine."
-      },
-      "status": {
-        "label": "Состояние",
-        "running": "Работает",
-        "stopped": "Остановлено",
-        "disabled": "Отключено",
-        "fps": "{fps} кадр/с",
-        "lastCapture": "последний снимок {time}"
-      },
-      "folder": {
-        "label": "Папка памяти",
-        "description": "Открывает папку на компьютере, где Stella хранит свои воспоминания.",
-        "open": "Открыть папку",
-        "opening": "Открытие…"
-      },
-      "update": {
-        "label": "Обновить память сейчас",
-        "description": "Stella просмотрит недавнюю активность и сохранит то, что узнала. Обычно это происходит само собой.",
-        "run": "Запустить сейчас",
-        "running": "Сон…"
-      },
-      "erase": {
-        "label": "Стереть память",
-        "description": "Удаляет всё, что запомнила Stella, включая сохранённую активность экрана. Это действие нельзя отменить.",
-        "action": "Стереть",
-        "working": "Стирание…",
-        "confirm": "Стереть всё, что запомнила Stella? Это действие нельзя отменить."
-      },
-      "access": {
-        "signInTitle": "Требуется вход",
-        "subscriptionTitle": "Требуется подписка",
-        "signInMessage": "Войдите в Stella или выберите небольшую модель для Chronicle на панели Engine.",
-        "upgradeMessage": "Память экрана входит в любой тариф Stella. Перейдите на более высокий тариф — или выберите небольшую модель для Chronicle на панели Engine.",
-        "pickModel": "Выбрать модель",
-        "upgrade": "Улучшить тариф"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle включён",
-        "disabledTitle": "Chronicle отключён",
-        "alreadyRunning": "Chronicle уже работал.",
-        "enableFailedTitle": "Не удалось включить Chronicle",
-        "disableFailedTitle": "Не удалось отключить Chronicle",
-        "dreamScheduledTitle": "Проход Dream запланирован",
-        "dreamNotScheduledTitle": "Проход Dream не запланирован",
-        "wipeFailedTitle": "Не удалось стереть",
-        "wipedTitle": "Воспоминания стёрты"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Корневая папка рабочей области Stella недоступна.",
-        "needsPermission": "Для запуска Chronicle всё ещё требуется разрешение на запись экрана.",
-        "binaryMissing": "Вспомогательный файл Chronicle отсутствует.",
-        "startupTimeout": "Chronicle не вышел в сеть после запуска.",
-        "unsupportedPlatform": "Chronicle доступен только в macOS.",
-        "unknown": "Неизвестная ошибка."
-      },
-      "dreamResults": {
-        "scheduled": "Dream объединит текущие накопленные данные.",
-        "inFlight": "Проход Dream уже выполняется.",
-        "noInputs": "Сейчас нечего объединять.",
-        "noApiKey": "Для Dream нужна настроенная модель/ключ API или маршрут Stella с выполненным входом.",
-        "disabled": "Планирование Dream сейчас отключено.",
-        "belowThreshold": "Порог простоя ещё не достигнут.",
-        "lockBusy": "Dream сейчас занят. Повторите попытку через мгновение.",
-        "noRunner": "Локальная среда выполнения ещё не готова.",
-        "unavailable": "Dream сейчас недоступен.",
-        "pendingPrefix": "В ожидании: {items}.",
-        "pendingThreadSummary": "{count} сводка задачи",
-        "pendingThreadSummaries": "сводок задач: {count}",
-        "pendingExtension": "{count} файл Chronicle",
-        "pendingExtensions": "файлов Chronicle: {count}",
-        "pendingJoin": " и "
-      },
-      "errors": {
-        "loadStatus": "Не удалось загрузить состояние Chronicle.",
-        "update": "Не удалось обновить Chronicle.",
-        "dream": "Не удалось запустить проход Dream.",
-        "wipe": "Не удалось стереть воспоминания."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Выберите стиль речи и голос личности Stella.",
         "permissions": "Предоставьте доступ к универсальному доступу, записи экрана и микрофону в macOS.",
-        "memory": "Управляйте памятью экрана, обновляйте или стирайте то, что запомнила Stella.",
         "backup": "Автоматические зашифрованные резервные копии, точки восстановления и снимки по запросу.",
         "account": "Выйдите, удалите данные или безвозвратно удалите аккаунт.",
         "legal": "Условия использования и политика конфиденциальности.",
@@ -454,7 +363,6 @@
       "theme": "Как должна выглядеть Stella?",
       "personality": "Как должна говорить Stella?",
       "voice": "Говорите вместо того, чтобы печатать.",
-      "memory": "Помогите Stella запомнить.",
       "enter": "Stella почти готова."
     },
     "acts": {

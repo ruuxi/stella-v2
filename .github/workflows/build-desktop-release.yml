@@ -132,6 +132,19 @@ jobs:
           bun install --frozen-lockfile
           bun ./node_modules/electron/install.js
 
+      - name: Install packaged command-line dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v rg >/dev/null 2>&1; then
+            if [ "${{ runner.os }}" = "macOS" ]; then
+              brew install ripgrep
+            else
+              choco install ripgrep --no-progress --yes
+            fi
+          fi
+          rg --version
+
       - uses: actions/download-artifact@v4
         with:
           name: stella-v2-release-pins

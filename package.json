@@ -143,6 +143,7 @@
     "appId": "com.stella.app",
     "productName": "Stella",
     "electronUpdaterCompatibility": ">=2.16",
+    "afterPack": "packages/desktop/scripts/prune-packaged-install-assets.mjs",
     "afterSign": "packages/desktop/scripts/notarize.mjs",
     "extraMetadata": {
       "name": "stella-v2",

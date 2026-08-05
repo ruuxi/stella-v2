@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
+import {
+  prepareMacDevPermissionIdentity,
+  resolveMacDevResponsibilityLauncher,
+} from "./lib/macos-dev-permission-identity.mjs";
 
 const DEV_SERVER_URL =
   process.env.STELLA_DEV_SERVER_URL?.trim() || "http://127.0.0.1:57314";
@@ -27,6 +31,11 @@ await waitForVite();
 
 const require = createRequire(import.meta.url);
 const electronBinary = require("electron");
+const desktopDir = path.resolve(import.meta.dirname, "..");
+prepareMacDevPermissionIdentity({ electronBinary, desktopDir });
+const responsibilityLauncher = resolveMacDevResponsibilityLauncher({
+  desktopDir,
+});
 const devEnvironment = { ...process.env };
 for (const inheritedLiveKey of [
   "STELLA_APP_DIR",
@@ -41,16 +50,22 @@ for (const inheritedLiveKey of [
 ]) {
   delete devEnvironment[inheritedLiveKey];
 }
-const child = spawn(electronBinary, [".", "--dev"], {
-  cwd: path.resolve(import.meta.dirname, "..", "..", ".."),
-  env: {
-    ...devEnvironment,
-    NODE_ENV: "development",
-    STELLA_DEV_SERVER_URL: DEV_SERVER_URL,
+const child = spawn(
+  responsibilityLauncher ?? electronBinary,
+  responsibilityLauncher
+    ? [electronBinary, ".", "--dev"]
+    : [".", "--dev"],
+  {
+    cwd: path.resolve(import.meta.dirname, "..", "..", ".."),
+    env: {
+      ...devEnvironment,
+      NODE_ENV: "development",
+      STELLA_DEV_SERVER_URL: DEV_SERVER_URL,
+    },
+    stdio: "inherit",
+    windowsHide: true,
   },
-  stdio: "inherit",
-  windowsHide: true,
-});
+);
 
 const forwardSignal = (signal) => {
   if (child.exitCode === null && child.signalCode === null) {

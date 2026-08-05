@@ -12,10 +12,10 @@
  * and scroll position. Everything about where the host sits in this tree
  * exists to keep its DOM nodes still.
  */
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { PersistentUserAppsHost } from "@/app/apps/PersistentUserAppsHost";
 import { formatUserAppCreatedAt, listUserApps, useRequestUserApp, } from "@/app/apps/user-app-library";
-import { getServerSnapshot, getSnapshot, refreshUserApps, subscribe, } from "@/app/apps/user-apps-registry";
+import { getServerSnapshot, getSnapshot, refreshUserApps, stopUserApp, subscribe, } from "@/app/apps/user-apps-registry";
 import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
 import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
@@ -63,7 +63,25 @@ export function AppsSection() {
 }
 function AppsLibrary({ registry }) {
     const requestUserApp = useRequestUserApp();
+    const [stoppingSlugs, setStoppingSlugs] = useState(() => new Set());
     const { apps, error, phase, refreshing } = registry;
+    const shutDown = async (slug) => {
+        setStoppingSlugs((current) => new Set(current).add(slug));
+        try {
+            await stopUserApp(slug);
+        }
+        catch {
+            // The status refresh keeps the card truthful; restoring the action
+            // is enough for a lightweight retry without another error surface.
+        }
+        finally {
+            setStoppingSlugs((current) => {
+                const next = new Set(current);
+                next.delete(slug);
+                return next;
+            });
+        }
+    };
     if (phase === "loading" && apps.length === 0) {
         return (<div className="apps-section__library apps-section__library--status" role="status" aria-live="polite">
         <LoaderCircle className="stella-loader-circle" size={18} strokeWidth={2} aria-hidden="true"/>
@@ -109,14 +127,36 @@ function AppsLibrary({ registry }) {
           </button>
         </div>) : null}
       <ul className="apps-section__grid sidebar-section__scroll">
-        {visible.map((app) => (<li key={app.slug}>
-            <button type="button" className="apps-section__card" onClick={() => sidebarSections.setLocation("apps", app.slug)}>
+        {visible.map((app) => {
+            const stopping = stoppingSlugs.has(app.slug) || app.status === "stopping";
+            const running = app.status === "running";
+            const starting = app.status === "starting" || app.status === "installing";
+            const statusLabel = stopping
+                ? "Stopping"
+                : running
+                    ? "Running"
+                    : starting
+                        ? "Starting"
+                        : "Stopped";
+            const statusTone = running ? "running" : starting || stopping ? "busy" : "stopped";
+            return (<li key={app.slug} className="apps-section__card">
+            <button type="button" className="apps-section__card-open" onClick={() => sidebarSections.setLocation("apps", app.slug)}>
               <span className="apps-section__card-label">{app.meta.label}</span>
               <span className="apps-section__card-meta">
                 {formatUserAppCreatedAt(app.meta.createdAt)}
               </span>
             </button>
-          </li>))}
+            <div className="apps-section__card-runtime">
+              <span className={`apps-section__card-status apps-section__card-status--${statusTone}`}>
+                <span className="apps-section__card-status-dot" aria-hidden="true"/>
+                {statusLabel}
+              </span>
+              {running || stopping ? (<button type="button" className="apps-section__shutdown" disabled={stopping} onClick={() => void shutDown(app.slug)}>
+                  {stopping ? "Stopping" : "Shut down"}
+                </button>) : null}
+            </div>
+          </li>);
+        })}
       </ul>
 
       <div className="apps-section__footer" aria-busy={refreshing || undefined}>

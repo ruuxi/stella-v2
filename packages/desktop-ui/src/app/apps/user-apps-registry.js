@@ -1,4 +1,12 @@
 const EMPTY_APPS = Object.freeze([]);
+const USER_APP_STATUSES = new Set([
+  "stopped",
+  "installing",
+  "starting",
+  "running",
+  "stopping",
+  "error",
+]);
 
 const initialSnapshot = Object.freeze({
   phase: "loading",
@@ -53,6 +61,7 @@ const normalizeApps = (result) => {
             label: app.meta.label,
             createdAt: app.meta.createdAt,
           }),
+          status: USER_APP_STATUSES.has(app.status) ? app.status : "stopped",
         }),
       )
       .sort((a, b) => a.slug.localeCompare(b.slug)),
@@ -187,6 +196,16 @@ export const getUserApp = (slug) =>
   snapshot.apps.find((app) => app.slug === slug);
 
 export const refreshUserApps = () => requestApps("refresh");
+
+export const stopUserApp = async (slug) => {
+  const api = userAppsApi();
+  if (typeof api?.stop !== "function") {
+    throw new Error("Apps are unavailable on this device.");
+  }
+  const result = await api.stop(slug);
+  await requestApps("refresh");
+  return result;
+};
 
 export const __resetUserAppsRegistryForTests = () => {
   unsubscribeChanged?.();

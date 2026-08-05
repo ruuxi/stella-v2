@@ -109,6 +109,14 @@
   padding: 4px;
 }
 
+.connect-panel .connect-hero-tagline {
+  text-align: center;
+}
+
+.connect-panel .connect-hero-animation {
+  justify-content: center;
+}
+
 .connect-panel__detail-header {
   display: flex;
   align-items: center;

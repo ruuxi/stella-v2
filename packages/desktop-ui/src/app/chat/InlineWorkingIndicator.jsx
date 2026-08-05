@@ -38,6 +38,7 @@ import "./indicators.css";
  * gone promptly, with just a short grow-out so it doesn't snap away.
  */
 const EXIT_ANIMATION_MS = 240;
+const ENTER_ANIMATION_MS = 320;
 const MIN_VISIBLE_MS = INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS;
 export function InlineWorkingIndicator({ active, exitImmediately, runningTool, runningToolId, status, }) {
     // Snapshot the live props the moment `active` flips false so the exit
@@ -54,6 +55,7 @@ export function InlineWorkingIndicator({ active, exitImmediately, runningTool, r
     // Stay mounted until the exit animation finishes. If `active` flips back
     // to true mid-animation, cancel the exit and resume live updates.
     const [renderShell, setRenderShell] = useState(active);
+    const [entering, setEntering] = useState(active);
     const [leaving, setLeaving] = useState(false);
     const exitTimerRef = useRef(null);
     const activatedAtRef = useRef(active ? Date.now() : null);
@@ -61,6 +63,19 @@ export function InlineWorkingIndicator({ active, exitImmediately, runningTool, r
     // Per-activation seed so the reasoning label ("Thinking" / "Mulling it
     // over" / …) varies across turns but stays stable within one.
     const [reasoningSeed, setReasoningSeed] = useState(() => String(Date.now()));
+    // Keep the entrance class scoped to the actual idle -> visible transition.
+    // If activity briefly drops and returns while the exit shell is still
+    // mounted, removing `--leaving` must not replay the entrance animation.
+    useEffect(() => {
+        if (!entering)
+            return;
+        const timer = window.setTimeout(() => {
+            setEntering(false);
+        }, ENTER_ANIMATION_MS);
+        return () => {
+            window.clearTimeout(timer);
+        };
+    }, [entering]);
     useEffect(() => {
         const clearTimer = () => {
             if (exitTimerRef.current !== null) {
@@ -70,16 +85,24 @@ export function InlineWorkingIndicator({ active, exitImmediately, runningTool, r
         };
         if (active) {
             clearTimer();
-            if (!wasActiveRef.current) {
+            const isReactivation = !wasActiveRef.current;
+            if (isReactivation) {
                 activatedAtRef.current = Date.now();
                 setReasoningSeed(String(Date.now()));
             }
             wasActiveRef.current = true;
+            if (!renderShell) {
+                setEntering(true);
+            }
+            else if (isReactivation) {
+                setEntering(false);
+            }
             setLeaving(false);
             setRenderShell(true);
             return;
         }
         wasActiveRef.current = false;
+        setEntering(false);
         if (!renderShell)
             return;
         const startExit = () => {
@@ -126,7 +149,7 @@ export function InlineWorkingIndicator({ active, exitImmediately, runningTool, r
             return;
         notifyChatContentGrowth();
     }, [showInner]);
-    return (<div className={`inline-working-indicator${leaving ? " inline-working-indicator--leaving" : ""}${showInner ? "" : " inline-working-indicator--vacated"}`} aria-live="polite">
+    return (<div className={`inline-working-indicator${entering ? " inline-working-indicator--entering" : ""}${leaving ? " inline-working-indicator--leaving" : ""}${showInner ? "" : " inline-working-indicator--vacated"}`} aria-live="polite">
       {showInner && (<WorkingIndicator className="inline-working-indicator__indicator" status={displayProps.status ?? undefined} toolName={displayProps.runningTool} toolCallId={displayProps.runningToolId} isReasoning={!displayProps.runningTool} reasoningSeed={reasoningSeed} animationActive={active && !leaving}/>)}
     </div>);
 }

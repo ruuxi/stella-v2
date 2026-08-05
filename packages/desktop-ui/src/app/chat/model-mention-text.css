@@ -36,7 +36,8 @@
 }
 
 .composer-model-mention-textarea::selection {
-  color: transparent;
+  color: HighlightText;
+  background: Highlight;
 }
 
 .event-item.user .model-mention-inline {

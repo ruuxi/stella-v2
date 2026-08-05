@@ -75,10 +75,11 @@ bun add <package>
 ```
 
 Stella's managed app runtime launches the project's local Vite installation on
-loopback and embeds its URL. Source changes use Vite HMR; the built `dist/`
-directory is validation output, not the live discovery protocol. Do not start
-a second manual dev server unless you are explicitly debugging the project
-outside Stella.
+loopback and embeds its URL in the Apps sidebar. Stella discovers the app from
+`stella.app.json`; do not add it to a renderer registry. Source changes use
+Vite HMR; the built `dist/` directory is validation output, not the live
+discovery protocol. Do not start a second manual dev server unless you are
+explicitly debugging the project outside Stella.
 
 ## Project boundaries
 
@@ -104,8 +105,3 @@ the middle of empty space.
   motion, and long content where relevant.
 - Avoid filler cards, decorative badges, gratuitous gradients, and controls
   that do not serve the app.
-
-## Backlinks
-
-- [stella-design](../stella-design/SKILL.md)
-- [stella-desktop](../stella-desktop/SKILL.md)

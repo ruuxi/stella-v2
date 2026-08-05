@@ -23,6 +23,7 @@ function writePersistedChatHomeSurface(surface: ChatHomeSurface): void {
 type UseChatHomeSurfaceOptions = {
   isOnChatRoute: boolean
   hasMessages: boolean
+  isInitialLoading: boolean
   isStreaming: boolean
   activeConversationId: string | null
 }
@@ -63,6 +64,7 @@ type UseChatHomeSurfaceResult = {
 export function useChatHomeSurface({
   isOnChatRoute,
   hasMessages,
+  isInitialLoading,
   isStreaming,
   activeConversationId,
 }: UseChatHomeSurfaceOptions): UseChatHomeSurfaceResult {
@@ -84,9 +86,16 @@ export function useChatHomeSurface({
     useIdleHomeVisibility({ hasMessages, isStreaming })
 
   const firstStintOnChat = !leftChatOnce && isOnChatRoute
-  const baseShowHomeContent = firstStintOnChat
-    ? !hasMessages || !hasInteractedWithChatThisSession || idleBasedHome
-    : idleBasedHome
+  // A conversation subscription re-keys before its SQLite window resolves.
+  // During that gap `hasMessages` is necessarily false, but that does not mean
+  // the selected tab is empty. Keep the chat layer visible until the first
+  // snapshot arrives so switching populated tabs never flashes Home. Once the
+  // load completes, a genuinely empty conversation still opens on Home.
+  const baseShowHomeContent = isInitialLoading
+    ? false
+    : firstStintOnChat
+      ? !hasMessages || !hasInteractedWithChatThisSession || idleBasedHome
+      : idleBasedHome
   const showHomeContent = isHomeDismissed ? false : baseShowHomeContent
 
   useLayoutEffect(() => {

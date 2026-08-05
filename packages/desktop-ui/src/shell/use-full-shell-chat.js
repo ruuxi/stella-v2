@@ -133,6 +133,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
     const { showHomeContent, enterChatSurfaceForInteraction, resetIdleTimer, dismissHome, showHome, } = useChatHomeSurface({
         isOnChatRoute,
         hasMessages,
+        isInitialLoading: isInitialLoadingMessages,
         isStreaming,
         activeConversationId,
     });

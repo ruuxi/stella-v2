@@ -94,12 +94,6 @@
   -webkit-box-orient: vertical;
 }
 
-.apps-section__card-meta {
-  color: var(--text-weak);
-  font-size: var(--font-size-sm);
-  letter-spacing: -0.01em;
-}
-
 .apps-section__card-runtime {
   width: 100%;
   min-height: 28px;

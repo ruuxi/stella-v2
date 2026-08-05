@@ -15,7 +15,7 @@ import { updateComposerTextareaExpansion, useAnimatedComposerShell, } from "@/sh
 import { applyComposerModelMention, ComposerModelMentionMenu, findComposerModelMentionTrigger, } from "./ComposerModelMentionMenu";
 import { ComposerModelMentionTextarea } from "./ModelMentionText";
 import "./full-shell.composer.css";
-function ComposerImpl({ message, setMessage, chatContext, setChatContext, selectedText, setSelectedText, isStreaming, canSubmit, focusRequestId, conversationId, onSend, onStop, onNewChat, onSelectArea, isDragOver = false, replyPeek, suggestionsActive = true, }) {
+function ComposerImpl({ message, setMessage, chatContext, setChatContext, selectedText, setSelectedText, isStreaming, canSubmit, focusRequestId, conversationId, onSend, onStop, onSelectArea, isDragOver = false, replyPeek, suggestionsActive = true, }) {
     const textareaRef = useRef(null);
     const formRef = useRef(null);
     const shellRef = useRef(null);
@@ -133,7 +133,7 @@ function ComposerImpl({ message, setMessage, chatContext, setChatContext, select
             event.preventDefault();
             submitComposer();
         }}>
-            <ComposerAddMenu className="composer-add-button" title="Add" setChatContext={setChatContext} onSelectArea={onSelectArea} onNewChat={onNewChat} contextSuggestions={contextSuggestions.suggestions} onSelectContextSuggestion={contextSuggestions.selectSuggestion}/>
+            <ComposerAddMenu className="composer-add-button" title="Add" setChatContext={setChatContext} onSelectArea={onSelectArea} contextSuggestions={contextSuggestions.suggestions} onSelectContextSuggestion={contextSuggestions.selectSuggestion}/>
 
             {dictationInline ? (<DictationRecordingBar levels={dictation.levels} elapsedMs={dictation.elapsedMs} onCancel={dictation.cancel} onConfirm={dictation.toggle} onSend={dictation.commitAndSend} showControls={dictation.showControls}/>) : (<>
                 <ComposerModelMentionTextarea ref={textareaRef} className="composer-input" placeholder={placeholder} value={message} aria-autocomplete="list" aria-expanded={Boolean(modelMentionTrigger)} aria-controls={modelMentionTrigger
@@ -162,7 +162,7 @@ function ComposerImpl({ message, setMessage, chatContext, setChatContext, select
 
                 <div className="composer-toolbar">
                   <div className="composer-toolbar-left">
-                    <ComposerAddMenu className="composer-add-button composer-add-button--toolbar" title="Add" setChatContext={setChatContext} onSelectArea={onSelectArea} onNewChat={onNewChat} contextSuggestions={contextSuggestions.suggestions} onSelectContextSuggestion={contextSuggestions.selectSuggestion}/>
+                    <ComposerAddMenu className="composer-add-button composer-add-button--toolbar" title="Add" setChatContext={setChatContext} onSelectArea={onSelectArea} contextSuggestions={contextSuggestions.suggestions} onSelectContextSuggestion={contextSuggestions.selectSuggestion}/>
                   </div>
 
                   <div className="composer-toolbar-right">

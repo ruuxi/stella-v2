@@ -40,7 +40,7 @@ const WIDE_PANEL_CONTENT_STYLE = {
     paddingTop: 16,
     paddingBottom: 4,
 };
-export function ChatPanelTab({ openRequest, wideLayout = false, messages, conversationId, isStreaming, isStreamingResponseText, runtimeStatusText, activeToolCallId, activeToolName, hasToolActivity, isToolActive, pendingUserMessageId, queuedUserMessages, removeQueuedUserMessage, hasOlderMessages, isLoadingOlder, isInitialLoading, onLoadOlder, onSend, onStop, onNewChat, }) {
+export function ChatPanelTab({ openRequest, wideLayout = false, messages, conversationId, isStreaming, isStreamingResponseText, runtimeStatusText, activeToolCallId, activeToolName, hasToolActivity, isToolActive, pendingUserMessageId, queuedUserMessages, removeQueuedUserMessage, hasOlderMessages, isLoadingOlder, isInitialLoading, onLoadOlder, onSend, onStop, }) {
     // Input state + always-current mirror ref, synced at WRITE time. The
     // dictate-and-submit commit is rAF-deferred and can fire before React
     // flushes the render carrying the appended transcript — a ref synced in the
@@ -170,13 +170,6 @@ export function ChatPanelTab({ openRequest, wideLayout = false, messages, conver
         setInputText((current) => restoreQueuedTextToComposer(current, message.text));
         requestAnimationFrame(() => inputRef.current?.focus());
     }, [removeQueuedUserMessage, setInputText]);
-    const handleNewChat = useCallback(async () => {
-        await onNewChat();
-        setInputText("");
-        setChatContext(null);
-        setSelectedText(null);
-        setSidebarExpanded(false);
-    }, [onNewChat, setChatContext, setInputText, setSelectedText]);
     const dictation = useDictation({
         message: inputText,
         setMessage: setInputText,
@@ -346,7 +339,7 @@ export function ChatPanelTab({ openRequest, wideLayout = false, messages, conver
             event.preventDefault();
             submitComposer();
         }}>
-                    <ComposerAddMenu className="composer-add-button" title="Add" setChatContext={setChatContext} onSelectArea={handleSelectArea} onNewChat={handleNewChat} contextSuggestions={contextSuggestions.suggestions} onSelectContextSuggestion={contextSuggestions.selectSuggestion}/>
+                    <ComposerAddMenu className="composer-add-button" title="Add" setChatContext={setChatContext} onSelectArea={handleSelectArea} contextSuggestions={contextSuggestions.suggestions} onSelectContextSuggestion={contextSuggestions.selectSuggestion}/>
 
                     {dictationInline ? (<DictationRecordingBar levels={dictation.levels} elapsedMs={dictation.elapsedMs} onCancel={dictation.cancel} onConfirm={dictation.toggle} onSend={dictation.commitAndSend} showControls={dictation.showControls}/>) : (<>
                         <ComposerTextarea ref={inputRef} className="chat-sidebar-input" tone="default" value={inputText} rows={1} onChange={(event) => {
@@ -365,7 +358,7 @@ export function ChatPanelTab({ openRequest, wideLayout = false, messages, conver
 
                         <div className="composer-toolbar">
                           <div className="composer-toolbar-left">
-                            <ComposerAddMenu className="composer-add-button composer-add-button--toolbar" title="Add" setChatContext={setChatContext} onSelectArea={handleSelectArea} onNewChat={handleNewChat} contextSuggestions={contextSuggestions.suggestions} onSelectContextSuggestion={contextSuggestions.selectSuggestion}/>
+                            <ComposerAddMenu className="composer-add-button composer-add-button--toolbar" title="Add" setChatContext={setChatContext} onSelectArea={handleSelectArea} contextSuggestions={contextSuggestions.suggestions} onSelectContextSuggestion={contextSuggestions.selectSuggestion}/>
                           </div>
 
                           <div className="composer-toolbar-right">

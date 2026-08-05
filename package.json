@@ -19,7 +19,7 @@
     "test:run": "cd packages/desktop-ui && vitest run",
     "test:electron": "cd packages/desktop-ui && vitest run --config vitest.electron.config.ts",
     "test:stella-browser": "cargo test --manifest-path packages/stella-browser/cli/Cargo.toml -- --skip test_all_documented_actions_are_handled && node --test packages/stella-browser/extension/*.test.js packages/stella-browser/extension/**/*.test.js && vitest run packages/desktop-ui/tests/runtime/kernel/browser-use/*.test.ts",
-    "routes:generate": "cd packages/desktop-ui && bun run ../../node_modules/.bin/tsr generate",
+    "routes:generate": "cd packages/desktop-ui && node ../../node_modules/@tanstack/router-cli/bin/tsr.cjs generate",
     "reset": "node packages/desktop/scripts/reset-dev.mjs",
     "reset:all": "node packages/desktop/scripts/reset-dev.mjs --with-permissions",
     "reset:sql": "node packages/desktop/scripts/reset-sql.mjs",

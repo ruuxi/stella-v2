@@ -11,7 +11,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { AppWindowMac, Eye } from "@/ui/icons";
-import { getSnapshot as getUserAppsSnapshot, subscribe as subscribeToUserApps, } from "@/app/_user/user-apps-registry";
+import { getServerSnapshot as getUserAppsServerSnapshot, getSnapshot as getUserAppsSnapshot, subscribe as subscribeToUserApps, } from "@/app/apps/user-apps-registry";
 import { formatUserAppCreatedAt, listUserApps, } from "@/app/apps/user-app-library";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { useChatRuntime } from "@/context/use-chat-runtime";
@@ -322,7 +322,8 @@ export const WorkspaceSections = memo(function WorkspaceSections({ query = "", v
     const { hasOlder: filesHaveOlder, isLoadingOlder: filesAreLoadingOlder, loadOlder: loadOlderFiles, } = filesFeed;
     const schedules = useConversationSchedules(conversationId);
     const storeState = useStoreSidePanelState();
-    const userApps = useSyncExternalStore(subscribeToUserApps, getUserAppsSnapshot, getUserAppsSnapshot);
+    const userAppsRegistry = useSyncExternalStore(subscribeToUserApps, getUserAppsSnapshot, getUserAppsServerSnapshot);
+    const userApps = userAppsRegistry.apps;
     const normalizedQuery = query.trim().toLowerCase();
     const searching = normalizedQuery.length > 0;
     const quickSearch = searching && searchMode === "quick";

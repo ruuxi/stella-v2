@@ -142,6 +142,7 @@ import type {
 import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { SocialSessionService } from "./social-sessions/service.js";
 import { SocialSessionStore } from "./social-sessions/store.js";
+import { UserAppProjectService } from "./user-apps/project-service.js";
 import { VoiceRuntimeService } from "./voice/service.js";
 import { createRuntimeLogger } from "../kernel/debug.js";
 
@@ -246,6 +247,7 @@ type WorkerState = {
   runtimeStore: RuntimeStore | null;
   socialSessionStore: SocialSessionStore | null;
   socialSessionService: SocialSessionService | null;
+  userAppProjectService: UserAppProjectService | null;
   voiceService: VoiceRuntimeService | null;
   runner: RuntimeRunner | null;
   // Shared promise for the background runner build (lazy chunk import). Null
@@ -469,6 +471,8 @@ const materializeImageAttachments = async (
 };
 
 const stopWorkerServices = async (state: WorkerState) => {
+  await state.userAppProjectService?.shutdown().catch(() => undefined);
+  state.userAppProjectService = null;
   state.socialSessionService?.stop();
   state.socialSessionService = null;
   state.voiceService = null;
@@ -526,6 +530,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     runtimeStore: null,
     socialSessionStore: null,
     socialSessionService: null,
+    userAppProjectService: null,
     voiceService: null,
     runner: null,
     runnerReadyPromise: null,
@@ -1170,6 +1175,15 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     socialSessionService.setConvexUrl(init.convexUrl);
     socialSessionService.setAuthToken(init.authToken);
     state.socialSessionService = socialSessionService;
+
+    const userAppProjectService = new UserAppProjectService({
+      workspacePath: init.stellaWorkspacePath,
+      onChanged: () => {
+        peer.notify(NOTIFICATION_NAMES.PROJECTS_UPDATED, undefined);
+      },
+    });
+    await userAppProjectService.start();
+    state.userAppProjectService = userAppProjectService;
 
     state.voiceService = new VoiceRuntimeService({
       getRunner: () => state.runner,
@@ -2810,6 +2824,38 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         state.socialSessionService?.getSnapshot() ??
         createEmptySocialSessionServiceSnapshot()
       );
+    },
+  );
+
+  peer.registerRequestHandler(
+    METHOD_NAMES.INTERNAL_WORKER_PROJECTS_LIST,
+    async () => {
+      if (!state.userAppProjectService) {
+        throw new Error("User app project service is unavailable.");
+      }
+      return await state.userAppProjectService.list();
+    },
+  );
+
+  peer.registerRequestHandler(
+    METHOD_NAMES.INTERNAL_WORKER_PROJECTS_START,
+    async (params) => {
+      if (!state.userAppProjectService) {
+        throw new Error("User app project service is unavailable.");
+      }
+      const slug = asTrimmedString((params as { slug?: unknown })?.slug);
+      return await state.userAppProjectService.startProject(slug);
+    },
+  );
+
+  peer.registerRequestHandler(
+    METHOD_NAMES.INTERNAL_WORKER_PROJECTS_STOP,
+    async (params) => {
+      if (!state.userAppProjectService) {
+        throw new Error("User app project service is unavailable.");
+      }
+      const slug = asTrimmedString((params as { slug?: unknown })?.slug);
+      return await state.userAppProjectService.stopProject(slug);
     },
   );
 

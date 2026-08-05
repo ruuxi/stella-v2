@@ -1,9 +1,13 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { App } from "electron";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
+import {
+  ensureStellaDataDirSeeded,
+  resolveStellaDataDir,
+} from "@stella/runtime/kernel/home/stella-home";
 
 const roots = new Set<string>();
 
@@ -76,5 +80,23 @@ describe("ensureStellaDataDirSeeded", () => {
     await expect(
       readFile(path.join(stellaDataDir, "memories", "MEMORY.md"), "utf-8"),
     ).rejects.toThrow();
+  });
+});
+
+describe("resolveStellaDataDir", () => {
+  it("keeps user projects in the writable data root during development", async () => {
+    const stellaAppDir = await createTempDir("stella-app-root-");
+    const statePath = await createTempDir("stella-state-root-");
+    const app = { isPackaged: false } as unknown as App;
+
+    const result = await resolveStellaDataDir(app, stellaAppDir, statePath);
+
+    expect(result.workspacePath).toBe(path.join(statePath, "workspace"));
+    expect(result.workspaceAppsPath).toBe(
+      path.join(statePath, "workspace", "apps"),
+    );
+    expect(result.extensionsPath).toBe(
+      path.join(stellaAppDir, "runtime", "extensions"),
+    );
   });
 });

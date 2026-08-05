@@ -21,7 +21,8 @@ Before editing UI:
    - **Stella product UI**: desktop app chrome, settings, Store, sidebar,
      composer, dialogs, task/activity surfaces. Use
      [product-ui.md](reference/product-ui.md).
-   - **Stella-created app**: a user-facing app inside `desktop/src/app/*`.
+   - **Stella-created app**: a standalone project under Stella's writable
+     `workspace/apps/<slug>` directory.
      Use [product-ui.md](reference/product-ui.md) for tools and dashboards,
      or [brand-surface.md](reference/brand-surface.md) for marketing,
      editorial, portfolio, product showcase, venue, game intro, or any page
@@ -33,7 +34,7 @@ Before editing UI:
    what urgency, and what state of mind. Let that sentence choose density,
    contrast, motion, and theme, not a category reflex.
 4. If scaffolding a new Stella app, run the create-app scaffold first, then
-   design inside the generated single-file `desktop/src/app/_user/<slug>.tsx`.
+   design only inside the generated Vite project.
 
 ## References
 
@@ -60,8 +61,10 @@ Pick the smallest set that fits the task:
   showcase, marketing surface, or immersive app.
 - Prefer quiet, useful, spacious UI. Let the task lead. Do not fill empty
   space with repeated cards, badges, dots, gradients, or decorative motion.
-- Use Stella theme tokens and existing CSS variables. Do not hard-code colors
-  for surfaces that need to survive theme changes.
+- Use Stella theme tokens and existing CSS variables for Stella product UI.
+  Standalone Stella-created apps run in their own iframe, so define app-local
+  tokens and support `prefers-color-scheme` instead of assuming host variables
+  cross that boundary.
 - Use the app's established icon set and component vocabulary. Do not mix icon
   families or invent a different button language for a single screen.
 - In app pages, use the full canvas. Avoid tiny centered modal-like pages
@@ -80,7 +83,16 @@ static screenshot:
 - Text fits on narrow and wide viewports without overlap.
 - Motion communicates state and respects reduced motion.
 - The surface still fits Stella's product system after the change.
-- Validation matches the scope. For desktop renderer work, run:
+- Validation matches the scope. For a standalone Stella-created app, run from
+  its own project directory:
+
+```sh
+bun install
+bun run check
+bun run build
+```
+
+For desktop renderer work, run:
 
 ```sh
 node node_modules/typescript-7/lib/tsc.js -p desktop/tsconfig.app.json --noEmit
@@ -97,7 +109,7 @@ For a brand-new Stella app:
 2. Decide whether the app is a **task tool** or a **visual-first
    experience**.
 3. Read this skill plus the relevant reference files.
-4. Build the generated view as a complete page, not a tiny widget.
+4. Build the generated Vite project as a complete page, not a tiny widget.
 5. Inspect the page visually at the app's normal desktop size and at a narrow
    size before finishing.
 

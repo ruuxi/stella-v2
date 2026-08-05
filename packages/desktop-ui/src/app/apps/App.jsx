@@ -10,22 +10,47 @@ import { useDeferredValue, useMemo, useState, useSyncExternalStore, } from "reac
 import { Search } from "@/ui/icons";
 import { Select } from "@/ui/select";
 import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
-import { getSnapshot, subscribe, } from "@/app/_user/user-apps-registry";
+import { getServerSnapshot, getSnapshot, refreshUserApps, subscribe, } from "./user-apps-registry";
 import { AppCreationIllustration } from "./AppCreationIllustration";
 import { formatUserAppCreatedAt, listUserApps, USER_APP_SORT_LABELS, useRequestUserApp, } from "./user-app-library";
 import "./apps.css";
 function useUserApps() {
-    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 export function AppsApp() {
-    const apps = useUserApps();
+    const registry = useUserApps();
+    const { apps, error, phase, refreshing } = registry;
     const [query, setQuery] = useState("");
     const [sort, setSort] = useState("recent");
     const deferredQuery = useDeferredValue(query);
     const handleCreateApp = useRequestUserApp();
     const visible = useMemo(() => listUserApps(apps, deferredQuery, sort), [apps, deferredQuery, sort]);
     const hasApps = apps.length > 0;
-    return (<main className="apps-screen">
+    if (phase === "loading" && !hasApps) {
+        return (<main className="apps-screen apps-screen--status" role="status" aria-live="polite">
+        Loading apps…
+      </main>);
+    }
+    if (phase === "unsupported") {
+        return (<main className="apps-screen apps-screen--status" role="status">
+        <h1 className="apps-screen__empty-title">Apps are available on desktop.</h1>
+        <p className="apps-screen__empty-body">
+          Open Stella on your computer to use locally installed apps.
+        </p>
+      </main>);
+    }
+    if (phase === "error" && !hasApps) {
+        return (<main className="apps-screen apps-screen--status" role="alert">
+        <h1 className="apps-screen__empty-title">Couldn’t load apps</h1>
+        <p className="apps-screen__empty-body">
+          {error || "Stella couldn’t read your apps folder."}
+        </p>
+        <button type="button" className="pill-btn pill-btn--primary pill-btn--lg" onClick={() => void refreshUserApps()}>
+          Try again
+        </button>
+      </main>);
+    }
+    return (<main className="apps-screen" aria-busy={refreshing || undefined}>
       {hasApps ? (<header className="apps-screen__hero">
           <h1 className="apps-screen__title">
             <em>Your</em> apps
@@ -33,6 +58,12 @@ export function AppsApp() {
         </header>) : null}
 
       {hasApps ? (<>
+          {phase === "error" ? (<div className="apps-screen__warning" role="status">
+              <span>Apps may be out of date.</span>
+              <button type="button" className="pill-btn" onClick={() => void refreshUserApps()}>
+                Try again
+              </button>
+            </div>) : null}
           <div className="apps-screen__toolbar">
             <label className="apps-screen__search">
               <Search size={14} className="apps-screen__search-icon" aria-hidden/>

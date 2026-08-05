@@ -466,3 +466,12 @@ export const createEmptySocialSessionServiceSnapshot =
     sessionCount: 0,
     sessions: [],
   });
+
+export type {
+  UserAppProjectDescriptor,
+  UserAppProjectListResult,
+  UserAppProjectMeta,
+  UserAppProjectStartResult,
+  UserAppProjectStatus,
+  UserAppProjectStopResult,
+} from "./user-app-projects.js";

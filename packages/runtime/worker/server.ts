@@ -253,6 +253,7 @@ type WorkerState = {
   // Shared promise for the background runner build (lazy chunk import). Null
   // when no build is in flight; resolves to the runner once constructed.
   runnerReadyPromise: Promise<RuntimeRunner> | null;
+  runnerReadyError: string | null;
   deviceId: string | null;
   /**
    * Persistent ring buffer for streaming run events. Every event we emit
@@ -486,6 +487,7 @@ const stopWorkerServices = async (state: WorkerState) => {
   // already have stopped it; awaiting here is still safe (stop is idempotent).
   const pendingRunnerReady = state.runnerReadyPromise;
   state.runnerReadyPromise = null;
+  state.runnerReadyError = null;
   if (pendingRunnerReady) {
     await pendingRunnerReady.catch(() => undefined);
   }
@@ -534,6 +536,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     voiceService: null,
     runner: null,
     runnerReadyPromise: null,
+    runnerReadyError: null,
     deviceId: null,
     runEventLog: null,
     cliBridgeServer: null,
@@ -662,7 +665,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
 
   const ensureRunner = () => {
     if (!state.runner) {
-      throw new Error("Runtime worker is not ready.");
+      throw new Error(
+        state.runnerReadyError ?? "Runtime worker is not ready.",
+      );
     }
     return state.runner;
   };
@@ -1141,7 +1146,16 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       runner.start();
       return runner;
     };
-    const runnerReadyPromise = buildRunner();
+    state.runnerReadyError = null;
+    const runnerReadyPromise = buildRunner().catch((error: unknown) => {
+      const message =
+        error instanceof Error
+          ? error.message
+          : String(error ?? "Runtime runner failed to start.");
+      state.runnerReadyError = message;
+      console.error("[runtime-worker] Runner failed to start:", message);
+      throw error;
+    });
     state.runnerReadyPromise = runnerReadyPromise;
     // Prevent an unobserved rejection from crashing the worker; real awaiters
     // (ensureRunnerInitialized / stopWorkerServices / the post-ready block)
@@ -1350,7 +1364,12 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   peer.registerRequestHandler(METHOD_NAMES.INTERNAL_WORKER_HEALTH, async () => {
     const health =
       state.runner?.agentHealthCheck() ??
-      ({ ready: false } satisfies AgentHealth);
+      ({
+        ready: false,
+        ...(state.runnerReadyError
+          ? { reason: state.runnerReadyError }
+          : { reason: "Stella runtime is still initializing" }),
+      } satisfies AgentHealth);
     const socialSessions =
       state.socialSessionService?.getSnapshot() ??
       createEmptySocialSessionServiceSnapshot();

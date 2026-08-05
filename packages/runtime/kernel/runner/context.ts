@@ -61,6 +61,10 @@ import type {
 } from "../storage/shared.js";
 import { getBundledCoreAgentFallback } from "../agents/agents.js";
 import { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
+import {
+  createBackgroundExitWake,
+  writeBackgroundExitLog,
+} from "./background-exit-wake.js";
 import { runRecall } from "../agent-runtime/context-lookup.js";
 import {
   defaultPromptForAgentType,

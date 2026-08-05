@@ -27,7 +27,10 @@ export function buildInlineWorkingIndicatorProps({ isStreaming, isStreamingRespo
         // effective hide time is max(min-duration elapsed, first-visible-delta).
         runningTool: isToolActive ? (activeToolName ?? undefined) : undefined,
         runningToolId: isToolActive ? (activeToolCallId ?? undefined) : undefined,
-        status: isPreToolThinking || isToolActive ? (runtimeStatusText ?? null) : null,
+        // Active tools always go through the short friendly phrase map. Runtime
+        // status text is an internal diagnostic surface and can contain raw
+        // tool labels such as "Running Exec Command".
+        status: isPreToolThinking ? (runtimeStatusText ?? null) : null,
     };
 }
 /**

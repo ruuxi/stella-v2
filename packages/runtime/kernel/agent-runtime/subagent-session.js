@@ -6,13 +6,14 @@ import { buildSubagentSystemPrompt } from "./run-preparation.js";
 import { createRunEventRecorder, } from "./run-events.js";
 import { PiSessionCore } from "./pi-session-core.js";
 import { QUARANTINE_CUSTOM_TYPE, SAFETY_ABORT_FABLE_ATTEMPTS, safetyRetryStatusMessage, safetySwapStatusMessage, serializeQuarantineRecord, } from "./provider-abort-containment.js";
-import { buildRunThreadKey, buildSubagentPromptMessages, persistThreadCustomMessage, } from "./thread-memory.js";
+import { buildRunThreadKey, buildSubagentPromptMessages, persistThreadCustomMessage, persistThreadPayloadMessage, } from "./thread-memory.js";
 import { createPiTools } from "./tool-adapters.js";
 import { enrichImageContentForTextOnlyModel, } from "./image-description.js";
 export class SubagentSession extends PiSessionCore {
     threadId;
     conversationId;
     agentType;
+    currentSteeringContext = null;
     currentRetryStatusContext = null;
     currentImageDescriptionContext = null;
     handleProviderRetry = (info) => {
@@ -33,6 +34,7 @@ export class SubagentSession extends PiSessionCore {
     constructor(threadId, conversationId, agentType) {
         super({
             loggerName: "subagent-session",
+            promptCacheKey: conversationId,
             threadKey: buildRunThreadKey({
                 conversationId,
                 agentType,
@@ -43,6 +45,29 @@ export class SubagentSession extends PiSessionCore {
         this.threadId = threadId;
         this.conversationId = conversationId;
         this.agentType = agentType;
+    }
+    get canSteer() {
+        return this.canSteerLiveAgent;
+    }
+    steer(text) {
+        const prompt = text.trim();
+        const context = this.currentSteeringContext;
+        if (!prompt || !context || !this.canSteer)
+            return false;
+        const message = {
+            role: "user",
+            content: [{ type: "text", text: prompt }],
+            timestamp: Date.now(),
+        };
+        persistThreadPayloadMessage(context.store, {
+            threadKey: this.threadKey,
+            payload: message,
+            runId: context.runId,
+            ...(typeof context.attemptGeneration === "number"
+                ? { attemptGeneration: context.attemptGeneration }
+                : {}),
+        });
+        return this.steerLiveAgent(message);
     }
     async runTurn(opts) {
         const prompt = opts.userPrompt.trim();
@@ -166,6 +191,13 @@ export class SubagentSession extends PiSessionCore {
         this.currentRetryStatusContext = {
             recorder: runEvents,
             ...(opts.callbacks ? { callbacks: opts.callbacks } : {}),
+        };
+        this.currentSteeringContext = {
+            store: opts.store,
+            runId,
+            ...(typeof opts.agentContext.attemptGeneration === "number"
+                ? { attemptGeneration: opts.agentContext.attemptGeneration }
+                : {}),
         };
         try {
             const promptMessages = await buildSubagentPromptMessages({
@@ -332,12 +364,14 @@ export class SubagentSession extends PiSessionCore {
             });
         }
         finally {
+            this.currentSteeringContext = null;
             this.currentRetryStatusContext = null;
             this.currentImageDescriptionContext = null;
         }
     }
     dispose() {
         super.dispose();
+        this.currentSteeringContext = null;
         this.currentRetryStatusContext = null;
         this.currentImageDescriptionContext = null;
     }

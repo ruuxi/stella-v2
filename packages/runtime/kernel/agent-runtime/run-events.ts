@@ -41,10 +41,6 @@ import type {
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 
 const logger = createRuntimeLogger("agent-runtime.events");
-type PersistedAssistantContent = Extract<
-  PersistedRuntimeThreadPayload,
-  { role: "assistant" }
->["content"];
 
 type RuntimeAgentLike = {
   state: {
@@ -706,27 +702,16 @@ const toPersistedThreadPayload = (
   message: AgentMessage,
 ): PersistedRuntimeThreadPayload | null => {
   if (message.role === "assistant") {
-    const trimmedContent: PersistedAssistantContent = [];
-    for (const block of message.content) {
-      if (block.type !== "text") {
-        trimmedContent.push(block);
-        continue;
-      }
-      const trimmed = block.text.trim();
-      if (trimmed) {
-        trimmedContent.push({ ...block, text: trimmed });
-      }
-    }
-    if (trimmedContent.length === 0) {
+    if (message.content.length === 0) {
       if (message.stopReason !== "error" && message.stopReason !== "aborted") {
         return null;
       }
-      trimmedContent.push({ type: "text", text: "" });
+      return {
+        ...message,
+        content: [{ type: "text", text: "" }],
+      };
     }
-    return {
-      ...message,
-      content: trimmedContent,
-    };
+    return message;
   }
   if (message.role === "toolResult") {
     return {

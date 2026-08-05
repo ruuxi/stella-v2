@@ -3,6 +3,7 @@ import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
+import { findDelegatedModelMention } from "@stella/contracts/model-mentions";
 import { sanitizePromptContext } from "./tools/safety.js";
 
 type BuildChatPromptMessagesArgs = {

@@ -88,10 +88,8 @@ const formatToolResult = (toolResult) => {
         details: mergeToolSideEffectsIntoDetails(sanitizeToolResult(toolResult.details ?? result), toolResult.fileChanges, toolResult.producedFiles),
     };
 };
-// Final native Pi tool results bypass this legacy cap and are normalized
-// request-only in shared.ts. Keep this bound for live partial updates and
-// external-engine dynamic-tool adapters, which do not use the Pi context
-// transform.
+// Model-visible tool text is bounded once, before the tool-result message is
+// appended to history. That exact content is then reused until compaction.
 export const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = 30_000;
 export const truncateModelVisibleToolText = (text, maxChars = MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS) => {
     const originalChars = text.length;
@@ -590,15 +588,16 @@ export const createPiTools = (opts) => {
                 // Detect [stella-attach-image] markers in diagnostic tool output and
                 // read the referenced PNG(s) into image content blocks. The model sees
                 // the screenshot on the very next turn with no extra Read step.
-                const { text: forwardedText, images: legacyImages } = await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
+        const { text: forwardedText, images: legacyImages } = await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
+        const truncatedText = truncateModelVisibleToolText(forwardedText).text;
                 const content = [];
                 const screenshotNote = legacyImages.length > 0
                     ? "\n\n[Image attached below. Inspect it directly. If it is a UI screenshot and the accessibility tree is sparse or missing a visible control, use screenshot x/y coordinates.]"
                     : "";
-                if (forwardedText || legacyImages.length === 0) {
-                    content.push({
-                        type: "text",
-                        text: `${forwardedText}${screenshotNote}`,
+        if (truncatedText || legacyImages.length === 0) {
+            content.push({
+                type: "text",
+                text: `${truncatedText}${screenshotNote}`,
                     });
                 }
                 else if (screenshotNote) {

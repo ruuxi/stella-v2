@@ -84,6 +84,7 @@ export const createToolHost = ({
   agentApi,
   validateSpawnModel,
   validateSpawnModelWithMetadata,
+  captureSpawnModelConfig,
   scheduleApi,
 
   fashionApi,
@@ -112,6 +113,7 @@ export const createToolHost = ({
     agentApi,
     validateSpawnModel,
     validateSpawnModelWithMetadata,
+    captureSpawnModelConfig,
   );
   let executeTool: (
     toolName: string,

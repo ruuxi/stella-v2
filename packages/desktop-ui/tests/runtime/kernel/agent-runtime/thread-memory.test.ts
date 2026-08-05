@@ -9,9 +9,7 @@ import {
   buildSystemPrompt,
   buildHistorySource,
   buildStartupPromptMessages,
-} from "@stella/runtime/kernel/agent-runtime/thread-memory";
-import { buildDefaultTransformContext } from "@stella/runtime/kernel/agent-runtime/shared";
-import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types";
+} from "@stella/runtime/kernel/agent-runtime/thread-memory.js";
 
 describe("buildSystemPrompt", () => {
   it("adds structured file-editing guidance when apply_patch is available", () => {
@@ -312,6 +310,51 @@ describe("buildSubagentPromptMessages", () => {
 });
 
 describe("buildHistorySource", () => {
+  it("preserves persisted assistant text byte-for-byte", () => {
+    const assistantText = "  exact assistant text\n";
+    const [message] = buildHistorySource({
+      systemPrompt: "system",
+      dynamicContext: "",
+      maxAgentDepth: 1,
+      threadHistory: [
+        {
+          role: "assistant",
+          content: assistantText,
+          timestamp: 1,
+          payload: {
+            role: "assistant",
+            content: [{ type: "text", text: assistantText }],
+            api: "openai-responses",
+            provider: "test",
+            model: "test-model",
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                total: 0,
+              },
+            },
+            stopReason: "stop",
+            timestamp: 1,
+          },
+        },
+      ],
+    });
+
+    expect(message?.role).toBe("assistant");
+    expect(
+      message?.role === "assistant" && message.content[0]?.type === "text"
+        ? message.content[0].text
+        : null,
+    ).toBe(assistantText);
+  });
   // Retaining older bootstrap entries keeps the prompt-cache prefix stable.
   it("retains all persisted memory bundle entries in chronological order", () => {
     const history = buildHistorySource({
@@ -409,49 +452,5 @@ describe("buildHistorySource", () => {
     expect(replayedText.indexOf("old user")).toBeLessThan(
       replayedText.indexOf("new memory"),
     );
-  });
-});
-
-describe("buildDefaultTransformContext", () => {
-  it("preserves bootstrap startup docs when pruning oversized context", async () => {
-    const transform = buildDefaultTransformContext({
-      model: { contextWindow: 20_000 },
-    } as Parameters<typeof buildDefaultTransformContext>[0]);
-    const personality: AgentMessage = {
-      role: "runtimeInternal",
-      content: [
-        {
-          type: "text",
-          text: '<startup_doc path="~/.stella/PERSONALITY.md">\nWarm and concise.\n</startup_doc>',
-        },
-      ],
-      timestamp: 1,
-      customType: "bootstrap.startup_doc",
-    };
-    const oldContext: AgentMessage = {
-      role: "user",
-      content: [{ type: "text", text: "old context ".repeat(20_000) }],
-      timestamp: 2,
-    };
-    const currentPrompt: AgentMessage = {
-      role: "user",
-      content: [{ type: "text", text: "current user prompt" }],
-      timestamp: 3,
-    };
-
-    const pruned = await transform([personality, oldContext, currentPrompt]);
-    const prunedText = pruned
-      .flatMap((message) =>
-        Array.isArray(message.content)
-          ? message.content.map((block) =>
-              block.type === "text" ? block.text : "",
-            )
-          : [message.content],
-      )
-      .join("\n");
-
-    expect(pruned).toContain(personality);
-    expect(prunedText).toContain("Warm and concise.");
-    expect(prunedText).toContain("current user prompt");
   });
 });

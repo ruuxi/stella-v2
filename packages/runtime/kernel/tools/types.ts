@@ -248,6 +248,13 @@ export type ToolHostOptions = {
     modelName: string,
     reasoningEffort?: SpawnReasoningEffort,
   ) => Promise<void>;
+  /** Resolve and freeze a spawn's effective engine/model configuration. */
+  captureSpawnModelConfig?: (args: {
+    agentType: string;
+    spawnEngine: SpawnEngineSelection;
+    model?: string;
+    spawnReasoningEffort?: SpawnReasoningEffort;
+  }) => Promise<AgentModelConfigSnapshot | undefined>;
   scheduleApi?: ScheduleToolApi;
   fashionApi?: FashionToolApi;
   extensionTools?: import("../extensions/types.js").ToolDefinition[];

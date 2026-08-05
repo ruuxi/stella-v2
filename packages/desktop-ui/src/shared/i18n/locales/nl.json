@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Algemeen",
       "shortcuts": "Sneltoetsen",
-      "memory": "Geheugen",
       "backup": "Back-ups",
       "account": "Account & juridisch",
       "audio": "Audio"
@@ -140,95 +139,6 @@
         "unavailable": "Sneltoetsen zijn niet beschikbaar in dit venster.",
         "unavailableShortcut": "Die sneltoets is niet beschikbaar.",
         "update": "Sneltoets bijwerken mislukt."
-      }
-    },
-    "memory": {
-      "title": "Geheugen",
-      "enable": "Inschakelen",
-      "disable": "Uitschakelen",
-      "working": "Bezig…",
-      "screen": {
-        "label": "Schermgeheugen",
-        "description": "Stella kan af en toe een blik op je scherm werpen om te onthouden waar je mee bezig was.",
-        "signInDescription": "Meld je aan bij Stella, of kies een klein model voor Chronicle in het Engine-paneel.",
-        "upgradeDescription": "Schermgeheugen is inbegrepen bij elk Stella-abonnement. Upgrade, of kies een klein model voor Chronicle in het Engine-paneel."
-      },
-      "status": {
-        "label": "Status",
-        "running": "Actief",
-        "stopped": "Gestopt",
-        "disabled": "Uitgeschakeld",
-        "fps": "{fps} fps",
-        "lastCapture": "laatste opname {time}"
-      },
-      "folder": {
-        "label": "Geheugenmap",
-        "description": "Opent de map op je computer waar Stella haar herinneringen bewaart.",
-        "open": "Map openen",
-        "opening": "Openen…"
-      },
-      "update": {
-        "label": "Geheugen nu bijwerken",
-        "description": "Laat Stella recente activiteit doornemen en opslaan wat ze heeft geleerd. Dit gebeurt meestal vanzelf.",
-        "run": "Nu uitvoeren",
-        "running": "Dromen…"
-      },
-      "erase": {
-        "label": "Geheugen wissen",
-        "description": "Verwijdert alles wat Stella heeft onthouden, inclusief opgeslagen schermactiviteit. Dit kan niet ongedaan worden gemaakt.",
-        "action": "Wissen",
-        "working": "Wissen…",
-        "confirm": "Alles wissen wat Stella heeft onthouden? Dit kan niet ongedaan worden gemaakt."
-      },
-      "access": {
-        "signInTitle": "Aanmelden vereist",
-        "subscriptionTitle": "Abonnement vereist",
-        "signInMessage": "Meld je aan bij Stella, of kies een klein model voor Chronicle in het Engine-paneel.",
-        "upgradeMessage": "Schermgeheugen is inbegrepen bij elk Stella-abonnement. Upgrade — of kies een klein model voor Chronicle in het Engine-paneel.",
-        "pickModel": "Kies een model",
-        "upgrade": "Upgraden"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle ingeschakeld",
-        "disabledTitle": "Chronicle uitgeschakeld",
-        "alreadyRunning": "Chronicle was al actief.",
-        "enableFailedTitle": "Chronicle kon niet worden ingeschakeld",
-        "disableFailedTitle": "Chronicle kon niet worden uitgeschakeld",
-        "dreamScheduledTitle": "Dream-doorloop gepland",
-        "dreamNotScheduledTitle": "Dream-doorloop niet gepland",
-        "wipeFailedTitle": "Wissen mislukt",
-        "wipedTitle": "Herinneringen gewist"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "De werkruimte-hoofdmap van Stella is niet beschikbaar.",
-        "needsPermission": "De machtiging voor schermopname is nog steeds vereist voordat Chronicle kan starten.",
-        "binaryMissing": "Het Chronicle-hulpbestand ontbreekt.",
-        "startupTimeout": "Chronicle kwam na het starten niet online.",
-        "unsupportedPlatform": "Chronicle is alleen beschikbaar op macOS.",
-        "unknown": "Onbekende fout."
-      },
-      "dreamResults": {
-        "scheduled": "Dream consolideert de huidige achterstand.",
-        "inFlight": "Er loopt al een Dream-doorloop.",
-        "noInputs": "Er is op dit moment niets nieuws om te consolideren.",
-        "noApiKey": "Dream heeft een geconfigureerd model/API-sleutel of een aangemelde Stella-route nodig.",
-        "disabled": "Dream-planning is momenteel uitgeschakeld.",
-        "belowThreshold": "De inactiviteitsdrempel is nog niet bereikt.",
-        "lockBusy": "Dream is op dit moment bezig. Probeer het zo opnieuw.",
-        "noRunner": "De lokale runtime is nog niet klaar.",
-        "unavailable": "Dream is momenteel niet beschikbaar.",
-        "pendingPrefix": "In behandeling: {items}.",
-        "pendingThreadSummary": "{count} taaksamenvatting",
-        "pendingThreadSummaries": "{count} taaksamenvattingen",
-        "pendingExtension": "{count} Chronicle-bestand",
-        "pendingExtensions": "{count} Chronicle-bestanden",
-        "pendingJoin": " en "
-      },
-      "errors": {
-        "loadStatus": "Chronicle-status laden mislukt.",
-        "update": "Chronicle bijwerken mislukt.",
-        "dream": "Dream-doorloop starten mislukt.",
-        "wipe": "Herinneringen wissen mislukt."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Kies Stella's spreekstijl en persoonlijkheidsstem.",
         "permissions": "Verleen toegang tot toegankelijkheid, schermopname en microfoon op macOS.",
-        "memory": "Beheer schermgeheugen, werk bij of wis wat Stella heeft onthouden.",
         "backup": "Automatische versleutelde back-ups, herstelpunten en momentopnamen op aanvraag.",
         "account": "Meld je af, verwijder je gegevens of verwijder je account definitief.",
         "legal": "Servicevoorwaarden en privacybeleid.",
@@ -454,7 +363,6 @@
       "theme": "Hoe moet Stella eruitzien?",
       "personality": "Hoe moet Stella praten?",
       "voice": "Praat in plaats van typen.",
-      "memory": "Help Stella onthouden.",
       "enter": "Stella is bijna klaar."
     },
     "acts": {

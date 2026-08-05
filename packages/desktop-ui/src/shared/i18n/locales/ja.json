@@ -30,7 +30,6 @@
     "tabs": {
       "general": "基本",
       "shortcuts": "ショートカット",
-      "memory": "メモリ",
       "backup": "バックアップ",
       "account": "アカウントと法的事項",
       "audio": "オーディオ"
@@ -140,95 +139,6 @@
         "unavailable": "このウィンドウではショートカットを利用できません。",
         "unavailableShortcut": "そのショートカットは利用できません。",
         "update": "ショートカットを更新できませんでした。"
-      }
-    },
-    "memory": {
-      "title": "メモリ",
-      "enable": "有効にする",
-      "disable": "無効にする",
-      "working": "処理中…",
-      "screen": {
-        "label": "画面メモリ",
-        "description": "Stella は時々あなたの画面をのぞいて、何をしていたかを覚えておくことができます。",
-        "signInDescription": "Stella にサインインするか、Engine パネルで Chronicle 用の小さなモデルを選択してください。",
-        "upgradeDescription": "画面メモリはどの Stella プランにも含まれています。アップグレードするか、Engine パネルで Chronicle 用の小さなモデルを選択してください。"
-      },
-      "status": {
-        "label": "状態",
-        "running": "実行中",
-        "stopped": "停止",
-        "disabled": "無効",
-        "fps": "{fps} fps",
-        "lastCapture": "最後のキャプチャ {time}"
-      },
-      "folder": {
-        "label": "メモリフォルダ",
-        "description": "Stella がメモリを保存しているコンピュータ上のフォルダを開きます。",
-        "open": "フォルダを開く",
-        "opening": "開いています…"
-      },
-      "update": {
-        "label": "今すぐメモリを更新",
-        "description": "Stella に最近のアクティビティを確認させ、学んだことを保存させます。通常は自動的に行われます。",
-        "run": "今すぐ実行",
-        "running": "ドリーム中…"
-      },
-      "erase": {
-        "label": "メモリを消去",
-        "description": "保存された画面アクティビティを含め、Stella が覚えているすべてを削除します。これは元に戻せません。",
-        "action": "消去",
-        "working": "消去中…",
-        "confirm": "Stella が覚えているすべてを消去しますか？これは元に戻せません。"
-      },
-      "access": {
-        "signInTitle": "サインインが必要です",
-        "subscriptionTitle": "サブスクリプションが必要です",
-        "signInMessage": "Stella にサインインするか、Engine パネルで Chronicle 用の小さなモデルを選択してください。",
-        "upgradeMessage": "画面メモリはどの Stella プランにも含まれています。アップグレードする — または Engine パネルで Chronicle 用の小さなモデルを選択してください。",
-        "pickModel": "モデルを選択",
-        "upgrade": "アップグレード"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle を有効にしました",
-        "disabledTitle": "Chronicle を無効にしました",
-        "alreadyRunning": "Chronicle はすでに実行中でした。",
-        "enableFailedTitle": "Chronicle を有効にできませんでした",
-        "disableFailedTitle": "Chronicle を無効にできませんでした",
-        "dreamScheduledTitle": "Dream の実行を予約しました",
-        "dreamNotScheduledTitle": "Dream の実行は予約されませんでした",
-        "wipeFailedTitle": "消去に失敗しました",
-        "wipedTitle": "メモリを消去しました"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Stella のワークスペースのルートを利用できません。",
-        "needsPermission": "Chronicle を開始する前に、まだ画面収録の許可が必要です。",
-        "binaryMissing": "Chronicle のヘルパーバイナリがありません。",
-        "startupTimeout": "起動後、Chronicle がオンラインになりませんでした。",
-        "unsupportedPlatform": "Chronicle は macOS でのみ利用できます。",
-        "unknown": "不明なエラー。"
-      },
-      "dreamResults": {
-        "scheduled": "Dream が現在のバックログを統合します。",
-        "inFlight": "Dream の実行はすでに進行中です。",
-        "noInputs": "現在、統合する新しいものはありません。",
-        "noApiKey": "Dream には、設定済みのモデル/API キー、またはサインイン済みの Stella ルートが必要です。",
-        "disabled": "Dream のスケジュールは現在無効です。",
-        "belowThreshold": "アイドルのしきい値にまだ達していません。",
-        "lockBusy": "Dream は現在ビジー状態です。しばらくしてからもう一度お試しください。",
-        "noRunner": "ローカルランタイムはまだ準備できていません。",
-        "unavailable": "Dream は現在利用できません。",
-        "pendingPrefix": "保留中: {items}。",
-        "pendingThreadSummary": "タスクの要約 {count} 件",
-        "pendingThreadSummaries": "タスクの要約 {count} 件",
-        "pendingExtension": "Chronicle ファイル {count} 件",
-        "pendingExtensions": "Chronicle ファイル {count} 件",
-        "pendingJoin": "、"
-      },
-      "errors": {
-        "loadStatus": "Chronicle の状態を読み込めませんでした。",
-        "update": "Chronicle を更新できませんでした。",
-        "dream": "Dream の実行を開始できませんでした。",
-        "wipe": "メモリを消去できませんでした。"
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Stella の話し方とパーソナリティの声を選びます。",
         "permissions": "macOS でアクセシビリティ・画面収録・マイクへのアクセスを許可します。",
-        "memory": "画面メモリを管理し、Stella が覚えた内容を更新または消去します。",
         "backup": "自動の暗号化バックアップ、復元ポイント、オンデマンドのスナップショット。",
         "account": "サインアウト、データの削除、またはアカウントの完全な削除を行います。",
         "legal": "利用規約とプライバシーポリシー。",
@@ -454,7 +363,6 @@
       "theme": "Stella の見た目はどうしますか？",
       "personality": "Stella の話し方はどうしますか？",
       "voice": "入力ではなく声で話しかける。",
-      "memory": "Stella の記憶を手伝ってください。",
       "enter": "Stella の準備はもうすぐ整います。"
     },
     "acts": {

@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Allmänt",
       "shortcuts": "Genvägar",
-      "memory": "Minne",
       "backup": "Säkerhetskopior",
       "account": "Konto & juridiskt",
       "audio": "Ljud"
@@ -140,95 +139,6 @@
         "unavailable": "Kortkommandon är inte tillgängliga i det här fönstret.",
         "unavailableShortcut": "Det kortkommandot är inte tillgängligt.",
         "update": "Det gick inte att uppdatera kortkommandot."
-      }
-    },
-    "memory": {
-      "title": "Minne",
-      "enable": "Aktivera",
-      "disable": "Inaktivera",
-      "working": "Arbetar…",
-      "screen": {
-        "label": "Skärmminne",
-        "description": "Stella kan då och då titta på din skärm för att komma ihåg vad du gjorde.",
-        "signInDescription": "Logga in på Stella, eller välj en liten modell för Chronicle i Engine-panelen.",
-        "upgradeDescription": "Skärmminne ingår i alla Stella-planer. Uppgradera, eller välj en liten modell för Chronicle i Engine-panelen."
-      },
-      "status": {
-        "label": "Status",
-        "running": "Körs",
-        "stopped": "Stoppad",
-        "disabled": "Inaktiverad",
-        "fps": "{fps} fps",
-        "lastCapture": "senaste infångning {time}"
-      },
-      "folder": {
-        "label": "Minnesmapp",
-        "description": "Öppnar mappen på datorn där Stella sparar sina minnen.",
-        "open": "Öppna mapp",
-        "opening": "Öppnar…"
-      },
-      "update": {
-        "label": "Uppdatera minnet nu",
-        "description": "Låt Stella gå igenom den senaste aktiviteten och spara det den lärt sig. Det här sker oftast av sig självt.",
-        "run": "Kör nu",
-        "running": "Drömmer…"
-      },
-      "erase": {
-        "label": "Radera minne",
-        "description": "Tar bort allt Stella har kommit ihåg, inklusive sparad skärmaktivitet. Detta kan inte ångras.",
-        "action": "Radera",
-        "working": "Raderar…",
-        "confirm": "Radera allt Stella har kommit ihåg? Detta kan inte ångras."
-      },
-      "access": {
-        "signInTitle": "Inloggning krävs",
-        "subscriptionTitle": "Prenumeration krävs",
-        "signInMessage": "Logga in på Stella, eller välj en liten modell för Chronicle i Engine-panelen.",
-        "upgradeMessage": "Skärmminne ingår i alla Stella-planer. Uppgradera — eller välj en liten modell för Chronicle i Engine-panelen.",
-        "pickModel": "Välj en modell",
-        "upgrade": "Uppgradera"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle aktiverat",
-        "disabledTitle": "Chronicle inaktiverat",
-        "alreadyRunning": "Chronicle kördes redan.",
-        "enableFailedTitle": "Det gick inte att aktivera Chronicle",
-        "disableFailedTitle": "Det gick inte att inaktivera Chronicle",
-        "dreamScheduledTitle": "Dream-körning schemalagd",
-        "dreamNotScheduledTitle": "Dream-körning ej schemalagd",
-        "wipeFailedTitle": "Radering misslyckades",
-        "wipedTitle": "Minnen raderade"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Stellas arbetsytas rotmapp är inte tillgänglig.",
-        "needsPermission": "Behörighet för skärminspelning krävs fortfarande innan Chronicle kan starta.",
-        "binaryMissing": "Chronicles hjälpprogram saknas.",
-        "startupTimeout": "Chronicle kom inte online efter start.",
-        "unsupportedPlatform": "Chronicle är endast tillgängligt på macOS.",
-        "unknown": "Okänt fel."
-      },
-      "dreamResults": {
-        "scheduled": "Dream kommer att konsolidera den aktuella eftersläpningen.",
-        "inFlight": "En Dream-körning pågår redan.",
-        "noInputs": "Det finns inget nytt att konsolidera just nu.",
-        "noApiKey": "Dream behöver en konfigurerad modell/API-nyckel eller en inloggad Stella-rutt.",
-        "disabled": "Schemaläggning av Dream är för närvarande inaktiverad.",
-        "belowThreshold": "Inaktivitetströskeln har inte nåtts ännu.",
-        "lockBusy": "Dream är upptaget just nu. Försök igen om en stund.",
-        "noRunner": "Den lokala körmiljön är inte redo ännu.",
-        "unavailable": "Dream är för närvarande inte tillgängligt.",
-        "pendingPrefix": "Väntar: {items}.",
-        "pendingThreadSummary": "{count} uppgiftssammanfattning",
-        "pendingThreadSummaries": "{count} uppgiftssammanfattningar",
-        "pendingExtension": "{count} Chronicle-fil",
-        "pendingExtensions": "{count} Chronicle-filer",
-        "pendingJoin": " och "
-      },
-      "errors": {
-        "loadStatus": "Det gick inte att läsa in Chronicle-status.",
-        "update": "Det gick inte att uppdatera Chronicle.",
-        "dream": "Det gick inte att utlösa Dream-körning.",
-        "wipe": "Det gick inte att radera minnen."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Välj Stellas talstil och personlighetsröst.",
         "permissions": "Bevilja åtkomst till hjälpmedel, skärminspelning och mikrofon på macOS.",
-        "memory": "Hantera skärmminne, uppdatera eller radera det Stella har kommit ihåg.",
         "backup": "Automatiska krypterade säkerhetskopior, återställningspunkter och ögonblicksbilder på begäran.",
         "account": "Logga ut, radera dina data eller radera ditt konto permanent.",
         "legal": "Användarvillkor och integritetspolicy.",
@@ -454,7 +363,6 @@
       "theme": "Hur ska Stella se ut?",
       "personality": "Hur ska Stella prata?",
       "voice": "Tala i stället för att skriva.",
-      "memory": "Hjälp Stella att minnas.",
       "enter": "Stella är nästan redo."
     },
     "acts": {

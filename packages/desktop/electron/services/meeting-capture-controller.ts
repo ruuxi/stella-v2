@@ -15,7 +15,7 @@ import { hasMacPermission, requestMacPermission } from "../utils/macos-permissio
  * shells out to the helper's client verbs, which talk to the daemon over an
  * AF_UNIX socket (macOS) or named pipe (Windows).
  *
- * Unlike Chronicle, meeting capture is session-based rather than always-on:
+ * Meeting capture is session-based rather than always-on:
  * the daemon stays idle until `start()` and only records between start and
  * stop. The daemon process itself is kept alive across recordings (cheap, and
  * avoids a cold ScreenCaptureKit spin-up per meeting); `shutdown()` tears it

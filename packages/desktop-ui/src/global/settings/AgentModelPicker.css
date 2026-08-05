@@ -385,32 +385,6 @@
   cursor: not-allowed;
 }
 
-.agent-model-picker-chronicle-notice {
-  margin: 8px 4px 0;
-  font-size: var(--font-size-xs);
-  color: var(--foreground);
-  opacity: 0.78;
-  line-height: 1.45;
-}
-
-.agent-model-picker-chronicle-link {
-  display: inline;
-  padding: 0;
-  margin: 0;
-  background: none;
-  border: 0;
-  color: var(--text-strong);
-  font: inherit;
-  font-weight: var(--weight-semibold);
-  cursor: default;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.agent-model-picker-chronicle-link:hover {
-  color: var(--text-base);
-}
-
 .agent-model-picker .model-picker-shell {
   overflow: hidden;
 }

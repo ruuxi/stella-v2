@@ -30,7 +30,6 @@
     "tabs": {
       "general": "ทั่วไป",
       "shortcuts": "ทางลัด",
-      "memory": "หน่วยความจำ",
       "backup": "สำรองข้อมูล",
       "account": "บัญชีและกฎหมาย",
       "audio": "เสียง"
@@ -140,95 +139,6 @@
         "unavailable": "ทางลัดไม่พร้อมใช้งานในหน้าต่างนี้",
         "unavailableShortcut": "ทางลัดนั้นไม่พร้อมใช้งาน",
         "update": "อัปเดตทางลัดไม่สำเร็จ"
-      }
-    },
-    "memory": {
-      "title": "หน่วยความจำ",
-      "enable": "เปิดใช้งาน",
-      "disable": "ปิดใช้งาน",
-      "working": "กำลังทำงาน…",
-      "screen": {
-        "label": "หน่วยความจำหน้าจอ",
-        "description": "Stella สามารถชำเลืองดูหน้าจอของคุณเป็นครั้งคราวเพื่อจดจำสิ่งที่คุณกำลังทำ",
-        "signInDescription": "ลงชื่อเข้าใช้ Stella หรือเลือกโมเดลขนาดเล็กสำหรับ Chronicle ในแผง Engine",
-        "upgradeDescription": "หน่วยความจำหน้าจอรวมอยู่ในทุกแผน Stella อัปเกรด หรือเลือกโมเดลขนาดเล็กสำหรับ Chronicle ในแผง Engine"
-      },
-      "status": {
-        "label": "สถานะ",
-        "running": "กำลังทำงาน",
-        "stopped": "หยุดแล้ว",
-        "disabled": "ปิดใช้งาน",
-        "fps": "{fps} fps",
-        "lastCapture": "จับภาพล่าสุด {time}"
-      },
-      "folder": {
-        "label": "โฟลเดอร์หน่วยความจำ",
-        "description": "เปิดโฟลเดอร์บนคอมพิวเตอร์ที่ Stella เก็บความทรงจำไว้",
-        "open": "เปิดโฟลเดอร์",
-        "opening": "กำลังเปิด…"
-      },
-      "update": {
-        "label": "อัปเดตหน่วยความจำตอนนี้",
-        "description": "ให้ Stella ทบทวนกิจกรรมล่าสุดและบันทึกสิ่งที่เรียนรู้ มักจะเกิดขึ้นเอง",
-        "run": "เรียกใช้ตอนนี้",
-        "running": "กำลังฝัน…"
-      },
-      "erase": {
-        "label": "ลบหน่วยความจำ",
-        "description": "ลบทุกสิ่งที่ Stella จดจำ รวมถึงกิจกรรมหน้าจอที่บันทึกไว้ การกระทำนี้ไม่สามารถยกเลิกได้",
-        "action": "ลบ",
-        "working": "กำลังลบ…",
-        "confirm": "ลบทุกสิ่งที่ Stella จดจำหรือไม่ การกระทำนี้ไม่สามารถยกเลิกได้"
-      },
-      "access": {
-        "signInTitle": "ต้องลงชื่อเข้าใช้",
-        "subscriptionTitle": "ต้องสมัครสมาชิก",
-        "signInMessage": "ลงชื่อเข้าใช้ Stella หรือเลือกโมเดลขนาดเล็กสำหรับ Chronicle ในแผง Engine",
-        "upgradeMessage": "หน่วยความจำหน้าจอรวมอยู่ในทุกแผน Stella อัปเกรด — หรือเลือกโมเดลขนาดเล็กสำหรับ Chronicle ในแผง Engine",
-        "pickModel": "เลือกโมเดล",
-        "upgrade": "อัปเกรด"
-      },
-      "toasts": {
-        "enabledTitle": "เปิดใช้งาน Chronicle แล้ว",
-        "disabledTitle": "ปิดใช้งาน Chronicle แล้ว",
-        "alreadyRunning": "Chronicle กำลังทำงานอยู่แล้ว",
-        "enableFailedTitle": "ไม่สามารถเปิดใช้งาน Chronicle",
-        "disableFailedTitle": "ไม่สามารถปิดใช้งาน Chronicle",
-        "dreamScheduledTitle": "กำหนดเวลารอบ Dream แล้ว",
-        "dreamNotScheduledTitle": "ไม่ได้กำหนดเวลารอบ Dream",
-        "wipeFailedTitle": "การลบล้มเหลว",
-        "wipedTitle": "ลบความทรงจำแล้ว"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "ไม่สามารถใช้รูทของพื้นที่ทำงานของ Stella ได้",
-        "needsPermission": "ยังต้องมีสิทธิ์บันทึกหน้าจอก่อนที่ Chronicle จะเริ่มได้",
-        "binaryMissing": "ไฟล์ช่วยเหลือของ Chronicle หายไป",
-        "startupTimeout": "Chronicle ไม่ออนไลน์หลังจากเปิด",
-        "unsupportedPlatform": "Chronicle ใช้ได้บน macOS เท่านั้น",
-        "unknown": "ข้อผิดพลาดที่ไม่รู้จัก"
-      },
-      "dreamResults": {
-        "scheduled": "Dream จะรวมงานค้างปัจจุบัน",
-        "inFlight": "มีรอบ Dream กำลังทำงานอยู่แล้ว",
-        "noInputs": "ตอนนี้ไม่มีสิ่งใหม่ให้รวม",
-        "noApiKey": "Dream ต้องมีโมเดล/คีย์ API ที่กำหนดค่าไว้ หรือเส้นทาง Stella ที่ลงชื่อเข้าใช้",
-        "disabled": "การกำหนดเวลา Dream ถูกปิดใช้งานอยู่ในขณะนี้",
-        "belowThreshold": "ยังไม่ถึงเกณฑ์การไม่ใช้งาน",
-        "lockBusy": "Dream กำลังไม่ว่างในขณะนี้ ลองอีกครั้งในอีกสักครู่",
-        "noRunner": "รันไทม์ในเครื่องยังไม่พร้อม",
-        "unavailable": "Dream ไม่พร้อมใช้งานในขณะนี้",
-        "pendingPrefix": "รอดำเนินการ: {items}",
-        "pendingThreadSummary": "สรุปงาน {count} รายการ",
-        "pendingThreadSummaries": "สรุปงาน {count} รายการ",
-        "pendingExtension": "ไฟล์ Chronicle {count} ไฟล์",
-        "pendingExtensions": "ไฟล์ Chronicle {count} ไฟล์",
-        "pendingJoin": " และ "
-      },
-      "errors": {
-        "loadStatus": "โหลดสถานะ Chronicle ไม่สำเร็จ",
-        "update": "อัปเดต Chronicle ไม่สำเร็จ",
-        "dream": "เริ่มรอบ Dream ไม่สำเร็จ",
-        "wipe": "ลบความทรงจำไม่สำเร็จ"
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "เลือกสไตล์การพูดและเสียงบุคลิกของ Stella",
         "permissions": "ให้สิทธิ์การช่วยการเข้าถึง การบันทึกหน้าจอ และไมโครโฟนบน macOS",
-        "memory": "จัดการหน่วยความจำหน้าจอ อัปเดตหรือลบสิ่งที่ Stella จดจำ",
         "backup": "การสำรองข้อมูลแบบเข้ารหัสอัตโนมัติ จุดกู้คืน และสแนปช็อตตามต้องการ",
         "account": "ออกจากระบบ ลบข้อมูลของคุณ หรือลบบัญชีของคุณอย่างถาวร",
         "legal": "ข้อกำหนดในการให้บริการและนโยบายความเป็นส่วนตัว",
@@ -454,7 +363,6 @@
       "theme": "Stella ควรจะหน้าตาแบบไหน?",
       "personality": "Stella ควรจะพูดยังไง?",
       "voice": "พูดแทนที่จะพิมพ์",
-      "memory": "ช่วยให้ Stella จำได้",
       "enter": "Stella ใกล้พร้อมแล้ว"
     },
     "acts": {

@@ -30,7 +30,6 @@
     "tabs": {
       "general": "बुनियादी",
       "shortcuts": "शॉर्टकट",
-      "memory": "मेमोरी",
       "backup": "बैकअप",
       "account": "खाता और कानूनी",
       "audio": "ऑडियो"
@@ -140,95 +139,6 @@
         "unavailable": "इस विंडो में शॉर्टकट उपलब्ध नहीं हैं।",
         "unavailableShortcut": "वह शॉर्टकट उपलब्ध नहीं है।",
         "update": "शॉर्टकट अपडेट करने में विफल।"
-      }
-    },
-    "memory": {
-      "title": "मेमोरी",
-      "enable": "सक्षम करें",
-      "disable": "अक्षम करें",
-      "working": "काम चल रहा है…",
-      "screen": {
-        "label": "स्क्रीन मेमोरी",
-        "description": "Stella समय-समय पर आपकी स्क्रीन पर एक नज़र डाल सकती है ताकि याद रख सके कि आप क्या कर रहे थे।",
-        "signInDescription": "Stella में साइन इन करें, या Engine पैनल में Chronicle के लिए एक छोटा मॉडल चुनें।",
-        "upgradeDescription": "स्क्रीन मेमोरी किसी भी Stella प्लान में शामिल है। अपग्रेड करें, या Engine पैनल में Chronicle के लिए एक छोटा मॉडल चुनें।"
-      },
-      "status": {
-        "label": "स्थिति",
-        "running": "चल रहा है",
-        "stopped": "रुका हुआ",
-        "disabled": "अक्षम",
-        "fps": "{fps} fps",
-        "lastCapture": "अंतिम कैप्चर {time}"
-      },
-      "folder": {
-        "label": "मेमोरी फ़ोल्डर",
-        "description": "आपके कंप्यूटर पर वह फ़ोल्डर खोलें जहाँ Stella अपनी यादें रखती है।",
-        "open": "फ़ोल्डर खोलें",
-        "opening": "खोल रहे हैं…"
-      },
-      "update": {
-        "label": "मेमोरी अभी अपडेट करें",
-        "description": "Stella से हाल की गतिविधि की समीक्षा करवाएँ और जो सीखा उसे सहेजने दें। यह आमतौर पर अपने आप होता है।",
-        "run": "अभी चलाएँ",
-        "running": "सपना देख रही है…"
-      },
-      "erase": {
-        "label": "मेमोरी मिटाएँ",
-        "description": "Stella ने जो कुछ भी याद रखा है, सहेजी गई स्क्रीन गतिविधि सहित, सब हटा दें। इसे पूर्ववत नहीं किया जा सकता।",
-        "action": "मिटाएँ",
-        "working": "मिटा रहे हैं…",
-        "confirm": "Stella ने जो कुछ भी याद रखा है, सब मिटाएँ? इसे पूर्ववत नहीं किया जा सकता।"
-      },
-      "access": {
-        "signInTitle": "साइन इन आवश्यक",
-        "subscriptionTitle": "सदस्यता आवश्यक",
-        "signInMessage": "Stella में साइन इन करें, या Engine पैनल में Chronicle के लिए एक छोटा मॉडल चुनें।",
-        "upgradeMessage": "स्क्रीन मेमोरी किसी भी Stella प्लान में शामिल है। अपग्रेड करें — या Engine पैनल में Chronicle के लिए एक छोटा मॉडल चुनें।",
-        "pickModel": "मॉडल चुनें",
-        "upgrade": "अपग्रेड करें"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle सक्षम किया गया",
-        "disabledTitle": "Chronicle अक्षम किया गया",
-        "alreadyRunning": "Chronicle पहले से चल रहा था।",
-        "enableFailedTitle": "Chronicle सक्षम नहीं किया जा सका",
-        "disableFailedTitle": "Chronicle अक्षम नहीं किया जा सका",
-        "dreamScheduledTitle": "Dream पास शेड्यूल किया गया",
-        "dreamNotScheduledTitle": "Dream पास शेड्यूल नहीं किया गया",
-        "wipeFailedTitle": "मिटाना विफल रहा",
-        "wipedTitle": "यादें मिटा दी गईं"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Stella के वर्कस्पेस की रूट उपलब्ध नहीं है।",
-        "needsPermission": "Chronicle के शुरू होने से पहले अभी भी स्क्रीन रिकॉर्डिंग अनुमति आवश्यक है।",
-        "binaryMissing": "Chronicle सहायक बाइनरी अनुपलब्ध है।",
-        "startupTimeout": "लॉन्च के बाद Chronicle ऑनलाइन नहीं हुआ।",
-        "unsupportedPlatform": "Chronicle केवल macOS पर उपलब्ध है।",
-        "unknown": "अज्ञात त्रुटि।"
-      },
-      "dreamResults": {
-        "scheduled": "Dream वर्तमान बैकलॉग को समेकित करेगा।",
-        "inFlight": "एक Dream पास पहले से चल रहा है।",
-        "noInputs": "अभी समेकित करने के लिए कुछ नया नहीं है।",
-        "noApiKey": "Dream को एक कॉन्फ़िगर किया गया मॉडल/API कुंजी या साइन-इन किया गया Stella रूट चाहिए।",
-        "disabled": "Dream शेड्यूलिंग फ़िलहाल अक्षम है।",
-        "belowThreshold": "निष्क्रियता सीमा अभी तक नहीं पहुँची है।",
-        "lockBusy": "Dream अभी व्यस्त है। एक क्षण में फिर से प्रयास करें।",
-        "noRunner": "स्थानीय रनटाइम अभी तैयार नहीं है।",
-        "unavailable": "Dream फ़िलहाल उपलब्ध नहीं है।",
-        "pendingPrefix": "लंबित: {items}।",
-        "pendingThreadSummary": "{count} कार्य सारांश",
-        "pendingThreadSummaries": "{count} कार्य सारांश",
-        "pendingExtension": "{count} Chronicle फ़ाइल",
-        "pendingExtensions": "{count} Chronicle फ़ाइलें",
-        "pendingJoin": " और "
-      },
-      "errors": {
-        "loadStatus": "Chronicle स्थिति लोड करने में विफल।",
-        "update": "Chronicle अपडेट करने में विफल।",
-        "dream": "Dream पास ट्रिगर करने में विफल।",
-        "wipe": "यादें मिटाने में विफल।"
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Stella की बोलने की शैली और व्यक्तित्व आवाज़ चुनें।",
         "permissions": "macOS पर एक्सेसिबिलिटी, स्क्रीन कैप्चर और माइक्रोफ़ोन एक्सेस दें।",
-        "memory": "स्क्रीन मेमोरी प्रबंधित करें, Stella ने जो याद रखा है उसे अपडेट या मिटाएँ।",
         "backup": "स्वचालित एन्क्रिप्टेड बैकअप, पुनर्स्थापना बिंदु और मांग पर स्नैपशॉट।",
         "account": "साइन आउट करें, अपना डेटा हटाएँ, या अपना खाता स्थायी रूप से हटाएँ।",
         "legal": "सेवा की शर्तें और गोपनीयता नीति।",
@@ -454,7 +363,6 @@
       "theme": "Stella कैसी दिखे?",
       "personality": "Stella कैसे बात करे?",
       "voice": "टाइप करने के बजाय बोलें।",
-      "memory": "Stella को याद रखने में मदद करें।",
       "enter": "Stella लगभग तैयार है।"
     },
     "acts": {

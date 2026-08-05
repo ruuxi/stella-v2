@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Yleiset",
       "shortcuts": "Pikanäppäimet",
-      "memory": "Muisti",
       "backup": "Varmuuskopiot",
       "account": "Tili ja oikeudelliset",
       "audio": "Ääni"
@@ -140,95 +139,6 @@
         "unavailable": "Pikanäppäimet eivät ole käytettävissä tässä ikkunassa.",
         "unavailableShortcut": "Kyseinen pikanäppäin ei ole käytettävissä.",
         "update": "Pikanäppäimen päivitys epäonnistui."
-      }
-    },
-    "memory": {
-      "title": "Muisti",
-      "enable": "Ota käyttöön",
-      "disable": "Poista käytöstä",
-      "working": "Työskentelee…",
-      "screen": {
-        "label": "Näyttömuisti",
-        "description": "Stella voi vilkaista näyttöäsi silloin tällöin muistaakseen, mitä olit tekemässä.",
-        "signInDescription": "Kirjaudu Stellaan tai valitse pieni malli Chroniclelle Engine-paneelissa.",
-        "upgradeDescription": "Näyttömuisti sisältyy kaikkiin Stella-tilauksiin. Päivitä tai valitse pieni malli Chroniclelle Engine-paneelissa."
-      },
-      "status": {
-        "label": "Tila",
-        "running": "Käynnissä",
-        "stopped": "Pysäytetty",
-        "disabled": "Pois käytöstä",
-        "fps": "{fps} fps",
-        "lastCapture": "viimeisin kaappaus {time}"
-      },
-      "folder": {
-        "label": "Muistikansio",
-        "description": "Avaa tietokoneellasi olevan kansion, johon Stella tallentaa muistonsa.",
-        "open": "Avaa kansio",
-        "opening": "Avataan…"
-      },
-      "update": {
-        "label": "Päivitä muisti nyt",
-        "description": "Anna Stellan käydä läpi viimeaikainen toiminta ja tallentaa oppimansa. Tämä tapahtuu yleensä itsestään.",
-        "run": "Suorita nyt",
-        "running": "Näkee unta…"
-      },
-      "erase": {
-        "label": "Tyhjennä muisti",
-        "description": "Poistaa kaiken, mitä Stella on muistanut, mukaan lukien tallennetun näyttötoiminnan. Tätä ei voi kumota.",
-        "action": "Tyhjennä",
-        "working": "Tyhjennetään…",
-        "confirm": "Tyhjennetäänkö kaikki, mitä Stella on muistanut? Tätä ei voi kumota."
-      },
-      "access": {
-        "signInTitle": "Kirjautuminen vaaditaan",
-        "subscriptionTitle": "Tilaus vaaditaan",
-        "signInMessage": "Kirjaudu Stellaan tai valitse pieni malli Chroniclelle Engine-paneelissa.",
-        "upgradeMessage": "Näyttömuisti sisältyy kaikkiin Stella-tilauksiin. Päivitä — tai valitse pieni malli Chroniclelle Engine-paneelissa.",
-        "pickModel": "Valitse malli",
-        "upgrade": "Päivitä"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle otettu käyttöön",
-        "disabledTitle": "Chronicle poistettu käytöstä",
-        "alreadyRunning": "Chronicle oli jo käynnissä.",
-        "enableFailedTitle": "Chroniclen käyttöönotto epäonnistui",
-        "disableFailedTitle": "Chroniclen poistaminen käytöstä epäonnistui",
-        "dreamScheduledTitle": "Dream-ajo ajoitettu",
-        "dreamNotScheduledTitle": "Dream-ajoa ei ajoitettu",
-        "wipeFailedTitle": "Tyhjennys epäonnistui",
-        "wipedTitle": "Muistot tyhjennetty"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Stellan työtilan juurikansio ei ole käytettävissä.",
-        "needsPermission": "Näytön tallennuksen käyttöoikeus vaaditaan vielä, ennen kuin Chronicle voi käynnistyä.",
-        "binaryMissing": "Chroniclen aputiedosto puuttuu.",
-        "startupTimeout": "Chronicle ei tullut verkkoon käynnistyksen jälkeen.",
-        "unsupportedPlatform": "Chronicle on saatavilla vain macOS:ssä.",
-        "unknown": "Tuntematon virhe."
-      },
-      "dreamResults": {
-        "scheduled": "Dream yhdistää nykyiset jonossa olevat tiedot.",
-        "inFlight": "Dream-ajo on jo käynnissä.",
-        "noInputs": "Juuri nyt ei ole mitään uutta yhdistettävää.",
-        "noApiKey": "Dream tarvitsee määritetyn mallin/API-avaimen tai kirjautuneen Stella-reitin.",
-        "disabled": "Dreamin ajoitus on tällä hetkellä poissa käytöstä.",
-        "belowThreshold": "Joutenoloraja ei ole vielä täyttynyt.",
-        "lockBusy": "Dream on nyt varattu. Yritä uudelleen hetken kuluttua.",
-        "noRunner": "Paikallinen suoritusympäristö ei ole vielä valmis.",
-        "unavailable": "Dream ei ole tällä hetkellä käytettävissä.",
-        "pendingPrefix": "Odottaa: {items}.",
-        "pendingThreadSummary": "{count} tehtäväyhteenveto",
-        "pendingThreadSummaries": "{count} tehtäväyhteenvetoa",
-        "pendingExtension": "{count} Chronicle-tiedosto",
-        "pendingExtensions": "{count} Chronicle-tiedostoa",
-        "pendingJoin": " ja "
-      },
-      "errors": {
-        "loadStatus": "Chroniclen tilan lataaminen epäonnistui.",
-        "update": "Chroniclen päivitys epäonnistui.",
-        "dream": "Dream-ajon käynnistäminen epäonnistui.",
-        "wipe": "Muistojen tyhjentäminen epäonnistui."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Valitse Stellan puhetyyli ja persoonallisuusääni.",
         "permissions": "Myönnä macOS:ssä käyttöoikeudet saavutettavuuteen, näytön tallennukseen ja mikrofoniin.",
-        "memory": "Hallitse näyttömuistia, päivitä tai tyhjennä se, mitä Stella on muistanut.",
         "backup": "Automaattiset salatut varmuuskopiot, palautuspisteet ja pyynnöstä otettavat tilannevedokset.",
         "account": "Kirjaudu ulos, poista tietosi tai poista tilisi pysyvästi.",
         "legal": "Käyttöehdot ja tietosuojakäytäntö.",
@@ -454,7 +363,6 @@
       "theme": "Miltä Stellan pitäisi näyttää?",
       "personality": "Miten Stellan pitäisi puhua?",
       "voice": "Puhu kirjoittamisen sijaan.",
-      "memory": "Auta Stellaa muistamaan.",
       "enter": "Stella on melkein valmis."
     },
     "acts": {

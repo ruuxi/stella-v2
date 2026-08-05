@@ -30,7 +30,6 @@
     "tabs": {
       "general": "כללי",
       "shortcuts": "קיצורים",
-      "memory": "זיכרון",
       "backup": "גיבויים",
       "account": "חשבון ומשפטי",
       "audio": "שמע"
@@ -140,95 +139,6 @@
         "unavailable": "הקיצורים אינם זמינים בחלון זה.",
         "unavailableShortcut": "הקיצור הזה אינו זמין.",
         "update": "עדכון הקיצור נכשל."
-      }
-    },
-    "memory": {
-      "title": "זיכרון",
-      "enable": "הפעל",
-      "disable": "השבת",
-      "working": "עובד…",
-      "screen": {
-        "label": "זיכרון מסך",
-        "description": "Stella יכולה להציץ במסך שלך מדי פעם כדי לזכור מה עשית.",
-        "signInDescription": "התחבר ל-Stella, או בחר מודל קטן עבור Chronicle בלוח Engine.",
-        "upgradeDescription": "זיכרון מסך כלול בכל תוכנית Stella. שדרג, או בחר מודל קטן עבור Chronicle בלוח Engine."
-      },
-      "status": {
-        "label": "סטטוס",
-        "running": "פועל",
-        "stopped": "נעצר",
-        "disabled": "מושבת",
-        "fps": "{fps} fps",
-        "lastCapture": "צילום אחרון {time}"
-      },
-      "folder": {
-        "label": "תיקיית זיכרון",
-        "description": "פותח את התיקייה במחשב שבה Stella שומרת את הזיכרונות שלה.",
-        "open": "פתח תיקייה",
-        "opening": "פותח…"
-      },
-      "update": {
-        "label": "עדכן זיכרון כעת",
-        "description": "אפשר ל-Stella לסקור את הפעילות האחרונה ולשמור את מה שלמדה. זה קורה בדרך כלל מעצמו.",
-        "run": "הרץ עכשיו",
-        "running": "חולמת…"
-      },
-      "erase": {
-        "label": "מחק זיכרון",
-        "description": "מוחק את כל מה ש-Stella זכרה, כולל פעילות מסך שמורה. לא ניתן לבטל פעולה זו.",
-        "action": "מחק",
-        "working": "מוחק…",
-        "confirm": "למחוק את כל מה ש-Stella זכרה? לא ניתן לבטל פעולה זו."
-      },
-      "access": {
-        "signInTitle": "נדרשת התחברות",
-        "subscriptionTitle": "נדרש מנוי",
-        "signInMessage": "התחבר ל-Stella, או בחר מודל קטן עבור Chronicle בלוח Engine.",
-        "upgradeMessage": "זיכרון מסך כלול בכל תוכנית Stella. שדרג — או בחר מודל קטן עבור Chronicle בלוח Engine.",
-        "pickModel": "בחר מודל",
-        "upgrade": "שדרג"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle הופעל",
-        "disabledTitle": "Chronicle הושבת",
-        "alreadyRunning": "Chronicle כבר פעל.",
-        "enableFailedTitle": "לא ניתן להפעיל את Chronicle",
-        "disableFailedTitle": "לא ניתן להשבית את Chronicle",
-        "dreamScheduledTitle": "מעבר Dream תוזמן",
-        "dreamNotScheduledTitle": "מעבר Dream לא תוזמן",
-        "wipeFailedTitle": "המחיקה נכשלה",
-        "wipedTitle": "הזיכרונות נמחקו"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "תיקיית השורש של סביבת העבודה של Stella אינה זמינה.",
-        "needsPermission": "עדיין נדרשת הרשאת הקלטת מסך לפני ש-Chronicle יכול להתחיל.",
-        "binaryMissing": "קובץ העזר של Chronicle חסר.",
-        "startupTimeout": "Chronicle לא התחבר לאחר ההפעלה.",
-        "unsupportedPlatform": "Chronicle זמין רק ב-macOS.",
-        "unknown": "שגיאה לא ידועה."
-      },
-      "dreamResults": {
-        "scheduled": "Dream יאחד את הצבר הנוכחי.",
-        "inFlight": "מעבר Dream כבר פועל.",
-        "noInputs": "אין כרגע משהו חדש לאחד.",
-        "noApiKey": "Dream זקוק למודל/מפתח API מוגדרים או למסלול Stella מחובר.",
-        "disabled": "תזמון Dream מושבת כעת.",
-        "belowThreshold": "סף חוסר הפעילות עדיין לא הושג.",
-        "lockBusy": "Dream עסוק כרגע. נסה שוב בעוד רגע.",
-        "noRunner": "סביבת הריצה המקומית עדיין לא מוכנה.",
-        "unavailable": "Dream אינו זמין כרגע.",
-        "pendingPrefix": "ממתין: {items}.",
-        "pendingThreadSummary": "{count} סיכום משימה",
-        "pendingThreadSummaries": "{count} סיכומי משימות",
-        "pendingExtension": "{count} קובץ Chronicle",
-        "pendingExtensions": "{count} קובצי Chronicle",
-        "pendingJoin": " ו-"
-      },
-      "errors": {
-        "loadStatus": "טעינת סטטוס Chronicle נכשלה.",
-        "update": "עדכון Chronicle נכשל.",
-        "dream": "הפעלת מעבר Dream נכשלה.",
-        "wipe": "מחיקת הזיכרונות נכשלה."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "בחר את סגנון הדיבור ואת קול האישיות של Stella.",
         "permissions": "הענק גישה לנגישות, צילום מסך ומיקרופון ב-macOS.",
-        "memory": "נהל את זיכרון המסך, עדכן או מחק את מה ש-Stella זכרה.",
         "backup": "גיבויים מוצפנים אוטומטיים, נקודות שחזור ותמונות מצב לפי דרישה.",
         "account": "התנתק, מחק את הנתונים שלך או מחק את החשבון שלך לצמיתות.",
         "legal": "תנאי השירות ומדיניות הפרטיות.",
@@ -454,7 +363,6 @@
       "theme": "איך Stella צריכה להיראות?",
       "personality": "איך Stella צריכה לדבר?",
       "voice": "דברו במקום להקליד.",
-      "memory": "עזרו ל-Stella לזכור.",
       "enter": "Stella כמעט מוכנה."
     },
     "acts": {

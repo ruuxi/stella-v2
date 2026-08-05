@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Général",
       "shortcuts": "Raccourcis",
-      "memory": "Mémoire",
       "backup": "Sauvegardes",
       "account": "Compte et mentions légales",
       "audio": "Audio"
@@ -140,95 +139,6 @@
         "unavailable": "Les raccourcis ne sont pas disponibles dans cette fenêtre.",
         "unavailableShortcut": "Ce raccourci n'est pas disponible.",
         "update": "Échec de la mise à jour du raccourci."
-      }
-    },
-    "memory": {
-      "title": "Mémoire",
-      "enable": "Activer",
-      "disable": "Désactiver",
-      "working": "Traitement…",
-      "screen": {
-        "label": "Mémoire d'écran",
-        "description": "Stella peut jeter un œil à votre écran de temps en temps pour se souvenir de ce que vous faisiez.",
-        "signInDescription": "Connectez-vous à Stella, ou choisissez un petit modèle pour Chronicle dans le panneau Engine.",
-        "upgradeDescription": "La mémoire d'écran est incluse dans tous les forfaits Stella. Passez à un forfait supérieur, ou choisissez un petit modèle pour Chronicle dans le panneau Engine."
-      },
-      "status": {
-        "label": "État",
-        "running": "En cours",
-        "stopped": "Arrêté",
-        "disabled": "Désactivé",
-        "fps": "{fps} fps",
-        "lastCapture": "dernière capture {time}"
-      },
-      "folder": {
-        "label": "Dossier de mémoire",
-        "description": "Ouvre le dossier de votre ordinateur où Stella conserve ses souvenirs.",
-        "open": "Ouvrir le dossier",
-        "opening": "Ouverture…"
-      },
-      "update": {
-        "label": "Mettre la mémoire à jour maintenant",
-        "description": "Demandez à Stella de passer en revue l'activité récente et d'enregistrer ce qu'elle a appris. Cela se fait généralement tout seul.",
-        "run": "Exécuter maintenant",
-        "running": "Rêve en cours…"
-      },
-      "erase": {
-        "label": "Effacer la mémoire",
-        "description": "Supprime tout ce que Stella a mémorisé, y compris l'activité d'écran enregistrée. Cette action est irréversible.",
-        "action": "Effacer",
-        "working": "Effacement…",
-        "confirm": "Effacer tout ce que Stella a mémorisé ? Cette action est irréversible."
-      },
-      "access": {
-        "signInTitle": "Connexion requise",
-        "subscriptionTitle": "Abonnement requis",
-        "signInMessage": "Connectez-vous à Stella, ou choisissez un petit modèle pour Chronicle dans le panneau Engine.",
-        "upgradeMessage": "La mémoire d'écran est incluse dans tous les forfaits Stella. Passez à un forfait supérieur — ou choisissez un petit modèle pour Chronicle dans le panneau Engine.",
-        "pickModel": "Choisir un modèle",
-        "upgrade": "Mettre à niveau"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle activé",
-        "disabledTitle": "Chronicle désactivé",
-        "alreadyRunning": "Chronicle était déjà en cours d'exécution.",
-        "enableFailedTitle": "Impossible d'activer Chronicle",
-        "disableFailedTitle": "Impossible de désactiver Chronicle",
-        "dreamScheduledTitle": "Passe de Dream planifiée",
-        "dreamNotScheduledTitle": "Passe de Dream non planifiée",
-        "wipeFailedTitle": "Échec de l'effacement",
-        "wipedTitle": "Souvenirs effacés"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "La racine de l'espace de travail de Stella est indisponible.",
-        "needsPermission": "L'autorisation d'enregistrement d'écran est encore requise avant que Chronicle puisse démarrer.",
-        "binaryMissing": "Le binaire auxiliaire de Chronicle est manquant.",
-        "startupTimeout": "Chronicle ne s'est pas connecté après le lancement.",
-        "unsupportedPlatform": "Chronicle n'est disponible que sur macOS.",
-        "unknown": "Erreur inconnue."
-      },
-      "dreamResults": {
-        "scheduled": "Dream va consolider le travail en attente actuel.",
-        "inFlight": "Une passe de Dream est déjà en cours.",
-        "noInputs": "Il n'y a rien de nouveau à consolider pour le moment.",
-        "noApiKey": "Dream a besoin d'un modèle/d'une clé d'API configurés ou d'une route Stella connectée.",
-        "disabled": "La planification de Dream est actuellement désactivée.",
-        "belowThreshold": "Le seuil d'inactivité n'a pas encore été atteint.",
-        "lockBusy": "Dream est occupé pour le moment. Réessayez dans un instant.",
-        "noRunner": "L'environnement d'exécution local n'est pas encore prêt.",
-        "unavailable": "Dream est actuellement indisponible.",
-        "pendingPrefix": "En attente : {items}.",
-        "pendingThreadSummary": "{count} résumé de tâche",
-        "pendingThreadSummaries": "{count} résumés de tâches",
-        "pendingExtension": "{count} fichier Chronicle",
-        "pendingExtensions": "{count} fichiers Chronicle",
-        "pendingJoin": " et "
-      },
-      "errors": {
-        "loadStatus": "Échec du chargement de l'état de Chronicle.",
-        "update": "Échec de la mise à jour de Chronicle.",
-        "dream": "Échec du déclenchement de la passe de Dream.",
-        "wipe": "Échec de l'effacement des souvenirs."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Choisissez le style d'élocution et la voix de personnalité de Stella.",
         "permissions": "Accordez l'accès à l'accessibilité, à la capture d'écran et au microphone sur macOS.",
-        "memory": "Gérez la mémoire d'écran, mettez à jour ou effacez ce que Stella a mémorisé.",
         "backup": "Sauvegardes chiffrées automatiques, points de restauration et instantanés à la demande.",
         "account": "Déconnectez-vous, supprimez vos données ou supprimez définitivement votre compte.",
         "legal": "Conditions d'utilisation et politique de confidentialité.",
@@ -454,7 +363,6 @@
       "theme": "À quoi Stella doit-elle ressembler ?",
       "personality": "Comment Stella doit-elle parler ?",
       "voice": "Parlez plutôt que d'écrire.",
-      "memory": "Aidez Stella à se souvenir.",
       "enter": "Stella est presque prête."
     },
     "acts": {

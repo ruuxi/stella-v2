@@ -1686,63 +1686,6 @@ export type ElectronApi = {
     getStellaMediaDir: () => Promise<string | null>;
     copyImage: (pngBase64: string) => Promise<{ ok: boolean; error?: string }>;
   };
-  memory: {
-    status: () => Promise<{
-      available: boolean;
-      status: {
-        enabled: boolean;
-        pending: boolean;
-        running: boolean;
-        permission: boolean;
-      };
-    }>;
-    setEnabled: (
-      enabled: boolean,
-      options?: { pending?: boolean },
-    ) => Promise<{
-      ok: boolean;
-      reason?: string;
-      status: {
-        enabled: boolean;
-        pending: boolean;
-        running: boolean;
-        permission: boolean;
-      };
-    }>;
-    promotePending: () => Promise<{
-      ok: boolean;
-      promoted: boolean;
-      reason?: string;
-    }>;
-  };
-  chronicle: {
-    status: () => Promise<{
-      available: boolean;
-      status?: {
-        enabled: boolean;
-        running: boolean;
-        paused?: boolean;
-        fps?: number;
-        captures?: number;
-        lastCaptureAt?: number | null;
-      };
-    }>;
-    setEnabled: (enabled: boolean) => Promise<{
-      ok: boolean;
-      enabled?: boolean;
-      running?: boolean;
-      permission?: boolean;
-      reason?: string;
-    }>;
-    openMemoriesFolder: () => Promise<{ ok: boolean }>;
-    dreamNow: () => Promise<{
-      ok: boolean;
-      reason?: string;
-      pendingItems: number;
-      detail?: string;
-    }>;
-    wipeMemories: () => Promise<{ ok: boolean; reason?: string }>;
-  };
   meetings: {
     status: () => Promise<{
       available: boolean;

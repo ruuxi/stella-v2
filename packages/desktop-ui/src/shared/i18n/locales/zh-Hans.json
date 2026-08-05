@@ -30,7 +30,6 @@
     "tabs": {
       "general": "通用",
       "shortcuts": "快捷键",
-      "memory": "记忆",
       "backup": "备份",
       "account": "账户与法律",
       "audio": "音频"
@@ -140,95 +139,6 @@
         "unavailable": "此窗口中无法使用快捷键。",
         "unavailableShortcut": "该快捷键不可用。",
         "update": "更新快捷键失败。"
-      }
-    },
-    "memory": {
-      "title": "记忆",
-      "enable": "启用",
-      "disable": "停用",
-      "working": "处理中…",
-      "screen": {
-        "label": "屏幕记忆",
-        "description": "Stella 可以时不时地看一眼你的屏幕，记住你在做什么。",
-        "signInDescription": "登录 Stella，或在 Engine 面板中为 Chronicle 选择一个小模型。",
-        "upgradeDescription": "屏幕记忆包含在任意 Stella 套餐中。请升级，或在 Engine 面板中为 Chronicle 选择一个小模型。"
-      },
-      "status": {
-        "label": "状态",
-        "running": "运行中",
-        "stopped": "已停止",
-        "disabled": "已停用",
-        "fps": "{fps} fps",
-        "lastCapture": "上次捕捉 {time}"
-      },
-      "folder": {
-        "label": "记忆文件夹",
-        "description": "打开电脑上 Stella 保存记忆的文件夹。",
-        "open": "打开文件夹",
-        "opening": "正在打开…"
-      },
-      "update": {
-        "label": "立即更新记忆",
-        "description": "让 Stella 回顾最近的活动并保存所学到的内容。这通常会自动进行。",
-        "run": "立即运行",
-        "running": "做梦中…"
-      },
-      "erase": {
-        "label": "清除记忆",
-        "description": "删除 Stella 记住的所有内容，包括已保存的屏幕活动。此操作无法撤销。",
-        "action": "清除",
-        "working": "正在清除…",
-        "confirm": "清除 Stella 记住的所有内容？此操作无法撤销。"
-      },
-      "access": {
-        "signInTitle": "需要登录",
-        "subscriptionTitle": "需要订阅",
-        "signInMessage": "登录 Stella，或在 Engine 面板中为 Chronicle 选择一个小模型。",
-        "upgradeMessage": "屏幕记忆包含在任意 Stella 套餐中。请升级 — 或在 Engine 面板中为 Chronicle 选择一个小模型。",
-        "pickModel": "选择模型",
-        "upgrade": "升级"
-      },
-      "toasts": {
-        "enabledTitle": "已启用 Chronicle",
-        "disabledTitle": "已停用 Chronicle",
-        "alreadyRunning": "Chronicle 已在运行。",
-        "enableFailedTitle": "无法启用 Chronicle",
-        "disableFailedTitle": "无法停用 Chronicle",
-        "dreamScheduledTitle": "已安排 Dream 运行",
-        "dreamNotScheduledTitle": "未安排 Dream 运行",
-        "wipeFailedTitle": "清除失败",
-        "wipedTitle": "已清除记忆"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Stella 的工作区根目录不可用。",
-        "needsPermission": "在 Chronicle 启动前仍需要屏幕录制权限。",
-        "binaryMissing": "缺少 Chronicle 辅助程序文件。",
-        "startupTimeout": "Chronicle 启动后未上线。",
-        "unsupportedPlatform": "Chronicle 仅在 macOS 上可用。",
-        "unknown": "未知错误。"
-      },
-      "dreamResults": {
-        "scheduled": "Dream 将整合当前的待处理内容。",
-        "inFlight": "已有一次 Dream 运行正在进行。",
-        "noInputs": "目前没有可整合的新内容。",
-        "noApiKey": "Dream 需要已配置的模型/API 密钥，或已登录的 Stella 路线。",
-        "disabled": "Dream 调度当前已停用。",
-        "belowThreshold": "尚未达到空闲阈值。",
-        "lockBusy": "Dream 现在繁忙。请稍后重试。",
-        "noRunner": "本地运行时尚未就绪。",
-        "unavailable": "Dream 当前不可用。",
-        "pendingPrefix": "待处理：{items}。",
-        "pendingThreadSummary": "{count} 条任务摘要",
-        "pendingThreadSummaries": "{count} 条任务摘要",
-        "pendingExtension": "{count} 个 Chronicle 文件",
-        "pendingExtensions": "{count} 个 Chronicle 文件",
-        "pendingJoin": "和"
-      },
-      "errors": {
-        "loadStatus": "加载 Chronicle 状态失败。",
-        "update": "更新 Chronicle 失败。",
-        "dream": "触发 Dream 运行失败。",
-        "wipe": "清除记忆失败。"
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "选择 Stella 的说话风格和个性语音。",
         "permissions": "在 macOS 上授予辅助功能、屏幕录制和麦克风访问权限。",
-        "memory": "管理屏幕记忆，更新或清除 Stella 记住的内容。",
         "backup": "自动加密备份、恢复点和按需快照。",
         "account": "退出登录、删除你的数据或永久删除你的账户。",
         "legal": "服务条款和隐私政策。",
@@ -454,7 +363,6 @@
       "theme": "Stella 应该是什么样子？",
       "personality": "Stella 应该怎么说话？",
       "voice": "用说的，而不是用打的。",
-      "memory": "帮 Stella 记住。",
       "enter": "Stella 已经快准备好了。"
     },
     "acts": {

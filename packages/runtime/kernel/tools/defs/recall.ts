@@ -18,7 +18,7 @@ export const createRecallTool = (
   name: "Recall",
   agentTypes: [AGENT_IDS.ORCHESTRATOR],
   description:
-    "Look up deeper memory, past work, or live machine context that isn't currently loaded. A recall agent searches the durable memory ledger, every past agent thread you've ever run (resumable — it returns thread_ids), recent activity, the chronicle, and the current app/browser state, then returns one concise brief. " +
+    "Look up deeper memory, past work, or live machine context that isn't currently loaded. A recall agent searches the durable memory ledger, every past agent thread you've ever run (resumable — it returns thread_ids), recent activity, and the current app/browser state, then returns one concise brief. " +
     'Use it when the user references something from before ("yesterday", "that", "the thing I was doing"), asks about prior work, names a repo/module/feature with possible history, points at past agent threads to resume, or the request is ambiguous and earlier context could change the answer. ' +
     "You do NOT need it for the user's name, location, stable preferences, or current focus — those are already in your context. Skip it for self-contained requests (current time, simple rewrite, trivial formatting). When in doubt on anything historical or on-screen, do a quick Recall.",
   parameters: {

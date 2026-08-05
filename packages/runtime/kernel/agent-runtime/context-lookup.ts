@@ -55,7 +55,6 @@ const MAX_MEMORY_SEARCH_TERM_CHARS = 120;
 const MAX_MEMORY_SEARCH_MATCHES = 40;
 const MAX_MEMORY_SEARCH_CONTEXT_LINES = 1;
 const MAX_MEMORY_SEARCH_RESULTS_CHARS = 16_000;
-const CHRONICLE_DIR_SEGMENTS = ["memories_extensions", "chronicle"] as const;
 
 /**
  * Hard cap on rendered thread-search results. The candidate pool is EVERY
@@ -517,27 +516,6 @@ const readMemorySearchResults = async (
   return blocks.join("\n\n");
 };
 
-const readChronicleFiles = async (stellaDataDir: string): Promise<string> => {
-  const files = [
-    { name: "10m-current.md", label: "last ~10 minutes" },
-    { name: "6h-current.md", label: "last ~6 hours" },
-  ];
-  const blocks: string[] = [];
-  for (const file of files) {
-    const displayPath = path.posix.join(...CHRONICLE_DIR_SEGMENTS, file.name);
-    const content = await readOptionalTextFile(
-      path.join(stellaDataDir, ...CHRONICLE_DIR_SEGMENTS, file.name),
-    );
-    if (!content) continue;
-    blocks.push(
-      `<chronicle_snapshot window="${file.label}" path="${displayPath}">\n${content}\n</chronicle_snapshot>`,
-    );
-  }
-  return blocks.length > 0
-    ? blocks.join("\n\n")
-    : "No Chronicle summaries found.";
-};
-
 const formatClockTime = (timestamp: number): string =>
   new Date(timestamp).toLocaleString("en-US", {
     month: "short",
@@ -881,14 +859,13 @@ export const buildContextLookupUserPrompt = async (args: {
   const terms = normalizeMemorySearchTerms(args.searchTerms);
   const hasTerms = terms.length > 0;
   const seedQuery = terms.join(" ");
-  const [memoryFiles, memorySearchResults, chronicleFiles] = await Promise.all([
+  const [memoryFiles, memorySearchResults] = await Promise.all([
     readMemoryFiles(args.stellaDataDir, { hasSearchTerms: hasTerms }),
     hasTerms
       ? readMemorySearchResults(args.stellaDataDir, terms)
       : Promise.resolve(
           "No search terms provided — the memory ledger above is the memory evidence; use search_memory for targeted lines.",
         ),
-    readChronicleFiles(args.stellaDataDir),
   ]);
   const threadSearchResults = formatThreadSearchResults(
     args.store,
@@ -933,9 +910,6 @@ export const buildContextLookupUserPrompt = async (args: {
     "# Live Thread Status",
     "Threads executing a turn RIGHT NOW, with their latest timestamped progress phrases. Any other thread is paused (idle but resumable) as of the current time above.",
     liveStatus,
-    "",
-    "# Chronicle Context",
-    chronicleFiles,
     "",
     "# Lookup Request",
     truncate(args.lookupPrompt.trim(), 2_000),
@@ -994,7 +968,7 @@ export const resolveRecallSearchAction = (
  * Agent-backed recall. Seeds the model with the eager context (memory
  * summary, pre-seeded memory/thread/transcript search results from the
  * lookup's search terms, live app/browser state, recent activity, live
- * thread status, chronicle), then runs a bounded NATIVE tool-call loop —
+ * and thread status), then runs a bounded NATIVE tool-call loop —
  * the model reformulates searches over the deep memory ledger, every past
  * delegated agent thread, and past chat transcripts, calling several tools
  * in parallel per round — before answering with a plain-text brief. Runs

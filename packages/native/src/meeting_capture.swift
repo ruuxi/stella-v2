@@ -9,7 +9,7 @@
 // This helper only does capture-to-disk. Transcription and note enhancement
 // live elsewhere (a skill / agent step); this binary stays dumb, robust, and
 // independent of any renderer window so a recording survives the UI closing,
-// reloading, or crashing — same daemon model as `chronicle`.
+// reloading, or crashing.
 //
 // One process model:
 //   $ meeting_capture daemon --root <stellaDataDir> [--segment-seconds 30]

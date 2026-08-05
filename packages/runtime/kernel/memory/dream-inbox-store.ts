@@ -2,13 +2,10 @@
  * DreamInboxStore — the single durable queue of everything the Dream agent
  * consolidates into `~/.stella/memories/`.
  *
- * Three kinds of rows flow through it:
+ * Two kinds of rows flow through it:
  *   - `thread_summary` — one row per finalized subagent run (upserted by
  *     (threadId, runId); re-recording a run resets its processed state).
  *   - `memory_note`    — one row per orchestrator memory-review candidate.
- *   - `chronicle`      — the rolling screen-activity digest per window
- *     ("10m"/"6h"); upserted by window so refreshes coalesce into one
- *     unprocessed row instead of flooding the queue.
  *
  * `processed_by_dream_at IS NULL` is the entire queue state. There is no
  * separate watermark file or per-file mtime tracking; Dream lists unprocessed
@@ -20,7 +17,7 @@
 import type { SqliteDatabase } from "../storage/shared.js";
 import { redactMemoryText, redactMemoryStringArray } from "./redaction.js";
 
-export type DreamInboxKind = "thread_summary" | "memory_note" | "chronicle";
+export type DreamInboxKind = "thread_summary" | "memory_note";
 
 export type DreamInboxRow = {
   id: number;
@@ -52,12 +49,6 @@ export type MemoryNoteCandidate = {
   recallHooks: string[];
   evidence: string[];
   createdAt?: Date;
-};
-
-export type RecordChronicleSummaryArgs = {
-  window: string;
-  content: string;
-  uniqueLines?: number;
 };
 
 type DreamInboxRawRow = {
@@ -235,31 +226,6 @@ export class DreamInboxStore {
       }
     }
     throw new Error("could not create a unique memory note key.");
-  }
-
-  /**
-   * Upsert the rolling chronicle digest for a window. Refreshes overwrite the
-   * window's row and reset its processed state, so however often the
-   * summarizer runs, Dream only ever sees the latest digest once.
-   */
-  recordChronicleSummary(args: RecordChronicleSummaryArgs): void {
-    const content = redactMemoryText(args.content.trim());
-    if (!content) return;
-    this.upsert({
-      kind: "chronicle",
-      sourceKey: args.window,
-      threadId: null,
-      runId: null,
-      agentType: null,
-      title: `Chronicle ${args.window} screen-activity digest`,
-      content,
-      metadata: JSON.stringify({
-        window: args.window,
-        ...(typeof args.uniqueLines === "number"
-          ? { uniqueLines: args.uniqueLines }
-          : {}),
-      }),
-    });
   }
 
   private upsert(args: {

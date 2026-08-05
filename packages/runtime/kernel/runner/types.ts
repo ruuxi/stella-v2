@@ -523,36 +523,4 @@ export type RunnerPublicApi = {
     pendingItems: number;
     detail?: string;
   }>;
-  /**
-   * Run one Chronicle rolling-summary pass for the given window. Reads the
-   * tail of `~/.stella/chronicle/captures.jsonl`, calls a single cheap LLM
-   * completion, atomically rewrites
-   * `~/.stella/memories_extensions/chronicle/{window}-current.md`, and queues
-   * the digest in the Dream inbox. Designed to be called by Electron on a
-   * fixed cadence (every 1 minute for "10m", every 1 hour for "6h").
-   */
-  runChronicleSummaryTick: (window: "10m" | "6h") => Promise<
-    | {
-        wrote: true;
-        window: "10m" | "6h";
-        uniqueLines: number;
-        outPath: string;
-      }
-    | {
-        wrote: false;
-        window: "10m" | "6h";
-        reason:
-          | "disabled"
-          | "lock_busy"
-          | "no_api_key"
-          | "no_captures"
-          | "below_threshold"
-          | "unchanged"
-          | "no_signal"
-          | "llm_failed"
-          | "write_failed";
-        uniqueLines: number;
-        detail?: string;
-      }
-  >;
 };

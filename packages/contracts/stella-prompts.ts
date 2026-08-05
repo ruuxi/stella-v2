@@ -9,7 +9,6 @@ export const STELLA_PROMPT_IDS = [
   "agents/explore.md",
   "agents/dream.md",
   "prompts/dream-scheduled.md",
-  "prompts/chronicle-summarizer.md",
   "prompts/memory-review.md",
   "prompts/thread-compaction.md",
   "prompts/fallback-orchestrator.md",
@@ -25,7 +24,10 @@ export const STELLA_PROMPT_IDS = [
  * and then dropped before reconciliation, which would otherwise look for a
  * bundled `agent-metadata/<id>.md` that no longer exists.
  */
-export const STELLA_PROMPT_RETIRED_IDS = ["agents/manager.md"] as const;
+export const STELLA_PROMPT_RETIRED_IDS = [
+  "agents/manager.md",
+  "prompts/chronicle-summarizer.md",
+] as const;
 
 export const STELLA_PROMPT_RETIRED_ID_SET = new Set<string>(
   STELLA_PROMPT_RETIRED_IDS,

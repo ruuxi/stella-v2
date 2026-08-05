@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Podstawowe",
       "shortcuts": "Skróty",
-      "memory": "Pamięć",
       "backup": "Kopie zapasowe",
       "account": "Konto i prawne",
       "audio": "Dźwięk"
@@ -140,95 +139,6 @@
         "unavailable": "Skróty są niedostępne w tym oknie.",
         "unavailableShortcut": "Ten skrót jest niedostępny.",
         "update": "Nie udało się zaktualizować skrótu."
-      }
-    },
-    "memory": {
-      "title": "Pamięć",
-      "enable": "Włącz",
-      "disable": "Wyłącz",
-      "working": "Pracuję…",
-      "screen": {
-        "label": "Pamięć ekranu",
-        "description": "Stella może od czasu do czasu zerknąć na Twój ekran, aby zapamiętać, co robiłeś.",
-        "signInDescription": "Zaloguj się do Stelli lub wybierz mały model dla Chronicle w panelu Engine.",
-        "upgradeDescription": "Pamięć ekranu jest dostępna w każdym planie Stelli. Przejdź na wyższy plan lub wybierz mały model dla Chronicle w panelu Engine."
-      },
-      "status": {
-        "label": "Status",
-        "running": "Działa",
-        "stopped": "Zatrzymano",
-        "disabled": "Wyłączone",
-        "fps": "{fps} kl./s",
-        "lastCapture": "ostatnie przechwycenie {time}"
-      },
-      "folder": {
-        "label": "Folder pamięci",
-        "description": "Otwiera folder na komputerze, w którym Stella przechowuje swoje wspomnienia.",
-        "open": "Otwórz folder",
-        "opening": "Otwieranie…"
-      },
-      "update": {
-        "label": "Zaktualizuj pamięć teraz",
-        "description": "Niech Stella przejrzy ostatnią aktywność i zapisze, czego się nauczyła. Zwykle dzieje się to samoczynnie.",
-        "run": "Uruchom teraz",
-        "running": "Śni…"
-      },
-      "erase": {
-        "label": "Wymaż pamięć",
-        "description": "Usuwa wszystko, co Stella zapamiętała, w tym zapisaną aktywność ekranu. Tego nie można cofnąć.",
-        "action": "Wymaż",
-        "working": "Wymazywanie…",
-        "confirm": "Wymazać wszystko, co Stella zapamiętała? Tego nie można cofnąć."
-      },
-      "access": {
-        "signInTitle": "Wymagane logowanie",
-        "subscriptionTitle": "Wymagana subskrypcja",
-        "signInMessage": "Zaloguj się do Stelli lub wybierz mały model dla Chronicle w panelu Engine.",
-        "upgradeMessage": "Pamięć ekranu jest dostępna w każdym planie Stelli. Przejdź na wyższy plan — lub wybierz mały model dla Chronicle w panelu Engine.",
-        "pickModel": "Wybierz model",
-        "upgrade": "Ulepsz plan"
-      },
-      "toasts": {
-        "enabledTitle": "Włączono Chronicle",
-        "disabledTitle": "Wyłączono Chronicle",
-        "alreadyRunning": "Chronicle już działał.",
-        "enableFailedTitle": "Nie udało się włączyć Chronicle",
-        "disableFailedTitle": "Nie udało się wyłączyć Chronicle",
-        "dreamScheduledTitle": "Zaplanowano przebieg Dream",
-        "dreamNotScheduledTitle": "Nie zaplanowano przebiegu Dream",
-        "wipeFailedTitle": "Wymazywanie nie powiodło się",
-        "wipedTitle": "Wspomnienia wymazane"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Katalog główny obszaru roboczego Stelli jest niedostępny.",
-        "needsPermission": "Przed uruchomieniem Chronicle nadal wymagane jest uprawnienie do nagrywania ekranu.",
-        "binaryMissing": "Brakuje pliku pomocniczego Chronicle.",
-        "startupTimeout": "Chronicle nie połączył się po uruchomieniu.",
-        "unsupportedPlatform": "Chronicle jest dostępny tylko w macOS.",
-        "unknown": "Nieznany błąd."
-      },
-      "dreamResults": {
-        "scheduled": "Dream skonsoliduje bieżące zaległości.",
-        "inFlight": "Przebieg Dream już trwa.",
-        "noInputs": "W tej chwili nie ma nic nowego do skonsolidowania.",
-        "noApiKey": "Dream potrzebuje skonfigurowanego modelu/klucza API lub zalogowanej trasy Stelli.",
-        "disabled": "Harmonogram Dream jest obecnie wyłączony.",
-        "belowThreshold": "Próg bezczynności nie został jeszcze osiągnięty.",
-        "lockBusy": "Dream jest teraz zajęty. Spróbuj ponownie za chwilę.",
-        "noRunner": "Lokalne środowisko uruchomieniowe nie jest jeszcze gotowe.",
-        "unavailable": "Dream jest obecnie niedostępny.",
-        "pendingPrefix": "Oczekujące: {items}.",
-        "pendingThreadSummary": "{count} podsumowanie zadania",
-        "pendingThreadSummaries": "podsumowania zadań: {count}",
-        "pendingExtension": "{count} plik Chronicle",
-        "pendingExtensions": "pliki Chronicle: {count}",
-        "pendingJoin": " i "
-      },
-      "errors": {
-        "loadStatus": "Nie udało się wczytać statusu Chronicle.",
-        "update": "Nie udało się zaktualizować Chronicle.",
-        "dream": "Nie udało się uruchomić przebiegu Dream.",
-        "wipe": "Nie udało się wymazać wspomnień."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Wybierz styl mówienia i głos osobowości Stelli.",
         "permissions": "Przyznaj dostęp do dostępności, przechwytywania ekranu i mikrofonu w macOS.",
-        "memory": "Zarządzaj pamięcią ekranu, aktualizuj lub wymazuj to, co Stella zapamiętała.",
         "backup": "Automatyczne szyfrowane kopie zapasowe, punkty przywracania i migawki na żądanie.",
         "account": "Wyloguj się, usuń dane lub trwale usuń konto.",
         "legal": "Warunki korzystania i polityka prywatności.",
@@ -454,7 +363,6 @@
       "theme": "Jak ma wyglądać Stella?",
       "personality": "Jak ma mówić Stella?",
       "voice": "Mów zamiast pisać.",
-      "memory": "Pomóż Stelli pamiętać.",
       "enter": "Stella jest prawie gotowa."
     },
     "acts": {

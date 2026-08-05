@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Chung",
       "shortcuts": "Phím tắt",
-      "memory": "Bộ nhớ",
       "backup": "Sao lưu",
       "account": "Tài khoản & Pháp lý",
       "audio": "Âm thanh"
@@ -140,95 +139,6 @@
         "unavailable": "Phím tắt không khả dụng trong cửa sổ này.",
         "unavailableShortcut": "Phím tắt đó không khả dụng.",
         "update": "Không cập nhật được phím tắt."
-      }
-    },
-    "memory": {
-      "title": "Bộ nhớ",
-      "enable": "Bật",
-      "disable": "Tắt",
-      "working": "Đang xử lý…",
-      "screen": {
-        "label": "Bộ nhớ màn hình",
-        "description": "Stella có thể thỉnh thoảng nhìn vào màn hình của bạn để nhớ bạn đang làm gì.",
-        "signInDescription": "Đăng nhập vào Stella, hoặc chọn một mô hình nhỏ cho Chronicle trong bảng Engine.",
-        "upgradeDescription": "Bộ nhớ màn hình có trong mọi gói Stella. Hãy nâng cấp, hoặc chọn một mô hình nhỏ cho Chronicle trong bảng Engine."
-      },
-      "status": {
-        "label": "Trạng thái",
-        "running": "Đang chạy",
-        "stopped": "Đã dừng",
-        "disabled": "Đã tắt",
-        "fps": "{fps} fps",
-        "lastCapture": "lần chụp cuối {time}"
-      },
-      "folder": {
-        "label": "Thư mục bộ nhớ",
-        "description": "Mở thư mục trên máy tính nơi Stella lưu các ký ức của mình.",
-        "open": "Mở thư mục",
-        "opening": "Đang mở…"
-      },
-      "update": {
-        "label": "Cập nhật bộ nhớ ngay",
-        "description": "Để Stella xem lại hoạt động gần đây và lưu những gì đã học. Việc này thường tự diễn ra.",
-        "run": "Chạy ngay",
-        "running": "Đang mơ…"
-      },
-      "erase": {
-        "label": "Xóa bộ nhớ",
-        "description": "Xóa mọi thứ Stella đã nhớ, bao gồm hoạt động màn hình đã lưu. Không thể hoàn tác.",
-        "action": "Xóa",
-        "working": "Đang xóa…",
-        "confirm": "Xóa mọi thứ Stella đã nhớ? Không thể hoàn tác."
-      },
-      "access": {
-        "signInTitle": "Cần đăng nhập",
-        "subscriptionTitle": "Cần đăng ký",
-        "signInMessage": "Đăng nhập vào Stella, hoặc chọn một mô hình nhỏ cho Chronicle trong bảng Engine.",
-        "upgradeMessage": "Bộ nhớ màn hình có trong mọi gói Stella. Hãy nâng cấp — hoặc chọn một mô hình nhỏ cho Chronicle trong bảng Engine.",
-        "pickModel": "Chọn mô hình",
-        "upgrade": "Nâng cấp"
-      },
-      "toasts": {
-        "enabledTitle": "Đã bật Chronicle",
-        "disabledTitle": "Đã tắt Chronicle",
-        "alreadyRunning": "Chronicle đã đang chạy.",
-        "enableFailedTitle": "Không thể bật Chronicle",
-        "disableFailedTitle": "Không thể tắt Chronicle",
-        "dreamScheduledTitle": "Đã lên lịch lượt chạy Dream",
-        "dreamNotScheduledTitle": "Lượt chạy Dream chưa được lên lịch",
-        "wipeFailedTitle": "Xóa thất bại",
-        "wipedTitle": "Đã xóa ký ức"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Thư mục gốc không gian làm việc của Stella không khả dụng.",
-        "needsPermission": "Vẫn cần quyền quay màn hình trước khi Chronicle có thể khởi động.",
-        "binaryMissing": "Thiếu tệp trợ giúp Chronicle.",
-        "startupTimeout": "Chronicle không trực tuyến sau khi khởi chạy.",
-        "unsupportedPlatform": "Chronicle chỉ có trên macOS.",
-        "unknown": "Lỗi không xác định."
-      },
-      "dreamResults": {
-        "scheduled": "Dream sẽ hợp nhất phần tồn đọng hiện tại.",
-        "inFlight": "Một lượt chạy Dream đã đang diễn ra.",
-        "noInputs": "Hiện không có gì mới để hợp nhất.",
-        "noApiKey": "Dream cần một mô hình/khóa API đã cấu hình hoặc một tuyến Stella đã đăng nhập.",
-        "disabled": "Lập lịch Dream hiện đang bị tắt.",
-        "belowThreshold": "Chưa đạt ngưỡng nhàn rỗi.",
-        "lockBusy": "Dream hiện đang bận. Hãy thử lại sau giây lát.",
-        "noRunner": "Môi trường chạy cục bộ chưa sẵn sàng.",
-        "unavailable": "Dream hiện không khả dụng.",
-        "pendingPrefix": "Đang chờ: {items}.",
-        "pendingThreadSummary": "{count} bản tóm tắt nhiệm vụ",
-        "pendingThreadSummaries": "{count} bản tóm tắt nhiệm vụ",
-        "pendingExtension": "{count} tệp Chronicle",
-        "pendingExtensions": "{count} tệp Chronicle",
-        "pendingJoin": " và "
-      },
-      "errors": {
-        "loadStatus": "Không tải được trạng thái Chronicle.",
-        "update": "Không cập nhật được Chronicle.",
-        "dream": "Không kích hoạt được lượt chạy Dream.",
-        "wipe": "Không xóa được ký ức."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Chọn phong cách nói và giọng tính cách của Stella.",
         "permissions": "Cấp quyền trợ năng, quay màn hình và micrô trên macOS.",
-        "memory": "Quản lý bộ nhớ màn hình, cập nhật hoặc xóa những gì Stella đã nhớ.",
         "backup": "Bản sao lưu được mã hóa tự động, điểm khôi phục và ảnh chụp theo yêu cầu.",
         "account": "Đăng xuất, xóa dữ liệu của bạn hoặc xóa vĩnh viễn tài khoản của bạn.",
         "legal": "Điều khoản dịch vụ và chính sách quyền riêng tư.",
@@ -454,7 +363,6 @@
       "theme": "Stella nên trông như thế nào?",
       "personality": "Stella nên nói chuyện thế nào?",
       "voice": "Hãy nói thay vì gõ.",
-      "memory": "Giúp Stella ghi nhớ.",
       "enter": "Stella gần như đã sẵn sàng."
     },
     "acts": {

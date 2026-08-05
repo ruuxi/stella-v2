@@ -30,7 +30,6 @@
     "tabs": {
       "general": "General",
       "shortcuts": "Shortcuts",
-      "memory": "Memory",
       "backup": "Backups",
       "account": "Account & Legal",
       "audio": "Audio"
@@ -140,92 +139,6 @@
         "unavailable": "Shortcuts are unavailable in this window.",
         "unavailableShortcut": "That shortcut is unavailable.",
         "update": "Failed to update shortcut."
-      }
-    },
-    "memory": {
-      "title": "Memory",
-      "enable": "Enable",
-      "disable": "Disable",
-      "working": "Working…",
-      "screen": {
-        "label": "Screen memory",
-        "description": "Stella can glance at your screen now and then to remember what you were doing.",
-        "signInDescription": "Sign in to Stella, or pick a small model for Chronicle in the Engine panel.",
-        "upgradeDescription": "Screen memory is included with any Stella plan. Upgrade, or pick a small model for Chronicle in the Engine panel."
-      },
-      "status": {
-        "label": "Status",
-        "running": "Running",
-        "stopped": "Stopped",
-        "disabled": "Disabled",
-        "fps": "{fps} fps",
-        "lastCapture": "last capture {time}"
-      },
-      "folder": {
-        "label": "Memory folder",
-        "description": "Open the folder on your computer where Stella keeps its memories.",
-        "open": "Open folder",
-        "opening": "Opening…"
-      },
-      "update": {
-        "label": "Update memory now",
-        "description": "Have Stella review recent activity and save what it learned. This usually happens on its own.",
-        "run": "Run now",
-        "running": "Dreaming…"
-      },
-      "erase": {
-        "label": "Erase memory",
-        "description": "Delete everything Stella has remembered, including saved screen activity. This can't be undone.",
-        "action": "Wipe",
-        "working": "Wiping…",
-        "confirm": "Erase everything Stella has remembered? This cannot be undone."
-      },
-      "access": {
-        "signInTitle": "Sign in required",
-        "subscriptionTitle": "Subscription required",
-        "signInMessage": "Sign in to Stella, or pick a small model for Chronicle in the Engine panel.",
-        "upgradeMessage": "Screen memory is included with any Stella plan. Upgrade — or pick a small model for Chronicle in the Engine panel.",
-        "pickModel": "Pick a model",
-        "upgrade": "Upgrade"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle enabled",
-        "disabledTitle": "Chronicle disabled",
-        "alreadyRunning": "Chronicle was already running.",
-        "enableFailedTitle": "Could not enable Chronicle",
-        "disableFailedTitle": "Could not disable Chronicle",
-        "dreamScheduledTitle": "Dream pass scheduled",
-        "dreamNotScheduledTitle": "Dream pass not scheduled",
-        "wipeFailedTitle": "Wipe failed",
-        "wipedTitle": "Memories wiped"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Stella's workspace root is unavailable.",
-        "needsPermission": "Screen Recording permission is still required before Chronicle can start.",
-        "binaryMissing": "The Chronicle helper binary is missing.",
-        "startupTimeout": "Chronicle did not come online after launch.",
-        "unsupportedPlatform": "Chronicle is only available on macOS.",
-        "unknown": "Unknown error."
-      },
-      "dreamResults": {
-        "scheduled": "Dream will consolidate the current backlog.",
-        "inFlight": "A Dream pass is already running.",
-        "noInputs": "There is nothing new to consolidate right now.",
-        "noApiKey": "Dream needs a configured model/API key or signed-in Stella route.",
-        "disabled": "Dream scheduling is currently disabled.",
-        "belowThreshold": "The idle threshold has not been reached yet.",
-        "lockBusy": "Dream is busy right now. Try again in a moment.",
-        "noRunner": "The local runtime is not ready yet.",
-        "unavailable": "Dream is currently unavailable.",
-        "pendingPrefix": "Pending: {items}.",
-        "pendingItem": "{count} memory item",
-        "pendingItems": "{count} memory items"
-      },
-      "errors": {
-        "loadStatus": "Failed to load Chronicle status.",
-        "update": "Failed to update Chronicle.",
-        "dream": "Failed to trigger Dream pass.",
-        "wipe": "Failed to wipe memories."
       }
     },
     "backup": {
@@ -400,7 +313,6 @@
         "voice": "Pick Stella's speaking style and personality voice.",
         "permissions": "Grant accessibility, screen capture, and microphone access on macOS.",
         "shortcuts": "Change dictation and voice shortcuts.",
-        "memory": "Manage screen memory, update or erase what Stella has remembered.",
         "backup": "Automatic encrypted backups, restore points, and on-demand snapshots.",
         "account": "Sign out, delete your data, or permanently delete your account.",
         "legal": "Terms of Service and Privacy Policy.",
@@ -453,7 +365,6 @@
       "theme": "How should Stella look?",
       "personality": "How should Stella talk?",
       "voice": "Speak instead of type.",
-      "memory": "Help Stella remember.",
       "enter": "Stella is almost ready."
     },
     "acts": {

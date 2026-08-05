@@ -7,7 +7,6 @@ export const AGENT_IDS = {
   OFFLINE_RESPONDER: "offline_responder",
   EXPLORE: "explore",
   DREAM: "dream",
-  CHRONICLE: "chronicle",
 } as const;
 
 export type AgentId = (typeof AGENT_IDS)[keyof typeof AGENT_IDS];
@@ -229,23 +228,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     modelSettings: {
       description: "Consolidates memory in the background",
       order: 5,
-    },
-  },
-  {
-    id: AGENT_IDS.CHRONICLE,
-    name: "Chronicle",
-    description:
-      "Cheap recursive summarizer for the Chronicle OCR sidecar. Distills 10m and 6h windows of screen activity into short markdown blocks consumed by Dream.",
-    activityLabel: "Chronicling",
-    bundledCore: false,
-    runsAsSubagent: false,
-    includeInAgentRoster: false,
-    usesLocalCliRuntime: false,
-    promptRole: "subagent",
-    localCliWorkingDirectory: null,
-    modelSettings: {
-      description: "Summarizes screen activity for memory",
-      order: 6,
     },
   },
 ] as const satisfies readonly AgentDefinition[];

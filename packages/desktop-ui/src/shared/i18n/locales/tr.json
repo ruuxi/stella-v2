@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Genel",
       "shortcuts": "Kısayollar",
-      "memory": "Bellek",
       "backup": "Yedekler",
       "account": "Hesap ve yasal",
       "audio": "Ses"
@@ -140,95 +139,6 @@
         "unavailable": "Kısayollar bu pencerede kullanılamıyor.",
         "unavailableShortcut": "Bu kısayol kullanılamıyor.",
         "update": "Kısayol güncellenemedi."
-      }
-    },
-    "memory": {
-      "title": "Bellek",
-      "enable": "Etkinleştir",
-      "disable": "Devre dışı bırak",
-      "working": "Çalışıyor…",
-      "screen": {
-        "label": "Ekran belleği",
-        "description": "Stella, ne yaptığınızı hatırlamak için ara sıra ekranınıza göz atabilir.",
-        "signInDescription": "Stella'ya giriş yapın veya Engine panelinde Chronicle için küçük bir model seçin.",
-        "upgradeDescription": "Ekran belleği tüm Stella planlarına dahildir. Yükseltin veya Engine panelinde Chronicle için küçük bir model seçin."
-      },
-      "status": {
-        "label": "Durum",
-        "running": "Çalışıyor",
-        "stopped": "Durduruldu",
-        "disabled": "Devre dışı",
-        "fps": "{fps} fps",
-        "lastCapture": "son yakalama {time}"
-      },
-      "folder": {
-        "label": "Bellek klasörü",
-        "description": "Bilgisayarınızda Stella'nın anılarını sakladığı klasörü açar.",
-        "open": "Klasörü aç",
-        "opening": "Açılıyor…"
-      },
-      "update": {
-        "label": "Belleği şimdi güncelle",
-        "description": "Stella'nın son etkinlikleri gözden geçirmesini ve öğrendiklerini kaydetmesini sağlayın. Bu genellikle kendiliğinden olur.",
-        "run": "Şimdi çalıştır",
-        "running": "Rüya görüyor…"
-      },
-      "erase": {
-        "label": "Belleği sil",
-        "description": "Kaydedilmiş ekran etkinliği dahil olmak üzere Stella'nın hatırladığı her şeyi siler. Bu geri alınamaz.",
-        "action": "Sil",
-        "working": "Siliniyor…",
-        "confirm": "Stella'nın hatırladığı her şey silinsin mi? Bu geri alınamaz."
-      },
-      "access": {
-        "signInTitle": "Giriş gerekli",
-        "subscriptionTitle": "Abonelik gerekli",
-        "signInMessage": "Stella'ya giriş yapın veya Engine panelinde Chronicle için küçük bir model seçin.",
-        "upgradeMessage": "Ekran belleği tüm Stella planlarına dahildir. Yükseltin — veya Engine panelinde Chronicle için küçük bir model seçin.",
-        "pickModel": "Model seç",
-        "upgrade": "Yükselt"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle etkinleştirildi",
-        "disabledTitle": "Chronicle devre dışı bırakıldı",
-        "alreadyRunning": "Chronicle zaten çalışıyordu.",
-        "enableFailedTitle": "Chronicle etkinleştirilemedi",
-        "disableFailedTitle": "Chronicle devre dışı bırakılamadı",
-        "dreamScheduledTitle": "Dream geçişi zamanlandı",
-        "dreamNotScheduledTitle": "Dream geçişi zamanlanmadı",
-        "wipeFailedTitle": "Silme başarısız oldu",
-        "wipedTitle": "Anılar silindi"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "Stella'nın çalışma alanı kök dizini kullanılamıyor.",
-        "needsPermission": "Chronicle başlayabilmeden önce ekran kaydı izni hâlâ gerekiyor.",
-        "binaryMissing": "Chronicle yardımcı dosyası eksik.",
-        "startupTimeout": "Chronicle başlatıldıktan sonra çevrimiçi olmadı.",
-        "unsupportedPlatform": "Chronicle yalnızca macOS'te kullanılabilir.",
-        "unknown": "Bilinmeyen hata."
-      },
-      "dreamResults": {
-        "scheduled": "Dream, mevcut birikmiş işleri birleştirecek.",
-        "inFlight": "Bir Dream geçişi zaten çalışıyor.",
-        "noInputs": "Şu anda birleştirilecek yeni bir şey yok.",
-        "noApiKey": "Dream, yapılandırılmış bir model/API anahtarı ya da giriş yapılmış bir Stella rotası gerektirir.",
-        "disabled": "Dream zamanlaması şu anda devre dışı.",
-        "belowThreshold": "Boşta kalma eşiğine henüz ulaşılmadı.",
-        "lockBusy": "Dream şu anda meşgul. Birazdan tekrar deneyin.",
-        "noRunner": "Yerel çalışma zamanı henüz hazır değil.",
-        "unavailable": "Dream şu anda kullanılamıyor.",
-        "pendingPrefix": "Bekliyor: {items}.",
-        "pendingThreadSummary": "{count} görev özeti",
-        "pendingThreadSummaries": "{count} görev özeti",
-        "pendingExtension": "{count} Chronicle dosyası",
-        "pendingExtensions": "{count} Chronicle dosyası",
-        "pendingJoin": " ve "
-      },
-      "errors": {
-        "loadStatus": "Chronicle durumu yüklenemedi.",
-        "update": "Chronicle güncellenemedi.",
-        "dream": "Dream geçişi tetiklenemedi.",
-        "wipe": "Anılar silinemedi."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Stella'nın konuşma tarzını ve kişilik sesini seçin.",
         "permissions": "macOS'te erişilebilirlik, ekran kaydı ve mikrofon erişimi verin.",
-        "memory": "Ekran belleğini yönetin, Stella'nın hatırladıklarını güncelleyin veya silin.",
         "backup": "Otomatik şifreli yedekler, geri yükleme noktaları ve istek üzerine anlık görüntüler.",
         "account": "Çıkış yapın, verilerinizi silin veya hesabınızı kalıcı olarak silin.",
         "legal": "Hizmet Koşulları ve Gizlilik Politikası.",
@@ -454,7 +363,6 @@
       "theme": "Stella nasıl görünmeli?",
       "personality": "Stella nasıl konuşmalı?",
       "voice": "Yazmak yerine konuşun.",
-      "memory": "Stella'nın hatırlamasına yardım edin.",
       "enter": "Stella neredeyse hazır."
     },
     "acts": {

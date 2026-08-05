@@ -101,7 +101,7 @@ describe("settings model catalog", () => {
         resolvedModel: "openai/gpt-5.5",
       },
       {
-        agentType: "chronicle",
+        agentType: "dream",
         model: "stella/light",
         resolvedModel: "deepseek/deepseek-v4-flash",
       },
@@ -109,14 +109,14 @@ describe("settings model catalog", () => {
     const defaultMap = buildModelDefaultsMap(defaults);
 
     expect(defaultMap.orchestrator).toBe("stella/standard");
-    expect(defaultMap.chronicle).toBe("stella/light");
+    expect(defaultMap.dream).toBe("stella/light");
     expect(
       normalizeModelOverrides({
-        chronicle: "stella/light",
+        dream: "stella/light",
         schedule: "stella/standard",
       }),
     ).toEqual({
-      chronicle: "stella/light",
+      dream: "stella/light",
       schedule: "stella/standard",
     });
   });

@@ -1,35 +1,4 @@
-import { uiState } from "@/platform/ui-state";
 import type { ChatContext } from "@/shared/types/electron";
-
-/**
- * Set when the user opted into Live Memory during onboarding. The
- * post-onboarding root chrome consumes this once: signed-in users get
- * `memory.promotePending()` after the onboarding exit, while signed-out users
- * see the AuthDialog first. That keeps Chronicle/Dream from starting during
- * the onboarding animation itself.
- *
- * Persisted in the shared UI state store (not `sessionStorage`) because the
- * user may close the app before signing in, and we want to re-prompt on next
- * launch rather than silently dropping the intent.
- */
-const REQUEST_SIGN_IN_AFTER_ONBOARDING_KEY =
-  "stella-request-signin-after-onboarding";
-
-export function markRequestSignInAfterOnboarding(): void {
-  uiState.setItem(REQUEST_SIGN_IN_AFTER_ONBOARDING_KEY, "1");
-}
-
-export function consumeRequestSignInAfterOnboarding(): boolean {
-  if (uiState.getItem(REQUEST_SIGN_IN_AFTER_ONBOARDING_KEY) === "1") {
-    uiState.removeItem(REQUEST_SIGN_IN_AFTER_ONBOARDING_KEY);
-    return true;
-  }
-  return false;
-}
-
-export function clearRequestSignInAfterOnboarding(): void {
-  uiState.removeItem(REQUEST_SIGN_IN_AFTER_ONBOARDING_KEY);
-}
 
 export const STELLA_OPEN_PANEL_CHAT_EVENT = "stella:open-panel-chat";
 export const STELLA_CLOSE_PANEL_EVENT = "stella:close-panel";

@@ -2936,15 +2936,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     },
   );
 
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_CHRONICLE_SUMMARY_TICK,
-    async (params) => {
-      const window =
-        (params as { window?: "10m" | "6h" } | undefined)?.window ?? "10m";
-      return await ensureRunner().runChronicleSummaryTick(window);
-    },
-  );
-
   peer.registerRequestHandler(METHOD_NAMES.RUNTIME_HEALTH, async () => {
     const activeRun =
       state.runner?.getActiveOrchestratorRun() ??

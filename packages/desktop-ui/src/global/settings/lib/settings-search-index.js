@@ -164,24 +164,6 @@ export const SETTINGS_SEARCH_ENTRY_DEFS = [
             "bindings",
         ],
     },
-    // ---------- Memory ----------
-    {
-        tab: "memory",
-        titleKey: "settings.memory.title",
-        descriptionKey: "settings.search.descriptions.memory",
-        keywords: [
-            "screen memory",
-            "chronicle",
-            "dream",
-            "remember",
-            "long term memory",
-            "wipe memory",
-            "erase memory",
-            "memory folder",
-            "history",
-            "forget",
-        ],
-    },
     // ---------- Backup ----------
     {
         tab: "backup",

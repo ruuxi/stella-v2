@@ -67,9 +67,6 @@ const createRoot = async (): Promise<{
   );
   roots.add(rootPath);
   await mkdir(path.join(rootPath, "memories"), { recursive: true });
-  await mkdir(path.join(rootPath, "memories_extensions", "chronicle"), {
-    recursive: true,
-  });
   const db = new DatabaseSync(getDesktopDatabasePath(rootPath), {
     timeout: 5000,
   }) as unknown as SqliteDatabase;
@@ -104,11 +101,6 @@ describe("buildContextLookupUserPrompt", () => {
       path.join(rootPath, "memories", "memory_summary.md"),
       "Working on Stella memory routing.",
     );
-    await writeFile(
-      path.join(rootPath, "memories_extensions", "chronicle", "10m-current.md"),
-      "User was looking at a browser tab about context tools.",
-    );
-
     const now = Date.now();
     const searchThreads = vi.fn(() => [
       {
@@ -207,7 +199,6 @@ describe("buildContextLookupUserPrompt", () => {
     expect(prompt).toContain("Safari - Context docs");
     expect(prompt).toContain("https://example.com/live-context");
     expect(prompt).toContain("Selected Stella panel");
-    expect(prompt).toContain('<chronicle_snapshot window="last ~10 minutes"');
     // Pre-seeded evidence leads, live/current state follows, the lookup
     // request comes LAST.
     expect(prompt.indexOf("# Memory Files")).toBeLessThan(
@@ -223,9 +214,6 @@ describe("buildContextLookupUserPrompt", () => {
       prompt.indexOf("# Current Time"),
     );
     expect(prompt.indexOf("# Live Thread Status")).toBeLessThan(
-      prompt.indexOf("# Chronicle Context"),
-    );
-    expect(prompt.indexOf("# Chronicle Context")).toBeLessThan(
       prompt.indexOf("# Lookup Request"),
     );
   });
@@ -317,9 +305,9 @@ describe("buildContextLookupUserPrompt", () => {
     expect(liveSection).toContain("live progress (newest last):");
     expect(liveSection).toMatch(/- \[[^\]]+\] running smoke tests/);
     // Paused threads never render as live status.
-    expect(
-      liveSection.slice(0, liveSection.indexOf("# Chronicle Context")),
-    ).not.toContain("summing spreadsheet rows");
+    expect(liveSection.slice(0, liveSection.indexOf("# Lookup Request"))).not.toContain(
+      "summing spreadsheet rows",
+    );
   });
 });
 

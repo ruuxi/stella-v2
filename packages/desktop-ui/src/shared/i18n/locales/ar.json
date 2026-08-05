@@ -30,7 +30,6 @@
     "tabs": {
       "general": "عام",
       "shortcuts": "الاختصارات",
-      "memory": "الذاكرة",
       "backup": "النسخ الاحتياطي",
       "account": "الحساب والشؤون القانونية",
       "audio": "الصوت"
@@ -140,95 +139,6 @@
         "unavailable": "الاختصارات غير متاحة في هذه النافذة.",
         "unavailableShortcut": "هذا الاختصار غير متاح.",
         "update": "تعذّر تحديث الاختصار."
-      }
-    },
-    "memory": {
-      "title": "الذاكرة",
-      "enable": "تفعيل",
-      "disable": "تعطيل",
-      "working": "جارٍ العمل…",
-      "screen": {
-        "label": "ذاكرة الشاشة",
-        "description": "يمكن لـ Stella إلقاء نظرة على شاشتك من حين لآخر لتتذكر ما كنت تفعله.",
-        "signInDescription": "سجّل الدخول إلى Stella، أو اختر نموذجًا صغيرًا لـ Chronicle في لوحة Engine.",
-        "upgradeDescription": "ذاكرة الشاشة مضمّنة في أي خطة Stella. قم بالترقية، أو اختر نموذجًا صغيرًا لـ Chronicle في لوحة Engine."
-      },
-      "status": {
-        "label": "الحالة",
-        "running": "قيد التشغيل",
-        "stopped": "متوقّف",
-        "disabled": "معطّل",
-        "fps": "{fps} إطار/ث",
-        "lastCapture": "آخر التقاط {time}"
-      },
-      "folder": {
-        "label": "مجلد الذاكرة",
-        "description": "يفتح المجلد على الكمبيوتر حيث تحتفظ Stella بذكرياتها.",
-        "open": "فتح المجلد",
-        "opening": "جارٍ الفتح…"
-      },
-      "update": {
-        "label": "تحديث الذاكرة الآن",
-        "description": "اجعل Stella تراجع النشاط الأخير وتحفظ ما تعلّمته. يحدث هذا عادةً تلقائيًا.",
-        "run": "تشغيل الآن",
-        "running": "تحلم…"
-      },
-      "erase": {
-        "label": "مسح الذاكرة",
-        "description": "يحذف كل ما تذكّرته Stella، بما في ذلك نشاط الشاشة المحفوظ. لا يمكن التراجع عن هذا.",
-        "action": "مسح",
-        "working": "جارٍ المسح…",
-        "confirm": "مسح كل ما تذكّرته Stella؟ لا يمكن التراجع عن هذا."
-      },
-      "access": {
-        "signInTitle": "تسجيل الدخول مطلوب",
-        "subscriptionTitle": "الاشتراك مطلوب",
-        "signInMessage": "سجّل الدخول إلى Stella، أو اختر نموذجًا صغيرًا لـ Chronicle في لوحة Engine.",
-        "upgradeMessage": "ذاكرة الشاشة مضمّنة في أي خطة Stella. قم بالترقية — أو اختر نموذجًا صغيرًا لـ Chronicle في لوحة Engine.",
-        "pickModel": "اختيار نموذج",
-        "upgrade": "ترقية"
-      },
-      "toasts": {
-        "enabledTitle": "تم تفعيل Chronicle",
-        "disabledTitle": "تم تعطيل Chronicle",
-        "alreadyRunning": "كان Chronicle قيد التشغيل بالفعل.",
-        "enableFailedTitle": "تعذّر تفعيل Chronicle",
-        "disableFailedTitle": "تعذّر تعطيل Chronicle",
-        "dreamScheduledTitle": "تمت جدولة تمريرة Dream",
-        "dreamNotScheduledTitle": "لم تُجدول تمريرة Dream",
-        "wipeFailedTitle": "فشل المسح",
-        "wipedTitle": "تم مسح الذكريات"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "جذر مساحة عمل Stella غير متاح.",
-        "needsPermission": "لا يزال إذن تسجيل الشاشة مطلوبًا قبل أن يتمكّن Chronicle من البدء.",
-        "binaryMissing": "ملف Chronicle المساعد مفقود.",
-        "startupTimeout": "لم يتصل Chronicle بعد التشغيل.",
-        "unsupportedPlatform": "Chronicle متاح فقط على macOS.",
-        "unknown": "خطأ غير معروف."
-      },
-      "dreamResults": {
-        "scheduled": "سيوحّد Dream الأعمال المتراكمة الحالية.",
-        "inFlight": "تمريرة Dream قيد التشغيل بالفعل.",
-        "noInputs": "لا يوجد شيء جديد لتوحيده الآن.",
-        "noApiKey": "يحتاج Dream إلى نموذج/مفتاح API مُهيّأ أو مسار Stella مسجَّل الدخول.",
-        "disabled": "جدولة Dream معطّلة حاليًا.",
-        "belowThreshold": "لم يتم بلوغ عتبة الخمول بعد.",
-        "lockBusy": "Dream مشغول الآن. حاول مرة أخرى بعد قليل.",
-        "noRunner": "بيئة التشغيل المحلية ليست جاهزة بعد.",
-        "unavailable": "Dream غير متاح حاليًا.",
-        "pendingPrefix": "قيد الانتظار: {items}.",
-        "pendingThreadSummary": "{count} ملخّص مهمة",
-        "pendingThreadSummaries": "{count} ملخّص مهام",
-        "pendingExtension": "{count} ملف Chronicle",
-        "pendingExtensions": "{count} ملف Chronicle",
-        "pendingJoin": " و "
-      },
-      "errors": {
-        "loadStatus": "تعذّر تحميل حالة Chronicle.",
-        "update": "تعذّر تحديث Chronicle.",
-        "dream": "تعذّر تشغيل تمريرة Dream.",
-        "wipe": "تعذّر مسح الذكريات."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "اختر أسلوب كلام Stella وصوت شخصيتها.",
         "permissions": "امنح الوصول إلى إمكانية الوصول وتسجيل الشاشة والميكروفون على macOS.",
-        "memory": "أدِر ذاكرة الشاشة، وحدّث أو امسح ما تذكّرته Stella.",
         "backup": "نسخ احتياطية مشفّرة تلقائية، ونقاط استعادة، ولقطات عند الطلب.",
         "account": "سجّل الخروج، أو احذف بياناتك، أو احذف حسابك نهائيًا.",
         "legal": "شروط الخدمة وسياسة الخصوصية.",
@@ -454,7 +363,6 @@
       "theme": "كيف يجب أن تبدو Stella؟",
       "personality": "كيف يجب أن تتحدث Stella؟",
       "voice": "تحدث بدلاً من الكتابة.",
-      "memory": "ساعد Stella على التذكر.",
       "enter": "‏Stella جاهزة تقريبًا."
     },
     "acts": {

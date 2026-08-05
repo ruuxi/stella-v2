@@ -31,7 +31,6 @@ import {
   reconcileRemotePromptManifest,
   type RemotePromptManifest,
 } from "@stella/runtime/kernel/home/prompt-manifest-sync";
-import { buildChronicleSystemPrompt } from "@stella/runtime/kernel/memory/chronicle-summarizer";
 import {
   readOrSeedPersonality,
   writePersonality,
@@ -78,16 +77,6 @@ const manifest = (
 });
 
 describe("synced home prompt consumers", () => {
-  it("resolves Chronicle only from the synchronized home prompt", async () => {
-    const home = await tempDir();
-    expect(buildChronicleSystemPrompt(undefined, "10m")).toBe("");
-    expect(buildChronicleSystemPrompt(home, "10m")).toBe("");
-    await writePrompt(home, "chronicle-summarizer", "Across {{horizon}}.");
-    expect(buildChronicleSystemPrompt(home, "6h")).toBe(
-      "Across the last ~6 hours.",
-    );
-  });
-
   it("resolves memory review only from home", async () => {
     const home = await tempDir();
     expect(buildMemoryReviewSystemPrompt()).toBe("");

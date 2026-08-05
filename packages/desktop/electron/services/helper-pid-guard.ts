@@ -34,7 +34,7 @@ export const isProcessAlive = (pid: number): boolean => {
  * Confirm that a persisted pid actually still belongs to one of our native
  * helper daemons before we signal it.
  *
- * Why: detached helper daemons (chronicle, meeting_capture, ...) write a
+ * Why: detached helper daemons (meeting_capture, ...) write a
  * pidfile so an orphan left behind by an unclean quit can be reaped on the next
  * launch. But pids are RECYCLED by the OS — across sessions a stale pidfile can
  * point at a completely unrelated process the kernel handed the same pid to.

@@ -14,7 +14,7 @@
  *   - `manual`          — user clicked "Run Dream now".
  *
  * Eligibility: there must be unprocessed Dream-inbox rows (thread summaries,
- * memory notes, chronicle digests). `token_interval` additionally requires the
+ * memory notes). `token_interval` additionally requires the
  * ~`tokenInterval` growth; `pre_compaction`, `startup_catchup`, and `manual`
  * run whenever anything is pending. Dream reads the durable inbox (not the
  * live transcript), so its cadence is independent of compaction — the
@@ -139,8 +139,7 @@ const readDreamConfig = (stellaDataDir: string): DreamConfig => {
     const dream = parsed.dream ?? {};
     return {
       // Dream is on by default and consolidates the Dream inbox into the
-      // durable on-disk memory layout. It is independent of Live Memory
-      // (Chronicle screen capture); the only way it stays off is if the
+      // durable on-disk memory layout. The only way it stays off is if the
       // user explicitly sets `dream.enabled: false` in `.stella/config.json`.
       enabled: dream.enabled !== false,
       tokenInterval:

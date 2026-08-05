@@ -30,7 +30,6 @@
     "tabs": {
       "general": "Általános",
       "shortcuts": "Gyorsbillentyűk",
-      "memory": "Memória",
       "backup": "Biztonsági mentések",
       "account": "Fiók és jogi",
       "audio": "Hang"
@@ -140,95 +139,6 @@
         "unavailable": "A gyorsbillentyűk nem érhetők el ebben az ablakban.",
         "unavailableShortcut": "Ez a gyorsbillentyű nem érhető el.",
         "update": "A gyorsbillentyű frissítése sikertelen."
-      }
-    },
-    "memory": {
-      "title": "Memória",
-      "enable": "Engedélyezés",
-      "disable": "Letiltás",
-      "working": "Folyamatban…",
-      "screen": {
-        "label": "Képernyőmemória",
-        "description": "A Stella időnként rápillanthat a képernyődre, hogy emlékezzen arra, mit csináltál.",
-        "signInDescription": "Jelentkezz be a Stellába, vagy válassz egy kis modellt a Chronicle-höz az Engine panelen.",
-        "upgradeDescription": "A képernyőmemória minden Stella-csomagban benne van. Fejleszd a csomagod, vagy válassz egy kis modellt a Chronicle-höz az Engine panelen."
-      },
-      "status": {
-        "label": "Állapot",
-        "running": "Fut",
-        "stopped": "Leállítva",
-        "disabled": "Letiltva",
-        "fps": "{fps} fps",
-        "lastCapture": "utolsó rögzítés {time}"
-      },
-      "folder": {
-        "label": "Memóriamappa",
-        "description": "Megnyitja a számítógépeden azt a mappát, ahol a Stella tárolja az emlékeit.",
-        "open": "Mappa megnyitása",
-        "opening": "Megnyitás…"
-      },
-      "update": {
-        "label": "Memória frissítése most",
-        "description": "Engedd, hogy a Stella átnézze a legutóbbi tevékenységet, és elmentse, amit tanult. Ez általában magától megtörténik.",
-        "run": "Futtatás most",
-        "running": "Álmodik…"
-      },
-      "erase": {
-        "label": "Memória törlése",
-        "description": "Törli mindazt, amire a Stella emlékezett, beleértve a mentett képernyőtevékenységet is. Ez nem vonható vissza.",
-        "action": "Törlés",
-        "working": "Törlés…",
-        "confirm": "Törölsz mindent, amire a Stella emlékezett? Ez nem vonható vissza."
-      },
-      "access": {
-        "signInTitle": "Bejelentkezés szükséges",
-        "subscriptionTitle": "Előfizetés szükséges",
-        "signInMessage": "Jelentkezz be a Stellába, vagy válassz egy kis modellt a Chronicle-höz az Engine panelen.",
-        "upgradeMessage": "A képernyőmemória minden Stella-csomagban benne van. Fejleszd a csomagod – vagy válassz egy kis modellt a Chronicle-höz az Engine panelen.",
-        "pickModel": "Modell kiválasztása",
-        "upgrade": "Fejlesztés"
-      },
-      "toasts": {
-        "enabledTitle": "Chronicle engedélyezve",
-        "disabledTitle": "Chronicle letiltva",
-        "alreadyRunning": "A Chronicle már futott.",
-        "enableFailedTitle": "Nem sikerült engedélyezni a Chronicle-t",
-        "disableFailedTitle": "Nem sikerült letiltani a Chronicle-t",
-        "dreamScheduledTitle": "Dream-futás ütemezve",
-        "dreamNotScheduledTitle": "Dream-futás nem lett ütemezve",
-        "wipeFailedTitle": "A törlés sikertelen",
-        "wipedTitle": "Emlékek törölve"
-      },
-      "enableFailures": {
-        "noStellaAppDir": "A Stella munkaterületének gyökere nem érhető el.",
-        "needsPermission": "A Chronicle elindítása előtt még szükség van a képernyőrögzítési engedélyre.",
-        "binaryMissing": "A Chronicle segédfájlja hiányzik.",
-        "startupTimeout": "A Chronicle az indítás után nem csatlakozott.",
-        "unsupportedPlatform": "A Chronicle csak macOS-en érhető el.",
-        "unknown": "Ismeretlen hiba."
-      },
-      "dreamResults": {
-        "scheduled": "A Dream összevonja az aktuális hátralékot.",
-        "inFlight": "Egy Dream-futás már folyamatban van.",
-        "noInputs": "Most nincs semmi új, amit össze lehetne vonni.",
-        "noApiKey": "A Dreamhez beállított modell/API-kulcs vagy bejelentkezett Stella-útvonal szükséges.",
-        "disabled": "A Dream ütemezése jelenleg le van tiltva.",
-        "belowThreshold": "Az inaktivitási küszöb még nem teljesült.",
-        "lockBusy": "A Dream most foglalt. Próbáld újra egy pillanat múlva.",
-        "noRunner": "A helyi futtatókörnyezet még nem áll készen.",
-        "unavailable": "A Dream jelenleg nem érhető el.",
-        "pendingPrefix": "Függőben: {items}.",
-        "pendingThreadSummary": "{count} feladatösszegzés",
-        "pendingThreadSummaries": "{count} feladatösszegzés",
-        "pendingExtension": "{count} Chronicle-fájl",
-        "pendingExtensions": "{count} Chronicle-fájl",
-        "pendingJoin": " és "
-      },
-      "errors": {
-        "loadStatus": "Nem sikerült betölteni a Chronicle állapotát.",
-        "update": "Nem sikerült frissíteni a Chronicle-t.",
-        "dream": "Nem sikerült elindítani a Dream-futást.",
-        "wipe": "Nem sikerült törölni az emlékeket."
       }
     },
     "backup": {
@@ -402,7 +312,6 @@
       "descriptions": {
         "voice": "Válaszd ki a Stella beszédstílusát és személyiséghangját.",
         "permissions": "Adj hozzáférést a kisegítő lehetőségekhez, a képernyőrögzítéshez és a mikrofonhoz macOS-en.",
-        "memory": "Kezeld a képernyőmemóriát, frissítsd vagy töröld, amire a Stella emlékezett.",
         "backup": "Automatikus titkosított biztonsági mentések, visszaállítási pontok és igény szerinti pillanatképek.",
         "account": "Jelentkezz ki, töröld az adataidat, vagy töröld véglegesen a fiókodat.",
         "legal": "Felhasználási feltételek és adatvédelmi szabályzat.",
@@ -454,7 +363,6 @@
       "theme": "Hogyan nézzen ki a Stella?",
       "personality": "Hogyan beszéljen a Stella?",
       "voice": "Beszélj gépelés helyett.",
-      "memory": "Segíts a Stellának emlékezni.",
       "enter": "A Stella majdnem készen áll."
     },
     "acts": {

@@ -216,10 +216,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          signing_identity="${APPLE_SIGNING_IDENTITY#Developer ID Application: }"
+          test -n "$signing_identity"
           bunx electron-builder ${{ matrix.builderArgs }} \
             --publish never \
             --config.forceCodeSigning=true \
-            --config.mac.identity="$APPLE_SIGNING_IDENTITY" \
+            --config.mac.identity="$signing_identity" \
             --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
 
       # Windows is deliberately unsigned for M4. Users will see SmartScreen

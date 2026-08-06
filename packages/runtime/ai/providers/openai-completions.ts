@@ -38,6 +38,7 @@ import { parseStreamingJson } from "../utils/json-parse.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { isCloudflareProvider, resolveCloudflareBaseUrl } from "./cloudflare.js";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
+import { requestWithAuthRefresh } from "./auth-refresh.js";
 import { buildBaseOptions } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
 
@@ -173,15 +174,6 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 				cacheRetention === "none"
 					? undefined
 					: (options?.promptCacheKey ?? options?.sessionId);
-			const client = createClient(
-				model,
-				context,
-				apiKey,
-				options?.headers,
-				cacheSessionId,
-				promptCacheKey,
-				compat,
-			);
 			let params = buildOpenAICompletionsParams(model, context, options, compat, cacheRetention);
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
@@ -192,9 +184,20 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
 				...(options?.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
 			};
-			const { data: openaiStream, response } = await client.chat.completions
-				.create(params, requestOptions)
-				.withResponse();
+			const { data: openaiStream, response } = await requestWithAuthRefresh({
+				apiKey,
+				refreshApiKey: options?.refreshApiKey,
+				request: (requestApiKey) =>
+					createClient(
+						model,
+						context,
+						requestApiKey,
+						options?.headers,
+						cacheSessionId,
+						promptCacheKey,
+						compat,
+					).chat.completions.create(params, requestOptions).withResponse(),
+			});
 			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
 			stream.push({ type: "start", partial: output });
 

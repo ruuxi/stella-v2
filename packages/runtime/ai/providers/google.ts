@@ -33,6 +33,7 @@ import {
 	mapToolChoice,
 	retainThoughtSignature,
 } from "./google-shared.js";
+import { requestWithAuthRefresh } from "./auth-refresh.js";
 import { buildBaseOptions, clampReasoning } from "./simple-options.js";
 
 export interface GoogleOptions extends StreamOptions {
@@ -75,14 +76,20 @@ export const streamGoogle: StreamFunction<"google-generative-ai", GoogleOptions>
 
 		try {
 			const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
-			const client = createClient(model, apiKey, options?.headers);
 			let params = buildParams(model, context, options);
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
 				params = nextParams as GenerateContentParameters;
 			}
-			const googleStream = await retryWithBackoff(() => client.models.generateContentStream(params), {
-				signal: options?.signal,
+			const googleStream = await requestWithAuthRefresh({
+				apiKey,
+				refreshApiKey: options?.refreshApiKey,
+				request: (requestApiKey) =>
+					retryWithBackoff(
+						() =>
+							createClient(model, requestApiKey, options?.headers).models.generateContentStream(params),
+						{ signal: options?.signal },
+					),
 			});
 
 			stream.push({ type: "start", partial: output });

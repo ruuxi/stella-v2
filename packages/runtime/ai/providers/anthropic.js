@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { calculateCost } from "../models.js";
+import { splitDeferredTools } from "../utils/deferred-tools.js";
 import { sanitizeInlineImagePayload } from "../utils/image-payload.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
@@ -9,6 +10,7 @@ import { anomalousStreamStopError, providerAbortedStopMessage } from "../utils/p
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { resolveCloudflareBaseUrl } from "./cloudflare.js";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
+import { requestWithAuthRefresh } from "./auth-refresh.js";
 import { adjustMaxTokensForThinking, buildBaseOptions } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
 /**
@@ -374,12 +376,15 @@ export const streamAnthropic = (model, context, options) => {
         try {
             let client;
             let isOAuth;
+            let apiKey = "";
+            let createRequestClient;
             if (options?.client) {
                 client = options.client;
                 isOAuth = false;
+                createRequestClient = () => client;
             }
             else {
-                const apiKey = options?.apiKey ?? getEnvApiKey(model.provider) ?? "";
+                apiKey = options?.apiKey ?? getEnvApiKey(model.provider) ?? "";
                 let copilotDynamicHeaders;
                 if (model.provider === "github-copilot") {
                     const hasImages = hasCopilotVisionInput(context.messages);
@@ -388,9 +393,11 @@ export const streamAnthropic = (model, context, options) => {
                         hasImages,
                     });
                 }
-                const created = createClient(model, apiKey, options?.interleavedThinking ?? true, shouldUseFineGrainedToolStreamingBeta(model, context), options?.headers, copilotDynamicHeaders);
+                const createForKey = (requestApiKey) => createClient(model, requestApiKey, options?.interleavedThinking ?? true, shouldUseFineGrainedToolStreamingBeta(model, context), options?.headers, copilotDynamicHeaders);
+                const created = createForKey(apiKey);
                 client = created.client;
                 isOAuth = created.isOAuthToken;
+                createRequestClient = (requestApiKey) => createForKey(requestApiKey).client;
             }
             let params = buildParams(model, context, isOAuth, options);
             const nextParams = await options?.onPayload?.(params, model);
@@ -414,7 +421,11 @@ export const streamAnthropic = (model, context, options) => {
             let thinkingStripAttempts = 0;
             while (true) {
                 try {
-                    response = await client.messages.create({ ...params, stream: true }, requestOptions).asResponse();
+                    response = await requestWithAuthRefresh({
+                        apiKey,
+                        refreshApiKey: options?.client ? undefined : options?.refreshApiKey,
+                        request: (requestApiKey) => createRequestClient(requestApiKey).messages.create({ ...params, stream: true }, requestOptions).asResponse(),
+                    });
                     break;
                 }
                 catch (err) {

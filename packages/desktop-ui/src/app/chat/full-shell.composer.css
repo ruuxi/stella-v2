@@ -113,7 +113,11 @@
   field-sizing: content;
   min-height: 28px;
   max-height: 200px;
-  padding: 2px 4px;
+  padding: 3.5px 4px;
+}
+
+.composer-form:not(.expanded) .composer-model-mention-field {
+  align-self: center;
 }
 
 /* Toolbar hidden in pill mode — buttons sit inline */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  getStellaResolvedModelName,
   groupCatalogModelsByProvider,
   listLocalCatalogModels,
   mergeCatalogModels,
@@ -15,6 +16,32 @@ import {
 } from "../../../src/global/settings/lib/model-defaults";
 
 describe("settings model catalog", () => {
+  it("shows resolved model names instead of Stella routing aliases", () => {
+    expect(
+      getStellaResolvedModelName({
+        id: "stella/light",
+        modelId: "light",
+        name: "Stella Light",
+        provider: "stella",
+        providerName: "Stella",
+        source: "stella",
+        upstreamModel: "accounts/fireworks/models/deepseek-v4-flash-0731",
+      }),
+    ).toBe("DeepSeek V4 Flash 0731");
+
+    expect(
+      getStellaResolvedModelName({
+        id: "stella/builder",
+        modelId: "builder",
+        name: "Stella Builder",
+        provider: "stella",
+        providerName: "Stella",
+        source: "stella",
+        upstreamModel: "openai/gpt-5.6-sol",
+      }),
+    ).toBe("GPT-5.6 Sol");
+  });
+
   it("keeps the built-in local endpoint separate from worker-owned providers", () => {
     const models = listLocalCatalogModels();
 

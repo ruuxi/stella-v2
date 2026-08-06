@@ -125,7 +125,7 @@
 .model-picker-group-connect[data-open] {
   outline: none;
   color: var(--text-strong);
-  border-color: var(--border-strong);
+  border-color: var(--border);
   background: color-mix(in oklch, var(--text-strong) 7%, transparent);
 }
 
@@ -246,7 +246,7 @@
 }
 
 .model-picker-connect-field:focus-within {
-  border-color: var(--border-strong);
+  border-color: var(--border);
   box-shadow: var(--focus-ring);
 }
 

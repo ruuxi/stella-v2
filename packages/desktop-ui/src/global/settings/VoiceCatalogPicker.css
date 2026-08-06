@@ -69,7 +69,7 @@
 
 .voice-catalog-subtoggle-btn[data-active] {
   background: transparent;
-  border-color: var(--border-strong);
+  border-color: var(--border);
   color: var(--text-strong);
   box-shadow: none;
 }

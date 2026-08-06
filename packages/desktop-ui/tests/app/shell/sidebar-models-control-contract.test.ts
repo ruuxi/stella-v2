@@ -14,6 +14,7 @@ const readSource = (relativePath: string) =>
 describe("sidebar Models control placement", () => {
   it("shows Models in Work and Activity without making it global", () => {
     const panel = readSource("shell/RightSidebar.jsx");
+    const panelStyles = readSource("shell/right-sidebar.css");
     const home = readSource("shell/WorkspaceHomeSurface.jsx");
     const work = readSource("shell/sidebar-sections/FilesSection.jsx");
     const control = readSource(
@@ -65,6 +66,7 @@ describe("sidebar Models control placement", () => {
     expect(controlStyles).toContain(
       ".pill-btn.work-models-button[data-active]",
     );
-    expect(controlStyles).toContain("border-color: var(--border-strong);");
+    expect(controlStyles).toContain("border-color: var(--border);");
+    expect(panelStyles).toContain("border-left: 1px solid var(--border);");
   });
 });

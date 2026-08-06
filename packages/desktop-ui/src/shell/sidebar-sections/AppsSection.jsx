@@ -19,7 +19,7 @@ import { getServerSnapshot, getSnapshot, refreshUserApps, stopUserApp, subscribe
 import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
 import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
-import { ChevronLeft, LoaderCircle, Power } from "@/ui/icons";
+import { AppWindowMac, ChevronLeft, LoaderCircle, Power } from "@/ui/icons";
 import "./apps-section.css";
 export function AppsSection() {
     const registry = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
@@ -132,11 +132,12 @@ function AppsLibrary({ registry }) {
             const running = app.status === "running";
             return (<li key={app.slug} className="apps-section__card">
             <button type="button" className={`apps-section__card-open${running || stopping ? " apps-section__card-open--with-runtime" : ""}`} onClick={() => sidebarSections.setLocation("apps", app.slug)}>
+              <AppWindowMac className="apps-section__card-icon" size={16} strokeWidth={1.7} aria-hidden="true"/>
               <span className="apps-section__card-label">{app.meta.label}</span>
             </button>
             {running || stopping ? (<div className="apps-section__card-runtime">
                 <span className="apps-section__card-status">
-                  {stopping ? "Stopping" : "Running"}
+                  {stopping ? "Stopping" : "On"}
                 </span>
                 <button type="button" className="apps-section__shutdown" aria-label={`Shut down ${app.meta.label}`} title="Shut down" disabled={stopping} onClick={() => void shutDown(app.slug)}>
                   <Power size={15} strokeWidth={1.8} aria-hidden="true"/>

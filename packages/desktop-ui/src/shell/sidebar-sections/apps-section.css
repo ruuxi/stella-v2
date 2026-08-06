@@ -22,49 +22,40 @@
 .apps-section__grid {
   list-style: none;
   margin: 0;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-  align-content: start;
-}
-
-/* The panel is resizable and can be expanded to fill the window, so the list
-   answers to the panel's own width rather than the window's. */
-@container display-panel (min-width: 560px) {
-  .apps-section__grid {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: var(--space-3, 10px);
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .apps-section__card {
   width: 100%;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  min-height: 40px;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg, 10px);
-  background: var(--card);
+  border: 0;
+  border-radius: var(--radius-md, 7px);
+  background: transparent;
   color: var(--foreground);
   cursor: default;
-  overflow: hidden;
   transition:
     background 0.12s ease,
-    border-color 0.12s ease;
+    color 0.12s ease;
 }
 
 .apps-section__card:hover {
-  background: var(--surface-raised-hover);
-  border-color: var(--border-strong, var(--border));
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+  color: var(--text-strong);
 }
 
 .apps-section__card-open {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: stretch;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 10px 12px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -73,7 +64,7 @@
 }
 
 .apps-section__card-open--with-runtime {
-  padding-bottom: 7px;
+  padding-right: 6px;
 }
 
 .apps-section__card-open:focus-visible,
@@ -83,25 +74,29 @@
 }
 
 .apps-section__card-label {
+  flex: 1 1 auto;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   color: var(--text-strong);
   font-size: var(--font-size-base);
-  font-weight: var(--weight-medium);
-  line-height: 1.25;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  font-weight: var(--weight-regular);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apps-section__card-icon {
+  flex: 0 0 auto;
+  color: var(--text-weak);
 }
 
 .apps-section__card-runtime {
-  width: 100%;
-  min-height: 28px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 12px 9px;
+  gap: 3px;
+  padding-right: 5px;
 }
 
 .apps-section__card-status {
@@ -111,17 +106,22 @@
 }
 
 .apps-section__shutdown {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   padding: 0;
   border: 0;
+  border-radius: var(--radius-sm, 6px);
   background: transparent;
   color: var(--text-weak);
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .apps-section__shutdown:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
   color: var(--text-strong);
 }
 

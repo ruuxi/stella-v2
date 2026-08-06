@@ -190,15 +190,17 @@ describe("conversation top-bar contracts", () => {
     expect(source).toContain("TAB_DRAG_ACTIVATION_DISTANCE = 4");
     expect(source).toContain('behavior: "auto"');
     expect(css).toMatch(
-      /\.conversation-topbar__tab\s*\{[^}]*min-width:\s*28px;[^}]*max-width:\s*224px;[^}]*height:\s*28px;/,
+      /\.conversation-topbar__tab\s*\{[^}]*min-width:\s*28px;[^}]*max-width:\s*224px;[^}]*height:\s*calc\(var\(--shell-topbar-height, 38px\) - 5px\);/,
     );
     expect(css).toMatch(/\.conversation-topbar\s*\{[^}]*gap:\s*4px;/);
-    expect(css).toMatch(/\.conversation-topbar__tabs\s*\{[^}]*gap:\s*6px;/);
+    expect(css).toMatch(/\.conversation-topbar__tabs\s*\{[^}]*gap:\s*0;/);
     expect(css).toMatch(
-      /\.conversation-topbar__tab-close\s*\{[^}]*top:\s*4px;[^}]*width:\s*20px;[^}]*height:\s*20px;/,
+      /\.conversation-topbar__tab-close\s*\{[^}]*top:\s*9px;[^}]*width:\s*20px;[^}]*height:\s*20px;/,
     );
     expect(css).toContain("@container (max-width: 64px)");
-    expect(css).toContain("right: -3.75px");
+    expect(css).toMatch(
+      /\.conversation-topbar__tab \+ \.conversation-topbar__tab\s*\{[^}]*margin-left:\s*-1px;/,
+    );
     expect(css).toContain("mask-image: linear-gradient(");
     expect(css).toContain('[data-title-overflow="true"]');
     expect(css).toMatch(

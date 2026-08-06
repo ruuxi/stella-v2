@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
-import { setupGitEnvironment } from "../../../runtime/git-environment.js";
+import { setupGitEnvironment } from "@stella/runtime/git-environment.js";
 import { ensurePrivateDir, writePrivateFile, } from "@stella/runtime/kernel/shared/private-fs";
 import { deleteProtectedValue, protectValue, unprotectValue, } from "@stella/runtime/kernel/shared/protected-storage";
 const execFileAsync = promisify(execFile);

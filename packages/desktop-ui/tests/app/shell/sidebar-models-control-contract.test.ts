@@ -57,6 +57,7 @@ describe("sidebar Models control placement", () => {
     expect(styles).toContain(".work-models-panel {");
     expect(styles).toContain("flex: 0 0 50%;");
     expect(styles).toContain("max-height: 50%;");
+    expect(styles).toContain("border-top: 1px solid var(--border);");
     expect(controlStyles).toContain(".pill-btn.work-models-button {");
   });
 });

@@ -197,7 +197,8 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
     }, [localBaseUrl, localModelId, onSelect]);
     const trimmedQuery = query.trim();
     const isDefaultSelected = !value;
-    const renderSection = (tab, models) => {
+    const inlineProviderActions = !hideSearch && hideSelectedTitle && hideProviderLabel && tabs.length === 1;
+    const getSectionContext = (tab) => {
         const isStella = tab.key === STELLA_PROVIDER_KEY;
         const isLocal = tab.key === LOCAL_PROVIDER_KEY;
         const isOpenRouter = tab.key === "openrouter";
@@ -234,6 +235,48 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             : supportsOAuth
                 ? "Credentials stay on this device."
                 : "Your API key stays on this device.";
+        return {
+            tab,
+            isStella,
+            isLocal,
+            isOpenRouter,
+            llmEntry,
+            requiresAuth,
+            supportsApiKey,
+            supportsOAuth,
+            sectionDisabled,
+            removable,
+            armed,
+            isSigningOut,
+            expanded,
+            hasCustomInputs,
+            authDescription,
+        };
+    };
+    const renderGroupActions = ({ tab, requiresAuth, supportsOAuth, sectionDisabled, removable, armed, isSigningOut, expanded, hasCustomInputs, }) => requiresAuth ? (<button type="button" className="model-picker-group-connect" data-open={expanded || undefined} onClick={() => toggleExpanded(expanded ? null : tab.key)} disabled={sectionDisabled}>
+        {expanded ? "Cancel" : supportsOAuth ? "Sign in" : "Add key"}
+      </button>) : (<>
+        {hasCustomInputs ? (<button type="button" className="model-picker-group-connect" data-open={expanded || undefined} onClick={() => toggleExpanded(expanded ? null : tab.key)} disabled={sectionDisabled}>
+            {expanded ? "Cancel" : "Custom"}
+          </button>) : null}
+        {removable ? (<button type="button" className="model-picker-group-signout" data-armed={armed || undefined} disabled={isSigningOut} aria-label={armed
+                ? `Click again to sign out of ${tab.label}`
+                : `Sign out of ${tab.label}`} title={armed
+                ? "Click again to confirm"
+                : `Sign out of ${tab.label}`} onClick={(event) => {
+                event.stopPropagation();
+                void handleSignOut(tab.key);
+            }}>
+            {armed ? (<Check size={13} strokeWidth={2} aria-hidden/>) : (<LogOut size={13} strokeWidth={1.75} aria-hidden/>)}
+          </button>) : null}
+      </>);
+    const renderSearch = () => (<div className="model-picker-search">
+        <Search size={13} strokeWidth={1.75} aria-hidden/>
+        <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search models…" spellCheck={false} autoComplete="off" aria-label="Search models" disabled={disabled}/>
+      </div>);
+    const renderSection = (tab, models) => {
+        const section = getSectionContext(tab);
+        const { isStella, isLocal, isOpenRouter, llmEntry, requiresAuth, supportsApiKey, supportsOAuth, sectionDisabled, expanded, authDescription, } = section;
         const restrictThisStella = isStella && restrictStellaPicks;
         const showDefaultRow = !hideDefaultRow && isStella && !trimmedQuery;
         // Models stay visible before the provider is connected; picking one
@@ -241,7 +284,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         const handleRowPick = requiresAuth
             ? () => toggleExpanded(expanded ? null : tab.key)
             : handlePick;
-        const showGroupHead = !hideProviderLabel || requiresAuth || hasCustomInputs || removable;
+        const showGroupHead = !inlineProviderActions && (!hideProviderLabel || requiresAuth || section.hasCustomInputs || section.removable);
         return (<div key={tab.key} className="model-picker-group" role="group" aria-label={tab.label}>
         {showGroupHead ? (<div className="model-picker-group-head" data-label-hidden={hideProviderLabel || undefined} title={disabledProviderSet.has(tab.key)
                 ? disabledProviderReason
@@ -252,23 +295,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
               </span>
               <span className="model-picker-group-label">{tab.label}</span>
             </>)}
-          {requiresAuth ? (<button type="button" className="model-picker-group-connect" data-open={expanded || undefined} onClick={() => toggleExpanded(expanded ? null : tab.key)} disabled={sectionDisabled}>
-              {expanded ? "Cancel" : supportsOAuth ? "Sign in" : "Add key"}
-            </button>) : (<>
-              {hasCustomInputs ? (<button type="button" className="model-picker-group-connect" data-open={expanded || undefined} onClick={() => toggleExpanded(expanded ? null : tab.key)} disabled={sectionDisabled}>
-                  {expanded ? "Cancel" : "Custom"}
-                </button>) : null}
-              {removable ? (<button type="button" className="model-picker-group-signout" data-armed={armed || undefined} disabled={isSigningOut} aria-label={armed
-                        ? `Click again to sign out of ${tab.label}`
-                        : `Sign out of ${tab.label}`} title={armed
-                        ? "Click again to confirm"
-                        : `Sign out of ${tab.label}`} onClick={(event) => {
-                        event.stopPropagation();
-                        void handleSignOut(tab.key);
-                    }}>
-                  {armed ? (<Check size={13} strokeWidth={2} aria-hidden/>) : (<LogOut size={13} strokeWidth={1.75} aria-hidden/>)}
-                </button>) : null}
-            </>)}
+          {renderGroupActions(section)}
         </div>) : null}
 
         {requiresAuth && expanded ? (<div className="model-picker-connect">
@@ -367,10 +394,12 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             </div>
           </header>)}
 
-        {hideSearch ? null : (<div className="model-picker-search">
-            <Search size={13} strokeWidth={1.75} aria-hidden/>
-            <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search models…" spellCheck={false} autoComplete="off" aria-label="Search models" disabled={disabled}/>
-          </div>)}
+        {hideSearch ? null : inlineProviderActions ? (<div className="model-picker-search-row">
+            {renderSearch()}
+            <div className="model-picker-search-action">
+              {renderGroupActions(getSectionContext(tabs[0]))}
+            </div>
+          </div>) : renderSearch()}
 
         <div className="model-picker-groups" role="listbox" aria-live="polite">
           {sections.length === 0 ? (<div className="model-picker-empty">

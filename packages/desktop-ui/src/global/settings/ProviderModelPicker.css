@@ -342,6 +342,30 @@
 
 /* ----------------------------------------------------------- Search + list */
 
+.model-picker-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-picker-search-row .model-picker-search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.model-picker-search-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.model-picker-search-row:hover .model-picker-group-signout,
+.model-picker-search-action .model-picker-group-signout:focus-visible,
+.model-picker-search-action .model-picker-group-signout[data-armed] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .model-picker-search {
   display: flex;
   align-items: center;

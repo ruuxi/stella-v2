@@ -16,6 +16,9 @@ describe("agent model picker layout", () => {
     const picker = readSource("global/settings/AgentModelPicker.jsx");
     const pickerStyles = readSource("global/settings/AgentModelPicker.css");
     const providerPanel = readSource("global/settings/ProviderModelPanel.jsx");
+    const providerStyles = readSource(
+      "global/settings/ProviderModelPicker.css",
+    );
 
     expect(picker).not.toContain('from "@/ui/select"');
     expect(picker).not.toContain("agent-model-picker-engine-note");
@@ -30,5 +33,12 @@ describe("agent model picker layout", () => {
     expect(providerPanel).not.toContain("model-picker-group-bar");
     expect(providerPanel).not.toContain("model-picker-group-rule");
     expect(providerPanel).not.toContain("model-picker-model-sub");
+    expect(providerPanel).toContain('className="model-picker-search-row"');
+    expect(providerPanel).toContain(
+      "renderGroupActions(getSectionContext(tabs[0]))",
+    );
+    expect(providerStyles).toContain(
+      ".model-picker-search-row .model-picker-search",
+    );
   });
 });

@@ -7,7 +7,7 @@
 :root[data-shell-panel-chrome="true"] {
   --shell-junction-border: color-mix(
     in srgb,
-    var(--foreground) 28%,
+    var(--foreground) 42%,
     var(--background)
   );
 }

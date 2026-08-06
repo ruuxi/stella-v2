@@ -67,7 +67,6 @@ export const IMAGE_PROVIDER_OPTIONS = [
     {
         key: "stella",
         label: "Stella",
-        description: "Included with Stella.",
     },
     {
         key: "openai",
@@ -89,7 +88,6 @@ const VOICE_PROVIDER_OPTIONS = [
     {
         key: "stella",
         label: "Stella",
-        description: "Included with Stella.",
     },
     {
         key: "openai",
@@ -1135,13 +1133,15 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             (Boolean(findApiKey(credentials.apiKeys, "openai")) ||
                 Boolean(findOauthCredential(credentials.oauthCredentials, "openai"))));
     const brandIsByok = activeBrand !== "stella" && !brandHasSources;
-    const brandSubtitle = brandHasSources
+    const brandSubtitle = activeBrand === "stella"
         ? null
-        : brandIsByok
-            ? brandConnected
-                ? "API key · Connected"
-                : "API key"
-            : "Included with Stella";
+        : brandHasSources
+            ? null
+            : brandIsByok
+                ? brandConnected
+                    ? "API key · Connected"
+                    : "API key"
+                : null;
     /** The scoped panel below needs its own connect/sign-out affordance —
      * rendering them here in the header keeps them off the list's head row
      * (which otherwise left a one-sided gap when hidden). */

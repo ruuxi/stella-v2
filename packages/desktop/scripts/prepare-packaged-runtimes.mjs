@@ -207,10 +207,11 @@ const downloadAsset = async (asset, destination) => {
   }
 };
 
-const run = (command, args) => {
+const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, {
     stdio: "inherit",
     windowsHide: true,
+    ...options,
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
@@ -221,7 +222,17 @@ const run = (command, args) => {
 const extractArchive = (archivePath, archiveType, destination) => {
   mkdirSync(destination, { recursive: true });
   if (archiveType === "tar.gz") {
-    run("tar", ["-xzf", archivePath, "-C", destination]);
+    const archiveDirectory = path.dirname(archivePath);
+    run(
+      "tar",
+      [
+        "-xzf",
+        path.basename(archivePath),
+        "-C",
+        path.relative(archiveDirectory, destination),
+      ],
+      { cwd: archiveDirectory },
+    );
     return;
   }
   if (process.platform === "win32") {

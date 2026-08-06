@@ -5,9 +5,6 @@
    left-seam gradient scoop it needed went with it. */
 
 :root[data-shell-panel-chrome="true"] {
-  --shell-junction-radius: 16px;
-  --display-panel-window-radius: 8px;
-  --shell-window-radius: 12px;
   --shell-junction-border: var(--border-strong);
 }
 
@@ -16,8 +13,7 @@
 :root[data-shell-panel-chrome="true"] .content-area {
   border: 1px solid var(--shell-junction-border);
   border-right: none;
-  /* Round only the left edge — right edge stays square for inward panel scoops. */
-  border-radius: var(--shell-junction-radius) 0 0 var(--shell-junction-radius);
+  border-radius: 0;
   overflow: clip;
   z-index: 2;
   box-shadow: var(--panel-surface-highlight);

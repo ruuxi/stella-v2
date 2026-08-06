@@ -151,6 +151,7 @@
   height: calc(var(--shell-topbar-height, 38px) - 5px);
   box-sizing: border-box;
   overflow: visible;
+  border: 1px solid var(--border-base);
   border-radius: 0;
   color: var(--text-muted);
   background: color-mix(in oklch, var(--foreground) 7%, transparent);
@@ -165,17 +166,9 @@
   border-bottom-right-radius: 6px;
 }
 
-.conversation-topbar__tab:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: 8px;
-  right: -0.5px;
-  width: 1px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--border-base);
-  opacity: 0.55;
+.conversation-topbar__tab:not([data-active="true"])
+  + .conversation-topbar__tab:not([data-active="true"]) {
+  margin-left: -1px;
 }
 
 .conversation-topbar__tab:hover {
@@ -191,15 +184,6 @@
 
 .conversation-topbar__tab[data-dragging="true"] {
   background: color-mix(in oklch, var(--foreground) 9%, transparent);
-}
-
-.conversation-topbar__tab:hover::after,
-.conversation-topbar__tab[data-active="true"]::after,
-.conversation-topbar__tab:has(+ .conversation-topbar__tab:hover)::after,
-.conversation-topbar__tab:has(
-    + .conversation-topbar__tab[data-active="true"]
-  )::after {
-  opacity: 0;
 }
 
 .conversation-topbar__tab-target {

@@ -211,6 +211,9 @@ describe("conversation top-bar contracts", () => {
       /\.conversation-topbar__plus\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*76px;[^}]*height:\s*28px;/,
     );
     expect(css).toMatch(
+      /\.conversation-topbar__plus\s*\{[^}]*padding:\s*0 17px 0 10px;/,
+    );
+    expect(css).toMatch(
       /\.conversation-topbar__plus\[data-compact="true"\]\s*\{[^}]*width:\s*28px;[^}]*min-width:\s*28px;/,
     );
     expect(css).toMatch(

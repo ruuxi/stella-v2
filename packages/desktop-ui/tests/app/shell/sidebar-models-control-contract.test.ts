@@ -29,6 +29,8 @@ describe("sidebar Models control placement", () => {
 
     expect(work).toContain('className="work-section__footer"');
     expect(work).toContain("<SidebarModelsControl />");
+    expect(work).toContain("const showModelsControl = modelsOpen || !openTab;");
+    expect(work).toContain("{showModelsControl ?");
     expect(work).toContain("modelsOpen ?");
     expect(work).toContain("<AgentModelPicker active={modelsActive}/>");
 
@@ -40,6 +42,6 @@ describe("sidebar Models control placement", () => {
     expect(styles).toContain(".work-section__footer {");
     expect(styles).toContain(".work-models-panel {");
     expect(styles).toContain(".pill-btn.work-models-button[data-active]");
-    expect(styles).toContain("border-color: var(--border);");
+    expect(styles).not.toContain("border-color: var(--border);");
   });
 });

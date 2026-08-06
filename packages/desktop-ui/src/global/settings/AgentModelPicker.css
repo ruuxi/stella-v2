@@ -297,6 +297,14 @@
   opacity: 0.5;
 }
 
+.agent-model-picker-connect-menu {
+  height: 24px;
+  gap: 4px;
+  padding-inline: 9px;
+  margin-left: 2px;
+  font-size: var(--font-size-2xs);
+}
+
 .agent-model-picker-brand-actions .model-picker-group-signout {
   opacity: 1;
   pointer-events: auto;

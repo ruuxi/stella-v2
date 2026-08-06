@@ -1179,7 +1179,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             </button>
             {brandHasSources ? (<DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button type="button" className="agent-model-picker-connect-btn" aria-label={`Sign in to ${activeBrandInfo.label}`} disabled={pendingAgent !== null}>
+                  <button type="button" className="agent-model-picker-connect-btn agent-model-picker-connect-menu" aria-label={`Sign in to ${activeBrandInfo.label}`} disabled={pendingAgent !== null}>
                     Sign in
                     <ChevronDown size={12} strokeWidth={1.75} aria-hidden/>
                   </button>

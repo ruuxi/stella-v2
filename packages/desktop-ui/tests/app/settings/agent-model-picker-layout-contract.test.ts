@@ -19,6 +19,9 @@ describe("agent model picker layout", () => {
     const providerStyles = readSource(
       "global/settings/ProviderModelPicker.css",
     );
+    const compactStyles = readSource(
+      "global/settings/CompactStellaModelList.css",
+    );
 
     expect(picker).not.toContain('from "@/ui/select"');
     expect(picker).not.toContain("agent-model-picker-engine-note");
@@ -47,6 +50,10 @@ describe("agent model picker layout", () => {
     );
     expect(providerStyles).toContain(".model-picker-model[data-selected]");
     expect(providerStyles).not.toContain("background: var(--select-fill);");
+    expect(providerStyles).not.toContain(".model-picker-model--default");
+    expect(compactStyles).not.toContain(
+      ".compact-stella-list-item--default .compact-stella-list-item-name",
+    );
     expect(picker).not.toContain(
       "setBrandHeaderActions(null);\n        setBrandSearchOpen(false);",
     );

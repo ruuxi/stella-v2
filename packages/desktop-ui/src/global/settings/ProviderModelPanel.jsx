@@ -241,18 +241,17 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         const handleRowPick = requiresAuth
             ? () => toggleExpanded(expanded ? null : tab.key)
             : handlePick;
+        const showGroupHead = !hideProviderLabel || requiresAuth || hasCustomInputs || removable;
         return (<div key={tab.key} className="model-picker-group" role="group" aria-label={tab.label}>
-        <div className="model-picker-group-head" title={disabledProviderSet.has(tab.key)
+        {showGroupHead ? (<div className="model-picker-group-head" data-label-hidden={hideProviderLabel || undefined} title={disabledProviderSet.has(tab.key)
                 ? disabledProviderReason
                 : undefined}>
-          <span className="model-picker-group-bar" data-on={connected || undefined} aria-hidden/>
           {hideProviderLabel ? null : (<>
               <span className="model-picker-group-icon" aria-hidden>
                 <BrandIcon brand={tab.key} size={13}/>
               </span>
               <span className="model-picker-group-label">{tab.label}</span>
             </>)}
-          <span className="model-picker-group-rule" aria-hidden/>
           {requiresAuth ? (<button type="button" className="model-picker-group-connect" data-open={expanded || undefined} onClick={() => toggleExpanded(expanded ? null : tab.key)} disabled={sectionDisabled}>
               {expanded ? "Cancel" : supportsOAuth ? "Sign in" : "Add key"}
             </button>) : (<>
@@ -270,7 +269,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                   {armed ? (<Check size={13} strokeWidth={2} aria-hidden/>) : (<LogOut size={13} strokeWidth={1.75} aria-hidden/>)}
                 </button>) : null}
             </>)}
-        </div>
+        </div>) : null}
 
         {requiresAuth && expanded ? (<div className="model-picker-connect">
             <p className="model-picker-connect-hint">{authDescription}</p>

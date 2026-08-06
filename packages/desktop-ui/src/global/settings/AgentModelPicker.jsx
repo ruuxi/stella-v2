@@ -5,7 +5,6 @@ import { EngineScopedModelList, } from "@/global/settings/EngineScopedModelList"
 import { ProviderOnlyPicker, } from "@/global/settings/ProviderOnlyPicker";
 import { VoiceCatalogPicker } from "@/global/settings/VoiceCatalogPicker";
 import { coerceRealtimeVoiceProvider } from "@stella/contracts/local-preferences";
-import { Select } from "@/ui/select";
 import { Switch } from "@/ui/switch";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-catalog";
@@ -126,9 +125,6 @@ export function warmAgentModelPickerCache() {
             cachedLocalPreferences = next;
     })
         .catch(() => undefined);
-}
-function isReasoningEffort(value) {
-    return REASONING_EFFORT_OPTIONS.some((option) => option.id === value);
 }
 /** Friendly names for Claude Code CLI model aliases. */
 const CLAUDE_CODE_ALIAS_LABELS = {
@@ -1029,13 +1025,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                 ? getModelPickerDisplayLabel(current, modelNamesById)
                 : defaultLabel
             : "Loading…";
-    /** Footer summary of what's committed right now (engine-aware). */
-    const footerModelLabel = committedEngine === "codex_cli"
-        ? `ChatGPT · ${selectedChatGptModel}`
-        : committedEngine === "claude_code_local"
-            ? `Claude Code · ${CLAUDE_CODE_ALIAS_LABELS[selectedClaudeCodeModel] ??
-                selectedClaudeCodeModel}`
-            : currentLabel;
     const claudeCodeModelsWithCurrent = useMemo(() => {
         const models = claudeCodeModels ?? [];
         if (claudeCodeModels === null ||
@@ -1062,6 +1051,10 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     preferences?.reasoningEfforts?.general ??
                     "default")
                 : (preferences?.reasoningEfforts?.[activeAgent] ?? "default");
+    const reasoningEffortOptions = REASONING_EFFORT_OPTIONS.filter((option) => committedEngine !== "claude_code_local" || option.id !== "minimal");
+    const reasoningDisabled = pendingAgent !== null ||
+        (committedEngine === "codex_cli" &&
+            (chatGptConnection !== "connected" || codexCatalog.loading));
     const currentCodexServiceTier = preferences?.codexServiceTier ?? "standard";
     /**
      * On free / anonymous / Go plans the backend silently coerces any
@@ -1187,12 +1180,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
 
       {activeProviderSetting ? null : (<div className="agent-model-picker-footer">
           <div className="agent-model-picker-footer-main">
-            <span className="agent-model-picker-engine-note" title={footerModelLabel}>
-              <BrandIcon brand={derivedBrand} size={13}/>
-              <span className="agent-model-picker-engine-note-text">
-                {footerModelLabel}
-              </span>
-            </span>
             <div className="agent-model-picker-controls">
               {committedEngine === "codex_cli" &&
                 selectedChatGptSupportsFast ? (<Switch className="agent-model-picker-fast-toggle" label="Fast" checked={currentCodexServiceTier === "fast"} onCheckedChange={(checked) => {
@@ -1202,18 +1189,11 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     codexCatalog.loading}/>) : null}
               <div className="agent-model-picker-reasoning">
                 <span>Reasoning</span>
-                <Select value={currentReasoningEffort} onValueChange={(value) => {
-                if (isReasoningEffort(value)) {
-                    void handleReasoningEffortSelect(value);
-                }
-            }} disabled={pendingAgent !== null ||
-                (committedEngine === "codex_cli" &&
-                    (chatGptConnection !== "connected" ||
-                        codexCatalog.loading))} aria-label="Reasoning effort" options={REASONING_EFFORT_OPTIONS.filter((option) => committedEngine !== "claude_code_local" ||
-                option.id !== "minimal").map((option) => ({
-                value: option.id,
-                label: option.label,
-            }))}/>
+                <div className="agent-model-picker-reasoning-options" role="radiogroup" aria-label="Reasoning effort">
+                  {reasoningEffortOptions.map((option) => (<button key={option.id} type="button" role="radio" aria-checked={currentReasoningEffort === option.id} data-active={currentReasoningEffort === option.id || undefined} disabled={reasoningDisabled} onClick={() => void handleReasoningEffortSelect(option.id)}>
+                      {option.label}
+                    </button>))}
+                </div>
               </div>
             </div>
           </div>

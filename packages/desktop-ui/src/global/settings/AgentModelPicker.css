@@ -72,7 +72,7 @@
 .agent-model-picker-footer-main {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
 }
 
@@ -253,38 +253,70 @@
   opacity: 0.5;
 }
 
-.agent-model-picker-engine-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--text-weak);
-  font-size: var(--font-size-xs);
-}
-
-.agent-model-picker-engine-note-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .agent-model-picker-controls {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
+  min-width: 0;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  flex: none;
 }
 
 .agent-model-picker-reasoning {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--text-weak);
   font-size: var(--font-size-xs);
   font-weight: var(--weight-medium);
   white-space: nowrap;
+}
+
+.agent-model-picker-reasoning-options {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.agent-model-picker-reasoning-options::-webkit-scrollbar {
+  display: none;
+}
+
+.agent-model-picker-reasoning-options button {
+  appearance: none;
+  flex: 1 0 auto;
+  min-height: 26px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-weak);
+  font: inherit;
+  cursor: default;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.agent-model-picker-reasoning-options button:hover:not(:disabled),
+.agent-model-picker-reasoning-options button:focus-visible {
+  outline: none;
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--text-strong);
+}
+
+.agent-model-picker-reasoning-options button[data-active] {
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+  color: var(--text-strong);
+}
+
+.agent-model-picker-reasoning-options button:disabled {
+  opacity: 0.5;
 }
 
 .agent-model-picker-fast-toggle {
@@ -297,20 +329,6 @@
   color: inherit;
   font-size: var(--font-size-xs);
   font-weight: var(--weight-medium);
-}
-
-.agent-model-picker-reasoning [data-component="select"] {
-  min-width: 0;
-  width: auto;
-}
-
-.agent-model-picker-reasoning [data-slot="select-trigger"] {
-  min-height: 26px;
-  min-width: 0;
-  width: auto;
-  padding-inline: 8px 4px;
-  gap: 4px;
-  border-radius: var(--radius-full);
 }
 
 .agent-model-picker-refresh {

@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogBody, DialogCloseButton, DialogTitle, DialogDescription, } from "@/ui/dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { listLocalEvents } from "@/features/chat/services/local-chat-store";
-import { Compass, LogIn, Smartphone } from "@/ui/icons";
+import { LogIn, SlidersHorizontal, Smartphone } from "@/ui/icons";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
-import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
+import { openEngineDisplayTab } from "@/features/workspace-display/default-tabs";
 import { uiState } from "@/platform/ui-state";
 import "./welcome-dialog.css";
 const WELCOME_DIALOG_SEEN_KEY = "stella-welcome-dialog-seen";
@@ -53,9 +53,9 @@ export function WelcomeDialog({ conversationId, onConnect, onSignIn, }) {
         handleClose();
         onSignIn();
     }, [handleClose, onSignIn]);
-    const handleOpenWorkspacePanel = useCallback(() => {
+    const handleOpenModelPicker = useCallback(() => {
         handleClose();
-        sidebarSections.openLocation("files", null);
+        openEngineDisplayTab();
     }, [handleClose]);
     if (!open)
         return null;
@@ -77,16 +77,15 @@ export function WelcomeDialog({ conversationId, onConnect, onSignIn, }) {
           </p>
 
           <div className="welcome-dialog-cards">
-            <div className="welcome-dialog-card welcome-dialog-card--interactive" onClick={handleOpenWorkspacePanel} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && handleOpenWorkspacePanel()}>
+            <div className="welcome-dialog-card welcome-dialog-card--interactive" onClick={handleOpenModelPicker} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && handleOpenModelPicker()}>
               <div className="welcome-dialog-card-icon">
-                <Compass size={20}/>
+                <SlidersHorizontal size={20}/>
               </div>
               <div className="welcome-dialog-card-text">
-                <h3>Personalized for you</h3>
+                <h3>Pick your model</h3>
                 <p>
-                  <strong>Right-click</strong> anywhere on the home screen to
-                  open the workspace panel. Your first report is in Canvas,
-                  with ideas Stella can help turn into workflows.
+                  Choose the model that powers Stella. You can switch providers
+                  and reasoning at any time.
                 </p>
               </div>
               <span className="welcome-dialog-card-arrow">&rsaquo;</span>
@@ -113,8 +112,7 @@ export function WelcomeDialog({ conversationId, onConnect, onSignIn, }) {
                 <div className="welcome-dialog-card-text">
                   <h3>Sign in to Stella</h3>
                   <p>
-                    Sign in to use the store, social features, AI features,
-                    and higher usage limits!
+                    Sign in to keep using Stella and get higher usage limits.
                   </p>
                 </div>
                 <span className="welcome-dialog-card-arrow">&rsaquo;</span>

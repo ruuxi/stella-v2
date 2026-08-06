@@ -19,6 +19,28 @@ const STELLA_PROVIDER_KEY = "stella";
 const LOCAL_PROVIDER_KEY = "local";
 const DEFAULT_TARGET = "__default__";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:11434/v1";
+const normalizeResolvedModelId = (modelId) => modelId.trim().replace(/^stella\//, "").toLowerCase();
+const resolvedModelIdentity = (model) => normalizeResolvedModelId(model.upstreamModel || getStellaResolvedModelName(model));
+const modelMatchesDefault = (model, defaultModel) => Boolean(defaultModel) &&
+    (model.id === defaultModel ||
+        resolvedModelIdentity(model) === normalizeResolvedModelId(defaultModel) ||
+        getStellaResolvedModelName(model).trim().toLowerCase() ===
+            defaultModel.trim().toLowerCase());
+const dedupeStellaModels = (models, selectedModelId) => {
+    const byResolvedModel = new Map();
+    for (const model of models) {
+        const identity = resolvedModelIdentity(model);
+        const existing = byResolvedModel.get(identity);
+        if (!existing ||
+            model.id === selectedModelId ||
+            (existing.id !== selectedModelId &&
+                existing.allowedForAudience === false &&
+                model.allowedForAudience !== false)) {
+            byResolvedModel.set(identity, model);
+        }
+    }
+    return Array.from(byResolvedModel.values());
+};
 export const providerUsesRuntimeManagedAuth = (tab) => tab.runtimeManagedAuth || tab.runtimeCredentialless;
 export function buildProviderTabs(groups, visibleProviders) {
     const tabs = new Map();
@@ -96,14 +118,17 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             const sorted = favoriteScope
                 ? sortByFavorites(searched, favorites)
                 : searched;
+            const visibleModels = tab.key === STELLA_PROVIDER_KEY
+                ? dedupeStellaModels(sorted, value)
+                : sorted;
             // Hide sections with no matching models while searching so the list
             // narrows to relevant providers instead of leaving empty headers.
-            if (trimmed && sorted.length === 0)
+            if (trimmed && visibleModels.length === 0)
                 continue;
-            result.push({ tab, models: sorted });
+            result.push({ tab, models: visibleModels });
         }
         return result;
-    }, [tabs, favoriteScope, favorites, hideSearch, query]);
+    }, [tabs, favoriteScope, favorites, hideSearch, query, value]);
     const toggleFavorite = useCallback((modelId) => {
         if (!favoriteScope)
             return;
@@ -378,7 +403,12 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         const section = getSectionContext(tab);
         const { isStella, isLocal, isOpenRouter, llmEntry, requiresAuth, supportsApiKey, supportsOAuth, sectionDisabled, expanded, authDescription, } = section;
         const restrictThisStella = isStella && restrictStellaPicks;
-        const showDefaultRow = !hideDefaultRow && isStella && !trimmedQuery;
+        const resolveDefaultToModel = isStella &&
+            (hideDefaultRow ||
+                (hideSelectedTitle &&
+                    visibleProviders?.length === 1 &&
+                    visibleProviders[0] === STELLA_PROVIDER_KEY));
+        const showDefaultRow = !resolveDefaultToModel && isStella && !trimmedQuery;
         // Models stay visible before the provider is connected; picking one
         // opens the connect flow instead of selecting.
         const handleRowPick = requiresAuth
@@ -473,7 +503,9 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 {!hideSelectionCheck && isDefaultSelected ? (<Check size={13} className="model-picker-model-check"/>) : null}
               </button>) : null}
             {models.map((model) => {
-                const selected = !isDefaultSelected && model.id === value;
+                const selected = isDefaultSelected
+                    ? resolveDefaultToModel && modelMatchesDefault(model, currentLabel)
+                    : model.id === value;
                 const rowRestricted = restrictThisStella &&
                     model.provider === STELLA_PROVIDER_KEY &&
                     !selected &&

@@ -1027,21 +1027,21 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             : activeVoice
                 ? voicePreferences.provider
                 : (overrides[activeAgent] ?? "");
-    // The Assistant tab maps to both orchestrator and general. Their plan
-    // default can be different models (e.g. Kimi K2.6 vs K2.7 Code on non-Ultra
-    // tiers), so naming a single model in the "Default" label would be
-    // misleading — fall back to a plain "Stella Default" when they diverge.
-    const assistantDefaultsDiverge = activeAssistant &&
-        assistantWriteKeys
-            .map((key) => resolvedDefaultModelMap[key] ?? defaultModelMap[key])
-            .some((model, _index, models) => model !== models[0]);
+    // The default row is a routing choice, not another copy of its currently
+    // resolved model. Keep its label stable while the explicit model rows below
+    // show the actual choices.
     const defaultLabel = activeProviderSetting
         ? "Stella"
         : !ready
             ? "Default"
-            : assistantDefaultsDiverge
+            : activeAssistant
                 ? "Stella Default"
                 : getDefaultModelOptionLabel(canonicalAgentKey, defaultModelMap, resolvedDefaultModelMap, modelNamesById);
+    const defaultModelId = activeAssistant
+        ? (resolvedDefaultModelMap[canonicalAgentKey] ??
+            defaultModelMap[canonicalAgentKey] ??
+            "")
+        : "";
     const currentLabel = activeProviderSetting
         ? (IMAGE_PROVIDER_OPTIONS.find((entry) => entry.key === current)?.label ??
             VOICE_PROVIDER_OPTIONS.find((entry) => entry.key === current)?.label ??
@@ -1049,7 +1049,9 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         : ready
             ? current
                 ? getModelPickerDisplayLabel(current, modelNamesById)
-                : defaultLabel
+                : activeAssistant
+                    ? getModelPickerDisplayLabel(defaultModelId, modelNamesById)
+                    : defaultLabel
             : "Loading…";
     const claudeCodeModelsWithCurrent = useMemo(() => {
         const models = claudeCodeModels ?? [];

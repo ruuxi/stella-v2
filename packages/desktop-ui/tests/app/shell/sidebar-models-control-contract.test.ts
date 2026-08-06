@@ -65,6 +65,6 @@ describe("sidebar Models control placement", () => {
     expect(controlStyles).toContain(
       ".pill-btn.work-models-button[data-active]",
     );
-    expect(controlStyles).toContain("border-color: var(--border);");
+    expect(controlStyles).toContain("border-color: var(--border-strong);");
   });
 });

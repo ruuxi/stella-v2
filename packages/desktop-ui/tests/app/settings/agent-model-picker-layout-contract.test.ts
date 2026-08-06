@@ -33,7 +33,7 @@ describe("agent model picker layout", () => {
     expect(pickerStyles).toContain(
       ".agent-model-picker-reasoning-options button[data-active]",
     );
-    expect(pickerStyles).toContain("border-color: var(--border);");
+    expect(pickerStyles).toContain("border-color: var(--border-strong);");
     expect(pickerStyles).not.toContain("background: var(--select-fill);");
     expect(providerPanel).not.toContain("model-picker-group-bar");
     expect(providerPanel).not.toContain("model-picker-group-rule");

@@ -38,7 +38,7 @@
 
 .work-model-mode-button[data-active] {
   background: transparent;
-  border-color: var(--border);
+  border-color: var(--border-strong);
   color: var(--text-strong);
 }
 
@@ -51,6 +51,6 @@
 
 .pill-btn.work-models-button[data-active] {
   background: transparent;
-  border-color: var(--border);
+  border-color: var(--border-strong);
   color: var(--text-strong);
 }

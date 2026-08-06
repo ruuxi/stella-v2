@@ -58,7 +58,7 @@
 
 .engine-scoped-model-list__rows > button[data-selected] {
   background: transparent;
-  border-color: var(--border);
+  border-color: var(--border-strong);
   color: var(--text-strong);
 }
 

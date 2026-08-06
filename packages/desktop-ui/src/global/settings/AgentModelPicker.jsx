@@ -13,7 +13,7 @@ import { useClaudeCodeModelCatalog } from "@/global/settings/hooks/use-claude-co
 import { BrandIcon } from "@/ui/brand-icon";
 import { useEdgeFadeRef } from "@/shared/hooks/use-edge-fade";
 import { compareProviderRailOrder, getLlmProviderEntry, LLM_PROVIDERS, } from "@/global/settings/lib/llm-providers";
-import { getStellaDisplayName } from "@/global/settings/lib/model-catalog";
+import { getStellaResolvedModelName } from "@/global/settings/lib/model-catalog";
 import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getDefaultModelOptionLabel, getModelDisplayLabel, getLocalModelDefaults, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
 import { getPlanLabel, isRestrictedModelOverrideAudience, } from "@/global/billing/audience";
 import { findApiKey, findOauthCredential, useLlmCredentials, } from "@/global/settings/hooks/use-llm-credentials";
@@ -237,7 +237,9 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const modelNamesById = useMemo(() => {
         const next = new Map();
         for (const model of allModels) {
-            const label = model.provider === "stella" ? getStellaDisplayName(model) : model.name;
+            const label = model.provider === "stella"
+                ? getStellaResolvedModelName(model)
+                : model.name;
             next.set(model.id, label);
             if (model.upstreamModel)
                 next.set(model.upstreamModel, label);

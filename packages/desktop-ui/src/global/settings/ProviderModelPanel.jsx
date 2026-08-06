@@ -3,7 +3,7 @@ import { Check, KeyRound, Lightbulb, LogIn, LogOut, Search, Star, X, } from "@/u
 import { BrandIcon } from "@/ui/brand-icon";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
 import { readEngineModelFavorites, sortByFavorites, toggleEngineModelFavorite, } from "@/features/workspace-display/engine-model-favorites";
-import { getStellaDisplayName, searchCatalogModels, } from "@/global/settings/lib/model-catalog";
+import { getStellaResolvedModelName, searchCatalogModels, } from "@/global/settings/lib/model-catalog";
 import { compareProviderRailOrder, LLM_PROVIDERS, isApiKeyOnlyPlaceholder, } from "@/global/settings/lib/llm-providers";
 import { findApiKey, findOauthCredential, findOauthProvider, useLlmCredentials, } from "@/global/settings/hooks/use-llm-credentials";
 import "./ProviderModelPicker.css";
@@ -472,7 +472,9 @@ const ModelRow = memo(function ModelRow({ model, selected, rowRestricted, restri
     const showReasoning = Boolean(onSelectReasoning);
     const hasActions = showReasoning || showFavorite;
     const isStellaModel = model.provider === STELLA_PROVIDER_KEY;
-    const displayName = isStellaModel ? getStellaDisplayName(model) : model.name;
+    const displayName = isStellaModel
+        ? getStellaResolvedModelName(model)
+        : model.name;
     return (<div className="model-picker-model-row">
       <button type="button" role="option" aria-selected={selected} aria-disabled={rowRestricted || undefined} className="model-picker-model" data-selected={selected || undefined} data-restricted={rowRestricted || undefined} title={rowRestricted && restrictedPlanLabel
             ? `Not available on the ${restrictedPlanLabel} plan`

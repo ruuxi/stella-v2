@@ -127,30 +127,55 @@
   /* Tapered scroll-edge fade (same pattern as the topbar tablist): the
    * half-visible icon under the fade signals there's more to scroll.
    * `useEdgeFade` drops each side's fade when that edge is reached. */
-  --brand-rail-fade-start: 28px;
-  --brand-rail-fade-end: 28px;
   -webkit-mask-image: linear-gradient(
     to right,
     transparent 0,
-    #000 var(--brand-rail-fade-start),
-    #000 calc(100% - var(--brand-rail-fade-end)),
+    #000 28px,
+    #000 calc(100% - 28px),
     transparent 100%
   );
   mask-image: linear-gradient(
     to right,
     transparent 0,
-    #000 var(--brand-rail-fade-start),
-    #000 calc(100% - var(--brand-rail-fade-end)),
+    #000 28px,
+    #000 calc(100% - 28px),
     transparent 100%
   );
 }
 
 .agent-model-picker-brands[data-at-start="true"] {
-  --brand-rail-fade-start: 0px;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - 28px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - 28px),
+    transparent 100%
+  );
 }
 
 .agent-model-picker-brands[data-at-end="true"] {
-  --brand-rail-fade-end: 0px;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 28px,
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 28px,
+    #000 100%
+  );
+}
+
+.agent-model-picker-brands[data-at-start="true"][data-at-end="true"] {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 .agent-model-picker-brands::-webkit-scrollbar {

@@ -6,10 +6,13 @@ import {
   cpSync,
   createReadStream,
   createWriteStream,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -259,6 +262,38 @@ const installExecutable = (source, destination) => {
   if (process.platform !== "win32") chmodSync(destination, 0o755);
 };
 
+const normalizeWindowsNodeLayout = () => {
+  const modulesDirectory = path.join(nodeOutput, "node_modules");
+  for (const packageName of ["npm", "corepack"]) {
+    renameSync(
+      path.join(modulesDirectory, packageName),
+      path.join(nodeOutput, `${packageName}-dist`),
+    );
+  }
+  rmSync(modulesDirectory, { recursive: true, force: true });
+
+  for (const launcherName of [
+    "npm",
+    "npm.cmd",
+    "npm.ps1",
+    "npx",
+    "npx.cmd",
+    "npx.ps1",
+    "corepack",
+    "corepack.cmd",
+    "corepack.ps1",
+  ]) {
+    const launcherPath = path.join(nodeOutput, launcherName);
+    if (!existsSync(launcherPath)) continue;
+    const normalized = readFileSync(launcherPath, "utf8")
+      .replaceAll("node_modules\\npm", "npm-dist")
+      .replaceAll("node_modules/npm", "npm-dist")
+      .replaceAll("node_modules\\corepack", "corepack-dist")
+      .replaceAll("node_modules/corepack", "corepack-dist");
+    writeFileSync(launcherPath, normalized);
+  }
+};
+
 const loadGitManifest = async (manifestFile) => {
   const manifest = manifestFile
     ? JSON.parse(readFileSync(path.resolve(manifestFile), "utf8"))
@@ -305,6 +340,9 @@ const main = async () => {
           path.join(extractDir, asset.root),
           name === "node" ? nodeOutput : pythonOutput,
         );
+        if (name === "node" && platform === "win-x64") {
+          normalizeWindowsNodeLayout();
+        }
       }
     }
 

@@ -129,8 +129,7 @@ const windowsNpmCli = path.join(
   resources,
   "runtimes",
   "node",
-  "node_modules",
-  "npm",
+  "npm-dist",
   "bin",
   "npm-cli.js",
 );

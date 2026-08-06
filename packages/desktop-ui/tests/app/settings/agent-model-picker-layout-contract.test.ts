@@ -61,4 +61,25 @@ describe("full-area agent model picker layout", () => {
     expect(styles).not.toContain("background: var(--select-fill);");
     expect(styles).toContain("padding: 5px 10px;");
   });
+
+  it("keeps native engine rows aligned with provider model rows", () => {
+    const providerStyles = readSource(
+      "global/settings/ProviderModelPicker.css",
+    );
+    const engineStyles = readSource(
+      "global/settings/EngineScopedModelList.css",
+    );
+
+    for (const declaration of [
+      "padding: 5px 10px;",
+      "border-radius: var(--radius-sm, 6px);",
+      "border-color: var(--shell-junction-border, var(--border));",
+      "font-size: var(--font-size-base);",
+    ]) {
+      expect(providerStyles).toContain(declaration);
+      expect(engineStyles).toContain(declaration);
+    }
+    expect(engineStyles).toContain("padding: 14px 14px 4px;");
+    expect(engineStyles).toContain("padding: 0 12px 18px 0;");
+  });
 });

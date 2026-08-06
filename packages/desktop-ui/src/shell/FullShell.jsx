@@ -43,7 +43,6 @@ const dismissLaunchSplash = () => {
 };
 function OnboardingExperience({ activeConversationId, onEnteredApp, }) {
     const [stellaHiddenByPhase, setStellaHiddenByPhase] = useState(false);
-    const [onboardingPhase, setOnboardingPhase] = useState("intro");
     const onboarding = useOnboardingOverlay();
     const { handleDiscoveryConfirm, discoveryWelcomeExpected, discoveryWelcomeReady, } = useDiscoveryFlow({
         conversationId: activeConversationId,
@@ -59,18 +58,17 @@ function OnboardingExperience({ activeConversationId, onEnteredApp, }) {
         };
     }, []);
     const handleOnboardingPhaseChange = useCallback((phase) => {
-        setOnboardingPhase(phase);
         onboarding.persistPhase(phase);
         setStellaHiddenByPhase(CREATURE_HIDDEN_PHASES.has(phase));
     }, [onboarding]);
-    // Phases whose own animations dominate the frame budget; we keep the
-    // creature visible but pause its rAF canvas loop so the heavy phase
-    // gets the full frame budget. (CREATURE_HIDDEN_PHASES both hide AND
-    // pause via `stellaHiddenByPhase`.)
-    const stellaPausedByHeavyPhase = onboardingPhase === "capabilities";
+    // Once the split flow starts, the creature is decorative beside controls.
+    // Leave its last frame visible but stop the continuous WebGL loop so form
+    // interactions and demos always own the renderer thread. Hidden phases
+    // are paused as well through `stellaHiddenByPhase`.
+    const stellaPausedBySplitPhase = onboarding.splitMode;
     const pauseStellaAnimation = onboarding.onboardingExiting ||
         stellaHiddenByPhase ||
-        stellaPausedByHeavyPhase;
+        stellaPausedBySplitPhase;
     useEffect(() => {
         if (!onboarding.onboardingDone)
             return;

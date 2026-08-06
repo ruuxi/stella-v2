@@ -114,8 +114,8 @@
   isolation: isolate;
 }
 
-/* Chapters stack in the same grid cell and crossfade — opacity + a
- * slight scale, both compositor-only. */
+/* Only the active chapter is mounted. Keeping inactive demo trees out of the
+ * DOM prevents their shimmer and caret animations from consuming frames. */
 .onboarding-cap-chapter {
   grid-row: 1;
   grid-column: 1;

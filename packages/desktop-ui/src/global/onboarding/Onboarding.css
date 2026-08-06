@@ -1,11 +1,18 @@
 /* ===== Onboarding — 3-phase flow ===== */
 /* Phase 1: Center (start, intro) */
-/* Phase 2: Split (capabilities, shapeshift, theme, personality, permissions,
+/* Phase 2: Split (capabilities, theme, personality, permissions,
  *          browser, extension, engine, voice,
  *          memory, enter) */
 /* Phase 3: Complete */
 
 /* Ripple animation for reveal */
+
+/* The canvas has its own bounded renderer loop. Its global breathing keyframe
+ * would otherwise force a style recalculation on every display frame for the
+ * entire first-run flow, even while the visual barely changes. */
+.onboarding-stella-animation .stella-animation-container {
+  animation: none;
+}
 
 :root {
   /* Disclosure tokens ported from the marketing site
@@ -419,7 +426,7 @@
    * (permissions, theme, browser, personality) read as balanced instead of
    * floating near the top with empty space below. `safe center` keeps the
    * stage scrollable from the top if its content ever exceeds the pane.
-   * Full-stage demo phases (capabilities, shapeshift, memory)
+   * Full-stage demo phases (capabilities, memory)
    * override this further down. */
   justify-content: safe center;
   align-items: flex-start;
@@ -508,38 +515,6 @@
   max-width: none;
 }
 
-/* Shapeshift: full-width demo stage, same pattern as
- * capabilities — the creature is hidden for these (CREATURE_HIDDEN_PHASES)
- * so the demo owns the canvas. */
-.onboarding-dialogue[data-phase="shapeshift"] .onboarding-split-right {
-  width: 100%;
-  min-width: 100%;
-  margin-left: 0;
-  padding: clamp(20px, 3vh, 36px) 40px 32px;
-  align-items: center;
-  background: transparent;
-  backdrop-filter: none;
-  transform: none;
-}
-
-.onboarding-dialogue[data-phase="shapeshift"] .onboarding-split-stage {
-  align-items: center;
-  justify-content: flex-start;
-  max-width: none;
-  min-height: 0;
-  width: 100%;
-  gap: 14px;
-}
-
-.onboarding-dialogue[data-phase="shapeshift"] .onboarding-split-title {
-  text-align: center;
-}
-
-.onboarding-dialogue[data-phase="shapeshift"] .onboarding-step-content {
-  align-items: center;
-  max-width: none;
-}
-
 /* ═══ Act eyebrow + progress strip ═══ */
 
 /* The five-act story chrome: a quiet uppercase eyebrow above each step
@@ -555,8 +530,7 @@
   margin-bottom: -12px;
 }
 
-.onboarding-dialogue[data-phase="capabilities"] .onboarding-act-label,
-.onboarding-dialogue[data-phase="shapeshift"] .onboarding-act-label {
+.onboarding-dialogue[data-phase="capabilities"] .onboarding-act-label {
   text-align: center;
   margin-bottom: -6px;
 }
@@ -2357,7 +2331,7 @@
 /* ═══ Short-viewport rescale ═══
  *
  * On short windows several phases (permissions, theme, browser, capabilities,
- * shapeshift, memory) stack a heavy "above" surface — a fixed-aspect
+ * memory) stack a heavy "above" surface — a fixed-aspect
  * frame, a tall mock canvas, or a column of cards — that pushes
  * the Continue button below the fold or against fixed chrome (`.onboarding-
  * phase-nav`). The split pane has `overflow-y: auto`, but requiring users to
@@ -2499,16 +2473,6 @@
   .onboarding-cap-words {
     padding: 2px 14px 10px;
     gap: clamp(8px, 1.2vw, 18px);
-  }
-
-  /* Shapeshift — same height-bounding treatment as capabilities. */
-  .oshape-stage {
-    width: min(880px, calc(100vw - 108px), calc((100vh - 320px) * 16 / 9));
-  }
-
-  .oshape-caption-slot {
-    min-height: 4rem;
-    margin-top: 12px;
   }
 
   /* Memory mocks share a 280px floor that doesn't pay off on short

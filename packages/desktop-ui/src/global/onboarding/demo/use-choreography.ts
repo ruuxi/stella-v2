@@ -18,6 +18,8 @@ const prefersReducedMotion = () =>
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+const TYPED_TEXT_CHARACTERS_PER_TICK = 3;
+
 /**
  * Timeline driver for the onboarding demos. A demo declares named cues
  * ("user-message", "work-1", "reply", …) with millisecond offsets; the
@@ -152,6 +154,10 @@ export function useTypedText(
   }: { startDelay?: number; charMs?: number } = {},
 ) {
   const [count, setCount] = useState(0);
+  // Batch a few characters into each state update. At the previous one-React-
+  // render-per-character cadence, the longer dictation demo repeatedly laid
+  // out the mail mock dozens of times per second. The apparent typing speed is
+  // unchanged; there are simply fewer main-thread commits.
 
   useEffect(() => {
     if (!active) {
@@ -169,13 +175,20 @@ export function useTypedText(
 
     const tick = (next: number) => {
       if (cancelled) return;
-      setCount(next);
-      if (next < text.length) {
-        timer = setTimeout(() => tick(next + 1), charMs);
+      const clamped = Math.min(next, text.length);
+      setCount(clamped);
+      if (clamped < text.length) {
+        timer = setTimeout(
+          () => tick(clamped + TYPED_TEXT_CHARACTERS_PER_TICK),
+          charMs * TYPED_TEXT_CHARACTERS_PER_TICK,
+        );
       }
     };
 
-    timer = setTimeout(() => tick(1), startDelay);
+    timer = setTimeout(
+      () => tick(TYPED_TEXT_CHARACTERS_PER_TICK),
+      startDelay,
+    );
     return () => {
       cancelled = true;
       clearTimeout(timer);

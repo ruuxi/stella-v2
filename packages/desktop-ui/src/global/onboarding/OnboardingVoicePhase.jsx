@@ -1,14 +1,13 @@
 /**
- * Voice phase — two looping demos instead of static cards.
+ * Voice phase — two lightweight, one-shot demos instead of static cards.
  *
  * Left: the wake-word conversation beat ("Hey Stella" → listening →
- * reply → "Bye") plays on a gentle loop around the pet sprite.
+ * reply → "Bye") plays once around the pet sprite.
  * Right: dictation actually happens — the key is held, the recording
  * pill pops over a mail draft, and the sentence types itself into the
- * body before the pill confirms away. Both run on the shared
+ * body before the pill confirms away. Both run once on the shared
  * choreography engine with reserved slots so nothing ever shifts.
  */
-import { useEffect, useRef } from "react";
 import { Check, X } from "@/ui/icons";
 import { getPlatform } from "@/platform/electron/platform";
 import { DEFAULT_PET_ID } from "@/shell/pet/built-in-pets";
@@ -48,36 +47,13 @@ const TALK_CUES = [
     { id: "bye", at: 4900 },
     { id: "end", at: 6200 },
 ];
-const LOOP_HOLD_MS = 1900;
-/**
- * Choreography that replays itself after a short hold. Reduced motion
- * skips the restart loop — the hook already fast-forwards to the final
- * state, which is the right static rendering of each card.
- */
-function useLoopingChoreography(cues) {
-    const timerRef = useRef(null);
-    const { has, restart } = useChoreography({
-        cues,
-        active: true,
-        onDone: () => {
-            if (window.matchMedia("(prefers-reduced-motion: reduce)").matches)
-                return;
-            timerRef.current = setTimeout(restart, LOOP_HOLD_MS);
-        },
-    });
-    useEffect(() => () => {
-        if (timerRef.current)
-            clearTimeout(timerRef.current);
-    }, []);
-    return has;
-}
 export function OnboardingVoicePhase({ splitTransitionActive, onContinue, }) {
     const platform = getPlatform();
     const dictateKey = DICTATE_KEY_BY_PLATFORM[platform] ?? DICTATE_KEY_BY_PLATFORM.darwin;
     const [selectedPetId] = useSelectedPetId(DEFAULT_PET_ID);
     const pet = useSelectedPet(selectedPetId);
-    const talk = useLoopingChoreography(TALK_CUES);
-    const dictate = useLoopingChoreography(DICTATE_CUES);
+    const talk = useChoreography({ cues: TALK_CUES, active: true }).has;
+    const dictate = useChoreography({ cues: DICTATE_CUES, active: true }).has;
     const typed = useTypedText(DICTATED_SENTENCE, dictate("type"), {
         charMs: TYPE_CHAR_MS,
     });
@@ -101,7 +77,7 @@ export function OnboardingVoicePhase({ splitTransitionActive, onContinue, }) {
               <div className="ovoice-talk__sprite" data-listening={listening || undefined}>
                 <span className="ovoice-talk__ring"/>
                 <span className="ovoice-talk__ring" data-late=""/>
-                {pet ? (<PetSprite spritesheetUrl={pet.spritesheetUrl} state="waving" continuous size={128}/>) : null}
+                {pet ? (<PetSprite spritesheetUrl={pet.spritesheetUrl} state="waving" size={128}/>) : null}
               </div>
 
               <div className="ovoice-talk__exchange">
@@ -156,7 +132,7 @@ export function OnboardingVoicePhase({ splitTransitionActive, onContinue, }) {
                   </div>
                   <div className="ovoice-app__editor">
                     {typed.value}
-                    <span className="ovoice-app__caret"/>
+                    <span className="ovoice-app__caret" data-active={typed.typing || undefined}/>
                   </div>
                 </div>
 

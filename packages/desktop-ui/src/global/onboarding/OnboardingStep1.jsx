@@ -20,7 +20,6 @@ import "./Onboarding.css";
  * `Onboarding.css` so any future async content (data fetches, etc.)
  * can't reproduce the jump. */
 import { OnboardingCapabilitiesPhase } from "./OnboardingCapabilitiesPhase";
-import { OnboardingShapeshiftPhase } from "./OnboardingShapeshiftPhase";
 import { OnboardingEnginePhase } from "./OnboardingEnginePhase";
 import { OnboardingPermissions } from "./OnboardingPermissions";
 import { OnboardingExtensionPhase } from "./OnboardingExtensionPhase";
@@ -37,7 +36,6 @@ import { OnboardingMockWindows } from "./OnboardingMockWindows";
  * that's why it's omitted here.
  */
 const STEP_TITLE_KEYS = {
-    shapeshift: "onboarding.stepTitles.shapeshift",
     engine: "onboarding.stepTitles.engine",
     extension: "onboarding.stepTitles.extension",
     browser: "onboarding.stepTitles.browser",
@@ -188,8 +186,6 @@ export const OnboardingStep1 = ({ initialPhase = "intro", onComplete, onInteract
         switch (activePhase) {
             case "capabilities":
                 return (<OnboardingCapabilitiesPhase splitTransitionActive={leaving} onContinue={nextSplitStep}/>);
-            case "shapeshift":
-                return (<OnboardingShapeshiftPhase splitTransitionActive={leaving} onContinue={nextSplitStep}/>);
             case "engine":
                 return (<OnboardingEnginePhase splitTransitionActive={leaving} onContinue={nextSplitStep}/>);
             case "permissions":

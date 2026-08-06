@@ -1,6 +1,7 @@
 import { app, dialog, globalShortcut } from "electron";
 import { writeFileSync } from "node:fs";
 import { applyDockIcon } from "../app-icon.js";
+import { configurePackagedBunEnvironment } from "../bundled-runtime-environment.js";
 import { shutdownBootstrapRuntime } from "./resets.js";
 import { initializeBootstrapApplication } from "./runtime.js";
 export const initializeBootstrapSingleInstance = (context) => {
@@ -57,6 +58,9 @@ export const registerBootstrapLifecycle = (context) => {
         .then(async () => {
         if (app.isPackaged) {
             process.env.STELLA_APP_RESOURCES_PATH = process.resourcesPath;
+            configurePackagedBunEnvironment({
+                resourcesPath: process.resourcesPath,
+            });
         }
         if (process.platform === "darwin") {
             app.dock?.show();

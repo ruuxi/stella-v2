@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, KeyRound, Lightbulb, RefreshCw, Search } from "@/ui/icons";
+import { Check, ChevronDown, KeyRound, Lightbulb, LogOut, RefreshCw, Search } from "@/ui/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
 import { ProviderModelPanel } from "@/global/settings/ProviderModelPanel";
 import { EngineScopedModelList, } from "@/global/settings/EngineScopedModelList";
@@ -1155,12 +1155,15 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     // Sign-in / Add-key is a primary action, not a utility glyph — render
     // it as a labeled button that anchors the header, while search/refresh
     // stay ghost icons.
-    const normalizedBrandHeaderActions = brandHeaderActions?.kind === "connect"
-        ? (<button type="button" className="agent-model-picker-connect-btn" onClick={brandHeaderActions.onConnect} disabled={brandHeaderActions.disabled}>
-          <KeyRound size={13} strokeWidth={1.75} aria-hidden/>
-          {brandHeaderActions.connectLabel}
-        </button>)
-        : brandHeaderActions;
+    const normalizedBrandHeaderActions = brandHeaderActions ? (<>
+        {brandHeaderActions.connect ? (<button type="button" className="agent-model-picker-connect-btn" onClick={brandHeaderActions.connect.onClick} disabled={brandHeaderActions.connect.disabled}>
+            <KeyRound size={13} strokeWidth={1.75} aria-hidden/>
+            {brandHeaderActions.connect.label}
+          </button>) : null}
+        {brandHeaderActions.signOut ? (<button type="button" className="model-picker-group-signout" data-armed={brandHeaderActions.signOut.armed || undefined} disabled={brandHeaderActions.signOut.disabled} aria-label={brandHeaderActions.signOut.label} title={brandHeaderActions.signOut.title} onClick={brandHeaderActions.signOut.onClick}>
+            {brandHeaderActions.signOut.armed ? (<Check size={13} strokeWidth={2} aria-hidden/>) : (<LogOut size={13} strokeWidth={1.75} aria-hidden/>)}
+          </button>) : null}
+      </>) : null;
     const [brandSearchOpen, setBrandSearchOpen] = useState(false);
     useEffect(() => {
         setBrandSearchOpen(false);
@@ -1301,7 +1304,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     codexCatalog.loading}/>
               </>) : showClaudeCodePanel ? (<EngineScopedModelList engineLabel="Claude Code" hideHead models={claudeCodeModelsWithCurrent} value={committedEngine === "claude_code_local"
                     ? selectedClaudeCodeModel
-                    : ""} onSelect={(modelId) => void handleEngineModelSelect("claude_code_local", modelId)} loading={claudeCodeModelsLoading} disabled={!preferences || pendingAgent !== null}/>) : (<ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel="Assistant model picker" onSelect={handleSelect} visibleProviders={[activeBrand]} hideSelectedTitle hideProviderLabel hideSearch={!brandSearchOpen} hideGroupHead={brandHasSources} headerActionsTarget={!brandHasSources ? setBrandHeaderActions : undefined} authOpenRequest={brandAuthOpenRequest} onRequestSearchClose={() => setBrandSearchOpen(false)}/>)}
+                    : ""} onSelect={(modelId) => void handleEngineModelSelect("claude_code_local", modelId)} loading={claudeCodeModelsLoading} disabled={!preferences || pendingAgent !== null}/>) : (<ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel="Assistant model picker" onSelect={handleSelect} visibleProviders={[activeBrand]} hideSelectedTitle hideProviderLabel hideSearch={!brandSearchOpen} hideGroupHead={brandHasSources} headerActionsTarget={setBrandHeaderActions} authOpenRequest={brandAuthOpenRequest} onRequestSearchClose={() => setBrandSearchOpen(false)}/>)}
           </>)}
 
       </div>

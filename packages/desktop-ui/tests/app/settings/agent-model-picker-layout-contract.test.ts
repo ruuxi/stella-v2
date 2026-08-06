@@ -21,6 +21,10 @@ describe("full-area agent model picker layout", () => {
     expect(picker).toContain("agent-model-picker-connect-btn");
     expect(picker).toContain("Sign in with ChatGPT");
     expect(picker).toContain("authOpenRequest={brandAuthOpenRequest}");
+    expect(picker).toContain("headerActionsTarget={setBrandHeaderActions}");
+    expect(picker).not.toContain(
+      "headerActionsTarget={!brandHasSources ? setBrandHeaderActions : undefined}",
+    );
     expect(picker).toContain("brandSearchOpen");
     expect(picker).toContain('role="radiogroup"');
     expect(picker).not.toContain("agent-model-picker-engine-note");
@@ -44,6 +48,8 @@ describe("full-area agent model picker layout", () => {
 
     expect(panel).toContain('className="model-picker-search-row"');
     expect(panel).toContain("headerActionsTarget");
+    expect(panel).toContain("const signOut = liftedRemovable");
+    expect(panel).toContain("onClick: () => void handleSignOut(liftedTabKey)");
     expect(panel).not.toContain("model-picker-group-bar");
     expect(panel).not.toContain("model-picker-group-rule");
     expect(panel).toContain("Cancel sign-in");

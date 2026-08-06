@@ -23,6 +23,9 @@ describe("agent model picker layout", () => {
     expect(picker).not.toContain('tabButton(ASSISTANT_TARGET, "Assistant"');
     expect(picker).toContain('role="radiogroup"');
     expect(picker).toContain('role="radio"');
+    expect(picker).not.toContain('{ id: "default", label: "Default" }');
+    expect(picker).toContain('savedReasoningEffort === "default"');
+    expect(picker).toContain('selectedChatGptLiveModel?.defaultReasoningEffort');
     expect(pickerStyles).toContain(".agent-model-picker-reasoning-options");
     expect(providerPanel).not.toContain("model-picker-group-bar");
     expect(providerPanel).not.toContain("model-picker-group-rule");

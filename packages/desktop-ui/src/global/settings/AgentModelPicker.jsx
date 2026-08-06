@@ -20,7 +20,6 @@ import { showToast } from "@/ui/toast";
 import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, codexModelSupportsFast, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, fromOpenAiCodexModelId, intersectChatGptModels, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, } from "@/global/settings/lib/engine-model-routing";
 import "./AgentModelPicker.css";
 const REASONING_EFFORT_OPTIONS = [
-    { id: "default", label: "Default" },
     { id: "minimal", label: "Minimal" },
     { id: "low", label: "Low" },
     { id: "medium", label: "Medium" },
@@ -1052,7 +1051,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             },
         ];
     }, [claudeCodeModels, selectedClaudeCodeModel]);
-    const currentReasoningEffort = committedEngine === "codex_cli"
+    const savedReasoningEffort = committedEngine === "codex_cli"
         ? (preferences?.codexReasoningEffort ?? "default")
         : committedEngine === "claude_code_local"
             ? (preferences?.claudeCodeReasoningEffort ?? "default")
@@ -1061,6 +1060,15 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     preferences?.reasoningEfforts?.general ??
                     "default")
                 : (preferences?.reasoningEfforts?.[activeAgent] ?? "default");
+    const reportedDefaultReasoningEffort = committedEngine === "codex_cli"
+        ? selectedChatGptLiveModel?.defaultReasoningEffort
+        : null;
+    const effectiveDefaultReasoningEffort = REASONING_EFFORT_OPTIONS.some((option) => option.id === reportedDefaultReasoningEffort)
+        ? reportedDefaultReasoningEffort
+        : "medium";
+    const currentReasoningEffort = savedReasoningEffort === "default"
+        ? effectiveDefaultReasoningEffort
+        : savedReasoningEffort;
     const reasoningEffortOptions = REASONING_EFFORT_OPTIONS.filter((option) => committedEngine !== "claude_code_local" || option.id !== "minimal");
     const reasoningDisabled = pendingAgent !== null ||
         (committedEngine === "codex_cli" &&

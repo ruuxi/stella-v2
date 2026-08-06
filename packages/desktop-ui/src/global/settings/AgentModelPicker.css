@@ -298,10 +298,10 @@
 }
 
 .agent-model-picker-connect-menu {
-  height: 24px;
-  gap: 4px;
-  padding-inline: 9px;
-  margin-left: 2px;
+  height: 22px;
+  gap: 3px;
+  padding-inline: 7px;
+  margin-left: 1px;
   font-size: var(--font-size-2xs);
 }
 

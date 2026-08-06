@@ -201,7 +201,8 @@
 .composer-stop:focus-visible,
 .composer-add-button:focus-visible,
 .composer-submit:focus-visible,
-.composer-mic:focus-visible {
+.composer-mic:focus-visible,
+.composer-realtime-voice:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
@@ -230,6 +231,12 @@
 
 /* Mic / dictation button — same footprint as add/submit */
 .composer-mic {
+  width: 32px;
+  height: 32px;
+  cursor: default;
+}
+
+.composer-realtime-voice {
   width: 32px;
   height: 32px;
   cursor: default;

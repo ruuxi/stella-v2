@@ -5,7 +5,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { ComposerContextRow, useComposerContextSuggestions, } from "./ComposerContextRow";
 import { ComposerLeadRow } from "./ComposerLeadRow";
 import { ComposerAddMenu } from "./ComposerAddMenu";
-import { ComposerMicButton, ComposerStopButton, ComposerSubmitButton, } from "@/features/chat/ComposerPrimitives";
+import { ComposerMicButton, ComposerRealtimeVoiceButton, ComposerStopButton, ComposerSubmitButton, } from "@/features/chat/ComposerPrimitives";
 import { deriveComposerState, hasAttachedComposerChips, } from "@/features/chat/composer-context";
 import { handleComposerPaste } from "@/features/chat/lib/paste-context";
 import { useScreenshotPreview, ScreenshotPreviewOverlay, } from "./ScreenshotPreview";
@@ -14,8 +14,10 @@ import { DictationRecordingBar } from "@/features/dictation/components/Dictation
 import { updateComposerTextareaExpansion, useAnimatedComposerShell, } from "@/shared/hooks/use-animated-composer-shell";
 import { applyComposerModelMention, ComposerModelMentionMenu, findComposerModelMentionTrigger, } from "./ComposerModelMentionMenu";
 import { ComposerModelMentionTextarea } from "./ModelMentionText";
+import { useUiState } from "@/context/ui-state";
 import "./full-shell.composer.css";
 function ComposerImpl({ message, setMessage, chatContext, setChatContext, selectedText, setSelectedText, isStreaming, canSubmit, focusRequestId, conversationId, onSend, onStop, onSelectArea, isDragOver = false, replyPeek, suggestionsActive = true, }) {
+    const { state: uiState } = useUiState();
     const textareaRef = useRef(null);
     const formRef = useRef(null);
     const shellRef = useRef(null);
@@ -121,6 +123,13 @@ function ComposerImpl({ message, setMessage, chatContext, setChatContext, select
         });
     }, [message, modelMentionTrigger, setMessage]);
     const hasAttachedChips = hasAttachedComposerChips(chatContext, selectedText);
+    const showRealtimeVoice = Boolean(conversationId) &&
+        !hasText &&
+        !hasAttachedChips &&
+        !dictationInFlight;
+    const toggleRealtimeVoice = useCallback(() => {
+        window.electronAPI?.pet?.requestVoice?.();
+    }, []);
     const contextSuggestions = useComposerContextSuggestions(suggestionsActive, chatContext, setChatContext);
     return (<div className="composer">
       <ComposerLeadRow replyPeek={replyPeek} showActivityPill/>
@@ -169,8 +178,9 @@ function ComposerImpl({ message, setMessage, chatContext, setChatContext, select
                     <ComposerMicButton className="composer-mic" isTranscribing={dictation.isTranscribing} disabled={dictation.isTranscribing} onClick={dictation.toggle} title={dictation.error
                 ? `Dictation: ${dictation.error}`
                 : undefined}/>
+                    {showRealtimeVoice && (<ComposerRealtimeVoiceButton className="composer-realtime-voice" active={Boolean(uiState.isVoiceRtcActive)} onClick={toggleRealtimeVoice}/>)}
                     {isStreaming && (<ComposerStopButton className="composer-stop" onClick={onStop} title="Stop" aria-label="Stop"/>)}
-                    <ComposerSubmitButton className="composer-submit" disabled={!canSubmitWithDictation} animated/>
+                    {showRealtimeVoice ? null : (<ComposerSubmitButton className="composer-submit" disabled={!canSubmitWithDictation} animated/>)}
                   </div>
                 </div>
 

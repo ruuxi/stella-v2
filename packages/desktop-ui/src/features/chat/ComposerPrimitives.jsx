@@ -1,7 +1,7 @@
 import { forwardRef, } from "react";
 import { motion } from "motion/react";
 import { cn } from "@/shared/lib/utils";
-import { ArrowUp, Mic, Plus, Square } from "@/ui/icons";
+import { ArrowUp, AudioLines, Mic, Plus, Square } from "@/ui/icons";
 import "./composer-primitives.css";
 function AddIcon() {
     return <Plus size={16} strokeWidth={1.75}/>;
@@ -11,6 +11,9 @@ function StopIcon() {
 }
 function MicIcon() {
     return <Mic size={16} strokeWidth={1.75}/>;
+}
+function RealtimeVoiceIcon() {
+    return <AudioLines size={17} strokeWidth={1.75}/>;
 }
 function SpinnerIcon() {
     // Three-quarter ring on top of a faint full ring so rotation reads
@@ -38,6 +41,14 @@ export const ComposerMicButton = forwardRef(function ComposerMicButton({ classNa
     const computedTitle = title ?? (isTranscribing ? "Transcribing…" : "Start dictation");
     return (<button ref={ref} type="button" className={cn("chat-composer-icon-button chat-composer-icon-button--mic", isTranscribing && "chat-composer-icon-button--mic-transcribing", className)} title={computedTitle} aria-label={computedTitle} aria-busy={Boolean(isTranscribing)} {...props}>
       {children ?? (isTranscribing ? <SpinnerIcon /> : <MicIcon />)}
+    </button>);
+});
+export const ComposerRealtimeVoiceButton = forwardRef(function ComposerRealtimeVoiceButton({ className, active = false, children, title, ...props }, ref) {
+    const computedTitle = title ?? (active
+        ? "Stop realtime voice conversation"
+        : "Start realtime voice conversation");
+    return (<button ref={ref} type="button" className={cn("chat-composer-icon-button chat-composer-icon-button--realtime-voice", active && "chat-composer-icon-button--realtime-voice-active", className)} title={computedTitle} aria-label={computedTitle} aria-pressed={active} {...props}>
+      {children ?? <RealtimeVoiceIcon />}
     </button>);
 });
 export function ComposerSubmitButton({ animated = false, className, children, disabled, ...props }) {

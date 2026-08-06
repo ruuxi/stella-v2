@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::env;
 use std::io::Write;
 use std::path::PathBuf;
@@ -76,8 +77,11 @@ fn is_known_action(action: &str) -> bool {
             | "forward"
             | "reload"
             | "cookies_get"
+            | "cookies_export_all"
+            | "cookies_export_for_urls"
             | "cookies_set"
             | "cookies_clear"
+            | "extension_status"
             | "storage_get"
             | "storage_set"
             | "storage_clear"
@@ -236,6 +240,9 @@ fn validate_chain_actions(cmd: &Value) -> Result<Vec<&str>, String> {
             || action == "finalize_tabs"
             || action == "close_owner"
             || action == "release_owner_lease"
+            || action == "cookies_export_all"
+            || action == "cookies_export_for_urls"
+            || action == "extension_status"
         {
             return Err(format!(
                 "Chain step {} cannot contain top-level-only action {}",
@@ -307,34 +314,6 @@ fn validate_owner_finalization(cmd: &Value, action: &str) -> Result<(), String> 
         }
     }
 
-    Ok(())
-}
-
-fn validate_extension_domain_gates(cmd: &Value, state: &DaemonState) -> Result<(), String> {
-    let Some(filter) = state.domain_filter.as_ref() else {
-        return Ok(());
-    };
-
-    let mut commands = vec![cmd];
-    if cmd.get("action").and_then(Value::as_str) == Some("chain") {
-        commands.extend(
-            cmd.get("steps")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten(),
-        );
-    }
-
-    for command in commands {
-        if command.get("action").and_then(Value::as_str) != Some("navigate") {
-            continue;
-        }
-        let url = command
-            .get("url")
-            .and_then(Value::as_str)
-            .ok_or("Missing 'url' parameter")?;
-        filter.check_url(url)?;
-    }
     Ok(())
 }
 
@@ -1054,6 +1033,9 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
             | "finalize_tabs"
             | "close_owner"
             | "release_owner_lease"
+            | "cookies_export_all"
+            | "cookies_export_for_urls"
+            | "extension_status"
     );
     if !skip_launch && !matches!(state.backend_type, BackendType::Extension) {
         // Check if existing connection is stale and needs re-launch
@@ -1096,22 +1078,41 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         );
     }
 
-    // Extension bridge: forward commands to Chrome extension
-    if matches!(state.backend_type, BackendType::Extension)
-        && action != "healthcheck"
-        && action != "launch"
-        && action != "close"
-    {
-        if let Err(error) = validate_extension_domain_gates(cmd, state) {
-            return error_response(&id, &error);
-        }
-        if let Some(ref bridge) = state.extension_bridge {
-            return forward_extension_command(cmd, bridge).await;
+    // The extension is a credential-seeding transport only. Never route agent
+    // browser-control actions into the user's real Chrome/Brave profile.
+    if matches!(state.backend_type, BackendType::Extension) {
+        match action {
+            "healthcheck" | "launch" | "close" | "extension_status" => {}
+            "cookies_export_all" => {
+                if let Some(ref bridge) = state.extension_bridge {
+                    return forward_extension_command(cmd, bridge).await;
+                }
+                return error_response(
+                    &id,
+                    "Browser extension is not connected. Connect it before importing browser cookies.",
+                );
+            }
+            "cookies_export_for_urls" => {
+                if let Some(ref bridge) = state.extension_bridge {
+                    return export_extension_cookies_for_urls(cmd, bridge).await;
+                }
+                return error_response(
+                    &id,
+                    "Browser extension is not connected. Connect it before importing browser cookies.",
+                );
+            }
+            _ => {
+                return error_response(
+                    &id,
+                    "In-app browser is not ready. Connect the Stella browser extension and try again.",
+                );
+            }
         }
     }
 
     let result = match action {
         "healthcheck" => Ok(json!({ "status": "ok" })),
+        "extension_status" => Ok(handle_extension_status(state).await),
         "launch" => handle_launch(cmd, state).await,
         "navigate" => handle_navigate(cmd, state).await,
         "url" => handle_url(state).await,
@@ -1264,7 +1265,11 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "mousedown" => handle_mousedown(cmd, state).await,
         "mouseup" => handle_mouseup(cmd, state).await,
         "chain" => Err("Chain is only supported by the extension backend".to_string()),
-        "finalize_tabs" | "close_owner" | "release_owner_lease" => Err(format!(
+        "finalize_tabs"
+        | "close_owner"
+        | "release_owner_lease"
+        | "cookies_export_all"
+        | "cookies_export_for_urls" => Err(format!(
             "Action '{}' requires the extension backend",
             action
         )),
@@ -1275,6 +1280,133 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         Ok(data) => success_response(&id, data),
         Err(e) => error_response(&id, &super::browser::to_ai_friendly_error(&e)),
     }
+}
+
+async fn handle_extension_status(state: &DaemonState) -> Value {
+    let connected = match state.extension_bridge.as_ref() {
+        Some(bridge) => bridge.is_connected().await,
+        None => false,
+    };
+    json!({ "connected": connected })
+}
+
+const COOKIE_EXPORT_URL_LIMIT: usize = 10_000;
+const COOKIE_EXPORT_CHAIN_SIZE: usize = 100;
+
+async fn export_extension_cookies_for_urls(cmd: &Value, bridge: &ExtensionBridge) -> Value {
+    let id = cmd
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let Some(urls) = cmd.get("urls").and_then(Value::as_array) else {
+        return error_response(&id, "cookies_export_for_urls requires a urls array");
+    };
+    if urls.len() > COOKIE_EXPORT_URL_LIMIT {
+        return error_response(
+            &id,
+            &format!(
+                "cookies_export_for_urls accepts at most {} URLs",
+                COOKIE_EXPORT_URL_LIMIT
+            ),
+        );
+    }
+
+    let urls: Vec<&str> = urls
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
+        .collect();
+    let mut cookies = Vec::new();
+    let mut seen = HashSet::new();
+
+    for (chunk_index, chunk) in urls.chunks(COOKIE_EXPORT_CHAIN_SIZE).enumerate() {
+        let steps: Vec<Value> = chunk
+            .iter()
+            .map(|url| json!({ "action": "cookies_get", "url": url }))
+            .collect();
+        let chain = json!({
+            "id": format!("{}_compat_{}", id, chunk_index),
+            "action": "chain",
+            "steps": steps,
+            "abortOnError": false,
+            "waitForSelector": false,
+        });
+        let response = match bridge.execute_command(&chain).await {
+            Ok(response) => response,
+            Err(error) => return error_response(&id, &error),
+        };
+        let Some(results) = response
+            .get("data")
+            .and_then(|data| data.get("results"))
+            .and_then(Value::as_array)
+        else {
+            return error_response(
+                &id,
+                response
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Browser extension returned an invalid compatibility cookie export"),
+            );
+        };
+
+        for result in results {
+            let Some(exported) = result
+                .get("data")
+                .and_then(|data| data.get("cookies"))
+                .and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for cookie in exported {
+                let Some(mut normalized) = cookie.as_object().cloned() else {
+                    continue;
+                };
+                let name = normalized
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let domain = normalized
+                    .get("domain")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let path = normalized
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or("/")
+                    .to_string();
+                if name.is_empty() || domain.is_empty() {
+                    continue;
+                }
+                if !normalized.contains_key("expirationDate") {
+                    if let Some(expires) = normalized.get("expires").and_then(Value::as_f64) {
+                        if expires >= 0.0 {
+                            normalized.insert("expirationDate".to_string(), json!(expires));
+                        }
+                    }
+                }
+                normalized.remove("expires");
+                normalized
+                    .entry("hostOnly".to_string())
+                    .or_insert_with(|| json!(!domain.starts_with('.')));
+                let session = !normalized.contains_key("expirationDate");
+                normalized
+                    .entry("session".to_string())
+                    .or_insert_with(|| json!(session));
+                normalized
+                    .entry("storeId".to_string())
+                    .or_insert_with(|| json!("0"));
+                let key = format!("{}\0{}\0{}", name, domain, path);
+                if seen.insert(key) {
+                    cookies.push(Value::Object(normalized));
+                }
+            }
+        }
+    }
+
+    success_response(&id, json!({ "cookies": cookies, "compatibilityMode": true }))
 }
 
 pub(crate) async fn forward_extension_command(cmd: &Value, bridge: &ExtensionBridge) -> Value {
@@ -1469,6 +1601,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
         .get("autoConnect")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let targets_cdp = cdp_url.is_some() || cdp_port.is_some() || auto_connect;
 
     // Relaunch logic: check if we can reuse the existing connection
     let needs_relaunch = if let Some(ref mgr) = state.browser {
@@ -1486,6 +1619,9 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
             state.update_stream_client().await;
         }
     } else {
+        if targets_cdp {
+            state.backend_type = BackendType::Cdp;
+        }
         return Ok(json!({ "launched": true, "reused": true }));
     }
     state.ref_map.clear();
@@ -1520,6 +1656,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
 
     if let Some(url) = cdp_url {
         state.browser = Some(BrowserManager::connect_cdp(url).await?);
+        state.backend_type = BackendType::Cdp;
         state.subscribe_to_browser_events();
         state.update_stream_client().await;
         return Ok(json!({ "launched": true }));
@@ -1527,6 +1664,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
 
     if let Some(port) = cdp_port {
         state.browser = Some(BrowserManager::connect_cdp(&port.to_string()).await?);
+        state.backend_type = BackendType::Cdp;
         state.subscribe_to_browser_events();
         state.update_stream_client().await;
         return Ok(json!({ "launched": true }));
@@ -1534,6 +1672,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
 
     if auto_connect {
         state.browser = Some(connect_auto_with_fresh_tab().await?);
+        state.backend_type = BackendType::Cdp;
         state.subscribe_to_browser_events();
         state.update_stream_client().await;
         return Ok(json!({ "launched": true }));
@@ -1560,23 +1699,14 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
                 let mut bridge = ExtensionBridge::new(ext_port, ext_token);
                 let session =
                     env::var("STELLA_BROWSER_SESSION").unwrap_or_else(|_| "default".to_string());
-                let mut disconnect_rx = bridge.start(&session).await?;
-                let daemon_shutdown_tx = state.daemon_shutdown_tx.clone();
+                let _disconnect_rx = bridge.start(&session).await?;
                 state.extension_bridge = Some(bridge);
                 state.backend_type = BackendType::Extension;
 
-                // Spawn auto-shutdown watcher for extension disconnect
-                tokio::spawn(async move {
-                    if disconnect_rx.recv().await.is_some() {
-                        let _ = std::io::Write::write_all(
-                            &mut std::io::stderr(),
-                            b"Extension disconnected for too long \xe2\x80\x94 shutting down daemon.\n",
-                        );
-                        if let Some(tx) = daemon_shutdown_tx {
-                            let _ = tx.send(());
-                        }
-                    }
-                });
+                // The bridge and its connection status remain useful after this
+                // daemon switches to an in-app CDP target. Extension loss must
+                // therefore not terminate the daemon; extension_status reports
+                // the disconnected state while CDP automation keeps running.
 
                 return Ok(json!({ "launched": true, "provider": "extension" }));
             }
@@ -1591,6 +1721,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
                 match BrowserManager::connect_cdp(&ws_url).await {
                     Ok(mgr) => {
                         state.browser = Some(mgr);
+                        state.backend_type = BackendType::Cdp;
                         state.subscribe_to_browser_events();
                         state.update_stream_client().await;
                         return Ok(json!({ "launched": true, "provider": provider }));
@@ -1677,6 +1808,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
     }
 
     state.browser = Some(BrowserManager::launch(options, engine.as_deref()).await?);
+    state.backend_type = BackendType::Cdp;
     state.subscribe_to_browser_events();
     state.update_stream_client().await;
 
@@ -6444,12 +6576,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_chain_domain_gate_checks_nested_navigation() {
+    async fn test_extension_backend_rejects_chain_until_in_app_cdp_connects() {
         let mut state = DaemonState::new();
         state.backend_type = BackendType::Extension;
-        state.domain_filter = Some(DomainFilter::new("example.com"));
         let command = json!({
-            "id": "chain-domain",
+            "id": "chain-before-cdp",
             "action": "chain",
             "steps": [{ "action": "navigate", "url": "https://blocked.example.net" }]
         });
@@ -6458,7 +6589,8 @@ mod tests {
         assert!(response["error"]
             .as_str()
             .unwrap()
-            .contains("allowed domains"));
+            .contains("In-app browser is not ready"));
+        assert!(state.browser.is_none());
     }
 
     #[tokio::test]
@@ -6565,6 +6697,61 @@ mod tests {
         let result = execute_command(&cmd, &mut state).await;
         assert_eq!(result["success"], true);
         assert_eq!(result["data"]["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn test_extension_status_stays_local_for_extension_backend() {
+        let mut state = DaemonState::new();
+        state.backend_type = BackendType::Extension;
+        let cmd = json!({ "action": "extension_status", "id": "extension-status-1" });
+        let result = execute_command(&cmd, &mut state).await;
+        assert_eq!(result["success"], true);
+        assert_eq!(result["data"]["connected"], false);
+    }
+
+    #[tokio::test]
+    async fn test_extension_backend_rejects_real_browser_control() {
+        let mut state = DaemonState::new();
+        state.backend_type = BackendType::Extension;
+        let cmd = json!({
+            "action": "navigate",
+            "url": "https://example.com",
+            "id": "navigate-before-cdp"
+        });
+        let result = execute_command(&cmd, &mut state).await;
+        assert_eq!(result["success"], false);
+        assert!(result["error"]
+            .as_str()
+            .unwrap()
+            .contains("In-app browser is not ready"));
+        assert!(state.browser.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cookie_export_requires_a_connected_extension_bridge() {
+        let mut state = DaemonState::new();
+        state.backend_type = BackendType::Extension;
+        let cmd = json!({ "action": "cookies_export_all", "id": "cookies-export-1" });
+        let result = execute_command(&cmd, &mut state).await;
+        assert_eq!(result["success"], false);
+        assert!(result["error"]
+            .as_str()
+            .unwrap()
+            .contains("Browser extension is not connected"));
+        assert!(state.browser.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cookie_export_requires_extension_backend_without_auto_launch() {
+        let mut state = DaemonState::new();
+        let cmd = json!({ "action": "cookies_export_all", "id": "cookies-export-1" });
+        let result = execute_command(&cmd, &mut state).await;
+        assert_eq!(result["success"], false);
+        assert!(result["error"]
+            .as_str()
+            .unwrap()
+            .contains("requires the extension backend"));
+        assert!(state.browser.is_none());
     }
 
     #[tokio::test]

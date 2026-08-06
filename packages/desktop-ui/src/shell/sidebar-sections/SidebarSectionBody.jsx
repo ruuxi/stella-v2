@@ -11,6 +11,7 @@
  */
 import { PANEL_SIDEBAR_SECTIONS, resolvePanelSidebarSection, useActiveSidebarSection, } from "@/features/workspace-display/sidebar-sections";
 import { AppsSection } from "./AppsSection";
+import { BrowserSection } from "./BrowserSection";
 import { FilesSection } from "./FilesSection";
 import { SettingsSection } from "./SettingsSection";
 import "./sidebar-sections.css";
@@ -21,6 +22,7 @@ import "./sidebar-sections.css";
 const SECTION_BODIES = {
     files: FilesSection,
     apps: AppsSection,
+    browser: BrowserSection,
     settings: SettingsSection,
 };
 /**

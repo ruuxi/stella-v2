@@ -342,39 +342,13 @@ impl BrowserManager {
             .collect();
 
         if page_targets.is_empty() {
-            // Create a new tab
-            let result: CreateTargetResult = self
-                .client
-                .send_command_typed(
-                    "Target.createTarget",
-                    &CreateTargetParams {
-                        url: "about:blank".to_string(),
-                    },
-                    None,
-                )
-                .await?;
-
-            let attach_result: AttachToTargetResult = self
-                .client
-                .send_command_typed(
-                    "Target.attachToTarget",
-                    &AttachToTargetParams {
-                        target_id: result.target_id.clone(),
-                        flatten: true,
-                    },
-                    None,
-                )
-                .await?;
-
-            self.pages.push(PageInfo {
-                target_id: result.target_id,
-                session_id: attach_result.session_id.clone(),
-                url: "about:blank".to_string(),
-                title: String::new(),
-                target_type: "page".to_string(),
-            });
-            self.active_page_index = 0;
-            self.enable_domains(&attach_result.session_id).await?;
+            // A connected Stella in-app browser is intentionally allowed to be
+            // empty. The first command that actually needs a page goes through
+            // `ensure_page`, which creates the tab then. Keeping connection and
+            // tab creation separate lets the Browser panel truthfully show its
+            // quiet "Browser connected" state until either the user or agent
+            // starts browsing.
+            return Ok(());
         } else {
             for target in &page_targets {
                 let attach_result: AttachToTargetResult = self

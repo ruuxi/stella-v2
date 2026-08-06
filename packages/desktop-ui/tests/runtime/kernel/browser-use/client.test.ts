@@ -138,6 +138,40 @@ const createClient = (
   });
 
 describe("BrowserSession direct daemon client", () => {
+  it("lazily initializes the hidden in-app browser before the first agent command", async () => {
+    const daemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: true,
+      data: { action: request.action },
+    }));
+    await daemon.start();
+    const releaseInitialization = deferred<boolean>();
+    const initializeInAppBrowser = vi.fn(
+      async () => await releaseInitialization.promise,
+    );
+    const client = createClient(daemon, { initializeInAppBrowser });
+
+    try {
+      const first = client.command("navigate", { url: "https://example.com" });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(initializeInAppBrowser).toHaveBeenCalledOnce();
+      expect(daemon.requests).toHaveLength(0);
+
+      releaseInitialization.resolve(true);
+      await first;
+      await client.command("title");
+
+      expect(initializeInAppBrowser).toHaveBeenCalledOnce();
+      expect(daemon.requests.map((request) => request.action)).toEqual([
+        "navigate",
+        "title",
+      ]);
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
   it("reuses one socket, serializes calls, and requires exact response IDs", async () => {
     const releaseFirst = deferred();
     const sawFirst = deferred();
@@ -174,7 +208,9 @@ describe("BrowserSession direct daemon client", () => {
       ]);
       expect(daemon.requests[0]?.ownerId).toBe("node-repl-session-1");
       expect(daemon.requests[0]?.ownerLeaseId).toEqual(expect.any(String));
-      expect(daemon.requests[0]?.ownerLeaseIssuedAt).toEqual(expect.any(Number));
+      expect(daemon.requests[0]?.ownerLeaseIssuedAt).toEqual(
+        expect.any(Number),
+      );
       expect(daemon.requests[1]?.ownerLeaseId).toBe(
         daemon.requests[0]?.ownerLeaseId,
       );
@@ -429,7 +465,8 @@ describe("BrowserSession direct daemon client", () => {
       data: {},
     }));
     await daemon.start();
-    const client = createClient(daemon);
+    const initializeInAppBrowser = vi.fn(async () => true);
+    const client = createClient(daemon, { initializeInAppBrowser });
 
     try {
       await client.command("finalize_tabs", { keep: [] });
@@ -449,6 +486,7 @@ describe("BrowserSession direct daemon client", () => {
           (request) => request.ownerId === "node-repl-session-1",
         ),
       ).toBe(true);
+      expect(initializeInAppBrowser).not.toHaveBeenCalled();
     } finally {
       await client.dispose();
       await daemon.close();

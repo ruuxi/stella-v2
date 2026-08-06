@@ -1,6 +1,7 @@
 import { registerAgentHandlers } from "../ipc/agent-handlers.js";
 import { registerRuntimeAvailabilityBridge } from "../ipc/runtime-availability-bridge.js";
 import { registerBrowserHandlers } from "../ipc/browser-handlers.js";
+import { registerInAppBrowserHandlers, IN_APP_BROWSER_CHANNELS, } from "../ipc/in-app-browser-handlers.js";
 import { registerDiscoveryHandlers } from "../ipc/discovery-handlers.js";
 import { registerCaptureHandlers } from "../ipc/capture-handlers.js";
 import { registerMeetingCaptureHandlers } from "../ipc/meeting-capture-handlers.js";
@@ -12,7 +13,7 @@ import { registerMorphHandlers } from "../ipc/morph-handlers.js";
 import { registerNativeIntegrationHandlers } from "../ipc/native-integration-handlers.js";
 import { registerOnboardingHandlers } from "../ipc/onboarding-handlers.js";
 import { registerPetHandlers } from "../ipc/pet-handlers.js";
-import { ipcMain } from "electron";
+import { ipcMain, shell } from "electron";
 import { cleanupPetVoiceSession, togglePetVoice, } from "../services/pet-voice-control.js";
 import { WakewordService } from "../services/wakeword-service.js";
 import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
@@ -32,6 +33,10 @@ import { startCapturingHandlers } from "../services/mobile-bridge/handler-regist
 import { getAllWindows, getMobileBroadcast, } from "./context.js";
 import { startMobileBridge, startStellaBrowserBridge, stopMobileBridge, } from "./aux-runtime.js";
 import { isBrowserBridgeEagerStartWorthwhile } from "../services/stella-browser-bridge-service.js";
+import { InAppBrowserService } from "../services/in-app-browser-service.js";
+import { InAppBrowserCdpAdapter } from "../services/in-app-browser-cdp-adapter.js";
+import { InAppBrowserBootstrapServer } from "../services/in-app-browser-bootstrap-server.js";
+import { STELLA_BROWSER_EXTENSION_ID } from "@stella/runtime/kernel/tools/stella-browser-bridge-config";
 import { scheduleGlobalInputHooksAfterAppReady } from "./global-input-hooks.js";
 import { randomUUID } from "crypto";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
@@ -57,6 +62,89 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     const stopCapturing = startCapturingHandlers();
     const lazyMobileBroadcast = () => getMobileBroadcast(context);
     const { config, lifecycle, services, state } = context;
+    if (!state.inAppBrowserService) {
+        state.inAppBrowserService = new InAppBrowserService({
+            stellaDataDir: state.stellaDataDirPath ?? config.stellaDataDirPath,
+            getWindow: () => state.windowManager?.getFullWindow() ?? null,
+            ensureBrowserBridgeStarted: () => startStellaBrowserBridge(context),
+            openExtensionStore: () => shell.openExternal(`https://chromewebstore.google.com/detail/${STELLA_BROWSER_EXTENSION_ID}`),
+            getExtensionStatus: async () => {
+                const resource = state.stellaBrowserBridgeService;
+                if (!resource?.getExtensionStatus)
+                    return false;
+                return await resource.getExtensionStatus();
+            },
+            exportAllCookies: async () => {
+                const resource = state.stellaBrowserBridgeService;
+                if (!resource?.exportAllCookies) {
+                    throw new Error("Browser bridge service is not running.");
+                }
+                return await resource.exportAllCookies();
+            },
+            exportCookiesForUrls: async (urls) => {
+                const resource = state.stellaBrowserBridgeService;
+                if (!resource?.exportCookiesForUrls) {
+                    throw new Error("Browser bridge service is not running.");
+                }
+                return await resource.exportCookiesForUrls(urls);
+            },
+            connectionTimeoutMs: 4 * 60 * 1000,
+            connectionPollMs: 1000,
+            automaticConnectionTimeoutMs: 15 * 1000,
+            onStateChanged: (browserState) => {
+                for (const window of getAllWindows(context)) {
+                    if (!window.isDestroyed()) {
+                        window.webContents.send(IN_APP_BROWSER_CHANNELS.state, browserState);
+                    }
+                }
+            },
+        });
+    }
+    if (!state.inAppBrowserCdpAdapter) {
+        state.inAppBrowserCdpAdapter = new InAppBrowserCdpAdapter(state.inAppBrowserService);
+    }
+    let inAppBrowserRoutingPromise = null;
+    const ensureInAppBrowserAgentRouting = () => {
+        if (inAppBrowserRoutingPromise) {
+            return inAppBrowserRoutingPromise;
+        }
+        const promise = (async () => {
+            const cdpUrl = await state.inAppBrowserCdpAdapter.start();
+            const resource = state.stellaBrowserBridgeService;
+            if (!resource?.connectCdp) {
+                throw new Error("Browser bridge service is not running.");
+            }
+            await resource.connectCdp(cdpUrl);
+        })().finally(() => {
+            if (inAppBrowserRoutingPromise === promise) {
+                inAppBrowserRoutingPromise = null;
+            }
+        });
+        inAppBrowserRoutingPromise = promise;
+        return promise;
+    };
+    const ensureInAppBrowserReady = async () => {
+        const browserState = await state.inAppBrowserService.connect();
+        if (browserState.connection !== "connected") {
+            throw new Error(browserState.error ??
+                "Connect the Stella browser extension before using Stella Browser.");
+        }
+        await ensureInAppBrowserAgentRouting();
+    };
+    if (!state.inAppBrowserBootstrapServer) {
+        state.inAppBrowserBootstrapServer = new InAppBrowserBootstrapServer({
+            token: randomUUID(),
+            ensureReady: ensureInAppBrowserReady,
+        });
+        void state.inAppBrowserBootstrapServer.start().catch((error) => {
+            console.error("[in-app-browser] Failed to start lazy initialization server:", error);
+        });
+    }
+    state.inAppBrowserHandlersDispose = registerInAppBrowserHandlers({
+        service: state.inAppBrowserService,
+        ensureAgentRouting: ensureInAppBrowserAgentRouting,
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
+    });
     const allowedStoreWebOrigin = getUrlOrigin(readStoreWebBaseUrl());
     let postReadyNativeServicesScheduled = false;
     const schedulePostReadyNativeServices = () => {

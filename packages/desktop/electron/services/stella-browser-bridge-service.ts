@@ -169,6 +169,25 @@ type DaemonResponse = {
   data?: unknown;
 };
 
+export type StellaBrowserExportedCookie = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  hostOnly: boolean;
+  session: boolean;
+  storeId: string;
+  sameSite: string;
+  expirationDate?: number;
+  partitionKey?: {
+    topLevelSite?: string;
+    hasCrossSiteAncestor?: boolean;
+  };
+  [key: string]: unknown;
+};
+
 export class StellaBrowserBridgeService {
   private readonly stellaAppDir: string;
   private readonly onUnexpectedExit?: (error: string) => void;
@@ -181,6 +200,67 @@ export class StellaBrowserBridgeService {
   constructor(options: StellaBrowserBridgeServiceOptions) {
     this.stellaAppDir = options.stellaAppDir;
     this.onUnexpectedExit = options.onUnexpectedExit;
+  }
+
+  async getExtensionStatus(): Promise<boolean> {
+    const response = await this.sendCommand({
+      id: randomUUID(),
+      action: "extension_status",
+    });
+    return (
+      typeof response.data === "object" &&
+      response.data !== null &&
+      "connected" in response.data &&
+      response.data.connected === true
+    );
+  }
+
+  async exportAllCookies(): Promise<StellaBrowserExportedCookie[]> {
+    const response = await this.sendCommand({
+      id: randomUUID(),
+      action: "cookies_export_all",
+    });
+    const cookies =
+      typeof response.data === "object" &&
+      response.data !== null &&
+      "cookies" in response.data
+        ? response.data.cookies
+        : null;
+    if (!Array.isArray(cookies)) {
+      throw new Error("Browser extension returned an invalid cookie export.");
+    }
+    return cookies as StellaBrowserExportedCookie[];
+  }
+
+  async exportCookiesForUrls(
+    urls: string[],
+  ): Promise<StellaBrowserExportedCookie[]> {
+    const response = await this.sendCommand({
+      id: randomUUID(),
+      action: "cookies_export_for_urls",
+      urls,
+    });
+    const cookies =
+      typeof response.data === "object" &&
+      response.data !== null &&
+      "cookies" in response.data
+        ? response.data.cookies
+        : null;
+    if (!Array.isArray(cookies)) {
+      throw new Error("Browser extension returned an invalid cookie export.");
+    }
+    return cookies as StellaBrowserExportedCookie[];
+  }
+
+  async connectCdp(cdpUrl: string): Promise<void> {
+    if (!cdpUrl.trim()) {
+      throw new Error("A CDP URL is required.");
+    }
+    await this.sendCommand({
+      id: randomUUID(),
+      action: "launch",
+      cdpUrl,
+    });
   }
 
   start() {

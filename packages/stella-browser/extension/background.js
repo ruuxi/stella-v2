@@ -19,7 +19,12 @@ import {
   handleScreenshot, handleSnapshot, handleContent, handleEvaluate,
   handleGetText, handleGetAttribute, handlePdf,
 } from './commands/capture.js';
-import { handleCookiesGet, handleCookiesSet, handleCookiesClear } from './commands/cookies.js';
+import {
+  handleCookiesGet,
+  handleCookiesExportAll,
+  handleCookiesSet,
+  handleCookiesClear,
+} from './commands/cookies.js';
 import {
   handleInnerText, handleInnerHtml, handleInputValue, handleBoundingBox,
   handleWaitForUrl, handleScrollIntoView, handleIsVisible, handleIsEnabled,
@@ -134,6 +139,7 @@ const HANDLERS = {
 
   // Cookies
   cookies_get: handleCookiesGet,
+  cookies_export_all: handleCookiesExportAll,
   cookies_set: handleCookiesSet,
   cookies_clear: handleCookiesClear,
 

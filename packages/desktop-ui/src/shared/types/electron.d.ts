@@ -1119,6 +1119,50 @@ export type ElectronBrowserApi = {
   ) => Promise<string>;
 };
 
+export type BrowserViewState = {
+  connection: "checking" | "disconnected" | "connected";
+  profileName?: string;
+  tabs: Array<{
+    id: string;
+    url: string;
+    title: string;
+    faviconUrl?: string;
+    loading: boolean;
+    canGoBack: boolean;
+    canGoForward: boolean;
+  }>;
+  activeTabId?: string;
+  error?: string;
+};
+
+export type BrowserViewLayout = {
+  pageBounds: { x: number; y: number; width: number; height: number };
+  surfaceBounds: { x: number; y: number; width: number; height: number };
+};
+
+export type ElectronBrowserViewApi = {
+  getState: () => Promise<BrowserViewState>;
+  connect: (payload?: {
+    browserType?: string;
+    profileId?: string;
+  }) => Promise<BrowserViewState>;
+  show: (payload: BrowserViewLayout) => Promise<BrowserViewState>;
+  setLayout: (payload: BrowserViewLayout) => Promise<BrowserViewState>;
+  hide: () => Promise<BrowserViewState>;
+  createTab: (payload?: { url?: string }) => Promise<BrowserViewState>;
+  selectTab: (payload: { tabId: string }) => Promise<BrowserViewState>;
+  closeTab: (payload: { tabId: string }) => Promise<BrowserViewState>;
+  navigate: (payload: {
+    tabId: string;
+    url: string;
+  }) => Promise<BrowserViewState>;
+  goBack: (payload: { tabId: string }) => Promise<BrowserViewState>;
+  goForward: (payload: { tabId: string }) => Promise<BrowserViewState>;
+  reload: (payload: { tabId: string }) => Promise<BrowserViewState>;
+  requestExtensionConnect: () => Promise<BrowserViewState>;
+  onState: (callback: (state: BrowserViewState) => void) => () => void;
+};
+
 export type ElectronScheduleApi = {
   listCronJobs: () => Promise<LocalCronJobRecord[]>;
   listHeartbeats: () => Promise<LocalHeartbeatConfigRecord[]>;
@@ -1675,6 +1719,7 @@ export type ElectronApi = {
   onboarding: ElectronOnboardingApi;
   discovery: ElectronDiscoveryApi;
   browser: ElectronBrowserApi;
+  browserView: ElectronBrowserViewApi;
   storeWeb: ElectronStoreWebApi;
   storeWebLocal: ElectronStoreWebLocalApi;
   media: {

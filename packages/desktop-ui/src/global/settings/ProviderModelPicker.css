@@ -369,8 +369,8 @@
 .model-picker-search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 7px;
+  padding: 4px 10px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border);
   background: var(--surface-inset);
@@ -379,7 +379,6 @@
 
 .model-picker-search:focus-within {
   border-color: var(--border-strong);
-  box-shadow: var(--focus-ring);
 }
 
 .model-picker-search input {
@@ -402,6 +401,32 @@
 
 .model-picker-search [data-component="button"] {
   flex-shrink: 0;
+}
+
+.model-picker-search-close {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-weak);
+  cursor: default;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.model-picker-search-close:hover,
+.model-picker-search-close:focus-visible {
+  outline: none;
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--text-strong) 8%, transparent);
 }
 
 .model-picker-models {

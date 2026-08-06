@@ -13,13 +13,17 @@ import {
   DesktopUpdater,
   type DesktopUpdaterClient,
 } from "../updates/desktop-updater.js";
+import { isOwnedWindowMainFrameSender } from "./owned-window-sender.js";
 
 const { autoUpdater } = electronUpdater;
 
 type UpdatesHandlersOptions = {
   getAllWindows: () => Array<{
     isDestroyed: () => boolean;
-    webContents: { send: (channel: string, payload: unknown) => void };
+    webContents: {
+      id: number;
+      send: (channel: string, payload: unknown) => void;
+    };
   }>;
   assertPrivilegedSender: (
     event: IpcMainInvokeEvent,
@@ -32,9 +36,13 @@ const assertTrusted = (
   event: IpcMainInvokeEvent,
   channel: string,
 ) => {
-  if (!options.assertPrivilegedSender(event, channel)) {
-    throw new Error(`Blocked untrusted ${channel} request.`);
+  if (isOwnedWindowMainFrameSender(event, options.getAllWindows())) {
+    return;
   }
+  if (options.assertPrivilegedSender(event, channel)) {
+    return;
+  }
+  throw new Error(`Blocked untrusted ${channel} request.`);
 };
 
 export const registerUpdatesHandlers = (

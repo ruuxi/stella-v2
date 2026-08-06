@@ -27,7 +27,6 @@
 
 /* Fade-in for home content elements */
 .home-stella-title,
-.home-view-messages-link,
 .home-sidebar-hint {
   animation: homeContentFadeIn 300ms ease both;
 }
@@ -49,7 +48,6 @@
 
 /* Fade-out when leaving home → chat */
 .full-body-main--home-leaving .home-stella-title,
-.full-body-main--home-leaving .home-view-messages-link,
 .full-body-main--home-leaving .home-sidebar-hint,
 .full-body-main--home-leaving .composer-wrap {
   animation: homeContentFadeOut 280ms ease both;
@@ -84,42 +82,6 @@
   .home-content {
     --home-scale-title: 34px;
   }
-}
-
-/* "Back to chat" — plain text link shown when home overlays existing chat */
-.home-view-messages-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 6px 4px;
-  background: transparent;
-  border: none;
-  color: var(--text-base);
-  font-family: var(--font-family-sans);
-  font-size: var(--font-size-md);
-  font-weight: var(--weight-medium);
-  letter-spacing: -0.01em;
-  cursor: default;
-  transition: color 0.15s ease;
-}
-
-.home-view-messages-link:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.home-view-messages-link__arrow {
-  flex-shrink: 0;
-  transition: transform 0.15s ease;
-}
-
-.home-view-messages-link:hover {
-  color: var(--text-strong);
-}
-
-.home-view-messages-link:hover .home-view-messages-link__arrow {
-  transform: translateX(2px);
 }
 
 .home-sidebar-hint {

@@ -48,7 +48,7 @@ const FULL_CHAT_CONTENT_STYLE = {
     paddingTop: 112,
     paddingBottom: 30,
 };
-export const ChatColumn = memo(function ChatColumn({ conversation, composer, scroll, composerEntering, conversationId, showHomeContent, onDismissHome, }) {
+export const ChatColumn = memo(function ChatColumn({ conversation, composer, scroll, composerEntering, conversationId, showHomeContent, }) {
     const isDraggingRef = useRef(false);
     const dragStartRef = useRef(null);
     const { noteManualScroll } = scroll;
@@ -257,7 +257,7 @@ export const ChatColumn = memo(function ChatColumn({ conversation, composer, scr
       </div>
 
       {homeVisible && (<div className={`full-body-home-overlay full-body-main--home${homeLeaving ? " full-body-main--home-leaving" : ""}`} {...dropHandlers}>
-          <HomeContent onDismissHome={onDismissHome}>
+          <HomeContent>
             <div className="composer-wrap" inert={showHomeContent ? undefined : true}>
               {renderComposer("home", null)}
             </div>

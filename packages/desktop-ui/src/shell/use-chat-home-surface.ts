@@ -35,7 +35,7 @@ type UseChatHomeSurfaceResult = {
   enterChatSurfaceForInteraction: () => void
   /** Reset the idle timer (e.g. after the user clicks a suggestion). */
   resetIdleTimer: () => void
-  /** Explicitly dismiss home (the "Back to chat" link). */
+  /** Explicitly dismiss home. */
   dismissHome: () => void
   /** Explicitly bring home back. */
   showHome: () => void

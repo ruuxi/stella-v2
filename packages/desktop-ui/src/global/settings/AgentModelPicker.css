@@ -35,9 +35,9 @@
   flex: 1 1 auto;
   gap: 2px;
   min-width: 0;
-  padding: 3px;
+  padding: 0;
   border-radius: 12px;
-  background: color-mix(in oklch, var(--text-strong) 6%, transparent);
+  background: transparent;
   border: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
 }
 

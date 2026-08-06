@@ -24,7 +24,9 @@ describe("sidebar Models control placement", () => {
     expect(panel).not.toContain("SidebarModelsControl");
     expect(panel).not.toContain("right-sidebar-models-footer");
     expect(home).toContain("<HomeSection />");
-    expect(home).not.toContain("showModels");
+    expect(home).toContain("<SidebarModelsControl />");
+    expect(home).toContain("modelsOpen ?");
+    expect(home).toContain("<AgentModelPicker active={!surfaceHidden}/>");
 
     expect(work).toContain('className="work-section__footer"');
     expect(work).toContain("<SidebarModelsControl />");

@@ -19,7 +19,7 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--radius-full);
   background: transparent;
   color: var(--text-weak);
@@ -37,7 +37,8 @@
 }
 
 .work-model-mode-button[data-active] {
-  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+  background: transparent;
+  border-color: var(--border);
   color: var(--text-strong);
 }
 
@@ -45,10 +46,11 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: none;
+  border: 1px solid transparent;
 }
 
 .pill-btn.work-models-button[data-active] {
-  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+  background: transparent;
+  border-color: var(--border);
   color: var(--text-strong);
 }

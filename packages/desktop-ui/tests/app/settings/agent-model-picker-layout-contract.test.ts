@@ -30,6 +30,11 @@ describe("agent model picker layout", () => {
     expect(picker).toContain('savedReasoningEffort === "default"');
     expect(picker).toContain('selectedChatGptLiveModel?.defaultReasoningEffort');
     expect(pickerStyles).toContain(".agent-model-picker-reasoning-options");
+    expect(pickerStyles).toContain(
+      ".agent-model-picker-reasoning-options button[data-active]",
+    );
+    expect(pickerStyles).toContain("border-color: var(--border);");
+    expect(pickerStyles).not.toContain("background: var(--select-fill);");
     expect(providerPanel).not.toContain("model-picker-group-bar");
     expect(providerPanel).not.toContain("model-picker-group-rule");
     expect(providerPanel).not.toContain("model-picker-model-sub");
@@ -40,6 +45,8 @@ describe("agent model picker layout", () => {
     expect(providerStyles).toContain(
       ".model-picker-search-row .model-picker-search",
     );
+    expect(providerStyles).toContain(".model-picker-model[data-selected]");
+    expect(providerStyles).not.toContain("background: var(--select-fill);");
     expect(picker).not.toContain(
       "setBrandHeaderActions(null);\n        setBrandSearchOpen(false);",
     );

@@ -66,16 +66,9 @@
   padding: 8px 10px 4px;
 }
 
-.model-picker-group-bar {
-  flex-shrink: 0;
-  width: 3px;
-  height: 11px;
-  border-radius: 3px;
-  background: transparent;
-}
-
-.model-picker-group-bar[data-on] {
-  background: var(--success);
+.model-picker-group-head[data-label-hidden] {
+  justify-content: flex-end;
+  padding-block: 2px;
 }
 
 .model-picker-group-icon {
@@ -94,12 +87,6 @@
   text-transform: uppercase;
   color: var(--text-weak);
   white-space: nowrap;
-}
-
-.model-picker-group-rule {
-  flex: 1;
-  height: 1px;
-  background: color-mix(in oklch, var(--border) 45%, transparent);
 }
 
 .model-picker-group-note {
@@ -356,11 +343,35 @@
 
 /* ----------------------------------------------------------- Search + list */
 
-.model-picker-search {
+.model-picker-search-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+}
+
+.model-picker-search-row .model-picker-search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.model-picker-search-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.model-picker-search-row:hover .model-picker-group-signout,
+.model-picker-search-action .model-picker-group-signout:focus-visible,
+.model-picker-search-action .model-picker-group-signout[data-armed] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.model-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border);
   background: var(--surface-inset);
@@ -369,7 +380,6 @@
 
 .model-picker-search:focus-within {
   border-color: var(--border-strong);
-  box-shadow: var(--focus-ring);
 }
 
 .model-picker-search input {
@@ -392,6 +402,32 @@
 
 .model-picker-search [data-component="button"] {
   flex-shrink: 0;
+}
+
+.model-picker-search-close {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-weak);
+  cursor: default;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.model-picker-search-close:hover,
+.model-picker-search-close:focus-visible {
+  outline: none;
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--text-strong) 8%, transparent);
 }
 
 .model-picker-models {

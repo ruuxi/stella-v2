@@ -206,111 +206,257 @@
   opacity: 0.5;
 }
 
-/* Source toggle — shown for brands reachable through both a subscription
- * runtime (ChatGPT / Claude Code) and an API key. */
-.agent-model-picker-source {
-  display: inline-flex;
-  align-self: flex-start;
+/* Scoped provider header: provider context, source, search, refresh, and
+ * sign-in/API-key actions share one compact row above the model list. */
+.agent-model-picker-brand-header {
+  display: flex;
   flex: none;
-  gap: 2px;
-  padding: 3px;
-  margin-bottom: 8px;
-  border: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
-  border-radius: var(--radius-full);
-  background: color-mix(in oklch, var(--text-strong) 6%, transparent);
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  margin: -2px 2px 6px;
 }
 
-.agent-model-picker-source button {
+.agent-model-picker-brand-actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.agent-model-picker-brand-action {
   appearance: none;
-  min-height: 24px;
-  padding: 2px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--text-weak);
+  cursor: default;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.agent-model-picker-brand-action:hover:not(:disabled),
+.agent-model-picker-brand-action:focus-visible {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--text-strong) 8%, transparent);
+  outline: none;
+}
+
+.agent-model-picker-brand-action[data-active] {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--text-strong) 10%, transparent);
+}
+
+.agent-model-picker-brand-action:disabled {
+  opacity: 0.5;
+}
+
+.agent-model-picker-brand-action svg[data-spinning] {
+  animation: agent-model-picker-spin 700ms linear infinite;
+}
+
+.agent-model-picker-connect-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  margin-left: 4px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  cursor: default;
+  transition:
+    background 120ms ease,
+    opacity 120ms ease;
+}
+
+.agent-model-picker-connect-btn:hover:not(:disabled),
+.agent-model-picker-connect-btn:focus-visible {
+  background: color-mix(in oklch, var(--text-strong) 12%, var(--primary));
+  outline: none;
+}
+
+.agent-model-picker-connect-btn:disabled {
+  opacity: 0.5;
+}
+
+.agent-model-picker-brand-actions .model-picker-group-signout {
+  opacity: 1;
+  pointer-events: auto;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md, 8px);
+}
+
+.agent-model-picker-brand-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-strong);
+}
+
+.agent-model-picker-brand-heading-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.agent-model-picker-brand-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-model-picker-brand-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-2xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-weak);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.agent-model-picker-brand-subtitle.is-connected::before,
+.agent-model-picker-brand-subtitle.is-disconnected::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-weak);
+  opacity: 0.6;
+}
+
+.agent-model-picker-brand-subtitle.is-connected::before {
+  background: var(--success, #4caf7d);
+  opacity: 1;
+}
+
+.agent-model-picker-source-select {
+  appearance: none;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 0;
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-weak);
+  font-family: inherit;
+  font-size: var(--font-size-2xs);
+  font-weight: var(--weight-medium);
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: default;
+  transition: color 120ms ease;
+}
+
+.agent-model-picker-source-select:hover:not(:disabled),
+.agent-model-picker-source-select:focus-visible {
+  color: var(--text-strong);
+  outline: none;
+}
+
+.agent-model-picker-source-select:disabled {
+  opacity: 0.5;
+}
+
+.agent-model-picker-controls {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.agent-model-picker-reasoning {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.agent-model-picker-reasoning-icon {
+  flex: none;
+  color: var(--text-weak);
+}
+
+.agent-model-picker-reasoning-options {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-full);
+  background: color-mix(in oklch, var(--text-strong) 6%, transparent);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.agent-model-picker-reasoning-options::-webkit-scrollbar {
+  display: none;
+}
+
+.agent-model-picker-reasoning-options button {
+  appearance: none;
+  flex: 1 0 auto;
+  min-height: 26px;
+  padding: 4px 7px;
   border: 0;
   border-radius: var(--radius-full);
   background: transparent;
   color: var(--text-weak);
-  font-family: inherit;
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-medium);
-  white-space: nowrap;
+  font: inherit;
+  cursor: default;
   transition:
     background 120ms ease,
     color 120ms ease;
 }
 
-.agent-model-picker-source button:hover:not(:disabled),
-.agent-model-picker-source button:focus-visible {
-  color: var(--text-strong);
+.agent-model-picker-reasoning-options button:hover:not(:disabled),
+.agent-model-picker-reasoning-options button:focus-visible {
   outline: none;
-}
-
-.agent-model-picker-source button[data-active] {
-  background: var(--background);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
   color: var(--text-strong);
-  box-shadow: var(--shadow-subtle);
 }
 
-.agent-model-picker-source button:disabled {
+.agent-model-picker-reasoning-options button[data-active] {
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+  color: var(--text-strong);
+}
+
+.agent-model-picker-reasoning-options button:disabled {
   opacity: 0.5;
-}
-
-.agent-model-picker-engine-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--text-weak);
-  font-size: var(--font-size-xs);
-}
-
-.agent-model-picker-engine-note-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-model-picker-controls {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex: none;
-}
-
-.agent-model-picker-reasoning {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-weak);
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-medium);
-  white-space: nowrap;
-}
-
-.agent-model-picker-fast-toggle {
-  gap: 6px;
-  color: var(--text-weak);
-  white-space: nowrap;
-}
-
-.agent-model-picker-fast-toggle [data-slot="switch-label"] {
-  color: inherit;
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-medium);
-}
-
-.agent-model-picker-reasoning [data-component="select"] {
-  min-width: 0;
-  width: auto;
-}
-
-.agent-model-picker-reasoning [data-slot="select-trigger"] {
-  min-height: 26px;
-  min-width: 0;
-  width: auto;
-  padding-inline: 8px 4px;
-  gap: 4px;
-  border-radius: var(--radius-full);
 }
 
 .agent-model-picker-refresh {

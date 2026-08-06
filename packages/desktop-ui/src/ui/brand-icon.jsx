@@ -5,8 +5,6 @@ import { BRAND_ICON_COLOR_MARKUP, BRAND_ICON_MARKUP, } from "@/ui/brand-icon-pat
 /** Provider key → brand glyph key. Unlisted keys use the key itself. */
 const BRAND_KEY_ALIASES = {
     "openai-codex": "openai",
-    "google-gemini-cli": "gemini",
-    "google-antigravity": "gemini",
     "kimi-coding": "kimi",
     "vercel-ai-gateway": "vercel",
     "github-copilot": "githubcopilot",

@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getProviderDisplayName } from "@stella/contracts/provider-display";
 import { getEnvApiKey } from "@stella/runtime/ai/env-api-keys";
-import { getModels } from "@stella/runtime/ai/models";
+import { getModelProviders, getModels } from "@stella/runtime/ai/models";
 import { streamSimpleOpenAIResponses } from "@stella/runtime/ai/providers/openai-responses";
+import { getOAuthProvider } from "@stella/runtime/ai/utils/oauth/index";
 import {
   compareProviderRailOrder,
   LLM_PROVIDERS,
@@ -84,6 +85,11 @@ describe("Meta direct provider", () => {
     expect(LLM_PROVIDERS.map((provider) => provider.key)).not.toEqual(
       expect.arrayContaining(["google-antigravity", "google-gemini-cli"]),
     );
+    expect(getModelProviders()).not.toEqual(
+      expect.arrayContaining(["google-antigravity", "google-gemini-cli"]),
+    );
+    expect(getOAuthProvider("google-antigravity")).toBeUndefined();
+    expect(getOAuthProvider("google-gemini-cli")).toBeUndefined();
   });
 
   it("orders Meta after OpenAI and OpenRouter after xAI", () => {

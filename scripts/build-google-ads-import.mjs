@@ -115,8 +115,42 @@ const headers = [
   "Comment",
 ];
 
+const bulkHeaders = [
+  "Row Type",
+  "Action",
+  "Campaign status",
+  "Campaign",
+  "Campaign type",
+  "Networks",
+  "Budget",
+  "Budget type",
+  "Bid strategy type",
+  "Language",
+  "Location",
+  "Devices",
+  "EU political ads",
+  "Ad group status",
+  "Ad group",
+  "Ad group type",
+  "Default max. CPC",
+  "Keyword status",
+  "Keyword",
+  "Negative keyword",
+  "Level",
+  "Type",
+  "Ad status",
+  "Ad type",
+  ...Array.from({ length: 15 }, (_, index) => `Headline ${index + 1}`),
+  ...Array.from({ length: 4 }, (_, index) => `Description ${index + 1}`),
+  "Path 1",
+  "Path 2",
+  "Final URL",
+];
+
 const rows = [];
 const add = (values) => rows.push(values);
+const bulkRows = [];
+const addBulk = (values) => bulkRows.push(values);
 const assertLength = (label, value, limit) => {
   if (value.length > limit) {
     throw new Error(`${label} exceeds ${limit} characters: ${value}`);
@@ -152,6 +186,31 @@ for (const campaign of campaigns) {
     "Ad Group Status": "Paused",
     "Max CPC": "2.50",
   });
+  addBulk({
+    "Row Type": "Campaign",
+    Action: "Add",
+    "Campaign status": "Paused",
+    Campaign: campaign.name,
+    "Campaign type": "Search",
+    Networks: "Google search",
+    Budget: campaign.dailyBudget,
+    "Budget type": "Daily",
+    "Bid strategy type": "Maximize clicks",
+    Language: "en",
+    Location: "United States",
+    Devices:
+      "Computers; Mobile devices with full browsers:-100%; Tablets with full browsers:-100%",
+    "EU political ads": "No",
+  });
+  addBulk({
+    "Row Type": "Ad group",
+    Action: "Add",
+    "Ad group status": "Paused",
+    Campaign: campaign.name,
+    "Ad group": campaign.adGroup,
+    "Ad group type": "Standard",
+    "Default max. CPC": "2.50",
+  });
 }
 
 for (const keyword of keywords) {
@@ -161,6 +220,20 @@ for (const keyword of keywords) {
     Keyword: keyword.keyword,
     Type: keyword.match_type,
     Status: "Paused",
+  });
+  addBulk({
+    "Row Type": "Keyword",
+    Action: "Add",
+    "Keyword status": "Paused",
+    Campaign: keyword.campaign,
+    "Ad group": keyword.ad_group,
+    Keyword: keyword.keyword,
+    Type:
+      keyword.match_type === "exact"
+        ? "Exact match"
+        : keyword.match_type === "phrase"
+          ? "Phrase match"
+          : "Broad match",
   });
 }
 
@@ -174,6 +247,20 @@ for (const campaign of campaigns) {
           : negative.keyword,
       Type: "Campaign negative",
       Comment: negative.reason,
+    });
+    addBulk({
+      "Row Type": "Negative keyword",
+      Action: "Add",
+      "Keyword status": "Paused",
+      Level: "Campaign",
+      Campaign: campaign.name,
+      "Negative keyword": negative.keyword,
+      Type:
+        negative.match_type === "exact"
+          ? "Exact match"
+          : negative.match_type === "phrase"
+            ? "Phrase match"
+            : "Broad match",
     });
   }
 }
@@ -206,6 +293,26 @@ for (const ad of ads.values()) {
     Campaign: ad.campaign,
     "Ad Group": ad.adGroup,
     Status: "Paused",
+    "Ad type": "Responsive search ad",
+    ...Object.fromEntries(
+      ad.headlines.map((headline, index) => [`Headline ${index + 1}`, headline]),
+    ),
+    ...Object.fromEntries(
+      ad.descriptions.map((description, index) => [
+        `Description ${index + 1}`,
+        description,
+      ]),
+    ),
+    "Path 1": campaign.path1,
+    "Path 2": "mac-windows",
+    "Final URL": ad.finalUrl,
+  });
+  addBulk({
+    "Row Type": "Ad",
+    Action: "Add",
+    "Ad status": "Paused",
+    Campaign: ad.campaign,
+    "Ad group": ad.adGroup,
     "Ad type": "Responsive search ad",
     ...Object.fromEntries(
       ad.headlines.map((headline, index) => [`Headline ${index + 1}`, headline]),
@@ -269,4 +376,15 @@ const output = [
 ].join("\n");
 
 writeFileSync(resolve(marketingDir, "google-ads-editor-import.csv"), `${output}\n`);
-console.log(`Wrote ${rows.length} Google Ads Editor rows.`);
+
+const bulkOutput = [
+  bulkHeaders.join(","),
+  ...bulkRows.map((row) =>
+    bulkHeaders.map((header) => csvCell(row[header])).join(","),
+  ),
+].join("\n");
+
+writeFileSync(resolve(marketingDir, "google-ads-bulk-import.csv"), `${bulkOutput}\n`);
+console.log(
+  `Wrote ${rows.length} Google Ads Editor rows and ${bulkRows.length} Google Ads bulk-upload rows.`,
+);

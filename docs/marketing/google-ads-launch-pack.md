@@ -152,18 +152,23 @@ but do not negate high-intent comparison terms such as "alternative," "vs," or
 - Billing country: United States; time zone: Phoenix; currency: USD.
 - The new-advertiser offer is selected: spend $500 by October 5, 2026 to receive
   $500 in Ads credit, subject to Google's terms.
-- Billing is not active. Google rejected the temporary $50 authorization on the
-  saved payment methods. The remaining saved Visa requires its ZIP code to be
-  updated manually.
+- Billing is active with a primary payment method.
+- Advertiser verification is complete under `FromYou, LLC`; the public payer is
+  `FromYou LLC`, and the disclosure location is the United States.
+- The 129-row web bulk import applied successfully. All three Search campaigns,
+  three ad groups, 27 keywords, and six responsive search ads are enabled. The
+  ads remain pending while Google reviews them.
+- The portfolio budget is $164.47/day (approximately $5,000/month), with a
+  $2.50 max CPC, Google Search only, United States presence-only targeting, and
+  mobile and tablet traffic excluded.
+- Account-level sitelinks, callouts, and a structured snippet are attached and
+  under review. A stray imported call asset was removed.
 - `Joyi 564-160-0625` was deliberately not reused because it contains $1,362.91
   in historical spend and has its own failed payment state.
 
-After billing is corrected, run `bun run build-google-ads-import`, import
-`google-ads-editor-import.csv` into account `439-929-3264`, review the proposed
-changes, and keep the campaigns paused until the location option is confirmed
-as presence-only. The import contains the approved $164.47/day portfolio cap,
-Search-only networks, desktop-only device modifiers, keywords, negatives, six
-responsive search ads, and account-level assets.
+Run `bun run build-google-ads-import` to regenerate both the Google Ads Editor
+file and the web bulk-upload file. The account-level assets are intentionally
+managed in the Google Ads UI rather than duplicated by the web uploader.
 
 ## Sources reviewed
 

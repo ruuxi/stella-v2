@@ -43,14 +43,8 @@ export const MANAGED_MODEL_AUDIENCES = [
   "free",
   "go",
   "pro",
-  "plus",
-  "ultra",
-  "max",
   "go_fallback",
   "pro_fallback",
-  "plus_fallback",
-  "ultra_fallback",
-  "max_fallback",
 ] as const;
 
 export type ManagedModelAudience = (typeof MANAGED_MODEL_AUDIENCES)[number];
@@ -279,14 +273,8 @@ const AUDIENCE_MODE_OVERRIDES: Record<
   free: {},
   go: {},
   pro: {},
-  plus: {},
-  ultra: {},
-  max: {},
   go_fallback: {},
   pro_fallback: {},
-  plus_fallback: {},
-  ultra_fallback: {},
-  max_fallback: {},
 };
 
 // Per-audience swaps of an agent's task→model mapping. Lets us point
@@ -312,19 +300,13 @@ const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
   free: DEFAULT_AGENT_OVERRIDES,
   go: DEFAULT_AGENT_OVERRIDES,
   pro: DEFAULT_AGENT_OVERRIDES,
-  plus: DEFAULT_AGENT_OVERRIDES,
-  ultra: DEFAULT_AGENT_OVERRIDES,
-  max: DEFAULT_AGENT_OVERRIDES,
   go_fallback: DEFAULT_AGENT_OVERRIDES,
   pro_fallback: DEFAULT_AGENT_OVERRIDES,
-  plus_fallback: DEFAULT_AGENT_OVERRIDES,
-  ultra_fallback: DEFAULT_AGENT_OVERRIDES,
-  max_fallback: DEFAULT_AGENT_OVERRIDES,
 };
 
 // Audiences that may NOT override the per-agent default model from the
 // client. Anonymous/free/go (incl. go's downgraded fallback) are pinned to
-// the backend-chosen model; pro/plus/ultra users keep the model picker.
+// the backend-chosen model; Pro users keep the model picker.
 const RESTRICTED_MODEL_OVERRIDE_AUDIENCES = new Set<ManagedModelAudience>([
   "anonymous",
   "free",
@@ -537,14 +519,8 @@ const AUDIENCE_MODE_CONFIGS: Record<
   free: buildAudienceModeCatalog("free"),
   go: buildAudienceModeCatalog("go"),
   pro: buildAudienceModeCatalog("pro"),
-  plus: buildAudienceModeCatalog("plus"),
-  ultra: buildAudienceModeCatalog("ultra"),
-  max: buildAudienceModeCatalog("max"),
   go_fallback: buildAudienceModeCatalog("go_fallback"),
   pro_fallback: buildAudienceModeCatalog("pro_fallback"),
-  plus_fallback: buildAudienceModeCatalog("plus_fallback"),
-  ultra_fallback: buildAudienceModeCatalog("ultra_fallback"),
-  max_fallback: buildAudienceModeCatalog("max_fallback"),
 };
 
 export const AUDIENCE_AGENT_MODELS: Record<
@@ -571,21 +547,6 @@ export const AUDIENCE_AGENT_MODELS: Record<
     AUDIENCE_MODE_CONFIGS.pro,
     buildAudienceRawModeCatalog("pro"),
   ),
-  plus: buildAudienceAgentCatalog(
-    "plus",
-    AUDIENCE_MODE_CONFIGS.plus,
-    buildAudienceRawModeCatalog("plus"),
-  ),
-  ultra: buildAudienceAgentCatalog(
-    "ultra",
-    AUDIENCE_MODE_CONFIGS.ultra,
-    buildAudienceRawModeCatalog("ultra"),
-  ),
-  max: buildAudienceAgentCatalog(
-    "max",
-    AUDIENCE_MODE_CONFIGS.max,
-    buildAudienceRawModeCatalog("max"),
-  ),
   go_fallback: buildAudienceAgentCatalog(
     "go_fallback",
     AUDIENCE_MODE_CONFIGS.go_fallback,
@@ -596,28 +557,13 @@ export const AUDIENCE_AGENT_MODELS: Record<
     AUDIENCE_MODE_CONFIGS.pro_fallback,
     buildAudienceRawModeCatalog("pro_fallback"),
   ),
-  plus_fallback: buildAudienceAgentCatalog(
-    "plus_fallback",
-    AUDIENCE_MODE_CONFIGS.plus_fallback,
-    buildAudienceRawModeCatalog("plus_fallback"),
-  ),
-  ultra_fallback: buildAudienceAgentCatalog(
-    "ultra_fallback",
-    AUDIENCE_MODE_CONFIGS.ultra_fallback,
-    buildAudienceRawModeCatalog("ultra_fallback"),
-  ),
-  max_fallback: buildAudienceAgentCatalog(
-    "max_fallback",
-    AUDIENCE_MODE_CONFIGS.max_fallback,
-    buildAudienceRawModeCatalog("max_fallback"),
-  ),
 };
 
 export const AGENT_MODELS = AUDIENCE_AGENT_MODELS.free;
 export const DEFAULT_MODEL = AGENT_MODELS[AGENT_IDS.OFFLINE_RESPONDER];
 
 export const resolveManagedModelAudience = (args: {
-  plan: "free" | "go" | "pro" | "plus" | "ultra" | "max";
+  plan: "free" | "go" | "pro";
   isAnonymous?: boolean;
   downgraded?: boolean;
 }): ManagedModelAudience => {

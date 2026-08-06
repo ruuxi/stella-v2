@@ -33,9 +33,6 @@ const ensureMediaEnv = () => {
     STELLA_FREE_MONTHLY_LIMIT_USD: "30",
     STELLA_GO_PRICE_CENTS: "1000",
     STELLA_PRO_PRICE_CENTS: "2000",
-    STELLA_PLUS_PRICE_CENTS: "3000",
-    STELLA_ULTRA_PRICE_CENTS: "4000",
-    STELLA_MAX_PRICE_CENTS: "5000",
     STELLA_SECRETS_MASTER_KEYS_JSON: JSON.stringify({
       "1": Buffer.alloc(32, 7).toString("base64"),
     }),

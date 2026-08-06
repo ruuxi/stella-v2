@@ -115,7 +115,7 @@ export async function authorizeStellaRelayRequest(args: {
 
     let selection: ReturnType<typeof resolveRequestedStellaModel>;
     try {
-      selection = resolveRequestedStellaModel(agentType, requestJson, "ultra");
+      selection = resolveRequestedStellaModel(agentType, requestJson, "pro");
     } catch (error) {
       return stellaProviderErrorResponse(
         400,

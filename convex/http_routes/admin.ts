@@ -65,20 +65,17 @@ const readDeleteBody = async (
 
 const isBillingPlan = (
   value: string,
-): value is "free" | "go" | "pro" | "plus" | "ultra" | "max" =>
+): value is "free" | "go" | "pro" =>
   value === "free" ||
   value === "go" ||
-  value === "pro" ||
-  value === "plus" ||
-  value === "ultra" ||
-  value === "max";
+  value === "pro";
 
 const readBillingPlanBody = async (
   request: Request,
 ): Promise<
   | {
       ownerId: string;
-      plan?: "free" | "go" | "pro" | "plus" | "ultra" | "max";
+      plan?: "free" | "go" | "pro";
       usageMode?: "default" | "unlimited";
       subscriptionStatus?: string;
       resetUsage?: boolean;
@@ -93,7 +90,7 @@ const readBillingPlanBody = async (
 
   const rawPlan =
     typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
-  let plan: "free" | "go" | "pro" | "plus" | "ultra" | "max" | undefined;
+  let plan: "free" | "go" | "pro" | undefined;
   if (rawPlan && isBillingPlan(rawPlan)) {
     plan = rawPlan;
   } else if (rawPlan) {

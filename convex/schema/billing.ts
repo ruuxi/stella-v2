@@ -5,9 +5,6 @@ export const subscriptionPlanValidator = v.union(
   v.literal("free"),
   v.literal("go"),
   v.literal("pro"),
-  v.literal("plus"),
-  v.literal("ultra"),
-  v.literal("max"),
 );
 
 export const billingUsageModeValidator = v.union(

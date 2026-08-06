@@ -181,13 +181,7 @@ const STELLA_ALIAS_MODES: ReadonlyArray<StellaAliasMode> = [
 
 const isProOrHigherAudience = (audience: ManagedModelAudience): boolean =>
   audience === "pro" ||
-  audience === "plus" ||
-  audience === "ultra" ||
-  audience === "max" ||
-  audience === "pro_fallback" ||
-  audience === "plus_fallback" ||
-  audience === "ultra_fallback" ||
-  audience === "max_fallback";
+  audience === "pro_fallback";
 
 const isAliasVisibleForAudience = (
   alias: StellaAliasMode,

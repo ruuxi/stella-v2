@@ -54,17 +54,11 @@ const planValidator = v.union(
   v.literal("free"),
   v.literal("go"),
   v.literal("pro"),
-  v.literal("plus"),
-  v.literal("ultra"),
-  v.literal("max"),
 );
 
 const paidPlanValidator = v.union(
   v.literal("go"),
   v.literal("pro"),
-  v.literal("plus"),
-  v.literal("ultra"),
-  v.literal("max"),
 );
 
 const usageModeValidator = v.union(
@@ -130,9 +124,6 @@ const subscriptionStatusReturnValidator = v.object({
     free: planConfigShapeValidator,
     go: planConfigShapeValidator,
     pro: planConfigShapeValidator,
-    plus: planConfigShapeValidator,
-    ultra: planConfigShapeValidator,
-    max: planConfigShapeValidator,
   }),
 });
 
@@ -2128,9 +2119,6 @@ export const getSubscriptionStatus = query({
       free: planCatalog.free,
       go: planCatalog.go,
       pro: planCatalog.pro,
-      plus: planCatalog.plus,
-      ultra: planCatalog.ultra,
-      max: planCatalog.max,
     };
 
     if (!identity || isAnonymousIdentity(identity)) {

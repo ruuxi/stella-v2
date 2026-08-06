@@ -22,10 +22,7 @@ const toSafeString = (value: string | null | undefined) => value?.trim() ?? "";
 const toPaidPlan = (value: string | null | undefined) => {
   const normalized = value?.trim().toLowerCase();
   return normalized === "go" ||
-    normalized === "pro" ||
-    normalized === "plus" ||
-    normalized === "ultra" ||
-    normalized === "max"
+    normalized === "pro"
     ? normalized
     : undefined;
 };

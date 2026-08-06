@@ -39,7 +39,7 @@ const ACTIVE_SUBSCRIPTION_STATUSES = new Set([
   "past_due",
 ]);
 
-const PAID_PLAN_IDS = new Set(["go", "pro", "plus", "ultra", "max"]);
+const PAID_PLAN_IDS = new Set(["go", "pro"]);
 
 const hasActivePaidPlan = (
   profile: { activePlan?: string; subscriptionStatus?: string } | null,

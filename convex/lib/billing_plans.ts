@@ -15,7 +15,7 @@
  *     marketing/billing UX; recurring price stays STELLA_GO_PRICE_CENTS
  *   STRIPE_COUPON_GO_FIRST_MONTH — Stripe Coupon id (`coupon_…`) created
  *     as duration=once so the discount applies only on the subscription’s
- *     first invoice (e.g. $15 off when the list price is $20 → pay $5,
+ *     first invoice (e.g. $5 off when the list price is $10 → pay $5,
  *     then full price on renewal). Set intro price env and coupon env
  *     together, or omit both — mismatched halves fail at startup.
  *
@@ -30,16 +30,9 @@
  * Free plan has no PRICE_CENTS (always 0). Its four limit/window envs
  * are required (no formula derives from a $0 price).
  *
- * `<PLAN>` ∈ { FREE, GO, PRO, PLUS, ULTRA, MAX }.
+ * `<PLAN>` ∈ { FREE, GO, PRO }.
  */
-export const SUBSCRIPTION_PLANS = [
-  "free",
-  "go",
-  "pro",
-  "plus",
-  "ultra",
-  "max",
-] as const;
+export const SUBSCRIPTION_PLANS = ["free", "go", "pro"] as const;
 
 export type SubscriptionPlan = (typeof SUBSCRIPTION_PLANS)[number];
 
@@ -60,9 +53,6 @@ const PLAN_LABELS: Record<SubscriptionPlan, string> = {
   free: "Free",
   go: "Go",
   pro: "Pro",
-  plus: "Plus",
-  ultra: "Ultra",
-  max: "Stella Max",
 };
 
 // Share of the derived monthly limit allotted to the smaller windows.
@@ -210,9 +200,6 @@ const loadPlanCatalog = (): PlanCatalog => {
     free: buildFreePlanConfig(),
     go: goPlan,
     pro: buildPaidPlanConfig("pro", utilizationRate),
-    plus: buildPaidPlanConfig("plus", utilizationRate),
-    ultra: buildPaidPlanConfig("ultra", utilizationRate),
-    max: buildPaidPlanConfig("max", utilizationRate),
   };
   return cachedCatalog;
 };
@@ -220,9 +207,6 @@ const loadPlanCatalog = (): PlanCatalog => {
 const STRIPE_PRICE_ID_ENV: Record<Exclude<SubscriptionPlan, "free">, string> = {
   go: "STRIPE_PRICE_GO",
   pro: "STRIPE_PRICE_PRO",
-  plus: "STRIPE_PRICE_PLUS",
-  ultra: "STRIPE_PRICE_ULTRA",
-  max: "STRIPE_PRICE_MAX",
 };
 
 export const getPlanCatalog = (): PlanCatalog => loadPlanCatalog();
@@ -247,7 +231,7 @@ export const findPlanForStripePriceId = (
     return null;
   }
 
-  for (const plan of ["go", "pro", "plus", "ultra", "max"] as const) {
+  for (const plan of ["go", "pro"] as const) {
     const configured = process.env[STRIPE_PRICE_ID_ENV[plan]]?.trim();
     if (configured && configured === normalized) {
       return plan;

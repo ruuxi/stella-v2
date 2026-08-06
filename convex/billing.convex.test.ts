@@ -16,9 +16,6 @@ beforeAll(() => {
     STELLA_FREE_MONTHLY_LIMIT_USD: "1",
     STELLA_GO_PRICE_CENTS: "1000",
     STELLA_PRO_PRICE_CENTS: "2000",
-    STELLA_PLUS_PRICE_CENTS: "3000",
-    STELLA_ULTRA_PRICE_CENTS: "4000",
-    STELLA_MAX_PRICE_CENTS: "5000",
     STELLA_ANON_MAX_REQUESTS: "100",
   };
   for (const [key, value] of Object.entries(values)) process.env[key] = value;

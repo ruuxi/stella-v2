@@ -268,17 +268,17 @@
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
   flex: none;
-  height: 26px;
-  padding: 0 12px;
-  margin-left: 4px;
+  height: 22px;
+  padding: 0 7px;
+  margin-left: 1px;
   border: 0;
   border-radius: var(--radius-full);
   background: var(--primary);
   color: var(--primary-foreground);
   font-family: inherit;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-2xs);
   font-weight: var(--weight-semibold);
   white-space: nowrap;
   cursor: default;
@@ -295,14 +295,6 @@
 
 .agent-model-picker-connect-btn:disabled {
   opacity: 0.5;
-}
-
-.agent-model-picker-connect-menu {
-  height: 22px;
-  gap: 3px;
-  padding-inline: 7px;
-  margin-left: 1px;
-  font-size: var(--font-size-2xs);
 }
 
 .agent-model-picker-brand-actions .model-picker-group-signout {

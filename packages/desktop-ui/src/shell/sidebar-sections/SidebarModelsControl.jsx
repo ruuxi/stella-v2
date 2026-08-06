@@ -5,10 +5,9 @@ import {
 import { SlidersHorizontal } from "@/ui/icons";
 import "./sidebar-models-control.css";
 
-/** Shared entry point for Work's inline lower-half model panel. */
-export function SidebarModelsControl({ onClick } = {}) {
+/** Shared entry point for the inline lower-half model panels. */
+export function SidebarModelsControl() {
   const modelsPickerOpen = useEngineOverlayOpen();
-  const handleClick = onClick ?? engineOverlay.toggle;
 
   return (
     <button
@@ -16,7 +15,7 @@ export function SidebarModelsControl({ onClick } = {}) {
       className="pill-btn work-models-button"
       data-active={modelsPickerOpen || undefined}
       aria-pressed={modelsPickerOpen}
-      onClick={handleClick}
+      onClick={engineOverlay.toggle}
     >
       <SlidersHorizontal size={14} strokeWidth={1.75} />
       Models

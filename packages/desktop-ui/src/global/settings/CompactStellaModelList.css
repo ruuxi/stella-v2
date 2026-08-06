@@ -28,7 +28,7 @@
   gap: 8px;
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
   border-radius: var(--radius-md, 8px);
   font-family: inherit;
@@ -49,9 +49,8 @@
 }
 
 .compact-stella-list-item[data-selected] {
-  background: transparent;
-  border-color: var(--border);
-  color: var(--text-strong);
+  background: var(--select-fill);
+  color: var(--select-text);
 }
 
 .compact-stella-list-item:disabled {
@@ -86,6 +85,11 @@
   color: var(--text-weak);
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.compact-stella-list-item--default .compact-stella-list-item-name {
+  color: var(--text-strong);
+  font-weight: var(--weight-semibold);
 }
 
 .compact-stella-list-item-check {

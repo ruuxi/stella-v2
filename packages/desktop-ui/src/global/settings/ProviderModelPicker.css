@@ -57,7 +57,8 @@
   gap: 2px;
 }
 
-/* Provider label and connection controls. */
+/* Section divider — provider name on the left, hairline filling the rest,
+ * connect/sign-out affordance pinned to the right. */
 .model-picker-group-head {
   display: flex;
   align-items: center;
@@ -65,9 +66,16 @@
   padding: 8px 10px 4px;
 }
 
-.model-picker-group-head[data-label-hidden] {
-  justify-content: flex-end;
-  padding-block: 2px;
+.model-picker-group-bar {
+  flex-shrink: 0;
+  width: 3px;
+  height: 11px;
+  border-radius: 3px;
+  background: transparent;
+}
+
+.model-picker-group-bar[data-on] {
+  background: var(--success);
 }
 
 .model-picker-group-icon {
@@ -86,6 +94,12 @@
   text-transform: uppercase;
   color: var(--text-weak);
   white-space: nowrap;
+}
+
+.model-picker-group-rule {
+  flex: 1;
+  height: 1px;
+  background: color-mix(in oklch, var(--border) 45%, transparent);
 }
 
 .model-picker-group-note {
@@ -125,7 +139,7 @@
 .model-picker-group-connect[data-open] {
   outline: none;
   color: var(--text-strong);
-  border-color: var(--border);
+  border-color: var(--border-strong);
   background: color-mix(in oklch, var(--text-strong) 7%, transparent);
 }
 
@@ -202,6 +216,11 @@
   color: var(--text-strong);
 }
 
+.model-picker-model--default .model-picker-model-name {
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
+
 /* ----------------------------------------------------------- Inline connect
  * Provider connect (sign-in / API key) and the local / OpenRouter custom
  * model entry. Compact and chrome-light so it reads as part of the list,
@@ -241,7 +260,7 @@
 }
 
 .model-picker-connect-field:focus-within {
-  border-color: var(--border);
+  border-color: var(--border-strong);
   box-shadow: var(--focus-ring);
 }
 
@@ -337,35 +356,11 @@
 
 /* ----------------------------------------------------------- Search + list */
 
-.model-picker-search-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.model-picker-search-row .model-picker-search {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.model-picker-search-action {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-}
-
-.model-picker-search-row:hover .model-picker-group-signout,
-.model-picker-search-action .model-picker-group-signout:focus-visible,
-.model-picker-search-action .model-picker-group-signout[data-armed] {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 .model-picker-search {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 4px 10px;
+  gap: 8px;
+  padding: 8px 10px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border);
   background: var(--surface-inset);
@@ -374,6 +369,7 @@
 
 .model-picker-search:focus-within {
   border-color: var(--border-strong);
+  box-shadow: var(--focus-ring);
 }
 
 .model-picker-search input {
@@ -396,32 +392,6 @@
 
 .model-picker-search [data-component="button"] {
   flex-shrink: 0;
-}
-
-.model-picker-search-close {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--text-weak);
-  cursor: default;
-  transition:
-    color 120ms ease,
-    background 120ms ease;
-}
-
-.model-picker-search-close:hover,
-.model-picker-search-close:focus-visible {
-  outline: none;
-  color: var(--text-strong);
-  background: color-mix(in oklch, var(--text-strong) 8%, transparent);
 }
 
 .model-picker-models {
@@ -480,7 +450,7 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid transparent;
+  border: none;
   border-radius: var(--radius-sm, 6px);
   background: transparent;
   color: var(--text-weak);
@@ -507,8 +477,6 @@
 
 .model-picker-model-reason[data-active] {
   color: var(--text-strong);
-  border-color: var(--border-strong);
-  background: transparent;
 }
 
 .model-picker-model-star:disabled,
@@ -523,7 +491,7 @@
   justify-content: space-between;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
   border-radius: var(--radius-sm, 6px);
   color: var(--text-base);
@@ -544,9 +512,8 @@
 }
 
 .model-picker-model[data-selected] {
-  background: transparent;
-  border-color: var(--border-strong);
-  color: var(--text-strong);
+  background: var(--select-fill);
+  color: var(--select-text);
 }
 
 .model-picker-model[data-restricted] {
@@ -570,6 +537,14 @@
 
 .model-picker-model-name {
   font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-picker-model-sub {
+  font-size: var(--font-size-xs);
+  color: var(--text-weak);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

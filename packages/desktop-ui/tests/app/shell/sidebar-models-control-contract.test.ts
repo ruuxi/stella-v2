@@ -12,7 +12,7 @@ const readSource = (relativePath: string) =>
   fs.readFileSync(path.join(SOURCE_ROOT, relativePath), "utf8");
 
 describe("sidebar Models control placement", () => {
-  it("keeps Models in Work's lower half without replacing Work", () => {
+  it("shows Models in Work and Activity without making it global", () => {
     const panel = readSource("shell/RightSidebar.jsx");
     const home = readSource("shell/WorkspaceHomeSurface.jsx");
     const work = readSource("shell/sidebar-sections/FilesSection.jsx");
@@ -20,11 +20,17 @@ describe("sidebar Models control placement", () => {
       "shell/sidebar-sections/SidebarModelsControl.jsx",
     );
     const styles = readSource("shell/sidebar-sections/files-section.css");
+    const controlStyles = readSource(
+      "shell/sidebar-sections/sidebar-models-control.css",
+    );
 
     expect(panel).not.toContain("SidebarModelsControl");
     expect(panel).not.toContain("right-sidebar-models-footer");
     expect(home).toContain("<HomeSection />");
     expect(home).not.toContain("showModels");
+    expect(home).toContain(
+      "<SidebarModelsControl onClick={openEngineDisplayTab}/>",
+    );
 
     expect(work).toContain('className="work-section__footer"');
     expect(work).toContain("<SidebarModelsControl />");
@@ -36,11 +42,13 @@ describe("sidebar Models control placement", () => {
     expect(work).toContain("<AgentModelPicker active={modelsActive}/>");
 
     expect(control).not.toContain("ModelsPicker");
-    expect(control).toContain("onClick={engineOverlay.toggle}");
+    expect(control).toContain("onClick ?? engineOverlay.toggle");
+    expect(control).toContain("onClick={handleClick}");
     expect(styles).toContain(".work-section__footer {");
     expect(styles).toContain(".work-section__primary {");
     expect(styles).toContain(".work-models-panel {");
     expect(styles).toContain("flex: 0 0 50%;");
     expect(styles).toContain("max-height: 50%;");
+    expect(controlStyles).toContain(".pill-btn.work-models-button {");
   });
 });

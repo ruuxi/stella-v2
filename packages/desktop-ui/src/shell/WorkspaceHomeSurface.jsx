@@ -1,7 +1,9 @@
 import { createPortal } from "react-dom";
 import { useLayoutEffect, useState } from "react";
 import { useChatRuntime } from "@/context/use-chat-runtime";
+import { openEngineDisplayTab } from "@/features/workspace-display/default-tabs";
 import { HomeSection } from "@/shell/sidebar-sections/HomeSection";
+import { SidebarModelsControl } from "@/shell/sidebar-sections/SidebarModelsControl";
 import "./workspace-home-surface.css";
 /**
  * The always-available Activity surface beside the main app.
@@ -29,6 +31,9 @@ export function WorkspaceHomeSurface({ hidden, portalTarget, }) {
       <div className="workspace-home-surface__inner">
         <div className="workspace-home-surface__body">
           <HomeSection />
+        </div>
+        <div className="workspace-home-surface__footer">
+          <SidebarModelsControl onClick={openEngineDisplayTab}/>
         </div>
       </div>
     </aside>, resolvedPortalTarget);

@@ -27,18 +27,6 @@
   overflow: hidden;
 }
 
-.pill-btn.work-models-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: none;
-}
-
-.pill-btn.work-models-button[data-active] {
-  background: color-mix(in oklch, var(--foreground) 9%, transparent);
-  color: var(--text-strong);
-}
-
 .work-models-panel {
   display: flex;
   flex: 0 0 50%;

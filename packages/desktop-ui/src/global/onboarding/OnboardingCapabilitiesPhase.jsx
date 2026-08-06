@@ -256,9 +256,9 @@ export function OnboardingCapabilitiesPhase({ splitTransitionActive, onContinue,
 
       <div className="onboarding-cap-frame">
         <div className="onboarding-cap-stage" aria-hidden="true">
-          {CHAPTERS.map((chapter, index) => (<div key={chapter.id} className="onboarding-cap-chapter" data-active={index === chapterIndex || undefined}>
-              {renderChapter(chapter, index)}
-            </div>))}
+          <div key={activeChapter.id} className="onboarding-cap-chapter" data-active>
+            {renderChapter(activeChapter, chapterIndex)}
+          </div>
         </div>
         <button type="button" className="onboarding-cap-replay" data-visible={chapterDone || undefined} disabled={splitTransitionActive || !chapterDone} aria-label="Replay this demo" onClick={() => playChapter(chapterIndex)}>
           <RotateCcw size={12}/>

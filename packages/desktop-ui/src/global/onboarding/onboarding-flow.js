@@ -1,6 +1,5 @@
 export const SPLIT_PHASES = new Set([
     "capabilities",
-    "shapeshift",
     "theme",
     "personality",
     "permissions",
@@ -13,7 +12,7 @@ export const SPLIT_PHASES = new Set([
 /**
  * The onboarding story, told in five acts:
  *
- *   Discover      — what Stella can do, and the shape-shifting app itself
+ *   Discover      — what Stella can do
  *   Make it yours — theme and personality
  *   Connect       — permissions, browser discovery, extension, engine
  *   Your flow     — voice
@@ -25,7 +24,6 @@ export const SPLIT_PHASES = new Set([
  */
 export const SPLIT_STEP_ORDER = [
     "capabilities",
-    "shapeshift",
     "theme",
     "personality",
     "permissions",
@@ -37,7 +35,6 @@ export const SPLIT_STEP_ORDER = [
 ];
 export const PHASE_ACTS = {
     capabilities: "discover",
-    shapeshift: "discover",
     theme: "personalize",
     personality: "personalize",
     permissions: "connect",
@@ -53,7 +50,6 @@ export const PHASE_ACTS = {
  * back in for the form-like phases between them.
  */
 export const CREATURE_HIDDEN_PHASES = new Set([
-    "shapeshift",
     "voice",
     "enter",
 ]);

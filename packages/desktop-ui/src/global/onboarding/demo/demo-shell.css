@@ -1,6 +1,6 @@
 /* ──────────────────────────────────────────────────────────────────────
- * Onboarding demo shell — the one faithful Stella-window mock shared by
- * the capabilities and shapeshift demos. Visibility is driven
+ * Onboarding demo shell — the faithful Stella-window mock used by the
+ * capabilities demo. Visibility is driven
  * by `use-choreography` cues through data attributes; this file only
  * describes how each state looks and how states transition.
  * ────────────────────────────────────────────────────────────────────── */
@@ -27,9 +27,7 @@
   transition: border-color 0.6s ease;
 }
 
-/* Accent tint wash — a theme-morph (e.g. shapeshift's "dusk") fades
- * this in by raising `--odemo-tint-opacity`; opacity transitions where
- * gradient/custom-property changes can't. */
+/* Accent tint wash controlled by `--odemo-tint-opacity`. */
 .odemo-shell::before {
   content: "";
   position: absolute;
@@ -56,8 +54,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  /* Fixed height so morphs that add chrome (the shapeshift tab strip)
-   * never change the bar's size and shift the body below. */
+  /* Fixed height keeps optional chrome from shifting the body below. */
   height: 34px;
   box-sizing: border-box;
   padding: 0 12px;
@@ -318,6 +315,9 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+.odemo-working[data-visible] .odemo-working__label {
   animation: odemoShimmer 1.7s linear infinite;
 }
 
@@ -372,7 +372,7 @@
 }
 
 /* Shimmer while running; settle once done. */
-.odemo-workcard:not([data-done]) .odemo-workcard__label {
+.odemo-workcard[data-visible]:not([data-done]) .odemo-workcard__label {
   background: linear-gradient(
     100deg,
     color-mix(in oklch, var(--foreground) 50%, transparent) 35%,

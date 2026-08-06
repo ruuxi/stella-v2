@@ -58,7 +58,7 @@ Connector Integrations — If you connect Stella to third-party platforms (Slack
 
 6. Computer Use and Agent Autonomy
 
-What Stella Can Do on Your Computer — Stella's AI agents can perform actions on your computer on your behalf, including but not limited to: reading, writing, editing, and deleting files and directories; executing shell commands and running scripts; browsing the web, clicking links, filling forms, and navigating websites; capturing screenshots and reading on-screen content; opening applications and interacting with your operating system; modifying Stella's own user interface and code; scheduling automated tasks that run in the background; and interacting with connected services and APIs.
+What Stella Can Do on Your Computer — Stella's AI agents can perform actions on your computer on your behalf, including but not limited to: reading, writing, editing, and deleting files and directories; executing shell commands and running scripts; browsing the web, clicking links, filling forms, and navigating websites; capturing screenshots and reading on-screen content; opening applications and interacting with your operating system; scheduling automated tasks that run in the background; and interacting with connected services and APIs.
 
 Your Responsibility — You are solely and entirely responsible for all actions that Stella's AI agents perform on your computer and accounts. Stella acts as a tool under your direction. When you instruct Stella to perform a task, you authorize it to take the actions necessary to complete that task, including any intermediate steps the AI determines are needed.
 

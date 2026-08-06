@@ -322,7 +322,7 @@
   opacity: 0.7;
 }
 
-.onboarding-dialogue[data-phase="voice"] .ovoice-app__caret {
+.onboarding-dialogue[data-phase="voice"] .ovoice-app__caret[data-active] {
   animation: ovoiceCaretBlink 1s steps(1, end) infinite;
 }
 
@@ -432,7 +432,7 @@
 @media (prefers-reduced-motion: reduce) {
   .ovoice-talk__sprite[data-listening] .ovoice-talk__ring,
   .ovoice-waveform[data-active] .ovoice-waveform__bar,
-  .onboarding-dialogue[data-phase="voice"] .ovoice-app__caret {
+  .onboarding-dialogue[data-phase="voice"] .ovoice-app__caret[data-active] {
     animation: none;
   }
 

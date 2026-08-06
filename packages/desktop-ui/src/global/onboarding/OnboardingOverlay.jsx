@@ -59,8 +59,9 @@ export function OnboardingView({ hasExpanded, onboardingDone, onboardingExiting,
     const [activeLegalDoc, setActiveLegalDoc] = useState(null);
     const t = useT();
     const { locale, setLocale, supportedLocales } = useI18n();
-    // The creature is a hero visual, but onboarding is long-lived — on
-    // low-power devices cap it to the WorkingIndicator's render budget.
+    // The creature is a hero visual, but onboarding is long-lived. Keep its
+    // canvas at a deliberately small render budget even on fast machines so
+    // it never competes with onboarding controls for the renderer thread.
     const lowPowerCreature = shouldUseLowPowerEffects();
     // The language switch is only relevant on the very first screen —
     // once the user starts, every other phase has its own layout and
@@ -81,7 +82,7 @@ export function OnboardingView({ hasExpanded, onboardingDone, onboardingExiting,
         Stella
       </div>
       <div className="onboarding-stella-animation" onClick={stellaAnimationHidden ? undefined : triggerFlash} data-expanded={hasExpanded ? "true" : "false"} data-split={splitMode} data-split-entering={splitEntering || undefined} data-has-selections={hasDiscoverySelections || undefined} data-hidden={stellaAnimationHidden || undefined} title="Click to sparkle">
-        <StellaAnimation ref={stellaAnimationRef} width={70} height={39} maxDpr={lowPowerCreature ? 1 : undefined} frameSkip={lowPowerCreature ? 2 : 0} initialBirthProgress={creatureInitialBirth ?? (onboardingDone ? 1 : CREATURE_INITIAL_SIZE)} paused={stellaAnimationPaused || stellaAnimationHidden}/>
+        <StellaAnimation ref={stellaAnimationRef} width={70} height={39} maxDpr={1} maxFps={lowPowerCreature ? 15 : 24} requireWindowFocus initialBirthProgress={creatureInitialBirth ?? (onboardingDone ? 1 : CREATURE_INITIAL_SIZE)} paused={stellaAnimationPaused || stellaAnimationHidden}/>
       </div>
       {!onboardingDone &&
             (hasStarted ? (<OnboardingStep1 key={onboardingKey} initialPhase={initialPhase} onComplete={completeOnboarding} onInteract={triggerFlash} onDiscoveryConfirm={onDiscoveryConfirm} onEnterSplit={handleEnterSplit} onSelectionChange={onSelectionChange} onPhaseChange={onPhaseChange} isAuthenticated={isAuthenticated} discoveryWelcomeExpected={discoveryWelcomeExpected} discoveryWelcomeReady={discoveryWelcomeReady}/>) : (<>

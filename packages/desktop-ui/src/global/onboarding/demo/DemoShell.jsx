@@ -1,6 +1,6 @@
 /**
- * Shared "realistic Stella window" used by the onboarding demos
- * (capabilities and shapeshift). One faithful mock — traffic
+ * Shared "realistic Stella window" used by the capabilities demo.
+ * One faithful mock — traffic
  * lights, the real sidebar grouping (Home / Store / Social), Cormorant
  * wordmark, pill composer — instead of per-scene approximations, so
  * what users watch in onboarding is what they get in the app.

@@ -202,11 +202,6 @@
   color: var(--text-strong);
 }
 
-.model-picker-model--default .model-picker-model-name {
-  font-weight: var(--weight-semibold);
-  color: var(--text-strong);
-}
-
 /* ----------------------------------------------------------- Inline connect
  * Provider connect (sign-in / API key) and the local / OpenRouter custom
  * model entry. Compact and chrome-light so it reads as part of the list,

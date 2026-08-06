@@ -408,22 +408,6 @@
           "Etusijavastausajat",
           "Kaikki automaatiotoiminnot"
         ]
-      },
-      "plus": {
-        "tagline": "Ammattilaisille",
-        "features": [
-          "Raskas päivittäinen käyttö",
-          "Edistyneet agenttityönkulut",
-          "Etusijatuki"
-        ]
-      },
-      "ultra": {
-        "tagline": "Rajaton tuottavuus",
-        "features": [
-          "Maksimaaliset käyttörajat",
-          "Nopeimmat vastausajat",
-          "Kaikki Plussin sisältämä"
-        ]
       }
     }
   },

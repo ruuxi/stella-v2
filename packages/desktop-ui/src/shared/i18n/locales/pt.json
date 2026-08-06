@@ -408,22 +408,6 @@
           "Tempos de resposta prioritários",
           "Todos os recursos de automação"
         ]
-      },
-      "plus": {
-        "tagline": "Para profissionais",
-        "features": [
-          "Uso diário intenso",
-          "Fluxos de agentes avançados",
-          "Suporte prioritário"
-        ]
-      },
-      "ultra": {
-        "tagline": "Produtividade sem limites",
-        "features": [
-          "Limites de uso máximos",
-          "Tempos de resposta mais rápidos",
-          "Tudo do Plus"
-        ]
       }
     }
   },

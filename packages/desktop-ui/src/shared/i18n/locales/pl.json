@@ -408,22 +408,6 @@
           "Priorytetowe czasy odpowiedzi",
           "Wszystkie funkcje automatyzacji"
         ]
-      },
-      "plus": {
-        "tagline": "Dla profesjonalistów",
-        "features": [
-          "Intensywne dzienne użycie",
-          "Zaawansowane przepływy agentów",
-          "Wsparcie priorytetowe"
-        ]
-      },
-      "ultra": {
-        "tagline": "Nieograniczona produktywność",
-        "features": [
-          "Maksymalne limity użycia",
-          "Najszybsze czasy odpowiedzi",
-          "Wszystko, co w Plus"
-        ]
       }
     }
   },

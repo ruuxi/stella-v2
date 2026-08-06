@@ -408,22 +408,6 @@
           "Waktu respons prioritas",
           "Semua fitur otomatisasi"
         ]
-      },
-      "plus": {
-        "tagline": "Untuk profesional",
-        "features": [
-          "Penggunaan harian yang berat",
-          "Alur kerja agen tingkat lanjut",
-          "Dukungan prioritas"
-        ]
-      },
-      "ultra": {
-        "tagline": "Produktivitas tanpa batas",
-        "features": [
-          "Batas penggunaan maksimum",
-          "Waktu respons tercepat",
-          "Semua yang ada di Plus"
-        ]
       }
     }
   },

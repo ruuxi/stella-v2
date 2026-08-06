@@ -408,22 +408,6 @@
           "Risposte prioritarie",
           "Tutte le funzioni di automazione"
         ]
-      },
-      "plus": {
-        "tagline": "Per i professionisti",
-        "features": [
-          "Uso quotidiano intenso",
-          "Flussi di agenti avanzati",
-          "Supporto prioritario"
-        ]
-      },
-      "ultra": {
-        "tagline": "Produttività senza limiti",
-        "features": [
-          "Limiti di utilizzo massimi",
-          "Risposte più veloci",
-          "Tutto ciò che è incluso in Plus"
-        ]
       }
     }
   },

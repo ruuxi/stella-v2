@@ -401,22 +401,6 @@
           "Priority response times",
           "All automation features"
         ]
-      },
-      "plus": {
-        "tagline": "For professionals",
-        "features": [
-          "Heavy daily usage",
-          "Advanced agent workflows",
-          "Priority support"
-        ]
-      },
-      "ultra": {
-        "tagline": "Unlimited productivity",
-        "features": [
-          "Maximum usage limits",
-          "Fastest response times",
-          "Everything in Plus"
-        ]
       }
     }
   },

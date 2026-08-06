@@ -408,22 +408,6 @@
           "Prioritní časy odezvy",
           "Všechny funkce automatizace"
         ]
-      },
-      "plus": {
-        "tagline": "Pro profesionály",
-        "features": [
-          "Velké denní využití",
-          "Pokročilé pracovní toky agentů",
-          "Prioritní podpora"
-        ]
-      },
-      "ultra": {
-        "tagline": "Neomezená produktivita",
-        "features": [
-          "Maximální limity využití",
-          "Nejrychlejší časy odezvy",
-          "Vše z plánu Plus"
-        ]
       }
     }
   },

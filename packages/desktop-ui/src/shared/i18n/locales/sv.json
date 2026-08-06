@@ -407,22 +407,6 @@
           "Prioriterade svarstider",
           "Alla automationsfunktioner"
         ]
-      },
-      "plus": {
-        "tagline": "För proffs",
-        "features": [
-          "Tung daglig användning",
-          "Avancerade agentflöden",
-          "Prioriterad support"
-        ]
-      },
-      "ultra": {
-        "tagline": "Obegränsad produktivitet",
-        "features": [
-          "Maximala användningsgränser",
-          "Snabbaste svarstider",
-          "Allt i Plus"
-        ]
       }
     }
   },

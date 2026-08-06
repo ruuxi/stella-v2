@@ -9,19 +9,15 @@
  * wonder why their selection wasn't honored.
  */
 
-export type SubscriptionPlan = "free" | "go" | "pro" | "plus" | "ultra";
+export type SubscriptionPlan = "free" | "go" | "pro";
 
 export type ManagedModelAudience =
   | "anonymous"
   | "free"
   | "go"
   | "pro"
-  | "plus"
-  | "ultra"
   | "go_fallback"
-  | "pro_fallback"
-  | "plus_fallback"
-  | "ultra_fallback";
+  | "pro_fallback";
 
 const RESTRICTED_MODEL_OVERRIDE_AUDIENCES = new Set<ManagedModelAudience>([
   "anonymous",
@@ -64,12 +60,8 @@ const PLAN_LABELS: Record<ManagedModelAudience, string> = {
   free: "Free",
   go: "Go",
   pro: "Pro",
-  plus: "Plus",
-  ultra: "Ultra",
   go_fallback: "Go",
   pro_fallback: "Pro",
-  plus_fallback: "Plus",
-  ultra_fallback: "Ultra",
 };
 
 export const getPlanLabel = (audience: ManagedModelAudience): string =>

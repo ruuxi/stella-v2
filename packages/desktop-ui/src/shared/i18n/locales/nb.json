@@ -408,22 +408,6 @@
           "Prioriterte svartider",
           "Alle automatiseringsfunksjoner"
         ]
-      },
-      "plus": {
-        "tagline": "For profesjonelle",
-        "features": [
-          "Høyt daglig bruk",
-          "Avanserte agentarbeidsflyter",
-          "Prioritert støtte"
-        ]
-      },
-      "ultra": {
-        "tagline": "Ubegrenset produktivitet",
-        "features": [
-          "Maksimale bruksgrenser",
-          "Raskeste svartider",
-          "Alt i Plus"
-        ]
       }
     }
   },

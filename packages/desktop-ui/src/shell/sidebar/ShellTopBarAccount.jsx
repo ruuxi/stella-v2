@@ -30,10 +30,6 @@ const planLabel = (plan, status) => {
             return "Go";
         case "pro":
             return "Pro";
-        case "plus":
-            return "Plus";
-        case "ultra":
-            return "Ultra";
     }
 };
 export const ShellTopBarAccount = ({ onSignIn, }) => {

@@ -408,22 +408,6 @@
           "Elsőbbségi válaszidők",
           "Minden automatizálási funkció"
         ]
-      },
-      "plus": {
-        "tagline": "Profiknak",
-        "features": [
-          "Intenzív napi használat",
-          "Fejlett ügynök munkafolyamatok",
-          "Elsőbbségi támogatás"
-        ]
-      },
-      "ultra": {
-        "tagline": "Korlátlan termelékenység",
-        "features": [
-          "Maximális használati keretek",
-          "Leggyorsabb válaszidők",
-          "Minden, ami a Plusban"
-        ]
       }
     }
   },

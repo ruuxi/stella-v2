@@ -151,7 +151,7 @@
   height: calc(var(--shell-topbar-height, 38px) - 5px);
   box-sizing: border-box;
   overflow: visible;
-  border: 1px solid var(--border-base);
+  border: 1px solid var(--border);
   border-radius: 0;
   color: var(--text-muted);
   background: color-mix(in oklch, var(--foreground) 7%, transparent);

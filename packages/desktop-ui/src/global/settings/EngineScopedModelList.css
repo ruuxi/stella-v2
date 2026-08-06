@@ -38,7 +38,7 @@
   width: 100%;
   min-height: 42px;
   padding: 8px 10px;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-md, 8px);
   background: transparent;
   color: var(--text-strong);
@@ -57,9 +57,8 @@
 }
 
 .engine-scoped-model-list__rows > button[data-selected] {
-  background: transparent;
-  border-color: var(--border);
-  color: var(--text-strong);
+  background: var(--select-fill);
+  color: var(--select-text);
 }
 
 .engine-scoped-model-list__rows > button:disabled {

@@ -34,6 +34,12 @@ const CALLBACK_PATH = "/callback";
 const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
 const SCOPES =
 	"org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+
+const throwIfOAuthAborted = (signal?: AbortSignal): void => {
+	if (!signal?.aborted) return;
+	throw signal.reason instanceof Error ? signal.reason : new Error("OAuth login was canceled.");
+};
+
 async function getNodeApis(): Promise<NodeApis> {
 	if (nodeApis) return nodeApis;
 	if (!nodeApisPromise) {
@@ -232,9 +238,14 @@ export async function loginAnthropic(options: {
 	onPrompt: (prompt: OAuthPrompt) => Promise<string>;
 	onProgress?: (message: string) => void;
 	onManualCodeInput?: () => Promise<string>;
+	signal?: AbortSignal;
 }): Promise<OAuthCredentials> {
+	throwIfOAuthAborted(options.signal);
 	const { verifier, challenge } = await generatePKCE();
 	const server = await startCallbackServer(verifier);
+	const abortWait = () => server.cancelWait();
+	options.signal?.addEventListener("abort", abortWait, { once: true });
+	if (options.signal?.aborted) abortWait();
 
 	let code: string | undefined;
 	let state: string | undefined;
@@ -273,6 +284,7 @@ export async function loginAnthropic(options: {
 				});
 
 			const result = await server.waitForCode();
+			throwIfOAuthAborted(options.signal);
 
 			if (manualError) {
 				throw manualError;
@@ -307,6 +319,7 @@ export async function loginAnthropic(options: {
 			}
 		} else {
 			const result = await server.waitForCode();
+			throwIfOAuthAborted(options.signal);
 			if (result?.code) {
 				code = result.code;
 				state = result.state;
@@ -314,6 +327,7 @@ export async function loginAnthropic(options: {
 			}
 		}
 
+		throwIfOAuthAborted(options.signal);
 		if (!code) {
 			const input = await options.onPrompt({
 				message: "Paste the authorization code or full redirect URL:",
@@ -336,8 +350,10 @@ export async function loginAnthropic(options: {
 		}
 
 		options.onProgress?.("Exchanging authorization code for tokens...");
+		throwIfOAuthAborted(options.signal);
 		return exchangeAuthorizationCode(code, state, verifier, redirectUriForExchange);
 	} finally {
+		options.signal?.removeEventListener("abort", abortWait);
 		server.server.close();
 	}
 }
@@ -389,6 +405,7 @@ export const anthropicOAuthProvider: OAuthProviderInterface = {
 			onPrompt: callbacks.onPrompt,
 			onProgress: callbacks.onProgress,
 			onManualCodeInput: callbacks.onManualCodeInput,
+			signal: callbacks.signal,
 		});
 	},
 

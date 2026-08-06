@@ -297,12 +297,23 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         : chatGptRegistryOptions;
     const selectedClaudeCodeModel = preferences?.claudeCodeModel || DEFAULT_CLAUDE_CODE_MODEL;
     const committedEngine = preferences?.agentRuntimeEngine ?? "default";
-    const oauthPendingRef = useRef(false);
+    const [oauthPendingProvider, setOauthPendingProvider] = useState(null);
+    const oauthAttemptRef = useRef(null);
     const migrationAttemptedRef = useRef(null);
     useEffect(() => () => {
-        if (oauthPendingRef.current) {
-            void cancelOAuth(OPENAI_CODEX_PROVIDER);
+        const attempt = oauthAttemptRef.current;
+        if (attempt) {
+            attempt.cancelled = true;
+            void cancelOAuth(attempt.provider);
         }
+    }, [cancelOAuth]);
+    const cancelPendingOAuth = useCallback(async () => {
+        const attempt = oauthAttemptRef.current;
+        if (!attempt)
+            return;
+        attempt.cancelled = true;
+        setOauthPendingProvider(null);
+        await cancelOAuth(attempt.provider);
     }, [cancelOAuth]);
     // (The ChatGPT connection check is triggered below, once the active
     // brand/source panel is derived.)
@@ -649,6 +660,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         // into the routing patch is resolved below so selection never dead-ends
         // on a "choose a model" gate. Auth is the only real interruption.
         let effectiveModelId = modelId;
+        let oauthAttempt = null;
         try {
             if (engine === "codex_cli") {
                 if (codexCatalog.loading) {
@@ -658,11 +670,19 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                 setChatGptConnection("checking");
                 let validation = await credentials.validateOAuth(OPENAI_CODEX_PROVIDER);
                 if (!validation.connected) {
-                    oauthPendingRef.current = true;
+                    oauthAttempt = {
+                        provider: OPENAI_CODEX_PROVIDER,
+                        cancelled: false,
+                    };
+                    oauthAttemptRef.current = oauthAttempt;
+                    setOauthPendingProvider(OPENAI_CODEX_PROVIDER);
                     await credentials.loginOAuth(OPENAI_CODEX_PROVIDER, {
                         announceConnection: false,
                     });
-                    oauthPendingRef.current = false;
+                    if (oauthAttemptRef.current === oauthAttempt) {
+                        oauthAttemptRef.current = null;
+                        setOauthPendingProvider(null);
+                    }
                     validation = await credentials.validateOAuth(OPENAI_CODEX_PROVIDER);
                 }
                 if (!validation.connected) {
@@ -707,16 +727,26 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             return true;
         }
         catch (caught) {
-            oauthPendingRef.current = false;
+            const oauthWasCancelled = oauthAttempt?.cancelled === true;
+            if (oauthAttemptRef.current === oauthAttempt) {
+                oauthAttemptRef.current = null;
+                setOauthPendingProvider(null);
+            }
             setPreferences(previous);
-            setError(caught instanceof Error && caught.message.trim()
-                ? caught.message
-                : engine === "codex_cli"
-                    ? "Failed to connect ChatGPT."
-                    : "Failed to update the engine.");
+            if (!oauthWasCancelled) {
+                setError(caught instanceof Error && caught.message.trim()
+                    ? caught.message
+                    : engine === "codex_cli"
+                        ? "Failed to connect ChatGPT."
+                        : "Failed to update the engine.");
+            }
             return false;
         }
         finally {
+            if (oauthAttemptRef.current === oauthAttempt) {
+                oauthAttemptRef.current = null;
+                setOauthPendingProvider(null);
+            }
             setPendingAgent(null);
         }
     }, [
@@ -1202,12 +1232,15 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const restrictedStellaPicks = isRestrictedModelOverrideAudience(audience);
     const restrictedPlanLabel = audience ? getPlanLabel(audience) : null;
     const tabButton = (key, label, title, isActive) => (<button key={key} type="button" role="tab" aria-selected={isActive} className="agent-model-picker-toggle-btn" data-active={isActive || undefined} onClick={() => {
+            if (oauthPendingProvider) {
+                void cancelPendingOAuth();
+            }
             setActiveAgent(key);
             // Each tab re-derives its brand/source from saved preferences.
             setActiveBrandRaw(null);
             setOpenaiSourceRaw(null);
             setAnthropicSourceRaw(null);
-        }} disabled={pendingAgent !== null} title={title}>
+        }} disabled={pendingAgent !== null && !oauthPendingProvider} title={title}>
       {label}
     </button>);
     return (<div className={["agent-model-picker", className].filter(Boolean).join(" ")}>
@@ -1228,9 +1261,9 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         </div>
 
       <div className="agent-model-picker-body">
-        {pendingAgent === ENGINE_PENDING_TARGET && oauthPendingRef.current ? (<p className="agent-model-picker-connection" role="status">
+        {pendingAgent === ENGINE_PENDING_TARGET && oauthPendingProvider ? (<p className="agent-model-picker-connection" role="status">
             Waiting for ChatGPT…{" "}
-            <button type="button" onClick={() => void credentials.cancelOAuth(OPENAI_CODEX_PROVIDER)}>
+            <button type="button" onClick={() => void cancelPendingOAuth()}>
               Cancel
             </button>
           </p>) : null}
@@ -1240,7 +1273,12 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             <VoiceCatalogPicker voiceProvider={voicePreferences.provider} stellaSubProvider={voicePreferences.stellaSubProvider} selectedVoices={voicePreferences.voices} inworldSpeed={voicePreferences.inworldSpeed} readAloudProvider={voicePreferences.readAloudProvider} onSelectVoice={(underlyingProvider, voiceId) => void handleVoiceSelect(underlyingProvider, voiceId)} onSelectStellaSubProvider={(sub) => void handleStellaSubProviderSelect(sub)} onSelectInworldSpeed={(speed) => void handleInworldSpeedSelect(speed)} onSelectReadAloudProvider={(provider) => void handleReadAloudProviderSelect(provider)} disabled={!preferences || pendingAgent !== null}/>
           </>) : (<>
             <div ref={brandRailRef} className="agent-model-picker-brands" role="tablist" aria-label="Provider">
-              {railBrands.map((brand) => (<button key={brand.key} type="button" role="tab" aria-selected={brand.key === activeBrand} aria-label={brand.label} title={brand.label} className="agent-model-picker-brand" data-active={brand.key === activeBrand || undefined} onClick={() => setActiveBrandRaw(brand.key)} disabled={pendingAgent !== null}>
+              {railBrands.map((brand) => (<button key={brand.key} type="button" role="tab" aria-selected={brand.key === activeBrand} aria-label={brand.label} title={brand.label} className="agent-model-picker-brand" data-active={brand.key === activeBrand || undefined} onClick={() => {
+                  if (oauthPendingProvider) {
+                      void cancelPendingOAuth();
+                  }
+                  setActiveBrandRaw(brand.key);
+              }} disabled={pendingAgent !== null && !oauthPendingProvider}>
                   <BrandIcon brand={brand.key} size={17}/>
                 </button>))}
             </div>

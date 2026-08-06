@@ -101,6 +101,12 @@ body[data-display-expanding="true"] .shell-topbar-full,
   padding-right: 6px;
 }
 
+.shell-topbar-full[data-platform="win"]
+  .shell-topbar-full__right
+  .shell-topbar-account-signin {
+  padding-right: 8px;
+}
+
 /* The sidebar header remains mounted at its resolved width, then clip-reveals
    from the right alongside the panel. Closed controls live in
    `.shell-topbar-full__right`; this header is inert until the panel opens. */

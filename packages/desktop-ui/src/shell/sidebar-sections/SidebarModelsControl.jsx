@@ -2,11 +2,24 @@ import {
   engineOverlay,
   useEngineOverlayOpen,
 } from "@/shell/display/engine-overlay-store";
+import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
+import { displayTabs } from "@/features/workspace-display/tab-store";
 import { SlidersHorizontal } from "@/ui/icons";
 
-/** Work-only control that swaps the Work body with the inline model panel. */
-export function SidebarModelsControl() {
+/** Opens Models in Work, or toggles it when already inside Work. */
+export function SidebarModelsControl({ openSidebar = false } = {}) {
   const modelsPickerOpen = useEngineOverlayOpen();
+
+  const handleClick = () => {
+    if (openSidebar) {
+      sidebarSections.setActiveSection("files");
+      displayTabs.setPanelOpen(true);
+      engineOverlay.setOpen(true);
+      return;
+    }
+
+    engineOverlay.toggle();
+  };
 
   return (
     <button
@@ -14,7 +27,7 @@ export function SidebarModelsControl() {
       className="pill-btn work-models-button"
       data-active={modelsPickerOpen || undefined}
       aria-pressed={modelsPickerOpen}
-      onClick={engineOverlay.toggle}
+      onClick={handleClick}
     >
       <SlidersHorizontal size={14} strokeWidth={1.75} />
       Models

@@ -58,31 +58,6 @@
   overflow: hidden;
 }
 
-.workspace-home-surface__models {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  padding: 10px 12px 0;
-}
-
-.workspace-home-surface__models .agent-model-picker {
-  flex: 1 1 auto;
-  width: 100%;
-  height: auto;
-  min-height: 0;
-}
-
-.workspace-home-surface__models-loading {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-weak);
-  font-size: var(--font-size-base);
-}
-
 .workspace-home-surface__footer {
   display: flex;
   flex: 0 0 auto;

@@ -24,9 +24,8 @@ describe("sidebar Models control placement", () => {
     expect(panel).not.toContain("SidebarModelsControl");
     expect(panel).not.toContain("right-sidebar-models-footer");
     expect(home).toContain("<HomeSection />");
-    expect(home).toContain("<SidebarModelsControl />");
-    expect(home).toContain("modelsOpen ?");
-    expect(home).toContain("<AgentModelPicker active={!surfaceHidden}/>");
+    expect(home).toContain("<SidebarModelsControl openSidebar/>");
+    expect(home).not.toContain("AgentModelPicker");
 
     expect(work).toContain('className="work-section__footer"');
     expect(work).toContain("<SidebarModelsControl />");
@@ -34,7 +33,10 @@ describe("sidebar Models control placement", () => {
     expect(work).toContain("<AgentModelPicker active={modelsActive}/>");
 
     expect(control).not.toContain("ModelsPicker");
-    expect(control).toContain("onClick={engineOverlay.toggle}");
+    expect(control).toContain('sidebarSections.setActiveSection("files")');
+    expect(control).toContain("displayTabs.setPanelOpen(true)");
+    expect(control).toContain("engineOverlay.setOpen(true)");
+    expect(control).toContain("engineOverlay.toggle()");
     expect(styles).toContain(".work-section__footer {");
     expect(styles).toContain(".work-models-panel {");
   });

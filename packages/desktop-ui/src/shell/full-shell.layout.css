@@ -18,15 +18,9 @@
   padding: 0;
 }
 
-/* The Electron BrowserWindow is transparent + frameless. The renderer owns
- * the visible window shape so normal app mode reads as a modern macOS surface.
- */
+/* Fill the transparent, frameless BrowserWindow edge-to-edge. The operating
+ * system owns the window shape; the renderer should not inset rounded corners. */
 .window-shell.full {
-  border-radius: 12px;
-  transition: border-radius 600ms ease;
-}
-
-.window-shell.full[data-window-mode="onboarding"] {
   border-radius: 0;
 }
 
@@ -42,10 +36,6 @@
 /* Native window drags should track the OS compositor, not our panel
    open/close easing. RootChrome toggles this flag without React state while
    the BrowserWindow is actively resizing. */
-:root[data-shell-window-resizing="true"] .window-shell.full {
-  transition: none !important;
-}
-
 :root[data-shell-window-resizing="true"]
   body:not([data-display-breakpoint-transition="true"])
   .right-sidebar.right-sidebar--open,

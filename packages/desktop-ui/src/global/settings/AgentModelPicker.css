@@ -196,10 +196,10 @@
 }
 
 .agent-model-picker-brand[data-active] {
-  background: var(--background);
-  border-color: color-mix(in oklch, var(--border) 60%, transparent);
+  background: transparent;
+  border-color: var(--border);
   color: var(--text-strong);
-  box-shadow: var(--shadow-subtle);
+  box-shadow: none;
 }
 
 .agent-model-picker-brand:disabled {
@@ -233,7 +233,7 @@
   width: 26px;
   height: 26px;
   padding: 0;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--radius-md, 8px);
   background: transparent;
   color: var(--text-weak);
@@ -252,7 +252,8 @@
 
 .agent-model-picker-brand-action[data-active] {
   color: var(--text-strong);
-  background: color-mix(in oklch, var(--text-strong) 10%, transparent);
+  background: transparent;
+  border-color: var(--border);
 }
 
 .agent-model-picker-brand-action:disabled {
@@ -418,7 +419,7 @@
   gap: 2px;
   padding: 2px;
   border-radius: var(--radius-full);
-  background: color-mix(in oklch, var(--text-strong) 6%, transparent);
+  background: transparent;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -432,7 +433,7 @@
   flex: 1 0 auto;
   min-height: 26px;
   padding: 4px 7px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--radius-full);
   background: transparent;
   color: var(--text-weak);
@@ -451,7 +452,8 @@
 }
 
 .agent-model-picker-reasoning-options button[data-active] {
-  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+  background: transparent;
+  border-color: var(--border);
   color: var(--text-strong);
 }
 
@@ -500,7 +502,7 @@
 
 .agent-model-picker-toggle-btn {
   appearance: none;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   padding: 4px 14px;
   border-radius: var(--radius-full);
@@ -521,9 +523,10 @@
 }
 
 .agent-model-picker-toggle-btn[data-active] {
-  background: var(--background);
+  background: transparent;
+  border-color: var(--border);
   color: var(--text-strong);
-  box-shadow: var(--shadow-subtle);
+  box-shadow: none;
 }
 
 .agent-model-picker-toggle-btn:disabled {

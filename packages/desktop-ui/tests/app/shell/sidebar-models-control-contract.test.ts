@@ -39,5 +39,7 @@ describe("sidebar Models control placement", () => {
     expect(control).toContain("engineOverlay.toggle()");
     expect(styles).toContain(".work-section__footer {");
     expect(styles).toContain(".work-models-panel {");
+    expect(styles).toContain(".pill-btn.work-models-button[data-active]");
+    expect(styles).toContain("border-color: var(--border);");
   });
 });

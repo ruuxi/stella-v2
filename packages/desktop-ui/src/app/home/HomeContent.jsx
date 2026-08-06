@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { ChevronRight } from "@/ui/icons";
 import { uiState } from "@/platform/ui-state";
 import "./home.css";
 const SIDEBAR_HINT_STORAGE_KEY = "stella.home.sidebarHintSeen";
@@ -83,9 +82,8 @@ function useGreeting() {
         return state.text;
     return getTimeBasedGreeting(new Date());
 }
-export function HomeContent({ onDismissHome, children }) {
+export function HomeContent({ children }) {
     const greeting = useGreeting();
-    const showViewMessages = Boolean(onDismissHome);
     const [showSidebarHint, setShowSidebarHint] = useState(shouldShowSidebarHint);
     useEffect(() => {
         if (!showSidebarHint)
@@ -106,11 +104,6 @@ export function HomeContent({ onDismissHome, children }) {
       <h1 className="home-stella-title">{greeting}</h1>
 
       {children}
-
-      {showViewMessages && (<button className="home-view-messages-link" type="button" onClick={onDismissHome}>
-          <span>Back to chat</span>
-          <ChevronRight className="home-view-messages-link__arrow" size={14} aria-hidden="true"/>
-        </button>)}
 
       {showSidebarHint && (<div className="home-sidebar-hint" role="status">
           <RightClickMouse className="home-sidebar-hint__mouse"/>

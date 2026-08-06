@@ -391,7 +391,7 @@ function RootChrome() {
       <StellaContextMenu isOpen={panelOpen} onOpen={handleContextMenuOpenPanel} onClose={handleContextMenuClosePanel}>
         <div className="content-area">
           <div className={`persistent-chat-surface${isOnChatRoute ? " persistent-chat-surface--active" : ""}`} aria-hidden={!isOnChatRoute}>
-            <ChatColumn conversation={chat.conversation} composer={chat.composer} scroll={chat.scroll} conversationId={conversationId} showHomeContent={chat.showHomeContent} onDismissHome={chat.dismissHome}/>
+            <ChatColumn conversation={chat.conversation} composer={chat.composer} scroll={chat.scroll} conversationId={conversationId} showHomeContent={chat.showHomeContent}/>
           </div>
           <div className={`route-outlet-surface${isOnChatRoute ? "" : " route-outlet-surface--active"}`} aria-hidden={isOnChatRoute}>
             <Outlet />

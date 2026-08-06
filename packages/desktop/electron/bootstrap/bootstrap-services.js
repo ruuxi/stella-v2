@@ -13,6 +13,7 @@ import { LocalChatHistoryService } from "../services/local-chat-history-service.
 import { SecurityPolicyService } from "../services/security-policy-service.js";
 import { UiStateService } from "../services/ui-state-service.js";
 import { getDevServerUrl } from "../dev-url.js";
+import { resolveRendererRoot } from "../renderer-location.js";
 export const createBootstrapServices = (options) => {
     const { config, lifecycle, state } = options;
     const uiStateService = new UiStateService();
@@ -38,7 +39,7 @@ export const createBootstrapServices = (options) => {
         externalLinkService.trustDevServerBaseUrl(getDevServerUrl());
     }
     else {
-        externalLinkService.trustFileRendererRoot(path.resolve(config.electronDir, "../../../dist"));
+        externalLinkService.trustFileRendererRoot(resolveRendererRoot(config.electronDir));
     }
     // A canvas-share link (`<CANVAS_SHARE_BASE_URL>/c/<slug>`) clicked/opened
     // inside Stella is fetched + materialized in main and pushed to the Canvas

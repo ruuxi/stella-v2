@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  STELLA_PRESET_FALLBACK_MODELS,
   getStellaResolvedModelName,
   groupCatalogModelsByProvider,
   listLocalCatalogModels,
@@ -16,6 +17,14 @@ import {
 } from "../../../src/global/settings/lib/model-defaults";
 
 describe("settings model catalog", () => {
+  it("only scaffolds the Stella modes still shown in the picker", () => {
+    expect(STELLA_PRESET_FALLBACK_MODELS.map((model) => model.id)).toEqual([
+      "stella/light",
+      "stella/standard",
+      "stella/priority",
+    ]);
+  });
+
   it("shows resolved model names instead of Stella routing aliases", () => {
     expect(
       getStellaResolvedModelName({
@@ -31,15 +40,15 @@ describe("settings model catalog", () => {
 
     expect(
       getStellaResolvedModelName({
-        id: "stella/builder",
-        modelId: "builder",
-        name: "Stella Builder",
+        id: "stella/priority",
+        modelId: "priority",
+        name: "Stella Priority",
         provider: "stella",
         providerName: "Stella",
         source: "stella",
-        upstreamModel: "openai/gpt-5.6-sol",
+        upstreamModel: "accounts/fireworks/models/kimi-k2p7-code",
       }),
-    ).toBe("GPT-5.6 Sol");
+    ).toBe("Kimi K2P7 Code");
   });
 
   it("keeps the built-in local endpoint separate from worker-owned providers", () => {

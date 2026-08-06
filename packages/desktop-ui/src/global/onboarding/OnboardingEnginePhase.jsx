@@ -22,7 +22,6 @@ const BYOK_PROVIDER_KEYS = [
     "cerebras",
     "mistral",
     "github-copilot",
-    "google-gemini-cli",
     "fal",
 ];
 export function OnboardingEnginePhase({ splitTransitionActive, onContinue, }) {

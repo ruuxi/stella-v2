@@ -176,6 +176,7 @@
 }
 
 .conversation-topbar__tab[data-active="true"] {
+  border-color: transparent;
   color: var(--text-strong);
   background: transparent;
 }

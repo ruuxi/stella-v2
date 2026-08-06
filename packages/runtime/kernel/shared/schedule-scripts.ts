@@ -56,7 +56,8 @@ export const runScheduleScript = (
 ): Promise<ScriptRunResult> =>
   new Promise((resolve) => {
     const startedAt = Date.now()
-    const child = spawn('bun', ['run', scriptPath], {
+    const bunExecutable = process.env.STELLA_BUN_PATH?.trim() || 'bun'
+    const child = spawn(bunExecutable, ['run', scriptPath], {
       cwd: path.dirname(scriptPath),
       env: {
         ...process.env,

@@ -301,9 +301,9 @@ const releaseHostLock = async (
  * bare `"bun"` PATH lookup when no known install location exists. Spawning a
  * bare command name on Windows forces a PATHEXT + every-PATH-entry filesystem
  * probe to locate `bun.exe`; pointing `spawn` at an absolute path skips that.
- * Mirrors the candidate order used elsewhere (STELLA_BUN_PATH / BUN_PATH /
- * ~/.bun/bin). Only an existing absolute path is used, so behavior is
- * otherwise identical to the previous bare-`"bun"` spawn.
+ * Packaged Stella ships Bun under resources/bin; development also honors
+ * STELLA_BUN_PATH / BUN_PATH / ~/.bun/bin. Only an existing absolute path is
+ * used, so source checkouts can still fall back to the normal PATH lookup.
  */
 let cachedBunBinaryPath: string | null = null;
 const resolveBunBinaryPath = (): string => {
@@ -315,6 +315,16 @@ const resolveBunBinaryPath = (): string => {
   };
   add(process.env.STELLA_BUN_PATH);
   add(process.env.BUN_PATH);
+  const resourcesPath = process.env.STELLA_APP_RESOURCES_PATH?.trim();
+  if (resourcesPath) {
+    add(
+      join(
+        resourcesPath,
+        "bin",
+        process.platform === "win32" ? "bun.exe" : "bun",
+      ),
+    );
+  }
   const homeDir = process.env.HOME || process.env.USERPROFILE;
   if (homeDir) {
     add(
@@ -338,7 +348,7 @@ const resolveBunBinaryPath = (): string => {
 const spawnDetachedWorker = (
   options: LifecycleStartOptions,
   paths: RuntimePaths,
-): ChildProcess => {
+): { child: ChildProcess; bunBinaryPath: string } => {
   const args = [
     "run",
     options.workerEntryPath,
@@ -368,15 +378,17 @@ const spawnDetachedWorker = (
     transpilerCachePath = undefined;
   }
   let child: ChildProcess;
+  const bunBinaryPath = options.bunBinaryPath ?? resolveBunBinaryPath();
   try {
     if (options.env?.NODE_ENV === "development") {
       console.warn(`[runtime-host] Detached worker logs: ${paths.logFile}`);
     }
-    child = spawn(options.bunBinaryPath ?? resolveBunBinaryPath(), args, {
+    child = spawn(bunBinaryPath, args, {
       detached: process.platform !== "win32",
       stdio: ["ignore", logFd, logFd],
       env: {
         ...process.env,
+        STELLA_BUN_PATH: bunBinaryPath,
         ...(transpilerCachePath
           ? { BUN_RUNTIME_TRANSPILER_CACHE_PATH: transpilerCachePath }
           : {}),
@@ -391,8 +403,35 @@ const spawnDetachedWorker = (
     closeSync(logFd);
   }
   child.unref();
-  return child;
+  return { child, bunBinaryPath };
 };
+
+const waitForWorkerSpawn = ({
+  child,
+  bunBinaryPath,
+}: ReturnType<typeof spawnDetachedWorker>): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    const onSpawn = () => {
+      child.off("error", onError);
+      // A post-spawn child-process error should be diagnostic, never an
+      // uncaught Electron main-process exception.
+      child.on("error", (error) => {
+        console.error("[runtime-host] Detached worker process error:", error);
+      });
+      resolve();
+    };
+    const onError = (error: Error) => {
+      child.off("spawn", onSpawn);
+      reject(
+        new Error(
+          `Failed to launch Stella's bundled runtime at ${bunBinaryPath}: ${error.message}`,
+          { cause: error },
+        ),
+      );
+    };
+    child.once("spawn", onSpawn);
+    child.once("error", onError);
+  });
 
 const pollForWorkerReady = async (
   paths: RuntimePaths,
@@ -652,7 +691,7 @@ export const startOrAttachWorker = async (
       await removeStaleRuntimeArtifacts(options.stellaAppDir);
     }
 
-    spawnDetachedWorker(options, paths);
+    await waitForWorkerSpawn(spawnDetachedWorker(options, paths));
     const socket = await pollForWorkerReady(
       paths,
       START_TIMEOUT_MS,

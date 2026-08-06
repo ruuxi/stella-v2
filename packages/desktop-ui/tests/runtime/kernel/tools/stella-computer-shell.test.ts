@@ -169,6 +169,34 @@ describe("stella-computer shell bootstrap", () => {
     expect(shim).toContain('"%STELLA_NODE_BIN%" %*');
   });
 
+  it("creates Windows aliases for the managed Python runtime", () => {
+    forcePlatform("win32");
+    const tempDir = createTempDir();
+    const originalPython = process.env.STELLA_PYTHON_BIN;
+    process.env.STELLA_PYTHON_BIN =
+      "C:\\Stella\\resources\\runtimes\\python\\python.exe";
+    try {
+      const state = createShellState(tempDir);
+      for (const command of ["python", "python3", "py"]) {
+        const shim = readFileSync(
+          path.join(String(state.nodeShimDir), `${command}.cmd`),
+          "utf-8",
+        );
+        expect(shim).toContain('"%STELLA_PYTHON_BIN%" %*');
+      }
+      for (const command of ["pip", "pip3"]) {
+        const shim = readFileSync(
+          path.join(String(state.nodeShimDir), `${command}.cmd`),
+          "utf-8",
+        );
+        expect(shim).toContain('"%STELLA_PYTHON_BIN%" -m pip %*');
+      }
+    } finally {
+      if (originalPython === undefined) delete process.env.STELLA_PYTHON_BIN;
+      else process.env.STELLA_PYTHON_BIN = originalPython;
+    }
+  });
+
   it("uses Electron's Node runtime instead of the Bun worker executable", () => {
     const tempDir = createTempDir();
     const hostExecutable = path.join(tempDir, "electron-host");

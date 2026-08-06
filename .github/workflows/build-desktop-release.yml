@@ -58,6 +58,9 @@ jobs:
           curl --fail --show-error --silent \
             "${R2_PUBLIC_BASE_URL%/}/stella-browser/current.json" \
             --output release-pins/stella-browser-current.json
+          curl --fail --show-error --silent \
+            "${R2_PUBLIC_BASE_URL%/}/git-runtime/versions/2.53.0/manifest.json" \
+            --output release-pins/git-runtime-manifest.json
           node <<'NODE'
           const { readFileSync, writeFileSync } = require("node:fs");
           const current = JSON.parse(readFileSync("release-pins/stella-browser-current.json", "utf8"));
@@ -73,12 +76,15 @@ jobs:
           const { readFileSync } = require("node:fs");
           const native = JSON.parse(readFileSync("release-pins/native-helpers-manifest.json", "utf8"));
           const browser = JSON.parse(readFileSync("release-pins/stella-browser-manifest.json", "utf8"));
+          const git = JSON.parse(readFileSync("release-pins/git-runtime-manifest.json", "utf8"));
           const browserSha = readFileSync("release-pins/stella-browser-source-sha.txt", "utf8").trim();
           if (native.schemaVersion !== 1) throw new Error("Unsupported native-helper manifest");
           if (browser.sourceSha !== browserSha) throw new Error("Stella Browser immutable manifest mismatch");
+          if (git.schemaVersion !== 1 || git.version !== "2.53.0") throw new Error("Unsupported Git runtime manifest");
           for (const platform of ["darwin-arm64", "darwin-x64", "win-x64"]) {
             if (!native.assets?.[platform]) throw new Error(`Missing native-helper pin for ${platform}`);
             if (!browser.assets?.[platform]) throw new Error(`Missing Stella Browser pin for ${platform}`);
+            if (!git.assets?.[platform]) throw new Error(`Missing Git runtime pin for ${platform}`);
           }
           NODE
 
@@ -132,19 +138,6 @@ jobs:
           bun install --frozen-lockfile
           bun ./node_modules/electron/install.js
 
-      - name: Install packaged command-line dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v rg >/dev/null 2>&1; then
-            if [ "${{ runner.os }}" = "macOS" ]; then
-              brew install ripgrep
-            else
-              choco install ripgrep --no-progress --yes
-            fi
-          fi
-          rg --version
-
       - uses: actions/download-artifact@v4
         with:
           name: stella-v2-release-pins
@@ -193,14 +186,16 @@ jobs:
           security list-keychains -d user -s "$keychain_path" login.keychain-db
           echo "CSC_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
 
-      - name: Build renderer, Electron main, and bundled Bun runtime
+      - name: Build renderer, Electron main, and managed runtimes
         env:
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
           VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
         shell: bash
         run: |
           set -euo pipefail
-          bun run packaging:prepare-bun
+          bun run packaging:prepare-runtimes -- \
+            --platform "${{ matrix.sourcePlatform }}" \
+            --git-manifest-file release-pins/git-runtime-manifest.json
           bun run build
           bun run electron:typecheck
           node packages/desktop/scripts/dev-electron-build.mjs --once
@@ -237,6 +232,20 @@ jobs:
           node node_modules/electron-builder/out/cli/cli.js ${{ matrix.builderArgs }} \
             --publish never \
             --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
+
+      - name: Verify packaged command-line runtimes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            app_path="packages/desktop/release/win-unpacked"
+          else
+            app_path="$(find packages/desktop/release -maxdepth 2 -type d -name Stella.app -print -quit)"
+          fi
+          test -n "$app_path"
+          node packages/desktop/scripts/verify-packaged-runtimes.mjs \
+            --app "$app_path" \
+            --platform "${{ matrix.sourcePlatform }}"
 
       - name: Verify macOS signature and notarization ticket
         if: runner.os == 'macOS'

@@ -31,12 +31,12 @@
     "electron:dev": "node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback && node packages/desktop/scripts/dev-electron-build.mjs --once && concurrently -k \"bun run dev\" \"node packages/desktop/scripts/launch-electron-dev.mjs\"",
     "electron:typecheck": "node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.electron.json --pretty false --noEmit && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.preload.json --pretty false --noEmit",
     "electron:typecheck:watch": "concurrently -k --kill-others-on-fail \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.electron.json --preserveWatchOutput --noEmit\" \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.preload.json --preserveWatchOutput --noEmit\"",
-    "electron:build": "bun run native:build && bun run packaging:prepare-bun && bun run build && bun run electron:typecheck && node packages/desktop/scripts/dev-electron-build.mjs --once && electron-builder",
-    "electron:pack": "bun run native:build && bun run packaging:prepare-bun && bun run build && bun run electron:typecheck && node packages/desktop/scripts/dev-electron-build.mjs --once && electron-builder --mac dir",
+    "electron:build": "bun run native:build && bun run packaging:prepare-runtimes && bun run build && bun run electron:typecheck && node packages/desktop/scripts/dev-electron-build.mjs --once && electron-builder",
+    "electron:pack": "bun run native:build && bun run packaging:prepare-runtimes && bun run build && bun run electron:typecheck && node packages/desktop/scripts/dev-electron-build.mjs --once && electron-builder --mac dir",
     "electron:release:mac": "electron-builder --mac --publish never",
     "electron:release:win": "electron-builder --win --publish never",
     "updater:verify-local": "node packages/desktop/scripts/verify-local-electron-update.mjs",
-    "packaging:prepare-bun": "node packages/desktop/scripts/prepare-bundled-bun.mjs",
+    "packaging:prepare-runtimes": "node packages/desktop/scripts/prepare-packaged-runtimes.mjs",
     "packaging:verify-social": "node packages/desktop/scripts/verify-packaged-social-session.mjs",
     "postinstall": "node packages/desktop/scripts/postinstall-dist-electron.mjs && node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback --best-effort",
     "check:boundary": "node packages/runtime/scripts/check-boundary.mjs"
@@ -74,7 +74,6 @@
     "convex": "^1.41.0",
     "croner": "^10.0.1",
     "diff": "^9.0.0",
-    "dugite": "3.2.2",
     "esbuild": "^0.28.0",
     "gaxios": "^7.1.4",
     "googleapis": "^172.0.0",
@@ -187,6 +186,27 @@
       {
         "from": "packages/desktop/resources/bun/current",
         "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "packages/desktop/resources/git/current",
+        "to": "runtimes/git",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "packages/desktop/resources/node/current",
+        "to": "runtimes/node",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "packages/desktop/resources/python/current",
+        "to": "runtimes/python",
         "filter": [
           "**/*"
         ]
@@ -308,7 +328,6 @@
   "trustedDependencies": [
     "better-sqlite3",
     "cloudflared",
-    "dugite",
     "electron",
     "electron-winstaller",
     "esbuild",

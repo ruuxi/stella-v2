@@ -31,11 +31,18 @@ isolated Electron user-data directory; a deliberate dev override must use
 
 The Electron main/preload code lives in ASAR. The Bun sidecar does not: the
 build copies the compiled runtime to `Contents/Resources/runtime`, where an
-external process can read it, and copies the build machine's Bun and ripgrep
-binaries to `Contents/Resources/bin`. `STELLA_BUN_PATH` and
-`STELLA_APP_RESOURCES_PATH` are set before runtime initialization. The host
-therefore spawns the bundled Bun against the packaged worker entry and attaches
-over its existing Unix-domain socket transport.
+external process can read it. Every release downloads checksum-pinned,
+target-architecture builds of Bun, ripgrep, uv, Git, Node (including npm), and
+Python (including pip). The small tools live under `Resources/bin`; complete
+runtime trees live under `Resources/runtimes`. Packaging never copies a host
+binary into a differently targeted artifact.
+
+Before runtime initialization, Electron sets the absolute managed-runtime
+variables and prepends their private directories to the child-process PATH.
+The worker and agent shell therefore use Stella's Git, Node, Python, uv,
+ripgrep, and Bun without relying on tools installed on the user's machine.
+`STELLA_BUN_PATH` points the host at the packaged worker runtime, which attaches
+over its existing local socket transport.
 
 Most worker dependencies are bundled into the runtime chunks. `undici` and
 `@silvia-odwyer/photon-node` remain installed-file-layout dependencies and are

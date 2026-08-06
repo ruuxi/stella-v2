@@ -163,7 +163,7 @@ describe("AppsSection external-app states", () => {
     });
     render();
 
-    expect(container.textContent).toContain("Running");
+    expect(container.textContent).toContain("On");
     const shutdown = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Shut down Ledger"]',
     );

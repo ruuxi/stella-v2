@@ -107,7 +107,7 @@
   width: max-content;
   max-width: 100%;
   height: var(--shell-topbar-height, 38px);
-  gap: 6px;
+  gap: 0;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -161,10 +161,10 @@
   content: "";
   position: absolute;
   z-index: 2;
-  top: 13px;
-  right: -3.75px;
-  width: 1.5px;
-  height: 12px;
+  top: 8px;
+  right: -0.5px;
+  width: 1px;
+  height: 20px;
   border-radius: 999px;
   background: var(--border-base);
   opacity: 0.55;
@@ -176,6 +176,7 @@
 }
 
 .conversation-topbar__tab[data-active="true"] {
+  margin-inline: 3px;
   color: var(--text-strong);
   background: transparent;
 }

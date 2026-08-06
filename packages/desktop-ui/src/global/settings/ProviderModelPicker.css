@@ -512,7 +512,7 @@
 
 .model-picker-model-reason[data-active] {
   color: var(--text-strong);
-  border-color: var(--border);
+  border-color: var(--border-strong);
   background: transparent;
 }
 
@@ -550,7 +550,7 @@
 
 .model-picker-model[data-selected] {
   background: transparent;
-  border-color: var(--border);
+  border-color: var(--border-strong);
   color: var(--text-strong);
 }
 

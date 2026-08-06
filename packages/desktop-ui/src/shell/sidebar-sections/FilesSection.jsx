@@ -277,6 +277,7 @@ export function FilesSection() {
             preloadModelsPicker();
     }, [modelsOpen]);
     const modelsActive = modelsOpen && panelOpen && activeSection === "files";
+    const showModelsControl = modelsOpen || !openTab;
     return (<div className="work-section">
       <div className="work-section__body">
         {modelsOpen ? (<div className="work-models-panel">
@@ -298,8 +299,8 @@ export function FilesSection() {
           </div>
         </>)}
       </div>
-      <div className="work-section__footer">
-        <SidebarModelsControl />
-      </div>
+      {showModelsControl ? (<div className="work-section__footer">
+          <SidebarModelsControl />
+        </div>) : null}
     </div>);
 }

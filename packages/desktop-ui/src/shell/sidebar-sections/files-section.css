@@ -86,7 +86,7 @@
 }
 
 .files-list__search input::placeholder {
-  color: var(--text-weaker);
+  color: color-mix(in srgb, var(--text-weak) 50%, var(--text-weaker));
 }
 
 .files-list__items {

@@ -4,7 +4,7 @@ import {
 } from "@/shell/display/engine-overlay-store";
 import { SlidersHorizontal } from "@/ui/icons";
 
-/** Work-only control that swaps the Work body with the inline model panel. */
+/** Work-only control for the inline model panel in Work's lower half. */
 export function SidebarModelsControl() {
   const modelsPickerOpen = useEngineOverlayOpen();
 

@@ -278,25 +278,28 @@ export function FilesSection() {
     }, [modelsOpen]);
     const modelsActive = modelsOpen && panelOpen && activeSection === "files";
     return (<div className="work-section">
-      <div className="work-section__body">
+      <div className="work-section__body" data-models-open={modelsOpen || undefined}>
+        <div className="work-section__primary">
+          {!openTab ? (<WorkList />) : (<>
+            <div className="sidebar-section__viewer-head">
+              <button type="button" className="sidebar-section__back" onClick={() => sidebarSections.clearLocation("files")} aria-label="Back to work">
+                <ChevronLeft size={15} strokeWidth={1.75} aria-hidden="true"/>
+                Work
+              </button>
+              <span className="sidebar-section__viewer-title">{openTab.title}</span>
+            </div>
+            <div className="sidebar-section__viewer-body">
+              <DeferredDisplayContent key={openTab.id} render={openTab.render}/>
+            </div>
+          </>)}
+        </div>
         {modelsOpen ? (<div className="work-models-panel">
           <Suspense fallback={<div className="work-models-panel__loading" aria-busy="true" aria-live="polite">
               Loading…
             </div>}>
             <AgentModelPicker active={modelsActive}/>
           </Suspense>
-        </div>) : !openTab ? (<WorkList />) : (<>
-          <div className="sidebar-section__viewer-head">
-            <button type="button" className="sidebar-section__back" onClick={() => sidebarSections.clearLocation("files")} aria-label="Back to work">
-              <ChevronLeft size={15} strokeWidth={1.75} aria-hidden="true"/>
-              Work
-            </button>
-            <span className="sidebar-section__viewer-title">{openTab.title}</span>
-          </div>
-          <div className="sidebar-section__viewer-body">
-            <DeferredDisplayContent key={openTab.id} render={openTab.render}/>
-          </div>
-        </>)}
+        </div>) : null}
       </div>
       <div className="work-section__footer">
         <SidebarModelsControl />

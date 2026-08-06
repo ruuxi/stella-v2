@@ -64,10 +64,14 @@ describe("Stella Browser release contract", () => {
     expect(packageJson.scripts["electron:dev"]).toContain(
       "ensure-stella-browser.mjs --allow-build-fallback",
     );
+    expect(packageJson.scripts["electron:dev"]).toContain(
+      "--build-from-source",
+    );
     const ensureScript = await readRepoFile(
       "packages/desktop/scripts/ensure-stella-browser.mjs",
     );
     expect(ensureScript).toContain("download-stella-browser.mjs");
+    expect(ensureScript).toContain("if (buildFromSource)");
     expect(ensureScript).not.toMatch(
       /if \(existsSync\(hydratedPath\).*process\.exit\(0\)/s,
     );

@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getStellaBrowserBridgeEnv } from "../tools/stella-browser-bridge-config.js";
+import {
+  getStellaBrowserBridgeEnv,
+  getStellaInAppBrowserInitEndpoint,
+  getStellaInAppBrowserInitTokenPath,
+} from "../tools/stella-browser-bridge-config.js";
 import {
   DEFAULT_BROWSER_COMMAND_TIMEOUT_MS,
   DEFAULT_BROWSER_MAX_OUTPUT_BYTES,
@@ -103,6 +107,11 @@ export type BrowserJsonValue =
   | Readonly<{ [key: string]: BrowserJsonValue }>;
 export type BrowserCommandParams = Readonly<Record<string, BrowserJsonValue>>;
 export type BrowserBridgeEnvironmentProvider = () => Record<string, string>;
+export type InAppBrowserInitializer = (options: {
+  env: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
+  timeoutMs: number;
+}) => Promise<boolean>;
 
 export type BrowserCommandResult<TData = unknown> =
   | (Readonly<{
@@ -191,6 +200,7 @@ export type BrowserSessionOptions = Readonly<{
   signal?: AbortSignal;
   runner?: BrowserCommandRunner;
   getBridgeEnv?: BrowserBridgeEnvironmentProvider;
+  initializeInAppBrowser?: InAppBrowserInitializer;
   ownerLeaseId?: string;
   ownerLeaseIssuedAt?: number;
 }>;
@@ -299,6 +309,11 @@ type PendingResponse = {
 
 const ALLOWED_ACTIONS = new Set<string>(BROWSER_PROTOCOL_ACTIONS);
 const ALLOWED_CHAIN_ACTIONS = new Set<string>(BROWSER_CHAIN_ACTIONS);
+const BROWSER_OWNER_LIFECYCLE_ACTIONS = new Set<string>([
+  "finalize_tabs",
+  "close_owner",
+  "release_owner_lease",
+]);
 const RESERVED_PARAM_KEYS = new Set([
   "id",
   "action",
@@ -356,6 +371,120 @@ const combineSignals = (
   if (!first) return second;
   if (!second || first === second) return first;
   return AbortSignal.any([first, second]);
+};
+
+const isUnavailableInitializerError = (error: Error) =>
+  "code" in error &&
+  ["ENOENT", "ECONNREFUSED", "EADDRNOTAVAIL"].includes(
+    String((error as NodeJS.ErrnoException).code),
+  );
+
+export const initializeStellaInAppBrowser: InAppBrowserInitializer = async ({
+  env,
+  signal,
+  timeoutMs,
+}) => {
+  throwIfAborted(signal);
+  let token = "";
+  try {
+    token = readFileSync(getStellaInAppBrowserInitTokenPath(env), "utf8").trim();
+  } catch {
+    return false;
+  }
+  if (!token) return false;
+  const endpoint = getStellaInAppBrowserInitEndpoint(env);
+
+  return await new Promise<boolean>((resolve, reject) => {
+    let settled = false;
+    let connected = false;
+    let buffer = "";
+    const socket =
+      "path" in endpoint
+        ? createConnection({ path: endpoint.path })
+        : createConnection({ host: endpoint.host, port: endpoint.port });
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      socket.removeAllListeners();
+      if (!socket.destroyed) socket.destroy();
+    };
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const onAbort = () => fail(abortReason(signal!));
+    const timeout = setTimeout(
+      () =>
+        fail(
+          new Error(
+            `In-app browser initialization timed out after ${timeoutMs}ms.`,
+          ),
+        ),
+      Math.max(1, timeoutMs),
+    );
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+    socket.setEncoding("utf8");
+    socket.once("connect", () => {
+      connected = true;
+      socket.write(`${JSON.stringify({ action: "ensure", token })}\n`);
+    });
+    socket.on("data", (chunk: string) => {
+      buffer += chunk;
+      if (Buffer.byteLength(buffer) > 16 * 1024) {
+        fail(new Error("In-app browser initialization response is too large."));
+        return;
+      }
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      try {
+        const response = JSON.parse(buffer.slice(0, newline)) as Record<
+          string,
+          unknown
+        >;
+        if (response.success === true) {
+          finish(true);
+          return;
+        }
+        fail(
+          new Error(
+            typeof response.error === "string"
+              ? response.error
+              : "Failed to initialize the in-app browser.",
+          ),
+        );
+      } catch (error) {
+        fail(
+          new Error(
+            `In-app browser initialization returned invalid JSON: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+        );
+      }
+    });
+    socket.once("error", (error) => {
+      if (!connected && isUnavailableInitializerError(error)) {
+        finish(false);
+        return;
+      }
+      fail(error);
+    });
+    socket.once("close", () => {
+      if (!settled) {
+        fail(new Error("In-app browser initialization connection closed."));
+      }
+    });
+  });
 };
 
 const validateJson = (
@@ -685,6 +814,7 @@ export class BrowserSession implements BrowserSessionClient {
   private readonly signal?: AbortSignal;
   private readonly runner: BrowserCommandRunner;
   private readonly getBridgeEnv: BrowserBridgeEnvironmentProvider;
+  private readonly initializeInAppBrowser: InAppBrowserInitializer;
   private readonly ownerLeaseId: string;
   private readonly ownerLeaseIssuedAt: number;
   private executionConfig?: ResolvedExecutionConfig;
@@ -693,6 +823,7 @@ export class BrowserSession implements BrowserSessionClient {
   private readBuffer = EMPTY_BUFFER;
   private pending?: PendingResponse;
   private fallbackAttempted = false;
+  private inAppBrowserInitialized = false;
   private queue: Promise<void> = Promise.resolve();
   private disposed = false;
   private disposePromise?: Promise<void>;
@@ -728,9 +859,17 @@ export class BrowserSession implements BrowserSessionClient {
     ) {
       throw new TypeError("getBridgeEnv must be a function.");
     }
+    if (
+      options.initializeInAppBrowser !== undefined &&
+      typeof options.initializeInAppBrowser !== "function"
+    ) {
+      throw new TypeError("initializeInAppBrowser must be a function.");
+    }
     this.signal = options.signal;
     this.runner = options.runner ?? runBrowserCommand;
     this.getBridgeEnv = options.getBridgeEnv ?? getStellaBrowserBridgeEnv;
+    this.initializeInAppBrowser =
+      options.initializeInAppBrowser ?? initializeStellaInAppBrowser;
     this.ownerLeaseId =
       options.ownerLeaseId === undefined
         ? randomUUID()
@@ -847,7 +986,9 @@ export class BrowserSession implements BrowserSessionClient {
           // intentionally unaffected, and transport disposal must still finish.
         }
       });
-      this.disposePromise = releaseLease.finally(() => this.closeClientTransport());
+      this.disposePromise = releaseLease.finally(() =>
+        this.closeClientTransport(),
+      );
     }
     return this.disposePromise;
   }
@@ -944,6 +1085,9 @@ export class BrowserSession implements BrowserSessionClient {
       for (;;) {
         attempts += 1;
         try {
+          if (!BROWSER_OWNER_LIFECYCLE_ACTIONS.has(action)) {
+            await this.ensureInAppBrowserReady(config, signal, deadline);
+          }
           await this.ensureConnected(signal, deadline, timeoutMs);
           response = (await this.roundTrip(
             request,
@@ -1003,6 +1147,26 @@ export class BrowserSession implements BrowserSessionClient {
 
   private remainingTime(deadline: number): number {
     return Math.max(0, deadline - Date.now());
+  }
+
+  private async ensureInAppBrowserReady(
+    config: ResolvedExecutionConfig,
+    signal: AbortSignal | undefined,
+    deadline: number,
+  ): Promise<void> {
+    if (this.inAppBrowserInitialized) return;
+    const remainingMs = this.remainingTime(deadline);
+    if (remainingMs <= 0) {
+      throw new Error(
+        "Browser command timed out during in-app initialization.",
+      );
+    }
+    const initialized = await this.initializeInAppBrowser({
+      env: config.env,
+      signal,
+      timeoutMs: remainingMs,
+    });
+    if (initialized) this.inAppBrowserInitialized = true;
   }
 
   private async ensureConnected(
@@ -1375,6 +1539,7 @@ export class BrowserSession implements BrowserSessionClient {
   private invalidateSocket(socket: Socket, error: Error): void {
     if (socket !== this.socket) return;
     this.socket = undefined;
+    this.inAppBrowserInitialized = false;
     this.readBuffer = EMPTY_BUFFER;
     const pending = this.takePending();
     socket.removeAllListeners();

@@ -19,6 +19,16 @@ export const registerBootstrapProcessCleanups = (context) => {
         await context.state.stellaBrowserBridgeService?.stop();
         await stopOrphanedStellaBrowserDaemons();
     });
+    processRuntime.registerCleanup("before-quit", "in-app-browser", async () => {
+        context.state.inAppBrowserHandlersDispose?.();
+        context.state.inAppBrowserHandlersDispose = null;
+        await context.state.inAppBrowserBootstrapServer?.stop();
+        context.state.inAppBrowserBootstrapServer = null;
+        await context.state.inAppBrowserCdpAdapter?.stop();
+        context.state.inAppBrowserCdpAdapter = null;
+        context.state.inAppBrowserService?.dispose();
+        context.state.inAppBrowserService = null;
+    });
     processRuntime.registerCleanup("before-quit", "overlay-window", () => {
         context.state.overlayController?.destroy();
     });

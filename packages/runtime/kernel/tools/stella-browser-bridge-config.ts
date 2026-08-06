@@ -6,6 +6,7 @@ import path from "node:path";
 export const STELLA_BROWSER_BRIDGE_PROVIDER = "extension";
 export const STELLA_BROWSER_BRIDGE_SESSION = "stella-app-bridge";
 export const STELLA_BROWSER_BRIDGE_PORT = "39040";
+export const STELLA_IN_APP_BROWSER_INIT_PORT = 39041;
 
 /** Chrome native messaging host name — must match extension `connectNative` and host manifest. */
 export const STELLA_NATIVE_MESSAGING_HOST_NAME = "com.stella.browser_bridge";
@@ -22,15 +23,44 @@ const readBridgeToken = (tokenPath: string): string | null => {
   }
 };
 
-export const getStellaBrowserSocketDir = (): string => {
-  const explicit = process.env.STELLA_BROWSER_SOCKET_DIR?.trim();
+export type StellaInAppBrowserInitEndpoint =
+  | Readonly<{ path: string }>
+  | Readonly<{ host: string; port: number }>;
+
+export const getStellaBrowserSocketDir = (
+  env: NodeJS.ProcessEnv = process.env,
+): string => {
+  const explicit = env.STELLA_BROWSER_SOCKET_DIR?.trim();
   if (explicit) return explicit;
-  const runtimeDir = process.env.XDG_RUNTIME_DIR?.trim();
+  const runtimeDir = env.XDG_RUNTIME_DIR?.trim();
   if (runtimeDir) return path.join(runtimeDir, "stella-browser");
   const homeDir = os.homedir().trim();
   if (homeDir) return path.join(homeDir, ".stella-browser");
   return path.join(os.tmpdir(), "stella-browser");
 };
+
+export const getStellaInAppBrowserInitEndpoint = (
+  env: NodeJS.ProcessEnv = process.env,
+): StellaInAppBrowserInitEndpoint =>
+  process.platform === "win32"
+    ? Object.freeze({
+        host: "127.0.0.1",
+        port: STELLA_IN_APP_BROWSER_INIT_PORT,
+      })
+    : Object.freeze({
+        path: path.join(
+          getStellaBrowserSocketDir(env),
+          `${env.STELLA_BROWSER_SESSION?.trim() || STELLA_BROWSER_BRIDGE_SESSION}.in-app.sock`,
+        ),
+      });
+
+export const getStellaInAppBrowserInitTokenPath = (
+  env: NodeJS.ProcessEnv = process.env,
+): string =>
+  path.join(
+    getStellaBrowserSocketDir(env),
+    `${env.STELLA_BROWSER_SESSION?.trim() || STELLA_BROWSER_BRIDGE_SESSION}.in-app-token`,
+  );
 
 const getBridgeTokenPath = (): string => {
   const socketDir = getStellaBrowserSocketDir();

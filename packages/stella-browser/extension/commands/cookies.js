@@ -53,6 +53,30 @@ export async function handleCookiesGet(command) {
   };
 }
 
+/**
+ * Export every cookie from the user's regular Chromium cookie stores.
+ *
+ * Querying each store explicitly keeps incognito cookies out of the export and
+ * preserves the complete Cookie objects returned by Chrome, including fields
+ * such as hostOnly, session, storeId, and partitionKey that cookies_get's
+ * compatibility shape intentionally omits.
+ */
+export async function handleCookiesExportAll(command) {
+  const stores = await chrome.cookies.getAllCookieStores();
+  const regularStores = stores.filter(store => store.incognito !== true);
+  const cookiesByStore = await Promise.all(
+    regularStores.map(store => chrome.cookies.getAll({ storeId: store.id })),
+  );
+
+  return {
+    id: command.id,
+    success: true,
+    data: {
+      cookies: cookiesByStore.flat(),
+    },
+  };
+}
+
 export async function handleCookiesSet(command) {
   const url = await resolveCookieUrl(command);
 

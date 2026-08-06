@@ -1,5 +1,5 @@
 /**
- * The right sidebar's tab rail: Work and Apps.
+ * The right sidebar's tab rail: Work, Apps, and Browser.
  *
  * Clicking the active tab returns a drilled-in section to its default view;
  * clicking it while already at that view does nothing.
@@ -9,13 +9,14 @@
 import { resolvePanelSidebarSection, sidebarSections, useActiveSidebarSection, } from "@/features/workspace-display/sidebar-sections";
 import { displaySearchStore } from "@/features/workspace-display/display-search-store";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
-import { AppWindowMac, LayoutList, Settings, } from "@/ui/icons";
+import { AppWindowMac, Globe, LayoutList, Settings, } from "@/ui/icons";
 import "./sidebar-tab-rail.css";
-const SIDEBAR_TAB_SECTIONS = ["files", "apps"];
+const SIDEBAR_TAB_SECTIONS = ["files", "apps", "browser"];
 export const SIDEBAR_SECTION_META = {
     home: { label: "Home", Icon: LayoutList },
     files: { label: "Work", Icon: LayoutList },
     apps: { label: "Apps", Icon: AppWindowMac },
+    browser: { label: "Browser", Icon: Globe },
     settings: { label: "Settings", Icon: Settings },
 };
 export function SidebarTabRail() {

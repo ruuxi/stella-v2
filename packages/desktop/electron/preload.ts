@@ -208,6 +208,27 @@ const invokeBrowserFetch = async <T>(
   }
 };
 
+type BrowserViewState = {
+  connection: "checking" | "disconnected" | "connected";
+  profileName?: string;
+  tabs: Array<{
+    id: string;
+    url: string;
+    title: string;
+    faviconUrl?: string;
+    loading: boolean;
+    canGoBack: boolean;
+    canGoForward: boolean;
+  }>;
+  activeTabId?: string;
+  error?: string;
+};
+
+type BrowserViewLayout = {
+  pageBounds: { x: number; y: number; width: number; height: number };
+  surfaceBounds: { x: number; y: number; width: number; height: number };
+};
+
 // ---------------------------------------------------------------------------
 
 // Shared UI state (~/.stella/ui-state.json) snapshot, read synchronously so
@@ -1547,6 +1568,34 @@ contextBridge.exposeInMainWorld("electronAPI", {
       error?: string;
       notifyUser?: boolean;
     }>("browser:bridgeStatus"),
+  },
+
+  browserView: {
+    getState: () => invokeIpc<BrowserViewState>("browserView:getState"),
+    connect: (payload: { browserType?: string; profileId?: string }) =>
+      invokeIpc<BrowserViewState>("browserView:connect", payload),
+    show: (payload: BrowserViewLayout) =>
+      invokeIpc<BrowserViewState>("browserView:show", payload),
+    setLayout: (payload: BrowserViewLayout) =>
+      invokeIpc<BrowserViewState>("browserView:setLayout", payload),
+    hide: () => invokeIpc<BrowserViewState>("browserView:hide"),
+    createTab: (payload: { url?: string } = {}) =>
+      invokeIpc<BrowserViewState>("browserView:createTab", payload),
+    selectTab: (payload: { tabId: string }) =>
+      invokeIpc<BrowserViewState>("browserView:selectTab", payload),
+    closeTab: (payload: { tabId: string }) =>
+      invokeIpc<BrowserViewState>("browserView:closeTab", payload),
+    navigate: (payload: { tabId: string; url: string }) =>
+      invokeIpc<BrowserViewState>("browserView:navigate", payload),
+    goBack: (payload: { tabId: string }) =>
+      invokeIpc<BrowserViewState>("browserView:goBack", payload),
+    goForward: (payload: { tabId: string }) =>
+      invokeIpc<BrowserViewState>("browserView:goForward", payload),
+    reload: (payload: { tabId: string }) =>
+      invokeIpc<BrowserViewState>("browserView:reload", payload),
+    requestExtensionConnect: () =>
+      invokeIpc<BrowserViewState>("browserView:requestExtensionConnect"),
+    onState: onIpc<BrowserViewState>("browserView:state"),
   },
 
   home: {

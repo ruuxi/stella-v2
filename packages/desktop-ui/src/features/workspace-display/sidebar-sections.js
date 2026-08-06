@@ -18,8 +18,8 @@
 import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
 import { displayTabs } from "./tab-store";
-export const SIDEBAR_SECTIONS = ["home", "files", "apps", "settings"];
-export const PANEL_SIDEBAR_SECTIONS = ["files", "apps", "settings"];
+export const SIDEBAR_SECTIONS = ["home", "files", "apps", "browser", "settings"];
+export const PANEL_SIDEBAR_SECTIONS = ["files", "apps", "browser", "settings"];
 export const isSidebarSection = (value) => typeof value === "string" &&
     SIDEBAR_SECTIONS.includes(value);
 /**
@@ -55,6 +55,7 @@ const DEFAULT_LOCATIONS = {
     home: null,
     files: null,
     apps: null,
+    browser: null,
     settings: null,
 };
 const readPersistedSection = () => {
@@ -93,6 +94,7 @@ const readPersistedLocations = () => {
             home: pick("home") ?? pick("tasks"),
             files: pick("files"),
             apps: pick("apps"),
+            browser: pick("browser"),
             settings: pick("settings"),
         };
     }
@@ -122,6 +124,7 @@ const persistLocations = (locations) => {
         home: locations.home,
         files: locations.files,
         apps: locations.apps,
+        browser: locations.browser,
         settings: locations.settings,
     }));
 };

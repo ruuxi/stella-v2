@@ -204,7 +204,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         finally {
             setSigningOut(null);
         }
-    }, [credentials, signOutArmed]);
+    }, [credentials.apiKeys, credentials.oauthCredentials, credentials.logoutOAuth, credentials.removeApiKey, signOutArmed]);
     const handleSaveKey = useCallback(async (providerKey, label) => {
         const trimmed = draftKey.trim();
         if (!trimmed)
@@ -379,19 +379,40 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         setDraftKey("");
         setExpandedProvider(section.tab.key);
     }, [authOpenRequest, section?.requiresAuth, section?.tab.key]);
-    const { requiresAuth: liftedRequiresAuth, supportsOAuth: liftedSupportsOAuth, expanded: liftedExpanded, sectionDisabled: liftedSectionDisabled, } = section ?? {};
-    const liftedDescriptor = useMemo(() => section && liftedRequiresAuth
-        ? {
-            kind: "connect",
-            connectLabel: liftedExpanded
-                ? "Cancel"
-                : liftedSupportsOAuth
-                    ? "Sign in"
-                    : "Add key",
-            onConnect: () => toggleExpanded(liftedExpanded ? null : section.tab.key),
-            disabled: liftedSectionDisabled,
-        }
-        : null, [liftedExpanded, liftedRequiresAuth, liftedSectionDisabled, liftedSupportsOAuth, section?.tab.key, toggleExpanded]);
+    const { requiresAuth: liftedRequiresAuth, supportsOAuth: liftedSupportsOAuth, expanded: liftedExpanded, sectionDisabled: liftedSectionDisabled, removable: liftedRemovable, armed: liftedArmed, isSigningOut: liftedIsSigningOut, hasCustomInputs: liftedHasCustomInputs, } = section ?? {};
+    const liftedTabKey = section?.tab.key;
+    const liftedTabLabel = section?.tab.label;
+    const liftedDescriptor = useMemo(() => {
+        if (!liftedTabKey)
+            return null;
+        const connect = liftedRequiresAuth || liftedHasCustomInputs
+            ? {
+                label: liftedExpanded
+                    ? "Cancel"
+                    : liftedRequiresAuth
+                        ? liftedSupportsOAuth
+                            ? "Sign in"
+                            : "Add key"
+                        : "Custom",
+                onClick: () => toggleExpanded(liftedExpanded ? null : liftedTabKey),
+                disabled: liftedSectionDisabled,
+            }
+            : null;
+        const signOut = liftedRemovable
+            ? {
+                armed: liftedArmed,
+                disabled: liftedIsSigningOut,
+                label: liftedArmed
+                    ? `Click again to sign out of ${liftedTabLabel}`
+                    : `Sign out of ${liftedTabLabel}`,
+                title: liftedArmed
+                    ? "Click again to confirm"
+                    : `Sign out of ${liftedTabLabel}`,
+                onClick: () => void handleSignOut(liftedTabKey),
+            }
+            : null;
+        return connect || signOut ? { connect, signOut } : null;
+    }, [handleSignOut, liftedArmed, liftedExpanded, liftedHasCustomInputs, liftedIsSigningOut, liftedRemovable, liftedRequiresAuth, liftedSectionDisabled, liftedSupportsOAuth, liftedTabKey, liftedTabLabel, toggleExpanded]);
     useEffect(() => {
         if (!headerActionsTarget || tabs.length !== 1)
             return undefined;

@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build-google-ads-import": "bun scripts/build-google-ads-import.mjs",
     "start": "next start",
     "lint": "eslint",
     "optimize-canvas-demos": "bun scripts/optimize-canvas-screenshots.mjs"

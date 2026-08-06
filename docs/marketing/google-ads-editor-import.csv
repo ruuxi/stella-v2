@@ -1,0 +1,146 @@
+Campaign,Campaign type,Campaign daily budget,Networks,Languages,Bid strategy type,Maximum CPC bid limit,Campaign status,Mobile Bid Modifier,Tablet Bid Modifier,Location ID,Ad Group,Ad Group Status,Max CPC,Keyword,Type,Status,Ad type,Headline 1,Headline 2,Headline 3,Headline 4,Headline 5,Headline 6,Headline 7,Headline 8,Headline 9,Headline 10,Headline 11,Headline 12,Headline 13,Headline 14,Headline 15,Description 1,Description 2,Description 3,Description 4,Path 1,Path 2,Final URL,Link Text,Callout text,Header,Snippet Values,Platform Targeting,Comment
+US | Search | Competitor | OpenCode,Search,41.12,Google Search,en,Maximize clicks,2.50,Paused,-100%,-100%,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Stella launch campaign; review location presence setting before enabling
+US | Search | Competitor | OpenCode,,,,,,,,,,2840,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Competitor | OpenCode,,,,,,,,,,,OpenCode,Paused,2.50,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,Search,65.79,Google Search,en,Maximize clicks,2.50,Paused,-100%,-100%,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Stella launch campaign; review location presence setting before enabling
+US | Search | Coding Agent,,,,,,,,,,2840,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,Paused,2.50,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,Search,57.56,Google Search,en,Maximize clicks,2.50,Paused,-100%,-100%,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Stella launch campaign; review location presence setting before enabling
+US | Search | Personal Work,,,,,,,,,,2840,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,Paused,2.50,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Competitor | OpenCode,,,,,,,,,,,OpenCode,,,opencode,exact,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Competitor | OpenCode,,,,,,,,,,,OpenCode,,,opencode ai,exact,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Competitor | OpenCode,,,,,,,,,,,OpenCode,,,opencode go,exact,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Competitor | OpenCode,,,,,,,,,,,OpenCode,,,opencode pricing,exact,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Competitor | OpenCode,,,,,,,,,,,OpenCode,,,opencode coding agent,exact,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Competitor | OpenCode,,,,,,,,,,,OpenCode,,,opencode alternative,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Competitor | OpenCode,,,,,,,,,,,OpenCode,,,alternatives to opencode,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,ai coding agent,exact,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,ai agent for coding,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,coding agent,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,open source coding agent,exact,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,open source ai coding agent,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,desktop coding agent,exact,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,coding assistant for desktop,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,claude code alternative,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,cursor alternative,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,personal ai assistant,exact,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,ai personal assistant,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,ai assistant for computer,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,desktop ai agent,exact,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,computer use ai agent,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,ai agent for my computer,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,ai agent for work,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,ai knowledge worker,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,ai research assistant,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,ai agent for documents,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,ai spreadsheet assistant,phrase,Paused,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,job,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,jobs,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,career,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,careers,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,salary,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,internship,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,course,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,courses,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,tutorial,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,tutorials,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,class,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,classes,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,degree,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,definition,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,meaning,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,wiki,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,wikipedia,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,crack,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Piracy intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,cracked,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Piracy intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,torrent,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Piracy intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,apk,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported platform
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,android,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported primary product
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,iphone,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported primary product
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,ios,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported primary product
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,"""customer service""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Support intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,"""phone number""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Support intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,login,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Existing-user navigation
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,"""sign in""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Existing-user navigation
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,"""api documentation""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Developer API intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,,,,"""api docs""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Developer API intent
+US | Search | Coding Agent,,,,,,,,,,,,,,job,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Coding Agent,,,,,,,,,,,,,,jobs,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Coding Agent,,,,,,,,,,,,,,career,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Coding Agent,,,,,,,,,,,,,,careers,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Coding Agent,,,,,,,,,,,,,,salary,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Coding Agent,,,,,,,,,,,,,,internship,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Coding Agent,,,,,,,,,,,,,,course,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Coding Agent,,,,,,,,,,,,,,courses,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Coding Agent,,,,,,,,,,,,,,tutorial,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Coding Agent,,,,,,,,,,,,,,tutorials,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Coding Agent,,,,,,,,,,,,,,class,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Coding Agent,,,,,,,,,,,,,,classes,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Coding Agent,,,,,,,,,,,,,,degree,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Coding Agent,,,,,,,,,,,,,,definition,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Coding Agent,,,,,,,,,,,,,,meaning,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Coding Agent,,,,,,,,,,,,,,wiki,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Coding Agent,,,,,,,,,,,,,,wikipedia,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Coding Agent,,,,,,,,,,,,,,crack,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Piracy intent
+US | Search | Coding Agent,,,,,,,,,,,,,,cracked,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Piracy intent
+US | Search | Coding Agent,,,,,,,,,,,,,,torrent,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Piracy intent
+US | Search | Coding Agent,,,,,,,,,,,,,,apk,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported platform
+US | Search | Coding Agent,,,,,,,,,,,,,,android,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported primary product
+US | Search | Coding Agent,,,,,,,,,,,,,,iphone,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported primary product
+US | Search | Coding Agent,,,,,,,,,,,,,,ios,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported primary product
+US | Search | Coding Agent,,,,,,,,,,,,,,"""customer service""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Support intent
+US | Search | Coding Agent,,,,,,,,,,,,,,"""phone number""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Support intent
+US | Search | Coding Agent,,,,,,,,,,,,,,login,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Existing-user navigation
+US | Search | Coding Agent,,,,,,,,,,,,,,"""sign in""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Existing-user navigation
+US | Search | Coding Agent,,,,,,,,,,,,,,"""api documentation""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Developer API intent
+US | Search | Coding Agent,,,,,,,,,,,,,,"""api docs""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Developer API intent
+US | Search | Personal Work,,,,,,,,,,,,,,job,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Personal Work,,,,,,,,,,,,,,jobs,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Personal Work,,,,,,,,,,,,,,career,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Personal Work,,,,,,,,,,,,,,careers,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Personal Work,,,,,,,,,,,,,,salary,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Personal Work,,,,,,,,,,,,,,internship,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Employment intent
+US | Search | Personal Work,,,,,,,,,,,,,,course,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Personal Work,,,,,,,,,,,,,,courses,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Personal Work,,,,,,,,,,,,,,tutorial,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Personal Work,,,,,,,,,,,,,,tutorials,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Personal Work,,,,,,,,,,,,,,class,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Personal Work,,,,,,,,,,,,,,classes,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Personal Work,,,,,,,,,,,,,,degree,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Education intent
+US | Search | Personal Work,,,,,,,,,,,,,,definition,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Personal Work,,,,,,,,,,,,,,meaning,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Personal Work,,,,,,,,,,,,,,wiki,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Personal Work,,,,,,,,,,,,,,wikipedia,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Informational intent
+US | Search | Personal Work,,,,,,,,,,,,,,crack,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Piracy intent
+US | Search | Personal Work,,,,,,,,,,,,,,cracked,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Piracy intent
+US | Search | Personal Work,,,,,,,,,,,,,,torrent,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Piracy intent
+US | Search | Personal Work,,,,,,,,,,,,,,apk,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported platform
+US | Search | Personal Work,,,,,,,,,,,,,,android,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported primary product
+US | Search | Personal Work,,,,,,,,,,,,,,iphone,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported primary product
+US | Search | Personal Work,,,,,,,,,,,,,,ios,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Unsupported primary product
+US | Search | Personal Work,,,,,,,,,,,,,,"""customer service""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Support intent
+US | Search | Personal Work,,,,,,,,,,,,,,"""phone number""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Support intent
+US | Search | Personal Work,,,,,,,,,,,,,,login,Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Existing-user navigation
+US | Search | Personal Work,,,,,,,,,,,,,,"""sign in""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Existing-user navigation
+US | Search | Personal Work,,,,,,,,,,,,,,"""api documentation""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Developer API intent
+US | Search | Personal Work,,,,,,,,,,,,,,"""api docs""",Campaign negative,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Developer API intent
+US | Search | Competitor | OpenCode,,,,,,,,,,,OpenCode,,,,,Paused,Responsive search ad,One Agent. More Than Code,Coding Is Just the Start,Your Personal AI Agent,Start Free With Stella,$5 First Month,Open Source. Local First.,Browser Files Apps and Code,Work Across Your Computer,Bring Your Own AI Models,AI Agent for Mac & Windows,,,,,,Code. Research. Create files. Use your browser. One personal AI assistant.,Start free. Managed AI is $5 for your first month and then $10 per month.,Open source and local first. Bring your own model or use Stella's managed service.,From codebases to spreadsheets Stella works across your computer while you keep moving.,personal-ai,mac-windows,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,,,Paused,Responsive search ad,AI Coding Agent $5 First Month,Open-Source Coding Agent,Code With Any AI Model,Build and Debug With Stella,Your Coding Agent and More,Use Your Own AI Models,Local-First AI for Coding,AI Agent for Mac & Windows,Start Free With Stella,Coding Is Just the Start,,,,,,Read repos. Edit code. Run commands. Keep background work moving.,Start free or use managed AI for $5 the first month and then $10 per month.,Open source and local first. Bring supported provider keys and choose your models.,One desktop agent for code and research plus browser work and documents.,coding-agent,mac-windows,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,,,Paused,Responsive search ad,Your Personal AI Agent,AI for Your Whole Computer,One Agent for All Your Work,Research Write and Build Files,Make Docs Sheets and Slides,Use Your Browser and Apps,Start Free With Stella,$5 First Month,Open Source. Local First.,AI Agent for Mac & Windows,,,,,,Research. Create documents. Use your browser. Finish work across your computer.,Start free. Managed AI is $5 for your first month and then $10 per month.,Open source and local first. Chats files and app state remain on your device.,One personal assistant for coding and knowledge work plus browser tasks and apps.,ai-assistant,mac-windows,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,,,,,,
+US | Search | Competitor | OpenCode,,,,,,,,,,,OpenCode,,,,,Paused,Responsive search ad,Looking Beyond Coding?,An AI Agent for Real Work,Stella Works Across Your PC,Code Research and Create,Personal Agent $5 First Month,Open-Source AI Assistant,Local First. Fully Capable.,Use Your Browser Files Apps,Download Stella Today,One Assistant. More Done.,,,,,,Go beyond code with one agent for research documents browser tasks files and desktop apps.,Try Stella free or start managed AI for $5 the first month and $10 per month after.,Use supported provider keys or Stella managed AI in one open-source desktop app.,Keep separate chats for each project while background work continues.,personal-ai,mac-windows,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,,,,,,
+US | Search | Coding Agent,,,,,,,,,,,Coding Agent,,,,,Paused,Responsive search ad,Your Open-Source AI Agent,From Code to Finished Work,Work Across Repos and Apps,Run Commands and Fix Bugs,Research While Agents Work,Use Stella With Your Models,Start Stella Free,$5 Managed AI First Month,Local-First Desktop Agent,Download for Mac or Windows,,,,,,Work across repositories and commands plus research documents browsers files and apps.,Use supported provider keys for free or start managed AI for $5 the first month.,Keep a focused chat for every project and let background agents handle separate work.,Open source and local first. Download Stella for Mac or Windows today.,coding-agent,mac-windows,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,,,,,,
+US | Search | Personal Work,,,,,,,,,,,Personal Work,,,,,Paused,Responsive search ad,AI Assistant That Takes Action,Work Across Browser and Apps,Turn Research Into Files,Create Docs Sheets and Slides,One Assistant. Separate Chats.,Your Work Stays Local,Bring Your Own AI Models,Start Free With Stella,$5 First Month,Open-Source Personal AI,,,,,,Ask Stella to research create files use your browser and work across desktop apps.,Start free or use managed AI for $5 the first month and then $10 per month.,Your normal chats files and app state stay on your device in a local-first desktop app.,One assistant for knowledge work coding browser tasks documents and computer use.,ai-assistant,mac-windows,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,,,,,,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Start free with Stella,Go is $5 the first month,,,,,https://stella.sh/pricing,Pricing,,,,All,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,See what Stella can do,"Browser, files, apps and more",,,,,https://stella.sh/learn-more,How Stella Works,,,,All,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"Build, debug and research",Keep background work moving,,,,,https://stella.sh/go#work,Coding and Agents,,,,All,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Read Stella's source,Local-first desktop assistant,,,,,https://github.com/ruuxi/stella-v2,Open Source,,,,All,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Start Free,,,,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,$5 First Month,,,,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Open Source,,,,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Local First,,,,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Bring Your Own Models,,,,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Mac and Windows,,,,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Browser and Computer Use,,,,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Docs and Spreadsheets,,,,
+<Account-level>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Features,Coding;Computer Use;Research;Documents;Browser Automation;Voice,,

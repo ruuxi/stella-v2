@@ -1,7 +1,7 @@
 # Stella Google Search launch pack
 
-Prepared August 5, 2026. This is a launch checklist and source of truth for the
-first paid-search test. It does not authorize spend by itself.
+Prepared August 5, 2026 and updated August 6, 2026. This is the source of truth
+for the first paid-search test. The approved ceiling is $5,000 per month.
 
 ## Positioning
 
@@ -65,9 +65,9 @@ first test so search terms remain interpretable.
 - Bidding: Maximize Clicks with a maximum CPC cap until reliable conversions
   exist. Suggested starting cap: $2.50; raise only if impression share is near
   zero on high-intent exact terms.
-- Suggested pilot: $30/day total for 10 days, hard stop at $300. Allocate $12
-  competitor, $10 coding, and $8 personal work. This is a recommendation, not
-  approved spend.
+- Approved portfolio budget: $164.47/day, which is approximately $5,000 per
+  Google Ads' 30.4-day budgeting month. Allocate $41.12/day to competitor,
+  $65.79/day to coding, and $57.56/day to personal work.
 - Schedule: all day initially. Review by hour after enough data exists.
 
 ## Conversion plan
@@ -116,7 +116,7 @@ Callouts:
 - Bring Your Own Models
 - Mac and Windows
 - Browser and Computer Use
-- Documents and Spreadsheets
+- Docs and Spreadsheets
 
 Structured snippet, `Features`:
 
@@ -146,19 +146,24 @@ but do not negate high-intent comparison terms such as "alternative," "vs," or
 - Expand to Canada, the United Kingdom, and Australia as separate campaigns
   only after the US test produces a stable cost per activated user.
 
-## Google Ads account handoff
+## Google Ads account status
 
-The signed-in browser currently exposes two FromYou manager accounts and one
-`Joyi` client account. The manager views show no linked campaign account or
-billing setup, and Google Ads is blocked by an active ad blocker. Before upload:
+- Stella account: `439-929-3264` under `lolruuxi@gmail.com`.
+- Billing country: United States; time zone: Phoenix; currency: USD.
+- The new-advertiser offer is selected: spend $500 by October 5, 2026 to receive
+  $500 in Ads credit, subject to Google's terms.
+- Billing is not active. Google rejected the temporary $50 authorization on the
+  saved payment methods. The remaining saved Visa requires its ZIP code to be
+  updated manually.
+- `Joyi 564-160-0625` was deliberately not reused because it contains $1,362.91
+  in historical spend and has its own failed payment state.
 
-1. Disable the ad blocker for `ads.google.com`.
-2. Confirm whether `Joyi 564-160-0625` should be renamed/reused for Stella or a
-   new Stella client account should be created under FromYou.
-3. Add a payment profile and explicit account budget.
-4. Create and verify the three conversions above.
-5. Upload the campaign assets as paused drafts.
-6. Review the exact daily budget and only then enable campaigns.
+After billing is corrected, run `bun run build-google-ads-import`, import
+`google-ads-editor-import.csv` into account `439-929-3264`, review the proposed
+changes, and keep the campaigns paused until the location option is confirmed
+as presence-only. The import contains the approved $164.47/day portfolio cap,
+Search-only networks, desktop-only device modifiers, keywords, negatives, six
+responsive search ads, and account-level assets.
 
 ## Sources reviewed
 

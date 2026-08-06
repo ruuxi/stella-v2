@@ -19,7 +19,7 @@
 
 .provider-only-row[data-selected],
 .provider-only-row[data-expanded] {
-  border-color: var(--border-strong);
+  border-color: var(--border);
   background: transparent;
 }
 

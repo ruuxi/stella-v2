@@ -153,7 +153,7 @@
   overflow: visible;
   border-radius: 6px;
   color: var(--text-muted);
-  background: transparent;
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
   container-type: inline-size;
 }
 
@@ -172,13 +172,16 @@
 
 .conversation-topbar__tab:hover {
   color: var(--text-base);
-  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
 }
 
-.conversation-topbar__tab[data-active="true"],
-.conversation-topbar__tab[data-dragging="true"] {
+.conversation-topbar__tab[data-active="true"] {
   color: var(--text-strong);
-  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  background: transparent;
+}
+
+.conversation-topbar__tab[data-dragging="true"] {
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
 }
 
 .conversation-topbar__tab:hover::after,

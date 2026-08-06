@@ -53,7 +53,7 @@ export function buildProviderTabs(groups, visibleProviders) {
     }
     return Array.from(tabs.values()).sort((a, b) => compareProviderRailOrder(a.key, b.key, a.label, b.label));
 }
-export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, onSelect, disabled = false, reasoningEffort, onSelectReasoning, restrictStellaPicks = false, restrictedPlanLabel, ariaLabel, hideDefaultRow = false, selectedHeaderKicker, hideSelectedTitle = false, hideSearch = false, hideSelectionCheck = false, disableNonStellaProviders = false, disabledProviderReason, hideProviderLabel = false, visibleProviders, favoriteScope, hideGroupHead = false, headerActionsTarget, onRequestSearchClose, }) {
+export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, onSelect, disabled = false, reasoningEffort, onSelectReasoning, restrictStellaPicks = false, restrictedPlanLabel, ariaLabel, hideDefaultRow = false, selectedHeaderKicker, hideSelectedTitle = false, hideSearch = false, hideSelectionCheck = false, disableNonStellaProviders = false, disabledProviderReason, hideProviderLabel = false, visibleProviders, favoriteScope, hideGroupHead = false, headerActionsTarget, authOpenRequest = 0, onRequestSearchClose, }) {
     const credentials = useLlmCredentials();
     const tabs = useMemo(() => buildProviderTabs(groups, visibleProviders), [groups, visibleProviders]);
     const [favorites, setFavorites] = useState(() => favoriteScope ? readEngineModelFavorites(favoriteScope) : []);
@@ -307,6 +307,13 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
     // mismatched beside the header's icon buttons).
     const liftActionsToHeader = Boolean(headerActionsTarget) && tabs.length === 1;
     const section = tabs.length === 1 ? getSectionContext(tabs[0]) : null;
+    useEffect(() => {
+        if (!authOpenRequest || !section?.requiresAuth)
+            return;
+        setAuthError(null);
+        setDraftKey("");
+        setExpandedProvider(section.tab.key);
+    }, [authOpenRequest, section?.requiresAuth, section?.tab.key]);
     const { requiresAuth: liftedRequiresAuth, supportsOAuth: liftedSupportsOAuth, expanded: liftedExpanded, sectionDisabled: liftedSectionDisabled, } = section ?? {};
     const liftedDescriptor = useMemo(() => section && liftedRequiresAuth
         ? {

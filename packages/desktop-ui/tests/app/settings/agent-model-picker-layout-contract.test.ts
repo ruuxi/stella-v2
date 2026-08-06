@@ -19,12 +19,16 @@ describe("full-area agent model picker layout", () => {
     expect(picker).toContain('tabButton(ASSISTANT_TARGET, "Assistant"');
     expect(picker).toContain('className="agent-model-picker-brand-header"');
     expect(picker).toContain("agent-model-picker-connect-btn");
+    expect(picker).toContain("Sign in with ChatGPT");
+    expect(picker).toContain("authOpenRequest={brandAuthOpenRequest}");
     expect(picker).toContain("brandSearchOpen");
     expect(picker).toContain('role="radiogroup"');
     expect(picker).not.toContain("agent-model-picker-engine-note");
     expect(picker).not.toContain("agent-model-picker-fast-toggle");
     expect(picker).not.toContain("Use Codex instead");
     expect(picker).not.toContain("Use Claude Code instead");
+    expect(picker).not.toContain("agent-model-picker-source-select");
+    expect(picker).not.toContain("ChatGPT is disconnected.");
 
     expect(styles).toContain(".agent-model-picker-brand-header {");
     expect(styles).toContain(".agent-model-picker-reasoning-options {");
@@ -45,5 +49,6 @@ describe("full-area agent model picker layout", () => {
     expect(styles).not.toContain(".model-picker-group-rule");
     expect(styles).toContain(".model-picker-model[data-selected]");
     expect(styles).not.toContain("background: var(--select-fill);");
+    expect(styles).toContain("padding: 5px 10px;");
   });
 });

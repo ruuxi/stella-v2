@@ -85,7 +85,7 @@
 }
 
 .files-list__search input::placeholder {
-  color: var(--text-faint);
+  color: var(--text-weaker);
 }
 
 .files-list__items {

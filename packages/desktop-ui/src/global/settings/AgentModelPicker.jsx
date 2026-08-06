@@ -161,12 +161,11 @@ function getModelPickerDisplayLabel(modelId, modelNamesById) {
     return getModelDisplayLabel(modelId, modelNamesById);
 }
 /**
- * Inline, no-popover model picker keyed off the orchestrator/general
- * segmented toggle at the top. Owns its own preference state so it can
- * drop into either the sidebar's `Models` popover or the Settings tab
- * without a wrapper.
+ * Inline, no-popover model picker. The sidebar supplies its compact
+ * Assistant/Image/Voice mode from the Models footer controls; Settings keeps
+ * the full agent tab strip here.
  */
-export function AgentModelPicker({ active = true, onSelected, className, surface = "sidebar", }) {
+export function AgentModelPicker({ active = true, onSelected, className, surface = "sidebar", mode = "assistant", }) {
     const { allModels, defaults: stellaDefaultModels, groups, refresh, refreshing, audience, error: catalogError, } = useModelCatalog();
     const [preferences, setPreferencesRaw] = useState(() => cachedLocalPreferences);
     const [pendingAgent, setPendingAgent] = useState(null);
@@ -368,10 +367,14 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
      * rest) without leaving the same picker layout.
      */
     const configurableAgents = useMemo(() => getConfigurableAgents(modelDefaults), [modelDefaults]);
-    const initialActiveAgent = surface === "settings"
-        ? (configurableAgents[0]?.key ?? "orchestrator")
-        : ASSISTANT_TARGET;
-    const [activeAgent, setActiveAgent] = useState(initialActiveAgent);
+    const [settingsActiveAgent, setSettingsActiveAgent] = useState(() => configurableAgents[0]?.key ?? "orchestrator");
+    const activeAgent = surface === "sidebar"
+        ? mode === "image"
+            ? IMAGE_TARGET
+            : mode === "voice"
+                ? VOICE_TARGET
+                : ASSISTANT_TARGET
+        : settingsActiveAgent;
     // Snap to a known agent key if the catalog loads after first render and
     // the initially-chosen key isn't in it (Settings surface only).
     useEffect(() => {
@@ -379,13 +382,20 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             return;
         if (configurableAgents.length === 0)
             return;
-        if (activeAgent === IMAGE_TARGET ||
-            activeAgent === VOICE_TARGET ||
-            configurableAgents.some((entry) => entry.key === activeAgent)) {
+        if (settingsActiveAgent === IMAGE_TARGET ||
+            settingsActiveAgent === VOICE_TARGET ||
+            configurableAgents.some((entry) => entry.key === settingsActiveAgent)) {
             return;
         }
-        setActiveAgent(configurableAgents[0].key);
-    }, [activeAgent, configurableAgents, surface]);
+        setSettingsActiveAgent(configurableAgents[0].key);
+    }, [configurableAgents, settingsActiveAgent, surface]);
+    useEffect(() => {
+        if (surface !== "sidebar")
+            return;
+        setActiveBrandRaw(null);
+        setOpenaiSourceRaw(null);
+        setAnthropicSourceRaw(null);
+    }, [activeAgent, surface]);
     const activeAssistant = activeAgent === ASSISTANT_TARGET;
     const activeImage = activeAgent === IMAGE_TARGET;
     const activeVoice = activeAgent === VOICE_TARGET;
@@ -1065,7 +1075,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const restrictedStellaPicks = isRestrictedModelOverrideAudience(audience);
     const restrictedPlanLabel = audience ? getPlanLabel(audience) : null;
     const tabButton = (key, label, title, isActive) => (<button key={key} type="button" role="tab" aria-selected={isActive} className="agent-model-picker-toggle-btn" data-active={isActive || undefined} onClick={() => {
-            setActiveAgent(key);
+            setSettingsActiveAgent(key);
             // Each tab re-derives its brand/source from saved preferences.
             setActiveBrandRaw(null);
             setOpenaiSourceRaw(null);
@@ -1075,19 +1085,13 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     </button>);
     return (<div className={["agent-model-picker", className].filter(Boolean).join(" ")}>
       <div className="agent-model-picker-header">
-        <div className="agent-model-picker-toggle" role="tablist" aria-label="Surface" data-surface={surface}>
-          {surface === "settings"
-            ? [
+        {surface === "settings" ? (<div className="agent-model-picker-toggle" role="tablist" aria-label="Surface" data-surface={surface}>
+            {[
                 ...configurableAgents.map((agent) => tabButton(agent.key, agent.label, agent.desc, agent.key === activeAgent)),
                 tabButton(IMAGE_TARGET, "Image", "Image generation provider", activeImage),
                 tabButton(VOICE_TARGET, "Voice", "Realtime voice provider", activeVoice),
-            ]
-            : [
-                tabButton(ASSISTANT_TARGET, "Assistant", "Stella's main assistant", activeAssistant),
-                tabButton(IMAGE_TARGET, "Image", "Image generation provider", activeImage),
-                tabButton(VOICE_TARGET, "Voice", "Realtime voice provider", activeVoice),
             ]}
-        </div>
+          </div>) : null}
         <button type="button" className="agent-model-picker-refresh" onClick={() => {
             if (showClaudeCodePanel) {
                 void claudeCodeCatalog.refresh();

@@ -346,6 +346,7 @@
   transition:
     color 120ms ease,
     border-color 120ms ease;
+  margin-left: auto;
 }
 
 .agent-model-picker-refresh:hover:not(:disabled),

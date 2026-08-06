@@ -1,7 +1,7 @@
 import { createPortal } from "react-dom";
 import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
 import { useChatRuntime } from "@/context/use-chat-runtime";
-import { useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
+import { useEngineOverlayMode, useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
 import { HomeSection } from "@/shell/sidebar-sections/HomeSection";
 import { SidebarModelsControl } from "@/shell/sidebar-sections/SidebarModelsControl";
 import { preloadModelsPicker } from "@/shell/topbar/nav-surface-preloads";
@@ -19,6 +19,7 @@ const AgentModelPicker = lazy(() => import("@/global/settings/AgentModelPicker")
 export function WorkspaceHomeSurface({ hidden, portalTarget, }) {
     const chat = useChatRuntime();
     const modelsOpen = useEngineOverlayOpen();
+    const modelsMode = useEngineOverlayMode();
     const hasActivity = chat.conversation.tasks.length > 0;
     const [settledHasActivity, setSettledHasActivity] = useState(hasActivity);
     const activityAvailabilityChanging = settledHasActivity !== hasActivity;
@@ -46,7 +47,7 @@ export function WorkspaceHomeSurface({ hidden, portalTarget, }) {
               <Suspense fallback={<div className="workspace-home-surface__models-loading" aria-busy="true" aria-live="polite">
                   Loading…
                 </div>}>
-                <AgentModelPicker active={!surfaceHidden}/>
+                <AgentModelPicker active={!surfaceHidden} mode={modelsMode}/>
               </Suspense>
             </div>) : null}
         </div>

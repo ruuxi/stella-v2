@@ -3,7 +3,7 @@ import { Check, KeyRound, Lightbulb, LogIn, LogOut, Search, Star, } from "@/ui/i
 import { BrandIcon } from "@/ui/brand-icon";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
 import { readEngineModelFavorites, sortByFavorites, toggleEngineModelFavorite, } from "@/features/workspace-display/engine-model-favorites";
-import { getStellaDisplayName, getStellaSubtitle, searchCatalogModels, } from "@/global/settings/lib/model-catalog";
+import { getStellaDisplayName, searchCatalogModels, } from "@/global/settings/lib/model-catalog";
 import { compareProviderRailOrder, LLM_PROVIDERS, isApiKeyOnlyPlaceholder, } from "@/global/settings/lib/llm-providers";
 import { findApiKey, findOauthCredential, findOauthProvider, useLlmCredentials, } from "@/global/settings/hooks/use-llm-credentials";
 import "./ProviderModelPicker.css";
@@ -388,13 +388,6 @@ const ModelRow = memo(function ModelRow({ model, selected, rowRestricted, restri
     const hasActions = showReasoning || showFavorite;
     const isStellaModel = model.provider === STELLA_PROVIDER_KEY;
     const displayName = isStellaModel ? getStellaDisplayName(model) : model.name;
-    const subtitle = isStellaModel
-        ? getStellaSubtitle(model)
-        : model.upstreamModel && model.upstreamModel !== model.name
-            ? model.upstreamModel
-            : model.id !== model.name
-                ? model.id
-                : null;
     return (<div className="model-picker-model-row">
       <button type="button" role="option" aria-selected={selected} aria-disabled={rowRestricted || undefined} className="model-picker-model" data-selected={selected || undefined} data-restricted={rowRestricted || undefined} title={rowRestricted && restrictedPlanLabel
             ? `Not available on the ${restrictedPlanLabel} plan`
@@ -403,7 +396,6 @@ const ModelRow = memo(function ModelRow({ model, selected, rowRestricted, restri
                 : undefined} onClick={(event) => onPick(model.id, event.currentTarget)} disabled={disabled || rowRestricted}>
         <span className="model-picker-model-text">
           <span className="model-picker-model-name">{displayName}</span>
-          {subtitle ? (<span className="model-picker-model-sub">{subtitle}</span>) : null}
         </span>
         {!hideSelectionCheck && selected ? (<Check size={13} className="model-picker-model-check"/>) : null}
       </button>

@@ -1,3 +1,46 @@
+.work-models-controls,
+.work-model-mode-controls {
+  display: inline-flex;
+  align-items: center;
+}
+
+.work-models-controls {
+  gap: 6px;
+}
+
+.work-model-mode-controls {
+  gap: 2px;
+}
+
+.work-model-mode-button {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-weak);
+  cursor: default;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.work-model-mode-button:hover,
+.work-model-mode-button:focus-visible {
+  outline: none;
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--text-strong);
+}
+
+.work-model-mode-button[data-active] {
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+  color: var(--text-strong);
+}
+
 .pill-btn.work-models-button {
   display: inline-flex;
   align-items: center;

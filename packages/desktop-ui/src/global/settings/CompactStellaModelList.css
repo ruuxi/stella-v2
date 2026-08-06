@@ -90,7 +90,7 @@
 
 .compact-stella-list-item--default .compact-stella-list-item-name {
   color: var(--text-strong);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-regular);
 }
 
 .compact-stella-list-item-check {

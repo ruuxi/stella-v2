@@ -166,6 +166,15 @@
   border-bottom-right-radius: 6px;
 }
 
+.conversation-topbar__tab:has(+ .conversation-topbar__tab[data-active="true"]) {
+  border-bottom-right-radius: 6px;
+}
+
+.conversation-topbar__tab[data-active="true"]
+  + .conversation-topbar__tab {
+  border-bottom-left-radius: 6px;
+}
+
 .conversation-topbar__tab + .conversation-topbar__tab {
   margin-left: -1px;
 }

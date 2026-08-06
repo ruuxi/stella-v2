@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, KeyRound, Lightbulb, RefreshCw, Search } from "@/ui/icons";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
 import { ProviderModelPanel } from "@/global/settings/ProviderModelPanel";
 import { EngineScopedModelList, } from "@/global/settings/EngineScopedModelList";
 import { ProviderOnlyPicker, } from "@/global/settings/ProviderOnlyPicker";
@@ -1070,21 +1070,33 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
      */
     const activeBrandInfo = railBrands.find((brand) => brand.key === activeBrand) ?? { key: activeBrand, label: activeBrand };
     const brandHasSources = activeBrand === "openai" || activeBrand === "anthropic";
-    const brandSource = activeBrand === "openai" ? openaiSource : anthropicSource;
     const brandSourceOptions = activeBrand === "openai"
         ? [
-            { value: "app", label: "ChatGPT" },
-            { value: "api", label: "API key" },
+            { value: "app", label: "Sign in with ChatGPT" },
+            { value: "api", label: "Use API key" },
         ]
         : [
-            { value: "app", label: "Claude Code" },
-            { value: "api", label: "API key" },
+            { value: "app", label: "Use Claude Code" },
+            { value: "api", label: "Use API key" },
         ];
-    const setBrandSource = (next) => {
-        if (activeBrand === "openai")
+    const [brandAuthOpenRequest, setBrandAuthOpenRequest] = useState(0);
+    const handleBrandSource = (next) => {
+        if (activeBrand === "openai") {
             setOpenaiSourceRaw(next);
-        else
+        }
+        else {
             setAnthropicSourceRaw(next);
+        }
+        if (next === "api") {
+            setBrandAuthOpenRequest((request) => request + 1);
+            return;
+        }
+        if (activeBrand === "openai") {
+            void commitEngineSelection("codex_cli", selectedChatGptModel);
+        }
+        else {
+            void commitEngineSelection("claude_code_local", selectedClaudeCodeModel);
+        }
     };
     const brandCredentialKey = activeBrand === "openai" ? "openai-codex" : activeBrand;
     const brandConnected = Boolean(findApiKey(credentials.apiKeys, brandCredentialKey)) ||
@@ -1128,23 +1140,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
               <span className="agent-model-picker-brand-title">
                 {activeBrandInfo.label}
               </span>
-              {brandHasSources ? (<DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" className="agent-model-picker-source-select" aria-label="Connection" disabled={pendingAgent !== null}>
-                      <span>
-                        {brandSourceOptions.find((option) => option.value === brandSource)?.label}
-                      </span>
-                      <ChevronDown size={12} strokeWidth={1.75} aria-hidden/>
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent side="bottom" align="start" sideOffset={4}>
-                    <DropdownMenuRadioGroup value={brandSource} onValueChange={setBrandSource}>
-                      {brandSourceOptions.map((option) => (<DropdownMenuRadioItem key={option.value} value={option.value}>
-                          {option.label}
-                        </DropdownMenuRadioItem>))}
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>) : brandSubtitle ? (<span className={[
+              {brandSubtitle ? (<span className={[
                 "agent-model-picker-brand-subtitle",
                 brandIsByok
                     ? brandConnected
@@ -1157,7 +1153,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             </span>
           </span>
           <span className="agent-model-picker-brand-actions">
-            {!brandHasSources && !showChatGptPanel && !showClaudeCodePanel ? (<button type="button" className="agent-model-picker-brand-action" data-active={brandSearchOpen || undefined} aria-label="Search models" title="Search models" aria-pressed={brandSearchOpen} disabled={pendingAgent !== null} onClick={() => setBrandSearchOpen((open) => !open)}>
+            {!showChatGptPanel && !showClaudeCodePanel ? (<button type="button" className="agent-model-picker-brand-action" data-active={brandSearchOpen || undefined} aria-label="Search models" title="Search models" aria-pressed={brandSearchOpen} disabled={pendingAgent !== null} onClick={() => setBrandSearchOpen((open) => !open)}>
                 <Search size={14} strokeWidth={1.75} aria-hidden/>
               </button>) : null}
             <button type="button" className="agent-model-picker-brand-action" onClick={() => {
@@ -1181,6 +1177,19 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             : "Refresh model catalog"}>
               <RefreshCw size={13} strokeWidth={1.75} data-spinning={refreshing || claudeCodeModelsLoading || undefined}/>
             </button>
+            {brandHasSources ? (<DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="agent-model-picker-connect-btn" aria-label={`Sign in to ${activeBrandInfo.label}`} disabled={pendingAgent !== null}>
+                    Sign in
+                    <ChevronDown size={12} strokeWidth={1.75} aria-hidden/>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="bottom" align="end" sideOffset={4}>
+                  {brandSourceOptions.map((option) => (<DropdownMenuItem key={option.value} onSelect={() => handleBrandSource(option.value)}>
+                        {option.label}
+                      </DropdownMenuItem>))}
+                </DropdownMenuContent>
+              </DropdownMenu>) : null}
             {normalizedBrandHeaderActions}
           </span>
         </div>) : null;
@@ -1237,15 +1246,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             </div>
             {brandHeader}
             {showChatGptPanel ? (<>
-                {chatGptConnection === "disconnected" ||
-                    chatGptConnection === "needs-reauth" ? (<p className="agent-model-picker-connection">
-                    {chatGptConnection === "needs-reauth"
-                        ? "ChatGPT needs to be reconnected."
-                        : "ChatGPT is disconnected."}{" "}
-                    <button type="button" disabled={pendingAgent !== null || codexCatalog.loading} onClick={() => void commitEngineSelection("codex_cli", selectedChatGptModel)}>
-                      Connect
-                    </button>
-                  </p>) : null}
                 {codexCatalog.loading ? (<p className="agent-model-picker-connection" role="status">
                     Verifying ChatGPT models…
                   </p>) : chatGptDisplayModels.length === 0 ? (<p className="agent-model-picker-connection" role="status">
@@ -1261,7 +1261,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     codexCatalog.loading}/>
               </>) : showClaudeCodePanel ? (<EngineScopedModelList engineLabel="Claude Code" hideHead models={claudeCodeModelsWithCurrent} value={committedEngine === "claude_code_local"
                     ? selectedClaudeCodeModel
-                    : ""} onSelect={(modelId) => void handleEngineModelSelect("claude_code_local", modelId)} loading={claudeCodeModelsLoading} disabled={!preferences || pendingAgent !== null}/>) : (<ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel="Assistant model picker" onSelect={handleSelect} visibleProviders={[activeBrand]} hideSelectedTitle hideProviderLabel hideSearch={!brandSearchOpen} hideGroupHead={brandHasSources} headerActionsTarget={!brandHasSources ? setBrandHeaderActions : undefined} onRequestSearchClose={() => setBrandSearchOpen(false)}/>)}
+                    : ""} onSelect={(modelId) => void handleEngineModelSelect("claude_code_local", modelId)} loading={claudeCodeModelsLoading} disabled={!preferences || pendingAgent !== null}/>) : (<ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel="Assistant model picker" onSelect={handleSelect} visibleProviders={[activeBrand]} hideSelectedTitle hideProviderLabel hideSearch={!brandSearchOpen} hideGroupHead={brandHasSources} headerActionsTarget={!brandHasSources ? setBrandHeaderActions : undefined} authOpenRequest={brandAuthOpenRequest} onRequestSearchClose={() => setBrandSearchOpen(false)}/>)}
           </>)}
 
       </div>

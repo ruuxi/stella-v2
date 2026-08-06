@@ -356,36 +356,6 @@
   opacity: 1;
 }
 
-.agent-model-picker-source-select {
-  appearance: none;
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 0;
-  border: 0;
-  border-radius: var(--radius-sm, 6px);
-  background: transparent;
-  color: var(--text-weak);
-  font-family: inherit;
-  font-size: var(--font-size-2xs);
-  font-weight: var(--weight-medium);
-  line-height: 1.2;
-  white-space: nowrap;
-  cursor: default;
-  transition: color 120ms ease;
-}
-
-.agent-model-picker-source-select:hover:not(:disabled),
-.agent-model-picker-source-select:focus-visible {
-  color: var(--text-strong);
-  outline: none;
-}
-
-.agent-model-picker-source-select:disabled {
-  opacity: 0.5;
-}
-
 .agent-model-picker-controls {
   display: flex;
   width: 100%;

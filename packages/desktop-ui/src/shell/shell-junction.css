@@ -8,7 +8,7 @@
   --shell-junction-radius: 16px;
   --display-panel-window-radius: 8px;
   --shell-window-radius: 12px;
-  --shell-junction-border: var(--border);
+  --shell-junction-border: var(--border-strong);
 }
 
 /* ── Center column ─────────────────────────────────────────────────── */

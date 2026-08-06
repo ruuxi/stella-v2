@@ -197,7 +197,7 @@
 
 .agent-model-picker-brand[data-active] {
   background: transparent;
-  border-color: var(--border);
+  border-color: var(--shell-junction-border, var(--border));
   color: var(--text-strong);
   box-shadow: none;
 }
@@ -253,7 +253,7 @@
 .agent-model-picker-brand-action[data-active] {
   color: var(--text-strong);
   background: transparent;
-  border-color: var(--border);
+  border-color: var(--shell-junction-border, var(--border));
 }
 
 .agent-model-picker-brand-action:disabled {
@@ -423,7 +423,7 @@
 
 .agent-model-picker-reasoning-options button[data-active] {
   background: transparent;
-  border-color: var(--border);
+  border-color: var(--shell-junction-border, var(--border));
   color: var(--text-strong);
 }
 
@@ -494,7 +494,7 @@
 
 .agent-model-picker-toggle-btn[data-active] {
   background: transparent;
-  border-color: var(--border);
+  border-color: var(--shell-junction-border, var(--border));
   color: var(--text-strong);
   box-shadow: none;
 }

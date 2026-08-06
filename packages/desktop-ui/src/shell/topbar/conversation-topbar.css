@@ -166,8 +166,7 @@
   border-bottom-right-radius: 6px;
 }
 
-.conversation-topbar__tab:not([data-active="true"])
-  + .conversation-topbar__tab:not([data-active="true"]) {
+.conversation-topbar__tab + .conversation-topbar__tab {
   margin-left: -1px;
 }
 
@@ -177,7 +176,6 @@
 }
 
 .conversation-topbar__tab[data-active="true"] {
-  margin-inline: 3px;
   color: var(--text-strong);
   background: transparent;
 }

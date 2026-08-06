@@ -37,15 +37,15 @@ export const isRestrictedModelOverrideAudience = (
  * Desktop-side mirror of the backend's
  * `RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS`.
  *
- * Restricted audiences cannot freely override Stella-managed models, but the
- * Standard and Light modes are intentionally still selectable: Standard is the
- * default tier and Light is the small fallback users may opt into without
- * upgrading. Keep in sync with `isStellaModelAllowedForAudience` in
- * `backend/convex/agent/model.ts`.
+ * Restricted audiences cannot freely override Stella-managed models. They may
+ * select only DeepSeek V4 Flash 0731 or GPT-5.6 Luna; the Light alias remains
+ * valid because it resolves to V4 Flash. Keep in sync with
+ * `isStellaModelAllowedForAudience` in `backend/convex/agent/model.ts`.
  */
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS = new Set<string>([
-  "stella/standard",
   "stella/light",
+  "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+  "stella/openai/gpt-5.6-luna",
 ]);
 
 export const isRestrictedAudienceAllowedStellaModelId = (

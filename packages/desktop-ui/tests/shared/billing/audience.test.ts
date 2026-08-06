@@ -15,16 +15,25 @@ describe("billing audience model restrictions", () => {
     expect(isRestrictedModelOverrideAudience("pro_fallback")).toBe(false);
   });
 
-  it("lets restricted audiences pick only the Standard and Light modes", () => {
-    expect(isRestrictedAudienceAllowedStellaModelId("stella/standard")).toBe(
-      true,
-    );
+  it("lets restricted audiences pick only V4 Flash and Luna", () => {
     expect(isRestrictedAudienceAllowedStellaModelId("stella/light")).toBe(true);
-    expect(isRestrictedAudienceAllowedStellaModelId("stella/designer")).toBe(
+    expect(
+      isRestrictedAudienceAllowedStellaModelId(
+        "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+      ),
+    ).toBe(true);
+    expect(
+      isRestrictedAudienceAllowedStellaModelId(
+        "stella/openai/gpt-5.6-luna",
+      ),
+    ).toBe(true);
+    expect(isRestrictedAudienceAllowedStellaModelId("stella/standard")).toBe(
       false,
     );
     expect(
-      isRestrictedAudienceAllowedStellaModelId("stella/openai/gpt-5.5"),
+      isRestrictedAudienceAllowedStellaModelId(
+        "stella/accounts/fireworks/models/deepseek-v4-pro",
+      ),
     ).toBe(false);
   });
 });

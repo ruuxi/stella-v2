@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
-import { setupEnvironment } from "dugite";
+import { setupGitEnvironment } from "../../../runtime/git-environment.js";
 import { ensurePrivateDir, writePrivateFile, } from "@stella/runtime/kernel/shared/private-fs";
 import { deleteProtectedValue, protectValue, unprotectValue, } from "@stella/runtime/kernel/shared/protected-storage";
 const execFileAsync = promisify(execFile);
@@ -80,7 +80,7 @@ const readJsonFile = async (filePath) => {
     }
 };
 const runGit = async (repoRoot, args) => {
-    const { env, gitLocation } = setupEnvironment({});
+    const { env, gitLocation } = setupGitEnvironment();
     const { stdout } = await execFileAsync(gitLocation, ["-C", repoRoot, ...args], {
         env,
         encoding: "buffer",
@@ -797,7 +797,7 @@ export class BackupService {
             }
         }
         const bundlePath = path.join(args.tempRoot, "repo.bundle");
-        const { env, gitLocation } = setupEnvironment({});
+        const { env, gitLocation } = setupGitEnvironment();
         await execFileAsync(gitLocation, ["-C", this.deps.stellaAppDir, "bundle", "create", bundlePath, "--all"], {
             env,
             maxBuffer: EXEC_MAX_BUFFER,

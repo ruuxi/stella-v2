@@ -27,6 +27,9 @@ DEV-CONTEXT.md
 /packages/desktop/dist-electron/
 /packages/desktop/release/
 /packages/desktop/resources/bun/current/
+/packages/desktop/resources/git/current/
+/packages/desktop/resources/node/current/
+/packages/desktop/resources/python/current/
 /packages/desktop/workspace/
 /packages/desktop/resources/parakeet/*
 !/packages/desktop/resources/parakeet/.gitkeep

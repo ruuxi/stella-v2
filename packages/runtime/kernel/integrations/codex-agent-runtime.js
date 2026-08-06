@@ -7,7 +7,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { setupEnvironment } from "dugite";
+import { setupGitEnvironment } from "../../git-environment.js";
 import { DEFAULT_CODEX_SERVICE_TIER } from "@stella/contracts/agent-engine";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { redactSensitiveText } from "@stella/contracts/sensitive-data";
@@ -149,7 +149,7 @@ const parseGitStatus = (stdout) => {
     return entries;
 };
 const runGit = async (repoRoot, args) => {
-    const { env, gitLocation } = setupEnvironment(process.env);
+    const { env, gitLocation } = setupGitEnvironment(process.env);
     try {
         const result = await execFileAsync(gitLocation, args, {
             cwd: repoRoot,

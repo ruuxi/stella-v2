@@ -7,7 +7,6 @@ import path from "path";
 import os from "os";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { readdir, stat } from "fs/promises";
-import { setupEnvironment } from "dugite";
 import {
   fileChange,
   isNoiseProducedPath,
@@ -615,6 +614,12 @@ const buildWindowsNodeShimScript = (): string =>
     "",
   ].join("\r\n");
 
+const buildWindowsPythonShimScript = (): string =>
+  ["@echo off", '"%STELLA_PYTHON_BIN%" %*', ""].join("\r\n");
+
+const buildWindowsPipShimScript = (): string =>
+  ["@echo off", '"%STELLA_PYTHON_BIN%" -m pip %*', ""].join("\r\n");
+
 const buildUnixNodeShimScript = (): string =>
   ["#!/bin/sh", 'ELECTRON_RUN_AS_NODE=1 exec "$STELLA_NODE_BIN" "$@"', ""].join(
     "\n",
@@ -635,6 +640,22 @@ const ensureNodeShim = (secretStateRoot: string): string | undefined => {
         : buildUnixNodeShimScript(),
       "utf-8",
     );
+    if (process.platform === "win32" && process.env.STELLA_PYTHON_BIN?.trim()) {
+      for (const command of ["python", "python3", "py"]) {
+        writeFileSync(
+          path.join(shimDir, `${command}.cmd`),
+          buildWindowsPythonShimScript(),
+          "utf-8",
+        );
+      }
+      for (const command of ["pip", "pip3"]) {
+        writeFileSync(
+          path.join(shimDir, `${command}.cmd`),
+          buildWindowsPipShimScript(),
+          "utf-8",
+        );
+      }
+    }
     if (process.platform !== "win32") chmodSync(shimPath, 0o700);
     return shimDir;
   } catch {
@@ -914,25 +935,6 @@ const maybeTrashNativeWindowsDeletes = async (
   };
 };
 
-// dugite's setupEnvironment rebuilds the entire environment map on every call
-// just to graft the embedded git onto it. Its contribution depends only on a
-// handful of input keys — plus PATH, which it prepends the embedded-git bin
-// dirs to on Windows — so compute the delta once per distinct input tuple and
-// merge the cached result into each shell env instead.
-const DUGITE_ENV_INPUT_KEYS = [
-  "LOCAL_GIT_DIRECTORY",
-  "GIT_EXEC_PATH",
-  "GIT_CONFIG_SYSTEM",
-  "GIT_SSL_CAINFO",
-] as const;
-
-type DugiteEnvContribution = {
-  pathPrefix: string;
-  vars: [string, string][];
-};
-
-const dugiteEnvContributions = new Map<string, DugiteEnvContribution>();
-
 export const resolveShellNodeBinary = (
   env: NodeJS.ProcessEnv = process.env,
 ): string => {
@@ -947,35 +949,6 @@ export const resolveShellNodeBinary = (
 
   // Tests and non-Electron embeddings commonly run the kernel under Node.
   return process.execPath;
-};
-
-const getDugiteEnvContribution = (
-  mergedEnv: NodeJS.ProcessEnv,
-): DugiteEnvContribution => {
-  const inputs = DUGITE_ENV_INPUT_KEYS.map((key) => mergedEnv[key]);
-  const cacheKey = JSON.stringify(inputs);
-  const cached = dugiteEnvContributions.get(cacheKey);
-  if (cached) return cached;
-
-  const probe: Record<string, string> = { PATH: "" };
-  DUGITE_ENV_INPUT_KEYS.forEach((key, index) => {
-    const value = inputs[index];
-    if (value !== undefined) probe[key] = value;
-  });
-  const { env } = setupEnvironment(probe, {});
-  const vars: [string, string][] = [];
-  for (const [key, value] of Object.entries(env)) {
-    if (key === "PATH" || value === undefined || probe[key] === value) continue;
-    vars.push([key, value]);
-  }
-  const contribution: DugiteEnvContribution = {
-    // With an empty probe PATH the output PATH is exactly the prefix dugite
-    // prepends ("" on platforms where it leaves PATH alone).
-    pathPrefix: env.PATH ?? "",
-    vars,
-  };
-  dugiteEnvContributions.set(cacheKey, contribution);
-  return contribution;
 };
 
 const buildShellEnv = (
@@ -1049,26 +1022,6 @@ const buildShellEnv = (
     }
   }
 
-  const dugite = getDugiteEnvContribution(mergedEnv);
-  for (const [key, value] of dugite.vars) {
-    mergedEnv[key] = value;
-  }
-  if (dugite.pathPrefix) {
-    // Mirror dugite's case-insensitive env map on Windows: when PATH appears
-    // under several casings, the last assignment wins and the first-seen
-    // casing is kept.
-    const pathKeys = Object.keys(mergedEnv).filter(
-      (key) => key.toLowerCase() === "path",
-    );
-    const existingPath = pathKeys.length
-      ? mergedEnv[pathKeys[pathKeys.length - 1]]
-      : "";
-    for (const key of pathKeys.slice(1)) {
-      delete mergedEnv[key];
-    }
-    mergedEnv[pathKeys[0] ?? "PATH"] =
-      `${dugite.pathPrefix}${typeof existingPath === "string" ? existingPath : ""}`;
-  }
   return mergedEnv;
 };
 

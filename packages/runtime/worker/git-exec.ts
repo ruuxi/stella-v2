@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { setupEnvironment } from "dugite";
+import { setupGitEnvironment } from "../git-environment.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,7 +18,7 @@ export const runGitStatus = async (
   args: string[],
   options?: { maxBuffer?: number },
 ): Promise<GitRunStatus> => {
-  const { env, gitLocation } = setupEnvironment({});
+  const { env, gitLocation } = setupGitEnvironment();
   try {
     const result = await execFileAsync(gitLocation, args, {
       cwd,
@@ -56,6 +56,8 @@ export const runGit = async (
     return result.stdout.trim();
   }
   const details =
-    result.stderr.trim() || result.stdout.trim() || `exit code ${result.exitCode}`;
+    result.stderr.trim() ||
+    result.stdout.trim() ||
+    `exit code ${result.exitCode}`;
   throw new Error(`Git command failed (${args.join(" ")}): ${details}`);
 };

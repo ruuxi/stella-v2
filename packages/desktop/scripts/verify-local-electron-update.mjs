@@ -186,7 +186,7 @@ let child;
 let succeeded = false;
 try {
   console.log(`[local-update] Fixture: ${fixtureRoot}`);
-  run("bun", ["run", "packaging:prepare-bun"]);
+  run("bun", ["run", "packaging:prepare-runtimes"]);
   run("bun", ["run", "build"]);
   run("bun", ["run", "electron:typecheck"]);
   run("node", [

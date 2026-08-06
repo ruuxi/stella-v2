@@ -1,0 +1,216 @@
+import type { Metadata } from "next";
+import Image from "next/image";
+import Link from "next/link";
+import {
+  ArrowRight,
+  Bot,
+  Check,
+  Code2,
+  FileText,
+  Globe2,
+  Github,
+  Laptop,
+} from "lucide-react";
+import { DownloadButton } from "@/components/download-button";
+import { FooterLegalLinks } from "@/components/footer-legal-links";
+import { homeFooterGroups } from "@/components/site-footer-groups";
+import { SiteHeader } from "@/components/site-header";
+import "./go.css";
+
+export const metadata: Metadata = {
+  title: "AI coding agent and personal assistant",
+  description:
+    "Stella is an open-source AI agent for coding, research, documents, browsers, files, and desktop apps. Start free or use managed AI for $5 the first month.",
+  alternates: { canonical: "/go" },
+};
+
+const work = [
+  {
+    icon: Code2,
+    title: "Build and fix software",
+    body: "Read repositories, edit code, run commands, debug failures, and hand independent work to background agents.",
+  },
+  {
+    icon: FileText,
+    title: "Create real deliverables",
+    body: "Research a topic, then turn the result into editable documents, spreadsheets, presentations, and PDFs.",
+  },
+  {
+    icon: Globe2,
+    title: "Work across your computer",
+    body: "Use your browser, files, and desktop apps to finish tasks instead of stopping at an answer in a chat box.",
+  },
+];
+
+const included = [
+  "Open source",
+  "Local-first desktop app",
+  "Mac and Windows",
+  "Bring your own AI models",
+];
+
+export default function GoPage() {
+  return (
+    <div className="stella-page go-page">
+      <SiteHeader />
+
+      <main>
+        <section className="go-hero section-border">
+          <div className="go-hero__copy">
+            <p className="go-eyebrow">
+              Personal assistant · Knowledge work · Coding agent
+            </p>
+            <h1>
+              One agent for <span>more than code.</span>
+            </h1>
+            <p className="go-hero__lede">
+              Stella works across codebases, research, documents, your browser,
+              files, and desktop apps—so the same assistant can finish the rest
+              of the job too.
+            </p>
+            <div className="go-hero__actions">
+              <DownloadButton />
+              <Link className="button button--ghost" href="/pricing">
+                See pricing
+                <ArrowRight size={16} />
+              </Link>
+            </div>
+            <p className="go-offer">
+              Start free. Managed AI is $5 for your first month, then $20/month.
+            </p>
+          </div>
+
+          <div className="go-hero__visual" aria-label="Ways Stella can work">
+            <div className="go-orbit go-orbit--code">
+              <Code2 aria-hidden="true" />
+              <span>Code</span>
+            </div>
+            <div className="go-orbit go-orbit--browser">
+              <Globe2 aria-hidden="true" />
+              <span>Browser</span>
+            </div>
+            <div className="go-orbit go-orbit--files">
+              <FileText aria-hidden="true" />
+              <span>Files</span>
+            </div>
+            <div className="go-agent-mark">
+              <Bot aria-hidden="true" />
+              <strong>Stella</strong>
+              <span>one assistant</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="go-proof section-border" aria-label="Included with Stella">
+          {included.map((item) => (
+            <span key={item}>
+              <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+              {item}
+            </span>
+          ))}
+        </section>
+
+        <section className="go-section section-border" id="work">
+          <header className="go-section__header">
+            <p className="go-eyebrow">Coding is only the start</p>
+            <h2>Keep one assistant for the whole job.</h2>
+            <p>
+              Use a focused chat for each project. Stella can take action in the
+              tools already on your computer and keep background work moving
+              while you switch to something else.
+            </p>
+          </header>
+
+          <div className="go-work-grid">
+            {work.map(({ icon: Icon, title, body }) => (
+              <article className="go-work-card" key={title}>
+                <Icon size={22} strokeWidth={1.8} aria-hidden="true" />
+                <h3>{title}</h3>
+                <p>{body}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="go-section go-choice section-border">
+          <div>
+            <p className="go-eyebrow">Your models, or ours</p>
+            <h2>Use Stella without another required subscription.</h2>
+            <p>
+              Bring supported provider keys and use the open-source app for
+              free, or choose Stella&apos;s managed models when you want one account
+              and no provider setup.
+            </p>
+          </div>
+          <div className="go-choice__cards">
+            <article>
+              <Laptop aria-hidden="true" />
+              <strong>Bring your own models</strong>
+              <span>$0 for the Stella app</span>
+            </article>
+            <article>
+              <Bot aria-hidden="true" />
+              <strong>Stella managed AI</strong>
+              <span>$5 first month, then $20/month</span>
+            </article>
+          </div>
+        </section>
+
+        <section className="go-cta">
+          <div>
+            <p className="go-eyebrow">Ready when you are</p>
+            <h2>Give Stella the task. Keep moving.</h2>
+            <p>Download the open-source desktop app and start free.</p>
+          </div>
+          <div className="go-cta__actions">
+            <DownloadButton />
+            <a
+              className="button button--ghost"
+              href="https://github.com/ruuxi/stella-v2"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Github size={16} />
+              View source
+            </a>
+          </div>
+        </section>
+      </main>
+
+      <footer className="grid-shell site-footer section-border">
+        <div className="footer-brand">
+          <Link className="brand-mark brand-mark--footer" href="/">
+            <Image
+              src="/stella-logo-ui.png"
+              alt="Stella"
+              width={42}
+              height={42}
+            />
+            <span className="brand-text">Stella</span>
+          </Link>
+          <FooterLegalLinks />
+        </div>
+        <div className="footer-columns">
+          {homeFooterGroups.map((group) => (
+            <div key={group.title} className="footer-column">
+              <h3>{group.title}</h3>
+              <ul>
+                {group.items.map((item) => (
+                  <li key={item.label}>
+                    <a
+                      href={item.href}
+                      target={item.external ? "_blank" : undefined}
+                      rel={item.external ? "noopener noreferrer" : undefined}
+                    >
+                      {item.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </footer>
+    </div>
+  );
+}

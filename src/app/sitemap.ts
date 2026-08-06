@@ -12,6 +12,7 @@ type Route = {
 // non-indexed app pages (/billing, /sign-in, /auth/*) are intentionally omitted.
 const ROUTES: Route[] = [
   { path: "/", priority: 1, changeFrequency: "weekly" },
+  { path: "/go", priority: 0.9, changeFrequency: "weekly" },
   { path: "/learn-more", priority: 0.8, changeFrequency: "weekly" },
   { path: "/pricing", priority: 0.8, changeFrequency: "weekly" },
   { path: "/store", priority: 0.7, changeFrequency: "weekly" },

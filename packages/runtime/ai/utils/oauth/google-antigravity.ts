@@ -43,6 +43,11 @@ const SCOPES = [
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
+const throwIfOAuthAborted = (signal?: AbortSignal): void => {
+	if (!signal?.aborted) return;
+	throw signal.reason instanceof Error ? signal.reason : new Error("OAuth login was canceled.");
+};
+
 // Fallback project ID when discovery fails
 const DEFAULT_PROJECT_ID = "rising-fact-p41fc";
 
@@ -274,12 +279,17 @@ export async function loginAntigravity(
 	onAuth: (info: { url: string; instructions?: string }) => void,
 	onProgress?: (message: string) => void,
 	onManualCodeInput?: () => Promise<string>,
+	signal?: AbortSignal,
 ): Promise<OAuthCredentials> {
+	throwIfOAuthAborted(signal);
 	const { verifier, challenge } = await generatePKCE();
 
 	// Start local server for callback
 	onProgress?.("Starting local server for OAuth callback...");
 	const server = await startCallbackServer();
+	const abortWait = () => server.cancelWait();
+	signal?.addEventListener("abort", abortWait, { once: true });
+	if (signal?.aborted) abortWait();
 
 	let code: string | undefined;
 
@@ -323,6 +333,7 @@ export async function loginAntigravity(
 				});
 
 			const result = await server.waitForCode();
+			throwIfOAuthAborted(signal);
 
 			// If manual input was cancelled, throw that error
 			if (manualError) {
@@ -361,6 +372,7 @@ export async function loginAntigravity(
 		} else {
 			// Original flow: just wait for callback
 			const result = await server.waitForCode();
+			throwIfOAuthAborted(signal);
 			if (result?.code) {
 				if (result.state !== verifier) {
 					throw new Error("OAuth state mismatch - possible CSRF attack");
@@ -369,6 +381,7 @@ export async function loginAntigravity(
 			}
 		}
 
+		throwIfOAuthAborted(signal);
 		if (!code) {
 			throw new Error("No authorization code received");
 		}
@@ -388,6 +401,7 @@ export async function loginAntigravity(
 				redirect_uri: REDIRECT_URI,
 				code_verifier: verifier,
 			}),
+			signal,
 		});
 
 		if (!tokenResponse.ok) {
@@ -425,6 +439,7 @@ export async function loginAntigravity(
 
 		return credentials;
 	} finally {
+		signal?.removeEventListener("abort", abortWait);
 		server.server.close();
 	}
 }
@@ -435,7 +450,7 @@ export const antigravityOAuthProvider: OAuthProviderInterface = {
 	usesCallbackServer: true,
 
 	async login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
-		return loginAntigravity(callbacks.onAuth, callbacks.onProgress, callbacks.onManualCodeInput);
+		return loginAntigravity(callbacks.onAuth, callbacks.onProgress, callbacks.onManualCodeInput, callbacks.signal);
 	},
 
 	async refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials> {

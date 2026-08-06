@@ -29,6 +29,8 @@ describe("full-area agent model picker layout", () => {
     expect(picker).not.toContain("Use Claude Code instead");
     expect(picker).not.toContain("agent-model-picker-source-select");
     expect(picker).not.toContain("ChatGPT is disconnected.");
+    expect(picker).toContain("oauthPendingProvider");
+    expect(picker).toContain("cancelPendingOAuth");
 
     expect(styles).toContain(".agent-model-picker-brand-header {");
     expect(styles).toContain(".agent-model-picker-reasoning-options {");
@@ -44,6 +46,8 @@ describe("full-area agent model picker layout", () => {
     expect(panel).toContain("headerActionsTarget");
     expect(panel).not.toContain("model-picker-group-bar");
     expect(panel).not.toContain("model-picker-group-rule");
+    expect(panel).toContain("Cancel sign-in");
+    expect(panel).toContain("cancelPendingOAuth");
     expect(styles).toContain(".model-picker-search-row {");
     expect(styles).not.toContain(".model-picker-group-bar");
     expect(styles).not.toContain(".model-picker-group-rule");

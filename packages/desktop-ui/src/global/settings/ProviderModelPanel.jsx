@@ -55,6 +55,7 @@ export function buildProviderTabs(groups, visibleProviders) {
 }
 export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, onSelect, disabled = false, reasoningEffort, onSelectReasoning, restrictStellaPicks = false, restrictedPlanLabel, ariaLabel, hideDefaultRow = false, selectedHeaderKicker, hideSelectedTitle = false, hideSearch = false, hideSelectionCheck = false, disableNonStellaProviders = false, disabledProviderReason, hideProviderLabel = false, visibleProviders, favoriteScope, hideGroupHead = false, headerActionsTarget, authOpenRequest = 0, onRequestSearchClose, }) {
     const credentials = useLlmCredentials();
+    const cancelOAuth = credentials.cancelOAuth;
     const tabs = useMemo(() => buildProviderTabs(groups, visibleProviders), [groups, visibleProviders]);
     const [favorites, setFavorites] = useState(() => favoriteScope ? readEngineModelFavorites(favoriteScope) : []);
     const disabledProviderSet = useMemo(() => new Set(disableNonStellaProviders
@@ -80,6 +81,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
     const [draftKey, setDraftKey] = useState("");
     const [savingProvider, setSavingProvider] = useState(null);
     const [oauthProvider, setOauthProvider] = useState(null);
+    const oauthAttemptRef = useRef(null);
     const [authError, setAuthError] = useState(null);
     const [openRouterCustomId, setOpenRouterCustomId] = useState("");
     const [localBaseUrl, setLocalBaseUrl] = useState(DEFAULT_LOCAL_BASE_URL);
@@ -112,11 +114,36 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             return;
         onSelect(modelId === DEFAULT_TARGET ? "" : modelId, anchor);
     }, [disabled, onSelect]);
+    const cancelPendingOAuth = useCallback(async (providerKey) => {
+        const attempt = oauthAttemptRef.current;
+        if (!attempt || (providerKey && attempt.provider !== providerKey))
+            return;
+        attempt.cancelled = true;
+        setOauthProvider((current) => current === attempt.provider ? null : current);
+        await cancelOAuth(attempt.provider);
+    }, [cancelOAuth]);
     const toggleExpanded = useCallback((providerKey) => {
+        const pendingProvider = oauthAttemptRef.current?.provider;
+        if (pendingProvider && pendingProvider !== providerKey) {
+            void cancelPendingOAuth(pendingProvider);
+        }
         setExpandedProvider(providerKey);
         setDraftKey("");
         setAuthError(null);
-    }, []);
+    }, [cancelPendingOAuth]);
+    useEffect(() => () => {
+        const attempt = oauthAttemptRef.current;
+        if (attempt) {
+            attempt.cancelled = true;
+            void cancelOAuth(attempt.provider);
+        }
+    }, [cancelOAuth]);
+    useEffect(() => {
+        const pendingProvider = oauthAttemptRef.current?.provider;
+        if (pendingProvider && !tabs.some((tab) => tab.key === pendingProvider)) {
+            void cancelPendingOAuth(pendingProvider);
+        }
+    }, [cancelPendingOAuth, tabs]);
     // Sign-out: a connected provider shows a hover log-out icon in its section
     // header. First click arms it (visual confirm), a second click within the
     // window actually drops the API key + OAuth session for that provider.
@@ -172,19 +199,32 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         }
     }, [credentials, draftKey]);
     const handleLoginOAuth = useCallback(async (providerKey) => {
+        const previousAttempt = oauthAttemptRef.current;
+        if (previousAttempt) {
+            await cancelPendingOAuth(previousAttempt.provider);
+        }
+        const attempt = { provider: providerKey, cancelled: false };
+        oauthAttemptRef.current = attempt;
         setOauthProvider(providerKey);
         setAuthError(null);
         try {
             await credentials.loginOAuth(providerKey);
-            setExpandedProvider(null);
+            if (!attempt.cancelled) {
+                setExpandedProvider(null);
+            }
         }
         catch (caught) {
-            setAuthError(caught instanceof Error ? caught.message : "OAuth login failed.");
+            if (!attempt.cancelled) {
+                setAuthError(caught instanceof Error ? caught.message : "OAuth login failed.");
+            }
         }
         finally {
-            setOauthProvider(null);
+            if (oauthAttemptRef.current === attempt) {
+                oauthAttemptRef.current = null;
+                setOauthProvider(null);
+            }
         }
-    }, [credentials]);
+    }, [cancelPendingOAuth, credentials]);
     const handleSubmitOpenRouter = useCallback(() => {
         const trimmed = openRouterCustomId.trim();
         if (!trimmed)
@@ -363,10 +403,12 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
 
         {requiresAuth && expanded ? (<div className="model-picker-connect">
             <p className="model-picker-connect-hint">{authDescription}</p>
-            {supportsOAuth ? (<button type="button" className="model-picker-connect-oauth" onClick={() => handleLoginOAuth(tab.key)} disabled={oauthProvider === tab.key || sectionDisabled}>
+            {supportsOAuth ? (<button type="button" className="model-picker-connect-oauth" onClick={() => oauthProvider === tab.key
+                    ? void cancelPendingOAuth(tab.key)
+                    : void handleLoginOAuth(tab.key)} disabled={sectionDisabled && oauthProvider !== tab.key}>
                 <LogIn size={13} strokeWidth={1.75} aria-hidden/>
                 {oauthProvider === tab.key
-                        ? "Opening…"
+                        ? "Cancel sign-in"
                         : `Sign in with ${tab.label}`}
               </button>) : null}
             {supportsApiKey ? (<div className="model-picker-connect-field">

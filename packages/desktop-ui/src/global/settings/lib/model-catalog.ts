@@ -111,22 +111,6 @@ const STELLA_PRESET_FALLBACK_DEFS: ReadonlyArray<{
     name: "Stella Priority",
     upstreamModel: "accounts/fireworks/models/kimi-k2p7-code",
   },
-  { mode: "builder", name: "Stella Builder", upstreamModel: "openai/gpt-5.5" },
-  {
-    mode: "designer",
-    name: "Stella Designer",
-    upstreamModel: "anthropic/claude-opus-4.8",
-  },
-  {
-    mode: "vision",
-    name: "Stella Vision",
-    upstreamModel: "google/gemini-3-flash-preview",
-  },
-  {
-    mode: "max",
-    name: "Stella Max",
-    upstreamModel: "anthropic/claude-fable-5",
-  },
 ];
 
 export const STELLA_PRESET_FALLBACK_MODELS: readonly CatalogModel[] =
@@ -363,7 +347,6 @@ const STELLA_UPSTREAM_MODEL_NAMES = new Map<string, string>([
   ["openai/gpt-5.5", "GPT-5.5"],
   ["anthropic/claude-opus-4.8", "Claude Opus 4.8"],
   ["google/gemini-3-flash-preview", "Gemini 3 Flash Preview"],
-  ["anthropic/claude-fable-5", "Claude Fable 5"],
 ]);
 
 const humanizeModelSlug = (slug: string): string => {

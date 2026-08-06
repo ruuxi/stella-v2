@@ -76,7 +76,7 @@ export default function GoPage() {
               </Link>
             </div>
             <p className="go-offer">
-              Start free. Managed AI is $5 for your first month, then $20/month.
+              Start free. Managed AI is $5 for your first month, then $10/month.
             </p>
           </div>
 
@@ -151,7 +151,7 @@ export default function GoPage() {
             <article>
               <Bot aria-hidden="true" />
               <strong>Stella managed AI</strong>
-              <span>$5 first month, then $20/month</span>
+              <span>$5 first month, then $10/month</span>
             </article>
           </div>
         </section>

@@ -23,7 +23,7 @@ local-first desktop app. It can work across code, research, documents, browser,
 files, and desktop apps. The offer is:
 
 - Start free with supported bring-your-own-model options.
-- Stella managed AI is $5 for the first month, then $20/month.
+- Stella managed AI is $5 for the first month, then $10/month.
 - Open source, local first, Mac and Windows.
 
 Do not claim that Stella is cheaper than OpenCode. Do not imply affiliation with

@@ -217,10 +217,8 @@ const PRICING_MD = `${header(
 )}
 ## Plans
 - **Free** — $0/mo. Light usage to try Stella. Includes voice features and image, video, audio, and 3D generation.
-- **Go** — $5 first month, then $20/mo. Baseline monthly usage. Includes voice features and image, video, audio, and 3D generation.
+- **Go** — $5 first month, then $10/mo. Baseline monthly usage. Includes voice features and image, video, audio, and 3D generation.
 - **Pro** — $60/mo (most popular). 3x the usage of Go. Higher priority and increased speeds, plus everything in the base plan.
-- **Plus** — $100/mo. 5x the usage of Go. Higher priority and increased speeds, plus everything in the base plan.
-- **Ultra** — $200/mo. 10x the usage of Go. Higher priority and increased speeds, plus everything in the base plan.
 
 ## Every plan includes
 - Runs on your computer

@@ -45,7 +45,7 @@ const plans: {
   },
   {
     name: "Go",
-    price: 20,
+    price: 10,
     introFirstMonthPriceUsd: 5,
     tagline: "Baseline monthly usage",
     features: [...BASE_FEATURES],
@@ -55,18 +55,6 @@ const plans: {
     price: 60,
     tagline: "3x the usage of Go",
     featured: true,
-    features: [PRIORITY_FEATURE, ...BASE_FEATURES],
-  },
-  {
-    name: "Plus",
-    price: 100,
-    tagline: "5x the usage of Go",
-    features: [PRIORITY_FEATURE, ...BASE_FEATURES],
-  },
-  {
-    name: "Ultra",
-    price: 200,
-    tagline: "10x the usage of Go",
     features: [PRIORITY_FEATURE, ...BASE_FEATURES],
   },
 ];

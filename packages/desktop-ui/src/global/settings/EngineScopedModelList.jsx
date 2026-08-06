@@ -17,7 +17,7 @@ export function EngineScopedModelList({ engineLabel, models, value, onSelect, lo
                       {model.description}
                     </span>) : null}
                 </span>
-                {selected ? <Check size={13} aria-hidden/> : null}
+                {selected ? (<Check size={13} className="engine-scoped-model-list__check" aria-hidden/>) : null}
               </button>);
         }))}
       </div>

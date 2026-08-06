@@ -60,25 +60,10 @@ export const CREATURE_HIDDEN_PHASES = new Set([
  */
 export const DISCOVERY_CATEGORIES = [
     {
-        id: "apps_system",
-        labelKey: "onboarding.discovery.appsSystem.label",
-        descriptionKey: "onboarding.discovery.appsSystem.description",
-        defaultEnabled: false,
-        requiresFDA: true,
-    },
-    {
-        id: "messages_notes",
-        labelKey: "onboarding.discovery.messagesNotes.label",
-        descriptionKey: "onboarding.discovery.messagesNotes.description",
-        defaultEnabled: false,
-        requiresFDA: true,
-    },
-    {
         id: "dev_environment",
         labelKey: "onboarding.discovery.devEnvironment.label",
         descriptionKey: "onboarding.discovery.devEnvironment.description",
         defaultEnabled: false,
-        requiresFDA: false,
     },
 ];
 export const BROWSERS = [

@@ -175,10 +175,12 @@ function ComposerImpl({ message, setMessage, chatContext, setChatContext, select
                   </div>
 
                   <div className="composer-toolbar-right">
-                    <ComposerMicButton className="composer-mic" isTranscribing={dictation.isTranscribing} disabled={dictation.isTranscribing} onClick={dictation.toggle} title={dictation.error
+                    <div className="composer-voice-controls">
+                      <ComposerMicButton className="composer-mic" isTranscribing={dictation.isTranscribing} disabled={dictation.isTranscribing} onClick={dictation.toggle} title={dictation.error
                 ? `Dictation: ${dictation.error}`
                 : undefined}/>
-                    {showRealtimeVoice && (<ComposerRealtimeVoiceButton className="composer-realtime-voice" active={Boolean(uiState.isVoiceRtcActive)} onClick={toggleRealtimeVoice}/>)}
+                      {showRealtimeVoice && (<ComposerRealtimeVoiceButton className="composer-realtime-voice" active={Boolean(uiState.isVoiceRtcActive)} onClick={toggleRealtimeVoice}/>)}
+                    </div>
                     {isStreaming && (<ComposerStopButton className="composer-stop" onClick={onStop} title="Stop" aria-label="Stop"/>)}
                     {showRealtimeVoice ? null : (<ComposerSubmitButton className="composer-submit" disabled={!canSubmitWithDictation} animated/>)}
                   </div>

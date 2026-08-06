@@ -129,6 +129,12 @@
   display: contents;
 }
 
+.composer-voice-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 /* === Expanded: stacked rounded rectangle === */
 .composer-form.expanded {
   flex-direction: column;

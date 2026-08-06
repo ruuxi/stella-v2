@@ -612,8 +612,7 @@ export function isModelMode(value: string): value is ModelMode {
 // only for extras that have no mode of their own.
 export const ADDITIONAL_MANAGED_MODEL_IDS = [
   "accounts/fireworks/models/deepseek-v4-pro",
-  "accounts/fireworks/models/kimi-k3",
-  "meta/muse-spark-1.1",
+  "meta/muse-spark-1.2",
 ] as const;
 
 export function listManagedModelIds(): string[] {

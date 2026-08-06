@@ -9,17 +9,17 @@ describe("managed model price entries", () => {
   it("fills Muse Spark from static overrides when models.dev is empty", () => {
     const { entries, missingModels } = buildManagedModelPriceEntries({
       data: {},
-      modelIds: ["meta/muse-spark-1.1"],
+      modelIds: ["meta/muse-spark-1.2"],
       syncedAt: 1,
     });
 
     expect(missingModels).toEqual([]);
     expect(entries).toEqual([
       {
-        model: "meta/muse-spark-1.1",
+        model: "meta/muse-spark-1.2",
         source: "static",
         sourceProvider: "meta",
-        sourceModelId: "muse-spark-1.1",
+        sourceModelId: "muse-spark-1.2",
         inputPerMillionUsd: 1.25,
         outputPerMillionUsd: 4.25,
         cacheReadPerMillionUsd: 0,

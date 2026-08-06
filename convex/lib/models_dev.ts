@@ -192,8 +192,8 @@ const sanitizeModalityList = (modalities?: string[]): string[] => {
  * catalog, and as the authoritative price for Muse Spark until Meta lands on
  * models.dev with matching rates.
  *
- * Prices are USD per 1M tokens. Muse Spark 1.1: $1.25 input / $4.25 output
- * (Axios-reported Meta Model API customer pricing as of the Muse Spark 1.1
+ * Prices are USD per 1M tokens. Muse Spark 1.2: $1.25 input / $4.25 output
+ * (Meta Model API customer pricing carried forward from the Muse Spark 1.1
  * public preview announcement).
  */
 export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
@@ -210,9 +210,9 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesOutput?: string[];
   }
 > = {
-  "meta/muse-spark-1.1": {
+  "meta/muse-spark-1.2": {
     sourceProvider: "meta",
-    sourceModelId: "muse-spark-1.1",
+    sourceModelId: "muse-spark-1.2",
     inputPerMillionUsd: 1.25,
     outputPerMillionUsd: 4.25,
     // Reasoning is billed at the output rate when usage separates it.

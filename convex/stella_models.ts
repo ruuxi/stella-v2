@@ -25,14 +25,9 @@ export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
 export const STELLA_STANDARD_MODEL = `${STELLA_PROVIDER}/standard`;
 export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
-export const STELLA_BUILDER_MODEL = `${STELLA_PROVIDER}/builder`;
-export const STELLA_DESIGNER_MODEL = `${STELLA_PROVIDER}/designer`;
-export const STELLA_VISION_MODEL = `${STELLA_PROVIDER}/vision`;
-// Stella Max: the premium branded mode (Claude Fable 5). Paid-only.
-export const STELLA_MAX_MODEL = `${STELLA_PROVIDER}/max`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 5, 19, 15);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 6, 1, 52);
 
 export type StellaCatalogModel = {
   id: string;
@@ -61,20 +56,15 @@ const DISPLAY_NAMES: Record<string, string> = {
   "accounts/fireworks/models/deepseek-v4-pro": "DeepSeek V4 Pro",
   "accounts/fireworks/models/kimi-k2p6": "Kimi K2.6",
   "accounts/fireworks/models/kimi-k2p7-code": "Kimi K2.7 Code",
-  "accounts/fireworks/models/kimi-k3": "Kimi K3",
-  "anthropic/claude-fable-5": "Claude Fable 5",
-  "anthropic/claude-opus-5": "Claude Opus 5",
   "anthropic/claude-opus-4.5": "Claude Opus 4.5",
   "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
-  "google/gemini-3.6-flash": "Gemini 3.6 Flash",
   "inception/mercury-2": "Mercury 2",
   "moonshotai/kimi-k2.5": "Kimi K2.5",
   "openai/gpt-5.4": "GPT-5.4",
   "openai/gpt-5.5": "GPT-5.5",
   "openai/gpt-5.6-luna": "GPT-5.6 Luna",
-  "openai/gpt-5.6-sol": "GPT-5.6 Sol",
   "x-ai/grok-4.5": "Grok 4.5",
-  "meta/muse-spark-1.1": "Muse Spark 1.1",
+  "meta/muse-spark-1.2": "Muse Spark 1.2",
   "zai/glm-4.7": "GLM 4.7",
 };
 
@@ -106,10 +96,21 @@ const catalogRoutingModel = (config: ModelConfig): string =>
     ? `openrouter/${config.model}`
     : config.model;
 
+// These models remain managed because branded Stella modes route through
+// them, but exposing the raw upstream rows duplicates those mode choices in
+// the picker. Keep the routes and billing sync; hide only the direct picks.
+const HIDDEN_DIRECT_CATALOG_MODEL_IDS: ReadonlySet<string> = new Set([
+  "accounts/fireworks/models/kimi-k3",
+  "openai/gpt-5.6-sol",
+  "google/gemini-3.6-flash",
+  "anthropic/claude-fable-5",
+  "anthropic/claude-opus-5",
+]);
+
 const listUpstreamManagedModels = (): string[] => {
-  return listManagedModelIds().sort((a, b) =>
-    deriveDisplayName(a).localeCompare(deriveDisplayName(b)),
-  );
+  return listManagedModelIds()
+    .filter((model) => !HIDDEN_DIRECT_CATALOG_MODEL_IDS.has(model))
+    .sort((a, b) => deriveDisplayName(a).localeCompare(deriveDisplayName(b)));
 };
 
 export const toStellaModelId = (upstreamModel: string): string =>
@@ -151,31 +152,6 @@ const STELLA_ALIAS_MODES: ReadonlyArray<StellaAliasMode> = [
     mode: "priority",
     type: "language" as const,
     minAudience: "pro",
-  },
-  {
-    id: STELLA_BUILDER_MODEL,
-    name: "Stella Builder",
-    mode: "builder",
-    type: "language" as const,
-  },
-  {
-    id: STELLA_DESIGNER_MODEL,
-    name: "Stella Designer",
-    mode: "designer",
-    type: "language" as const,
-  },
-  {
-    id: STELLA_VISION_MODEL,
-    name: "Stella Vision",
-    mode: "vision",
-    type: "multimodal" as const,
-  },
-  {
-    id: STELLA_MAX_MODEL,
-    name: "Stella Max",
-    mode: "max",
-    type: "language" as const,
-    minAudience: "paid",
   },
 ];
 
@@ -335,11 +311,10 @@ export const listStellaCatalogModels = (
     name: deriveDisplayName(upstreamModel),
     provider: STELLA_PROVIDER,
     upstreamModel,
-    // Kimi K3, Muse Spark, and Grok 4.5 are natively multimodal; everything
+    // Muse Spark and Grok 4.5 are natively multimodal; everything
     // else remains language-only in the static catalog until models.dev rows
     // or an explicit override say otherwise.
     type:
-      upstreamModel === "accounts/fireworks/models/kimi-k3" ||
       upstreamModel.startsWith("meta/muse-spark") ||
       upstreamModel === "x-ai/grok-4.5"
         ? "multimodal"

@@ -19,7 +19,7 @@ import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } 
 import { useDisplayPanelOpen, useDisplayTabList, } from "@/features/workspace-display/tab-store";
 import { notifyMediaGenerationError } from "@/global/billing/paid-media-tier-toast";
 import { loadCanvasHtmlHistory, removeCanvasHtmlItem, } from "@/shell/display/canvas-tab/canvas-items";
-import { useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
+import { useEngineOverlayMode, useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
 import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
 import { preloadModelsPicker } from "@/shell/topbar/nav-surface-preloads";
 import { ChevronLeft, Search, X } from "@/ui/icons";
@@ -266,6 +266,7 @@ function WorkList() {
 export function FilesSection() {
     const openTabId = useSidebarSectionLocation("files");
     const modelsOpen = useEngineOverlayOpen();
+    const modelsMode = useEngineOverlayMode();
     const panelOpen = useDisplayPanelOpen();
     const activeSection = useActiveSidebarSection();
     const { tabs } = useDisplayTabList();
@@ -297,7 +298,7 @@ export function FilesSection() {
           <Suspense fallback={<div className="work-models-panel__loading" aria-busy="true" aria-live="polite">
               Loading…
             </div>}>
-            <AgentModelPicker active={modelsActive}/>
+            <AgentModelPicker active={modelsActive} mode={modelsMode}/>
           </Suspense>
         </div>) : null}
       </div>

@@ -30,7 +30,9 @@ describe("sidebar Models control placement", () => {
     expect(home).not.toContain("showModels");
     expect(home).toContain("<SidebarModelsControl />");
     expect(home).toContain('className="workspace-home-surface__models"');
-    expect(home).toContain("<AgentModelPicker active={!surfaceHidden}/>");
+    expect(home).toContain(
+      "<AgentModelPicker active={!surfaceHidden} mode={modelsMode}/>",
+    );
     expect(home).not.toContain("openEngineDisplayTab");
 
     expect(work).toContain('className="work-section__footer"');
@@ -40,10 +42,16 @@ describe("sidebar Models control placement", () => {
     expect(work.indexOf("<WorkList />")).toBeLessThan(
       work.indexOf('className="work-models-panel"'),
     );
-    expect(work).toContain("<AgentModelPicker active={modelsActive}/>");
+    expect(work).toContain(
+      "<AgentModelPicker active={modelsActive} mode={modelsMode}/>",
+    );
 
     expect(control).not.toContain("ModelsPicker");
     expect(control).toContain("onClick={engineOverlay.toggle}");
+    expect(control).toContain('role="tablist" aria-label="Model type"');
+    expect(control).toContain('modeButton("assistant", "Assistant"');
+    expect(control).toContain('modeButton("image", "Image"');
+    expect(control).toContain('modeButton("voice", "Voice"');
     expect(styles).toContain(".work-section__footer {");
     expect(styles).toContain(".work-section__primary {");
     expect(styles).toContain(".work-models-panel {");

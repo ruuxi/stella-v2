@@ -528,14 +528,6 @@
   white-space: nowrap;
 }
 
-.model-picker-model-sub {
-  font-size: var(--font-size-xs);
-  color: var(--text-weak);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .model-picker-model-check {
   flex-shrink: 0;
   color: var(--text-strong);

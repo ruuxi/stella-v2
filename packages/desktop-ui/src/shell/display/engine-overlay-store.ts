@@ -7,6 +7,7 @@ import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
 
 type Listener = () => void;
+export type EngineOverlayMode = "assistant" | "image" | "voice";
 
 const STORAGE_KEY = "stella.displayPanel.engineOverlayOpen";
 
@@ -24,6 +25,7 @@ const writePersistedOpen = (next: boolean): void => {
 // Restored from the shared UI state store so programmatic open requests
 // and the user's last open/closed choice survive panel close + reopen.
 let isOpen = readPersistedOpen();
+let mode: EngineOverlayMode = "assistant";
 const listeners = new Set<Listener>();
 
 const emit = (): void => {
@@ -38,13 +40,21 @@ const subscribe = (listener: Listener): (() => void) => {
 
 export const engineOverlay = {
   isOpen: (): boolean => isOpen,
+  mode: (): EngineOverlayMode => mode,
   setOpen(next: boolean): void {
     if (next === isOpen) return;
     isOpen = next;
+    if (!next) mode = "assistant";
+    emit();
+  },
+  setMode(next: EngineOverlayMode): void {
+    if (next === mode) return;
+    mode = next;
     emit();
   },
   toggle(): void {
     isOpen = !isOpen;
+    if (!isOpen) mode = "assistant";
     emit();
   },
 };
@@ -54,5 +64,13 @@ export function useEngineOverlayOpen(): boolean {
     subscribe,
     () => isOpen,
     () => false,
+  );
+}
+
+export function useEngineOverlayMode(): EngineOverlayMode {
+  return useSyncExternalStore(
+    subscribe,
+    () => mode,
+    () => "assistant",
   );
 }

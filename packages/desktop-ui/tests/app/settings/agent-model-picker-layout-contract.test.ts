@@ -19,10 +19,13 @@ describe("agent model picker layout", () => {
 
     expect(picker).not.toContain('from "@/ui/select"');
     expect(picker).not.toContain("agent-model-picker-engine-note");
+    expect(picker).toContain('surface === "settings" ?');
+    expect(picker).not.toContain('tabButton(ASSISTANT_TARGET, "Assistant"');
     expect(picker).toContain('role="radiogroup"');
     expect(picker).toContain('role="radio"');
     expect(pickerStyles).toContain(".agent-model-picker-reasoning-options");
     expect(providerPanel).not.toContain("model-picker-group-bar");
     expect(providerPanel).not.toContain("model-picker-group-rule");
+    expect(providerPanel).not.toContain("model-picker-model-sub");
   });
 });

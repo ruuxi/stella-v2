@@ -101,22 +101,29 @@ describe("managed model config", () => {
     const catalog = listStellaCatalogModels("pro");
 
     // Branded tier aliases ("modes") are surfaced with their per-audience model.
-    expect(
-      catalog.find((model) => model.id === "stella/designer"),
-    ).toMatchObject({
-      name: "Stella Designer",
-      upstreamModel: getModeConfig("designer", "pro").model,
+    expect(catalog.find((model) => model.id === "stella/priority")).toMatchObject({
+      name: "Stella Priority",
+      upstreamModel: getModeConfig("priority", "pro").model,
     });
     expect(catalog.find((model) => model.id === "stella/light")).toMatchObject({
       name: "Stella Light",
       upstreamModel: getModeConfig("light", "pro").model,
     });
-    // Real managed models are still listed alongside the modes.
+    // Raw models that duplicate branded modes stay hidden from the picker.
     expect(
       catalog.find((model) => model.id === "stella/openai/gpt-5.6-sol"),
-    ).toMatchObject({
-      upstreamModel: "openai/gpt-5.6-sol",
-    });
+    ).toBeUndefined();
+    for (const retiredId of [
+      "stella/builder",
+      "stella/designer",
+      "stella/vision",
+      "stella/max",
+      "stella/google/gemini-3.6-flash",
+      "stella/anthropic/claude-fable-5",
+      "stella/anthropic/claude-opus-5",
+    ]) {
+      expect(catalog.find((model) => model.id === retiredId)).toBeUndefined();
+    }
     expect(
       catalog.find((model) => model.id === "stella/openai/gpt-5.6-luna"),
     ).toMatchObject({
@@ -168,10 +175,9 @@ describe("managed model config", () => {
     ]);
     expect(allowedFor("anonymous")).toEqual(freeSelections);
     expect(allowedFor("free")).toEqual(freeSelections);
-    // Go is restricted from arbitrary pinning, but it is paid and can pick
-    // paid-only branded modes.
+    // Go is restricted from arbitrary pinning.
     expect(allowedFor("go")).toEqual(
-      new Set(["stella/standard", "stella/light", "stella/max"]),
+      new Set(["stella/standard", "stella/light"]),
     );
     // Pro+ may pin any catalog model (modes + real managed models).
     expect(
@@ -213,7 +219,7 @@ describe("managed model config", () => {
     expect(listManagedModelIds()).toContain("openai/gpt-5.6-luna");
     expect(listManagedModelIds()).toContain("google/gemini-3.6-flash");
     expect(listManagedModelIds()).toContain("anthropic/claude-opus-5");
-    expect(listManagedModelIds()).toContain(
+    expect(listManagedModelIds()).not.toContain(
       "accounts/fireworks/models/kimi-k3",
     );
     expect(listManagedModelIds()).not.toContain("anthropic/claude-opus-4.8");
@@ -247,41 +253,32 @@ describe("managed model config", () => {
     }
   });
 
-  it("registers Kimi K3 as a pinnable Fireworks model", () => {
+  it("does not publish the retired Kimi K3 direct model", () => {
     const modelId = "accounts/fireworks/models/kimi-k3";
     const catalog = listStellaCatalogModels("pro");
 
-    expect(listManagedModelIds()).toContain(modelId);
+    expect(listManagedModelIds()).not.toContain(modelId);
     expect(
       catalog.find((model) => model.id === `stella/${modelId}`),
-    ).toMatchObject({
-      name: "Kimi K3",
-      upstreamModel: modelId,
-      type: "multimodal",
-      allowedForAudience: true,
-    });
-    expect(
-      listStellaCatalogModels("free").find(
-        (model) => model.id === `stella/${modelId}`,
-      )?.allowedForAudience,
-    ).toBe(false);
+    ).toBeUndefined();
   });
 
-  it("registers Muse Spark 1.1 as a pinnable managed model", () => {
-    expect(listManagedModelIds()).toContain("meta/muse-spark-1.1");
+  it("registers Muse Spark 1.2 as a pinnable managed model", () => {
+    expect(listManagedModelIds()).not.toContain("meta/muse-spark-1.1");
+    expect(listManagedModelIds()).toContain("meta/muse-spark-1.2");
     const catalog = listStellaCatalogModels("pro");
     expect(
-      catalog.find((model) => model.id === "stella/meta/muse-spark-1.1"),
+      catalog.find((model) => model.id === "stella/meta/muse-spark-1.2"),
     ).toMatchObject({
-      name: "Muse Spark 1.1",
-      upstreamModel: "meta/muse-spark-1.1",
+      name: "Muse Spark 1.2",
+      upstreamModel: "meta/muse-spark-1.2",
       type: "multimodal",
       allowedForAudience: true,
     });
     // Restricted free tier cannot pin arbitrary managed models.
     expect(
       listStellaCatalogModels("free").find(
-        (model) => model.id === "stella/meta/muse-spark-1.1",
+        (model) => model.id === "stella/meta/muse-spark-1.2",
       )?.allowedForAudience,
     ).toBe(false);
   });

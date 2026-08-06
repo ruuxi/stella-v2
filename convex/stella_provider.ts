@@ -458,7 +458,7 @@ const normalizeChatReasoning = (
   // "none"/"off" efforts (and missing effort) to a safe default of "low".
   if (
     resolvedModel.startsWith("meta/muse-spark") ||
-    resolvedModel === "muse-spark-1.1"
+    resolvedModel.startsWith("muse-spark")
   ) {
     const raw =
       typeof effort === "string"

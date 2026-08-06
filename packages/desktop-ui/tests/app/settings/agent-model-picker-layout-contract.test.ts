@@ -28,6 +28,8 @@ describe("full-area agent model picker layout", () => {
 
     expect(styles).toContain(".agent-model-picker-brand-header {");
     expect(styles).toContain(".agent-model-picker-reasoning-options {");
+    expect(styles).toContain("border-color: var(--border);");
+    expect(styles).not.toContain("background: var(--select-fill);");
   });
 
   it("keeps search and auth actions without the provider status rail", () => {
@@ -41,5 +43,7 @@ describe("full-area agent model picker layout", () => {
     expect(styles).toContain(".model-picker-search-row {");
     expect(styles).not.toContain(".model-picker-group-bar");
     expect(styles).not.toContain(".model-picker-group-rule");
+    expect(styles).toContain(".model-picker-model[data-selected]");
+    expect(styles).not.toContain("background: var(--select-fill);");
   });
 });

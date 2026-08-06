@@ -486,7 +486,7 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  border: none;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm, 6px);
   background: transparent;
   color: var(--text-weak);
@@ -513,6 +513,8 @@
 
 .model-picker-model-reason[data-active] {
   color: var(--text-strong);
+  border-color: var(--border);
+  background: transparent;
 }
 
 .model-picker-model-star:disabled,
@@ -527,7 +529,7 @@
   justify-content: space-between;
   gap: 10px;
   padding: 8px 10px;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   border-radius: var(--radius-sm, 6px);
   color: var(--text-base);
@@ -548,8 +550,9 @@
 }
 
 .model-picker-model[data-selected] {
-  background: var(--select-fill);
-  color: var(--select-text);
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-strong);
 }
 
 .model-picker-model[data-restricted] {

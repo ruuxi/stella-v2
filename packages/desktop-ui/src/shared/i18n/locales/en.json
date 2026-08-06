@@ -374,19 +374,10 @@
       "ready": "Ready"
     },
     "discovery": {
-      "appsSystem": {
-        "label": "Your apps and computer",
-        "description": "Which apps you use most, how your desktop is organized, and your workflow"
-      },
-      "messagesNotes": {
-        "label": "Your notes and calendar",
-        "description": "What you're working on, your schedule, and how you organize your thoughts"
-      },
       "devEnvironment": {
         "label": "Your coding setup",
         "description": "Tools you use, projects you work on, and how your environment is configured"
-      },
-      "fdaNote": "Some of the options you've selected need Full Disk Access on macOS."
+      }
     }
   },
   "billing": {

@@ -1133,18 +1133,6 @@
   animation-delay: calc(var(--onboarding-stagger-step) * 3);
 }
 
-.onboarding-dialogue[data-phase="browser"]
-  .onboarding-discovery-list
-  > .onboarding-discovery-row:nth-child(2) {
-  animation-delay: calc(var(--onboarding-stagger-step) * 4);
-}
-
-.onboarding-dialogue[data-phase="browser"]
-  .onboarding-discovery-list
-  > .onboarding-discovery-row:nth-child(3) {
-  animation-delay: calc(var(--onboarding-stagger-step) * 5);
-}
-
 .onboarding-discovery-row {
   display: flex;
   flex-direction: column;
@@ -1229,8 +1217,10 @@
 }
 
 .onboarding-dialogue[data-phase="browser"] .onboarding-discovery-row {
+  min-height: 132px;
+  justify-content: center;
   gap: 7px;
-  padding: 16px 20px;
+  padding: 22px 24px;
 }
 
 .onboarding-dialogue[data-phase="browser"] .onboarding-discovery-row-label {
@@ -1325,97 +1315,6 @@
   opacity: 0.85;
   line-height: 1.5;
   margin: 0;
-}
-
-/* FDA note. Collapses cleanly when no FDA categories are selected so the
- * discovery list above stays vertically anchored without a reserved
- * 24px slot below it. Grows in once a category that requires Full Disk
- * Access becomes active. Parent `.onboarding-discovery` uses gap: 16px. */
-.onboarding-fda-note {
-  --onboarding-collapse-gap: 16px;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
-  background: color-mix(in oklch, var(--foreground) 5%, transparent);
-  font-size: var(--font-size-base);
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.01em;
-  line-height: 1.4;
-  color: var(--foreground);
-  height: 0;
-  padding-block: 0;
-  border-width: 0;
-  margin-top: calc(-1 * var(--onboarding-collapse-gap));
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    height var(--onboarding-duration-enter) var(--onboarding-ease-soft),
-    margin-top var(--onboarding-duration-enter) var(--onboarding-ease-soft),
-    padding var(--onboarding-duration-enter) var(--onboarding-ease-soft),
-    border-width var(--onboarding-duration-enter) var(--onboarding-ease-soft),
-    opacity var(--onboarding-duration-enter) var(--onboarding-ease-soft);
-}
-
-.onboarding-fda-note[data-visible="true"] {
-  height: auto;
-  margin-top: 0;
-  padding-block: 12px;
-  border-width: 1px;
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.onboarding-fda-note-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  flex: 0 0 auto;
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--foreground) 10%, transparent);
-  color: var(--foreground);
-}
-
-.onboarding-fda-note-text {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.onboarding-fda-link {
-  flex: 0 0 auto;
-  background: var(--foreground);
-  border: none;
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.02em;
-  color: var(--background);
-  cursor: default;
-  font-family: inherit;
-  padding: 7px 14px;
-  border-radius: 999px;
-  transition:
-    opacity 0.2s ease,
-    transform 0.15s ease;
-}
-
-.onboarding-fda-link:hover {
-  background: color-mix(in oklch, var(--foreground) 88%, var(--background));
-}
-
-.onboarding-fda-link:active {
-  background: color-mix(in oklch, var(--foreground) 80%, var(--background));
-  transform: translateY(1px);
-}
-
-.onboarding-fda-link:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 /* ═══ Mock data preview windows (left side) ═══ */
@@ -2321,8 +2220,7 @@
   /* Grow-in elements: snap between collapsed/expanded states with no
    * smooth transition, but keep the layout collapse so the parent stage
    * still re-centers when they appear. */
-  .onboarding-confirm,
-  .onboarding-fda-note {
+  .onboarding-confirm {
     transition: none !important;
     transform: none !important;
   }
@@ -2393,8 +2291,9 @@
     margin-bottom: 12px;
   }
 
-  /* Browser phase — discovery rows are 4–5 deep with a reveal section. */
+  /* Browser phase — keep the two larger choices compact on short windows. */
   .onboarding-dialogue[data-phase="browser"] .onboarding-discovery-row {
+    min-height: 108px;
     padding: 12px 16px;
     gap: 5px;
   }
@@ -2590,6 +2489,7 @@
 
   /* Browser rows tighter still. */
   .onboarding-dialogue[data-phase="browser"] .onboarding-discovery-row {
+    min-height: 88px;
     padding: 10px 14px;
   }
 

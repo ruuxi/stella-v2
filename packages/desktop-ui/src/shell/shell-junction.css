@@ -5,7 +5,11 @@
    left-seam gradient scoop it needed went with it. */
 
 :root[data-shell-panel-chrome="true"] {
-  --shell-junction-border: var(--border-strong);
+  --shell-junction-border: color-mix(
+    in srgb,
+    var(--foreground) 28%,
+    var(--background)
+  );
 }
 
 /* ── Center column ─────────────────────────────────────────────────── */

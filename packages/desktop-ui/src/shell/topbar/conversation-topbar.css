@@ -151,10 +151,18 @@
   height: calc(var(--shell-topbar-height, 38px) - 5px);
   box-sizing: border-box;
   overflow: visible;
-  border-radius: 0 0 6px 6px;
+  border-radius: 0;
   color: var(--text-muted);
   background: color-mix(in oklch, var(--foreground) 7%, transparent);
   container-type: inline-size;
+}
+
+.conversation-topbar__tab:first-child {
+  border-bottom-left-radius: 6px;
+}
+
+.conversation-topbar__tab:last-child {
+  border-bottom-right-radius: 6px;
 }
 
 .conversation-topbar__tab:not(:last-child)::after {

@@ -107,6 +107,18 @@
   cursor: default;
 }
 
+.chat-composer-icon-button--realtime-voice {
+  background: transparent;
+  border: none;
+  color: var(--text-base);
+}
+
+.chat-composer-icon-button--realtime-voice:hover:not(:disabled),
+.chat-composer-icon-button--realtime-voice-active {
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+  color: var(--text-strong);
+}
+
 /* The spinner SVG itself rotates; the button stays put so the layout
    doesn't jiggle. transform-origin: center keeps the rotation centered
    inside the 16x16 viewBox. */

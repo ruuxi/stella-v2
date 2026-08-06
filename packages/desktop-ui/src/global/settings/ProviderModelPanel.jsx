@@ -1,5 +1,5 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { Check, KeyRound, Lightbulb, LogIn, LogOut, Search, Star, } from "@/ui/icons";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, KeyRound, Lightbulb, LogIn, LogOut, Search, Star, X, } from "@/ui/icons";
 import { BrandIcon } from "@/ui/brand-icon";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
 import { readEngineModelFavorites, sortByFavorites, toggleEngineModelFavorite, } from "@/features/workspace-display/engine-model-favorites";
@@ -53,7 +53,7 @@ export function buildProviderTabs(groups, visibleProviders) {
     }
     return Array.from(tabs.values()).sort((a, b) => compareProviderRailOrder(a.key, b.key, a.label, b.label));
 }
-export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, onSelect, disabled = false, reasoningEffort, onSelectReasoning, restrictStellaPicks = false, restrictedPlanLabel, ariaLabel, hideDefaultRow = false, selectedHeaderKicker, hideSelectedTitle = false, hideSearch = false, hideSelectionCheck = false, disableNonStellaProviders = false, disabledProviderReason, hideProviderLabel = false, visibleProviders, favoriteScope, }) {
+export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, onSelect, disabled = false, reasoningEffort, onSelectReasoning, restrictStellaPicks = false, restrictedPlanLabel, ariaLabel, hideDefaultRow = false, selectedHeaderKicker, hideSelectedTitle = false, hideSearch = false, hideSelectionCheck = false, disableNonStellaProviders = false, disabledProviderReason, hideProviderLabel = false, visibleProviders, favoriteScope, hideGroupHead = false, headerActionsTarget, onRequestSearchClose, }) {
     const credentials = useLlmCredentials();
     const tabs = useMemo(() => buildProviderTabs(groups, visibleProviders), [groups, visibleProviders]);
     const [favorites, setFavorites] = useState(() => favoriteScope ? readEngineModelFavorites(favoriteScope) : []);
@@ -63,6 +63,15 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             .filter((key) => key !== STELLA_PROVIDER_KEY)
         : []), [disableNonStellaProviders, tabs]);
     const [query, setQuery] = useState("");
+    // The scoped picker view keeps the search field behind a header search
+    // icon (`hideSearch` toggles it); autofocus on reveal so it reads as the
+    // icon expanding into the bar.
+    const searchInputRef = useRef(null);
+    const searchVisible = !hideSearch;
+    useEffect(() => {
+        if (searchVisible)
+            searchInputRef.current?.focus();
+    }, [searchVisible]);
     // Which provider's inline form (connect / API key, or the local /
     // OpenRouter custom-model inputs) is expanded. Only one is open at a time
     // so the shared draft/api-key state stays unambiguous, and nothing opens
@@ -197,7 +206,28 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
     }, [localBaseUrl, localModelId, onSelect]);
     const trimmedQuery = query.trim();
     const isDefaultSelected = !value;
-    const inlineProviderActions = !hideSearch && hideSelectedTitle && hideProviderLabel && tabs.length === 1;
+    // Scoped single-provider view (the sidebar picker's brand rail already
+    // chose the provider): the provider label row is redundant. When search
+    // is visible the connect / custom / sign-out actions ride its row; when
+    // the embedder hides the head entirely (or lifts the actions into its
+    // own header via `headerActionsTarget`), the list renders with no
+    // heading row at all so it doesn't leave a one-sided gap.
+    const inlineProviderActions = searchVisible && hideSelectedTitle && hideProviderLabel && tabs.length === 1;
+    const renderSearchBar = () => (<div className="model-picker-search">
+        <Search size={13} strokeWidth={1.75} aria-hidden/>
+        <input ref={searchInputRef} type="text" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => {
+            if (e.key === "Escape") {
+                setQuery("");
+                onRequestSearchClose?.();
+            }
+        }} placeholder="Search models…" spellCheck={false} autoComplete="off" aria-label="Search models" disabled={disabled}/>
+        {onRequestSearchClose ? (<button type="button" className="model-picker-search-close" aria-label="Close search" onClick={() => {
+                setQuery("");
+                onRequestSearchClose();
+            }}>
+            <X size={13} strokeWidth={1.75} aria-hidden/>
+          </button>) : null}
+      </div>);
     const getSectionContext = (tab) => {
         const isStella = tab.key === STELLA_PROVIDER_KEY;
         const isLocal = tab.key === LOCAL_PROVIDER_KEY;
@@ -270,10 +300,33 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             {armed ? (<Check size={13} strokeWidth={2} aria-hidden/>) : (<LogOut size={13} strokeWidth={1.75} aria-hidden/>)}
           </button>) : null}
       </>);
-    const renderSearch = () => (<div className="model-picker-search">
-        <Search size={13} strokeWidth={1.75} aria-hidden/>
-        <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search models…" spellCheck={false} autoComplete="off" aria-label="Search models" disabled={disabled}/>
-      </div>);
+    // Lift the scoped provider's connect / custom / sign-out actions into
+    // the embedder's header so the list doesn't need its own head row. The
+    // embedder owns the button styling, so we hand it a descriptor, not
+    // rendered JSX (the in-list action is a labeled pill, which looked
+    // mismatched beside the header's icon buttons).
+    const liftActionsToHeader = Boolean(headerActionsTarget) && tabs.length === 1;
+    const section = tabs.length === 1 ? getSectionContext(tabs[0]) : null;
+    const { requiresAuth: liftedRequiresAuth, supportsOAuth: liftedSupportsOAuth, expanded: liftedExpanded, sectionDisabled: liftedSectionDisabled, } = section ?? {};
+    const liftedDescriptor = useMemo(() => section && liftedRequiresAuth
+        ? {
+            kind: "connect",
+            connectLabel: liftedExpanded
+                ? "Cancel"
+                : liftedSupportsOAuth
+                    ? "Sign in"
+                    : "Add key",
+            onConnect: () => toggleExpanded(liftedExpanded ? null : section.tab.key),
+            disabled: liftedSectionDisabled,
+        }
+        : null, [liftedExpanded, liftedRequiresAuth, liftedSectionDisabled, liftedSupportsOAuth, section?.tab.key, toggleExpanded]);
+    useEffect(() => {
+        if (!headerActionsTarget || tabs.length !== 1)
+            return undefined;
+        headerActionsTarget(liftedDescriptor);
+        return () => headerActionsTarget(null);
+    }, [headerActionsTarget, liftedDescriptor, tabs.length]);
+    const renderSearch = renderSearchBar;
     const renderSection = (tab, models) => {
         const section = getSectionContext(tab);
         const { isStella, isLocal, isOpenRouter, llmEntry, requiresAuth, supportsApiKey, supportsOAuth, sectionDisabled, expanded, authDescription, } = section;
@@ -284,7 +337,10 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         const handleRowPick = requiresAuth
             ? () => toggleExpanded(expanded ? null : tab.key)
             : handlePick;
-        const showGroupHead = !inlineProviderActions && (!hideProviderLabel || requiresAuth || section.hasCustomInputs || section.removable);
+        const showGroupHead = !hideGroupHead &&
+            !inlineProviderActions &&
+            !liftActionsToHeader &&
+            (!hideProviderLabel || requiresAuth || section.hasCustomInputs || section.removable);
         return (<div key={tab.key} className="model-picker-group" role="group" aria-label={tab.label}>
         {showGroupHead ? (<div className="model-picker-group-head" data-label-hidden={hideProviderLabel || undefined} title={disabledProviderSet.has(tab.key)
                 ? disabledProviderReason
@@ -394,7 +450,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             </div>
           </header>)}
 
-        {hideSearch ? null : inlineProviderActions ? (<div className="model-picker-search-row">
+        {!searchVisible ? null : inlineProviderActions ? (<div className="model-picker-search-row">
             {renderSearch()}
             <div className="model-picker-search-action">
               {renderGroupActions(getSectionContext(tabs[0]))}

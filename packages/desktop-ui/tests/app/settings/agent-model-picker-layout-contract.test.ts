@@ -40,5 +40,11 @@ describe("agent model picker layout", () => {
     expect(providerStyles).toContain(
       ".model-picker-search-row .model-picker-search",
     );
+    expect(picker).not.toContain(
+      "setBrandHeaderActions(null);\n        setBrandSearchOpen(false);",
+    );
+    expect(providerPanel).toContain(
+      "[headerActionsTarget, liftedDescriptor, tabs.length]",
+    );
   });
 });

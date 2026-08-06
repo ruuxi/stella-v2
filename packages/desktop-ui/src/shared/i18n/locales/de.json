@@ -411,22 +411,6 @@
           "Bevorzugte Antwortzeiten",
           "Alle Automatisierungsfunktionen"
         ]
-      },
-      "plus": {
-        "tagline": "Für Profis",
-        "features": [
-          "Hohe tägliche Nutzung",
-          "Erweiterte Agenten-Workflows",
-          "Vorrangiger Support"
-        ]
-      },
-      "ultra": {
-        "tagline": "Unbegrenzte Produktivität",
-        "features": [
-          "Maximale Nutzungslimits",
-          "Schnellste Antwortzeiten",
-          "Alles aus Plus"
-        ]
       }
     }
   },

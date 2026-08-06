@@ -411,22 +411,6 @@
           "Thời gian phản hồi ưu tiên",
           "Tất cả tính năng tự động hóa"
         ]
-      },
-      "plus": {
-        "tagline": "Cho người làm chuyên nghiệp",
-        "features": [
-          "Mức dùng hằng ngày cao",
-          "Quy trình tác tử nâng cao",
-          "Hỗ trợ ưu tiên"
-        ]
-      },
-      "ultra": {
-        "tagline": "Năng suất không giới hạn",
-        "features": [
-          "Hạn mức sử dụng cao nhất",
-          "Thời gian phản hồi nhanh nhất",
-          "Mọi tính năng của Plus"
-        ]
       }
     }
   },

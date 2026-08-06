@@ -12,8 +12,7 @@ describe("billing audience model restrictions", () => {
     expect(isRestrictedModelOverrideAudience("go")).toBe(true);
     expect(isRestrictedModelOverrideAudience("go_fallback")).toBe(true);
     expect(isRestrictedModelOverrideAudience("pro")).toBe(false);
-    expect(isRestrictedModelOverrideAudience("plus")).toBe(false);
-    expect(isRestrictedModelOverrideAudience("ultra")).toBe(false);
+    expect(isRestrictedModelOverrideAudience("pro_fallback")).toBe(false);
   });
 
   it("lets restricted audiences pick only the Standard and Light modes", () => {

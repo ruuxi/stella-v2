@@ -48,7 +48,7 @@ type AuthSessionData =
   | undefined;
 
 type BillingStatus = {
-  plan: "free" | "go" | "pro" | "plus" | "ultra";
+  plan: "free" | "go" | "pro";
   usage: {
     rollingUsedUsd: number;
     rollingLimitUsd: number;

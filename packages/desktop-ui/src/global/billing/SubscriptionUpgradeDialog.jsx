@@ -10,15 +10,11 @@ import "./SubscriptionUpgradeDialog.css";
 const PAID_PLANS = new Set([
     "go",
     "pro",
-    "plus",
-    "ultra",
 ]);
 const DEFAULT_PLAN_LABEL = {
     free: "Free",
     go: "Go",
     pro: "Pro",
-    plus: "Plus",
-    ultra: "Ultra",
 };
 const planLabelOf = (plan, status) => status?.plans?.[plan]?.label ?? DEFAULT_PLAN_LABEL[plan];
 const storageKeyFor = (accountKey) => `stella-billing-last-seen-plan:${accountKey}`;

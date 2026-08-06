@@ -379,8 +379,28 @@ describe("resolveRequestedStellaModel", () => {
     );
   });
 
-  it("allows anonymous and signed-in free users to pick Luna and DeepSeek V4 Pro", () => {
-    for (const audience of ["anonymous", "free"] as const) {
+  it("allows Go and lower audiences to pick only V4 Flash and Luna", () => {
+    for (const audience of [
+      "anonymous",
+      "free",
+      "go",
+      "go_fallback",
+    ] as const) {
+      const flash = resolveRequestedStellaModel(
+        "orchestrator",
+        {
+          model:
+            "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+        },
+        audience,
+      );
+      expect(flash.requestedModel).toBe(
+        "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+      );
+      expect(flash.resolvedModel).toBe(
+        "accounts/fireworks/models/deepseek-v4-flash-0731",
+      );
+
       const luna = resolveRequestedStellaModel(
         "orchestrator",
         { model: "stella/openai/gpt-5.6-luna" },
@@ -390,37 +410,21 @@ describe("resolveRequestedStellaModel", () => {
       expect(luna.resolvedModel).toBe("openai/gpt-5.6-luna");
       expect(luna.config.managedGatewayProvider).toBe("openai");
 
-      const deepSeekPro = resolveRequestedStellaModel(
-        "orchestrator",
-        {
-          model: "stella/accounts/fireworks/models/deepseek-v4-pro",
-        },
-        audience,
-      );
-      expect(deepSeekPro.requestedModel).toBe(
+      for (const blockedModel of [
+        "stella/standard",
         "stella/accounts/fireworks/models/deepseek-v4-pro",
-      );
-      expect(deepSeekPro.resolvedModel).toBe(
-        "accounts/fireworks/models/deepseek-v4-pro",
-      );
-      expect(deepSeekPro.config.managedGatewayProvider).toBe("fireworks");
-    }
-  });
-
-  it("keeps the new raw free-model exceptions unavailable to Go", () => {
-    for (const model of [
-      "stella/openai/gpt-5.6-luna",
-      "stella/accounts/fireworks/models/deepseek-v4-pro",
-    ]) {
-      const resolved = resolveRequestedStellaModel(
-        "orchestrator",
-        { model },
-        "go",
-      );
-      expect(resolved.requestedModel).toBe("stella/default");
-      expect(resolved.resolvedModel).toBe(
-        getModelConfig("orchestrator", "go").model,
-      );
+        "stella/x-ai/grok-4.5",
+      ]) {
+        const blocked = resolveRequestedStellaModel(
+          "orchestrator",
+          { model: blockedModel },
+          audience,
+        );
+        expect(blocked.requestedModel).toBe("stella/default");
+        expect(blocked.resolvedModel).toBe(
+          getModelConfig("orchestrator", audience).model,
+        );
+      }
     }
   });
 });

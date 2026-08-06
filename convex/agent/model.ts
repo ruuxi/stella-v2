@@ -331,8 +331,8 @@ export const isPaidManagedAudience = (
   audience: ManagedModelAudience,
 ): boolean => !UNPAID_MODEL_AUDIENCES.has(audience);
 
-// Branded modes any paid plan may select even when the audience can't pin
-// arbitrary managed models. Free/anonymous stay blocked.
+// Paid-only branded modes remain unavailable to restricted audiences. Pro
+// audiences that may freely override managed models can still select them.
 const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
   "stella/max",
 ]);
@@ -340,41 +340,32 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 /**
  * Stella catalog model ids that restricted-tier audiences (anonymous /
  * free / go / go_fallback) may still pick even though
- * `canOverrideStellaModel` is false. Standard is the default mode, and
- * Light is the small/cheap fallback users can still opt into without
- * upgrading.
+ * `canOverrideStellaModel` is false. These ids intentionally resolve to only
+ * two underlying models: DeepSeek V4 Flash 0731 and GPT-5.6 Luna. The Light
+ * alias remains allowed because it is the branded route to V4 Flash.
  *
  * Single source of truth for both the request-time coercion in
  * `stella_provider/request.ts` and the `allowedForAudience` flag the
  * `/api/models` endpoint exposes to the desktop picker.
  */
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
-  new Set<string>(["stella/standard", "stella/light"]);
-
-const FREE_AUDIENCE_ADDITIONAL_STELLA_MODEL_IDS: ReadonlySet<string> =
   new Set<string>([
+    "stella/light",
+    "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
     "stella/openai/gpt-5.6-luna",
-    "stella/accounts/fireworks/models/deepseek-v4-pro",
   ]);
 
 export const isStellaModelAllowedForAudience = (
   modelId: string,
   audience: ManagedModelAudience,
 ): boolean => {
-  // Paid-only branded modes (Stella Max) are selectable by any paid plan,
-  // including plans that otherwise can't pin arbitrary models (go). Free and
-  // anonymous audiences stay blocked.
+  if (!canOverrideStellaModel(audience)) {
+    return RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId);
+  }
   if (PAID_ONLY_STELLA_MODE_IDS.has(modelId)) {
     return isPaidManagedAudience(audience);
   }
-  if (canOverrideStellaModel(audience)) return true;
-  if (
-    (audience === "anonymous" || audience === "free") &&
-    FREE_AUDIENCE_ADDITIONAL_STELLA_MODEL_IDS.has(modelId)
-  ) {
-    return true;
-  }
-  return RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId);
+  return true;
 };
 
 /**

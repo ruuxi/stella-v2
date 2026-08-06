@@ -167,18 +167,14 @@ describe("managed model config", () => {
           .map((model) => model.id),
       );
 
-    const freeSelections = new Set([
-      "stella/standard",
+    const restrictedSelections = new Set([
       "stella/light",
+      "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
       "stella/openai/gpt-5.6-luna",
-      "stella/accounts/fireworks/models/deepseek-v4-pro",
     ]);
-    expect(allowedFor("anonymous")).toEqual(freeSelections);
-    expect(allowedFor("free")).toEqual(freeSelections);
-    // Go is restricted from arbitrary pinning.
-    expect(allowedFor("go")).toEqual(
-      new Set(["stella/standard", "stella/light"]),
-    );
+    expect(allowedFor("anonymous")).toEqual(restrictedSelections);
+    expect(allowedFor("free")).toEqual(restrictedSelections);
+    expect(allowedFor("go")).toEqual(restrictedSelections);
     // Pro+ may pin any catalog model (modes + real managed models).
     expect(
       listStellaCatalogModels("pro").every(
@@ -228,8 +224,8 @@ describe("managed model config", () => {
     expect(listManagedModelIds()).not.toContain("openai/gpt-5.4-mini");
   });
 
-  it("publishes Luna and DeepSeek V4 Pro as free-selectable managed models", () => {
-    for (const audience of ["anonymous", "free"] as const) {
+  it("publishes only Luna and V4 Flash as restricted-audience choices", () => {
+    for (const audience of ["anonymous", "free", "go"] as const) {
       const catalog = listStellaCatalogModels(audience);
       expect(
         catalog.find((model) => model.id === "stella/openai/gpt-5.6-luna"),
@@ -242,13 +238,26 @@ describe("managed model config", () => {
         catalog.find(
           (model) =>
             model.id ===
+            "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+        ),
+      ).toMatchObject({
+        name: "DeepSeek V4 Flash 0731",
+        upstreamModel:
+          "accounts/fireworks/models/deepseek-v4-flash-0731",
+        type: "language",
+        allowedForAudience: true,
+      });
+      expect(
+        catalog.find(
+          (model) =>
+            model.id ===
             "stella/accounts/fireworks/models/deepseek-v4-pro",
         ),
       ).toMatchObject({
         name: "DeepSeek V4 Pro",
         upstreamModel: "accounts/fireworks/models/deepseek-v4-pro",
         type: "language",
-        allowedForAudience: true,
+        allowedForAudience: false,
       });
     }
   });

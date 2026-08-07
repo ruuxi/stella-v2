@@ -1,0 +1,211 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { IPC_MEDIA_SAVE_OUTPUT } from "@stella/contracts/desktop/ipc-channels";
+
+const ipc = vi.hoisted(() => ({
+  handles: new Map<string, (...args: unknown[]) => unknown>(),
+  on: vi.fn(),
+}));
+
+const imageValidation = vi.hoisted(() => ({
+  decodeAndValidateImage: vi.fn(async () => ({
+    mimeType: "image/png",
+    width: 1,
+    height: 1,
+  })),
+  decodeBase64ImageBounded: vi.fn((encoded: string) =>
+    Buffer.from(encoded, "base64"),
+  ),
+  readResponseBodyBounded: vi.fn(async () => Buffer.from("png-bytes")),
+  validateDecodedImageFile: vi.fn(async () => true),
+}));
+
+const mediaStore = vi.hoisted(() => ({
+  materializeMediaArtifact: vi.fn(
+    async (args: {
+      filePath: string;
+      validateExisting?: (filePath: string) => Promise<boolean>;
+      producer: () => Promise<Buffer>;
+    }) => {
+      await args.validateExisting?.(`${args.filePath}.candidate`);
+      const bytes = await args.producer();
+      return { path: args.filePath, sizeBytes: bytes.length, created: true };
+    },
+  ),
+}));
+
+vi.mock("electron", () => {
+  const base = {
+    app: { quit: vi.fn() },
+    BrowserWindow: { fromWebContents: vi.fn(), getAllWindows: vi.fn(() => []) },
+    clipboard: {
+      availableFormats: vi.fn(() => []),
+      clear: vi.fn(),
+      readBuffer: vi.fn(),
+      readText: vi.fn(() => ""),
+      writeBuffer: vi.fn(),
+      writeImage: vi.fn(),
+      writeText: vi.fn(),
+    },
+    contentTracing: {},
+    dialog: {},
+    globalShortcut: {
+      isRegistered: vi.fn(() => false),
+      register: vi.fn(() => true),
+      unregister: vi.fn(),
+    },
+    ipcMain: {
+      handle: vi.fn(
+        (channel: string, handler: (...args: unknown[]) => unknown) => {
+          ipc.handles.set(channel, handler);
+        },
+      ),
+      on: ipc.on,
+    },
+    nativeImage: { createFromBuffer: vi.fn() },
+    powerSaveBlocker: {},
+    screen: {},
+    session: {},
+    shell: { openExternal: vi.fn() },
+    systemPreferences: {},
+  };
+  return base;
+});
+
+vi.mock(
+  "@stella/runtime/kernel/tools/image-decode-validation",
+  () => imageValidation,
+);
+vi.mock("@stella/runtime/kernel/tools/media-artifact-store", () => mediaStore);
+vi.mock("../../../desktop/electron/ipc/browser-fetch-session.js", () => ({
+  getBrowserCookieHeader: vi.fn(async () => ""),
+}));
+vi.mock("../../../desktop/electron/ipc/renderer-safe-url.js", () => ({
+  normalizeUrlForPrivilegedRendererFetch: vi.fn(async (url: string) => url),
+  PRIVILEGED_RENDERER_FETCH_TIMEOUT_MS: 5_000,
+}));
+
+const { registerBrowserHandlers } = await import(
+  "../../../desktop/electron/ipc/browser-handlers.js"
+);
+const { registerSystemHandlers } = await import(
+  "../../../desktop/electron/ipc/system-handlers.js"
+);
+
+const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..", "..");
+const tempRoots: string[] = [];
+
+describe("Electron IPC registration integrity", () => {
+  beforeEach(() => {
+    ipc.handles.clear();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const root of tempRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("executes both media materialization paths with all validation helpers bound", async () => {
+    const stellaDataDir = mkdtempSync(
+      path.join(os.tmpdir(), "stella-ipc-integrity-"),
+    );
+    tempRoots.push(stellaDataDir);
+    registerBrowserHandlers({
+      getStellaAppDir: () => "/tmp/stella-app",
+      getStellaDataDir: () => stellaDataDir,
+      assertPrivilegedSender: () => true,
+    });
+    const saveOutput = ipc.handles.get(IPC_MEDIA_SAVE_OUTPUT);
+    expect(saveOutput).toBeTypeOf("function");
+
+    const inline = await saveOutput?.(
+      {},
+      {
+        fileName: "inline.png",
+        kind: "image",
+        url: "data:image/png;base64,cG5nLWJ5dGVz",
+      },
+    );
+    expect(inline).toMatchObject({ ok: true });
+    expect(imageValidation.decodeBase64ImageBounded).toHaveBeenCalledOnce();
+    expect(imageValidation.validateDecodedImageFile).toHaveBeenCalled();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "image/png" }),
+      })),
+    );
+    const remote = await saveOutput?.(
+      {},
+      {
+        fileName: "remote.png",
+        kind: "image",
+        url: "https://example.com/image.png",
+      },
+    );
+    expect(remote).toMatchObject({ ok: true });
+    expect(imageValidation.readResponseBodyBounded).toHaveBeenCalledOnce();
+    expect(imageValidation.decodeAndValidateImage).toHaveBeenCalledTimes(2);
+    expect(mediaStore.materializeMediaArtifact).toHaveBeenCalledTimes(2);
+  });
+
+  it("registers and invokes privileged connector credential handlers", async () => {
+    const submitConnectorCredential = vi.fn(async () => ({ ok: true }));
+    const cancelConnectorCredential = vi.fn(() => ({ ok: true }));
+    const assertPrivilegedSender = vi.fn(() => true);
+    const options = new Proxy(
+      {
+        getStellaAppDir: () => null,
+        externalLinkService: { assertPrivilegedSender },
+        submitConnectorCredential,
+        cancelConnectorCredential,
+      },
+      {
+        get(target, property) {
+          if (property in target) return Reflect.get(target, property);
+          return vi.fn();
+        },
+      },
+    );
+    registerSystemHandlers(options);
+
+    const submit = ipc.handles.get("connector-credential:submit");
+    const cancel = ipc.handles.get("connector-credential:cancel");
+    const submitPayload = {
+      requestId: "request-1",
+      value: "secret",
+      label: "Work",
+    };
+    const cancelPayload = { requestId: "request-1" };
+
+    await expect(submit?.({}, submitPayload)).resolves.toEqual({ ok: true });
+    expect(cancel?.({}, cancelPayload)).toEqual({ ok: true });
+    expect(submitConnectorCredential).toHaveBeenCalledWith(submitPayload);
+    expect(cancelConnectorCredential).toHaveBeenCalledWith(cancelPayload);
+    expect(assertPrivilegedSender).toHaveBeenCalledWith(
+      {},
+      "connector-credential:submit",
+    );
+  });
+
+  it("wires the connector credential service into system registration", () => {
+    const bootstrap = readFileSync(
+      path.join(repoRoot, "packages/desktop/electron/bootstrap/ipc.js"),
+      "utf8",
+    );
+    expect(bootstrap).toContain(
+      "services.connectorCredentialService.submitCredential(payload)",
+    );
+    expect(bootstrap).toContain(
+      "services.connectorCredentialService.cancelCredential(payload)",
+    );
+  });
+});

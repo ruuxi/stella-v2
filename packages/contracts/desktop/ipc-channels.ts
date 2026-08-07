@@ -148,7 +148,6 @@ export const IPC_VOICE_SESSION_ERROR = "voice:sessionError" as const;
 export const IPC_DICTATION_TOGGLE = "dictation:toggle" as const;
 export const IPC_DICTATION_SET_SHORTCUT = "dictation:setShortcut" as const;
 export const IPC_DICTATION_GET_SHORTCUT = "dictation:getShortcut" as const;
-export const IPC_DICTATION_TRIGGER = "dictation:trigger" as const;
 
 // ── Agent ───────────────────────────────────────────────────────────────────
 

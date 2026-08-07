@@ -1346,19 +1346,24 @@ export const startShell = (
   const launch = resolveShellLaunch(shellCommand);
 
   if ("error" in launch) {
-    const safeSpawnError = sanitizeToolVisibleText(launch.error);
+    const safeLaunchError = sanitizeToolVisibleText(launch.error);
     const record: ManagedShellRecord = {
       id,
       command,
       cwd,
-      output: safeSpawnError,
+      output: safeLaunchError,
+      outputBuffer: new HeadTailOutputBuffer(RAW_SHELL_OUTPUT_MAX_BYTES),
       running: false,
       exitCode: 127,
       startedAt: Date.now(),
       completedAt: Date.now(),
-      unreadOutput: safeSpawnError,
+      unreadOutput: safeLaunchError,
+      unreadOutputBuffer: new HeadTailOutputBuffer(
+        RAW_SHELL_OUTPUT_MAX_BYTES,
+      ),
       outputVersion: 1,
       waiters: new Set(),
+      exitWatchers: new Set(),
       stdinOpen: false,
       startSnapshot,
       externalCandidateSnapshots,

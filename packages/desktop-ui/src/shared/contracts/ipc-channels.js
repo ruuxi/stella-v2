@@ -95,7 +95,6 @@ export const IPC_VOICE_SESSION_ERROR = "voice:sessionError";
 export const IPC_DICTATION_TOGGLE = "dictation:toggle";
 export const IPC_DICTATION_SET_SHORTCUT = "dictation:setShortcut";
 export const IPC_DICTATION_GET_SHORTCUT = "dictation:getShortcut";
-export const IPC_DICTATION_TRIGGER = "dictation:trigger";
 // ── Agent ───────────────────────────────────────────────────────────────────
 export const IPC_AGENT_ONE_SHOT_COMPLETION = "agent:oneShotCompletion";
 export const IPC_AGENT_HEALTH_CHECK = "agent:healthCheck";

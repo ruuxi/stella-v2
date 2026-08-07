@@ -1256,6 +1256,9 @@ export const registerSystemHandlers = (options) => {
         if (payload?.realtimeVoice !== undefined) {
             patch.realtimeVoice = normalizeRealtimeVoicePreferences(payload.realtimeVoice);
         }
+        if (payload?.assistantWorkingMode !== undefined) {
+            patch.assistantWorkingMode = payload.assistantWorkingMode;
+        }
         return updateLocalModelPreferences(stellaAppDir, patch);
     });
     ipcMain.handle("llmCredentials:list", (event) => {

@@ -18,6 +18,10 @@ import { getRuntimeToolMetadata } from "@stella/runtime/kernel/agent-runtime/too
 import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
 import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import {
+  ORCHESTRATED_ORCHESTRATOR_ID,
+  resolveAgentForWorkingMode,
+} from "@stella/runtime/kernel/runner/context";
 
 type TestHostContext = {
   rootPath: string;
@@ -128,6 +132,54 @@ describe("working orchestrator surface", () => {
     );
   });
 
+  it("ships a separate coordinator prompt with two-level General ownership", () => {
+    const agents = loadParsedAgentsFromDir(metadataDir);
+    const orchestrated = agents.find(
+      (agent) => agent.id === ORCHESTRATED_ORCHESTRATOR_ID,
+    );
+
+    expect(orchestrated?.promptSource).toBe("bundled");
+    expect(orchestrated?.maxAgentDepth).toBe(2);
+    expect(orchestrated?.systemPrompt).toContain(
+      "Execution happens through background General agents",
+    );
+    expect(orchestrated?.toolsAllowlist).toEqual(
+      expect.arrayContaining([
+        "web",
+        "Read",
+        "Recall",
+        "Remember",
+        "Schedule",
+        "spawn_agent",
+        "send_input",
+        "pause_agent",
+      ]),
+    );
+    expect(orchestrated?.toolsAllowlist).not.toEqual(
+      expect.arrayContaining([
+        "exec_command",
+        "write_stdin",
+        "node_repl",
+        "apply_patch",
+      ]),
+    );
+
+    expect(
+      resolveAgentForWorkingMode(
+        agents,
+        AGENT_IDS.ORCHESTRATOR,
+        "direct",
+      )?.id,
+    ).toBe(AGENT_IDS.ORCHESTRATOR);
+    expect(
+      resolveAgentForWorkingMode(
+        agents,
+        AGENT_IDS.ORCHESTRATOR,
+        "orchestrated",
+      )?.id,
+    ).toBe(ORCHESTRATED_ORCHESTRATOR_ID);
+  });
+
   it("registers the bundled prompt offline and still preserves a customized home body", async () => {
     const { rootPath } = await createTestHost();
     const offlineAgents = loadStellaRuntimeAgents(rootPath, metadataDir);
@@ -135,6 +187,11 @@ describe("working orchestrator surface", () => {
       offlineAgents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)
         ?.systemPrompt,
     ).toContain("You are Stella, the user's primary AI assistant.");
+    expect(
+      offlineAgents.find(
+        (agent) => agent.id === ORCHESTRATED_ORCHESTRATOR_ID,
+      )?.systemPrompt,
+    ).toContain("Execution happens through background General agents");
 
     const agentsDir = path.join(rootPath, "agents");
     await mkdir(agentsDir, { recursive: true });

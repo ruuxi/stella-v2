@@ -54,6 +54,28 @@ describe("loadLocalPreferences", () => {
     expect(loadLocalPreferences(stellaDataDir).wakeWordEnabled).toBe(false);
   });
 
+  it("defaults to direct work and persists orchestrator mode", () => {
+    const stellaDataDir = makeStellaDataDir();
+    writePreferences(stellaDataDir, {});
+
+    expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
+      "direct",
+    );
+
+    const saved = updateLocalModelPreferences(stellaDataDir, {
+      assistantWorkingMode: "orchestrated",
+    });
+    expect(saved.assistantWorkingMode).toBe("orchestrated");
+    expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
+      "orchestrated",
+    );
+
+    writePreferences(stellaDataDir, { assistantWorkingMode: "invalid" });
+    expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
+      "direct",
+    );
+  });
+
   it("preserves an explicit wake-word preference", () => {
     const enabledHome = makeStellaDataDir();
     writePreferences(enabledHome, { wakeWordEnabled: true });

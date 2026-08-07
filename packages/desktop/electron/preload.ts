@@ -10,7 +10,10 @@ import type {
 import type { MorphTimingSettings } from "@stella/contracts/desktop/morph-timing";
 import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
-import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
+import type {
+  AssistantWorkingMode,
+  RealtimeVoicePreferences,
+} from "@stella/contracts/local-preferences";
 import {
   IPC_BROWSER_FETCH_JSON,
   IPC_BROWSER_FETCH_TEXT,
@@ -1224,6 +1227,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
           model?: string;
         };
         realtimeVoice: RealtimeVoicePreferences;
+        assistantWorkingMode: AssistantWorkingMode;
       } | null>,
     setLocalModelPreferences: (payload: {
       defaultModels?: Record<string, string>;
@@ -1262,6 +1266,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         model?: string;
       };
       realtimeVoice?: RealtimeVoicePreferences;
+      assistantWorkingMode?: AssistantWorkingMode;
     }) =>
       ipcRenderer.invoke(IPC_PREFERENCES_SET_MODELS, payload) as Promise<{
         defaultModels: Record<string, string>;
@@ -1300,6 +1305,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
           model?: string;
         };
         realtimeVoice: RealtimeVoicePreferences;
+        assistantWorkingMode: AssistantWorkingMode;
       } | null>,
     listCodexModels: () =>
       ipcRenderer.invoke(IPC_PREFERENCES_LIST_CODEX_MODELS) as Promise<{

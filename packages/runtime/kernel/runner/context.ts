@@ -5,6 +5,7 @@ import { createToolHost } from "../tools/host.js";
 import { HookEmitter } from "../extensions/hook-emitter.js";
 import {
   getAgentRuntimeEngine,
+  getAssistantWorkingMode,
   getMaxAgentConcurrency,
   getModelOverride,
   getReasoningEffort,
@@ -48,6 +49,7 @@ import type {
   SpawnEngineSelection,
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
+import type { AssistantWorkingMode } from "@stella/contracts/local-preferences";
 import { getCodexRuntimePreferences } from "../integrations/codex-agent-runtime.js";
 import {
   getClaudeCodeAgentModelId,
@@ -776,14 +778,41 @@ export const createRunnerContext = ({
   return context;
 };
 
+export const ORCHESTRATED_ORCHESTRATOR_ID = "orchestrator-orchestrated";
+
+export const resolveAgentForWorkingMode = (
+  loadedAgents: ParsedAgentLike[],
+  agentType: string,
+  workingMode: AssistantWorkingMode,
+): ParsedAgentLike | undefined => {
+  if (agentType === AGENT_IDS.ORCHESTRATOR) {
+    const orchestratorId =
+      workingMode === "orchestrated"
+        ? ORCHESTRATED_ORCHESTRATOR_ID
+        : AGENT_IDS.ORCHESTRATOR;
+    const selectedOrchestrator = loadedAgents.find(
+      (entry) => entry.id === orchestratorId,
+    );
+    if (selectedOrchestrator) {
+      return selectedOrchestrator;
+    }
+  }
+
+  return (
+    loadedAgents.find((entry) => entry.agentTypes.includes(agentType)) ??
+    loadedAgents.find((entry) => entry.id === agentType)
+  );
+};
+
 export const resolveAgent = (
   context: RunnerContext,
   agentType: string,
 ): ParsedAgentLike | undefined =>
-  context.state.loadedAgents.find((entry) =>
-    entry.agentTypes.includes(agentType),
+  resolveAgentForWorkingMode(
+    context.state.loadedAgents,
+    agentType,
+    getAssistantWorkingMode(context.stellaDataDir),
   ) ??
-  context.state.loadedAgents.find((entry) => entry.id === agentType) ??
   getBundledCoreAgentFallback(agentType);
 
 export const getConfiguredModel = (
@@ -1152,7 +1181,7 @@ export const buildAgentContext = async (
   // the registered/bundled prompt when there's no home prompt for this type.
   const homeSystemPrompt = await loadHomeAgentSystemPrompt(
     context.stellaDataDir,
-    args.agentType,
+    agent?.id ?? args.agentType,
   );
   const injectsCoreMemory = agentHasCapability(
     args.agentType,

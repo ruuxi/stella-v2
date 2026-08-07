@@ -22,6 +22,20 @@ export const SETTINGS_SEARCH_ENTRY_DEFS = [
     },
     {
         tab: "general",
+        titleKey: "settings.workingMode.title",
+        descriptionKey: "settings.workingMode.orchestratedDescription",
+        keywords: [
+            "direct",
+            "orchestrated",
+            "orchestrator",
+            "general agent",
+            "subagent",
+            "delegation",
+            "working mode",
+        ],
+    },
+    {
+        tab: "general",
         titleKey: "settings.developerPreviews.title",
         descriptionKey: "settings.developerPreviews.description",
         keywords: ["developer", "code", "diff", "file previews", "preview"],

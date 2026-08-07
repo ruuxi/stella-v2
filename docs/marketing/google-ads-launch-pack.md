@@ -95,8 +95,9 @@ ship a remarketing setup that contradicts that promise.
 ## Responsive search ads
 
 Use the assets in `responsive-search-ads.csv`. Every headline is at most 30
-characters and every description is at most 90 characters. Keep assets unpinned
-at launch unless Google produces incoherent combinations.
+characters and every description is at most 90 characters. Pin
+`Meet Stella Personal AI` to headline position 1 so every rendered ad names the
+software while the free desktop software certification is under review.
 
 Recommended sitelinks:
 
@@ -158,6 +159,10 @@ but do not negate high-intent comparison terms such as "alternative," "vs," or
 - The 129-row web bulk import applied successfully. All three Search campaigns
   are paused as of August 6, 2026, after $9.85 in total spend. The three ad
   groups, 27 keywords, and six responsive search ads remain configured.
+- All six responsive search ads now pin `Meet Stella Personal AI` to headline
+  position 1. The free desktop software certification form is prepared with the
+  Stella and FromYou, LLC details but still requires the publisher's legal
+  attestations and submission.
 - The portfolio budget is $164.47/day (approximately $5,000/month), with a
   $2.50 max CPC, Google Search only, United States presence-only targeting, and
   mobile and tablet traffic excluded.

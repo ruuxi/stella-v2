@@ -102,7 +102,10 @@ const headers = [
   "Type",
   "Status",
   "Ad type",
-  ...Array.from({ length: 15 }, (_, index) => `Headline ${index + 1}`),
+  ...Array.from({ length: 15 }, (_, index) => [
+    `Headline ${index + 1}`,
+    `Headline ${index + 1} position`,
+  ]).flat(),
   ...Array.from({ length: 4 }, (_, index) => `Description ${index + 1}`),
   "Path 1",
   "Path 2",
@@ -140,7 +143,10 @@ const bulkHeaders = [
   "Type",
   "Ad status",
   "Ad type",
-  ...Array.from({ length: 15 }, (_, index) => `Headline ${index + 1}`),
+  ...Array.from({ length: 15 }, (_, index) => [
+    `Headline ${index + 1}`,
+    `Headline ${index + 1} position`,
+  ]).flat(),
   ...Array.from({ length: 4 }, (_, index) => `Description ${index + 1}`),
   "Path 1",
   "Path 2",
@@ -275,15 +281,22 @@ for (const asset of responsiveAssets) {
     headlines: [],
     descriptions: [],
   };
-  ad[asset.asset_type === "headline" ? "headlines" : "descriptions"].push(
-    asset.text,
-  );
+  if (asset.asset_type === "headline") {
+    ad.headlines.push({ text: asset.text, position: asset.position });
+  } else {
+    ad.descriptions.push(asset.text);
+  }
   ads.set(key, ad);
 }
 
 for (const ad of ads.values()) {
   const campaign = campaigns.find((candidate) => candidate.name === ad.campaign);
-  for (const headline of ad.headlines) assertLength("Headline", headline, 30);
+  for (const headline of ad.headlines) {
+    assertLength("Headline", headline.text, 30);
+    if (headline.position && !["1", "2", "3"].includes(headline.position)) {
+      throw new Error(`Invalid headline position: ${headline.position}`);
+    }
+  }
   for (const description of ad.descriptions) {
     assertLength("Description", description, 90);
   }
@@ -295,7 +308,10 @@ for (const ad of ads.values()) {
     Status: "Paused",
     "Ad type": "Responsive search ad",
     ...Object.fromEntries(
-      ad.headlines.map((headline, index) => [`Headline ${index + 1}`, headline]),
+      ad.headlines.flatMap((headline, index) => [
+        [`Headline ${index + 1}`, headline.text],
+        [`Headline ${index + 1} position`, headline.position],
+      ]),
     ),
     ...Object.fromEntries(
       ad.descriptions.map((description, index) => [
@@ -315,7 +331,10 @@ for (const ad of ads.values()) {
     "Ad group": ad.adGroup,
     "Ad type": "Responsive search ad",
     ...Object.fromEntries(
-      ad.headlines.map((headline, index) => [`Headline ${index + 1}`, headline]),
+      ad.headlines.flatMap((headline, index) => [
+        [`Headline ${index + 1}`, headline.text],
+        [`Headline ${index + 1} position`, headline.position],
+      ]),
     ),
     ...Object.fromEntries(
       ad.descriptions.map((description, index) => [

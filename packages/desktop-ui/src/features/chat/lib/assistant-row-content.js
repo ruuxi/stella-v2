@@ -26,8 +26,7 @@ export const assistantRowHasVisibleContent = (row) => row.text.trim().length > 0
     (row.scheduleReceipt?.affected.length ?? 0) > 0 ||
     Boolean(row.voiceSession) ||
     (row.backgroundWork?.threadIds.length ?? 0) > 0 ||
-    (row.agentCompletion?.sections.length ?? 0) > 0 ||
-    (row.toolActivity?.steps.length ?? 0) > 0;
+    (row.agentCompletion?.sections.length ?? 0) > 0;
 /**
  * Whether a timeline row produces a rendered box at all. User rows always
  * render; assistant rows render when they have visible content, or while

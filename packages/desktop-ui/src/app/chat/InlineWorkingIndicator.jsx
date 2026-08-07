@@ -9,8 +9,10 @@
  *  - While the assistant is reasoning (no answer text yet) it shows a
  *    rotating thinking label ("Thinking", "Mulling it over", …) seeded
  *    per turn; while a tool is running it shows that tool's friendly
- *    status. It stays up until the assistant's first visible provider delta
- *    arrives (the streaming-text hand-off), then deactivates
+ *    status. It ordinarily stays up until the assistant's first visible
+ *    provider delta arrives (the streaming-text hand-off), then deactivates.
+ *    After a tool result, its newest friendly receipt stays visible until the
+ *    turn finishes, then exits immediately.
  *    through the `MIN_VISIBLE_MS` floor. Because deactivation always runs
  *    through that floor (no immediate-exit shortcut), on a fast (sub-2s)
  *    turn the indicator briefly lingers over the start of the streaming
@@ -40,11 +42,11 @@ import "./indicators.css";
 const EXIT_ANIMATION_MS = 240;
 const ENTER_ANIMATION_MS = 320;
 const MIN_VISIBLE_MS = INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS;
-export function InlineWorkingIndicator({ active, exitImmediately, runningTool, runningToolId, status, }) {
+export function InlineWorkingIndicator({ active, exitImmediately, runningTool, runningToolId, status, minimumVisibleMs, }) {
     // Snapshot the live props the moment `active` flips false so the exit
     // animation displays a stable last-known label even though upstream
     // tool/status flags clear out.
-    const liveProps = useMemo(() => ({ runningTool, runningToolId, status }), [runningTool, runningToolId, status]);
+    const liveProps = useMemo(() => ({ runningTool, runningToolId, status, minimumVisibleMs }), [runningTool, runningToolId, status, minimumVisibleMs]);
     const frozenPropsRef = useRef(liveProps);
     useEffect(() => {
         if (active) {
@@ -113,8 +115,8 @@ export function InlineWorkingIndicator({ active, exitImmediately, runningTool, r
                 setLeaving(false);
             }, EXIT_ANIMATION_MS);
         };
-        // When answer text has started streaming, the indicator must not trail
-        // the growing message — skip the min-visible hold and exit now.
+        // A visible answer handoff or terminal run must not leave a stale row
+        // behind — skip the minimum-visible hold and exit now.
         const remainingMs = exitImmediately
             ? 0
             : getInlineWorkingIndicatorExitDelayMs({
@@ -150,6 +152,6 @@ export function InlineWorkingIndicator({ active, exitImmediately, runningTool, r
         notifyChatContentGrowth();
     }, [showInner]);
     return (<div className={`inline-working-indicator${entering ? " inline-working-indicator--entering" : ""}${leaving ? " inline-working-indicator--leaving" : ""}${showInner ? "" : " inline-working-indicator--vacated"}`} aria-live="polite">
-      {showInner && (<WorkingIndicator className="inline-working-indicator__indicator" status={displayProps.status ?? undefined} toolName={displayProps.runningTool} toolCallId={displayProps.runningToolId} isReasoning={!displayProps.runningTool} reasoningSeed={reasoningSeed} animationActive={active && !leaving}/>)}
+      {showInner && (<WorkingIndicator className="inline-working-indicator__indicator" status={displayProps.status ?? undefined} toolName={displayProps.runningTool} toolCallId={displayProps.runningToolId} isReasoning={!displayProps.runningTool} reasoningSeed={reasoningSeed} minimumVisibleMs={displayProps.minimumVisibleMs} animationActive={active && !leaving}/>)}
     </div>);
 }

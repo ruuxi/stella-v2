@@ -23,10 +23,6 @@ const FRIENDLY_TOOL_LABELS: Record<string, FriendlyToolLabels> = {
     active: "Starting background work",
     done: "Started background work",
   },
-  spawn_manager: {
-    active: "Starting background work",
-    done: "Started background work",
-  },
   send_input: {
     active: "Updating background work",
     done: "Updated background work",
@@ -36,14 +32,17 @@ const FRIENDLY_TOOL_LABELS: Record<string, FriendlyToolLabels> = {
     done: "Paused background work",
   },
   read: { active: "Reading files", done: "Read files" },
+  find: { active: "Searching files", done: "Searched files" },
+  glob: { active: "Searching files", done: "Searched files" },
+  grep: { active: "Searching files", done: "Searched files" },
+  tool_search: { active: "Finding a tool", done: "Found a tool" },
   web: { active: "Searching the web", done: "Searched the web" },
   web_search: { active: "Searching the web", done: "Searched the web" },
   search: { active: "Searching the web", done: "Searched the web" },
   search_query: { active: "Searching the web", done: "Searched the web" },
-  find: { active: "Searching files", done: "Searched files" },
-  glob: { active: "Searching files", done: "Searched files" },
   view_image: { active: "Viewing image", done: "Viewed image" },
   imagegen: { active: "Creating image", done: "Created image" },
+  image_gen: { active: "Creating image", done: "Created image" },
   computer_use: { active: "Using the computer", done: "Used the computer" },
   browser: { active: "Using the browser", done: "Used the browser" },
 };
@@ -51,17 +50,6 @@ const FRIENDLY_TOOL_LABELS: Record<string, FriendlyToolLabels> = {
 const normalizedToolName = (toolName: string): string => {
   const namespacedParts = toolName.split("__").filter(Boolean);
   return (namespacedParts.at(-1) ?? toolName).trim().toLowerCase();
-};
-
-const humanizeToolName = (toolName: string): string => {
-  const leaf = toolName.split("__").filter(Boolean).at(-1) ?? toolName;
-  const words = leaf
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[_-]+/g, " ")
-    .trim()
-    .toLowerCase();
-  if (!words) return "Working";
-  return words.replace(/\b\w/g, (letter) => letter.toUpperCase());
 };
 
 export const friendlyInlineToolStatus = (
@@ -78,6 +66,6 @@ export const friendlyInlineToolStatus = (
     return activity.state === "started" ? labels.active : labels.done;
   }
 
-  const label = humanizeToolName(activity.toolName);
-  return failed ? `${label} failed` : label;
+  if (failed) return "A step failed";
+  return activity.state === "started" ? "Working on it" : "Finished a step";
 };

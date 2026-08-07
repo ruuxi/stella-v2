@@ -1,4 +1,3 @@
-import { toolActivityEqual } from "@/features/chat/lib/tool-activity";
 function attachmentsEqual(a, b) {
     if (a === b)
         return true;
@@ -365,7 +364,6 @@ const assistantRowEqual = (a, b) => a.id === b.id &&
     scheduleReceiptEqual(a.scheduleReceipt, b.scheduleReceipt) &&
     backgroundWorkEqual(a.backgroundWork, b.backgroundWork) &&
     agentCompletionEqual(a.agentCompletion, b.agentCompletion) &&
-    toolActivityEqual(a.toolActivity, b.toolActivity) &&
     (a.voiceSession?.durationMs ?? null) ===
         (b.voiceSession?.durationMs ?? null) &&
     // Compare a stable key for the custom slot (the ReactNode itself

@@ -1,4 +1,5 @@
 import { isStandaloneTaskStatusText, normalizeTaskDisplayStatusText, } from "@/features/chat/lib/event-transforms";
+import { friendlyInlineToolStatus } from "@/features/chat/lib/friendly-tool-status";
 import { computeStatus, normalizeDisplayStatusText } from "./status-utils";
 export const INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS = 2000;
 /**
@@ -7,11 +8,19 @@ export const INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS = 2000;
  * drift. Pass the raw streaming snapshot; the helper derives `active`,
  * the friendly label inputs, and the immediate-exit handoff.
  */
-export function buildInlineWorkingIndicatorProps({ isStreaming, isStreamingResponseText, isToolActive, hasToolActivity, activeToolName, activeToolCallId, runtimeStatusText, }) {
+export function buildInlineWorkingIndicatorProps({ isStreaming, isStreamingResponseText, isToolActive, hasToolActivity, activeToolName, activeToolCallId, latestCompletedTool, runtimeStatusText, }) {
+    const completedToolStatus = latestCompletedTool
+        ? friendlyInlineToolStatus({
+            ...latestCompletedTool,
+            label: latestCompletedTool.toolName,
+            state: "completed",
+        })
+        : null;
     const active = getInlineWorkingIndicatorActive({
         isStreaming,
         isStreamingResponseText,
         isToolActive,
+        hasCompletedTool: Boolean(latestCompletedTool),
     });
     // Initial thinking is pre-tool only. Once a tool lifecycle begins the
     // indicator follows live TOOL_START/TOOL_END state instead of the
@@ -20,17 +29,18 @@ export function buildInlineWorkingIndicatorProps({ isStreaming, isStreamingRespo
     const isPreToolThinking = isStreaming && !isStreamingResponseText && !hasToolActivity;
     return {
         active,
-        // No early dismiss: deactivation always runs through the min-visible
-        // floor (`getInlineWorkingIndicatorExitDelayMs`). Because `active` now
-        // stays true until the first visible delta, the floor only ever
-        // *delays* a too-fast hide (anti-flicker) — it never causes one. The
-        // effective hide time is max(min-duration elapsed, first-visible-delta).
-        runningTool: isToolActive ? (activeToolName ?? undefined) : undefined,
-        runningToolId: isToolActive ? (activeToolCallId ?? undefined) : undefined,
+        ...(!isStreaming ? { exitImmediately: true } : {}),
+        ...(completedToolStatus ? { minimumVisibleMs: 0 } : {}),
+        // A completed-tool receipt bypasses the ordinary phrase hold so every
+        // result replaces the previous one immediately. Terminal run state
+        // uses `exitImmediately` above, so the receipt does not persist.
+        runningTool: isToolActive && !completedToolStatus ? (activeToolName ?? undefined) : undefined,
+        runningToolId: isToolActive && !completedToolStatus ? (activeToolCallId ?? undefined) : undefined,
         // Active tools always go through the short friendly phrase map. Runtime
         // status text is an internal diagnostic surface and can contain raw
         // tool labels such as "Running Exec Command".
-        status: isPreToolThinking ? (runtimeStatusText ?? null) : null,
+        status: completedToolStatus ??
+            (isPreToolThinking ? (runtimeStatusText ?? null) : null),
     };
 }
 /**
@@ -68,13 +78,14 @@ export function getRunningTaskIndicatorText(task) {
         return undefined;
     return statusText;
 }
-export function getInlineWorkingIndicatorActive({ isStreaming, isStreamingResponseText, isToolActive, }) {
+export function getInlineWorkingIndicatorActive({ isStreaming, isStreamingResponseText, isToolActive, hasCompletedTool = false, }) {
+    if (isStreaming && hasCompletedTool)
+        return true;
     if (isToolActive)
         return true;
-    // Stay visible continuously from send through the whole turn — pre-tool
-    // thinking, gaps between tools, and while a spawned agent works — until
-    // the assistant's first visible delta arrives. A background or
-    // spawned agent no longer suppresses the orchestrator's own indicator.
+    // Before any result, hand off on the assistant's first visible delta. Once
+    // a tool completes, keep its newest one-line receipt visible through the
+    // rest of the active turn; terminal state removes it.
     return isStreaming && !isStreamingResponseText;
 }
 export function getInlineWorkingIndicatorExitDelayMs({ activatedAtMs, nowMs, minVisibleMs = INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS, }) {

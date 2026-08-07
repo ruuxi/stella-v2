@@ -7,8 +7,8 @@ import { collectTurnSourceDiffPayloads, deriveTurnInlineImagePayloads, deriveTur
 import { buildBackgroundTaskLifecycleIndex, followUpReplacesActivePredecessor, resolveBackgroundTaskCardLifecycle, } from "@/features/chat/lib/background-task-lifecycle";
 import { deriveTurnWebSearchResults } from "@/features/chat/lib/derive-turn-web-search";
 import { deriveTurnMapArtifacts } from "@/features/chat/lib/derive-turn-map-artifacts";
-import { deriveToolActivity } from "@/features/chat/lib/tool-activity";
 import { filterMessagesForUiDisplay } from "@/features/chat/lib/message-display";
+import { suppressCompletedDirectPreambleText } from "@/features/chat/lib/completed-direct-preambles";
 import { stabilizeTurnRows, } from "@/features/chat/lib/stable-rows";
 import { eventRowEqual } from "@/features/chat/lib/row-equality";
 import { useDeveloperResourcePreviewsEnabled } from "@/shared/lib/developer-resource-previews";
@@ -264,7 +264,6 @@ export const assistantRowHasNonBackgroundContent = (row) => row.text.trim().leng
     (row.sourceDiffPayloads?.length ?? 0) > 0 ||
     Boolean(row.scheduleReceipt) ||
     Boolean(row.voiceSession) ||
-    Boolean(row.toolActivity) ||
     (row.agentCompletion?.sections.length ?? 0) > 0 ||
     Boolean(row.customSlot);
 /**
@@ -339,7 +338,6 @@ const isImageOnlyInlineRow = (row) => row.text.trim().length === 0 &&
     !row.voiceSession &&
     !row.backgroundWork &&
     !row.agentCompletion?.sections.length &&
-    !row.toolActivity &&
     !row.customSlot;
 /** Merge sequential one-by-one image_gen rows into a single inline strip. */
 const coalesceInlineImageRows = (rows) => {
@@ -381,7 +379,6 @@ const isVoiceOnlyRow = (row) => !!row.voiceSession &&
     !row.scheduleReceipt &&
     !row.backgroundWork &&
     !row.agentCompletion?.sections.length &&
-    !row.toolActivity &&
     !row.customSlot;
 /**
  * Collapse a run of back-to-back voice-session summary rows (no user
@@ -417,7 +414,7 @@ const coalesceVoiceSessionRows = (rows) => {
 export function useEventRows(opts) {
     const developerResourcePreviewsEnabled = useDeveloperResourcePreviewsEnabled();
     const { messages, maxItems } = opts;
-    const displayMessages = useMemo(() => filterMessagesForUiDisplay(messages), [messages]);
+    const displayMessages = useMemo(() => suppressCompletedDirectPreambleText(filterMessagesForUiDisplay(messages)), [messages]);
     /**
      * Canonical per-start lifecycle state across the loaded transcript. The
      * selector deduplicates live + persisted copies by raw event id and binds a
@@ -646,12 +643,11 @@ export function useEventRows(opts) {
                 const backgroundWorks = buildBackgroundWorks(toolEvents);
                 const backgroundWork = backgroundWorks[0];
                 const agentCompletionSections = projectAgentCompletionSections(toolEvents, lifecycleIndex);
-                const toolActivity = deriveToolActivity(toolEvents);
                 const isStreamingOverlay = message._id.startsWith(STREAMING_OVERLAY_ID_PREFIX) &&
                     runtimeMetadata?.isStreaming !== false;
                 // Inline artifact cards (generated images, html/canvas + tool-output
-                // resource previews, office files, source diffs, the web-search image
-                // strip, and the tool-activity trace) only render once their owning
+                // resource previews, office files, source diffs, and the web-search
+                // image strip) only render once their owning
                 // assistant message is finalized — never on the live in-progress
                 // overlay row while the turn is still streaming / thinking / running
                 // tools. The same tool events resurface on the persisted (terminal)
@@ -694,7 +690,6 @@ export function useEventRows(opts) {
                     ...(agentCompletionSections.length > 0
                         ? { agentCompletion: { sections: agentCompletionSections } }
                         : {}),
-                    ...(showInlineArtifacts && toolActivity ? { toolActivity } : {}),
                 };
                 produced.push(row);
                 pushAdditionalBackgroundWorkRows(produced, backgroundWorks, stableKey, replyToUserMessageId);

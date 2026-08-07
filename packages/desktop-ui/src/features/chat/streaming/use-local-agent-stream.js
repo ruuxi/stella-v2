@@ -51,6 +51,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     const activeToolEntry = Object.entries(activeRun?.activeToolCalls ?? {}).at(-1);
     const activeToolCallId = activeToolEntry?.[0] ?? null;
     const activeToolName = activeToolEntry?.[1]?.toolName ?? null;
+    const latestCompletedTool = activeRun?.latestCompletedTool ?? null;
     const hasToolActivity = Boolean(activeRun?.hasToolActivity);
     const isToolActive = Boolean(activeToolName);
     const isStreamingResponseText = Boolean(activeRun?.isStreamingText);
@@ -407,6 +408,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         markAssistantResponseTextStarted,
         activeToolCallId,
         activeToolName,
+        latestCompletedTool,
         hasToolActivity,
         isToolActive,
         isStreamingResponseText,

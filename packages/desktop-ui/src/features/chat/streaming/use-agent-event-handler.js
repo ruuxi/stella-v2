@@ -43,6 +43,13 @@ export const acceptAgentEventSourceIdentity = (seenKeys, event) => {
     seenKeys.add(key);
     return true;
 };
+const readToolExitCode = (event) => {
+    const details = event.details && typeof event.details === 'object'
+        ? event.details
+        : null;
+    const value = details?.exitCode ?? details?.exit_code;
+    return typeof value === 'number' ? value : undefined;
+};
 export function useAgentEventHandler({ dispatch, refs, streaming, reasoning, lifecycle, }) {
     const { activeConversationIdRef, activeRunIdByConversationRef, lastSeqByConversationRef, resumeSeqByConversationRef, seenSourceEventKeysRef, terminalRunIdsRef, pendingRequestIdsRef, } = refs;
     const { setPendingUserMessageId, beginStreamingRun, acceptStreamChunk, finalizeMessageBoundary, finalizeRunOnFinish, } = streaming;
@@ -361,11 +368,13 @@ export function useAgentEventHandler({ dispatch, refs, streaming, reasoning, lif
                 break;
             }
             case AGENT_STREAM_EVENT_TYPES.TOOL_END: {
+                const exitCode = readToolExitCode(event);
                 dispatch({
                     type: 'tool-end',
                     runId: event.runId,
                     ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
                     ...(event.toolName ? { toolName: event.toolName } : {}),
+                    ...(exitCode !== undefined ? { exitCode } : {}),
                 });
                 break;
             }

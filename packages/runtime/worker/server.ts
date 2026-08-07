@@ -96,8 +96,10 @@ import {
   type AgentRunFinishOutcome,
   type AgentStreamEventType,
 } from "@stella/contracts/agent-runtime";
+import type { AssistantWorkingMode } from "@stella/contracts/local-preferences";
 import { fileChange } from "@stella/contracts/file-changes";
 import { prepareStoredLocalChatPayload } from "../kernel/storage/local-chat-payload.js";
+import { getAssistantWorkingMode } from "../kernel/preferences/local-preferences.js";
 import { collectAllSignals } from "../discovery/collect-all.js";
 import { sweepStaleConnectorBridgeProcesses } from "../kernel/connectors/process-registry.js";
 import {
@@ -625,25 +627,24 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     timezone?: string;
     responseTarget?: RuntimeAgentEventPayload["responseTarget"];
     streamStartedAtMs?: number;
-  }): string | null => {
+    workingMode: AssistantWorkingMode;
+    followedByToolCall?: boolean;
+  }): LocalChatEventRecord | null => {
     const trimmedText = args.text.trim();
     if (!trimmedText) {
       return null;
     }
 
-    const runtimeMetadata =
-      args.responseTarget || Number.isFinite(args.streamStartedAtMs)
-        ? {
-            runtime: {
-              ...(args.responseTarget
-                ? { responseTarget: args.responseTarget }
-                : {}),
-              ...(Number.isFinite(args.streamStartedAtMs)
-                ? { streamStartedAtMs: args.streamStartedAtMs }
-                : {}),
-            },
-          }
-        : undefined;
+    const runtimeMetadata = {
+      runtime: {
+        workingMode: args.workingMode,
+        ...(args.followedByToolCall ? { followedByToolCall: true } : {}),
+        ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
+        ...(Number.isFinite(args.streamStartedAtMs)
+          ? { streamStartedAtMs: args.streamStartedAtMs }
+          : {}),
+      },
+    };
 
     const eventId = `assistant-msg-${args.runId}-${args.seq}`;
     const event = ensureChatStore().appendEvent({
@@ -663,7 +664,42 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       }),
     });
     notifyLocalChatUpdated(peer, args.conversationId, event);
-    return eventId;
+    return event;
+  };
+
+  const markAssistantTurnComplete = (args: {
+    conversationId: string;
+    event: LocalChatEventRecord | null;
+  }): LocalChatEventRecord | null => {
+    if (!args.event?.payload) return args.event;
+    const currentMetadata =
+      args.event.payload.metadata &&
+      typeof args.event.payload.metadata === "object"
+        ? (args.event.payload.metadata as Record<string, unknown>)
+        : {};
+    const currentRuntime =
+      currentMetadata.runtime && typeof currentMetadata.runtime === "object"
+        ? (currentMetadata.runtime as Record<string, unknown>)
+        : {};
+    const event = ensureChatStore().appendEvent({
+      conversationId: args.conversationId,
+      eventId: args.event._id,
+      type: args.event.type,
+      ...(args.event.requestId ? { requestId: args.event.requestId } : {}),
+      timestamp: args.event.timestamp,
+      payload: {
+        ...args.event.payload,
+        metadata: {
+          ...currentMetadata,
+          runtime: {
+            ...currentRuntime,
+            turnComplete: true,
+          },
+        },
+      },
+    });
+    notifyLocalChatUpdated(peer, args.conversationId, event);
+    return event;
   };
 
   const ensureRunner = () => {
@@ -1419,6 +1455,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     METHOD_NAMES.INTERNAL_WORKER_START_CHAT,
     async (params) => {
       const payload = params as RuntimeChatPayload;
+      const assistantWorkingMode: AssistantWorkingMode = state.init
+        ? getAssistantWorkingMode(state.init.stellaDataDirPath)
+        : "direct";
       const requestId =
         asTrimmedString(
           (payload as RuntimeChatPayload & { requestId?: string }).requestId,
@@ -1645,13 +1684,11 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         );
       };
       /**
-       * Tracks the eventId of the most-recently-persisted orchestrator
-       * assistant message for this run. The post-run payload patch
-       * targets this row so the inline "Undo changes" affordance lands
-       * under the post-tool answer (or under the only assistant message
-       * if the run did not preamble).
+       * Tracks the most-recently persisted orchestrator assistant message for
+       * this run. Successful completion patches this final segment with the
+       * durable turn-complete receipt used to retire direct-mode preambles.
        */
-      let lastAssistantMessageEventId: string | null = null;
+      let lastAssistantMessageEvent: LocalChatEventRecord | null = null;
       /**
        * Worker-clock time of the CURRENT assistant segment's first stream
        * chunk, per run. Set on the first `onStream` chunk after a segment
@@ -1712,18 +1749,20 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
               ev.runId,
             );
             segmentFirstChunkAtMsByRunId.delete(ev.runId);
-            const assistantEventId = appendAssistantMessageForTurn({
+            const assistantEvent = appendAssistantMessageForTurn({
               conversationId: payload.conversationId,
               text: ev.text,
               userMessageId: ev.userMessageId,
               runId: ev.runId,
               seq: ev.seq,
               timezone: payload.timezone,
+              workingMode: assistantWorkingMode,
+              ...(ev.followedByToolCall ? { followedByToolCall: true } : {}),
               responseTarget: ev.responseTarget,
               ...(streamStartedAtMs !== undefined ? { streamStartedAtMs } : {}),
             });
-            if (assistantEventId) {
-              lastAssistantMessageEventId = assistantEventId;
+            if (assistantEvent) {
+              lastAssistantMessageEvent = assistantEvent;
             }
             // Boundary marker on the same wire as `STREAM` chunks so the
             // renderer can reset its in-flight streaming buffer before
@@ -1758,8 +1797,8 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                 ...(targetRequestId ? { requestId: targetRequestId } : {}),
                 userMessageId: ev.userMessageId,
                 agentType: ev.agentType,
-                ...(assistantEventId
-                  ? { assistantMessageEventId: assistantEventId }
+                ...(assistantEvent
+                  ? { assistantMessageEventId: assistantEvent._id }
                   : {}),
                 assistantMessageText: ev.text,
                 ...(ev.responseTarget
@@ -2060,7 +2099,13 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
               // by `onAssistantMessage` as its own row, so end-of-run no
               // longer writes a new row from `finalText` (doing so would
               // append a duplicate of the last message).
-              //
+              // Mark only the last segment terminal. In direct mode the
+              // renderer uses that receipt to remove earlier preamble text
+              // after the successful turn has actually finished.
+              lastAssistantMessageEvent = markAssistantTurnComplete({
+                conversationId: payload.conversationId,
+                event: lastAssistantMessageEvent,
+              });
             }
             if (isHiddenRun) {
               if (lastVisibleRunId) {

@@ -142,10 +142,9 @@ export const ChatColumn = memo(function ChatColumn({ conversation, composer, scr
         const handle = scheduleIdle(() => prewarmCreature({ width: 20, height: 20, maxDpr: 1 }));
         return () => cancelIdle(handle);
     }, []);
-    // The indicator stays up through the whole turn — thinking, tool calls,
-    // spawned agents — and only hands off once the assistant's first
-    // visible provider delta arrives (`isStreamingResponseText`).
-    // Background/spawned work no longer suppresses it.
+    // Before tool results, the indicator hands off on the assistant's first
+    // visible provider delta. A completed tool keeps its newest friendly
+    // one-line receipt visible until the turn ends.
     // Memoize over the primitive streaming inputs so the indicator mount
     // props keep a stable object identity across streaming re-renders
     // driven by streaming text growth. Without this, a fresh object every
@@ -159,6 +158,7 @@ export const ChatColumn = memo(function ChatColumn({ conversation, composer, scr
         hasToolActivity: Boolean(conversation.streaming.hasToolActivity),
         activeToolName: conversation.streaming.activeToolName,
         activeToolCallId: conversation.streaming.activeToolCallId,
+        latestCompletedTool: conversation.streaming.latestCompletedTool,
         runtimeStatusText: conversation.streaming.runtimeStatusText,
     }), [
         conversation.streaming.isStreaming,
@@ -167,6 +167,7 @@ export const ChatColumn = memo(function ChatColumn({ conversation, composer, scr
         conversation.streaming.hasToolActivity,
         conversation.streaming.activeToolName,
         conversation.streaming.activeToolCallId,
+        conversation.streaming.latestCompletedTool,
         conversation.streaming.runtimeStatusText,
     ]);
     const { isDragOver, dropHandlers } = useFileDrop({

@@ -35,7 +35,6 @@ import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
 import { ScheduleReceiptChip } from "@/app/chat/ScheduleReceiptChip";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { AgentCompletionCard } from "@/app/chat/AgentCompletionCard";
-import { ToolActivityTrace } from "@/app/chat/ToolActivityTrace";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
@@ -347,10 +346,6 @@ export const AssistantMessageRow = memo(function AssistantMessageRow({ row, conv
     const hasVoiceSession = Boolean(row.voiceSession);
     const hasBackgroundWork = Boolean(row.backgroundWork && row.backgroundWork.threadIds.length > 0);
     const hasAgentCompletion = Boolean(row.agentCompletion && row.agentCompletion.sections.length > 0);
-    // The in-flight call is owned by the footer WorkingIndicator; the trace
-    // counts only settled calls (the group is undefined until the first one
-    // returns), so the two never narrate the same tool at once.
-    const hasToolActivity = Boolean(row.toolActivity && row.toolActivity.steps.length > 0);
     // Shared predicate with ChatTimeline (which drops renderless rows
     // before virtualization) — see assistant-row-content.ts.
     if (!assistantRowHasVisibleContent(row)) {
@@ -371,7 +366,6 @@ export const AssistantMessageRow = memo(function AssistantMessageRow({ row, conv
           {hasText && (<StreamingTextReveal active={Boolean(row.isStreaming)}>
               <Markdown text={text} cacheKey={row.cacheKey} mode={row.isStreaming ? "streaming" : "static"} hideHorizontalRules/>
             </StreamingTextReveal>)}
-          {hasToolActivity && row.toolActivity && (<ToolActivityTrace group={row.toolActivity} traceKey={row.id}/>)}
           {hasBackgroundWork && row.backgroundWork ? (<BackgroundWorkCard threadIds={row.backgroundWork.threadIds} completedThreadIds={row.backgroundWork.completedThreadIds} pausedThreadIds={row.backgroundWork.pausedThreadIds} failedThreadIds={row.backgroundWork.failedThreadIds} supersededThreadIds={row.backgroundWork.supersededThreadIds} spawnedAtMs={row.backgroundWork.spawnedAtMs} descriptions={row.backgroundWork.descriptions} statusTexts={row.backgroundWork.statusTexts} followUpThreadIds={row.backgroundWork.followUpThreadIds} cardId={row.backgroundWork.cardId} startEventIdsByThread={row.backgroundWork.startEventIdsByThread} attemptGenerationsByThread={row.backgroundWork.attemptGenerationsByThread} rootRunIdsByThread={row.backgroundWork.rootRunIdsByThread} terminalEventIdsByThread={row.backgroundWork.terminalEventIdsByThread} conversationId={conversationId ?? ""}/>) : null}
           {hasAgentCompletion && row.agentCompletion && (<AgentCompletionCard sections={row.agentCompletion.sections} conversationId={conversationId ?? ""} modelConfigByThread={agentModelConfigByThread}/>)}
           {hasWebSearchResults && row.webSearchResults && (<WebSearchResultsStrip results={row.webSearchResults}/>)}

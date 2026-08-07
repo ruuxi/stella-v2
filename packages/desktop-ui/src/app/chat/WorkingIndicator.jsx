@@ -5,7 +5,7 @@ import { SwapText } from "./SwapText";
 import { CHAT_ACTIVITY_SHIMMER_GROUP } from "./TextShimmer";
 import { getWorkingIndicatorDisplayStatus, INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS, } from "@/features/chat/working-indicator-state";
 import "./indicators.css";
-export function WorkingIndicator({ status, toolName, toolCallId, isReasoning, reasoningSeed, className, animationActive = true, }) {
+export function WorkingIndicator({ status, toolName, toolCallId, isReasoning, reasoningSeed, className, animationActive = true, minimumVisibleMs = INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS, }) {
     const windowFocused = useWindowFocus();
     const animationPaused = !animationActive || !windowFocused;
     const displayStatus = getWorkingIndicatorDisplayStatus({
@@ -21,6 +21,6 @@ export function WorkingIndicator({ status, toolName, toolCallId, isReasoning, re
           <StellaAnimation width={20} height={20} maxDpr={1} maxFps={15} paused={animationPaused} requireWindowFocus/>
         </div>
       </div>
-      <SwapText text={displayStatus} active={animationActive} animateInitial={false} minimumVisibleMs={INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS} className="working-status" shimmerGroup={CHAT_ACTIVITY_SHIMMER_GROUP} shimmerPriority={100}/>
+      <SwapText text={displayStatus} active={animationActive} animateInitial={false} minimumVisibleMs={minimumVisibleMs} className="working-status" shimmerGroup={CHAT_ACTIVITY_SHIMMER_GROUP} shimmerPriority={100}/>
     </div>);
 }

@@ -31,7 +31,6 @@ describe("assistantRowHasNonBackgroundContent", () => {
     ["sourceDiffPayloads", { sourceDiffPayloads: [{} as never] }],
     ["scheduleReceipt", { scheduleReceipt: { affected: [] } }],
     ["voiceSession", { voiceSession: {} as never }],
-    ["toolActivity", { toolActivity: {} as never }],
     ["customSlot", { customSlot: {} as never }],
   ];
 
@@ -100,7 +99,6 @@ describe("assistantRowHasVisibleContent", () => {
       "agentCompletion",
       { agentCompletion: { sections: [{} as never] } as never },
     ],
-    ["toolActivity", { toolActivity: { steps: [{} as never] } as never }],
   ];
 
   it.each(visibleFieldCases)(
@@ -121,7 +119,6 @@ describe("assistantRowHasVisibleContent", () => {
       assistantRowHasVisibleContent({
         ...baseRow(),
         scheduleReceipt: { affected: [] },
-        toolActivity: { steps: [] } as never,
         agentCompletion: { sections: [] } as never,
         backgroundWork: {
           threadIds: [],

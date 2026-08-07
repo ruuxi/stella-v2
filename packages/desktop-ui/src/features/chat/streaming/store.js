@@ -55,6 +55,7 @@ const createEmptyRunRecord = (args) => ({
     ...(args.outcome ? { outcome: args.outcome } : {}),
     statusText: args.statusText ?? null,
     hasToolActivity: false,
+    latestCompletedTool: null,
     isStreamingText: false,
     pendingToolAfterPreamble: false,
     activeToolCalls: {},
@@ -188,6 +189,7 @@ export function streamStoreReducer(state, action) {
                         // most visible after `spawn_agent`). The suppression is released
                         // in `tool-end` instead, once the tool phase is fully over.
                         statusText: action.statusText ?? current.statusText,
+                        latestCompletedTool: null,
                         activeToolCalls: {
                             ...(current.activeToolCalls ?? {}),
                             [toolCallKey]: {
@@ -206,6 +208,9 @@ export function streamStoreReducer(state, action) {
             }
             const nextActiveToolCalls = { ...(current.activeToolCalls ?? {}) };
             const toolCallKey = resolveToolEndKey(nextActiveToolCalls, action);
+            const endedTool = toolCallKey
+                ? nextActiveToolCalls[toolCallKey]
+                : undefined;
             if (toolCallKey) {
                 delete nextActiveToolCalls[toolCallKey];
             }
@@ -226,6 +231,15 @@ export function streamStoreReducer(state, action) {
                         // visible delta then hands off normally.
                         ...(toolPhaseOver ? { pendingToolAfterPreamble: false } : {}),
                         statusText: nextActiveTool?.statusText ?? null,
+                        latestCompletedTool: action.toolName || endedTool?.toolName
+                            ? {
+                                toolCallId: action.toolCallId ?? toolCallKey ?? "",
+                                toolName: action.toolName ?? endedTool?.toolName ?? "tool",
+                                ...(typeof action.exitCode === "number"
+                                    ? { exitCode: action.exitCode }
+                                    : {}),
+                            }
+                            : current.latestCompletedTool,
                         activeToolCalls: nextActiveToolCalls,
                     },
                 },

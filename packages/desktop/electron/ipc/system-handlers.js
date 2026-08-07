@@ -451,6 +451,9 @@ const asSocialSessionStatus = (value) => {
 };
 export const registerSystemHandlers = (options) => {
     const activeOAuthLogins = new Map();
+    const refreshLocalLlmCredentials = () => {
+        options.getStellaHostRunner()?.refreshLocalLlmCredentials?.();
+    };
     const stellaAppDir = options.getStellaAppDir();
     if (stellaAppDir) {
         cleanupRetiredLocalLlmOAuthCredentials(stellaAppDir);
@@ -1312,6 +1315,15 @@ export const registerSystemHandlers = (options) => {
         const abortOnSenderDestroyed = () => controller.abort();
         event.sender.once("destroyed", abortOnSenderDestroyed);
         try {
+            let savedCredential = null;
+            const persistCredentials = async (credentials) => {
+                savedCredential = saveLocalLlmOAuthCredential(stellaAppDir, {
+                    provider: provider.id,
+                    label: provider.name,
+                    credentials,
+                });
+                refreshLocalLlmCredentials();
+            };
             const credentials = await provider.login({
                 onAuth: (info) => {
                     void shell.openExternal(info.url);
@@ -1337,6 +1349,7 @@ export const registerSystemHandlers = (options) => {
                     });
                     return result.response === 0 ? "" : "";
                 },
+                onCredentialsReady: persistCredentials,
                 signal: controller.signal,
             });
             if (controller.signal.aborted) {
@@ -1344,11 +1357,10 @@ export const registerSystemHandlers = (options) => {
                     ? controller.signal.reason
                     : new Error("OAuth login was canceled.");
             }
-            return saveLocalLlmOAuthCredential(stellaAppDir, {
-                provider: provider.id,
-                label: provider.name,
-                credentials,
-            });
+            if (!savedCredential) {
+                await persistCredentials(credentials);
+            }
+            return savedCredential;
         }
         finally {
             event.sender.removeListener("destroyed", abortOnSenderDestroyed);
@@ -1384,10 +1396,12 @@ export const registerSystemHandlers = (options) => {
             if (key)
                 return { connected: true, needsReauth: false };
             deleteLocalLlmOAuthCredential(stellaAppDir, provider);
+            refreshLocalLlmCredentials();
             return { connected: false, needsReauth: true };
         }
         catch {
             deleteLocalLlmOAuthCredential(stellaAppDir, provider);
+            refreshLocalLlmCredentials();
             return { connected: false, needsReauth: true };
         }
     });
@@ -1399,7 +1413,11 @@ export const registerSystemHandlers = (options) => {
         if (!stellaAppDir) {
             return { removed: false };
         }
-        return deleteLocalLlmOAuthCredential(stellaAppDir, asTrimmedString(payload?.provider));
+        const result = deleteLocalLlmOAuthCredential(stellaAppDir, asTrimmedString(payload?.provider));
+        if (result.removed) {
+            refreshLocalLlmCredentials();
+        }
+        return result;
     });
     ipcMain.handle("llmCredentials:save", (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:save")) {
@@ -1409,11 +1427,13 @@ export const registerSystemHandlers = (options) => {
         if (!stellaAppDir) {
             throw new Error("Local Stella root is unavailable.");
         }
-        return saveLocalLlmCredential(stellaAppDir, {
+        const result = saveLocalLlmCredential(stellaAppDir, {
             provider: asTrimmedString(payload?.provider),
             label: asTrimmedString(payload?.label),
             plaintext: asTrimmedString(payload?.plaintext),
         });
+        refreshLocalLlmCredentials();
+        return result;
     });
     ipcMain.handle("llmCredentials:delete", (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:delete")) {
@@ -1423,7 +1443,11 @@ export const registerSystemHandlers = (options) => {
         if (!stellaAppDir) {
             return { removed: false };
         }
-        return deleteLocalLlmCredential(stellaAppDir, asTrimmedString(payload?.provider));
+        const result = deleteLocalLlmCredential(stellaAppDir, asTrimmedString(payload?.provider));
+        if (result.removed) {
+            refreshLocalLlmCredentials();
+        }
+        return result;
     });
     let lastAccessibilityStatus = false;
     ipcMain.handle(IPC_PERMISSIONS_GET_STATUS, () => {

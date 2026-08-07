@@ -180,6 +180,11 @@ export type RuntimeThreadCustomMessageEntry = RuntimeThreadSessionEntryBase & {
   eventId?: string;
 };
 
+export type RuntimeThreadLifecycleEntry = RuntimeThreadSessionEntryBase & {
+  type: "lifecycle_event";
+  event: LocalChatEventRecord;
+};
+
 export type RuntimeThreadLabelEntry = RuntimeThreadSessionEntryBase & {
   type: "label";
   targetId: string;
@@ -199,6 +204,7 @@ export type RuntimeThreadSessionEntry =
   | RuntimeThreadBranchSummaryEntry
   | RuntimeThreadCustomEntry
   | RuntimeThreadCustomMessageEntry
+  | RuntimeThreadLifecycleEntry
   | RuntimeThreadLabelEntry
   | RuntimeThreadSessionInfoEntry;
 

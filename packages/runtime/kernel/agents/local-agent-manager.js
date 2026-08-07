@@ -658,9 +658,6 @@ export class LocalAgentManager {
     getAgentState(threadId) {
         return (this.tasks.get(threadId) ?? this.opts.getAgentRecord?.(threadId) ?? null);
     }
-    isExplicitlyPaused(task) {
-        return (task?.status === "canceled" && task.error === AGENT_PAUSE_CANCEL_REASON);
-    }
     isActiveAgentState(task) {
         return (task?.status === "pending" ||
             task?.status === "running" ||
@@ -701,19 +698,6 @@ export class LocalAgentManager {
             }
             cursor = parent.parentAgentId;
         }
-    }
-    wouldCreateParentCycle(threadId, parentAgentId) {
-        const visited = new Set();
-        let cursor = parentAgentId;
-        while (cursor) {
-            if (cursor === threadId)
-                return true;
-            if (visited.has(cursor))
-                return true;
-            visited.add(cursor);
-            cursor = this.getAgentState(cursor)?.parentAgentId;
-        }
-        return false;
     }
     resetTaskForNextAttempt(task, prompt) {
         // Invalidate any older executeTask still unwinding after an abort. It may

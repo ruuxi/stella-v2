@@ -171,6 +171,32 @@ export class DreamInboxStore {
     });
   }
 
+  promoteThreadSummaryConversation(args: {
+    threadId: string;
+    conversationId: string;
+    rolloutSummary: string;
+  }): { updated: number } {
+    const conversationId = args.conversationId.trim();
+    const content = redactMemoryText(args.rolloutSummary.trim());
+    if (!conversationId || !content) return { updated: 0 };
+    const result = this.db
+      .prepare(
+        `
+        UPDATE dream_inbox
+        SET conversation_id = ?
+        WHERE kind = 'thread_summary'
+          AND thread_id = ?
+          AND conversation_id IS NULL
+          AND processed_by_dream_at IS NULL
+          AND content = ?
+        `,
+      )
+      .run(conversationId, args.threadId, content) as
+      | { changes?: number }
+      | undefined;
+    return { updated: Number(result?.changes ?? 0) };
+  }
+
   /**
    * Queue an orchestrator memory-review candidate. Each note is its own row
    * (no coalescing); the formatted markdown body is what Dream and the

@@ -161,5 +161,25 @@ export const listAgentThreadMessages = (store, args = {}) => {
       });
     }
   }
+  const seenLifecycleIds = new Set(
+    projected.flatMap((message) =>
+      message.role === "lifecycle" && message.lifecycleEvent
+        ? [message.lifecycleEvent._id]
+        : [],
+    ),
+  );
+  for (const entry of store.listThreadLifecycleEntries(threadId, limit)) {
+    if (seenLifecycleIds.has(entry.event._id)) continue;
+    seenLifecycleIds.add(entry.event._id);
+    projected.push({
+      entryId: entry.entryId,
+      timestamp: entry.event.timestamp,
+      role: "lifecycle",
+      content: "",
+      lifecycleEvent: entry.event,
+    });
+  }
+  // Array.sort is stable: equal timestamps retain durable append order from
+  // each source instead of being scrambled by opaque entry IDs.
   return projected.sort((a, b) => a.timestamp - b.timestamp);
 };

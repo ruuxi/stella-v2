@@ -468,6 +468,32 @@ const enforceCustomMessageRowSizeLimit = (message) => {
             ],
     };
 };
+const THREAD_LIFECYCLE_EVENT_TYPES = new Set([
+    "agent-started",
+    "agent-progress",
+    "agent-completed",
+    "agent-failed",
+    "agent-canceled",
+]);
+const parseStoredThreadLifecycleEvent = (value) => {
+    const record = asObject(value);
+    const id = asTrimmedString(record?._id);
+    const type = asTrimmedString(record?.type);
+    const timestamp = asFiniteNumber(record?.timestamp);
+    if (!id ||
+        !type ||
+        !THREAD_LIFECYCLE_EVENT_TYPES.has(type) ||
+        timestamp === null) {
+        return null;
+    }
+    const payload = asObject(record?.payload);
+    return {
+        _id: id,
+        timestamp,
+        type,
+        ...(payload ? { payload } : {}),
+    };
+};
 const parseThreadSessionEntry = (row) => {
     const data = parseJsonValue(row.dataJson);
     switch (row.entryType) {
@@ -532,6 +558,18 @@ const parseThreadSessionEntry = (row) => {
                 content,
                 display,
                 ...(eventId ? { eventId } : {}),
+            };
+        }
+        case "lifecycle_event": {
+            const event = parseStoredThreadLifecycleEvent(data?.event);
+            if (!event)
+                return null;
+            return {
+                type: "lifecycle_event",
+                id: row.entryId,
+                parentId: row.parentEntryId,
+                timestamp: row.timestampIso,
+                event,
             };
         }
         default:
@@ -2282,6 +2320,72 @@ export class SessionStore {
             this.touchThread(threadKey);
         });
     }
+    appendThreadLifecycleEvent(message) {
+        const threadKey = normalizeRuntimeThreadId(message.threadKey);
+        if (!threadKey) {
+            throw new Error("threadKey is required.");
+        }
+        const event = parseStoredThreadLifecycleEvent(message.event);
+        if (!event) {
+            throw new Error("A valid lifecycle event is required.");
+        }
+        const conversationId = this.getThreadConversationId(threadKey);
+        this.withTransaction(() => {
+            this.upsertSession(conversationId, event.timestamp);
+            const threadSession = this.ensureThreadSession(threadKey, conversationId, event.timestamp);
+            this.appendThreadSessionEntry({
+                threadKey,
+                sessionId: threadSession.sessionId,
+                entryType: "lifecycle_event",
+                timestamp: event.timestamp,
+                data: { event },
+            });
+            this.touchThread(threadKey);
+        });
+    }
+    hasThreadLifecycleEvent(threadKeyInput, eventIdInput) {
+        const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+        const eventId = asTrimmedString(eventIdInput);
+        if (!threadKey || !eventId) {
+            return false;
+        }
+        const row = this.db
+            .prepare(`
+      SELECT 1 AS present
+      FROM runtime_thread_entries
+      WHERE thread_key = ?
+        AND entry_type = 'lifecycle_event'
+        AND json_extract(data_json, '$.event._id') = ?
+      LIMIT 1
+    `)
+            .get(threadKey, eventId);
+        return Boolean(row);
+    }
+    listThreadLifecycleEntries(threadKeyInput, limit = 300) {
+        const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+        if (!threadKey) {
+            throw new Error("threadKey is required.");
+        }
+        const normalizedLimit = Math.min(500, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 300)));
+        const rows = this.db
+            .prepare(`
+      SELECT entry_id AS entryId, data_json AS dataJson
+      FROM (
+        SELECT entry_id, data_json, created_at
+        FROM runtime_thread_entries
+        WHERE thread_key = ? AND entry_type = 'lifecycle_event'
+        ORDER BY created_at DESC, entry_id DESC
+        LIMIT ?
+      ) recent
+      ORDER BY created_at ASC, entry_id ASC
+    `)
+            .all(threadKey, normalizedLimit);
+        return rows.flatMap((row) => {
+            const data = parseJsonValue(row.dataJson);
+            const event = parseStoredThreadLifecycleEvent(data?.event);
+            return event ? [{ entryId: row.entryId, event }] : [];
+        });
+    }
     loadThreadMessages(threadKeyInput, limit) {
         const threadKey = normalizeRuntimeThreadId(threadKeyInput);
         if (!threadKey) {
@@ -3401,8 +3505,11 @@ export class SessionStore {
         substr(a.result, 1, 2000) AS result,
         substr(a.error, 1, 2000) AS error,
         a.updated_at,
-        a.root_run_id
+        a.root_run_id,
+        t.group_key,
+        t.group_label
       FROM runtime_agents a
+      LEFT JOIN runtime_threads t ON t.thread_key = a.thread_id
       WHERE a.conversation_id = ?
       ORDER BY a.started_at ASC, a.thread_id ASC
     `)

@@ -11,6 +11,46 @@ const createTestContext = testContexts.create;
 afterEach(() => testContexts.cleanup());
 
 describe("DreamInboxStore", () => {
+  it("promotes only the matching unprocessed thread summary to its reporting conversation", () => {
+    const { db, store } = createTestContext();
+    store.recordThreadSummary({
+      threadId: "thread-promote",
+      runId: "run-promote",
+      agentType: "general",
+      rolloutSummary: "Completed the delegated work",
+    });
+
+    expect(
+      store.promoteThreadSummaryConversation({
+        threadId: "thread-promote",
+        conversationId: "conversation-parent",
+        rolloutSummary: "Different report",
+      }),
+    ).toEqual({ updated: 0 });
+    expect(
+      store.promoteThreadSummaryConversation({
+        threadId: "thread-promote",
+        conversationId: "conversation-parent",
+        rolloutSummary: "Completed the delegated work",
+      }),
+    ).toEqual({ updated: 1 });
+    expect(
+      store.promoteThreadSummaryConversation({
+        threadId: "thread-promote",
+        conversationId: "conversation-other",
+        rolloutSummary: "Completed the delegated work",
+      }),
+    ).toEqual({ updated: 0 });
+
+    expect(
+      db
+        .prepare(
+          "SELECT conversation_id AS conversationId FROM dream_inbox WHERE thread_id = ?",
+        )
+        .get("thread-promote"),
+    ).toEqual({ conversationId: "conversation-parent" });
+  });
+
   it("queues thread summaries and marks them processed by id", () => {
     const { store } = createTestContext();
 

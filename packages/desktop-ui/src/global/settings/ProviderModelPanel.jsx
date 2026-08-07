@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, KeyRound, Lightbulb, LogIn, LogOut, Search, Star, X, } from "@/ui/icons";
+import { Check, ChevronDown, KeyRound, Lightbulb, LogIn, LogOut, RefreshCw, Search, Star, X, } from "@/ui/icons";
 import { BrandIcon } from "@/ui/brand-icon";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
 import { readEngineModelFavorites, sortByFavorites, toggleEngineModelFavorite, } from "@/features/workspace-display/engine-model-favorites";
@@ -42,10 +42,13 @@ const dedupeStellaModels = (models, selectedModelId) => {
     return Array.from(byResolvedModel.values());
 };
 export const providerUsesRuntimeManagedAuth = (tab) => tab.runtimeManagedAuth || tab.runtimeCredentialless;
-export function buildProviderTabs(groups, visibleProviders) {
+export function buildProviderTabs(groups, visibleProviders, hiddenProviders) {
     const tabs = new Map();
     for (const entry of LLM_PROVIDERS) {
         if (visibleProviders && !visibleProviders.includes(entry.key)) {
+            continue;
+        }
+        if (hiddenProviders?.includes(entry.key)) {
             continue;
         }
         tabs.set(entry.key, {
@@ -62,6 +65,9 @@ export function buildProviderTabs(groups, visibleProviders) {
         if (visibleProviders && !visibleProviders.includes(group.provider)) {
             continue;
         }
+        if (hiddenProviders?.includes(group.provider)) {
+            continue;
+        }
         const models = group.models;
         tabs.set(group.provider, {
             key: group.provider,
@@ -75,10 +81,10 @@ export function buildProviderTabs(groups, visibleProviders) {
     }
     return Array.from(tabs.values()).sort((a, b) => compareProviderRailOrder(a.key, b.key, a.label, b.label));
 }
-export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, onSelect, disabled = false, reasoningEffort, onSelectReasoning, restrictStellaPicks = false, restrictedPlanLabel, ariaLabel, hideDefaultRow = false, selectedHeaderKicker, hideSelectedTitle = false, hideSearch = false, hideSelectionCheck = false, disableNonStellaProviders = false, disabledProviderReason, hideProviderLabel = false, visibleProviders, favoriteScope, hideGroupHead = false, headerActionsTarget, authOpenRequest = 0, onRequestSearchClose, }) {
+export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, onSelect, disabled = false, reasoningEffort, onSelectReasoning, restrictStellaPicks = false, restrictedPlanLabel, ariaLabel, hideDefaultRow = false, selectedHeaderKicker, hideSelectedTitle = false, hideSearch = false, hideSelectionCheck = false, disableNonStellaProviders = false, disabledProviderReason, hideProviderLabel = false, visibleProviders, hiddenProviders, favoriteScope, hideGroupHead = false, headerActionsTarget, authOpenRequest = 0, onRequestSearchClose, collapsibleGroups = false, activeSectionKey = null, extraSections = [], sectionOrder = null, onExtraSectionExpanded, onRefresh, refreshing = false, selectedRowExtra = null, }) {
     const credentials = useLlmCredentials();
     const cancelOAuth = credentials.cancelOAuth;
-    const tabs = useMemo(() => buildProviderTabs(groups, visibleProviders), [groups, visibleProviders]);
+    const tabs = useMemo(() => buildProviderTabs(groups, visibleProviders, hiddenProviders), [groups, hiddenProviders, visibleProviders]);
     const [favorites, setFavorites] = useState(() => favoriteScope ? readEngineModelFavorites(favoriteScope) : []);
     const disabledProviderSet = useMemo(() => new Set(disableNonStellaProviders
         ? tabs
@@ -134,6 +140,39 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             return;
         setFavorites(toggleEngineModelFavorite(favoriteScope, modelId));
     }, [favoriteScope]);
+    /**
+     * Collapsible mode: every provider is one section in a single scrolling
+     * list; only the section that holds the current selection starts open.
+     * Toggling is per-mount state — reopening the picker re-derives from the
+     * saved selection, which is the section the user most likely wants.
+     */
+    const [openSections, setOpenSections] = useState(() => new Set(activeSectionKey ? [activeSectionKey] : []));
+    useEffect(() => {
+        if (!activeSectionKey)
+            return;
+        setOpenSections((current) => {
+            if (current.has(activeSectionKey))
+                return current;
+            const next = new Set(current);
+            next.add(activeSectionKey);
+            return next;
+        });
+    }, [activeSectionKey]);
+    const toggleSection = useCallback((sectionKey, isExtra) => {
+        const opening = !openSections.has(sectionKey);
+        setOpenSections((current) => {
+            const next = new Set(current);
+            if (opening) {
+                next.add(sectionKey);
+            }
+            else {
+                next.delete(sectionKey);
+            }
+            return next;
+        });
+        if (isExtra)
+            onExtraSectionExpanded?.(sectionKey, opening);
+    }, [onExtraSectionExpanded, openSections]);
     const handlePick = useCallback((modelId, anchor) => {
         if (disabled)
             return;
@@ -153,9 +192,16 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             void cancelPendingOAuth(pendingProvider);
         }
         setExpandedProvider(providerKey);
+        // The connect / custom form renders inside the section body, so a
+        // collapsed section must open alongside its form.
+        if (providerKey && collapsibleGroups) {
+            setOpenSections((current) => current.has(providerKey)
+                ? current
+                : new Set(current).add(providerKey));
+        }
         setDraftKey("");
         setAuthError(null);
-    }, [cancelPendingOAuth]);
+    }, [cancelPendingOAuth, collapsibleGroups]);
     useEffect(() => () => {
         const attempt = oauthAttemptRef.current;
         if (attempt) {
@@ -435,15 +481,39 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         const handleRowPick = requiresAuth
             ? () => toggleExpanded(expanded ? null : tab.key)
             : handlePick;
-        const showGroupHead = !hideGroupHead &&
-            !inlineProviderActions &&
-            !liftActionsToHeader &&
-            (!hideProviderLabel || requiresAuth || section.hasCustomInputs || section.removable);
-        return (<div key={tab.key} className="model-picker-group" role="group" aria-label={tab.label}>
-        {showGroupHead ? (<div className="model-picker-group-head" data-label-hidden={hideProviderLabel || undefined} title={disabledProviderSet.has(tab.key)
+        const showGroupHead = collapsibleGroups ||
+            (!hideGroupHead &&
+                !inlineProviderActions &&
+                !liftActionsToHeader &&
+                (!hideProviderLabel || requiresAuth || section.hasCustomInputs || section.removable));
+        // Searching force-opens every matching section (collapse state is
+        // preserved for when the query clears).
+        const open = !collapsibleGroups || Boolean(trimmedQuery) || openSections.has(tab.key);
+        const sectionHoldsSelection = isStella
+            ? isDefaultSelected || (value ?? "").startsWith("stella/")
+            : models.some((model) => model.id === value);
+        return (<div key={tab.key} className="model-picker-group" role="group" aria-label={tab.label} data-open={open || undefined}>
+        {showGroupHead ? (<div className="model-picker-group-head" data-label-hidden={(!collapsibleGroups && hideProviderLabel) || undefined} data-collapsible={collapsibleGroups || undefined} title={disabledProviderSet.has(tab.key)
                 ? disabledProviderReason
                 : undefined}>
-          {hideProviderLabel ? null : (<>
+          {collapsibleGroups ? (<button type="button" className="model-picker-group-toggle" aria-expanded={open} onClick={() => {
+                toggleSection(tab.key, false);
+                if (!open && requiresAuth && models.length === 0) {
+                    // An unconnected provider with no catalog rows would
+                    // expand to nothing — open its connect form with it.
+                    toggleExpanded(tab.key);
+                }
+                else if (open && expanded) {
+                    toggleExpanded(null);
+                }
+            }} disabled={Boolean(trimmedQuery)}>
+              <span className="model-picker-group-icon" aria-hidden>
+                <BrandIcon brand={tab.key} size={13}/>
+              </span>
+              <span className="model-picker-group-label">{tab.label}</span>
+              {!open && sectionHoldsSelection ? (<Check size={12} strokeWidth={2} className="model-picker-group-check" aria-hidden/>) : null}
+              <ChevronDown size={13} strokeWidth={1.75} className="model-picker-group-chevron" data-open={open || undefined} aria-hidden/>
+            </button>) : hideProviderLabel ? null : (<>
               <span className="model-picker-group-icon" aria-hidden>
                 <BrandIcon brand={tab.key} size={13}/>
               </span>
@@ -452,7 +522,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
           {renderGroupActions(section)}
         </div>) : null}
 
-        {requiresAuth && expanded ? (<div className="model-picker-connect">
+        {open && requiresAuth && expanded ? (<div className="model-picker-connect">
             <p className="model-picker-connect-hint">{authDescription}</p>
             {supportsOAuth ? (<button type="button" className="model-picker-connect-oauth" onClick={() => oauthProvider === tab.key
                     ? void cancelPendingOAuth(tab.key)
@@ -478,7 +548,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 {authError}
               </p>) : null}
           </div>) : null}
-        <>
+        {!open ? null : <>
           {isLocal && expanded ? (<div className="model-picker-connect">
               <p className="model-picker-connect-hint">
                 Use any local OpenAI-compatible server. Ollama usually runs at
@@ -523,6 +593,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 </span>
                 {!hideSelectionCheck && isDefaultSelected ? (<Check size={13} className="model-picker-model-check"/>) : null}
               </button>) : null}
+            {showDefaultRow && isDefaultSelected && selectedRowExtra ? (<div className="model-picker-selected-extra">{selectedRowExtra}</div>) : null}
             {models.map((model) => {
                 const selected = isDefaultSelected
                     ? resolveDefaultToModel && modelMatchesDefault(model, currentLabel)
@@ -531,14 +602,64 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                     model.provider === STELLA_PROVIDER_KEY &&
                     !selected &&
                     model.allowedForAudience === false;
-                return (<ModelRow key={model.id} model={model} selected={selected} rowRestricted={rowRestricted} restrictedPlanLabel={restrictedPlanLabel ?? null} restrictedReason={rowRestricted && !restrictedPlanLabel
+                return (<div key={model.id} className="model-picker-row-slot">
+                    <ModelRow model={model} selected={selected} rowRestricted={rowRestricted} restrictedPlanLabel={restrictedPlanLabel ?? null} restrictedReason={rowRestricted && !restrictedPlanLabel
                         ? (disabledProviderReason ?? null)
-                        : null} onPick={handleRowPick} disabled={sectionDisabled} favorite={favorites.includes(model.id)} showFavorite={Boolean(favoriteScope)} onToggleFavorite={toggleFavorite} reasoningEffort={reasoningEffort} onSelectReasoning={onSelectReasoning} hideSelectionCheck={hideSelectionCheck}/>);
+                        : null} onPick={handleRowPick} disabled={sectionDisabled} favorite={favorites.includes(model.id)} showFavorite={Boolean(favoriteScope)} onToggleFavorite={toggleFavorite} reasoningEffort={reasoningEffort} onSelectReasoning={onSelectReasoning} hideSelectionCheck={hideSelectionCheck}/>
+                    {selected && selectedRowExtra ? (<div className="model-picker-selected-extra">{selectedRowExtra}</div>) : null}
+                  </div>);
             })}
           </div>
-        </>
+        </>}
       </div>);
     };
+    /**
+     * Extra sections (the ChatGPT / Claude Code engines) render through the
+     * same collapsible chrome but carry embedder-supplied content instead of
+     * catalog rows. `content` is a render-prop so collapsed engines never pay
+     * for their (potentially IPC-backed) lists. They're hidden while
+     * searching — their rows aren't part of the searchable catalog.
+     */
+    const renderExtraSection = (extra) => {
+        const open = openSections.has(extra.key);
+        return (<div key={extra.key} className="model-picker-group" role="group" aria-label={extra.label} data-open={open || undefined}>
+        <div className="model-picker-group-head" data-collapsible>
+          <button type="button" className="model-picker-group-toggle" aria-expanded={open} onClick={() => toggleSection(extra.key, true)}>
+            <span className="model-picker-group-icon" aria-hidden>
+              <BrandIcon brand={extra.brandKey ?? extra.key} size={13}/>
+            </span>
+            <span className="model-picker-group-label">{extra.label}</span>
+            {extra.badge ? (<span className="model-picker-group-note">{extra.badge}</span>) : null}
+            {!open && extra.selected ? (<Check size={12} strokeWidth={2} className="model-picker-group-check" aria-hidden/>) : null}
+            <ChevronDown size={13} strokeWidth={1.75} className="model-picker-group-chevron" data-open={open || undefined} aria-hidden/>
+          </button>
+        </div>
+        {open ? extra.content() : null}
+      </div>);
+    };
+    /** Catalog + extra sections in display order. `sectionOrder` pins the
+     * listed keys to the front; everything else keeps its catalog
+     * (rail-priority) order after them — the sort is stable. Extras are
+     * hidden while searching (their rows aren't part of the catalog). */
+    const orderedSections = useMemo(() => {
+        const entries = sections.map(({ tab, models }) => ({
+            kind: "catalog",
+            key: tab.key,
+            tab,
+            models,
+        }));
+        if (!trimmedQuery) {
+            for (const extra of extraSections) {
+                entries.push({ kind: "extra", key: extra.key, extra });
+            }
+        }
+        if (sectionOrder?.length) {
+            const rank = new Map(sectionOrder.map((key, index) => [key, index]));
+            entries.sort((a, b) => (rank.get(a.key) ?? sectionOrder.length) -
+                (rank.get(b.key) ?? sectionOrder.length));
+        }
+        return entries;
+    }, [extraSections, sections, sectionOrder, trimmedQuery]);
     return (<div className="model-picker-shell" data-disabled={disabled || undefined} role="group" aria-label={ariaLabel}>
       <div className="model-picker-pane-inner">
         {hideSelectedTitle ? null : (<header className="model-picker-pane-header">
@@ -552,19 +673,24 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             </div>
           </header>)}
 
-        {!searchVisible ? null : inlineProviderActions ? (<div className="model-picker-search-row">
+        {!searchVisible ? null : inlineProviderActions || onRefresh ? (<div className="model-picker-search-row">
             {renderSearch()}
-            <div className="model-picker-search-action">
-              {renderGroupActions(getSectionContext(tabs[0]))}
-            </div>
+            {inlineProviderActions ? (<div className="model-picker-search-action">
+                {renderGroupActions(getSectionContext(tabs[0]))}
+              </div>) : null}
+            {onRefresh ? (<button type="button" className="model-picker-refresh" onClick={onRefresh} disabled={disabled || refreshing} aria-label="Refresh model catalog" title="Refresh model catalog">
+                <RefreshCw size={13} strokeWidth={1.75} data-spinning={refreshing || undefined}/>
+              </button>) : null}
           </div>) : renderSearch()}
 
         <div className="model-picker-groups" role="listbox" aria-live="polite">
-          {sections.length === 0 ? (<div className="model-picker-empty">
+          {orderedSections.length === 0 ? (<div className="model-picker-empty">
               {tabs.length === 0
                 ? "No models available yet."
                 : "No models match."}
-            </div>) : (sections.map(({ tab, models }) => renderSection(tab, models)))}
+            </div>) : (orderedSections.map((entry) => entry.kind === "extra"
+                ? renderExtraSection(entry.extra)
+                : renderSection(entry.tab, entry.models)))}
         </div>
       </div>
     </div>);

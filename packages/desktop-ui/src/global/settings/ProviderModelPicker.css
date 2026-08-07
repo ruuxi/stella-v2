@@ -113,8 +113,10 @@
 }
 
 .model-picker-group-connect {
-  height: 22px;
-  padding: 0 8px;
+  height: 24px;
+  min-width: 76px;
+  justify-content: center;
+  padding: 0 10px;
   border-radius: var(--radius-full);
   border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
   font-size: var(--font-size-2xs);
@@ -136,8 +138,8 @@
 }
 
 .model-picker-group-signout {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-sm, 6px);
   opacity: 0;
   pointer-events: none;
@@ -217,7 +219,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 2px 10px 8px;
+  padding: 4px 10px 10px;
 }
 
 .model-picker-connect-hint {
@@ -239,15 +241,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 4px 4px 12px;
+  min-height: 32px;
+  padding: 3px 3px 3px 12px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--border);
-  background: var(--surface-inset);
+  border: none;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--text-weak);
+  transition: background 120ms ease;
 }
 
 .model-picker-connect-field:focus-within {
-  border-color: var(--border-strong);
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
   box-shadow: var(--focus-ring);
 }
 
@@ -304,30 +308,46 @@
   cursor: not-allowed;
 }
 
+/* When a sign-in button is present it is THE primary action; the inline
+   key save drops to a quiet pill so the form carries one loud button. */
+.model-picker-connect:has(.model-picker-connect-oauth) .model-picker-connect-go {
+  border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+  background: transparent;
+  color: var(--text-base);
+}
+
+.model-picker-connect:has(.model-picker-connect-oauth)
+  .model-picker-connect-go:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--text-strong);
+}
+
 .model-picker-connect-oauth {
-  align-self: flex-start;
+  align-self: stretch;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 30px;
+  height: 32px;
   padding: 0 14px;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--radius-full);
-  background: var(--surface-inset);
-  color: var(--text-strong);
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-family: inherit;
   font-size: var(--font-size-sm);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-semibold);
   cursor: default;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease;
+  transition: background 120ms ease;
 }
 
 .model-picker-connect-oauth:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: color-mix(in oklch, var(--text-strong) 7%, var(--surface-inset));
+  background: color-mix(in oklch, var(--text-strong) 12%, var(--primary));
+}
+
+.model-picker-connect-oauth:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .model-picker-connect-oauth:disabled {
@@ -594,4 +614,134 @@
 .model-picker-model-check {
   flex-shrink: 0;
   color: var(--text-strong);
+}
+
+/* ------------------------------------------- Collapsible sections
+ * Single-list mode: every provider (and the ChatGPT / Claude Code engine
+ * entries) is one section; heads toggle their body. The whole head row is
+ * the affordance — actions (connect / sign-out) still ride its right edge. */
+
+.model-picker-group-head[data-collapsible] {
+  gap: 6px;
+  padding: 2px 4px 2px 0;
+}
+
+.model-picker-group-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 8px 0 10px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  transition: background 120ms ease;
+}
+
+.model-picker-group-toggle:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+}
+
+.model-picker-group-toggle:hover:not(:disabled) .model-picker-group-label {
+  color: var(--text-strong);
+}
+
+.model-picker-group-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Collapsed section that holds the current selection: a quiet check keeps
+ * "your pick lives here" visible without opening the section. */
+.model-picker-group-check {
+  flex: none;
+  color: var(--text-weak);
+}
+
+.model-picker-group-chevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-weaker);
+  transition: transform 140ms ease;
+}
+
+.model-picker-group-chevron[data-open] {
+  transform: rotate(180deg);
+}
+
+/* Catalog refresh — ghost icon riding the search row. */
+.model-picker-refresh {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full, 999px);
+  background: transparent;
+  color: var(--text-weak);
+  cursor: default;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.model-picker-refresh:hover:not(:disabled),
+.model-picker-refresh:focus-visible {
+  outline: none;
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+}
+
+.model-picker-refresh:disabled {
+  opacity: 0.5;
+}
+
+.model-picker-refresh svg[data-spinning] {
+  animation: model-picker-spin 700ms linear infinite;
+}
+
+@keyframes model-picker-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-picker-group-chevron,
+  .model-picker-group-toggle {
+    transition: none;
+  }
+
+  .model-picker-refresh svg[data-spinning] {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------- Selected-row extra
+ * Controls that belong to the CURRENT selection (reasoning effort) render
+ * directly beneath the selected row rather than in a detached footer. */
+
+.model-picker-row-slot {
+  display: flex;
+  flex-direction: column;
+}
+
+.model-picker-selected-extra {
+  display: flex;
+  padding: 6px 10px 10px;
+}
+
+.model-picker-selected-extra .agent-model-picker-reasoning {
+  flex: 1 1 auto;
+  min-width: 0;
 }

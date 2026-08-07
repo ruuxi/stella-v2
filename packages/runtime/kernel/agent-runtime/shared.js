@@ -5,6 +5,7 @@ import { Agent } from "../agent-core/agent.js";
 import { selectRecentByTokenBudget } from "../local-history.js";
 import { estimateRuntimeTokens } from "../runtime-threads.js";
 import { getAgentFollowUpMode, getAgentSteeringMode, getLocalCliWorkingDirectory, } from "@stella/contracts/agent-runtime";
+import { isDeepSeekV4FlashModel } from "@stella/contracts/stella-api";
 import { isBootstrapStartupDocMessage, stripStaleImageBlocks, } from "./thread-memory.js";
 import { preflightProviderPayload } from "./context-budget.js";
 const MAX_RESULT_PREVIEW = 200;
@@ -282,6 +283,11 @@ export const resolveAgentThinkingLevel = (args) => {
     if (args.agentContextReasoningEffort &&
         args.agentContextReasoningEffort !== "default") {
         return args.agentContextReasoningEffort;
+    }
+    const model = args.resolvedLlm.model;
+    if (isDeepSeekV4FlashModel(model.id) ||
+        isDeepSeekV4FlashModel(model.upstreamModelId)) {
+        return "xhigh";
     }
     return args.resolvedLlm.model.reasoning ? "medium" : "off";
 };

@@ -192,6 +192,15 @@ describe("Stella relay route shape", () => {
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
+  it("Stella default resolves to V4 Flash with xhigh mapped to its native maximum", () => {
+    const route = makeRoute("stella/default");
+    const model = route!.model;
+    expect(model.provider).toBe("fireworks");
+    expect((model as typeof model & { upstreamModelId?: string }).upstreamModelId)
+      .toBe("accounts/fireworks/models/deepseek-v4-flash-0731");
+    expect(model.thinkingLevelMap?.xhigh).toBe("high");
+  });
+
   it("Stella standard mode resolves to the Muse chat-completions relay", () => {
     const route = makeRoute("stella/standard");
     const model = route!.model;

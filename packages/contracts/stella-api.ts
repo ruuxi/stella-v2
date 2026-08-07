@@ -6,6 +6,15 @@ export const STELLA_CHAT_COMPLETIONS_PATH = `${STELLA_RELAY_PATH_PREFIX}/chat/co
 export const STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/openrouter/api/v1/chat/completions`;
 export const STELLA_DEFAULT_MODEL = "stella/default";
 export const STELLA_STANDARD_MODEL = "stella/standard";
+export const STELLA_DEFAULT_UPSTREAM_MODEL =
+  "accounts/fireworks/models/deepseek-v4-flash-0731";
+
+/** True for every routed spelling of the DeepSeek V4 Flash family. */
+export const isDeepSeekV4FlashModel = (
+  modelId: string | null | undefined,
+): boolean =>
+  typeof modelId === "string" &&
+  modelId.toLowerCase().includes("deepseek-v4-flash");
 export const STELLA_RELAY_PROVIDERS = [
   "anthropic",
   "openai",

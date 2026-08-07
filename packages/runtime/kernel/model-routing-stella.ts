@@ -8,8 +8,10 @@ import {
 } from "./model-routing-matching.js";
 import {
   STELLA_DEFAULT_MODEL,
+  STELLA_DEFAULT_UPSTREAM_MODEL,
   STELLA_RELAY_PROVIDERS,
   STELLA_STANDARD_MODEL,
+  isDeepSeekV4FlashModel,
   stellaManagedRelayBaseUrlFromSiteUrl,
   type StellaRelayProvider,
 } from "@stella/contracts/stella-api";
@@ -113,7 +115,7 @@ export const resolveOfflineStellaModelId = (modelId: string): string | null => {
   // (convex/agent/model.ts) — the catalog is the source of truth at runtime.
   switch (modelId) {
     case "stella/light":
-      return "accounts/fireworks/models/deepseek-v4-flash-0731";
+      return STELLA_DEFAULT_UPSTREAM_MODEL;
     case "stella/priority":
       return "accounts/fireworks/models/kimi-k2p7-code";
     case "stella/builder":
@@ -127,7 +129,7 @@ export const resolveOfflineStellaModelId = (modelId: string): string | null => {
     case STELLA_STANDARD_MODEL:
       return "openrouter/x-ai/grok-4.5";
     case STELLA_DEFAULT_MODEL:
-      return "accounts/fireworks/models/deepseek-v4-flash-0731";
+      return STELLA_DEFAULT_UPSTREAM_MODEL;
     default: {
       const upstream = getStellaVerbatimUpstreamModel(modelId);
       if (upstream) return upstream;
@@ -261,6 +263,16 @@ const createRelayModel = (args: {
     provider: registryModel?.provider ?? args.provider,
     api: apiForRelay(args.provider, registryModel),
     baseUrl: stellaManagedRelayBaseUrlFromSiteUrl(args.siteBaseUrl),
+    ...(isDeepSeekV4FlashModel(args.resolvedModelId)
+      ? {
+          thinkingLevelMap: {
+            ...registryModel?.thinkingLevelMap,
+            // V4 Flash calls its maximum native effort "high". Preserve
+            // Stella's xhigh setting while mapping it to that wire value.
+            xhigh: "high",
+          },
+        }
+      : {}),
     headers: {
       ...(registryModel?.headers ?? {}),
       // `X-Stella-Agent-Type` lets the relay attribute usage to the

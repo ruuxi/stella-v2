@@ -155,9 +155,9 @@ but do not negate high-intent comparison terms such as "alternative," "vs," or
 - Billing is active with a primary payment method.
 - Advertiser verification is complete under `FromYou, LLC`; the public payer is
   `FromYou LLC`, and the disclosure location is the United States.
-- The 129-row web bulk import applied successfully. All three Search campaigns,
-  three ad groups, 27 keywords, and six responsive search ads are enabled. The
-  ads remain pending while Google reviews them.
+- The 129-row web bulk import applied successfully. All three Search campaigns
+  are paused as of August 6, 2026, after $9.85 in total spend. The three ad
+  groups, 27 keywords, and six responsive search ads remain configured.
 - The portfolio budget is $164.47/day (approximately $5,000/month), with a
   $2.50 max CPC, Google Search only, United States presence-only targeting, and
   mobile and tablet traffic excluded.

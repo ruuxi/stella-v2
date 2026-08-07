@@ -271,6 +271,8 @@ async function createAuthorizationFlow(
 type OAuthServerInfo = {
   close: () => void;
   cancelWait: () => void;
+  completeSuccess: () => void;
+  completeError: (message: string) => void;
   waitForCode: () => Promise<{ code?: string; error?: string } | null>;
 };
 
@@ -298,6 +300,15 @@ function startLocalOAuthServer(
       resolve(value);
     };
   });
+  let callbackResponse: import("node:http").ServerResponse | null = null;
+  const completeCallback = (success: boolean, message: string) => {
+    const response = callbackResponse;
+    callbackResponse = null;
+    if (!response || response.writableEnded) return;
+    response.statusCode = success ? 200 : 500;
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.end(success ? oauthSuccessHtml(message) : oauthErrorHtml(message));
+  };
   const abortWait = () => settleWait?.(null);
   signal?.addEventListener("abort", abortWait, { once: true });
 
@@ -328,13 +339,7 @@ function startLocalOAuthServer(
         settleWait?.({ error: oauthError });
         return;
       }
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.end(
-        oauthSuccessHtml(
-          "OpenAI authentication completed. You can close this window.",
-        ),
-      );
+      callbackResponse = res;
       settleWait?.({ code });
     } catch {
       res.statusCode = 500;
@@ -353,6 +358,8 @@ function startLocalOAuthServer(
           resolve({
             close: () => {},
             cancelWait: () => {},
+            completeSuccess: () => {},
+            completeError: () => {},
             waitForCode: async () => null,
           });
           return;
@@ -360,11 +367,18 @@ function startLocalOAuthServer(
         resolve({
           close: () => {
             signal?.removeEventListener("abort", abortWait);
+            completeCallback(false, "OpenAI authentication did not finish.");
             server.close();
           },
           cancelWait: () => {
             settleWait?.(null);
           },
+          completeSuccess: () =>
+            completeCallback(
+              true,
+              "OpenAI authentication completed. You can close this window.",
+            ),
+          completeError: (message) => completeCallback(false, message),
           waitForCode: () => waitForCodePromise,
         });
       })
@@ -385,6 +399,8 @@ function startLocalOAuthServer(
             }
           },
           cancelWait: () => {},
+          completeSuccess: () => {},
+          completeError: () => {},
           waitForCode: async () => null,
         });
       });
@@ -416,6 +432,7 @@ export async function loginOpenAICodex(options: {
   onPrompt: (prompt: OAuthPrompt) => Promise<string>;
   onProgress?: (message: string) => void;
   onManualCodeInput?: () => Promise<string>;
+  onCredentialsReady?: (credentials: OAuthCredentials) => Promise<void>;
   originator?: string;
   signal?: AbortSignal;
 }): Promise<OAuthCredentials> {
@@ -555,12 +572,22 @@ export async function loginOpenAICodex(options: {
       throw new Error("Failed to extract accountId from token");
     }
 
-    return {
+    const credentials: OAuthCredentials = {
       access: tokenResult.access,
       refresh: tokenResult.refresh,
       expires: tokenResult.expires,
       accountId,
     };
+    await options.onCredentialsReady?.(credentials);
+    callbackServer.completeSuccess();
+    return credentials;
+  } catch (error) {
+    server?.completeError(
+      error instanceof Error
+        ? error.message
+        : "OpenAI authentication did not finish.",
+    );
+    throw error;
   } finally {
     clearTimeout(deadline);
     options.signal?.removeEventListener("abort", abortFromCaller);
@@ -603,6 +630,7 @@ export const openaiCodexOAuthProvider: OAuthProviderInterface = {
       onPrompt: callbacks.onPrompt,
       onProgress: callbacks.onProgress,
       onManualCodeInput: callbacks.onManualCodeInput,
+      onCredentialsReady: callbacks.onCredentialsReady,
       signal: callbacks.signal,
     });
   },

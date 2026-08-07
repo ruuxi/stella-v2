@@ -28,6 +28,8 @@ export interface OAuthLoginCallbacks {
 	onPrompt: (prompt: OAuthPrompt) => Promise<string>;
 	onProgress?: (message: string) => void;
 	onManualCodeInput?: () => Promise<string>;
+	/** Persist credentials before a callback-based provider reports success. */
+	onCredentialsReady?: (credentials: OAuthCredentials) => Promise<void>;
 	signal?: AbortSignal;
 }
 

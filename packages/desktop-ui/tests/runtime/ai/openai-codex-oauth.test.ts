@@ -3,6 +3,68 @@ import { loginOpenAICodex } from "@stella/runtime/ai/utils/oauth/openai-codex";
 
 describe("OpenAI Codex OAuth callback lifecycle", () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it("reports callback success only after credentials are persisted", async () => {
+    const nativeFetch = globalThis.fetch;
+    const jwtPayload = Buffer.from(
+      JSON.stringify({
+        "https://api.openai.com/auth": {
+          chatgpt_account_id: "account-test",
+        },
+      }),
+    ).toString("base64url");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/oauth/token")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                access_token: `header.${jwtPayload}.signature`,
+                refresh_token: "refresh-test",
+                expires_in: 3_600,
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+        return nativeFetch(input, init);
+      }),
+    );
+
+    let finishPersistence!: () => void;
+    const persistenceGate = new Promise<void>((resolve) => {
+      finishPersistence = resolve;
+    });
+    let callbackResponse: Promise<Response> | undefined;
+    let callbackSettled = false;
+    const login = loginOpenAICodex({
+      onAuth: ({ url }) => {
+        const state = new URL(url).searchParams.get("state");
+        callbackResponse = nativeFetch(
+          `http://127.0.0.1:1455/auth/callback?state=${encodeURIComponent(state ?? "")}&code=test-code`,
+        );
+        void callbackResponse.then(() => {
+          callbackSettled = true;
+        });
+      },
+      onPrompt: async () => "",
+      onCredentialsReady: async () => persistenceGate,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(callbackSettled).toBe(false);
+
+    finishPersistence();
+    await login;
+    const response = await callbackResponse;
+    expect(response?.status).toBe(200);
+    expect(await response?.text()).toContain("authentication completed");
+  });
+
   it("settles a provider denial and releases the callback server", async () => {
     const login = loginOpenAICodex({
       onAuth: ({ url }) => {

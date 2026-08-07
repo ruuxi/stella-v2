@@ -18,11 +18,8 @@ const BYOK_PROVIDER_KEYS = [
     "openrouter",
     "google",
     "xai",
-    "groq",
     "cerebras",
-    "mistral",
     "github-copilot",
-    "fal",
 ];
 export function OnboardingEnginePhase({ splitTransitionActive, onContinue, }) {
     const credentials = useLlmCredentials();

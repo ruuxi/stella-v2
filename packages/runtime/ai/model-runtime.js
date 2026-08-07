@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { MODELS } from "@stella/contracts/models.generated";
 import { STELLA_RELAY_PROVIDERS } from "@stella/contracts/stella-api";
+import { isRetiredAssistantProvider } from "@stella/contracts/provider-display";
 import { ModelConfig, isModelConfigValueConfigured, resolveModelConfigHeaders, resolveModelConfigValue, } from "./model-config.js";
 import { ensurePrivateDirSync, writePrivateFileSync, } from "../kernel/shared/private-fs.js";
 const DEFAULT_CATALOG_BASE_URL = "https://pi.dev";
@@ -183,7 +184,7 @@ export class ModelRuntime {
     catalogChangeListeners = new Set();
     constructor() {
         for (const [providerId, models] of Object.entries(MODELS)) {
-            if (providerId === "grok")
+            if (providerId === "grok" || isRetiredAssistantProvider(providerId))
                 continue;
             this.builtins.set(providerId, Object.values(models).map((model) => cloneModel(model)));
         }
@@ -209,6 +210,8 @@ export class ModelRuntime {
         try {
             const parsed = JSON.parse(fs.readFileSync(this.storePath, "utf8"));
             for (const [providerId, entry] of Object.entries(parsed)) {
+                if (isRetiredAssistantProvider(providerId))
+                    continue;
                 if (!entry || !Array.isArray(entry.models))
                     continue;
                 this.dynamicCatalogs.set(providerId, {
@@ -244,6 +247,8 @@ export class ModelRuntime {
         const compositionErrors = [];
         const compositionFailedProviders = new Set();
         for (const providerId of providerIds) {
+            if (isRetiredAssistantProvider(providerId))
+                continue;
             const composeProvider = (providerConfig) => {
                 const models = modelMap(this.builtins.get(providerId) ?? []);
                 for (const dynamic of this.dynamicCatalogs.get(providerId)?.models ??
@@ -340,15 +345,21 @@ export class ModelRuntime {
     setExtensionProviders(providers) {
         this.extensionProviders.clear();
         for (const provider of providers) {
+            if (isRetiredAssistantProvider(provider.name))
+                continue;
             this.extensionProviders.set(provider.name, structuredClone(provider));
         }
         this.recompose();
     }
     setManagedProviderModels(providerId, models) {
+        if (isRetiredAssistantProvider(providerId))
+            return;
         this.managedProviderModels.set(providerId, models.map((model) => cloneModel({ ...model, provider: providerId })));
         this.recompose();
     }
     registerModel(providerId, model) {
+        if (isRetiredAssistantProvider(providerId))
+            return;
         const models = this.registeredModels.get(providerId) ?? new Map();
         models.set(model.id, cloneModel(model));
         this.registeredModels.set(providerId, models);
@@ -364,6 +375,10 @@ export class ModelRuntime {
         this.recompose();
     }
     async refreshProviderOnce(providerId, options) {
+        if (isRetiredAssistantProvider(providerId)) {
+            this.dynamicCatalogs.delete(providerId);
+            return;
+        }
         const stored = this.dynamicCatalogs.get(providerId);
         if (!options.force &&
             stored?.checkedAt !== undefined &&
@@ -656,7 +671,8 @@ export class ModelRuntime {
                 ...new Set([
                     ...this.config
                         .getProviderIds()
-                        .filter((providerId) => !this.compositionFailedProviders.has(providerId)),
+                        .filter((providerId) => !this.compositionFailedProviders.has(providerId) &&
+                        !isRetiredAssistantProvider(providerId)),
                     ...this.extensionProviders.keys(),
                     ...this.registeredModels.keys(),
                 ]),

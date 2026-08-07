@@ -1,4 +1,5 @@
 import { MODELS } from "./models.generated.js";
+import { isRetiredAssistantProvider } from "./provider-display.js";
 
 export type CatalogApi = string;
 export type Api = CatalogApi;
@@ -59,6 +60,7 @@ export type RuntimeListModelsRequest = {
 
 export function getAllModels(): CatalogModel[] {
   return Object.keys(MODELS)
+    .filter((provider) => !isRetiredAssistantProvider(provider))
     .sort()
     .flatMap((provider) =>
       Object.values(MODELS[provider as keyof typeof MODELS]),

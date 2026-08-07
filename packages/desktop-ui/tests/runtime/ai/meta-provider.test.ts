@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getProviderDisplayName } from "@stella/contracts/provider-display";
+import { getProviderDisplayName, isRetiredAssistantProvider, } from "@stella/contracts/provider-display";
 import { getEnvApiKey } from "@stella/runtime/ai/env-api-keys";
 import { getModelProviders, getModels } from "@stella/runtime/ai/models";
 import { streamSimpleOpenAIResponses } from "@stella/runtime/ai/providers/openai-responses";
@@ -90,6 +90,24 @@ describe("Meta direct provider", () => {
     );
     expect(getOAuthProvider("google-antigravity")).toBeUndefined();
     expect(getOAuthProvider("google-gemini-cli")).toBeUndefined();
+  });
+
+  it("omits retired direct assistant providers while retaining fal credentials for images", async () => {
+    const { PROVIDER_CREDENTIALS } = await import(
+      "@/global/settings/lib/llm-providers"
+    );
+    const retired = ["groq", "mistral", "fal"];
+
+    expect(LLM_PROVIDERS.map((provider) => provider.key)).not.toEqual(
+      expect.arrayContaining(retired),
+    );
+    expect(getModelProviders()).not.toEqual(expect.arrayContaining(retired));
+    expect(retired.every(isRetiredAssistantProvider)).toBe(true);
+    expect(PROVIDER_CREDENTIALS).toContainEqual({
+      key: "fal",
+      label: "fal",
+      placeholder: "fal-...",
+    });
   });
 
   it("orders Meta after OpenAI and OpenRouter after xAI", () => {

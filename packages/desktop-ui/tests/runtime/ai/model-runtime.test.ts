@@ -31,6 +31,33 @@ afterEach(async () => {
 });
 
 describe("ModelRuntime", () => {
+  it("cannot restore retired assistant providers from builtins or runtime registration", () => {
+    const runtime = new ModelRuntime();
+
+    expect(runtime.getProviderIds()).not.toEqual(
+      expect.arrayContaining(["groq", "mistral", "fal"]),
+    );
+
+    for (const providerId of ["groq", "mistral", "fal"]) {
+      runtime.registerModel(providerId, {
+        id: "retired-model",
+        name: "Retired model",
+        api: "openai-completions",
+        provider: providerId,
+        baseUrl: "https://retired.invalid/v1",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 1,
+        maxTokens: 1,
+      });
+    }
+
+    expect(runtime.getProviderIds()).not.toEqual(
+      expect.arrayContaining(["groq", "mistral", "fal"]),
+    );
+  });
+
   it("uses the platform shell contract for models.json commands", () => {
     expect(
       getModelConfigCommandInvocation("echo configured-token", {

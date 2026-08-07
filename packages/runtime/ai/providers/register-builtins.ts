@@ -3,7 +3,7 @@ import { clearApiProviders, registerLazyApiProvider } from "../api-registry.js";
 // NOTE: provider implementation modules are imported LAZILY (via the
 // `load` closures below) rather than statically. Each module statically
 // imports its heavy SDK (@anthropic-ai/sdk, openai, @google/genai,
-// @mistralai/mistralai, @aws-sdk/client-bedrock-runtime, …); pulling that
+// @aws-sdk/client-bedrock-runtime, …); pulling that
 // whole graph in eagerly would have to be parsed+evaluated before the
 // worker can answer INTERNAL_WORKER_INITIALIZE. Registering loader
 // closures keeps boot cheap — the SDK for a given api is only imported
@@ -26,14 +26,6 @@ export function registerBuiltInApiProviders(): void {
 				"./openai-completions.js"
 			);
 			return { stream: streamOpenAICompletions, streamSimple: streamSimpleOpenAICompletions };
-		},
-	});
-
-	registerLazyApiProvider({
-		api: "mistral-conversations",
-		load: async () => {
-			const { streamMistral, streamSimpleMistral } = await import("./mistral.js");
-			return { stream: streamMistral, streamSimple: streamSimpleMistral };
 		},
 	});
 

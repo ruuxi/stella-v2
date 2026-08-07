@@ -127,6 +127,32 @@ describe("loadLocalPreferences", () => {
     expect(saved.modelOverrides).toEqual({ general: "stella/standard" });
   });
 
+  it("drops retired direct-provider assistant selections without changing fal image settings", () => {
+    const stellaDataDir = makeStellaDataDir();
+    writePreferences(stellaDataDir, {
+      defaultModels: {
+        orchestrator: "groq/compound",
+        general: "mistral/mistral-large-latest",
+      },
+      modelOverrides: {
+        orchestrator: "fal/assistant-model",
+        explore: "openai/gpt-5.5",
+      },
+      imageGeneration: {
+        provider: "fal",
+        model: "fal/openai/gpt-image-2",
+      },
+    });
+
+    const loaded = loadLocalPreferences(stellaDataDir);
+    expect(loaded.defaultModels).toEqual({});
+    expect(loaded.modelOverrides).toEqual({ explore: "openai/gpt-5.5" });
+    expect(loaded.imageGeneration).toEqual({
+      provider: "fal",
+      model: "fal/openai/gpt-image-2",
+    });
+  });
+
   it("normalizes direct image provider preferences", () => {
     expect(
       normalizeImageGenerationPreferences({

@@ -180,8 +180,6 @@ const getDirectProviderCandidates = (
     case "openai":
     case "openai-codex":
     case "google":
-    case "groq":
-    case "mistral":
     case "opencode":
     case "cerebras":
     case "xai":

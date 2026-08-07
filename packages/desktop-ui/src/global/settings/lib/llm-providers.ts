@@ -1,5 +1,6 @@
 /**
- * Catalog of providers users can authenticate against locally (BYOK / OAuth).
+ * Catalog of assistant providers users can authenticate against locally
+ * (BYOK / OAuth).
  *
  * Anything in this list shows up in the model picker's left rail — even if
  * it currently has no models in the runtime catalog — so users can sign in
@@ -51,14 +52,17 @@ export const LLM_PROVIDERS: readonly LlmProviderEntry[] = [
   { key: "kimi-coding", label: "Kimi (Moonshot AI)", placeholder: "sk-..." },
   { key: "zai", label: "Z.AI", placeholder: "..." },
   { key: "xai", label: "xAI", placeholder: "xai-..." },
-  { key: "groq", label: "Groq", placeholder: "gsk_..." },
-  { key: "mistral", label: "Mistral", placeholder: "..." },
   { key: "cerebras", label: "Cerebras", placeholder: "..." },
   { key: "openrouter", label: "OpenRouter", placeholder: "sk-or-..." },
-  { key: "fal", label: "fal", placeholder: "fal-..." },
   { key: "vercel-ai-gateway", label: "Vercel AI Gateway", placeholder: "..." },
   { key: "opencode", label: "OpenCode Zen", placeholder: "..." },
   { key: "github-copilot", label: "GitHub Copilot", placeholder: "OAuth only" },
+];
+
+/** All local provider credentials, including non-assistant-only surfaces. */
+export const PROVIDER_CREDENTIALS: readonly LlmProviderEntry[] = [
+  ...LLM_PROVIDERS,
+  { key: "fal", label: "fal", placeholder: "fal-..." },
 ];
 
 /**

@@ -20,14 +20,12 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   "github-copilot": "GitHub Copilot",
   google: "Google",
   "google-vertex": "Google Vertex",
-  groq: "Groq",
   huggingface: "Hugging Face",
   local: "Local",
   "kimi-coding": "Kimi",
   meta: "Meta",
   minimax: "MiniMax",
   "minimax-cn": "MiniMax China",
-  mistral: "Mistral",
   opencode: "OpenCode",
   "opencode-go": "OpenCode Go",
   openai: "OpenAI",
@@ -41,6 +39,12 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   xai: "xAI",
   zai: "Z.AI",
 };
+
+const RETIRED_ASSISTANT_PROVIDERS = new Set(["groq", "mistral", "fal"]);
+
+export function isRetiredAssistantProvider(provider: string): boolean {
+  return RETIRED_ASSISTANT_PROVIDERS.has(provider.trim().toLowerCase());
+}
 
 export function getProviderDisplayName(provider: string): string {
   const normalized = provider.trim();

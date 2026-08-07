@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle, } from "@/ui/dialog";
 import { Button } from "@/ui/button";
-import { LLM_PROVIDERS } from "@/global/settings/lib/llm-providers";
+import { PROVIDER_CREDENTIALS } from "@/global/settings/lib/llm-providers";
 import { PROVIDER_CONNECTED_EVENT, } from "@/global/settings/hooks/use-llm-credentials";
 import "./ProviderConnectedDialog.css";
 const ASSISTANT_AGENT_KEYS = ["orchestrator", "general"];
@@ -47,7 +47,7 @@ export function ProviderConnectedDialog() {
             // (Anthropic, Google) we don't change the active assistant on connect
             // — the user just wanted credentials registered, and switching their
             // chat model behind a confirmation feels invasive. For image-only or
-            // voice-only providers (fal) the choice is binary and unambiguous, so
+            // image-only or voice-only providers (fal) are unambiguous, so
             // we silently apply the preference and skip the dialog.
             const offeredCount = (surfaces.assistant ? 1 : 0) +
                 (surfaces.image ? 1 : 0) +
@@ -71,7 +71,7 @@ export function ProviderConnectedDialog() {
                 }
                 return;
             }
-            const llmEntry = LLM_PROVIDERS.find((entry) => entry.key === detail.provider);
+            const llmEntry = PROVIDER_CREDENTIALS.find((entry) => entry.key === detail.provider);
             setStage({
                 detail,
                 surfaces,

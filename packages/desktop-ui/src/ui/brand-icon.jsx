@@ -15,7 +15,6 @@ const BRAND_KEY_ALIASES = {
  */
 const BRAND_TINTS = {
     openai: "#10a37f",
-    groq: "#f55036",
     openrouter: "#6467f2",
 };
 const FALLBACK_ICONS = {

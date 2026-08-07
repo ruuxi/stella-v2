@@ -55,6 +55,9 @@ const LEGACY_STELLA_DEFAULT_MODEL = "stella/default";
 const RETIRED_MODEL_PROVIDERS = new Set([
     "google-antigravity",
     "google-gemini-cli",
+    "groq",
+    "mistral",
+    "fal",
 ]);
 let _cached = null;
 let _cachedMtime = null;

@@ -4,7 +4,7 @@ import { BrandIcon } from "@/ui/brand-icon";
 import { Button } from "@/ui/button";
 import { TextField } from "@/ui/text-field";
 import { findApiKey, findOauthCredential, findOauthProvider, useLlmCredentials, } from "@/global/settings/hooks/use-llm-credentials";
-import { LLM_PROVIDERS, isApiKeyOnlyPlaceholder, } from "@/global/settings/lib/llm-providers";
+import { PROVIDER_CREDENTIALS, isApiKeyOnlyPlaceholder, } from "@/global/settings/lib/llm-providers";
 import "./ProviderOnlyPicker.css";
 const STELLA_PROVIDER_KEY = "stella";
 /**
@@ -79,7 +79,7 @@ export function ProviderOnlyPicker({ providers, value, onSelect, disabled = fals
     }, [credentials, onSelect]);
     return (<div className="provider-only-picker" role="radiogroup" aria-label={ariaLabel} data-disabled={disabled || undefined}>
       {providers.map((provider) => {
-            const llmEntry = LLM_PROVIDERS.find((entry) => entry.key === provider.key);
+            const llmEntry = PROVIDER_CREDENTIALS.find((entry) => entry.key === provider.key);
             const oauthProvider = findOauthProvider(credentials.oauthProviders, provider.key);
             const connected = isConnected(provider.key);
             const selected = value === provider.key;

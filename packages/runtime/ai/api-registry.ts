@@ -43,7 +43,7 @@ export interface ApiProviderModule<
 /**
  * Lazy registration: defer importing the provider's SDK-bearing module
  * (and the heavy SDK graph it pulls in: @anthropic-ai/sdk, openai,
- * @google/genai, @mistralai/mistralai, @aws-sdk/client-bedrock-runtime,
+ * @google/genai, @aws-sdk/client-bedrock-runtime,
  * …) until the first `stream()`/`streamSimple()` for this api. The
  * resolved module is cached after first load so subsequent calls reuse
  * it without re-importing. This keeps the worker's INTERNAL_WORKER_INITIALIZE

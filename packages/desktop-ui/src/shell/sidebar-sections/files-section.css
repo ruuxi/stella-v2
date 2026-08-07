@@ -26,8 +26,7 @@
 }
 
 .pill-btn.work-models-button[data-active] {
-  background: var(--select-surface-bg);
-  border-color: var(--select-surface-border);
+  background: transparent;
   color: var(--text-strong);
 }
 

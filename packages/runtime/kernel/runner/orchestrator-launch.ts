@@ -213,6 +213,10 @@ export const launchPreparedOrchestratorRun = (args: {
       ? { cliBridgeSocketPath: context.cliBridgeSocketPath }
       : {}),
     resolvedLlm: prepared.resolvedLlm,
+    describeImages: createRunnerImageDescriptionService(
+      context,
+      prepared.resolvedLlm,
+    ),
     store: context.runtimeStore,
     abortSignal: prepared.abortController.signal,
     stellaAppDir: context.stellaAppDir,

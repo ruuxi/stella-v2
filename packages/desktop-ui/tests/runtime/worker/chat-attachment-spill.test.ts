@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   approximateDataUrlBytes,
+  attachPersistedImagePaths,
   buildSpilledAttachmentNotice,
   INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES,
   spillImageAttachmentsToDisk,
@@ -73,6 +74,33 @@ describe("chat attachment spill", () => {
     expect(first.length).toBe(spilled[0]!.bytes);
   });
 
+  it("attaches persisted paths to their original image indexes", () => {
+    const attachments = [
+      { url: pngDataUrl(16), mimeType: "image/png" },
+      { url: pngDataUrl(32), mimeType: "image/jpeg" },
+    ];
+
+    expect(
+      attachPersistedImagePaths(attachments, [
+        {
+          filePath: "/tmp/second.jpg",
+          mimeType: "image/jpeg",
+          bytes: 32,
+          attachmentIndex: 1,
+        },
+        {
+          filePath: "/tmp/first.png",
+          mimeType: "image/png",
+          bytes: 16,
+          attachmentIndex: 0,
+        },
+      ]),
+    ).toEqual([
+      { ...attachments[0], sourcePath: "/tmp/first.png" },
+      { ...attachments[1], sourcePath: "/tmp/second.jpg" },
+    ]);
+  });
+
   it("builds a notice listing absolute paths and sizes", () => {
     const notice = buildSpilledAttachmentNotice([
       {
@@ -85,6 +113,6 @@ describe("chat attachment spill", () => {
     expect(notice).toContain("2 images");
     expect(notice).toContain("1. /tmp/a.png (image/png, 9.0MB)");
     expect(notice).toContain("2. /tmp/b.jpg (image/jpeg, 0.5MB)");
-    expect(notice).toContain("view_image");
+    expect(notice).toContain("Read tool");
   });
 });

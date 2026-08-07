@@ -282,6 +282,7 @@ const asTrimmedString = (value: unknown): string =>
 
 import {
   approximateDataUrlBytes,
+  attachPersistedImagePaths,
   buildSpilledAttachmentNotice,
   dataUrlBase64Length,
   INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES,

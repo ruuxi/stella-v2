@@ -33,6 +33,7 @@ import {
 } from "@stella/contracts/file-changes";
 import type { RunnerContext } from "./types.js";
 import { buildAgentEventPrompt } from "./shared.js";
+import { createRunnerImageDescriptionService } from "./model-selection.js";
 
 const collectFileChanges = (
   target: FileChangeRecord[],
@@ -601,6 +602,10 @@ export const createAgentOrchestration = (
         deviceId: context.deviceId,
         stellaDataDir: context.stellaDataDir,
         resolvedLlm,
+        describeImages: createRunnerImageDescriptionService(
+          context,
+          resolvedLlm,
+        ),
         store: context.runtimeStore,
         abortSignal,
         stellaAppDir: context.stellaAppDir,

@@ -175,6 +175,10 @@
     ],
     "extraResources": [
       {
+        "from": "packages/desktop/build/icon.ico",
+        "to": "stella-tray.ico"
+      },
+      {
         "from": "packages/desktop/resources/audio",
         "to": "audio",
         "filter": [

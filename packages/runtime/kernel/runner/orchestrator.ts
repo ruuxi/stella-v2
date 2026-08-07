@@ -1,7 +1,10 @@
 import crypto from "crypto";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { RuntimeEndEvent } from "../agent-runtime/types.js";
-import { createRuntimePromptAgentMessage } from "../agent-runtime/run-preparation.js";
+import {
+  createRuntimePromptAgentMessage,
+  prepareRuntimeAttachments,
+} from "../agent-runtime/run-preparation.js";
 import { persistThreadPayloadMessage } from "../agent-runtime/thread-memory.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { AgentMessage } from "../agent-core/types.js";

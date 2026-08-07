@@ -31,10 +31,14 @@ describe("SwapText minimum visible duration", () => {
     vi.useRealTimers();
   });
 
-  const renderText = async (text: string) => {
+  const renderText = async (text: string, minimumVisibleMs = 2_000) => {
     await act(async () => {
       root.render(
-        <SwapText text={text} active={false} minimumVisibleMs={2_000} />,
+        <SwapText
+          text={text}
+          active={false}
+          minimumVisibleMs={minimumVisibleMs}
+        />,
       );
     });
   };
@@ -54,6 +58,44 @@ describe("SwapText minimum visible duration", () => {
     await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(container.textContent).toContain("Making changes");
     expect(container.textContent).not.toContain("Reading");
+  });
+
+  it("shows a tool result immediately when the receipt disables the hold", async () => {
+    await renderText("Running command");
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+
+    await renderText("Ran command", 0);
+
+    expect(
+      container.querySelector(".swap-text__layer--in")?.textContent,
+    ).toBe("Ran command");
+  });
+
+  it("keeps only the latest friendly tool result until the turn ends", () => {
+    const completed = buildInlineWorkingIndicatorProps({
+      isStreaming: true,
+      isStreamingResponseText: true,
+      isToolActive: false,
+      hasToolActivity: true,
+      latestCompletedTool: {
+        toolCallId: "call-1",
+        toolName: "exec_command",
+      },
+    });
+    expect(completed).toMatchObject({
+      active: true,
+      status: "Ran command",
+      minimumVisibleMs: 0,
+    });
+    expect(completed.runningTool).toBeUndefined();
+
+    const ended = buildInlineWorkingIndicatorProps({
+      isStreaming: false,
+      isStreamingResponseText: false,
+      isToolActive: false,
+      hasToolActivity: true,
+    });
+    expect(ended).toMatchObject({ active: false, exitImmediately: true });
   });
 
   it("uses friendly tool copy instead of live runtime status text", () => {

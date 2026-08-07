@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { friendlyInlineToolStatus } from "@/app/chat/friendly-tool-status";
+import { friendlyInlineToolStatus } from "@/features/chat/lib/friendly-tool-status";
 
 const activity = (
   toolName: string,
@@ -35,13 +35,10 @@ describe("friendlyInlineToolStatus", () => {
     ).toBe("Command failed");
   });
 
-  it("keeps manager coordination tools out of raw inline status copy", () => {
+  it("keeps background-work tools out of raw inline status copy", () => {
     expect(friendlyInlineToolStatus(activity("spawn_agent", "started"))).toBe(
       "Starting background work",
     );
-    expect(
-      friendlyInlineToolStatus(activity("spawn_manager", "completed")),
-    ).toBe("Started background work");
     expect(friendlyInlineToolStatus(activity("send_input", "completed"))).toBe(
       "Updated background work",
     );
@@ -50,9 +47,12 @@ describe("friendlyInlineToolStatus", () => {
     );
   });
 
-  it("humanizes unknown and namespaced tool names", () => {
+  it("does not expose unknown or namespaced tool names", () => {
     expect(
-      friendlyInlineToolStatus(activity("custom__make_thing", "started")),
-    ).toBe("Make Thing");
+      friendlyInlineToolStatus(activity("custom__json_x_y_z", "started")),
+    ).toBe("Working on it");
+    expect(
+      friendlyInlineToolStatus(activity("custom__json_x_y_z", "completed")),
+    ).toBe("Finished a step");
   });
 });

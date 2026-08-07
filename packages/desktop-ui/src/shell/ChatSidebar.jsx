@@ -40,7 +40,7 @@ const WIDE_PANEL_CONTENT_STYLE = {
     paddingTop: 16,
     paddingBottom: 4,
 };
-export function ChatPanelTab({ openRequest, wideLayout = false, messages, conversationId, isStreaming, isStreamingResponseText, runtimeStatusText, activeToolCallId, activeToolName, hasToolActivity, isToolActive, pendingUserMessageId, queuedUserMessages, removeQueuedUserMessage, hasOlderMessages, isLoadingOlder, isInitialLoading, onLoadOlder, onSend, onStop, }) {
+export function ChatPanelTab({ openRequest, wideLayout = false, messages, conversationId, isStreaming, isStreamingResponseText, runtimeStatusText, activeToolCallId, activeToolName, latestCompletedTool, hasToolActivity, isToolActive, pendingUserMessageId, queuedUserMessages, removeQueuedUserMessage, hasOlderMessages, isLoadingOlder, isInitialLoading, onLoadOlder, onSend, onStop, }) {
     // Input state + always-current mirror ref, synced at WRITE time. The
     // dictate-and-submit commit is rAF-deferred and can fire before React
     // flushes the render carrying the appended transcript — a ref synced in the
@@ -132,10 +132,9 @@ export function ChatPanelTab({ openRequest, wideLayout = false, messages, conver
         sidebarScroll.thumbRef,
     ]);
     useReadAloud(messages);
-    // The indicator stays up through the whole turn — thinking, tool calls,
-    // spawned agents — and hands off on the assistant's first visible provider
-    // delta (`isStreamingResponseText`). Background/spawned work no longer
-    // suppresses it.
+    // Before tool results, the indicator hands off on the assistant's first
+    // visible provider delta. A completed tool keeps its newest friendly
+    // one-line receipt visible until the turn ends.
     const indicatorProps = buildInlineWorkingIndicatorProps({
         isStreaming: Boolean(isStreaming),
         isStreamingResponseText: Boolean(isStreamingResponseText),
@@ -143,6 +142,7 @@ export function ChatPanelTab({ openRequest, wideLayout = false, messages, conver
         hasToolActivity: Boolean(hasToolActivity),
         activeToolName,
         activeToolCallId,
+        latestCompletedTool,
         runtimeStatusText,
     });
     const { chatContext, setChatContext, selectedText, setSelectedText } = useCapturedChatContext();

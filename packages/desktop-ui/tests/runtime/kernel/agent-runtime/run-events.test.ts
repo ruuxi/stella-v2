@@ -806,6 +806,62 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(state.runsById[runId]?.activeToolCalls).toEqual({});
   });
 
+  it("keeps only the most recent completed tool for the live status row", () => {
+    const runId = "run-latest-tool";
+    const conversationId = "conversation-1";
+    let state = streamStoreReducer(initialStoreState, {
+      type: "run-started",
+      runId,
+      conversationId,
+    });
+    state = streamStoreReducer(state, {
+      type: "tool-start",
+      runId,
+      conversationId,
+      toolCallId: "call-command",
+      toolName: "exec_command",
+    });
+    state = streamStoreReducer(state, {
+      type: "tool-end",
+      runId,
+      toolCallId: "call-command",
+      toolName: "exec_command",
+      exitCode: 0,
+    });
+    expect(state.runsById[runId]?.latestCompletedTool).toEqual({
+      toolCallId: "call-command",
+      toolName: "exec_command",
+      exitCode: 0,
+    });
+
+    state = streamStoreReducer(state, {
+      type: "tool-start",
+      runId,
+      conversationId,
+      toolCallId: "call-read",
+      toolName: "Read",
+    });
+    expect(state.runsById[runId]?.latestCompletedTool).toBeNull();
+    state = streamStoreReducer(state, {
+      type: "tool-end",
+      runId,
+      toolCallId: "call-read",
+      toolName: "Read",
+    });
+    expect(state.runsById[runId]?.latestCompletedTool).toEqual({
+      toolCallId: "call-read",
+      toolName: "Read",
+    });
+
+    state = streamStoreReducer(state, {
+      type: "run-finished",
+      runId,
+      conversationId,
+      outcome: "completed",
+    });
+    expect(state.runsById[runId]?.latestCompletedTool).toBeNull();
+  });
+
   it("flags a preamble message that ends with a tool call as followedByToolCall", () => {
     const store = { recordRunEvent: vi.fn() };
     const recorder = createRunEventRecorder({

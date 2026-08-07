@@ -99,7 +99,7 @@ export function useStreamingChatCore({ conversationId, locale, notifyTierRestric
         // will send them as the next turn. A drain that did start is removed by
         // `handleRunStarted`, so a later run error/cancel cannot replay it.
     }, []);
-    const { taskDecorations, runtimeStatusText, markAssistantResponseTextStarted, activeToolCallId, activeToolName, hasToolActivity, isToolActive, isStreamingResponseText, reasoningText, streamingAssistants, isStreaming, pendingUserMessageId, setPendingUserMessageId, startStream, cancelCurrentStream, } = useLocalAgentStream({
+    const { taskDecorations, runtimeStatusText, markAssistantResponseTextStarted, activeToolCallId, activeToolName, latestCompletedTool, hasToolActivity, isToolActive, isStreamingResponseText, reasoningText, streamingAssistants, isStreaming, pendingUserMessageId, setPendingUserMessageId, startStream, cancelCurrentStream, } = useLocalAgentStream({
         activeConversationId,
         storageMode,
         onRunStarted: handleRunStarted,
@@ -429,6 +429,7 @@ export function useStreamingChatCore({ conversationId, locale, notifyTierRestric
         runtimeStatusText,
         activeToolCallId,
         activeToolName,
+        latestCompletedTool,
         hasToolActivity,
         isToolActive,
         reasoningText,

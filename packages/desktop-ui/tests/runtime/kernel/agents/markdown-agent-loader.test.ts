@@ -39,8 +39,8 @@ describe("loadParsedAgentsFromDir", () => {
         "explore",
         "fashion",
         "general",
-        "manager",
         "orchestrator",
+        "orchestrator-orchestrated",
         "schedule",
         "social_session",
       ].sort(),
@@ -48,7 +48,7 @@ describe("loadParsedAgentsFromDir", () => {
     expect(agents.every((agent) => agent.systemPrompt.length > 0)).toBe(true);
   });
 
-  it("loads the bundled manager fallback with only agent-management tools", () => {
+  it("loads distinct direct and orchestrated capability records", () => {
     const agents = loadParsedAgentsFromDir(
       path.resolve(
         process.cwd(),
@@ -59,33 +59,18 @@ describe("loadParsedAgentsFromDir", () => {
         "agent-metadata",
       ),
     );
-    const manager = agents.find((agent) => agent.id === "manager");
-    expect(manager?.toolsAllowlist).toEqual([
-      "spawn_agent",
-      "send_input",
-      "pause_agent",
-    ]);
-    expect(manager?.maxAgentDepth).toBe(2);
-    expect(
-      manager?.systemPrompt.startsWith("You are Stella's Manager agent"),
-    ).toBe(true);
-    const prompt = manager?.systemPrompt ?? "";
-    expect(prompt).toMatch(/\bdynamic\b[\s\S]*\bprocess supervisor\b/i);
-    expect(prompt).toMatch(/\bopen-ended\b/i);
-    expect(prompt).toMatch(/\bcontinuity\b/i);
-    expect(prompt).toMatch(/\bfresh independent context\b/i);
-    expect(prompt).toMatch(/orchestrator(?:'s)? instructions/i);
-    expect(prompt).not.toMatch(/brand-new[\s-]+(?:fresh-context )?reviewer/i);
-    expect(prompt).toMatch(/explicitly requests[\s\S]*milestone or interim/i);
-    expect(prompt).toContain("[Milestone]");
-    expect(prompt).toContain("[Status]");
-    expect(prompt).toMatch(/asks for status or an update[\s\S]*unfinished/i);
-    expect(prompt).toMatch(/yield without abandoning or completing/i);
-    expect(prompt).toMatch(/change instructions as steering/i);
-    expect(prompt).toMatch(/sentinels are conditional/i);
-    expect(prompt).toMatch(
-      /otherwise keep intermediate child reports internal/i,
+    const direct = agents.find((agent) => agent.id === "orchestrator");
+    const orchestrated = agents.find(
+      (agent) => agent.id === "orchestrator-orchestrated",
     );
+
+    expect(direct?.toolsAllowlist).toContain("exec_command");
+    expect(direct?.maxAgentDepth).toBe(1);
+    expect(orchestrated?.toolsAllowlist).not.toContain("exec_command");
+    expect(orchestrated?.toolsAllowlist).toEqual(
+      expect.arrayContaining(["spawn_agent", "send_input", "pause_agent"]),
+    );
+    expect(orchestrated?.maxAgentDepth).toBe(2);
   });
 
   it("loads agents when given a directory string path", () => {

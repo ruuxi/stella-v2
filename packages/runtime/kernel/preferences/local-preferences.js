@@ -7,7 +7,7 @@
 import fs from "fs";
 import path from "path";
 import { ensurePrivateDirSync, writePrivateFileSync, } from "../shared/private-fs.js";
-import { coerceRealtimeVoiceProvider } from "@stella/contracts/local-preferences";
+import { coerceAssistantWorkingMode, coerceRealtimeVoiceProvider } from "@stella/contracts/local-preferences";
 import { coerceAgentRuntimeEngine, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_SERVICE_TIER } from "@stella/contracts/agent-engine";
 import { isKnownPersonalityId } from "@stella/contracts/personality";
 export { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
@@ -37,6 +37,7 @@ const DEFAULT_PREFERENCES = {
     maxAgentConcurrency: DEFAULT_MAX_AGENT_CONCURRENCY,
     imageGeneration: { provider: "stella" },
     realtimeVoice: { provider: "stella" },
+    assistantWorkingMode: "direct",
     syncMode: "off",
     dictationShortcut: "Alt",
     voiceRtcShortcut: "CommandOrControl+Shift+D",
@@ -98,6 +99,7 @@ export const loadLocalPreferences = (stellaDataDir) => {
             maxAgentConcurrency: normalizeConcurrency(parsed.maxAgentConcurrency),
             imageGeneration: normalizeImageGenerationPreferences(parsed.imageGeneration),
             realtimeVoice: normalizeRealtimeVoicePreferences(parsed.realtimeVoice),
+            assistantWorkingMode: coerceAssistantWorkingMode(parsed.assistantWorkingMode),
             syncMode: parsed.syncMode === "on" ? "on" : "off",
             dictationShortcut: typeof parsed.dictationShortcut === "string"
                 ? parsed.dictationShortcut
@@ -176,6 +178,9 @@ export const getImageGenerationPreferences = (stellaDataDir) => {
 export const getRealtimeVoicePreferences = (stellaDataDir) => {
     return normalizeRealtimeVoicePreferences(loadLocalPreferences(stellaDataDir).realtimeVoice);
 };
+export const getAssistantWorkingMode = (stellaDataDir) => {
+    return coerceAssistantWorkingMode(loadLocalPreferences(stellaDataDir).assistantWorkingMode);
+};
 export const getLocalModelPreferences = (stellaDataDir) => {
     const prefs = loadLocalPreferences(stellaDataDir);
     return {
@@ -201,6 +206,7 @@ export const getLocalModelPreferences = (stellaDataDir) => {
         maxAgentConcurrency: prefs.maxAgentConcurrency,
         imageGeneration: { ...prefs.imageGeneration },
         realtimeVoice: { ...prefs.realtimeVoice },
+        assistantWorkingMode: prefs.assistantWorkingMode,
     };
 };
 export const updateLocalModelPreferences = (stellaDataDir, patch) => {
@@ -264,6 +270,9 @@ export const updateLocalModelPreferences = (stellaDataDir, patch) => {
         realtimeVoice: patch.realtimeVoice === undefined
             ? prefs.realtimeVoice
             : normalizeRealtimeVoicePreferences(patch.realtimeVoice),
+        assistantWorkingMode: patch.assistantWorkingMode === undefined
+            ? prefs.assistantWorkingMode
+            : coerceAssistantWorkingMode(patch.assistantWorkingMode),
     };
     saveLocalPreferences(stellaDataDir, next);
     return getLocalModelPreferences(stellaDataDir);

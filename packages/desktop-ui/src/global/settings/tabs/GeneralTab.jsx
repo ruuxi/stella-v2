@@ -43,12 +43,47 @@ export function GeneralTab() {
     const [personalityVoiceLoaded, setPersonalityVoiceLoaded] = useState(false);
     const [isSavingPersonalityVoice, setIsSavingPersonalityVoice] = useState(false);
     const [personalityVoiceError, setPersonalityVoiceError] = useState(null);
+    const [assistantWorkingMode, setAssistantWorkingMode] = useState("direct");
+    const [assistantWorkingModeLoaded, setAssistantWorkingModeLoaded] = useState(false);
+    const [isSavingAssistantWorkingMode, setIsSavingAssistantWorkingMode] = useState(false);
+    const [assistantWorkingModeError, setAssistantWorkingModeError] = useState(null);
     const initialPermissionStatus = useMemo(() => ({
         accessibility: platform === "darwin" ? false : true,
         screen: platform === "darwin" ? false : true,
         microphone: platform === "darwin" ? false : true,
         microphoneStatus: platform === "darwin" ? "unknown" : "granted",
     }), [platform]);
+    useEffect(() => {
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const preferencesApi = window.electronAPI?.system;
+                if (!preferencesApi?.getLocalModelPreferences) {
+                    throw new Error(t("settings.errors.workingModeUnavailable"));
+                }
+                const preferences = await preferencesApi.getLocalModelPreferences();
+                if (!cancelled) {
+                    setAssistantWorkingMode(preferences?.assistantWorkingMode === "orchestrated"
+                        ? "orchestrated"
+                        : "direct");
+                    setAssistantWorkingModeError(null);
+                }
+            }
+            catch (error) {
+                if (!cancelled) {
+                    setAssistantWorkingModeError(getSettingsErrorMessage(error, t("settings.errors.loadWorkingMode")));
+                }
+            }
+            finally {
+                if (!cancelled)
+                    setAssistantWorkingModeLoaded(true);
+            }
+        };
+        void load();
+        return () => {
+            cancelled = true;
+        };
+    }, [t]);
     useEffect(() => {
         let cancelled = false;
         const load = async () => {
@@ -228,6 +263,33 @@ export function GeneralTab() {
             setIsSavingPersonalityVoice(false);
         }
     }, [personalityVoiceId, t]);
+    const handleAssistantWorkingModeChange = useCallback(async (enabled) => {
+        const preferencesApi = window.electronAPI?.system;
+        if (!preferencesApi?.setLocalModelPreferences) {
+            setAssistantWorkingModeError(t("settings.errors.workingModeUnavailable"));
+            return;
+        }
+        const previous = assistantWorkingMode;
+        const nextMode = enabled ? "orchestrated" : "direct";
+        setAssistantWorkingMode(nextMode);
+        setAssistantWorkingModeError(null);
+        setIsSavingAssistantWorkingMode(true);
+        try {
+            const preferences = await preferencesApi.setLocalModelPreferences({
+                assistantWorkingMode: nextMode,
+            });
+            setAssistantWorkingMode(preferences?.assistantWorkingMode === "orchestrated"
+                ? "orchestrated"
+                : "direct");
+        }
+        catch (error) {
+            setAssistantWorkingMode(previous);
+            setAssistantWorkingModeError(getSettingsErrorMessage(error, t("settings.errors.saveWorkingMode")));
+        }
+        finally {
+            setIsSavingAssistantWorkingMode(false);
+        }
+    }, [assistantWorkingMode, t]);
     const handleSoundNotificationsChange = useCallback(async (checked) => {
         const systemApi = window.electronAPI?.system;
         if (!systemApi?.setSoundNotificationsEnabled) {
@@ -443,6 +505,22 @@ export function GeneralTab() {
     return (<>
       <div className="settings-tab-content">
         <LanguageSettingsRow />
+        <div className="settings-card">
+          <div className="settings-card-header">
+            <h3 className="settings-card-title">
+              {t("settings.workingMode.title")}
+            </h3>
+            <Switch checked={assistantWorkingMode === "orchestrated"} disabled={!assistantWorkingModeLoaded || isSavingAssistantWorkingMode} aria-label={t("settings.workingMode.title")} onCheckedChange={(checked) => void handleAssistantWorkingModeChange(Boolean(checked))} hideLabel/>
+          </div>
+          <p className="settings-card-desc">
+            {assistantWorkingMode === "orchestrated"
+            ? t("settings.workingMode.orchestratedDescription")
+            : t("settings.workingMode.directDescription")}
+          </p>
+          {assistantWorkingModeError ? (<p className="settings-card-desc settings-card-desc--error" role="alert">
+              {assistantWorkingModeError}
+            </p>) : null}
+        </div>
         {permissionsCard}
         <div className="settings-card">
           <h3 className="settings-card-title">

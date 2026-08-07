@@ -38,6 +38,11 @@
       "title": "Language",
       "description": "Choose the language Stella uses across the app and when responding to you."
     },
+    "workingMode": {
+      "title": "Orchestrator mode",
+      "directDescription": "Stella works on tasks itself and delegates only when useful.",
+      "orchestratedDescription": "Stella coordinates a General agent that can split larger work across subagents."
+    },
     "developerPreviews": {
       "title": "Developer file previews",
       "description": "Show code changes in chat and open them in the side panel."
@@ -335,6 +340,9 @@
       "loadVoice": "Failed to load voice setting.",
       "saveVoice": "Failed to update voice setting.",
       "voiceUnavailable": "Voice settings are unavailable in this window.",
+      "loadWorkingMode": "Failed to load orchestrator mode.",
+      "saveWorkingMode": "Failed to update orchestrator mode.",
+      "workingModeUnavailable": "Orchestrator mode is unavailable in this window.",
       "loadPermissions": "Failed to load desktop permission status.",
       "savePermission": "Failed to update {kind} permission.",
       "resetPermission": "Failed to reset {kind} permission.",

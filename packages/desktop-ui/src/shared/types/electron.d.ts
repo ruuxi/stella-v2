@@ -18,7 +18,10 @@ import type {
   ThreadActivityUpdatedPayload,
   MessageRecord,
 } from "@stella/contracts/local-chat";
-import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
+import type {
+  AssistantWorkingMode,
+  RealtimeVoicePreferences,
+} from "@stella/contracts/local-preferences";
 import type { MorphVisualTiming } from "@stella/contracts/morph-timing";
 import type {
   ChatContext as SharedChatContext,
@@ -801,6 +804,7 @@ export type ElectronSystemApi = {
       model?: string;
     };
     realtimeVoice: RealtimeVoicePreferences;
+    assistantWorkingMode: AssistantWorkingMode;
   } | null>;
   setLocalModelPreferences: (payload: {
     defaultModels?: Record<string, string>;
@@ -840,6 +844,7 @@ export type ElectronSystemApi = {
       model?: string;
     };
     realtimeVoice?: RealtimeVoicePreferences;
+    assistantWorkingMode?: AssistantWorkingMode;
   }) => Promise<{
     defaultModels: Record<string, string>;
     modelOverrides: Record<string, string>;
@@ -878,6 +883,7 @@ export type ElectronSystemApi = {
       model?: string;
     };
     realtimeVoice: RealtimeVoicePreferences;
+    assistantWorkingMode: AssistantWorkingMode;
   } | null>;
   listCodexModels: () => Promise<{
     models: Array<{

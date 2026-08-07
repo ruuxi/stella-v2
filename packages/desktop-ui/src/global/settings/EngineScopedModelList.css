@@ -60,8 +60,8 @@
 }
 
 .engine-scoped-model-list__rows > button[data-selected] {
-  background: transparent;
-  border-color: var(--shell-junction-border, var(--border));
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
   color: var(--text-strong);
 }
 

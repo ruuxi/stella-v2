@@ -140,15 +140,6 @@
   flex: 1 1 auto;
 }
 
-.apps-section__library--empty {
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 24px 20px;
-  text-align: center;
-  text-wrap: balance;
-}
-
 .apps-section__library--status,
 .persistent-user-app-status {
   align-items: center;
@@ -192,23 +183,6 @@
 .apps-section__warning button:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
-}
-
-.apps-section__empty-title {
-  margin: 0;
-  color: var(--text-strong);
-  font-family: var(--font-family-display);
-  font-size: var(--font-size-xl);
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.02em;
-}
-
-.apps-section__empty-body {
-  margin: 0;
-  max-width: 30ch;
-  color: var(--text-weak);
-  font-size: var(--font-size-base);
-  line-height: 1.5;
 }
 
 /* App surfaces. Every retained app is stacked here at full size; only the one

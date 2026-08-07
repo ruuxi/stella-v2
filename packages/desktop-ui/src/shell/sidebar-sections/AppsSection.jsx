@@ -89,31 +89,40 @@ function AppsLibrary({ registry }) {
       </div>);
     }
     if (phase === "unsupported") {
-        return (<div className="apps-section__library apps-section__library--status" role="status">
-        <p className="apps-section__empty-title">Apps are available on desktop.</p>
-        <p className="apps-section__empty-body">
+        return (<div className="apps-section__library sidebar-section__empty" role="status">
+        <span className="sidebar-section__empty-icon" aria-hidden="true">
+          <AppWindowMac size={17} strokeWidth={1.75}/>
+        </span>
+        <p className="sidebar-section__empty-title">Apps live on desktop</p>
+        <p className="sidebar-section__empty-body">
           Open Stella on your computer to use locally installed apps.
         </p>
       </div>);
     }
     if (phase === "error" && apps.length === 0) {
-        return (<div className="apps-section__library apps-section__library--status" role="alert">
-        <p className="apps-section__empty-title">Couldn’t load apps</p>
-        <p className="apps-section__empty-body">
+        return (<div className="apps-section__library sidebar-section__empty" role="alert">
+        <span className="sidebar-section__empty-icon" aria-hidden="true">
+          <AppWindowMac size={17} strokeWidth={1.75}/>
+        </span>
+        <p className="sidebar-section__empty-title">Couldn’t load apps</p>
+        <p className="sidebar-section__empty-body">
           {error || "Stella couldn’t read your apps folder."}
         </p>
-        <button type="button" className="pill-btn pill-btn--primary" onClick={() => void refreshUserApps()}>
+        <button type="button" className="pill-btn" onClick={() => void refreshUserApps()}>
           Try again
         </button>
       </div>);
     }
     if (apps.length === 0) {
-        return (<div className="apps-section__library apps-section__library--empty">
-        <p className="apps-section__empty-title">Nothing here yet.</p>
-        <p className="apps-section__empty-body">
+        return (<div className="apps-section__library sidebar-section__empty">
+        <span className="sidebar-section__empty-icon" aria-hidden="true">
+          <AppWindowMac size={17} strokeWidth={1.75}/>
+        </span>
+        <p className="sidebar-section__empty-title">No apps yet</p>
+        <p className="sidebar-section__empty-body">
           Ask Stella to build a small app. It will show up here.
         </p>
-        <button type="button" className="pill-btn pill-btn--primary" onClick={requestUserApp}>
+        <button type="button" className="pill-btn" onClick={requestUserApp}>
           Ask Stella to create an app
         </button>
       </div>);

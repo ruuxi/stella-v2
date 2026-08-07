@@ -85,12 +85,15 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--background);
+  /* Same translucent tint the composer / chat surfaces carry, so the panel
+     sits on the shifting gradient like the rest of the shell instead of
+     reading as a separate opaque slab. The seam hairline is owned by the
+     aside (shell-junction.css) — a second border here doubled it. */
+  background: var(--panel-surface-bg-gradient);
   padding-top: var(--shell-topbar-height, 38px);
   box-sizing: border-box;
   width: var(--display-panel-width, clamp(380px, 34vw, 520px));
   min-width: 0;
-  border-left: 1px solid var(--border);
   border-radius: 0 0 0 var(--right-sidebar-bottom-left-radius);
   transform: translate3d(12px, 0, 0);
   opacity: 0;
@@ -102,11 +105,13 @@
   overflow: hidden;
 }
 
+/* Flat themes have no gradient behind the shell; the translucent tint
+   resolves over the plain window background there, so no override needed —
+   only the legacy shadow suppression is kept. */
 :root[data-theme="pearl"] .right-sidebar-inner,
 :root[data-theme="noir"] .right-sidebar-inner,
 :root[data-base-theme="pearl"] .right-sidebar-inner,
 :root[data-base-theme="noir"] .right-sidebar-inner {
-  background: var(--background);
   box-shadow: none;
 }
 

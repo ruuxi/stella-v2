@@ -1,3 +1,5 @@
+/* The section itself stays on the shared panel surface — only the page
+   host (real web content) and the tab chrome above it are opaque. */
 .browser-section {
   position: relative;
   display: flex;
@@ -7,7 +9,6 @@
   min-height: 0;
   overflow: hidden;
   color: var(--text-base);
-  background: var(--background);
 }
 
 .browser-section__status {

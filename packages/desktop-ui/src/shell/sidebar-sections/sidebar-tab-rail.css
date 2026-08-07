@@ -19,8 +19,8 @@
   align-items: center;
   gap: 6px;
   height: 24px;
-  padding: 0 7px;
-  border: none;
+  padding: 0 8px;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm, 6px);
   background: transparent;
   color: var(--text-weak);
@@ -32,8 +32,8 @@
   -webkit-app-region: no-drag;
   transition:
     background 0.12s ease,
-    color 0.12s ease,
-    font-weight 0.12s ease;
+    border-color 0.12s ease,
+    color 0.12s ease;
 }
 
 .sidebar-tab-rail__tab:hover {
@@ -46,14 +46,13 @@
   box-shadow: var(--focus-ring);
 }
 
+/* Active tab wears the composer's surface (see --select-surface-* in
+   index.css) instead of only a weight change — the weight/stroke swap also
+   nudged sibling tabs sideways on every switch. */
 .sidebar-tab-rail__tab[data-active="true"] {
   color: var(--text-strong);
-  background: transparent;
-  font-weight: var(--weight-semibold);
-}
-
-.sidebar-tab-rail__tab[data-active="true"] .sidebar-tab-rail__icon svg {
-  stroke-width: 2.25;
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
 }
 
 .sidebar-tab-rail__icon {

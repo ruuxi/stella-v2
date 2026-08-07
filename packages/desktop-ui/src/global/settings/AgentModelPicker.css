@@ -206,7 +206,7 @@
  * text-weak → text-strong lift via `color`. */
 .agent-model-picker-brand:not([data-active]) {
   filter: grayscale(1);
-  opacity: 0.75;
+  opacity: 0.55;
 }
 
 .agent-model-picker-brand:hover:not(:disabled) {
@@ -222,8 +222,8 @@
 }
 
 .agent-model-picker-brand[data-active] {
-  background: transparent;
-  border-color: var(--shell-junction-border, var(--border));
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
   color: var(--text-strong);
   box-shadow: none;
 }
@@ -278,8 +278,8 @@
 
 .agent-model-picker-brand-action[data-active] {
   color: var(--text-strong);
-  background: transparent;
-  border-color: var(--shell-junction-border, var(--border));
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
 }
 
 .agent-model-picker-brand-action:disabled {
@@ -448,8 +448,8 @@
 }
 
 .agent-model-picker-reasoning-options button[data-active] {
-  background: transparent;
-  border-color: var(--shell-junction-border, var(--border));
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
   color: var(--text-strong);
 }
 
@@ -519,8 +519,8 @@
 }
 
 .agent-model-picker-toggle-btn[data-active] {
-  background: transparent;
-  border-color: var(--shell-junction-border, var(--border));
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
   color: var(--text-strong);
   box-shadow: none;
 }

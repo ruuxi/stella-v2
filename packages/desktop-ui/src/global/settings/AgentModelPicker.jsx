@@ -5,6 +5,7 @@ import { EngineScopedModelList, } from "@/global/settings/EngineScopedModelList"
 import { ProviderOnlyPicker, } from "@/global/settings/ProviderOnlyPicker";
 import { VoiceCatalogPicker } from "@/global/settings/VoiceCatalogPicker";
 import { coerceRealtimeVoiceProvider } from "@stella/contracts/local-preferences";
+import { isDeepSeekV4FlashModel } from "@stella/contracts/stella-api";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-catalog";
 import { useClaudeCodeModelCatalog } from "@/global/settings/hooks/use-claude-code-model-catalog";
@@ -1003,11 +1004,9 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             : activeAssistant
                 ? "Stella Default"
                 : getDefaultModelOptionLabel(canonicalAgentKey, defaultModelMap, resolvedDefaultModelMap, modelNamesById);
-    const defaultModelId = activeAssistant
-        ? (resolvedDefaultModelMap[canonicalAgentKey] ??
-            defaultModelMap[canonicalAgentKey] ??
-            "")
-        : "";
+    const defaultModelId = resolvedDefaultModelMap[canonicalAgentKey] ??
+        defaultModelMap[canonicalAgentKey] ??
+        "";
     const currentLabel = activeProviderSetting
         ? (IMAGE_PROVIDER_OPTIONS.find((entry) => entry.key === current)?.label ??
             VOICE_PROVIDER_OPTIONS.find((entry) => entry.key === current)?.label ??
@@ -1048,9 +1047,17 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const reportedDefaultReasoningEffort = committedEngine === "codex_cli"
         ? selectedChatGptLiveModel?.defaultReasoningEffort
         : null;
+    const selectedStellaModelId = current || defaultModelId;
+    const selectedStellaCatalogModel = allModels.find((model) => model.id === selectedStellaModelId ||
+        model.upstreamModel === selectedStellaModelId);
+    const selectedModelDefaultsToXhigh = committedEngine === "default" &&
+        (isDeepSeekV4FlashModel(selectedStellaModelId) ||
+            isDeepSeekV4FlashModel(selectedStellaCatalogModel?.upstreamModel));
     const effectiveDefaultReasoningEffort = REASONING_EFFORT_OPTIONS.some((option) => option.id === reportedDefaultReasoningEffort)
         ? reportedDefaultReasoningEffort
-        : "medium";
+        : selectedModelDefaultsToXhigh
+            ? "xhigh"
+            : "medium";
     const currentReasoningEffort = savedReasoningEffort === "default"
         ? effectiveDefaultReasoningEffort
         : savedReasoningEffort;

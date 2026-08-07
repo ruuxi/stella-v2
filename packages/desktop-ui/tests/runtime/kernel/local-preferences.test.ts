@@ -29,6 +29,12 @@ const writePreferences = (
 };
 
 describe("loadLocalPreferences", () => {
+  it("leaves reasoning unset so the selected model supplies its default", () => {
+    const stellaDataDir = makeStellaDataDir();
+
+    expect(loadLocalPreferences(stellaDataDir).reasoningEfforts).toEqual({});
+  });
+
   it("persists engine-scoped Stella state and normalizes Claude minimal", () => {
     const stellaDataDir = makeStellaDataDir();
     writePreferences(stellaDataDir, {

@@ -32,6 +32,18 @@ const stellaRoute = (): ResolvedLlmRoute =>
     refreshApiKey: async () => null,
   }) as unknown as ResolvedLlmRoute;
 
+const deepSeekFlashRoute = (): ResolvedLlmRoute =>
+  ({
+    route: "stella",
+    model: {
+      ...fakeModel,
+      id: "stella/default",
+      upstreamModelId: "accounts/fireworks/models/deepseek-v4-flash-0731",
+    },
+    getApiKey: async () => "stella-token",
+    refreshApiKey: async () => null,
+  }) as unknown as ResolvedLlmRoute;
+
 describe("resolveAgentThinkingLevel", () => {
   it("uses the agentContext effort on direct-provider routes", () => {
     expect(
@@ -83,5 +95,28 @@ describe("resolveAgentThinkingLevel", () => {
         agentContextReasoningEffort: "high",
       }),
     ).toBe("high");
+  });
+
+  it("defaults DeepSeek V4 Flash to xhigh", () => {
+    expect(
+      resolveAgentThinkingLevel({
+        resolvedLlm: deepSeekFlashRoute(),
+        agentContextReasoningEffort: "default",
+      }),
+    ).toBe("xhigh");
+    expect(
+      resolveAgentThinkingLevel({
+        resolvedLlm: deepSeekFlashRoute(),
+      }),
+    ).toBe("xhigh");
+  });
+
+  it("preserves an explicit DeepSeek V4 Flash effort override", () => {
+    expect(
+      resolveAgentThinkingLevel({
+        resolvedLlm: deepSeekFlashRoute(),
+        agentContextReasoningEffort: "low",
+      }),
+    ).toBe("low");
   });
 });

@@ -19,10 +19,8 @@ const DEFAULT_PREFERENCES = {
     defaultModels: {},
     modelOverrides: {},
     assistantPropagatedAgents: [],
-    reasoningEfforts: {
-        orchestrator: "low",
-        general: "low",
-    },
+    // Missing entries use the selected model's own default reasoning effort.
+    reasoningEfforts: {},
     stellaConversationModelOverrides: {},
     stellaConversationReasoningEfforts: {},
     agentRuntimeEngine: "default",

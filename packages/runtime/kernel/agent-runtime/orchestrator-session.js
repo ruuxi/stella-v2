@@ -34,6 +34,7 @@ import crypto from "crypto";
 import { finalizeOrchestratorError, finalizeOrchestratorInterrupted, finalizeOrchestratorSuccess, markOrchestratorErrorReported, resolveInterruptionReason, } from "./run-completion.js";
 import { executeRuntimeAgentPrompt } from "./run-execution.js";
 import { executeWithContextOverflowRecovery } from "./context-overflow-recovery.js";
+import { enrichImageContentForTextOnlyModel } from "./image-description.js";
 import { buildRuntimeSystemPrompt } from "./run-preparation.js";
 import { createRunEventRecorder, } from "./run-events.js";
 import { createOrchestratorResponseTargetTracker, } from "./response-target.js";
@@ -253,6 +254,7 @@ export class OrchestratorSession extends PiSessionCore {
                 userMessageId: opts.userMessageId,
                 recorder: runEvents,
                 ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
+                ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
                 callbacks: opts.callbacks,
                 ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),
                 threadStore: opts.store,

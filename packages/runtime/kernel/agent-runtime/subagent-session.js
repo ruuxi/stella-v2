@@ -228,6 +228,7 @@ export class SubagentSession extends PiSessionCore {
                 userMessageId: opts.userMessageId,
                 recorder: runEvents,
                 ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
+                ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
                 ...(opts.callbacks ? { callbacks: opts.callbacks } : {}),
                 ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
                 ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),

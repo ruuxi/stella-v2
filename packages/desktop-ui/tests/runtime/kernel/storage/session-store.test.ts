@@ -46,6 +46,51 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
+  it("persists parent-owned lifecycle entries outside model-visible thread messages", () => {
+    const { store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conversation-nested-lifecycle",
+      agentType: "general",
+      nameHint: "Parent agent",
+    });
+    const started = {
+      _id: "child-agent:1:agent-started",
+      timestamp: 200,
+      type: "agent-started",
+      payload: {
+        agentId: "child-agent",
+        parentAgentId: threadId,
+        description: "Inspect nested state",
+      },
+    };
+    const completed = {
+      _id: "child-agent:1:agent-completed",
+      timestamp: 201,
+      type: "agent-completed",
+      payload: { agentId: "child-agent", result: "Nested work finished" },
+    };
+
+    store.appendThreadLifecycleEvent({ threadKey: threadId, event: started });
+    store.appendThreadLifecycleEvent({ threadKey: threadId, event: completed });
+
+    expect(store.hasThreadLifecycleEvent(threadId, started._id)).toBe(true);
+    expect(store.hasThreadLifecycleEvent(threadId, "missing-event")).toBe(false);
+    expect(store.listThreadLifecycleEntries(threadId)).toEqual([
+      { entryId: expect.any(String), event: started },
+      { entryId: expect.any(String), event: completed },
+    ]);
+    expect(store.listThreadLifecycleEntries(threadId, 1)).toEqual([
+      { entryId: expect.any(String), event: completed },
+    ]);
+    expect(store.loadThreadMessages(threadId)).toEqual([]);
+    expect(() =>
+      store.appendThreadLifecycleEvent({
+        threadKey: threadId,
+        event: { ...started, type: "user_message" },
+      }),
+    ).toThrow("A valid lifecycle event is required");
+  });
+
   it("migrates legacy agent rows with a zero ownership generation", async () => {
     const rootPath = path.join(
       os.tmpdir(),

@@ -794,6 +794,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       title TEXT,
       content TEXT NOT NULL,
       metadata TEXT,
+      conversation_id TEXT,
       source_updated_at INTEGER NOT NULL,
       processed_by_dream_at INTEGER,
       usage_count INTEGER NOT NULL DEFAULT 0,
@@ -801,6 +802,11 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       UNIQUE (kind, source_key)
     );
   `);
+  try {
+    db.exec("ALTER TABLE dream_inbox ADD COLUMN conversation_id TEXT;");
+  } catch {
+    // Column already exists.
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_dream_inbox_unprocessed
     ON dream_inbox(processed_by_dream_at, source_updated_at);

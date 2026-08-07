@@ -651,15 +651,6 @@ export const createRunnerContext = ({
           reason,
         );
       },
-      adoptAgent: async (agentId, parentAgentId) => {
-        if (!context.state.localAgentManager) {
-          return { adopted: false };
-        }
-        return await context.state.localAgentManager.adoptAgent(
-          agentId,
-          parentAgentId,
-        );
-      },
       sendAgentMessage: async (agentId, message, from, options) => {
         if (
           !context.state.localAgentManager ||

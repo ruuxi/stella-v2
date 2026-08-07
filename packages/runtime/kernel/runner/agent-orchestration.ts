@@ -33,6 +33,7 @@ import {
 } from "@stella/contracts/file-changes";
 import type { RunnerContext } from "./types.js";
 import { buildAgentEventPrompt } from "./shared.js";
+import type { LocalChatEventRecord } from "../storage/shared.js";
 import { createRunnerImageDescriptionService } from "./model-selection.js";
 
 const collectFileChanges = (
@@ -75,16 +76,16 @@ const collectProducedFiles = (
   }
 };
 
-const hasPersistedManagerEvent = (
+const hasPersistedThreadCustomEvent = (
   context: RunnerContext,
-  managerThreadId: string,
+  threadKey: string,
   eventId: string | undefined,
 ): boolean => {
   if (!eventId) return false;
   const loadThreadMessages = context.runtimeStore.loadThreadMessages;
   if (typeof loadThreadMessages !== "function") return false;
   return loadThreadMessages
-    .call(context.runtimeStore, managerThreadId)
+    .call(context.runtimeStore, threadKey)
     .some((message) => {
       if (message.customMessage?.customType !== "runtime.task_lifecycle") {
         return false;
@@ -260,6 +261,25 @@ const appendAgentLifecycleChatEvent = (
     type: event.type,
     payload: buildLifecycleEventPayload(event),
   });
+};
+
+const buildThreadLifecycleEvent = (
+  event: AgentLifecycleEvent,
+  timestamp: number,
+): LocalChatEventRecord => {
+  const derivedId = `${event.agentId}:${
+    event.attemptGeneration ?? timestamp
+  }:${event.type}`;
+  return {
+    _id:
+      event.eventId?.trim() ||
+      (event.type === "agent-progress"
+        ? `${derivedId}:${timestamp}`
+        : derivedId),
+    timestamp,
+    type: event.type,
+    payload: buildLifecycleEventPayload(event),
+  };
 };
 
 export const createAgentOrchestration = (
@@ -459,8 +479,6 @@ export const createAgentOrchestration = (
     },
     listActiveThreads: (conversationId) =>
       context.runtimeStore.listActiveThreads(conversationId),
-    listGroupMemberThreadIds: (groupKey) =>
-      context.runtimeStore.listGroupMemberThreadIds(groupKey),
     onAgentEvent: handleAgentLifecycleEvent,
     fetchAgentContext: deps.buildAgentContext,
     runSubagent: async ({

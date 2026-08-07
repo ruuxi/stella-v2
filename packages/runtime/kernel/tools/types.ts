@@ -203,11 +203,6 @@ export type AgentToolApi = {
     threadId: string,
     reason?: string,
   ) => Promise<{ canceled: boolean }>;
-  /** Rebind an existing thread's completion routing to a manager thread. */
-  adoptAgent?: (
-    threadId: string,
-    parentAgentId: string,
-  ) => Promise<{ adopted: boolean; reason?: string }>;
   sendAgentMessage?: (
     threadId: string,
     message: string,

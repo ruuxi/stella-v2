@@ -117,6 +117,57 @@ describe("OrchestratorSession", () => {
     expect(seenAgents[1]).toBe(seenAgents[0]);
   });
 
+  it("forwards the image description service to prompt execution", async () => {
+    const session = new OrchestratorSession("conversation-1");
+    const describeImages = vi.fn(async () => "A terminal window.");
+
+    executeRuntimeAgentPrompt.mockResolvedValue({ finalText: "" });
+
+    await session.runTurn(createOptions({ describeImages }));
+
+    expect(executeRuntimeAgentPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ describeImages }),
+    );
+  });
+
+  it("describes image-bearing tool results for a text-only model", async () => {
+    const session = new OrchestratorSession("conversation-1");
+    const describeImages = vi.fn(async () => "A browser error page.");
+    let transformed: unknown;
+
+    executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
+      transformed = await (
+        agent as unknown as {
+          _afterToolCall?: (context: unknown) => Promise<unknown>;
+        }
+      )._afterToolCall?.({
+        toolCall: { name: "node_repl" },
+        result: {
+          content: [
+            { type: "text", text: "Browser screenshot attached." },
+            { type: "image", mimeType: "image/png", data: "AAAA" },
+          ],
+          details: {},
+        },
+      });
+      return { finalText: "" };
+    });
+
+    await session.runTurn(createOptions({ describeImages }));
+
+    expect(describeImages).toHaveBeenCalledOnce();
+    expect(transformed).toEqual({
+      content: [
+        { type: "text", text: "Browser screenshot attached." },
+        { type: "image", mimeType: "image/png", data: "AAAA" },
+        {
+          type: "text",
+          text: "<image_description>\nA browser error page.\n</image_description>",
+        },
+      ],
+    });
+  });
+
   it("refreshes the advertised tool schema on the next turn of an open session", async () => {
     const session = new OrchestratorSession("conversation-1");
     const advertisedTools: string[][] = [];
@@ -262,6 +313,123 @@ describe("OrchestratorSession", () => {
 describe("SubagentSession", () => {
   beforeEach(() => {
     executeRuntimeAgentPrompt.mockReset();
+  });
+
+  it("forwards the image description service to prompt execution", async () => {
+    const session = new SubagentSession(
+      "image-thread",
+      "conversation-1",
+      "general",
+    );
+    const describeImages = vi.fn(async () => "A terminal window.");
+    executeRuntimeAgentPrompt.mockResolvedValue({ finalText: "" });
+
+    await session.runTurn({
+      runId: "image-run",
+      conversationId: "conversation-1",
+      userMessageId: "image-user",
+      agentId: "image-thread",
+      agentType: "general",
+      userPrompt: "What is shown?",
+      agentContext: {
+        systemPrompt: "General prompt",
+        dynamicContext: "",
+        maxAgentDepth: 1,
+        threadHistory: [],
+      },
+      toolCatalog: [],
+      toolExecutor: vi.fn(async () => ({ result: "ok" })),
+      deviceId: "device-1",
+      stellaDataDir: "/tmp/stella",
+      stellaAppDir: "/tmp/stella",
+      resolvedLlm: {
+        model,
+        route: "direct-provider",
+        getApiKey: () => undefined,
+      },
+      describeImages,
+      store: {
+        recordRunEvent: vi.fn(),
+        appendThreadCustomMessage: vi.fn(),
+        loadThreadMessages: vi.fn(() => []),
+      } as never,
+      callbacks: {},
+      compactionScheduler: new BackgroundCompactionScheduler(),
+    } satisfies SubagentRunOptions);
+
+    expect(executeRuntimeAgentPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ describeImages }),
+    );
+  });
+
+  it("describes image-bearing tool results for a text-only subagent", async () => {
+    const session = new SubagentSession(
+      "tool-image-thread",
+      "conversation-1",
+      "general",
+    );
+    const describeImages = vi.fn(async () => "A desktop settings window.");
+    let transformed: unknown;
+    executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
+      transformed = await (
+        agent as unknown as {
+          _afterToolCall?: (context: unknown) => Promise<unknown>;
+        }
+      )._afterToolCall?.({
+        toolCall: { name: "Read" },
+        result: {
+          content: [
+            { type: "image", mimeType: "image/png", data: "AAAA" },
+          ],
+          details: {},
+        },
+      });
+      return { finalText: "" };
+    });
+
+    await session.runTurn({
+      runId: "tool-image-run",
+      conversationId: "conversation-1",
+      userMessageId: "tool-image-user",
+      agentId: "tool-image-thread",
+      agentType: "general",
+      userPrompt: "Inspect the image.",
+      agentContext: {
+        systemPrompt: "General prompt",
+        dynamicContext: "",
+        maxAgentDepth: 1,
+        threadHistory: [],
+      },
+      toolCatalog: [],
+      toolExecutor: vi.fn(async () => ({ result: "ok" })),
+      deviceId: "device-1",
+      stellaDataDir: "/tmp/stella",
+      stellaAppDir: "/tmp/stella",
+      resolvedLlm: {
+        model,
+        route: "direct-provider",
+        getApiKey: () => undefined,
+      },
+      describeImages,
+      store: {
+        recordRunEvent: vi.fn(),
+        appendThreadCustomMessage: vi.fn(),
+        loadThreadMessages: vi.fn(() => []),
+      } as never,
+      callbacks: {},
+      compactionScheduler: new BackgroundCompactionScheduler(),
+    } satisfies SubagentRunOptions);
+
+    expect(describeImages).toHaveBeenCalledOnce();
+    expect(transformed).toEqual({
+      content: [
+        { type: "image", mimeType: "image/png", data: "AAAA" },
+        {
+          type: "text",
+          text: "<image_description>\nA desktop settings window.\n</image_description>",
+        },
+      ],
+    });
   });
 
   it("reloads a history event persisted while the first Agent is being created", async () => {

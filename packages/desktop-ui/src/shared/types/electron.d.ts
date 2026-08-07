@@ -480,8 +480,6 @@ export type ElectronDictationApi = {
       action?: "toggle" | "start" | "reveal" | "stop" | "cancel";
     }) => void,
   ) => () => void;
-  /** Programmatically trigger the same toggle from the renderer. */
-  trigger: () => Promise<{ ok: boolean }>;
   /** Returns the currently registered global shortcut accelerator. */
   getShortcut: () => Promise<string>;
   /**

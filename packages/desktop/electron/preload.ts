@@ -439,9 +439,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         } | null;
       } | null,
     ) => ipcRenderer.send("region:commitPrepared", result),
-    submitWindowAttachClick: (point: { x: number; y: number }) =>
-      ipcRenderer.send("windowAttach:click", point),
-    cancelWindowAttach: () => ipcRenderer.send("windowAttach:cancel"),
     submitRegionClick: (point: { x: number; y: number }) =>
       ipcRenderer.send("region:click", point),
     getWindowCapture: (point: { x: number; y: number }) =>
@@ -475,20 +472,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     beginRegionCapture: () =>
       ipcRenderer.invoke("capture:beginRegionCapture") as Promise<
         { ok: true } | { cancelled: true }
-      >,
-    beginWindowAttach: () =>
-      ipcRenderer.invoke("capture:beginWindowAttach") as Promise<
-        | {
-            ok: true;
-            window: {
-              app: string;
-              title: string;
-              bounds: { x: number; y: number; width: number; height: number };
-            };
-            miniBounds: { x: number; y: number; width: number; height: number };
-          }
-        | { cancelled: true }
-        | { ok: false; reason: string; message: string }
       >,
   },
 
@@ -714,8 +697,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       startId?: string;
       action?: "toggle" | "start" | "reveal" | "stop" | "cancel";
     }>("dictation:toggle"),
-    trigger: () =>
-      ipcRenderer.invoke("dictation:trigger") as Promise<{ ok: boolean }>,
     getShortcut: () =>
       ipcRenderer.invoke("dictation:getShortcut") as Promise<string>,
     setShortcut: (shortcut: string) =>

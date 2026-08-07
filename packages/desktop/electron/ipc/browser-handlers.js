@@ -4,6 +4,8 @@ import { clipboard, ipcMain, nativeImage, } from "electron";
 import { getBrowserCookieHeader } from "./browser-fetch-session.js";
 import { normalizeUrlForPrivilegedRendererFetch, PRIVILEGED_RENDERER_FETCH_TIMEOUT_MS, } from "./renderer-safe-url.js";
 import { IPC_BROWSER_FETCH_JSON, IPC_BROWSER_FETCH_TEXT, IPC_MEDIA_COPY_IMAGE, IPC_MEDIA_GET_DIR, IPC_MEDIA_SAVE_OUTPUT, } from "@stella/contracts/desktop/ipc-channels";
+import { decodeAndValidateImage, decodeBase64ImageBounded, readResponseBodyBounded, validateDecodedImageFile, } from "@stella/runtime/kernel/tools/image-decode-validation";
+import { materializeMediaArtifact } from "@stella/runtime/kernel/tools/media-artifact-store";
 const fetchWithBrowserSession = async (payload) => {
     const url = await normalizeUrlForPrivilegedRendererFetch(payload.url);
     const cookieHeader = await getBrowserCookieHeader(url);

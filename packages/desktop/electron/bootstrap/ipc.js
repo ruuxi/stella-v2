@@ -271,6 +271,8 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         restartRuntime: resetFlows.restartRuntime,
         submitCredential: (payload) => services.credentialService.submitCredential(payload),
         cancelCredential: (payload) => services.credentialService.cancelCredential(payload),
+        submitConnectorCredential: (payload) => services.connectorCredentialService.submitCredential(payload),
+        cancelConnectorCredential: (payload) => services.connectorCredentialService.cancelCredential(payload),
         respondConnectorConnect: (payload) => services.connectorConnectService.respond(payload),
         getBroadcastToMobile: lazyMobileBroadcast,
         startPhoneAccessSession: () => {

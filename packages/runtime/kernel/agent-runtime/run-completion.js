@@ -1,6 +1,7 @@
 import { createRuntimeLogger } from "../debug.js";
 import { compactRuntimeThreadHistory, updateOrchestratorReminderState, } from "./thread-memory.js";
 import { getThreadTokenEstimate } from "../thread-runtime.js";
+import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
 const logger = createRuntimeLogger("agent-runtime.completion");
 /**
  * Ceiling on each awaited finalization stage between "final answer produced"

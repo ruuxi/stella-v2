@@ -48,6 +48,7 @@ const nodeTarget = `node${process.versions.node.split(".")[0]}`;
 const includeLocalUpdateVerification = process.argv.includes(
   "--local-update-verification",
 );
+const verifyIdentifiers = process.argv.includes("--verify-identifiers");
 const runtimeStaticAssetRoots = [
   "packages/runtime/extensions/stella-runtime/agent-metadata",
 ];
@@ -654,6 +655,28 @@ const smokeTestWorkerChunksUnderBun = () => {
   );
 };
 
+const verifyApplicationIdentifiersInChild = () => {
+  const verifierPath = path.join(scriptDir, "verify-packaged-identifiers.mjs");
+  const result = spawnSync(
+    process.execPath,
+    [verifierPath, "--source", "--packaged"],
+    {
+      cwd: repoRootDir,
+      encoding: "utf8",
+      timeout: 120_000,
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      "Application identifier verification failed:\n" +
+        `${result.stderr || result.stdout || result.error?.message || "unknown error"}`,
+    );
+  }
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+};
+
 const isRunDirectly = (() => {
   const entry = process.argv[1];
   if (!entry) {
@@ -673,6 +696,9 @@ if (isRunDirectly) {
   try {
     await cleanOutdir();
     await buildElectronBundles();
+    if (verifyIdentifiers) {
+      verifyApplicationIdentifiersInChild();
+    }
     smokeTestWorkerChunksUnderBun();
     writeBundleFingerprint(computeBundleInputsFingerprint());
     process.exit(0);

@@ -717,6 +717,18 @@ export const registerSystemHandlers = (options) => {
         }
         return options.cancelCredential(payload);
     });
+    ipcMain.handle("connector-credential:submit", async (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, "connector-credential:submit")) {
+            throw new Error("Blocked untrusted connector credential submission.");
+        }
+        return await options.submitConnectorCredential(payload);
+    });
+    ipcMain.handle("connector-credential:cancel", (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, "connector-credential:cancel")) {
+            throw new Error("Blocked untrusted connector credential cancellation.");
+        }
+        return options.cancelConnectorCredential(payload);
+    });
     ipcMain.handle("connector-connect:respond", (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "connector-connect:respond")) {
             throw new Error("Blocked untrusted connector connect response.");

@@ -129,7 +129,11 @@ export function RegionCapture() {
     };
     const handleMouseMove = (event) => {
         if (!startPoint) {
-            if (!vacuum) {
+            // Mouse-up starts an async window/region capture. Do not let cursor
+            // movement during that handoff launch a new hover probe: its ring
+            // could otherwise arrive after the clicked target was captured and
+            // keep the full-screen overlay alive over an unrelated app.
+            if (!vacuum && !isPreparingCapture) {
                 previewWindowAtPoint({ x: event.clientX, y: event.clientY });
             }
             return;

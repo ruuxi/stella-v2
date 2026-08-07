@@ -436,6 +436,10 @@ export class OverlayWindowController {
         });
     };
     previewWindowHighlightAtScreenPoint(screenPoint) {
+        // Point previews belong exclusively to an active region-capture
+        // session. Ignore delayed renderer events after capture teardown.
+        if (!this.activeRegionCapture)
+            return;
         const requestId = ++this.windowHighlightRequestId;
         void getWindowInfoAtPoint(screenPoint.x, screenPoint.y, {
             excludePids: [process.pid],
@@ -629,6 +633,11 @@ export class OverlayWindowController {
         this.overlayWindow.setIgnoreMouseEvents(false);
     }
     endRegionCapture() {
+        // A hover lookup can resolve while the clicked target is being prepared.
+        // Invalidate it and clear the ring before deactivating capture so the
+        // highlight cannot keep this screen-spanning window mouse-interactive.
+        this.windowHighlightRequestId += 1;
+        this.clearWindowHighlight();
         this.hideSurface({
             setInactive: () => {
                 this.activeRegionCapture = false;

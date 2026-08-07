@@ -8,15 +8,21 @@ type TrayControllerOptions = {
   onQuit: () => void
 }
 
-const resolveTrayIconPath = (electronDir: string): string | null => {
-  // Compiled main lives at desktop/dist-electron/desktop/electron, so the
-  // desktop package root (which holds build/, public/, dist/) is three up.
-  const desktopRoot = path.resolve(electronDir, '..', '..', '..')
+export const resolveTrayIconPath = (
+  electronDir: string,
+  resourcesPath = process.resourcesPath,
+): string | null => {
+  // Compiled main lives at desktop/dist-electron/electron, so the desktop
+  // package root is two levels up. Packaged builds copy the tray-specific ICO
+  // beside app.asar because build/ is intentionally excluded from app files.
+  const desktopRoot = path.resolve(electronDir, '..', '..')
+  const packagesRoot = path.dirname(desktopRoot)
   const candidates = [
+    path.join(resourcesPath, 'stella-tray.ico'),
     path.join(desktopRoot, 'build', 'icon.ico'),
     path.join(desktopRoot, 'build', 'icon.png'),
-    path.join(desktopRoot, 'dist', 'stella-app-icon.png'),
-    path.join(desktopRoot, 'public', 'stella-app-icon.png'),
+    path.join(packagesRoot, 'desktop-ui', 'dist', 'stella-app-icon.png'),
+    path.join(packagesRoot, 'desktop-ui', 'public', 'stella-app-icon.png'),
   ]
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null
 }

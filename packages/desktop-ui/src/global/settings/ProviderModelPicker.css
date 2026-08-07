@@ -367,19 +367,21 @@
   pointer-events: auto;
 }
 
+/* Borderless quiet field — matches the sidebar's other search inputs; a
+   soft inset tint carries the affordance instead of an outline. */
 .model-picker-search {
   display: flex;
   align-items: center;
   gap: 7px;
   padding: 4px 10px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--border);
-  background: var(--surface-inset);
+  border: none;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--text-weak);
 }
 
 .model-picker-search:focus-within {
-  border-color: var(--border-strong);
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
 }
 
 .model-picker-search input {
@@ -513,8 +515,8 @@
 
 .model-picker-model-reason[data-active] {
   color: var(--text-strong);
-  border-color: var(--shell-junction-border, var(--border));
-  background: transparent;
+  border-color: var(--select-surface-border);
+  background: var(--select-surface-bg);
 }
 
 .model-picker-model-star:disabled,
@@ -550,8 +552,8 @@
 }
 
 .model-picker-model[data-selected] {
-  background: transparent;
-  border-color: var(--shell-junction-border, var(--border));
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
   color: var(--text-strong);
 }
 

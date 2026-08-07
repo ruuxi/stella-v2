@@ -26,7 +26,8 @@
 }
 
 .pill-btn.work-models-button[data-active] {
-  background: transparent;
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
   color: var(--text-strong);
 }
 
@@ -63,14 +64,16 @@
   min-height: 0;
 }
 
+/* Quiet inline field, same language as the Home search — icon + text on
+   the panel surface, no box and no divider. */
 .files-list__search {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-  min-height: 34px;
-  padding: 3px 10px;
-  border-bottom: 1px solid var(--shell-junction-border, var(--border));
+  min-height: 32px;
+  margin: 8px 12px 2px;
+  padding: 0 4px;
   color: var(--text-weak);
 }
 
@@ -87,7 +90,7 @@
 }
 
 .files-list__search input::placeholder {
-  color: color-mix(in srgb, var(--text-weak) 50%, var(--text-weaker));
+  color: var(--text-weaker);
 }
 
 .files-list__items {
@@ -150,10 +153,21 @@
   text-overflow: ellipsis;
 }
 
+/* Kind labels ("File", "Agent") repeat down the whole list, so they stay
+   hidden until the row is pointed at — the icon already tells the story.
+   (`--text-faint` was never defined; the label previously inherited the
+   row's strong text color at 11px.) */
 .files-list__meta {
   flex: 0 0 auto;
-  color: var(--text-faint);
+  color: var(--text-weaker);
   font-size: var(--font-size-xs);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.files-list__item:hover .files-list__meta,
+.files-list__item:focus-within .files-list__meta {
+  opacity: 1;
 }
 
 /* The remove affordance only appears on hover/focus so a long list reads as

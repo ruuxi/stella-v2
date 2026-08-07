@@ -5,11 +5,11 @@
    left-seam gradient scoop it needed went with it. */
 
 :root[data-shell-panel-chrome="true"] {
-  --shell-junction-border: color-mix(
-    in srgb,
-    var(--foreground) 35%,
-    var(--background)
-  );
+  /* The seam between the main column and the panel uses the shell's
+     standard hairline weight. The old 35%-foreground mix sat visibly
+     brighter than every other border on screen and read as a stray line
+     rather than part of the border system. */
+  --shell-junction-border: var(--border-base);
 }
 
 /* ── Center column ─────────────────────────────────────────────────── */

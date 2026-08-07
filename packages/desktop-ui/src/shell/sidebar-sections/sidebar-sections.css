@@ -43,16 +43,54 @@
   padding: 8px 10px 14px;
 }
 
+/* One empty-state pattern for every section (Work, Apps, Browser): icon
+   chip, short strong title, weak body, optional pill action. Sections that
+   only have a sentence still center it through the same block, so "empty"
+   reads identically wherever it appears. */
 .sidebar-section__empty {
   display: flex;
   flex: 1 1 auto;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 32px 20px;
+  gap: 5px;
+  padding: 32px 24px;
   color: var(--text-weak);
   font-size: var(--font-size-base);
   text-align: center;
   text-wrap: balance;
+}
+
+.sidebar-section__empty-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border-weak);
+  border-radius: 12px;
+  color: var(--text-base);
+  background: color-mix(in oklch, var(--foreground) 3%, transparent);
+}
+
+.sidebar-section__empty-title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.sidebar-section__empty-body {
+  margin: 0;
+  max-width: 32ch;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.sidebar-section__empty .pill-btn {
+  margin-top: 8px;
 }
 
 /* Header shown above a section's viewer, carrying the back affordance that

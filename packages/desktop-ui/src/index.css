@@ -247,6 +247,14 @@
   --select-text: var(--text-strong);
   --select-chip-shadow: var(--shadow-sm);
 
+  /* ── Quiet "selected" state — the composer's surface recipe ──────────
+     Neutral counterpart to `--select-fill` for ambient chrome (the right
+     sidebar's tabs, pickers, and rows) where an accent-tinted fill would
+     shout. Same tint + hairline the composer shell carries, so "you are
+     here" reads as the same material as the input the user already knows. */
+  --select-surface-bg: var(--panel-surface-bg-gradient);
+  --select-surface-border: var(--panel-surface-border);
+
   /* ── User chat bubble ─────────────────────────────────────────────────
      Derived from `--primary` so the bubble always carries the theme's
      accent, but with legibility guaranteed by construction rather than by

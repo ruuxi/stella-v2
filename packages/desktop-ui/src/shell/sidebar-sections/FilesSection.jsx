@@ -22,7 +22,7 @@ import { loadCanvasHtmlHistory, removeCanvasHtmlItem, } from "@/shell/display/ca
 import { useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
 import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
 import { preloadModelsPicker } from "@/shell/topbar/nav-surface-preloads";
-import { ChevronLeft, Search, X } from "@/ui/icons";
+import { ChevronLeft, LayoutList, Search, X } from "@/ui/icons";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
 import { SidebarModelsControl } from "./SidebarModelsControl";
 import "./files-section.css";
@@ -213,9 +213,17 @@ function WorkList() {
       </div>
 
       {items.length === 0 ? (<div className="sidebar-section__empty">
-          {deferredQuery
+          <span className="sidebar-section__empty-icon" aria-hidden="true">
+            {deferredQuery ? (<Search size={17} strokeWidth={1.75}/>) : (<LayoutList size={17} strokeWidth={1.75}/>)}
+          </span>
+          <p className="sidebar-section__empty-title">
+            {deferredQuery ? "No matches" : "Nothing here yet"}
+          </p>
+          <p className="sidebar-section__empty-body">
+            {deferredQuery
                 ? "No agents or files match that search."
-                : "Agent threads and files will show up here."}
+                : "Agent threads and files you work on with Stella will show up here."}
+          </p>
         </div>) : (<div ref={scrollRef} className="sidebar-section__scroll">
           <ul className="files-list__items">
             {visibleItems.map((item) => item.kind === "agent" ? (<li key={item.id} className="files-list__item">

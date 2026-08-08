@@ -87,6 +87,21 @@ describe("usage data", () => {
     ]);
   });
 
+  it("tracks per-thread time span, latest metadata, and distinct models", () => {
+    const earlier = new Date("2026-08-08T10:00:00Z").getTime();
+    const later = new Date("2026-08-08T14:00:00Z").getTime();
+    const [group] = groupUsageByThread([
+      record({ id: "call-2", timestamp: later, threadName: "Renamed" }),
+      record({ id: "call-1", timestamp: earlier, model: "deepseek-v4" }),
+    ]);
+    expect(group).toMatchObject({
+      firstAt: earlier,
+      lastAt: later,
+      threadName: "Renamed",
+      models: ["deepseek-v4-flash", "deepseek-v4"],
+    });
+  });
+
   it("buckets a seven-day timeline by local day", () => {
     const points = buildUsageTimeline(
       [

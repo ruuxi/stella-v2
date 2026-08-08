@@ -329,6 +329,24 @@ export const projectAgentCompletionSections = (toolEvents, lifecycleIndex, agent
     }
     return [...sections.values()];
 };
+/**
+ * Whether an assistant message is an intra-turn segment (a preamble like
+ * "Let me try X…" that ended in a tool call) rather than the turn's final
+ * answer. The runtime stamps `followedByToolCall: true` on every persisted
+ * assistant message that handed off to a tool (both direct and orchestrated
+ * working modes — see `appendAssistantMessageForTurn` in
+ * runtime/worker/server.ts), and `turnComplete: true` onto the run's LAST
+ * assistant message when the run settles (`markAssistantTurnComplete`).
+ *
+ * `turnComplete` wins: a turn whose final action was a tool call stamps both
+ * flags on the same (last) message, and that message IS the turn's terminal
+ * answer. Legacy messages carry neither flag and are never intra-turn.
+ *
+ * Used to hide the per-message Copy / Read-aloud action strip on mid-turn
+ * segments — only a turn's final assistant message gets the strip (see
+ * `AssistantMessageRow`).
+ */
+export const isIntraTurnAssistantRuntime = (runtime) => runtime?.followedByToolCall === true && runtime?.turnComplete !== true;
 const isImageOnlyInlineRow = (row) => row.text.trim().length === 0 &&
     (row.inlineImagePayloads?.length ?? 0) > 0 &&
     !row.officePreviewRef &&
@@ -645,6 +663,12 @@ export function useEventRows(opts) {
                 const agentCompletionSections = projectAgentCompletionSections(toolEvents, lifecycleIndex);
                 const isStreamingOverlay = message._id.startsWith(STREAMING_OVERLAY_ID_PREFIX) &&
                     runtimeMetadata?.isStreaming !== false;
+                // Mid-turn segment (ended in a tool call, not the turn's final
+                // answer): the row hides its Copy/Read-aloud strip. A live
+                // unlocked overlay never carries `followedByToolCall`; a locked
+                // overlay borrows the persisted metadata, so the flag lands as
+                // soon as the boundary's persisted twin is merged in.
+                const isIntraTurn = isIntraTurnAssistantRuntime(runtimeMetadata);
                 // Inline artifact cards (generated images, html/canvas + tool-output
                 // resource previews, office files, source diffs, and the web-search
                 // image strip) only render once their owning
@@ -664,6 +688,7 @@ export function useEventRows(opts) {
                     text: voiceSession ? "" : text,
                     cacheKey: stableKey,
                     ...(isStreamingOverlay ? { isStreaming: true } : {}),
+                    ...(isIntraTurn ? { isIntraTurn: true } : {}),
                     ...(responseTarget ? { responseTarget } : {}),
                     ...(replyToUserMessageId ? { replyToUserMessageId } : {}),
                     ...(showInlineArtifacts && officePreviewRef

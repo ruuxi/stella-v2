@@ -351,6 +351,10 @@ const assistantRowEqual = (a, b) => a.id === b.id &&
     a.text === b.text &&
     a.cacheKey === b.cacheKey &&
     Boolean(a.isStreaming) === Boolean(b.isStreaming) &&
+    // Controls the Copy/Read-aloud strip: flips when a locked overlay's
+    // persisted twin lands with `followedByToolCall`, with no other field
+    // changing — must participate so the strip actually unmounts.
+    Boolean(a.isIntraTurn) === Boolean(b.isIntraTurn) &&
     (a.replyToUserMessageId ?? null) === (b.replyToUserMessageId ?? null) &&
     JSON.stringify(a.responseTarget ?? null) ===
         JSON.stringify(b.responseTarget ?? null) &&

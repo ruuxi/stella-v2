@@ -2,7 +2,10 @@
  * Per-message action row rendered below a chat message.
  *
  * - User messages get a single Copy action.
- * - Assistant messages get Copy + Read aloud (on-demand TTS).
+ * - Assistant messages get Copy + Read aloud (on-demand TTS) — but only a
+ *   turn's FINAL assistant message. Intra-turn segments (preambles that
+ *   ended in a tool call) never mount this row at all (see the
+ *   `isIntraTurn` gate in `AssistantMessageRow`).
  *
  * The row reserves its height at all times and only fades in on row hover /
  * keyboard focus (or while its read-aloud is active) so revealing it never

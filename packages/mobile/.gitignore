@@ -5,9 +5,12 @@ node_modules/
 .env
 .env.*
 !.env.example
+.env*.local
 
 # Build output
 dist/
+dist-web-review/
+dist-web-test/
 build/
 out/
 .next/
@@ -16,6 +19,9 @@ web-build/
 # Expo / React Native
 .expo/
 .metro-health-check*
+expo-env.d.ts
+/ios
+/android
 
 # Native credentials and provisioning
 *.jks
@@ -33,6 +39,9 @@ yarn-error.log*
 
 # TypeScript
 *.tsbuildinfo
+
+# Local App Store screenshot exports; archive approved sets outside git.
+/store/apple/screenshot/
 
 # OS / editor
 .DS_Store

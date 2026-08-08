@@ -108,7 +108,7 @@ CarPlay does **not** work in Expo Go — it needs a dev/prebuild build.
 
 1. **Build the native iOS app** (needs Xcode + CocoaPods):
    ```bash
-   cd mobile
+   cd packages/mobile
    bunx expo prebuild -p ios           # applies the CarPlay config plugin
    bunx expo run:ios                   # builds + boots the app in the iOS Simulator
    ```

@@ -103,7 +103,7 @@ const getDeepLinkOrigin = () => {
   return `${protocol}://auth`;
 };
 
-/** Matches `EXPO_PUBLIC_STELLA_MOBILE_SCHEME` default in `mobile/src/config/env.ts` (magic-link callback). */
+/** Matches `EXPO_PUBLIC_STELLA_MOBILE_SCHEME` default in `packages/mobile/src/config/env.ts` (magic-link callback). */
 const getMobileDeepLinkOrigins = () => {
   const scheme =
     process.env.EXPO_PUBLIC_STELLA_MOBILE_SCHEME?.trim()

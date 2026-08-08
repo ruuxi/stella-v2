@@ -1,6 +1,6 @@
 /**
  * Mobile theme catalog — kept in 1:1 lockstep with the desktop themes in
- * `~/projects/stella/desktop/src/shared/theme/themes/*.ts`.
+ * `packages/desktop-ui/src/shared/theme/themes/*.ts`.
  *
  * Each entry maps the desktop `ThemeColors` palette onto the mobile `Colors`
  * shape via {@link map}. Derived values (accentSoft, overlay) are computed

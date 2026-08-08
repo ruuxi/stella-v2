@@ -1,6 +1,6 @@
 # Stella Marketing Asset Studio
 
-This is a small Next.js export tool for Stella marketing assets. It lives at repo root (`app-store-screenshots/`) and is **not** part of the Expo app: it does not import any modules from `mobile/`. Icon files under `public/` are copied in manually when you want them to match `mobile/assets/`.
+This is a small Next.js export tool for Stella marketing assets. It lives at `packages/mobile-screenshots/` and is **not** part of the Expo app: it does not import any application modules. Icon files under `public/` are copied in manually when you want them to match `packages/mobile/assets/`.
 
 ## What it does
 
@@ -13,7 +13,7 @@ This is a small Next.js export tool for Stella marketing assets. It lives at rep
 
 ## Assumptions
 
-- Paired-computer states depend on a live Stella desktop bridge, so the studio uses deterministic safe fixtures modeled on the current production components in `mobile/app/(main)` and `mobile/src/components`.
+- Paired-computer states depend on a live Stella desktop bridge, so the studio uses deterministic safe fixtures modeled on the current production components in `packages/mobile/app/(main)` and `packages/mobile/src/components`.
 - The fixtures show the production narrow top bar and wide sidebar patterns, including the current `Chat`, `Computer`, and `Settings` labels. They do not claim to show live account or backend state.
 - The narrative arc is:
   1. personal AI chat
@@ -26,7 +26,7 @@ This is a small Next.js export tool for Stella marketing assets. It lives at rep
 ## Run it
 
 ```bash
-cd app-store-screenshots
+cd packages/mobile-screenshots
 bun dev
 ```
 
@@ -46,7 +46,7 @@ Then open `http://localhost:3000`.
 For a reviewable production export, run:
 
 ```bash
-cd app-store-screenshots
+cd packages/mobile-screenshots
 bunx playwright install chromium # first run only
 NODE_ENV=production bun run build
 NODE_ENV=production bun run start -- -p 3000
@@ -55,15 +55,15 @@ NODE_ENV=production bun run start -- -p 3000
 In a second terminal:
 
 ```bash
-cd app-store-screenshots
+cd packages/mobile-screenshots
 bun run export:store
 ```
 
 The export script clears old PNGs from the two target device folders and writes the six approved filenames directly to the ignored local path:
 
 ```text
-mobile/store/apple/screenshot/en-US/APP_IPHONE_65/
-mobile/store/apple/screenshot/en-US/APP_IPAD_PRO_3GEN_129/
+packages/mobile/store/apple/screenshot/en-US/APP_IPHONE_65/
+packages/mobile/store/apple/screenshot/en-US/APP_IPAD_PRO_3GEN_129/
 ```
 
 Set `STELLA_SCREENSHOT_URL` to use a server on another port. Set `STELLA_SCREENSHOT_OUTPUT` to write somewhere other than the default ignored store path.
@@ -74,7 +74,7 @@ Exports are named with a numeric prefix so they sort correctly in Finder and App
 
 ## Release asset policy
 
-Screenshot PNGs are release assets, not source files. Generated exports under this tool's `out/` folder and staged copies under `mobile/store/apple/screenshot/` stay local and are ignored by git. The committed `mobile/store.config.json` deliberately omits screenshot paths, so a fresh checkout never points EAS Metadata at files that are not in the repository.
+Screenshot PNGs are release assets, not source files. Generated exports under this tool's `out/` folder and staged copies under `packages/mobile/store/apple/screenshot/` stay local and are ignored by git. The committed `packages/mobile/store.config.json` deliberately omits screenshot paths, so a fresh checkout never points EAS Metadata at files that are not in the repository.
 
 The committed config also omits `apple.version`. EAS Metadata otherwise targets the latest available App Store version. When a specific release version has been chosen and exists in App Store Connect, add `apple.version` to the local release config before syncing versioned metadata; do not guess the next version in source control.
 
@@ -83,7 +83,7 @@ For a listing update:
 1. Export a fresh iPhone and iPad set and compare every mock screen and claim with the shipping app.
 2. Remove personal data, internal notes, and stale UI before approval.
 3. Archive the approved originals in versioned release-asset storage with a checksum manifest.
-4. Upload them directly in App Store Connect, or copy them into the ignored `mobile/store/apple/screenshot/` folder and add the screenshot map only to a local, uncommitted metadata config before running `eas metadata:push`.
+4. Upload them directly in App Store Connect, or copy them into the ignored `packages/mobile/store/apple/screenshot/` folder and add the screenshot map only to a local, uncommitted metadata config before running `eas metadata:push`.
 
 Do not add generated screenshot binaries or committed paths to missing screenshots unless the repository adopts an intentional Git LFS or release-assets convention.
 
@@ -93,6 +93,6 @@ Do not add generated screenshot binaries or committed paths to missing screensho
 - `src/components/StellaIconStudio.tsx`: live Stella animation icon preview and PNG export controls
 - `src/components/stella-animation/*`: WebGL renderer adapted for the asset studio
 - `src/app/layout.tsx`: Stella-aligned font setup
-- `public/app-icon.png`: copied from `mobile/assets/icon.png`
-- `public/splash-icon.png`: copied from `mobile/assets/splash-icon.png`
+- `public/app-icon.png`: copied from `packages/mobile/assets/icon.png`
+- `public/splash-icon.png`: copied from `packages/mobile/assets/splash-icon.png`
 - `public/mockup.png`: iPhone frame asset used for export

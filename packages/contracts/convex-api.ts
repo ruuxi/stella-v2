@@ -39,7 +39,7 @@ export type PublicApiType = {
   };
   "billing": {
     "getSubscriptionStatus": FunctionReference<'query', 'public', { now?: number | undefined; }, any, string | undefined>;
-    "createCheckoutSession": FunctionReference<'action', 'public', { plan: 'go' | 'pro' | 'plus' | 'ultra' | 'max'; returnUrl: string; }, any, string | undefined>;
+    "createCheckoutSession": FunctionReference<'action', 'public', { plan: 'go' | 'pro'; returnUrl: string; }, any, string | undefined>;
     "getUsageCreditPurchaseOptions": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "getUsageCreditStatus": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "createUsageCreditCheckoutSession": FunctionReference<'action', 'public', { amountCents: number; returnUrl: string; }, any, string | undefined>;
@@ -74,6 +74,13 @@ export type PublicApiType = {
   "data": {
     "attachments": {
       "createFromDataUrl": FunctionReference<'action', 'public', { conversationId: Id<'conversations'>; deviceId: string; dataUrl: string; }, any, string | undefined>;
+    };
+    "canvas_shares": {
+      "listMine": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    };
+    "canvas_shares_actions": {
+      "publish": FunctionReference<'action', 'public', { title?: string | undefined; html: string; }, any, string | undefined>;
+      "revoke": FunctionReference<'action', 'public', { slug: string; }, any, string | undefined>;
     };
     "desktop_releases": {
       "currentDesktopRelease": FunctionReference<'query', 'public', { platform: string; }, any, string | undefined>;
@@ -210,6 +217,9 @@ export type PublicApiType = {
     "revokePairedMobileDevice": FunctionReference<'mutation', 'public', { desktopDeviceId: string; mobileDeviceId: string; }, any, string | undefined>;
     "watchIncomingConnectIntent": FunctionReference<'query', 'public', { nowMs?: number | undefined; desktopDeviceId: string; }, any, string | undefined>;
     "acknowledgeConnectIntent": FunctionReference<'mutation', 'public', { intentId: Id<'mobile_connect_intents'>; }, any, string | undefined>;
+  };
+  "mobile_bridge": {
+    "registerDesktopBridge": FunctionReference<'mutation', 'public', { platform?: string | undefined; desktopPublicKey?: string | undefined; deviceId: string; baseUrls: string[]; }, any, string | undefined>;
   };
   "mobile_chat": {
     "sendChat": FunctionReference<'action', 'public', { model?: string | undefined; message: string; desktopDeviceId: string; mobileDeviceId: string; pairSecret: string; }, any, string | undefined>;

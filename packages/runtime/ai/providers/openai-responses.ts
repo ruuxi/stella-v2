@@ -16,7 +16,6 @@ import type {
 } from "../types.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
-import { splitDeferredTools } from "../utils/deferred-tools.js";
 import { anomalousStreamStopError } from "../utils/provider-stop.js";
 import { isCloudflareProvider, resolveCloudflareBaseUrl } from "./cloudflare.js";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
@@ -39,18 +38,17 @@ function resolveCacheRetention(cacheRetention?: CacheRetention): CacheRetention 
 	return "short";
 }
 
-function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCompat> {
+function getCompat(
+	model: Model<"openai-responses">,
+): Required<Omit<OpenAIResponsesCompat, "supportsToolSearch">> {
 	return {
 		sendSessionIdHeader: model.compat?.sendSessionIdHeader ?? true,
 		supportsLongCacheRetention: model.compat?.supportsLongCacheRetention ?? true,
-		supportsToolSearch:
-			model.compat?.supportsToolSearch ??
-			(model.provider === "openai" && /^gpt-(?:[6-9]|\d{2,})|^gpt-5\.[4-9]/.test(model.id)),
 	};
 }
 
 function getPromptCacheRetention(
-	compat: Required<OpenAIResponsesCompat>,
+	compat: Required<Omit<OpenAIResponsesCompat, "supportsToolSearch">>,
 	cacheRetention: CacheRetention,
 ): "24h" | undefined {
 	return cacheRetention === "long" && compat.supportsLongCacheRetention ? "24h" : undefined;
@@ -258,10 +256,11 @@ function createClient(
 
 function buildParams(model: Model<"openai-responses">, context: Context, options?: OpenAIResponsesOptions) {
 	const compat = getCompat(model);
-	const toolPlacement = splitDeferredTools(context, compat.supportsToolSearch);
-	const messages = convertResponsesMessages(model, context, OPENAI_TOOL_CALL_PROVIDERS, {
-		deferredTools: toolPlacement.deferred,
-	});
+	const messages = convertResponsesMessages(model, context, OPENAI_TOOL_CALL_PROVIDERS);
+	// Dedupe by name — last definition wins, matching historical behavior.
+	const uniqueTools = [
+		...new Map((context.tools ?? []).map((tool) => [tool.name, tool])).values(),
+	];
 
 	const cacheRetention = resolveCacheRetention(options?.cacheRetention);
 	const params: ResponseCreateParamsStreaming = {
@@ -288,8 +287,8 @@ function buildParams(model: Model<"openai-responses">, context: Context, options
 		params.service_tier = options.serviceTier;
 	}
 
-	if (toolPlacement.immediate.length > 0) {
-		params.tools = convertResponsesTools(toolPlacement.immediate);
+	if (uniqueTools.length > 0) {
+		params.tools = convertResponsesTools(uniqueTools);
 	}
 
 	if (model.reasoning) {

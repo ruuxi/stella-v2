@@ -61,23 +61,6 @@ function hasToolHistory(messages: Message[]): boolean {
 	return false;
 }
 
-const getDeferredToolNames = (messages: Message[]): Set<string> => {
-	const names = new Set<string>();
-	for (const message of messages) {
-		if (message.role !== "toolResult") continue;
-		for (const name of message.addedToolNames ?? []) names.add(name);
-	}
-	return names;
-};
-
-const getToolsByName = (tools: Tool[] | undefined, names: Iterable<string>): Tool[] => {
-	if (!tools) return [];
-	const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
-	return Array.from(names)
-		.map((name) => toolsByName.get(name))
-		.filter((tool): tool is Tool => tool !== undefined);
-};
-
 function isTextContentBlock(block: { type: string }): block is TextContent {
 	return block.type === "text";
 }
@@ -109,17 +92,11 @@ type ResolvedOpenAICompletionsCompat = Omit<
 	"cacheControlFormat" | "deferredToolsMode"
 > & {
 	cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
-	deferredToolsMode?: OpenAICompletionsCompat["deferredToolsMode"];
 };
 
 type ResolvedChatTemplateKwargValue = string | number | boolean | null;
 
 type ChatCompletionInstructionMessageParam = ChatCompletionDeveloperMessageParam | ChatCompletionSystemMessageParam;
-
-type KimiToolSystemMessageParam = {
-	role: "system";
-	tools: OpenAI.Chat.Completions.ChatCompletionTool[];
-};
 
 type ChatCompletionTextPartWithCacheControl = ChatCompletionContentPartText & {
 	cache_control?: OpenAICompatCacheControl;
@@ -578,11 +555,8 @@ export function buildOpenAICompletionsParams(
 		params.temperature = options.temperature;
 	}
 
-	const deferredToolNames =
-		compat.deferredToolsMode === "kimi" ? getDeferredToolNames(context.messages) : new Set<string>();
-	const activeTools = context.tools?.filter((tool) => !deferredToolNames.has(tool.name));
-	if (activeTools && activeTools.length > 0) {
-		params.tools = convertTools(activeTools, compat);
+	if (context.tools && context.tools.length > 0) {
+		params.tools = convertTools(context.tools, compat);
 		if (compat.zaiToolStream) {
 			(params as any).tool_stream = true;
 		}
@@ -814,8 +788,6 @@ export function convertMessages(
 	compat: ResolvedOpenAICompletionsCompat,
 ): ChatCompletionMessageParam[] {
 	const params: ChatCompletionMessageParam[] = [];
-	const deferredToolNames =
-		compat.deferredToolsMode === "kimi" ? getDeferredToolNames(context.messages) : new Set<string>();
 
 	const normalizeToolCallId = (id: string): string => {
 		// Handle pipe-separated IDs from OpenAI Responses API
@@ -991,7 +963,6 @@ export function convertMessages(
 			params.push(assistantMsg);
 		} else if (msg.role === "toolResult") {
 			const imageBlocks: Array<{ type: "image_url"; image_url: { url: string } }> = [];
-			const newlyDeferredToolNames = new Set<string>();
 			let j = i;
 
 			for (; j < transformedMessages.length && transformedMessages[j].role === "toolResult"; j++) {
@@ -1016,12 +987,6 @@ export function convertMessages(
 					(toolResultMsg as any).name = toolMsg.toolName;
 				}
 				params.push(toolResultMsg);
-
-				if (compat.deferredToolsMode === "kimi") {
-					for (const name of toolMsg.addedToolNames ?? []) {
-						newlyDeferredToolNames.add(name);
-					}
-				}
 
 				if (hasImages && model.input.includes("image")) {
 					for (const block of toolMsg.content) {
@@ -1062,18 +1027,6 @@ export function convertMessages(
 				lastRole = "toolResult";
 			}
 
-			if (newlyDeferredToolNames.size > 0) {
-				const deferredTools = getToolsByName(context.tools, newlyDeferredToolNames).filter((tool) =>
-					deferredToolNames.has(tool.name),
-				);
-				if (deferredTools.length > 0) {
-					const toolMessage: KimiToolSystemMessageParam = {
-						role: "system",
-						tools: convertTools(deferredTools, compat),
-					};
-					params.push(toolMessage as unknown as ChatCompletionMessageParam);
-				}
-			}
 			continue;
 		}
 
@@ -1273,7 +1226,6 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 		cacheControlFormat,
 		sendSessionAffinityHeaders: isFireworks,
 		supportsLongCacheRetention: !(isCloudflareWorkersAI || isCloudflareAiGateway),
-		deferredToolsMode: isMoonshot ? "kimi" : undefined,
 	};
 }
 
@@ -1310,6 +1262,5 @@ export function getCompat(model: Model<"openai-completions">): ResolvedOpenAICom
 		cacheControlFormat: model.compat.cacheControlFormat ?? detected.cacheControlFormat,
 		sendSessionAffinityHeaders: model.compat.sendSessionAffinityHeaders ?? detected.sendSessionAffinityHeaders,
 		supportsLongCacheRetention: model.compat.supportsLongCacheRetention ?? detected.supportsLongCacheRetention,
-		deferredToolsMode: model.compat.deferredToolsMode ?? detected.deferredToolsMode,
 	};
 }

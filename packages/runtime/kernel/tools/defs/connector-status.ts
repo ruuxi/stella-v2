@@ -2,10 +2,13 @@
  * `connector_status` — deterministic connector check + inline connect
  * card, for the orchestrator only.
  *
- * Deferred: it never sits in the always-loaded tool list. The
- * connector-availability system reminder tells the orchestrator to
- * surface it via `tool_search` ("connector status") when a user message
- * keyword-matches a non-connected connector.
+ * Demoted: it stays out of the model's direct tool list whenever
+ * node_repl is available, where it is callable as
+ * `tools.connector_status({...})` (advertised in node_repl's demoted-tool
+ * catalog and findable via `tools.$search`). The connector-availability
+ * system reminder points the orchestrator at it when a user message
+ * keyword-matches a non-connected connector. Agents without node_repl get
+ * it as a normal direct tool.
  *
  * Calling it with a connector name/id is pure lookup + card trigger —
  * no LLM inside:
@@ -158,9 +161,10 @@ export const createConnectorStatusTool = (
   workingText: "Checking connector",
   // Orchestrator-only chat affordance, mirroring the map/html tools.
   agentTypes: [AGENT_IDS.ORCHESTRATOR],
-  // Hidden from the initial catalog; the connector-availability reminder
-  // points the orchestrator at tool_search("connector status").
-  deferred: {
+  // Demoted out of the direct tool list when node_repl is available; the
+  // connector-availability reminder points the orchestrator at calling it
+  // (directly or as tools.connector_status inside node_repl).
+  demoted: {
     searchTerms: [
       "connector",
       "connectors",

@@ -15,6 +15,16 @@ export const MAX_NODE_REPL_PENDING_TOOL_CALLS = 64;
  */
 export const DEFAULT_NODE_REPL_TOOL_DRAIN_TIMEOUT_MS = 60_000;
 
+/**
+ * Reserved in-REPL tool name for the host-side catalog search. Always
+ * installed on the worker's `tools` object and intercepted by the kernel
+ * before the allowlist gate; `$`-prefixed names are rejected at tool
+ * registration so no real tool can shadow it. The worker source keeps the
+ * literal `"$search"` inline (it is serialized via `toString()`), so this
+ * constant must never drift from that literal.
+ */
+export const NODE_REPL_TOOL_SEARCH_NAME = "$search";
+
 export type SkyMethod = keyof SkyClient;
 export type BrowserMethod = "command" | "chain";
 
@@ -38,7 +48,18 @@ export type NodeReplWorkerData = {
 };
 
 export type ParentToNodeReplWorkerMessage =
-  | { type: "evaluate"; evaluationId: number; code: string }
+  | {
+      type: "evaluate";
+      evaluationId: number;
+      code: string;
+      /**
+       * Current allowed tool names (exclusions already applied). Sent with
+       * every evaluate so the worker's `tools` object tracks tools that are
+       * added or removed mid-session; omitted → the worker keeps its
+       * current set.
+       */
+      toolNames?: string[];
+    }
   | {
       type: "sky-result";
       callId: number;

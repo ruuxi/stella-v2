@@ -3,7 +3,7 @@ import { anyApi } from "convex/server";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { ToolContext, ToolDefinition, ToolResult } from "../types.js";
 
-const LINQ_DEFERRED = {
+const LINQ_DEMOTED = {
   requiredConnectorProvider: "linq",
   searchTerms: [
     "linq",
@@ -80,7 +80,7 @@ const executeLinqOperation = async (
 
 const linqTool = (
   actionConvex: ConvexAction | undefined,
-  tool: Omit<ToolDefinition, "agentTypes" | "deferred" | "execute"> & {
+  tool: Omit<ToolDefinition, "agentTypes" | "demoted" | "execute"> & {
     operation: string;
   },
 ): ToolDefinition => ({
@@ -90,7 +90,9 @@ const linqTool = (
   description: tool.description,
   parameters: tool.parameters,
   agentTypes: [AGENT_IDS.ORCHESTRATOR],
-  deferred: LINQ_DEFERRED,
+  // Demoted + connector-gated: visible only during Linq connector turns,
+  // and there only through node_repl's catalog / tools.$search.
+  demoted: LINQ_DEMOTED,
   execute: async (args, context) =>
     executeLinqOperation(actionConvex, context, tool.operation, args),
 });

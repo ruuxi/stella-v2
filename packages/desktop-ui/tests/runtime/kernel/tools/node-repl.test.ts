@@ -53,7 +53,7 @@ describe("node_repl tool", () => {
     }
   });
 
-  it("exposes allowed tools as a frozen API and runs independent calls concurrently", async () => {
+  it("exposes allowed tools as an immutable API and runs independent calls concurrently", async () => {
     let activeCalls = 0;
     let maxActiveCalls = 0;
     const registry = new NodeReplKernelRegistry({
@@ -72,7 +72,6 @@ describe("node_repl tool", () => {
         tool.execute(
           {
             code: `({
-              frozen: Object.isFrozen(tools),
               names: Object.keys(tools),
               values: await Promise.all([
                 tools.fake_tool({id: 1}),
@@ -85,22 +84,95 @@ describe("node_repl tool", () => {
       ).resolves.toMatchObject({
         result: expect.stringContaining("values: [ 1, 2 ]"),
       });
+      // `tools` is now a Proxy with a mutable backing map (refreshed each
+      // evaluate), so Object.isFrozen can no longer be true — immutability
+      // from REPL code is enforced by refusing traps instead. Sloppy-mode
+      // assignments fail silently, so probe values rather than throws.
       const output = await registry.evaluate(
-        `({frozen: Object.isFrozen(tools), names: Object.keys(tools)})`,
+        [
+          "tools.injected = () => 'nope';",
+          "delete tools.fake_tool;",
+          "({",
+          "  injected: typeof tools.injected,",
+          "  stillCallable: typeof tools.fake_tool,",
+          "  frozenFn: Object.isFrozen(tools.fake_tool),",
+          "  names: Object.keys(tools),",
+          "})",
+        ].join("\n"),
         context,
       );
-      expect(output).toContain("frozen: true");
+      expect(output).toContain("injected: 'undefined'");
+      expect(output).toContain("stillCallable: 'function'");
+      expect(output).toContain("frozenFn: true");
       expect(output).toContain("fake_tool");
+      expect(output).toContain("$search");
       expect(output).not.toContain("multi_tool_use_parallel");
       expect(output).not.toContain("node_repl");
       expect(maxActiveCalls).toBe(2);
 
+      // Narrowing allowedToolNames removes the entry from the refreshed
+      // tools object itself, so the call fails in the REPL before it can
+      // even reach the kernel's allowlist gate.
       await expect(
         registry.evaluate("await tools.fake_tool({id: 3})", {
           ...context,
           allowedToolNames: ["node_repl"],
         }),
-      ).rejects.toThrow("Invalid or unauthorized tool protocol request");
+      ).rejects.toThrow("tools.fake_tool is not a function");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("reaches demoted tools that are absent from the model's direct list via tools.<name> and tools.$search", async () => {
+    const executed: Array<{ name: string; args: Record<string, unknown> }> =
+      [];
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+      executeTool: async (name, args) => {
+        executed.push({ name, args });
+        return { result: `ran ${name}` };
+      },
+      searchTools: (query, toolContext) => {
+        expect(toolContext.conversationId).toBe("conversation-1");
+        return query.includes("connector")
+          ? [
+              {
+                name: "connector_status",
+                signature:
+                  "tools.connector_status(input: { connector: string }): Promise<unknown>",
+                description: "Check a connector.",
+              },
+            ]
+          : [];
+      },
+    });
+    const tool = createNodeReplTool({ registry });
+    try {
+      // `connector_status` is demoted: never in the model's direct tool
+      // list, but present in allowedToolNames via the REPL-reachable union.
+      const demotedContext = {
+        ...context,
+        allowedToolNames: ["node_repl", "connector_status"],
+      };
+      await expect(
+        tool.execute(
+          {
+            code: [
+              "const matches = await tools.$search({ query: 'connector status' });",
+              "const outcome = await tools[matches[0].name]({ connector: 'gmail' });",
+              "({ matches, outcome })",
+            ].join("\n"),
+            timeout_ms: 5_000,
+          },
+          demotedContext,
+        ),
+      ).resolves.toMatchObject({
+        result: expect.stringContaining("ran connector_status"),
+      });
+      expect(executed).toEqual([
+        { name: "connector_status", args: { connector: "gmail" } },
+      ]);
     } finally {
       await registry.dispose();
     }

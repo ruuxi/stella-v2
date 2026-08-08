@@ -722,9 +722,6 @@ const toPersistedThreadPayload = (
       ...(typeof message.modelOutputTokens === "number"
         ? { modelOutputTokens: message.modelOutputTokens }
         : {}),
-      ...(message.addedToolNames?.length
-        ? { addedToolNames: message.addedToolNames }
-        : {}),
       isError: message.isError,
       timestamp: message.timestamp,
     };

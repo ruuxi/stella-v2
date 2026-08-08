@@ -301,12 +301,6 @@ export interface ToolResultMessage<TDetails = any> {
    * Optional tool-specific model-facing budget. Durable content remains raw.
    */
   modelOutputTokens?: number;
-  /**
-   * Names from `Context.tools` that became available after this result.
-   * Native deferred-tool providers serialize these names at this exact
-   * transcript position; other providers receive the full active tool list.
-   */
-  addedToolNames?: string[];
   isError: boolean;
   timestamp: number; // Unix timestamp in milliseconds
 }
@@ -452,7 +446,8 @@ export interface OpenAICompletionsCompat {
   sendSessionAffinityHeaders?: boolean;
   /** Whether the provider supports long prompt cache retention. Default: true. */
   supportsLongCacheRetention?: boolean;
-  /** Provider-specific deferred tool serialization mode. */
+  // dormant: nothing reads this since tool_search removal; kept only so
+  // generated model catalogs carrying the field still validate.
   deferredToolsMode?: "kimi";
 }
 
@@ -462,7 +457,8 @@ export interface OpenAIResponsesCompat {
   sendSessionIdHeader?: boolean;
   /** Whether the provider supports `prompt_cache_retention: "24h"`. Default: true. */
   supportsLongCacheRetention?: boolean;
-  /** Whether the model supports client-executed tool search load points. */
+  // dormant: nothing reads this since tool_search removal; kept only so
+  // generated model catalogs carrying the field still validate.
   supportsToolSearch?: boolean;
 }
 
@@ -477,7 +473,8 @@ export interface AnthropicMessagesCompat {
   supportsEagerToolInputStreaming?: boolean;
   /** Whether the provider supports Anthropic long cache retention. Default: true. */
   supportsLongCacheRetention?: boolean;
-  /** Whether the provider accepts deferred definitions and tool_reference blocks. */
+  // dormant: nothing reads this since tool_search removal; kept only so
+  // generated model catalogs carrying the field still validate.
   supportsToolReferences?: boolean;
 }
 
